@@ -17,30 +17,32 @@ xpath = { SOI ~ expr ~ EOI }
 
 // Simplified approach - direct keyword matching
 // Main expression structure (avoiding left recursion)
-expr        = { for_expr | quantified_expr | comma_expr }
-comma_expr  = { expr_single ~ ("," ~ expr_single)* }
-expr_single = { if_expr | or_expr }
+expr        = { expr_single ~ (COMMA ~ expr_single)* }
+expr_single = { for_expr | quantified_expr | if_expr | or_expr }
 
 // For expressions - with explicit keyword recognition
 for_expr = {
-    "for" ~ "$" ~ var_name ~ "in" ~ or_expr ~ ("," ~ "$" ~ var_name ~ "in" ~ or_expr)* ~ "return" ~ expr
+  K_FOR ~ "$" ~ var_name ~ K_IN ~ expr_single ~ (COMMA ~ "$" ~ var_name ~ K_IN ~ expr_single)* ~ K_RETURN ~ expr_single
 }
 
 // Quantified expressions
 quantified_expr = {
-    ("some" | "every") ~ "$" ~ var_name ~ "in" ~ or_expr ~ ("," ~ "$" ~ var_name ~ "in" ~ or_expr)* ~ "satisfies" ~ expr
+  (K_SOME | K_EVERY) ~ "$" ~ var_name ~ K_IN ~ expr_single ~ (COMMA ~ "$" ~ var_name ~ K_IN ~ expr_single)* ~ K_SATISFIES ~ expr_single
 }
 
 // Conditional expressions
-if_expr = { "if" ~ "(" ~ expr ~ ")" ~ "then" ~ expr ~ "else" ~ expr }
+if_expr = { K_IF ~ LPAR ~ expr ~ RPAR ~ K_THEN ~ expr_single ~ K_ELSE ~ expr_single }
 
 // Logical expressions (avoiding left recursion) - following XPath 2.0 spec with word boundaries
 or_expr  = { and_expr ~ (or_op ~ and_expr)* }
 and_expr = { comparison_expr ~ (and_op ~ comparison_expr)* }
 
 // Logical operators with proper word boundaries
-or_op = @{ "or" ~ !ncname_char }
-and_op = @{ "and" ~ !ncname_char }
+// Logical operators
+K_OR  = @{ "or"  ~ !ncname_char }
+K_AND = @{ "and" ~ !ncname_char }
+or_op  = ${ K_OR }
+and_op = ${ K_AND }
 
 // Comparison expressions - either standalone or with comparison
 comparison_expr = { 
@@ -50,48 +52,60 @@ comparison_expr = {
 comparison_op = { node_comp | value_comp | general_comp }
 
 // Individual comparison operator types - with word boundaries for keyword operators
-general_comp = { "<=" | ">=" | "!=" | "=" | "<" | ">" }
-value_comp   = @{ 
-    ("eq" ~ !ncname_char) | 
-    ("ne" ~ !ncname_char) | 
-    ("lt" ~ !ncname_char) | 
-    ("le" ~ !ncname_char) | 
-    ("gt" ~ !ncname_char) | 
-    ("ge" ~ !ncname_char) 
-}
-node_comp    = { "<<" | ">>" | ("is" ~ !ncname_char) }
+// Comparison operators
+OP_LTE = @{ "<=" }
+OP_GTE = @{ ">=" }
+OP_NE  = @{ "!=" }
+OP_EQ  = @{ "=" }
+OP_LT  = @{ "<" }
+OP_GT  = @{ ">" }
+general_comp = ${ OP_LTE | OP_GTE | OP_NE | OP_EQ | OP_LT | OP_GT }
+
+K_EQ = @{ "eq" ~ !ncname_char }
+K_NE = @{ "ne" ~ !ncname_char }
+K_LT = @{ "lt" ~ !ncname_char }
+K_LE = @{ "le" ~ !ncname_char }
+K_GT = @{ "gt" ~ !ncname_char }
+K_GE = @{ "ge" ~ !ncname_char }
+value_comp   = ${ K_EQ | K_NE | K_LT | K_LE | K_GT | K_GE }
+
+OP_PRECEDES = @{ "<<" }
+OP_FOLLOWS  = @{ ">>" }
+K_IS        = @{ "is" ~ !ncname_char }
+node_comp    = ${ OP_PRECEDES | OP_FOLLOWS | K_IS }
 
 // Range expressions
-range_expr = { additive_expr ~ ("to" ~ additive_expr)? }
+range_expr = { additive_expr ~ (K_TO ~ additive_expr)? }
 
 // Arithmetic expressions (avoiding left recursion) - keywords need word boundaries
 additive_expr       = { multiplicative_expr ~ ((add_op) ~ multiplicative_expr)* }
 multiplicative_expr = { union_expr ~ ((mult_op) ~ union_expr)* }
 
 // Addition operators - the minus operator follows XPath 2.0 A.2.2 Terminal Delimitation rules
-add_op = @{
-    "+" |
-    "-"
-}
+// Addition operators
+OP_PLUS  = @{ "+" }
+OP_MINUS = @{ "-" }
+add_op = ${ OP_PLUS | OP_MINUS }
 
 // Multiplication operators - with proper word boundaries
-mult_op = @{
-    "*" |
-    ("div" ~ !ncname_char) |
-    ("idiv" ~ !ncname_char) |
-    ("mod" ~ !ncname_char)
-}
+// Multiplication operators
+OP_STAR = @{ "*" }
+K_DIV   = @{ "div"  ~ !ncname_char }
+K_IDIV  = @{ "idiv" ~ !ncname_char }
+K_MOD   = @{ "mod"  ~ !ncname_char }
+mult_op = ${ OP_STAR | K_DIV | K_IDIV | K_MOD }
 
 // Union and intersect/except expressions (avoiding left recursion) - with word boundaries
 union_expr            = { intersect_except_expr ~ ((union_op) ~ intersect_except_expr)* }
 intersect_except_expr = { instanceof_expr ~ ((intersect_except_op) ~ instanceof_expr)* }
 
 // Set operators with word boundaries
-union_op = @{ ("union" ~ !ncname_char) | "|" }
-intersect_except_op = @{ 
-    ("intersect" ~ !ncname_char) | 
-    ("except" ~ !ncname_char) 
-}
+K_UNION     = @{ "union"     ~ !ncname_char }
+K_INTERSECT = @{ "intersect" ~ !ncname_char }
+K_EXCEPT    = @{ "except"    ~ !ncname_char }
+OP_PIPE     = @{ "|" }
+union_op = ${ K_UNION | OP_PIPE }
+intersect_except_op = ${ K_INTERSECT | K_EXCEPT }
 
 // Type expressions (avoiding left recursion) - with word boundaries for keywords
 instanceof_expr = { treat_expr ~ (instanceof_op ~ sequence_type)? }
@@ -100,13 +114,20 @@ castable_expr   = { cast_expr ~ (castable_op ~ single_type)? }
 cast_expr       = { unary_expr ~ (cast_op ~ single_type)? }
 
 // Type operation keywords - simple version that works
-instanceof_op = { "instance" ~ "of" }
-treat_op = { "treat" ~ "as" }
-castable_op = { "castable" ~ "as" }
-cast_op = { "cast" ~ "as" }
+K_INSTANCE = @{ "instance" ~ !ncname_char }
+K_OF       = @{ "of"       ~ !ncname_char }
+K_TREAT    = @{ "treat"    ~ !ncname_char }
+K_AS       = @{ "as"       ~ !ncname_char }
+K_CASTABLE = @{ "castable" ~ !ncname_char }
+K_CAST     = @{ "cast"     ~ !ncname_char }
+
+instanceof_op = { K_INSTANCE ~ K_OF }
+treat_op      = { K_TREAT ~ K_AS }
+castable_op   = { K_CASTABLE ~ K_AS }
+cast_op       = { K_CAST ~ K_AS }
 
 // Unary expressions
-unary_expr = { ("-" | "+")* ~ value_expr }
+unary_expr = { (OP_MINUS | OP_PLUS)* ~ value_expr }
 value_expr = { path_expr }
 // Path expressions - handle absolute paths better
 path_expr = {
@@ -115,116 +136,104 @@ path_expr = {
 }
 
 absolute_path = {
-    ("//" ~ relative_path_expr)
-  | // //book (descendant-or-self)
-  ("/" ~ relative_path_expr?)
-  | // /book, /
-  "//" // // alone
+    (OP_DSLASH ~ relative_path_expr)    // descendant-or-self
+  | (OP_SLASH ~ relative_path_expr?)    // / or /...
 }
 
 relative_path_expr = { step_expr ~ (path_operator ~ step_expr)* }
-path_operator      = { "//" | "/" }
+OP_SLASH  = @{ "/" }
+OP_DSLASH = @{ "//" }
+path_operator      = ${ OP_DSLASH | OP_SLASH }
 
 // Step expressions - prioritize function calls and primary expressions
 step_expr = {
-    axis_step
-  | // child::element, @attr
-  postfix_expr // element[predicate], (expr)[predicate], $var/path
+    // Prefer primary/postfix forms (function calls, parenthesized, variables) before axis/name steps
+    postfix_expr // element[predicate], (expr)[predicate], $var/path, function_call(...)
+  | axis_step
 }
 
 abbrev_forward_step = {
-    ("@" ~ name_test)
-  | // @attribute
-  name_test // element
+    (OP_AT ~ name_test)
+  | node_test // allow kind tests like text(), node(), etc. as abbreviated child steps
 }
 
 postfix_expr = { primary_expr ~ predicate_list }
 axis_step    = { (reverse_step | forward_step) ~ predicate_list }
 
-forward_step = { forward_axis ~ node_test }
+forward_step = { (forward_axis ~ node_test) | abbrev_forward_step }
 forward_axis = {
-    ("child" ~ "::")
-  | ("descendant" ~ "::")
-  | ("attribute" ~ "::")
-  | ("self" ~ "::")
-  | ("descendant-or-self" ~ "::")
-  | ("following-sibling" ~ "::")
-  | ("following" ~ "::")
-  | ("namespace" ~ "::")
+    (K_CHILD ~ OP_COLONCOLON)
+  | (K_DESCENDANT ~ OP_COLONCOLON)
+  | (K_ATTRIBUTE ~ OP_COLONCOLON)
+  | (K_SELF ~ OP_COLONCOLON)
+  | (K_DESCENDANT_OR_SELF ~ OP_COLONCOLON)
+  | (K_FOLLOWING_SIBLING ~ OP_COLONCOLON)
+  | (K_FOLLOWING ~ OP_COLONCOLON)
+  | (K_NAMESPACE ~ OP_COLONCOLON)
 }
 
 reverse_step = { reverse_axis ~ node_test }
 reverse_axis = {
-    ("parent" ~ "::")
-  | ("ancestor" ~ "::")
-  | ("preceding-sibling" ~ "::")
-  | ("preceding" ~ "::")
-  | ("ancestor-or-self" ~ "::")
+    (K_PARENT ~ OP_COLONCOLON)
+  | (K_ANCESTOR ~ OP_COLONCOLON)
+  | (K_PRECEDING_SIBLING ~ OP_COLONCOLON)
+  | (K_PRECEDING ~ OP_COLONCOLON)
+  | (K_ANCESTOR_OR_SELF ~ OP_COLONCOLON)
 }
 
-abbrev_reverse_step = { ".." }
+abbrev_reverse_step = { OP_DOTDOT }
 
-// Allow keywords to be used as element names when standalone
-keyword_as_element = { 
-    ("for" | "in" | "return" | "if" | "then" | "else" | "some" | "every" | "satisfies"
-  | "instance" | "of" | "treat" | "as" | "cast" | "castable" | "to"
-  | "union" | "intersect" | "except" | "and" | "or"
-  | "eq" | "ne" | "lt" | "le" | "gt" | "ge" | "is" 
-  | "div" | "idiv" | "mod") ~ !ncname_char
-}
+// (Keywords are not reserved in XPath; no special handling needed for element names.)
 
 // Node tests - handle all wildcard combinations
 node_test     = { kind_test | name_test }
 name_test     = { wildcard_name | qname }
-wildcard_name = {
+wildcard_name = @{
     ("*" ~ ":" ~ ncname)
-  | // *:local
-  (ncname ~ ":" ~ "*")
-  | // ns:*
-  "*" // *
+  | (ncname ~ ":" ~ "*")
+  | "*"
 }
-wildcard      = { "*" }
 
 // Filter expressions and predicates
 predicate_list = { predicate* }
-predicate      = { "[" ~ expr ~ "]" }
+predicate      = { LBRACK ~ expr ~ RBRACK }
 
 // Primary expressions - prioritize variable references
 primary_expr = {
     var_ref
-  | // $variable - prioritize this
-  function_call
+  | function_call
   | literal
   | parenthesized_expr
   | abbrev_reverse_step
-  | // .. before context_item_expr to avoid conflict
-  context_item_expr
-  | // .
-  abbrev_forward_step
-  | // @attr, element - moved here
-  keyword_as_element // Allow keywords as element names when standalone
+  | context_item_expr
 }
 
 literal            =  { numeric_literal | string_literal }
 var_ref            =  { "$" ~ var_name }
-var_name           =  { ncname }
-parenthesized_expr =  { "(" ~ expr? ~ ")" }
-context_item_expr  =  { "." }
+var_name           =  { qname }
+parenthesized_expr =  { LPAR ~ expr? ~ RPAR }
+context_item_expr  =  { OP_DOT }
 
 // Function calls - simplified for better compatibility
+// Reserved function names cannot be used unprefixed (A.3)
+reserved_function_name = @{ ("attribute"|"comment"|"document-node"|"element"|"empty-sequence"|"if"|"item"|"node"|"processing-instruction"|"schema-attribute"|"schema-element"|"text"|"typeswitch") ~ !ncname_char }
+function_qname = @{
+    (ncname ~ ":" ~ ncname)
+  | (!(reserved_function_name) ~ ncname)
+}
 function_call = {
-    qname ~ "(" ~ (expr_single ~ ("," ~ expr_single)*)? ~ ")"
+    function_qname ~ LPAR ~ (expr_single ~ (COMMA ~ expr_single)*)? ~ RPAR
 }
 
 // Sequence types
-single_type   = { atomic_type ~ "?"? }
+single_type   = { atomic_type ~ QMARK? }
 sequence_type = {
-    ("empty-sequence" ~ "(" ~ ")")
+  (K_EMPTY_SEQUENCE ~ LPAR ~ RPAR)
   | (item_type ~ occurrence_indicator?)
 }
 
-occurrence_indicator = { "?" | "*" | "+" }
-item_type            = { kind_test | ("item" ~ "(" ~ ")") | atomic_type }
+occurrence_indicator = { QMARK | OP_STAR | OP_PLUS }
+item_type            = { kind_test | (K_ITEM ~ LPAR ~ RPAR) | atomic_type }
 atomic_type          = { qname }
 
 // Kind tests
@@ -240,20 +249,20 @@ kind_test = {
   | any_kind_test
 }
 
-any_kind_test = { "node" ~ "(" ~ ")" }
-document_test = { "document-node" ~ "(" ~ (element_test | schema_element_test)? ~ ")" }
-text_test     = { "text" ~ "(" ~ ")" }
-comment_test  = { "comment" ~ "(" ~ ")" }
-pi_test       = { "processing-instruction" ~ "(" ~ (ncname | string_literal)? ~ ")" }
+any_kind_test = { K_NODE ~ LPAR ~ RPAR }
+document_test = { K_DOCUMENT_NODE ~ LPAR ~ (element_test | schema_element_test)? ~ RPAR }
+text_test     = { K_TEXT ~ LPAR ~ RPAR }
+comment_test  = { K_COMMENT ~ LPAR ~ RPAR }
+pi_test       = { K_PROCESSING_INSTRUCTION ~ LPAR ~ (ncname | string_literal)? ~ RPAR }
 
-attribute_test          = { "attribute" ~ "(" ~ (attrib_name_or_wildcard ~ ("," ~ type_name)?)? ~ ")" }
+attribute_test          = { K_ATTRIBUTE ~ LPAR ~ (attrib_name_or_wildcard ~ (COMMA ~ type_name)?)? ~ RPAR }
 attrib_name_or_wildcard = { attribute_name | "*" }
-schema_attribute_test   = { "schema-attribute" ~ "(" ~ attribute_declaration ~ ")" }
+schema_attribute_test   = { K_SCHEMA_ATTRIBUTE ~ LPAR ~ attribute_declaration ~ RPAR }
 attribute_declaration   = { attribute_name }
 
-element_test             = { "element" ~ "(" ~ (element_name_or_wildcard ~ ("," ~ type_name ~ "?"?)?)? ~ ")" }
+element_test             = { K_ELEMENT ~ LPAR ~ (element_name_or_wildcard ~ (COMMA ~ type_name ~ QMARK?)?)? ~ RPAR }
 element_name_or_wildcard = { element_name | "*" }
-schema_element_test      = { "schema-element" ~ "(" ~ element_declaration ~ ")" }
+schema_element_test      = { K_SCHEMA_ELEMENT ~ LPAR ~ element_declaration ~ RPAR }
 element_declaration      = { element_name }
 
 attribute_name = { qname }
@@ -286,11 +295,8 @@ digits = { ASCII_DIGIT+ }
 
 // QNames and NCNames with full Unicode support
 // Based on XML Names specification but allowing full Unicode
-qname = {
-    (ncname ~ ":" ~ ncname)
-  | // Prefixed name
-  ncname // Unprefixed name
-}
+// QNames and NCNames with full Unicode support
+qname = @{ (ncname ~ ":" ~ ncname) | ncname }
 
 // NCName with full Unicode support (no colons allowed) - simpler approach
 ncname = @{ ncname_start_char ~ ncname_char* }
@@ -630,3 +636,52 @@ ncname_char = {
   | // Combining Diacritical Marks
   '\u{203F}'..'\u{2040}' // Undertie, Character tie
 }
+
+// Symbols and punctuation tokens (delimiting terminals)
+COMMA   = @{ "," }
+LPAR    = @{ "(" }
+RPAR    = @{ ")" }
+LBRACK  = @{ "[" }
+RBRACK  = @{ "]" }
+QMARK   = @{ "?" }
+OP_AT   = @{ "@" }
+OP_DOT  = @{ "." }
+OP_DOTDOT = @{ ".." }
+OP_COLONCOLON = @{ "::" }
+
+// Structural keywords used in expressions
+K_FOR        = @{ "for"       ~ !ncname_char }
+K_IN         = @{ "in"        ~ !ncname_char }
+K_RETURN     = @{ "return"    ~ !ncname_char }
+K_SOME       = @{ "some"      ~ !ncname_char }
+K_EVERY      = @{ "every"     ~ !ncname_char }
+K_SATISFIES  = @{ "satisfies" ~ !ncname_char }
+K_IF         = @{ "if"        ~ !ncname_char }
+K_THEN       = @{ "then"      ~ !ncname_char }
+K_ELSE       = @{ "else"      ~ !ncname_char }
+K_TO         = @{ "to"        ~ !ncname_char }
+// Kind test and sequence-type keywords
+K_NODE                   = @{ "node"                   ~ !ncname_char }
+K_TEXT                   = @{ "text"                   ~ !ncname_char }
+K_COMMENT                = @{ "comment"                ~ !ncname_char }
+K_PROCESSING_INSTRUCTION = @{ "processing-instruction" ~ !ncname_char }
+K_ELEMENT                = @{ "element"                ~ !ncname_char }
+K_ATTRIBUTE              = @{ "attribute"              ~ !ncname_char }
+K_SCHEMA_ELEMENT         = @{ "schema-element"         ~ !ncname_char }
+K_SCHEMA_ATTRIBUTE       = @{ "schema-attribute"       ~ !ncname_char }
+K_DOCUMENT_NODE          = @{ "document-node"          ~ !ncname_char }
+K_EMPTY_SEQUENCE         = @{ "empty-sequence"         ~ !ncname_char }
+K_ITEM                   = @{ "item"                   ~ !ncname_char }
+// Axis keywords for Rule-based axis detection
+K_CHILD              = @{ "child"              ~ !ncname_char }
+K_DESCENDANT         = @{ "descendant"         ~ !ncname_char }
+K_SELF               = @{ "self"               ~ !ncname_char }
+K_DESCENDANT_OR_SELF = @{ "descendant-or-self" ~ !ncname_char }
+K_FOLLOWING_SIBLING  = @{ "following-sibling"  ~ !ncname_char }
+K_FOLLOWING          = @{ "following"          ~ !ncname_char }
+K_NAMESPACE          = @{ "namespace"          ~ !ncname_char }
+K_PARENT             = @{ "parent"             ~ !ncname_char }
+K_ANCESTOR           = @{ "ancestor"           ~ !ncname_char }
+K_PRECEDING_SIBLING  = @{ "preceding-sibling"  ~ !ncname_char }
+K_PRECEDING          = @{ "preceding"          ~ !ncname_char }
+K_ANCESTOR_OR_SELF   = @{ "ancestor-or-self"   ~ !ncname_char }

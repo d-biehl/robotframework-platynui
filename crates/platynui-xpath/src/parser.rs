@@ -73,9 +73,9 @@ impl XPath2Parser {
                     let right = inners.next()?;
                     let left_node = Self::parse_expression_node(&left)?;
                     let right_node = Self::parse_expression_node(&right)?;
-                    let op = match op_pair.as_str() {
-                        "+" => BinaryOp::Add,
-                        "-" => BinaryOp::Subtract,
+                    let op = match Self::first_token_rule(&op_pair) {
+                        Rule::OP_PLUS => BinaryOp::Add,
+                        Rule::OP_MINUS => BinaryOp::Subtract,
                         _ => return None,
                     };
                     Some(ExpressionNode::Binary {
@@ -94,10 +94,11 @@ impl XPath2Parser {
                     let right = inners.next()?;
                     let left_node = Self::parse_expression_node(&left)?;
                     let right_node = Self::parse_expression_node(&right)?;
-                    let op = match op_pair.as_str() {
-                        "*" => BinaryOp::Multiply,
-                        "div" => BinaryOp::Divide,
-                        "mod" => BinaryOp::Modulo,
+                    let op = match Self::first_token_rule(&op_pair) {
+                        Rule::OP_STAR => BinaryOp::Multiply,
+                        Rule::K_DIV => BinaryOp::Divide,
+                        Rule::K_MOD => BinaryOp::Modulo,
+                        // Note: K_IDIV not represented in BinaryOp test model
                         _ => return None,
                     };
                     Some(ExpressionNode::Binary {
@@ -112,15 +113,15 @@ impl XPath2Parser {
             Rule::and_expr => {
                 let mut inners = pair.clone().into_inner();
                 let left = inners.next()?;
-                if let Some(_op_pair) = inners.next() {
+                if let Some(op_pair) = inners.next() {
                     let right = inners.next()?;
                     let left_node = Self::parse_expression_node(&left)?;
                     let right_node = Self::parse_expression_node(&right)?;
-                    Some(ExpressionNode::Binary {
-                        left: Box::new(left_node),
-                        op: BinaryOp::And,
-                        right: Box::new(right_node),
-                    })
+                    let op = match Self::first_token_rule(&op_pair) {
+                        Rule::K_AND => BinaryOp::And,
+                        _ => return None,
+                    };
+                    Some(ExpressionNode::Binary { left: Box::new(left_node), op, right: Box::new(right_node) })
                 } else {
                     Self::parse_expression_node(&left)
                 }
@@ -128,15 +129,15 @@ impl XPath2Parser {
             Rule::or_expr => {
                 let mut inners = pair.clone().into_inner();
                 let left = inners.next()?;
-                if let Some(_op_pair) = inners.next() {
+                if let Some(op_pair) = inners.next() {
                     let right = inners.next()?;
                     let left_node = Self::parse_expression_node(&left)?;
                     let right_node = Self::parse_expression_node(&right)?;
-                    Some(ExpressionNode::Binary {
-                        left: Box::new(left_node),
-                        op: BinaryOp::Or,
-                        right: Box::new(right_node),
-                    })
+                    let op = match Self::first_token_rule(&op_pair) {
+                        Rule::K_OR => BinaryOp::Or,
+                        _ => return None,
+                    };
+                    Some(ExpressionNode::Binary { left: Box::new(left_node), op, right: Box::new(right_node) })
                 } else {
                     Self::parse_expression_node(&left)
                 }
@@ -148,13 +149,22 @@ impl XPath2Parser {
                     let right = inners.next()?;
                     let left_node = Self::parse_expression_node(&left)?;
                     let right_node = Self::parse_expression_node(&right)?;
-                    let op = match op_pair.as_str() {
-                        "=" => BinaryOp::Equal,
-                        "!=" => BinaryOp::NotEqual,
-                        "<" => BinaryOp::LessThan,
-                        "<=" => BinaryOp::LessThanOrEqual,
-                        ">" => BinaryOp::GreaterThan,
-                        ">=" => BinaryOp::GreaterThanOrEqual,
+                    let token = Self::first_token_rule(&op_pair);
+                    let op = match token {
+                        // General comparisons
+                        Rule::OP_EQ => BinaryOp::Equal,
+                        Rule::OP_NE => BinaryOp::NotEqual,
+                        Rule::OP_LT => BinaryOp::LessThan,
+                        Rule::OP_LTE => BinaryOp::LessThanOrEqual,
+                        Rule::OP_GT => BinaryOp::GreaterThan,
+                        Rule::OP_GTE => BinaryOp::GreaterThanOrEqual,
+                        // Value comparisons
+                        Rule::K_EQ => BinaryOp::Equal,
+                        Rule::K_NE => BinaryOp::NotEqual,
+                        Rule::K_LT => BinaryOp::LessThan,
+                        Rule::K_LE => BinaryOp::LessThanOrEqual,
+                        Rule::K_GT => BinaryOp::GreaterThan,
+                        Rule::K_GE => BinaryOp::GreaterThanOrEqual,
                         _ => return None,
                     };
                     Some(ExpressionNode::Binary {
@@ -186,6 +196,19 @@ impl XPath2Parser {
                     }
                 }
                 None
+            }
+        }
+    }
+
+    /// Walk down a pair to the first terminal token rule (e.g., OP_PLUS, K_AND)
+    fn first_token_rule(pair: &Pair<Rule>) -> Rule {
+        let mut current = pair.clone();
+        loop {
+            let mut inner = current.clone().into_inner();
+            if let Some(next) = inner.next() {
+                current = next;
+            } else {
+                return current.as_rule();
             }
         }
     }
