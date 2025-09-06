@@ -4,53 +4,12 @@ use pest::iterators::{Pair, Pairs};
 
 #[derive(pest_derive::Parser)]
 #[grammar = "xpath2.pest"]
-pub struct XPath2Parser;
+pub struct XPathParser;
 
-impl XPath2Parser {
+impl XPathParser {
     /// Parse an XPath expression from a string
     pub fn parse_xpath(input: &str) -> Result<Pairs<'_, Rule>, Error<Rule>> {
         Self::parse(Rule::xpath, input)
-    }
-
-    /// Parse and print the parse tree for debugging
-    pub fn parse_and_debug(input: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let pairs = Self::parse_xpath(input)?;
-        for pair in pairs {
-            Self::print_pair(&pair, 0);
-        }
-        Ok(())
-    }
-
-    /// Helper function to print parse tree
-    fn print_pair(pair: &Pair<Rule>, indent: usize) {
-        let indent_str = "  ".repeat(indent);
-        println!(
-            "{}Rule::{:?} => \"{}\"",
-            indent_str,
-            pair.as_rule(),
-            pair.as_str()
-        );
-
-        for inner_pair in pair.clone().into_inner() {
-            Self::print_pair(&inner_pair, indent + 1);
-        }
-    }
-
-    /// Extract the rule hierarchy from a parse tree for testing
-    pub fn extract_rule_path(pairs: Pairs<'_, Rule>) -> Vec<Rule> {
-        let mut rules = Vec::new();
-        for pair in pairs {
-            Self::collect_rules(&pair, &mut rules);
-        }
-        rules
-    }
-
-    /// Recursively collect rules from parse tree
-    fn collect_rules(pair: &Pair<Rule>, rules: &mut Vec<Rule>) {
-        rules.push(pair.as_rule());
-        for inner_pair in pair.clone().into_inner() {
-            Self::collect_rules(&inner_pair, rules);
-        }
     }
 
     /// Extract AST structure for specific rule types (for precedence testing)
@@ -121,7 +80,11 @@ impl XPath2Parser {
                         Rule::K_AND => BinaryOp::And,
                         _ => return None,
                     };
-                    Some(ExpressionNode::Binary { left: Box::new(left_node), op, right: Box::new(right_node) })
+                    Some(ExpressionNode::Binary {
+                        left: Box::new(left_node),
+                        op,
+                        right: Box::new(right_node),
+                    })
                 } else {
                     Self::parse_expression_node(&left)
                 }
@@ -137,7 +100,11 @@ impl XPath2Parser {
                         Rule::K_OR => BinaryOp::Or,
                         _ => return None,
                     };
-                    Some(ExpressionNode::Binary { left: Box::new(left_node), op, right: Box::new(right_node) })
+                    Some(ExpressionNode::Binary {
+                        left: Box::new(left_node),
+                        op,
+                        right: Box::new(right_node),
+                    })
                 } else {
                     Self::parse_expression_node(&left)
                 }

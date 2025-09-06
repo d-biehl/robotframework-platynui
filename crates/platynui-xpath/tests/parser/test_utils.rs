@@ -15,9 +15,9 @@ pub fn is_well_formed_ast(node: &ExpressionNode) -> bool {
 
 /// Helper function to parse and extract AST structure with common validation
 pub fn parse_and_extract_ast(xpath: &str) -> ExpressionNode {
-    let pairs = XPath2Parser::parse_xpath(xpath)
+    let pairs = XPathParser::parse_xpath(xpath)
         .unwrap_or_else(|e| panic!("Expression '{}' should parse successfully: {}", xpath, e));
-    let ast = XPath2Parser::extract_expression_structure(pairs)
+    let ast = XPathParser::extract_expression_structure(pairs)
         .unwrap_or_else(|| panic!("Should extract AST structure for: '{}'", xpath));
     assert!(is_well_formed_ast(&ast), "AST should be well-formed for: '{}'", xpath);
     ast

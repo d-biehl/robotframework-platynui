@@ -39,7 +39,7 @@ use super::*;
     "Complex mathematical expression"
 )]
 fn test_extreme_nesting_performance(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse extreme nesting {}: '{}'. Error: {:?}",
@@ -66,7 +66,7 @@ fn test_extreme_nesting_performance(#[case] xpath: &str, #[case] description: &s
 #[case("//测试[contains(@标题, '重要')]", "Chinese with function")]
 #[case("//item[@name = 'José María Azñar']", "Spanish special characters")]
 fn test_unicode_internationalization(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse unicode {}: '{}'. Error: {:?}",
@@ -124,7 +124,7 @@ fn test_unicode_internationalization(#[case] xpath: &str, #[case] description: &
     "Statistical variance"
 )]
 fn test_complex_mathematical_expressions(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse mathematical {}: '{}'. Error: {:?}",
@@ -190,7 +190,7 @@ fn test_complex_mathematical_expressions(#[case] xpath: &str, #[case] descriptio
     "Hibernate mapping"
 )]
 fn test_enterprise_xml_scenarios(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse enterprise XML {}: '{}'. Error: {:?}",

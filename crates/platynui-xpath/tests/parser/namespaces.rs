@@ -16,7 +16,7 @@ use super::*;
     "Namespace functions"
 )]
 fn test_namespace_expressions(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse {}: '{}'. Error: {:?}",
@@ -37,7 +37,7 @@ fn test_namespace_expressions(#[case] xpath: &str, #[case] description: &str) {
 #[case("//-ns:element", "Invalid namespace prefix")]
 #[case("//ns:.element", "Dot in local name")]
 fn test_invalid_namespace_syntax(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(
         result.is_err(),
         "Expected {} to fail parsing: '{}'",

@@ -10,7 +10,7 @@ use super::*;
 #[case("//article[author[contains(., 'Smith')] or editor[contains(., 'Jones')]]", "Complex element text conditions")]
 #[case("//book[(@price * @discount div 100) < 20 and @published > 2020]", "Mathematical expressions in predicates")]
 fn test_advanced_complex_expressions(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
             description, xpath, result.err());
 }
@@ -23,7 +23,7 @@ fn test_advanced_complex_expressions(#[case] xpath: &str, #[case] description: &
 #[case("//comment()[@type]", "Comment element")]
 #[case("//text[@node]", "Text as element")]
 fn test_complex_expressions(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
             description, xpath, result.err());
 }
@@ -38,7 +38,7 @@ fn test_complex_expressions(#[case] xpath: &str, #[case] description: &str) {
 #[case("//node()[self::* or self::text() or self::comment()]", "Node type testing")]
 #[case("//element[following-sibling::*[1][self::span]]", "Next sibling type check")]
 fn test_complex_edge_cases(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
             description, xpath, result.err());
 }
@@ -55,7 +55,7 @@ fn test_complex_edge_cases(#[case] xpath: &str, #[case] description: &str) {
 #[case("//section[h1 or h2 or h3][p]", "Multiple element alternatives")]
 #[case("//article[date[@year > 2020] and author[position() <= 3]]", "Complex nested conditions")]
 fn test_edge_cases_complex_scenarios(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
             description, xpath, result.err());
 }
@@ -105,7 +105,7 @@ fn test_edge_cases_complex_scenarios(#[case] xpath: &str, #[case] description: &
 #[case("idiv", "idiv keyword as element")]
 #[case("mod", "mod keyword as element")]
 fn test_keywords_as_elements(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
             description, xpath, result.err());
 }
@@ -121,7 +121,7 @@ fn test_keywords_as_elements(#[case] xpath: &str, #[case] description: &str) {
 #[case("/html/body/mod[@type='calculation']", "mod element with namespaced attribute")]
 #[case("config/union[@mode='append']", "union element in configuration")]
 fn test_keywords_as_elements_in_paths(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
             description, xpath, result.err());
 }

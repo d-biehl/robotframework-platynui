@@ -15,7 +15,7 @@ use super::*;
 #[case("true()", "True function")]
 #[case("false()", "False function")]
 fn test_functions(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
             description, xpath, result.err());
 }
@@ -45,7 +45,7 @@ fn test_functions(#[case] xpath: &str, #[case] description: &str) {
 #[case("sum(//item/@quantity)", "Sum function")]
 #[case("avg(//rating/@value)", "Average function")]
 fn test_comprehensive_functions(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
             description, xpath, result.err());
 }
@@ -67,6 +67,6 @@ fn test_comprehensive_functions(#[case] xpath: &str, #[case] description: &str) 
 #[case("123()", "Number as function name")]
 #[case("'string'()", "String as function name")]
 fn test_malformed_function_calls(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPath2Parser::parse_xpath(xpath);
+    let result = XPathParser::parse_xpath(xpath);
     assert!(result.is_err(), "Expected {} to fail parsing: '{}'", description, xpath);
 }
