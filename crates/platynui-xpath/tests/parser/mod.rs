@@ -22,3 +22,4 @@ pub mod performance_and_edge_cases;
 pub mod xpath2_compliance;
 pub mod ast_structure;
 pub mod additional_cases;
+pub mod string_literals;

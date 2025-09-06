@@ -178,7 +178,24 @@ impl XPath2Parser {
             }
             Rule::integer_literal => Some(ExpressionNode::Literal(pair.as_str().to_string())),
             Rule::decimal_literal => Some(ExpressionNode::Literal(pair.as_str().to_string())),
-            Rule::string_literal => Some(ExpressionNode::Literal(pair.as_str().to_string())),
+            Rule::string_literal => {
+                // With silent wrappers, the only child is *_inner; normalize doubled quotes
+                let mut inners = pair.clone().into_inner();
+                if let Some(content) = inners.next() {
+                    let mut s = content.as_str().to_string();
+                    match content.as_rule() {
+                        Rule::dbl_string_inner => {
+                            s = s.replace("\"\"", "\"");
+                        }
+                        Rule::sgl_string_inner => {
+                            s = s.replace("''", "'");
+                        }
+                        _ => {}
+                    }
+                    return Some(ExpressionNode::Literal(s));
+                }
+                Some(ExpressionNode::Literal(pair.as_str().to_string()))
+            }
             Rule::qname => Some(ExpressionNode::Identifier(pair.as_str().to_string())),
             Rule::function_call => {
                 let mut inners = pair.clone().into_inner();
