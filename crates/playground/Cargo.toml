@@ -1,0 +1,14 @@
+[package]
+name = "playground"
+version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+platynui-core = { version = "0.1.0", path = "../platynui-core" }

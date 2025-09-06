@@ -1,0 +1,22 @@
+[workspace]
+members = ["crates/*", "packages/server"]
+default-members = ["packages/server"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+keywords = [
+    "robotframework",
+    "gui",
+    "automation",
+    "testing",
+    "desktop",
+    "platynui",
+]
+categories = ["development-tools", "testing"]
+edition = "2024"
+homepage = "https://github.com/imbus/robotframework-PlatynUI"
+documentation = "https://github.com/imbus/robotframework-PlatynUI"
+repository = "https://github.com/imbus/robotframework-PlatynUI"
+authors = ["Daniel Biehl <daniel.biehl@imbus.de>"]
+license = "Apache-2.0"

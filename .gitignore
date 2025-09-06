@@ -1,0 +1,31 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# VSCode
+.vscode/
+
+# macOS
+.DS_Store
+
+# robot
+results/
+.robot.toml
+
+# rust
+target/
+
+# Added by cargo
+
+/target
+
+# trash
+trash/
+.trash/

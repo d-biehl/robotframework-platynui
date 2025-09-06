@@ -1,0 +1,632 @@
+// XPath 2.0 Pest Grammar
+// Based on the W3C XPath 2.0 Specification
+// https://www.w3.org/TR/xpath20/
+// 
+// Important notes:
+// - Pest is a PEG parser, so left-recursion must be avoided
+// - EBNF grammar has been transformed to right-recursive rules where needed
+// - Unicode support for QName and NCName
+// - Comments are not part of the main grammar but handled separately
+
+WHITESPACE       = _{ " " | "\t" | "\r" | "\n" }
+COMMENT          = _{ "(:" ~ comment_contents ~ ":)" }
+comment_contents =  { (!"(:" ~ !"*)" ~ ANY)* ~ (COMMENT ~ comment_contents)? }
+
+// Entry point
+xpath = { SOI ~ expr ~ EOI }
+
+// Simplified approach - direct keyword matching
+// Main expression structure (avoiding left recursion)
+expr        = { for_expr | quantified_expr | comma_expr }
+comma_expr  = { expr_single ~ ("," ~ expr_single)* }
+expr_single = { if_expr | or_expr }
+
+// For expressions - with explicit keyword recognition
+for_expr = {
+    "for" ~ "$" ~ var_name ~ "in" ~ or_expr ~ ("," ~ "$" ~ var_name ~ "in" ~ or_expr)* ~ "return" ~ expr
+}
+
+// Quantified expressions
+quantified_expr = {
+    ("some" | "every") ~ "$" ~ var_name ~ "in" ~ or_expr ~ ("," ~ "$" ~ var_name ~ "in" ~ or_expr)* ~ "satisfies" ~ expr
+}
+
+// Conditional expressions
+if_expr = { "if" ~ "(" ~ expr ~ ")" ~ "then" ~ expr ~ "else" ~ expr }
+
+// Logical expressions (avoiding left recursion) - following XPath 2.0 spec with word boundaries
+or_expr  = { and_expr ~ (or_op ~ and_expr)* }
+and_expr = { comparison_expr ~ (and_op ~ comparison_expr)* }
+
+// Logical operators with proper word boundaries
+or_op = @{ "or" ~ !ncname_char }
+and_op = @{ "and" ~ !ncname_char }
+
+// Comparison expressions - either standalone or with comparison
+comparison_expr = { 
+    (range_expr ~ comparison_op ~ range_expr)  // comparison
+  | range_expr                                 // standalone
+}
+comparison_op = { node_comp | value_comp | general_comp }
+
+// Individual comparison operator types - with word boundaries for keyword operators
+general_comp = { "<=" | ">=" | "!=" | "=" | "<" | ">" }
+value_comp   = @{ 
+    ("eq" ~ !ncname_char) | 
+    ("ne" ~ !ncname_char) | 
+    ("lt" ~ !ncname_char) | 
+    ("le" ~ !ncname_char) | 
+    ("gt" ~ !ncname_char) | 
+    ("ge" ~ !ncname_char) 
+}
+node_comp    = { "<<" | ">>" | ("is" ~ !ncname_char) }
+
+// Range expressions
+range_expr = { additive_expr ~ ("to" ~ additive_expr)? }
+
+// Arithmetic expressions (avoiding left recursion) - keywords need word boundaries
+additive_expr       = { multiplicative_expr ~ ((add_op) ~ multiplicative_expr)* }
+multiplicative_expr = { union_expr ~ ((mult_op) ~ union_expr)* }
+
+// Addition operators - the minus operator follows XPath 2.0 A.2.2 Terminal Delimitation rules
+add_op = @{
+    "+" |
+    "-"
+}
+
+// Multiplication operators - with proper word boundaries
+mult_op = @{
+    "*" |
+    ("div" ~ !ncname_char) |
+    ("idiv" ~ !ncname_char) |
+    ("mod" ~ !ncname_char)
+}
+
+// Union and intersect/except expressions (avoiding left recursion) - with word boundaries
+union_expr            = { intersect_except_expr ~ ((union_op) ~ intersect_except_expr)* }
+intersect_except_expr = { instanceof_expr ~ ((intersect_except_op) ~ instanceof_expr)* }
+
+// Set operators with word boundaries
+union_op = @{ ("union" ~ !ncname_char) | "|" }
+intersect_except_op = @{ 
+    ("intersect" ~ !ncname_char) | 
+    ("except" ~ !ncname_char) 
+}
+
+// Type expressions (avoiding left recursion) - with word boundaries for keywords
+instanceof_expr = { treat_expr ~ (instanceof_op ~ sequence_type)? }
+treat_expr      = { castable_expr ~ (treat_op ~ sequence_type)? }
+castable_expr   = { cast_expr ~ (castable_op ~ single_type)? }
+cast_expr       = { unary_expr ~ (cast_op ~ single_type)? }
+
+// Type operation keywords - simple version that works
+instanceof_op = { "instance" ~ "of" }
+treat_op = { "treat" ~ "as" }
+castable_op = { "castable" ~ "as" }
+cast_op = { "cast" ~ "as" }
+
+// Unary expressions
+unary_expr = { ("-" | "+")* ~ value_expr }
+value_expr = { path_expr }
+// Path expressions - handle absolute paths better
+path_expr = {
+    absolute_path
+  | relative_path_expr
+}
+
+absolute_path = {
+    ("//" ~ relative_path_expr)
+  | // //book (descendant-or-self)
+  ("/" ~ relative_path_expr?)
+  | // /book, /
+  "//" // // alone
+}
+
+relative_path_expr = { step_expr ~ (path_operator ~ step_expr)* }
+path_operator      = { "//" | "/" }
+
+// Step expressions - prioritize function calls and primary expressions
+step_expr = {
+    axis_step
+  | // child::element, @attr
+  postfix_expr // element[predicate], (expr)[predicate], $var/path
+}
+
+abbrev_forward_step = {
+    ("@" ~ name_test)
+  | // @attribute
+  name_test // element
+}
+
+postfix_expr = { primary_expr ~ predicate_list }
+axis_step    = { (reverse_step | forward_step) ~ predicate_list }
+
+forward_step = { forward_axis ~ node_test }
+forward_axis = {
+    ("child" ~ "::")
+  | ("descendant" ~ "::")
+  | ("attribute" ~ "::")
+  | ("self" ~ "::")
+  | ("descendant-or-self" ~ "::")
+  | ("following-sibling" ~ "::")
+  | ("following" ~ "::")
+  | ("namespace" ~ "::")
+}
+
+reverse_step = { reverse_axis ~ node_test }
+reverse_axis = {
+    ("parent" ~ "::")
+  | ("ancestor" ~ "::")
+  | ("preceding-sibling" ~ "::")
+  | ("preceding" ~ "::")
+  | ("ancestor-or-self" ~ "::")
+}
+
+abbrev_reverse_step = { ".." }
+
+// Allow keywords to be used as element names when standalone
+keyword_as_element = { 
+    ("for" | "in" | "return" | "if" | "then" | "else" | "some" | "every" | "satisfies"
+  | "instance" | "of" | "treat" | "as" | "cast" | "castable" | "to"
+  | "union" | "intersect" | "except" | "and" | "or"
+  | "eq" | "ne" | "lt" | "le" | "gt" | "ge" | "is" 
+  | "div" | "idiv" | "mod") ~ !ncname_char
+}
+
+// Node tests - handle all wildcard combinations
+node_test     = { kind_test | name_test }
+name_test     = { wildcard_name | qname }
+wildcard_name = {
+    ("*" ~ ":" ~ ncname)
+  | // *:local
+  (ncname ~ ":" ~ "*")
+  | // ns:*
+  "*" // *
+}
+wildcard      = { "*" }
+
+// Filter expressions and predicates
+predicate_list = { predicate* }
+predicate      = { "[" ~ expr ~ "]" }
+
+// Primary expressions - prioritize variable references
+primary_expr = {
+    var_ref
+  | // $variable - prioritize this
+  function_call
+  | literal
+  | parenthesized_expr
+  | abbrev_reverse_step
+  | // .. before context_item_expr to avoid conflict
+  context_item_expr
+  | // .
+  abbrev_forward_step
+  | // @attr, element - moved here
+  keyword_as_element // Allow keywords as element names when standalone
+}
+
+literal            =  { numeric_literal | string_literal }
+var_ref            =  { "$" ~ var_name }
+var_name           =  { ncname }
+parenthesized_expr =  { "(" ~ expr? ~ ")" }
+context_item_expr  =  { "." }
+
+// Function calls - simplified for better compatibility
+function_call = {
+    qname ~ "(" ~ (expr_single ~ ("," ~ expr_single)*)? ~ ")"
+}
+
+// Sequence types
+single_type   = { atomic_type ~ "?"? }
+sequence_type = {
+    ("empty-sequence" ~ "(" ~ ")")
+  | (item_type ~ occurrence_indicator?)
+}
+
+occurrence_indicator = { "?" | "*" | "+" }
+item_type            = { kind_test | ("item" ~ "(" ~ ")") | atomic_type }
+atomic_type          = { qname }
+
+// Kind tests
+kind_test = {
+    document_test
+  | element_test
+  | attribute_test
+  | schema_element_test
+  | schema_attribute_test
+  | pi_test
+  | comment_test
+  | text_test
+  | any_kind_test
+}
+
+any_kind_test = { "node" ~ "(" ~ ")" }
+document_test = { "document-node" ~ "(" ~ (element_test | schema_element_test)? ~ ")" }
+text_test     = { "text" ~ "(" ~ ")" }
+comment_test  = { "comment" ~ "(" ~ ")" }
+pi_test       = { "processing-instruction" ~ "(" ~ (ncname | string_literal)? ~ ")" }
+
+attribute_test          = { "attribute" ~ "(" ~ (attrib_name_or_wildcard ~ ("," ~ type_name)?)? ~ ")" }
+attrib_name_or_wildcard = { attribute_name | "*" }
+schema_attribute_test   = { "schema-attribute" ~ "(" ~ attribute_declaration ~ ")" }
+attribute_declaration   = { attribute_name }
+
+element_test             = { "element" ~ "(" ~ (element_name_or_wildcard ~ ("," ~ type_name ~ "?"?)?)? ~ ")" }
+element_name_or_wildcard = { element_name | "*" }
+schema_element_test      = { "schema-element" ~ "(" ~ element_declaration ~ ")" }
+element_declaration      = { element_name }
+
+attribute_name = { qname }
+element_name   = { qname }
+type_name      = { qname }
+
+// Literals - with proper XPath 2.0 A.2.4.1 whitespace compliance
+numeric_literal =  { double_literal | decimal_literal | integer_literal }
+integer_literal = @{ digits ~ !("." | ^"e" | "div" | "mod" | "and" | "or" | ncname_start_char) }
+decimal_literal = @{
+    (digits ~ "." ~ digits ~ !("div" | "mod" | "and" | "or" | ncname_start_char))
+  | // 123.456
+  ("." ~ digits ~ !("div" | "mod" | "and" | "or" | ncname_start_char))
+  | // .456
+  (digits ~ "." ~ !(ASCII_DIGIT | ^"e" | "div" | "mod" | "and" | "or" | ncname_start_char)) // 123. (but not 123.e or 123.div)
+}
+double_literal  = @{
+    ((digits ~ "." ~ digits) | ("." ~ digits) | digits) ~ ^"e" ~ ("+" | "-")? ~ digits
+}
+
+string_literal = {
+    ("\"" ~ (escape_quot | (!"\"" ~ ANY))* ~ "\"")
+  | ("'" ~ (escape_apos | (!"'" ~ ANY))* ~ "'")
+}
+
+escape_quot = { "\"\"" }
+escape_apos = { "''" }
+
+digits = { ASCII_DIGIT+ }
+
+// QNames and NCNames with full Unicode support
+// Based on XML Names specification but allowing full Unicode
+qname = {
+    (ncname ~ ":" ~ ncname)
+  | // Prefixed name
+  ncname // Unprefixed name
+}
+
+// NCName with full Unicode support (no colons allowed) - simpler approach
+ncname = @{ ncname_start_char ~ ncname_char* }
+// NCName start characters (Unicode categories: L, _, but no colons)
+ncname_start_char = {
+    // Unicode Letter categories
+    '\u{0041}'..'\u{005A}'
+  | // A-Z
+  '\u{0061}'..'\u{007A}'
+  | // a-z
+  '\u{00C0}'..'\u{00D6}'
+  | // Latin-1 Supplement letters
+  '\u{00D8}'..'\u{00F6}'
+  | '\u{00F8}'..'\u{00FF}'
+  | '\u{0100}'..'\u{017F}'
+  | // Latin Extended-A
+  '\u{0180}'..'\u{024F}'
+  | // Latin Extended-B
+  '\u{0250}'..'\u{02AF}'
+  | // IPA Extensions
+  '\u{02B0}'..'\u{02FF}'
+  | // Spacing Modifier Letters
+  '\u{0300}'..'\u{036F}'
+  | // Combining Diacritical Marks
+  '\u{0370}'..'\u{03FF}'
+  | // Greek and Coptic
+  '\u{0400}'..'\u{04FF}'
+  | // Cyrillic
+  '\u{0500}'..'\u{052F}'
+  | // Cyrillic Supplement
+  '\u{0530}'..'\u{058F}'
+  | // Armenian
+  '\u{0590}'..'\u{05FF}'
+  | // Hebrew
+  '\u{0600}'..'\u{06FF}'
+  | // Arabic
+  '\u{0700}'..'\u{074F}'
+  | // Syriac
+  '\u{0750}'..'\u{077F}'
+  | // Arabic Supplement
+  '\u{0780}'..'\u{07BF}'
+  | // Thaana
+  '\u{07C0}'..'\u{07FF}'
+  | // NKo
+  '\u{0800}'..'\u{083F}'
+  | // Samaritan
+  '\u{0840}'..'\u{085F}'
+  | // Mandaic
+  '\u{08A0}'..'\u{08FF}'
+  | // Arabic Extended-A
+  '\u{0900}'..'\u{097F}'
+  | // Devanagari
+  '\u{0980}'..'\u{09FF}'
+  | // Bengali
+  '\u{0A00}'..'\u{0A7F}'
+  | // Gurmukhi
+  '\u{0A80}'..'\u{0AFF}'
+  | // Gujarati
+  '\u{0B00}'..'\u{0B7F}'
+  | // Oriya
+  '\u{0B80}'..'\u{0BFF}'
+  | // Tamil
+  '\u{0C00}'..'\u{0C7F}'
+  | // Telugu
+  '\u{0C80}'..'\u{0CFF}'
+  | // Kannada
+  '\u{0D00}'..'\u{0D7F}'
+  | // Malayalam
+  '\u{0D80}'..'\u{0DFF}'
+  | // Sinhala
+  '\u{0E00}'..'\u{0E7F}'
+  | // Thai
+  '\u{0E80}'..'\u{0EFF}'
+  | // Lao
+  '\u{0F00}'..'\u{0FFF}'
+  | // Tibetan
+  '\u{1000}'..'\u{109F}'
+  | // Myanmar
+  '\u{10A0}'..'\u{10FF}'
+  | // Georgian
+  '\u{1100}'..'\u{11FF}'
+  | // Hangul Jamo
+  '\u{1200}'..'\u{137F}'
+  | // Ethiopic
+  '\u{1380}'..'\u{139F}'
+  | // Ethiopic Supplement
+  '\u{13A0}'..'\u{13FF}'
+  | // Cherokee
+  '\u{1400}'..'\u{167F}'
+  | // Unified Canadian Aboriginal Syllabics
+  '\u{1680}'..'\u{169F}'
+  | // Ogham
+  '\u{16A0}'..'\u{16FF}'
+  | // Runic
+  '\u{1700}'..'\u{171F}'
+  | // Tagalog
+  '\u{1720}'..'\u{173F}'
+  | // Hanunoo
+  '\u{1740}'..'\u{175F}'
+  | // Buhid
+  '\u{1760}'..'\u{177F}'
+  | // Tagbanwa
+  '\u{1780}'..'\u{17FF}'
+  | // Khmer
+  '\u{1800}'..'\u{18AF}'
+  | // Mongolian
+  '\u{18B0}'..'\u{18FF}'
+  | // Unified Canadian Aboriginal Syllabics Extended
+  '\u{1900}'..'\u{194F}'
+  | // Limbu
+  '\u{1950}'..'\u{197F}'
+  | // Tai Le
+  '\u{1980}'..'\u{19DF}'
+  | // New Tai Lue
+  '\u{19E0}'..'\u{19FF}'
+  | // Khmer Symbols
+  '\u{1A00}'..'\u{1A1F}'
+  | // Buginese
+  '\u{1A20}'..'\u{1AAF}'
+  | // Tai Tham
+  '\u{1AB0}'..'\u{1AFF}'
+  | // Combining Diacritical Marks Extended
+  '\u{1B00}'..'\u{1B7F}'
+  | // Balinese
+  '\u{1B80}'..'\u{1BBF}'
+  | // Sundanese
+  '\u{1BC0}'..'\u{1BFF}'
+  | // Batak
+  '\u{1C00}'..'\u{1C4F}'
+  | // Lepcha
+  '\u{1C50}'..'\u{1C7F}'
+  | // Ol Chiki
+  '\u{1C80}'..'\u{1C8F}'
+  | // Cyrillic Extended-C
+  '\u{1CC0}'..'\u{1CCF}'
+  | // Sundanese Supplement
+  '\u{1CD0}'..'\u{1CFF}'
+  | // Vedic Extensions
+  '\u{1D00}'..'\u{1D7F}'
+  | // Phonetic Extensions
+  '\u{1D80}'..'\u{1DBF}'
+  | // Phonetic Extensions Supplement
+  '\u{1DC0}'..'\u{1DFF}'
+  | // Combining Diacritical Marks Supplement
+  '\u{1E00}'..'\u{1EFF}'
+  | // Latin Extended Additional
+  '\u{1F00}'..'\u{1FFF}'
+  | // Greek Extended
+  '\u{2000}'..'\u{206F}'
+  | // General Punctuation
+  '\u{2070}'..'\u{209F}'
+  | // Superscripts and Subscripts
+  '\u{20A0}'..'\u{20CF}'
+  | // Currency Symbols
+  '\u{20D0}'..'\u{20FF}'
+  | // Combining Diacritical Marks for Symbols
+  '\u{2100}'..'\u{214F}'
+  | // Letterlike Symbols
+  '\u{2150}'..'\u{218F}'
+  | // Number Forms
+  '\u{2190}'..'\u{21FF}'
+  | // Arrows
+  '\u{2200}'..'\u{22FF}'
+  | // Mathematical Operators
+  '\u{2300}'..'\u{23FF}'
+  | // Miscellaneous Technical
+  '\u{2400}'..'\u{243F}'
+  | // Control Pictures
+  '\u{2440}'..'\u{245F}'
+  | // Optical Character Recognition
+  '\u{2460}'..'\u{24FF}'
+  | // Enclosed Alphanumerics
+  '\u{2500}'..'\u{257F}'
+  | // Box Drawing
+  '\u{2580}'..'\u{259F}'
+  | // Block Elements
+  '\u{25A0}'..'\u{25FF}'
+  | // Geometric Shapes
+  '\u{2600}'..'\u{26FF}'
+  | // Miscellaneous Symbols
+  '\u{2700}'..'\u{27BF}'
+  | // Dingbats
+  '\u{27C0}'..'\u{27EF}'
+  | // Miscellaneous Mathematical Symbols-A
+  '\u{27F0}'..'\u{27FF}'
+  | // Supplemental Arrows-A
+  '\u{2800}'..'\u{28FF}'
+  | // Braille Patterns
+  '\u{2900}'..'\u{297F}'
+  | // Supplemental Arrows-B
+  '\u{2980}'..'\u{29FF}'
+  | // Miscellaneous Mathematical Symbols-B
+  '\u{2A00}'..'\u{2AFF}'
+  | // Supplemental Mathematical Operators
+  '\u{2B00}'..'\u{2BFF}'
+  | // Miscellaneous Symbols and Arrows
+  '\u{2C00}'..'\u{2C5F}'
+  | // Glagolitic
+  '\u{2C60}'..'\u{2C7F}'
+  | // Latin Extended-C
+  '\u{2C80}'..'\u{2CFF}'
+  | // Coptic
+  '\u{2D00}'..'\u{2D2F}'
+  | // Georgian Supplement
+  '\u{2D30}'..'\u{2D7F}'
+  | // Tifinagh
+  '\u{2D80}'..'\u{2DDF}'
+  | // Ethiopic Extended
+  '\u{2DE0}'..'\u{2DFF}'
+  | // Cyrillic Extended-A
+  '\u{2E00}'..'\u{2E7F}'
+  | // Supplemental Punctuation
+  '\u{2E80}'..'\u{2EFF}'
+  | // CJK Radicals Supplement
+  '\u{2F00}'..'\u{2FDF}'
+  | // Kangxi Radicals
+  '\u{2FF0}'..'\u{2FFF}'
+  | // Ideographic Description Characters
+  '\u{3000}'..'\u{303F}'
+  | // CJK Symbols and Punctuation
+  '\u{3040}'..'\u{309F}'
+  | // Hiragana
+  '\u{30A0}'..'\u{30FF}'
+  | // Katakana
+  '\u{3100}'..'\u{312F}'
+  | // Bopomofo
+  '\u{3130}'..'\u{318F}'
+  | // Hangul Compatibility Jamo
+  '\u{3190}'..'\u{319F}'
+  | // Kanbun
+  '\u{31A0}'..'\u{31BF}'
+  | // Bopomofo Extended
+  '\u{31C0}'..'\u{31EF}'
+  | // CJK Strokes
+  '\u{31F0}'..'\u{31FF}'
+  | // Katakana Phonetic Extensions
+  '\u{3200}'..'\u{32FF}'
+  | // Enclosed CJK Letters and Months
+  '\u{3300}'..'\u{33FF}'
+  | // CJK Compatibility
+  '\u{3400}'..'\u{4DBF}'
+  | // CJK Unified Ideographs Extension A
+  '\u{4DC0}'..'\u{4DFF}'
+  | // Yijing Hexagram Symbols
+  '\u{4E00}'..'\u{9FFF}'
+  | // CJK Unified Ideographs
+  '\u{A000}'..'\u{A48F}'
+  | // Yi Syllables
+  '\u{A490}'..'\u{A4CF}'
+  | // Yi Radicals
+  '\u{A4D0}'..'\u{A4FF}'
+  | // Lisu
+  '\u{A500}'..'\u{A63F}'
+  | // Vai
+  '\u{A640}'..'\u{A69F}'
+  | // Cyrillic Extended-B
+  '\u{A6A0}'..'\u{A6FF}'
+  | // Bamum
+  '\u{A700}'..'\u{A71F}'
+  | // Modifier Tone Letters
+  '\u{A720}'..'\u{A7FF}'
+  | // Latin Extended-D
+  '\u{A800}'..'\u{A82F}'
+  | // Syloti Nagri
+  '\u{A830}'..'\u{A83F}'
+  | // Common Indic Number Forms
+  '\u{A840}'..'\u{A87F}'
+  | // Phags-pa
+  '\u{A880}'..'\u{A8DF}'
+  | // Saurashtra
+  '\u{A8E0}'..'\u{A8FF}'
+  | // Devanagari Extended
+  '\u{A900}'..'\u{A92F}'
+  | // Kayah Li
+  '\u{A930}'..'\u{A95F}'
+  | // Rejang
+  '\u{A960}'..'\u{A97F}'
+  | // Hangul Jamo Extended-A
+  '\u{A980}'..'\u{A9DF}'
+  | // Javanese
+  '\u{A9E0}'..'\u{A9FF}'
+  | // Myanmar Extended-B
+  '\u{AA00}'..'\u{AA5F}'
+  | // Cham
+  '\u{AA60}'..'\u{AA7F}'
+  | // Myanmar Extended-A
+  '\u{AA80}'..'\u{AADF}'
+  | // Tai Viet
+  '\u{AAE0}'..'\u{AAFF}'
+  | // Meetei Mayek Extensions
+  '\u{AB00}'..'\u{AB2F}'
+  | // Ethiopic Extended-A
+  '\u{AB30}'..'\u{AB6F}'
+  | // Latin Extended-E
+  '\u{AB70}'..'\u{ABBF}'
+  | // Cherokee Supplement
+  '\u{ABC0}'..'\u{ABFF}'
+  | // Meetei Mayek
+  '\u{AC00}'..'\u{D7AF}'
+  | // Hangul Syllables
+  '\u{D7B0}'..'\u{D7FF}'
+  | // Hangul Jamo Extended-B
+  '\u{F900}'..'\u{FAFF}'
+  | // CJK Compatibility Ideographs
+  '\u{FB00}'..'\u{FB4F}'
+  | // Alphabetic Presentation Forms
+  '\u{FB50}'..'\u{FDFF}'
+  | // Arabic Presentation Forms-A
+  '\u{FE00}'..'\u{FE0F}'
+  | // Variation Selectors
+  '\u{FE10}'..'\u{FE1F}'
+  | // Vertical Forms
+  '\u{FE20}'..'\u{FE2F}'
+  | // Combining Half Marks
+  '\u{FE30}'..'\u{FE4F}'
+  | // CJK Compatibility Forms
+  '\u{FE50}'..'\u{FE6F}'
+  | // Small Form Variants
+  '\u{FE70}'..'\u{FEFF}'
+  | // Arabic Presentation Forms-B
+  '\u{FF00}'..'\u{FFEF}'
+  | // Halfwidth and Fullwidth Forms
+  '\u{FFF0}'..'\u{FFFF}'
+  | // Specials
+  "_" // Underscore
+}
+
+// NCName characters (can continue with digits, combining marks, etc.)
+ncname_char = {
+    ncname_start_char
+  | ASCII_DIGIT
+  | "-"
+  | // Hyphen-minus (U+002D) per XML Names
+  "\u{00B7}"
+  | // Middle dot
+  '\u{0300}'..'\u{036F}'
+  | // Combining Diacritical Marks
+  '\u{203F}'..'\u{2040}' // Undertie, Character tie
+}
