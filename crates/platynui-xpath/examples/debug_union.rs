@@ -36,7 +36,7 @@ fn sample() -> Node { let mut d=Dom{nodes:vec![]}; let root=el(&mut d,None,"root
 
 fn names<T: XdmNode>(items: &Vec<XdmItem<T>>) -> Vec<String> {
     let mut v = vec![];
-    for it in items { if let XdmItem::Node(n) = it { if let Some(q) = n.name() { v.push(q.local); } } }
+    for it in items { if let XdmItem::Node(n) = it && let Some(q) = n.name() { v.push(q.local); } }
     v
 }
 

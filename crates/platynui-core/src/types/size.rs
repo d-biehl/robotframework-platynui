@@ -100,7 +100,7 @@ mod tests {
     let s1 = Size::new(1.0, 2.0);
     let s2 = Size::new(1.0, 2.0);
     assert_eq!(s1, s2);
-    assert_eq!(s1 == s2, true);
+    assert!(s1 == s2);
     }
 
     #[test]

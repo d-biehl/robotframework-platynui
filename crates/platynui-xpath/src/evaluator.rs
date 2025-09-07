@@ -514,9 +514,7 @@ fn compare_atomic(a: &XdmAtomicValue, b: &XdmAtomicValue, op: ComparisonOp, coll
             if let Some(c) = coll {
                 let eq = c.compare(&sa, &sb) == core::cmp::Ordering::Equal;
                 if matches!(op, Eq) { Ok(eq) } else { Ok(!eq) }
-            } else {
-                if matches!(op, Eq) { Ok(sa == sb) } else { Ok(sa != sb) }
-            }
+            } else if matches!(op, Eq) { Ok(sa == sb) } else { Ok(sa != sb) }
         }
         Lt | Le | Gt | Ge => {
             // Prefer numeric if both are numeric-like; otherwise string ordering

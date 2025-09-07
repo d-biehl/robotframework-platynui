@@ -169,7 +169,7 @@ mod tests {
     let r1 = Rect::new(1.0, 2.0, 3.0, 4.0);
     let r2 = Rect::new(1.0, 2.0, 3.0, 4.0);
         assert_eq!(r1, r2);
-        assert_eq!(r1 == r2, true);
+        assert!(r1 == r2);
     }
 
     #[test]

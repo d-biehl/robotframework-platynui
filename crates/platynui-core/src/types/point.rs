@@ -76,7 +76,7 @@ mod tests {
 
     let p2 = Point::new(1.0, 2.0);
     assert_eq!(p1, p2);
-    assert_eq!(p1 == p2, true);
+    assert!(p1 == p2);
     }
 
     #[test]
