@@ -2,7 +2,6 @@
 //! Tests are organized by functionality for better maintainability
 
 use rstest::rstest;
-use platynui_xpath::parser::*;
 
 // Re-export common test utilities
 pub use self::test_utils::*;

@@ -12,7 +12,7 @@ use super::*;
 #[case("text()", "Text node")]
 #[case("$var", "Variable")]
 fn test_basic_syntax_elements(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse {}: '{}'. Error: {:?}",
@@ -28,7 +28,7 @@ fn test_basic_syntax_elements(#[case] xpath: &str, #[case] description: &str) {
 #[case("'hello'", "String literal with single quotes")]
 #[case("\"world\"", "String literal with double quotes")]
 fn test_literals(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse {}: '{}'. Error: {:?}",
@@ -43,7 +43,7 @@ fn test_literals(#[case] xpath: &str, #[case] description: &str) {
 #[case("$node1 << $node2", "Node before")]
 #[case("$node1 >> $node2", "Node after")]
 fn test_node_comparison(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse {}: '{}'. Error: {:?}",

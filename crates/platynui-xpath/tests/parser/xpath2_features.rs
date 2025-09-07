@@ -19,7 +19,7 @@ use super::*;
 #[case("@value castable as xs:date", "Castable as date")]
 #[case("@value cast as xs:boolean", "Cast as boolean")]
 fn test_xpath2_features(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse {}: '{}'. Error: {:?}",
@@ -35,7 +35,7 @@ fn test_xpath2_features(#[case] xpath: &str, #[case] description: &str) {
 #[case("$a intersect $b", "Intersect operator")]
 #[case("$a except $b", "Except operator")]
 fn test_sequences_and_sets(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse {}: '{}'. Error: {:?}",
@@ -70,7 +70,7 @@ fn test_sequences_and_sets(#[case] xpath: &str, #[case] description: &str) {
     "Date comparison"
 )]
 fn test_xpath2_advanced_features(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse {}: '{}'. Error: {:?}",
@@ -114,7 +114,7 @@ fn test_xpath2_advanced_features(#[case] xpath: &str, #[case] description: &str)
     "Path expression should have higher precedence than addition"
 )]
 fn test_xpath2_precedence_order_compliance(#[case] expression: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(expression);
+    let result = parse_xpath(expression);
     assert!(result.is_ok(), "{}: {}", description, result.unwrap_err());
 }
 
@@ -146,6 +146,6 @@ fn test_xpath2_precedence_order_compliance(#[case] expression: &str, #[case] des
 )]
 #[case("not($flag) and $value > 10", "Function call with logical operations")]
 fn test_xpath2_complex_precedence_scenarios(#[case] expression: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(expression);
+    let result = parse_xpath(expression);
     assert!(result.is_ok(), "{}: {}", description, result.unwrap_err());
 }

@@ -15,7 +15,7 @@ use super::*;
 #[case("@id = 'value'", "Equality")]
 #[case("@id != 'value'", "Inequality")]
 fn test_operators(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse {}: '{}'. Error: {:?}",
@@ -33,7 +33,7 @@ fn test_operators(#[case] xpath: &str, #[case] description: &str) {
 #[case("$a gt $b", "Value greater than")]
 #[case("$a ge $b", "Value greater than or equal")]
 fn test_value_comparison_operators(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse {}: '{}'. Error: {:?}",
@@ -56,7 +56,7 @@ fn test_number_with_space_before_operators_should_pass(
     #[case] xpath: &str,
     #[case] description: &str,
 ) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     // With proper spacing, these should be valid XPath expressions
     assert!(
         result.is_ok(),
@@ -75,7 +75,7 @@ fn test_number_with_space_before_operators_should_pass(
 #[case("5 ne 3", "Number with space before ne (valid)")]
 #[case("2 lt 8", "Number with space before lt (valid)")]
 fn test_number_with_proper_operator_spacing(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     // With proper spacing, these should be valid
     assert!(
         result.is_ok(),
@@ -95,7 +95,7 @@ fn test_number_with_proper_operator_spacing(#[case] xpath: &str, #[case] descrip
 #[case("true() and and false()", "Double and operator")]
 #[case("1 == 2", "Double equals")]
 fn test_invalid_operator_sequences(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_err(),
         "Expected {} to fail parsing: '{}'",
@@ -116,7 +116,7 @@ fn test_number_concatenated_with_operators_should_fail(
     #[case] xpath: &str,
     #[case] description: &str,
 ) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     // According to XPath 2.0 spec, these MUST fail - no space between number and operator
     assert!(
         result.is_err(),
@@ -160,7 +160,7 @@ fn test_number_concatenated_with_operators_should_fail(
     "Position with logical"
 )]
 fn test_operator_precedence_stress(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse operator precedence {}: '{}'. Error: {:?}",

@@ -7,7 +7,7 @@ use super::*;
 #[case("book[", "Incomplete predicate")]
 #[case("@", "Incomplete attribute")]
 fn test_invalid_expressions(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(result.is_err(), "Expected {} to fail parsing: '{}'", description, xpath);
 }
 
@@ -23,7 +23,7 @@ fn test_invalid_expressions(#[case] xpath: &str, #[case] description: &str) {
 #[case("(//book", "Unclosed parenthesis")]
 #[case("//book)", "Unmatched closing parenthesis")]
 fn test_additional_invalid_expressions(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(result.is_err(), "Expected {} to fail parsing: '{}'", description, xpath);
 }
 
@@ -47,7 +47,7 @@ fn test_additional_invalid_expressions(#[case] xpath: &str, #[case] description:
 #[case("$$variable", "Double dollar sign")]
 #[case("", "Empty expression")]
 fn test_genuinely_invalid_expressions(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(result.is_err(), "Expected {} to fail parsing: '{}'", description, xpath);
 }
 
@@ -63,7 +63,7 @@ fn test_genuinely_invalid_expressions(#[case] xpath: &str, #[case] description: 
 #[case("'''", "Triple single quotes")]
 #[case("\"\"\"", "Triple double quotes")]
 fn test_malformed_string_literals(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(result.is_err(), "Expected {} to fail parsing: '{}'", description, xpath);
 }
 
@@ -79,7 +79,7 @@ fn test_malformed_string_literals(#[case] xpath: &str, #[case] description: &str
 #[case("::child", "Reversed axis syntax")]
 #[case("child::element::", "Double axis in path")]
 fn test_invalid_axis_syntax(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(result.is_err(), "Expected {} to fail parsing: '{}'", description, xpath);
 }
 
@@ -92,7 +92,7 @@ fn test_invalid_axis_syntax(#[case] xpath: &str, #[case] description: &str) {
 #[case("$var$", "Variable with trailing dollar")]
 #[case("$var iable", "Space in variable name")]
 fn test_invalid_variable_syntax(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(result.is_err(), "Expected {} to fail parsing: '{}'", description, xpath);
 }
 
@@ -108,7 +108,7 @@ fn test_invalid_variable_syntax(#[case] xpath: &str, #[case] description: &str) 
 #[case("(5 + 3))", "Extra closing parenthesis")]
 #[case("()5", "Empty parentheses before number")]
 fn test_malformed_parentheses(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(result.is_err(), "Expected {} to fail parsing: '{}'", description, xpath);
 }
 
@@ -123,7 +123,7 @@ fn test_malformed_parentheses(#[case] xpath: &str, #[case] description: &str) {
 #[case("1ee5", "Double exponent")]
 #[case("1e5.5", "Decimal in exponent")]
 fn test_malformed_numeric_literals(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(result.is_err(), "Expected {} to fail parsing: '{}'", description, xpath);
 }
 
@@ -150,7 +150,6 @@ fn test_malformed_numeric_literals(#[case] xpath: &str, #[case] description: &st
 #[case("5 < > 3", "Conflicting comparison operators")]
 #[case("5 > < 3", "Conflicting comparison operators reversed")]
 fn test_syntax_error_cases(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(result.is_err(), "Expected {} to fail parsing: '{}'", description, xpath);
 }
-

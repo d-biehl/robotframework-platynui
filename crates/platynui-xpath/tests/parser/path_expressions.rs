@@ -12,7 +12,7 @@ use super::*;
 #[case("descendant::", "Descendant axis without node test")]
 #[case("following-sibling::", "Following-sibling axis without node test")]
 fn test_path_expressions_validation(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     // Only certain expressions should fail
     if xpath == "//" || xpath == "@" || xpath.ends_with("::") {
         assert!(
@@ -49,7 +49,7 @@ fn test_path_expressions_validation(#[case] xpath: &str, #[case] description: &s
 #[case("descendant::title", "Descendant axis")]
 #[case("parent::*", "Parent axis with wildcard")]
 fn test_path_expressions(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse {}: '{}'. Error: {:?}",
@@ -74,7 +74,7 @@ fn test_path_expressions(#[case] xpath: &str, #[case] description: &str) {
 #[case("self::node()", "Self axis")]
 #[case("namespace::prefix", "Namespace axis")]
 fn test_all_xpath_axes(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse {}: '{}'. Error: {:?}",

@@ -18,7 +18,7 @@ use super::*;
 #[case("book[@price < 20]", "Comparison in predicate")]
 #[case("//book[@id and @title]", "Logical operators in predicate")]
 fn test_predicates(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse {}: '{}'. Error: {:?}",
@@ -40,7 +40,7 @@ fn test_predicates(#[case] xpath: &str, #[case] description: &str) {
 #[case("//div[='test']", "Missing left operand")]
 #[case("//div[@class=]", "Missing right operand")]
 fn test_malformed_predicates(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_err(),
         "Expected {} to fail parsing: '{}'",

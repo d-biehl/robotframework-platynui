@@ -44,7 +44,7 @@ use super::*;
     "Number and or operator concatenated with number (violates A.2.4.1)"
 )]
 fn test_xpath2_whitespace_violations_should_fail(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     // According to XPath 2.0 A.2.4.1: "10div 3", "10 div3", and "10div3" all result in syntax errors
     assert!(
         result.is_err(),
@@ -66,7 +66,7 @@ fn test_xpath2_whitespace_violations_should_fail(#[case] xpath: &str, #[case] de
 #[case("abn - 2", "Subtraction with proper whitespace")]
 #[case("foo - bar", "Subtraction between identifiers with proper whitespace")]
 fn test_xpath2_proper_whitespace_should_pass(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     // With proper whitespace according to XPath 2.0 A.2.4.1, these should parse successfully
     assert!(
         result.is_ok(),
@@ -96,7 +96,7 @@ fn test_xpath2_qname_minus_tokenization_violations_should_fail(
     #[case] expression: &str,
     #[case] description: &str,
 ) {
-    let result = XPathParser::parse_xpath(expression);
+    let result = parse_xpath(expression);
     assert!(result.is_err(), "{}", description);
 }
 
@@ -114,6 +114,6 @@ fn test_xpath2_correct_minus_tokenization_should_pass(
     #[case] expression: &str,
     #[case] description: &str,
 ) {
-    let result = XPathParser::parse_xpath(expression);
+    let result = parse_xpath(expression);
     assert!(result.is_ok(), "{}: {}", description, result.unwrap_err());
 }

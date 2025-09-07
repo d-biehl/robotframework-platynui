@@ -20,7 +20,7 @@ use super::*;
 #[case("//svg[@viewBox]", "SVG with viewBox")]
 fn test_modern_web_elements(#[case] xpath: &str, #[case] description: &str) {
 
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
             description, xpath, result.err());
 }
@@ -41,7 +41,7 @@ fn test_modern_web_elements(#[case] xpath: &str, #[case] description: &str) {
 #[case("//header[@role='banner']", "Header with banner role")]
 #[case("//footer[@role='contentinfo']", "Footer with contentinfo role")]
 fn test_semantic_html_structures(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
             description, xpath, result.err());
 }
@@ -60,7 +60,7 @@ fn test_semantic_html_structures(#[case] xpath: &str, #[case] description: &str)
 #[case("//progressbar[@aria-valuenow]", "Progress bar with current value")]
 #[case("//slider[@aria-valuemin and @aria-valuemax]", "Slider with min/max")]
 fn test_accessibility_attributes(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
             description, xpath, result.err());
 }
@@ -79,7 +79,7 @@ fn test_accessibility_attributes(#[case] xpath: &str, #[case] description: &str)
 #[case("//img[@alt='']", "Image with empty alt")]
 #[case("//a[@href='#']", "Placeholder link")]
 fn test_element_states(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
             description, xpath, result.err());
 }
@@ -101,7 +101,7 @@ fn test_element_states(#[case] xpath: &str, #[case] description: &str) {
 #[case("//input[@type='tel']", "Telephone input")]
 #[case("//input[@type='url']", "URL input")]
 fn test_form_input_types(#[case] xpath: &str, #[case] description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
             description, xpath, result.err());
 }

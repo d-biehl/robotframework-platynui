@@ -2,7 +2,7 @@ use super::*;
 
 // Helper function for successful parsing assertions
 fn assert_parsing_succeeds(xpath: &str, description: &str) {
-    let result = XPathParser::parse_xpath(xpath);
+    let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
         "Failed to parse '{}' ({}): {:?}",
