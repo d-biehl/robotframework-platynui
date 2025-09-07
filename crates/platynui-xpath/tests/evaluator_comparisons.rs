@@ -1,8 +1,8 @@
-use rstest::rstest;
+use rstest::{rstest, fixture};
 use platynui_xpath::compile_xpath;
 use platynui_xpath::model::{XdmNode, NodeKind, QName};
 use platynui_xpath::runtime::StaticContext;
-use platynui_xpath::xdm::XdmItem;
+use platynui_xpath::xdm::{XdmItem, XdmAtomicValue};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -32,32 +32,47 @@ fn at(dom: &mut Dom, p: usize, local: &str, v: &str) -> usize { let i=dom.nodes.
 
 fn sample() -> Node { let mut d=Dom{nodes:vec![]}; let root=el(&mut d,None,"root"); let a1=el(&mut d,Some(root),"a"); at(&mut d,a1,"id","x"); at(&mut d,a1,"n","2"); let a2=el(&mut d,Some(root),"a"); at(&mut d,a2,"id","y"); at(&mut d,a2,"n","x"); Node{dom:Arc::new(d), idx:root} }
 
+#[fixture]
+fn root() -> Node { sample() }
+#[fixture]
+fn sc() -> StaticContext { StaticContext::default() }
+
 fn names<T: XdmNode>(items: &Vec<XdmItem<T>>) -> Vec<String> { let mut v=vec![]; for it in items { if let XdmItem::Node(n)=it { if let Some(q)=n.name(){v.push(q.local);} } } v }
 
 #[rstest]
-fn test_value_comparison_untyped_atomic_numeric() {
-    let root = sample();
+fn test_value_comparison_untyped_atomic_numeric(root: Node, sc: StaticContext) {
     // Only first a has @n = '2' (untypedAtomic) which should compare equal to number 2
-    let exec = compile_xpath("a[@n = 2]", &StaticContext::default()).unwrap();
+    let exec = compile_xpath("a[@n = 2]", &sc).unwrap();
     let out: Vec<XdmItem<Node>> = exec.evaluate_on(Some(root)).unwrap();
     assert_eq!(names(&out), vec!["a"]);
 }
 
 #[rstest]
-fn test_value_comparison_string_eq() {
-    let root = sample();
-    let exec = compile_xpath("a[@id = 'x']", &StaticContext::default()).unwrap();
+fn test_value_comparison_string_eq(root: Node, sc: StaticContext) {
+    let exec = compile_xpath("a[@id = 'x']", &sc).unwrap();
     let out: Vec<XdmItem<Node>> = exec.evaluate_on(Some(root)).unwrap();
     assert_eq!(names(&out), vec!["a"]);
 }
 
 #[rstest]
-fn test_value_comparison_string_ordering() {
-    let root = sample();
+fn test_value_comparison_string_ordering(root: Node, sc: StaticContext) {
     // Both 'x' and 'y' are < 'z'
-    let exec = compile_xpath("a[@id < 'z']", &StaticContext::default()).unwrap();
+    let exec = compile_xpath("a[@id < 'z']", &sc).unwrap();
     let out: Vec<XdmItem<Node>> = exec.evaluate_on(Some(root)).unwrap();
     assert_eq!(names(&out), vec!["a","a"]);
+}
+
+#[rstest]
+fn test_general_comparison_with_sequence(root: Node, sc: StaticContext) {
+    let exec = compile_xpath("1 = (@n, 1, 2)", &sc).unwrap();
+    let out: Vec<XdmItem<Node>> = exec.evaluate_on(Some(root.clone())).unwrap();
+    // result is boolean true
+    assert_eq!(out.len(), 1);
+    match &out[0] { XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => assert!(*b), _ => panic!("expected boolean") }
+
+    let exec = compile_xpath("3 = (@n, 1, 2)", &sc).unwrap();
+    let out: Vec<XdmItem<Node>> = exec.evaluate_on(Some(root)).unwrap();
+    match &out[0] { XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => assert!(!*b), _ => panic!("expected boolean") }
 }
 
 // NOTE: Keyword value ops (eq/ne/lt/le/gt/ge) are supported by the evaluator semantics.

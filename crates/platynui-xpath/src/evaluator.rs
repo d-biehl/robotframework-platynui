@@ -1,4 +1,5 @@
-use crate::compiler::{compile_xpath as compile_to_ir, AxisIR, CompiledIR, NodeTestIR, OpCode};
+use crate::compiler::{compile_xpath as compile_to_ir, AxisIR, CompiledIR, NodeTestIR, OpCode, SingleTypeIR, SeqTypeIR, ItemTypeIR, OccurrenceIR};
+use crate::xdm::ExpandedName;
 use crate::runtime::{Collation, DynamicContext, DynamicContextBuilder as Builder, Error, StaticContext};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
 
@@ -56,6 +57,13 @@ impl XPathExecutable {
                         stack.push(vec![ci.clone()]);
                     } else {
                         return Err(Error::dynamic_err("err:XPDY0002", "no context item defined"));
+                    }
+                }
+                OpCode::LoadVarByName(name) => {
+                    if let Some(val) = dyn_ctx.variables.get(name) {
+                        stack.push(val.clone());
+                    } else {
+                        return Err(Error::dynamic_err("err:XPST0008", format!("unknown variable {}", name.local)));
                     }
                 }
                 OpCode::ToRoot => {
@@ -194,6 +202,25 @@ impl XPathExecutable {
                     let b = ln.compare_document_order(&rn) == core::cmp::Ordering::Greater;
                     stack.push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                 }
+                OpCode::Castable(t) => {
+                    let s = stack.pop().ok_or_else(|| Error::dynamic_err("err:FOER0000", "stack underflow"))?;
+                    let b = is_castable::<N>(&s, t)?;
+                    stack.push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
+                }
+                OpCode::Cast(t) => {
+                    let s = stack.pop().ok_or_else(|| Error::dynamic_err("err:FOER0000", "stack underflow"))?;
+                    let out = do_cast::<N>(&s, t)?;
+                    stack.push(out);
+                }
+                OpCode::InstanceOf(t) => {
+                    let s = stack.pop().ok_or_else(|| Error::dynamic_err("err:FOER0000", "stack underflow"))?;
+                    let b = instance_of::<N>(&s, t);
+                    stack.push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
+                }
+                OpCode::Treat(t) => {
+                    let s = stack.pop().ok_or_else(|| Error::dynamic_err("err:FOER0000", "stack underflow"))?;
+                    if instance_of::<N>(&s, t) { stack.push(s); } else { return Err(Error::dynamic_err("err:XPTY0004", "treat as type mismatch")); }
+                }
                 other => return Err(Error::not_implemented(&format!("opcode {:?}", other))),
             }
             ip += 1;
@@ -201,7 +228,7 @@ impl XPathExecutable {
         Ok(stack.pop().unwrap_or_default())
     }
 
-    pub fn evaluate_on<N: crate::model::XdmNode>(&self, context_item: impl Into<Option<N>>) -> Result<XdmSequence<N>, Error> {
+    pub fn evaluate_on<N: crate::model::XdmNode + 'static>(&self, context_item: impl Into<Option<N>>) -> Result<XdmSequence<N>, Error> {
         let mut builder: Builder<N> = Builder::new();
         if let Some(ci) = context_item.into() {
             builder = builder.with_context_item(crate::xdm::XdmItem::Node(ci));
@@ -209,7 +236,7 @@ impl XPathExecutable {
         self.evaluate(&builder.build())
     }
 
-    pub fn evaluate_with_vars<N: crate::model::XdmNode>(
+    pub fn evaluate_with_vars<N: crate::model::XdmNode + 'static>(
         &self,
         context_item: impl Into<Option<N>>,
         vars: impl IntoIterator<Item = (crate::xdm::ExpandedName, XdmSequence<N>)>,
@@ -334,6 +361,7 @@ fn as_number(a: &XdmAtomicValue) -> Result<f64, Error> {
         XdmAtomicValue::Float(f) => Ok(*f as f64),
         XdmAtomicValue::Decimal(d) => Ok(*d),
         XdmAtomicValue::UntypedAtomic(s) => s.parse::<f64>().map_err(|_| Error::dynamic_err("err:FORG0001", "cannot cast untypedAtomic to number")),
+        XdmAtomicValue::String(s) => s.parse::<f64>().map_err(|_| Error::dynamic_err("err:FORG0001", "cannot cast string to number")),
         _ => Err(Error::dynamic_err("err:XPTY0004", "not a numeric value")),
     }
 }
@@ -369,6 +397,103 @@ fn as_string(a: &XdmAtomicValue) -> String {
         XdmAtomicValue::Decimal(d) => d.to_string(),
         XdmAtomicValue::QName{ns_uri: _, prefix, local} => {
             if let Some(p) = prefix { format!("{}:{}", p, local) } else { local.clone() }
+        }
+    }
+}
+
+fn parse_boolean(s: &str) -> Option<bool> {
+    match s {
+        "true" | "1" => Some(true),
+        "false" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+fn target_type_local(t: &ExpandedName) -> &str { t.local.split(':').last().unwrap_or(&t.local) }
+
+fn is_castable<N: crate::model::XdmNode>(s: &XdmSequence<N>, t: &SingleTypeIR) -> Result<bool, Error> {
+    if s.is_empty() { return Ok(t.optional); }
+    if s.len() != 1 { return Ok(false); }
+    let a = atomize_sequence(s)?;
+    if a.len() != 1 { return Ok(false); }
+    let v = &a[0];
+    let tgt = target_type_local(&t.atomic);
+    let ok = match tgt {
+        "string" => true,
+        "boolean" => match v { XdmAtomicValue::Boolean(_) => true, XdmAtomicValue::String(s) => parse_boolean(s).is_some(), _ => true },
+        "integer" => match v { XdmAtomicValue::Integer(_) => true, XdmAtomicValue::String(s) => s.parse::<f64>().is_ok(), _ => is_numeric(v) || may_be_numeric(v) },
+        "double" | "float" | "decimal" => match v { XdmAtomicValue::String(s) => s.parse::<f64>().is_ok(), _ => is_numeric(v) || may_be_numeric(v) },
+        "anyURI" => true,
+        _ => false,
+    };
+    Ok(ok)
+}
+
+fn do_cast<N: crate::model::XdmNode>(s: &XdmSequence<N>, t: &SingleTypeIR) -> Result<XdmSequence<N>, Error> {
+    if s.is_empty() { return if t.optional { Ok(vec![]) } else { Err(Error::dynamic_err("err:FORG0006", "cast requires one item")) } }
+    if s.len() != 1 { return Err(Error::dynamic_err("err:FORG0006", "cast requires one item")); }
+    let a = atomize_sequence(s)?;
+    if a.len() != 1 { return Err(Error::dynamic_err("err:FORG0006", "cast requires atomic value")); }
+    let v = &a[0];
+    let tgt = target_type_local(&t.atomic);
+    let res = match tgt {
+        "string" => XdmAtomicValue::String(as_string(v)),
+        "boolean" => {
+            match v {
+                XdmAtomicValue::Boolean(b) => XdmAtomicValue::Boolean(*b),
+                XdmAtomicValue::String(s) => {
+                    if let Some(b) = parse_boolean(s) { XdmAtomicValue::Boolean(b) } else { return Err(Error::dynamic_err("err:FORG0001", "invalid boolean literal")); }
+                }
+                _ => XdmAtomicValue::Boolean(match as_number(v) { Ok(n) => n != 0.0 && !n.is_nan(), Err(_) => return Err(Error::dynamic_err("err:FORG0001", "cannot cast to boolean")) }),
+            }
+        }
+        "integer" => {
+            let n = match v { XdmAtomicValue::String(s) => s.parse::<f64>().map_err(|_| Error::dynamic_err("err:FORG0001","invalid integer literal"))?, _ => as_number(v)? };
+            XdmAtomicValue::Integer(n.trunc() as i64)
+        }
+        "double" => XdmAtomicValue::Double(match v { XdmAtomicValue::String(s) => s.parse::<f64>().map_err(|_| Error::dynamic_err("err:FORG0001","invalid double literal"))?, _ => as_number(v)? }),
+        "float" => XdmAtomicValue::Float(match v { XdmAtomicValue::String(s) => s.parse::<f64>().map_err(|_| Error::dynamic_err("err:FORG0001","invalid float literal"))?, _ => as_number(v)? } as f32),
+        "decimal" => XdmAtomicValue::Decimal(match v { XdmAtomicValue::String(s) => s.parse::<f64>().map_err(|_| Error::dynamic_err("err:FORG0001","invalid decimal literal"))?, _ => as_number(v)? }),
+        "anyURI" => XdmAtomicValue::AnyUri(as_string(v)),
+        _ => return Err(Error::dynamic_err("err:XPST0017", "unsupported cast target")),
+    };
+    Ok(vec![XdmItem::Atomic(res)])
+}
+
+fn occurrence_ok(len: usize, occ: &OccurrenceIR) -> bool {
+    match occ { OccurrenceIR::One => len == 1, OccurrenceIR::ZeroOrOne => len <= 1, OccurrenceIR::ZeroOrMore => true, OccurrenceIR::OneOrMore => len >= 1 }
+}
+
+fn instance_of<N: crate::model::XdmNode>(s: &XdmSequence<N>, t: &SeqTypeIR) -> bool {
+    match t {
+        SeqTypeIR::EmptySequence => s.is_empty(),
+        SeqTypeIR::Typed { item, occ } => {
+            if !occurrence_ok(s.len(), occ) { return false; }
+            match item {
+                ItemTypeIR::AnyItem => true,
+                ItemTypeIR::Atomic(exp) => {
+                    for it in s {
+                        match it { XdmItem::Atomic(a) => {
+                            let tgt = target_type_local(exp);
+                            let ok = match (tgt, a) {
+                                ("string", XdmAtomicValue::String(_)) => true,
+                                ("boolean", XdmAtomicValue::Boolean(_)) => true,
+                                ("integer", XdmAtomicValue::Integer(_)) => true,
+                                ("double", XdmAtomicValue::Double(_)) => true,
+                                ("float", XdmAtomicValue::Float(_)) => true,
+                                ("decimal", XdmAtomicValue::Decimal(_)) => true,
+                                ("anyURI", XdmAtomicValue::AnyUri(_)) => true,
+                                _ => false,
+                            }; if !ok { return false; }
+                        }, _ => return false }
+                    }
+                    true
+                }
+                ItemTypeIR::Kind(nt) => {
+                    for it in s { match it { XdmItem::Node(n) => if !matches_test(n, nt) { return false; }, _ => return false } }
+                    true
+                }
+            }
         }
     }
 }
@@ -573,9 +698,18 @@ fn matches_test<N: crate::model::XdmNode>(n: &N, test: &NodeTestIR) -> bool {
     match test {
         NodeTestIR::AnyKind => true,
         NodeTestIR::KindText => n.kind() == NK::Text,
+        NodeTestIR::KindComment => n.kind() == NK::Comment,
+        NodeTestIR::KindProcessingInstruction(target) => {
+            if n.kind() != NK::ProcessingInstruction { return false; }
+            // If a target is specified, match by string value of target name
+            if let Some(t) = target { n.name().map(|q| q.local == *t).unwrap_or(false) } else { true }
+        }
+        NodeTestIR::KindDocument => n.kind() == NK::Document,
+        NodeTestIR::KindElement => n.kind() == NK::Element,
+        NodeTestIR::KindAttribute => n.kind() == NK::Attribute,
         NodeTestIR::WildcardAny => n.name().is_some(),
-        NodeTestIR::NsWildcard(ns) => {
-            if let Some(q) = n.name() { q.ns_uri.as_deref() == Some(ns.as_str()) } else { false }
+        NodeTestIR::NsWildcard(ns_uri) => {
+            if let Some(q) = n.name() { q.ns_uri.as_deref() == Some(ns_uri.as_str()) } else { false }
         }
         NodeTestIR::LocalWildcard(local) => {
             if let Some(q) = n.name() { q.local == *local } else { false }

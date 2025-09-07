@@ -1,4 +1,4 @@
-use rstest::rstest;
+use rstest::{rstest, fixture};
 use platynui_xpath::compile_xpath;
 use platynui_xpath::model::{XdmNode, NodeKind, QName};
 use platynui_xpath::runtime::StaticContext;
@@ -67,15 +67,18 @@ fn names(items: &Vec<platynui_xpath::xdm::XdmItem<Node>>) -> Vec<String> {
     out
 }
 
+#[fixture]
+fn root() -> Node { sample_tree() }
+#[fixture]
+fn sc() -> StaticContext { StaticContext::default() }
+
 #[rstest]
 #[case("a", vec!["a","a"]) ]
 #[case("a/b", vec!["b"]) ]
 #[case("a/@id", vec!["id","id"]) ]
 #[case("//c", vec!["c"]) ]
-fn test_basic_paths(#[case] expr: &str, #[case] expected: Vec<&str>) {
-    let root = sample_tree();
-    let exec = compile_xpath(expr, &StaticContext::default()).expect("compile");
-    if expr == "//c" { println!("IR for //c:\n{}", exec.debug_dump_ir()); }
+fn test_basic_paths(#[case] expr: &str, #[case] expected: Vec<&str>, root: Node, sc: StaticContext) {
+    let exec = compile_xpath(expr, &sc).expect("compile");
     let res = exec.evaluate_on(Some(root)).expect("eval");
     let got = names(&res);
     let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();
@@ -83,9 +86,8 @@ fn test_basic_paths(#[case] expr: &str, #[case] expected: Vec<&str>) {
 }
 
 #[rstest]
-fn test_predicates_indexing_and_value() {
-    let root = sample_tree();
-    let exec = compile_xpath("a[2]", &StaticContext::default()).expect("compile");
+fn test_predicates_indexing_and_value(root: Node, sc: StaticContext) {
+    let exec = compile_xpath("a[2]", &sc).expect("compile");
     let res = exec.evaluate_on(Some(root.clone())).expect("eval");
     let got = names(&res);
     assert_eq!(got, vec!["a"]);
@@ -93,9 +95,8 @@ fn test_predicates_indexing_and_value() {
 }
 
 #[rstest]
-fn test_predicate_attribute_equality() {
-    let root = sample_tree();
-    let exec = compile_xpath("a[@id = 'x']", &StaticContext::default()).expect("compile");
+fn test_predicate_attribute_equality(root: Node, sc: StaticContext) {
+    let exec = compile_xpath("a[@id = 'x']", &sc).expect("compile");
     let res = exec.evaluate_on(Some(root)).expect("eval");
     let got = names(&res);
     assert_eq!(got, vec!["a"]);

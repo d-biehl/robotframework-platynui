@@ -50,10 +50,11 @@ impl XPathParser {
                 Self::build_binary_chain(pair)
             }
             Rule::expr => {
+                let mut acc: Vec<ast::Expr> = Vec::new();
                 for p in pair.clone().into_inner() {
-                    if let Some(e) = Self::build_expr(&p) { return Some(e); }
+                    if let Some(e) = Self::build_expr(&p) { acc.push(e); }
                 }
-                None
+                if acc.is_empty() { None } else if acc.len() == 1 { Some(acc.remove(0)) } else { Some(ast::Expr::Sequence(acc)) }
             }
             Rule::string_literal => {
                 let mut inners = pair.clone().into_inner();
@@ -83,7 +84,19 @@ impl XPathParser {
                 let name_pair = inners.next()?;
                 let qn = ast_qname_from_str(name_pair.as_str());
                 let mut args: Vec<ast::Expr> = Vec::new();
-                for a in inners { if let Some(e) = Self::build_expr(&a) { args.push(e); } }
+                for a in inners {
+                    if let Some(e) = Self::build_expr(&a) {
+                        args.push(e);
+                    } else {
+                        // Special-case: explicit empty sequence literal as argument: ()
+                        if let Some(paren) = Self::find_rule(&a, Rule::parenthesized_expr) {
+                            let mut in_p = paren.into_inner();
+                            if in_p.next().is_none() {
+                                args.push(ast::Expr::Literal(ast::Literal::EmptySequence));
+                            }
+                        }
+                    }
+                }
                 Some(ast::Expr::FunctionCall { name: qn, args })
             }
             Rule::context_item_expr => Some(ast::Expr::ContextItem),
@@ -152,6 +165,50 @@ impl XPathParser {
             }
             Rule::or_expr => Self::fold_chain(pair, Rule::and_expr, |op| match op { Rule::K_OR => Some(ast::BinaryOp::Or), _ => None }),
             Rule::and_expr => Self::fold_chain(pair, Rule::comparison_expr, |op| match op { Rule::K_AND => Some(ast::BinaryOp::And), _ => None }),
+            Rule::instanceof_expr => {
+                // treat_expr (K_INSTANCE K_OF sequence_type)?
+                let mut inn = pair.clone().into_inner();
+                let left = inn.next()?;
+                let base = Self::build_expr(&left)?;
+                if let Some(_tok) = inn.next() { // instance of
+                    let ty_pair = inn.next()?; // sequence_type
+                    let ty = Self::build_sequence_type(&ty_pair)?;
+                    Some(ast::Expr::InstanceOf { expr: Box::new(base), ty })
+                } else { Some(base) }
+            }
+            Rule::treat_expr => {
+                // castable_expr (K_TREAT K_AS sequence_type)?
+                let mut inn = pair.clone().into_inner();
+                let left = inn.next()?;
+                let base = Self::build_expr(&left)?;
+                if let Some(_tok) = inn.next() {
+                    let ty_pair = inn.next()?;
+                    let ty = Self::build_sequence_type(&ty_pair)?;
+                    Some(ast::Expr::TreatAs { expr: Box::new(base), ty })
+                } else { Some(base) }
+            }
+            Rule::castable_expr => {
+                // cast_expr (K_CASTABLE K_AS single_type)?
+                let mut inn = pair.clone().into_inner();
+                let left = inn.next()?;
+                let base = Self::build_expr(&left)?;
+                if let Some(_tok) = inn.next() {
+                    let ty_pair = inn.next()?;
+                    let ty = Self::build_single_type(&ty_pair)?;
+                    Some(ast::Expr::CastableAs { expr: Box::new(base), ty })
+                } else { Some(base) }
+            }
+            Rule::cast_expr => {
+                // unary_expr (K_CAST K_AS single_type)?
+                let mut inn = pair.clone().into_inner();
+                let left = inn.next()?;
+                let base = Self::build_expr(&left)?;
+                if let Some(_tok) = inn.next() {
+                    let ty_pair = inn.next()?;
+                    let ty = Self::build_single_type(&ty_pair)?;
+                    Some(ast::Expr::CastAs { expr: Box::new(base), ty })
+                } else { Some(base) }
+            }
             Rule::comparison_expr => {
                 let mut inners = pair.clone().into_inner();
                 let left = inners.next()?;
@@ -278,8 +335,9 @@ impl XPathParser {
                     let mut step_in = only.clone().into_inner();
                     if let Some(step_first) = step_in.next() {
                         if step_first.as_rule() == Rule::postfix_expr {
-                            // Try to extract the primary literal/var/parens directly
-                            if let Some(lit) = Self::find_rule(&step_first, Rule::string_literal)
+                            // Try to extract the primary function/literal/var/parens directly (prefer function)
+                            if let Some(lit) = Self::find_rule(&step_first, Rule::function_call)
+                                .or_else(|| Self::find_rule(&step_first, Rule::string_literal))
                                 .or_else(|| Self::find_rule(&step_first, Rule::integer_literal))
                                 .or_else(|| Self::find_rule(&step_first, Rule::decimal_literal))
                                 .or_else(|| Self::find_rule(&step_first, Rule::double_literal))
@@ -303,6 +361,49 @@ impl XPathParser {
             }
             _ => None,
         }
+    }
+
+    fn build_sequence_type(pair: &Pair<Rule>) -> Option<ast::SequenceType> {
+        debug_assert!(matches!(pair.as_rule(), Rule::sequence_type));
+        let mut inn = pair.clone().into_inner();
+        let first = inn.next()?;
+        match first.as_rule() {
+            Rule::K_EMPTY_SEQUENCE => Some(ast::SequenceType::EmptySequence),
+            Rule::item_type => {
+                let item = Self::build_item_type(&first)?;
+                if let Some(occ) = inn.next() { // occurrence_indicator optional
+                    let occ = match occ.as_str() { "?" => ast::Occurrence::ZeroOrOne, "*" => ast::Occurrence::ZeroOrMore, "+" => ast::Occurrence::OneOrMore, _ => ast::Occurrence::One };
+                    Some(ast::SequenceType::Typed { item, occ })
+                } else {
+                    Some(ast::SequenceType::Typed { item, occ: ast::Occurrence::One })
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn build_item_type(pair: &Pair<Rule>) -> Option<ast::ItemType> {
+        debug_assert_eq!(pair.as_rule(), Rule::item_type);
+        let inner = pair.clone().into_inner().next()?;
+        match inner.as_rule() {
+            Rule::kind_test => Self::build_kind_test(&inner).map(ast::ItemType::Kind),
+            Rule::K_ITEM => Some(ast::ItemType::Item),
+            Rule::atomic_type => {
+                let qn = inner.clone().into_inner().next()?; // qname
+                Some(ast::ItemType::Atomic(ast_qname_from_str(qn.as_str())))
+            }
+            _ => None,
+        }
+    }
+
+    fn build_single_type(pair: &Pair<Rule>) -> Option<ast::SingleType> {
+        debug_assert_eq!(pair.as_rule(), Rule::single_type);
+        let mut inn = pair.clone().into_inner();
+        let atomic = inn.next()?; // atomic_type -> qname
+        let qn = atomic.clone().into_inner().next()?;
+        let mut optional = false;
+        if let Some(next) = inn.next() { if next.as_rule() == Rule::QMARK { optional = true; } }
+        Some(ast::SingleType { atomic: ast_qname_from_str(qn.as_str()), optional })
     }
 
     pub(crate) fn build_absolute_path(pair: &Pair<Rule>) -> Option<ast::Expr> {
@@ -518,9 +619,32 @@ impl XPathParser {
             Rule::any_kind_test => Some(ast::KindTest::AnyKind),
             Rule::text_test => Some(ast::KindTest::Text),
             Rule::comment_test => Some(ast::KindTest::Comment),
-            Rule::pi_test => Some(ast::KindTest::ProcessingInstruction(None)),
+            Rule::pi_test => {
+                // processing-instruction((ncname | string_literal)?)
+                let mut inn = kind.clone().into_inner();
+                let target = if let Some(arg) = inn.next() {
+                    match arg.as_rule() {
+                        Rule::ncname => Some(arg.as_str().to_string()),
+                        Rule::string_literal => {
+                            let mut inner = arg.clone().into_inner();
+                            if let Some(content) = inner.next() {
+                                let raw = content.as_str();
+                                let s = match content.as_rule() {
+                                    Rule::dbl_string_inner => raw.replace("\"\"", "\""),
+                                    Rule::sgl_string_inner => raw.replace("''", "'"),
+                                    _ => raw.to_string(),
+                                };
+                                Some(s)
+                            } else { Some(String::new()) }
+                        }
+                        _ => None,
+                    }
+                } else { None };
+                Some(ast::KindTest::ProcessingInstruction(target))
+            }
             Rule::element_test => Some(ast::KindTest::Element { name: None, ty: None, nillable: false }),
             Rule::attribute_test => Some(ast::KindTest::Attribute { name: None, ty: None }),
+            Rule::document_test => Some(ast::KindTest::Document(None)),
             _ => None,
         }
     }

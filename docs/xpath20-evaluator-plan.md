@@ -167,7 +167,7 @@ IR-OpCodes (Auszug):
   - QName-Resolution via statischem Kontext; Fehler bei unbekannten Prefixen/Funktionen
   - Typinferenz (rudimentär zunächst), Promotion/Atomization-Regeln vorzubereiten
   - Prädikate: Effektive Boolesche Werte (EBV), Kontext-Iterationen
-  - Optimierungen: Konstantfaltung, Dead-Code-Elimination (einfach), Predicate-Reordering (optional), Inline von einfachen Funktionen (optional)
+  - Optimierungen (optional): Konstantfaltung, Dead-Code-Elimination (einfach), Predicate-Reordering (optional), Inline von einfachen Funktionen (optional)
 
 ## Evaluator (IR-Interpreter)
 - Laufzeit-Stack für Items/Sequenzen, Call-Frames für Funktionsaufrufe/Bindings
@@ -347,7 +347,7 @@ Ziel: Jede relevante Spezifikationsfläche ist vollständig abgedeckt (Implement
 - [ ] IR-Design dokumentieren und Types/OpCodes implementieren
 - [ ] Statischer Kontext: Namespaces, Funktionen, Variablen, Base-URI, Kollation
 - [ ] Binder: Variablen/Slots, Funktionsauflösung (QName+Arity)
-- [ ] Optimierungen (Konstantfaltung, einfache DCE)
+- [ ] Optimierungen (Konstantfaltung, einfache DCE) (optional)
  - [ ] Node-Compare-OpCodes (`is`, `<<`, `>>`), `RangeTo`, `IDiv`, `Some/Every`, `For/Let`
 
 ### Evaluator

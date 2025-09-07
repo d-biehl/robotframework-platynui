@@ -146,13 +146,13 @@ pub struct DynamicContext<N> {
     pub regex: Option<Arc<dyn RegexProvider>>,
 }
 
-impl<N> Default for DynamicContext<N> {
+impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for DynamicContext<N> {
     fn default() -> Self {
         Self {
             context_item: None,
             variables: HashMap::new(),
             default_collation: None,
-            functions: Arc::new(FunctionRegistry::default()),
+            functions: Arc::new(crate::functions::default_function_registry()),
             collations: Arc::new(CollationRegistry::default()),
             resolver: None,
             regex: None,
@@ -164,7 +164,7 @@ pub struct DynamicContextBuilder<N> {
     ctx: DynamicContext<N>,
 }
 
-impl<N> DynamicContextBuilder<N> {
+impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBuilder<N> {
     pub fn new() -> Self { Self { ctx: DynamicContext::default() } }
 
     pub fn with_context_item(mut self, item: impl Into<XdmItem<N>>) -> Self {

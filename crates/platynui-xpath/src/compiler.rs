@@ -29,6 +29,11 @@ pub enum NodeTestIR {
     NsWildcard(String),
     LocalWildcard(String),
     KindText,
+    KindComment,
+    KindProcessingInstruction(Option<String>),
+    KindDocument,
+    KindElement,
+    KindAttribute,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +42,7 @@ pub enum OpCode {
     PushAtomic(XdmAtomicValue),
     LoadVar(usize),
     StoreVar(usize),
+    LoadVarByName(ExpandedName),
     LoadContextItem,
     Position,
     Last,
@@ -87,10 +93,10 @@ pub enum OpCode {
     LetBind,
 
     // Types
-    Cast,
-    Castable,
-    Treat,
-    InstanceOf,
+    Cast(SingleTypeIR),
+    Castable(SingleTypeIR),
+    Treat(SeqTypeIR),
+    InstanceOf(SeqTypeIR),
 
     // Functions
     Call(usize /* fn id */, usize /* argc */),
@@ -106,6 +112,22 @@ pub struct CompiledIR {
     pub static_ctx: Arc<StaticContext>,
     pub source: String,
 }
+
+#[derive(Debug, Clone)]
+pub struct SingleTypeIR { pub atomic: ExpandedName, pub optional: bool }
+
+#[derive(Debug, Clone)]
+pub enum ItemTypeIR {
+    AnyItem,
+    Atomic(ExpandedName),
+    Kind(NodeTestIR),
+}
+
+#[derive(Debug, Clone)]
+pub enum OccurrenceIR { One, ZeroOrOne, ZeroOrMore, OneOrMore }
+
+#[derive(Debug, Clone)]
+pub enum SeqTypeIR { EmptySequence, Typed { item: ItemTypeIR, occ: OccurrenceIR } }
 
 pub fn compile_xpath(expr: &str, static_ctx: &StaticContext) -> Result<CompiledIR, Error> {
     // Straightforward: build full AST then compile
@@ -221,9 +243,19 @@ fn compile_expr(ast: &ast::Expr, out: &mut InstrSeq, sc: &StaticContext) -> Resu
         }
         ast::Expr::FunctionCall { name, args } => {
             for a in args { compile_expr(a, out, sc)?; }
-            let local = if let Some(p) = &name.prefix { format!("{}:{}", p, name.local) } else { name.local.clone() };
-            let q = ExpandedName { ns_uri: name.ns_uri.clone(), local };
+            let ns_uri = if let Some(p) = &name.prefix {
+                sc.namespaces.by_prefix.get(p).cloned()
+            } else {
+                sc.default_function_namespace.clone()
+            };
+            let q = ExpandedName { ns_uri, local: name.local.clone() };
             out.0.push(OpCode::CallByName(q, args.len()));
+        }
+        ast::Expr::VarRef(qn) => {
+            // Load variable by expanded name (prefix not resolved here; kept in local part)
+            let local = if let Some(p) = &qn.prefix { format!("{}:{}", p, qn.local) } else { qn.local.clone() };
+            let q = ExpandedName { ns_uri: qn.ns_uri.clone(), local };
+            out.0.push(OpCode::LoadVarByName(q));
         }
         ast::Expr::ContextItem => {
             out.0.push(OpCode::LoadContextItem);
@@ -263,6 +295,11 @@ fn compile_expr(ast: &ast::Expr, out: &mut InstrSeq, sc: &StaticContext) -> Resu
                 let test = match &s.test {
                     ast::NodeTest::Kind(ast::KindTest::AnyKind) => NodeTestIR::AnyKind,
                     ast::NodeTest::Kind(ast::KindTest::Text) => NodeTestIR::KindText,
+                    ast::NodeTest::Kind(ast::KindTest::Comment) => NodeTestIR::KindComment,
+                    ast::NodeTest::Kind(ast::KindTest::ProcessingInstruction(target)) => NodeTestIR::KindProcessingInstruction(target.clone()),
+                    ast::NodeTest::Kind(ast::KindTest::Document(_inner)) => NodeTestIR::KindDocument,
+                    ast::NodeTest::Kind(ast::KindTest::Element { .. }) => NodeTestIR::KindElement,
+                    ast::NodeTest::Kind(ast::KindTest::Attribute { .. }) => NodeTestIR::KindAttribute,
                     ast::NodeTest::Name(ast::NameTest::QName(qn)) => {
                         let ns_uri = match (&qn.prefix, axis.clone()) {
                             (Some(pref), _) => sc.namespaces.by_prefix.get(pref).cloned(),
@@ -272,7 +309,11 @@ fn compile_expr(ast: &ast::Expr, out: &mut InstrSeq, sc: &StaticContext) -> Resu
                         NodeTestIR::Name(ExpandedName { ns_uri, local: qn.local.clone() })
                     }
                     ast::NodeTest::Name(ast::NameTest::Wildcard(ast::WildcardName::Any)) => NodeTestIR::WildcardAny,
-                    ast::NodeTest::Name(ast::NameTest::Wildcard(ast::WildcardName::NsWildcard(ns))) => NodeTestIR::NsWildcard(ns.clone()),
+                    ast::NodeTest::Name(ast::NameTest::Wildcard(ast::WildcardName::NsWildcard(ns))) => {
+                        // Resolve prefix to namespace URI if available
+                        let uri = sc.namespaces.by_prefix.get(ns).cloned().unwrap_or_else(|| ns.clone());
+                        NodeTestIR::NsWildcard(uri)
+                    }
                     ast::NodeTest::Name(ast::NameTest::Wildcard(ast::WildcardName::LocalWildcard(local))) => NodeTestIR::LocalWildcard(local.clone()),
                     _ => return Err(Error::static_err("err:XPST0017", "node test not supported in M3")),
                 };
@@ -299,9 +340,72 @@ fn compile_expr(ast: &ast::Expr, out: &mut InstrSeq, sc: &StaticContext) -> Resu
             compile_expr(end, out, sc)?;
             out.0.push(OpCode::RangeTo);
         }
+        ast::Expr::InstanceOf { expr, ty } => {
+            compile_expr(expr, out, sc)?;
+            let t = seq_type_ir_from_ast(ty, sc)?;
+            out.0.push(OpCode::InstanceOf(t));
+        }
+        ast::Expr::TreatAs { expr, ty } => {
+            compile_expr(expr, out, sc)?;
+            let t = seq_type_ir_from_ast(ty, sc)?;
+            out.0.push(OpCode::Treat(t));
+        }
+        ast::Expr::CastableAs { expr, ty } => {
+            compile_expr(expr, out, sc)?;
+            let t = single_type_ir_from_ast(ty, sc)?;
+            out.0.push(OpCode::Castable(t));
+        }
+        ast::Expr::CastAs { expr, ty } => {
+            compile_expr(expr, out, sc)?;
+            let t = single_type_ir_from_ast(ty, sc)?;
+            out.0.push(OpCode::Cast(t));
+        }
         _ => return Err(Error::static_err("err:XPST0017", "expression not supported in M1")),
     }
     Ok(())
+}
+
+fn resolve_qname_to_expanded(qn: &ast::QName, sc: &StaticContext) -> ExpandedName {
+    let ns_uri = if let Some(pref) = &qn.prefix { sc.namespaces.by_prefix.get(pref).cloned() } else { None };
+    let local = if let Some(pref) = &qn.prefix { format!("{}:{}", pref, qn.local) } else { qn.local.clone() };
+    ExpandedName { ns_uri, local }
+}
+
+fn single_type_ir_from_ast(ty: &ast::SingleType, sc: &StaticContext) -> Result<SingleTypeIR, Error> {
+    Ok(SingleTypeIR { atomic: resolve_qname_to_expanded(&ty.atomic, sc), optional: ty.optional })
+}
+
+fn seq_type_ir_from_ast(ty: &ast::SequenceType, sc: &StaticContext) -> Result<SeqTypeIR, Error> {
+    use ast::{ItemType as IT, KindTest as KT, Occurrence as OCC, SequenceType as ST};
+    Ok(match ty {
+        ST::EmptySequence => SeqTypeIR::EmptySequence,
+        ST::Typed { item, occ } => {
+            let occ_ir = match occ {
+                OCC::One => OccurrenceIR::One,
+                OCC::ZeroOrOne => OccurrenceIR::ZeroOrOne,
+                OCC::ZeroOrMore => OccurrenceIR::ZeroOrMore,
+                OCC::OneOrMore => OccurrenceIR::OneOrMore,
+            };
+            let item_ir = match item {
+                IT::Item => ItemTypeIR::AnyItem,
+                IT::Atomic(qn) => ItemTypeIR::Atomic(resolve_qname_to_expanded(qn, sc)),
+                IT::Kind(kt) => {
+                    let nt = match kt {
+                        KT::AnyKind => NodeTestIR::AnyKind,
+                        KT::Text => NodeTestIR::KindText,
+                        KT::Comment => NodeTestIR::KindComment,
+                        KT::ProcessingInstruction(t) => NodeTestIR::KindProcessingInstruction(t.clone()),
+                        KT::Element { .. } => NodeTestIR::KindElement,
+                        KT::Attribute { .. } => NodeTestIR::KindAttribute,
+                        KT::Document(_) => NodeTestIR::KindDocument,
+                        KT::SchemaElement(_) | KT::SchemaAttribute(_) => return Err(Error::static_err("err:XPST0017", "schema kind tests not supported")),
+                    };
+                    ItemTypeIR::Kind(nt)
+                }
+            };
+            SeqTypeIR::Typed { item: item_ir, occ: occ_ir }
+        }
+    })
 }
 
 impl fmt::Display for OpCode {
@@ -336,6 +440,7 @@ impl fmt::Display for OpCode {
             NodeIs => write!(f, "NODE_IS"),
             NodeBefore => write!(f, "NODE_BEFORE"),
             NodeAfter => write!(f, "NODE_AFTER"),
+            LoadVarByName(name) => write!(f, "LOAD_VAR_BY_NAME {:?}", name),
             MakeSeq(n) => write!(f, "MAKE_SEQ {}", n),
             ConcatSeq => write!(f, "CONCAT_SEQ"),
             Union => write!(f, "UNION"),
@@ -349,10 +454,10 @@ impl fmt::Display for OpCode {
             ForNext => write!(f, "FOR_NEXT"),
             ForEnd => write!(f, "FOR_END"),
             LetBind => write!(f, "LET_BIND"),
-            Cast => write!(f, "CAST"),
-            Castable => write!(f, "CASTABLE"),
-            Treat => write!(f, "TREAT"),
-            InstanceOf => write!(f, "INSTANCE_OF"),
+            Cast(t) => write!(f, "CAST {:?}", t),
+            Castable(t) => write!(f, "CASTABLE {:?}", t),
+            Treat(t) => write!(f, "TREAT {:?}", t),
+            InstanceOf(t) => write!(f, "INSTANCE_OF {:?}", t),
             Call(id, argc) => write!(f, "CALL {} {}", id, argc),
             CallByName(name, argc) => write!(f, "CALL_BY_NAME {:?} {}", name, argc),
         }

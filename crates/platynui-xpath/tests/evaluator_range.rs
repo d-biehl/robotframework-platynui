@@ -22,10 +22,11 @@ fn atomics<N>(items: &Vec<XdmItem<N>>) -> Vec<XdmAtomicValue> {
 }
 
 #[rstest]
-fn test_range_to_operator_simple() {
-    let exec = compile_xpath("1 to 3", &StaticContext::default()).unwrap();
+#[case("1 to 3", vec![XdmAtomicValue::Integer(1), XdmAtomicValue::Integer(2), XdmAtomicValue::Integer(3)])]
+#[case("3 to 1", vec![])]
+fn range_to_operator(#[case] expr: &str, #[case] expected: Vec<XdmAtomicValue>) {
+    let exec = compile_xpath(expr, &StaticContext::default()).unwrap();
     let out: Vec<XdmItem<DummyNode>> = exec.evaluate(&platynui_xpath::runtime::DynamicContextBuilder::<DummyNode>::new().build()).unwrap();
     let vals = atomics(&out);
-    assert_eq!(vals, vec![XdmAtomicValue::Integer(1), XdmAtomicValue::Integer(2), XdmAtomicValue::Integer(3)]);
+    assert_eq!(vals, expected);
 }
-

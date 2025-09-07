@@ -1,4 +1,4 @@
-use rstest::rstest;
+use rstest::{rstest, fixture};
 use std::sync::Arc;
 use platynui_xpath::compile_xpath;
 use platynui_xpath::model::{XdmNode, NodeKind, QName};
@@ -74,10 +74,13 @@ fn names<T: XdmNode>(items: &Vec<XdmItem<T>>) -> Vec<String> {
     v
 }
 
+#[fixture]
+fn root() -> Node { sample_ns_tree() }
+#[fixture]
+fn sc() -> StaticContext { StaticContext::default() }
+
 #[rstest]
-fn test_default_element_namespace_and_attribute_no_default() {
-    let root = sample_ns_tree();
-    let mut sc = StaticContext::default();
+fn default_element_namespace_and_attribute_no_default(root: Node, mut sc: StaticContext) {
     sc.namespaces.by_prefix.insert("".into(), "http://ex/ns".into());
     // book should match only ns book due to default element ns
     let exec = compile_xpath("book", &sc).unwrap();
@@ -91,9 +94,7 @@ fn test_default_element_namespace_and_attribute_no_default() {
 }
 
 #[rstest]
-fn test_prefixed_qname_and_local_wildcard() {
-    let root = sample_ns_tree();
-    let mut sc = StaticContext::default();
+fn prefixed_qname_and_local_wildcard(root: Node, mut sc: StaticContext) {
     sc.namespaces.by_prefix.insert("ns".into(), "http://ex/ns".into());
     // ns:book matches namespaced element
     let exec = compile_xpath("ns:book", &sc).unwrap();
@@ -107,9 +108,7 @@ fn test_prefixed_qname_and_local_wildcard() {
 }
 
 #[rstest]
-fn test_kind_text_and_node_any() {
-    let root = sample_ns_tree();
-    let mut sc = StaticContext::default();
+fn kind_text_and_node_any(root: Node, mut sc: StaticContext) {
     sc.namespaces.by_prefix.insert("ns".into(), "http://ex/ns".into());
 
     // text() returns text node children under ns:book

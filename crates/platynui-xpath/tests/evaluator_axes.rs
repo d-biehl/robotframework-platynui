@@ -1,4 +1,4 @@
-use rstest::rstest;
+use rstest::{rstest, fixture};
 use platynui_xpath::compile_xpath;
 use platynui_xpath::model::{XdmNode, NodeKind, QName};
 use platynui_xpath::runtime::StaticContext;
@@ -31,24 +31,56 @@ fn el(dom: &mut Dom, p: Option<usize>, local: &str) -> usize { let i = dom.nodes
 fn at(dom: &mut Dom, p: usize, local: &str, v: &str) -> usize { let i=dom.nodes.len(); dom.nodes.push(NodeRec{kind:NodeKind::Attribute, name:Some(QName{prefix:None, local:local.into(), ns_uri:None}), value:v.into(), parent:Some(p), children:vec![], attrs:vec![]}); dom.nodes[p].attrs.push(i); i }
 fn tx(dom: &mut Dom, p: usize, v: &str) -> usize { let i=dom.nodes.len(); dom.nodes.push(NodeRec{kind:NodeKind::Text, name:None, value:v.into(), parent:Some(p), children:vec![], attrs:vec![]}); dom.nodes[p].children.push(i); i }
 
-fn sample() -> Node { let mut d=Dom{nodes:vec![]}; let root=el(&mut d,None,"root"); let a1=el(&mut d,Some(root),"a"); at(&mut d,a1,"id","x"); let a2=el(&mut d,Some(a1),"a"); let c=el(&mut d,Some(a2),"c"); tx(&mut d,c,"hi"); Node{dom:Arc::new(d), idx:root} }
+fn sample() -> Node { let mut d=Dom{nodes:vec![]}; let root=el(&mut d,None,"root"); let a1=el(&mut d,Some(root),"a"); at(&mut d,a1,"id","x"); let a2=el(&mut d,Some(a1),"a"); let c=el(&mut d,Some(a2),"c"); tx(&mut d,c,"hi"); let _d=el(&mut d,Some(root),"d"); let _a3=el(&mut d,Some(root),"a"); Node{dom:Arc::new(d), idx:root} }
+
+#[fixture]
+fn root() -> Node { sample() }
+#[fixture]
+fn sc() -> StaticContext { StaticContext::default() }
 
 fn names<T: XdmNode>(items: &Vec<XdmItem<T>>) -> Vec<String> { let mut v=vec![]; for it in items { if let XdmItem::Node(n)=it { if let Some(q)=n.name(){v.push(q.local);} } } v }
 
 #[rstest]
-fn test_descendant_axis_excludes_self() {
-    let root = sample();
+fn test_descendant_axis_excludes_self(root: Node, sc: StaticContext) {
     // a/descendant::a should select only descendant a (not the self a)
-    let exec = compile_xpath("a/descendant::a", &StaticContext::default()).unwrap();
+    let exec = compile_xpath("a/descendant::a", &sc).unwrap();
     let out: Vec<XdmItem<Node>> = exec.evaluate_on(Some(root)).unwrap();
     assert_eq!(names(&out), vec!["a"]);
 }
 
 #[rstest]
-fn test_descendant_axis_on_c() {
-    let root = sample();
-    let exec = compile_xpath("a/descendant::c", &StaticContext::default()).unwrap();
+fn test_descendant_axis_on_c(root: Node, sc: StaticContext) {
+    let exec = compile_xpath("a/descendant::c", &sc).unwrap();
     let out: Vec<XdmItem<Node>> = exec.evaluate_on(Some(root)).unwrap();
     assert_eq!(names(&out), vec!["c"]);
 }
 
+#[rstest]
+fn test_parent_and_ancestors(root: Node, sc: StaticContext) {
+    let exec = compile_xpath("//c/parent::a", &sc).unwrap();
+    let out: Vec<XdmItem<Node>> = exec.evaluate_on(Some(root.clone())).unwrap();
+    assert_eq!(names(&out), vec!["a"]);
+
+    let exec = compile_xpath("//c/ancestor::a", &sc).unwrap();
+    let out: Vec<XdmItem<Node>> = exec.evaluate_on(Some(root.clone())).unwrap();
+    // there are two ancestor a nodes in sample()
+    assert_eq!(names(&out), vec!["a","a"]);
+
+    let exec = compile_xpath("//c/ancestor-or-self::*", &sc).unwrap();
+    let out: Vec<XdmItem<Node>> = exec.evaluate_on(Some(root)).unwrap();
+    // self c plus ancestors a, a, root => 4 nodes total
+    assert_eq!(out.len(), 4);
+}
+
+#[rstest]
+fn test_following_and_preceding(root: Node, sc: StaticContext) {
+    // There is a 'd' element after 'a' under root; it is in the following axis of 'a'
+    let exec = compile_xpath("a/following::d", &sc).unwrap();
+    let out: Vec<XdmItem<Node>> = exec.evaluate_on(Some(root.clone())).unwrap();
+    assert_eq!(names(&out), vec!["d"]);
+
+    // second 'a' (sibling under root) has a preceding-sibling 'a'
+    let exec = compile_xpath("a[2]/preceding-sibling::a", &sc).unwrap();
+    let out: Vec<XdmItem<Node>> = exec.evaluate_on(Some(root)).unwrap();
+    assert_eq!(names(&out), vec!["a"]);
+}
