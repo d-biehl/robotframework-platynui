@@ -599,11 +599,7 @@ impl XPathParser {
                     Some(ast::NameTest::Wildcard(ast::WildcardName::Any))
                 } else if let Some(rest) = s.strip_prefix("*:") {
                     Some(ast::NameTest::Wildcard(ast::WildcardName::LocalWildcard(rest.to_string())))
-                } else if let Some(prefix) = s.strip_suffix(":*") {
-                    Some(ast::NameTest::Wildcard(ast::WildcardName::NsWildcard(prefix.to_string())))
-                } else {
-                    None
-                }
+                } else { s.strip_suffix(":*").map(|prefix| ast::NameTest::Wildcard(ast::WildcardName::NsWildcard(prefix.to_string()))) }
             }
             _ => None,
         }

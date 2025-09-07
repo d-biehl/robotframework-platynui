@@ -190,7 +190,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let s = &args[0]; let start = to_number(&args[1])?; let from = (start.floor() as isize - 1).max(0) as usize; Ok(s.iter().skip(from).cloned().collect())
     });
     add("subsequence", 3, |args| {
-        let s = &args[0]; let start = to_number(&args[1])?; let len = to_number(&args[2])?; let from = (start.floor() as isize - 1).max(0) as usize; let take = len.floor().max(0.0) as usize; Ok(s.iter().skip(from).cloned().take(take).collect())
+        let s = &args[0]; let start = to_number(&args[1])?; let len = to_number(&args[2])?; let from = (start.floor() as isize - 1).max(0) as usize; let take = len.floor().max(0.0) as usize; Ok(s.iter().skip(from).take(take).cloned().collect())
     });
 
     // distinct-values($seq as xs:anyAtomicType*)

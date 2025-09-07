@@ -23,8 +23,8 @@ impl XPathExecutable {
                 OpCode::Add => bin_num2(|a, b| Ok(num_add(a, b)), &mut stack)?,
                 OpCode::Sub => bin_num2(|a, b| Ok(num_sub(a, b)), &mut stack)?,
                 OpCode::Mul => bin_num2(|a, b| Ok(num_mul(a, b)), &mut stack)?,
-                OpCode::Div => bin_num2(|a, b| num_div(a, b), &mut stack)?,
-                OpCode::IDiv => bin_num2(|a, b| num_idiv(a, b), &mut stack)?,
+                OpCode::Div => bin_num2(num_div, &mut stack)?,
+                OpCode::IDiv => bin_num2(num_idiv, &mut stack)?,
                 OpCode::Mod => bin_num2(|a, b| Ok(num_mod(a, b)), &mut stack)?,
                 OpCode::And => bin_bool(|l, r| l && r, &mut stack)?,
                 OpCode::Or => bin_bool(|l, r| l || r, &mut stack)?,
@@ -409,7 +409,7 @@ fn parse_boolean(s: &str) -> Option<bool> {
     }
 }
 
-fn target_type_local(t: &ExpandedName) -> &str { t.local.split(':').last().unwrap_or(&t.local) }
+fn target_type_local(t: &ExpandedName) -> &str { t.local.split(':').next_back().unwrap_or(&t.local) }
 
 fn is_castable<N: crate::model::XdmNode>(s: &XdmSequence<N>, t: &SingleTypeIR) -> Result<bool, Error> {
     if s.is_empty() { return Ok(t.optional); }
@@ -513,9 +513,9 @@ fn compare_atomic(a: &XdmAtomicValue, b: &XdmAtomicValue, op: ComparisonOp, coll
             let sb = as_string(b);
             if let Some(c) = coll {
                 let eq = c.compare(&sa, &sb) == core::cmp::Ordering::Equal;
-                return if matches!(op, Eq) { Ok(eq) } else { Ok(!eq) };
+                if matches!(op, Eq) { Ok(eq) } else { Ok(!eq) }
             } else {
-                return if matches!(op, Eq) { Ok(sa == sb) } else { Ok(sa != sb) };
+                if matches!(op, Eq) { Ok(sa == sb) } else { Ok(sa != sb) }
             }
         }
         Lt | Le | Gt | Ge => {
@@ -528,13 +528,13 @@ fn compare_atomic(a: &XdmAtomicValue, b: &XdmAtomicValue, op: ComparisonOp, coll
             let sa = as_string(a);
             let sb = as_string(b);
             let ord = if let Some(c) = coll { c.compare(&sa, &sb) } else { sa.cmp(&sb) };
-            return Ok(match op {
+            Ok(match op {
                 ComparisonOp::Lt => ord == core::cmp::Ordering::Less,
                 ComparisonOp::Le => ord == core::cmp::Ordering::Less || ord == core::cmp::Ordering::Equal,
                 ComparisonOp::Gt => ord == core::cmp::Ordering::Greater,
                 ComparisonOp::Ge => ord == core::cmp::Ordering::Greater || ord == core::cmp::Ordering::Equal,
                 _ => unreachable!(),
-            });
+            })
         }
     }
 }

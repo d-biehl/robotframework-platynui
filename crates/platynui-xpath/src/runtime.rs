@@ -164,6 +164,12 @@ pub struct DynamicContextBuilder<N> {
     ctx: DynamicContext<N>,
 }
 
+impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for DynamicContextBuilder<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBuilder<N> {
     pub fn new() -> Self { Self { ctx: DynamicContext::default() } }
 
