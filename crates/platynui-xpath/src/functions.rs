@@ -23,10 +23,12 @@ fn ebv<N>(seq: &XdmSequence<N>) -> Result<bool, Error> {
     }
 }
 
+type FnSig<N> = fn(&[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>;
+
 pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNode + Clone>() -> FunctionRegistry<N> {
     let mut reg = FunctionRegistry::new();
     // helper to register under default namespace
-    let mut add = |local: &str, arity: usize, f: fn(&[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>| {
+    let mut add = |local: &str, arity: usize, f: FnSig<N>| {
         let fun = std::sync::Arc::new(move |args: &[XdmSequence<N>]| f(args));
         reg.register(ExpandedName { ns_uri: Some(FNS.to_string()), local: local.to_string() }, arity, fun.clone());
         reg.register(ExpandedName { ns_uri: None, local: local.to_string() }, arity, fun);
@@ -132,12 +134,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let mut table: HashMap<char, Option<char>> = HashMap::new();
         let mut trans_iter = trans.chars();
         for m in map.chars() {
-            if !table.contains_key(&m) {
-                let repl = trans_iter.next();
-                table.insert(m, repl);
-            } else {
-                // duplicate in map: ignore (leftmost wins)
-                let _ = trans_iter.next();
+            use std::collections::hash_map::Entry;
+            match table.entry(m) {
+                Entry::Vacant(e) => { let repl = trans_iter.next(); e.insert(repl); }
+                Entry::Occupied(_) => { let _ = trans_iter.next(); }
             }
         }
         let mut out = String::new();
@@ -187,10 +187,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     add("count", 1, |args| Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(args[0].len() as i64))]));
     add("reverse", 1, |args| { let s: XdmSequence<N> = args[0].iter().cloned().rev().collect(); Ok(s) });
     add("subsequence", 2, |args| {
-        let s = &args[0]; let start = to_number(&args[1])?; let from = (start.floor() as isize - 1).max(0) as usize; Ok(s.iter().cloned().skip(from).collect())
+        let s = &args[0]; let start = to_number(&args[1])?; let from = (start.floor() as isize - 1).max(0) as usize; Ok(s.iter().skip(from).cloned().collect())
     });
     add("subsequence", 3, |args| {
-        let s = &args[0]; let start = to_number(&args[1])?; let len = to_number(&args[2])?; let from = (start.floor() as isize - 1).max(0) as usize; let take = len.floor().max(0.0) as usize; Ok(s.iter().cloned().skip(from).take(take).collect())
+        let s = &args[0]; let start = to_number(&args[1])?; let len = to_number(&args[2])?; let from = (start.floor() as isize - 1).max(0) as usize; let take = len.floor().max(0.0) as usize; Ok(s.iter().skip(from).cloned().take(take).collect())
     });
 
     // distinct-values($seq as xs:anyAtomicType*)
@@ -213,7 +213,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let mut out: XdmSequence<N> = Vec::new();
         // Use string compare if either side is non-numeric; else numeric equality
         for (i, it) in args[0].iter().enumerate() {
-            let eq = match (it, args[1].get(0)) {
+            let eq = match (it, args[1].first()) {
                 (XdmItem::Atomic(a), Some(XdmItem::Atomic(b))) => {
                     // numeric if possible, else string
                     match (to_number_atomic(a), to_number_atomic(b)) { (Ok(na), Ok(nb)) => na == nb, _ => as_string(a) == as_string(b) }

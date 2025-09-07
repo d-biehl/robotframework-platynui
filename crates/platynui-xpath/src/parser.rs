@@ -12,13 +12,13 @@ impl XPathParser {
     // Test-only parse wrapper moved to tests/parser/test_utils.rs
 
     /// Build the internal AST for evaluation from the XPath input.
-    pub fn parse_to_ast(input: &str) -> Result<ast::Expr, Error<Rule>> {
+    pub fn parse_to_ast(input: &str) -> Result<ast::Expr, Box<Error<Rule>>> {
         let mut pairs = Self::parse(Rule::xpath, input)?;
         let pair = pairs.next().expect("xpath root");
         debug_assert_eq!(pair.as_rule(), Rule::xpath);
         let inner = pair.into_inner().next().expect("expr root");
         if let Some(e) = Self::build_expr(&inner) { return Ok(e); }
-        Err(Error::new_from_span(pest::error::ErrorVariant::CustomError { message: "unsupported expression for AST builder".into() }, inner.as_span()))
+        Err(Box::new(Error::new_from_span(pest::error::ErrorVariant::CustomError { message: "unsupported expression for AST builder".into() }, inner.as_span())))
     }
 
     // Test-only AST extractors moved to tests/parser/test_utils.rs
@@ -293,8 +293,8 @@ impl XPathParser {
                 let right = inners.next()?;
                 let right_expr = Self::build_expr(&right)?;
                 expr = ast::Expr::Binary { left: Box::new(expr), op, right: Box::new(right_expr) };
-            } else if op_or_next.as_rule() == expected_left_rule {
-                if let Some(inner_e) = Self::build_expr(&op_or_next) { expr = inner_e; }
+            } else if op_or_next.as_rule() == expected_left_rule && let Some(inner_e) = Self::build_expr(&op_or_next) {
+                expr = inner_e;
             }
         }
         Some(expr)
@@ -333,8 +333,7 @@ impl XPathParser {
                 let only = rel_in.next()?; // step_expr
                 if rel_in.next().is_none() {
                     let mut step_in = only.clone().into_inner();
-                    if let Some(step_first) = step_in.next() {
-                        if step_first.as_rule() == Rule::postfix_expr {
+                    if let Some(step_first) = step_in.next() && step_first.as_rule() == Rule::postfix_expr {
                             // Try to extract the primary function/literal/var/parens directly (prefer function)
                             if let Some(lit) = Self::find_rule(&step_first, Rule::function_call)
                                 .or_else(|| Self::find_rule(&step_first, Rule::string_literal))
@@ -354,7 +353,6 @@ impl XPathParser {
                                 // debug: eprintln!("  fallback build on postfix: '{}'", step_first.as_str());
                                 return Some(expr);
                             }
-                        }
                     }
                 }
                 Self::build_relative_path(&first)
@@ -402,7 +400,7 @@ impl XPathParser {
         let atomic = inn.next()?; // atomic_type -> qname
         let qn = atomic.clone().into_inner().next()?;
         let mut optional = false;
-        if let Some(next) = inn.next() { if next.as_rule() == Rule::QMARK { optional = true; } }
+        if let Some(next) = inn.next() && next.as_rule() == Rule::QMARK { optional = true; }
         Some(ast::SingleType { atomic: ast_qname_from_str(qn.as_str()), optional })
     }
 
@@ -481,11 +479,10 @@ impl XPathParser {
                 let mut pin = inner.clone().into_inner();
                 let prim = pin.next()?; // primary_expr (could conceal '.' or a name in some parses)
                 // Try context item '.'
-                if let Some(first) = prim.clone().into_inner().next() {
-                    if first.as_rule() == Rule::context_item_expr {
-                        let preds = if let Some(pl) = pin.next() { if pl.as_rule() == Rule::predicate_list { Self::collect_predicate_list(pl)? } else { vec![] } } else { vec![] };
-                        return Some(ast::Step { axis: ast::Axis::SelfAxis, test: ast::NodeTest::Kind(ast::KindTest::AnyKind), predicates: preds });
-                    }
+                if let Some(first) = prim.clone().into_inner().next()
+                    && first.as_rule() == Rule::context_item_expr {
+                    let preds = if let Some(pl) = pin.next() { if pl.as_rule() == Rule::predicate_list { Self::collect_predicate_list(pl)? } else { vec![] } } else { vec![] };
+                    return Some(ast::Step { axis: ast::Axis::SelfAxis, test: ast::NodeTest::Kind(ast::KindTest::AnyKind), predicates: preds });
                 }
                 // Try to detect an embedded name_test/qname and treat as child::name()
                 if let Some(nt) = Self::find_rule(&prim, Rule::name_test) {
@@ -507,8 +504,8 @@ impl XPathParser {
             debug_assert_eq!(pr.as_rule(), Rule::predicate);
             // predicate = LBRACK ~ expr ~ RBRACK
             // Skip bracket tokens (they are captured in the grammar) and find the expr child
-            let mut pin = pr.into_inner();
-            while let Some(inner) = pin.next() {
+            let pin = pr.into_inner();
+            for inner in pin {
                 if inner.as_rule() == Rule::expr {
                     let e = Self::build_expr(&inner)?;
                     preds.push(e);

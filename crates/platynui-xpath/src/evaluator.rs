@@ -1,4 +1,4 @@
-use crate::compiler::{compile_xpath as compile_to_ir, AxisIR, CompiledIR, NodeTestIR, OpCode, SingleTypeIR, SeqTypeIR, ItemTypeIR, OccurrenceIR};
+use crate::compiler::{compile_xpath as compile_to_ir, AxisIR, CompiledIR, NodeTestIR, OpCode, SingleTypeIR, SeqTypeIR, ItemTypeIR, OccurrenceIR, ComparisonOp};
 use crate::xdm::ExpandedName;
 use crate::runtime::{Collation, DynamicContext, DynamicContextBuilder as Builder, Error, StaticContext};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
@@ -11,7 +11,7 @@ impl XPathExecutable {
         self.run_instrs::<N>(&self.0.instrs, _dyn_ctx, 1, 1)
     }
 
-    fn run_instrs<N: crate::model::XdmNode>(&self, instrs: &crate::compiler::InstrSeq, dyn_ctx: &DynamicContext<N>, mut position: i64, mut last: i64) -> Result<XdmSequence<N>, Error> {
+    fn run_instrs<N: crate::model::XdmNode>(&self, instrs: &crate::compiler::InstrSeq, dyn_ctx: &DynamicContext<N>, position: i64, last: i64) -> Result<XdmSequence<N>, Error> {
         let mut stack: Vec<XdmSequence<N>> = Vec::new();
         let code = &instrs.0;
         let mut ip: usize = 0;
@@ -324,21 +324,21 @@ fn num_div(a: f64, b: f64) -> Result<f64, Error> { if b == 0.0 { Err(Error::dyna
 fn num_idiv(a: f64, b: f64) -> Result<f64, Error> { if b == 0.0 { Err(Error::dynamic_err("err:FOAR0001", "idiv by zero")) } else { Ok((a / b).floor()) } }
 fn num_mod(a: f64, b: f64) -> f64 { a % b }
 
-fn compare_value_with_collation<N: crate::model::XdmNode>(l: &XdmSequence<N>, r: &XdmSequence<N>, code: u8, coll: Option<&dyn Collation>) -> Result<bool, Error> {
+fn compare_value_with_collation<N: crate::model::XdmNode>(l: &XdmSequence<N>, r: &XdmSequence<N>, op: ComparisonOp, coll: Option<&dyn Collation>) -> Result<bool, Error> {
     let la = atomize_sequence(l)?;
     let ra = atomize_sequence(r)?;
     if la.len() != 1 || ra.len() != 1 {
         return Err(Error::dynamic_err("err:FORG0006", "value comparison expects exactly one atomic value per operand"));
     }
-    compare_atomic(&la[0], &ra[0], code, coll)
+    compare_atomic(&la[0], &ra[0], op, coll)
 }
 
-fn compare_general<N: crate::model::XdmNode>(l: &XdmSequence<N>, r: &XdmSequence<N>, code: u8, coll: Option<&dyn Collation>) -> Result<bool, Error> {
+fn compare_general<N: crate::model::XdmNode>(l: &XdmSequence<N>, r: &XdmSequence<N>, op: ComparisonOp, coll: Option<&dyn Collation>) -> Result<bool, Error> {
     let la = atomize_sequence(l)?;
     let ra = atomize_sequence(r)?;
     for a in &la {
         for b in &ra {
-            match compare_atomic(a, b, code, coll) {
+            match compare_atomic(a, b, op, coll) {
                 Ok(true) => return Ok(true),
                 Ok(false) => continue,
                 Err(_) => continue, // ignore type-conversion errors for general comparisons
@@ -498,50 +498,44 @@ fn instance_of<N: crate::model::XdmNode>(s: &XdmSequence<N>, t: &SeqTypeIR) -> b
     }
 }
 
-fn compare_atomic(a: &XdmAtomicValue, b: &XdmAtomicValue, code: u8, coll: Option<&dyn Collation>) -> Result<bool, Error> {
-    match code {
-        0 | 1 => { // eq/ne
+fn compare_atomic(a: &XdmAtomicValue, b: &XdmAtomicValue, op: ComparisonOp, coll: Option<&dyn Collation>) -> Result<bool, Error> {
+    use ComparisonOp::*;
+    match op {
+        Eq | Ne => {
             // Numeric if either is numeric or both can be numeric (untypedAtomic)
             if is_numeric(a) || is_numeric(b) || (may_be_numeric(a) && may_be_numeric(b)) {
                 let na = as_number(a)?;
                 let nb = as_number(b)?;
-                return if code == 0 { Ok(na == nb) } else { Ok(na != nb) };
+                return if matches!(op, Eq) { Ok(na == nb) } else { Ok(na != nb) };
             }
             // Otherwise string compare (collation-aware)
             let sa = as_string(a);
             let sb = as_string(b);
             if let Some(c) = coll {
                 let eq = c.compare(&sa, &sb) == core::cmp::Ordering::Equal;
-                return if code == 0 { Ok(eq) } else { Ok(!eq) };
+                return if matches!(op, Eq) { Ok(eq) } else { Ok(!eq) };
             } else {
-                return if code == 0 { Ok(sa == sb) } else { Ok(sa != sb) };
+                return if matches!(op, Eq) { Ok(sa == sb) } else { Ok(sa != sb) };
             }
         }
-        2 | 3 | 4 | 5 => {
+        Lt | Le | Gt | Ge => {
             // Prefer numeric if both are numeric-like; otherwise string ordering
             if (is_numeric(a) || may_be_numeric(a)) && (is_numeric(b) || may_be_numeric(b)) {
                 let na = as_number(a)?;
                 let nb = as_number(b)?;
-                return Ok(match code {
-                    2 => na < nb,
-                    3 => na <= nb,
-                    4 => na > nb,
-                    5 => na >= nb,
-                    _ => unreachable!(),
-                });
+                return Ok(match op { Lt => na < nb, Le => na <= nb, Gt => na > nb, Ge => na >= nb, _ => unreachable!() });
             }
             let sa = as_string(a);
             let sb = as_string(b);
             let ord = if let Some(c) = coll { c.compare(&sa, &sb) } else { sa.cmp(&sb) };
-            return Ok(match code {
-                2 => ord == core::cmp::Ordering::Less,
-                3 => ord == core::cmp::Ordering::Less || ord == core::cmp::Ordering::Equal,
-                4 => ord == core::cmp::Ordering::Greater,
-                5 => ord == core::cmp::Ordering::Greater || ord == core::cmp::Ordering::Equal,
+            return Ok(match op {
+                ComparisonOp::Lt => ord == core::cmp::Ordering::Less,
+                ComparisonOp::Le => ord == core::cmp::Ordering::Less || ord == core::cmp::Ordering::Equal,
+                ComparisonOp::Gt => ord == core::cmp::Ordering::Greater,
+                ComparisonOp::Ge => ord == core::cmp::Ordering::Greater || ord == core::cmp::Ordering::Equal,
                 _ => unreachable!(),
             });
         }
-        _ => Err(Error::not_implemented("comparison op")),
     }
 }
 
@@ -728,13 +722,9 @@ fn matches_test<N: crate::model::XdmNode>(n: &N, test: &NodeTestIR) -> bool {
 }
 
 fn predicate_truthy<N>(seq: &XdmSequence<N>, pos: i64) -> Result<bool, Error> {
-    if seq.len() == 1 {
-        if let XdmItem::Atomic(a) = &seq[0] {
-            if is_numeric(a) {
-                let v = as_number(a)?;
-                return Ok((v as i64) == pos);
-            }
-        }
+    if seq.len() == 1 && let XdmItem::Atomic(a) = &seq[0] && is_numeric(a) {
+        let v = as_number(a)?;
+        return Ok((v as i64) == pos);
     }
     ebv(seq)
 }
@@ -747,11 +737,9 @@ pub fn compile_xpath(expr: &str, static_ctx: &StaticContext) -> Result<XPathExec
 // Re-exports for API are done from lib.rs
 
 fn resolve_default_collation<N>(exec: &XPathExecutable, dyn_ctx: &DynamicContext<N>) -> Option<std::sync::Arc<dyn Collation>> {
-    if let Some(uri) = &dyn_ctx.default_collation {
-        if let Some(c) = dyn_ctx.collations.get(uri) { return Some(c); }
-    }
-    if let Some(uri) = &exec.0.static_ctx.default_collation {
-        if let Some(c) = dyn_ctx.collations.get(uri) { return Some(c); }
-    }
+    if let Some(uri) = &dyn_ctx.default_collation
+        && let Some(c) = dyn_ctx.collations.get(uri) { return Some(c); }
+    if let Some(uri) = &exec.0.static_ctx.default_collation
+        && let Some(c) = dyn_ctx.collations.get(uri) { return Some(c); }
     dyn_ctx.collations.get("http://www.w3.org/2005/xpath-functions/collation/codepoint")
 }

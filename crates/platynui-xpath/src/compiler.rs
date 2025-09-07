@@ -69,8 +69,8 @@ pub enum OpCode {
     JumpIfFalse(usize),  // relative forward
 
     // Comparisons
-    CompareValue(u8 /* op */),
-    CompareGeneral(u8 /* op */),
+    CompareValue(ComparisonOp),
+    CompareGeneral(ComparisonOp),
     NodeIs,
     NodeBefore,
     NodeAfter,
@@ -128,6 +128,29 @@ pub enum OccurrenceIR { One, ZeroOrOne, ZeroOrMore, OneOrMore }
 
 #[derive(Debug, Clone)]
 pub enum SeqTypeIR { EmptySequence, Typed { item: ItemTypeIR, occ: OccurrenceIR } }
+
+#[derive(Debug, Clone, Copy)]
+pub enum ComparisonOp {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+impl fmt::Display for ComparisonOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ComparisonOp::Eq => write!(f, "="),
+            ComparisonOp::Ne => write!(f, "!="),
+            ComparisonOp::Lt => write!(f, "<"),
+            ComparisonOp::Le => write!(f, "<="),
+            ComparisonOp::Gt => write!(f, ">"),
+            ComparisonOp::Ge => write!(f, ">="),
+        }
+    }
+}
 
 pub fn compile_xpath(expr: &str, static_ctx: &StaticContext) -> Result<CompiledIR, Error> {
     // Straightforward: build full AST then compile
@@ -203,15 +226,15 @@ fn compile_expr(ast: &ast::Expr, out: &mut InstrSeq, sc: &StaticContext) -> Resu
         ast::Expr::GeneralComparison { left, op, right } => {
             compile_expr(left, out, sc)?;
             compile_expr(right, out, sc)?;
-            let code = match op {
-                ast::GeneralComp::Eq => 0,
-                ast::GeneralComp::Ne => 1,
-                ast::GeneralComp::Lt => 2,
-                ast::GeneralComp::Le => 3,
-                ast::GeneralComp::Gt => 4,
-                ast::GeneralComp::Ge => 5,
+            let cmp = match op {
+                ast::GeneralComp::Eq => ComparisonOp::Eq,
+                ast::GeneralComp::Ne => ComparisonOp::Ne,
+                ast::GeneralComp::Lt => ComparisonOp::Lt,
+                ast::GeneralComp::Le => ComparisonOp::Le,
+                ast::GeneralComp::Gt => ComparisonOp::Gt,
+                ast::GeneralComp::Ge => ComparisonOp::Ge,
             };
-            out.0.push(OpCode::CompareGeneral(code));
+            out.0.push(OpCode::CompareGeneral(cmp));
         }
         ast::Expr::NodeComparison { left, op, right } => {
             compile_expr(left, out, sc)?;
@@ -225,15 +248,15 @@ fn compile_expr(ast: &ast::Expr, out: &mut InstrSeq, sc: &StaticContext) -> Resu
         ast::Expr::ValueComparison { left, op, right } => {
             compile_expr(left, out, sc)?;
             compile_expr(right, out, sc)?;
-            let code = match op {
-                ast::ValueComp::Eq => 0,
-                ast::ValueComp::Ne => 1,
-                ast::ValueComp::Lt => 2,
-                ast::ValueComp::Le => 3,
-                ast::ValueComp::Gt => 4,
-                ast::ValueComp::Ge => 5,
+            let cmp = match op {
+                ast::ValueComp::Eq => ComparisonOp::Eq,
+                ast::ValueComp::Ne => ComparisonOp::Ne,
+                ast::ValueComp::Lt => ComparisonOp::Lt,
+                ast::ValueComp::Le => ComparisonOp::Le,
+                ast::ValueComp::Gt => ComparisonOp::Gt,
+                ast::ValueComp::Ge => ComparisonOp::Ge,
             };
-            out.0.push(OpCode::CompareValue(code));
+            out.0.push(OpCode::CompareValue(cmp));
         }
         ast::Expr::Sequence(items) => {
             for it in items {
