@@ -28,7 +28,12 @@ impl Rect {
             y += h;
             h = -h;
         }
-        Rect { x, y, width: w, height: h }
+        Rect {
+            x,
+            y,
+            width: w,
+            height: h,
+        }
     }
 
     pub fn left(&self) -> f64 {
@@ -48,16 +53,22 @@ impl Rect {
     }
 
     pub fn center(&self) -> Point {
-    Point::new(self.x + self.width / 2.0, self.y + self.height / 2.0)
+        Point::new(self.x + self.width / 2.0, self.y + self.height / 2.0)
     }
 
     pub fn contains(&self, p: Point) -> bool {
         // Inclusive left/top, exclusive right/bottom: [x, x+width) × [y, y+height)
-    p.x() >= self.x && p.x() < self.x + self.width && p.y() >= self.y && p.y() < self.y + self.height
+        p.x() >= self.x
+            && p.x() < self.x + self.width
+            && p.y() >= self.y
+            && p.y() < self.y + self.height
     }
 
     pub fn intersects(&self, other: &Rect) -> bool {
-        self.x < other.x + other.width && self.x + self.width > other.x && self.y < other.y + other.height && self.y + self.height > other.y
+        self.x < other.x + other.width
+            && self.x + self.width > other.x
+            && self.y < other.y + other.height
+            && self.y + self.height > other.y
     }
 
     pub fn intersection(&self, other: &Rect) -> Option<Rect> {
@@ -87,7 +98,12 @@ impl Rect {
     }
 
     pub fn inflate(&self, dw: f64, dh: f64) -> Rect {
-        Rect::new(self.x - dw, self.y - dh, self.width + 2.0 * dw, self.height + 2.0 * dh)
+        Rect::new(
+            self.x - dw,
+            self.y - dh,
+            self.width + 2.0 * dw,
+            self.height + 2.0 * dh,
+        )
     }
 
     pub fn deflate(&self, dw: f64, dh: f64) -> Rect {
@@ -97,16 +113,24 @@ impl Rect {
     pub fn is_empty(&self) -> bool {
         self.width <= 0.0 || self.height <= 0.0
     }
-    pub fn x(&self) -> f64 { self.x }
-    pub fn y(&self) -> f64 { self.y }
-    pub fn width(&self) -> f64 { self.width }
-    pub fn height(&self) -> f64 { self.height }
+    pub fn x(&self) -> f64 {
+        self.x
+    }
+    pub fn y(&self) -> f64 {
+        self.y
+    }
+    pub fn width(&self) -> f64 {
+        self.width
+    }
+    pub fn height(&self) -> f64 {
+        self.height
+    }
     pub fn size(&self) -> Size {
-    Size::new(self.width, self.height)
+        Size::new(self.width, self.height)
     }
 
     pub fn position(&self) -> Point {
-    Point::new(self.x, self.y)
+        Point::new(self.x, self.y)
     }
 }
 
@@ -119,35 +143,39 @@ impl From<(f64, f64, f64, f64)> for Rect {
 impl Display for Rect {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         // plain tuple-like representation consistent with Point
-        write!(f, "({}, {}, {}, {})", self.x, self.y, self.width, self.height)
+        write!(
+            f,
+            "({}, {}, {}, {})",
+            self.x, self.y, self.width, self.height
+        )
     }
 }
 
 impl std::ops::Add<Point> for Rect {
     type Output = Rect;
     fn add(self, rhs: Point) -> Rect {
-    Rect::new(self.x + rhs.x(), self.y + rhs.y(), self.width, self.height)
+        Rect::new(self.x + rhs.x(), self.y + rhs.y(), self.width, self.height)
     }
 }
 
 impl std::ops::AddAssign<Point> for Rect {
     fn add_assign(&mut self, rhs: Point) {
-    self.x += rhs.x();
-    self.y += rhs.y();
+        self.x += rhs.x();
+        self.y += rhs.y();
     }
 }
 
 impl std::ops::Sub<Point> for Rect {
     type Output = Rect;
     fn sub(self, rhs: Point) -> Rect {
-    Rect::new(self.x - rhs.x(), self.y - rhs.y(), self.width, self.height)
+        Rect::new(self.x - rhs.x(), self.y - rhs.y(), self.width, self.height)
     }
 }
 
 impl std::ops::SubAssign<Point> for Rect {
     fn sub_assign(&mut self, rhs: Point) {
-    self.x -= rhs.x();
-    self.y -= rhs.y();
+        self.x -= rhs.x();
+        self.y -= rhs.y();
     }
 }
 
@@ -157,35 +185,35 @@ mod tests {
 
     #[test]
     fn create_works() {
-    let r = Rect::new(1.0, 2.0, 3.0, 4.0);
-    assert_eq!(r.x(), 1.0);
-    assert_eq!(r.y(), 2.0);
-    assert_eq!(r.width(), 3.0);
-    assert_eq!(r.height(), 4.0);
+        let r = Rect::new(1.0, 2.0, 3.0, 4.0);
+        assert_eq!(r.x(), 1.0);
+        assert_eq!(r.y(), 2.0);
+        assert_eq!(r.width(), 3.0);
+        assert_eq!(r.height(), 4.0);
     }
 
     #[test]
     fn equality_works() {
-    let r1 = Rect::new(1.0, 2.0, 3.0, 4.0);
-    let r2 = Rect::new(1.0, 2.0, 3.0, 4.0);
+        let r1 = Rect::new(1.0, 2.0, 3.0, 4.0);
+        let r2 = Rect::new(1.0, 2.0, 3.0, 4.0);
         assert_eq!(r1, r2);
         assert!(r1 == r2);
     }
 
     #[test]
     fn default_works() {
-    let r: Rect = Default::default();
-    assert_eq!(r.x(), 0.0);
-    assert_eq!(r.y(), 0.0);
-    assert_eq!(r.width(), 0.0);
-    assert_eq!(r.height(), 0.0);
+        let r: Rect = Default::default();
+        assert_eq!(r.x(), 0.0);
+        assert_eq!(r.y(), 0.0);
+        assert_eq!(r.width(), 0.0);
+        assert_eq!(r.height(), 0.0);
     }
 
     #[test]
     fn serialize_to_json_should_work() {
-    let r1 = Rect::new(1.0, 2.0, 3.0, 4.0);
-    let serialized = serde_json::to_string(&r1).unwrap();
-    assert_eq!(serialized, r#"{"x":1.0,"y":2.0,"width":3.0,"height":4.0}"#);
+        let r1 = Rect::new(1.0, 2.0, 3.0, 4.0);
+        let serialized = serde_json::to_string(&r1).unwrap();
+        assert_eq!(serialized, r#"{"x":1.0,"y":2.0,"width":3.0,"height":4.0}"#);
     }
 
     #[test]
@@ -196,22 +224,22 @@ mod tests {
 
     #[test]
     fn normalized_handles_negative() {
-    // Rect::new normalizes negative width/height by adjusting origin.
-    let r = Rect::new(5.0, 6.0, -2.0, -3.0);
-    assert_eq!(r.x, 3.0);
-    assert_eq!(r.y, 3.0);
-    assert_eq!(r.width, 2.0);
-    assert_eq!(r.height, 3.0);
+        // Rect::new normalizes negative width/height by adjusting origin.
+        let r = Rect::new(5.0, 6.0, -2.0, -3.0);
+        assert_eq!(r.x, 3.0);
+        assert_eq!(r.y, 3.0);
+        assert_eq!(r.width, 2.0);
+        assert_eq!(r.height, 3.0);
     }
 
     #[test]
     fn contains_and_center() {
-    let r = Rect::new(0.0, 0.0, 10.0, 10.0);
-    assert!(r.contains(Point::new(0.0, 0.0)));
-    assert!(r.contains(Point::new(9.9999, 5.0)));
-    assert!(!r.contains(Point::new(10.0, 5.0)));
-    let c = r.center();
-    assert_eq!(c, Point::new(5.0, 5.0));
+        let r = Rect::new(0.0, 0.0, 10.0, 10.0);
+        assert!(r.contains(Point::new(0.0, 0.0)));
+        assert!(r.contains(Point::new(9.9999, 5.0)));
+        assert!(!r.contains(Point::new(10.0, 5.0)));
+        let c = r.center();
+        assert_eq!(c, Point::new(5.0, 5.0));
     }
 
     #[test]
@@ -237,12 +265,12 @@ mod tests {
 
     #[test]
     fn translate_inflate_empty() {
-        let r = Rect::new(1.0, 2.0, 3.0, 4.0);        
-        
-        assert_eq!(r.translate(1.0, -1.0), Rect::new(2.0, 1.0, 3.0, 4.0));        
-        assert_eq!(r.inflate(1.0, 2.0), Rect::new(0.0, 0.0, 5.0, 8.0));        
-        
-        assert!(!r.is_empty());        
+        let r = Rect::new(1.0, 2.0, 3.0, 4.0);
+
+        assert_eq!(r.translate(1.0, -1.0), Rect::new(2.0, 1.0, 3.0, 4.0));
+        assert_eq!(r.inflate(1.0, 2.0), Rect::new(0.0, 0.0, 5.0, 8.0));
+
+        assert!(!r.is_empty());
         assert!(Rect::new(0.0, 0.0, 0.0, 5.0).is_empty());
     }
 }

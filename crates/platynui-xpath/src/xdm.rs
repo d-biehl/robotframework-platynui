@@ -8,7 +8,10 @@ pub struct ExpandedName {
 
 impl ExpandedName {
     pub fn new(ns_uri: Option<String>, local: impl Into<String>) -> Self {
-        Self { ns_uri, local: local.into() }
+        Self {
+            ns_uri,
+            local: local.into(),
+        }
     }
 }
 
@@ -21,7 +24,11 @@ pub enum XdmAtomicValue {
     Double(f64),
     Float(f32),
     AnyUri(String),
-    QName { ns_uri: Option<String>, prefix: Option<String>, local: String },
+    QName {
+        ns_uri: Option<String>,
+        prefix: Option<String>,
+        local: String,
+    },
     UntypedAtomic(String),
     // Date/Time/Duration families will be added; kept out to avoid extra deps right now
 }
@@ -45,4 +52,3 @@ where
         }
     }
 }
-

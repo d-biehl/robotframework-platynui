@@ -1,8 +1,7 @@
 use std::{
     any::Any,
-    sync::{Arc, Weak},    
+    sync::{Arc, Weak},
 };
-
 
 pub trait Attribute: Send + Sync {
     fn name(&self) -> &str;

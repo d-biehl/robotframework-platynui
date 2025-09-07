@@ -1,12 +1,19 @@
+use pest::Parser;
 use pest::iterators::{Pair, Pairs};
 use platynui_xpath::parser::{Rule, XPathParser};
-use pest::Parser;
 
 // Test-only expression node structure for precedence/shape assertions
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExpressionNode {
-    Binary { left: Box<ExpressionNode>, op: BinaryOp, right: Box<ExpressionNode> },
-    FunctionCall { name: String, args: Vec<ExpressionNode> },
+    Binary {
+        left: Box<ExpressionNode>,
+        op: BinaryOp,
+        right: Box<ExpressionNode>,
+    },
+    FunctionCall {
+        name: String,
+        args: Vec<ExpressionNode>,
+    },
     Identifier(String),
     Literal(String),
 }
@@ -34,9 +41,7 @@ pub fn is_well_formed_ast(node: &ExpressionNode) -> bool {
         ExpressionNode::Binary { left, right, .. } => {
             is_well_formed_ast(left) && is_well_formed_ast(right)
         }
-        ExpressionNode::FunctionCall { args, .. } => {
-            args.iter().all(is_well_formed_ast)
-        }
+        ExpressionNode::FunctionCall { args, .. } => args.iter().all(is_well_formed_ast),
         ExpressionNode::Identifier(_) | ExpressionNode::Literal(_) => true,
     }
 }
@@ -47,7 +52,11 @@ pub fn parse_and_extract_ast(xpath: &str) -> ExpressionNode {
         .unwrap_or_else(|e| panic!("Expression '{}' should parse successfully: {}", xpath, e));
     let ast = extract_expression_structure(pairs)
         .unwrap_or_else(|| panic!("Should extract AST structure for: '{}'", xpath));
-    assert!(is_well_formed_ast(&ast), "AST should be well-formed for: '{}'", xpath);
+    assert!(
+        is_well_formed_ast(&ast),
+        "AST should be well-formed for: '{}'",
+        xpath
+    );
     ast
 }
 
@@ -78,7 +87,11 @@ fn parse_expression_node(pair: &Pair<Rule>) -> Option<ExpressionNode> {
                     Rule::OP_MINUS => BinaryOp::Subtract,
                     _ => return None,
                 };
-                Some(ExpressionNode::Binary { left: Box::new(left_node), op, right: Box::new(right_node) })
+                Some(ExpressionNode::Binary {
+                    left: Box::new(left_node),
+                    op,
+                    right: Box::new(right_node),
+                })
             } else {
                 parse_expression_node(&left)
             }
@@ -96,7 +109,11 @@ fn parse_expression_node(pair: &Pair<Rule>) -> Option<ExpressionNode> {
                     Rule::K_MOD => BinaryOp::Modulo,
                     _ => return None,
                 };
-                Some(ExpressionNode::Binary { left: Box::new(left_node), op, right: Box::new(right_node) })
+                Some(ExpressionNode::Binary {
+                    left: Box::new(left_node),
+                    op,
+                    right: Box::new(right_node),
+                })
             } else {
                 parse_expression_node(&left)
             }
@@ -108,8 +125,15 @@ fn parse_expression_node(pair: &Pair<Rule>) -> Option<ExpressionNode> {
                 let right = inners.next()?;
                 let left_node = parse_expression_node(&left)?;
                 let right_node = parse_expression_node(&right)?;
-                let op = match first_token_rule(&op_pair) { Rule::K_AND => BinaryOp::And, _ => return None };
-                Some(ExpressionNode::Binary { left: Box::new(left_node), op, right: Box::new(right_node) })
+                let op = match first_token_rule(&op_pair) {
+                    Rule::K_AND => BinaryOp::And,
+                    _ => return None,
+                };
+                Some(ExpressionNode::Binary {
+                    left: Box::new(left_node),
+                    op,
+                    right: Box::new(right_node),
+                })
             } else {
                 parse_expression_node(&left)
             }
@@ -121,8 +145,15 @@ fn parse_expression_node(pair: &Pair<Rule>) -> Option<ExpressionNode> {
                 let right = inners.next()?;
                 let left_node = parse_expression_node(&left)?;
                 let right_node = parse_expression_node(&right)?;
-                let op = match first_token_rule(&op_pair) { Rule::K_OR => BinaryOp::Or, _ => return None };
-                Some(ExpressionNode::Binary { left: Box::new(left_node), op, right: Box::new(right_node) })
+                let op = match first_token_rule(&op_pair) {
+                    Rule::K_OR => BinaryOp::Or,
+                    _ => return None,
+                };
+                Some(ExpressionNode::Binary {
+                    left: Box::new(left_node),
+                    op,
+                    right: Box::new(right_node),
+                })
             } else {
                 parse_expression_node(&left)
             }
@@ -144,12 +175,18 @@ fn parse_expression_node(pair: &Pair<Rule>) -> Option<ExpressionNode> {
                     Rule::OP_GTE | Rule::K_GE => BinaryOp::GreaterThanOrEqual,
                     _ => return None,
                 };
-                Some(ExpressionNode::Binary { left: Box::new(left_node), op, right: Box::new(right_node) })
+                Some(ExpressionNode::Binary {
+                    left: Box::new(left_node),
+                    op,
+                    right: Box::new(right_node),
+                })
             } else {
                 parse_expression_node(&left)
             }
         }
-        Rule::integer_literal | Rule::decimal_literal => Some(ExpressionNode::Literal(pair.as_str().to_string())),
+        Rule::integer_literal | Rule::decimal_literal => {
+            Some(ExpressionNode::Literal(pair.as_str().to_string()))
+        }
         Rule::string_literal => {
             // Extract unescaped inner content from string literal
             let mut inners = pair.clone().into_inner();
@@ -165,18 +202,23 @@ fn parse_expression_node(pair: &Pair<Rule>) -> Option<ExpressionNode> {
                 Some(ExpressionNode::Literal(String::new()))
             }
         }
-        Rule::dbl_string_inner => Some(ExpressionNode::Literal(pair.as_str().replace("\"\"", "\""))),
+        Rule::dbl_string_inner => {
+            Some(ExpressionNode::Literal(pair.as_str().replace("\"\"", "\"")))
+        }
         Rule::sgl_string_inner => Some(ExpressionNode::Literal(pair.as_str().replace("''", "'"))),
         Rule::qname => Some(ExpressionNode::Identifier(pair.as_str().to_string())),
         Rule::function_call => {
             let mut inners = pair.clone().into_inner();
             let name = inners.next()?.as_str().to_string();
-            let args: Vec<ExpressionNode> = inners.filter_map(|a| parse_expression_node(&a)).collect();
+            let args: Vec<ExpressionNode> =
+                inners.filter_map(|a| parse_expression_node(&a)).collect();
             Some(ExpressionNode::FunctionCall { name, args })
         }
         _ => {
             for inner in pair.clone().into_inner() {
-                if let Some(node) = parse_expression_node(&inner) { return Some(node); }
+                if let Some(node) = parse_expression_node(&inner) {
+                    return Some(node);
+                }
             }
             None
         }
@@ -187,37 +229,74 @@ fn first_token_rule(pair: &Pair<Rule>) -> Rule {
     let mut current = pair.clone();
     loop {
         let mut inner = current.clone().into_inner();
-        if let Some(next) = inner.next() { current = next; } else { return current.as_rule(); }
+        if let Some(next) = inner.next() {
+            current = next;
+        } else {
+            return current.as_rule();
+        }
     }
 }
 
 /// Helper function to assert binary expression structure
-pub fn assert_binary_expr(ast: ExpressionNode, expected_op: BinaryOp, xpath: &str) -> (Box<ExpressionNode>, Box<ExpressionNode>) {
+pub fn assert_binary_expr(
+    ast: ExpressionNode,
+    expected_op: BinaryOp,
+    xpath: &str,
+) -> (Box<ExpressionNode>, Box<ExpressionNode>) {
     let ExpressionNode::Binary { left, op, right } = ast else {
         panic!("Expected binary expression for: '{}'", xpath);
     };
-    assert_eq!(op, expected_op, "Expected {:?} operator for: '{}'", expected_op, xpath);
+    assert_eq!(
+        op, expected_op,
+        "Expected {:?} operator for: '{}'",
+        expected_op, xpath
+    );
     (left, right)
 }
 
 /// Helper function to assert function call structure
-pub fn assert_function_call(ast: ExpressionNode, expected_name: &str, expected_arg_count: usize, xpath: &str) -> Vec<ExpressionNode> {
+pub fn assert_function_call(
+    ast: ExpressionNode,
+    expected_name: &str,
+    expected_arg_count: usize,
+    xpath: &str,
+) -> Vec<ExpressionNode> {
     let ExpressionNode::FunctionCall { name, args } = ast else {
         panic!("Expected function call for: '{}'", xpath);
     };
-    assert_eq!(name, expected_name, "Expected function name '{}' for: '{}'", expected_name, xpath);
-    assert_eq!(args.len(), expected_arg_count, "Expected {} arguments for: '{}'", expected_arg_count, xpath);
+    assert_eq!(
+        name, expected_name,
+        "Expected function name '{}' for: '{}'",
+        expected_name, xpath
+    );
+    assert_eq!(
+        args.len(),
+        expected_arg_count,
+        "Expected {} arguments for: '{}'",
+        expected_arg_count,
+        xpath
+    );
     args
 }
 
 /// Helper function to assert literal value
 pub fn assert_literal(ast: &ExpressionNode, expected_value: &str, xpath: &str) {
-    assert_eq!(*ast, ExpressionNode::Literal(expected_value.to_string()), 
-              "Expected literal '{}' for: '{}'", expected_value, xpath);
+    assert_eq!(
+        *ast,
+        ExpressionNode::Literal(expected_value.to_string()),
+        "Expected literal '{}' for: '{}'",
+        expected_value,
+        xpath
+    );
 }
 
 /// Helper function to assert identifier value
 pub fn assert_identifier(ast: &ExpressionNode, expected_name: &str, xpath: &str) {
-    assert_eq!(*ast, ExpressionNode::Identifier(expected_name.to_string()), 
-              "Expected identifier '{}' for: '{}'", expected_name, xpath);
+    assert_eq!(
+        *ast,
+        ExpressionNode::Identifier(expected_name.to_string()),
+        "Expected identifier '{}' for: '{}'",
+        expected_name,
+        xpath
+    );
 }

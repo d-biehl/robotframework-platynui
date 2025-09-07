@@ -19,10 +19,14 @@ use super::*;
 #[case("//canvas[@width and @height]", "Canvas with dimensions")]
 #[case("//svg[@viewBox]", "SVG with viewBox")]
 fn test_modern_web_elements(#[case] xpath: &str, #[case] description: &str) {
-
     let result = parse_xpath(xpath);
-    assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
-            description, xpath, result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to parse {}: '{}'. Error: {:?}",
+        description,
+        xpath,
+        result.err()
+    );
 }
 
 #[rstest]
@@ -42,8 +46,13 @@ fn test_modern_web_elements(#[case] xpath: &str, #[case] description: &str) {
 #[case("//footer[@role='contentinfo']", "Footer with contentinfo role")]
 fn test_semantic_html_structures(#[case] xpath: &str, #[case] description: &str) {
     let result = parse_xpath(xpath);
-    assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
-            description, xpath, result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to parse {}: '{}'. Error: {:?}",
+        description,
+        xpath,
+        result.err()
+    );
 }
 
 #[rstest]
@@ -61,8 +70,13 @@ fn test_semantic_html_structures(#[case] xpath: &str, #[case] description: &str)
 #[case("//slider[@aria-valuemin and @aria-valuemax]", "Slider with min/max")]
 fn test_accessibility_attributes(#[case] xpath: &str, #[case] description: &str) {
     let result = parse_xpath(xpath);
-    assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
-            description, xpath, result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to parse {}: '{}'. Error: {:?}",
+        description,
+        xpath,
+        result.err()
+    );
 }
 
 #[rstest]
@@ -80,8 +94,13 @@ fn test_accessibility_attributes(#[case] xpath: &str, #[case] description: &str)
 #[case("//a[@href='#']", "Placeholder link")]
 fn test_element_states(#[case] xpath: &str, #[case] description: &str) {
     let result = parse_xpath(xpath);
-    assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
-            description, xpath, result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to parse {}: '{}'. Error: {:?}",
+        description,
+        xpath,
+        result.err()
+    );
 }
 
 #[rstest]
@@ -102,6 +121,11 @@ fn test_element_states(#[case] xpath: &str, #[case] description: &str) {
 #[case("//input[@type='url']", "URL input")]
 fn test_form_input_types(#[case] xpath: &str, #[case] description: &str) {
     let result = parse_xpath(xpath);
-    assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
-            description, xpath, result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to parse {}: '{}'. Error: {:?}",
+        description,
+        xpath,
+        result.err()
+    );
 }

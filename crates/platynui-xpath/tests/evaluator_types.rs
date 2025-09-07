@@ -1,28 +1,54 @@
-use rstest::rstest;
 use platynui_xpath::compile_xpath;
+use platynui_xpath::model::{NodeKind, QName, XdmNode};
 use platynui_xpath::runtime::StaticContext;
-use platynui_xpath::xdm::{XdmItem, XdmAtomicValue};
-use platynui_xpath::model::{XdmNode, NodeKind, QName};
+use platynui_xpath::xdm::{XdmAtomicValue, XdmItem};
+use rstest::rstest;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DummyNode;
 
 impl XdmNode for DummyNode {
-    fn kind(&self) -> NodeKind { NodeKind::Text }
-    fn name(&self) -> Option<QName> { None }
-    fn string_value(&self) -> String { String::new() }
-    fn parent(&self) -> Option<Self> { None }
-    fn children(&self) -> Vec<Self> { vec![] }
-    fn attributes(&self) -> Vec<Self> { vec![] }
-    fn compare_document_order(&self, _other: &Self) -> std::cmp::Ordering { std::cmp::Ordering::Equal }
+    fn kind(&self) -> NodeKind {
+        NodeKind::Text
+    }
+    fn name(&self) -> Option<QName> {
+        None
+    }
+    fn string_value(&self) -> String {
+        String::new()
+    }
+    fn parent(&self) -> Option<Self> {
+        None
+    }
+    fn children(&self) -> Vec<Self> {
+        vec![]
+    }
+    fn attributes(&self) -> Vec<Self> {
+        vec![]
+    }
+    fn compare_document_order(&self, _other: &Self) -> std::cmp::Ordering {
+        std::cmp::Ordering::Equal
+    }
 }
 
 fn as_bool<N>(items: &Vec<XdmItem<N>>) -> bool {
-    match &items[0] { XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => *b, _ => panic!("bool expected") }
+    match &items[0] {
+        XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => *b,
+        _ => panic!("bool expected"),
+    }
 }
 
 fn atoms<N>(items: &Vec<XdmItem<N>>) -> Vec<XdmAtomicValue> {
-    items.iter().filter_map(|it| if let XdmItem::Atomic(a) = it { Some(a.clone()) } else { None }).collect()
+    items
+        .iter()
+        .filter_map(|it| {
+            if let XdmItem::Atomic(a) = it {
+                Some(a.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 #[rstest]
@@ -71,7 +97,9 @@ fn treat_as_item_star() {
 
 fn mk_sc() -> StaticContext {
     let mut sc = StaticContext::default();
-    sc.namespaces.by_prefix.insert("xs".into(), "http://www.w3.org/2001/XMLSchema".into());
+    sc.namespaces
+        .by_prefix
+        .insert("xs".into(), "http://www.w3.org/2001/XMLSchema".into());
     sc
 }
 

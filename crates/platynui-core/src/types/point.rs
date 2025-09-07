@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::ops::{Add, Sub};
 use std::fmt::{Display, Formatter, Result};
+use std::ops::{Add, Sub};
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Point {
@@ -18,17 +18,29 @@ impl Point {
     pub fn to_tuple(&self) -> (f64, f64) {
         (self.x, self.y)
     }
-    
-    pub fn x(&self) -> f64 { self.x }
-    pub fn y(&self) -> f64 { self.y }
 
-    pub fn with_x(&self, x: f64) -> Self { Point { x, y: self.y } }
-    pub fn with_y(&self, y: f64) -> Self { Point { x: self.x, y } }
+    pub fn x(&self) -> f64 {
+        self.x
+    }
+    pub fn y(&self) -> f64 {
+        self.y
+    }
+
+    pub fn with_x(&self, x: f64) -> Self {
+        Point { x, y: self.y }
+    }
+    pub fn with_y(&self, y: f64) -> Self {
+        Point { x: self.x, y }
+    }
 
     /// Translate and return a new Point
-    pub fn translate(&self, dx: f64, dy: f64) -> Self { Point::new(self.x + dx, self.y + dy) }
+    pub fn translate(&self, dx: f64, dy: f64) -> Self {
+        Point::new(self.x + dx, self.y + dy)
+    }
 
-    pub fn is_finite(&self) -> bool { self.x.is_finite() && self.y.is_finite() }
+    pub fn is_finite(&self) -> bool {
+        self.x.is_finite() && self.y.is_finite()
+    }
 }
 
 impl Add for Point {
@@ -50,7 +62,6 @@ impl Sub for Point {
     }
 }
 
-
 impl From<(f64, f64)> for Point {
     fn from(t: (f64, f64)) -> Self {
         Point::new(t.0, t.1)
@@ -70,29 +81,29 @@ mod tests {
 
     #[test]
     fn create_works() {
-    let p1 = Point::new(1.0, 2.0);
-    assert_eq!(p1.x(), 1.0);
-    assert_eq!(p1.y(), 2.0);
+        let p1 = Point::new(1.0, 2.0);
+        assert_eq!(p1.x(), 1.0);
+        assert_eq!(p1.y(), 2.0);
 
-    let p2 = Point::new(1.0, 2.0);
-    assert_eq!(p1, p2);
-    assert!(p1 == p2);
+        let p2 = Point::new(1.0, 2.0);
+        assert_eq!(p1, p2);
+        assert!(p1 == p2);
     }
 
     #[test]
     fn default_works() {
         let p: Point = Default::default();
-    assert_eq!(p.x(), 0.0);
-    assert_eq!(p.y(), 0.0);
+        assert_eq!(p.x(), 0.0);
+        assert_eq!(p.y(), 0.0);
     }
 
     #[test]
     fn add_works() {
-    let p1 = Point::new(1.0, 2.0);
-    let p2 = Point::new(3.0, 4.0);
-    let p3 = p1 + p2;
-    assert_eq!(p3.x(), 4.0);
-    assert_eq!(p3.y(), 6.0);
+        let p1 = Point::new(1.0, 2.0);
+        let p2 = Point::new(3.0, 4.0);
+        let p3 = p1 + p2;
+        assert_eq!(p3.x(), 4.0);
+        assert_eq!(p3.y(), 6.0);
     }
 
     #[test]
@@ -106,11 +117,11 @@ mod tests {
 
     #[test]
     fn sub_works() {
-    let p1 = Point::new(3.0, 4.0);
-    let p2 = Point::new(1.0, 2.0);
-    let p3 = p1 - p2;
-    assert_eq!(p3.x(), 2.0);
-    assert_eq!(p3.y(), 2.0);
+        let p1 = Point::new(3.0, 4.0);
+        let p2 = Point::new(1.0, 2.0);
+        let p3 = p1 - p2;
+        assert_eq!(p3.x(), 2.0);
+        assert_eq!(p3.y(), 2.0);
     }
 
     #[test]

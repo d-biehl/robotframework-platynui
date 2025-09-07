@@ -1,36 +1,87 @@
-use rstest::{rstest, fixture};
-use std::sync::Arc;
 use platynui_xpath::compile_xpath;
-use platynui_xpath::model::{XdmNode, NodeKind, QName};
+use platynui_xpath::model::{NodeKind, QName, XdmNode};
 use platynui_xpath::runtime::StaticContext;
-use platynui_xpath::xdm::{XdmItem, XdmAtomicValue};
+use platynui_xpath::xdm::{XdmAtomicValue, XdmItem};
+use rstest::{fixture, rstest};
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
-struct Dom { nodes: Vec<NodeRec> }
+struct Dom {
+    nodes: Vec<NodeRec>,
+}
 
 #[derive(Debug, Clone)]
-struct NodeRec { kind: NodeKind, name: Option<QName>, value: String, parent: Option<usize>, children: Vec<usize> }
+struct NodeRec {
+    kind: NodeKind,
+    name: Option<QName>,
+    value: String,
+    parent: Option<usize>,
+    children: Vec<usize>,
+}
 
 #[derive(Debug, Clone)]
-struct Node { dom: Arc<Dom>, idx: usize }
+struct Node {
+    dom: Arc<Dom>,
+    idx: usize,
+}
 
-impl PartialEq for Node { fn eq(&self, o: &Self) -> bool { Arc::ptr_eq(&self.dom, &o.dom) && self.idx == o.idx } }
+impl PartialEq for Node {
+    fn eq(&self, o: &Self) -> bool {
+        Arc::ptr_eq(&self.dom, &o.dom) && self.idx == o.idx
+    }
+}
 impl Eq for Node {}
 
 impl XdmNode for Node {
-    fn kind(&self) -> NodeKind { self.dom.nodes[self.idx].kind.clone() }
-    fn name(&self) -> Option<QName> { self.dom.nodes[self.idx].name.clone() }
-    fn string_value(&self) -> String { self.dom.nodes[self.idx].value.clone() }
-    fn parent(&self) -> Option<Self> { self.dom.nodes[self.idx].parent.map(|i| Node { dom: self.dom.clone(), idx: i }) }
-    fn children(&self) -> Vec<Self> { self.dom.nodes[self.idx].children.iter().map(|&i| Node { dom: self.dom.clone(), idx: i }).collect() }
-    fn attributes(&self) -> Vec<Self> { Vec::new() }
-    fn compare_document_order(&self, other: &Self) -> std::cmp::Ordering { self.idx.cmp(&other.idx) }
+    fn kind(&self) -> NodeKind {
+        self.dom.nodes[self.idx].kind.clone()
+    }
+    fn name(&self) -> Option<QName> {
+        self.dom.nodes[self.idx].name.clone()
+    }
+    fn string_value(&self) -> String {
+        self.dom.nodes[self.idx].value.clone()
+    }
+    fn parent(&self) -> Option<Self> {
+        self.dom.nodes[self.idx].parent.map(|i| Node {
+            dom: self.dom.clone(),
+            idx: i,
+        })
+    }
+    fn children(&self) -> Vec<Self> {
+        self.dom.nodes[self.idx]
+            .children
+            .iter()
+            .map(|&i| Node {
+                dom: self.dom.clone(),
+                idx: i,
+            })
+            .collect()
+    }
+    fn attributes(&self) -> Vec<Self> {
+        Vec::new()
+    }
+    fn compare_document_order(&self, other: &Self) -> std::cmp::Ordering {
+        self.idx.cmp(&other.idx)
+    }
 }
 
 fn el(dom: &mut Dom, parent: Option<usize>, local: &str) -> usize {
     let idx = dom.nodes.len();
-    dom.nodes.push(NodeRec { kind: NodeKind::Element, name: Some(QName { prefix: None, local: local.into(), ns_uri: None }), value: String::new(), parent, children: vec![] });
-    if let Some(p) = parent { dom.nodes[p].children.push(idx); }
+    dom.nodes.push(NodeRec {
+        kind: NodeKind::Element,
+        name: Some(QName {
+            prefix: None,
+            local: local.into(),
+            ns_uri: None,
+        }),
+        value: String::new(),
+        parent,
+        children: vec![],
+    });
+    if let Some(p) = parent {
+        dom.nodes[p].children.push(idx);
+    }
     idx
 }
 
@@ -44,7 +95,10 @@ fn sample_tree() -> Node {
     let _a1 = el(&mut d, Some(root), "a");
     let a2 = el(&mut d, Some(root), "a");
     let _c = el(&mut d, Some(a2), "c");
-    Node { dom: Arc::new(d), idx: root }
+    Node {
+        dom: Arc::new(d),
+        idx: root,
+    }
 }
 
 fn as_bool<N>(items: &Vec<XdmItem<N>>) -> bool {
@@ -56,9 +110,15 @@ fn as_bool<N>(items: &Vec<XdmItem<N>>) -> bool {
 }
 
 #[fixture]
-fn root() -> Node { sample_tree() }
+#[allow(unused_braces)]
+fn root() -> Node {
+    sample_tree()
+}
 #[fixture]
-fn sc() -> StaticContext { StaticContext::default() }
+#[allow(unused_braces)]
+fn sc() -> StaticContext {
+    StaticContext::default()
+}
 
 #[rstest]
 fn node_is_true(root: Node, sc: StaticContext) {

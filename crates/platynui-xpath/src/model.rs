@@ -22,13 +22,16 @@ pub trait XdmNode: Clone + Eq + core::fmt::Debug + Send + Sync {
     fn kind(&self) -> NodeKind;
     fn name(&self) -> Option<QName>;
     fn string_value(&self) -> String;
-    fn base_uri(&self) -> Option<String> { None }
+    fn base_uri(&self) -> Option<String> {
+        None
+    }
 
     fn parent(&self) -> Option<Self>;
     fn children(&self) -> Vec<Self>;
     fn attributes(&self) -> Vec<Self>;
-    fn namespaces(&self) -> Vec<Self> { Vec::new() }
+    fn namespaces(&self) -> Vec<Self> {
+        Vec::new()
+    }
 
     fn compare_document_order(&self, other: &Self) -> Ordering;
 }
-

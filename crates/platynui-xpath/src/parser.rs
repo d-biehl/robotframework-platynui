@@ -17,8 +17,15 @@ impl XPathParser {
         let pair = pairs.next().expect("xpath root");
         debug_assert_eq!(pair.as_rule(), Rule::xpath);
         let inner = pair.into_inner().next().expect("expr root");
-        if let Some(e) = Self::build_expr(&inner) { return Ok(e); }
-        Err(Box::new(Error::new_from_span(pest::error::ErrorVariant::CustomError { message: "unsupported expression for AST builder".into() }, inner.as_span())))
+        if let Some(e) = Self::build_expr(&inner) {
+            return Ok(e);
+        }
+        Err(Box::new(Error::new_from_span(
+            pest::error::ErrorVariant::CustomError {
+                message: "unsupported expression for AST builder".into(),
+            },
+            inner.as_span(),
+        )))
     }
 
     // Test-only AST extractors moved to tests/parser/test_utils.rs
@@ -41,20 +48,40 @@ impl XPathParser {
     // ====== Internal AST builder (subset) ======
     fn build_expr(pair: &Pair<Rule>) -> Option<ast::Expr> {
         match pair.as_rule() {
-            Rule::expr_single | Rule::or_expr | Rule::and_expr | Rule::comparison_expr
-            | Rule::range_expr | Rule::additive_expr | Rule::multiplicative_expr | Rule::unary_expr
-            | Rule::union_expr | Rule::intersect_except_expr
-            | Rule::instanceof_expr | Rule::treat_expr | Rule::castable_expr | Rule::cast_expr
-            | Rule::value_expr | Rule::path_expr | Rule::relative_path_expr | Rule::postfix_expr
-            | Rule::primary_expr | Rule::parenthesized_expr => {
-                Self::build_binary_chain(pair)
-            }
+            Rule::expr_single
+            | Rule::or_expr
+            | Rule::and_expr
+            | Rule::comparison_expr
+            | Rule::range_expr
+            | Rule::additive_expr
+            | Rule::multiplicative_expr
+            | Rule::unary_expr
+            | Rule::union_expr
+            | Rule::intersect_except_expr
+            | Rule::instanceof_expr
+            | Rule::treat_expr
+            | Rule::castable_expr
+            | Rule::cast_expr
+            | Rule::value_expr
+            | Rule::path_expr
+            | Rule::relative_path_expr
+            | Rule::postfix_expr
+            | Rule::primary_expr
+            | Rule::parenthesized_expr => Self::build_binary_chain(pair),
             Rule::expr => {
                 let mut acc: Vec<ast::Expr> = Vec::new();
                 for p in pair.clone().into_inner() {
-                    if let Some(e) = Self::build_expr(&p) { acc.push(e); }
+                    if let Some(e) = Self::build_expr(&p) {
+                        acc.push(e);
+                    }
                 }
-                if acc.is_empty() { None } else if acc.len() == 1 { Some(acc.remove(0)) } else { Some(ast::Expr::Sequence(acc)) }
+                if acc.is_empty() {
+                    None
+                } else if acc.len() == 1 {
+                    Some(acc.remove(0))
+                } else {
+                    Some(ast::Expr::Sequence(acc))
+                }
             }
             Rule::string_literal => {
                 let mut inners = pair.clone().into_inner();
@@ -131,10 +158,23 @@ impl XPathParser {
                     if token == Rule::K_UNION || token == Rule::OP_PIPE {
                         let right = inn.next()?;
                         let r = Self::build_expr(&right)
-                            .or_else(|| Self::find_rule(&right, Rule::path_expr).and_then(|p| Self::build_path_expr(&p)))
-                            .or_else(|| Self::find_rule(&right, Rule::absolute_path).and_then(|p| Self::build_absolute_path(&p)))
-                            .or_else(|| Self::find_rule(&right, Rule::relative_path_expr).and_then(|p| Self::build_relative_path(&p)))?;
-                        expr = ast::Expr::SetOp { left: Box::new(expr), op: ast::SetOp::Union, right: Box::new(r) };
+                            .or_else(|| {
+                                Self::find_rule(&right, Rule::path_expr)
+                                    .and_then(|p| Self::build_path_expr(&p))
+                            })
+                            .or_else(|| {
+                                Self::find_rule(&right, Rule::absolute_path)
+                                    .and_then(|p| Self::build_absolute_path(&p))
+                            })
+                            .or_else(|| {
+                                Self::find_rule(&right, Rule::relative_path_expr)
+                                    .and_then(|p| Self::build_relative_path(&p))
+                            })?;
+                        expr = ast::Expr::SetOp {
+                            left: Box::new(expr),
+                            op: ast::SetOp::Union,
+                            right: Box::new(r),
+                        };
                     }
                 }
                 Some(expr)
@@ -147,12 +187,29 @@ impl XPathParser {
                     let token = Self::first_token_rule(&op_or_next);
                     let right = inn.next()?;
                     let r = Self::build_expr(&right)
-                        .or_else(|| Self::find_rule(&right, Rule::path_expr).and_then(|p| Self::build_path_expr(&p)))
-                        .or_else(|| Self::find_rule(&right, Rule::absolute_path).and_then(|p| Self::build_absolute_path(&p)))
-                        .or_else(|| Self::find_rule(&right, Rule::relative_path_expr).and_then(|p| Self::build_relative_path(&p)))?;
+                        .or_else(|| {
+                            Self::find_rule(&right, Rule::path_expr)
+                                .and_then(|p| Self::build_path_expr(&p))
+                        })
+                        .or_else(|| {
+                            Self::find_rule(&right, Rule::absolute_path)
+                                .and_then(|p| Self::build_absolute_path(&p))
+                        })
+                        .or_else(|| {
+                            Self::find_rule(&right, Rule::relative_path_expr)
+                                .and_then(|p| Self::build_relative_path(&p))
+                        })?;
                     expr = match token {
-                        Rule::K_INTERSECT => ast::Expr::SetOp { left: Box::new(expr), op: ast::SetOp::Intersect, right: Box::new(r) },
-                        Rule::K_EXCEPT => ast::Expr::SetOp { left: Box::new(expr), op: ast::SetOp::Except, right: Box::new(r) },
+                        Rule::K_INTERSECT => ast::Expr::SetOp {
+                            left: Box::new(expr),
+                            op: ast::SetOp::Intersect,
+                            right: Box::new(r),
+                        },
+                        Rule::K_EXCEPT => ast::Expr::SetOp {
+                            left: Box::new(expr),
+                            op: ast::SetOp::Except,
+                            right: Box::new(r),
+                        },
                         _ => expr,
                     };
                 }
@@ -160,21 +217,35 @@ impl XPathParser {
             }
             Rule::parenthesized_expr => {
                 let mut inners = pair.clone().into_inner();
-                if let Some(inner) = inners.next() { return Self::build_expr(&inner); }
+                if let Some(inner) = inners.next() {
+                    return Self::build_expr(&inner);
+                }
                 Some(ast::Expr::Literal(ast::Literal::EmptySequence))
             }
-            Rule::or_expr => Self::fold_chain(pair, Rule::and_expr, |op| match op { Rule::K_OR => Some(ast::BinaryOp::Or), _ => None }),
-            Rule::and_expr => Self::fold_chain(pair, Rule::comparison_expr, |op| match op { Rule::K_AND => Some(ast::BinaryOp::And), _ => None }),
+            Rule::or_expr => Self::fold_chain(pair, Rule::and_expr, |op| match op {
+                Rule::K_OR => Some(ast::BinaryOp::Or),
+                _ => None,
+            }),
+            Rule::and_expr => Self::fold_chain(pair, Rule::comparison_expr, |op| match op {
+                Rule::K_AND => Some(ast::BinaryOp::And),
+                _ => None,
+            }),
             Rule::instanceof_expr => {
                 // treat_expr (K_INSTANCE K_OF sequence_type)?
                 let mut inn = pair.clone().into_inner();
                 let left = inn.next()?;
                 let base = Self::build_expr(&left)?;
-                if let Some(_tok) = inn.next() { // instance of
+                if let Some(_tok) = inn.next() {
+                    // instance of
                     let ty_pair = inn.next()?; // sequence_type
                     let ty = Self::build_sequence_type(&ty_pair)?;
-                    Some(ast::Expr::InstanceOf { expr: Box::new(base), ty })
-                } else { Some(base) }
+                    Some(ast::Expr::InstanceOf {
+                        expr: Box::new(base),
+                        ty,
+                    })
+                } else {
+                    Some(base)
+                }
             }
             Rule::treat_expr => {
                 // castable_expr (K_TREAT K_AS sequence_type)?
@@ -184,8 +255,13 @@ impl XPathParser {
                 if let Some(_tok) = inn.next() {
                     let ty_pair = inn.next()?;
                     let ty = Self::build_sequence_type(&ty_pair)?;
-                    Some(ast::Expr::TreatAs { expr: Box::new(base), ty })
-                } else { Some(base) }
+                    Some(ast::Expr::TreatAs {
+                        expr: Box::new(base),
+                        ty,
+                    })
+                } else {
+                    Some(base)
+                }
             }
             Rule::castable_expr => {
                 // cast_expr (K_CASTABLE K_AS single_type)?
@@ -195,8 +271,13 @@ impl XPathParser {
                 if let Some(_tok) = inn.next() {
                     let ty_pair = inn.next()?;
                     let ty = Self::build_single_type(&ty_pair)?;
-                    Some(ast::Expr::CastableAs { expr: Box::new(base), ty })
-                } else { Some(base) }
+                    Some(ast::Expr::CastableAs {
+                        expr: Box::new(base),
+                        ty,
+                    })
+                } else {
+                    Some(base)
+                }
             }
             Rule::cast_expr => {
                 // unary_expr (K_CAST K_AS single_type)?
@@ -206,8 +287,13 @@ impl XPathParser {
                 if let Some(_tok) = inn.next() {
                     let ty_pair = inn.next()?;
                     let ty = Self::build_single_type(&ty_pair)?;
-                    Some(ast::Expr::CastAs { expr: Box::new(base), ty })
-                } else { Some(base) }
+                    Some(ast::Expr::CastAs {
+                        expr: Box::new(base),
+                        ty,
+                    })
+                } else {
+                    Some(base)
+                }
             }
             Rule::comparison_expr => {
                 let mut inners = pair.clone().into_inner();
@@ -219,21 +305,81 @@ impl XPathParser {
                     let token = Self::first_token_rule(&op_pair);
                     use ast::{Expr, GeneralComp as GC, NodeComp as NC, ValueComp as VC};
                     let e = match token {
-                        Rule::OP_EQ => Expr::GeneralComparison { left: Box::new(l), op: GC::Eq, right: Box::new(r) },
-                        Rule::OP_NE => Expr::GeneralComparison { left: Box::new(l), op: GC::Ne, right: Box::new(r) },
-                        Rule::OP_LT => Expr::GeneralComparison { left: Box::new(l), op: GC::Lt, right: Box::new(r) },
-                        Rule::OP_LTE => Expr::GeneralComparison { left: Box::new(l), op: GC::Le, right: Box::new(r) },
-                        Rule::OP_GT => Expr::GeneralComparison { left: Box::new(l), op: GC::Gt, right: Box::new(r) },
-                        Rule::OP_GTE => Expr::GeneralComparison { left: Box::new(l), op: GC::Ge, right: Box::new(r) },
-                        Rule::K_EQ => Expr::ValueComparison { left: Box::new(l), op: VC::Eq, right: Box::new(r) },
-                        Rule::K_NE => Expr::ValueComparison { left: Box::new(l), op: VC::Ne, right: Box::new(r) },
-                        Rule::K_LT => Expr::ValueComparison { left: Box::new(l), op: VC::Lt, right: Box::new(r) },
-                        Rule::K_LE => Expr::ValueComparison { left: Box::new(l), op: VC::Le, right: Box::new(r) },
-                        Rule::K_GT => Expr::ValueComparison { left: Box::new(l), op: VC::Gt, right: Box::new(r) },
-                        Rule::K_GE => Expr::ValueComparison { left: Box::new(l), op: VC::Ge, right: Box::new(r) },
-                        Rule::K_IS => Expr::NodeComparison { left: Box::new(l), op: NC::Is, right: Box::new(r) },
-                        Rule::OP_PRECEDES => Expr::NodeComparison { left: Box::new(l), op: NC::Precedes, right: Box::new(r) },
-                        Rule::OP_FOLLOWS => Expr::NodeComparison { left: Box::new(l), op: NC::Follows, right: Box::new(r) },
+                        Rule::OP_EQ => Expr::GeneralComparison {
+                            left: Box::new(l),
+                            op: GC::Eq,
+                            right: Box::new(r),
+                        },
+                        Rule::OP_NE => Expr::GeneralComparison {
+                            left: Box::new(l),
+                            op: GC::Ne,
+                            right: Box::new(r),
+                        },
+                        Rule::OP_LT => Expr::GeneralComparison {
+                            left: Box::new(l),
+                            op: GC::Lt,
+                            right: Box::new(r),
+                        },
+                        Rule::OP_LTE => Expr::GeneralComparison {
+                            left: Box::new(l),
+                            op: GC::Le,
+                            right: Box::new(r),
+                        },
+                        Rule::OP_GT => Expr::GeneralComparison {
+                            left: Box::new(l),
+                            op: GC::Gt,
+                            right: Box::new(r),
+                        },
+                        Rule::OP_GTE => Expr::GeneralComparison {
+                            left: Box::new(l),
+                            op: GC::Ge,
+                            right: Box::new(r),
+                        },
+                        Rule::K_EQ => Expr::ValueComparison {
+                            left: Box::new(l),
+                            op: VC::Eq,
+                            right: Box::new(r),
+                        },
+                        Rule::K_NE => Expr::ValueComparison {
+                            left: Box::new(l),
+                            op: VC::Ne,
+                            right: Box::new(r),
+                        },
+                        Rule::K_LT => Expr::ValueComparison {
+                            left: Box::new(l),
+                            op: VC::Lt,
+                            right: Box::new(r),
+                        },
+                        Rule::K_LE => Expr::ValueComparison {
+                            left: Box::new(l),
+                            op: VC::Le,
+                            right: Box::new(r),
+                        },
+                        Rule::K_GT => Expr::ValueComparison {
+                            left: Box::new(l),
+                            op: VC::Gt,
+                            right: Box::new(r),
+                        },
+                        Rule::K_GE => Expr::ValueComparison {
+                            left: Box::new(l),
+                            op: VC::Ge,
+                            right: Box::new(r),
+                        },
+                        Rule::K_IS => Expr::NodeComparison {
+                            left: Box::new(l),
+                            op: NC::Is,
+                            right: Box::new(r),
+                        },
+                        Rule::OP_PRECEDES => Expr::NodeComparison {
+                            left: Box::new(l),
+                            op: NC::Precedes,
+                            right: Box::new(r),
+                        },
+                        Rule::OP_FOLLOWS => Expr::NodeComparison {
+                            left: Box::new(l),
+                            op: NC::Follows,
+                            right: Box::new(r),
+                        },
                         _ => return None,
                     };
                     Some(e)
@@ -249,21 +395,44 @@ impl XPathParser {
                 if let Some(_to_tok) = inners.next() {
                     let right = inners.next()?;
                     let r = Self::build_expr(&right)?;
-                    Some(ast::Expr::Range { start: Box::new(l), end: Box::new(r) })
+                    Some(ast::Expr::Range {
+                        start: Box::new(l),
+                        end: Box::new(r),
+                    })
                 } else {
                     Some(l)
                 }
             }
-            Rule::additive_expr => Self::fold_chain(pair, Rule::multiplicative_expr, |op| match op { Rule::OP_PLUS => Some(ast::BinaryOp::Add), Rule::OP_MINUS => Some(ast::BinaryOp::Sub), _ => None }),
-            Rule::multiplicative_expr => Self::fold_chain(pair, Rule::union_expr, |op| match op { Rule::OP_STAR => Some(ast::BinaryOp::Mul), Rule::K_DIV => Some(ast::BinaryOp::Div), Rule::K_IDIV => Some(ast::BinaryOp::IDiv), Rule::K_MOD => Some(ast::BinaryOp::Mod), _ => None }),
+            Rule::additive_expr => {
+                Self::fold_chain(pair, Rule::multiplicative_expr, |op| match op {
+                    Rule::OP_PLUS => Some(ast::BinaryOp::Add),
+                    Rule::OP_MINUS => Some(ast::BinaryOp::Sub),
+                    _ => None,
+                })
+            }
+            Rule::multiplicative_expr => Self::fold_chain(pair, Rule::union_expr, |op| match op {
+                Rule::OP_STAR => Some(ast::BinaryOp::Mul),
+                Rule::K_DIV => Some(ast::BinaryOp::Div),
+                Rule::K_IDIV => Some(ast::BinaryOp::IDiv),
+                Rule::K_MOD => Some(ast::BinaryOp::Mod),
+                _ => None,
+            }),
             Rule::unary_expr => {
                 let mut inners = pair.clone().into_inner();
                 let mut signs: Vec<ast::UnarySign> = Vec::new();
                 loop {
                     if let Some(n) = inners.clone().next() {
                         match n.as_rule() {
-                            Rule::OP_MINUS => { signs.push(ast::UnarySign::Minus); let _ = inners.next(); continue; }
-                            Rule::OP_PLUS => { signs.push(ast::UnarySign::Plus); let _ = inners.next(); continue; }
+                            Rule::OP_MINUS => {
+                                signs.push(ast::UnarySign::Minus);
+                                let _ = inners.next();
+                                continue;
+                            }
+                            Rule::OP_PLUS => {
+                                signs.push(ast::UnarySign::Plus);
+                                let _ = inners.next();
+                                continue;
+                            }
                             _ => {}
                         }
                     }
@@ -271,11 +440,23 @@ impl XPathParser {
                 }
                 let value = inners.next()?;
                 let mut expr = Self::build_expr(&value)?;
-                for s in signs { if matches!(s, ast::UnarySign::Minus) { expr = ast::Expr::Binary { left: Box::new(ast::Expr::Literal(ast::Literal::Integer(0))), op: ast::BinaryOp::Sub, right: Box::new(expr) }; } }
+                for s in signs {
+                    if matches!(s, ast::UnarySign::Minus) {
+                        expr = ast::Expr::Binary {
+                            left: Box::new(ast::Expr::Literal(ast::Literal::Integer(0))),
+                            op: ast::BinaryOp::Sub,
+                            right: Box::new(expr),
+                        };
+                    }
+                }
                 Some(expr)
             }
             _ => {
-                for inner in pair.clone().into_inner() { if let Some(e) = Self::build_expr(&inner) { return Some(e); } }
+                for inner in pair.clone().into_inner() {
+                    if let Some(e) = Self::build_expr(&inner) {
+                        return Some(e);
+                    }
+                }
                 None
             }
         }
@@ -292,8 +473,14 @@ impl XPathParser {
             if let Some(op) = map_op(token) {
                 let right = inners.next()?;
                 let right_expr = Self::build_expr(&right)?;
-                expr = ast::Expr::Binary { left: Box::new(expr), op, right: Box::new(right_expr) };
-            } else if op_or_next.as_rule() == expected_left_rule && let Some(inner_e) = Self::build_expr(&op_or_next) {
+                expr = ast::Expr::Binary {
+                    left: Box::new(expr),
+                    op,
+                    right: Box::new(right_expr),
+                };
+            } else if op_or_next.as_rule() == expected_left_rule
+                && let Some(inner_e) = Self::build_expr(&op_or_next)
+            {
                 expr = inner_e;
             }
         }
@@ -303,17 +490,29 @@ impl XPathParser {
 
 fn ast_qname_from_str(s: &str) -> ast::QName {
     if let Some(idx) = s.find(':') {
-        ast::QName { prefix: Some(s[..idx].to_string()), local: s[idx + 1..].to_string(), ns_uri: None }
+        ast::QName {
+            prefix: Some(s[..idx].to_string()),
+            local: s[idx + 1..].to_string(),
+            ns_uri: None,
+        }
     } else {
-        ast::QName { prefix: None, local: s.to_string(), ns_uri: None }
+        ast::QName {
+            prefix: None,
+            local: s.to_string(),
+            ns_uri: None,
+        }
     }
 }
 
 impl XPathParser {
     fn find_rule<'a>(pair: &Pair<'a, Rule>, rule: Rule) -> Option<Pair<'a, Rule>> {
-        if pair.as_rule() == rule { return Some(pair.clone()); }
+        if pair.as_rule() == rule {
+            return Some(pair.clone());
+        }
         for inner in pair.clone().into_inner() {
-            if let Some(p) = Self::find_rule(&inner, rule) { return Some(p); }
+            if let Some(p) = Self::find_rule(&inner, rule) {
+                return Some(p);
+            }
         }
         None
     }
@@ -333,26 +532,28 @@ impl XPathParser {
                 let only = rel_in.next()?; // step_expr
                 if rel_in.next().is_none() {
                     let mut step_in = only.clone().into_inner();
-                    if let Some(step_first) = step_in.next() && step_first.as_rule() == Rule::postfix_expr {
-                            // Try to extract the primary function/literal/var/parens directly (prefer function)
-                            if let Some(lit) = Self::find_rule(&step_first, Rule::function_call)
-                                .or_else(|| Self::find_rule(&step_first, Rule::string_literal))
-                                .or_else(|| Self::find_rule(&step_first, Rule::integer_literal))
-                                .or_else(|| Self::find_rule(&step_first, Rule::decimal_literal))
-                                .or_else(|| Self::find_rule(&step_first, Rule::double_literal))
-                                .or_else(|| Self::find_rule(&step_first, Rule::var_ref))
-                                .or_else(|| Self::find_rule(&step_first, Rule::parenthesized_expr))
-                                .or_else(|| Self::find_rule(&step_first, Rule::context_item_expr))
-                            {
-                                if let Some(expr) = Self::build_expr(&lit) {
-                                    // debug: eprintln!("  special-case postfix as primary: '{}'", step_first.as_str());
-                                    return Some(expr);
-                                }
-                            } else if let Some(expr) = Self::build_expr(&step_first) {
-                                // Fallback: try generic builder on postfix
-                                // debug: eprintln!("  fallback build on postfix: '{}'", step_first.as_str());
+                    if let Some(step_first) = step_in.next()
+                        && step_first.as_rule() == Rule::postfix_expr
+                    {
+                        // Try to extract the primary function/literal/var/parens directly (prefer function)
+                        if let Some(lit) = Self::find_rule(&step_first, Rule::function_call)
+                            .or_else(|| Self::find_rule(&step_first, Rule::string_literal))
+                            .or_else(|| Self::find_rule(&step_first, Rule::integer_literal))
+                            .or_else(|| Self::find_rule(&step_first, Rule::decimal_literal))
+                            .or_else(|| Self::find_rule(&step_first, Rule::double_literal))
+                            .or_else(|| Self::find_rule(&step_first, Rule::var_ref))
+                            .or_else(|| Self::find_rule(&step_first, Rule::parenthesized_expr))
+                            .or_else(|| Self::find_rule(&step_first, Rule::context_item_expr))
+                        {
+                            if let Some(expr) = Self::build_expr(&lit) {
+                                // debug: eprintln!("  special-case postfix as primary: '{}'", step_first.as_str());
                                 return Some(expr);
                             }
+                        } else if let Some(expr) = Self::build_expr(&step_first) {
+                            // Fallback: try generic builder on postfix
+                            // debug: eprintln!("  fallback build on postfix: '{}'", step_first.as_str());
+                            return Some(expr);
+                        }
                     }
                 }
                 Self::build_relative_path(&first)
@@ -369,11 +570,20 @@ impl XPathParser {
             Rule::K_EMPTY_SEQUENCE => Some(ast::SequenceType::EmptySequence),
             Rule::item_type => {
                 let item = Self::build_item_type(&first)?;
-                if let Some(occ) = inn.next() { // occurrence_indicator optional
-                    let occ = match occ.as_str() { "?" => ast::Occurrence::ZeroOrOne, "*" => ast::Occurrence::ZeroOrMore, "+" => ast::Occurrence::OneOrMore, _ => ast::Occurrence::One };
+                if let Some(occ) = inn.next() {
+                    // occurrence_indicator optional
+                    let occ = match occ.as_str() {
+                        "?" => ast::Occurrence::ZeroOrOne,
+                        "*" => ast::Occurrence::ZeroOrMore,
+                        "+" => ast::Occurrence::OneOrMore,
+                        _ => ast::Occurrence::One,
+                    };
                     Some(ast::SequenceType::Typed { item, occ })
                 } else {
-                    Some(ast::SequenceType::Typed { item, occ: ast::Occurrence::One })
+                    Some(ast::SequenceType::Typed {
+                        item,
+                        occ: ast::Occurrence::One,
+                    })
                 }
             }
             _ => None,
@@ -400,8 +610,15 @@ impl XPathParser {
         let atomic = inn.next()?; // atomic_type -> qname
         let qn = atomic.clone().into_inner().next()?;
         let mut optional = false;
-        if let Some(next) = inn.next() && next.as_rule() == Rule::QMARK { optional = true; }
-        Some(ast::SingleType { atomic: ast_qname_from_str(qn.as_str()), optional })
+        if let Some(next) = inn.next()
+            && next.as_rule() == Rule::QMARK
+        {
+            optional = true;
+        }
+        Some(ast::SingleType {
+            atomic: ast_qname_from_str(qn.as_str()),
+            optional,
+        })
     }
 
     pub(crate) fn build_absolute_path(pair: &Pair<Rule>) -> Option<ast::Expr> {
@@ -412,16 +629,29 @@ impl XPathParser {
             Rule::OP_DSLASH => {
                 let rel = inners.next()?;
                 let steps = Self::collect_steps_from_relative(&rel)?;
-                let mut all_steps = vec![ast::Step { axis: ast::Axis::DescendantOrSelf, test: ast::NodeTest::Kind(ast::KindTest::AnyKind), predicates: vec![] }];
+                let mut all_steps = vec![ast::Step {
+                    axis: ast::Axis::DescendantOrSelf,
+                    test: ast::NodeTest::Kind(ast::KindTest::AnyKind),
+                    predicates: vec![],
+                }];
                 all_steps.extend(steps);
-                Some(ast::Expr::Path(ast::PathExpr { start: ast::PathStart::Root, steps: all_steps }))
+                Some(ast::Expr::Path(ast::PathExpr {
+                    start: ast::PathStart::Root,
+                    steps: all_steps,
+                }))
             }
             Rule::OP_SLASH => {
                 if let Some(rel) = inners.next() {
                     let steps = Self::collect_steps_from_relative(&rel)?;
-                    Some(ast::Expr::Path(ast::PathExpr { start: ast::PathStart::Root, steps }))
+                    Some(ast::Expr::Path(ast::PathExpr {
+                        start: ast::PathStart::Root,
+                        steps,
+                    }))
                 } else {
-                    Some(ast::Expr::Path(ast::PathExpr { start: ast::PathStart::Root, steps: vec![] }))
+                    Some(ast::Expr::Path(ast::PathExpr {
+                        start: ast::PathStart::Root,
+                        steps: vec![],
+                    }))
                 }
             }
             _ => None,
@@ -430,7 +660,10 @@ impl XPathParser {
 
     pub(crate) fn build_relative_path(pair: &Pair<Rule>) -> Option<ast::Expr> {
         let steps = Self::collect_steps_from_relative(pair)?;
-        Some(ast::Expr::Path(ast::PathExpr { start: ast::PathStart::Relative, steps }))
+        Some(ast::Expr::Path(ast::PathExpr {
+            start: ast::PathStart::Relative,
+            steps,
+        }))
     }
 
     fn collect_steps_from_relative(pair: &Pair<Rule>) -> Option<Vec<ast::Step>> {
@@ -444,7 +677,11 @@ impl XPathParser {
             let op_rule = op.as_rule();
             let next_step_pair = inners.next()?;
             if op_rule == Rule::OP_DSLASH {
-                out.push(ast::Step { axis: ast::Axis::DescendantOrSelf, test: ast::NodeTest::Kind(ast::KindTest::AnyKind), predicates: vec![] });
+                out.push(ast::Step {
+                    axis: ast::Axis::DescendantOrSelf,
+                    test: ast::NodeTest::Kind(ast::KindTest::AnyKind),
+                    predicates: vec![],
+                });
             }
             step = Self::build_step(&next_step_pair)?;
             out.push(step);
@@ -472,7 +709,11 @@ impl XPathParser {
                         preds.append(&mut built);
                     }
                 }
-                Some(ast::Step { axis, test, predicates: preds })
+                Some(ast::Step {
+                    axis,
+                    test,
+                    predicates: preds,
+                })
             }
             Rule::postfix_expr => {
                 // Handle postfix expressions on '.' (self) and also on implicit child name tests like 'a[2]'
@@ -480,15 +721,40 @@ impl XPathParser {
                 let prim = pin.next()?; // primary_expr (could conceal '.' or a name in some parses)
                 // Try context item '.'
                 if let Some(first) = prim.clone().into_inner().next()
-                    && first.as_rule() == Rule::context_item_expr {
-                    let preds = if let Some(pl) = pin.next() { if pl.as_rule() == Rule::predicate_list { Self::collect_predicate_list(pl)? } else { vec![] } } else { vec![] };
-                    return Some(ast::Step { axis: ast::Axis::SelfAxis, test: ast::NodeTest::Kind(ast::KindTest::AnyKind), predicates: preds });
+                    && first.as_rule() == Rule::context_item_expr
+                {
+                    let preds = if let Some(pl) = pin.next() {
+                        if pl.as_rule() == Rule::predicate_list {
+                            Self::collect_predicate_list(pl)?
+                        } else {
+                            vec![]
+                        }
+                    } else {
+                        vec![]
+                    };
+                    return Some(ast::Step {
+                        axis: ast::Axis::SelfAxis,
+                        test: ast::NodeTest::Kind(ast::KindTest::AnyKind),
+                        predicates: preds,
+                    });
                 }
                 // Try to detect an embedded name_test/qname and treat as child::name()
                 if let Some(nt) = Self::find_rule(&prim, Rule::name_test) {
                     let test = Self::build_name_test(&nt)?;
-                    let preds = if let Some(pl) = pin.next() { if pl.as_rule() == Rule::predicate_list { Self::collect_predicate_list(pl)? } else { vec![] } } else { vec![] };
-                    return Some(ast::Step { axis: ast::Axis::Child, test: ast::NodeTest::Name(test), predicates: preds });
+                    let preds = if let Some(pl) = pin.next() {
+                        if pl.as_rule() == Rule::predicate_list {
+                            Self::collect_predicate_list(pl)?
+                        } else {
+                            vec![]
+                        }
+                    } else {
+                        vec![]
+                    };
+                    return Some(ast::Step {
+                        axis: ast::Axis::Child,
+                        test: ast::NodeTest::Name(test),
+                        predicates: preds,
+                    });
                 }
                 // Fallback: unsupported postfix target
                 None
@@ -520,8 +786,6 @@ impl XPathParser {
     // comparison_expr und Pfade werden vollständig in build_expr abgebildet.
 
     // removed build_literal_fallback; literals are handled directly in build_expr
-
-
 
     fn build_forward_step(pair: &Pair<Rule>) -> Option<(ast::Axis, ast::NodeTest)> {
         debug_assert_eq!(pair.as_rule(), Rule::forward_step);
@@ -598,8 +862,14 @@ impl XPathParser {
                 if s == "*" {
                     Some(ast::NameTest::Wildcard(ast::WildcardName::Any))
                 } else if let Some(rest) = s.strip_prefix("*:") {
-                    Some(ast::NameTest::Wildcard(ast::WildcardName::LocalWildcard(rest.to_string())))
-                } else { s.strip_suffix(":*").map(|prefix| ast::NameTest::Wildcard(ast::WildcardName::NsWildcard(prefix.to_string()))) }
+                    Some(ast::NameTest::Wildcard(ast::WildcardName::LocalWildcard(
+                        rest.to_string(),
+                    )))
+                } else {
+                    s.strip_suffix(":*").map(|prefix| {
+                        ast::NameTest::Wildcard(ast::WildcardName::NsWildcard(prefix.to_string()))
+                    })
+                }
             }
             _ => None,
         }
@@ -628,15 +898,26 @@ impl XPathParser {
                                     _ => raw.to_string(),
                                 };
                                 Some(s)
-                            } else { Some(String::new()) }
+                            } else {
+                                Some(String::new())
+                            }
                         }
                         _ => None,
                     }
-                } else { None };
+                } else {
+                    None
+                };
                 Some(ast::KindTest::ProcessingInstruction(target))
             }
-            Rule::element_test => Some(ast::KindTest::Element { name: None, ty: None, nillable: false }),
-            Rule::attribute_test => Some(ast::KindTest::Attribute { name: None, ty: None }),
+            Rule::element_test => Some(ast::KindTest::Element {
+                name: None,
+                ty: None,
+                nillable: false,
+            }),
+            Rule::attribute_test => Some(ast::KindTest::Attribute {
+                name: None,
+                ty: None,
+            }),
             Rule::document_test => Some(ast::KindTest::Document(None)),
             _ => None,
         }

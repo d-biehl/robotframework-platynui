@@ -16,18 +16,25 @@ pub struct FunctionSignature {
     pub arity: Arity,
 }
 
-pub type FunctionImpl<N> = Arc<dyn Fn(&[XdmSequence<N>]) -> Result<XdmSequence<N>, Error> + Send + Sync>;
+pub type FunctionImpl<N> =
+    Arc<dyn Fn(&[XdmSequence<N>]) -> Result<XdmSequence<N>, Error> + Send + Sync>;
 
 pub struct FunctionRegistry<N> {
     fns: HashMap<FunctionKey, FunctionImpl<N>>,
 }
 
 impl<N> Default for FunctionRegistry<N> {
-    fn default() -> Self { Self { fns: HashMap::new() } }
+    fn default() -> Self {
+        Self {
+            fns: HashMap::new(),
+        }
+    }
 }
 
 impl<N> FunctionRegistry<N> {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn register(&mut self, name: ExpandedName, arity: Arity, func: FunctionImpl<N>) {
         let key = FunctionKey { name, arity };
@@ -35,7 +42,10 @@ impl<N> FunctionRegistry<N> {
     }
 
     pub fn get(&self, name: &ExpandedName, arity: Arity) -> Option<&FunctionImpl<N>> {
-        let key = FunctionKey { name: name.clone(), arity };
+        let key = FunctionKey {
+            name: name.clone(),
+            arity,
+        };
         self.fns.get(&key)
     }
 }
@@ -48,8 +58,12 @@ pub trait Collation: Send + Sync {
 pub struct CodepointCollation;
 
 impl Collation for CodepointCollation {
-    fn uri(&self) -> &str { "http://www.w3.org/2005/xpath-functions/collation/codepoint" }
-    fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering { a.cmp(b) }
+    fn uri(&self) -> &str {
+        "http://www.w3.org/2005/xpath-functions/collation/codepoint"
+    }
+    fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
+        a.cmp(b)
+    }
 }
 
 pub struct CollationRegistry {
@@ -58,7 +72,9 @@ pub struct CollationRegistry {
 
 impl Default for CollationRegistry {
     fn default() -> Self {
-        let mut reg = Self { by_uri: HashMap::new() };
+        let mut reg = Self {
+            by_uri: HashMap::new(),
+        };
         let def: Arc<dyn Collation> = Arc::new(CodepointCollation);
         reg.by_uri.insert(def.uri().to_string(), def);
         reg
@@ -66,18 +82,30 @@ impl Default for CollationRegistry {
 }
 
 impl CollationRegistry {
-    pub fn new() -> Self { Self::default() }
-    pub fn get(&self, uri: &str) -> Option<Arc<dyn Collation>> { self.by_uri.get(uri).cloned() }
-    pub fn insert(&mut self, collation: Arc<dyn Collation>) { self.by_uri.insert(collation.uri().to_string(), collation); }
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn get(&self, uri: &str) -> Option<Arc<dyn Collation>> {
+        self.by_uri.get(uri).cloned()
+    }
+    pub fn insert(&mut self, collation: Arc<dyn Collation>) {
+        self.by_uri.insert(collation.uri().to_string(), collation);
+    }
 }
 
 pub trait ResourceResolver: Send + Sync {
-    fn doc(&self, _uri: &str) -> Result<Option<String>, Error> { Ok(None) }
-    fn collection(&self, _uri: Option<&str>) -> Result<Vec<String>, Error> { Ok(vec![]) }
+    fn doc(&self, _uri: &str) -> Result<Option<String>, Error> {
+        Ok(None)
+    }
+    fn collection(&self, _uri: Option<&str>) -> Result<Vec<String>, Error> {
+        Ok(vec![])
+    }
 }
 
 pub trait RegexProvider: Send + Sync {
-    fn is_match(&self, _pattern: &str, _flags: &str, _text: &str) -> Result<bool, Error> { Err(Error::not_implemented("regex")) }
+    fn is_match(&self, _pattern: &str, _flags: &str, _text: &str) -> Result<bool, Error> {
+        Err(Error::not_implemented("regex"))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -94,9 +122,23 @@ pub struct Error {
 }
 
 impl Error {
-    pub fn static_err(code: &str, msg: impl Into<String>) -> Self { Self { kind: ErrorKind::Static, code: code.to_string(), message: msg.into() } }
-    pub fn dynamic_err(code: &str, msg: impl Into<String>) -> Self { Self { kind: ErrorKind::Dynamic, code: code.to_string(), message: msg.into() } }
-    pub fn not_implemented(feature: &str) -> Self { Self::dynamic_err("err:NYI0000", format!("not implemented: {}", feature)) }
+    pub fn static_err(code: &str, msg: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::Static,
+            code: code.to_string(),
+            message: msg.into(),
+        }
+    }
+    pub fn dynamic_err(code: &str, msg: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::Dynamic,
+            code: code.to_string(),
+            message: msg.into(),
+        }
+    }
+    pub fn not_implemented(feature: &str) -> Self {
+        Self::dynamic_err("err:NYI0000", format!("not implemented: {}", feature))
+    }
 }
 
 impl fmt::Display for Error {
@@ -108,7 +150,12 @@ impl fmt::Display for Error {
 impl core::error::Error for Error {}
 
 impl Error {
-    fn kind_str(&self) -> &str { match self.kind { ErrorKind::Static => "static", ErrorKind::Dynamic => "dynamic" } }
+    fn kind_str(&self) -> &str {
+        match self.kind {
+            ErrorKind::Static => "static",
+            ErrorKind::Dynamic => "dynamic",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -129,7 +176,9 @@ impl Default for StaticContext {
         Self {
             base_uri: None,
             default_function_namespace: Some("http://www.w3.org/2005/xpath-functions".to_string()),
-            default_collation: Some("http://www.w3.org/2005/xpath-functions/collation/codepoint".to_string()),
+            default_collation: Some(
+                "http://www.w3.org/2005/xpath-functions/collation/codepoint".to_string(),
+            ),
             namespaces: NamespaceBindings::default(),
         }
     }
@@ -164,14 +213,20 @@ pub struct DynamicContextBuilder<N> {
     ctx: DynamicContext<N>,
 }
 
-impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for DynamicContextBuilder<N> {
+impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default
+    for DynamicContextBuilder<N>
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBuilder<N> {
-    pub fn new() -> Self { Self { ctx: DynamicContext::default() } }
+    pub fn new() -> Self {
+        Self {
+            ctx: DynamicContext::default(),
+        }
+    }
 
     pub fn with_context_item(mut self, item: impl Into<XdmItem<N>>) -> Self {
         self.ctx.context_item = Some(item.into());
@@ -208,5 +263,7 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBui
         self
     }
 
-    pub fn build(self) -> DynamicContext<N> { self.ctx }
+    pub fn build(self) -> DynamicContext<N> {
+        self.ctx
+    }
 }

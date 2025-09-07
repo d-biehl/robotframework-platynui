@@ -16,8 +16,13 @@ use super::*;
 #[case("false()", "False function")]
 fn test_functions(#[case] xpath: &str, #[case] description: &str) {
     let result = parse_xpath(xpath);
-    assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
-            description, xpath, result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to parse {}: '{}'. Error: {:?}",
+        description,
+        xpath,
+        result.err()
+    );
 }
 
 #[rstest]
@@ -46,8 +51,13 @@ fn test_functions(#[case] xpath: &str, #[case] description: &str) {
 #[case("avg(//rating/@value)", "Average function")]
 fn test_comprehensive_functions(#[case] xpath: &str, #[case] description: &str) {
     let result = parse_xpath(xpath);
-    assert!(result.is_ok(), "Failed to parse {}: '{}'. Error: {:?}", 
-            description, xpath, result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to parse {}: '{}'. Error: {:?}",
+        description,
+        xpath,
+        result.err()
+    );
 }
 
 #[rstest]
@@ -68,5 +78,10 @@ fn test_comprehensive_functions(#[case] xpath: &str, #[case] description: &str) 
 #[case("'string'()", "String as function name")]
 fn test_malformed_function_calls(#[case] xpath: &str, #[case] description: &str) {
     let result = parse_xpath(xpath);
-    assert!(result.is_err(), "Expected {} to fail parsing: '{}'", description, xpath);
+    assert!(
+        result.is_err(),
+        "Expected {} to fail parsing: '{}'",
+        description,
+        xpath
+    );
 }
