@@ -6,7 +6,7 @@ Quellen geprüft:
 - `docs/xpath/XQuery 1.0 and XPath 2.0 Functions and Operators (Second Edition).html`
 - Interner Plan: `docs/xpath20-evaluator-plan.md`
 
-Hinweis: Der Plan nennt „Draft 4 — M1–M7 abgeschlossen, M8 als nächstes“. Im Code sind bereits Teile von M8 vorhanden (Date/Time `current-*`, `DynamicContextBuilder.with_now/with_timezone`). Diese Matrix bildet den tatsächlichen Stand ab und verweist auf Code/Tests.
+Hinweis: Der Plan steht auf „Draft 5 — M1–M7 abgeschlossen, M8a/b abgeschlossen“. Diese Matrix bildet den aktuellen Stand ab (Date/Time/Duration aus M8b sind umgesetzt) und verweist auf Code/Tests.
 
 ## Dokument 1: XPath 2.0 (Syntax/Semantik)
 
@@ -54,9 +54,9 @@ Hinweis: Der Plan nennt „Draft 4 — M1–M7 abgeschlossen, M8 als nächstes�
 - Items/Sequenzen: Fertig.
   - `XdmItem<N> = Node(N) | Atomic(XdmAtomicValue)`; `XdmSequence<N> = Vec<XdmItem<N>>`. `xdm.rs:1`.
 
-- Atomare Typen: Teilweise.
-  - Implementiert: `xs:boolean`, `xs:string`, `xs:integer`, `xs:decimal` (als f64), `xs:double`, `xs:float`, `xs:anyURI`, `xs:QName`, `xs:untypedAtomic`. `xdm.rs:16+`.
-  - Nicht implementiert: `xs:date|time|dateTime|durations`, weitere XSD‑Typhierarchie/Faces (✗). Plan M8/M9.
+- Atomare Typen: Weitgehend (XPath 2.0 Umfang).
+  - Implementiert: `xs:boolean`, `xs:string`, `xs:integer`, `xs:decimal` (als f64), `xs:double`, `xs:float`, `xs:anyURI`, `xs:QName`, `xs:untypedAtomic`, `xs:date`, `xs:time`, `xs:dateTime`, `xs:dayTimeDuration`, `xs:yearMonthDuration`. `xdm.rs:16+`.
+  - Bekannte Einschränkung: `xs:dateTime` ohne Zeitzone wird aktuell nicht akzeptiert.
 
 - UntypedAtomic/Atomisierung/Promotion: Fertig (Basis‑Regeln).
   - Node→Atomisierung zu `untypedAtomic(string_value())`. `evaluator.rs:563+`.
@@ -101,9 +101,12 @@ Hinweis: Der Plan nennt „Draft 4 — M1–M7 abgeschlossen, M8 als nächstes�
   - Provider austauschbar (Default: Rust `regex`). `runtime.rs:167+`.
   - XSD‑Regex‑Spezifika (z. B. \i/\c Klassen) nicht implementiert; dokumentierte Abweichungen im Plan vorgesehen.
 
-- Date/Time (~/Teilmenge):
-  - Implementiert: `current-dateTime`, `current-date`, `current-time` — Formatierung mit Offset, steuerbar via `with_now`/`with_timezone`. `functions.rs:540+`, Tests: `tests/functions_datetime.rs:1`.
-  - Offen: Typen/Arithmetik/Parsing weiterer Date/Time/Duration‑Funktionen.
+- Date/Time (✓ vollständig für M8b):
+  - `current-dateTime`, `current-date`, `current-time` — Formatierung mit Offset, steuerbar via `with_now`/`with_timezone`. `functions.rs:540+`, Tests: `tests/functions_datetime.rs:1`.
+  - Komponentenfunktionen: `year/month/day-from-dateTime`, `hours/minutes/seconds-from-time`, `timezone-from-*`.
+  - Arithmetik: dateTime/date/time ± dayTimeDuration|yearMonthDuration; duration ± duration; duration ×/÷ Zahl; duration ÷ duration (Double).
+  - Vergleiche: Wert‑ und Ordnungsoperatoren für temporale Typen; Gleichheit/Ordnung nutzen Offset‑normalisierte Schlüssel.
+  - Hinweise: `xs:dateTime` ohne TZ nicht unterstützt; `xs:time`‑Ausgabe ohne Fraktionssekunden; `deep-equal` für temporale Atome aktuell string‑basiert.
 
 - Node/QName/Namespace (✗): `name`, `local-name`, `namespace-uri`, Node‑Navigations‑Funktionen etc. fehlen.
 
@@ -125,18 +128,17 @@ Hinweis: Der Plan nennt „Draft 4 — M1–M7 abgeschlossen, M8 als nächstes�
 - Parser: Umfangreich, inklusive Fehlerfälle. `tests/parser/*.rs:1`.
 - Evaluator E2E/Unit: Achsen/Pfade/Prädikate, Vergleiche, Mengen, Typen, Funktionen. `tests/evaluator_*.rs:1`, `tests/functions_*.rs:1`.
 - Collations/Regex: Dedizierte Suiten. `tests/functions_collations.rs:1`, `tests/functions_regex.rs:1`.
-- Date/Time: `current-*` deterministisch via Builder. `tests/functions_datetime.rs:1`.
+- Date/Time: Suiten inkl. Edges/Negative; deterministisch via Builder. `tests/functions_datetime*.rs`, `tests/evaluator_comparisons_temporal.rs`, `tests/evaluator_predicates_temporal.rs`.
 - Multi‑Root Fehlerpfade: `tests/evaluator_multiroot_errors.rs:1`.
 - Offene Conformance‑Matrix (F&O) und Performance‑Suiten (✗) — laut Plan M7–M9.
 
 ## Lücken und empfohlene Schritte
 
 - Compiler/Evaluator für `if`, `some/every`, `for/let` ergänzen (AST/Grammatik vorhanden).
-- F&O Date/Time/Duration komplettieren (XDM‑Typen, Arithmetik, Parsing, `implicit-timezone`).
+- F&O Node/QName/Namespace/Ressourcen/URI sowie TypeRegistry/Caching (M9–M13) ergänzen.
 - Node/QName/Namespace‑Funktionen hinzufügen.
 - Ressourcen/URI‑Funktionen (`doc`, `doc-available`, `collection`, `base-uri`, `resolve-uri`) mit Resolver nutzen.
 - TypeRegistry + Delegation von `cast/castable/treat/instance of` implementieren; optionale statische Typprüfung (`XPST0017`).
 - `XPathExecutableCache` (LRU/HashMap) nach Plan aufbauen.
 - Regex/XSD‑Kompatibilität (Klassen \i/\c, Properties) dokumentieren/testen; Collation Edge‑Cases.
 - Konsolidierung Fehlercodes/Diagnostik; Conformance-/Performance‑Matrix aufbauen.
-

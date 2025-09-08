@@ -1,4 +1,5 @@
 use core::fmt;
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExpandedName {
@@ -30,7 +31,21 @@ pub enum XdmAtomicValue {
         local: String,
     },
     UntypedAtomic(String),
-    // Date/Time/Duration families will be added; kept out to avoid extra deps right now
+    // M8b: Date/Time/Duration families (minimal modeling for XPath 2.0)
+    DateTime(DateTime<FixedOffset>),
+    Date {
+        date: NaiveDate,
+        tz: Option<FixedOffset>,
+    },
+    Time {
+        time: NaiveTime,
+        tz: Option<FixedOffset>,
+    },
+    // Duration types. For simplicity, store canonical values:
+    // - YearMonthDuration: total months (can be negative)
+    // - DayTimeDuration: total seconds (can be negative)
+    YearMonthDuration(i32),
+    DayTimeDuration(i64),
 }
 
 pub type XdmSequence<N> = Vec<XdmItem<N>>;

@@ -3,6 +3,7 @@
 
 use crate::runtime::{CallCtx, Error, FunctionRegistry};
 use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence};
+use chrono::{DateTime as ChronoDateTime, FixedOffset as ChronoFixedOffset, NaiveDate, NaiveTime, Datelike, Timelike};
 
 const FNS: &str = "http://www.w3.org/2005/xpath-functions";
 
@@ -559,6 +560,140 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
     });
 
+    // implicit-timezone() as xs:dayTimeDuration
+    add("implicit-timezone", 0, |ctx, _args| {
+        // Prefer explicit override; else use current now's offset; else UTC
+        let offset_secs = if let Some(tz) = ctx.dyn_ctx.timezone_override {
+            tz.local_minus_utc()
+        } else if let Some(n) = ctx.dyn_ctx.now {
+            n.offset().local_minus_utc()
+        } else {
+            0
+        };
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(offset_secs as i64))])
+    });
+
+    // year-from-dateTime($arg as xs:dateTime?) as xs:integer?
+    add("year-from-dateTime", 1, |_ctx, args| {
+        match get_datetime(&args[0])? {
+            None => Ok(vec![]),
+            Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(dt.year() as i64))]),
+        }
+    });
+    // month-from-dateTime
+    add("month-from-dateTime", 1, |_ctx, args| {
+        match get_datetime(&args[0])? {
+            None => Ok(vec![]),
+            Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(dt.month() as i64))]),
+        }
+    });
+    // day-from-dateTime
+    add("day-from-dateTime", 1, |_ctx, args| {
+        match get_datetime(&args[0])? {
+            None => Ok(vec![]),
+            Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(dt.day() as i64))]),
+        }
+    });
+
+    // hours-from-time($arg as xs:time?) as xs:integer?
+    add("hours-from-time", 1, |_ctx, args| {
+        match get_time(&args[0])? {
+            None => Ok(vec![]),
+            Some((time, _)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(time.hour() as i64))]),
+        }
+    });
+    add("minutes-from-time", 1, |_ctx, args| {
+        match get_time(&args[0])? {
+            None => Ok(vec![]),
+            Some((time, _)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(time.minute() as i64))]),
+        }
+    });
+    add("seconds-from-time", 1, |_ctx, args| {
+        match get_time(&args[0])? {
+            None => Ok(vec![]),
+            Some((time, _)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(time.second() as i64))]),
+        }
+    });
+
+    // timezone-from-dateTime($arg as xs:dateTime?) as xs:dayTimeDuration?
+    add("timezone-from-dateTime", 1, |_ctx, args| {
+        match get_datetime(&args[0])? {
+            None => Ok(vec![]),
+            Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(dt.offset().local_minus_utc() as i64))]),
+        }
+    });
+    // timezone-from-date($arg as xs:date?)
+    add("timezone-from-date", 1, |_ctx, args| {
+        if args[0].is_empty() { return Ok(vec![]); }
+        match &args[0][0] {
+            XdmItem::Atomic(XdmAtomicValue::Date { tz, .. }) => {
+                if let Some(off) = tz { Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(off.local_minus_utc() as i64))]) } else { Ok(vec![]) }
+            }
+            XdmItem::Atomic(XdmAtomicValue::String(s)) | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                if let Ok((_d, Some(off))) = parse_xs_date_local(s) { Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(off.local_minus_utc() as i64))]) } else { Ok(vec![]) }
+            }
+            XdmItem::Node(n) => {
+                if let Ok((_d, Some(off))) = parse_xs_date_local(&n.string_value()) { Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(off.local_minus_utc() as i64))]) } else { Ok(vec![]) }
+            }
+            _ => Ok(vec![]),
+        }
+    });
+    // timezone-from-time($arg as xs:time?)
+    add("timezone-from-time", 1, |_ctx, args| {
+        match get_time(&args[0])? {
+            None => Ok(vec![]),
+            Some((_t, Some(off))) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(off.local_minus_utc() as i64))]),
+            Some((_t, None)) => Ok(vec![]),
+        }
+    });
+
+    // year/month/day from date (xs:date)
+    add("year-from-date", 1, |_ctx, args| {
+        if args[0].is_empty() { return Ok(vec![]); }
+        match &args[0][0] {
+            XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(date.year() as i64))]),
+            XdmItem::Atomic(XdmAtomicValue::String(s)) | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                let (d, _) = parse_xs_date_local(s).map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.year() as i64))])
+            }
+            XdmItem::Node(n) => {
+                let (d, _) = parse_xs_date_local(&n.string_value()).map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.year() as i64))])
+            }
+            _ => Ok(vec![]),
+        }
+    });
+    add("month-from-date", 1, |_ctx, args| {
+        if args[0].is_empty() { return Ok(vec![]); }
+        match &args[0][0] {
+            XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(date.month() as i64))]),
+            XdmItem::Atomic(XdmAtomicValue::String(s)) | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                let (d, _) = parse_xs_date_local(s).map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.month() as i64))])
+            }
+            XdmItem::Node(n) => {
+                let (d, _) = parse_xs_date_local(&n.string_value()).map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.month() as i64))])
+            }
+            _ => Ok(vec![]),
+        }
+    });
+    add("day-from-date", 1, |_ctx, args| {
+        if args[0].is_empty() { return Ok(vec![]); }
+        match &args[0][0] {
+            XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(date.day() as i64))]),
+            XdmItem::Atomic(XdmAtomicValue::String(s)) | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                let (d, _) = parse_xs_date_local(s).map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.day() as i64))])
+            }
+            XdmItem::Node(n) => {
+                let (d, _) = parse_xs_date_local(&n.string_value()).map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.day() as i64))])
+            }
+            _ => Ok(vec![]),
+        }
+    });
+
     reg
 }
 
@@ -595,6 +730,23 @@ fn as_string(a: &XdmAtomicValue) -> String {
                 local.clone()
             }
         }
+        XdmAtomicValue::DateTime(dt) => dt.format("%Y-%m-%dT%H:%M:%S%:z").to_string(),
+        XdmAtomicValue::Date { date, tz } => {
+            if let Some(off) = tz {
+                format!("{}{}", date.format("%Y-%m-%d"), fmt_offset_local(off))
+            } else {
+                date.format("%Y-%m-%d").to_string()
+            }
+        }
+        XdmAtomicValue::Time { time, tz } => {
+            if let Some(off) = tz {
+                format!("{}{}", time.format("%H:%M:%S"), fmt_offset_local(off))
+            } else {
+                time.format("%H:%M:%S").to_string()
+            }
+        }
+        XdmAtomicValue::YearMonthDuration(months) => format_year_month_duration_local(*months),
+        XdmAtomicValue::DayTimeDuration(secs) => format_day_time_duration_local(*secs),
     }
 }
 
@@ -629,6 +781,14 @@ fn to_number_atomic(a: &XdmAtomicValue) -> Result<f64, Error> {
         XdmAtomicValue::QName { .. } => Err(Error::dynamic_err(
             "err:XPTY0004",
             "cannot cast QName to number",
+        )),
+        XdmAtomicValue::DateTime(_)
+        | XdmAtomicValue::Date { .. }
+        | XdmAtomicValue::Time { .. }
+        | XdmAtomicValue::YearMonthDuration(_)
+        | XdmAtomicValue::DayTimeDuration(_) => Err(Error::dynamic_err(
+            "err:XPTY0004",
+            "cannot cast temporal/duration to number",
         )),
     }
 }
@@ -893,4 +1053,118 @@ fn now_in_effective_tz<N>(ctx: &CallCtx<N>) -> chrono::DateTime<chrono::FixedOff
     } else {
         base
     }
+}
+
+// ===== Helpers for M8b component functions =====
+fn parse_offset(tz: &str) -> Option<ChronoFixedOffset> {
+    if tz.len() != 6 { return None; }
+    let sign = &tz[0..1];
+    let hours: i32 = tz[1..3].parse().ok()?;
+    let mins: i32 = tz[4..6].parse().ok()?;
+    let total = hours * 3600 + mins * 60;
+    let secs = if sign == "-" { -total } else { total };
+    chrono::FixedOffset::east_opt(secs)
+}
+
+fn parse_xs_time(s: &str) -> Result<(NaiveTime, Option<ChronoFixedOffset>), ()> {
+    if let Some(pos) = s.rfind(['+', '-']) {
+        if pos >= 5 {
+            let (t, tzs) = s.split_at(pos);
+            let time = NaiveTime::parse_from_str(t, "%H:%M:%S")
+                .or_else(|_| NaiveTime::parse_from_str(t, "%H:%M:%S%.f"))
+                .map_err(|_| ())?;
+            let off = parse_offset(tzs).ok_or(())?;
+            return Ok((time, Some(off)));
+        }
+    }
+    let time = NaiveTime::parse_from_str(s, "%H:%M:%S")
+        .or_else(|_| NaiveTime::parse_from_str(s, "%H:%M:%S%.f"))
+        .map_err(|_| ())?;
+    Ok((time, None))
+}
+
+fn get_datetime<N: crate::model::XdmNode>(seq: &XdmSequence<N>) -> Result<Option<ChronoDateTime<ChronoFixedOffset>>, Error> {
+    if seq.is_empty() { return Ok(None); }
+    match &seq[0] {
+        XdmItem::Atomic(XdmAtomicValue::DateTime(dt)) => Ok(Some(*dt)),
+        XdmItem::Atomic(XdmAtomicValue::String(s))
+        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => ChronoDateTime::parse_from_rfc3339(s)
+            .map(Some)
+            .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:dateTime")),
+        XdmItem::Node(n) => ChronoDateTime::parse_from_rfc3339(&n.string_value())
+            .map(Some)
+            .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:dateTime")),
+        _ => Err(Error::dynamic_err("err:XPTY0004", "not a dateTime")),
+    }
+}
+
+fn get_time<N: crate::model::XdmNode>(seq: &XdmSequence<N>) -> Result<Option<(NaiveTime, Option<ChronoFixedOffset>)>, Error> {
+    if seq.is_empty() { return Ok(None); }
+    match &seq[0] {
+        XdmItem::Atomic(XdmAtomicValue::Time { time, tz }) => Ok(Some((*time, *tz))),
+        XdmItem::Atomic(XdmAtomicValue::String(s))
+        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => parse_xs_time(s)
+            .map(Some)
+            .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:time")),
+        XdmItem::Node(n) => parse_xs_time(&n.string_value())
+            .map(Some)
+            .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:time")),
+        _ => Err(Error::dynamic_err("err:XPTY0004", "not a time")),
+    }
+}
+
+fn format_year_month_duration_local(months: i32) -> String {
+    if months == 0 { return "P0M".to_string(); }
+    let neg = months < 0;
+    let mut m = months.abs();
+    let y = m / 12;
+    m = m % 12;
+    let mut out = String::new();
+    if neg { out.push('-'); }
+    out.push('P');
+    if y != 0 { out.push_str(&format!("{}Y", y)); }
+    if m != 0 { out.push_str(&format!("{}M", m)); }
+    if y == 0 && m == 0 { out.push('0'); out.push('M'); }
+    out
+}
+
+fn format_day_time_duration_local(total_secs: i64) -> String {
+    if total_secs == 0 { return "PT0S".to_string(); }
+    let neg = total_secs < 0;
+    let mut s = total_secs.abs();
+    let days = s / (24*3600); s %= 24*3600;
+    let hours = s / 3600; s %= 3600;
+    let mins = s / 60; s %= 60;
+    let secs = s;
+    let mut out = String::new();
+    if neg { out.push('-'); }
+    out.push('P');
+    if days != 0 { out.push_str(&format!("{}D", days)); }
+    if hours != 0 || mins != 0 || secs != 0 { out.push('T'); }
+    if hours != 0 { out.push_str(&format!("{}H", hours)); }
+    if mins != 0 { out.push_str(&format!("{}M", mins)); }
+    if secs != 0 { out.push_str(&format!("{}S", secs)); }
+    out
+}
+
+fn fmt_offset_local(off: &ChronoFixedOffset) -> String {
+    let secs = off.local_minus_utc();
+    let sign = if secs < 0 { '-' } else { '+' };
+    let mut s = secs.abs();
+    let hours = s / 3600; s %= 3600;
+    let mins = s / 60;
+    format!("{}{:02}:{:02}", sign, hours, mins)
+}
+
+fn parse_xs_date_local(s: &str) -> Result<(NaiveDate, Option<ChronoFixedOffset>), ()> {
+    if let Some(pos) = s.rfind(['+', '-']) {
+        if pos >= 10 {
+            let (d, tzs) = s.split_at(pos);
+            let date = NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(|_| ())?;
+            let off = parse_offset(tzs).ok_or(())?;
+            return Ok((date, Some(off)));
+        }
+    }
+    let date = NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| ())?;
+    Ok((date, None))
 }

@@ -1,6 +1,6 @@
 # XPath 2.0 Evaluator – Architektur- und Umsetzungsplan
 
-Status: Draft 5 — M1–M7 abgeschlossen; M8a abgeschlossen; M8b als nächstes
+Status: Draft 5 — M1–M7 abgeschlossen; M8a abgeschlossen; M8b abgeschlossen; M9 als nächstes
 Autor: PlatynUI Team
 Scope: `crates/platynui-xpath`
 
@@ -56,7 +56,7 @@ Hinweis (Umsetzungsstand):
 - Typen: `cast`, `castable as`, `treat as`, `instance of` sind implementiert. `untypedAtomic`-Semantik (Atomisierung/Promotion) ist abgedeckt.
 - Funktionsfamilien: boolean, string, numeric, sequence inkl. `sum/avg/min/max`, `string-join`, `normalize-space`, `translate` sind verfügbar.
 - Collations & Regex: Collation‑Overloads (`contains/starts-with/ends-with`, `compare`, `codepoint-equal`, `deep-equal`) und Regex‑Familie (`matches/replace/tokenize`) sind implementiert.
-- Datum/Zeit: `current-dateTime/current-date/current-time` sowie Kontext‑Erweiterungen (`with_now`, `with_timezone`) sind vorhanden; XDM‑Typen/Arithmetik folgen (M8b).
+- Datum/Zeit: Vollständig für M8b: `current-dateTime/current-date/current-time`, Kontext‑Erweiterungen (`with_now`, `with_timezone`), XDM‑Typen (`xs:date|time|dateTime|dayTimeDuration|yearMonthDuration`), Parsing/Format, Arithmetik und `implicit-timezone`.
 
 ## XDM-Modellierung
 - Items (generisch): `XdmItem<N> = Node(N) | Atomic(XdmAtomicValue)`
@@ -536,7 +536,7 @@ Umsetzungsstand:
 - M6: Runtime/Registry‑Refactor & Ordnung — CallCtx, Default‑Collation in Funktionen, Adapter‑Guidelines + Default‑Dokumentreihenfolge [abgeschlossen]
 - M7: Funktionen (String/Numeric/Sequence) — Collation‑Overloads, Regex‑Familie, Aggregatoren [abgeschlossen]
 - M8a: Datum/Zeit (Basis) — `current-*` + `DynamicContextBuilder.with_now/with_timezone` + Basistests [abgeschlossen]
-- M8b: Datum/Zeit/Dauer (vollständig) — XDM‑Typen (`xs:date|time|dateTime|durations`), Parsing/Format, Arithmetik, `implicit-timezone` [geplant]
+- M8b: Datum/Zeit/Dauer (vollständig) — XDM‑Typen (`xs:date|time|dateTime|durations`), Parsing/Format, Arithmetik, `implicit-timezone` [abgeschlossen]
 - M9: Kontrollfluss & Bindungen — `if then else`, quantifizierte Ausdrücke (`some/every`), FLWOR‑Subset (`for/let/return`) in Compiler/Evaluator [geplant]
 - M10: Node/QName/Namespace & URI — Node/QName/Namespace‑Funktionen, `base-uri`, `resolve-uri` [geplant]
 - M11: Ressourcen — `doc`, `doc-available`, `collection` über Resolver inkl. Fehlerfälle [geplant]
@@ -594,7 +594,7 @@ Umsetzungsstand:
 - [x] (M7) Regex-Familie (`matches`, `replace`, `tokenize`) inkl. Flags/Fehlercodes
 - [x] (M7) Gleichheit/Ähnlichkeit: `compare`, `codepoint-equal`, `deep-equal` (Collation-aware)
 - [x] (M8a) Date/Time (Basis): `current-dateTime/current-date/current-time`
-- [ ] (M8b) Date/Time/Duration (vollständig): XDM‑Typen, Parsing/Format, Arithmetik, `implicit-timezone`
+- [x] (M8b) Date/Time/Duration (vollständig): XDM‑Typen, Parsing/Format, Arithmetik, `implicit-timezone`
 - [ ] (M9) Node-/QName-/Namespace-Funktionen
 - [ ] (M9) Ressourcen-Resolver: `doc`, `doc-available`, `collection`
 - [ ] (M9) Base-URI/URI: `base-uri`, `resolve-uri`
@@ -630,11 +630,10 @@ Umsetzungsstand:
 
 ---
 
-## Nächste konkrete Schritte (M8b)
-1) XDM‑Typen für Datum/Zeit/Dauer: Typen (`xs:date`, `xs:time`, `xs:dateTime`, `xs:dayTimeDuration`, `xs:yearMonthDuration`) modellieren; Parser bleibt unberührt, Evaluator/Functions erweitern.
-2) Parsing/Format: ISO‑8601 kompatibel; Formatierung mit stabilen Offsets; Fehlercodes für ungültige Literale.
-3) Arithmetik/Helper: Duration‑Arithmetik, `implicit-timezone()`, Zeitzonen‑Funktionen; deterministic mit `with_now/with_timezone`.
-4) Tests: Positive/Negative Cases; E2E‑Beispiele; Konformitäts‑Matrix für Date/Time.
+## Abschluss M8b – Hinweise
+- `xs:dateTime` ohne explizite Zeitzone wird aktuell nicht unterstützt (err:FORG0001). Erweiterung optional in späterem Milestone.
+- Darstellung von Sekundbruchteilen in `xs:time` wird aktuell ohne Fraktion formatiert; spätere Erweiterung möglich.
+- `fn:deep-equal` vergleicht temporale Werte derzeit per String‑Semantik (nicht instant‑aware); als bekannte Abweichung dokumentiert.
 
 ## Danach (M9–M14) – Kurzüberblick
 - (M9) Compiler/Evaluator: `if`/`some`/`every`/`for`/`let` implementieren, inkl. EBV/Scope/Slots.

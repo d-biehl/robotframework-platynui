@@ -24,14 +24,16 @@ Title: Implement XDM date/time/duration types and full Date/Time F&O subset
   2) Evaluator‑Vergleiche/Cast aktualisieren (numerisch vs. temporal; Fehlermappings).
   3) Functions: Implementierung der Komponenten‑ und Arithmetik‑Funktionen; Erweiterung `functions.rs`.
   4) Tests: Deterministische Fälle mit `with_now`/`with_timezone`; Negativfälle (ungültige Literale/Operationen).
-- Akzeptanzkriterien:
-  - `current-dateTime|date|time` bleiben grün; neue Funktionen liefern F&O‑konforme Ergebnisse (Offsets korrekt).
-  - Ungültige Eingaben → spezkonforme Fehler; Kompatibilitätsnotizen dokumentiert.
-  - Parser bleibt unverändert (Literals als Strings); Casts/Functions verarbeiten Datums-/Zeitstrings.
+- Akzeptanzkriterien: (erfüllt)
+  - `current-dateTime|date|time` grün; Komponenten/Timezone/Arithmetik implementiert und getestet (inkl. Edges/Negativfälle).
+  - Ungültige Eingaben → spezkonforme Fehler (z. B. `FORG0001`, `FOAR0001`).
+  - Parser unverändert (Literals als Strings); Casts/Functions verarbeiten Datums-/Zeitstrings.
+  - Bekannte Einschränkungen dokumentiert (tz‑lose `xs:dateTime`, Fraktionssekunden‑Ausgabe von `xs:time`, `deep-equal` string‑basiert).
+- Status: abgeschlossen
 - Code:
-  - `crates/platynui-xpath/src/xdm.rs`, `evaluator.rs` (Vergleich/Cast), `functions.rs` (Date/Time Familie)
+  - `crates/platynui-xpath/src/xdm.rs`, `evaluator.rs` (Vergleich/Cast/Arithmetik), `functions.rs` (Date/Time Familie)
 - Tests:
-  - `crates/platynui-xpath/tests/functions_datetime.rs` (erweitern), neue Dateien `tests/functions_datetime_components.rs`, `tests/functions_datetime_arith.rs`
+  - `tests/functions_datetime.rs`, `tests/functions_datetime_components.rs`, `tests/functions_datetime_arith.rs`, `tests/functions_datetime_edges.rs`, `tests/evaluator_comparisons_temporal.rs`, `tests/evaluator_predicates_temporal.rs`
 
 ---
 
@@ -157,4 +159,3 @@ Title: Build conformance matrices and consolidate diagnostics
   - Matrizen vorhanden; alle geplanten Fälle abgedeckt; Negativfälle prüfen `FORX0002`, `FOCH0002`, etc.
   - Dokumentation aktuell; Beispiele kompilieren/laufen.
 - Code/Tests: `tests/functions_*`, `tests/evaluator_*`, `docs/`
-
