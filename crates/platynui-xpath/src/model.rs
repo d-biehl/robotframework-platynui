@@ -25,7 +25,18 @@ pub struct QName {
 /// - If one node is ancestor of the other, the ancestor precedes the descendant.
 /// - Among siblings, attributes (then namespaces) precede child nodes; within each group
 ///   retain the order provided by the adapter.
-fn try_compare_by_ancestry<N: XdmNode>(a: &N, b: &N) -> Result<Ordering, Error> {
+/// Fallback-Vergleich für Dokumentreihenfolge auf Basis von Ahnenkette und
+/// stabiler Geschwisterreihenfolge.
+///
+/// Eigenschaften:
+/// - Ist einer der Knoten Vorfahre des anderen, steht der Vorfahre vor dem Nachfahren.
+/// - Unter Geschwistern kommen Attribute, dann Namespaces, dann Kindknoten; innerhalb
+///   der Gruppen wird die vom Adapter gelieferte Reihenfolge verwendet.
+/// - Wenn die Knoten unterschiedlichen Wurzeln angehören, wird ein Fehler (`err:FOER0000`)
+///   zurückgegeben (keine globale Ordnung im Fallback). Adapter mit Multi-Root müssen
+///   `XdmNode::compare_document_order` überschreiben und eine Ordnung bereitstellen
+///   (z. B. via `(tree_id, preorder_index)`).
+pub fn try_compare_by_ancestry<N: XdmNode>(a: &N, b: &N) -> Result<Ordering, Error> {
     if a == b {
         return Ok(Ordering::Equal);
     }
