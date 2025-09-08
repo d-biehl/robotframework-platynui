@@ -6,6 +6,7 @@ use super::*;
 #[case("3 * 4", "Multiplication")]
 #[case("10 div 2", "Division")]
 #[case("10 mod 3", "Modulo")]
+#[case("8 idiv 3", "Integer division")]
 #[case("@id and @title", "Logical AND")]
 #[case("@id or @title", "Logical OR")]
 #[case("@price < 20", "Less than")]

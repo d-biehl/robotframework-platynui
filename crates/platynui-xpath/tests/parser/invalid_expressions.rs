@@ -169,6 +169,7 @@ fn test_malformed_numeric_literals(#[case] xpath: &str, #[case] description: &st
 
 #[rstest]
 #[case("//", "Empty descendant")]
+#[case("1 to", "Incomplete range expression")]
 #[case("book[", "Incomplete predicate")]
 #[case("book]", "Unmatched bracket")]
 #[case("@", "Incomplete attribute")]

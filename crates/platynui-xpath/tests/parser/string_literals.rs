@@ -7,6 +7,12 @@ use super::*;
 #[case(r#""a""""#, "a\"")]
 #[case("''", "")]
 fn test_string_unescape(#[case] xpath: &str, #[case] expected: &str) {
-    let ast = parse_and_extract_ast(xpath);
-    assert_literal(&ast, expected, xpath);
+    let ast = parse_ast(xpath);
+    expect_literal_text(&ast, expected);
+}
+
+#[rstest]
+fn test_parenthesized_literal() {
+    let ast = parse_ast("('x')");
+    expect_literal_text(&ast, "x");
 }

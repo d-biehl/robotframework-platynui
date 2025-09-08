@@ -43,6 +43,18 @@ use super::*;
     "3or7",
     "Number and or operator concatenated with number (violates A.2.4.1)"
 )]
+#[case(
+    "8idiv 3",
+    "Number directly followed by idiv operator (violates A.2.4.1)"
+)]
+#[case(
+    "8 idiv3",
+    "idiv operator directly followed by number (violates A.2.4.1)"
+)]
+#[case(
+    "8idiv3",
+    "Number and idiv operator concatenated with number (violates A.2.4.1)"
+)]
 fn test_xpath2_whitespace_violations_should_fail(#[case] xpath: &str, #[case] description: &str) {
     let result = parse_xpath(xpath);
     // According to XPath 2.0 A.2.4.1: "10div 3", "10 div3", and "10div3" all result in syntax errors

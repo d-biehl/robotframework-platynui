@@ -27,6 +27,7 @@ fn test_basic_syntax_elements(#[case] xpath: &str, #[case] description: &str) {
 #[case("123.45", "Decimal literal")]
 #[case("'hello'", "String literal with single quotes")]
 #[case("\"world\"", "String literal with double quotes")]
+#[case("()", "Empty sequence literal")]
 fn test_literals(#[case] xpath: &str, #[case] description: &str) {
     let result = parse_xpath(xpath);
     assert!(
