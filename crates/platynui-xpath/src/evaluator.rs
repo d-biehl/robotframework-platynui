@@ -543,7 +543,7 @@ fn add_sub_temporal(a: &XdmAtomicValue, b: &XdmAtomicValue, is_add: bool) -> Res
     use XdmAtomicValue as V;
     let sgn = if is_add { 1i32 } else { -1i32 };
     let sgn64 = sgn as i64;
-    let sgn32 = sgn as i32;
+    let sgn32 = sgn;
     // Early matches on original operands to avoid any coercion ambiguity
     if let (V::Date { date, tz }, V::YearMonthDuration(m)) = (a, b) {
         let nd = add_months_date(*date, sgn32 * *m);
@@ -620,7 +620,7 @@ fn add_months_datetime(dt: ChronoDateTime<ChronoFixedOffset>, months: i32) -> Ch
     let total = y * 12 + (m - 1) + months;
     let ny = total.div_euclid(12);
     let nm = total.rem_euclid(12) + 1; // 1..=12
-    let day = dt.day().min(days_in_month(ny, nm as u32) as u32);
+    let day = dt.day().min(days_in_month(ny, nm as u32));
     let date = NaiveDate::from_ymd_opt(ny, nm as u32, day).unwrap();
     let time = dt.time();
     let ndt = date.and_time(time);
@@ -633,7 +633,7 @@ fn add_months_date(date: NaiveDate, months: i32) -> NaiveDate {
     let total = y * 12 + (m - 1) + months;
     let ny = total.div_euclid(12);
     let nm = total.rem_euclid(12) + 1;
-    let day = date.day().min(days_in_month(ny, nm as u32) as u32);
+    let day = date.day().min(days_in_month(ny, nm as u32));
     NaiveDate::from_ymd_opt(ny, nm as u32, day).unwrap()
 }
 
@@ -840,21 +840,20 @@ fn parse_offset(tz: &str) -> Option<ChronoFixedOffset> {
 }
 
 fn parse_xs_date(s: &str) -> Result<(NaiveDate, Option<ChronoFixedOffset>), ()> {
-    if let Some(pos) = s.rfind(['+', '-']) {
-        if pos >= 10 {
+    if let Some(pos) = s.rfind(['+', '-'])
+        && pos >= 10 {
             let (d, tzs) = s.split_at(pos);
             let date = NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(|_| ())?;
             let off = parse_offset(tzs).ok_or(())?;
             return Ok((date, Some(off)));
         }
-    }
     let date = NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| ())?;
     Ok((date, None))
 }
 
 fn parse_xs_time(s: &str) -> Result<(NaiveTime, Option<ChronoFixedOffset>), ()> {
-    if let Some(pos) = s.rfind(['+', '-']) {
-        if pos >= 5 {
+    if let Some(pos) = s.rfind(['+', '-'])
+        && pos >= 5 {
             let (t, tzs) = s.split_at(pos);
             let time = NaiveTime::parse_from_str(t, "%H:%M:%S")
                 .or_else(|_| NaiveTime::parse_from_str(t, "%H:%M:%S%.f"))
@@ -862,7 +861,6 @@ fn parse_xs_time(s: &str) -> Result<(NaiveTime, Option<ChronoFixedOffset>), ()> 
             let off = parse_offset(tzs).ok_or(())?;
             return Ok((time, Some(off)));
         }
-    }
     let time = NaiveTime::parse_from_str(s, "%H:%M:%S")
         .or_else(|_| NaiveTime::parse_from_str(s, "%H:%M:%S%.f"))
         .map_err(|_| ())?;
@@ -948,7 +946,7 @@ fn format_year_month_duration(months: i32) -> String {
     let neg = months < 0;
     let mut m = months.abs();
     let y = m / 12;
-    m = m % 12;
+    m %= 12;
     let mut out = String::new();
     if neg { out.push('-'); }
     out.push('P');

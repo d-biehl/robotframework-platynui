@@ -140,11 +140,10 @@ fn sc() -> StaticContext {
 fn names<T: XdmNode>(items: &Vec<XdmItem<T>>) -> Vec<String> {
     let mut v = vec![];
     for it in items {
-        if let XdmItem::Node(n) = it {
-            if let Some(q) = n.name() {
+        if let XdmItem::Node(n) = it
+            && let Some(q) = n.name() {
                 v.push(q.local);
             }
-        }
     }
     v
 }

@@ -145,11 +145,10 @@ fn names(items: &Vec<platynui_xpath::xdm::XdmItem<Node>>) -> Vec<String> {
     use platynui_xpath::xdm::XdmItem;
     let mut out = vec![];
     for it in items {
-        if let XdmItem::Node(n) = it {
-            if let Some(q) = n.name() {
+        if let XdmItem::Node(n) = it
+            && let Some(q) = n.name() {
                 out.push(q.local);
             }
-        }
     }
     out
 }

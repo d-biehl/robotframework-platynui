@@ -1030,9 +1030,7 @@ fn minmax_impl<N: crate::model::XdmNode>(
             let ord = s.cmp(&acc);
             if is_min {
                 if ord == core::cmp::Ordering::Less { s } else { acc }
-            } else {
-                if ord == core::cmp::Ordering::Greater { s } else { acc }
-            }
+            } else if ord == core::cmp::Ordering::Greater { s } else { acc }
         });
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(best))])
     }
@@ -1067,8 +1065,8 @@ fn parse_offset(tz: &str) -> Option<ChronoFixedOffset> {
 }
 
 fn parse_xs_time(s: &str) -> Result<(NaiveTime, Option<ChronoFixedOffset>), ()> {
-    if let Some(pos) = s.rfind(['+', '-']) {
-        if pos >= 5 {
+    if let Some(pos) = s.rfind(['+', '-'])
+        && pos >= 5 {
             let (t, tzs) = s.split_at(pos);
             let time = NaiveTime::parse_from_str(t, "%H:%M:%S")
                 .or_else(|_| NaiveTime::parse_from_str(t, "%H:%M:%S%.f"))
@@ -1076,7 +1074,6 @@ fn parse_xs_time(s: &str) -> Result<(NaiveTime, Option<ChronoFixedOffset>), ()> 
             let off = parse_offset(tzs).ok_or(())?;
             return Ok((time, Some(off)));
         }
-    }
     let time = NaiveTime::parse_from_str(s, "%H:%M:%S")
         .or_else(|_| NaiveTime::parse_from_str(s, "%H:%M:%S%.f"))
         .map_err(|_| ())?;
@@ -1118,7 +1115,7 @@ fn format_year_month_duration_local(months: i32) -> String {
     let neg = months < 0;
     let mut m = months.abs();
     let y = m / 12;
-    m = m % 12;
+    m %= 12;
     let mut out = String::new();
     if neg { out.push('-'); }
     out.push('P');
@@ -1157,14 +1154,13 @@ fn fmt_offset_local(off: &ChronoFixedOffset) -> String {
 }
 
 fn parse_xs_date_local(s: &str) -> Result<(NaiveDate, Option<ChronoFixedOffset>), ()> {
-    if let Some(pos) = s.rfind(['+', '-']) {
-        if pos >= 10 {
+    if let Some(pos) = s.rfind(['+', '-'])
+        && pos >= 10 {
             let (d, tzs) = s.split_at(pos);
             let date = NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(|_| ())?;
             let off = parse_offset(tzs).ok_or(())?;
             return Ok((date, Some(off)));
         }
-    }
     let date = NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| ())?;
     Ok((date, None))
 }

@@ -160,9 +160,8 @@ fn as_bool<N>(items: &Vec<XdmItem<N>>) -> bool {
 fn names<T: XdmNode>(items: &Vec<XdmItem<T>>) -> Vec<String> {
     let mut v = vec![];
     for it in items {
-        if let XdmItem::Node(n) = it {
-            if let Some(q) = n.name() { v.push(q.local); }
-        }
+        if let XdmItem::Node(n) = it
+            && let Some(q) = n.name() { v.push(q.local); }
     }
     v
 }
@@ -223,7 +222,7 @@ fn namespaces_between_attributes_and_children(sc: StaticContext) {
         .filter_map(|it| match it { XdmItem::Node(n) => Some(n.kind()), _ => None })
         .collect();
     assert!(kinds.len() >= 2);
-    assert!(matches!(kinds.get(0), Some(NodeKind::Attribute)));
+    assert!(matches!(kinds.first(), Some(NodeKind::Attribute)));
     assert!(matches!(kinds.get(1), Some(NodeKind::Namespace)));
 }
 

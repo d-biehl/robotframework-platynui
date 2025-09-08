@@ -22,10 +22,10 @@ pub fn is_well_formed_ast_expr(_e: &p_ast::Expr) -> bool {
 }
 
 // Expect helpers for common shapes
-pub fn expect_binary<'a>(
-    ast: &'a p_ast::Expr,
+pub fn expect_binary(
+    ast: &p_ast::Expr,
     expected: p_ast::BinaryOp,
-) -> (&'a p_ast::Expr, &'a p_ast::Expr) {
+) -> (&p_ast::Expr, &p_ast::Expr) {
     match ast {
         p_ast::Expr::Binary { left, op, right } => {
             assert_eq!(*op, expected, "Expected binary op {:?}", expected);
@@ -35,10 +35,10 @@ pub fn expect_binary<'a>(
     }
 }
 
-pub fn expect_general_cmp<'a>(
-    ast: &'a p_ast::Expr,
+pub fn expect_general_cmp(
+    ast: &p_ast::Expr,
     expected: p_ast::GeneralComp,
-) -> (&'a p_ast::Expr, &'a p_ast::Expr) {
+) -> (&p_ast::Expr, &p_ast::Expr) {
     match ast {
         p_ast::Expr::GeneralComparison { left, op, right } => {
             assert_eq!(
