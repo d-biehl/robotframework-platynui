@@ -143,9 +143,11 @@ fn sample() -> Node {
 }
 
 #[fixture]
+#[allow(unused_braces)]
 fn root() -> Node { sample() }
 
 #[fixture]
+#[allow(unused_braces)]
 fn sc() -> StaticContext { StaticContext::default() }
 
 fn as_bool<N>(items: &Vec<XdmItem<N>>) -> bool {
