@@ -166,10 +166,10 @@ fn sc() -> StaticContext {
 }
 
 #[rstest]
-#[case("a", vec!["a","a"]) ]
-#[case("a/b", vec!["b"]) ]
-#[case("a/@id", vec!["id","id"]) ]
-#[case("//c", vec!["c"]) ]
+#[case::select_a("a", vec!["a","a"]) ]
+#[case::select_ab("a/b", vec!["b"]) ]
+#[case::select_attr_id("a/@id", vec!["id","id"]) ]
+#[case::select_desc_c("//c", vec!["c"]) ]
 fn test_basic_paths(
     #[case] expr: &str,
     #[case] expected: Vec<&str>,

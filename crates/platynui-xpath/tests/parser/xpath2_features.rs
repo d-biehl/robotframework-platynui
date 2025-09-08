@@ -1,80 +1,72 @@
 use super::*;
 
 #[rstest]
-#[case("for $i in 1 to 10 return $i", "Simple for expression")]
-#[case("if ($x > 0) then $x else 0", "Simple if expression")]
-#[case("some $x in //item satisfies $x > 10", "Existential quantification")]
-#[case("every $x in //item satisfies $x > 0", "Universal quantification")]
-#[case("(1, 2, 3)", "Sequence construction")]
-#[case("$a union $b", "Union operator")]
-#[case("$a intersect $b", "Intersect operator")]
-#[case("$a except $b", "Except operator")]
-#[case("if (@condition) then 'yes' else 'no'", "Conditional expression")]
-#[case("for $i in //item return $i/@value", "For expression")]
-#[case("some $x in //book satisfies $x/@price < 20", "Some expression")]
-#[case("every $x in //book satisfies $x/@price > 0", "Every expression")]
-#[case("1 to 10", "Range expression")]
-#[case("//book except //book[@id='1']", "Except operator")]
-#[case("//book intersect //bestseller", "Intersect operator")]
-#[case("@value castable as xs:date", "Castable as date")]
-#[case("@value cast as xs:boolean", "Cast as boolean")]
-fn test_xpath2_features(#[case] xpath: &str, #[case] description: &str) {
+#[case::for_simple("for $i in 1 to 10 return $i")]
+#[case::if_simple("if ($x > 0) then $x else 0")]
+#[case::some_quantified("some $x in //item satisfies $x > 10")]
+#[case::every_quantified("every $x in //item satisfies $x > 0")]
+#[case::sequence_const("(1, 2, 3)")]
+#[case::union("$a union $b")]
+#[case::intersect("$a intersect $b")]
+#[case::except("$a except $b")]
+#[case::if_conditional("if (@condition) then 'yes' else 'no'")]
+#[case::for_return("for $i in //item return $i/@value")]
+#[case::some_book_price("some $x in //book satisfies $x/@price < 20")]
+#[case::every_book_price("every $x in //book satisfies $x/@price > 0")]
+#[case::range("1 to 10")]
+#[case::except_path("//book except //book[@id='1']")]
+#[case::intersect_path("//book intersect //bestseller")]
+#[case::castable_date("@value castable as xs:date")]
+#[case::cast_boolean("@value cast as xs:boolean")]
+fn test_xpath2_features(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
+        "Failed to parse '{}': {:?}",
         xpath,
         result.err()
     );
 }
 
 #[rstest]
-#[case("(1, 2, 3)", "Sequence construction")]
-#[case("$a union $b", "Union operator")]
-#[case("$a intersect $b", "Intersect operator")]
-#[case("$a except $b", "Except operator")]
-fn test_sequences_and_sets(#[case] xpath: &str, #[case] description: &str) {
+#[case::sequence("(1, 2, 3)")]
+#[case::set_union("$a union $b")]
+#[case::set_intersect("$a intersect $b")]
+#[case::set_except("$a except $b")]
+fn test_sequences_and_sets(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
+        "Failed to parse '{}': {:?}",
         xpath,
         result.err()
     );
 }
 
 #[rstest]
-#[case(
+#[case::for_multi_bind(
     "for $i in 1 to 10, $j in 1 to $i return $i * $j",
-    "Multiple variable binding"
 )]
-#[case(
+#[case::nested_if(
     "if (count(//error) > 0) then 'Has errors' else if (count(//warning) > 0) then 'Has warnings' else 'OK'",
-    "Nested if expressions"
 )]
-#[case(
+#[case::nested_quantified(
     "some $item in //product satisfies every $attr in $item/@* satisfies string-length($attr) > 0",
-    "Nested quantified expressions"
 )]
-#[case("//book[author = ('Smith', 'Jones', 'Brown')]", "Sequence comparison")]
-#[case(
+#[case::sequence_comparison("//book[author = ('Smith', 'Jones', 'Brown')]")]
+#[case::tokenized_sequence(
     "//product[@tags = tokenize('electronics,computer,laptop', ',')]",
-    "Tokenized sequence"
 )]
-#[case("(//book/@price)[position() > 5]", "Sequence filtering")]
-#[case("//item[price castable as xs:decimal]", "Type checking")]
-#[case(
+#[case::sequence_filtering("(//book/@price)[position() > 5]")]
+#[case::type_checking("//item[price castable as xs:decimal]")]
+#[case::date_comparison(
     "//element[@date castable as xs:date and xs:date(@date) > current-date()]",
-    "Date comparison"
 )]
-fn test_xpath2_advanced_features(#[case] xpath: &str, #[case] description: &str) {
+fn test_xpath2_advanced_features(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
+        "Failed to parse '{}': {:?}",
         xpath,
         result.err()
     );
@@ -82,70 +74,58 @@ fn test_xpath2_advanced_features(#[case] xpath: &str, #[case] description: &str)
 
 // Test XPath 2.0 A.4 Precedence Order compliance
 #[rstest]
-#[case(
+#[case::prec_mul_over_add(
     "5 + 3 * 2",
-    "Multiplication should have higher precedence than addition"
 )]
-#[case(
+#[case::prec_mul_over_sub(
     "10 - 2 * 3",
-    "Multiplication should have higher precedence than subtraction"
 )]
-#[case("8 div 2 + 1", "Division should have higher precedence than addition")]
-#[case(
+#[case::prec_div_over_add("8 div 2 + 1")]
+#[case::prec_mul_div_same_left_to_right(
     "3 * 4 div 2",
-    "Multiplication and division should have same precedence, left-to-right"
 )]
-#[case(
+#[case::prec_arith_over_cmp(
     "2 + 3 > 1 * 4",
-    "Arithmetic should have higher precedence than comparison"
 )]
-#[case(
+#[case::prec_cmp_over_and(
     "1 < 2 and 3 > 2",
-    "Comparison should have higher precedence than logical AND"
 )]
-#[case("true or false and false", "AND should have higher precedence than OR")]
-#[case(
+#[case::prec_and_over_or("true or false and false")]
+#[case::prec_intersect_over_union(
     "$a union $b intersect $c",
-    "Intersect should have higher precedence than union"
 )]
-#[case("count(//book) + 1", "Function call should have high precedence")]
-#[case(
+#[case::prec_fn_call_high("count(//book) + 1")]
+#[case::prec_path_over_add(
     "child::* + 1",
-    "Path expression should have higher precedence than addition"
 )]
-fn test_xpath2_precedence_order_compliance(#[case] expression: &str, #[case] description: &str) {
+fn test_xpath2_precedence_order_compliance(#[case] expression: &str) {
     let result = parse_xpath(expression);
-    assert!(result.is_ok(), "{}: {}", description, result.unwrap_err());
+    assert!(result.is_ok(), "Precedence parse failed: {}", result.unwrap_err());
 }
 
 // Test complex precedence scenarios with multiple operators
 #[rstest]
-#[case(
+#[case::complex_arith(
     "$x + $y * $z div $w - $v",
-    "Complex arithmetic with correct precedence"
 )]
-#[case("//book[@price < 10 + 5]", "Path with predicate containing arithmetic")]
-#[case("position() = 1 or position() = last()", "Logical with function calls")]
-#[case(
+#[case::path_with_predicate("//book[@price < 10 + 5]")]
+#[case::logical_with_functions("position() = 1 or position() = last()")]
+#[case::multiple_set_ops(
     "$a union $b except $c intersect $d",
-    "Multiple set operations with correct precedence"
 )]
-#[case(
+#[case::for_with_arith(
     "for $i in 1 to 10 return $i * 2 + 1",
-    "For expression with arithmetic"
 )]
-#[case("if ($x > 0) then $x + $y else $x - $y", "Conditional with arithmetic")]
-#[case(
+#[case::if_with_arith("if ($x > 0) then $x + $y else $x - $y")]
+#[case::quantified_with_logical(
     "some $x in $seq satisfies $x > $threshold and $x < $max",
-    "Quantified with logical operations"
 )]
-#[case("/books/book[position() = 1]/title", "Complex path with predicates")]
-#[case(
+#[case::complex_path("/books/book[position() = 1]/title")]
+#[case::var_arith(
     "$price * $quantity + $tax",
-    "Variable arithmetic with correct precedence"
 )]
-#[case("not($flag) and $value > 10", "Function call with logical operations")]
-fn test_xpath2_complex_precedence_scenarios(#[case] expression: &str, #[case] description: &str) {
+#[case::fn_call_with_logical("not($flag) and $value > 10")]
+fn test_xpath2_complex_precedence_scenarios(#[case] expression: &str) {
     let result = parse_xpath(expression);
-    assert!(result.is_ok(), "{}: {}", description, result.unwrap_err());
+    assert!(result.is_ok(), "Complex precedence parse failed: {}", result.unwrap_err());
 }

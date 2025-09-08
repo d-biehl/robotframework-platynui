@@ -3,129 +3,114 @@ use super::*;
 // Additional test cases to help reach the original test count of 468
 
 #[rstest]
-#[case("//div[@data-id]", "Data attribute existence")]
-#[case("//span[@ng-if]", "Angular directive attribute")]
-#[case("//button[@v-on:click]", "Vue.js event binding")]
-#[case("//input[@type='email' and @required]", "Required email input")]
-#[case("//select[@multiple]", "Multiple select element")]
-#[case("//textarea[@placeholder]", "Textarea with placeholder")]
-#[case("//meta[@charset]", "Meta charset tag")]
-#[case("//link[@rel='stylesheet']", "Stylesheet link")]
-#[case("//script[@src and @type='text/javascript']", "External JavaScript")]
-#[case("//img[@loading='lazy']", "Lazy loading image")]
-#[case("//video[@controls]", "Video with controls")]
-#[case("//audio[@autoplay]", "Autoplay audio")]
-#[case("//iframe[@sandbox]", "Sandboxed iframe")]
-#[case("//canvas[@width and @height]", "Canvas with dimensions")]
-#[case("//svg[@viewBox]", "SVG with viewBox")]
-fn test_modern_web_elements(#[case] xpath: &str, #[case] description: &str) {
+#[case::data_attr("//div[@data-id]")]
+#[case::angular_attr("//span[@ng-if]")]
+#[case::vue_event("//button[@v-on:click]")]
+#[case::email_input_required("//input[@type='email' and @required]")]
+#[case::select_multiple("//select[@multiple]")]
+#[case::textarea_placeholder("//textarea[@placeholder]")]
+#[case::meta_charset("//meta[@charset]")]
+#[case::link_stylesheet("//link[@rel='stylesheet']")]
+#[case::script_external("//script[@src and @type='text/javascript']")]
+#[case::img_lazy("//img[@loading='lazy']")]
+#[case::video_controls("//video[@controls]")]
+#[case::audio_autoplay("//audio[@autoplay]")]
+#[case::iframe_sandbox("//iframe[@sandbox]")]
+#[case::canvas_dimensions("//canvas[@width and @height]")]
+#[case::svg_viewbox("//svg[@viewBox]")]
+fn test_modern_web_elements(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
-        xpath,
-        result.err()
+        "Failed to parse '{}': {:?}", xpath, result.err()
     );
 }
 
 #[rstest]
-#[case("//table[tbody/tr[position() > 1]]", "Table with data rows")]
-#[case("//ul[li[position() <= 3]]", "List with max 3 items")]
-#[case("//ol[count(li) = 5]", "Ordered list with exactly 5 items")]
-#[case("//dl[dt and dd]", "Definition list with terms and definitions")]
-#[case("//fieldset[legend]", "Fieldset with legend")]
-#[case("//details[summary]", "Details with summary")]
-#[case("//figure[figcaption]", "Figure with caption")]
-#[case("//article[header and footer]", "Article with header and footer")]
-#[case("//section[h1 or h2 or h3]", "Section with heading")]
-#[case("//aside[@role='complementary']", "Aside with complementary role")]
-#[case("//nav[@aria-label]", "Navigation with aria label")]
-#[case("//main[@role='main']", "Main content area")]
-#[case("//header[@role='banner']", "Header with banner role")]
-#[case("//footer[@role='contentinfo']", "Footer with contentinfo role")]
-fn test_semantic_html_structures(#[case] xpath: &str, #[case] description: &str) {
+#[case::table_data_rows("//table[tbody/tr[position() > 1]]")]
+#[case::list_max_3("//ul[li[position() <= 3]]")]
+#[case::ol_exactly_5("//ol[count(li) = 5]")]
+#[case::dl_terms_defs("//dl[dt and dd]")]
+#[case::fieldset_legend("//fieldset[legend]")]
+#[case::details_summary("//details[summary]")]
+#[case::figure_figcaption("//figure[figcaption]")]
+#[case::article_header_footer("//article[header and footer]")]
+#[case::section_with_heading("//section[h1 or h2 or h3]")]
+#[case::aside_complementary("//aside[@role='complementary']")]
+#[case::nav_aria_label("//nav[@aria-label]")]
+#[case::main_role("//main[@role='main']")]
+#[case::header_banner("//header[@role='banner']")]
+#[case::footer_contentinfo("//footer[@role='contentinfo']")]
+fn test_semantic_html_structures(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
-        xpath,
-        result.err()
+        "Failed to parse '{}': {:?}", xpath, result.err()
     );
 }
 
 #[rstest]
-#[case("//input[@aria-describedby]", "Input with aria description")]
-#[case("//button[@aria-expanded='false']", "Collapsed button")]
-#[case("//div[@aria-hidden='true']", "Hidden div")]
-#[case("//span[@aria-live='polite']", "Polite live region")]
-#[case("//region[@aria-labelledby]", "Region with label reference")]
-#[case("//tab[@aria-selected='true']", "Selected tab")]
-#[case("//tabpanel[@aria-labelledby]", "Tab panel with label")]
-#[case("//menuitem[@aria-disabled='false']", "Enabled menu item")]
-#[case("//dialog[@aria-modal='true']", "Modal dialog")]
-#[case("//alertdialog[@role='alertdialog']", "Alert dialog")]
-#[case("//progressbar[@aria-valuenow]", "Progress bar with current value")]
-#[case("//slider[@aria-valuemin and @aria-valuemax]", "Slider with min/max")]
-fn test_accessibility_attributes(#[case] xpath: &str, #[case] description: &str) {
+#[case::aria_describedby("//input[@aria-describedby]")]
+#[case::aria_expanded_false("//button[@aria-expanded='false']")]
+#[case::aria_hidden_true("//div[@aria-hidden='true']")]
+#[case::aria_live_polite("//span[@aria-live='polite']")]
+#[case::aria_labelledby("//region[@aria-labelledby]")]
+#[case::aria_selected_true("//tab[@aria-selected='true']")]
+#[case::tabpanel_labelledby("//tabpanel[@aria-labelledby]")]
+#[case::menuitem_enabled("//menuitem[@aria-disabled='false']")]
+#[case::dialog_modal("//dialog[@aria-modal='true']")]
+#[case::alertdialog_role("//alertdialog[@role='alertdialog']")]
+#[case::progressbar_value_now("//progressbar[@aria-valuenow]")]
+#[case::slider_min_max("//slider[@aria-valuemin and @aria-valuemax]")]
+fn test_accessibility_attributes(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
-        xpath,
-        result.err()
+        "Failed to parse '{}': {:?}", xpath, result.err()
     );
 }
 
 #[rstest]
-#[case("//div[contains(@style, 'display:none')]", "Hidden element via style")]
-#[case("//span[contains(@class, 'hidden')]", "Hidden element via class")]
-#[case("//p[normalize-space(.) = '']", "Empty paragraph")]
-#[case("//input[@disabled='disabled']", "Disabled input")]
-#[case("//button[@disabled]", "Disabled button")]
-#[case("//select[@readonly]", "Readonly select")]
-#[case("//textarea[@readonly='readonly']", "Readonly textarea")]
-#[case("//input[@checked='checked']", "Checked input")]
-#[case("//option[@selected]", "Selected option")]
-#[case("//input[@value='']", "Empty input value")]
-#[case("//img[@alt='']", "Image with empty alt")]
-#[case("//a[@href='#']", "Placeholder link")]
-fn test_element_states(#[case] xpath: &str, #[case] description: &str) {
+#[case::hidden_via_style("//div[contains(@style, 'display:none')]")]
+#[case::hidden_via_class("//span[contains(@class, 'hidden')]")]
+#[case::empty_paragraph("//p[normalize-space(.) = '']")]
+#[case::disabled_input("//input[@disabled='disabled']")]
+#[case::disabled_button("//button[@disabled]")]
+#[case::readonly_select("//select[@readonly]")]
+#[case::readonly_textarea("//textarea[@readonly='readonly']")]
+#[case::checked_input("//input[@checked='checked']")]
+#[case::selected_option("//option[@selected]")]
+#[case::empty_input_value("//input[@value='']")]
+#[case::empty_alt_image("//img[@alt='']")]
+#[case::placeholder_link("//a[@href='#']")]
+fn test_element_states(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
-        xpath,
-        result.err()
+        "Failed to parse '{}': {:?}", xpath, result.err()
     );
 }
 
 #[rstest]
-#[case("//form[@method='POST']", "POST form")]
-#[case("//form[@method='GET']", "GET form")]
-#[case("//form[@enctype='multipart/form-data']", "File upload form")]
-#[case("//input[@type='hidden']", "Hidden input")]
-#[case("//input[@type='file']", "File input")]
-#[case("//input[@type='range']", "Range input")]
-#[case("//input[@type='color']", "Color picker")]
-#[case("//input[@type='date']", "Date input")]
-#[case("//input[@type='time']", "Time input")]
-#[case("//input[@type='datetime-local']", "Datetime input")]
-#[case("//input[@type='week']", "Week input")]
-#[case("//input[@type='month']", "Month input")]
-#[case("//input[@type='search']", "Search input")]
-#[case("//input[@type='tel']", "Telephone input")]
-#[case("//input[@type='url']", "URL input")]
-fn test_form_input_types(#[case] xpath: &str, #[case] description: &str) {
+#[case::form_post("//form[@method='POST']")]
+#[case::form_get("//form[@method='GET']")]
+#[case::form_multipart("//form[@enctype='multipart/form-data']")]
+#[case::input_hidden("//input[@type='hidden']")]
+#[case::input_file("//input[@type='file']")]
+#[case::input_range("//input[@type='range']")]
+#[case::input_color("//input[@type='color']")]
+#[case::input_date("//input[@type='date']")]
+#[case::input_time("//input[@type='time']")]
+#[case::input_datetime_local("//input[@type='datetime-local']")]
+#[case::input_week("//input[@type='week']")]
+#[case::input_month("//input[@type='month']")]
+#[case::input_search("//input[@type='search']")]
+#[case::input_tel("//input[@type='tel']")]
+#[case::input_url("//input[@type='url']")]
+fn test_form_input_types(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
-        xpath,
-        result.err()
+        "Failed to parse '{}': {:?}", xpath, result.err()
     );
 }

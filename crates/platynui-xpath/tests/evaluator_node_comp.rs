@@ -135,8 +135,8 @@ fn node_is_false(root: Node, sc: StaticContext) {
 }
 
 #[rstest]
-#[case("a[1] << //c")]
-#[case("//c >> a[1]")]
+#[case::a_before_c("a[1] << //c")]
+#[case::c_after_a("//c >> a[1]")]
 fn node_before_after(#[case] expr: &str, root: Node, sc: StaticContext) {
     let exec = compile_xpath(expr, &sc).unwrap();
     let out: Vec<XdmItem<Node>> = exec.evaluate_on(Some(root)).unwrap();

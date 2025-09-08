@@ -194,8 +194,8 @@ fn kind_comment(root_el: Node, sc: StaticContext) {
 }
 
 #[rstest]
-#[case("processing-instruction()", NodeKind::ProcessingInstruction)]
-#[case("processing-instruction('go')", NodeKind::ProcessingInstruction)]
+#[case::pi_any("processing-instruction()", NodeKind::ProcessingInstruction)]
+#[case::pi_target_go("processing-instruction('go')", NodeKind::ProcessingInstruction)]
 fn kind_processing_instruction(
     #[case] expr: &str,
     #[case] expected: NodeKind,

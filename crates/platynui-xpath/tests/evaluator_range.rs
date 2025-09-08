@@ -45,8 +45,8 @@ fn atomics<N>(items: &Vec<XdmItem<N>>) -> Vec<XdmAtomicValue> {
 }
 
 #[rstest]
-#[case("1 to 3", vec![XdmAtomicValue::Integer(1), XdmAtomicValue::Integer(2), XdmAtomicValue::Integer(3)])]
-#[case("3 to 1", vec![])]
+#[case::upward("1 to 3", vec![XdmAtomicValue::Integer(1), XdmAtomicValue::Integer(2), XdmAtomicValue::Integer(3)])]
+#[case::downward_empty("3 to 1", vec![])]
 fn range_to_operator(#[case] expr: &str, #[case] expected: Vec<XdmAtomicValue>) {
     let exec = compile_xpath(expr, &StaticContext::default()).unwrap();
     let out: Vec<XdmItem<DummyNode>> = exec

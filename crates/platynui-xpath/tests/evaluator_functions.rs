@@ -40,8 +40,8 @@ fn as_bool<N>(items: &Vec<XdmItem<N>>) -> bool {
 }
 
 #[rstest]
-#[case("true()", true)]
-#[case("false()", false)]
+#[case::true_fn("true()", true)]
+#[case::false_fn("false()", false)]
 fn fn_true_false(#[case] expr: &str, #[case] expected: bool) {
     let sc = StaticContext::default();
     let ctx = platynui_xpath::runtime::DynamicContextBuilder::<DummyNode>::new().build();
@@ -51,8 +51,8 @@ fn fn_true_false(#[case] expr: &str, #[case] expected: bool) {
 }
 
 #[rstest]
-#[case("not(true())", false)]
-#[case("not('')", true)]
+#[case::not_true("not(true())", false)]
+#[case::not_empty_string("not('')", true)]
 fn fn_not(#[case] expr: &str, #[case] expected: bool) {
     let sc = StaticContext::default();
     let ctx = platynui_xpath::runtime::DynamicContextBuilder::<DummyNode>::new().build();

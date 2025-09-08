@@ -1,178 +1,154 @@
 use super::*;
 
 #[rstest]
-#[case("1 + 2", "Addition")]
-#[case("10 - 5", "Subtraction")]
-#[case("3 * 4", "Multiplication")]
-#[case("10 div 2", "Division")]
-#[case("10 mod 3", "Modulo")]
-#[case("8 idiv 3", "Integer division")]
-#[case("@id and @title", "Logical AND")]
-#[case("@id or @title", "Logical OR")]
-#[case("@price < 20", "Less than")]
-#[case("@price <= 20", "Less than or equal")]
-#[case("@price > 20", "Greater than")]
-#[case("@price >= 20", "Greater than or equal")]
-#[case("@id = 'value'", "Equality")]
-#[case("@id != 'value'", "Inequality")]
-fn test_operators(#[case] xpath: &str, #[case] description: &str) {
+#[case::add("1 + 2")]
+#[case::sub("10 - 5")]
+#[case::mul("3 * 4")]
+#[case::div("10 div 2")]
+#[case::mod_op("10 mod 3")]
+#[case::idiv("8 idiv 3")]
+#[case::and("@id and @title")]
+#[case::or("@id or @title")]
+#[case::lt("@price < 20")]
+#[case::le("@price <= 20")]
+#[case::gt("@price > 20")]
+#[case::ge("@price >= 20")]
+#[case::eq("@id = 'value'")]
+#[case::ne("@id != 'value'")]
+fn test_operators(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
+        "Failed to parse '{}': {:?}",
         xpath,
         result.err()
     );
 }
 
 #[rstest]
-#[case("$a eq $b", "Value equal")]
-#[case("$a ne $b", "Value not equal")]
-#[case("$a lt $b", "Value less than")]
-#[case("$a le $b", "Value less than or equal")]
-#[case("$a gt $b", "Value greater than")]
-#[case("$a ge $b", "Value greater than or equal")]
-fn test_value_comparison_operators(#[case] xpath: &str, #[case] description: &str) {
+#[case::v_eq("$a eq $b")]
+#[case::v_ne("$a ne $b")]
+#[case::v_lt("$a lt $b")]
+#[case::v_le("$a le $b")]
+#[case::v_gt("$a gt $b")]
+#[case::v_ge("$a ge $b")]
+fn test_value_comparison_operators(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
-        xpath,
-        result.err()
+        "Failed to parse '{}': {:?}", xpath, result.err()
     );
 }
 
 #[rstest]
-#[case("1 div 2", "Division operator with proper spacing")]
-#[case("5 mod 3", "Modulo operator with proper spacing")]
-#[case("10 and 5", "Logical AND with proper spacing")]
-#[case("3 or 7", "Logical OR with proper spacing")]
-#[case("1 eq 2", "Value comparison with proper spacing")]
-#[case("4 to 6", "Range expression with proper spacing")]
-#[case("5 union 3", "Union operator with proper spacing")]
-#[case("8 intersect 9", "Intersect operator with proper spacing")]
-fn test_number_with_space_before_operators_should_pass(
-    #[case] xpath: &str,
-    #[case] description: &str,
-) {
+#[case::space_div("1 div 2")]
+#[case::space_mod("5 mod 3")]
+#[case::space_and("10 and 5")]
+#[case::space_or("3 or 7")]
+#[case::space_eq("1 eq 2")]
+#[case::space_to("4 to 6")]
+#[case::space_union("5 union 3")]
+#[case::space_intersect("8 intersect 9")]
+fn test_number_with_space_before_operators_should_pass(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     // With proper spacing, these should be valid XPath expressions
     assert!(
         result.is_ok(),
-        "Should be valid with proper spacing: {} - '{}'",
-        description,
+        "Should be valid with proper spacing: '{}'",
         xpath
     );
 }
 
 #[rstest]
-#[case("1 div 2", "Number with space before div (valid)")]
-#[case("5 mod 3", "Number with space before mod (valid)")]
-#[case("10 and 5", "Number with space before and (valid)")]
-#[case("3 or 7", "Number with space before or (valid)")]
-#[case("1 eq 2", "Number with space before eq (valid)")]
-#[case("5 ne 3", "Number with space before ne (valid)")]
-#[case("2 lt 8", "Number with space before lt (valid)")]
-fn test_number_with_proper_operator_spacing(#[case] xpath: &str, #[case] description: &str) {
+#[case::num_space_div("1 div 2")]
+#[case::num_space_mod("5 mod 3")]
+#[case::num_space_and("10 and 5")]
+#[case::num_space_or("3 or 7")]
+#[case::num_space_eq("1 eq 2")]
+#[case::num_space_ne("5 ne 3")]
+#[case::num_space_lt("2 lt 8")]
+fn test_number_with_proper_operator_spacing(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     // With proper spacing, these should be valid
     assert!(
         result.is_ok(),
-        "Should be valid with proper spacing: {} - '{}'",
-        description,
+        "Should be valid with proper spacing: '{}'",
         xpath
     );
 }
 
 #[rstest]
-#[case("+ * 5", "Plus followed by multiplication")]
-#[case("- * 3", "Invalid operator sequence")]
-#[case("4 * * 2", "Double multiplication")]
-#[case("8 / / 2", "Double division")]
-#[case("5 mod mod 3", "Double mod operator")]
-#[case("5 div div 2", "Double div operator")]
-#[case("true() and and false()", "Double and operator")]
-#[case("1 == 2", "Double equals")]
-fn test_invalid_operator_sequences(#[case] xpath: &str, #[case] description: &str) {
+#[case::plus_then_mul("+ * 5")]
+#[case::minus_then_mul("- * 3")]
+#[case::double_mul("4 * * 2")]
+#[case::double_div("8 / / 2")]
+#[case::double_mod("5 mod mod 3")]
+#[case::double_div_word("5 div div 2")]
+#[case::double_and("true() and and false()")]
+#[case::double_equals("1 == 2")]
+fn test_invalid_operator_sequences(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_err(),
-        "Expected {} to fail parsing: '{}'",
-        description,
+        "Expected to fail parsing: '{}'",
         xpath
     );
 }
 
 #[rstest]
-#[case("1div2", "Number concatenated with div (should fail!)")]
-#[case("5mod3", "Number concatenated with mod (should fail!)")]
-#[case("10and5", "Number concatenated with and (should fail!)")]
-#[case("3or7", "Number concatenated with or (should fail!)")]
-#[case("1eq2", "Number concatenated with eq (should fail!)")]
-#[case("5ne3", "Number concatenated with ne (should fail!)")]
-#[case("2lt8", "Number concatenated with lt (should fail!)")]
-fn test_number_concatenated_with_operators_should_fail(
-    #[case] xpath: &str,
-    #[case] description: &str,
-) {
+#[case::concat_div("1div2")]
+#[case::concat_mod("5mod3")]
+#[case::concat_and("10and5")]
+#[case::concat_or("3or7")]
+#[case::concat_eq("1eq2")]
+#[case::concat_ne("5ne3")]
+#[case::concat_lt("2lt8")]
+fn test_number_concatenated_with_operators_should_fail(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     // According to XPath 2.0 spec, these MUST fail - no space between number and operator
     assert!(
         result.is_err(),
-        "MUST fail per XPath 2.0 spec: {} - '{}'",
-        description,
+        "MUST fail per XPath 2.0 spec: '{}'",
         xpath
     );
 }
 
 #[rstest]
-#[case(
+#[case::precedence_and_or(
     "//item[@a = 1 and @b = 2 or @c = 3 and @d = 4 or @e = 5]",
-    "Complex and/or precedence"
 )]
-#[case(
+#[case::precedence_arithmetic_cmp(
     "//div[@x + @y * @z > @a - @b div @c]",
-    "Arithmetic operator precedence"
 )]
-#[case(
+#[case::precedence_or_grouping(
     "//node[@val = 1 or (@val = 2 and @type = 'A') or @val = 3]",
-    "Union-like logic with or precedence"
 )]
-#[case(
+#[case::precedence_not_and_or(
     "//elem[not(@active) and @status = 'pending' or @priority > 5]",
-    "Not with and/or"
 )]
-#[case(
+#[case::precedence_mixed(
     "//item[@price * @qty + @tax > @budget and @category = 'A' or @discount > 0.1]",
-    "Mixed arithmetic and logical"
 )]
-#[case(
+#[case::precedence_chained_eq(
     "//data[@x = @y and @y = @z and @a != @b and @b != @c]",
-    "Chained equality"
 )]
-#[case(
+#[case::precedence_axes(
     "//node[child::* > 5 and following::* < 10 or preceding::* = 0]",
-    "Multiple axis comparisons"
 )]
-#[case(
+#[case::precedence_position_funcs(
     "//item[position() = 1 or position() = last() and @important = true()]",
-    "Position with logical"
 )]
-fn test_operator_precedence_stress(#[case] xpath: &str, #[case] description: &str) {
+fn test_operator_precedence_stress(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse operator precedence {}: '{}'. Error: {:?}",
-        description,
+        "Failed to parse operator precedence '{}': {:?}",
         xpath,
         result.err()
     );
     let parsed = result.unwrap();
     assert!(
         parsed.len() > 0,
-        "Precedence expression should parse: {}",
-        description
+        "Precedence expression should parse"
     );
 }

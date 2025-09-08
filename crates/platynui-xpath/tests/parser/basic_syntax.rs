@@ -4,52 +4,43 @@ use super::*;
 // Tests for fundamental XPath syntax elements
 
 #[rstest]
-#[case("book", "Element name")]
-#[case("@id", "Attribute")]
-#[case(".", "Current node")]
-#[case("..", "Parent node")]
-#[case("*", "Wildcard")]
-#[case("text()", "Text node")]
-#[case("$var", "Variable")]
-fn test_basic_syntax_elements(#[case] xpath: &str, #[case] description: &str) {
+#[case::element_name("book")]
+#[case::attribute("@id")]
+#[case::current_node(".")]
+#[case::parent_node("..")]
+#[case::wildcard("*")]
+#[case::text_node("text()")]
+#[case::variable("$var")]
+fn test_basic_syntax_elements(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
-        xpath,
-        result.err()
+        "Failed to parse '{}': {:?}", xpath, result.err()
     );
 }
 
 #[rstest]
-#[case("123", "Integer literal")]
-#[case("123.45", "Decimal literal")]
-#[case("'hello'", "String literal with single quotes")]
-#[case("\"world\"", "String literal with double quotes")]
-#[case("()", "Empty sequence literal")]
-fn test_literals(#[case] xpath: &str, #[case] description: &str) {
+#[case::int_literal("123")]
+#[case::decimal_literal("123.45")]
+#[case::string_single("'hello'")]
+#[case::string_double("\"world\"")]
+#[case::empty_sequence("()")]
+fn test_literals(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
-        xpath,
-        result.err()
+        "Failed to parse '{}': {:?}", xpath, result.err()
     );
 }
 
 #[rstest]
-#[case("$node1 is $node2", "Node identity")]
-#[case("$node1 << $node2", "Node before")]
-#[case("$node1 >> $node2", "Node after")]
-fn test_node_comparison(#[case] xpath: &str, #[case] description: &str) {
+#[case::node_is("$node1 is $node2")]
+#[case::node_before("$node1 << $node2")]
+#[case::node_after("$node1 >> $node2")]
+fn test_node_comparison(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
-        xpath,
-        result.err()
+        "Failed to parse '{}': {:?}", xpath, result.err()
     );
 }

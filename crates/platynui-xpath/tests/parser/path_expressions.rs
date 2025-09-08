@@ -1,85 +1,81 @@
 use super::*;
 
 #[rstest]
-#[case("//", "Double slash without node test")]
-#[case("/text()", "Root with function (valid)")]
-#[case(".", "Current context node (valid)")]
-#[case("..", "Parent node (valid)")]
-#[case("*", "Any element (valid)")]
-#[case("@", "Lone at symbol")]
-#[case("@*", "Any attribute (valid)")]
-#[case("child::", "Axis without node test")]
-#[case("descendant::", "Descendant axis without node test")]
-#[case("following-sibling::", "Following-sibling axis without node test")]
-fn test_path_expressions_validation(#[case] xpath: &str, #[case] description: &str) {
+#[case::double_slash_only("//")]
+#[case::root_with_text("/text()")]
+#[case::current_node(".")]
+#[case::parent_node("..")]
+#[case::any_element("*")]
+#[case::lone_at("@")]
+#[case::any_attribute("@*")]
+#[case::axis_without_node_child("child::")]
+#[case::axis_without_node_descendant("descendant::")]
+#[case::axis_without_node_following_sibling("following-sibling::")]
+fn test_path_expressions_validation(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     // Only certain expressions should fail
     if xpath == "//" || xpath == "@" || xpath.ends_with("::") {
         assert!(
             result.is_err(),
-            "Expected {} to fail parsing: '{}'",
-            description,
+            "Expected '{}' to fail parsing",
             xpath
         );
     } else {
         // These are actually valid in XPath
         assert!(
             result.is_ok(),
-            "Expected {} to parse successfully: '{}'",
-            description,
+            "Expected '{}' to parse successfully",
             xpath
         );
     }
 }
 
 #[rstest]
-#[case("book/title", "Simple path")]
-#[case("//book", "Descendant path")]
-#[case("/bookstore/book[1]", "Absolute path with predicate")]
-#[case("book[@id='123']", "Path with attribute predicate")]
-#[case("//book/author/../title", "Path with parent reference")]
-#[case(".//chapter", "Relative descendant path")]
-#[case("book/chapter[last()]", "Path with position function")]
-#[case("/book", "Root element")]
-#[case("/book/chapter", "Simple path")]
-#[case("//book", "Descendant-or-self")]
-#[case("book/chapter", "Relative path")]
-#[case("book/chapter/title", "Multi-level path")]
-#[case("child::book", "Explicit axis")]
-#[case("descendant::title", "Descendant axis")]
-#[case("parent::*", "Parent axis with wildcard")]
-fn test_path_expressions(#[case] xpath: &str, #[case] description: &str) {
+#[case::simple_path("book/title")]
+#[case::descendant_path("//book")]
+#[case::absolute_with_predicate("/bookstore/book[1]")]
+#[case::with_attribute_predicate("book[@id='123']")]
+#[case::parent_reference("//book/author/../title")]
+#[case::relative_descendant(".//chapter")]
+#[case::position_function("book/chapter[last()]")]
+#[case::root_element("/book")]
+#[case::simple_path_again("/book/chapter")]
+#[case::descendant_or_self("//book")]
+#[case::relative_path("book/chapter")]
+#[case::multi_level("book/chapter/title")]
+#[case::explicit_axis_child("child::book")]
+#[case::axis_descendant("descendant::title")]
+#[case::axis_parent_wildcard("parent::*")]
+fn test_path_expressions(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
-        xpath,
-        result.err()
+    "Failed to parse '{}'. Error: {:?}",
+    xpath,
+    result.err()
     );
 }
 
 #[rstest]
-#[case("child::div", "Child axis")]
-#[case("descendant::span", "Descendant axis")]
-#[case("descendant-or-self::*", "Descendant or self axis")]
-#[case("parent::section", "Parent axis")]
-#[case("ancestor::article", "Ancestor axis")]
-#[case("ancestor-or-self::body", "Ancestor or self axis")]
-#[case("following::p", "Following axis")]
-#[case("following-sibling::div", "Following sibling axis")]
-#[case("preceding::h1", "Preceding axis")]
-#[case("preceding-sibling::nav", "Preceding sibling axis")]
-#[case("attribute::id", "Attribute axis")]
-#[case("self::node()", "Self axis")]
-#[case("namespace::prefix", "Namespace axis")]
-fn test_all_xpath_axes(#[case] xpath: &str, #[case] description: &str) {
+#[case::axis_child("child::div")]
+#[case::axis_descendant2("descendant::span")]
+#[case::axis_descendant_or_self("descendant-or-self::*")]
+#[case::axis_parent("parent::section")]
+#[case::axis_ancestor("ancestor::article")]
+#[case::axis_ancestor_or_self("ancestor-or-self::body")]
+#[case::axis_following("following::p")]
+#[case::axis_following_sibling("following-sibling::div")]
+#[case::axis_preceding("preceding::h1")]
+#[case::axis_preceding_sibling("preceding-sibling::nav")]
+#[case::axis_attribute("attribute::id")]
+#[case::axis_self("self::node()")]
+#[case::axis_namespace("namespace::prefix")]
+fn test_all_xpath_axes(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
-        xpath,
-        result.err()
+    "Failed to parse '{}'. Error: {:?}",
+    xpath,
+    result.err()
     );
 }

@@ -1,87 +1,79 @@
 use super::*;
 
 #[rstest]
-#[case("count(//book)", "Count function")]
-#[case("position()", "Position function")]
-#[case("last()", "Last function")]
-#[case("starts-with(@name, 'A')", "Starts with")]
-#[case("contains(@title, 'XML')", "Contains")]
-#[case("substring(@name, 1, 3)", "Substring")]
-#[case("string-length(@title)", "String length")]
-#[case("normalize-space(@text)", "Normalize space")]
-#[case("sum(//price)", "Sum function")]
-#[case("concat(@first, ' ', @last)", "Concat function")]
-#[case("not(@disabled)", "Not function")]
-#[case("true()", "True function")]
-#[case("false()", "False function")]
-fn test_functions(#[case] xpath: &str, #[case] description: &str) {
+#[case::count("count(//book)")]
+#[case::position("position()")]
+#[case::last("last()")]
+#[case::starts_with("starts-with(@name, 'A')")]
+#[case::contains("contains(@title, 'XML')")]
+#[case::substring("substring(@name, 1, 3)")]
+#[case::string_length("string-length(@title)")]
+#[case::normalize_space("normalize-space(@text)")]
+#[case::sum("sum(//price)")]
+#[case::concat("concat(@first, ' ', @last)")]
+#[case::not("not(@disabled)")]
+#[case::true_fn("true()")]
+#[case::false_fn("false()")]
+fn test_functions(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
-        xpath,
-        result.err()
+        "Failed to parse '{}': {:?}", xpath, result.err()
     );
 }
 
 #[rstest]
-#[case("matches(@class, \".*\")", "Regular expression function")]
-#[case("replace(@text, 'old', 'new')", "String replacement function")]
-#[case("tokenize(@tags, ',')", "String tokenization")]
-#[case("substring(@name, 1, 5)", "Substring function")]
-#[case("substring-before(@email, '@')", "Substring before function")]
-#[case("substring-after(@email, '@')", "Substring after function")]
-#[case("upper-case(@name)", "Upper case function")]
-#[case("lower-case(@title)", "Lower case function")]
-#[case("normalize-space(@description)", "Normalize space function")]
-#[case("translate(@phone, '()-', '')", "Translate function")]
-#[case("starts-with(@url, 'https')", "Starts with function")]
-#[case("ends-with(@file, '.pdf')", "Ends with function")]
-#[case("number(@price)", "Number conversion")]
-#[case("string(@id)", "String conversion")]
-#[case("boolean(@enabled)", "Boolean conversion")]
-#[case("floor(@price * 1.2)", "Floor function")]
-#[case("ceiling(@rating)", "Ceiling function")]
-#[case("round(@average)", "Round function")]
-#[case("abs(@difference)", "Absolute value")]
-#[case("min(//product/@price)", "Minimum function")]
-#[case("max(//product/@price)", "Maximum function")]
-#[case("sum(//item/@quantity)", "Sum function")]
-#[case("avg(//rating/@value)", "Average function")]
-fn test_comprehensive_functions(#[case] xpath: &str, #[case] description: &str) {
+#[case::matches("matches(@class, \".*\")")]
+#[case::replace("replace(@text, 'old', 'new')")]
+#[case::tokenize("tokenize(@tags, ',')")]
+#[case::substring2("substring(@name, 1, 5)")]
+#[case::substring_before("substring-before(@email, '@')")]
+#[case::substring_after("substring-after(@email, '@')")]
+#[case::upper_case("upper-case(@name)")]
+#[case::lower_case("lower-case(@title)")]
+#[case::normalize_space2("normalize-space(@description)")]
+#[case::translate("translate(@phone, '()-', '')")]
+#[case::starts_with2("starts-with(@url, 'https')")]
+#[case::ends_with("ends-with(@file, '.pdf')")]
+#[case::number("number(@price)")]
+#[case::string("string(@id)")]
+#[case::boolean("boolean(@enabled)")]
+#[case::floor("floor(@price * 1.2)")]
+#[case::ceiling("ceiling(@rating)")]
+#[case::round("round(@average)")]
+#[case::abs("abs(@difference)")]
+#[case::min("min(//product/@price)")]
+#[case::max("max(//product/@price)")]
+#[case::sum2("sum(//item/@quantity)")]
+#[case::avg("avg(//rating/@value)")]
+fn test_comprehensive_functions(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_ok(),
-        "Failed to parse {}: '{}'. Error: {:?}",
-        description,
-        xpath,
-        result.err()
+        "Failed to parse '{}': {:?}", xpath, result.err()
     );
 }
 
 #[rstest]
-#[case("position(", "Unclosed function call")]
-#[case("position)", "Function call without opening")]
-#[case("count(", "Unclosed count function")]
-#[case("substring(,)", "Function with empty parameters")]
-#[case("normalize-space(", "Unclosed normalize-space")]
-#[case("5()", "Number with function call syntax")]
-#[case("position(", "Unclosed function call")]
-#[case("position)", "Missing opening parenthesis")]
-#[case("position((", "Extra opening parenthesis")]
-#[case("position())", "Extra closing parenthesis")]
-#[case("position(1, 2, )", "Trailing comma in arguments")]
-#[case("position(,)", "Leading comma in arguments")]
-#[case("position(1,, 2)", "Double comma in arguments")]
-#[case("123()", "Number as function name")]
-#[case("'string'()", "String as function name")]
-fn test_malformed_function_calls(#[case] xpath: &str, #[case] description: &str) {
+#[case::unclosed_position("position(")]
+#[case::position_without_open("position)")]
+#[case::unclosed_count("count(")]
+#[case::empty_params("substring(,)")]
+#[case::unclosed_normalize_space("normalize-space(")]
+#[case::number_as_fn("5()")]
+#[case::unclosed_position2("position(")]
+#[case::position_missing_open_paren("position)")]
+#[case::position_extra_open("position((")]
+#[case::position_extra_close("position())")]
+#[case::position_trailing_comma("position(1, 2, )")]
+#[case::position_leading_comma("position(,)")]
+#[case::position_double_comma("position(1,, 2)")]
+#[case::number_fn_name("123()")]
+#[case::string_fn_name("'string'()")]
+fn test_malformed_function_calls(#[case] xpath: &str) {
     let result = parse_xpath(xpath);
     assert!(
         result.is_err(),
-        "Expected {} to fail parsing: '{}'",
-        description,
-        xpath
+        "Expected to fail parsing: '{}'", xpath
     );
 }
