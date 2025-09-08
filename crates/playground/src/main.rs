@@ -25,8 +25,15 @@ impl TestNode {
         });
 
         if let Some(p) = parent {
-            node.parent.write().unwrap().replace(Arc::downgrade(p));
-            p.children.write().unwrap().push(Arc::clone(&node));
+            // Avoid panicking on poisoned locks by recovering the inner guard
+            node.parent
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .replace(Arc::downgrade(p));
+            p.children
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(Arc::clone(&node));
         }
 
         node
@@ -36,9 +43,22 @@ impl TestNode {
 impl std::fmt::Debug for TestNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // only print fields that are Debug-friendly (avoid formatting dyn Node directly)
-        let parent = self.parent.read().unwrap().as_ref().cloned();
-        let children_len = self.children.read().unwrap().len();
-        let attributes_len = self.attributes.read().unwrap().len();
+        let parent = self
+            .parent
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .cloned();
+        let children_len = self
+            .children
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .len();
+        let attributes_len = self
+            .attributes
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .len();
 
         f.debug_struct("TestNode")
             .field("local_name", &self.local_name)
@@ -52,23 +72,29 @@ impl std::fmt::Debug for TestNode {
 
 impl Node for TestNode {
     fn parent(&self) -> Option<Weak<dyn Node>> {
-        self.parent
+        self
+            .parent
             .read()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .as_ref()
             .map(|w| w.clone() as Weak<dyn Node>)
     }
     fn children(&self) -> Vec<Arc<dyn Node>> {
-        self.children
+        self
+            .children
             .read()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
             .cloned()
             .map(|c| c as Arc<dyn Node>)
             .collect()
     }
     fn attributes(&self) -> Vec<Arc<dyn Attribute>> {
-        self.attributes.read().unwrap().clone()
+        self
+            .attributes
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
     fn invalidate(&self) {}
     fn local_name(&self) -> &str {

@@ -389,92 +389,82 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         if args[0].is_empty() {
             return Ok(vec![]);
         }
-        // numeric if all numeric, else string
+        // numeric if all numeric, else string (avoid unwraps)
         let mut all_num = true;
+        let mut m = f64::INFINITY;
         for it in &args[0] {
-            if let XdmItem::Atomic(a) = it {
-                if to_number_atomic(a).is_err() {
+            match it {
+                XdmItem::Atomic(a) => match to_number_atomic(a) {
+                    Ok(n) => m = m.min(n),
+                    Err(_) => {
+                        all_num = false;
+                        break;
+                    }
+                },
+                _ => {
                     all_num = false;
                     break;
                 }
-            } else {
-                all_num = false;
-                break;
             }
         }
         if all_num {
-            let mut m = f64::INFINITY;
-            for it in &args[0] {
-                if let XdmItem::Atomic(a) = it {
-                    m = m.min(to_number_atomic(a).unwrap());
-                }
-            }
-            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(m))])
-        } else {
-            let mut best: Option<String> = None;
-            for it in &args[0] {
-                let s = match it {
-                    XdmItem::Atomic(a) => as_string(a),
-                    XdmItem::Node(n) => n.string_value(),
-                };
-                best = Some(match best {
-                    None => s,
-                    Some(b) => {
-                        if s < b {
-                            s
-                        } else {
-                            b
-                        }
-                    }
-                })
-            }
-            Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(best.unwrap()))])
+            return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(m))]);
         }
+        // String branch: seed with first item's string value, then fold
+        let mut iter = args[0].iter();
+        let first = match iter.next() {
+            Some(XdmItem::Atomic(a)) => as_string(a),
+            Some(XdmItem::Node(n)) => n.string_value(),
+            None => String::new(), // unreachable due to early return; defensive
+        };
+        let best = iter.fold(first, |acc, it| {
+            let s = match it {
+                XdmItem::Atomic(a) => as_string(a),
+                XdmItem::Node(n) => n.string_value(),
+            };
+            if s < acc { s } else { acc }
+        });
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(best))])
     });
     add("max", 1, |_ctx, args| {
         if args[0].is_empty() {
             return Ok(vec![]);
         }
         let mut all_num = true;
+        let mut m = f64::NEG_INFINITY;
         for it in &args[0] {
-            if let XdmItem::Atomic(a) = it {
-                if to_number_atomic(a).is_err() {
+            match it {
+                XdmItem::Atomic(a) => match to_number_atomic(a) {
+                    Ok(n) => m = m.max(n),
+                    Err(_) => {
+                        all_num = false;
+                        break;
+                    }
+                },
+                _ => {
                     all_num = false;
                     break;
                 }
-            } else {
-                all_num = false;
-                break;
             }
         }
         if all_num {
-            let mut m = f64::NEG_INFINITY;
-            for it in &args[0] {
-                if let XdmItem::Atomic(a) = it {
-                    m = m.max(to_number_atomic(a).unwrap());
-                }
-            }
-            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(m))])
-        } else {
-            let mut best: Option<String> = None;
-            for it in &args[0] {
-                let s = match it {
-                    XdmItem::Atomic(a) => as_string(a),
-                    XdmItem::Node(n) => n.string_value(),
-                };
-                best = Some(match best {
-                    None => s,
-                    Some(b) => {
-                        if s > b {
-                            s
-                        } else {
-                            b
-                        }
-                    }
-                })
-            }
-            Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(best.unwrap()))])
+            return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(m))]);
         }
+        // String branch: seed with first item's string value, then fold
+        let mut iter = args[0].iter();
+        let first = match iter.next() {
+            Some(XdmItem::Atomic(a)) => as_string(a),
+            Some(XdmItem::Node(n)) => n.string_value(),
+            None => String::new(), // unreachable due to early return; defensive
+        };
+        let best = iter.fold(first, |acc, it| {
+            let s = match it {
+                XdmItem::Atomic(a) => as_string(a),
+                XdmItem::Node(n) => n.string_value(),
+            };
+            if s > acc { s } else { acc }
+        });
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(best))])
     });
 
     reg

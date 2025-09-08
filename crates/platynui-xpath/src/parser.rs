@@ -1,5 +1,4 @@
 use pest::Parser;
-use pest::error::Error;
 use pest::iterators::Pair;
 
 pub mod ast;
@@ -12,19 +11,36 @@ impl XPathParser {
     // Test-only parse wrapper moved to tests/parser/test_utils.rs
 
     /// Build the internal AST for evaluation from the XPath input.
-    pub fn parse_to_ast(input: &str) -> Result<ast::Expr, Box<Error<Rule>>> {
-        let mut pairs = Self::parse(Rule::xpath, input)?;
-        let pair = pairs.next().expect("xpath root");
+    pub fn parse_to_ast(
+        input: &str,
+    ) -> Result<ast::Expr, Box<dyn std::error::Error + Send + Sync>> {
+        let mut pairs = Self::parse(Rule::xpath, input)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        let pair = match pairs.next() {
+            Some(p) => p,
+            None => {
+                return Err(Box::new(crate::runtime::Error::static_err(
+                    "err:XPST0003",
+                    "missing xpath root",
+                )));
+            }
+        };
         debug_assert_eq!(pair.as_rule(), Rule::xpath);
-        let inner = pair.into_inner().next().expect("expr root");
+        let inner = match pair.into_inner().next() {
+            Some(i) => i,
+            None => {
+                return Err(Box::new(crate::runtime::Error::static_err(
+                    "err:XPST0003",
+                    "missing expr root",
+                )));
+            }
+        };
         if let Some(e) = Self::build_expr(&inner) {
             return Ok(e);
         }
-        Err(Box::new(Error::new_from_span(
-            pest::error::ErrorVariant::CustomError {
-                message: "unsupported expression for AST builder".into(),
-            },
-            inner.as_span(),
+        Err(Box::new(crate::runtime::Error::static_err(
+            "err:XPST0003",
+            "unsupported expression for AST builder",
         )))
     }
 

@@ -820,13 +820,19 @@ fn compare_atomic(
             if (is_numeric(a) || may_be_numeric(a)) && (is_numeric(b) || may_be_numeric(b)) {
                 let na = as_number(a)?;
                 let nb = as_number(b)?;
-                return Ok(match op {
+                let res = match op {
                     Lt => na < nb,
                     Le => na <= nb,
                     Gt => na > nb,
                     Ge => na >= nb,
-                    _ => unreachable!(),
-                });
+                    _ => {
+                        return Err(Error::dynamic_err(
+                            "err:FOER0000",
+                            "unexpected comparison operator (numeric)",
+                        ))
+                    }
+                };
+                return Ok(res);
             }
             let sa = as_string(a);
             let sb = as_string(b);
@@ -835,7 +841,7 @@ fn compare_atomic(
             } else {
                 sa.cmp(&sb)
             };
-            Ok(match op {
+            let res = match op {
                 ComparisonOp::Lt => ord == core::cmp::Ordering::Less,
                 ComparisonOp::Le => {
                     ord == core::cmp::Ordering::Less || ord == core::cmp::Ordering::Equal
@@ -844,8 +850,14 @@ fn compare_atomic(
                 ComparisonOp::Ge => {
                     ord == core::cmp::Ordering::Greater || ord == core::cmp::Ordering::Equal
                 }
-                _ => unreachable!(),
-            })
+                _ => {
+                    return Err(Error::dynamic_err(
+                        "err:FOER0000",
+                        "unexpected comparison operator (string)",
+                    ))
+                }
+            };
+            Ok(res)
         }
     }
 }
@@ -887,7 +899,15 @@ fn single_node<N>(seq: XdmSequence<N>) -> Result<N, Error> {
             "node comparison expects single node on each side",
         ));
     }
-    Ok(v.into_iter().next().unwrap())
+    // Safe: length checked above; still avoid unwrap to prevent panic
+    let first = v
+        .into_iter()
+        .next()
+        .ok_or_else(|| Error::dynamic_err(
+            "err:XPTY0004",
+            "node comparison expects single node on each side",
+        ))?;
+    Ok(first)
 }
 
 fn root_of<N: crate::model::XdmNode>(mut n: N) -> N {

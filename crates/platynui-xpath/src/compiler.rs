@@ -245,7 +245,12 @@ fn compile_expr(ast: &ast::Expr, out: &mut InstrSeq, sc: &StaticContext) -> Resu
                         Div => out.0.push(OpCode::Div),
                         IDiv => out.0.push(OpCode::IDiv),
                         Mod => out.0.push(OpCode::Mod),
-                        And | Or => unreachable!(),
+                        And | Or => {
+                            return Err(Error::static_err(
+                                "err:XPST0017",
+                                "unexpected logical operator in arithmetic expression",
+                            ));
+                        }
                     }
                 }
             }
