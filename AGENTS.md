@@ -23,6 +23,12 @@
 - Rust: format with `cargo fmt`, lint with `cargo clippy`. Use `snake_case` for modules/functions, `CamelCase` for types, `SCREAMING_SNAKE_CASE` for consts.
 - Robot: keyword names in Title Case; test/suite names descriptive (e.g., `tests/xpath_parsing.robot`).
 
+### Error Handling (Rust)
+- Avoid `unwrap`/`expect`/`panic!` in production/library code. Panics should be reserved for unrecoverable internal invariants in tests or debug-only assertions.
+- Prefer returning `Result<T, E>` and propagate failures with `?`. Convert `Option` with `ok_or_else(...)` and map external errors with `map_err(...)`.
+- Use domain-appropriate error types (e.g., module-level error enums/structs). Provide clear messages and, where applicable, stable error codes.
+- It is acceptable to use `unwrap`/`expect` in tests and small example binaries, but never in public-facing or reusable library paths.
+
 ### Language for Comments & Docs
 - Use English for all code comments and developer-facing documentation.
 - Prefer clear, concise phrasing and keep comments close to the code they explain.
