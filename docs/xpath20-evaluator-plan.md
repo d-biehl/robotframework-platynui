@@ -1,6 +1,6 @@
 # XPath 2.0 Evaluator – Architektur- und Umsetzungsplan
 
-Status: Draft 3 — M1–M5 abgeschlossen, M6 in Arbeit
+Status: Draft 4 — M1–M6 abgeschlossen, M7 als nächstes
 Autor: PlatynUI Team
 Scope: `crates/platynui-xpath`
 
@@ -56,7 +56,7 @@ Hinweis (Umsetzungsstand):
 - Pfade, Achsen (vollständig), Prädikate mit Kontext (Position/Last), Vergleichsoperatoren (value/general), Mengen (union/intersect/except), Bereich `to`, Node-Vergleiche (`is`, `<<`, `>>`) sind implementiert.
 - Typen: `cast`, `castable as`, `treat as`, `instance of` sind implementiert. `untypedAtomic`-Semantik (Atomisierung/Promotion) ist abgedeckt.
 - Funktionsfamilien (erste Welle): boolean, string, numeric, sequence inkl. `sum/avg/min/max`, `string-join`, `normalize-space`, `translate` sind verfügbar.
-- Collations: Codepoint-Collation ist als Default registriert und wird bei Vergleichen berücksichtigt. Regex/Date/Time/Duration folgen gemäß Roadmap (M6–M8).
+- Collations: Codepoint-Collation ist als Default registriert und wird bei Vergleichen berücksichtigt. Regex/Date/Time/Duration folgen gemäß Roadmap (M7–M8).
 
 ## XDM-Modellierung
 - Items (generisch): `XdmItem<N> = Node(N) | Atomic(XdmAtomicValue)`
@@ -79,33 +79,32 @@ Hinweis (Umsetzungsstand):
 Vorschlag (minimal):
 
 ```rust
-use std::cmp::Ordering;
+use core::cmp::Ordering;
 
 pub enum NodeKind { Document, Element, Attribute, Text, Comment, ProcessingInstruction, Namespace }
 
 pub struct QName { pub prefix: Option<String>, pub local: String, pub ns_uri: Option<String> }
 
-pub trait XdmNode: Clone + Eq + std::fmt::Debug + Send + Sync {
+pub trait XdmNode: Clone + Eq + core::fmt::Debug + Send + Sync {
     // Basis
     fn kind(&self) -> NodeKind;
-    fn name(&self) -> Option<QName>;           // für Element/Attribute/PI/Namespace
-    fn string_value(&self) -> String;          // string-value
+    fn name(&self) -> Option<QName>;            // für Element/Attribute/PI/Namespace
+    fn string_value(&self) -> String;           // string-value
     fn base_uri(&self) -> Option<String> { None }
 
     // Navigation
     fn parent(&self) -> Option<Self>;
     fn children(&self) -> Vec<Self>;
-    fn attributes(&self) -> Vec<Self>;         // Attribute als Knoten vom Kind Attribute
+    fn attributes(&self) -> Vec<Self>;          // Attribute als Knoten vom Kind Attribute
     fn namespaces(&self) -> Vec<Self> { Vec::new() } // optional, default leer
 
     // Ordnung/Identität
     // Eq definiert Identität (für 'is').
-    fn compare_document_order(&self, other: &Self) -> Ordering;
+    fn compare_document_order(&self, other: &Self) -> Result<Ordering, Error>;
 
-    // Hinweis: Ab M6 erhält dieses Trait eine Default-Implementierung für
-    // `compare_document_order`, die einen korrekten Fallback `compare_by_ancestry`
-    // nutzt (korrekt innerhalb eines Baumes). Adapter in Multi-Root-Szenarien
-    // MÜSSEN die Methode überschreiben und eine globale Ordnung herstellen.
+    // Hinweis: Default-Implementierung nutzt einen Fallback (Ancestry/Sibling-Order)
+    // und liefert bei Multi-Root einen Fehler. Adapter mit Multi-Root oder O(1)-Keys
+    // überschreiben und liefern deterministisch Ok(Ordering) (z. B. tree_id+preorder_index).
 }
 ```
 
@@ -182,9 +181,9 @@ Fehler/Verhalten:
 
 ## Dokumentreihenfolge & Identität (Adapter-Guidelines)
 - Zweck: Korrekte Semantik für Achsen (`preceding`, `following`, Geschwisterachsen), Mengenoperatoren (`union/intersect/except`), Prädikate (`position()`, `last()`), und Node‑Vergleiche (`is`, `<<`, `>>`).
-- Vertrag (Adapter):
+  - Vertrag (Adapter):
   - Identität: `Eq` vergleicht Node‑Identität (nicht Struktur).
-  - Totalordnung: `compare_document_order(a,b)` liefert deterministisch `Less|Equal|Greater` für beliebige `a,b` (auch über Multi‑Root).
+  - Totalordnung: `compare_document_order(a,b) -> Result<Ordering, Error>` liefert deterministisch `Less|Equal|Greater` oder einen Fehler, wenn der Default‑Fallback Multi‑Root nicht ordnen kann. Adapter sollen für Multi‑Root eine Ordnung bereitstellen (z. B. via `(tree_id, preorder_index)`).
   - Konsistenz: Vorfahre < Nachfahre; Geschwister gemäß Kindreihenfolge; `Equal` nur bei Identität.
   - Stabilität: Ordnung ändert sich während der Evaluation nicht.
 
@@ -212,15 +211,13 @@ fn compare_by_ancestry<N: XdmNode>(a: &N, b: &N) -> core::cmp::Ordering { /* LCA
   - Primär: Adapter implementiert `compare_document_order` und nutzt darin entweder
     - einen O(1)‑Vergleich mit `(tree_id, preorder_index)` oder
     - den Fallback‑Helper `compare_by_ancestry` (korrekt, aber langsamer).
-  - Default im Trait: `XdmNode::compare_document_order` erhält eine Default‑Implementierung, die intern `compare_by_ancestry` nutzt (korrekt innerhalb eines Baumes). Adapter mit O(1)‑Keys oder Multi‑Root‑Szenarien überschreiben die Methode mit `(tree_id, preorder_index)`.
-  - Fehler-/Diagnostik-Hinweis: Optional (Debug/Feature `strict-doc-order`) überwachen wir Multi-Root-Vergleiche in der Default-Implementierung und loggen/warnen, wenn ohne Adapter-Override über unterschiedliche Wurzeln verglichen wird.
-  - Multi‑Root: Die Default‑Implementierung stellt keine globale Ordnung zwischen Wurzeln her. Für Multi‑Root MUSS der Adapter `compare_document_order` überschreiben und `tree_id` berücksichtigen; erst bei identischer `tree_id` den Fallback nutzen.
+  - Default im Trait: `XdmNode::compare_document_order` (Result) nutzt intern einen Fallback über Ancestry/Sibling‑Order; bei Multi‑Root gibt sie einen Fehler zurück. Adapter mit O(1)‑Keys oder Multi‑Root‑Szenarien überschreiben die Methode mit `(tree_id, preorder_index)` und liefern stets `Ok(Ordering)`.
 
 - Akzeptanzkriterien:
   - Sets/Steps werden dedupliziert und in Dokumentreihenfolge sortiert; `position()`/`last()` sind korrekt.
   - Node‑Vergleiche (`is`, `<<`, `>>`) liefern konsistente Ergebnisse.
-  - Multi‑Root: Sequenzen aus mehreren Bäumen sind deterministisch global geordnet.
-  - Evaluator verwendet ausschließlich `XdmNode::compare_document_order`; Helper und Default‑Implementierung sind Adapter/Trait‑Detail.
+  - Multi‑Root: Default‑Fallback liefert einen Fehler; mit Adapter‑bereitgestellter Ordnung (z. B. `(tree_id, preorder_index)`) deterministisch global geordnet.
+  - Evaluator verwendet ausschließlich `XdmNode::compare_document_order` (Result) und reicht Fehler (z. B. Multi‑Root) kontrolliert durch; Helper und Default‑Implementierung sind Adapter/Trait‑Detail.
 
 ## Typ-Registry (Atomic Types)
 - Ziel: Offen für beliebige Baum-/Domain-Modelle und optional XML‑Schema‑abgeleitete Typen, ohne den Kern zu spezialisieren.
@@ -578,16 +575,14 @@ Umsetzungsstand:
 - [ ] (M9) Quantifizierte Ausdrücke, FLWOR-Bindungen
 - [ ] (M9) `cast/castable/treat/instance of` auf `TypeRegistry` delegieren (atomare Typen)
 - [x] (M3) Knotenmodell: `XdmNode`-Integration, Beispiel-Adapter + Tests
-- [ ] (M6) Dokumentation: Adapter-Guidelines zu Identität & Dokumentreihenfolge (tree_id + preorder_index, Fallback‑Algorithmus)
-- [ ] (M6) Utility `compare_by_ancestry` im `model`-Modul bereitstellen + einfache Tests
-- [ ] (M6) Default‑Implementierung von `XdmNode::compare_document_order` im Trait, die `compare_by_ancestry` nutzt (Single‑Root korrekt); Hinweis/Doc, dass Multi‑Root Adapter überschreiben müssen; optionales Feature `strict-doc-order` für Warnungen bei Multi‑Root mit Default
+- [x] (M6) Dokumentation/Code: Fallback‑Algorithmus zur Dokumentreihenfolge implementiert (`compare_by_ancestry`) mit Default‑Impl in `XdmNode::compare_document_order -> Result`; Tests für Single‑Root. Adapter‑Guidelines ergänzt (Multi‑Root/Optimierung via `(tree_id, preorder_index)`). Default‑Impl gibt bei Multi‑Root Fehler zurück; Evaluator reicht Fehler durch.
 
 ### Funktionen & Kollationen
 - [x] (M2) Funktions-Registry (erweiterbar), Signaturen, Overloads
 - [x] (M5) Standardfunktionen (erste Welle): string, numeric, sequence (inkl. `distinct-values`, `index-of`, `insert-before`, `remove`, `reverse`, `subsequence`)
 - [x] (M2) Collation-Registry; Default-Codepoint; Erweiterungspunkt
-- [ ] (M6) API-Refactor: Kontextbewusste Funktionssignatur (`CallCtx`) in Registry/Evaluator (inkl. Regex‑Provider)
-- [ ] (M6) Migration: Alle bestehenden Funktionen (boolean/string/numeric/sequence) auf neue Signatur umstellen
+- [x] (M6) API-Refactor: Kontextbewusste Funktionssignatur (`CallCtx`) in Registry/Evaluator (inkl. Regex‑Provider)
+- [x] (M6) Migration: Alle bestehenden Funktionen (boolean/string/numeric/sequence) auf neue Signatur umgestellt
 - [ ] (M7) Collations in Funktionen: 2-/3-Arg-Varianten (`contains`, `starts-with`, `ends-with`) + `compare`, `codepoint-equal`; Default-Collation nutzen
 - [ ] (M7) Built-in Simple Collations registrieren (URIs: `simple-case`, `simple-accent`, `simple-case-accent`), FOCH0002 für unbekannte URIs
 - [ ] (M7) Regex-Familie (`matches`, `replace`, `tokenize`) inkl. Flags/Fehlercodes
@@ -604,7 +599,8 @@ Umsetzungsstand:
 - [x] (M2) DynamicContextBuilder und Convenience-Methoden (`evaluate_on`, `evaluate_with_vars`)
 - [ ] (M8) DynamicContextBuilder: `with_now`, `with_timezone`
 - [ ] (M9) `StaticContext` enthält `Arc<TypeRegistry>`; Default‑Registry mit XPath‑Basistypen bereitstellen
-- [ ] (M6) `CallCtx`-Struktur definieren und Evaluator-Callsite anpassen
+- [x] (M6) `CallCtx`-Struktur definieren und Evaluator-Callsite anpassen
+- [x] (M6) API‑Änderung (Breaking): `XdmNode::compare_document_order` liefert `Result<Ordering, Error>`; Evaluator propagiert Fehler (kein Panic). Adapter müssen Signatur anpassen und für Multi‑Root `Ok(Ordering)` liefern oder Fehler zurückgeben.
 
 ### Tests
 - [x] (M1–M5) Unit-Tests je Modul (rstest)
@@ -612,6 +608,8 @@ Umsetzungsstand:
 - [ ] (M7–M9) Umfangreiche F&O-Conformance-Cases (Regex/Date/Time/Collations) inkl. Kompatibilitätsmatrix (unterstützte Flags/Features) und Negativfälle (z. B. `FORX0002`, `FOCH0002`).
 - [ ] (M9) Performance-/Speicher-Tests
 - [x] (M3–M4) Achsen/Pfade: Reihenfolge & Deduplizierung; Pfadketten
+- [x] (M6) Function‑Context‑Tests: CallCtx sichtbar (Default‑Collation, Regex/Resolver None), Fallback‑Dokumentreihenfolge inklusive Attribute‑vor‑Kindern‑Check
+- [x] (M6) Multi‑Root‑Fehlerfälle: Union/Sortierung/Node‑Vergleich liefern `err:FOER0000` ohne Panic (`tests/evaluator_multiroot_errors.rs`)
 - [x] (M4) Node-Vergleiche: `is`, `<<`, `>>`; Bereich `to`; `idiv`
 - [x] (M3) EBV/Prädikate: numerisch vs. boolsch; Fehler bei >1 atomaren Items
 - [x] (M4–M5) Vergleiche/Promotion/`untypedAtomic`-Fälle
@@ -625,9 +623,7 @@ Umsetzungsstand:
 
 ---
 
-## Nächste konkrete Schritte (M6)
-1) Funktions-API-Refactor: `CallCtx` einführen (inkl. Regex‑Provider), Registry/Evaluator auf kontextbewusste Signaturen umstellen; bestehende Funktionen migrieren.
-2) Collations in Funktionen: 2-/3-Arg-Varianten und `compare`/`codepoint-equal` implementieren; Default-Collation respektieren (einheitliche Auflösung).
-3) Regex: Default‑Provider auf Rust-`regex` aufsetzen; `matches`/`replace`/`tokenize` inkl. Flags/Fehlercodes (`FORX0002`) und dokumentierter Feature‑Abdeckung.
-4) Date/Time/Duration: XDM-Typen ergänzen; `current-date`/`current-time`/`current-dateTime` und Timezone-Handling; `DynamicContextBuilder.with_now/with_timezone`.
-5) Tests: neue rstest-Suiten für Collation/Regex/DateTime inkl. Negativ-/Fehlerfälle und Kompatibilitätsmatrix; bestehende Tests grün halten.
+## Nächste konkrete Schritte (M7)
+1) Collation‑Aware Funktionen: 2-/3‑Arg Varianten (`contains`, `starts-with`, `ends-with`) sowie `compare`, `codepoint-equal`, `deep-equal`; einheitliche Default‑Collation‑Auflösung. Built‑in Simple‑Collations registrieren; `FOCH0002` für unbekannte URIs.
+2) Regex‑Familie: `matches`/`replace`/`tokenize` über `RegexProvider`, Flags/Fehlercodes (`FORX0002`) und dokumentierte Feature‑Abdeckung.
+3) Tests: Collation/Regex‑Suiten inkl. Negativfälle und Kompatibilitätsmatrix; bestehende Suiten grün halten.

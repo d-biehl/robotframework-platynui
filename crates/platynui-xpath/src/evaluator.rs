@@ -3,7 +3,7 @@ use crate::compiler::{
     SingleTypeIR, compile_xpath as compile_to_ir,
 };
 use crate::runtime::{
-    Collation, DynamicContext, DynamicContextBuilder as Builder, Error, StaticContext,
+    CallCtx, Collation, DynamicContext, DynamicContextBuilder as Builder, Error, StaticContext,
 };
 use crate::xdm::ExpandedName;
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
@@ -118,7 +118,7 @@ impl XPathExecutable {
                     let mut nodes = node_seq(seq)?;
                     let mut acc: Vec<N> = Vec::new();
                     for n in nodes.drain(..) {
-                        let step_nodes = apply_axis(&n, axis);
+                        let step_nodes = apply_axis(&n, axis)?;
                         for s in step_nodes {
                             if matches_test(&s, test) {
                                 acc.push(s);
@@ -135,8 +135,8 @@ impl XPathExecutable {
                         }
                         unique.push(n);
                     }
-                    // sort in document order
-                    unique.sort_by(|a, b| a.compare_document_order(b));
+                    // sort in document order (reject multi-root under default fallback)
+                    sort_doc_order(&mut unique)?;
                     // Apply predicates in order
                     let mut filtered: Vec<N> = unique;
                     for pred in preds {
@@ -182,7 +182,15 @@ impl XPathExecutable {
                     }
                     args.reverse();
                     if let Some(fun) = dyn_ctx.functions.get(name, *argc) {
-                        let res = (fun)(&args)?;
+                        // Build CallCtx (M6): pass dyn/static ctx, resolved default collation, resolver, regex
+                        let ctx = CallCtx {
+                            dyn_ctx,
+                            static_ctx: &self.0.static_ctx,
+                            default_collation: resolve_default_collation(self, dyn_ctx),
+                            resolver: dyn_ctx.resolver.clone(),
+                            regex: dyn_ctx.regex.clone(),
+                        };
+                        let res = (fun)(&ctx, &args)?;
                         stack.push(res);
                     } else {
                         return Err(Error::static_err(
@@ -207,7 +215,7 @@ impl XPathExecutable {
                     let (l, r) = take2(&mut stack)?;
                     let mut nodes = node_seq(l)?;
                     nodes.extend(node_seq(r)?);
-                    dedup_and_sort(&mut nodes);
+                    dedup_and_sort(&mut nodes)?;
                     stack.push(nodes.into_iter().map(XdmItem::Node).collect());
                 }
                 OpCode::Intersect => {
@@ -215,7 +223,7 @@ impl XPathExecutable {
                     let mut ln = node_seq(l)?;
                     let rn = node_seq(r)?;
                     ln.retain(|n| rn.iter().any(|m| m == n));
-                    dedup_and_sort(&mut ln);
+                    dedup_and_sort(&mut ln)?;
                     stack.push(ln.into_iter().map(XdmItem::Node).collect());
                 }
                 OpCode::Except => {
@@ -223,7 +231,7 @@ impl XPathExecutable {
                     let mut ln = node_seq(l)?;
                     let rn = node_seq(r)?;
                     ln.retain(|n| !rn.iter().any(|m| m == n));
-                    dedup_and_sort(&mut ln);
+                    dedup_and_sort(&mut ln)?;
                     stack.push(ln.into_iter().map(XdmItem::Node).collect());
                 }
                 OpCode::RangeTo => {
@@ -256,14 +264,27 @@ impl XPathExecutable {
                     let (l, r) = take2(&mut stack)?;
                     let ln = single_node(l)?;
                     let rn = single_node(r)?;
-                    let b = ln.compare_document_order(&rn) == core::cmp::Ordering::Less;
+                    // Protect against multi-root comparisons under fallback
+                    if root_of(ln.clone()) != root_of(rn.clone()) {
+                        return Err(Error::dynamic_err(
+                            "err:FOER0000",
+                            "node comparison across different roots requires adapter-provided document order",
+                        ));
+                    }
+                    let b = ln.compare_document_order(&rn)? == core::cmp::Ordering::Less;
                     stack.push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                 }
                 OpCode::NodeAfter => {
                     let (l, r) = take2(&mut stack)?;
                     let ln = single_node(l)?;
                     let rn = single_node(r)?;
-                    let b = ln.compare_document_order(&rn) == core::cmp::Ordering::Greater;
+                    if root_of(ln.clone()) != root_of(rn.clone()) {
+                        return Err(Error::dynamic_err(
+                            "err:FOER0000",
+                            "node comparison across different roots requires adapter-provided document order",
+                        ));
+                    }
+                    let b = ln.compare_document_order(&rn)? == core::cmp::Ordering::Greater;
                     stack.push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                 }
                 OpCode::Castable(t) => {
@@ -840,7 +861,7 @@ fn node_seq<N>(seq: XdmSequence<N>) -> Result<Vec<N>, Error> {
     Ok(out)
 }
 
-fn dedup_and_sort<N: crate::model::XdmNode>(nodes: &mut Vec<N>) {
+fn dedup_and_sort<N: crate::model::XdmNode>(nodes: &mut Vec<N>) -> Result<(), Error> {
     // dedup preserving first occurrence
     let mut i = 0;
     while i < nodes.len() {
@@ -854,7 +875,8 @@ fn dedup_and_sort<N: crate::model::XdmNode>(nodes: &mut Vec<N>) {
         }
         i += 1;
     }
-    nodes.sort_by(|a, b| a.compare_document_order(b));
+    sort_doc_order(nodes)?;
+    Ok(())
 }
 
 fn single_node<N>(seq: XdmSequence<N>) -> Result<N, Error> {
@@ -875,11 +897,42 @@ fn root_of<N: crate::model::XdmNode>(mut n: N) -> N {
     n
 }
 
-fn apply_axis<N: crate::model::XdmNode>(n: &N, axis: &AxisIR) -> Vec<N> {
+fn sort_doc_order<N: crate::model::XdmNode>(nodes: &mut Vec<N>) -> Result<(), Error> {
+    if nodes.len() <= 1 {
+        return Ok(());
+    }
+    // Ensure all nodes share the same root; otherwise doc order under fallback is undefined.
+    let base_root = root_of(nodes[0].clone());
+    for n in nodes.iter() {
+        if root_of(n.clone()) != base_root {
+            return Err(Error::dynamic_err(
+                "err:FOER0000",
+                "document order requires adapter: nodes from different roots",
+            ));
+        }
+    }
+    // Stable insertion sort with error propagation
+    let len = nodes.len();
+    for i in 1..len {
+        let mut j = i;
+        while j > 0 {
+            let ord = nodes[j - 1].compare_document_order(&nodes[j])?;
+            if ord == core::cmp::Ordering::Greater {
+                nodes.swap(j - 1, j);
+                j -= 1;
+            } else {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn apply_axis<N: crate::model::XdmNode>(n: &N, axis: &AxisIR) -> Result<Vec<N>, Error> {
     match axis {
-        AxisIR::SelfAxis => vec![n.clone()],
-        AxisIR::Child => n.children(),
-        AxisIR::Attribute => n.attributes(),
+        AxisIR::SelfAxis => Ok(vec![n.clone()]),
+        AxisIR::Child => Ok(n.children()),
+        AxisIR::Attribute => Ok(n.attributes()),
         AxisIR::Descendant => {
             fn dfs<N: crate::model::XdmNode>(n: &N, out: &mut Vec<N>) {
                 for c in n.children() {
@@ -889,7 +942,7 @@ fn apply_axis<N: crate::model::XdmNode>(n: &N, axis: &AxisIR) -> Vec<N> {
             }
             let mut acc = Vec::new();
             dfs(n, &mut acc);
-            acc
+            Ok(acc)
         }
         AxisIR::DescendantOrSelf => {
             let mut acc = vec![n.clone()];
@@ -902,9 +955,9 @@ fn apply_axis<N: crate::model::XdmNode>(n: &N, axis: &AxisIR) -> Vec<N> {
             let mut more = Vec::new();
             dfs(n, &mut more);
             acc.extend(more);
-            acc
+            Ok(acc)
         }
-        AxisIR::Parent => n.parent().into_iter().collect(),
+        AxisIR::Parent => Ok(n.parent().into_iter().collect()),
         AxisIR::Ancestor => {
             let mut v = Vec::new();
             let mut cur = n.parent();
@@ -912,7 +965,7 @@ fn apply_axis<N: crate::model::XdmNode>(n: &N, axis: &AxisIR) -> Vec<N> {
                 v.push(p.clone());
                 cur = p.parent();
             }
-            v
+            Ok(v)
         }
         AxisIR::AncestorOrSelf => {
             let mut v = vec![n.clone()];
@@ -921,38 +974,38 @@ fn apply_axis<N: crate::model::XdmNode>(n: &N, axis: &AxisIR) -> Vec<N> {
                 v.push(p.clone());
                 cur = p.parent();
             }
-            v
+            Ok(v)
         }
         AxisIR::PrecedingSibling => {
             if let Some(parent) = n.parent() {
                 let mut res = Vec::new();
                 for c in parent.children() {
-                    if c.compare_document_order(n) == core::cmp::Ordering::Less {
+                    if c.compare_document_order(n)? == core::cmp::Ordering::Less {
                         res.push(c);
                     }
                 }
-                return res;
+                return Ok(res);
             }
-            Vec::new()
+            Ok(Vec::new())
         }
         AxisIR::FollowingSibling => {
             if let Some(parent) = n.parent() {
                 let mut res = Vec::new();
                 for c in parent.children() {
-                    if c.compare_document_order(n) == core::cmp::Ordering::Greater {
+                    if c.compare_document_order(n)? == core::cmp::Ordering::Greater {
                         res.push(c);
                     }
                 }
-                return res;
+                return Ok(res);
             }
-            Vec::new()
+            Ok(Vec::new())
         }
         AxisIR::Preceding => {
             let root = root_of(n.clone());
-            let all = apply_axis(&root, &AxisIR::DescendantOrSelf);
+            let all = apply_axis(&root, &AxisIR::DescendantOrSelf)?;
             let mut res = Vec::new();
             for m in all {
-                if m.compare_document_order(n) == core::cmp::Ordering::Less
+                if m.compare_document_order(n)? == core::cmp::Ordering::Less
                     && !is_ancestor_of(&m, n)
                     && m.kind() != crate::model::NodeKind::Attribute
                     && m.kind() != crate::model::NodeKind::Namespace
@@ -960,14 +1013,14 @@ fn apply_axis<N: crate::model::XdmNode>(n: &N, axis: &AxisIR) -> Vec<N> {
                     res.push(m);
                 }
             }
-            res
+            Ok(res)
         }
         AxisIR::Following => {
             let root = root_of(n.clone());
-            let all = apply_axis(&root, &AxisIR::DescendantOrSelf);
+            let all = apply_axis(&root, &AxisIR::DescendantOrSelf)?;
             let mut res = Vec::new();
             for m in all {
-                if m.compare_document_order(n) == core::cmp::Ordering::Greater
+                if m.compare_document_order(n)? == core::cmp::Ordering::Greater
                     && !is_descendant_of(&m, n)
                     && m.kind() != crate::model::NodeKind::Attribute
                     && m.kind() != crate::model::NodeKind::Namespace
@@ -975,14 +1028,14 @@ fn apply_axis<N: crate::model::XdmNode>(n: &N, axis: &AxisIR) -> Vec<N> {
                     res.push(m);
                 }
             }
-            res
+            Ok(res)
         }
         AxisIR::Namespace => {
             // Only element nodes have namespaces; otherwise empty
             if n.kind() == crate::model::NodeKind::Element {
-                n.namespaces()
+                Ok(n.namespaces())
             } else {
-                Vec::new()
+                Ok(Vec::new())
             }
         }
     }

@@ -61,8 +61,8 @@ impl XdmNode for Node {
     fn attributes(&self) -> Vec<Self> {
         Vec::new()
     }
-    fn compare_document_order(&self, other: &Self) -> std::cmp::Ordering {
-        self.idx.cmp(&other.idx)
+    fn compare_document_order(&self, other: &Self) -> Result<std::cmp::Ordering, platynui_xpath::runtime::Error> {
+        Ok(self.idx.cmp(&other.idx))
     }
 }
 

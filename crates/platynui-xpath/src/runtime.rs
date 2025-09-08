@@ -16,8 +16,19 @@ pub struct FunctionSignature {
     pub arity: Arity,
 }
 
-pub type FunctionImpl<N> =
-    Arc<dyn Fn(&[XdmSequence<N>]) -> Result<XdmSequence<N>, Error> + Send + Sync>;
+// Context passed into function implementations (M6)
+pub struct CallCtx<'a, N> {
+    pub dyn_ctx: &'a DynamicContext<N>,
+    pub static_ctx: &'a StaticContext,
+    // Resolved default collation according to resolution order (if available)
+    pub default_collation: Option<Arc<dyn Collation>>,
+    pub resolver: Option<Arc<dyn ResourceResolver>>,
+    pub regex: Option<Arc<dyn RegexProvider>>,
+}
+
+pub type FunctionImpl<N> = Arc<
+    dyn Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error> + Send + Sync,
+>;
 
 pub struct FunctionRegistry<N> {
     fns: HashMap<FunctionKey, FunctionImpl<N>>,

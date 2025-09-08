@@ -1,7 +1,7 @@
 //! Function families per XQuery and XPath Functions and Operators.
 //! Minimal default registry with a few core functions to bootstrap evaluator tests.
 
-use crate::runtime::{Error, FunctionRegistry};
+use crate::runtime::{CallCtx, Error, FunctionRegistry};
 use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence};
 
 const FNS: &str = "http://www.w3.org/2005/xpath-functions";
@@ -29,14 +29,14 @@ fn ebv<N>(seq: &XdmSequence<N>) -> Result<bool, Error> {
     }
 }
 
-type FnSig<N> = fn(&[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>;
+type FnSig<N> = fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>;
 
 pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNode + Clone>()
 -> FunctionRegistry<N> {
     let mut reg = FunctionRegistry::new();
     // helper to register under default namespace
     let mut add = |local: &str, arity: usize, f: FnSig<N>| {
-        let fun = std::sync::Arc::new(move |args: &[XdmSequence<N>]| f(args));
+        let fun = std::sync::Arc::new(move |ctx: &CallCtx<N>, args: &[XdmSequence<N>]| f(ctx, args));
         reg.register(
             ExpandedName {
                 ns_uri: Some(FNS.to_string()),
@@ -56,31 +56,31 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     };
 
     // ===== Core booleans =====
-    add("true", 0, |_args| {
+    add("true", 0, |_ctx, _args| {
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(true))])
     });
-    add("false", 0, |_args| {
+    add("false", 0, |_ctx, _args| {
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))])
     });
-    add("not", 1, |args| {
+    add("not", 1, |_ctx, args| {
         let b = ebv(&args[0])?;
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(!b))])
     });
 
     // ===== String family =====
-    add("string", 1, |args| {
+    add("string", 1, |_ctx, args| {
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(
             item_to_string(&args[0]),
         ))])
     });
-    add("string-length", 1, |args| {
+    add("string-length", 1, |_ctx, args| {
         let s = item_to_string(&args[0]);
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
             s.chars().count() as i64,
         ))])
     });
     for ar in 2..=5 {
-        add("concat", ar, |args| {
+        add("concat", ar, |_ctx, args| {
             let mut out = String::new();
             for a in args {
                 out.push_str(&item_to_string(a));
@@ -88,35 +88,35 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
         });
     }
-    add("contains", 2, |args| {
+    add("contains", 2, |_ctx, args| {
         let s = item_to_string(&args[0]);
         let sub = item_to_string(&args[1]);
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(
             s.contains(&sub),
         ))])
     });
-    add("starts-with", 2, |args| {
+    add("starts-with", 2, |_ctx, args| {
         let s = item_to_string(&args[0]);
         let sub = item_to_string(&args[1]);
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(
             s.starts_with(&sub),
         ))])
     });
-    add("ends-with", 2, |args| {
+    add("ends-with", 2, |_ctx, args| {
         let s = item_to_string(&args[0]);
         let sub = item_to_string(&args[1]);
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(
             s.ends_with(&sub),
         ))])
     });
-    add("substring", 2, |args| {
+    add("substring", 2, |_ctx, args| {
         let s = item_to_string(&args[0]);
         let start = to_number(&args[1])?; // 1-based
         let from = (start.floor() as isize - 1).max(0) as usize;
         let out: String = s.chars().skip(from).collect();
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
     });
-    add("substring", 3, |args| {
+    add("substring", 3, |_ctx, args| {
         let s = item_to_string(&args[0]);
         let start = to_number(&args[1])?;
         let len = to_number(&args[2])?;
@@ -127,7 +127,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     });
 
     // substring-before/after
-    add("substring-before", 2, |args| {
+    add("substring-before", 2, |_ctx, args| {
         let s = item_to_string(&args[0]);
         let sub = item_to_string(&args[1]);
         if sub.is_empty() || s.is_empty() {
@@ -141,7 +141,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))])
         }
     });
-    add("substring-after", 2, |args| {
+    add("substring-after", 2, |_ctx, args| {
         let s = item_to_string(&args[0]);
         let sub = item_to_string(&args[1]);
         if sub.is_empty() {
@@ -158,7 +158,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     });
 
     // normalize-space (1-arg variant)
-    add("normalize-space", 1, |args| {
+    add("normalize-space", 1, |_ctx, args| {
         let s = item_to_string(&args[0]);
         let mut out = String::new();
         let mut in_space = true; // leading spaces skipped
@@ -180,7 +180,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     });
 
     // translate($s, $map, $trans)
-    add("translate", 3, |args| {
+    add("translate", 3, |_ctx, args| {
         let s = item_to_string(&args[0]);
         let map = item_to_string(&args[1]);
         let trans = item_to_string(&args[2]);
@@ -213,19 +213,19 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     });
 
     // lower-case / upper-case
-    add("lower-case", 1, |args| {
+    add("lower-case", 1, |_ctx, args| {
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(
             item_to_string(&args[0]).to_lowercase(),
         ))])
     });
-    add("upper-case", 1, |args| {
+    add("upper-case", 1, |_ctx, args| {
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(
             item_to_string(&args[0]).to_uppercase(),
         ))])
     });
 
     // string-join($seq, $sep)
-    add("string-join", 2, |args| {
+    add("string-join", 2, |_ctx, args| {
         let sep = item_to_string(&args[1]);
         let mut parts: Vec<String> = Vec::new();
         for it in &args[0] {
@@ -240,11 +240,11 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     });
 
     // ===== Numeric family =====
-    add("abs", 1, |args| Ok(num_unary(args, |n| n.abs())));
-    add("floor", 1, |args| Ok(num_unary(args, |n| n.floor())));
-    add("ceiling", 1, |args| Ok(num_unary(args, |n| n.ceil())));
-    add("round", 1, |args| Ok(num_unary(args, |n| n.round())));
-    add("sum", 1, |args| {
+    add("abs", 1, |_ctx, args| Ok(num_unary(args, |n| n.abs())));
+    add("floor", 1, |_ctx, args| Ok(num_unary(args, |n| n.floor())));
+    add("ceiling", 1, |_ctx, args| Ok(num_unary(args, |n| n.ceil())));
+    add("round", 1, |_ctx, args| Ok(num_unary(args, |n| n.round())));
+    add("sum", 1, |_ctx, args| {
         let mut total = 0.0;
         for it in &args[0] {
             if let XdmItem::Atomic(a) = it {
@@ -253,7 +253,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         }
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(total))])
     });
-    add("avg", 1, |args| {
+    add("avg", 1, |_ctx, args| {
         let mut total = 0.0;
         let mut c = 0.0;
         for it in &args[0] {
@@ -270,32 +270,32 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     });
 
     // ===== Sequence family =====
-    add("empty", 1, |args| {
+    add("empty", 1, |_ctx, args| {
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(
             args[0].is_empty(),
         ))])
     });
-    add("exists", 1, |args| {
+    add("exists", 1, |_ctx, args| {
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(
             !args[0].is_empty(),
         ))])
     });
-    add("count", 1, |args| {
+    add("count", 1, |_ctx, args| {
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
             args[0].len() as i64,
         ))])
     });
-    add("reverse", 1, |args| {
+    add("reverse", 1, |_ctx, args| {
         let s: XdmSequence<N> = args[0].iter().cloned().rev().collect();
         Ok(s)
     });
-    add("subsequence", 2, |args| {
+    add("subsequence", 2, |_ctx, args| {
         let s = &args[0];
         let start = to_number(&args[1])?;
         let from = (start.floor() as isize - 1).max(0) as usize;
         Ok(s.iter().skip(from).cloned().collect())
     });
-    add("subsequence", 3, |args| {
+    add("subsequence", 3, |_ctx, args| {
         let s = &args[0];
         let start = to_number(&args[1])?;
         let len = to_number(&args[2])?;
@@ -305,7 +305,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     });
 
     // distinct-values($seq as xs:anyAtomicType*)
-    add("distinct-values", 1, |args| {
+    add("distinct-values", 1, |_ctx, args| {
         use std::collections::HashSet;
         let mut seen: HashSet<String> = HashSet::new();
         let mut out: XdmSequence<N> = Vec::new();
@@ -328,7 +328,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     });
 
     // index-of($seq, $search)
-    add("index-of", 2, |args| {
+    add("index-of", 2, |_ctx, args| {
         let mut out: XdmSequence<N> = Vec::new();
         // Use string compare if either side is non-numeric; else numeric equality
         for (i, it) in args[0].iter().enumerate() {
@@ -353,7 +353,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     });
 
     // insert-before($seq, $pos, $item)
-    add("insert-before", 3, |args| {
+    add("insert-before", 3, |_ctx, args| {
         let mut out: XdmSequence<N> = Vec::new();
         let pos = to_number(&args[1])?.floor() as isize; // 1-based
         let insert_at = pos.max(1) as usize;
@@ -372,7 +372,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     });
 
     // remove($seq, $pos)
-    add("remove", 2, |args| {
+    add("remove", 2, |_ctx, args| {
         let mut out: XdmSequence<N> = Vec::new();
         let pos = to_number(&args[1])?.floor() as isize; // 1-based
         let remove_at = pos.max(1) as usize;
@@ -385,7 +385,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     });
 
     // min/max
-    add("min", 1, |args| {
+    add("min", 1, |_ctx, args| {
         if args[0].is_empty() {
             return Ok(vec![]);
         }
@@ -431,7 +431,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(best.unwrap()))])
         }
     });
-    add("max", 1, |args| {
+    add("max", 1, |_ctx, args| {
         if args[0].is_empty() {
             return Ok(vec![]);
         }
