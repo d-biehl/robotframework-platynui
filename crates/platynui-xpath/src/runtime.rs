@@ -64,6 +64,11 @@ impl<N> FunctionRegistry<N> {
 pub trait Collation: Send + Sync {
     fn uri(&self) -> &str;
     fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering;
+    // Normalization/key: used for equality/substring semantics (contains/starts/ends)
+    fn key(&self, s: &str) -> String {
+        // Default: identity (codepoint)
+        s.to_string()
+    }
 }
 
 pub struct CodepointCollation;
@@ -74,6 +79,50 @@ impl Collation for CodepointCollation {
     }
     fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
         a.cmp(b)
+    }
+}
+
+// Simple case-insensitive collation
+pub struct SimpleCaseCollation;
+
+impl Collation for SimpleCaseCollation {
+    fn uri(&self) -> &str { "urn:platynui:collation:simple-case" }
+    fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
+        self.key(a).cmp(&self.key(b))
+    }
+    fn key(&self, s: &str) -> String {
+        s.to_lowercase()
+    }
+}
+
+// Simple accent-insensitive collation (NFD + remove combining marks)
+pub struct SimpleAccentCollation;
+
+impl Collation for SimpleAccentCollation {
+    fn uri(&self) -> &str { "urn:platynui:collation:simple-accent" }
+    fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
+        self.key(a).cmp(&self.key(b))
+    }
+    fn key(&self, s: &str) -> String {
+        use unicode_normalization::UnicodeNormalization;
+        use unicode_normalization::char::canonical_combining_class as ccc;
+        s.nfd().filter(|&ch| ccc(ch) == 0).collect()
+    }
+}
+
+// Simple case+accent-insensitive collation
+pub struct SimpleCaseAccentCollation;
+
+impl Collation for SimpleCaseAccentCollation {
+    fn uri(&self) -> &str { "urn:platynui:collation:simple-case-accent" }
+    fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
+        self.key(a).cmp(&self.key(b))
+    }
+    fn key(&self, s: &str) -> String {
+        use unicode_normalization::UnicodeNormalization;
+        use unicode_normalization::char::canonical_combining_class as ccc;
+        let no_marks: String = s.nfd().filter(|&ch| ccc(ch) == 0).collect();
+        no_marks.to_lowercase()
     }
 }
 
@@ -88,6 +137,15 @@ impl Default for CollationRegistry {
         };
         let def: Arc<dyn Collation> = Arc::new(CodepointCollation);
         reg.by_uri.insert(def.uri().to_string(), def);
+        // Built-in simple collations (M7)
+        reg.by_uri
+            .insert("urn:platynui:collation:simple-case".to_string(), Arc::new(SimpleCaseCollation));
+        reg.by_uri
+            .insert("urn:platynui:collation:simple-accent".to_string(), Arc::new(SimpleAccentCollation));
+        reg.by_uri.insert(
+            "urn:platynui:collation:simple-case-accent".to_string(),
+            Arc::new(SimpleCaseAccentCollation),
+        );
         reg
     }
 }
@@ -114,8 +172,59 @@ pub trait ResourceResolver: Send + Sync {
 }
 
 pub trait RegexProvider: Send + Sync {
-    fn is_match(&self, _pattern: &str, _flags: &str, _text: &str) -> Result<bool, Error> {
-        Err(Error::not_implemented("regex"))
+    fn matches(&self, pattern: &str, flags: &str, text: &str) -> Result<bool, Error>;
+    fn replace(&self, pattern: &str, flags: &str, text: &str, replacement: &str)
+        -> Result<String, Error>;
+    fn tokenize(&self, pattern: &str, flags: &str, text: &str) -> Result<Vec<String>, Error>;
+}
+
+pub struct RustRegexProvider;
+
+impl RustRegexProvider {
+    fn build_with_flags(pattern: &str, flags: &str) -> Result<regex::Regex, Error> {
+        let mut builder = regex::RegexBuilder::new(pattern);
+        for ch in flags.chars() {
+            match ch {
+                'i' => builder.case_insensitive(true),
+                'm' => builder.multi_line(true),
+                's' => builder.dot_matches_new_line(true),
+                'x' => builder.ignore_whitespace(true),
+                // Unsupported flags → FORX0002
+                _ => {
+                    return Err(Error::dynamic_err(
+                        "err:FORX0002",
+                        format!("unsupported regex flag: {}", ch),
+                    ))
+                }
+            };
+        }
+        builder
+            .build()
+            .map_err(|_| Error::dynamic_err("err:FORX0002", "invalid regex pattern"))
+    }
+}
+
+impl RegexProvider for RustRegexProvider {
+    fn matches(&self, pattern: &str, flags: &str, text: &str) -> Result<bool, Error> {
+        let re = Self::build_with_flags(pattern, flags)?;
+        Ok(re.is_match(text))
+    }
+    fn replace(
+        &self,
+        pattern: &str,
+        flags: &str,
+        text: &str,
+        replacement: &str,
+    ) -> Result<String, Error> {
+        let re = Self::build_with_flags(pattern, flags)?;
+        Ok(re.replace_all(text, replacement).into_owned())
+    }
+    fn tokenize(&self, pattern: &str, flags: &str, text: &str) -> Result<Vec<String>, Error> {
+        let re = Self::build_with_flags(pattern, flags)?;
+        Ok(re
+            .split(text)
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>())
     }
 }
 
@@ -204,6 +313,8 @@ pub struct DynamicContext<N> {
     pub collations: Arc<CollationRegistry>,
     pub resolver: Option<Arc<dyn ResourceResolver>>,
     pub regex: Option<Arc<dyn RegexProvider>>,
+    pub now: Option<chrono::DateTime<chrono::FixedOffset>>, // M8: current-*
+    pub timezone_override: Option<chrono::FixedOffset>,      // M8: override zone
 }
 
 impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for DynamicContext<N> {
@@ -216,6 +327,8 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for Dynam
             collations: Arc::new(CollationRegistry::default()),
             resolver: None,
             regex: None,
+            now: None,
+            timezone_override: None,
         }
     }
 }
@@ -271,6 +384,22 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBui
 
     pub fn with_regex(mut self, provider: Arc<dyn RegexProvider>) -> Self {
         self.ctx.regex = Some(provider);
+        self
+    }
+
+    // M8: Set a fixed 'now' instant for deterministic date/time functions
+    pub fn with_now(mut self, now: chrono::DateTime<chrono::FixedOffset>) -> Self {
+        self.ctx.now = Some(now);
+        self
+    }
+
+    // M8: Override timezone for current-* formatting (applied to 'now' if set)
+    pub fn with_timezone(mut self, offset_minutes: i32) -> Self {
+        let hours = offset_minutes / 60;
+        let mins = offset_minutes % 60;
+        if let Some(tz) = chrono::FixedOffset::east_opt(hours * 3600 + mins * 60) {
+            self.ctx.timezone_override = Some(tz);
+        }
         self
     }
 

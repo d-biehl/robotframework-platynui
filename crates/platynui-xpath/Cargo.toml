@@ -13,7 +13,9 @@ license.workspace = true
 [dependencies]
 pest = "2"
 pest_derive = "2"
+unicode-normalization = "0.1"
+regex = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [dev-dependencies]
 rstest = "0.18"
-

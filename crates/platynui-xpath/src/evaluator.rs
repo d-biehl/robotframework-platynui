@@ -153,6 +153,8 @@ impl XPathExecutable {
                                 collations: dyn_ctx.collations.clone(),
                                 resolver: dyn_ctx.resolver.clone(),
                                 regex: dyn_ctx.regex.clone(),
+                                now: dyn_ctx.now,
+                                timezone_override: dyn_ctx.timezone_override,
                             };
                             let res = self.run_instrs::<N>(pred, &local_ctx, pos, total)?;
                             if predicate_truthy(&res, pos)? {

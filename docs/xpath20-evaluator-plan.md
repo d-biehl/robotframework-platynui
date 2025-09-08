@@ -1,6 +1,6 @@
 # XPath 2.0 Evaluator – Architektur- und Umsetzungsplan
 
-Status: Draft 4 — M1–M6 abgeschlossen, M7 als nächstes
+Status: Draft 4 — M1–M7 abgeschlossen, M8 als nächstes
 Autor: PlatynUI Team
 Scope: `crates/platynui-xpath`
 
@@ -533,8 +533,8 @@ Umsetzungsstand:
 - M3: Pfade & Basisachsen — child/attribute/self, Prädikate, EBV, relative/absolute Pfade [abgeschlossen]
 - M4: Vergleiche & Mengen & restliche Achsen — value/general, `is/<< >>`, `union/intersect/except`, `to`, `idiv` [abgeschlossen]
 - M5: Typen — `cast/castable/treat/instance of`, Promotion/Atomisierung, `untypedAtomic`‑Regeln [abgeschlossen]
-- M6: Runtime/Registry‑Refactor & Ordnung — CallCtx (kontextbewusste Funktionen), Default‑Collation in Funktionen, Adapter‑Guidelines + Default‑Dokumentreihenfolge (`compare_by_ancestry`) [in Arbeit]
-- M7: Funktionen (String/Sequence/Node) komplettieren — Collation‑Overloads (`contains/starts-with/ends-with`, `compare`, `codepoint-equal`), Regex‑Familie (`matches/replace/tokenize`) via Rust‑`regex`, Aggregat‑Feinkanten [geplant]
+- M6: Runtime/Registry‑Refactor & Ordnung — CallCtx (kontextbewusste Funktionen), Default‑Collation in Funktionen, Adapter‑Guidelines + Default‑Dokumentreihenfolge (`compare_by_ancestry`) [abgeschlossen]
+- M7: Funktionen (String/Sequence/Node) komplettieren — Collation‑Overloads (`contains/starts-with/ends-with`, `compare`, `codepoint-equal`, `deep-equal`), Regex‑Familie (`matches/replace/tokenize`) via Rust‑`regex`, Aggregat‑Feinkanten [abgeschlossen]
 - M8: Datum/Zeit/Dauer — XDM‑Typen (Feature), `current-*`, Timezone/Now im Kontext, Basis‑Funktionen [geplant]
 - M9: Typ‑Registry & Resolver & Caching — pluggable `TypeRegistry` (atomic), Delegation in `cast/…`, Ressourcen‑Resolver (`doc/collection`), `base-uri/resolve-uri`, LRU‑Cache (s. „Caching & API“), Fehlercodes/Conformance/Performance/Doku [geplant]
 
@@ -583,10 +583,10 @@ Umsetzungsstand:
 - [x] (M2) Collation-Registry; Default-Codepoint; Erweiterungspunkt
 - [x] (M6) API-Refactor: Kontextbewusste Funktionssignatur (`CallCtx`) in Registry/Evaluator (inkl. Regex‑Provider)
 - [x] (M6) Migration: Alle bestehenden Funktionen (boolean/string/numeric/sequence) auf neue Signatur umgestellt
-- [ ] (M7) Collations in Funktionen: 2-/3-Arg-Varianten (`contains`, `starts-with`, `ends-with`) + `compare`, `codepoint-equal`; Default-Collation nutzen
-- [ ] (M7) Built-in Simple Collations registrieren (URIs: `simple-case`, `simple-accent`, `simple-case-accent`), FOCH0002 für unbekannte URIs
-- [ ] (M7) Regex-Familie (`matches`, `replace`, `tokenize`) inkl. Flags/Fehlercodes
-- [ ] (M7) Gleichheit/Ähnlichkeit: `compare`, `codepoint-equal`, `deep-equal` (Collation-aware)
+- [x] (M7) Collations in Funktionen: 2-/3-Arg-Varianten (`contains`, `starts-with`, `ends-with`) + `compare`, `codepoint-equal`; Default-Collation nutzen
+- [x] (M7) Built-in Simple Collations registrieren (URIs: `simple-case`, `simple-accent`, `simple-case-accent`), FOCH0002 für unbekannte URIs
+- [x] (M7) Regex-Familie (`matches`, `replace`, `tokenize`) inkl. Flags/Fehlercodes
+- [x] (M7) Gleichheit/Ähnlichkeit: `compare`, `codepoint-equal`, `deep-equal` (Collation-aware)
 - [ ] (M8) Date/Time/Duration-Funktionen (inkl. `current-*`)
 - [ ] (M9) Node-/QName-/Namespace-Funktionen
 - [ ] (M9) Ressourcen-Resolver: `doc`, `doc-available`, `collection`
@@ -623,7 +623,7 @@ Umsetzungsstand:
 
 ---
 
-## Nächste konkrete Schritte (M7)
-1) Collation‑Aware Funktionen: 2-/3‑Arg Varianten (`contains`, `starts-with`, `ends-with`) sowie `compare`, `codepoint-equal`, `deep-equal`; einheitliche Default‑Collation‑Auflösung. Built‑in Simple‑Collations registrieren; `FOCH0002` für unbekannte URIs.
-2) Regex‑Familie: `matches`/`replace`/`tokenize` über `RegexProvider`, Flags/Fehlercodes (`FORX0002`) und dokumentierte Feature‑Abdeckung.
-3) Tests: Collation/Regex‑Suiten inkl. Negativfälle und Kompatibilitätsmatrix; bestehende Suiten grün halten.
+## Nächste konkrete Schritte (M8)
+1) Date/Time/Durations erweitern: XDM‑Typen, Parsing/Format, Duration-Arithmetik; `implicit-timezone()`; mehr Tests.
+2) Ergänzende Conformance‑Tests: Regex Flags‑Matrix, Unicode‑Properties (dokumentierte Abweichungen), Collation Edge‑Cases.
+3) Optional: Collation‑Optionen für `distinct-values`/`index-of` ergänzen.

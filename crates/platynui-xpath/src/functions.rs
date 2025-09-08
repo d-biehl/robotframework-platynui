@@ -88,26 +88,52 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
         });
     }
-    add("contains", 2, |_ctx, args| {
+    // contains($arg1, $arg2) — collation-aware (default collation)
+    add("contains", 2, |ctx, args| {
         let s = item_to_string(&args[0]);
         let sub = item_to_string(&args[1]);
-        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(
-            s.contains(&sub),
-        ))])
+        let coll = resolve_default_collation_fn(ctx);
+        let b = contains_with_collation(&s, &sub, coll.as_deref());
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
     });
-    add("starts-with", 2, |_ctx, args| {
+    // contains($arg1, $arg2, $collation)
+    add("contains", 3, |ctx, args| {
         let s = item_to_string(&args[0]);
         let sub = item_to_string(&args[1]);
-        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(
-            s.starts_with(&sub),
-        ))])
+        let uri = item_to_string(&args[2]);
+        let coll = resolve_named_collation_fn(ctx, &uri)?;
+        let b = contains_with_collation(&s, &sub, Some(coll.as_ref()));
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
     });
-    add("ends-with", 2, |_ctx, args| {
+    add("starts-with", 2, |ctx, args| {
         let s = item_to_string(&args[0]);
         let sub = item_to_string(&args[1]);
-        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(
-            s.ends_with(&sub),
-        ))])
+        let coll = resolve_default_collation_fn(ctx);
+        let b = starts_with_with_collation(&s, &sub, coll.as_deref());
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
+    });
+    add("starts-with", 3, |ctx, args| {
+        let s = item_to_string(&args[0]);
+        let sub = item_to_string(&args[1]);
+        let uri = item_to_string(&args[2]);
+        let coll = resolve_named_collation_fn(ctx, &uri)?;
+        let b = starts_with_with_collation(&s, &sub, Some(coll.as_ref()));
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
+    });
+    add("ends-with", 2, |ctx, args| {
+        let s = item_to_string(&args[0]);
+        let sub = item_to_string(&args[1]);
+        let coll = resolve_default_collation_fn(ctx);
+        let b = ends_with_with_collation(&s, &sub, coll.as_deref());
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
+    });
+    add("ends-with", 3, |ctx, args| {
+        let s = item_to_string(&args[0]);
+        let sub = item_to_string(&args[1]);
+        let uri = item_to_string(&args[2]);
+        let coll = resolve_named_collation_fn(ctx, &uri)?;
+        let b = ends_with_with_collation(&s, &sub, Some(coll.as_ref()));
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
     });
     add("substring", 2, |_ctx, args| {
         let s = item_to_string(&args[0]);
@@ -385,86 +411,152 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     });
 
     // min/max
-    add("min", 1, |_ctx, args| {
-        if args[0].is_empty() {
-            return Ok(vec![]);
-        }
-        // numeric if all numeric, else string (avoid unwraps)
-        let mut all_num = true;
-        let mut m = f64::INFINITY;
-        for it in &args[0] {
-            match it {
-                XdmItem::Atomic(a) => match to_number_atomic(a) {
-                    Ok(n) => m = m.min(n),
-                    Err(_) => {
-                        all_num = false;
-                        break;
-                    }
-                },
-                _ => {
-                    all_num = false;
-                    break;
-                }
-            }
-        }
-        if all_num {
-            return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(m))]);
-        }
-        // String branch: seed with first item's string value, then fold
-        let mut iter = args[0].iter();
-        let first = match iter.next() {
-            Some(XdmItem::Atomic(a)) => as_string(a),
-            Some(XdmItem::Node(n)) => n.string_value(),
-            None => String::new(), // unreachable due to early return; defensive
-        };
-        let best = iter.fold(first, |acc, it| {
-            let s = match it {
-                XdmItem::Atomic(a) => as_string(a),
-                XdmItem::Node(n) => n.string_value(),
-            };
-            if s < acc { s } else { acc }
-        });
-        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(best))])
+    add("min", 1, |ctx, args| minmax_impl(ctx, &args[0], None, true));
+    add("min", 2, |ctx, args| {
+        let uri = item_to_string(&args[1]);
+        let coll = Some(resolve_named_collation_fn(ctx, &uri)?);
+        minmax_impl(ctx, &args[0], coll.as_ref().map(|a| a.as_ref()), true)
     });
-    add("max", 1, |_ctx, args| {
-        if args[0].is_empty() {
+    add("max", 1, |ctx, args| minmax_impl(ctx, &args[0], None, false));
+    add("max", 2, |ctx, args| {
+        let uri = item_to_string(&args[1]);
+        let coll = Some(resolve_named_collation_fn(ctx, &uri)?);
+        minmax_impl(ctx, &args[0], coll.as_ref().map(|a| a.as_ref()), false)
+    });
+
+    // ===== Collation-related functions =====
+    // compare($A, $B) => -1/0/1, empty if either is empty
+    add("compare", 2, |ctx, args| {
+        if args[0].is_empty() || args[1].is_empty() {
             return Ok(vec![]);
         }
-        let mut all_num = true;
-        let mut m = f64::NEG_INFINITY;
-        for it in &args[0] {
-            match it {
-                XdmItem::Atomic(a) => match to_number_atomic(a) {
-                    Ok(n) => m = m.max(n),
-                    Err(_) => {
-                        all_num = false;
-                        break;
-                    }
-                },
-                _ => {
-                    all_num = false;
-                    break;
-                }
-            }
+        let a = item_to_string(&args[0]);
+        let b = item_to_string(&args[1]);
+        let coll = resolve_default_collation_fn(ctx);
+        let ord = if let Some(c) = coll.as_deref() { c.compare(&a, &b) } else { a.cmp(&b) };
+        let v = match ord { core::cmp::Ordering::Less => -1, core::cmp::Ordering::Equal => 0, core::cmp::Ordering::Greater => 1 };
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(v))])
+    });
+    // compare($A, $B, $collation)
+    add("compare", 3, |ctx, args| {
+        if args[0].is_empty() || args[1].is_empty() {
+            return Ok(vec![]);
         }
-        if all_num {
-            return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(m))]);
+        let a = item_to_string(&args[0]);
+        let b = item_to_string(&args[1]);
+        let uri = item_to_string(&args[2]);
+        let coll = resolve_named_collation_fn(ctx, &uri)?;
+        let ord = coll.compare(&a, &b);
+        let v = match ord { core::cmp::Ordering::Less => -1, core::cmp::Ordering::Equal => 0, core::cmp::Ordering::Greater => 1 };
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(v))])
+    });
+
+    // codepoint-equal($A, $B) — empty if either is empty, uses codepoint collation only
+    add("codepoint-equal", 2, |ctx, args| {
+        if args[0].is_empty() || args[1].is_empty() {
+            return Ok(vec![]);
         }
-        // String branch: seed with first item's string value, then fold
-        let mut iter = args[0].iter();
-        let first = match iter.next() {
-            Some(XdmItem::Atomic(a)) => as_string(a),
-            Some(XdmItem::Node(n)) => n.string_value(),
-            None => String::new(), // unreachable due to early return; defensive
-        };
-        let best = iter.fold(first, |acc, it| {
-            let s = match it {
-                XdmItem::Atomic(a) => as_string(a),
-                XdmItem::Node(n) => n.string_value(),
-            };
-            if s > acc { s } else { acc }
-        });
-        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(best))])
+        let a = item_to_string(&args[0]);
+        let b = item_to_string(&args[1]);
+        // codepoint collation is always registered
+        let coll = ctx
+            .dyn_ctx
+            .collations
+            .get("http://www.w3.org/2005/xpath-functions/collation/codepoint")
+            .expect("codepoint collation registered");
+        let eq = coll.compare(&a, &b) == core::cmp::Ordering::Equal;
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(eq))])
+    });
+
+    // deep-equal($A as item()*, $B as item()*) as xs:boolean
+    add("deep-equal", 2, |ctx, args| {
+        let coll = resolve_default_collation_fn(ctx);
+        let b = deep_equal_with_collation(&args[0], &args[1], coll.as_deref())?;
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
+    });
+    // deep-equal($A, $B, $collation as xs:string)
+    add("deep-equal", 3, |ctx, args| {
+        let uri = item_to_string(&args[2]);
+        let coll = resolve_named_collation_fn(ctx, &uri)?;
+        let b = deep_equal_with_collation(&args[0], &args[1], Some(coll.as_ref()))?;
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
+    });
+
+    // ===== Regex family =====
+    // matches($input, $pattern)
+    add("matches", 2, |ctx, args| {
+        let input = item_to_string(&args[0]);
+        let pattern = item_to_string(&args[1]);
+        let flags = "";
+        let b = regex_matches(ctx, &input, &pattern, flags)?;
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
+    });
+    // matches($input, $pattern, $flags)
+    add("matches", 3, |ctx, args| {
+        let input = item_to_string(&args[0]);
+        let pattern = item_to_string(&args[1]);
+        let flags = item_to_string(&args[2]);
+        let b = regex_matches(ctx, &input, &pattern, &flags)?;
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
+    });
+
+    // replace($input, $pattern, $replacement)
+    add("replace", 3, |ctx, args| {
+        let input = item_to_string(&args[0]);
+        let pattern = item_to_string(&args[1]);
+        let repl = item_to_string(&args[2]);
+        let flags = "";
+        let s = regex_replace(ctx, &input, &pattern, &repl, flags)?;
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
+    });
+    // replace($input, $pattern, $replacement, $flags)
+    add("replace", 4, |ctx, args| {
+        let input = item_to_string(&args[0]);
+        let pattern = item_to_string(&args[1]);
+        let repl = item_to_string(&args[2]);
+        let flags = item_to_string(&args[3]);
+        let s = regex_replace(ctx, &input, &pattern, &repl, &flags)?;
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
+    });
+
+    // tokenize($input, $pattern)
+    add("tokenize", 2, |ctx, args| {
+        let input = item_to_string(&args[0]);
+        let pattern = item_to_string(&args[1]);
+        let flags = "";
+        let parts = regex_tokenize(ctx, &input, &pattern, flags)?;
+        Ok(parts
+            .into_iter()
+            .map(|s| XdmItem::Atomic(XdmAtomicValue::String(s)))
+            .collect())
+    });
+    // tokenize($input, $pattern, $flags)
+    add("tokenize", 3, |ctx, args| {
+        let input = item_to_string(&args[0]);
+        let pattern = item_to_string(&args[1]);
+        let flags = item_to_string(&args[2]);
+        let parts = regex_tokenize(ctx, &input, &pattern, &flags)?;
+        Ok(parts
+            .into_iter()
+            .map(|s| XdmItem::Atomic(XdmAtomicValue::String(s)))
+            .collect())
+    });
+
+    // ===== Date/Time family (M8 subset) =====
+    add("current-dateTime", 0, |ctx, _args| {
+        let dt = now_in_effective_tz(ctx);
+        let s = dt.format("%Y-%m-%dT%H:%M:%S%:z").to_string();
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
+    });
+    add("current-date", 0, |ctx, _args| {
+        let dt = now_in_effective_tz(ctx);
+        let s = dt.format("%Y-%m-%d%:z").to_string();
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
+    });
+    add("current-time", 0, |ctx, _args| {
+        let dt = now_in_effective_tz(ctx);
+        let s = dt.format("%H:%M:%S%:z").to_string();
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
     });
 
     reg
@@ -547,4 +639,258 @@ fn num_unary<N: crate::model::XdmNode>(
 ) -> XdmSequence<N> {
     let n = to_number(&args[0]).unwrap_or(f64::NAN);
     vec![XdmItem::Atomic(XdmAtomicValue::Double(f(n)))]
+}
+
+// ===== Helpers (M7 Collations) =====
+fn resolve_default_collation_fn<N>(ctx: &CallCtx<N>) -> Option<std::sync::Arc<dyn crate::runtime::Collation>> {
+    if let Some(c) = &ctx.default_collation {
+        Some(c.clone())
+    } else {
+        ctx.dyn_ctx
+            .collations
+            .get("http://www.w3.org/2005/xpath-functions/collation/codepoint")
+    }
+}
+
+fn resolve_named_collation_fn<N>(
+    ctx: &CallCtx<N>,
+    uri: &str,
+) -> Result<std::sync::Arc<dyn crate::runtime::Collation>, Error> {
+    if let Some(c) = ctx.dyn_ctx.collations.get(uri) {
+        Ok(c)
+    } else {
+        Err(Error::dynamic_err("err:FOCH0002", format!("unknown collation URI: {}", uri)))
+    }
+}
+
+fn contains_with_collation(
+    s: &str,
+    sub: &str,
+    coll: Option<&dyn crate::runtime::Collation>,
+) -> bool {
+    if let Some(c) = coll {
+        let ks = c.key(s);
+        let ksub = c.key(sub);
+        ks.contains(&ksub)
+    } else {
+        s.contains(sub)
+    }
+}
+
+fn starts_with_with_collation(
+    s: &str,
+    sub: &str,
+    coll: Option<&dyn crate::runtime::Collation>,
+) -> bool {
+    if let Some(c) = coll {
+        let ks = c.key(s);
+        let ksub = c.key(sub);
+        ks.starts_with(&ksub)
+    } else {
+        s.starts_with(sub)
+    }
+}
+
+fn ends_with_with_collation(
+    s: &str,
+    sub: &str,
+    coll: Option<&dyn crate::runtime::Collation>,
+) -> bool {
+    if let Some(c) = coll {
+        let ks = c.key(s);
+        let ksub = c.key(sub);
+        ks.ends_with(&ksub)
+    } else {
+        s.ends_with(sub)
+    }
+}
+
+fn deep_equal_with_collation<N: crate::model::XdmNode>(
+    a: &XdmSequence<N>,
+    b: &XdmSequence<N>,
+    coll: Option<&dyn crate::runtime::Collation>,
+) -> Result<bool, Error> {
+    if a.len() != b.len() {
+        return Ok(false);
+    }
+    for (ia, ib) in a.iter().zip(b.iter()) {
+        let eq = match (ia, ib) {
+            (XdmItem::Atomic(aa), XdmItem::Atomic(bb)) => atomic_equal_with_collation(aa, bb, coll)?,
+            (XdmItem::Node(na), XdmItem::Node(nb)) => {
+                // Simplified node branch: compare string-values under collation
+                let sa = na.string_value();
+                let sb = nb.string_value();
+                if let Some(c) = coll { c.compare(&sa, &sb) == core::cmp::Ordering::Equal } else { sa == sb }
+            }
+            _ => false,
+        };
+        if !eq { return Ok(false); }
+    }
+    Ok(true)
+}
+
+fn atomic_equal_with_collation(
+    a: &XdmAtomicValue,
+    b: &XdmAtomicValue,
+    coll: Option<&dyn crate::runtime::Collation>,
+) -> Result<bool, Error> {
+    use XdmAtomicValue::*;
+    // Prefer numeric equality if both sides are numeric primitives
+    let is_num = |v: &XdmAtomicValue| matches!(v, Integer(_) | Double(_) | Float(_) | Decimal(_));
+    if is_num(a) && is_num(b) {
+        let na = to_number_atomic(a)?;
+        let nb = to_number_atomic(b)?;
+        return Ok(na == nb);
+    }
+    // Otherwise, compare by string using collation
+    let sa = as_string(a);
+    let sb = as_string(b);
+    if let Some(c) = coll {
+        Ok(c.compare(&sa, &sb) == core::cmp::Ordering::Equal)
+    } else {
+        Ok(sa == sb)
+    }
+}
+
+// ===== Helpers (M7 Regex) =====
+fn get_regex_provider<N>(
+    ctx: &CallCtx<N>,
+) -> std::sync::Arc<dyn crate::runtime::RegexProvider> {
+    if let Some(p) = &ctx.regex {
+        p.clone()
+    } else {
+        std::sync::Arc::new(crate::runtime::RustRegexProvider)
+    }
+}
+
+fn regex_matches<N>(
+    ctx: &CallCtx<N>,
+    input: &str,
+    pattern: &str,
+    flags: &str,
+) -> Result<bool, Error> {
+    let provider = get_regex_provider(ctx);
+    provider.matches(pattern, flags, input)
+}
+
+fn regex_replace<N>(
+    ctx: &CallCtx<N>,
+    input: &str,
+    pattern: &str,
+    repl: &str,
+    flags: &str,
+) -> Result<String, Error> {
+    let provider = get_regex_provider(ctx);
+    provider.replace(pattern, flags, input, repl)
+}
+
+fn regex_tokenize<N>(
+    ctx: &CallCtx<N>,
+    input: &str,
+    pattern: &str,
+    flags: &str,
+) -> Result<Vec<String>, Error> {
+    let provider = get_regex_provider(ctx);
+    provider.tokenize(pattern, flags, input)
+}
+
+fn minmax_impl<N: crate::model::XdmNode>(
+    ctx: &CallCtx<N>,
+    seq: &XdmSequence<N>,
+    coll: Option<&dyn crate::runtime::Collation>,
+    is_min: bool,
+) -> Result<XdmSequence<N>, Error> {
+    if seq.is_empty() {
+        return Ok(vec![]);
+    }
+    // numeric if all numeric, else string using collation (default or provided)
+    let mut all_num = true;
+    let mut acc_num = if is_min { f64::INFINITY } else { f64::NEG_INFINITY };
+    for it in seq {
+        match it {
+            XdmItem::Atomic(a) => match to_number_atomic(a) {
+                Ok(n) => {
+                    if is_min {
+                        acc_num = acc_num.min(n)
+                    } else {
+                        acc_num = acc_num.max(n)
+                    }
+                }
+                Err(_) => {
+                    all_num = false;
+                    break;
+                }
+            },
+            _ => {
+                all_num = false;
+                break;
+            }
+        }
+    }
+    if all_num {
+        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(acc_num))]);
+    }
+    // String branch
+    let default_coll = resolve_default_collation_fn(ctx);
+    let effective_coll: Option<&dyn crate::runtime::Collation> = if let Some(c) = coll {
+        Some(c)
+    } else {
+        default_coll.as_deref()
+    };
+    let mut iter = seq.iter();
+    let first = match iter.next() {
+        Some(XdmItem::Atomic(a)) => as_string(a),
+        Some(XdmItem::Node(n)) => n.string_value(),
+        None => String::new(), // unreachable due to non-empty
+    };
+    if let Some(c) = effective_coll {
+        let mut best_orig = first.clone();
+        let mut best_key = c.key(&first);
+        for it in iter {
+            let s = match it {
+                XdmItem::Atomic(a) => as_string(a),
+                XdmItem::Node(n) => n.string_value(),
+            };
+            let k = c.key(&s);
+            let ord = k.cmp(&best_key);
+            if (is_min && ord == core::cmp::Ordering::Less)
+                || (!is_min && ord == core::cmp::Ordering::Greater)
+            {
+                best_key = k;
+                best_orig = s;
+            }
+        }
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(best_orig))])
+    } else {
+        let best = iter.fold(first, |acc, it| {
+            let s = match it {
+                XdmItem::Atomic(a) => as_string(a),
+                XdmItem::Node(n) => n.string_value(),
+            };
+            let ord = s.cmp(&acc);
+            if is_min {
+                if ord == core::cmp::Ordering::Less { s } else { acc }
+            } else {
+                if ord == core::cmp::Ordering::Greater { s } else { acc }
+            }
+        });
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(best))])
+    }
+}
+
+fn now_in_effective_tz<N>(ctx: &CallCtx<N>) -> chrono::DateTime<chrono::FixedOffset> {
+    // Base instant: context-provided 'now' or system time in UTC
+    let base = if let Some(n) = ctx.dyn_ctx.now {
+        n
+    } else {
+        // Use local offset if available; fallback to UTC+00:00
+        let utc = chrono::Utc::now();
+        let fixed = chrono::FixedOffset::east_opt(0).unwrap();
+        utc.with_timezone(&fixed)
+    };
+    if let Some(tz) = ctx.dyn_ctx.timezone_override {
+        base.with_timezone(&tz)
+    } else {
+        base
+    }
 }
