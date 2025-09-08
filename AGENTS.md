@@ -23,6 +23,11 @@
 - Rust: format with `cargo fmt`, lint with `cargo clippy`. Use `snake_case` for modules/functions, `CamelCase` for types, `SCREAMING_SNAKE_CASE` for consts.
 - Robot: keyword names in Title Case; test/suite names descriptive (e.g., `tests/xpath_parsing.robot`).
 
+### Language for Comments & Docs
+- Use English for all code comments and developer-facing documentation.
+- Prefer clear, concise phrasing and keep comments close to the code they explain.
+- If external specifications or plans are in another language, mirror key developer notes in English within the code where relevant.
+
 ## Testing Guidelines
 - Robot Framework suites live in `tests/`; group by feature and keep tests deterministic (avoid sleeps). Run with `uv run robot tests`.
 - Rust: unit tests inline and in `crates/*/tests`. Prefer small, focused cases for grammar and parsing.
