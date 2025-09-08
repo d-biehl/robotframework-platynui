@@ -1,6 +1,6 @@
 # XPath 2.0 Evaluator – Architektur- und Umsetzungsplan
 
-Status: Draft 4 — M1–M7 abgeschlossen, M8 als nächstes
+Status: Draft 5 — M1–M7 abgeschlossen; M8a abgeschlossen; M8b als nächstes
 Autor: PlatynUI Team
 Scope: `crates/platynui-xpath`
 
@@ -15,12 +15,11 @@ Nichtziele (nur für Klarheit, spätere Erweiterbarkeit sicherstellen):
 - Kein eigener XML-Schema-Validator. Built-in XSD-Typen unterstützen; Erweiterung für Schema-Import designen (später).
 
 ## Spezifikationen & Konformität
-- XPath 2.0: https://www.w3.org/TR/xpath20/
+- [XPath 2.0](xpath/XML%20Path%20Language%20(XPath)%202.0%20(Second%20Edition).html)
   - MUSS vollständig implementiert werden (Syntax, Semantik, Achsen, Prädikate, Operatoren, Fehlerbedingungen/Fehlercodes).
-- XDM 1.0 (XPath 2.0 Data Model), inklusive normativer Änderungen:
-  - Diff/Errata-Dokument: https://www.w3.org/TR/2010/REC-xpath-datamodel-20101214/xpath-datamodel-diff-from-REC20070123.html
+- [XDM 1.0 (XPath 2.0 Data Model)](xpath/XQuery%201.0%20and%20XPath%202.0%20Data%20Model%20(XDM)%20(Second%20Edition).html)
   - MUSS vollständig umgesetzt werden (Item-/Sequenzmodell, Knotentypen, Dokumentreihenfolge/Identität, Basetypen, `untypedAtomic`).
-- XQuery and XPath Functions and Operators (F&O): https://www.w3.org/TR/xquery-operators/
+- [XQuery and XPath Functions and Operators (F&O)](xpath/XQuery%201.0%20and%20XPath%202.0%20Functions%20and%20Operators%20(Second%20Edition).html):
   - MUSS vollständig implementiert werden (alle im XPath‑2.0‑Umfang relevanten Funktionen/Operatoren inkl. Collations, Regex, Numerik, Datum/Zeit, Edge‑Cases und Fehlerspezifikationen).
 
 Hinweise:
@@ -55,8 +54,9 @@ Hinweis (Umsetzungsstand):
 - Parser-AST, Compiler-IR und Evaluator-VM sind implementiert und durch umfangreiche rstest-Suiten abgedeckt.
 - Pfade, Achsen (vollständig), Prädikate mit Kontext (Position/Last), Vergleichsoperatoren (value/general), Mengen (union/intersect/except), Bereich `to`, Node-Vergleiche (`is`, `<<`, `>>`) sind implementiert.
 - Typen: `cast`, `castable as`, `treat as`, `instance of` sind implementiert. `untypedAtomic`-Semantik (Atomisierung/Promotion) ist abgedeckt.
-- Funktionsfamilien (erste Welle): boolean, string, numeric, sequence inkl. `sum/avg/min/max`, `string-join`, `normalize-space`, `translate` sind verfügbar.
-- Collations: Codepoint-Collation ist als Default registriert und wird bei Vergleichen berücksichtigt. Regex/Date/Time/Duration folgen gemäß Roadmap (M7–M8).
+- Funktionsfamilien: boolean, string, numeric, sequence inkl. `sum/avg/min/max`, `string-join`, `normalize-space`, `translate` sind verfügbar.
+- Collations & Regex: Collation‑Overloads (`contains/starts-with/ends-with`, `compare`, `codepoint-equal`, `deep-equal`) und Regex‑Familie (`matches/replace/tokenize`) sind implementiert.
+- Datum/Zeit: `current-dateTime/current-date/current-time` sowie Kontext‑Erweiterungen (`with_now`, `with_timezone`) sind vorhanden; XDM‑Typen/Arithmetik folgen (M8b).
 
 ## XDM-Modellierung
 - Items (generisch): `XdmItem<N> = Node(N) | Atomic(XdmAtomicValue)`
@@ -533,10 +533,16 @@ Umsetzungsstand:
 - M3: Pfade & Basisachsen — child/attribute/self, Prädikate, EBV, relative/absolute Pfade [abgeschlossen]
 - M4: Vergleiche & Mengen & restliche Achsen — value/general, `is/<< >>`, `union/intersect/except`, `to`, `idiv` [abgeschlossen]
 - M5: Typen — `cast/castable/treat/instance of`, Promotion/Atomisierung, `untypedAtomic`‑Regeln [abgeschlossen]
-- M6: Runtime/Registry‑Refactor & Ordnung — CallCtx (kontextbewusste Funktionen), Default‑Collation in Funktionen, Adapter‑Guidelines + Default‑Dokumentreihenfolge (`compare_by_ancestry`) [abgeschlossen]
-- M7: Funktionen (String/Sequence/Node) komplettieren — Collation‑Overloads (`contains/starts-with/ends-with`, `compare`, `codepoint-equal`, `deep-equal`), Regex‑Familie (`matches/replace/tokenize`) via Rust‑`regex`, Aggregat‑Feinkanten [abgeschlossen]
-- M8: Datum/Zeit/Dauer — XDM‑Typen (Feature), `current-*`, Timezone/Now im Kontext, Basis‑Funktionen [geplant]
-- M9: Typ‑Registry & Resolver & Caching — pluggable `TypeRegistry` (atomic), Delegation in `cast/…`, Ressourcen‑Resolver (`doc/collection`), `base-uri/resolve-uri`, LRU‑Cache (s. „Caching & API“), Fehlercodes/Conformance/Performance/Doku [geplant]
+- M6: Runtime/Registry‑Refactor & Ordnung — CallCtx, Default‑Collation in Funktionen, Adapter‑Guidelines + Default‑Dokumentreihenfolge [abgeschlossen]
+- M7: Funktionen (String/Numeric/Sequence) — Collation‑Overloads, Regex‑Familie, Aggregatoren [abgeschlossen]
+- M8a: Datum/Zeit (Basis) — `current-*` + `DynamicContextBuilder.with_now/with_timezone` + Basistests [abgeschlossen]
+- M8b: Datum/Zeit/Dauer (vollständig) — XDM‑Typen (`xs:date|time|dateTime|durations`), Parsing/Format, Arithmetik, `implicit-timezone` [geplant]
+- M9: Kontrollfluss & Bindungen — `if then else`, quantifizierte Ausdrücke (`some/every`), FLWOR‑Subset (`for/let/return`) in Compiler/Evaluator [geplant]
+- M10: Node/QName/Namespace & URI — Node/QName/Namespace‑Funktionen, `base-uri`, `resolve-uri` [geplant]
+- M11: Ressourcen — `doc`, `doc-available`, `collection` über Resolver inkl. Fehlerfälle [geplant]
+- M12: Typ‑Registry — Default‑Registry (Basistypen), Delegation `cast/castable/instance of/treat as`, optionale statische Validierung (`XPST0017`) [geplant]
+- M13: Caching & Optimierungen — `XPathExecutableCache` (LRU/HashMap), Fingerprint, Konstantfaltung/DCE (einfach), Performance‑Messungen [geplant]
+- M14: Conformance & Qualität — F&O‑Conformance‑Matrix (Regex/Date/Time/Collations) inkl. Negativfälle, Fehlercode‑Konsolidierung, Dokumentation [geplant]
 
 ## Offene Designpunkte (bewusst festgehalten)
  - Collations: Start mit Codepoint-Collation; Erweiterungspunkt für ICU-basiert (optional Feature).
@@ -587,7 +593,8 @@ Umsetzungsstand:
 - [x] (M7) Built-in Simple Collations registrieren (URIs: `simple-case`, `simple-accent`, `simple-case-accent`), FOCH0002 für unbekannte URIs
 - [x] (M7) Regex-Familie (`matches`, `replace`, `tokenize`) inkl. Flags/Fehlercodes
 - [x] (M7) Gleichheit/Ähnlichkeit: `compare`, `codepoint-equal`, `deep-equal` (Collation-aware)
-- [ ] (M8) Date/Time/Duration-Funktionen (inkl. `current-*`)
+- [x] (M8a) Date/Time (Basis): `current-dateTime/current-date/current-time`
+- [ ] (M8b) Date/Time/Duration (vollständig): XDM‑Typen, Parsing/Format, Arithmetik, `implicit-timezone`
 - [ ] (M9) Node-/QName-/Namespace-Funktionen
 - [ ] (M9) Ressourcen-Resolver: `doc`, `doc-available`, `collection`
 - [ ] (M9) Base-URI/URI: `base-uri`, `resolve-uri`
@@ -597,7 +604,7 @@ Umsetzungsstand:
 - [ ] (M9) `XPathExecutableCache` (LRU/HashMap), Fingerprint über `expr + static_ctx_fingerprint`
 - [x] (M2) Doku/Beispiele (grundlegend)
 - [x] (M2) DynamicContextBuilder und Convenience-Methoden (`evaluate_on`, `evaluate_with_vars`)
-- [ ] (M8) DynamicContextBuilder: `with_now`, `with_timezone`
+- [x] (M8a) DynamicContextBuilder: `with_now`, `with_timezone`
 - [ ] (M9) `StaticContext` enthält `Arc<TypeRegistry>`; Default‑Registry mit XPath‑Basistypen bereitstellen
 - [x] (M6) `CallCtx`-Struktur definieren und Evaluator-Callsite anpassen
 - [x] (M6) API‑Änderung (Breaking): `XdmNode::compare_document_order` liefert `Result<Ordering, Error>`; Evaluator propagiert Fehler (kein Panic). Adapter müssen Signatur anpassen und für Multi‑Root `Ok(Ordering)` liefern oder Fehler zurückgeben.
@@ -614,7 +621,7 @@ Umsetzungsstand:
 - [x] (M3) EBV/Prädikate: numerisch vs. boolsch; Fehler bei >1 atomaren Items
 - [x] (M4–M5) Vergleiche/Promotion/`untypedAtomic`-Fälle
 - [x] (M4) Mengenoperatoren nur für Nodes (doc order + dedup)
-- [ ] (M7) Collations: Overloads (2/3‑Arg), Default vs. explizite URI, FOCH0002 bei unbekannter URI; Case/Diakritika‑Fälle; `compare`/`codepoint-equal`/`deep-equal`
+- [x] (M7) Collations: Overloads (2/3‑Arg), Default vs. explizite URI, FOCH0002 bei unbekannter URI; Case/Diakritika‑Fälle; `compare`/`codepoint-equal`/`deep-equal`
 - [ ] (M7–M8) Regex/Date/Time/Timezone Grenzfälle
 - [ ] (M9) Ressourcen/Resolver Erfolg/Fehler
 
@@ -623,7 +630,16 @@ Umsetzungsstand:
 
 ---
 
-## Nächste konkrete Schritte (M8)
-1) Date/Time/Durations erweitern: XDM‑Typen, Parsing/Format, Duration-Arithmetik; `implicit-timezone()`; mehr Tests.
-2) Ergänzende Conformance‑Tests: Regex Flags‑Matrix, Unicode‑Properties (dokumentierte Abweichungen), Collation Edge‑Cases.
-3) Optional: Collation‑Optionen für `distinct-values`/`index-of` ergänzen.
+## Nächste konkrete Schritte (M8b)
+1) XDM‑Typen für Datum/Zeit/Dauer: Typen (`xs:date`, `xs:time`, `xs:dateTime`, `xs:dayTimeDuration`, `xs:yearMonthDuration`) modellieren; Parser bleibt unberührt, Evaluator/Functions erweitern.
+2) Parsing/Format: ISO‑8601 kompatibel; Formatierung mit stabilen Offsets; Fehlercodes für ungültige Literale.
+3) Arithmetik/Helper: Duration‑Arithmetik, `implicit-timezone()`, Zeitzonen‑Funktionen; deterministic mit `with_now/with_timezone`.
+4) Tests: Positive/Negative Cases; E2E‑Beispiele; Konformitäts‑Matrix für Date/Time.
+
+## Danach (M9–M14) – Kurzüberblick
+- (M9) Compiler/Evaluator: `if`/`some`/`every`/`for`/`let` implementieren, inkl. EBV/Scope/Slots.
+- (M10) F&O: Node/QName/Namespace‑Funktionen; `base-uri`/`resolve-uri`.
+- (M11) Ressourcen‑Funktionen: `doc`/`doc-available`/`collection` + Resolver‑Fehlerpfade.
+- (M12) TypeRegistry: Default‑Registry; Delegation für atomare Typen; optionale statische Validierung.
+- (M13) Cache/Optimierung/Performance: `XPathExecutableCache`; Konstantfaltung/DCE; Performance‑Suiten.
+- (M14) Conformance/Qualität: Regex‑Flags‑Matrix, Unicode‑Properties, Collation Edge‑Cases, Fehlercode‑Konsolidierung, Doku.
