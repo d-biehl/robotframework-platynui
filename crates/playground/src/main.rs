@@ -72,16 +72,14 @@ impl std::fmt::Debug for TestNode {
 
 impl Node for TestNode {
     fn parent(&self) -> Option<Weak<dyn Node>> {
-        self
-            .parent
+        self.parent
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .as_ref()
             .map(|w| w.clone() as Weak<dyn Node>)
     }
     fn children(&self) -> Vec<Arc<dyn Node>> {
-        self
-            .children
+        self.children
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
@@ -90,8 +88,7 @@ impl Node for TestNode {
             .collect()
     }
     fn attributes(&self) -> Vec<Arc<dyn Attribute>> {
-        self
-            .attributes
+        self.attributes
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .clone()

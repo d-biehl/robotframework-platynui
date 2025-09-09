@@ -46,6 +46,7 @@ ncname_char = {
     ncname_start_char
   | ASCII_DIGIT
   | "-"
+  | "."
   | "\u{00B7}"
   | '\u{0300}'..'\u{036F}'
   | '\u{203F}'..'\u{2040}'
@@ -216,8 +217,8 @@ relative_path_expr = { step_expr ~ (path_operator ~ step_expr)* }
 path_operator = _{ OP_DSLASH | OP_SLASH }
 
 // Step expressions
-step_expr = { postfix_expr | axis_step }
-postfix_expr = { primary_expr ~ predicate_list }
+step_expr = { filter_expr | axis_step }
+filter_expr = { primary_expr ~ predicate_list }
 axis_step = { (reverse_step | forward_step) ~ predicate_list }
 
 forward_step = { (forward_axis ~ node_test) | abbrev_forward_step }

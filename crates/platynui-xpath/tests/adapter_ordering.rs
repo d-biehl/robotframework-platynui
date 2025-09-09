@@ -45,27 +45,39 @@ impl XdmNode for Node {
         self.dom.nodes[self.idx].value.clone()
     }
     fn parent(&self) -> Option<Self> {
-        self.dom.nodes[self.idx].parent.map(|i| Node { dom: self.dom.clone(), idx: i })
+        self.dom.nodes[self.idx].parent.map(|i| Node {
+            dom: self.dom.clone(),
+            idx: i,
+        })
     }
     fn children(&self) -> Vec<Self> {
         self.dom.nodes[self.idx]
             .children
             .iter()
-            .map(|&i| Node { dom: self.dom.clone(), idx: i })
+            .map(|&i| Node {
+                dom: self.dom.clone(),
+                idx: i,
+            })
             .collect()
     }
     fn attributes(&self) -> Vec<Self> {
         self.dom.nodes[self.idx]
             .attrs
             .iter()
-            .map(|&i| Node { dom: self.dom.clone(), idx: i })
+            .map(|&i| Node {
+                dom: self.dom.clone(),
+                idx: i,
+            })
             .collect()
     }
     fn namespaces(&self) -> Vec<Self> {
         self.dom.nodes[self.idx]
             .nss
             .iter()
-            .map(|&i| Node { dom: self.dom.clone(), idx: i })
+            .map(|&i| Node {
+                dom: self.dom.clone(),
+                idx: i,
+            })
             .collect()
     }
     // Intentionally use default fallback (M6); same-root comparisons succeed
@@ -75,21 +87,31 @@ fn el(dom: &mut Dom, p: Option<usize>, local: &str) -> usize {
     let i = dom.nodes.len();
     dom.nodes.push(NodeRec {
         kind: NodeKind::Element,
-        name: Some(QName { prefix: None, local: local.into(), ns_uri: None }),
+        name: Some(QName {
+            prefix: None,
+            local: local.into(),
+            ns_uri: None,
+        }),
         value: String::new(),
         parent: p,
         children: vec![],
         attrs: vec![],
         nss: vec![],
     });
-    if let Some(pp) = p { dom.nodes[pp].children.push(i); }
+    if let Some(pp) = p {
+        dom.nodes[pp].children.push(i);
+    }
     i
 }
 fn at(dom: &mut Dom, p: usize, local: &str, v: &str) -> usize {
     let i = dom.nodes.len();
     dom.nodes.push(NodeRec {
         kind: NodeKind::Attribute,
-        name: Some(QName { prefix: None, local: local.into(), ns_uri: None }),
+        name: Some(QName {
+            prefix: None,
+            local: local.into(),
+            ns_uri: None,
+        }),
         value: v.into(),
         parent: Some(p),
         children: vec![],
@@ -118,7 +140,11 @@ fn ns(dom: &mut Dom, p: usize, prefix: &str, uri: &str) -> usize {
     let i = dom.nodes.len();
     dom.nodes.push(NodeRec {
         kind: NodeKind::Namespace,
-        name: Some(QName { prefix: None, local: prefix.into(), ns_uri: Some(uri.into()) }),
+        name: Some(QName {
+            prefix: None,
+            local: prefix.into(),
+            ns_uri: Some(uri.into()),
+        }),
         value: String::new(),
         parent: Some(p),
         children: vec![],
@@ -139,16 +165,23 @@ fn sample() -> Node {
     tx(&mut d, c, "hi");
     let _d = el(&mut d, Some(root), "d");
     let _a3 = el(&mut d, Some(root), "a");
-    Node { dom: Arc::new(d), idx: root }
+    Node {
+        dom: Arc::new(d),
+        idx: root,
+    }
 }
 
 #[fixture]
 #[allow(unused_braces)]
-fn root() -> Node { sample() }
+fn root() -> Node {
+    sample()
+}
 
 #[fixture]
 #[allow(unused_braces)]
-fn sc() -> StaticContext { StaticContext::default() }
+fn sc() -> StaticContext {
+    StaticContext::default()
+}
 
 fn as_bool<N>(items: &Vec<XdmItem<N>>) -> bool {
     match &items[0] {
@@ -161,7 +194,10 @@ fn names<T: XdmNode>(items: &Vec<XdmItem<T>>) -> Vec<String> {
     let mut v = vec![];
     for it in items {
         if let XdmItem::Node(n) = it
-            && let Some(q) = n.name() { v.push(q.local); }
+            && let Some(q) = n.name()
+        {
+            v.push(q.local);
+        }
     }
     v
 }
@@ -188,17 +224,27 @@ fn attributes_precede_children_in_fallback(sc: StaticContext) {
     let e = el(&mut d, None, "e");
     let _attr = at(&mut d, e, "id", "x");
     let _c = el(&mut d, Some(e), "c");
-    let e_node = Node { dom: Arc::new(d), idx: e };
+    let e_node = Node {
+        dom: Arc::new(d),
+        idx: e,
+    };
 
     // Evaluate on context item 'e': union of attributes and child nodes
     let exec = compile_xpath("@* | node()", &sc).unwrap();
     let out: Vec<XdmItem<Node>> = exec
-        .evaluate(&platynui_xpath::runtime::DynamicContextBuilder::<Node>::new().with_context_item(XdmItem::Node(e_node)).build())
+        .evaluate(
+            &platynui_xpath::runtime::DynamicContextBuilder::<Node>::new()
+                .with_context_item(XdmItem::Node(e_node))
+                .build(),
+        )
         .unwrap();
     // Expect first item(s) to be attributes, then children (element/text)
     let kinds: Vec<NodeKind> = out
         .iter()
-        .filter_map(|it| match it { XdmItem::Node(n) => Some(n.kind()), _ => None })
+        .filter_map(|it| match it {
+            XdmItem::Node(n) => Some(n.kind()),
+            _ => None,
+        })
         .collect();
     assert!(matches!(kinds.first(), Some(NodeKind::Attribute)));
 }
@@ -211,15 +257,25 @@ fn namespaces_between_attributes_and_children(sc: StaticContext) {
     let _attr = at(&mut d, e, "id", "x");
     let _ns = ns(&mut d, e, "p", "urn:p");
     let _c = el(&mut d, Some(e), "c");
-    let e_node = Node { dom: Arc::new(d), idx: e };
+    let e_node = Node {
+        dom: Arc::new(d),
+        idx: e,
+    };
 
     let exec = compile_xpath("@* | namespace::* | node()", &sc).unwrap();
     let out: Vec<XdmItem<Node>> = exec
-        .evaluate(&platynui_xpath::runtime::DynamicContextBuilder::<Node>::new().with_context_item(XdmItem::Node(e_node)).build())
+        .evaluate(
+            &platynui_xpath::runtime::DynamicContextBuilder::<Node>::new()
+                .with_context_item(XdmItem::Node(e_node))
+                .build(),
+        )
         .unwrap();
     let kinds: Vec<NodeKind> = out
         .iter()
-        .filter_map(|it| match it { XdmItem::Node(n) => Some(n.kind()), _ => None })
+        .filter_map(|it| match it {
+            XdmItem::Node(n) => Some(n.kind()),
+            _ => None,
+        })
         .collect();
     assert!(kinds.len() >= 2);
     assert!(matches!(kinds.first(), Some(NodeKind::Attribute)));
@@ -239,11 +295,17 @@ fn deep_sibling_divergence_ordering(sc: StaticContext) {
     let y1 = el(&mut d, Some(a2), "y1");
     let _y2 = el(&mut d, Some(y1), "y2");
     let _l2 = el(&mut d, Some(_y2), "l2");
-    let root_node = Node { dom: Arc::new(d), idx: root };
+    let root_node = Node {
+        dom: Arc::new(d),
+        idx: root,
+    };
 
     let exec = compile_xpath("//l1 << //l2", &sc).unwrap();
     let out: Vec<XdmItem<Node>> = exec.evaluate_on(Some(root_node)).unwrap();
-    match &out[0] { XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => assert!(*b), _ => panic!("bool") }
+    match &out[0] {
+        XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => assert!(*b),
+        _ => panic!("bool"),
+    }
 }
 
 // Note: Multi-root sequences with default fallback now panic (enforced adapter override).

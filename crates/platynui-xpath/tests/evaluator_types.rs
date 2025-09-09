@@ -26,7 +26,10 @@ impl XdmNode for DummyNode {
     fn attributes(&self) -> Vec<Self> {
         vec![]
     }
-    fn compare_document_order(&self, _other: &Self) -> Result<std::cmp::Ordering, platynui_xpath::runtime::Error> {
+    fn compare_document_order(
+        &self,
+        _other: &Self,
+    ) -> Result<std::cmp::Ordering, platynui_xpath::runtime::Error> {
         Ok(std::cmp::Ordering::Equal)
     }
 }
@@ -74,6 +77,14 @@ fn castable_and_optional() {
 }
 
 #[rstest]
+fn castable_negative_returns_false() {
+    let sc = mk_sc();
+    let exec = compile_xpath("'a' castable as xs:integer", &sc).unwrap();
+    let out: Vec<XdmItem<DummyNode>> = exec.evaluate(&ctx()).unwrap();
+    assert!(!as_bool(&out));
+}
+
+#[rstest]
 #[rustfmt::skip]
 #[case::t1("'a' instance of xs:string", true)]
 #[case::t2("1 instance of xs:string", false)]
@@ -93,6 +104,36 @@ fn treat_as_item_star() {
     let exec = compile_xpath("1 treat as item()", &sc).unwrap();
     let out: Vec<XdmItem<DummyNode>> = exec.evaluate(&ctx()).unwrap();
     assert_eq!(atoms(&out).len(), 1);
+}
+
+#[rstest]
+fn treat_as_type_mismatch_errors() {
+    let sc = mk_sc();
+    let exec = compile_xpath("'a' treat as xs:integer", &sc).unwrap();
+    let res: Result<Vec<XdmItem<DummyNode>>, platynui_xpath::runtime::Error> =
+        exec.evaluate(&ctx());
+    assert!(res.is_err());
+    assert_eq!(res.err().unwrap().code, "err:XPTY0004");
+}
+
+#[rstest]
+fn invalid_integer_cast_errors() {
+    let sc = mk_sc();
+    let exec = compile_xpath("'abc' cast as xs:integer", &sc).unwrap();
+    let res: Result<Vec<XdmItem<DummyNode>>, platynui_xpath::runtime::Error> =
+        exec.evaluate(&ctx());
+    assert!(res.is_err());
+    assert_eq!(res.err().unwrap().code, "err:FORG0001");
+}
+
+#[rstest]
+fn invalid_boolean_cast_errors() {
+    let sc = mk_sc();
+    let exec = compile_xpath("'maybe' cast as xs:boolean", &sc).unwrap();
+    let res: Result<Vec<XdmItem<DummyNode>>, platynui_xpath::runtime::Error> =
+        exec.evaluate(&ctx());
+    assert!(res.is_err());
+    assert_eq!(res.err().unwrap().code, "err:FORG0001");
 }
 
 fn mk_sc() -> StaticContext {

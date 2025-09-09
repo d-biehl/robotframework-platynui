@@ -1,15 +1,32 @@
-//! AST for XPath 2.0 expressions (types only; parser wiring will be added progressively).
-//! References: W3C XPath 2.0, XDM 1.0, and XQuery Functions & Operators.
+//! Complete AST for XPath 2.0 expressions (types only; parser/compiler will be rebuilt).
+//! References:
+//! - XML Path Language (XPath) 2.0 (Second Edition)
+//! - XQuery 1.0 and XPath 2.0 Data Model (XDM) (Second Edition)
+//! - XQuery 1.0 and XPath 2.0 Functions and Operators (Second Edition)
+//!
+//! Notes:
+//! - This AST aims to cover the full XPath 2.0 grammar. It intentionally includes
+//!   nodes for general filter expressions and paths starting from arbitrary expressions.
+//! - Numeric literals distinguish decimal vs. double per spec; for now we model
+//!   integer as i64 and decimal as f64 for practicality.
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
+    /// Integer literal (xs:integer), currently limited to i64.
     Integer(i64),
+    /// Decimal literal (xs:decimal), currently represented as f64.
+    /// XPath 2.0 distinguishes Decimal vs. Double; we collapse to f64 for decimal for now.
+    Decimal(f64),
+    /// Double literal parsed to f64 (lexical nuances like NaN/INF are handled at parse time).
     Double(f64),
     String(String),
+    /// Not part of XPath literal grammar, but kept for completeness of constant expressions
+    /// and compatibility with prior code paths.
     Boolean(bool),
+    /// Not produced by literals; may appear via constructor functions or evaluation.
     AnyUri(String),
+    /// Not produced by literals; may appear via constructor functions or evaluation.
     UntypedAtomic(String),
-    EmptySequence,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -68,11 +85,23 @@ pub struct QName {
 pub enum Expr {
     // Core
     Literal(Literal),
+    /// Parenthesized expression: used to preserve source grouping; semantically equivalent
+    /// to the inner expression. The empty sequence literal "()" is represented as
+    /// `Expr::Sequence(vec![])`.
+    Parenthesized(Box<Expr>),
     VarRef(QName),
     FunctionCall {
         name: QName,
         args: Vec<Expr>,
     },
+    /// General filter expression: input followed by zero or more predicates [Expr].
+    /// This is applicable to any primary expression (not only steps), e.g., ($seq)[1],
+    /// (1 to 10)[. mod 2 = 0], $nodes[@id].
+    Filter {
+        input: Box<Expr>,
+        predicates: Vec<Expr>,
+    },
+    /// Sequence construction. An empty vector represents the empty sequence literal `()`.
     Sequence(Vec<Expr>),
     Binary {
         left: Box<Expr>,
@@ -127,6 +156,12 @@ pub enum Expr {
 
     // Path expressions
     Path(PathExpr),
+    /// Path that starts from an arbitrary base expression (e.g., $n/child::a,
+    /// (//book)[1]/title). Semantics: apply the relative steps to the sequence yielded by base.
+    PathFrom {
+        base: Box<Expr>,
+        steps: Vec<Step>,
+    },
 
     // Quantified expressions
     Quantified {

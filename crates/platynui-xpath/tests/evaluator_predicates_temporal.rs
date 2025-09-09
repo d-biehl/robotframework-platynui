@@ -1,18 +1,30 @@
 use platynui_xpath::compile_xpath;
 use platynui_xpath::model::{NodeKind, QName, XdmNode};
 use platynui_xpath::runtime::{Error, StaticContext};
-use platynui_xpath::xdm::{XdmItem};
+use platynui_xpath::xdm::XdmItem;
 use rstest::rstest;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DummyNode;
 impl XdmNode for DummyNode {
-    fn kind(&self) -> NodeKind { NodeKind::Text }
-    fn name(&self) -> Option<QName> { None }
-    fn string_value(&self) -> String { String::new() }
-    fn parent(&self) -> Option<Self> { None }
-    fn children(&self) -> Vec<Self> { vec![] }
-    fn attributes(&self) -> Vec<Self> { vec![] }
+    fn kind(&self) -> NodeKind {
+        NodeKind::Text
+    }
+    fn name(&self) -> Option<QName> {
+        None
+    }
+    fn string_value(&self) -> String {
+        String::new()
+    }
+    fn parent(&self) -> Option<Self> {
+        None
+    }
+    fn children(&self) -> Vec<Self> {
+        vec![]
+    }
+    fn attributes(&self) -> Vec<Self> {
+        vec![]
+    }
 }
 
 #[rstest]

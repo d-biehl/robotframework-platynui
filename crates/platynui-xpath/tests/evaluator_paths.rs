@@ -68,7 +68,10 @@ impl XdmNode for Node {
             })
             .collect()
     }
-    fn compare_document_order(&self, other: &Self) -> Result<std::cmp::Ordering, platynui_xpath::runtime::Error> {
+    fn compare_document_order(
+        &self,
+        other: &Self,
+    ) -> Result<std::cmp::Ordering, platynui_xpath::runtime::Error> {
         Ok(self.idx.cmp(&other.idx))
     }
 }
@@ -146,9 +149,10 @@ fn names(items: &Vec<platynui_xpath::xdm::XdmItem<Node>>) -> Vec<String> {
     let mut out = vec![];
     for it in items {
         if let XdmItem::Node(n) = it
-            && let Some(q) = n.name() {
-                out.push(q.local);
-            }
+            && let Some(q) = n.name()
+        {
+            out.push(q.local);
+        }
     }
     out
 }

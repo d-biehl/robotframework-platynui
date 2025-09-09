@@ -3,7 +3,10 @@
 
 use crate::runtime::{CallCtx, Error, FunctionRegistry};
 use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence};
-use chrono::{DateTime as ChronoDateTime, FixedOffset as ChronoFixedOffset, NaiveDate, NaiveTime, Datelike, Timelike};
+use chrono::{
+    DateTime as ChronoDateTime, Datelike, FixedOffset as ChronoFixedOffset, NaiveDate, NaiveTime,
+    Timelike,
+};
 
 const FNS: &str = "http://www.w3.org/2005/xpath-functions";
 
@@ -37,7 +40,8 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     let mut reg = FunctionRegistry::new();
     // helper to register under default namespace
     let mut add = |local: &str, arity: usize, f: FnSig<N>| {
-        let fun = std::sync::Arc::new(move |ctx: &CallCtx<N>, args: &[XdmSequence<N>]| f(ctx, args));
+        let fun =
+            std::sync::Arc::new(move |ctx: &CallCtx<N>, args: &[XdmSequence<N>]| f(ctx, args));
         reg.register(
             ExpandedName {
                 ns_uri: Some(FNS.to_string()),
@@ -418,7 +422,9 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let coll = Some(resolve_named_collation_fn(ctx, &uri)?);
         minmax_impl(ctx, &args[0], coll.as_ref().map(|a| a.as_ref()), true)
     });
-    add("max", 1, |ctx, args| minmax_impl(ctx, &args[0], None, false));
+    add("max", 1, |ctx, args| {
+        minmax_impl(ctx, &args[0], None, false)
+    });
     add("max", 2, |ctx, args| {
         let uri = item_to_string(&args[1]);
         let coll = Some(resolve_named_collation_fn(ctx, &uri)?);
@@ -434,8 +440,16 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let a = item_to_string(&args[0]);
         let b = item_to_string(&args[1]);
         let coll = resolve_default_collation_fn(ctx);
-        let ord = if let Some(c) = coll.as_deref() { c.compare(&a, &b) } else { a.cmp(&b) };
-        let v = match ord { core::cmp::Ordering::Less => -1, core::cmp::Ordering::Equal => 0, core::cmp::Ordering::Greater => 1 };
+        let ord = if let Some(c) = coll.as_deref() {
+            c.compare(&a, &b)
+        } else {
+            a.cmp(&b)
+        };
+        let v = match ord {
+            core::cmp::Ordering::Less => -1,
+            core::cmp::Ordering::Equal => 0,
+            core::cmp::Ordering::Greater => 1,
+        };
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(v))])
     });
     // compare($A, $B, $collation)
@@ -448,7 +462,11 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let uri = item_to_string(&args[2]);
         let coll = resolve_named_collation_fn(ctx, &uri)?;
         let ord = coll.compare(&a, &b);
-        let v = match ord { core::cmp::Ordering::Less => -1, core::cmp::Ordering::Equal => 0, core::cmp::Ordering::Greater => 1 };
+        let v = match ord {
+            core::cmp::Ordering::Less => -1,
+            core::cmp::Ordering::Equal => 0,
+            core::cmp::Ordering::Greater => 1,
+        };
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(v))])
     });
 
@@ -570,28 +588,36 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         } else {
             0
         };
-        Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(offset_secs as i64))])
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(
+            offset_secs as i64,
+        ))])
     });
 
     // year-from-dateTime($arg as xs:dateTime?) as xs:integer?
     add("year-from-dateTime", 1, |_ctx, args| {
         match get_datetime(&args[0])? {
             None => Ok(vec![]),
-            Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(dt.year() as i64))]),
+            Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                dt.year() as i64
+            ))]),
         }
     });
     // month-from-dateTime
     add("month-from-dateTime", 1, |_ctx, args| {
         match get_datetime(&args[0])? {
             None => Ok(vec![]),
-            Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(dt.month() as i64))]),
+            Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                dt.month() as i64
+            ))]),
         }
     });
     // day-from-dateTime
     add("day-from-dateTime", 1, |_ctx, args| {
         match get_datetime(&args[0])? {
             None => Ok(vec![]),
-            Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(dt.day() as i64))]),
+            Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                dt.day() as i64
+            ))]),
         }
     });
 
@@ -599,41 +625,72 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     add("hours-from-time", 1, |_ctx, args| {
         match get_time(&args[0])? {
             None => Ok(vec![]),
-            Some((time, _)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(time.hour() as i64))]),
+            Some((time, _)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                time.hour() as i64
+            ))]),
         }
     });
     add("minutes-from-time", 1, |_ctx, args| {
         match get_time(&args[0])? {
             None => Ok(vec![]),
-            Some((time, _)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(time.minute() as i64))]),
+            Some((time, _)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                time.minute() as i64,
+            ))]),
         }
     });
     add("seconds-from-time", 1, |_ctx, args| {
         match get_time(&args[0])? {
             None => Ok(vec![]),
-            Some((time, _)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(time.second() as i64))]),
+            Some((time, _)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                time.second() as i64,
+            ))]),
         }
     });
 
     // timezone-from-dateTime($arg as xs:dateTime?) as xs:dayTimeDuration?
-    add("timezone-from-dateTime", 1, |_ctx, args| {
-        match get_datetime(&args[0])? {
+    add(
+        "timezone-from-dateTime",
+        1,
+        |_ctx, args| match get_datetime(&args[0])? {
             None => Ok(vec![]),
-            Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(dt.offset().local_minus_utc() as i64))]),
-        }
-    });
+            Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(
+                dt.offset().local_minus_utc() as i64,
+            ))]),
+        },
+    );
     // timezone-from-date($arg as xs:date?)
     add("timezone-from-date", 1, |_ctx, args| {
-        if args[0].is_empty() { return Ok(vec![]); }
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
         match &args[0][0] {
             XdmItem::Atomic(XdmAtomicValue::Date { tz, .. }) => {
-                if let Some(off) = tz { Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(off.local_minus_utc() as i64))]) } else { Ok(vec![]) }
+                if let Some(off) = tz {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(
+                        off.local_minus_utc() as i64,
+                    ))])
+                } else {
+                    Ok(vec![])
+                }
             }
-            XdmItem::Atomic(XdmAtomicValue::String(s)) | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
-                if let Ok((_d, Some(off))) = parse_xs_date_local(s) { Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(off.local_minus_utc() as i64))]) } else { Ok(vec![]) }
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                if let Ok((_d, Some(off))) = parse_xs_date_local(s) {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(
+                        off.local_minus_utc() as i64,
+                    ))])
+                } else {
+                    Ok(vec![])
+                }
             }
             XdmItem::Node(n) => {
-                if let Ok((_d, Some(off))) = parse_xs_date_local(&n.string_value()) { Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(off.local_minus_utc() as i64))]) } else { Ok(vec![]) }
+                if let Ok((_d, Some(off))) = parse_xs_date_local(&n.string_value()) {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(
+                        off.local_minus_utc() as i64,
+                    ))])
+                } else {
+                    Ok(vec![])
+                }
             }
             _ => Ok(vec![]),
         }
@@ -642,53 +699,88 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     add("timezone-from-time", 1, |_ctx, args| {
         match get_time(&args[0])? {
             None => Ok(vec![]),
-            Some((_t, Some(off))) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(off.local_minus_utc() as i64))]),
+            Some((_t, Some(off))) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(
+                off.local_minus_utc() as i64,
+            ))]),
             Some((_t, None)) => Ok(vec![]),
         }
     });
 
     // year/month/day from date (xs:date)
     add("year-from-date", 1, |_ctx, args| {
-        if args[0].is_empty() { return Ok(vec![]); }
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
         match &args[0][0] {
-            XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(date.year() as i64))]),
-            XdmItem::Atomic(XdmAtomicValue::String(s)) | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
-                let (d, _) = parse_xs_date_local(s).map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.year() as i64))])
+            XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => Ok(vec![XdmItem::Atomic(
+                XdmAtomicValue::Integer(date.year() as i64),
+            )]),
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                let (d, _) = parse_xs_date_local(s)
+                    .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                    d.year() as i64
+                ))])
             }
             XdmItem::Node(n) => {
-                let (d, _) = parse_xs_date_local(&n.string_value()).map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.year() as i64))])
+                let (d, _) = parse_xs_date_local(&n.string_value())
+                    .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                    d.year() as i64
+                ))])
             }
             _ => Ok(vec![]),
         }
     });
     add("month-from-date", 1, |_ctx, args| {
-        if args[0].is_empty() { return Ok(vec![]); }
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
         match &args[0][0] {
-            XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(date.month() as i64))]),
-            XdmItem::Atomic(XdmAtomicValue::String(s)) | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
-                let (d, _) = parse_xs_date_local(s).map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.month() as i64))])
+            XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => Ok(vec![XdmItem::Atomic(
+                XdmAtomicValue::Integer(date.month() as i64),
+            )]),
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                let (d, _) = parse_xs_date_local(s)
+                    .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                    d.month() as i64
+                ))])
             }
             XdmItem::Node(n) => {
-                let (d, _) = parse_xs_date_local(&n.string_value()).map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.month() as i64))])
+                let (d, _) = parse_xs_date_local(&n.string_value())
+                    .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                    d.month() as i64
+                ))])
             }
             _ => Ok(vec![]),
         }
     });
     add("day-from-date", 1, |_ctx, args| {
-        if args[0].is_empty() { return Ok(vec![]); }
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
         match &args[0][0] {
-            XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(date.day() as i64))]),
-            XdmItem::Atomic(XdmAtomicValue::String(s)) | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
-                let (d, _) = parse_xs_date_local(s).map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.day() as i64))])
+            XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => Ok(vec![XdmItem::Atomic(
+                XdmAtomicValue::Integer(date.day() as i64),
+            )]),
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                let (d, _) = parse_xs_date_local(s)
+                    .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                    d.day() as i64
+                ))])
             }
             XdmItem::Node(n) => {
-                let (d, _) = parse_xs_date_local(&n.string_value()).map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.day() as i64))])
+                let (d, _) = parse_xs_date_local(&n.string_value())
+                    .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:date"))?;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                    d.day() as i64
+                ))])
             }
             _ => Ok(vec![]),
         }
@@ -802,7 +894,9 @@ fn num_unary<N: crate::model::XdmNode>(
 }
 
 // ===== Helpers (M7 Collations) =====
-fn resolve_default_collation_fn<N>(ctx: &CallCtx<N>) -> Option<std::sync::Arc<dyn crate::runtime::Collation>> {
+fn resolve_default_collation_fn<N>(
+    ctx: &CallCtx<N>,
+) -> Option<std::sync::Arc<dyn crate::runtime::Collation>> {
     if let Some(c) = &ctx.default_collation {
         Some(c.clone())
     } else {
@@ -819,7 +913,10 @@ fn resolve_named_collation_fn<N>(
     if let Some(c) = ctx.dyn_ctx.collations.get(uri) {
         Ok(c)
     } else {
-        Err(Error::dynamic_err("err:FOCH0002", format!("unknown collation URI: {}", uri)))
+        Err(Error::dynamic_err(
+            "err:FOCH0002",
+            format!("unknown collation URI: {}", uri),
+        ))
     }
 }
 
@@ -875,16 +972,24 @@ fn deep_equal_with_collation<N: crate::model::XdmNode>(
     }
     for (ia, ib) in a.iter().zip(b.iter()) {
         let eq = match (ia, ib) {
-            (XdmItem::Atomic(aa), XdmItem::Atomic(bb)) => atomic_equal_with_collation(aa, bb, coll)?,
+            (XdmItem::Atomic(aa), XdmItem::Atomic(bb)) => {
+                atomic_equal_with_collation(aa, bb, coll)?
+            }
             (XdmItem::Node(na), XdmItem::Node(nb)) => {
                 // Simplified node branch: compare string-values under collation
                 let sa = na.string_value();
                 let sb = nb.string_value();
-                if let Some(c) = coll { c.compare(&sa, &sb) == core::cmp::Ordering::Equal } else { sa == sb }
+                if let Some(c) = coll {
+                    c.compare(&sa, &sb) == core::cmp::Ordering::Equal
+                } else {
+                    sa == sb
+                }
             }
             _ => false,
         };
-        if !eq { return Ok(false); }
+        if !eq {
+            return Ok(false);
+        }
     }
     Ok(true)
 }
@@ -913,9 +1018,7 @@ fn atomic_equal_with_collation(
 }
 
 // ===== Helpers (M7 Regex) =====
-fn get_regex_provider<N>(
-    ctx: &CallCtx<N>,
-) -> std::sync::Arc<dyn crate::runtime::RegexProvider> {
+fn get_regex_provider<N>(ctx: &CallCtx<N>) -> std::sync::Arc<dyn crate::runtime::RegexProvider> {
     if let Some(p) = &ctx.regex {
         p.clone()
     } else {
@@ -965,7 +1068,11 @@ fn minmax_impl<N: crate::model::XdmNode>(
     }
     // numeric if all numeric, else string using collation (default or provided)
     let mut all_num = true;
-    let mut acc_num = if is_min { f64::INFINITY } else { f64::NEG_INFINITY };
+    let mut acc_num = if is_min {
+        f64::INFINITY
+    } else {
+        f64::NEG_INFINITY
+    };
     for it in seq {
         match it {
             XdmItem::Atomic(a) => match to_number_atomic(a) {
@@ -1029,8 +1136,16 @@ fn minmax_impl<N: crate::model::XdmNode>(
             };
             let ord = s.cmp(&acc);
             if is_min {
-                if ord == core::cmp::Ordering::Less { s } else { acc }
-            } else if ord == core::cmp::Ordering::Greater { s } else { acc }
+                if ord == core::cmp::Ordering::Less {
+                    s
+                } else {
+                    acc
+                }
+            } else if ord == core::cmp::Ordering::Greater {
+                s
+            } else {
+                acc
+            }
         });
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(best))])
     }
@@ -1055,7 +1170,9 @@ fn now_in_effective_tz<N>(ctx: &CallCtx<N>) -> chrono::DateTime<chrono::FixedOff
 
 // ===== Helpers for M8b component functions =====
 fn parse_offset(tz: &str) -> Option<ChronoFixedOffset> {
-    if tz.len() != 6 { return None; }
+    if tz.len() != 6 {
+        return None;
+    }
     let sign = &tz[0..1];
     let hours: i32 = tz[1..3].parse().ok()?;
     let mins: i32 = tz[4..6].parse().ok()?;
@@ -1066,28 +1183,35 @@ fn parse_offset(tz: &str) -> Option<ChronoFixedOffset> {
 
 fn parse_xs_time(s: &str) -> Result<(NaiveTime, Option<ChronoFixedOffset>), ()> {
     if let Some(pos) = s.rfind(['+', '-'])
-        && pos >= 5 {
-            let (t, tzs) = s.split_at(pos);
-            let time = NaiveTime::parse_from_str(t, "%H:%M:%S")
-                .or_else(|_| NaiveTime::parse_from_str(t, "%H:%M:%S%.f"))
-                .map_err(|_| ())?;
-            let off = parse_offset(tzs).ok_or(())?;
-            return Ok((time, Some(off)));
-        }
+        && pos >= 5
+    {
+        let (t, tzs) = s.split_at(pos);
+        let time = NaiveTime::parse_from_str(t, "%H:%M:%S")
+            .or_else(|_| NaiveTime::parse_from_str(t, "%H:%M:%S%.f"))
+            .map_err(|_| ())?;
+        let off = parse_offset(tzs).ok_or(())?;
+        return Ok((time, Some(off)));
+    }
     let time = NaiveTime::parse_from_str(s, "%H:%M:%S")
         .or_else(|_| NaiveTime::parse_from_str(s, "%H:%M:%S%.f"))
         .map_err(|_| ())?;
     Ok((time, None))
 }
 
-fn get_datetime<N: crate::model::XdmNode>(seq: &XdmSequence<N>) -> Result<Option<ChronoDateTime<ChronoFixedOffset>>, Error> {
-    if seq.is_empty() { return Ok(None); }
+fn get_datetime<N: crate::model::XdmNode>(
+    seq: &XdmSequence<N>,
+) -> Result<Option<ChronoDateTime<ChronoFixedOffset>>, Error> {
+    if seq.is_empty() {
+        return Ok(None);
+    }
     match &seq[0] {
         XdmItem::Atomic(XdmAtomicValue::DateTime(dt)) => Ok(Some(*dt)),
         XdmItem::Atomic(XdmAtomicValue::String(s))
-        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => ChronoDateTime::parse_from_rfc3339(s)
-            .map(Some)
-            .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:dateTime")),
+        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+            ChronoDateTime::parse_from_rfc3339(s)
+                .map(Some)
+                .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:dateTime"))
+        }
         XdmItem::Node(n) => ChronoDateTime::parse_from_rfc3339(&n.string_value())
             .map(Some)
             .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:dateTime")),
@@ -1095,8 +1219,12 @@ fn get_datetime<N: crate::model::XdmNode>(seq: &XdmSequence<N>) -> Result<Option
     }
 }
 
-fn get_time<N: crate::model::XdmNode>(seq: &XdmSequence<N>) -> Result<Option<(NaiveTime, Option<ChronoFixedOffset>)>, Error> {
-    if seq.is_empty() { return Ok(None); }
+fn get_time<N: crate::model::XdmNode>(
+    seq: &XdmSequence<N>,
+) -> Result<Option<(NaiveTime, Option<ChronoFixedOffset>)>, Error> {
+    if seq.is_empty() {
+        return Ok(None);
+    }
     match &seq[0] {
         XdmItem::Atomic(XdmAtomicValue::Time { time, tz }) => Ok(Some((*time, *tz))),
         XdmItem::Atomic(XdmAtomicValue::String(s))
@@ -1111,36 +1239,64 @@ fn get_time<N: crate::model::XdmNode>(seq: &XdmSequence<N>) -> Result<Option<(Na
 }
 
 fn format_year_month_duration_local(months: i32) -> String {
-    if months == 0 { return "P0M".to_string(); }
+    if months == 0 {
+        return "P0M".to_string();
+    }
     let neg = months < 0;
     let mut m = months.abs();
     let y = m / 12;
     m %= 12;
     let mut out = String::new();
-    if neg { out.push('-'); }
+    if neg {
+        out.push('-');
+    }
     out.push('P');
-    if y != 0 { out.push_str(&format!("{}Y", y)); }
-    if m != 0 { out.push_str(&format!("{}M", m)); }
-    if y == 0 && m == 0 { out.push('0'); out.push('M'); }
+    if y != 0 {
+        out.push_str(&format!("{}Y", y));
+    }
+    if m != 0 {
+        out.push_str(&format!("{}M", m));
+    }
+    if y == 0 && m == 0 {
+        out.push('0');
+        out.push('M');
+    }
     out
 }
 
 fn format_day_time_duration_local(total_secs: i64) -> String {
-    if total_secs == 0 { return "PT0S".to_string(); }
+    if total_secs == 0 {
+        return "PT0S".to_string();
+    }
     let neg = total_secs < 0;
     let mut s = total_secs.abs();
-    let days = s / (24*3600); s %= 24*3600;
-    let hours = s / 3600; s %= 3600;
-    let mins = s / 60; s %= 60;
+    let days = s / (24 * 3600);
+    s %= 24 * 3600;
+    let hours = s / 3600;
+    s %= 3600;
+    let mins = s / 60;
+    s %= 60;
     let secs = s;
     let mut out = String::new();
-    if neg { out.push('-'); }
+    if neg {
+        out.push('-');
+    }
     out.push('P');
-    if days != 0 { out.push_str(&format!("{}D", days)); }
-    if hours != 0 || mins != 0 || secs != 0 { out.push('T'); }
-    if hours != 0 { out.push_str(&format!("{}H", hours)); }
-    if mins != 0 { out.push_str(&format!("{}M", mins)); }
-    if secs != 0 { out.push_str(&format!("{}S", secs)); }
+    if days != 0 {
+        out.push_str(&format!("{}D", days));
+    }
+    if hours != 0 || mins != 0 || secs != 0 {
+        out.push('T');
+    }
+    if hours != 0 {
+        out.push_str(&format!("{}H", hours));
+    }
+    if mins != 0 {
+        out.push_str(&format!("{}M", mins));
+    }
+    if secs != 0 {
+        out.push_str(&format!("{}S", secs));
+    }
     out
 }
 
@@ -1148,19 +1304,21 @@ fn fmt_offset_local(off: &ChronoFixedOffset) -> String {
     let secs = off.local_minus_utc();
     let sign = if secs < 0 { '-' } else { '+' };
     let mut s = secs.abs();
-    let hours = s / 3600; s %= 3600;
+    let hours = s / 3600;
+    s %= 3600;
     let mins = s / 60;
     format!("{}{:02}:{:02}", sign, hours, mins)
 }
 
 fn parse_xs_date_local(s: &str) -> Result<(NaiveDate, Option<ChronoFixedOffset>), ()> {
     if let Some(pos) = s.rfind(['+', '-'])
-        && pos >= 10 {
-            let (d, tzs) = s.split_at(pos);
-            let date = NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(|_| ())?;
-            let off = parse_offset(tzs).ok_or(())?;
-            return Ok((date, Some(off)));
-        }
+        && pos >= 10
+    {
+        let (d, tzs) = s.split_at(pos);
+        let date = NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(|_| ())?;
+        let off = parse_offset(tzs).ok_or(())?;
+        return Ok((date, Some(off)));
+    }
     let date = NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| ())?;
     Ok((date, None))
 }

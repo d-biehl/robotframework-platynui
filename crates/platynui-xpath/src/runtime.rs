@@ -26,9 +26,8 @@ pub struct CallCtx<'a, N> {
     pub regex: Option<Arc<dyn RegexProvider>>,
 }
 
-pub type FunctionImpl<N> = Arc<
-    dyn Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error> + Send + Sync,
->;
+pub type FunctionImpl<N> =
+    Arc<dyn Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error> + Send + Sync>;
 
 pub struct FunctionRegistry<N> {
     fns: HashMap<FunctionKey, FunctionImpl<N>>,
@@ -86,7 +85,9 @@ impl Collation for CodepointCollation {
 pub struct SimpleCaseCollation;
 
 impl Collation for SimpleCaseCollation {
-    fn uri(&self) -> &str { "urn:platynui:collation:simple-case" }
+    fn uri(&self) -> &str {
+        "urn:platynui:collation:simple-case"
+    }
     fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
         self.key(a).cmp(&self.key(b))
     }
@@ -99,7 +100,9 @@ impl Collation for SimpleCaseCollation {
 pub struct SimpleAccentCollation;
 
 impl Collation for SimpleAccentCollation {
-    fn uri(&self) -> &str { "urn:platynui:collation:simple-accent" }
+    fn uri(&self) -> &str {
+        "urn:platynui:collation:simple-accent"
+    }
     fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
         self.key(a).cmp(&self.key(b))
     }
@@ -114,7 +117,9 @@ impl Collation for SimpleAccentCollation {
 pub struct SimpleCaseAccentCollation;
 
 impl Collation for SimpleCaseAccentCollation {
-    fn uri(&self) -> &str { "urn:platynui:collation:simple-case-accent" }
+    fn uri(&self) -> &str {
+        "urn:platynui:collation:simple-case-accent"
+    }
     fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
         self.key(a).cmp(&self.key(b))
     }
@@ -138,10 +143,14 @@ impl Default for CollationRegistry {
         let def: Arc<dyn Collation> = Arc::new(CodepointCollation);
         reg.by_uri.insert(def.uri().to_string(), def);
         // Built-in simple collations (M7)
-        reg.by_uri
-            .insert("urn:platynui:collation:simple-case".to_string(), Arc::new(SimpleCaseCollation));
-        reg.by_uri
-            .insert("urn:platynui:collation:simple-accent".to_string(), Arc::new(SimpleAccentCollation));
+        reg.by_uri.insert(
+            "urn:platynui:collation:simple-case".to_string(),
+            Arc::new(SimpleCaseCollation),
+        );
+        reg.by_uri.insert(
+            "urn:platynui:collation:simple-accent".to_string(),
+            Arc::new(SimpleAccentCollation),
+        );
         reg.by_uri.insert(
             "urn:platynui:collation:simple-case-accent".to_string(),
             Arc::new(SimpleCaseAccentCollation),
@@ -173,8 +182,13 @@ pub trait ResourceResolver: Send + Sync {
 
 pub trait RegexProvider: Send + Sync {
     fn matches(&self, pattern: &str, flags: &str, text: &str) -> Result<bool, Error>;
-    fn replace(&self, pattern: &str, flags: &str, text: &str, replacement: &str)
-        -> Result<String, Error>;
+    fn replace(
+        &self,
+        pattern: &str,
+        flags: &str,
+        text: &str,
+        replacement: &str,
+    ) -> Result<String, Error>;
     fn tokenize(&self, pattern: &str, flags: &str, text: &str) -> Result<Vec<String>, Error>;
 }
 
@@ -194,7 +208,7 @@ impl RustRegexProvider {
                     return Err(Error::dynamic_err(
                         "err:FORX0002",
                         format!("unsupported regex flag: {}", ch),
-                    ))
+                    ));
                 }
             };
         }
@@ -314,7 +328,7 @@ pub struct DynamicContext<N> {
     pub resolver: Option<Arc<dyn ResourceResolver>>,
     pub regex: Option<Arc<dyn RegexProvider>>,
     pub now: Option<chrono::DateTime<chrono::FixedOffset>>, // M8: current-*
-    pub timezone_override: Option<chrono::FixedOffset>,      // M8: override zone
+    pub timezone_override: Option<chrono::FixedOffset>,     // M8: override zone
 }
 
 impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for DynamicContext<N> {

@@ -1,5 +1,5 @@
-use core::fmt;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
+use core::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExpandedName {

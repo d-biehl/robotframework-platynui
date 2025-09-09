@@ -1,4 +1,4 @@
-use crate::parser::{XPathParser, ast};
+use crate::parser::{ast, parse_xpath};
 use crate::runtime::{Error, StaticContext};
 use crate::xdm::{ExpandedName, XdmAtomicValue};
 use core::fmt;
@@ -165,7 +165,7 @@ impl fmt::Display for ComparisonOp {
 
 pub fn compile_xpath(expr: &str, static_ctx: &StaticContext) -> Result<CompiledIR, Error> {
     // Straightforward: build full AST then compile
-    let ast = match XPathParser::parse_to_ast(expr) {
+    let ast = match parse_xpath(expr) {
         Ok(a) => a,
         Err(e) => {
             return Err(Error::static_err(
@@ -192,11 +192,12 @@ fn compile_expr(ast: &ast::Expr, out: &mut InstrSeq, sc: &StaticContext) -> Resu
     match ast {
         ast::Expr::Literal(l) => match l {
             ast::Literal::Integer(v) => out.0.push(OpCode::PushAtomic(XdmAtomicValue::Integer(*v))),
+            ast::Literal::Decimal(v) => out.0.push(OpCode::PushAtomic(XdmAtomicValue::Decimal(*v))),
             ast::Literal::Double(v) => out.0.push(OpCode::PushAtomic(XdmAtomicValue::Double(*v))),
             ast::Literal::String(s) => out
                 .0
                 .push(OpCode::PushAtomic(XdmAtomicValue::String(s.clone()))),
-            ast::Literal::EmptySequence => { /* no-op: empty */ }
+            // Empty sequence literal is represented as Expr::Sequence(vec![])
             _ => {
                 return Err(Error::static_err(
                     "err:XPST0017",

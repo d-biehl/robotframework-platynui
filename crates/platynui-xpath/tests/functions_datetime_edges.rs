@@ -7,16 +7,31 @@ use rstest::rstest;
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DummyNode;
 impl XdmNode for DummyNode {
-    fn kind(&self) -> NodeKind { NodeKind::Text }
-    fn name(&self) -> Option<QName> { None }
-    fn string_value(&self) -> String { String::new() }
-    fn parent(&self) -> Option<Self> { None }
-    fn children(&self) -> Vec<Self> { vec![] }
-    fn attributes(&self) -> Vec<Self> { vec![] }
+    fn kind(&self) -> NodeKind {
+        NodeKind::Text
+    }
+    fn name(&self) -> Option<QName> {
+        None
+    }
+    fn string_value(&self) -> String {
+        String::new()
+    }
+    fn parent(&self) -> Option<Self> {
+        None
+    }
+    fn children(&self) -> Vec<Self> {
+        vec![]
+    }
+    fn attributes(&self) -> Vec<Self> {
+        vec![]
+    }
 }
 
 fn as_string<N>(items: &Vec<XdmItem<N>>) -> String {
-    match &items[0] { XdmItem::Atomic(XdmAtomicValue::String(s)) => s.clone(), _ => panic!("string expected") }
+    match &items[0] {
+        XdmItem::Atomic(XdmAtomicValue::String(s)) => s.clone(),
+        _ => panic!("string expected"),
+    }
 }
 
 // (no bool helper needed)
@@ -25,7 +40,8 @@ fn as_string<N>(items: &Vec<XdmItem<N>>) -> String {
 fn large_month_shift_saturates_day() {
     let sc = StaticContext::default();
     // 2024-01-31 + 13 months => 2025-02-28 (non-leap year), timezone preserved
-    let expr = "string(('2024-01-31+02:00' cast as xs:date) + ('P13M' cast as xs:yearMonthDuration))";
+    let expr =
+        "string(('2024-01-31+02:00' cast as xs:date) + ('P13M' cast as xs:yearMonthDuration))";
     let exec = compile_xpath(expr, &sc).unwrap();
     let out: Vec<XdmItem<DummyNode>> = exec.evaluate(&Default::default()).unwrap();
     assert_eq!(as_string(&out), "2025-02-28+02:00");
@@ -37,7 +53,10 @@ fn timezone_from_datetime() {
     let expr = "timezone-from-dateTime('2024-01-02T05:00:00+02:00' cast as xs:dateTime)";
     let exec = compile_xpath(expr, &sc).unwrap();
     let out: Vec<XdmItem<DummyNode>> = exec.evaluate(&Default::default()).unwrap();
-    match &out[0] { XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => assert_eq!(*secs, 2*3600), _ => panic!("dayTimeDuration expected") }
+    match &out[0] {
+        XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => assert_eq!(*secs, 2 * 3600),
+        _ => panic!("dayTimeDuration expected"),
+    }
 }
 
 #[rstest]
@@ -62,7 +81,8 @@ fn time_add_wraps_midnight() {
 #[rstest]
 fn date_subtraction_yields_days_duration() {
     let sc = StaticContext::default();
-    let expr = "string(('2024-03-01+00:00' cast as xs:date) - ('2024-02-28+00:00' cast as xs:date))";
+    let expr =
+        "string(('2024-03-01+00:00' cast as xs:date) - ('2024-02-28+00:00' cast as xs:date))";
     let exec = compile_xpath(expr, &sc).unwrap();
     let out: Vec<XdmItem<DummyNode>> = exec.evaluate(&Default::default()).unwrap();
     assert_eq!(as_string(&out), "P2D");
