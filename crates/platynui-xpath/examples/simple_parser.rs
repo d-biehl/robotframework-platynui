@@ -1,5 +1,5 @@
-use platynui_xpath::parser::parse_xpath;
+use platynui_xpath::compiler::compile_xpath;
 
 fn main() {
-    println!("{:?}", parse_xpath(""));
+    println!("{:?}", compile_xpath(""));
 }

@@ -31,7 +31,6 @@ pub enum XdmAtomicValue {
         local: String,
     },
     UntypedAtomic(String),
-    // M8b: Date/Time/Duration families (minimal modeling for XPath 2.0)
     DateTime(DateTime<FixedOffset>),
     Date {
         date: NaiveDate,
@@ -41,9 +40,6 @@ pub enum XdmAtomicValue {
         time: NaiveTime,
         tz: Option<FixedOffset>,
     },
-    // Duration types. For simplicity, store canonical values:
-    // - YearMonthDuration: total months (can be negative)
-    // - DayTimeDuration: total seconds (can be negative)
     YearMonthDuration(i32),
     DayTimeDuration(i64),
 }
