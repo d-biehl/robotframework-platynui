@@ -248,31 +248,67 @@ pub enum ErrorKind {
     Dynamic,
 }
 
+/// Canonicalized set of (initial) XPath/XQuery 2.0 error codes we currently emit.
+/// This is intentionally small and will be expanded alongside feature coverage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ErrorCode {
+    // Arithmetic
+    FOAR0001, // divide by zero
+    // General function / argument errors
+    FORG0001, // invalid lexical form / casting failure
+    FORG0006, // requires single item
+    FOCH0002, // collation does not exist
+    FORX0002, // regex invalid or unsupported flag
+    XPTY0004, // type error (e.g. cast of multi-item sequence)
+    XPST0003, // static type error (empty not allowed etc.)
+    NYI0000,  // project specific: not yet implemented
+    // Fallback / unknown (kept last)
+    Unknown,
+}
+
+/// ErrorCode notes:
+/// - Only a subset of XPath/XQuery 2.0 codes currently emitted.
+/// - Expansion strategy: introduce variants when first needed; keep Unknown as
+///   safe fallback for forward compatibility with older compiled artifacts.
+/// - Use `Error::code_enum()` for structured handling instead of matching raw strings.
+
+impl ErrorCode {
+    pub fn as_str(&self) -> &'static str { use ErrorCode::*; match self {
+        FOAR0001=>"err:FOAR0001",
+        FORG0001=>"err:FORG0001",
+        FORG0006=>"err:FORG0006",
+        FOCH0002=>"err:FOCH0002",
+        FORX0002=>"err:FORX0002",
+        XPTY0004=>"err:XPTY0004",
+        XPST0003=>"err:XPST0003",
+        NYI0000=>"err:NYI0000",
+        Unknown=>"err:UNKNOWN",
+    }}
+    pub fn from_code(s: &str) -> Self { use ErrorCode::*; match s {
+        "err:FOAR0001"=>FOAR0001,
+        "err:FORG0001"=>FORG0001,
+        "err:FORG0006"=>FORG0006,
+        "err:FOCH0002"=>FOCH0002,
+        "err:FORX0002"=>FORX0002,
+        "err:XPTY0004"=>XPTY0004,
+        "err:XPST0003"=>XPST0003,
+        "err:NYI0000"=>NYI0000,
+        _=>Unknown,
+    }}
+}
+
 #[derive(Debug, Clone)]
 pub struct Error {
     pub kind: ErrorKind,
-    pub code: String, // err:FOAR0001 etc.
+    pub code: String, // legacy storage; canonical accessor via error_code()
     pub message: String,
 }
 
 impl Error {
-    pub fn static_err(code: &str, msg: impl Into<String>) -> Self {
-        Self {
-            kind: ErrorKind::Static,
-            code: code.to_string(),
-            message: msg.into(),
-        }
-    }
-    pub fn dynamic_err(code: &str, msg: impl Into<String>) -> Self {
-        Self {
-            kind: ErrorKind::Dynamic,
-            code: code.to_string(),
-            message: msg.into(),
-        }
-    }
-    pub fn not_implemented(feature: &str) -> Self {
-        Self::dynamic_err("err:NYI0000", format!("not implemented: {}", feature))
-    }
+    pub fn static_err(code: &str, msg: impl Into<String>) -> Self { Self { kind: ErrorKind::Static, code: code.to_string(), message: msg.into() } }
+    pub fn dynamic_err(code: &str, msg: impl Into<String>) -> Self { Self { kind: ErrorKind::Dynamic, code: code.to_string(), message: msg.into() } }
+    pub fn code_enum(&self) -> ErrorCode { ErrorCode::from_code(&self.code) }
+    pub fn not_implemented(feature: &str) -> Self { Self::dynamic_err(ErrorCode::NYI0000.as_str(), format!("not implemented: {}", feature)) }
 }
 
 impl fmt::Display for Error {

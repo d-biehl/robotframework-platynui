@@ -1,10 +1,11 @@
 use platynui_xpath::parser::{ast, parse_xpath};
+use rstest::rstest;
 
 fn parse(expr: &str) -> ast::Expr {
     parse_xpath(expr).expect("parse failed")
 }
 
-#[test]
+#[rstest]
 fn fn_min_simple_sequence() {
     match parse("fn:min((3,4,5))") {
         ast::Expr::FunctionCall { name, args } => {
@@ -22,7 +23,7 @@ fn fn_min_simple_sequence() {
     }
 }
 
-#[test]
+#[rstest]
 fn fn_min_dates_sequence() {
     match parse("fn:min((fn:current-date(), xs:date(\"2001-01-01\")))") {
         ast::Expr::FunctionCall { name, args } => {

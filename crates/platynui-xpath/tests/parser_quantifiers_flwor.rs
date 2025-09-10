@@ -28,7 +28,7 @@ fn quantified_multi_bindings(#[case] input: &str, #[case] kind: ast::Quantifier,
     }
 }
 
-#[test]
+#[rstest]
 fn for_multi_bindings() {
     let e = parse("for $x in (1,2), $y in (3,4) return $x + $y");
     match e {

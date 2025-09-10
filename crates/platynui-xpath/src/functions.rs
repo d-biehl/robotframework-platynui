@@ -812,6 +812,19 @@ fn as_string(a: &XdmAtomicValue) -> String {
             }
         }
         XdmAtomicValue::Integer(i) => i.to_string(),
+    // Numeric subtypes fallback to their numeric representation
+    XdmAtomicValue::Long(i) => i.to_string(),
+    XdmAtomicValue::Int(i) => i.to_string(),
+    XdmAtomicValue::Short(i) => i.to_string(),
+    XdmAtomicValue::Byte(i) => i.to_string(),
+    XdmAtomicValue::UnsignedLong(i) => i.to_string(),
+    XdmAtomicValue::UnsignedInt(i) => i.to_string(),
+    XdmAtomicValue::UnsignedShort(i) => i.to_string(),
+    XdmAtomicValue::UnsignedByte(i) => i.to_string(),
+    XdmAtomicValue::NonPositiveInteger(i) => i.to_string(),
+    XdmAtomicValue::NegativeInteger(i) => i.to_string(),
+    XdmAtomicValue::NonNegativeInteger(i) => i.to_string(),
+    XdmAtomicValue::PositiveInteger(i) => i.to_string(),
         XdmAtomicValue::Double(d) => d.to_string(),
         XdmAtomicValue::Float(f) => f.to_string(),
         XdmAtomicValue::Decimal(d) => d.to_string(),
@@ -839,6 +852,25 @@ fn as_string(a: &XdmAtomicValue) -> String {
         }
         XdmAtomicValue::YearMonthDuration(months) => format_year_month_duration_local(*months),
         XdmAtomicValue::DayTimeDuration(secs) => format_day_time_duration_local(*secs),
+    // Binary & lexical string-derived types: return stored lexical form
+    XdmAtomicValue::Base64Binary(s)
+    | XdmAtomicValue::HexBinary(s)
+    | XdmAtomicValue::NormalizedString(s)
+    | XdmAtomicValue::Token(s)
+    | XdmAtomicValue::Language(s)
+    | XdmAtomicValue::Name(s)
+    | XdmAtomicValue::NCName(s)
+    | XdmAtomicValue::NMTOKEN(s)
+    | XdmAtomicValue::Id(s)
+    | XdmAtomicValue::IdRef(s)
+    | XdmAtomicValue::Entity(s)
+    | XdmAtomicValue::Notation(s) => s.clone(),
+    // g* date fragments: simple ISO-ish formatting
+    XdmAtomicValue::GYear { year, tz } => format!("{:04}{}", year, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()),
+    XdmAtomicValue::GYearMonth { year, month, tz } => format!("{:04}-{:02}{}", year, month, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()),
+    XdmAtomicValue::GMonth { month, tz } => format!("--{:02}{}", month, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()),
+    XdmAtomicValue::GMonthDay { month, day, tz } => format!("--{:02}-{:02}{}", month, day, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()),
+    XdmAtomicValue::GDay { day, tz } => format!("---{:02}{}", day, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()),
     }
 }
 
@@ -861,6 +893,18 @@ fn to_number<N: crate::model::XdmNode>(seq: &XdmSequence<N>) -> Result<f64, Erro
 fn to_number_atomic(a: &XdmAtomicValue) -> Result<f64, Error> {
     match a {
         XdmAtomicValue::Integer(i) => Ok(*i as f64),
+    XdmAtomicValue::Long(i) => Ok(*i as f64),
+    XdmAtomicValue::Int(i) => Ok(*i as f64),
+    XdmAtomicValue::Short(i) => Ok(*i as f64),
+    XdmAtomicValue::Byte(i) => Ok(*i as f64),
+    XdmAtomicValue::UnsignedLong(i) => Ok(*i as f64),
+    XdmAtomicValue::UnsignedInt(i) => Ok(*i as f64),
+    XdmAtomicValue::UnsignedShort(i) => Ok(*i as f64),
+    XdmAtomicValue::UnsignedByte(i) => Ok(*i as f64),
+    XdmAtomicValue::NonPositiveInteger(i) => Ok(*i as f64),
+    XdmAtomicValue::NegativeInteger(i) => Ok(*i as f64),
+    XdmAtomicValue::NonNegativeInteger(i) => Ok(*i as f64),
+    XdmAtomicValue::PositiveInteger(i) => Ok(*i as f64),
         XdmAtomicValue::Double(d) => Ok(*d),
         XdmAtomicValue::Float(f) => Ok(*f as f64),
         XdmAtomicValue::Decimal(d) => Ok(*d),
@@ -870,18 +914,29 @@ fn to_number_atomic(a: &XdmAtomicValue) -> Result<f64, Error> {
             .parse::<f64>()
             .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid number")),
         XdmAtomicValue::Boolean(b) => Ok(if *b { 1.0 } else { 0.0 }),
-        XdmAtomicValue::QName { .. } => Err(Error::dynamic_err(
-            "err:XPTY0004",
-            "cannot cast QName to number",
-        )),
-        XdmAtomicValue::DateTime(_)
-        | XdmAtomicValue::Date { .. }
-        | XdmAtomicValue::Time { .. }
-        | XdmAtomicValue::YearMonthDuration(_)
-        | XdmAtomicValue::DayTimeDuration(_) => Err(Error::dynamic_err(
-            "err:XPTY0004",
-            "cannot cast temporal/duration to number",
-        )),
+    XdmAtomicValue::QName { .. } => Err(Error::dynamic_err("err:XPTY0004", "cannot cast QName to number")),
+    XdmAtomicValue::DateTime(_)
+    | XdmAtomicValue::Date { .. }
+    | XdmAtomicValue::Time { .. }
+    | XdmAtomicValue::YearMonthDuration(_)
+    | XdmAtomicValue::DayTimeDuration(_)
+    | XdmAtomicValue::Base64Binary(_)
+    | XdmAtomicValue::HexBinary(_)
+    | XdmAtomicValue::GYear { .. }
+    | XdmAtomicValue::GYearMonth { .. }
+    | XdmAtomicValue::GMonth { .. }
+    | XdmAtomicValue::GMonthDay { .. }
+    | XdmAtomicValue::GDay { .. }
+    | XdmAtomicValue::NormalizedString(_)
+    | XdmAtomicValue::Token(_)
+    | XdmAtomicValue::Language(_)
+    | XdmAtomicValue::Name(_)
+    | XdmAtomicValue::NCName(_)
+    | XdmAtomicValue::NMTOKEN(_)
+    | XdmAtomicValue::Id(_)
+    | XdmAtomicValue::IdRef(_)
+    | XdmAtomicValue::Entity(_)
+    | XdmAtomicValue::Notation(_) => Err(Error::dynamic_err("err:XPTY0004", "cannot cast value to number")),
     }
 }
 

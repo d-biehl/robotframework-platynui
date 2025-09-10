@@ -1,10 +1,11 @@
 use platynui_xpath::parser::{ast, parse_xpath};
+use rstest::rstest;
 
 fn parse(expr: &str) -> ast::Expr {
     parse_xpath(expr).expect("parse failed")
 }
 
-#[test]
+#[rstest]
 fn schema_element_and_attribute() {
     match parse("schema-element(a)") {
         ast::Expr::Path(p) => match &p.steps[0].test {
@@ -22,7 +23,7 @@ fn schema_element_and_attribute() {
     }
 }
 
-#[test]
+#[rstest]
 fn document_node_with_schema_element() {
     match parse("document-node(schema-element(a))") {
         ast::Expr::Path(p) => match &p.steps[0].test {

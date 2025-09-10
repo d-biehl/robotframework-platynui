@@ -1,11 +1,11 @@
 use platynui_xpath::parser::{ast, parse_xpath};
-// no rstest here
+use rstest::rstest;
 
 fn parse(expr: &str) -> ast::Expr {
     parse_xpath(expr).expect("parse failed")
 }
 
-#[test]
+#[rstest]
 fn union_vs_intersect_except() {
     // a union b intersect c -> (a union (b intersect c)) due to precedence
     match parse("a union b intersect c") {
@@ -23,7 +23,7 @@ fn union_vs_intersect_except() {
     }
 }
 
-#[test]
+#[rstest]
 fn arithmetic_precedence_shape() {
     // 1 + 2 * 3 should group as (1 + (2 * 3))
     match parse("1 + 2 * 3") {

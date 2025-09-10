@@ -1,10 +1,11 @@
 use platynui_xpath::parser::{ast, parse_xpath};
+use rstest::rstest;
 
 fn parse(expr: &str) -> ast::Expr {
     parse_xpath(expr).expect("parse failed")
 }
 
-#[test]
+#[rstest]
 fn complex_if_then_else_nesting() {
     let src = r#"
 if (fn:count($c) eq 0) then

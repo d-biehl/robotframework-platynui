@@ -135,7 +135,7 @@ pub enum OpCode {
 pub struct InstrSeq(pub Vec<OpCode>);
 
 #[derive(Debug, Clone)]
-pub struct CompiledIR {
+pub struct CompiledXPath {
     pub instrs: InstrSeq,
     pub static_ctx: Arc<StaticContext>,
     pub source: String,

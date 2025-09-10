@@ -27,7 +27,7 @@ fn reserved_names_as_node_tests(#[case] input: &str, #[case] expect: ast::KindTe
     }
 }
 
-#[test]
+#[rstest]
 fn reserved_names_schema_variants() {
     // schema-element/attribute should also parse as node tests
     let q = |local: &str| ast::QName {
@@ -55,7 +55,7 @@ fn reserved_names_schema_variants() {
     }
 }
 
-#[test]
+#[rstest]
 fn pi_with_target_is_node_test() {
     match parse_xpath("processing-instruction('xml-stylesheet')").expect("parse failed") {
         ast::Expr::Path(p) => match &p.steps[0].test {

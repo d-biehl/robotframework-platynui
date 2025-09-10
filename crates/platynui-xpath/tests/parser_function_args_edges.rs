@@ -1,10 +1,11 @@
 use platynui_xpath::parser::{ast, parse_xpath};
+use rstest::rstest;
 
 fn parse(expr: &str) -> ast::Expr {
     parse_xpath(expr).expect("parse failed")
 }
 
-#[test]
+#[rstest]
 fn nested_function_in_args() {
     match parse("foo(bar(1), baz())") {
         ast::Expr::FunctionCall { args, .. } => {
@@ -16,7 +17,7 @@ fn nested_function_in_args() {
     }
 }
 
-#[test]
+#[rstest]
 fn sequence_as_argument() {
     match parse("foo((1,2,3))") {
         ast::Expr::FunctionCall { args, .. } => {
@@ -26,7 +27,7 @@ fn sequence_as_argument() {
     }
 }
 
-#[test]
+#[rstest]
 fn if_expr_in_arguments() {
     match parse("f(if (1) then 2 else 3)") {
         ast::Expr::FunctionCall { args, .. } => {
@@ -36,7 +37,7 @@ fn if_expr_in_arguments() {
     }
 }
 
-#[test]
+#[rstest]
 fn complex_path_and_comparison_in_arguments() {
     // nested path with predicates and comparison
     match parse("f(//a/b[@id = 3 and position() lt 10])") {
@@ -47,7 +48,7 @@ fn complex_path_and_comparison_in_arguments() {
     }
 }
 
-#[test]
+#[rstest]
 fn multi_level_nested_calls_and_sequences() {
     match parse("g(h(i(1), (2, j(3))), k(l(m(4)), 5))") {
         ast::Expr::FunctionCall { args, .. } => {

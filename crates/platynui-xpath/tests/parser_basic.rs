@@ -1,10 +1,11 @@
 use platynui_xpath::parser::{ast, parse_xpath};
+use rstest::rstest;
 
 fn parse(expr: &str) -> ast::Expr {
     parse_xpath(expr).expect("parse failed")
 }
 
-#[test]
+#[rstest]
 fn literal_numbers_strings() {
     assert_eq!(parse("42"), ast::Expr::Literal(ast::Literal::Integer(42)));
     match parse("3.14") {
@@ -25,7 +26,7 @@ fn literal_numbers_strings() {
     );
 }
 
-#[test]
+#[rstest]
 fn arithmetic_and_logic() {
     let e = parse("1 + 2 * 3");
     // Expect (1 + (2 * 3))
@@ -51,7 +52,7 @@ fn arithmetic_and_logic() {
     }
 }
 
-#[test]
+#[rstest]
 fn comparisons() {
     let e = parse("1 = 1");
     match e {
@@ -65,7 +66,7 @@ fn comparisons() {
     }
 }
 
-#[test]
+#[rstest]
 fn sequences_and_parentheses() {
     let e = parse("(1, 2, 3)");
     match e {
@@ -79,7 +80,7 @@ fn sequences_and_parentheses() {
     }
 }
 
-#[test]
+#[rstest]
 fn variables_and_functions() {
     let e = parse("$x");
     match e {
@@ -96,7 +97,7 @@ fn variables_and_functions() {
     }
 }
 
-#[test]
+#[rstest]
 fn paths_and_predicates() {
     let e = parse("/a/b");
     match e {
@@ -121,7 +122,7 @@ fn paths_and_predicates() {
     }
 }
 
-#[test]
+#[rstest]
 fn kind_tests_and_types() {
     let e = parse(". treat as item()*");
     match e {
@@ -141,7 +142,7 @@ fn kind_tests_and_types() {
     }
 }
 
-#[test]
+#[rstest]
 fn if_some_every_for() {
     let e = parse("if (1) then 2 else 3");
     match e {

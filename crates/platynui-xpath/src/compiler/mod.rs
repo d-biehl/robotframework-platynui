@@ -13,21 +13,21 @@ fn default_static_ctx() -> &'static StaticContext {
 }
 
 /// Compile using a lazily initialized default StaticContext
-pub fn compile_xpath(expr: &str) -> Result<ir::CompiledIR, Error> {
+pub fn compile_xpath(expr: &str) -> Result<ir::CompiledXPath, Error> {
 	compile_inner(expr, default_static_ctx())
 }
 
 /// Compile with an explicitly provided StaticContext
-pub fn compile_xpath_with_context(expr: &str, static_ctx: &StaticContext) -> Result<ir::CompiledIR, Error> {
+pub fn compile_xpath_with_context(expr: &str, static_ctx: &StaticContext) -> Result<ir::CompiledXPath, Error> {
 	compile_inner(expr, static_ctx)
 }
 
 /// Backing implementation shared by all compile entrypoints
-fn compile_inner(expr: &str, static_ctx: &StaticContext) -> Result<ir::CompiledIR, Error> {
+fn compile_inner(expr: &str, static_ctx: &StaticContext) -> Result<ir::CompiledXPath, Error> {
 	let ast = parse_xpath(expr).map_err(|e| Error::static_err("XPST0003", e.to_string()))?;
 	let mut c = Compiler::new(static_ctx, expr);
 	c.lower_expr(&ast)?;
-	Ok(ir::CompiledIR {
+	Ok(ir::CompiledXPath {
 		instrs: ir::InstrSeq(c.code),
 		static_ctx: std::sync::Arc::new(static_ctx.clone()),
 		source: expr.to_string(),
