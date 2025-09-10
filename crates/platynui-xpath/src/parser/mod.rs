@@ -4,7 +4,7 @@ use pest::iterators::Pair;
 pub mod ast;
 
 #[derive(pest_derive::Parser)]
-#[grammar = "xpath2.pest"]
+#[grammar = "parser/xpath2.pest"]
 pub struct XPathParser;
 
 pub fn parse_xpath(input: &str) -> Result<ast::Expr, XPathParseError> {
