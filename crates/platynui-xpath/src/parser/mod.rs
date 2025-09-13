@@ -209,7 +209,7 @@ fn build_literal(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 }
 
 fn unescape_string_literal(pair: Pair<Rule>) -> String {
-    // Descend to dbl_string_inner or sgl_string_inner and read captured text
+    // Prefer inner capture when present; otherwise handle atomic string rules
     let mut node = pair;
     loop {
         let mut it = node.clone().into_inner();
@@ -222,6 +222,22 @@ fn unescape_string_literal(pair: Pair<Rule>) -> String {
     match node.as_rule() {
         Rule::dbl_string_inner => node.as_str().replace("\"\"", "\""),
         Rule::sgl_string_inner => node.as_str().replace("''", "'"),
+        Rule::dbl_string => {
+            let s = node.as_str();
+            if s.len() >= 2 {
+                s[1..s.len() - 1].replace("\"\"", "\"")
+            } else {
+                String::new()
+            }
+        }
+        Rule::sgl_string => {
+            let s = node.as_str();
+            if s.len() >= 2 {
+                s[1..s.len() - 1].replace("''", "'")
+            } else {
+                String::new()
+            }
+        }
         _ => String::new(),
     }
 }

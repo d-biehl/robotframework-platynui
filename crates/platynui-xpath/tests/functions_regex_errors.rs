@@ -1,0 +1,39 @@
+use platynui_xpath::{SimpleNode, evaluate_expr};
+
+fn ctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
+    platynui_xpath::runtime::DynamicContext::default()
+}
+
+#[test]
+fn regex_invalid_flag_forx0001() {
+    let err = evaluate_expr::<SimpleNode>("matches('a','a','q')", &ctx());
+    assert!(err.is_err());
+    let e = format!("{}", err.err().unwrap());
+    assert!(e.contains("FORX0001"), "{e}");
+}
+
+#[test]
+fn backref_in_char_class_forx0002() {
+    let err = evaluate_expr::<SimpleNode>("matches('a', '[$1]')", &ctx());
+    assert!(err.is_err());
+    let e = format!("{}", err.err().unwrap());
+    assert!(e.contains("FORX0002"), "{e}");
+}
+
+#[test]
+fn replace_zero_length_match_forx0003() {
+    // Pattern that can match empty string: ".*?" at start will match zero-length
+    let err = evaluate_expr::<SimpleNode>("replace('abc', '.*?', 'X')", &ctx());
+    assert!(err.is_err());
+    let e = format!("{}", err.err().unwrap());
+    assert!(e.contains("FORX0003"), "{e}");
+}
+
+#[test]
+fn replacement_invalid_group_forx0004() {
+    // $9 invalid if there are fewer groups
+    let err = evaluate_expr::<SimpleNode>("replace('abc', '(a)', '$9')", &ctx());
+    assert!(err.is_err());
+    let e = format!("{}", err.err().unwrap());
+    assert!(e.contains("FORX0004"), "{e}");
+}

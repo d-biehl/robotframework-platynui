@@ -1,4 +1,5 @@
-use platynui_xpath::{SimpleNode, XdmNode, simple_doc, elem, text, attr, ns};
+use platynui_xpath::{SimpleNode, XdmNode, attr, elem, ns, simple_doc, text};
+use rstest::rstest;
 
 fn cmp(a: &SimpleNode, b: &SimpleNode) -> &'static str {
     match a.compare_document_order(b) {
@@ -9,11 +10,11 @@ fn cmp(a: &SimpleNode, b: &SimpleNode) -> &'static str {
     }
 }
 
-#[test]
+#[rstest]
 fn ordering_attributes_before_children() {
     let root = elem("root")
-        .attr(attr("id","1"))
-        .attr(attr("b","x"))
+        .attr(attr("id", "1"))
+        .attr(attr("b", "x"))
         .child(elem("a"))
         .child(elem("b"))
         .build();
@@ -24,25 +25,23 @@ fn ordering_attributes_before_children() {
     assert_eq!(cmp(&kids[0], &kids[1]), "<");
 }
 
-#[test]
+#[rstest]
 fn ordering_ancestor_before_descendant() {
-    let tree = elem("r")
-        .child(elem("a").child(elem("b")))
-        .build();
+    let tree = elem("r").child(elem("a").child(elem("b"))).build();
     let a = tree.children()[0].clone();
     let b = a.children()[0].clone();
     assert_eq!(cmp(&tree, &a), "<");
     assert_eq!(cmp(&a, &b), "<");
 }
 
-#[test]
+#[rstest]
 fn namespaces_nested_lookup() {
     let t = elem("root")
-        .namespace(ns("p","urn:one"))
+        .namespace(ns("p", "urn:one"))
         .child(
             elem("mid")
-                .namespace(ns("q","urn:two"))
-                .child(elem("leaf"))
+                .namespace(ns("q", "urn:two"))
+                .child(elem("leaf")),
         )
         .build();
     let mid = t.children()[0].clone();
@@ -53,31 +52,31 @@ fn namespaces_nested_lookup() {
     assert!(leaf.lookup_namespace_uri("zzz").is_none());
 }
 
-#[test]
+#[rstest]
 fn document_builder_example() {
     let doc = simple_doc()
         .child(
             elem("root")
-                .attr(attr("id","r"))
+                .attr(attr("id", "r"))
                 .child(text("Hello"))
-                .child(elem("inner").child(text("!")))
+                .child(elem("inner").child(text("!"))),
         )
         .build();
     let root = doc.children()[0].clone();
     assert_eq!(root.string_value(), "Hello!");
 }
 
-#[test]
+#[rstest]
 fn compare_different_roots_error() {
     let a = elem("x").build();
     let b = elem("y").build();
-    assert_eq!(cmp(&a,&b), "!");
+    assert_eq!(cmp(&a, &b), "!");
 }
 
-#[test]
+#[rstest]
 fn build_simple() {
     let n = elem("root")
-        .attr(attr("id","1"))
+        .attr(attr("id", "1"))
         .child(elem("a").child(text("hi")))
         .child(elem("b"))
         .build();
@@ -88,18 +87,21 @@ fn build_simple() {
     assert!(a.compare_document_order(&n.children()[1]).is_ok());
 }
 
-#[test]
+#[rstest]
 fn memoized_string_value_and_ns() {
     let root = simple_doc()
         .child(
             elem("root")
-                .namespace(ns("p","urn:x"))
+                .namespace(ns("p", "urn:x"))
                 .child(elem("a").child(text("hi")))
-                .child(text("!"))
+                .child(text("!")),
         )
         .build();
     let doc_child = root.children()[0].clone();
     assert_eq!(doc_child.string_value(), "hi!");
     assert_eq!(doc_child.string_value(), "hi!");
-    assert_eq!(doc_child.lookup_namespace_uri("p").as_deref(), Some("urn:x"));
+    assert_eq!(
+        doc_child.lookup_namespace_uri("p").as_deref(),
+        Some("urn:x")
+    );
 }

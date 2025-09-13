@@ -28,28 +28,30 @@ pub enum NameOrWildcard {
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeTestIR {
     // name tests
-    AnyKind,                    // node()
-    Name(ExpandedName),         // QName
-    WildcardAny,                // *
-    NsWildcard(String),         // ns:*
-    LocalWildcard(String),      // *:local
+    AnyKind,               // node()
+    Name(ExpandedName),    // QName
+    WildcardAny,           // *
+    NsWildcard(String),    // ns:*
+    LocalWildcard(String), // *:local
 
     // kind tests
-    KindText,                                       // text()
-    KindComment,                                    // comment()
-    KindProcessingInstruction(Option<String>),      // processing-instruction('target'?)
-    KindDocument(Option<Box<NodeTestIR>>),          // document-node(element(...)? | schema-element(...)? | comment() | processing-instruction() | text())
-    KindElement {                                   // element(QName? , Type? , nillable?)
+    KindText,                                  // text()
+    KindComment,                               // comment()
+    KindProcessingInstruction(Option<String>), // processing-instruction('target'?)
+    KindDocument(Option<Box<NodeTestIR>>), // document-node(element(...)? | schema-element(...)? | comment() | processing-instruction() | text())
+    KindElement {
+        // element(QName? , Type? , nillable?)
         name: Option<NameOrWildcard>,
         ty: Option<ExpandedName>,
         nillable: bool,
     },
-    KindAttribute {                                 // attribute(QName? , Type?)
+    KindAttribute {
+        // attribute(QName? , Type?)
         name: Option<NameOrWildcard>,
         ty: Option<ExpandedName>,
     },
-    KindSchemaElement(ExpandedName),                // schema-element(QName)
-    KindSchemaAttribute(ExpandedName),              // schema-attribute(QName)
+    KindSchemaElement(ExpandedName),   // schema-element(QName)
+    KindSchemaAttribute(ExpandedName), // schema-attribute(QName)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -63,8 +65,8 @@ pub enum OpCode {
     ToRoot,
 
     // Stack helpers
-    Dup,    // duplicate TOS
-    Swap,   // swap top two stack items
+    Dup,  // duplicate TOS
+    Swap, // swap top two stack items
 
     // Steps / filters
     AxisStep(AxisIR, NodeTestIR, Vec<InstrSeq>),

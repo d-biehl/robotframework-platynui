@@ -1,0 +1,30 @@
+use platynui_xpath::{
+    evaluator::evaluate_expr, runtime::DynamicContextBuilder, simple_node::SimpleNode,
+};
+use rstest::rstest;
+
+fn ctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
+    DynamicContextBuilder::new().build()
+}
+
+fn eval_bool(expr: &str) -> bool {
+    let c = ctx();
+    let seq = evaluate_expr::<SimpleNode>(expr, &c).unwrap();
+    let v = seq[0].to_string();
+    v == "Boolean(true)"
+}
+
+#[rstest]
+fn deep_equal_nodes_identical() {
+    // Node construction integration not exercised deeply yet; use atomic sequences to
+    // assert ordering significance and equality baseline.
+    assert!(eval_bool("fn:deep-equal(('a','b'),('a','b'))"));
+    // Different ordering differs
+    assert!(!eval_bool("fn:deep-equal(('a','b'),('b','a'))"));
+}
+
+#[rstest]
+fn deep_equal_mixed_node_atomic_difference() {
+    // Spec-conform: numeric 1 and string '1' are NOT deep-equal (no cross-type parse fallback).
+    assert!(!eval_bool("fn:deep-equal((1),('1'))"));
+}

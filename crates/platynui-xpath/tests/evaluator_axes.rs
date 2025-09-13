@@ -1,6 +1,9 @@
-use platynui_xpath::{evaluate_expr, XdmItem as I, SimpleNode, simple_node::{elem, text, attr, doc}, XdmNode};
-use platynui_xpath::runtime::{DynamicContextBuilder, DynamicContext};
-use rstest::{rstest, fixture};
+use platynui_xpath::runtime::{DynamicContext, DynamicContextBuilder};
+use platynui_xpath::{
+    SimpleNode, XdmItem as I, XdmNode, evaluate_expr,
+    simple_node::{attr, doc, elem, text},
+};
+use rstest::{fixture, rstest};
 type N = SimpleNode;
 
 fn build_tree() -> N {
@@ -8,16 +11,13 @@ fn build_tree() -> N {
     let doc_node = doc()
         .child(
             elem("root")
-                .attr(attr("id","r"))
+                .attr(attr("id", "r"))
                 .child(
                     elem("a")
                         .child(elem("b").child(text("one")))
-                        .child(elem("b").child(text("two")))
+                        .child(elem("b").child(text("two"))),
                 )
-                .child(
-                    elem("c")
-                        .child(elem("d").child(text("three")))
-                )
+                .child(elem("c").child(elem("d").child(text("three")))),
         )
         .build();
     let doc_root = doc_node.children()[0].clone();
@@ -63,7 +63,10 @@ fn axis_attribute(ctx: DynamicContext<N>) {
 fn axis_parent(ctx: DynamicContext<N>) {
     let b_node_seq = evaluate_expr::<N>("child::a/child::b[1]", &ctx).unwrap();
     let first_b = b_node_seq[0].clone();
-    let ctx_b = ctx_with(match first_b { I::Node(n)=>n, _=> panic!("expected node") });
+    let ctx_b = ctx_with(match first_b {
+        I::Node(n) => n,
+        _ => panic!("expected node"),
+    });
     let out = evaluate_expr::<N>("parent::a", &ctx_b).unwrap();
     assert_eq!(out.len(), 1);
 }
@@ -78,7 +81,10 @@ fn axis_self(ctx: DynamicContext<N>) {
 fn axis_ancestor(ctx: DynamicContext<N>) {
     // Get a deep node (<d>) then from its context check ancestor::root
     let d_seq = evaluate_expr::<N>("child::c/child::d", &ctx).unwrap();
-    let d_node = match &d_seq[0] { I::Node(n) => n.clone(), _ => panic!("expected node") };
+    let d_node = match &d_seq[0] {
+        I::Node(n) => n.clone(),
+        _ => panic!("expected node"),
+    };
     let ctx_d = ctx_with(d_node);
     let out = evaluate_expr::<N>("ancestor::root", &ctx_d).unwrap();
     assert_eq!(out.len(), 1);
@@ -87,7 +93,10 @@ fn axis_ancestor(ctx: DynamicContext<N>) {
 #[rstest]
 fn axis_ancestor_or_self(ctx: DynamicContext<N>) {
     let a_seq = evaluate_expr::<N>("child::a", &ctx).unwrap();
-    let a_node = match &a_seq[0] { I::Node(n) => n.clone(), _ => panic!("expected node") };
+    let a_node = match &a_seq[0] {
+        I::Node(n) => n.clone(),
+        _ => panic!("expected node"),
+    };
     let ctx_a = ctx_with(a_node);
     let out = evaluate_expr::<N>("ancestor-or-self::a", &ctx_a).unwrap();
     assert_eq!(out.len(), 1);
@@ -97,7 +106,10 @@ fn axis_ancestor_or_self(ctx: DynamicContext<N>) {
 fn axis_following_sibling(ctx: DynamicContext<N>) {
     // From <a>, following-sibling::c should yield one node
     let a_seq = evaluate_expr::<N>("child::a", &ctx).unwrap();
-    let a_node = match &a_seq[0] { I::Node(n) => n.clone(), _ => panic!("expected node") };
+    let a_node = match &a_seq[0] {
+        I::Node(n) => n.clone(),
+        _ => panic!("expected node"),
+    };
     let ctx_a = ctx_with(a_node);
     let out = evaluate_expr::<N>("following-sibling::c", &ctx_a).unwrap();
     assert_eq!(out.len(), 1);
@@ -107,7 +119,10 @@ fn axis_following_sibling(ctx: DynamicContext<N>) {
 fn axis_preceding_sibling(ctx: DynamicContext<N>) {
     // From <c>, preceding-sibling::a should yield one node
     let c_seq = evaluate_expr::<N>("child::c", &ctx).unwrap();
-    let c_node = match &c_seq[0] { I::Node(n) => n.clone(), _ => panic!("expected node") };
+    let c_node = match &c_seq[0] {
+        I::Node(n) => n.clone(),
+        _ => panic!("expected node"),
+    };
     let ctx_c = ctx_with(c_node);
     let out = evaluate_expr::<N>("preceding-sibling::a", &ctx_c).unwrap();
     assert_eq!(out.len(), 1);

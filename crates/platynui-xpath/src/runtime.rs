@@ -1,3 +1,4 @@
+use crate::collation::{CODEPOINT_URI, Collation, CollationRegistry};
 use crate::xdm::{ExpandedName, XdmItem, XdmSequence};
 use core::fmt;
 use std::collections::HashMap;
@@ -16,6 +17,18 @@ pub struct FunctionSignature {
     pub arity: Arity,
 }
 
+/// Error type returned by function resolution.
+#[derive(Debug, Clone)]
+pub enum ResolveError {
+    /// No function with the (possibly default-namespace resolved) name exists.
+    Unknown(ExpandedName),
+    /// Function exists, but not for the requested arity. Provides known arities.
+    WrongArity {
+        name: ExpandedName,
+        available: Vec<Arity>,
+    },
+}
+
 // Context passed into function implementations (M6)
 pub struct CallCtx<'a, N> {
     pub dyn_ctx: &'a DynamicContext<N>,
@@ -30,7 +43,12 @@ pub type FunctionImpl<N> =
     Arc<dyn Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error> + Send + Sync>;
 
 pub struct FunctionRegistry<N> {
-    fns: HashMap<FunctionKey, FunctionImpl<N>>,
+    // Range-based registrations keyed by name; each entry holds one or more
+    // (min_arity, max_arity, impl) tuples. A call matches when argc >= min_arity
+    // and (max_arity is None or argc <= max_arity). Variadic functions are
+    // represented with max_arity = None. Exact-arity functions are stored with
+    // min_arity == max_arity == arity.
+    fns: HashMap<ExpandedName, Vec<(Arity, Option<Arity>, FunctionImpl<N>)>>,
 }
 
 impl<N> Default for FunctionRegistry<N> {
@@ -47,127 +65,245 @@ impl<N> FunctionRegistry<N> {
     }
 
     pub fn register(&mut self, name: ExpandedName, arity: Arity, func: FunctionImpl<N>) {
-        let key = FunctionKey { name, arity };
-        self.fns.insert(key, func);
+        // Exact arity becomes a bounded range [arity, arity]
+        self.register_range(name, arity, Some(arity), func);
     }
 
-    pub fn get(&self, name: &ExpandedName, arity: Arity) -> Option<&FunctionImpl<N>> {
-        let key = FunctionKey {
-            name: name.clone(),
-            arity,
+    /// Convenience: register a function by ExpandedName with a plain closure.
+    /// This wraps the closure into the required Arc and stores it.
+    pub fn register_fn<F>(&mut self, name: ExpandedName, arity: Arity, f: F)
+    where
+        F: 'static
+            + Send
+            + Sync
+            + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
+    {
+        self.register(name, arity, Arc::new(f));
+    }
+
+    /// Convenience: register a function in a namespace using ns URI and local name.
+    pub fn register_ns<F>(&mut self, ns_uri: &str, local: &str, arity: Arity, f: F)
+    where
+        F: 'static
+            + Send
+            + Sync
+            + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
+    {
+        let name = ExpandedName {
+            ns_uri: Some(ns_uri.to_string()),
+            local: local.to_string(),
         };
-        self.fns.get(&key)
+        self.register_fn(name, arity, f);
     }
-}
 
-pub trait Collation: Send + Sync {
-    fn uri(&self) -> &str;
-    fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering;
-    // Normalization/key: used for equality/substring semantics (contains/starts/ends)
-    fn key(&self, s: &str) -> String {
-        // Default: identity (codepoint)
-        s.to_string()
+    /// Register a function by ExpandedName with an arity range.
+    /// If `max_arity` is None, the function is variadic starting at `min_arity`.
+    /// Overlapping ranges are allowed; the resolver will pick the most specific
+    /// (highest min, then smallest max) that matches the requested arity.
+    pub fn register_range(
+        &mut self,
+        name: ExpandedName,
+        min_arity: Arity,
+        max_arity: Option<Arity>,
+        func: FunctionImpl<N>,
+    ) {
+        use std::collections::hash_map::Entry;
+        match self.fns.entry(name) {
+            Entry::Vacant(e) => {
+                let mut v = vec![(min_arity, max_arity, func)];
+                // ensure deterministic order even for single insert
+                v.sort_by(|a, b| {
+                    let min_ord = b.0.cmp(&a.0);
+                    if min_ord != core::cmp::Ordering::Equal {
+                        return min_ord;
+                    }
+                    match (&a.1, &b.1) {
+                        (Some(amax), Some(bmax)) => amax.cmp(bmax),
+                        (Some(_), None) => core::cmp::Ordering::Less,
+                        (None, Some(_)) => core::cmp::Ordering::Greater,
+                        (None, None) => core::cmp::Ordering::Equal,
+                    }
+                });
+                e.insert(v);
+            }
+            Entry::Occupied(mut e) => {
+                e.get_mut().push((min_arity, max_arity, func));
+                // Keep deterministic order so the most specific wins if overlapping:
+                // - higher min first
+                // - for equal mins, smaller max first (None treated as infinity, thus last)
+                e.get_mut().sort_by(|a, b| {
+                    let min_ord = b.0.cmp(&a.0);
+                    if min_ord != core::cmp::Ordering::Equal {
+                        return min_ord;
+                    }
+                    match (&a.1, &b.1) {
+                        (Some(amax), Some(bmax)) => amax.cmp(bmax),
+                        (Some(_), None) => core::cmp::Ordering::Less,
+                        (None, Some(_)) => core::cmp::Ordering::Greater,
+                        (None, None) => core::cmp::Ordering::Equal,
+                    }
+                });
+            }
+        }
     }
-}
 
-pub struct CodepointCollation;
+    /// Register a variadic function by ExpandedName with a minimum arity.
+    /// The function will be selected for any call with argc >= min_arity.
+    pub fn register_variadic(
+        &mut self,
+        name: ExpandedName,
+        min_arity: Arity,
+        func: FunctionImpl<N>,
+    ) {
+        self.register_range(name, min_arity, None, func);
+    }
 
-impl Collation for CodepointCollation {
-    fn uri(&self) -> &str {
-        "http://www.w3.org/2005/xpath-functions/collation/codepoint"
-    }
-    fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
-        a.cmp(b)
-    }
-}
-
-// Simple case-insensitive collation
-pub struct SimpleCaseCollation;
-
-impl Collation for SimpleCaseCollation {
-    fn uri(&self) -> &str {
-        "urn:platynui:collation:simple-case"
-    }
-    fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
-        self.key(a).cmp(&self.key(b))
-    }
-    fn key(&self, s: &str) -> String {
-        s.to_lowercase()
-    }
-}
-
-// Simple accent-insensitive collation (NFD + remove combining marks)
-pub struct SimpleAccentCollation;
-
-impl Collation for SimpleAccentCollation {
-    fn uri(&self) -> &str {
-        "urn:platynui:collation:simple-accent"
-    }
-    fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
-        self.key(a).cmp(&self.key(b))
-    }
-    fn key(&self, s: &str) -> String {
-        use unicode_normalization::UnicodeNormalization;
-        use unicode_normalization::char::canonical_combining_class as ccc;
-        s.nfd().filter(|&ch| ccc(ch) == 0).collect()
-    }
-}
-
-// Simple case+accent-insensitive collation
-pub struct SimpleCaseAccentCollation;
-
-impl Collation for SimpleCaseAccentCollation {
-    fn uri(&self) -> &str {
-        "urn:platynui:collation:simple-case-accent"
-    }
-    fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
-        self.key(a).cmp(&self.key(b))
-    }
-    fn key(&self, s: &str) -> String {
-        use unicode_normalization::UnicodeNormalization;
-        use unicode_normalization::char::canonical_combining_class as ccc;
-        let no_marks: String = s.nfd().filter(|&ch| ccc(ch) == 0).collect();
-        no_marks.to_lowercase()
-    }
-}
-
-pub struct CollationRegistry {
-    by_uri: HashMap<String, Arc<dyn Collation>>,
-}
-
-impl Default for CollationRegistry {
-    fn default() -> Self {
-        let mut reg = Self {
-            by_uri: HashMap::new(),
+    /// Convenience: register a variadic function in a namespace.
+    pub fn register_ns_variadic<F>(&mut self, ns_uri: &str, local: &str, min_arity: Arity, f: F)
+    where
+        F: 'static
+            + Send
+            + Sync
+            + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
+    {
+        let name = ExpandedName {
+            ns_uri: Some(ns_uri.to_string()),
+            local: local.to_string(),
         };
-        let def: Arc<dyn Collation> = Arc::new(CodepointCollation);
-        reg.by_uri.insert(def.uri().to_string(), def);
-        // Built-in simple collations (M7)
-        reg.by_uri.insert(
-            "urn:platynui:collation:simple-case".to_string(),
-            Arc::new(SimpleCaseCollation),
-        );
-        reg.by_uri.insert(
-            "urn:platynui:collation:simple-accent".to_string(),
-            Arc::new(SimpleAccentCollation),
-        );
-        reg.by_uri.insert(
-            "urn:platynui:collation:simple-case-accent".to_string(),
-            Arc::new(SimpleCaseAccentCollation),
-        );
-        reg
+        self.register_variadic(name, min_arity, Arc::new(f));
     }
-}
 
-impl CollationRegistry {
-    pub fn new() -> Self {
-        Self::default()
+    /// Convenience: register a variadic function without a namespace.
+    pub fn register_local_variadic<F>(&mut self, local: &str, min_arity: Arity, f: F)
+    where
+        F: 'static
+            + Send
+            + Sync
+            + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
+    {
+        let name = ExpandedName {
+            ns_uri: None,
+            local: local.to_string(),
+        };
+        self.register_variadic(name, min_arity, Arc::new(f));
     }
-    pub fn get(&self, uri: &str) -> Option<Arc<dyn Collation>> {
-        self.by_uri.get(uri).cloned()
+
+    /// Convenience: register a function in a namespace with an arity range.
+    pub fn register_ns_range<F>(
+        &mut self,
+        ns_uri: &str,
+        local: &str,
+        min_arity: Arity,
+        max_arity: Option<Arity>,
+        f: F,
+    ) where
+        F: 'static
+            + Send
+            + Sync
+            + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
+    {
+        let name = ExpandedName {
+            ns_uri: Some(ns_uri.to_string()),
+            local: local.to_string(),
+        };
+        self.register_range(name, min_arity, max_arity, Arc::new(f));
     }
-    pub fn insert(&mut self, collation: Arc<dyn Collation>) {
-        self.by_uri.insert(collation.uri().to_string(), collation);
+
+    /// Convenience: register a function without a namespace with an arity range.
+    pub fn register_local_range<F>(
+        &mut self,
+        local: &str,
+        min_arity: Arity,
+        max_arity: Option<Arity>,
+        f: F,
+    ) where
+        F: 'static
+            + Send
+            + Sync
+            + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
+    {
+        let name = ExpandedName {
+            ns_uri: None,
+            local: local.to_string(),
+        };
+        self.register_range(name, min_arity, max_arity, Arc::new(f));
+    }
+
+    /// Convenience: register a function without a namespace.
+    pub fn register_local<F>(&mut self, local: &str, arity: Arity, f: F)
+    where
+        F: 'static
+            + Send
+            + Sync
+            + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
+    {
+        let name = ExpandedName {
+            ns_uri: None,
+            local: local.to_string(),
+        };
+        self.register_fn(name, arity, f);
+    }
+
+    // Removed: get_exact helper. Exact-arity matching is handled inline in `resolve`.
+
+    // Note: Previous Option-returning resolver was removed; use `resolve` for
+    // both lookup and diagnostics (it returns Ok(func) when found, otherwise
+    // returns a typed ResolveError to distinguish unknown from wrong-arity).
+
+    /// Resolve a function by name/arity with optional default function namespace fallback.
+    /// On success returns the function implementation; otherwise returns a typed
+    /// error describing whether the function is unknown or known with different arities.
+    pub fn resolve(
+        &self,
+        name: &ExpandedName,
+        arity: Arity,
+        default_ns: Option<&str>,
+    ) -> Result<&FunctionImpl<N>, ResolveError> {
+        // Determine the effective name reference for search/diagnostics.
+        // Only allocate when default function namespace needs to be applied.
+        let effective_buf: Option<ExpandedName> = if name.ns_uri.is_none() {
+            default_ns.map(|ns| ExpandedName {
+                ns_uri: Some(ns.to_string()),
+                local: name.local.clone(),
+            })
+        } else {
+            None
+        };
+        let effective: &ExpandedName = effective_buf.as_ref().unwrap_or(name);
+        // First, support the legacy behavior: attempt an exact-arity match on the provided name
+        // (useful for locally-registered, no-namespace functions) before applying default NS.
+        if let Some(cands) = self.fns.get(name) {
+            if let Some((_, _, f)) = cands
+                .iter()
+                .find(|(min, max, _)| *min == arity && matches!(max, Some(m) if *m == arity))
+            {
+                return Ok(f);
+            }
+        }
+        // Single map access for both range resolution and diagnostics
+        if let Some(cands) = self.fns.get(effective) {
+            if let Some((_, _, f)) = cands
+                .iter()
+                .find(|(min, max, _)| arity >= *min && max.map_or(true, |m| arity <= m))
+            {
+                return Ok(f);
+            }
+            // Known function name but wrong arity: collect bounded arities for message
+            let mut arities: Vec<Arity> = vec![];
+            for (min, max, _) in cands.iter() {
+                if let Some(m) = max {
+                    arities.extend(*min..=*m);
+                }
+            }
+            arities.sort_unstable();
+            arities.dedup();
+            return Err(ResolveError::WrongArity {
+                name: effective.clone(),
+                available: arities,
+            });
+        }
+        // No registration under effective name at all
+        Err(ResolveError::Unknown(effective.clone()))
     }
 }
 
@@ -192,36 +328,47 @@ pub trait RegexProvider: Send + Sync {
     fn tokenize(&self, pattern: &str, flags: &str, text: &str) -> Result<Vec<String>, Error>;
 }
 
-pub struct RustRegexProvider;
+/// Backreference-capable regex provider based on fancy-regex (backtracking engine).
+pub struct FancyRegexProvider;
 
-impl RustRegexProvider {
-    fn build_with_flags(pattern: &str, flags: &str) -> Result<regex::Regex, Error> {
-        let mut builder = regex::RegexBuilder::new(pattern);
+impl FancyRegexProvider {
+    fn build_with_flags(pattern: &str, flags: &str) -> Result<fancy_regex::Regex, Error> {
+        // Use RegexBuilder to configure flags instead of injecting inline flags.
+        let mut builder = fancy_regex::RegexBuilder::new(pattern);
         for ch in flags.chars() {
             match ch {
-                'i' => builder.case_insensitive(true),
-                'm' => builder.multi_line(true),
-                's' => builder.dot_matches_new_line(true),
-                'x' => builder.ignore_whitespace(true),
-                // Unsupported flags → FORX0002
+                'i' => {
+                    builder.case_insensitive(true);
+                }
+                'm' => {
+                    builder.multi_line(true);
+                }
+                's' => {
+                    builder.dot_matches_new_line(true);
+                }
+                'x' => {
+                    builder.verbose_mode(true);
+                }
                 _ => {
-                    return Err(Error::dynamic_err(
-                        "err:FORX0002",
+                    // validate_regex_flags should have rejected already, but keep a guard
+                    return Err(Error::dynamic(
+                        ErrorCode::FORX0001,
                         format!("unsupported regex flag: {}", ch),
                     ));
                 }
-            };
+            }
         }
         builder
             .build()
-            .map_err(|_| Error::dynamic_err("err:FORX0002", "invalid regex pattern"))
+            .map_err(|_| Error::dynamic(ErrorCode::FORX0002, "invalid regex pattern"))
     }
 }
 
-impl RegexProvider for RustRegexProvider {
+impl RegexProvider for FancyRegexProvider {
     fn matches(&self, pattern: &str, flags: &str, text: &str) -> Result<bool, Error> {
         let re = Self::build_with_flags(pattern, flags)?;
-        Ok(re.is_match(text))
+        re.is_match(text)
+            .map_err(|_| Error::dynamic(ErrorCode::FORX0002, "regex evaluation error"))
     }
     fn replace(
         &self,
@@ -231,14 +378,130 @@ impl RegexProvider for RustRegexProvider {
         replacement: &str,
     ) -> Result<String, Error> {
         let re = Self::build_with_flags(pattern, flags)?;
-        Ok(re.replace_all(text, replacement).into_owned())
+        // Pre-validate replacement template using fancy_regex::Expander to catch invalid references
+        // and then enforce XPath-specific rule that $0 is invalid.
+        if let Err(_e) = fancy_regex::Expander::default().check(replacement, &re) {
+            // Map any template validation errors to FORX0004
+            return Err(Error::dynamic(
+                ErrorCode::FORX0004,
+                "invalid replacement string",
+            ));
+        }
+        // Explicitly reject $0 (group zero) as per XPath 2.0 rules.
+        {
+            let bytes = replacement.as_bytes();
+            let mut i = 0;
+            while i < bytes.len() {
+                if bytes[i] == b'$' {
+                    if i + 1 >= bytes.len() {
+                        // dangling $ at end of replacement
+                        return Err(Error::dynamic(
+                            ErrorCode::FORX0004,
+                            "dangling $ at end of replacement",
+                        ));
+                    }
+                    match bytes[i + 1] {
+                        b'$' => {
+                            // literal $
+                            i += 2;
+                            continue;
+                        }
+                        b'{' => {
+                            // ${name}
+                            let mut j = i + 2;
+                            while j < bytes.len() && bytes[j] != b'}' {
+                                j += 1;
+                            }
+                            if j >= bytes.len() {
+                                // unmatched '{' -> let Expander::check have caught this; keep FORX0004
+                                return Err(Error::dynamic(
+                                    ErrorCode::FORX0004,
+                                    "invalid replacement string",
+                                ));
+                            }
+                            let name = &replacement[(i + 2)..j];
+                            if name == "0" {
+                                return Err(Error::dynamic(
+                                    ErrorCode::FORX0004,
+                                    "invalid group $0",
+                                ));
+                            }
+                            i = j + 1;
+                            continue;
+                        }
+                        d if (d as char).is_ascii_digit() => {
+                            // $n... : reject if the parsed number is 0 (i.e., exactly "$0")
+                            if d == b'0' {
+                                // "$0" (followed by non-digit or end) denotes group 0 which is invalid in XPath
+                                // If there are more digits, this is "$0<d>" which is not a valid number in our syntax
+                                // but Expander::check would have rejected invalid groups already; conservatively error here.
+                                return Err(Error::dynamic(
+                                    ErrorCode::FORX0004,
+                                    "invalid group $0",
+                                ));
+                            }
+                            // advance past the digits (Expander will handle actual expansion later)
+                            let mut j = i + 2;
+                            while j < bytes.len() && (bytes[j] as char).is_ascii_digit() {
+                                j += 1;
+                            }
+                            i = j;
+                            continue;
+                        }
+                        _ => {
+                            // Unsupported $-escape
+                            return Err(Error::dynamic(
+                                ErrorCode::FORX0004,
+                                "invalid $-escape in replacement",
+                            ));
+                        }
+                    }
+                }
+                // normal byte
+                i += 1;
+            }
+        }
+        // Run replacement by iterating matches to detect zero-length matches and to expand via Expander
+        let mut out = String::new();
+        let mut last = 0;
+        for mc in re.captures_iter(text) {
+            let cap =
+                mc.map_err(|_| Error::dynamic(ErrorCode::FORX0002, "regex evaluation error"))?;
+            let m = cap
+                .get(0)
+                .ok_or_else(|| Error::dynamic(ErrorCode::FORX0002, "no overall match"))?;
+            // Append text before match
+            out.push_str(&text[last..m.start()]);
+            // Append expanded replacement using fancy-regex Expander (default $-syntax)
+            fancy_regex::Expander::default().append_expansion(&mut out, replacement, &cap);
+            last = m.end();
+            if m.start() == m.end() {
+                // zero-length match – per XPath 2.0 fn:replace this is an error (FORX0003)
+                return Err(Error::dynamic(
+                    ErrorCode::FORX0003,
+                    "pattern matches zero-length in replace",
+                ));
+            }
+        }
+        out.push_str(&text[last..]);
+        Ok(out)
     }
     fn tokenize(&self, pattern: &str, flags: &str, text: &str) -> Result<Vec<String>, Error> {
         let re = Self::build_with_flags(pattern, flags)?;
-        Ok(re
-            .split(text)
-            .map(|s| s.to_string())
-            .collect::<Vec<String>>())
+        // Use split iterator which already takes care of zero-length matches reasonably.
+        let mut tokens = Vec::new();
+        for part in re.split(text) {
+            match part {
+                Ok(s) => tokens.push(s.to_string()),
+                Err(_e) => {
+                    return Err(Error::dynamic(
+                        ErrorCode::FORX0002,
+                        "regex evaluation error",
+                    ));
+                }
+            }
+        }
+        Ok(tokens)
     }
 }
 
@@ -254,13 +517,23 @@ pub enum ErrorKind {
 pub enum ErrorCode {
     // Arithmetic
     FOAR0001, // divide by zero
+    FOAR0002, // numeric overflow (currently rarely emitted; placeholder for strict mode)
+    // Generic error (used by fn:error default and some adapters)
+    FOER0000,
     // General function / argument errors
     FORG0001, // invalid lexical form / casting failure
     FORG0006, // requires single item
+    FORG0004, // zero-or-one violated
+    FORG0005, // exactly-one violated
+    FOCA0001, // invalid value for cast / out-of-range
     FOCH0002, // collation does not exist
-    FORX0002, // regex invalid or unsupported flag
+    FORX0001, // regex flags invalid
+    FORX0002, // regex invalid pattern / bad backref
+    FORX0003, // fn:replace zero-length match error
+    FORX0004, // invalid replacement string
     XPTY0004, // type error (e.g. cast of multi-item sequence)
     XPST0003, // static type error (empty not allowed etc.)
+    XPST0017, // unknown function
     NYI0000,  // project specific: not yet implemented
     // Fallback / unknown (kept last)
     Unknown,
@@ -273,28 +546,52 @@ pub enum ErrorCode {
 /// - Use `Error::code_enum()` for structured handling instead of matching raw strings.
 
 impl ErrorCode {
-    pub fn as_str(&self) -> &'static str { use ErrorCode::*; match self {
-        FOAR0001=>"err:FOAR0001",
-        FORG0001=>"err:FORG0001",
-        FORG0006=>"err:FORG0006",
-        FOCH0002=>"err:FOCH0002",
-        FORX0002=>"err:FORX0002",
-        XPTY0004=>"err:XPTY0004",
-        XPST0003=>"err:XPST0003",
-        NYI0000=>"err:NYI0000",
-        Unknown=>"err:UNKNOWN",
-    }}
-    pub fn from_code(s: &str) -> Self { use ErrorCode::*; match s {
-        "err:FOAR0001"=>FOAR0001,
-        "err:FORG0001"=>FORG0001,
-        "err:FORG0006"=>FORG0006,
-        "err:FOCH0002"=>FOCH0002,
-        "err:FORX0002"=>FORX0002,
-        "err:XPTY0004"=>XPTY0004,
-        "err:XPST0003"=>XPST0003,
-        "err:NYI0000"=>NYI0000,
-        _=>Unknown,
-    }}
+    pub fn as_str(&self) -> &'static str {
+        use ErrorCode::*;
+        match self {
+            FOAR0001 => "err:FOAR0001",
+            FOAR0002 => "err:FOAR0002",
+            FOER0000 => "err:FOER0000",
+            FORG0001 => "err:FORG0001",
+            FORG0006 => "err:FORG0006",
+            FORG0004 => "err:FORG0004",
+            FORG0005 => "err:FORG0005",
+            FOCA0001 => "err:FOCA0001",
+            FOCH0002 => "err:FOCH0002",
+            FORX0001 => "err:FORX0001",
+            FORX0002 => "err:FORX0002",
+            FORX0003 => "err:FORX0003",
+            FORX0004 => "err:FORX0004",
+            XPTY0004 => "err:XPTY0004",
+            XPST0003 => "err:XPST0003",
+            XPST0017 => "err:XPST0017",
+            NYI0000 => "err:NYI0000",
+            Unknown => "err:UNKNOWN",
+        }
+    }
+    pub fn from_code(s: &str) -> Self {
+        use ErrorCode::*;
+        match s {
+            "err:FOAR0001" => FOAR0001,
+            "err:FOAR0002" => FOAR0002,
+            "err:FOER0000" => FOER0000,
+            "err:FORG0001" => FORG0001,
+            "err:FORG0006" => FORG0006,
+            "err:FORG0004" => FORG0004,
+            "err:FORG0005" => FORG0005,
+            "err:FOCA0001" => FOCA0001,
+            "err:FOCH0002" => FOCH0002,
+            "err:FORX0001" => FORX0001,
+            "err:FORX0002" => FORX0002,
+            "err:FORX0003" => FORX0003,
+            "err:FORX0004" => FORX0004,
+            "err:XPTY0004" => XPTY0004,
+            "err:XPST0003" => XPST0003,
+            "err:XPST0017" => XPST0017,
+            "err:NYI0000" => NYI0000,
+            _ => Unknown,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -305,10 +602,36 @@ pub struct Error {
 }
 
 impl Error {
-    pub fn static_err(code: &str, msg: impl Into<String>) -> Self { Self { kind: ErrorKind::Static, code: code.to_string(), message: msg.into() } }
-    pub fn dynamic_err(code: &str, msg: impl Into<String>) -> Self { Self { kind: ErrorKind::Dynamic, code: code.to_string(), message: msg.into() } }
-    pub fn code_enum(&self) -> ErrorCode { ErrorCode::from_code(&self.code) }
-    pub fn not_implemented(feature: &str) -> Self { Self::dynamic_err(ErrorCode::NYI0000.as_str(), format!("not implemented: {}", feature)) }
+    pub fn static_err(code: &str, msg: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::Static,
+            code: code.to_string(),
+            message: msg.into(),
+        }
+    }
+    pub fn dynamic_err(code: &str, msg: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::Dynamic,
+            code: code.to_string(),
+            message: msg.into(),
+        }
+    }
+    pub fn code_enum(&self) -> ErrorCode {
+        ErrorCode::from_code(&self.code)
+    }
+    pub fn not_implemented(feature: &str) -> Self {
+        Self::dynamic_err(
+            ErrorCode::NYI0000.as_str(),
+            format!("not implemented: {}", feature),
+        )
+    }
+    // New helpers using strongly typed ErrorCode
+    pub fn dynamic(code: ErrorCode, msg: impl Into<String>) -> Self {
+        Self::dynamic_err(code.as_str(), msg)
+    }
+    pub fn static_code(code: ErrorCode, msg: impl Into<String>) -> Self {
+        Self::static_err(code.as_str(), msg)
+    }
 }
 
 impl fmt::Display for Error {
@@ -343,14 +666,75 @@ pub struct StaticContext {
 
 impl Default for StaticContext {
     fn default() -> Self {
+        let mut ns = NamespaceBindings::default();
+        // Ensure implicit xml namespace binding (cannot be overridden per spec)
+        ns.by_prefix.insert(
+            "xml".to_string(),
+            "http://www.w3.org/XML/1998/namespace".to_string(),
+        );
         Self {
             base_uri: None,
             default_function_namespace: Some("http://www.w3.org/2005/xpath-functions".to_string()),
-            default_collation: Some(
-                "http://www.w3.org/2005/xpath-functions/collation/codepoint".to_string(),
-            ),
-            namespaces: NamespaceBindings::default(),
+            default_collation: Some(CODEPOINT_URI.to_string()),
+            namespaces: ns,
         }
+    }
+}
+
+/// Builder for `StaticContext` (Task 29 refinement): allows explicit namespace registrations
+/// and default settings while preserving required implicit bindings.
+pub struct StaticContextBuilder {
+    ctx: StaticContext,
+}
+
+impl Default for StaticContextBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StaticContextBuilder {
+    /// Create a new `StaticContextBuilder`.
+    ///
+    /// The resulting `StaticContext` is an immutable snapshot that is embedded into a
+    /// compiled XPath expression at compile time via `compile_xpath_with_context`.
+    /// After compilation, the evaluator only uses the captured copy; providing a different
+    /// `StaticContext` at evaluation time has no effect. This mirrors XPath 2.0's separation
+    /// of static and dynamic context (static parts fixed during static analysis / compilation).
+    pub fn new() -> Self {
+        Self {
+            ctx: StaticContext::default(),
+        }
+    }
+
+    pub fn with_base_uri(mut self, uri: impl Into<String>) -> Self {
+        self.ctx.base_uri = Some(uri.into());
+        self
+    }
+
+    pub fn with_default_function_namespace(mut self, uri: impl Into<String>) -> Self {
+        self.ctx.default_function_namespace = Some(uri.into());
+        self
+    }
+
+    pub fn with_default_collation(mut self, uri: impl Into<String>) -> Self {
+        self.ctx.default_collation = Some(uri.into());
+        self
+    }
+
+    /// Register a namespace prefix → URI mapping. Attempts to override the reserved `xml`
+    /// prefix are ignored to keep spec conformance.
+    pub fn with_namespace(mut self, prefix: impl Into<String>, uri: impl Into<String>) -> Self {
+        let p = prefix.into();
+        if p == "xml" {
+            return self;
+        }
+        self.ctx.namespaces.by_prefix.insert(p, uri.into());
+        self
+    }
+
+    pub fn build(self) -> StaticContext {
+        self.ctx
     }
 }
 

@@ -312,8 +312,10 @@ double_literal  = @{ ((digits ~ "." ~ digits) | ("." ~ digits) | digits) ~ ^"e" 
 
 // String literal with accessible inner content (quotes excluded in inner rules)
 string_literal    = { dbl_string | sgl_string }
-dbl_string        = _{ "\"" ~ dbl_string_inner ~ "\"" }
-sgl_string        = _{ "'"  ~ sgl_string_inner ~ "'" }
+// Make string rules atomic so default WHITESPACE skipping does not remove
+// leading whitespace just after the opening quote.
+dbl_string        = @{ "\"" ~ dbl_string_inner ~ "\"" }
+sgl_string        = @{ "'"  ~ sgl_string_inner ~ "'" }
 dbl_string_inner  = @{ (escape_quot | (!"\"" ~ ANY))* }
 sgl_string_inner  = @{ (escape_apos | (!"'"  ~ ANY))* }
 escape_quot       = { "\"\"" }

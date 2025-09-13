@@ -14,8 +14,10 @@ license.workspace = true
 pest = "2"
 pest_derive = "2"
 unicode-normalization = "0.1"
-regex = "1"
+fancy-regex = "0.16.1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+base64 = "0.22"
 
 [dev-dependencies]
-rstest = "0.18"
+ rstest = "0.18"
+ proptest = "1.4"

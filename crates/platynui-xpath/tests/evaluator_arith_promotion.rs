@@ -1,0 +1,64 @@
+use platynui_xpath::{
+    evaluate_expr,
+    runtime::DynamicContext,
+    xdm::{XdmAtomicValue, XdmItem},
+};
+use rstest::rstest;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DummyNode;
+impl platynui_xpath::model::XdmNode for DummyNode {
+    fn kind(&self) -> platynui_xpath::model::NodeKind {
+        platynui_xpath::model::NodeKind::Document
+    }
+    fn string_value(&self) -> String {
+        String::new()
+    }
+    fn children(&self) -> Vec<Self> {
+        vec![]
+    }
+    fn parent(&self) -> Option<Self> {
+        None
+    }
+    fn attributes(&self) -> Vec<Self> {
+        vec![]
+    }
+    fn compare_document_order(
+        &self,
+        _other: &Self,
+    ) -> Result<std::cmp::Ordering, platynui_xpath::runtime::Error> {
+        Ok(std::cmp::Ordering::Equal)
+    }
+    fn name(&self) -> Option<platynui_xpath::QName> {
+        None
+    }
+}
+
+fn eval(expr: &str) -> XdmAtomicValue {
+    let ctx: DynamicContext<DummyNode> = DynamicContext::default();
+    let seq = evaluate_expr(expr, &ctx).expect("eval");
+    match seq.get(0) {
+        Some(XdmItem::Atomic(a)) => a.clone(),
+        _ => panic!("expected atomic"),
+    }
+}
+
+#[rstest]
+#[case("1 + 2", XdmAtomicValue::Integer(3))]
+#[case("1 + 2.5", XdmAtomicValue::Decimal(3.5.into()))]
+#[case("2.5 + 3.0", XdmAtomicValue::Decimal(5.5.into()))]
+#[case("3.0 + 4.0", XdmAtomicValue::Decimal(7.0.into()))]
+#[case("5.0 div 2", XdmAtomicValue::Decimal(2.5.into()))]
+#[case("5 idiv 2", XdmAtomicValue::Integer(2))]
+#[case("10.0 mod 4", XdmAtomicValue::Decimal(2.0.into()))]
+#[case("1.5 + 1.5", XdmAtomicValue::Decimal(3.0.into()))]
+#[case("1.5 + 1.5 - 1.0", XdmAtomicValue::Decimal(2.0.into()))]
+fn arithmetic_promotion_cases(#[case] expr: &str, #[case] expected: XdmAtomicValue) {
+    let got = eval(expr);
+    match (got, expected) {
+        (XdmAtomicValue::Integer(a), XdmAtomicValue::Integer(b)) => assert_eq!(a, b),
+        (XdmAtomicValue::Decimal(a), XdmAtomicValue::Decimal(b)) => assert!((a - b).abs() < 1e-9),
+        (XdmAtomicValue::Double(a), XdmAtomicValue::Double(b)) => assert!((a - b).abs() < 1e-12),
+        (other, exp) => panic!("type mismatch: got {:?}, expected {:?}", other, exp),
+    }
+}

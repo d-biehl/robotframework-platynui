@@ -16,7 +16,7 @@ fn numeric_literals(#[case] input: &str, #[case] lit: ast::Literal) {
     }
 }
 
-#[test]
+#[rstest]
 fn numeric_unary_minus() {
     match parse("-42") {
         ast::Expr::Unary {

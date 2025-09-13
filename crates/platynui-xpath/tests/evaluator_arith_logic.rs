@@ -1,7 +1,12 @@
-use platynui_xpath::{evaluate_expr, runtime::DynamicContextBuilder, xdm::XdmAtomicValue as A, XdmItem as I, SimpleNode};
+use platynui_xpath::{
+    SimpleNode, XdmItem as I, evaluate_expr, runtime::DynamicContextBuilder,
+    xdm::XdmAtomicValue as A,
+};
 use rstest::rstest;
 type N = SimpleNode;
-fn ctx() -> platynui_xpath::runtime::DynamicContext<N> { DynamicContextBuilder::default().build() }
+fn ctx() -> platynui_xpath::runtime::DynamicContext<N> {
+    DynamicContextBuilder::default().build()
+}
 
 #[rstest]
 #[case("1+2", 3)]
@@ -26,5 +31,12 @@ fn logic_and_or_not(#[case] expr: &str, #[case] expect: bool) {
 #[rstest]
 fn range_to() {
     let out = evaluate_expr::<N>("1 to 3", &ctx()).unwrap();
-    assert_eq!(out, vec![I::Atomic(A::Integer(1)), I::Atomic(A::Integer(2)), I::Atomic(A::Integer(3))]);
+    assert_eq!(
+        out,
+        vec![
+            I::Atomic(A::Integer(1)),
+            I::Atomic(A::Integer(2)),
+            I::Atomic(A::Integer(3))
+        ]
+    );
 }

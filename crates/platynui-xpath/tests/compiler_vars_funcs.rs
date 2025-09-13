@@ -9,7 +9,9 @@ fn ir(src: &str) -> InstrSeq {
 #[rstest]
 fn var_ref_load_by_name() {
     let is = ir("$x");
-    assert!(is.0.iter().any(|op| matches!(op, OpCode::LoadVarByName(ExpandedName{ ns_uri: None, local }) if local=="x")));
+    assert!(is.0.iter().any(
+        |op| matches!(op, OpCode::LoadVarByName(ExpandedName{ ns_uri: None, local }) if local=="x")
+    ));
 }
 
 #[rstest]

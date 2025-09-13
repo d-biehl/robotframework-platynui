@@ -66,11 +66,28 @@ pub enum XdmAtomicValue {
     Base64Binary(String),
     HexBinary(String),
     // g* date/time fragment types
-    GYear { year: i32, tz: Option<FixedOffset> },
-    GYearMonth { year: i32, month: u8, tz: Option<FixedOffset> },
-    GMonth { month: u8, tz: Option<FixedOffset> },
-    GMonthDay { month: u8, day: u8, tz: Option<FixedOffset> },
-    GDay { day: u8, tz: Option<FixedOffset> },
+    GYear {
+        year: i32,
+        tz: Option<FixedOffset>,
+    },
+    GYearMonth {
+        year: i32,
+        month: u8,
+        tz: Option<FixedOffset>,
+    },
+    GMonth {
+        month: u8,
+        tz: Option<FixedOffset>,
+    },
+    GMonthDay {
+        month: u8,
+        day: u8,
+        tz: Option<FixedOffset>,
+    },
+    GDay {
+        day: u8,
+        tz: Option<FixedOffset>,
+    },
     // String-derived subtypes (no separate storage; kept as canonical string)
     NormalizedString(String),
     Token(String),
@@ -94,7 +111,9 @@ pub enum XdmItem<N> {
 
 // Convenience conversion: allow passing a node directly where an XdmItem<N> is expected.
 impl<N> From<N> for XdmItem<N> {
-    fn from(n: N) -> Self { XdmItem::Node(n) }
+    fn from(n: N) -> Self {
+        XdmItem::Node(n)
+    }
 }
 
 impl<N> fmt::Display for XdmItem<N>

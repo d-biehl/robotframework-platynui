@@ -3,8 +3,9 @@ use platynui_xpath::runtime::StaticContext;
 use rstest::{fixture, rstest};
 
 #[fixture]
-#[allow(unused_braces)]
-fn ctx() -> StaticContext { StaticContext::default() }
+fn ctx() -> StaticContext {
+    return StaticContext::default();
+}
 
 // Negative lowering: invalid constructs should yield XPST0003
 #[rstest]

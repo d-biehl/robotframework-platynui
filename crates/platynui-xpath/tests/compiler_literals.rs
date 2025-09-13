@@ -4,11 +4,14 @@ use platynui_xpath::xdm::XdmAtomicValue;
 use rstest::{fixture, rstest};
 
 #[fixture]
-#[allow(unused_braces)]
-fn ctx() -> StaticContext { StaticContext::default() }
+fn ctx() -> StaticContext {
+    return StaticContext::default();
+}
 
 fn ir(src: &str, ctx: &StaticContext) -> InstrSeq {
-    compile_xpath_with_context(src, ctx).expect("compile ok").instrs
+    compile_xpath_with_context(src, ctx)
+        .expect("compile ok")
+        .instrs
 }
 
 #[rstest]
@@ -35,8 +38,16 @@ fn sequence_make_seq(ctx: StaticContext) {
 #[rstest]
 fn unary_plus_minus(ctx: StaticContext) {
     let plus = ir("+2", &ctx);
-    assert!(matches!(plus.0.last(), Some(OpCode::PushAtomic(XdmAtomicValue::Integer(2)))));
+    assert!(matches!(
+        plus.0.last(),
+        Some(OpCode::PushAtomic(XdmAtomicValue::Integer(2)))
+    ));
     let minus = ir("-2", &ctx);
-    assert!(minus.0.iter().any(|op| matches!(op, OpCode::PushAtomic(XdmAtomicValue::Integer(0)))));
+    assert!(
+        minus
+            .0
+            .iter()
+            .any(|op| matches!(op, OpCode::PushAtomic(XdmAtomicValue::Integer(0))))
+    );
     assert!(matches!(minus.0.last(), Some(OpCode::Sub)));
 }

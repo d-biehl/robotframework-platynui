@@ -1,8 +1,10 @@
-use platynui_xpath::{evaluate_expr, XdmItem as I, xdm::XdmAtomicValue as A, SimpleNode};
 use platynui_xpath::runtime::DynamicContextBuilder;
+use platynui_xpath::{SimpleNode, XdmItem as I, evaluate_expr, xdm::XdmAtomicValue as A};
 use rstest::rstest;
 type N = SimpleNode;
-fn ctx() -> platynui_xpath::runtime::DynamicContext<N> { DynamicContextBuilder::default().build() }
+fn ctx() -> platynui_xpath::runtime::DynamicContext<N> {
+    DynamicContextBuilder::default().build()
+}
 
 #[rstest]
 fn cast_integer() {
@@ -37,9 +39,8 @@ fn instance_of_always_true_placeholder() {
 #[rstest]
 fn instance_of_false_mismatch() {
     let out = evaluate_expr::<N>("123 instance of xs:string", &ctx()).unwrap();
-    // current simplified matching: xs:string matches anyAtomicType/string; expecting true would hide mismatch
-    // We accept true here until atomic_matches_name refined; keep as regression anchor.
-    assert_eq!(out, vec![I::Atomic(A::Boolean(true))]);
+    // After refining atomic_matches_name, xs:string no longer matches integer.
+    assert_eq!(out, vec![I::Atomic(A::Boolean(false))]);
 }
 
 #[rstest]
@@ -56,7 +57,9 @@ fn instance_of_cardinality_fail() {
 
 #[rstest]
 fn treat_cardinality_fail() {
-    let err = evaluate_expr::<N>("('a','b') treat as xs:string?", &ctx()).err().expect("expected error");
+    let err = evaluate_expr::<N>("('a','b') treat as xs:string?", &ctx())
+        .err()
+        .expect("expected error");
     assert!(err.code.contains("XPTY0004"));
 }
 

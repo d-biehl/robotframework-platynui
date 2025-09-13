@@ -14,7 +14,9 @@ fn ir(src: &str) -> InstrSeq {
 #[case("5 mod 2", OpCode::Mod)]
 fn arithmetic_ops(#[case] src: &str, #[case] tail: OpCode) {
     let is = ir(src);
-    assert!(matches!(is.0.last(), Some(op) if std::mem::discriminant(op) == std::mem::discriminant(&tail)));
+    assert!(
+        matches!(is.0.last(), Some(op) if std::mem::discriminant(op) == std::mem::discriminant(&tail))
+    );
 }
 
 #[rstest]

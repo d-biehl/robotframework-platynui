@@ -20,7 +20,7 @@ fn basic_kind_tests(#[case] input: &str, #[case] kind: ast::KindTest) {
     }
 }
 
-#[test]
+#[rstest]
 fn document_node_wrapped_element() {
     match parse("document-node(element(*))") {
         ast::Expr::Path(p) => match &p.steps[0].test {

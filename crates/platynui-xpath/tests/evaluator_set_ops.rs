@@ -1,24 +1,57 @@
-use platynui_xpath::{evaluate_expr, XdmItem as I, xdm::XdmAtomicValue as A, SimpleNode};
 use platynui_xpath::runtime::DynamicContextBuilder;
+use platynui_xpath::{
+    SimpleNode, XdmItem as I, XdmNode, evaluate_expr,
+    simple_node::{doc, elem},
+};
 use rstest::rstest;
 type N = SimpleNode;
-fn ctx() -> platynui_xpath::runtime::DynamicContext<N> { DynamicContextBuilder::default().build() }
-
-#[rstest]
-fn union_basic() {
-    let out = evaluate_expr::<N>("(1,2) union (2,3)", &ctx()).unwrap();
-    // Simplified set semantics: order is first sequence order then new elements
-    assert_eq!(out, vec![I::Atomic(A::Integer(1)), I::Atomic(A::Integer(2)), I::Atomic(A::Integer(3))]);
+fn build_tree() -> N {
+    // <root><a/><b/><c/></root>
+    let d = doc()
+        .child(
+            elem("root")
+                .child(elem("a"))
+                .child(elem("b"))
+                .child(elem("c")),
+        )
+        .build();
+    let root = d.children();
+    assert_eq!(root.len(), 1);
+    root[0].clone()
+}
+fn ctx() -> platynui_xpath::runtime::DynamicContext<N> {
+    let root = build_tree();
+    let b = DynamicContextBuilder::default();
+    b.with_context_item(I::Node(root)).build()
 }
 
 #[rstest]
-fn intersect_basic() {
-    let out = evaluate_expr::<N>("(1,2,3) intersect (2,4)", &ctx()).unwrap();
-    assert_eq!(out, vec![I::Atomic(A::Integer(2))]);
+fn union_nodes() {
+    let out = evaluate_expr::<N>("child::a union child::b", &ctx()).unwrap();
+    assert_eq!(out.len(), 2);
 }
 
 #[rstest]
-fn except_basic() {
-    let out = evaluate_expr::<N>("(1,2,3) except (2)", &ctx()).unwrap();
-    assert_eq!(out, vec![I::Atomic(A::Integer(1)), I::Atomic(A::Integer(3))]);
+fn intersect_nodes() {
+    let out = evaluate_expr::<N>(
+        "(child::a, child::b) intersect (child::b, child::c)",
+        &ctx(),
+    )
+    .unwrap();
+    assert_eq!(out.len(), 1);
+}
+
+#[rstest]
+fn except_nodes() {
+    let out =
+        evaluate_expr::<N>("(child::a, child::b, child::c) except (child::b)", &ctx()).unwrap();
+    assert_eq!(out.len(), 2);
+}
+
+#[rstest]
+fn set_ops_on_atomics_error() {
+    let err = evaluate_expr::<N>("(1,2) union (2,3)", &ctx())
+        .err()
+        .expect("should error");
+    assert_eq!(err.code_enum().as_str(), "err:XPTY0004");
 }
