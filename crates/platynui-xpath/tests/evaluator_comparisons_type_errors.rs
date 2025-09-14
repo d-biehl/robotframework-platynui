@@ -1,15 +1,15 @@
 use platynui_xpath::{
-    SimpleNode, evaluate_expr,
+    evaluate_expr,
     runtime::{DynamicContext, ErrorCode},
 };
 use rstest::rstest;
 
-fn ctx() -> DynamicContext<SimpleNode> {
+fn ctx() -> DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContext::default()
 }
 
 fn err(expr: &str) -> ErrorCode {
-    evaluate_expr::<SimpleNode>(expr, &ctx())
+    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx())
         .unwrap_err()
         .code_enum()
 }

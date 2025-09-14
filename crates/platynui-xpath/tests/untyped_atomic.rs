@@ -28,7 +28,7 @@ impl platynui_xpath::model::XdmNode for DummyNode {
     fn compare_document_order(
         &self,
         _other: &Self,
-    ) -> Result<std::cmp::Ordering, platynui_xpath::runtime::Error> {
+    ) -> Result<std::cmp::Ordering, platynui_xpath::engine::runtime::Error> {
         Ok(std::cmp::Ordering::Equal)
     }
     fn name(&self) -> Option<platynui_xpath::QName> {
@@ -39,7 +39,7 @@ impl platynui_xpath::model::XdmNode for DummyNode {
 fn eval_with(
     val: &str,
     expr: &str,
-) -> Result<Vec<XdmItem<DummyNode>>, platynui_xpath::runtime::Error> {
+) -> Result<Vec<XdmItem<DummyNode>>, platynui_xpath::engine::runtime::Error> {
     let ctx: DynamicContext<DummyNode> = DynamicContext::<DummyNode> {
         context_item: Some(XdmItem::Node(DummyNode { val: val.to_string() })),
         ..Default::default()
@@ -47,7 +47,7 @@ fn eval_with(
     evaluate_expr(expr, &ctx)
 }
 
-fn eval_atomic(val: &str, expr: &str) -> Result<XdmAtomicValue, platynui_xpath::runtime::Error> {
+fn eval_atomic(val: &str, expr: &str) -> Result<XdmAtomicValue, platynui_xpath::engine::runtime::Error> {
     let seq = eval_with(val, expr)?;
     Ok(match seq.first() {
         Some(XdmItem::Atomic(a)) => a.clone(),

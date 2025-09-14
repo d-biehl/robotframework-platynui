@@ -7,7 +7,7 @@
 //! - Use `register_ns_variadic` for truly variadic families (e.g., `fn:concat` with min arity).
 //! - Keep helpers suffixed with `_default` to share logic across arities and reduce duplication.
 
-use crate::runtime::{CallCtx, Error, ErrorCode, FunctionRegistry};
+use crate::engine::runtime::{CallCtx, Error, ErrorCode, FunctionRegistry};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
 use base64::Engine as _; // for STANDARD.decode
 use chrono::{
@@ -53,8 +53,11 @@ fn contains_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     let s = item_to_string(s_seq);
     let sub = item_to_string(sub_seq);
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
-    let k =
-        crate::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
+    let k = crate::engine::collation::resolve_collation(
+        ctx.dyn_ctx,
+        ctx.default_collation.as_ref(),
+        uri_opt,
+    )?;
     let c = k.as_trait();
     let b = c.key(&s).contains(&c.key(&sub));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
@@ -69,8 +72,11 @@ fn starts_with_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>
     let s = item_to_string(s_seq);
     let sub = item_to_string(sub_seq);
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
-    let k =
-        crate::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
+    let k = crate::engine::collation::resolve_collation(
+        ctx.dyn_ctx,
+        ctx.default_collation.as_ref(),
+        uri_opt,
+    )?;
     let c = k.as_trait();
     let b = c.key(&s).starts_with(&c.key(&sub));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
@@ -85,8 +91,11 @@ fn ends_with_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     let s = item_to_string(s_seq);
     let sub = item_to_string(sub_seq);
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
-    let k =
-        crate::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
+    let k = crate::engine::collation::resolve_collation(
+        ctx.dyn_ctx,
+        ctx.default_collation.as_ref(),
+        uri_opt,
+    )?;
     let c = k.as_trait();
     let b = c.key(&s).ends_with(&c.key(&sub));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
@@ -774,11 +783,11 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             distinct_values_impl(ctx, &args[0], None)
         } else {
             let uri = item_to_string(&args[1]);
-            let k = crate::collation::resolve_collation(
-                ctx.dyn_ctx,
-                ctx.default_collation.as_ref(),
-                Some(&uri),
-            )?;
+    let k = crate::engine::collation::resolve_collation(
+        ctx.dyn_ctx,
+        ctx.default_collation.as_ref(),
+        Some(&uri),
+    )?;
             distinct_values_impl(ctx, &args[0], Some(k.as_trait()))
         }
     });
@@ -836,7 +845,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             minmax_impl(ctx, &args[0], None, true)
         } else {
             let uri = item_to_string(&args[1]);
-            let k = crate::collation::resolve_collation(
+            let k = crate::engine::collation::resolve_collation(
                 ctx.dyn_ctx,
                 ctx.default_collation.as_ref(),
                 Some(&uri),
@@ -849,7 +858,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             minmax_impl(ctx, &args[0], None, false)
         } else {
             let uri = item_to_string(&args[1]);
-            let k = crate::collation::resolve_collation(
+            let k = crate::engine::collation::resolve_collation(
                 ctx.dyn_ctx,
                 ctx.default_collation.as_ref(),
                 Some(&uri),
@@ -878,7 +887,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let coll = ctx
             .dyn_ctx
             .collations
-            .get(crate::collation::CODEPOINT_URI)
+            .get(crate::engine::collation::CODEPOINT_URI)
             .expect("codepoint collation registered");
         let a_item = args[0].first().cloned();
         let b_item = args[1].first().cloned();
@@ -930,7 +939,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         } else if let Some(s) = &ctx.static_ctx.default_collation {
             s.clone()
         } else {
-            crate::collation::CODEPOINT_URI.to_string()
+            crate::engine::collation::CODEPOINT_URI.to_string()
         };
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(uri))])
     });
@@ -1509,7 +1518,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             XdmItem::Atomic(XdmAtomicValue::Time { time, tz }) => (*time, *tz),
             XdmItem::Atomic(XdmAtomicValue::String(s))
             | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
-                let (t, tzo) = crate::temporal::parse_time_lex(s)
+                let (t, tzo) = crate::util::temporal::parse_time_lex(s)
                     .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:time"))?;
                 (t, tzo)
             }
@@ -1532,7 +1541,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             (None, Some(b)) => Some(b),
             (None, None) => None,
         };
-        let dt = crate::temporal::build_naive_datetime(date, time, tz);
+        let dt = crate::util::temporal::build_naive_datetime(date, time, tz);
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::DateTime(dt))])
     });
     reg.register_ns_range(FNS, "adjust-date-to-timezone", 1, Some(2), |ctx, args| {
@@ -1608,7 +1617,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             XdmItem::Atomic(XdmAtomicValue::Time { time, tz: _ }) => (*time, None),
             XdmItem::Atomic(XdmAtomicValue::String(s))
             | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
-                crate::temporal::parse_time_lex(s)
+                crate::util::temporal::parse_time_lex(s)
                     .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:time"))?
             }
             _ => {
@@ -1658,8 +1667,8 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 XdmItem::Atomic(XdmAtomicValue::DateTime(dt)) => *dt,
                 XdmItem::Atomic(XdmAtomicValue::String(s))
                 | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
-                    crate::temporal::parse_date_time_lex(s)
-                        .map(|(d, t, tz)| crate::temporal::build_naive_datetime(d, t, tz))
+                    crate::util::temporal::parse_date_time_lex(s)
+                        .map(|(d, t, tz)| crate::util::temporal::build_naive_datetime(d, t, tz))
                         .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:dateTime"))?
                 }
                 _ => {
@@ -2477,9 +2486,9 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             ));
         }
         let s = item_to_string(&args[0]);
-        match crate::temporal::parse_date_time_lex(&s) {
+        match crate::util::temporal::parse_date_time_lex(&s) {
             Ok((d, t, tz)) => {
-                let dt = crate::temporal::build_naive_datetime(d, t, tz);
+                let dt = crate::util::temporal::build_naive_datetime(d, t, tz);
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::DateTime(dt))])
             }
             Err(_) => Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:dateTime")),
@@ -2497,7 +2506,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             ));
         }
         let s = item_to_string(&args[0]);
-        match crate::temporal::parse_date_lex(&s) {
+        match crate::util::temporal::parse_date_lex(&s) {
             Ok((d, tz)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Date { date: d, tz })]),
             Err(_) => Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:date")),
         }
@@ -2513,7 +2522,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             ));
         }
         let s = item_to_string(&args[0]);
-        match crate::temporal::parse_time_lex(&s) {
+        match crate::util::temporal::parse_time_lex(&s) {
             Ok((t, tz)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Time { time: t, tz })]),
             Err(_) => Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:time")),
         }
@@ -3021,7 +3030,7 @@ fn deep_equal_default<N: crate::model::XdmNode>(
     b: &XdmSequence<N>,
     collation_uri: Option<&str>,
 ) -> Result<XdmSequence<N>, Error> {
-    let k = crate::collation::resolve_collation(
+    let k = crate::engine::collation::resolve_collation(
         ctx.dyn_ctx,
         ctx.default_collation.as_ref(),
         collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) }),
@@ -3239,7 +3248,11 @@ fn compare_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     let sb = item_to_string(b);
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
     let k =
-        crate::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
+        crate::engine::collation::resolve_collation(
+            ctx.dyn_ctx,
+            ctx.default_collation.as_ref(),
+            uri_opt,
+        )?;
     let c = k.as_trait();
     let ord = c.compare(&sa, &sb);
     let v = match ord {
@@ -3257,16 +3270,20 @@ fn index_of_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     search: &XdmSequence<N>,
     collation_uri: Option<&str>,
 ) -> Result<XdmSequence<N>, Error> {
-    use crate::eq::{EqKey, build_eq_key};
+    use crate::engine::eq::{EqKey, build_eq_key};
     let mut out: XdmSequence<N> = Vec::new();
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
     let coll_kind =
-        crate::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
-    let coll: Option<&dyn crate::collation::Collation> = Some(coll_kind.as_trait());
+        crate::engine::collation::resolve_collation(
+            ctx.dyn_ctx,
+            ctx.default_collation.as_ref(),
+            uri_opt,
+        )?;
+    let coll: Option<&dyn crate::engine::collation::Collation> = Some(coll_kind.as_trait());
     let needle_opt = search.first();
     // Precompute key for atomic needle; if NaN early return empty.
     let needle_key = if let Some(XdmItem::Atomic(a)) = needle_opt {
-        match build_eq_key::<crate::simple_node::SimpleNode>(&XdmItem::Atomic(a.clone()), coll) {
+        match build_eq_key::<crate::model::simple::SimpleNode>(&XdmItem::Atomic(a.clone()), coll) {
             Ok(k) => {
                 if matches!(k, EqKey::NaN) {
                     return Ok(out);
@@ -3282,7 +3299,7 @@ fn index_of_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
         let eq = match (it, needle_opt) {
             (XdmItem::Atomic(a), Some(XdmItem::Atomic(_))) => {
                 if let Some(ref nk) = needle_key {
-                    match build_eq_key::<crate::simple_node::SimpleNode>(
+                    match build_eq_key::<crate::model::simple::SimpleNode>(
                         &XdmItem::Atomic(a.clone()),
                         coll,
                     ) {
@@ -3620,7 +3637,7 @@ fn banker_round(x: f64) -> f64 {
 pub fn deep_equal_with_collation<N: crate::model::XdmNode>(
     a: &XdmSequence<N>,
     b: &XdmSequence<N>,
-    coll: Option<&dyn crate::collation::Collation>,
+    coll: Option<&dyn crate::engine::collation::Collation>,
 ) -> Result<bool, Error> {
     if a.len() != b.len() {
         return Ok(false);
@@ -3643,7 +3660,7 @@ pub fn deep_equal_with_collation<N: crate::model::XdmNode>(
 fn node_deep_equal<N: crate::model::XdmNode>(
     a: &N,
     b: &N,
-    coll: Option<&dyn crate::collation::Collation>,
+    coll: Option<&dyn crate::engine::collation::Collation>,
 ) -> Result<bool, Error> {
     use crate::model::NodeKind;
     // Kind must match
@@ -3751,9 +3768,9 @@ fn node_deep_equal<N: crate::model::XdmNode>(
 fn distinct_values_impl<N: crate::model::XdmNode>(
     _ctx: &CallCtx<N>,
     seq: &XdmSequence<N>,
-    coll: Option<&dyn crate::collation::Collation>,
+    coll: Option<&dyn crate::engine::collation::Collation>,
 ) -> Result<XdmSequence<N>, Error> {
-    use crate::eq::{EqKey, build_eq_key};
+    use crate::engine::eq::{EqKey, build_eq_key};
     use std::collections::HashSet;
     let mut seen: HashSet<EqKey> = HashSet::new();
     let mut out: XdmSequence<N> = Vec::new();
@@ -3780,31 +3797,31 @@ fn distinct_values_impl<N: crate::model::XdmNode>(
 fn atomic_equal_with_collation(
     a: &XdmAtomicValue,
     b: &XdmAtomicValue,
-    coll: Option<&dyn crate::collation::Collation>,
+    coll: Option<&dyn crate::engine::collation::Collation>,
 ) -> Result<bool, Error> {
-    use crate::eq::build_eq_key;
+    use crate::engine::eq::build_eq_key;
     // Helper generic to appease type inference for XdmNode parameter.
     fn key_for<N: crate::model::XdmNode>(
         v: &XdmAtomicValue,
-        coll: Option<&dyn crate::collation::Collation>,
-    ) -> Result<crate::eq::EqKey, Error> {
+        coll: Option<&dyn crate::engine::collation::Collation>,
+    ) -> Result<crate::engine::eq::EqKey, Error> {
         let item: XdmItem<N> = XdmItem::Atomic(v.clone());
         build_eq_key(&item, coll)
     }
     // We don't know the node type here (deep-equal may compare atomics only) – use SimpleNode phantom by leveraging that EqKey building ignores node internals for atomic case.
     // SAFETY: build_eq_key only pattern matches &XdmItem and for Atomic branch does not access node-specific APIs.
-    type AnyNode = crate::simple_node::SimpleNode;
+    type AnyNode = crate::model::simple::SimpleNode;
     let ka = key_for::<AnyNode>(a, coll)?;
     let kb = key_for::<AnyNode>(b, coll)?;
     Ok(ka == kb)
 }
 
 // ===== Helpers (M7 Regex) =====
-fn get_regex_provider<N>(ctx: &CallCtx<N>) -> std::sync::Arc<dyn crate::runtime::RegexProvider> {
+fn get_regex_provider<N>(ctx: &CallCtx<N>) -> std::sync::Arc<dyn crate::engine::runtime::RegexProvider> {
     if let Some(p) = &ctx.regex {
         p.clone()
     } else {
-        std::sync::Arc::new(crate::runtime::FancyRegexProvider)
+        std::sync::Arc::new(crate::engine::runtime::FancyRegexProvider)
     }
 }
 
@@ -3862,7 +3879,7 @@ fn validate_regex_flags(flags: &str) -> Result<String, Error> {
             }
             _ => {
                 return Err(Error::dynamic(
-                    crate::runtime::ErrorCode::FORX0001,
+                    crate::engine::runtime::ErrorCode::FORX0001,
                     format!("unsupported regex flag: {ch}"),
                 ));
             }
@@ -3891,7 +3908,7 @@ fn reject_backref_in_char_class(pattern: &str) -> Result<(), Error> {
                     && (bytes[i + 1] as char).is_ascii_digit()
                 {
                     return Err(Error::dynamic(
-                        crate::runtime::ErrorCode::FORX0002,
+                        crate::engine::runtime::ErrorCode::FORX0002,
                         "backreference not allowed in character class",
                     ));
                 }
@@ -3934,7 +3951,7 @@ fn round_half_to_even_f64(x: f64) -> f64 {
 fn minmax_impl<N: crate::model::XdmNode>(
     ctx: &CallCtx<N>,
     seq: &XdmSequence<N>,
-    coll: Option<&dyn crate::collation::Collation>,
+    coll: Option<&dyn crate::engine::collation::Collation>,
     is_min: bool,
 ) -> Result<XdmSequence<N>, Error> {
     if seq.is_empty() {
@@ -3996,18 +4013,18 @@ fn minmax_impl<N: crate::model::XdmNode>(
     }
     // String branch
     // Ensure owned Arc lives while function executes (store optionally)
-    let mut owned_coll: Option<std::sync::Arc<dyn crate::collation::Collation>> = None;
-    let effective_coll: Option<&dyn crate::collation::Collation> = if let Some(c) = coll {
+    let mut owned_coll: Option<std::sync::Arc<dyn crate::engine::collation::Collation>> = None;
+    let effective_coll: Option<&dyn crate::engine::collation::Collation> = if let Some(c) = coll {
         Some(c)
     } else {
-        let k = crate::collation::resolve_collation(
+        let k = crate::engine::collation::resolve_collation(
             ctx.dyn_ctx,
             ctx.default_collation.as_ref(),
             None,
         )?;
         match k {
-            crate::collation::CollationKind::Codepoint(a)
-            | crate::collation::CollationKind::Other(a) => {
+            crate::engine::collation::CollationKind::Codepoint(a)
+            | crate::engine::collation::CollationKind::Other(a) => {
                 owned_coll = Some(a);
             }
         }
@@ -4212,10 +4229,10 @@ fn get_time<N: crate::model::XdmNode>(
     match &seq[0] {
         XdmItem::Atomic(XdmAtomicValue::Time { time, tz }) => Ok(Some((*time, *tz))),
         XdmItem::Atomic(XdmAtomicValue::String(s))
-        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => crate::temporal::parse_time_lex(s)
+        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => crate::util::temporal::parse_time_lex(s)
             .map(Some)
             .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:time")),
-        XdmItem::Node(n) => crate::temporal::parse_time_lex(&n.string_value())
+        XdmItem::Node(n) => crate::util::temporal::parse_time_lex(&n.string_value())
             .map(Some)
             .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:time")),
         _ => Err(Error::dynamic_err("err:XPTY0004", "not a time")),

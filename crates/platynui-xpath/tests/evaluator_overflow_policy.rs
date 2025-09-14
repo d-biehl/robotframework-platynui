@@ -25,7 +25,7 @@ impl platynui_xpath::model::XdmNode for DummyNode {
     fn compare_document_order(
         &self,
         _other: &Self,
-    ) -> Result<std::cmp::Ordering, platynui_xpath::runtime::Error> {
+    ) -> Result<std::cmp::Ordering, platynui_xpath::engine::runtime::Error> {
         Ok(std::cmp::Ordering::Equal)
     }
     fn name(&self) -> Option<platynui_xpath::QName> {

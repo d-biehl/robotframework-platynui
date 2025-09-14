@@ -1,7 +1,7 @@
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::{XdmItem, evaluate_expr, xdm::XdmAtomicValue};
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::{xdm::XdmItem, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue};
 
-type N = platynui_xpath::simple_node::SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
 #[test]
 fn for_two_bindings_cartesian_order() {

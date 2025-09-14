@@ -29,9 +29,9 @@
 //!
 //! No panics / unwraps on user data paths – failures surface as Error.
 
-use crate::collation::Collation;
+use crate::engine::collation::Collation;
 use crate::model::XdmNode;
-use crate::runtime::Error;
+use crate::engine::runtime::Error;
 use crate::xdm::XdmAtomicValue;
 use crate::xdm::XdmItem;
 
@@ -467,8 +467,8 @@ fn ptr_as_u64<N: XdmNode>(n: &N) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::collation::SimpleCaseCollation;
-    use crate::simple_node::{elem, text};
+    use crate::engine::collation::SimpleCaseCollation;
+    use crate::model::simple::{elem, text};
     use crate::xdm::XdmItem;
 
     #[test]
@@ -507,12 +507,12 @@ mod tests {
     #[test]
     fn collation_string_keys_lowercase() {
         let coll = SimpleCaseCollation; // lowercase implementation
-        let k1 = build_eq_key::<crate::simple_node::SimpleNode>(
+        let k1 = build_eq_key::<crate::model::simple::SimpleNode>(
             &XdmItem::Atomic(XdmAtomicValue::String("Ab".into())),
             Some(&coll),
         )
         .unwrap();
-        let k2 = build_eq_key::<crate::simple_node::SimpleNode>(
+        let k2 = build_eq_key::<crate::model::simple::SimpleNode>(
             &XdmItem::Atomic(XdmAtomicValue::String("ab".into())),
             Some(&coll),
         )

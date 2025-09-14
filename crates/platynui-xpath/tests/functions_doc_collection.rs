@@ -1,13 +1,13 @@
-use platynui_xpath::runtime::{DynamicContextBuilder, NodeResolver};
-use platynui_xpath::simple_node::{doc as sdoc, elem, text};
-use platynui_xpath::{XdmItem, evaluate_expr};
+use platynui_xpath::engine::runtime::{DynamicContextBuilder, NodeResolver};
+use platynui_xpath::model::simple::{doc as sdoc, elem, text};
+use platynui_xpath::{xdm::XdmItem, engine::evaluator::evaluate_expr};
 use std::sync::Arc;
 
-type N = platynui_xpath::simple_node::SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
 struct TestNodeResolver;
 impl NodeResolver<N> for TestNodeResolver {
-    fn doc_node(&self, uri: &str) -> Result<Option<N>, platynui_xpath::runtime::Error> {
+    fn doc_node(&self, uri: &str) -> Result<Option<N>, platynui_xpath::engine::runtime::Error> {
         Ok(match uri {
             "urn:x" => Some(sdoc().child(elem("root").child(text("ok"))).build()),
             _ => None,
@@ -16,7 +16,7 @@ impl NodeResolver<N> for TestNodeResolver {
     fn collection_nodes(
         &self,
         uri: Option<&str>,
-    ) -> Result<Vec<N>, platynui_xpath::runtime::Error> {
+    ) -> Result<Vec<N>, platynui_xpath::engine::runtime::Error> {
         let mut v = Vec::new();
         if uri == Some("urn:col") || uri.is_none() {
             v.push(sdoc().child(elem("a")).build());
@@ -65,13 +65,13 @@ fn doc_errors_when_unavailable_or_no_resolver() {
     let err = evaluate_expr::<N>("doc('urn:nope')", &ctx).expect_err("expected error");
     assert_eq!(
         err.code_enum(),
-        platynui_xpath::runtime::ErrorCode::FODC0005
+        platynui_xpath::engine::runtime::ErrorCode::FODC0005
     );
     // Without resolver: any uri triggers FODC0005
     let ctx2 = DynamicContextBuilder::<N>::default().build();
     let err2 = evaluate_expr::<N>("doc('urn:any')", &ctx2).expect_err("expected error");
     assert_eq!(
         err2.code_enum(),
-        platynui_xpath::runtime::ErrorCode::FODC0005
+        platynui_xpath::engine::runtime::ErrorCode::FODC0005
     );
 }

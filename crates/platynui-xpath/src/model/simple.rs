@@ -572,7 +572,7 @@ impl XdmNode for SimpleNode {
     fn compare_document_order(
         &self,
         other: &Self,
-    ) -> Result<core::cmp::Ordering, crate::runtime::Error> {
+    ) -> Result<core::cmp::Ordering, crate::engine::runtime::Error> {
         match crate::model::try_compare_by_ancestry(self, other) {
             Ok(ord) => Ok(ord),
             Err(e) => {

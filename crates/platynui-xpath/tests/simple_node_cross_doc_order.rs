@@ -1,5 +1,5 @@
-use platynui_xpath::XdmNode;
-use platynui_xpath::simple_node::{doc, elem, set_cross_document_order};
+use platynui_xpath::model::XdmNode;
+use platynui_xpath::model::simple::{doc, elem, set_cross_document_order};
 
 #[test]
 fn cross_document_order_uses_creation_order() {

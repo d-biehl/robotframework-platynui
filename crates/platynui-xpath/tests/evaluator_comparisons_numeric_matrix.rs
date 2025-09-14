@@ -1,17 +1,17 @@
 use platynui_xpath::{
-    SimpleNode, evaluate_expr,
+    evaluate_expr,
     runtime::DynamicContext,
     xdm::{XdmAtomicValue, XdmItem},
 };
 use rstest::rstest;
 
-type C = DynamicContext<SimpleNode>;
+type C = DynamicContext<platynui_xpath::model::simple::SimpleNode>;
 fn ctx() -> C {
     DynamicContext::default()
 }
 
 fn bool_of(expr: &str) -> bool {
-    let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
+    let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap();
     if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.first() {
         *b
     } else {
@@ -108,7 +108,7 @@ fn numeric_edge_cases(#[case] expr: &str, #[case] expected: bool) {
 #[case::rhs_multi("1 eq (1,2)")]
 #[case::both_multi("(1,2) le (1,2)")]
 fn value_comparison_cardinality_errors(#[case] expr: &str) {
-    let err = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap_err();
+    let err = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap_err();
     let msg = format!("{err}");
     assert!(msg.contains("FORG0006"), "expected FORG0006, got: {msg}");
 }

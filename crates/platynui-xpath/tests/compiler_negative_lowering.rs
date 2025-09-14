@@ -1,5 +1,5 @@
 use platynui_xpath::compiler::compile_xpath_with_context;
-use platynui_xpath::runtime::StaticContext;
+use platynui_xpath::engine::runtime::StaticContext;
 use rstest::{fixture, rstest};
 
 #[fixture]

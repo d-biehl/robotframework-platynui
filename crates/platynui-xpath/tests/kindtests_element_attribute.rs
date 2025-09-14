@@ -1,11 +1,11 @@
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::{XdmItem, XdmNode, evaluate_expr};
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::{xdm::XdmItem, model::XdmNode, engine::evaluator::evaluate_expr};
 
-type N = platynui_xpath::simple_node::SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
 #[test]
 fn element_name_and_wildcard() {
-    use platynui_xpath::simple_node::{doc, elem, text};
+    use platynui_xpath::model::simple::{doc, elem, text};
     let d = doc()
         .child(elem("root").child(elem("child").child(text("t"))))
         .build();
@@ -33,9 +33,9 @@ fn element_name_and_wildcard() {
 
 #[test]
 fn attribute_name_and_wildcard() {
-    use platynui_xpath::simple_node::{doc, elem};
+    use platynui_xpath::model::simple::{doc, elem};
     let d = doc()
-        .child(elem("root").attr(platynui_xpath::simple_node::attr("id", "1")))
+        .child(elem("root").attr(platynui_xpath::model::simple::attr("id", "1")))
         .build();
     let ctx = DynamicContextBuilder::<N>::default()
         .with_context_item(d)

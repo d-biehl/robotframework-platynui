@@ -1,7 +1,7 @@
 #![allow(clippy::approx_constant)]
 
 use platynui_xpath::compiler::{compile_xpath_with_context, ir::*};
-use platynui_xpath::runtime::StaticContext;
+use platynui_xpath::engine::runtime::StaticContext;
 use platynui_xpath::xdm::XdmAtomicValue;
 use rstest::{fixture, rstest};
 

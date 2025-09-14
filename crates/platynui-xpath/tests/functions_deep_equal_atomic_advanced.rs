@@ -1,10 +1,9 @@
 use chrono::{FixedOffset, TimeZone};
 use platynui_xpath::functions::deep_equal_with_collation;
-use platynui_xpath::simple_node::SimpleNode;
 use platynui_xpath::xdm::{XdmAtomicValue, XdmItem};
 use rstest::rstest;
 
-fn wrap(a: XdmAtomicValue) -> Vec<XdmItem<SimpleNode>> {
+fn wrap(a: XdmAtomicValue) -> Vec<XdmItem<platynui_xpath::model::simple::SimpleNode>> {
     vec![XdmItem::Atomic(a)]
 }
 

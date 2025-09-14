@@ -1,6 +1,8 @@
 use platynui_xpath::{
-    DynamicContextBuilder, SimpleNode, XdmItem, attr, compile_xpath, elem, evaluate, simple_doc,
-    text,
+    compiler::compile_xpath,
+    engine::{evaluator::evaluate, runtime::DynamicContextBuilder},
+    model::simple::{attr, doc as simple_doc, elem, text, SimpleNode},
+    xdm::XdmItem,
 };
 
 fn main() {

@@ -1,15 +1,15 @@
 use platynui_xpath::{
-    SimpleNode, evaluate_expr,
+    evaluate_expr,
     runtime::DynamicContext,
     xdm::{XdmAtomicValue, XdmItem},
 };
 use rstest::rstest;
-fn ctx() -> DynamicContext<SimpleNode> {
+fn ctx() -> DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContext::default()
 }
 
 fn bool_val(expr: &str) -> bool {
-    let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
+    let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap();
     if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.first() {
         *b
     } else {
@@ -18,7 +18,7 @@ fn bool_val(expr: &str) -> bool {
 }
 
 fn string(expr: &str) -> String {
-    let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
+    let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap();
     if let Some(XdmItem::Atomic(XdmAtomicValue::String(s))) = seq.first() {
         s.clone()
     } else {
@@ -50,13 +50,13 @@ fn regex_replace_with_flags(#[case] expr: &str, #[case] expected: &str) {
 #[rstest]
 #[case("tokenize('AbC-abc', 'abc', 'i')", 3)] // tokens: "", "-", ""
 fn regex_tokenize_with_flags(#[case] expr: &str, #[case] expected_len: usize) {
-    let tokens = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
+    let tokens = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap();
     assert_eq!(tokens.len(), expected_len);
 }
 
 #[rstest]
 fn regex_invalid_flag_errors() {
-    let err = platynui_xpath::evaluate_expr::<SimpleNode>("matches('a','a','q')", &ctx());
+    let err = platynui_xpath::evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("matches('a','a','q')", &ctx());
     assert!(err.is_err());
     let e = format!("{}", err.err().unwrap());
     assert!(e.contains("FORX0001"));

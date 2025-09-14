@@ -1,9 +1,9 @@
 use chrono::{FixedOffset, TimeZone};
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::{SimpleNode, XdmItem as I, evaluate_expr, xdm::XdmAtomicValue as A};
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::{xdm::XdmItem as I, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
 use rstest::rstest;
 
-type N = SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
 fn dt(
     y: i32,

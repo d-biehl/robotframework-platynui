@@ -1,15 +1,15 @@
 use chrono::{Datelike, Timelike};
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::{SimpleNode, XdmItem as I, evaluate_expr, xdm::XdmAtomicValue as A};
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::{xdm::XdmItem as I, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
 use rstest::rstest;
 
-fn ctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::default().build()
 }
 
 fn expect_err(expr: &str) {
     let c = ctx();
-    let err = evaluate_expr::<SimpleNode>(expr, &c).unwrap_err();
+    let err = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &c).unwrap_err();
     assert!(
         err.code.contains("FORG0001"),
         "expected FORG0001 got {} for {}",
@@ -21,7 +21,7 @@ fn expect_err(expr: &str) {
 #[rstest]
 fn time_fraction_truncation() {
     let c = ctx();
-    let r = evaluate_expr::<SimpleNode>("xs:time('10:11:12.123456789123+02:30')", &c).unwrap();
+    let r = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("xs:time('10:11:12.123456789123+02:30')", &c).unwrap();
     if let I::Atomic(A::Time { time, tz }) = &r[0] {
         assert_eq!(time.nanosecond(), 123_456_789);
         assert!(tz.is_some());
@@ -48,7 +48,7 @@ fn time_invalid_tz_hours() {
 #[rstest]
 fn date_negative_year() {
     let c = ctx();
-    let r = evaluate_expr::<SimpleNode>("xs:date('-0010-05-01Z')", &c).unwrap();
+    let r = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("xs:date('-0010-05-01Z')", &c).unwrap();
     if let I::Atomic(A::Date { date, .. }) = &r[0] {
         assert_eq!(date.year(), -10);
     } else {
@@ -64,7 +64,7 @@ fn date_zero_year_invalid() {
 #[rstest]
 fn datetime_negative_year_fraction_tz() {
     let c = ctx();
-    let r = evaluate_expr::<SimpleNode>("xs:dateTime('-0456-07-08T09:10:11.987654321-03:15')", &c)
+    let r = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("xs:dateTime('-0456-07-08T09:10:11.987654321-03:15')", &c)
         .unwrap();
     if let I::Atomic(A::DateTime(dt)) = &r[0] {
         assert_eq!(dt.year(), -456);

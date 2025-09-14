@@ -1,6 +1,6 @@
-use platynui_xpath::evaluator::evaluate_expr; // if public helper not exposed, adjust to compile+evaluate
+use platynui_xpath::engine::evaluator::evaluate_expr; // if public helper not exposed, adjust to compile+evaluate
 use platynui_xpath::model::XdmNode;
-use platynui_xpath::runtime::DynamicContext;
+use platynui_xpath::engine::runtime::DynamicContext;
 use rstest::rstest; // placeholder trait
 
 // Provide a minimal dummy node implementation for atomic-only tests (if real test infra already has one, this can be replaced).
@@ -25,7 +25,7 @@ impl XdmNode for DummyNode {
     fn compare_document_order(
         &self,
         _other: &Self,
-    ) -> Result<std::cmp::Ordering, platynui_xpath::runtime::Error> {
+    ) -> Result<std::cmp::Ordering, platynui_xpath::engine::runtime::Error> {
         Ok(std::cmp::Ordering::Equal)
     }
     fn name(&self) -> Option<platynui_xpath::QName> {

@@ -1,11 +1,11 @@
-use platynui_xpath::runtime::{DynamicContext, DynamicContextBuilder};
+use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
 use platynui_xpath::{
-    SimpleNode, XdmItem as I, XdmNode, evaluate_expr,
+    xdm::XdmItem as I, XdmNode, evaluate_expr,
     simple_node::{doc, elem, text},
 };
 use rstest::{fixture, rstest};
 
-type N = SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
 fn ctx_with_root(root: N) -> DynamicContext<N> {
     let mut b = DynamicContextBuilder::default();
@@ -15,7 +15,7 @@ fn ctx_with_root(root: N) -> DynamicContext<N> {
 
 fn build_doc() -> N {
     // <root><n v="10">ten</n><n v="20">twenty</n></root>
-    use platynui_xpath::simple_node::attr as mkattr;
+    use platynui_xpath::model::simple::attr as mkattr;
     let d = doc()
         .child(
             elem("root")

@@ -1,7 +1,7 @@
 use platynui_xpath::{
     XdmItem,
     functions::deep_equal_with_collation,
-    simple_node::{SimpleNode, attr, elem, text},
+    simple_node::{ SimpleNode, attr, elem, text},
 };
 use rstest::rstest;
 

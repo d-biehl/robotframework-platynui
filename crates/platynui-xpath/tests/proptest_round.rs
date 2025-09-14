@@ -1,16 +1,16 @@
 use platynui_xpath::{
-    evaluator::evaluate_expr, runtime::DynamicContextBuilder, simple_node::SimpleNode,
+    evaluator::evaluate_expr, runtime::DynamicContextBuilder,
 };
 use proptest::prelude::*;
 use rstest::rstest;
 
-fn ctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 
 fn eval_double(expr: &str) -> Option<f64> {
     let c = ctx();
-    let seq = evaluate_expr::<SimpleNode>(expr, &c).ok()?;
+    let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &c).ok()?;
     if seq.is_empty() {
         return None;
     }

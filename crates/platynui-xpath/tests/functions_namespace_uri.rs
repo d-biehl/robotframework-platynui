@@ -1,11 +1,11 @@
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::{XdmItem, XdmNode, evaluate_expr};
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::{xdm::XdmItem, model::XdmNode, engine::evaluator::evaluate_expr};
 
-type N = platynui_xpath::simple_node::SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
 #[test]
 fn namespace_uri_on_elements_and_attributes() {
-    use platynui_xpath::simple_node::{attr, doc, elem, ns};
+    use platynui_xpath::model::simple::{attr, doc, elem, ns};
     // <p:root xmlns:p="urn:one" id="x" p:aid="y"/>
     let d = doc()
         .child(
@@ -44,7 +44,7 @@ fn namespace_uri_on_elements_and_attributes() {
 
 #[test]
 fn namespace_uri_on_pi_and_namespace_nodes() {
-    use platynui_xpath::simple_node::{SimpleNode, doc, elem};
+    use platynui_xpath::model::simple::{SimpleNode, doc, elem};
     // <root><?target x?></root>
     let d = doc()
         .child(elem("root").child(SimpleNode::pi("target", "x")))
@@ -69,7 +69,7 @@ fn namespace_uri_type_error_on_non_node() {
 
 #[test]
 fn namespace_uri_uses_context_item_when_omitted() {
-    use platynui_xpath::simple_node::{doc, elem, ns};
+    use platynui_xpath::model::simple::{doc, elem, ns};
     let d = doc().child(elem("p:r").namespace(ns("p", "urn:x"))).build();
     let root = d.children()[0].clone();
     let ctx = DynamicContextBuilder::<N>::default()

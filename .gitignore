@@ -29,3 +29,10 @@ target/
 # trash
 trash/
 .trash/
+
+# temp files
+*.tmp
+*.log
+*.bak
+*.swp
+*~

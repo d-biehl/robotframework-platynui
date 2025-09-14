@@ -3,13 +3,12 @@ use platynui_xpath::{
     compiler::compile_xpath_with_context,
     evaluate,
     runtime::{DynamicContextBuilder, StaticContextBuilder},
-    simple_node::SimpleNode,
 };
 use rstest::rstest;
 
-type N = SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
-fn dyn_ctx() -> platynui_xpath::runtime::DynamicContext<N> {
+fn dyn_ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
     DynamicContextBuilder::default().build()
 }
 
@@ -78,7 +77,7 @@ fn unknown_prefix_still_errors_without_registration() {
     let err = evaluate(&compiled, &ctx).expect_err("expected error");
     assert_eq!(
         err.code_enum(),
-        platynui_xpath::runtime::ErrorCode::FORG0001
+        platynui_xpath::engine::runtime::ErrorCode::FORG0001
     );
 }
 
@@ -86,12 +85,12 @@ fn unknown_prefix_still_errors_without_registration() {
 fn resolve_qname_uses_element_inscope_not_static() {
     // Static context defines prefix 'a' to urn:static, but element defines xmlns:a="urn:elem".
     // According to spec, resolve-QName should use the element's in-scope namespaces (not static context).
-    use platynui_xpath::simple_node::{elem, ns, text};
+    use platynui_xpath::model::simple::{elem, ns, text};
     let static_ctx = StaticContextBuilder::new()
         .with_namespace("a", "urn:static")
         .build();
     // Build document/root with namespace declaration a -> urn:elem and a child element
-    use platynui_xpath::simple_node::doc;
+    use platynui_xpath::model::simple::doc;
     let document = doc()
         .child(
             elem("root")

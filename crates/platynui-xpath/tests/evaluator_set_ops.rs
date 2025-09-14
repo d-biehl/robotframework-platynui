@@ -1,10 +1,10 @@
-use platynui_xpath::runtime::DynamicContextBuilder;
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::{
-    SimpleNode, XdmItem as I, XdmNode, evaluate_expr,
+    xdm::XdmItem as I, XdmNode, evaluate_expr,
     simple_node::{doc, elem},
 };
 use rstest::rstest;
-type N = SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 fn build_tree() -> N {
     // <root><a/><b/><c/></root>
     let d = doc()
@@ -19,7 +19,7 @@ fn build_tree() -> N {
     assert_eq!(root.len(), 1);
     root[0].clone()
 }
-fn ctx() -> platynui_xpath::runtime::DynamicContext<N> {
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
     let root = build_tree();
     let b = DynamicContextBuilder::default();
     b.with_context_item(I::Node(root)).build()

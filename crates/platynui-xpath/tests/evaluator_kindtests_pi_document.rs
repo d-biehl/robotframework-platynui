@@ -1,14 +1,14 @@
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::simple_node::{doc, elem};
-use platynui_xpath::{XdmItem, XdmNode, evaluate_expr};
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::model::simple::{doc, elem};
+use platynui_xpath::{xdm::XdmItem, model::XdmNode, engine::evaluator::evaluate_expr};
 
-type N = platynui_xpath::simple_node::SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
 #[test]
 fn processing_instruction_target_filter() {
     // <root><?go data?></root>
     let root = elem("root")
-        .child(platynui_xpath::simple_node::SimpleNode::pi("go", "data"))
+        .child(platynui_xpath::model::simple::SimpleNode::pi("go", "data"))
         .build();
     let ctx = DynamicContextBuilder::default()
         .with_context_item(root.clone())

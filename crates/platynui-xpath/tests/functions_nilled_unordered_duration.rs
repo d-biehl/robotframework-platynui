@@ -1,11 +1,11 @@
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::{XdmItem, evaluate_expr};
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::{xdm::XdmItem, engine::evaluator::evaluate_expr};
 
-type N = platynui_xpath::simple_node::SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
 #[test]
 fn nilled_true_false_and_empty() {
-    use platynui_xpath::simple_node::{attr, doc, elem, ns};
+    use platynui_xpath::model::simple::{attr, doc, elem, ns};
     // <root xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     //   <a xsi:nil="true"/>
     //   <b xsi:nil="false"/>
@@ -48,7 +48,7 @@ fn nilled_true_false_and_empty() {
 
 #[test]
 fn nilled_true_with_alternate_prefix_bound_to_xsi() {
-    use platynui_xpath::simple_node::{attr, doc, elem, ns};
+    use platynui_xpath::model::simple::{attr, doc, elem, ns};
     // Bind custom prefix 'p' to xsi URI on ancestor only; use p:nil="1" on child
     let d = doc()
         .child(

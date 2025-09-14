@@ -1,11 +1,11 @@
-use platynui_xpath::runtime::{DynamicContextBuilder, ErrorCode};
+use platynui_xpath::engine::runtime::{DynamicContextBuilder, ErrorCode};
 use platynui_xpath::{
-    ExpandedName, SimpleNode, XdmItem as I, XdmNode, evaluate_expr,
+    ExpandedName, xdm::XdmItem as I, XdmNode, evaluate_expr,
     simple_node::{doc, elem},
 };
 use rstest::rstest;
 
-type N = SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
 fn doc_root(name: &str) -> N {
     let d = doc().child(elem(name)).build();

@@ -1,12 +1,12 @@
-use platynui_xpath::XdmNode;
-use platynui_xpath::runtime::DynamicContextBuilder;
+use platynui_xpath::model::XdmNode;
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::{
-    SimpleNode, evaluate_expr,
+    evaluate_expr,
     simple_node::{doc, elem, ns, text},
 };
 use rstest::rstest;
 
-fn ctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     let document = doc().child(elem("r").child(text("x"))).build();
     let root = document.children()[0].clone();
     DynamicContextBuilder::default()
@@ -17,7 +17,7 @@ fn ctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
 #[rstest]
 fn xml_namespace_binding_always_present() {
     let c = ctx();
-    let out = evaluate_expr::<SimpleNode>("namespace::xml", &c).unwrap();
+    let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("namespace::xml", &c).unwrap();
     assert_eq!(out.len(), 1);
     let uri = match &out[0] {
         platynui_xpath::xdm::XdmItem::Node(n) => n.string_value(),
@@ -40,7 +40,7 @@ fn xml_namespace_not_overridden() {
     let c = DynamicContextBuilder::default()
         .with_context_item(root)
         .build();
-    let out = evaluate_expr::<SimpleNode>("namespace::xml", &c).unwrap();
+    let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("namespace::xml", &c).unwrap();
     assert_eq!(out.len(), 1);
     let uri = match &out[0] {
         platynui_xpath::xdm::XdmItem::Node(n) => n.string_value(),
@@ -62,6 +62,6 @@ fn xml_namespace_no_duplicate_when_declared() {
     let c = DynamicContextBuilder::default()
         .with_context_item(root)
         .build();
-    let out = evaluate_expr::<SimpleNode>("namespace::xml", &c).unwrap();
+    let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("namespace::xml", &c).unwrap();
     assert_eq!(out.len(), 1);
 }

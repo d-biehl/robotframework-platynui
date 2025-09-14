@@ -1,5 +1,5 @@
 use platynui_xpath::{
-    SimpleNode, evaluate_expr,
+    evaluate_expr,
     runtime::DynamicContext,
     xdm::{XdmAtomicValue, XdmItem},
 };
@@ -10,7 +10,7 @@ use proptest::prelude::*;
 proptest! {
     #[test]
     fn prop_number_alpha_nan(s in "[a-zA-Z]{1,8}") {
-        let ctx: DynamicContext<SimpleNode> = DynamicContext::default();
+        let ctx: DynamicContext<platynui_xpath::model::simple::SimpleNode> = DynamicContext::default();
         let expr_eq = format!("number('{s}') = number('{s}')");
         let expr_ne = format!("number('{s}') != number('{s}')");
         let seq_eq = evaluate_expr(&expr_eq, &ctx).unwrap();

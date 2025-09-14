@@ -1,16 +1,15 @@
 use platynui_xpath::{
     evaluator::evaluate_expr,
     runtime::DynamicContextBuilder,
-    simple_node::SimpleNode,
     xdm::{XdmAtomicValue as A, XdmItem as I},
 };
 
-fn ctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 
-fn eval(expr: &str) -> Vec<I<SimpleNode>> {
-    evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap()
+fn eval(expr: &str) -> Vec<I<platynui_xpath::model::simple::SimpleNode>> {
+    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap()
 }
 
 #[test]

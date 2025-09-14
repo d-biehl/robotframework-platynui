@@ -1,11 +1,11 @@
 use platynui_xpath::model::NodeKind;
-use platynui_xpath::runtime::{DynamicContext, DynamicContextBuilder};
+use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
 use platynui_xpath::{
-    SimpleNode, XdmItem as I, XdmNode, evaluate_expr,
+    xdm::XdmItem as I, XdmNode, evaluate_expr,
     simple_node::{attr, doc, elem, ns},
 };
 use rstest::{fixture, rstest};
-type N = SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
 fn build_tree() -> N {
     // <root id="r" xmlns:p="urn:x">

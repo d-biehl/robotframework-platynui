@@ -1,10 +1,10 @@
-use platynui_xpath::runtime::{DynamicContext, DynamicContextBuilder};
+use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
 use platynui_xpath::{
-    SimpleNode, XdmItem as I, XdmNode, evaluate_expr,
+    xdm::XdmItem as I, XdmNode, evaluate_expr,
     simple_node::{doc, elem, ns},
 };
 use rstest::{fixture, rstest};
-type N = SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
 fn ctx_with(item: N) -> DynamicContext<N> {
     let mut b = DynamicContextBuilder::default();
@@ -21,11 +21,11 @@ fn build_ns_tree() -> N {
             elem("root")
                 .namespace(ns("p", "urn:one"))
                 .namespace(ns("", "urn:default"))
-                .attr(platynui_xpath::simple_node::attr("id", "r"))
+                .attr(platynui_xpath::model::simple::attr("id", "r"))
                 .child(
                     elem("mid")
                         .namespace(ns("q", "urn:two"))
-                        .child(elem("leaf").child(platynui_xpath::simple_node::text("t"))),
+                        .child(elem("leaf").child(platynui_xpath::model::simple::text("t"))),
                 ),
         )
         .build();

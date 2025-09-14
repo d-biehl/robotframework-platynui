@@ -5,15 +5,15 @@ use platynui_xpath::{
 };
 use rstest::rstest;
 
-fn ctx(val: &str) -> DynamicContext<SimpleNode> {
-    DynamicContext::<SimpleNode> {
+fn ctx(val: &str) -> DynamicContext<platynui_xpath::model::simple::SimpleNode> {
+    DynamicContext::<platynui_xpath::model::simple::SimpleNode> {
         context_item: Some(XdmItem::Node(SimpleNode::text(val))),
         ..Default::default()
     }
 }
 
 fn bool_of(expr: &str, val: &str) -> bool {
-    let seq = evaluate_expr::<SimpleNode>(expr, &ctx(val)).unwrap();
+    let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx(val)).unwrap();
     if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.first() {
         *b
     } else {
@@ -33,6 +33,6 @@ fn untyped_comparison_truth(#[case] expr: &str, #[case] ctx_val: &str, #[case] e
 #[rstest]
 fn untyped_vs_numeric_invalid() {
     let c = ctx("abc");
-    let err = evaluate_expr::<SimpleNode>(". = 5", &c).unwrap_err();
+    let err = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(". = 5", &c).unwrap_err();
     assert_eq!(err.code, "err:FORG0001");
 }

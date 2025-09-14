@@ -1,10 +1,10 @@
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::{SimpleNode, XdmItem as I, evaluate_expr};
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::{xdm::XdmItem as I, engine::evaluator::evaluate_expr};
 use rstest::rstest;
 
 // Helper: evaluate simple expression with empty dynamic context
-fn eval(expr: &str) -> Vec<I<SimpleNode>> {
-    evaluate_expr::<SimpleNode>(expr, &DynamicContextBuilder::default().build()).unwrap()
+fn eval(expr: &str) -> Vec<I<platynui_xpath::model::simple::SimpleNode>> {
+    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &DynamicContextBuilder::default().build()).unwrap()
 }
 
 #[rstest]
@@ -47,7 +47,7 @@ fn value_string_relational() {
 #[rstest]
 fn value_boolean_relational_error() {
     // Expect dynamic error for boolean relational
-    let res = evaluate_expr::<SimpleNode>(
+    let res = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(
         "true() lt false()",
         &DynamicContextBuilder::default().build(),
     );

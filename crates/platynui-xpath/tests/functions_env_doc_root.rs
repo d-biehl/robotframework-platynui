@@ -1,16 +1,16 @@
-use platynui_xpath::runtime::{DynamicContextBuilder, NodeResolver};
-use platynui_xpath::{XdmItem, XdmNode, evaluate_expr};
+use platynui_xpath::engine::runtime::{DynamicContextBuilder, NodeResolver};
+use platynui_xpath::{xdm::XdmItem, model::XdmNode, engine::evaluator::evaluate_expr};
 use std::sync::Arc;
 
-type N = platynui_xpath::simple_node::SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
 struct TestNodeResolver;
 impl NodeResolver<N> for TestNodeResolver {
-    fn doc_node(&self, uri: &str) -> Result<Option<N>, platynui_xpath::runtime::Error> {
+    fn doc_node(&self, uri: &str) -> Result<Option<N>, platynui_xpath::engine::runtime::Error> {
         Ok(match uri {
             "urn:ok" => Some(
-                platynui_xpath::simple_node::doc()
-                    .child(platynui_xpath::simple_node::elem("root"))
+                platynui_xpath::model::simple::doc()
+                    .child(platynui_xpath::model::simple::elem("root"))
                     .build(),
             ),
             _ => None,
@@ -24,7 +24,7 @@ fn default_collation_reports_uri() {
     let out = evaluate_expr::<N>("default-collation()", &ctx).unwrap();
     match &out[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(s)) => {
-            assert_eq!(s, platynui_xpath::collation::CODEPOINT_URI)
+            assert_eq!(s, platynui_xpath::engine::collation::CODEPOINT_URI)
         }
         _ => panic!("expected string"),
     }
@@ -50,7 +50,7 @@ fn doc_available_uses_node_resolver() {
 
 #[test]
 fn root_function_returns_document_root() {
-    use platynui_xpath::simple_node::{doc, elem};
+    use platynui_xpath::model::simple::{doc, elem};
     let d = doc().child(elem("root").child(elem("c"))).build();
     let ctx = DynamicContextBuilder::<N>::default()
         .with_context_item(d.clone())
@@ -73,7 +73,7 @@ fn root_function_returns_document_root() {
 
 #[test]
 fn base_uri_document_uri_empty_without_adapter_support() {
-    use platynui_xpath::simple_node::{doc, elem};
+    use platynui_xpath::model::simple::{doc, elem};
     let d = doc().child(elem("root")).build();
     let ctx = DynamicContextBuilder::<N>::default()
         .with_context_item(d.clone())

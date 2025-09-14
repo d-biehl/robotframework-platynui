@@ -1,9 +1,9 @@
-use platynui_xpath::runtime::ErrorCode;
-use platynui_xpath::{SimpleNode, evaluate_expr, runtime::DynamicContextBuilder};
+use platynui_xpath::engine::runtime::ErrorCode;
+use platynui_xpath::{engine::evaluator::evaluate_expr, runtime::DynamicContextBuilder};
 
 fn err_code(expr: &str) -> ErrorCode {
     let ctx = DynamicContextBuilder::new().build();
-    evaluate_expr::<SimpleNode>(expr, &ctx)
+    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx)
         .unwrap_err()
         .code_enum()
 }

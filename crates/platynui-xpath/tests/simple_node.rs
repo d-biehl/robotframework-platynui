@@ -1,4 +1,4 @@
-use platynui_xpath::{SimpleNode, XdmNode, attr, elem, ns, simple_doc, text};
+use platynui_xpath::{model::simple::SimpleNode, model::XdmNode, attr, elem, ns, simple_doc, text};
 use rstest::rstest;
 
 fn cmp(a: &SimpleNode, b: &SimpleNode) -> &'static str {

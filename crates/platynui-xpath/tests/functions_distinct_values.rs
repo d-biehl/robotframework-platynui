@@ -1,17 +1,16 @@
 use platynui_xpath::{
     evaluator::evaluate_expr,
     runtime::DynamicContextBuilder,
-    simple_node::SimpleNode,
     xdm::{XdmAtomicValue, XdmItem},
 };
 use rstest::rstest;
 
-fn ctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 
-fn eval(expr: &str) -> Vec<XdmItem<SimpleNode>> {
-    evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap()
+fn eval(expr: &str) -> Vec<XdmItem<platynui_xpath::model::simple::SimpleNode>> {
+    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap()
 }
 
 #[rstest]
@@ -78,6 +77,6 @@ fn distinct_values_with_collation_case_insensitive() {
 #[rstest]
 fn distinct_values_non_atomic_error_ok() {
     let ok =
-        platynui_xpath::evaluator::evaluate_expr::<SimpleNode>("distinct-values((1,2))", &ctx());
+        platynui_xpath::engine::evaluator::evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("distinct-values((1,2))", &ctx());
     assert!(ok.is_ok());
 }

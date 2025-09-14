@@ -1,10 +1,10 @@
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::{SimpleNode, XdmItem as I, evaluate_expr, xdm::XdmAtomicValue as V};
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::{xdm::XdmItem as I, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as V};
 use rstest::rstest;
 
-fn eval(expr: &str) -> Vec<I<SimpleNode>> {
+fn eval(expr: &str) -> Vec<I<platynui_xpath::model::simple::SimpleNode>> {
     let ctx = DynamicContextBuilder::default().build();
-    evaluate_expr::<SimpleNode>(expr, &ctx).unwrap()
+    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx).unwrap()
 }
 
 #[rstest]

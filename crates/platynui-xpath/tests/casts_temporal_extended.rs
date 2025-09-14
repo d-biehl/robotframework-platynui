@@ -1,13 +1,13 @@
 use chrono::prelude::*; // bring year(), month(), etc. into scope
-use platynui_xpath::runtime::DynamicContextBuilder;
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::{
-    SimpleNode, StaticContextBuilder, XdmItem as I, compile_xpath_with_context, evaluate_expr,
+    StaticContextBuilder, xdm::XdmItem as I, compile_xpath_with_context, evaluate_expr,
     evaluator::evaluate, xdm::XdmAtomicValue as A,
 };
 use rstest::rstest;
 
-type N = SimpleNode;
-fn ctx() -> platynui_xpath::runtime::DynamicContext<N> {
+type N = platynui_xpath::model::simple::SimpleNode;
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
     DynamicContextBuilder::default().build()
 }
 
@@ -117,7 +117,7 @@ fn cast_dt_duration_invalid_time_component() {
 }
 
 // QName extended tests
-fn static_ctx_with_ns() -> platynui_xpath::StaticContext {
+fn static_ctx_with_ns() -> platynui_xpath::engine::runtime::StaticContext {
     StaticContextBuilder::default()
         .with_namespace("ex", "http://example.com")
         .build()
@@ -126,7 +126,7 @@ fn static_ctx_with_ns() -> platynui_xpath::StaticContext {
 #[rstest]
 fn cast_qname_with_prefix_success() {
     let sc = static_ctx_with_ns();
-    let dc: platynui_xpath::runtime::DynamicContext<N> = DynamicContextBuilder::default().build();
+    let dc: platynui_xpath::engine::runtime::DynamicContext<N> = DynamicContextBuilder::default().build();
     let compiled = compile_xpath_with_context("xs:QName('ex:local')", &sc).unwrap();
     let r = evaluate(&compiled, &dc).unwrap();
     if let I::Atomic(A::QName {
@@ -148,7 +148,7 @@ fn cast_qname_with_unknown_prefix_error() {
     let sc = StaticContextBuilder::default()
         .with_namespace("ex", "http://example.com")
         .build();
-    let dc: platynui_xpath::runtime::DynamicContext<N> = DynamicContextBuilder::default().build();
+    let dc: platynui_xpath::engine::runtime::DynamicContext<N> = DynamicContextBuilder::default().build();
     let compiled = compile_xpath_with_context("xs:QName('foo:local')", &sc).unwrap();
     let err = evaluate(&compiled, &dc).unwrap_err();
     assert!(

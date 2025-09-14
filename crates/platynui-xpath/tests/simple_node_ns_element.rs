@@ -1,5 +1,5 @@
-use platynui_xpath::XdmNode;
-use platynui_xpath::simple_node::{elem, ns};
+use platynui_xpath::model::XdmNode;
+use platynui_xpath::model::simple::{elem, ns};
 
 #[test]
 fn element_prefix_resolves_against_own_namespaces() {

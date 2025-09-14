@@ -1,10 +1,10 @@
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::{SimpleNode, XdmItem as I, XdmNode, evaluate_expr, xdm::XdmAtomicValue as A};
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::{xdm::XdmItem as I, model::XdmNode, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
 use rstest::rstest;
 
-type N = SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
-fn ctx() -> platynui_xpath::runtime::DynamicContext<N> {
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
     DynamicContextBuilder::default().build()
 }
 
@@ -82,7 +82,7 @@ fn qname_function_prefixed_with_empty_ns_current_behavior() {
 #[case("resolve-QName('xmlns:l', .)")] // reserved prefix currently accepted? if implementation accepts, treat as unknown -> error
 fn resolve_qname_invalid_lex(#[case] expr: &str) {
     // Build minimal context item (element) since resolve-QName needs a node context
-    use platynui_xpath::simple_node::elem;
+    use platynui_xpath::model::simple::elem;
     let doc = platynui_xpath::simple_doc().child(elem("root")).build();
     let root = doc.children()[0].clone();
     let c = DynamicContextBuilder::default()

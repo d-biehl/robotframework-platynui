@@ -1,9 +1,9 @@
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::{SimpleNode, XdmItem as I, evaluate_expr};
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::{xdm::XdmItem as I, engine::evaluator::evaluate_expr};
 use rstest::rstest;
 
-fn eval(expr: &str) -> Vec<I<SimpleNode>> {
-    evaluate_expr::<SimpleNode>(expr, &DynamicContextBuilder::default().build()).unwrap()
+fn eval(expr: &str) -> Vec<I<platynui_xpath::model::simple::SimpleNode>> {
+    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &DynamicContextBuilder::default().build()).unwrap()
 }
 
 #[rstest]
@@ -22,7 +22,7 @@ fn qname_equality_and_inequality() {
 
 #[rstest]
 fn qname_relational_errors() {
-    let res = evaluate_expr::<SimpleNode>(
+    let res = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(
         "QName('urn:x','p:l') lt QName('urn:x','p:m')",
         &DynamicContextBuilder::default().build(),
     );
@@ -47,7 +47,7 @@ fn notation_equality_and_inequality() {
 
 #[rstest]
 fn notation_relational_errors() {
-    let res = evaluate_expr::<SimpleNode>(
+    let res = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(
         "xs:NOTATION('p:l') lt xs:NOTATION('p:m')",
         &DynamicContextBuilder::default().build(),
     );

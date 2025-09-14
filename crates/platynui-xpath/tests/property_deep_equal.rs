@@ -1,5 +1,4 @@
 use platynui_xpath::functions::deep_equal_with_collation;
-use platynui_xpath::simple_node::SimpleNode;
 use platynui_xpath::xdm::{XdmAtomicValue, XdmItem};
 use proptest::prelude::*;
 use rstest::rstest;
@@ -19,7 +18,7 @@ prop_compose! {
 }
 
 prop_compose! {
-    fn arb_sequence()(vec in prop::collection::vec(arb_atomic(), 0..6)) -> Vec<XdmItem<SimpleNode>> {
+    fn arb_sequence()(vec in prop::collection::vec(arb_atomic(), 0..6)) -> Vec<XdmItem<platynui_xpath::model::simple::SimpleNode>> {
         vec.into_iter().map(XdmItem::Atomic).collect()
     }
 }
@@ -34,11 +33,11 @@ proptest! {
     }
 }
 
-fn eval_distinct_values(seq: &[XdmItem<SimpleNode>]) -> Vec<XdmItem<SimpleNode>> {
-    use platynui_xpath::evaluator::evaluate_expr;
-    use platynui_xpath::runtime::DynamicContext;
+fn eval_distinct_values(seq: &[XdmItem<platynui_xpath::model::simple::SimpleNode>]) -> Vec<XdmItem<platynui_xpath::model::simple::SimpleNode>> {
+    use platynui_xpath::engine::evaluator::evaluate_expr;
+    use platynui_xpath::engine::runtime::DynamicContext;
     use platynui_xpath::xdm::ExpandedName;
-    let mut ctx: DynamicContext<SimpleNode> = DynamicContext::default();
+    let mut ctx: DynamicContext<platynui_xpath::model::simple::SimpleNode> = DynamicContext::default();
     ctx.variables
         .insert(ExpandedName::new(None, "s"), seq.to_vec());
     evaluate_expr("distinct-values($s)", &ctx)

@@ -1,11 +1,11 @@
-use platynui_xpath::simple_node::{attr, elem, ns, text};
+use platynui_xpath::model::simple::{attr, elem, ns, text};
 use platynui_xpath::xdm::XdmAtomicValue;
-use platynui_xpath::{XdmItem as I, XdmNode, evaluate_expr, runtime::DynamicContextBuilder};
+use platynui_xpath::{xdm::XdmItem as I, model::XdmNode, engine::evaluator::evaluate_expr, runtime::DynamicContextBuilder};
 use rstest::rstest;
 
-type N = platynui_xpath::simple_node::SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
-fn ctx_with_tree() -> platynui_xpath::runtime::DynamicContext<N> {
+fn ctx_with_tree() -> platynui_xpath::engine::runtime::DynamicContext<N> {
     // <root xmlns:p="urn:one" a="1"><p:child id="c1">Hi</p:child><child/></root>
     let root = elem("root")
         .namespace(ns("p", "urn:one"))

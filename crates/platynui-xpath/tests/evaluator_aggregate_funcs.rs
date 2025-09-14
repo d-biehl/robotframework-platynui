@@ -1,16 +1,16 @@
 use platynui_xpath::{
-    SimpleNode, evaluate_expr,
+    evaluate_expr,
     runtime::DynamicContext,
     xdm::{XdmAtomicValue, XdmItem},
 };
 use rstest::rstest;
 
-fn ctx() -> DynamicContext<SimpleNode> {
+fn ctx() -> DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContext::default()
 }
 
 fn d(expr: &str) -> f64 {
-    let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
+    let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap();
     match seq.first() {
         Some(XdmItem::Atomic(XdmAtomicValue::Double(v))) => *v,
         Some(XdmItem::Atomic(XdmAtomicValue::Float(v))) => *v as f64,
@@ -38,7 +38,7 @@ fn sum_with_untyped_and_string_numbers(#[case] expr: &str, #[case] expected: f64
 #[case("avg((2,4,6))", Some(4.0))]
 #[case("avg(())", None)]
 fn avg_basic(#[case] expr: &str, #[case] expected: Option<f64>) {
-    let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
+    let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap();
     match expected {
         Some(val) => {
             let got = match seq.first().expect("value") {
@@ -69,7 +69,7 @@ fn min_max_numeric(#[case] expr: &str, #[case] expected: f64) {
 #[case("max(('b','aa','c'))", "c")]
 fn min_max_string_collation_fallback(#[case] expr: &str, #[case] expected: &str) {
     // Mixed non-numeric leads to string ordering branch; expect lexicographic min/max
-    let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
+    let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap();
     if let Some(XdmItem::Atomic(XdmAtomicValue::String(s))) = seq.first() {
         assert_eq!(s, expected);
     } else {
@@ -80,7 +80,7 @@ fn min_max_string_collation_fallback(#[case] expr: &str, #[case] expected: &str)
 #[rstest]
 #[case("min((number('abc'), 5))")]
 fn min_max_nan_propagation(#[case] expr: &str) {
-    let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
+    let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap();
     if let Some(XdmItem::Atomic(XdmAtomicValue::Double(dv))) = seq.first() {
         assert!(dv.is_nan());
     } else {

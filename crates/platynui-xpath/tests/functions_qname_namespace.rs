@@ -1,11 +1,11 @@
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::simple_node::{elem, ns};
-use platynui_xpath::{SimpleNode, XdmItem as I, XdmNode, evaluate_expr, xdm::XdmAtomicValue as A};
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::model::simple::{elem, ns};
+use platynui_xpath::{xdm::XdmItem as I, model::XdmNode, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
 use rstest::rstest;
 
-type N = SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
-fn ctx() -> platynui_xpath::runtime::DynamicContext<N> {
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
     DynamicContextBuilder::new().build()
 }
 

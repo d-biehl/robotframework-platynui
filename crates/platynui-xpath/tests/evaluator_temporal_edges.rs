@@ -1,9 +1,9 @@
-use platynui_xpath::{XdmItem, evaluate_expr, runtime::DynamicContextBuilder, xdm::XdmAtomicValue};
+use platynui_xpath::{xdm::XdmItem, engine::evaluator::evaluate_expr, runtime::DynamicContextBuilder, xdm::XdmAtomicValue};
 use proptest::prelude::*;
 use rstest::rstest;
 
 // Helper to evaluate with default dynamic context
-fn eval(expr: &str) -> Vec<XdmItem<platynui_xpath::simple_node::SimpleNode>> {
+fn eval(expr: &str) -> Vec<XdmItem<platynui_xpath::model::simple::SimpleNode>> {
     let ctx = DynamicContextBuilder::default().build();
     evaluate_expr(expr, &ctx).expect("evaluation error")
 }

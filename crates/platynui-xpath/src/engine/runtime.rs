@@ -1,4 +1,4 @@
-use crate::collation::{CODEPOINT_URI, Collation, CollationRegistry};
+use crate::engine::collation::{CODEPOINT_URI, Collation, CollationRegistry};
 use crate::xdm::{ExpandedName, XdmItem, XdmSequence};
 use core::fmt;
 use std::collections::HashMap;
@@ -755,7 +755,7 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for Dynam
             context_item: None,
             variables: HashMap::new(),
             default_collation: None,
-            functions: Arc::new(crate::functions::default_function_registry::<N>()),
+            functions: Arc::new(crate::engine::functions::default_function_registry::<N>()),
             collations: Arc::new(CollationRegistry::default()),
             node_resolver: None,
             regex: None,

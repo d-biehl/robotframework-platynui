@@ -1,15 +1,14 @@
-use platynui_xpath::evaluator::evaluate_expr;
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::simple_node::SimpleNode;
+use platynui_xpath::engine::evaluator::evaluate_expr;
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use rstest::rstest;
 
-fn dctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
+fn dctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 
 fn eval(expr: &str) -> Vec<String> {
     let dc = dctx();
-    let seq = evaluate_expr::<SimpleNode>(expr, &dc).unwrap();
+    let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &dc).unwrap();
     seq.into_iter().map(|i| i.to_string()).collect()
 }
 
@@ -24,7 +23,7 @@ fn index_of_case_insensitive_with_collation() {
 #[rstest]
 fn index_of_unknown_collation_errors() {
     let dc = dctx();
-    let res = evaluate_expr::<SimpleNode>("index-of(('a','b'),'a','http://example.com/zzz')", &dc);
+    let res = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("index-of(('a','b'),'a','http://example.com/zzz')", &dc);
     assert!(res.is_err());
     let msg = format!("{}", res.unwrap_err());
     assert!(msg.contains("FOCH0002"), "expected FOCH0002, got {msg}");

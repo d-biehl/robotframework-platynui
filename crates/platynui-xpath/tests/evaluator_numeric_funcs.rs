@@ -1,16 +1,16 @@
 use platynui_xpath::{
-    SimpleNode, evaluate_expr,
+    evaluate_expr,
     runtime::DynamicContext,
     xdm::{XdmAtomicValue, XdmItem},
 };
 use rstest::rstest;
 
-fn ctx() -> DynamicContext<SimpleNode> {
+fn ctx() -> DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContext::default()
 }
 
 fn double(expr: &str) -> f64 {
-    let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
+    let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap();
     if let Some(XdmItem::Atomic(XdmAtomicValue::Double(d))) = seq.first() {
         *d
     } else {

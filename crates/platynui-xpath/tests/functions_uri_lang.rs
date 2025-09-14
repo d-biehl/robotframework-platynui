@@ -1,9 +1,9 @@
-use platynui_xpath::runtime::{DynamicContextBuilder, StaticContextBuilder};
+use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilder};
 use platynui_xpath::{
     XdmItem, XdmNode, compiler::compile_xpath_with_context, evaluate, evaluate_expr,
 };
 
-type N = platynui_xpath::simple_node::SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
 #[test]
 fn static_base_uri_reports_from_static_ctx() {
@@ -70,9 +70,9 @@ fn escape_html_uri_spaces() {
 
 #[test]
 fn lang_matches_ancestor_xml_lang() {
-    use platynui_xpath::simple_node::{doc, elem};
+    use platynui_xpath::model::simple::{doc, elem};
     let root = elem("root")
-        .attr(platynui_xpath::simple_node::SimpleNode::attribute(
+        .attr(platynui_xpath::model::simple::SimpleNode::attribute(
             "xml:lang", "en-US",
         ))
         .child(elem("child"))

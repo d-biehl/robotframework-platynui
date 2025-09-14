@@ -1,15 +1,15 @@
 use platynui_xpath::{
-    evaluator::evaluate_expr, runtime::DynamicContextBuilder, simple_node::SimpleNode,
+    evaluator::evaluate_expr, runtime::DynamicContextBuilder,
 };
 use rstest::rstest;
 
-fn ctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 
 fn eval_bool(expr: &str) -> bool {
     let c = ctx();
-    let seq = evaluate_expr::<SimpleNode>(expr, &c).unwrap();
+    let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &c).unwrap();
     let v = seq[0].to_string();
     v == "Boolean(true)"
 }

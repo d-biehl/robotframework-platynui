@@ -1,21 +1,25 @@
-pub mod collation;
 pub mod compiler;
-pub mod eq;
-pub mod evaluator;
-pub mod functions;
-pub mod model;
 pub mod parser;
-pub mod runtime;
-pub mod simple_node;
-pub mod temporal;
-pub mod xdm; // EqKey equality kernel
+pub mod engine;
+pub mod model;
+pub mod xdm;
+pub mod util;
 
+// Back-compat public surface for existing tests and examples
 pub use compiler::{compile_xpath, compile_xpath_with_context};
-pub use evaluator::{evaluate, evaluate_expr};
+pub use engine::evaluator::{evaluate, evaluate_expr};
+pub use engine::runtime::{
+    DynamicContext, DynamicContextBuilder, StaticContext, StaticContextBuilder,
+};
 pub use model::{NodeKind, QName, XdmNode};
-pub use parser::XPathParseError;
-pub use parser::XPathParser;
-pub use parser::parse_xpath;
-pub use runtime::{DynamicContext, DynamicContextBuilder, StaticContext, StaticContextBuilder};
-pub use simple_node::{SimpleNode, SimpleNodeBuilder, attr, doc as simple_doc, elem, ns, text};
-pub use xdm::{ExpandedName, XdmItem, XdmSequence};
+pub use xdm::{ExpandedName, XdmItem, XdmSequence, XdmAtomicValue};
+pub use model::simple::{
+    SimpleNode, SimpleNodeBuilder, attr, elem, text, ns, doc as simple_doc,
+};
+
+// Lightweight forwarding modules to ease transition
+pub mod runtime { pub use crate::engine::runtime::*; }
+pub mod evaluator { pub use crate::engine::evaluator::*; }
+pub mod functions { pub use crate::engine::functions::*; }
+pub mod collation { pub use crate::engine::collation::*; }
+pub mod simple_node { pub use crate::model::simple::*; }

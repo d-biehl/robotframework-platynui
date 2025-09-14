@@ -3,7 +3,7 @@ use crate::compiler::ir::{
     QuantifierKind, SeqTypeIR, SingleTypeIR,
 };
 use crate::model::XdmNode;
-use crate::runtime::{CallCtx, DynamicContext, Error, ErrorCode};
+use crate::engine::runtime::{CallCtx, DynamicContext, Error, ErrorCode};
 use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence};
 use chrono::Duration as ChronoDuration;
 use chrono::{FixedOffset as ChronoFixedOffset, NaiveTime as ChronoNaiveTime, TimeZone};
@@ -33,7 +33,7 @@ struct Vm<'a, N> {
     // Frame stack for position()/last() support inside predicates / loops
     frames: Vec<Frame>,
     // Cached default collation for this VM (dynamic overrides static)
-    default_collation: Option<std::sync::Arc<dyn crate::collation::Collation>>,
+    default_collation: Option<std::sync::Arc<dyn crate::engine::collation::Collation>>,
 }
 
 #[derive(Clone, Debug)]
@@ -1225,13 +1225,13 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         .as_deref();
                     let f = match self.dyn_ctx.functions.resolve(en, argc, def_ns) {
                         Ok(f) => f,
-                        Err(crate::runtime::ResolveError::Unknown(resolved)) => {
+                        Err(crate::engine::runtime::ResolveError::Unknown(resolved)) => {
                             return Err(Error::static_code(
                                 ErrorCode::XPST0017,
                                 format!("unknown function: {{{:?}}}#{argc}", resolved),
                             ));
                         }
-                        Err(crate::runtime::ResolveError::WrongArity {
+                        Err(crate::engine::runtime::ResolveError::WrongArity {
                             name: resolved, ..
                         }) => {
                             // Humanize the provided argument count for a clearer diagnostic
@@ -1516,14 +1516,14 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 };
                 // Collation-aware: use default collation (fallback to codepoint)
                 let coll_arc;
-                let coll: &dyn crate::collation::Collation =
+                let coll: &dyn crate::engine::collation::Collation =
                     if let Some(c) = &self.default_collation {
                         c.as_ref()
                     } else {
                         coll_arc = self
                             .dyn_ctx
                             .collations
-                            .get(crate::collation::CODEPOINT_URI)
+                            .get(crate::engine::collation::CODEPOINT_URI)
                             .expect("codepoint collation registered");
                         coll_arc.as_ref()
                     };
@@ -2017,7 +2017,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         seq.iter().any(|i| self.item_equal(i, item))
     }
     fn item_equal(&self, a: &XdmItem<N>, b: &XdmItem<N>) -> bool {
-        use crate::eq::build_eq_key;
+        use crate::engine::eq::build_eq_key;
         match (a, b) {
             (XdmItem::Node(x), XdmItem::Node(y)) => x == y,
             (XdmItem::Atomic(_), XdmItem::Atomic(_)) => {
@@ -2352,17 +2352,17 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             _ => None,
         }
     }
-    fn parse_date(&self, s: &str) -> Result<XdmAtomicValue, crate::temporal::TemporalErr> {
-        let (d, tz) = crate::temporal::parse_date_lex(s)?;
+    fn parse_date(&self, s: &str) -> Result<XdmAtomicValue, crate::util::temporal::TemporalErr> {
+        let (d, tz) = crate::util::temporal::parse_date_lex(s)?;
         Ok(XdmAtomicValue::Date { date: d, tz })
     }
-    fn parse_time(&self, s: &str) -> Result<XdmAtomicValue, crate::temporal::TemporalErr> {
-        let (t, tz) = crate::temporal::parse_time_lex(s)?;
+    fn parse_time(&self, s: &str) -> Result<XdmAtomicValue, crate::util::temporal::TemporalErr> {
+        let (t, tz) = crate::util::temporal::parse_time_lex(s)?;
         Ok(XdmAtomicValue::Time { time: t, tz })
     }
-    fn parse_date_time(&self, s: &str) -> Result<XdmAtomicValue, crate::temporal::TemporalErr> {
-        let (d, t, tz) = crate::temporal::parse_date_time_lex(s)?;
-        let dt = crate::temporal::build_naive_datetime(d, t, tz);
+    fn parse_date_time(&self, s: &str) -> Result<XdmAtomicValue, crate::util::temporal::TemporalErr> {
+        let (d, t, tz) = crate::util::temporal::parse_date_time_lex(s)?;
+        let dt = crate::util::temporal::build_naive_datetime(d, t, tz);
         Ok(XdmAtomicValue::DateTime(dt))
     }
     fn parse_year_month_duration(&self, s: &str) -> Result<XdmAtomicValue, ()> {

@@ -1,16 +1,15 @@
-use platynui_xpath::evaluator::evaluate_expr;
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::simple_node::SimpleNode;
+use platynui_xpath::engine::evaluator::evaluate_expr;
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
 use rstest::rstest;
 
-fn dctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
+fn dctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 
-fn eval(expr: &str) -> XdmSequence<SimpleNode> {
+fn eval(expr: &str) -> XdmSequence<platynui_xpath::model::simple::SimpleNode> {
     let dc = dctx();
-    evaluate_expr::<SimpleNode>(expr, &dc).unwrap()
+    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &dc).unwrap()
 }
 
 #[rstest]
@@ -36,7 +35,7 @@ fn compare_empty_operand() {
 fn compare_unknown_collation() {
     let dc = dctx();
     let err =
-        evaluate_expr::<SimpleNode>("fn:compare('a','b','http://example.com/unknown-coll')", &dc)
+        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("fn:compare('a','b','http://example.com/unknown-coll')", &dc)
             .unwrap_err();
     assert!(format!("{err}").contains("FOCH0002"));
 }

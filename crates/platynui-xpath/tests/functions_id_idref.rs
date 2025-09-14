@@ -1,10 +1,10 @@
-use platynui_xpath::runtime::DynamicContextBuilder;
-use platynui_xpath::{XdmItem, XdmNode, evaluate_expr};
+use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::{xdm::XdmItem, model::XdmNode, engine::evaluator::evaluate_expr};
 
-type N = platynui_xpath::simple_node::SimpleNode;
+type N = platynui_xpath::model::simple::SimpleNode;
 
 fn build_sample_doc() -> N {
-    use platynui_xpath::simple_node::{attr, doc, elem};
+    use platynui_xpath::model::simple::{attr, doc, elem};
     // <root>
     //   <item xml:id="A"/>
     //   <item xml:id="B"/>

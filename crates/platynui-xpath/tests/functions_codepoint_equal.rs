@@ -1,9 +1,9 @@
 use platynui_xpath::{
-    evaluator::evaluate_expr, runtime::DynamicContextBuilder, simple_node::SimpleNode,
+    evaluator::evaluate_expr, runtime::DynamicContextBuilder,
 };
 use rstest::rstest;
 
-fn ctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 
@@ -16,7 +16,7 @@ fn ctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
 #[case("fn:codepoint-equal('a', ())", None)]
 fn codepoint_equal_param(#[case] expr: &str, #[case] expected_opt: Option<String>) {
     let c = ctx();
-    let seq = evaluate_expr::<SimpleNode>(expr, &c).unwrap();
+    let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &c).unwrap();
     let got = seq.first().map(|i| i.to_string());
     assert_eq!(got, expected_opt);
 }

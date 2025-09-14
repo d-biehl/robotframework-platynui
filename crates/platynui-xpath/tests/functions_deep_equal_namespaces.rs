@@ -1,10 +1,10 @@
 use platynui_xpath::functions::deep_equal_with_collation;
-use platynui_xpath::simple_node::SimpleNode;
-use platynui_xpath::simple_node::{elem, ns, text};
+use platynui_xpath::model::simple::SimpleNode;
+use platynui_xpath::model::simple::{elem, ns, text};
 use platynui_xpath::xdm::XdmItem;
 use rstest::rstest;
 
-fn wrap(root: SimpleNode) -> Vec<XdmItem<SimpleNode>> {
+fn wrap(root: SimpleNode) -> Vec<XdmItem<platynui_xpath::model::simple::SimpleNode>> {
     vec![XdmItem::Node(root)]
 }
 
