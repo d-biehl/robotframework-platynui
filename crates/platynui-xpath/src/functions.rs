@@ -351,14 +351,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             _ => unreachable!("registry guarantees arity in range"),
         })
     });
-    // namespace-uri()/namespace-uri($arg)
-    reg.register_ns_range(FNS, "namespace-uri", 0, Some(1), |ctx, args| {
-        match args.len() {
-            0 => namespace_uri_default(ctx, None),
-            1 => namespace_uri_default(ctx, Some(&args[0])),
-            _ => unreachable!("registry guarantees arity in range"),
-        }
-    });
+    // namespace-uri()/namespace-uri($arg) — registered below in QName/Namespace functions section
 
     // ===== QName / Namespace functions (Task 29) =====
     // fn:QName($namespaceURI as xs:string?, $qname as xs:string) as xs:QName
@@ -588,6 +581,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         };
         match item {
             XdmItem::Node(n) => {
+                // Namespace nodes do not have a QName; fn:namespace-uri must return empty sequence
+                if matches!(n.kind(), crate::model::NodeKind::Namespace) {
+                    return Ok(vec![]);
+                }
                 if let Some(q) = n.name() {
                     if let Some(uri) = q.ns_uri {
                         return Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri))]);
@@ -3236,48 +3233,7 @@ fn local_name_default<N: crate::model::XdmNode + Clone>(
     vec![XdmItem::Atomic(XdmAtomicValue::String(s))]
 }
 
-// Default implementation for namespace-uri() 0/1-arity
-fn namespace_uri_default<N: crate::model::XdmNode + Clone>(
-    ctx: &CallCtx<N>,
-    arg_opt: Option<&XdmSequence<N>>,
-) -> Result<XdmSequence<N>, Error> {
-    use crate::model::NodeKind;
-    if let Some(seq) = arg_opt {
-        if seq.is_empty() {
-            return Ok(vec![]);
-        }
-        match &seq[0] {
-            XdmItem::Node(n) => {
-                let uri = if matches!(n.kind(), NodeKind::Namespace) {
-                    String::new()
-                } else {
-                    n.name().and_then(|q| q.ns_uri).unwrap_or_default()
-                };
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri))])
-            }
-            _ => Err(Error::dynamic(
-                ErrorCode::XPTY0004,
-                "namespace-uri expects node()",
-            )),
-        }
-    } else {
-        let s = if let Some(ci) = &ctx.dyn_ctx.context_item {
-            match ci {
-                XdmItem::Node(n) => {
-                    if matches!(n.kind(), NodeKind::Namespace) {
-                        String::new()
-                    } else {
-                        n.name().and_then(|q| q.ns_uri).unwrap_or_default()
-                    }
-                }
-                _ => String::new(),
-            }
-        } else {
-            String::new()
-        };
-        Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(s))])
-    }
-}
+// (namespace-uri default helper removed; single spec-compliant implementation is registered above)
 
 // Default implementation for compare($A,$B[,$collation])
 fn compare_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(

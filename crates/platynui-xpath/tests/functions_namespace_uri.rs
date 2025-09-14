@@ -52,10 +52,10 @@ fn namespace_uri_on_pi_and_namespace_nodes() {
     let ctx = DynamicContextBuilder::<N>::default()
         .with_context_item(d.clone())
         .build();
-    // Processing-instruction has no QName -> empty
+    // Processing-instruction has no QName -> empty sequence
     let pi_ns = evaluate_expr::<N>("namespace-uri(//processing-instruction())", &ctx).unwrap();
     assert!(pi_ns.is_empty());
-    // Text node has no QName -> empty
+    // Text node has no QName -> empty sequence
     let empty = evaluate_expr::<N>("namespace-uri(/*/text())", &ctx).unwrap();
     assert!(empty.is_empty());
 }

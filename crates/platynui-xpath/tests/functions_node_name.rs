@@ -40,8 +40,8 @@ fn node_name_and_local_namespace() {
     let out = evaluate_expr::<N>("local-name(@a)", &ctx).unwrap();
     assert_eq!(out[0].to_string(), "String(\"a\")");
     let out = evaluate_expr::<N>("namespace-uri(@a)", &ctx).unwrap();
-    // attributes in no namespace unless explicitly bound
-    assert_eq!(out[0].to_string(), "AnyUri(\"\")");
+    // attributes in no namespace unless explicitly bound -> empty sequence per spec
+    assert!(out.is_empty());
 }
 
 #[rstest]
@@ -61,7 +61,7 @@ fn empty_and_unnamed_nodes() {
     let out = evaluate_expr::<N>("local-name(.)", &ctx).unwrap();
     assert_eq!(out[0].to_string(), "String(\"\")");
     let out = evaluate_expr::<N>("namespace-uri(.)", &ctx).unwrap();
-    assert_eq!(out[0].to_string(), "AnyUri(\"\")");
+    assert!(out.is_empty());
 }
 
 #[rstest]
@@ -81,12 +81,12 @@ fn prefixed_and_namespace_nodes() {
 
     // namespace-uri for element with no ns is empty
     let out = evaluate_expr::<N>("namespace-uri(.)", &ctx).unwrap();
-    assert_eq!(out[0].to_string(), "AnyUri(\"\")");
+    assert!(out.is_empty());
 
     // Namespace axis returns namespace nodes with prefix in name(), but namespace-uri(name()) is empty (name of namespace node is prefix)
     let out = evaluate_expr::<N>("name(namespace::p)", &ctx).unwrap();
     assert_eq!(out[0].to_string(), "String(\"p\")");
     let out = evaluate_expr::<N>("namespace-uri(namespace::p)", &ctx).unwrap();
-    // returning AnyUri("") because node's QName has no ns; the value of the namespace node is its URI
-    assert_eq!(out[0].to_string(), "AnyUri(\"\")");
+    // Namespace nodes have no QName -> empty sequence per fn:namespace-uri definition
+    assert!(out.is_empty());
 }
