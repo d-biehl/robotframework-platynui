@@ -114,8 +114,7 @@ fn value_ge(#[case] expr: &str, #[case] expect: bool) {
 #[case("false() ge false()")]
 fn boolean_relational_errors(#[case] expr: &str) {
     let err = evaluate_expr::<N>(expr, &ctx())
-        .err()
-        .expect("expected error");
+        .expect_err("expected error");
     assert!(
         err.code.contains("XPTY0004"),
         "expected XPTY0004, got {:?}",

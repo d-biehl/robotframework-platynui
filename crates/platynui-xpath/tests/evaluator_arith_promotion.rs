@@ -37,7 +37,7 @@ impl platynui_xpath::model::XdmNode for DummyNode {
 fn eval(expr: &str) -> XdmAtomicValue {
     let ctx: DynamicContext<DummyNode> = DynamicContext::default();
     let seq = evaluate_expr(expr, &ctx).expect("eval");
-    match seq.get(0) {
+    match seq.first() {
         Some(XdmItem::Atomic(a)) => a.clone(),
         _ => panic!("expected atomic"),
     }
@@ -45,14 +45,14 @@ fn eval(expr: &str) -> XdmAtomicValue {
 
 #[rstest]
 #[case("1 + 2", XdmAtomicValue::Integer(3))]
-#[case("1 + 2.5", XdmAtomicValue::Decimal(3.5.into()))]
-#[case("2.5 + 3.0", XdmAtomicValue::Decimal(5.5.into()))]
-#[case("3.0 + 4.0", XdmAtomicValue::Decimal(7.0.into()))]
-#[case("5.0 div 2", XdmAtomicValue::Decimal(2.5.into()))]
+#[case("1 + 2.5", XdmAtomicValue::Decimal(3.5))]
+#[case("2.5 + 3.0", XdmAtomicValue::Decimal(5.5))]
+#[case("3.0 + 4.0", XdmAtomicValue::Decimal(7.0))]
+#[case("5.0 div 2", XdmAtomicValue::Decimal(2.5))]
 #[case("5 idiv 2", XdmAtomicValue::Integer(2))]
-#[case("10.0 mod 4", XdmAtomicValue::Decimal(2.0.into()))]
-#[case("1.5 + 1.5", XdmAtomicValue::Decimal(3.0.into()))]
-#[case("1.5 + 1.5 - 1.0", XdmAtomicValue::Decimal(2.0.into()))]
+#[case("10.0 mod 4", XdmAtomicValue::Decimal(2.0))]
+#[case("1.5 + 1.5", XdmAtomicValue::Decimal(3.0))]
+#[case("1.5 + 1.5 - 1.0", XdmAtomicValue::Decimal(2.0))]
 fn arithmetic_promotion_cases(#[case] expr: &str, #[case] expected: XdmAtomicValue) {
     let got = eval(expr);
     match (got, expected) {

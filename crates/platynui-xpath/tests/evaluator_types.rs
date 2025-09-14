@@ -58,8 +58,7 @@ fn instance_of_cardinality_fail() {
 #[rstest]
 fn treat_cardinality_fail() {
     let err = evaluate_expr::<N>("('a','b') treat as xs:string?", &ctx())
-        .err()
-        .expect("expected error");
+        .expect_err("expected error");
     assert!(err.code.contains("XPTY0004"));
 }
 

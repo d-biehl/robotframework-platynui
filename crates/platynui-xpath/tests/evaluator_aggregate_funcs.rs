@@ -11,7 +11,7 @@ fn ctx() -> DynamicContext<SimpleNode> {
 
 fn d(expr: &str) -> f64 {
     let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
-    match seq.get(0) {
+    match seq.first() {
         Some(XdmItem::Atomic(XdmAtomicValue::Double(v))) => *v,
         Some(XdmItem::Atomic(XdmAtomicValue::Float(v))) => *v as f64,
         Some(XdmItem::Atomic(XdmAtomicValue::Decimal(v))) => *v,
@@ -41,7 +41,7 @@ fn avg_basic(#[case] expr: &str, #[case] expected: Option<f64>) {
     let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
     match expected {
         Some(val) => {
-            let got = match seq.get(0).expect("value") {
+            let got = match seq.first().expect("value") {
                 XdmItem::Atomic(XdmAtomicValue::Double(v)) => *v,
                 XdmItem::Atomic(XdmAtomicValue::Float(v)) => *v as f64,
                 XdmItem::Atomic(XdmAtomicValue::Decimal(v)) => *v,
@@ -70,7 +70,7 @@ fn min_max_numeric(#[case] expr: &str, #[case] expected: f64) {
 fn min_max_string_collation_fallback(#[case] expr: &str, #[case] expected: &str) {
     // Mixed non-numeric leads to string ordering branch; expect lexicographic min/max
     let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::String(s))) = seq.get(0) {
+    if let Some(XdmItem::Atomic(XdmAtomicValue::String(s))) = seq.first() {
         assert_eq!(s, expected);
     } else {
         panic!("expected string")
@@ -81,7 +81,7 @@ fn min_max_string_collation_fallback(#[case] expr: &str, #[case] expected: &str)
 #[case("min((number('abc'), 5))")]
 fn min_max_nan_propagation(#[case] expr: &str) {
     let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::Double(dv))) = seq.get(0) {
+    if let Some(XdmItem::Atomic(XdmAtomicValue::Double(dv))) = seq.first() {
         assert!(dv.is_nan());
     } else {
         panic!("expected double NaN")

@@ -80,8 +80,7 @@ fn inf_ne_neg_inf_true() {
 fn div_by_zero_error_integer() {
     // Integer division by zero should raise FOAR0001 (arithmetic error) not produce INF.
     let err = evaluate_expr::<N>("1 idiv 0", &ctx())
-        .err()
-        .expect("expected error");
+        .expect_err("expected error");
     assert!(
         err.code.contains("FOAR0001"),
         "expected FOAR0001 got {err:?}"

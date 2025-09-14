@@ -36,7 +36,7 @@ impl platynui_xpath::model::XdmNode for DummyNode {
 fn eval_atomic(expr: &str) -> XdmAtomicValue {
     let ctx: DynamicContext<DummyNode> = DynamicContext::default();
     let seq = evaluate_expr(expr, &ctx).expect("eval ok");
-    match seq.get(0) {
+    match seq.first() {
         Some(XdmItem::Atomic(a)) => a.clone(),
         _ => panic!("expected atomic"),
     }

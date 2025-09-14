@@ -27,8 +27,7 @@ fn node_before_cross_root_errors() {
         .with_variable(var_x.clone(), vec![I::Node(right)])
         .build();
     let err = evaluate_expr::<N>(". << $x", &ctx)
-        .err()
-        .expect("should error for cross-root");
+        .expect_err("should error for cross-root");
     assert_eq!(err.code_enum(), ErrorCode::FOER0000);
 }
 
@@ -45,7 +44,6 @@ fn node_after_cross_root_errors() {
         .with_variable(var_x.clone(), vec![I::Node(right)])
         .build();
     let err = evaluate_expr::<N>(". >> $x", &ctx)
-        .err()
-        .expect("should error for cross-root");
+        .expect_err("should error for cross-root");
     assert_eq!(err.code_enum(), ErrorCode::FOER0000);
 }

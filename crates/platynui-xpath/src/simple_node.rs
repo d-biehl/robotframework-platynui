@@ -89,7 +89,7 @@ impl PartialEq for SimpleNode {
 impl Eq for SimpleNode {}
 impl std::hash::Hash for SimpleNode {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        (Arc::as_ptr(&self.0) as *const Inner).hash(state)
+        Arc::as_ptr(&self.0).hash(state)
     }
 }
 
@@ -235,11 +235,10 @@ impl SimpleNode {
         let mut cur: Option<SimpleNode> = Some(self.clone());
         while let Some(n) = cur {
             for ns in n.namespaces() {
-                if let Some(name) = ns.name() {
-                    if name.prefix.as_deref() == Some(prefix) {
+                if let Some(name) = ns.name()
+                    && name.prefix.as_deref() == Some(prefix) {
                         return ns.string_value().into();
                     }
-                }
             }
             cur = n.parent();
         }
@@ -333,8 +332,8 @@ impl SimpleNodeBuilder {
                 // Resolve attribute namespace prefix using in-scope namespaces of the element.
                 // Default namespace does not apply to attributes; only prefixed names are resolved.
                 let mut pushed = false;
-                if let Some(qn) = &a.0.name {
-                    if let Some(pref) = &qn.prefix {
+                if let Some(qn) = &a.0.name
+                    && let Some(pref) = &qn.prefix {
                         let uri = if pref == "xml" {
                             Some(XML_URI.to_string())
                         } else {
@@ -359,7 +358,6 @@ impl SimpleNodeBuilder {
                             pushed = true;
                         }
                     }
-                }
                 if !pushed {
                     *a.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
                     let id = *self.node.0.doc_id.read().unwrap();
@@ -390,8 +388,8 @@ impl SimpleNodeBuilder {
                 {
                     let attrs = node.0.attributes.read().unwrap();
                     for (idx, a) in attrs.iter().enumerate() {
-                        if let Some(q) = a.name() {
-                            if let Some(pref) = q.prefix.as_ref() {
+                        if let Some(q) = a.name()
+                            && let Some(pref) = q.prefix.as_ref() {
                                 // Only replace if ns_uri is None
                                 if q.ns_uri.is_none() {
                                     let uri = if pref == "xml" {
@@ -418,7 +416,6 @@ impl SimpleNodeBuilder {
                                     }
                                 }
                             }
-                        }
                     }
                 }
                 if !to_replace.is_empty() {
@@ -495,11 +492,10 @@ impl XdmNode for SimpleNode {
                 }
                 let mut out = String::new();
                 fn dfs(n: &SimpleNode, out: &mut String) {
-                    if n.kind() == NodeKind::Text {
-                        if let Some(v) = &*n.0.value.read().unwrap() {
+                    if n.kind() == NodeKind::Text
+                        && let Some(v) = &*n.0.value.read().unwrap() {
                             out.push_str(v);
                         }
-                    }
                     for c in n.children() {
                         dfs(&c, out);
                     }
@@ -517,7 +513,7 @@ impl XdmNode for SimpleNode {
             .ok()?
             .as_ref()
             .and_then(|w| w.upgrade())
-            .map(|inner| SimpleNode(inner))
+            .map(SimpleNode)
     }
     fn children(&self) -> Vec<Self> {
         self.0

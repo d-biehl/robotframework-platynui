@@ -7,9 +7,10 @@ use platynui_xpath::{
 use rstest::rstest;
 
 fn ctx(val: &str) -> DynamicContext<SimpleNode> {
-    let mut c = DynamicContext::default();
-    c.context_item = Some(XdmItem::Node(SimpleNode::text(val)));
-    c
+    DynamicContext::<SimpleNode> {
+        context_item: Some(XdmItem::Node(SimpleNode::text(val))),
+        ..Default::default()
+    }
 }
 
 #[rstest]
@@ -61,7 +62,7 @@ fn boolean_numeric_eq_type_error() {
 fn incomparable_general_comparison_skips_errors() {
     let c = ctx("");
     let seq = evaluate_expr::<SimpleNode>("true() = (1,2)", &c).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.get(0) {
+    if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.first() {
         assert!(!b);
     } else {
         panic!("expected boolean")

@@ -11,7 +11,7 @@ fn ctx() -> DynamicContext<SimpleNode> {
 
 fn string(expr: &str) -> String {
     let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::String(s))) = seq.get(0) {
+    if let Some(XdmItem::Atomic(XdmAtomicValue::String(s))) = seq.first() {
         s.clone()
     } else {
         String::new()

@@ -392,8 +392,8 @@ fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
         return EqKey::Numeric(num);
     }
     match a {
-        Float(f) if f.is_nan() => return EqKey::NaN,
-        Double(f) if f.is_nan() => return EqKey::NaN,
+        Float(f) if f.is_nan() => EqKey::NaN,
+        Double(f) if f.is_nan() => EqKey::NaN,
         Boolean(b) => EqKey::Boolean(*b),
         String(s) | AnyUri(s) | UntypedAtomic(s) => {
             let key = if let Some(c) = coll {
@@ -460,8 +460,8 @@ fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
 
 fn ptr_as_u64<N: XdmNode>(n: &N) -> u64 {
     // Safety: relying on Eq/Hash semantics of underlying node types; for SimpleNode Arc ptr is stable.
-    let addr = (n as *const N) as usize as u64;
-    addr
+    
+    (n as *const N) as usize as u64
 }
 
 #[cfg(test)]

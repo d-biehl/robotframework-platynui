@@ -87,7 +87,7 @@ fn xs_dates_times_and_durations() {
     assert_eq!(
         dtd,
         vec![I::Atomic(A::DayTimeDuration(
-            1 * 24 * 3600 + 2 * 3600 + 3 * 60 + 4
+            24 * 3600 + 2 * 3600 + 3 * 60 + 4
         ))]
     );
 }

@@ -20,8 +20,8 @@ fn build_tree() -> N {
                 .child(elem("c").child(elem("d").child(text("three")))),
         )
         .build();
-    let doc_root = doc_node.children()[0].clone();
-    doc_root
+    
+    doc_node.children()[0].clone()
 }
 
 fn ctx_with(item: N) -> DynamicContext<N> {

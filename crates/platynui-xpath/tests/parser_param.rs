@@ -68,8 +68,8 @@ fn types_cases(#[case] input: &str, #[case] predicate: fn(&ast::Expr) -> bool) {
 
 #[rstest]
 #[case("if (1) then 2 else 3", |e: &ast::Expr| matches!(e, ast::Expr::IfThenElse { .. }))]
-#[case("some $x in (1,2) satisfies $x gt 1", |e: &ast::Expr| match e { ast::Expr::Quantified { kind: ast::Quantifier::Some, .. } => true, _ => false })]
-#[case("every $x in (1,2) satisfies $x ge 1", |e: &ast::Expr| match e { ast::Expr::Quantified { kind: ast::Quantifier::Every, .. } => true, _ => false })]
+#[case("some $x in (1,2) satisfies $x gt 1", |e: &ast::Expr| matches!(e, ast::Expr::Quantified { kind: ast::Quantifier::Some, .. }))]
+#[case("every $x in (1,2) satisfies $x ge 1", |e: &ast::Expr| matches!(e, ast::Expr::Quantified { kind: ast::Quantifier::Every, .. }))]
 #[case("for $x in (1,2) return $x", |e: &ast::Expr| match e { ast::Expr::ForExpr { bindings, .. } => bindings.len() == 1, _ => false })]
 fn control_flow(#[case] input: &str, #[case] predicate: fn(&ast::Expr) -> bool) {
     let e = parse(input);

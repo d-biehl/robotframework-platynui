@@ -36,7 +36,7 @@ impl XdmNode for DummyNode {
 fn eval(expr: &str) -> bool {
     let ctx: DynamicContext<DummyNode> = DynamicContext::default();
     let seq = evaluate_expr(expr, &ctx).expect("evaluation");
-    match seq.get(0) {
+    match seq.first() {
         Some(platynui_xpath::xdm::XdmItem::Atomic(
             platynui_xpath::xdm::XdmAtomicValue::Boolean(b),
         )) => *b,

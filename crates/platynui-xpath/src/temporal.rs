@@ -48,14 +48,13 @@ fn parse_fraction(frac: &str) -> Result<u32, TemporalErr> {
 }
 
 fn split_tz(s: &str) -> (&str, Option<&str>) {
-    if s.ends_with('Z') {
-        return (&s[..s.len() - 1], Some("Z"));
+    if let Some(stripped) = s.strip_suffix('Z') {
+        return (stripped, Some("Z"));
     }
-    if let Some(pos) = s.rfind(['+', '-']) {
-        if s.len() - pos == 6 {
+    if let Some(pos) = s.rfind(['+', '-'])
+        && s.len() - pos == 6 {
             return (&s[..pos], Some(&s[pos..]));
         }
-    }
     (s, None)
 }
 
@@ -83,8 +82,8 @@ fn parse_tz(tz: &str) -> Result<FixedOffset, TemporalErr> {
 
 pub fn parse_date_lex(s: &str) -> Result<(NaiveDate, Option<FixedOffset>), TemporalErr> {
     let (main, tz_opt) = split_tz(s);
-    let (neg, body) = if main.starts_with('-') {
-        (true, &main[1..])
+    let (neg, body) = if let Some(stripped) = main.strip_prefix('-') {
+        (true, stripped)
     } else {
         (false, main)
     };

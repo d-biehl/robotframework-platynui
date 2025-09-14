@@ -67,8 +67,7 @@ fn codepoints_to_string_invalid_error() {
     // 0x110000 is above the valid Unicode range; XPath integer literals are decimal-only.
     // Use decimal 1114112 (0x110000) to trigger FORG0001 from codepoints-to-string.
     let err = evaluate_expr::<N>("fn:codepoints-to-string((1114112))", &ctx())
-        .err()
-        .expect("should error");
+        .expect_err("should error");
     assert!(err.code.contains("FORG0001"));
 }
 
@@ -77,7 +76,6 @@ fn codepoints_to_string_invalid_surrogate_error() {
     // Surrogate range U+D800..U+DFFF is invalid as Unicode scalar values.
     // Pick a representative: 0xD800 (55296)
     let err = evaluate_expr::<N>("fn:codepoints-to-string((55296))", &ctx())
-        .err()
-        .expect("should error");
+        .expect_err("should error");
     assert!(err.code.contains("FORG0001"));
 }

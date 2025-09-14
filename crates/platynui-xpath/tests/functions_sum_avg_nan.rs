@@ -12,7 +12,7 @@ fn ctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
 
 fn double(expr: &str) -> f64 {
     let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::Double(d))) = seq.get(0) {
+    if let Some(XdmItem::Atomic(XdmAtomicValue::Double(d))) = seq.first() {
         *d
     } else {
         f64::NAN

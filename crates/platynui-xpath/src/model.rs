@@ -25,8 +25,8 @@ pub struct QName {
 /// - If one node is ancestor of the other, the ancestor precedes the descendant.
 /// - Among siblings, attributes (then namespaces) precede child nodes; within each group
 ///   retain the order provided by the adapter.
-/// Fallback comparator for document order based on ancestry and
-/// stable sibling ordering.
+/// - Fallback comparator for document order based on ancestry and
+///   stable sibling ordering.
 ///
 /// Properties:
 /// - If one node is an ancestor of the other, the ancestor precedes the descendant.

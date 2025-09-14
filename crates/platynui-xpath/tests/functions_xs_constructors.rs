@@ -48,8 +48,7 @@ fn xs_boolean_lexical_forms_and_empty() {
 #[rstest]
 fn xs_boolean_invalid_raises_forg0001() {
     let err = evaluate_expr::<N>("xs:boolean('yes')", &empty_ctx())
-        .err()
-        .expect("expected error");
+        .expect_err("expected error");
     assert!(
         err.code.contains("FORG0001"),
         "unexpected error code: {}",
@@ -86,8 +85,7 @@ fn xs_integer_on_node_atomizes() {
 fn xs_integer_invalid_raises_forg0001() {
     // Fractional numeric literal → FOCA0001 (fractional part) per updated constructor logic.
     let err_frac = evaluate_expr::<N>("xs:integer('3.14')", &empty_ctx())
-        .err()
-        .expect("expected error");
+        .expect_err("expected error");
     assert!(
         err_frac.code.contains("FOCA0001"),
         "3.14 expected FOCA0001, got {}",
@@ -95,8 +93,7 @@ fn xs_integer_invalid_raises_forg0001() {
     );
     // Non-numeric lexical → FORG0001
     let err_lex = evaluate_expr::<N>("xs:integer('abc')", &empty_ctx())
-        .err()
-        .expect("expected error");
+        .expect_err("expected error");
     assert!(
         err_lex.code.contains("FORG0001"),
         "abc expected FORG0001, got {}",

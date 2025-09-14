@@ -80,7 +80,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         .variables
                         .get(name)
                         .cloned()
-                        .unwrap_or_else(|| Vec::new());
+                        .unwrap_or_else(Vec::new);
                     self.stack.push(v);
                     ip += 1;
                 }
@@ -933,7 +933,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 OpCode::NodeIs => {
                     let rhs = self.pop_seq();
                     let lhs = self.pop_seq();
-                    let b = match (lhs.get(0), rhs.get(0)) {
+                    let b = match (lhs.first(), rhs.first()) {
                         (Some(XdmItem::Node(a)), Some(XdmItem::Node(b))) => a == b,
                         _ => false,
                     };
@@ -945,7 +945,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     let after = matches!(&ops[ip], OpCode::NodeAfter);
                     let rhs = self.pop_seq();
                     let lhs = self.pop_seq();
-                    let b = match (lhs.get(0), rhs.get(0)) {
+                    let b = match (lhs.first(), rhs.first()) {
                         (Some(XdmItem::Node(a)), Some(XdmItem::Node(b))) => {
                             match a.compare_document_order(b) {
                                 Ok(ord) => {
@@ -1311,9 +1311,9 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         position: usize,
         _last: usize,
     ) -> Result<bool, Error> {
-        if result.len() == 1 {
-            if let XdmItem::Atomic(a) = &result[0] {
-                if let Some(num) = match a {
+        if result.len() == 1
+            && let XdmItem::Atomic(a) = &result[0]
+                && let Some(num) = match a {
                     XdmAtomicValue::Integer(i) => Some(*i as f64),
                     XdmAtomicValue::Decimal(d) => Some(*d),
                     XdmAtomicValue::Double(d) => Some(*d),
@@ -1327,8 +1327,6 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     }
                     return Ok((num - (position as f64)).abs() < f64::EPSILON);
                 }
-            }
-        }
         // Fallback to EBV rules
         Self::ebv(result)
     }
@@ -1504,8 +1502,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         }
 
         // If both (after normalization) are strings and not numeric context
-        if matches!((&a_norm, &b_norm), (V::String(_), V::String(_))) {
-            if matches!(op, Lt | Le | Gt | Ge | Eq | Ne) {
+        if matches!((&a_norm, &b_norm), (V::String(_), V::String(_)))
+            && matches!(op, Lt | Le | Gt | Ge | Eq | Ne) {
                 let ls = if let V::String(s) = &a_norm {
                     s
                 } else {
@@ -1544,7 +1542,6 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     }
                 });
             }
-        }
 
         // QName equality (only Eq/Ne permitted); compare namespace URI + local name; ignore prefix
         if let (
@@ -1591,10 +1588,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             let (ua, ub) = unify_numeric(ca, cb);
             let (ln, rn) = (ua.to_f64(), ub.to_f64());
             if ln.is_nan() || rn.is_nan() {
-                return Ok(match op {
-                    ComparisonOp::Ne => true,
-                    _ => false,
-                });
+                return Ok(matches!(op, ComparisonOp::Ne));
             }
             return Ok(match op {
                 Eq => ln == rn,
@@ -1653,8 +1647,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             XdmAtomicValue::Date { date: db, tz: tb },
         ) = (a, b)
         {
-            let eff_tz_a = ta.clone().unwrap_or_else(|| self.implicit_timezone());
-            let eff_tz_b = tb.clone().unwrap_or_else(|| self.implicit_timezone());
+            let eff_tz_a = (*ta).unwrap_or_else(|| self.implicit_timezone());
+            let eff_tz_b = (*tb).unwrap_or_else(|| self.implicit_timezone());
             let na = da.and_time(ChronoNaiveTime::from_hms_opt(0, 0, 0).unwrap());
             let nb = db.and_time(ChronoNaiveTime::from_hms_opt(0, 0, 0).unwrap());
             let dta = eff_tz_a.from_local_datetime(&na).single().unwrap();
@@ -1677,8 +1671,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             XdmAtomicValue::Time { time: tb, tz: tzb },
         ) = (a, b)
         {
-            let eff_tz_a = tza.clone().unwrap_or_else(|| self.implicit_timezone());
-            let eff_tz_b = tzb.clone().unwrap_or_else(|| self.implicit_timezone());
+            let eff_tz_a = (*tza).unwrap_or_else(|| self.implicit_timezone());
+            let eff_tz_b = (*tzb).unwrap_or_else(|| self.implicit_timezone());
             let base = chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
             let na = base.and_time(*ta);
             let nb = base.and_time(*tb);
@@ -1910,6 +1904,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             Vec::new()
         }
     }
+    #[allow(clippy::only_used_in_recursion)]
     fn node_test(&self, node: &N, test: &NodeTestIR) -> bool {
         use NodeTestIR::*;
         match test {
@@ -2143,7 +2138,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     other => self.atomic_to_string(&other),
                 };
                 s.parse::<i64>()
-                    .map(|i| XdmAtomicValue::Integer(i))
+                    .map(XdmAtomicValue::Integer)
                     .map_err(|_| {
                         Error::dynamic(ErrorCode::FORG0001, "invalid integer lexical form")
                     })
@@ -2313,8 +2308,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             XdmItem::Node(n) => XdmAtomicValue::UntypedAtomic(n.string_value()),
         };
         // Fast-path for QName to ensure prefix resolution requirement similar to constructor semantics.
-        if t.atomic.local == "QName" {
-            if let XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) = &atomic {
+        if t.atomic.local == "QName"
+            && let XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) = &atomic {
                 if let Some(idx) = s.find(':') {
                     let p = &s[..idx];
                     if p.is_empty() {
@@ -2341,7 +2336,6 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     return false;
                 }
             }
-        }
         self.cast_atomic(atomic, &t.atomic).is_ok()
     }
     // Helper: best-effort canonical string form for debugging / fallback casts
@@ -2494,8 +2488,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 ),
             ));
         }
-        if let Some(max) = need_max {
-            if actual > max {
+        if let Some(max) = need_max
+            && actual > max {
                 return Err(Error::dynamic(
                     ErrorCode::XPTY0004,
                     format!(
@@ -2504,7 +2498,6 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     ),
                 ));
             }
-        }
         for it in seq {
             if !self.item_matches_type(it, item_type)? {
                 return Err(Error::dynamic(
@@ -2551,9 +2544,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             (Atomic(_), ItemTypeIR::AnyNode) => Ok(false),
             (Node(n), ItemTypeIR::Kind(k)) => Ok(self.node_test(
                 n,
-                &match k {
-                    _ => k.clone(),
-                },
+                &k.clone(),
             )), // reuse existing node_test via IR NodeTestIR
             (Atomic(a), ItemTypeIR::Atomic(exp)) => Ok(self.atomic_matches_name(a, exp)),
             (Atomic(_), ItemTypeIR::Kind(_)) => Ok(false),
@@ -2563,12 +2554,11 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
     fn atomic_matches_name(&self, a: &XdmAtomicValue, exp: &crate::xdm::ExpandedName) -> bool {
         use XdmAtomicValue::*;
         // Only recognize XML Schema built-ins (xs:*). Unknown namespaces do not match.
-        let xs_ns = Some("http://www.w3.org/2001/XMLSchema");
-        if let Some(ns) = &exp.ns_uri {
-            if ns.as_str() != xs_ns.unwrap() {
+        let xs_ns = "http://www.w3.org/2001/XMLSchema";
+        if let Some(ns) = &exp.ns_uri
+            && ns.as_str() != xs_ns {
                 return false;
             }
-        }
         match exp.local.as_str() {
             // Supertype
             "anyAtomicType" => true,

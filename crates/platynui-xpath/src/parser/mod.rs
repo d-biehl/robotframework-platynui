@@ -506,7 +506,7 @@ fn build_range_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
         it.next()
             .ok_or_else(|| ParseAstError::new("missing start of range"))?,
     )?;
-    if let Some(_) = it.next() {
+    if it.next().is_some() {
         // K_TO
         let end = build_additive_expr(
             it.next()
@@ -808,9 +808,9 @@ fn build_kind_test(pair: Pair<Rule>) -> AstResult<ast::KindTest> {
         Rule::any_kind_test => ast::KindTest::AnyKind,
         Rule::document_test => {
             // document_test = K_DOCUMENT_NODE LPAR (element_test | schema_element_test)? RPAR
-            let mut inner = first.into_inner();
+            let inner = first.into_inner();
             let mut found: Option<ast::KindTest> = None;
-            while let Some(p) = inner.next() {
+            for p in inner {
                 match p.as_rule() {
                     Rule::element_test => {
                         found = Some(build_kind_test_element(p)?);
@@ -865,11 +865,11 @@ fn build_kind_test(pair: Pair<Rule>) -> AstResult<ast::KindTest> {
 
 fn build_kind_test_element(pair: Pair<Rule>) -> AstResult<ast::KindTest> {
     // element_test = K_ELEMENT LPAR (element_name_or_wildcard (COMMA type_name QMARK?)?)? RPAR
-    let mut inner = pair.into_inner();
+    let inner = pair.into_inner();
     let mut name: Option<ast::ElementNameOrWildcard> = None;
     let mut ty: Option<ast::TypeName> = None;
     let mut nillable = false;
-    while let Some(p) = inner.next() {
+    for p in inner {
         match p.as_rule() {
             Rule::element_name_or_wildcard => {
                 let mut inn = p.clone().into_inner();
@@ -905,10 +905,10 @@ fn build_kind_test_element(pair: Pair<Rule>) -> AstResult<ast::KindTest> {
 
 fn build_kind_test_attribute(pair: Pair<Rule>) -> AstResult<ast::KindTest> {
     // attribute_test = K_ATTRIBUTE LPAR (attrib_name_or_wildcard (COMMA type_name)?)? RPAR
-    let mut inner = pair.into_inner();
+    let inner = pair.into_inner();
     let mut name: Option<ast::AttributeNameOrWildcard> = None;
     let mut ty: Option<ast::TypeName> = None;
-    while let Some(p) = inner.next() {
+    for p in inner {
         match p.as_rule() {
             Rule::attrib_name_or_wildcard => {
                 let mut inn = p.clone().into_inner();

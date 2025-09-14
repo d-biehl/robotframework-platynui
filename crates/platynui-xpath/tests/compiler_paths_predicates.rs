@@ -186,23 +186,21 @@ fn name_tests_wildcards() {
     let local_wc = ir(".//*:a");
     let mut found_local = false;
     for op in &local_wc.0 {
-        if let OpCode::AxisStep(_, NodeTestIR::LocalWildcard(l), _) = op {
-            if l == "a" {
+        if let OpCode::AxisStep(_, NodeTestIR::LocalWildcard(l), _) = op
+            && l == "a" {
                 found_local = true;
                 break;
             }
-        }
     }
     assert!(found_local);
     let ns_wc = ir(".//ns:*");
     let mut found_ns = false;
     for op in &ns_wc.0 {
-        if let OpCode::AxisStep(_, NodeTestIR::NsWildcard(p), _) = op {
-            if p == "ns" {
+        if let OpCode::AxisStep(_, NodeTestIR::NsWildcard(p), _) = op
+            && p == "ns" {
                 found_ns = true;
                 break;
             }
-        }
     }
     assert!(found_ns);
 }
@@ -211,7 +209,7 @@ fn name_tests_wildcards() {
 fn path_ir_sequence_complex() {
     let is = ir("/descendant::a[@id]/@class");
     let ops = &is.0;
-    assert!(matches!(ops.get(0), Some(OpCode::ToRoot)));
+    assert!(matches!(ops.first(), Some(OpCode::ToRoot)));
     match ops.get(1) {
         Some(OpCode::AxisStep(
             AxisIR::Descendant,
@@ -273,12 +271,10 @@ fn axis_multiple_predicates() {
     let mut seen_two = false;
     for op in &is.0 {
         if let OpCode::AxisStep(_, NodeTestIR::Name(ExpandedName { ns_uri: _, local }), preds) = op
-        {
-            if local == "a" {
+            && local == "a" {
                 seen_two = preds.len() == 2;
                 break;
             }
-        }
     }
     assert!(seen_two);
 }

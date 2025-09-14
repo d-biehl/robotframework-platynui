@@ -99,7 +99,7 @@ fn cast_ym_duration_extended(#[case] expr: &str, #[case] months: i32) {
 }
 
 #[rstest]
-#[case("xs:dayTimeDuration('-P1DT2H')", -(1*86400 + 2*3600))]
+#[case("xs:dayTimeDuration('-P1DT2H')", -(86400 + 2*3600))]
 #[case("xs:dayTimeDuration('P0D')", 0)]
 fn cast_dt_duration_extended(#[case] expr: &str, #[case] secs: i64) {
     let c = ctx();

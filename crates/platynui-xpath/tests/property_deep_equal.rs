@@ -34,13 +34,13 @@ proptest! {
     }
 }
 
-fn eval_distinct_values(seq: &Vec<XdmItem<SimpleNode>>) -> Vec<XdmItem<SimpleNode>> {
+fn eval_distinct_values(seq: &[XdmItem<SimpleNode>]) -> Vec<XdmItem<SimpleNode>> {
     use platynui_xpath::evaluator::evaluate_expr;
     use platynui_xpath::runtime::DynamicContext;
     use platynui_xpath::xdm::ExpandedName;
     let mut ctx: DynamicContext<SimpleNode> = DynamicContext::default();
     ctx.variables
-        .insert(ExpandedName::new(None, "s"), seq.clone());
+        .insert(ExpandedName::new(None, "s"), seq.to_vec());
     evaluate_expr("distinct-values($s)", &ctx)
         .expect("evaluation distinct-values")
         .into_iter()
@@ -50,8 +50,8 @@ fn eval_distinct_values(seq: &Vec<XdmItem<SimpleNode>>) -> Vec<XdmItem<SimpleNod
 proptest! {
     #[rstest]
     fn distinct_values_idempotent(seq in arb_sequence()) {
-        let once = eval_distinct_values(&seq);
-        let twice = eval_distinct_values(&once);
+    let once = eval_distinct_values(&seq);
+    let twice = eval_distinct_values(&once);
         prop_assert_eq!(once, twice);
     }
 }

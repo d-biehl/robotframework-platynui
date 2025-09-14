@@ -133,7 +133,7 @@ fn cast_ym_duration_invalid() {
 }
 
 #[rstest]
-#[case("xs:dayTimeDuration('P1DT2H')", 1*86400 + 2*3600)]
+#[case("xs:dayTimeDuration('P1DT2H')", 86400 + 2*3600)]
 #[case("xs:dayTimeDuration('PT30M')", 1800)]
 fn cast_dt_duration(#[case] expr: &str, #[case] secs: i64) {
     let c = ctx();

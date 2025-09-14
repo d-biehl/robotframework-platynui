@@ -10,7 +10,7 @@ fn ctx() -> DynamicContext<SimpleNode> {
 
 fn bool_val(expr: &str) -> bool {
     let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.get(0) {
+    if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.first() {
         *b
     } else {
         panic!("expected boolean")
@@ -19,7 +19,7 @@ fn bool_val(expr: &str) -> bool {
 
 fn string(expr: &str) -> String {
     let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::String(s))) = seq.get(0) {
+    if let Some(XdmItem::Atomic(XdmAtomicValue::String(s))) = seq.first() {
         s.clone()
     } else {
         String::new()

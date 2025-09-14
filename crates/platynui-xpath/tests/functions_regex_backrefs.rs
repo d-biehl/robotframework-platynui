@@ -9,7 +9,7 @@ fn ctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
 
 fn bool_val(expr: &str) -> bool {
     let seq = evaluate_expr::<SimpleNode>(expr, &ctx()).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.get(0) {
+    if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.first() {
         *b
     } else {
         panic!("expected boolean")
@@ -30,7 +30,7 @@ fn pattern_backreference_case_insensitive() {
 fn replacement_group_references_basic() {
     // Replace using $1 reference
     let seq = evaluate_expr::<SimpleNode>("replace('abc', '(a)(b)(c)', '$3$2$1')", &ctx()).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::String(s))) = seq.get(0) {
+    if let Some(XdmItem::Atomic(XdmAtomicValue::String(s))) = seq.first() {
         assert_eq!(s, "cba");
     } else {
         panic!("expected string result")

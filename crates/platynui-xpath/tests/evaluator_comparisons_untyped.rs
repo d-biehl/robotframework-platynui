@@ -6,14 +6,15 @@ use platynui_xpath::{
 use rstest::rstest;
 
 fn ctx(val: &str) -> DynamicContext<SimpleNode> {
-    let mut c = DynamicContext::default();
-    c.context_item = Some(XdmItem::Node(SimpleNode::text(val)));
-    c
+    DynamicContext::<SimpleNode> {
+        context_item: Some(XdmItem::Node(SimpleNode::text(val))),
+        ..Default::default()
+    }
 }
 
 fn bool_of(expr: &str, val: &str) -> bool {
     let seq = evaluate_expr::<SimpleNode>(expr, &ctx(val)).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.get(0) {
+    if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.first() {
         *b
     } else {
         panic!("expected boolean")

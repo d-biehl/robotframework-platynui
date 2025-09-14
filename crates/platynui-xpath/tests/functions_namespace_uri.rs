@@ -21,7 +21,7 @@ fn namespace_uri_on_elements_and_attributes() {
 
     // Element namespace
     let r = evaluate_expr::<N>("namespace-uri(/*)", &ctx).unwrap();
-    match &r.get(0) {
+    match &r.first() {
         Some(XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::AnyUri(u))) => {
             assert_eq!(u, "urn:one")
         }
@@ -34,7 +34,7 @@ fn namespace_uri_on_elements_and_attributes() {
 
     // Prefixed attribute inherits prefix namespace
     let pa = evaluate_expr::<N>("namespace-uri(/*/@*[local-name()='aid'])", &ctx).unwrap();
-    match &pa.get(0) {
+    match &pa.first() {
         Some(XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::AnyUri(u))) => {
             assert_eq!(u, "urn:one")
         }
@@ -76,7 +76,7 @@ fn namespace_uri_uses_context_item_when_omitted() {
         .with_context_item(root)
         .build();
     let r = evaluate_expr::<N>("namespace-uri()", &ctx).unwrap();
-    match &r.get(0) {
+    match &r.first() {
         Some(XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::AnyUri(u))) => {
             assert_eq!(u, "urn:x")
         }

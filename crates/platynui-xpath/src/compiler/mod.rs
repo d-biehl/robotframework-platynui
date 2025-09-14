@@ -516,20 +516,18 @@ impl<'a> Compiler<'a> {
             Some("xs") => Some("http://www.w3.org/2001/XMLSchema".to_string()),
             _ => q.ns_uri.clone(),
         };
-        if ns.is_none() {
-            if let Some(pref) = &q.prefix {
-                if let Some(uri) = self.static_ctx.namespaces.by_prefix.get(pref) {
+        if ns.is_none()
+            && let Some(pref) = &q.prefix
+                && let Some(uri) = self.static_ctx.namespaces.by_prefix.get(pref) {
                     ns = Some(uri.clone());
                 }
-            }
-        }
         ExpandedName {
             ns_uri: ns,
             local: q.local.clone(),
         }
     }
 
-    fn patch_jump(code: &mut Vec<ir::OpCode>, pos: usize) {
+    fn patch_jump(code: &mut [ir::OpCode], pos: usize) {
         let delta = code.len() - pos - 1;
         if let Some(op) = code.get_mut(pos) {
             match op {

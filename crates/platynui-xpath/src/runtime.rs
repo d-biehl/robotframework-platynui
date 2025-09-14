@@ -41,13 +41,18 @@ pub struct CallCtx<'a, N> {
 pub type FunctionImpl<N> =
     Arc<dyn Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error> + Send + Sync>;
 
+// Type aliases to keep complex nested types readable
+pub type FunctionOverload<N> = (Arity, Option<Arity>, FunctionImpl<N>);
+pub type FunctionOverloads<N> = Vec<FunctionOverload<N>>;
+
 pub struct FunctionRegistry<N> {
     // Range-based registrations keyed by name; each entry holds one or more
     // (min_arity, max_arity, impl) tuples. A call matches when argc >= min_arity
     // and (max_arity is None or argc <= max_arity). Variadic functions are
     // represented with max_arity = None. Exact-arity functions are stored with
     // min_arity == max_arity == arity.
-    fns: HashMap<ExpandedName, Vec<(Arity, Option<Arity>, FunctionImpl<N>)>>,
+    // Use type aliases to keep types readable and avoid excessive complexity
+    fns: HashMap<ExpandedName, FunctionOverloads<N>>,
 }
 
 impl<N> Default for FunctionRegistry<N> {
@@ -109,7 +114,7 @@ impl<N> FunctionRegistry<N> {
         use std::collections::hash_map::Entry;
         match self.fns.entry(name) {
             Entry::Vacant(e) => {
-                let mut v = vec![(min_arity, max_arity, func)];
+                let mut v: FunctionOverloads<N> = vec![(min_arity, max_arity, func)];
                 // ensure deterministic order even for single insert
                 v.sort_by(|a, b| {
                     let min_ord = b.0.cmp(&a.0);
@@ -265,19 +270,18 @@ impl<N> FunctionRegistry<N> {
         let effective: &ExpandedName = effective_buf.as_ref().unwrap_or(name);
         // Attempt an exact-arity match on the provided name (useful for locally-registered,
         // no-namespace functions) before applying default NS.
-        if let Some(cands) = self.fns.get(name) {
-            if let Some((_, _, f)) = cands
+        if let Some(cands) = self.fns.get(name)
+            && let Some((_, _, f)) = cands
                 .iter()
                 .find(|(min, max, _)| *min == arity && matches!(max, Some(m) if *m == arity))
             {
                 return Ok(f);
             }
-        }
         // Single map access for both range resolution and diagnostics
         if let Some(cands) = self.fns.get(effective) {
             if let Some((_, _, f)) = cands
                 .iter()
-                .find(|(min, max, _)| arity >= *min && max.map_or(true, |m| arity <= m))
+                .find(|(min, max, _)| arity >= *min && max.is_none_or(|m| arity <= m))
             {
                 return Ok(f);
             }
@@ -537,7 +541,6 @@ pub enum ErrorCode {
 /// - Expansion strategy: introduce variants when first needed; keep Unknown as
 ///   safe fallback for forward compatibility with older compiled artifacts.
 /// - Use `Error::code_enum()` for structured handling instead of matching raw strings.
-
 impl ErrorCode {
     pub fn as_str(&self) -> &'static str {
         use ErrorCode::*;
@@ -752,7 +755,7 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for Dynam
             context_item: None,
             variables: HashMap::new(),
             default_collation: None,
-            functions: Arc::new(crate::functions::default_function_registry()),
+            functions: Arc::new(crate::functions::default_function_registry::<N>()),
             collations: Arc::new(CollationRegistry::default()),
             node_resolver: None,
             regex: None,

@@ -1,3 +1,5 @@
+#![allow(clippy::approx_constant)]
+
 use platynui_xpath::compiler::{compile_xpath_with_context, ir::*};
 use platynui_xpath::runtime::StaticContext;
 use platynui_xpath::xdm::XdmAtomicValue;
@@ -15,6 +17,7 @@ fn ir(src: &str, ctx: &StaticContext) -> InstrSeq {
 }
 
 #[rstest]
+#[allow(clippy::approx_constant)]
 #[case("42", XdmAtomicValue::Integer(42))]
 #[case("3.14", XdmAtomicValue::Decimal(3.14))]
 #[case("1e2", XdmAtomicValue::Double(100.0))]

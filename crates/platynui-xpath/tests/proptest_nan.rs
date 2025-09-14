@@ -15,7 +15,7 @@ proptest! {
         let expr_ne = format!("number('{s}') != number('{s}')");
         let seq_eq = evaluate_expr(&expr_eq, &ctx).unwrap();
         let seq_ne = evaluate_expr(&expr_ne, &ctx).unwrap();
-        match (seq_eq.get(0), seq_ne.get(0)) {
+        match (seq_eq.first(), seq_ne.first()) {
             (Some(XdmItem::Atomic(XdmAtomicValue::Boolean(beq))), Some(XdmItem::Atomic(XdmAtomicValue::Boolean(bne)))) => {
                 // Expect equality false and inequality true.
                 prop_assert!(!beq && *bne, "expected NaN equality false & inequality true for {s}");

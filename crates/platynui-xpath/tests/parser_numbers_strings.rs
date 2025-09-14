@@ -1,3 +1,5 @@
+#![allow(clippy::approx_constant)]
+
 use platynui_xpath::parser::{ast, parse_xpath};
 use rstest::rstest;
 
@@ -6,6 +8,7 @@ fn parse(expr: &str) -> ast::Expr {
 }
 
 #[rstest]
+#[allow(clippy::approx_constant)]
 #[case("0", ast::Literal::Integer(0))]
 #[case("3.14", ast::Literal::Decimal(3.14))]
 #[case("1e3", ast::Literal::Double(1000.0))]

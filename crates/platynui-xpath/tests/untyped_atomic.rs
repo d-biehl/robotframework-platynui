@@ -40,16 +40,16 @@ fn eval_with(
     val: &str,
     expr: &str,
 ) -> Result<Vec<XdmItem<DummyNode>>, platynui_xpath::runtime::Error> {
-    let mut ctx: DynamicContext<DummyNode> = DynamicContext::default();
-    ctx.context_item = Some(XdmItem::Node(DummyNode {
-        val: val.to_string(),
-    }));
+    let ctx: DynamicContext<DummyNode> = DynamicContext::<DummyNode> {
+        context_item: Some(XdmItem::Node(DummyNode { val: val.to_string() })),
+        ..Default::default()
+    };
     evaluate_expr(expr, &ctx)
 }
 
 fn eval_atomic(val: &str, expr: &str) -> Result<XdmAtomicValue, platynui_xpath::runtime::Error> {
     let seq = eval_with(val, expr)?;
-    Ok(match seq.get(0) {
+    Ok(match seq.first() {
         Some(XdmItem::Atomic(a)) => a.clone(),
         _ => panic!("expected atomic"),
     })

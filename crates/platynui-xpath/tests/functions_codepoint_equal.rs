@@ -17,6 +17,6 @@ fn ctx() -> platynui_xpath::runtime::DynamicContext<SimpleNode> {
 fn codepoint_equal_param(#[case] expr: &str, #[case] expected_opt: Option<String>) {
     let c = ctx();
     let seq = evaluate_expr::<SimpleNode>(expr, &c).unwrap();
-    let got = seq.get(0).map(|i| i.to_string());
+    let got = seq.first().map(|i| i.to_string());
     assert_eq!(got, expected_opt);
 }

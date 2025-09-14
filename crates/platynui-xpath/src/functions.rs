@@ -54,7 +54,7 @@ fn contains_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     let sub = item_to_string(sub_seq);
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
     let k =
-        crate::collation::resolve_collation(&ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
+        crate::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
     let b = c.key(&s).contains(&c.key(&sub));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
@@ -70,7 +70,7 @@ fn starts_with_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>
     let sub = item_to_string(sub_seq);
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
     let k =
-        crate::collation::resolve_collation(&ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
+        crate::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
     let b = c.key(&s).starts_with(&c.key(&sub));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
@@ -86,7 +86,7 @@ fn ends_with_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     let sub = item_to_string(sub_seq);
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
     let k =
-        crate::collation::resolve_collation(&ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
+        crate::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
     let b = c.key(&s).ends_with(&c.key(&sub));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
@@ -172,8 +172,8 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         for it in &args[0] {
             match it {
                 XdmItem::Atomic(XdmAtomicValue::Integer(i)) => {
-                    let v = *i as i64;
-                    if v < 0 || v > 0x10FFFF {
+                    let v = *i;
+                    if !(0..=0x10FFFF).contains(&v) {
                         return Err(Error::dynamic(ErrorCode::FORG0001, "invalid code point"));
                     }
                     let u = v as u32;
@@ -403,11 +403,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         loop {
             if matches!(n.kind(), NodeKind::Element) {
                 for ns in n.namespaces() {
-                    if let Some(q) = ns.name() {
-                        if let (Some(p), Some(uri)) = (q.prefix, q.ns_uri) {
+                    if let Some(q) = ns.name()
+                        && let (Some(p), Some(uri)) = (q.prefix, q.ns_uri) {
                             map.entry(p).or_insert(uri);
                         }
-                    }
                 }
             }
             if let Some(p) = n.parent() {
@@ -574,7 +573,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let node_opt = if args.is_empty() {
             ctx.dyn_ctx.context_item.clone()
         } else {
-            args[0].get(0).cloned()
+            args[0].first().cloned()
         };
         let Some(item) = node_opt else {
             return Ok(vec![]);
@@ -776,7 +775,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         } else {
             let uri = item_to_string(&args[1]);
             let k = crate::collation::resolve_collation(
-                &ctx.dyn_ctx,
+                ctx.dyn_ctx,
                 ctx.default_collation.as_ref(),
                 Some(&uri),
             )?;
@@ -838,7 +837,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         } else {
             let uri = item_to_string(&args[1]);
             let k = crate::collation::resolve_collation(
-                &ctx.dyn_ctx,
+                ctx.dyn_ctx,
                 ctx.default_collation.as_ref(),
                 Some(&uri),
             )?;
@@ -851,7 +850,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         } else {
             let uri = item_to_string(&args[1]);
             let k = crate::collation::resolve_collation(
-                &ctx.dyn_ctx,
+                ctx.dyn_ctx,
                 ctx.default_collation.as_ref(),
                 Some(&uri),
             )?;
@@ -949,7 +948,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let node_opt = if args.is_empty() {
             ctx.dyn_ctx.context_item.clone()
         } else {
-            args[0].get(0).cloned()
+            args[0].first().cloned()
         };
         let Some(item) = node_opt else {
             return Ok(vec![]);
@@ -972,7 +971,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let node_opt = if args.is_empty() {
             ctx.dyn_ctx.context_item.clone()
         } else {
-            args[0].get(0).cloned()
+            args[0].first().cloned()
         };
         let Some(item) = node_opt else {
             return Ok(vec![]);
@@ -996,18 +995,17 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let node_opt = if args.is_empty() {
             ctx.dyn_ctx.context_item.clone()
         } else {
-            args[0].get(0).cloned()
+            args[0].first().cloned()
         };
         let Some(item) = node_opt else {
             return Ok(vec![]);
         };
         match item {
             XdmItem::Node(n) => {
-                if matches!(n.kind(), crate::model::NodeKind::Document) {
-                    if let Some(uri) = n.base_uri() {
+                if matches!(n.kind(), crate::model::NodeKind::Document)
+                    && let Some(uri) = n.base_uri() {
                         return Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri))]);
                     }
-                }
                 Ok(vec![])
             }
             _ => Err(Error::dynamic(
@@ -1978,7 +1976,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         }
         match &args[0][0] {
             XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => Ok(vec![XdmItem::Atomic(
-                XdmAtomicValue::Integer((*secs / (24 * 3600)) as i64),
+                XdmAtomicValue::Integer(*secs / (24 * 3600)),
             )]),
             XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(_)) => {
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
@@ -1988,7 +1986,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 let (m_opt, s_opt) = parse_duration_lexical(s)?;
                 if let Some(sec) = s_opt {
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                        (sec / (24 * 3600)) as i64,
+                        sec / (24 * 3600),
                     ))])
                 } else if m_opt.is_some() {
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
@@ -2000,7 +1998,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
                 if let Some(sec) = s_opt {
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                        (sec / (24 * 3600)) as i64,
+                        sec / (24 * 3600),
                     ))])
                 } else if m_opt.is_some() {
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
@@ -2020,7 +2018,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
                 let rem = *secs % (24 * 3600);
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                    (rem / 3600) as i64,
+                    rem / 3600,
                 ))])
             }
             XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(_)) => {
@@ -2032,7 +2030,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 if let Some(sec) = s_opt {
                     let rem = sec % (24 * 3600);
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                        (rem / 3600) as i64,
+                        rem / 3600,
                     ))])
                 } else if m_opt.is_some() {
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
@@ -2045,7 +2043,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 if let Some(sec) = s_opt {
                     let rem = sec % (24 * 3600);
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                        (rem / 3600) as i64,
+                        rem / 3600,
                     ))])
                 } else if m_opt.is_some() {
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
@@ -2065,7 +2063,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
                 let rem = *secs % 3600;
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                    (rem / 60) as i64,
+                    rem / 60,
                 ))])
             }
             XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(_)) => {
@@ -2077,7 +2075,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 if let Some(sec) = s_opt {
                     let rem = sec % 3600;
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                        (rem / 60) as i64,
+                        rem / 60,
                     ))])
                 } else if m_opt.is_some() {
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
@@ -2090,7 +2088,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 if let Some(sec) = s_opt {
                     let rem = sec % 3600;
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                        (rem / 60) as i64,
+                        rem / 60,
                     ))])
                 } else if m_opt.is_some() {
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
@@ -2294,16 +2292,14 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:integer"));
         }
         // If decimal point or exponent present attempt f64 parse to distinguish fractional (FOCA0001)
-        if s_trim.contains('.') || s_trim.contains('e') || s_trim.contains('E') {
-            if let Ok(f) = s_trim.parse::<f64>() {
-                if !f.is_finite() || f.fract() != 0.0 {
+        if (s_trim.contains('.') || s_trim.contains('e') || s_trim.contains('E'))
+            && let Ok(f) = s_trim.parse::<f64>()
+                && (!f.is_finite() || f.fract() != 0.0) {
                     return Err(Error::dynamic(
                         ErrorCode::FOCA0001,
                         "fractional part in integer cast",
                     ));
                 }
-            }
-        }
         let i: i64 = s_trim
             .parse()
             .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:integer"))?;
@@ -2559,7 +2555,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
 
     // Integer-derived subtypes (range checking)
     reg.register_ns(XS, "long", 1, |_ctx, args| {
-        int_subtype_i64(args, i64::MIN, i64::MAX, |v| XdmAtomicValue::Long(v))
+        int_subtype_i64(args, i64::MIN, i64::MAX, XdmAtomicValue::Long)
     });
     reg.register_ns(XS, "int", 1, |_ctx, args| {
         int_subtype_i64(args, i32::MIN as i64, i32::MAX as i64, |v| {
@@ -2597,10 +2593,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         })
     });
     reg.register_ns(XS, "nonPositiveInteger", 1, |_ctx, args| {
-        int_subtype_i64(args, i64::MIN, 0, |v| XdmAtomicValue::NonPositiveInteger(v))
+        int_subtype_i64(args, i64::MIN, 0, XdmAtomicValue::NonPositiveInteger)
     });
     reg.register_ns(XS, "negativeInteger", 1, |_ctx, args| {
-        int_subtype_i64(args, i64::MIN, -1, |v| XdmAtomicValue::NegativeInteger(v))
+        int_subtype_i64(args, i64::MIN, -1, XdmAtomicValue::NegativeInteger)
     });
     reg.register_ns(XS, "nonNegativeInteger", 1, |_ctx, args| {
         uint_subtype_u128(args, 0, u64::MAX as u128, |v| {
@@ -2657,22 +2653,22 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Language(s))])
     });
     reg.register_ns(XS, "Name", 1, |_ctx, args| {
-        str_name_like(args, true, true, |s| XdmAtomicValue::Name(s))
+        str_name_like(args, true, true, XdmAtomicValue::Name)
     });
     reg.register_ns(XS, "NCName", 1, |_ctx, args| {
-        str_name_like(args, true, false, |s| XdmAtomicValue::NCName(s))
+        str_name_like(args, true, false, XdmAtomicValue::NCName)
     });
     reg.register_ns(XS, "NMTOKEN", 1, |_ctx, args| {
-        str_name_like(args, false, false, |s| XdmAtomicValue::NMTOKEN(s))
+        str_name_like(args, false, false, XdmAtomicValue::NMTOKEN)
     });
     reg.register_ns(XS, "ID", 1, |_ctx, args| {
-        str_name_like(args, true, false, |s| XdmAtomicValue::Id(s))
+        str_name_like(args, true, false, XdmAtomicValue::Id)
     });
     reg.register_ns(XS, "IDREF", 1, |_ctx, args| {
-        str_name_like(args, true, false, |s| XdmAtomicValue::IdRef(s))
+        str_name_like(args, true, false, XdmAtomicValue::IdRef)
     });
     reg.register_ns(XS, "ENTITY", 1, |_ctx, args| {
-        str_name_like(args, true, false, |s| XdmAtomicValue::Entity(s))
+        str_name_like(args, true, false, XdmAtomicValue::Entity)
     });
     // NOTATION (QName lexical) — store lexical; minimal validation: QName-like
     reg.register_ns(XS, "NOTATION", 1, |_ctx, args| {
@@ -2758,17 +2754,15 @@ fn data_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
             }
         }
         Ok(out)
-    } else {
-        if let Some(ci) = &ctx.dyn_ctx.context_item {
-            match ci {
-                XdmItem::Atomic(a) => Ok(vec![XdmItem::Atomic(a.clone())]),
-                XdmItem::Node(n) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(
-                    n.string_value(),
-                ))]),
-            }
-        } else {
-            Ok(Vec::new())
+    } else if let Some(ci) = &ctx.dyn_ctx.context_item {
+        match ci {
+            XdmItem::Atomic(a) => Ok(vec![XdmItem::Atomic(a.clone())]),
+            XdmItem::Node(n) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(
+                n.string_value(),
+            ))]),
         }
+    } else {
+        Ok(Vec::new())
     }
 }
 
@@ -3028,7 +3022,7 @@ fn deep_equal_default<N: crate::model::XdmNode>(
     collation_uri: Option<&str>,
 ) -> Result<XdmSequence<N>, Error> {
     let k = crate::collation::resolve_collation(
-        &ctx.dyn_ctx,
+        ctx.dyn_ctx,
         ctx.default_collation.as_ref(),
         collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) }),
     )?;
@@ -3182,26 +3176,24 @@ fn name_default<N: crate::model::XdmNode + Clone>(
                 _ => return vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))],
             }
         }
-    } else {
-        if let Some(ci) = &ctx.dyn_ctx.context_item {
-            match ci {
-                XdmItem::Node(n) => n
-                    .name()
-                    .map(|q| {
-                        if matches!(n.kind(), NodeKind::Namespace) {
-                            q.local
-                        } else if let Some(p) = q.prefix {
-                            format!("{}:{}", p, q.local)
-                        } else {
-                            q.local
-                        }
-                    })
-                    .unwrap_or_default(),
-                _ => String::new(),
-            }
-        } else {
-            String::new()
+    } else if let Some(ci) = &ctx.dyn_ctx.context_item {
+        match ci {
+            XdmItem::Node(n) => n
+                .name()
+                .map(|q| {
+                    if matches!(n.kind(), NodeKind::Namespace) {
+                        q.local
+                    } else if let Some(p) = q.prefix {
+                        format!("{}:{}", p, q.local)
+                    } else {
+                        q.local
+                    }
+                })
+                .unwrap_or_default(),
+            _ => String::new(),
         }
+    } else {
+        String::new()
     };
     vec![XdmItem::Atomic(XdmAtomicValue::String(s))]
 }
@@ -3220,15 +3212,13 @@ fn local_name_default<N: crate::model::XdmNode + Clone>(
                 _ => return vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))],
             }
         }
-    } else {
-        if let Some(ci) = &ctx.dyn_ctx.context_item {
-            match ci {
-                XdmItem::Node(n) => n.name().map(|q| q.local).unwrap_or_default(),
-                _ => String::new(),
-            }
-        } else {
-            String::new()
+    } else if let Some(ci) = &ctx.dyn_ctx.context_item {
+        match ci {
+            XdmItem::Node(n) => n.name().map(|q| q.local).unwrap_or_default(),
+            _ => String::new(),
         }
+    } else {
+        String::new()
     };
     vec![XdmItem::Atomic(XdmAtomicValue::String(s))]
 }
@@ -3249,7 +3239,7 @@ fn compare_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     let sb = item_to_string(b);
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
     let k =
-        crate::collation::resolve_collation(&ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
+        crate::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
     let ord = c.compare(&sa, &sb);
     let v = match ord {
@@ -3271,7 +3261,7 @@ fn index_of_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     let mut out: XdmSequence<N> = Vec::new();
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
     let coll_kind =
-        crate::collation::resolve_collation(&ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
+        crate::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let coll: Option<&dyn crate::collation::Collation> = Some(coll_kind.as_trait());
     let needle_opt = search.first();
     // Precompute key for atomic needle; if NaN early return empty.
@@ -3794,8 +3784,8 @@ fn atomic_equal_with_collation(
 ) -> Result<bool, Error> {
     use crate::eq::build_eq_key;
     // Helper generic to appease type inference for XdmNode parameter.
-    fn key_for<'x, N: crate::model::XdmNode>(
-        v: &'x XdmAtomicValue,
+    fn key_for<N: crate::model::XdmNode>(
+        v: &XdmAtomicValue,
         coll: Option<&dyn crate::collation::Collation>,
     ) -> Result<crate::eq::EqKey, Error> {
         let item: XdmItem<N> = XdmItem::Atomic(v.clone());
@@ -3985,8 +3975,8 @@ fn minmax_impl<N: crate::model::XdmNode>(
         // Re-run with detailed kind inference to decide result type & value (acc_num already min/max as f64)
         let mut kind = NumericKind::Integer;
         for it in seq {
-            if let XdmItem::Atomic(a) = it {
-                if let Some((nk, num)) = classify_numeric(a)? {
+            if let XdmItem::Atomic(a) = it
+                && let Some((nk, num)) = classify_numeric(a)? {
                     if nk == NumericKind::Double && num.is_nan() {
                         return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
                     }
@@ -3995,7 +3985,6 @@ fn minmax_impl<N: crate::model::XdmNode>(
                     }
                     kind = kind.promote(nk);
                 }
-            }
         }
         let out = match kind {
             NumericKind::Integer => XdmAtomicValue::Integer(acc_num as i64),
@@ -4012,7 +4001,7 @@ fn minmax_impl<N: crate::model::XdmNode>(
         Some(c)
     } else {
         let k = crate::collation::resolve_collation(
-            &ctx.dyn_ctx,
+            ctx.dyn_ctx,
             ctx.default_collation.as_ref(),
             None,
         )?;
@@ -4048,7 +4037,7 @@ fn minmax_impl<N: crate::model::XdmNode>(
             }
         }
         let _arc_hold = &owned_coll; // keep alive
-        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(best_orig))]);
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(best_orig))])
     } else {
         let best = iter.fold(first, |acc, it| {
             let s = match it {

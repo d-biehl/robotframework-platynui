@@ -68,7 +68,7 @@ fn namespace_axis_on_element(ctx: DynamicContext<N>) {
 fn namespace_axis_filters_by_name(ctx: DynamicContext<N>) {
     // From <mid>, q should be present
     let mid_seq = evaluate_expr::<N>("child::mid/namespace::q", &ctx).unwrap();
-    assert!(mid_seq.len() >= 1);
+    assert!(!mid_seq.is_empty());
 }
 
 #[rstest]
