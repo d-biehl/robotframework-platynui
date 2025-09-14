@@ -213,8 +213,9 @@ impl<'a> Compiler<'a> {
                 bindings,
                 satisfies,
             } => {
-                // only single-binding for now; extend to chain via nested loops
+                // Support multiple bindings by nesting quantifiers left-to-right
                 if bindings.is_empty() {
+                    // Vacuous: some() -> false, every() -> true
                     self.emit(ir::OpCode::PushAtomic(XdmAtomicValue::Boolean(
                         match kind {
                             ast::Quantifier::Some => false,
@@ -223,17 +224,23 @@ impl<'a> Compiler<'a> {
                     )));
                     return Ok(());
                 }
-                let b = &bindings[0];
-                self.lower_expr(&b.in_expr)?;
-                let en = self.to_expanded(&b.var);
                 let k = match kind {
                     ast::Quantifier::Some => ir::QuantifierKind::Some,
                     ast::Quantifier::Every => ir::QuantifierKind::Every,
                 };
-                self.emit(ir::OpCode::QuantStartByName(k, en));
+                // Emit nested QuantStartByName for each binding
+                for b in bindings {
+                    self.lower_expr(&b.in_expr)?;
+                    let en = self.to_expanded(&b.var);
+                    self.emit(ir::OpCode::QuantStartByName(k, en));
+                }
+                // Body: satisfies expression (evaluated in innermost scope)
                 self.lower_expr(satisfies)?;
                 self.emit(ir::OpCode::ToEBV);
-                self.emit(ir::OpCode::QuantEnd);
+                // Close quantifiers in reverse order
+                for _ in bindings {
+                    self.emit(ir::OpCode::QuantEnd);
+                }
                 Ok(())
             }
             E::ForExpr {
@@ -241,18 +248,22 @@ impl<'a> Compiler<'a> {
                 return_expr,
             } => {
                 if bindings.is_empty() {
-                    self.lower_expr(return_expr)
-                } else {
-                    let b = &bindings[0];
+                    return self.lower_expr(return_expr);
+                }
+                // Nest for-loops left-to-right
+                self.emit(ir::OpCode::BeginScope(bindings.len()));
+                for b in bindings {
                     self.lower_expr(&b.in_expr)?;
-                    self.emit(ir::OpCode::BeginScope(1));
                     self.emit(ir::OpCode::ForStartByName(self.to_expanded(&b.var)));
-                    self.lower_expr(return_expr)?;
+                }
+                self.lower_expr(return_expr)?;
+                // Close loops: ForNext for each, then ForEnd for each
+                for _ in 0..bindings.len() {
                     self.emit(ir::OpCode::ForNext);
                     self.emit(ir::OpCode::ForEnd);
-                    self.emit(ir::OpCode::EndScope);
-                    Ok(())
                 }
+                self.emit(ir::OpCode::EndScope);
+                Ok(())
             }
             E::LetExpr { .. } => {
                 // Hinweis: 'let' ist Teil von XPath 2.0, wird in diesem Projekt aktuell bewusst nicht unterstützt.
@@ -326,7 +337,7 @@ impl<'a> Compiler<'a> {
     fn lower_path_steps(&mut self, steps: &[ast::Step]) -> CResult<()> {
         for s in steps {
             let axis = self.map_axis(&s.axis);
-            let test = self.map_node_test(&s.test);
+            let test = self.map_node_test_checked(&s.test)?;
             let preds = self.lower_predicates(&s.predicates)?;
             self.emit(ir::OpCode::AxisStep(axis, test, preds));
             self.emit(ir::OpCode::DocOrderDistinct);
@@ -353,19 +364,60 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn map_node_test(&self, t: &ast::NodeTest) -> ir::NodeTestIR {
-        match t {
+    fn map_node_test_checked(&self, t: &ast::NodeTest) -> CResult<ir::NodeTestIR> {
+        Ok(match t {
             ast::NodeTest::Name(nt) => match nt {
                 ast::NameTest::QName(q) => ir::NodeTestIR::Name(self.to_expanded(q)),
                 ast::NameTest::Wildcard(w) => match w {
                     ast::WildcardName::Any => ir::NodeTestIR::WildcardAny,
-                    ast::WildcardName::NsWildcard(ns) => ir::NodeTestIR::NsWildcard(ns.clone()),
+                    ast::WildcardName::NsWildcard(prefix) => {
+                        let uri = self
+                            .static_ctx
+                            .namespaces
+                            .by_prefix
+                            .get(prefix)
+                            .cloned()
+                            .unwrap_or_else(|| prefix.clone());
+                        ir::NodeTestIR::NsWildcard(uri)
+                    }
                     ast::WildcardName::LocalWildcard(loc) => {
                         ir::NodeTestIR::LocalWildcard(loc.clone())
                     }
                 },
             },
-            ast::NodeTest::Kind(k) => self.map_kind_test(k),
+            ast::NodeTest::Kind(k) => {
+                self.validate_kind_test(k)?;
+                self.map_kind_test(k)
+            }
+        })
+    }
+
+    fn validate_kind_test(&self, k: &ast::KindTest) -> CResult<()> {
+        use ast::KindTest as K;
+        match k {
+            K::Element { ty, nillable, .. } => {
+                if ty.is_some() || *nillable {
+                    return Err(Error::static_err(
+                        "err:XPST0003",
+                        "element() with type/nillable not supported without schema awareness",
+                    ));
+                }
+                Ok(())
+            }
+            K::Attribute { ty, .. } => {
+                if ty.is_some() {
+                    return Err(Error::static_err(
+                        "err:XPST0003",
+                        "attribute() with type not supported without schema awareness",
+                    ));
+                }
+                Ok(())
+            }
+            K::SchemaElement(_) | K::SchemaAttribute(_) => Err(Error::static_err(
+                "err:XPST0003",
+                "schema-* kind tests are not supported without schema awareness",
+            )),
+            _ => Ok(()),
         }
     }
 
@@ -441,7 +493,10 @@ impl<'a> Compiler<'a> {
         Ok(match t {
             Item => ir::ItemTypeIR::AnyItem,
             Atomic(q) => ir::ItemTypeIR::Atomic(self.to_expanded(q)),
-            Kind(k) => ir::ItemTypeIR::Kind(self.map_kind_test(k)),
+            Kind(k) => {
+                self.validate_kind_test(k)?;
+                ir::ItemTypeIR::Kind(self.map_kind_test(k))
+            }
         })
     }
     fn lower_occ(&self, o: &ast::Occurrence) -> ir::OccurrenceIR {
@@ -455,15 +510,19 @@ impl<'a> Compiler<'a> {
     }
 
     fn to_expanded(&self, q: &ast::QName) -> ExpandedName {
-        // Basic built-in prefix mapping for function and constructor namespaces.
-        // If the parser did not resolve namespaces, map common prefixes here:
-        // - fn => http://www.w3.org/2005/xpath-functions
-        // - xs => http://www.w3.org/2001/XMLSchema
-        let ns = match q.prefix.as_deref() {
+        // Resolve namespace using static context; retain built-in defaults for fn/xs.
+        let mut ns = match q.prefix.as_deref() {
             Some("fn") => Some("http://www.w3.org/2005/xpath-functions".to_string()),
             Some("xs") => Some("http://www.w3.org/2001/XMLSchema".to_string()),
             _ => q.ns_uri.clone(),
         };
+        if ns.is_none() {
+            if let Some(pref) = &q.prefix {
+                if let Some(uri) = self.static_ctx.namespaces.by_prefix.get(pref) {
+                    ns = Some(uri.clone());
+                }
+            }
+        }
         ExpandedName {
             ns_uri: ns,
             local: q.local.clone(),

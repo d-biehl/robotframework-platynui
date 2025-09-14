@@ -29,12 +29,24 @@ fn snapshot_defaults_utc() {
     let r_t = evaluate_expr::<N>("current-time()", &ctx).unwrap();
     let r_tz = evaluate_expr::<N>("implicit-timezone()", &ctx).unwrap();
 
-    assert_eq!(
-        &r_dt[0],
-        &I::Atomic(A::String("2025-09-12T01:02:03+00:00".into()))
-    );
-    assert_eq!(&r_d[0], &I::Atomic(A::String("2025-09-12+00:00".into())));
-    assert_eq!(&r_t[0], &I::Atomic(A::String("01:02:03+00:00".into())));
+    match &r_dt[0] {
+        I::Atomic(A::DateTime(dt_out)) => assert_eq!(*dt_out, now),
+        _ => panic!("expected dateTime"),
+    }
+    match &r_d[0] {
+        I::Atomic(A::Date { date, tz }) => {
+            assert_eq!(*date, now.date_naive());
+            assert_eq!(tz.unwrap().local_minus_utc(), 0);
+        }
+        _ => panic!("expected date"),
+    }
+    match &r_t[0] {
+        I::Atomic(A::Time { time, tz }) => {
+            assert_eq!(*time, now.time());
+            assert_eq!(tz.unwrap().local_minus_utc(), 0);
+        }
+        _ => panic!("expected time"),
+    }
     if let I::Atomic(A::DayTimeDuration(secs)) = &r_tz[0] {
         assert_eq!(*secs, 0);
     } else {
@@ -57,12 +69,26 @@ fn snapshot_with_timezone_override() {
     let r_tz = evaluate_expr::<N>("implicit-timezone()", &ctx).unwrap();
 
     // Local time shifts by +02:30 from 01:02:03 -> 03:32:03
-    assert_eq!(
-        &r_dt[0],
-        &I::Atomic(A::String("2025-09-12T03:32:03+02:30".into()))
-    );
-    assert_eq!(&r_d[0], &I::Atomic(A::String("2025-09-12+02:30".into())));
-    assert_eq!(&r_t[0], &I::Atomic(A::String("03:32:03+02:30".into())));
+    let tz = chrono::FixedOffset::east_opt(150 * 60).unwrap();
+    let expected = now.with_timezone(&tz);
+    match &r_dt[0] {
+        I::Atomic(A::DateTime(dt_out)) => assert_eq!(*dt_out, expected),
+        _ => panic!("expected dateTime"),
+    }
+    match &r_d[0] {
+        I::Atomic(A::Date { date, tz }) => {
+            assert_eq!(*date, expected.date_naive());
+            assert_eq!(tz.unwrap().local_minus_utc(), 150 * 60);
+        }
+        _ => panic!("expected date"),
+    }
+    match &r_t[0] {
+        I::Atomic(A::Time { time, tz }) => {
+            assert_eq!(*time, expected.time());
+            assert_eq!(tz.unwrap().local_minus_utc(), 150 * 60);
+        }
+        _ => panic!("expected time"),
+    }
     if let I::Atomic(A::DayTimeDuration(secs)) = &r_tz[0] {
         assert_eq!(*secs, 150 * 60);
     } else {
@@ -81,12 +107,24 @@ fn snapshot_respects_now_offset_no_override() {
     let r_t = evaluate_expr::<N>("current-time()", &ctx).unwrap();
     let r_tz = evaluate_expr::<N>("implicit-timezone()", &ctx).unwrap();
 
-    assert_eq!(
-        &r_dt[0],
-        &I::Atomic(A::String("2025-09-12T07:08:09-04:00".into()))
-    );
-    assert_eq!(&r_d[0], &I::Atomic(A::String("2025-09-12-04:00".into())));
-    assert_eq!(&r_t[0], &I::Atomic(A::String("07:08:09-04:00".into())));
+    match &r_dt[0] {
+        I::Atomic(A::DateTime(dt_out)) => assert_eq!(*dt_out, now),
+        _ => panic!("expected dateTime"),
+    }
+    match &r_d[0] {
+        I::Atomic(A::Date { date, tz }) => {
+            assert_eq!(*date, now.date_naive());
+            assert_eq!(tz.unwrap().local_minus_utc(), -4 * 3600);
+        }
+        _ => panic!("expected date"),
+    }
+    match &r_t[0] {
+        I::Atomic(A::Time { time, tz }) => {
+            assert_eq!(*time, now.time());
+            assert_eq!(tz.unwrap().local_minus_utc(), -4 * 3600);
+        }
+        _ => panic!("expected time"),
+    }
     if let I::Atomic(A::DayTimeDuration(secs)) = &r_tz[0] {
         assert_eq!(*secs, -4 * 3600);
     } else {

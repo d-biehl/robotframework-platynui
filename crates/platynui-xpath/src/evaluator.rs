@@ -1,6 +1,6 @@
 use crate::compiler::ir::{
-    AxisIR, ComparisonOp, CompiledXPath, InstrSeq, NodeTestIR, OpCode, QuantifierKind, SeqTypeIR,
-    SingleTypeIR,
+    AxisIR, ComparisonOp, CompiledXPath, InstrSeq, NameOrWildcard, NodeTestIR, OpCode,
+    QuantifierKind, SeqTypeIR, SingleTypeIR,
 };
 use crate::model::XdmNode;
 use crate::runtime::{CallCtx, DynamicContext, Error, ErrorCode};
@@ -730,7 +730,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                 ip += 1;
                                 pushed = true;
                             }
-                            OpCode::Div => { /* fall through to generic path: decimal result */ }
+                            OpCode::Div => {}
                             _ => {}
                         }
                     }
@@ -918,8 +918,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                     Err(e) => {
                                         // Treat FORG0006 / XPTY0004 as incomparable → ignore
                                         match e.code_enum() {
-                                            ErrorCode::FORG0006 | ErrorCode::XPTY0004 => { /* ignore */
-                                            }
+                                            ErrorCode::FORG0006 | ErrorCode::XPTY0004 => {}
                                             _ => return Err(e),
                                         }
                                     }
@@ -975,7 +974,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     // Pop N sequences, preserving left-to-right order
                     let len = self.stack.len();
                     let start = len.saturating_sub(n);
-                    for _ in start..len { /* pop later */ }
+                    for _ in start..len {}
                     let mut parts: Vec<XdmSequence<N>> = Vec::with_capacity(n);
                     for _ in 0..n {
                         parts.push(self.stack.pop().unwrap_or_default());
@@ -1258,7 +1257,6 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         dyn_ctx: self.dyn_ctx,
                         static_ctx: &self.compiled.static_ctx,
                         default_collation,
-                        resolver: self.dyn_ctx.resolver.clone(),
                         regex: self.dyn_ctx.regex.clone(),
                     };
                     let result = (f)(&call_ctx, &args)?;
@@ -1293,7 +1291,10 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 XdmItem::Atomic(XdmAtomicValue::Float(f)) => Ok(*f != 0.0 && !f.is_nan()),
                 XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => Ok(!s.is_empty()),
                 XdmItem::Node(_) => Ok(true),
-                _ => Ok(true),
+                _ => Err(Error::dynamic_err(
+                    "err:FORG0006",
+                    "EBV for this atomic type not supported",
+                )),
             },
             _ => Err(Error::dynamic_err(
                 "err:FORG0006",
@@ -1515,13 +1516,32 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 } else {
                     unreachable!()
                 };
+                // Collation-aware: use default collation (fallback to codepoint)
+                let coll_arc;
+                let coll: &dyn crate::collation::Collation =
+                    if let Some(c) = &self.default_collation {
+                        c.as_ref()
+                    } else {
+                        coll_arc = self
+                            .dyn_ctx
+                            .collations
+                            .get(crate::collation::CODEPOINT_URI)
+                            .expect("codepoint collation registered");
+                        coll_arc.as_ref()
+                    };
                 return Ok(match op {
-                    Eq => ls == rs,
-                    Ne => ls != rs,
-                    Lt => ls < rs,
-                    Le => ls <= rs,
-                    Gt => ls > rs,
-                    Ge => ls >= rs,
+                    Eq => coll.key(ls) == coll.key(rs),
+                    Ne => coll.key(ls) != coll.key(rs),
+                    Lt => coll.compare(ls, rs).is_lt(),
+                    Le => {
+                        let ord = coll.compare(ls, rs);
+                        ord.is_lt() || ord.is_eq()
+                    }
+                    Gt => coll.compare(ls, rs).is_gt(),
+                    Ge => {
+                        let ord = coll.compare(ls, rs);
+                        ord.is_gt() || ord.is_eq()
+                    }
                 });
             }
         }
@@ -1911,12 +1931,61 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             LocalWildcard(local) => node.name().map(|n| n.local == *local).unwrap_or(false),
             KindText => matches!(node.kind(), crate::model::NodeKind::Text),
             KindComment => matches!(node.kind(), crate::model::NodeKind::Comment),
-            KindProcessingInstruction(_) => {
-                matches!(node.kind(), crate::model::NodeKind::ProcessingInstruction)
+            KindProcessingInstruction(target_opt) => {
+                if !matches!(node.kind(), crate::model::NodeKind::ProcessingInstruction) {
+                    return false;
+                }
+                if let Some(target) = target_opt {
+                    if let Some(nm) = node.name() {
+                        nm.local == *target
+                    } else {
+                        false
+                    }
+                } else {
+                    true
+                }
             }
-            KindDocument(_) => matches!(node.kind(), crate::model::NodeKind::Document),
-            KindElement { .. } => matches!(node.kind(), crate::model::NodeKind::Element),
-            KindAttribute { .. } => matches!(node.kind(), crate::model::NodeKind::Attribute),
+            KindDocument(inner_opt) => {
+                if !matches!(node.kind(), crate::model::NodeKind::Document) {
+                    return false;
+                }
+                if let Some(inner) = inner_opt {
+                    for c in node.children() {
+                        if self.node_test(&c, inner) {
+                            return true;
+                        }
+                    }
+                    false
+                } else {
+                    true
+                }
+            }
+            KindElement { name, .. } => {
+                if !matches!(node.kind(), crate::model::NodeKind::Element) {
+                    return false;
+                }
+                match name {
+                    None => true,
+                    Some(NameOrWildcard::Any) => true,
+                    Some(NameOrWildcard::Name(exp)) => node
+                        .name()
+                        .map(|n| n.local == exp.local && n.ns_uri == exp.ns_uri)
+                        .unwrap_or(false),
+                }
+            }
+            KindAttribute { name, .. } => {
+                if !matches!(node.kind(), crate::model::NodeKind::Attribute) {
+                    return false;
+                }
+                match name {
+                    None => true,
+                    Some(NameOrWildcard::Any) => true,
+                    Some(NameOrWildcard::Name(exp)) => node
+                        .name()
+                        .map(|n| n.local == exp.local && n.ns_uri == exp.ns_uri)
+                        .unwrap_or(false),
+                }
+            }
             KindSchemaElement(_) | KindSchemaAttribute(_) => true, // simplified
         }
     }
@@ -2251,7 +2320,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     if p.is_empty() {
                         return false;
                     }
-                    if p == "xml" { /* always ok */
+                    if p == "xml" {
                     } else {
                         // look up prefix in static context
                         if !self

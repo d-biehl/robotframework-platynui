@@ -12,8 +12,9 @@ use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
 use base64::Engine as _; // for STANDARD.decode
 use chrono::{
     DateTime as ChronoDateTime, Datelike, FixedOffset as ChronoFixedOffset, NaiveDate, NaiveTime,
-    Timelike,
+    TimeZone, Timelike,
 };
+use unicode_normalization::UnicodeNormalization;
 
 const FNS: &str = "http://www.w3.org/2005/xpath-functions";
 const XS: &str = "http://www.w3.org/2001/XMLSchema";
@@ -25,6 +26,7 @@ fn ebv<N>(seq: &XdmSequence<N>) -> Result<bool, Error> {
             XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => Ok(*b),
             XdmItem::Atomic(XdmAtomicValue::String(s)) => Ok(!s.is_empty()),
             XdmItem::Atomic(XdmAtomicValue::Integer(i)) => Ok(*i != 0),
+            XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => Ok(*d != 0.0),
             XdmItem::Atomic(XdmAtomicValue::Double(d)) => Ok(*d != 0.0 && !d.is_nan()),
             XdmItem::Atomic(XdmAtomicValue::Float(f)) => Ok(*f != 0.0 && !f.is_nan()),
             XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => Ok(!s.is_empty()),
@@ -90,12 +92,9 @@ fn ends_with_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
 }
 
-// (macro removed earlier)
-
 pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNode + Clone>()
 -> FunctionRegistry<N> {
     let mut reg: FunctionRegistry<N> = FunctionRegistry::new();
-    // helper fn (module-level below) will register under a specific namespace to avoid borrow issues
 
     // ===== Core booleans =====
     reg.register_ns(FNS, "true", 0, |_ctx, _args| {
@@ -576,6 +575,40 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         Ok(out)
     });
 
+    // fn:namespace-uri($arg as node()?) as xs:anyURI?
+    // If omitted, use context item. Returns empty sequence if node has no namespace or is unnamed.
+    reg.register_ns_range(FNS, "namespace-uri", 0, Some(1), |ctx, args| {
+        let node_opt = if args.is_empty() {
+            ctx.dyn_ctx.context_item.clone()
+        } else {
+            args[0].get(0).cloned()
+        };
+        let Some(item) = node_opt else {
+            return Ok(vec![]);
+        };
+        match item {
+            XdmItem::Node(n) => {
+                if let Some(q) = n.name() {
+                    if let Some(uri) = q.ns_uri {
+                        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri))]);
+                    }
+                    if let Some(pref) = q.prefix {
+                        // Resolve prefix via in-scope namespaces (self + ancestors)
+                        let map = inscope_for(n.clone());
+                        if let Some(uri) = map.get(&pref) {
+                            return Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri.clone()))]);
+                        }
+                    }
+                }
+                Ok(vec![])
+            }
+            _ => Err(Error::dynamic(
+                ErrorCode::XPTY0004,
+                "namespace-uri() expects node()",
+            )),
+        }
+    });
+
     // ===== Numeric family =====
     reg.register_ns(FNS, "abs", 1, |_ctx, args| Ok(num_unary(args, |n| n.abs())));
     reg.register_ns(FNS, "floor", 1, |_ctx, args| {
@@ -893,6 +926,532 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     // Implementation: currently pass-through without side-effects, optional hook in future.
     reg.register_ns(FNS, "trace", 2, |_ctx, args| Ok(args[0].clone()));
 
+    // ===== Environment / Document / URI helpers (Batch A subset) =====
+    // default-collation() as xs:string
+    reg.register_ns(FNS, "default-collation", 0, |ctx, _args| {
+        let uri = if let Some(c) = &ctx.default_collation {
+            c.uri().to_string()
+        } else if let Some(s) = &ctx.static_ctx.default_collation {
+            s.clone()
+        } else {
+            crate::collation::CODEPOINT_URI.to_string()
+        };
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(uri))])
+    });
+    // static-base-uri() as xs:anyURI?
+    reg.register_ns(FNS, "static-base-uri", 0, |ctx, _args| {
+        if let Some(b) = &ctx.static_ctx.base_uri {
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(b.clone()))])
+        } else {
+            Ok(vec![])
+        }
+    });
+    // root($arg as node()?) as node()?
+    reg.register_ns_range(FNS, "root", 0, Some(1), |ctx, args| {
+        // Determine node argument or context item
+        let node_opt = if args.is_empty() {
+            ctx.dyn_ctx.context_item.clone()
+        } else {
+            args[0].get(0).cloned()
+        };
+        let Some(item) = node_opt else {
+            return Ok(vec![]);
+        };
+        match item {
+            XdmItem::Node(n) => {
+                let mut cur = n.clone();
+                let mut p = cur.parent();
+                while let Some(pp) = p {
+                    cur = pp.clone();
+                    p = cur.parent();
+                }
+                Ok(vec![XdmItem::Node(cur)])
+            }
+            _ => Err(Error::dynamic(ErrorCode::XPTY0004, "root() expects node()")),
+        }
+    });
+    // base-uri($arg as node()?) as xs:anyURI?
+    reg.register_ns_range(FNS, "base-uri", 0, Some(1), |ctx, args| {
+        let node_opt = if args.is_empty() {
+            ctx.dyn_ctx.context_item.clone()
+        } else {
+            args[0].get(0).cloned()
+        };
+        let Some(item) = node_opt else {
+            return Ok(vec![]);
+        };
+        match item {
+            XdmItem::Node(n) => {
+                if let Some(uri) = n.base_uri() {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri))])
+                } else {
+                    Ok(vec![])
+                }
+            }
+            _ => Err(Error::dynamic(
+                ErrorCode::XPTY0004,
+                "base-uri() expects node()",
+            )),
+        }
+    });
+    // document-uri($arg as node()?) as xs:anyURI?
+    reg.register_ns_range(FNS, "document-uri", 0, Some(1), |ctx, args| {
+        let node_opt = if args.is_empty() {
+            ctx.dyn_ctx.context_item.clone()
+        } else {
+            args[0].get(0).cloned()
+        };
+        let Some(item) = node_opt else {
+            return Ok(vec![]);
+        };
+        match item {
+            XdmItem::Node(n) => {
+                if matches!(n.kind(), crate::model::NodeKind::Document) {
+                    if let Some(uri) = n.base_uri() {
+                        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri))]);
+                    }
+                }
+                Ok(vec![])
+            }
+            _ => Err(Error::dynamic(
+                ErrorCode::XPTY0004,
+                "document-uri() expects node()",
+            )),
+        }
+    });
+    // lang($test as xs:string?) as xs:boolean
+    reg.register_ns(FNS, "lang", 1, |ctx, args| {
+        // If arg empty -> false
+        if args[0].is_empty() {
+            return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]);
+        }
+        let test = item_to_string(&args[0]).to_ascii_lowercase();
+        // target node = context item
+        let Some(XdmItem::Node(mut n)) = ctx.dyn_ctx.context_item.clone() else {
+            return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]);
+        };
+        // Walk up ancestors to find xml:lang
+        let mut lang_val: Option<String> = None;
+        loop {
+            for a in n.attributes() {
+                if let Some(q) = a.name() {
+                    let is_xml_lang = q.local == "lang"
+                        && (q.prefix.as_deref() == Some("xml")
+                            || q.ns_uri.as_deref() == Some("http://www.w3.org/XML/1998/namespace"));
+                    if is_xml_lang {
+                        lang_val = Some(a.string_value());
+                        break;
+                    }
+                }
+            }
+            if lang_val.is_some() {
+                break;
+            }
+            if let Some(p) = n.parent() {
+                n = p;
+            } else {
+                break;
+            }
+        }
+        let result = if let Some(lang) = lang_val {
+            let l = lang.to_ascii_lowercase();
+            l == test || (l.starts_with(&test) && l.chars().nth(test.len()) == Some('-'))
+        } else {
+            false
+        };
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(result))])
+    });
+
+    // Helper: simple ASCII NCName check (sufficient for tests)
+    fn is_ncname_ascii(s: &str) -> bool {
+        if s.is_empty() {
+            return false;
+        }
+        let mut chars = s.chars();
+        match chars.next().unwrap() {
+            'A'..='Z' | 'a'..='z' | '_' => {}
+            _ => return false,
+        }
+        for ch in chars {
+            match ch {
+                'A'..='Z' | 'a'..='z' | '_' | '0'..='9' | '-' | '.' => {}
+                _ => return false,
+            }
+        }
+        true
+    }
+    fn topmost_ancestor<N: crate::model::XdmNode + Clone>(mut n: N) -> N {
+        while let Some(p) = n.parent() {
+            n = p;
+        }
+        n
+    }
+    // element-with-id($arg as xs:string*[, $node as node()]) as element()*
+    // id($arg as xs:string*[, $node as node()]) as element()*
+    // Minimal non-schema-aware behavior: treat attributes named xml:id or unprefixed 'id' as ID values.
+    let find_elements_with_id =
+        |start_node_opt: Option<XdmItem<N>>, tokens: &std::collections::HashSet<String>| {
+            let mut out: XdmSequence<N> = Vec::new();
+            let Some(XdmItem::Node(start)) = start_node_opt else {
+                return Ok(out);
+            };
+            let root = topmost_ancestor(start);
+            // DFS preserving document order
+            let mut stack: Vec<N> = vec![root.clone()];
+            while let Some(node) = stack.pop() {
+                // push children in reverse to visit in natural order
+                let children = node.children();
+                for c in children.iter().rev() {
+                    stack.push(c.clone());
+                }
+                use crate::model::NodeKind;
+                if matches!(node.kind(), NodeKind::Element) {
+                    // Check attributes for xml:id or id
+                    let mut has_match = false;
+                    for a in node.attributes() {
+                        if let Some(q) = a.name() {
+                            let is_xml_id = q.local == "id"
+                                && (q.prefix.as_deref() == Some("xml")
+                                    || q.ns_uri.as_deref()
+                                        == Some("http://www.w3.org/XML/1998/namespace"));
+                            let is_plain_id =
+                                q.local == "id" && q.prefix.is_none() && q.ns_uri.is_none();
+                            if is_xml_id || is_plain_id {
+                                let v = a.string_value();
+                                if tokens.contains(&v) {
+                                    has_match = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if has_match {
+                        out.push(XdmItem::Node(node.clone()));
+                    }
+                }
+            }
+            Ok(out)
+        };
+    reg.register_ns_range(FNS, "id", 1, Some(2), move |ctx, args| {
+        // build token set from whitespace-separated tokens in all strings
+        let mut tokens: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for it in &args[0] {
+            let s = match it {
+                XdmItem::Atomic(a) => as_string(a),
+                XdmItem::Node(n) => n.string_value(),
+            };
+            let collapsed = collapse_whitespace(&s);
+            for t in collapsed.split(' ') {
+                if !t.is_empty() && is_ncname_ascii(t) {
+                    tokens.insert(t.to_string());
+                }
+            }
+        }
+        if tokens.is_empty() {
+            return Ok(vec![]);
+        }
+        let start_node_opt = if args.len() == 2 && !args[1].is_empty() {
+            Some(args[1][0].clone())
+        } else {
+            ctx.dyn_ctx.context_item.clone()
+        };
+        find_elements_with_id(start_node_opt, &tokens)
+    });
+    reg.register_ns_range(FNS, "element-with-id", 1, Some(2), move |ctx, args| {
+        // same tokenization as id()
+        let mut tokens: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for it in &args[0] {
+            let s = match it {
+                XdmItem::Atomic(a) => as_string(a),
+                XdmItem::Node(n) => n.string_value(),
+            };
+            let collapsed = collapse_whitespace(&s);
+            for t in collapsed.split(' ') {
+                if !t.is_empty() && is_ncname_ascii(t) {
+                    tokens.insert(t.to_string());
+                }
+            }
+        }
+        if tokens.is_empty() {
+            return Ok(vec![]);
+        }
+        let start_node_opt = if args.len() == 2 && !args[1].is_empty() {
+            Some(args[1][0].clone())
+        } else {
+            ctx.dyn_ctx.context_item.clone()
+        };
+        find_elements_with_id(start_node_opt, &tokens)
+    });
+
+    // idref($arg as xs:string*[, $node as node()]) as node()*
+    // Minimal non-schema-aware behavior: treat all attributes as potential IDREF(S) holders.
+    reg.register_ns_range(FNS, "idref", 1, Some(2), |ctx, args| {
+        // Candidate IDs are the strings in $arg that are NCName
+        let mut ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for it in &args[0] {
+            let s = match it {
+                XdmItem::Atomic(a) => as_string(a),
+                XdmItem::Node(n) => n.string_value(),
+            };
+            if is_ncname_ascii(&s) {
+                ids.insert(s);
+            }
+        }
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let start_node_opt = if args.len() == 2 && !args[1].is_empty() {
+            Some(args[1][0].clone())
+        } else {
+            ctx.dyn_ctx.context_item.clone()
+        };
+        let Some(XdmItem::Node(start)) = start_node_opt else {
+            return Ok(vec![]);
+        };
+        let root = topmost_ancestor(start);
+        let mut out: XdmSequence<N> = Vec::new();
+        // DFS preserving document order
+        let mut stack: Vec<N> = vec![root.clone()];
+        use crate::model::NodeKind;
+        while let Some(node) = stack.pop() {
+            // push children in reverse to visit in order
+            let children = node.children();
+            for c in children.iter().rev() {
+                stack.push(c.clone());
+            }
+            if matches!(node.kind(), NodeKind::Element) {
+                for a in node.attributes() {
+                    // Skip ID-bearing attributes (xml:id or unprefixed id) — only IDREF(S) intended here
+                    if let Some(q) = a.name() {
+                        let is_xml_id = q.local == "id"
+                            && (q.prefix.as_deref() == Some("xml")
+                                || q.ns_uri.as_deref()
+                                    == Some("http://www.w3.org/XML/1998/namespace"));
+                        let is_plain_id =
+                            q.local == "id" && q.prefix.is_none() && q.ns_uri.is_none();
+                        if is_xml_id || is_plain_id {
+                            continue;
+                        }
+                    }
+                    let v = a.string_value();
+                    // tokenize on whitespace
+                    let collapsed = collapse_whitespace(&v);
+                    for t in collapsed.split(' ') {
+                        if !t.is_empty() && ids.contains(t) {
+                            out.push(XdmItem::Node(a.clone()));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(out)
+    });
+
+    // encode-for-uri($str)
+    reg.register_ns(FNS, "encode-for-uri", 1, |_ctx, args| {
+        let s = item_to_string(&args[0]);
+        fn is_unreserved(ch: char) -> bool {
+            ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '~' | '/')
+        }
+        let mut out = String::new();
+        for ch in s.chars() {
+            if is_unreserved(ch) {
+                out.push(ch);
+            } else {
+                let mut buf = [0u8; 4];
+                for b in ch.encode_utf8(&mut buf).as_bytes() {
+                    out.push('%');
+                    out.push_str(&format!("{:02X}", b));
+                }
+            }
+        }
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
+    });
+
+    // nilled($arg as node()?) as xs:boolean?
+    // Non-schema-aware: element() returns true iff it has xsi:nil="true" (or "1"); false otherwise.
+    // Non-element or empty input returns empty sequence.
+    reg.register_ns(FNS, "nilled", 1, |_ctx, args| {
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
+        let item = &args[0][0];
+        let XdmItem::Node(n) = item else {
+            return Ok(vec![]);
+        };
+        use crate::model::NodeKind;
+        if !matches!(n.kind(), NodeKind::Element) {
+            return Ok(vec![]);
+        }
+        let mut is_nilled = false;
+        for a in n.attributes() {
+            if let Some(q) = a.name() {
+                let is_xsi_nil = q.local == "nil"
+                    && (q.prefix.as_deref() == Some("xsi")
+                        || q.ns_uri.as_deref()
+                            == Some("http://www.w3.org/2001/XMLSchema-instance"));
+                if is_xsi_nil {
+                    let v = a.string_value().trim().to_ascii_lowercase();
+                    if v == "true" || v == "1" {
+                        is_nilled = true;
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(is_nilled))])
+    });
+    // iri-to-uri($str)
+    reg.register_ns(FNS, "iri-to-uri", 1, |_ctx, args| {
+        let s = item_to_string(&args[0]);
+        let mut out = String::new();
+        for ch in s.chars() {
+            if ch.is_ascii() && ch != ' ' {
+                out.push(ch);
+            } else {
+                let mut buf = [0u8; 4];
+                for b in ch.encode_utf8(&mut buf).as_bytes() {
+                    out.push('%');
+                    out.push_str(&format!("{:02X}", b));
+                }
+            }
+        }
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
+    });
+    // escape-html-uri($uri as xs:string?) as xs:string
+    reg.register_ns(FNS, "escape-html-uri", 1, |_ctx, args| {
+        if args[0].is_empty() {
+            return Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]);
+        }
+        let s = item_to_string(&args[0]);
+        let mut out = String::new();
+        for ch in s.chars() {
+            if ch == ' ' {
+                out.push_str("%20");
+            } else {
+                out.push(ch);
+            }
+        }
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
+    });
+    // resolve-uri($relative as xs:string?, $base as xs:string?) as xs:anyURI?
+    reg.register_ns_range(FNS, "resolve-uri", 1, Some(2), |ctx, args| {
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
+        let rel = item_to_string(&args[0]);
+        // If rel is absolute (very rough check), return it
+        let is_abs = rel.contains(":") || rel.starts_with('/') || rel.starts_with("#");
+        if is_abs {
+            return Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(rel))]);
+        }
+        let base = if args.len() == 2 && !args[1].is_empty() {
+            Some(item_to_string(&args[1]))
+        } else {
+            ctx.static_ctx.base_uri.clone()
+        };
+        let Some(mut baseu) = base else {
+            return Ok(vec![]);
+        };
+        // Join naive: strip after last '/' and append rel
+        if !baseu.ends_with('/') {
+            if let Some(idx) = baseu.rfind('/') {
+                baseu.truncate(idx + 1);
+            } else {
+                baseu.push('/');
+            }
+        }
+        let joined = format!("{}{}", baseu, rel);
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(joined))])
+    });
+
+    // normalize-unicode($arg as xs:string?, $form as xs:string = "NFC")
+    reg.register_ns_range(FNS, "normalize-unicode", 1, Some(2), |_ctx, args| {
+        if args[0].is_empty() {
+            return Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]);
+        }
+        let s = item_to_string(&args[0]);
+        let form = if args.len() == 2 {
+            item_to_string(&args[1]).to_uppercase()
+        } else {
+            "NFC".to_string()
+        };
+        let out = match form.as_str() {
+            "NFC" => s.nfc().collect::<String>(),
+            "NFD" => s.nfd().collect::<String>(),
+            "NFKC" => s.nfkc().collect::<String>(),
+            "NFKD" => s.nfkd().collect::<String>(),
+            _ => {
+                return Err(Error::dynamic(
+                    ErrorCode::FORG0001,
+                    "invalid normalization form",
+                ));
+            }
+        };
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
+    });
+    // doc-available($uri as xs:string?) as xs:boolean
+    // Aligned with fn:doc semantics: returns true iff doc($uri) would succeed.
+    reg.register_ns(FNS, "doc-available", 1, |ctx, args| {
+        if args[0].is_empty() {
+            return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]);
+        }
+        let uri = item_to_string(&args[0]);
+        if let Some(nr) = &ctx.dyn_ctx.node_resolver {
+            match nr.doc_node(&uri) {
+                Ok(Some(_)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(true))]),
+                Ok(None) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]),
+                Err(_e) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]),
+            }
+        } else {
+            // No resolver configured → doc() would raise FODC0005 → false
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))])
+        }
+    });
+    // doc($uri as xs:string?) as document-node()?
+    reg.register_ns(FNS, "doc", 1, |ctx, args| {
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
+        let uri = item_to_string(&args[0]);
+        if let Some(nr) = &ctx.dyn_ctx.node_resolver {
+            match nr.doc_node(&uri) {
+                Ok(Some(n)) => return Ok(vec![XdmItem::Node(n)]),
+                Ok(None) => {
+                    return Err(Error::dynamic(
+                        ErrorCode::FODC0005,
+                        "document not available",
+                    ));
+                }
+                Err(_e) => {
+                    return Err(Error::dynamic(
+                        ErrorCode::FODC0005,
+                        "error retrieving document",
+                    ));
+                }
+            }
+        }
+        // No node resolver configured → signal FODC0005
+        Err(Error::dynamic(
+            ErrorCode::FODC0005,
+            "no node resolver configured for fn:doc",
+        ))
+    });
+    // collection($uri as xs:string?) as node()*
+    reg.register_ns_range(FNS, "collection", 0, Some(1), |ctx, args| {
+        let uri = if args.len() == 1 && !args[0].is_empty() {
+            Some(item_to_string(&args[0]))
+        } else {
+            None
+        };
+        if let Some(nr) = &ctx.dyn_ctx.node_resolver {
+            let nodes = nr.collection_nodes(uri.as_deref())?;
+            return Ok(nodes.into_iter().map(XdmItem::Node).collect());
+        }
+        Ok(vec![])
+    });
+
     // replace($input, $pattern, $replacement[, $flags])
     reg.register_ns_range(FNS, "replace", 3, Some(4), |ctx, args| {
         if args.len() == 3 {
@@ -913,6 +1472,9 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         }
     });
 
+    // unordered($arg as item()*) as item()* — identity order for now
+    reg.register_ns(FNS, "unordered", 1, |_ctx, args| Ok(args[0].clone()));
+
     // Minimal constructor-like function (Task 11 subset): integer($arg)
     reg.register_ns(FNS, "integer", 1, |_ctx, args| {
         if args[0].is_empty() {
@@ -926,22 +1488,221 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     });
 
     // xs:* constructors are registered at the end to avoid borrow conflicts during registration
+    // fn:dateTime($date, $time) and adjust-*-to-timezone are placed in the Date/Time family above
+    reg.register_ns(FNS, "dateTime", 2, |_ctx, args| {
+        if args[0].is_empty() || args[1].is_empty() {
+            return Ok(vec![]);
+        }
+        // Reuse logic via string constructors
+        // Combine via parsing helpers
+        let (date, tz_date_opt) = match &args[0][0] {
+            XdmItem::Atomic(XdmAtomicValue::Date { date, tz }) => (*date, *tz),
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                let (d, tzo) = parse_xs_date_local(s)
+                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:date"))?;
+                (d, tzo)
+            }
+            _ => {
+                return Err(Error::dynamic(
+                    ErrorCode::XPTY0004,
+                    "dateTime expects xs:date? and xs:time?",
+                ));
+            }
+        };
+        let (time, tz_time_opt) = match &args[1][0] {
+            XdmItem::Atomic(XdmAtomicValue::Time { time, tz }) => (*time, *tz),
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                let (t, tzo) = crate::temporal::parse_time_lex(s)
+                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:time"))?;
+                (t, tzo)
+            }
+            _ => {
+                return Err(Error::dynamic(
+                    ErrorCode::XPTY0004,
+                    "dateTime expects xs:date? and xs:time?",
+                ));
+            }
+        };
+        let tz = match (tz_date_opt, tz_time_opt) {
+            (Some(a), Some(b)) => {
+                if a.local_minus_utc() == b.local_minus_utc() {
+                    Some(a)
+                } else {
+                    return Err(Error::dynamic(ErrorCode::FORG0001, "conflicting timezones"));
+                }
+            }
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        };
+        let dt = crate::temporal::build_naive_datetime(date, time, tz);
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::DateTime(dt))])
+    });
+    reg.register_ns_range(FNS, "adjust-date-to-timezone", 1, Some(2), |ctx, args| {
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
+        let tz_opt = if args.len() == 1 || args[1].is_empty() {
+            Some(ctx.dyn_ctx.timezone_override.unwrap_or_else(|| {
+                ctx.dyn_ctx
+                    .now
+                    .map(|n| *n.offset())
+                    .unwrap_or_else(|| ChronoFixedOffset::east_opt(0).unwrap())
+            }))
+        } else {
+            match &args[1][0] {
+                XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
+                    ChronoFixedOffset::east_opt(*secs as i32)
+                        .ok_or_else(|| Error::dynamic(ErrorCode::FORG0001, "invalid timezone"))?
+                }
+                _ => {
+                    return Err(Error::dynamic(
+                        ErrorCode::XPTY0004,
+                        "adjust-date-to-timezone expects xs:dayTimeDuration",
+                    ));
+                }
+            }
+            .into()
+        };
+        let (date, _tz) = match &args[0][0] {
+            XdmItem::Atomic(XdmAtomicValue::Date { date, tz: _ }) => (*date, None),
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => parse_xs_date_local(s)
+                .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:date"))?,
+            _ => {
+                return Err(Error::dynamic(
+                    ErrorCode::XPTY0004,
+                    "adjust-date-to-timezone expects xs:date?",
+                ));
+            }
+        };
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Date {
+            date,
+            tz: tz_opt,
+        })])
+    });
+    reg.register_ns_range(FNS, "adjust-time-to-timezone", 1, Some(2), |ctx, args| {
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
+        let tz_opt = if args.len() == 1 || args[1].is_empty() {
+            Some(ctx.dyn_ctx.timezone_override.unwrap_or_else(|| {
+                ctx.dyn_ctx
+                    .now
+                    .map(|n| *n.offset())
+                    .unwrap_or_else(|| ChronoFixedOffset::east_opt(0).unwrap())
+            }))
+        } else {
+            match &args[1][0] {
+                XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
+                    ChronoFixedOffset::east_opt(*secs as i32)
+                        .ok_or_else(|| Error::dynamic(ErrorCode::FORG0001, "invalid timezone"))?
+                }
+                _ => {
+                    return Err(Error::dynamic(
+                        ErrorCode::XPTY0004,
+                        "adjust-time-to-timezone expects xs:dayTimeDuration",
+                    ));
+                }
+            }
+            .into()
+        };
+        let (time, _tz) = match &args[0][0] {
+            XdmItem::Atomic(XdmAtomicValue::Time { time, tz: _ }) => (*time, None),
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                crate::temporal::parse_time_lex(s)
+                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:time"))?
+            }
+            _ => {
+                return Err(Error::dynamic(
+                    ErrorCode::XPTY0004,
+                    "adjust-time-to-timezone expects xs:time?",
+                ));
+            }
+        };
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Time {
+            time,
+            tz: tz_opt,
+        })])
+    });
+    reg.register_ns_range(
+        FNS,
+        "adjust-dateTime-to-timezone",
+        1,
+        Some(2),
+        |ctx, args| {
+            if args[0].is_empty() {
+                return Ok(vec![]);
+            }
+            let tz_opt = if args.len() == 1 || args[1].is_empty() {
+                Some(ctx.dyn_ctx.timezone_override.unwrap_or_else(|| {
+                    ctx.dyn_ctx
+                        .now
+                        .map(|n| *n.offset())
+                        .unwrap_or_else(|| ChronoFixedOffset::east_opt(0).unwrap())
+                }))
+            } else {
+                Some(match &args[1][0] {
+                    XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
+                        ChronoFixedOffset::east_opt(*secs as i32).ok_or_else(|| {
+                            Error::dynamic(ErrorCode::FORG0001, "invalid timezone")
+                        })?
+                    }
+                    _ => {
+                        return Err(Error::dynamic(
+                            ErrorCode::XPTY0004,
+                            "adjust-dateTime-to-timezone expects xs:dayTimeDuration",
+                        ));
+                    }
+                })
+            };
+            let dt = match &args[0][0] {
+                XdmItem::Atomic(XdmAtomicValue::DateTime(dt)) => *dt,
+                XdmItem::Atomic(XdmAtomicValue::String(s))
+                | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                    crate::temporal::parse_date_time_lex(s)
+                        .map(|(d, t, tz)| crate::temporal::build_naive_datetime(d, t, tz))
+                        .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:dateTime"))?
+                }
+                _ => {
+                    return Err(Error::dynamic(
+                        ErrorCode::XPTY0004,
+                        "adjust-dateTime-to-timezone expects xs:dateTime?",
+                    ));
+                }
+            };
+            let naive = dt.naive_utc();
+            let res = match tz_opt {
+                Some(ofs) => ofs.from_utc_datetime(&naive),
+                None => ChronoFixedOffset::east_opt(0)
+                    .unwrap()
+                    .from_utc_datetime(&naive),
+            };
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::DateTime(res))])
+        },
+    );
 
     // ===== Date/Time family (M8 subset) =====
     reg.register_ns(FNS, "current-dateTime", 0, |ctx, _args| {
         let dt = now_in_effective_tz(ctx);
-        let s = dt.format("%Y-%m-%dT%H:%M:%S%:z").to_string();
-        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::DateTime(dt))])
     });
     reg.register_ns(FNS, "current-date", 0, |ctx, _args| {
         let dt = now_in_effective_tz(ctx);
-        let s = dt.format("%Y-%m-%d%:z").to_string();
-        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Date {
+            date: dt.date_naive(),
+            tz: Some(*dt.offset()),
+        })])
     });
     reg.register_ns(FNS, "current-time", 0, |ctx, _args| {
         let dt = now_in_effective_tz(ctx);
-        let s = dt.format("%H:%M:%S%:z").to_string();
-        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Time {
+            time: dt.time(),
+            tz: Some(*dt.offset()),
+        })])
     });
 
     // implicit-timezone() as xs:dayTimeDuration
@@ -969,6 +1730,41 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
                 dt.year() as i64
             ))]),
+        },
+    );
+    // hours-from-dateTime($arg as xs:dateTime?) as xs:integer?
+    reg.register_ns(
+        FNS,
+        "hours-from-dateTime",
+        1,
+        |_ctx, args| match get_datetime(&args[0])? {
+            None => Ok(vec![]),
+            Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                dt.hour() as i64
+            ))]),
+        },
+    );
+    reg.register_ns(
+        FNS,
+        "minutes-from-dateTime",
+        1,
+        |_ctx, args| match get_datetime(&args[0])? {
+            None => Ok(vec![]),
+            Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                dt.minute() as i64
+            ))]),
+        },
+    );
+    reg.register_ns(
+        FNS,
+        "seconds-from-dateTime",
+        1,
+        |_ctx, args| match get_datetime(&args[0])? {
+            None => Ok(vec![]),
+            Some(dt) => {
+                let secs = dt.second() as f64 + (dt.nanosecond() as f64) / 1_000_000_000.0;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(secs))])
+            }
         },
     );
     // month-from-dateTime
@@ -1016,9 +1812,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     reg.register_ns(FNS, "seconds-from-time", 1, |_ctx, args| {
         match get_time(&args[0])? {
             None => Ok(vec![]),
-            Some((time, _)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                time.second() as i64,
-            ))]),
+            Some((time, _)) => {
+                let secs = time.second() as f64 + (time.nanosecond() as f64) / 1_000_000_000.0;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(secs))])
+            }
         }
     });
 
@@ -1079,6 +1876,273 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 off.local_minus_utc() as i64,
             ))]),
             Some((_t, None)) => Ok(vec![]),
+        }
+    });
+
+    // ===== Duration component accessors (10.5.1–10.5.6) =====
+    // Helper to parse a duration-like lexical into either YMD months or DTD seconds
+    fn parse_duration_lexical(s: &str) -> Result<(Option<i32>, Option<i64>), Error> {
+        if let Ok(m) = parse_year_month_duration_months(s) {
+            return Ok((Some(m), None));
+        }
+        if let Ok(sec) = parse_day_time_duration_secs(s) {
+            return Ok((None, Some(sec)));
+        }
+        Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:duration"))
+    }
+    // years-from-duration($arg as xs:duration?) as xs:integer?
+    reg.register_ns(FNS, "years-from-duration", 1, |_ctx, args| {
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
+        match &args[0][0] {
+            XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(months)) => {
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                    (*months / 12) as i64,
+                ))])
+            }
+            XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(_)) => {
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+            }
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                let (m_opt, s_opt) = parse_duration_lexical(s)?;
+                if let Some(m) = m_opt {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                        (m / 12) as i64,
+                    ))])
+                } else if s_opt.is_some() {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+                } else {
+                    Ok(vec![])
+                }
+            }
+            XdmItem::Node(n) => {
+                let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
+                if let Some(m) = m_opt {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                        (m / 12) as i64,
+                    ))])
+                } else if s_opt.is_some() {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+                } else {
+                    Ok(vec![])
+                }
+            }
+            _ => Ok(vec![]),
+        }
+    });
+    // months-from-duration($arg as xs:duration?) as xs:integer?
+    reg.register_ns(FNS, "months-from-duration", 1, |_ctx, args| {
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
+        match &args[0][0] {
+            XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(months)) => {
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                    (*months % 12) as i64,
+                ))])
+            }
+            XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(_)) => {
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+            }
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                let (m_opt, s_opt) = parse_duration_lexical(s)?;
+                if let Some(m) = m_opt {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                        (m % 12) as i64,
+                    ))])
+                } else if s_opt.is_some() {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+                } else {
+                    Ok(vec![])
+                }
+            }
+            XdmItem::Node(n) => {
+                let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
+                if let Some(m) = m_opt {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                        (m % 12) as i64,
+                    ))])
+                } else if s_opt.is_some() {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+                } else {
+                    Ok(vec![])
+                }
+            }
+            _ => Ok(vec![]),
+        }
+    });
+    // days-from-duration($arg as xs:duration?) as xs:integer?
+    reg.register_ns(FNS, "days-from-duration", 1, |_ctx, args| {
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
+        match &args[0][0] {
+            XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => Ok(vec![XdmItem::Atomic(
+                XdmAtomicValue::Integer((*secs / (24 * 3600)) as i64),
+            )]),
+            XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(_)) => {
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+            }
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                let (m_opt, s_opt) = parse_duration_lexical(s)?;
+                if let Some(sec) = s_opt {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                        (sec / (24 * 3600)) as i64,
+                    ))])
+                } else if m_opt.is_some() {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+                } else {
+                    Ok(vec![])
+                }
+            }
+            XdmItem::Node(n) => {
+                let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
+                if let Some(sec) = s_opt {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                        (sec / (24 * 3600)) as i64,
+                    ))])
+                } else if m_opt.is_some() {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+                } else {
+                    Ok(vec![])
+                }
+            }
+            _ => Ok(vec![]),
+        }
+    });
+    // hours-from-duration($arg as xs:duration?) as xs:integer?
+    reg.register_ns(FNS, "hours-from-duration", 1, |_ctx, args| {
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
+        match &args[0][0] {
+            XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
+                let rem = *secs % (24 * 3600);
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                    (rem / 3600) as i64,
+                ))])
+            }
+            XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(_)) => {
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+            }
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                let (m_opt, s_opt) = parse_duration_lexical(s)?;
+                if let Some(sec) = s_opt {
+                    let rem = sec % (24 * 3600);
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                        (rem / 3600) as i64,
+                    ))])
+                } else if m_opt.is_some() {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+                } else {
+                    Ok(vec![])
+                }
+            }
+            XdmItem::Node(n) => {
+                let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
+                if let Some(sec) = s_opt {
+                    let rem = sec % (24 * 3600);
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                        (rem / 3600) as i64,
+                    ))])
+                } else if m_opt.is_some() {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+                } else {
+                    Ok(vec![])
+                }
+            }
+            _ => Ok(vec![]),
+        }
+    });
+    // minutes-from-duration($arg as xs:duration?) as xs:integer?
+    reg.register_ns(FNS, "minutes-from-duration", 1, |_ctx, args| {
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
+        match &args[0][0] {
+            XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
+                let rem = *secs % 3600;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                    (rem / 60) as i64,
+                ))])
+            }
+            XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(_)) => {
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+            }
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                let (m_opt, s_opt) = parse_duration_lexical(s)?;
+                if let Some(sec) = s_opt {
+                    let rem = sec % 3600;
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                        (rem / 60) as i64,
+                    ))])
+                } else if m_opt.is_some() {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+                } else {
+                    Ok(vec![])
+                }
+            }
+            XdmItem::Node(n) => {
+                let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
+                if let Some(sec) = s_opt {
+                    let rem = sec % 3600;
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
+                        (rem / 60) as i64,
+                    ))])
+                } else if m_opt.is_some() {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
+                } else {
+                    Ok(vec![])
+                }
+            }
+            _ => Ok(vec![]),
+        }
+    });
+    // seconds-from-duration($arg as xs:duration?) as xs:decimal?
+    reg.register_ns(FNS, "seconds-from-duration", 1, |_ctx, args| {
+        if args[0].is_empty() {
+            return Ok(vec![]);
+        }
+        match &args[0][0] {
+            XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
+                let rem = *secs % 60;
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(rem as f64))])
+            }
+            XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(_)) => {
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(0.0))])
+            }
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+                let (m_opt, s_opt) = parse_duration_lexical(s)?;
+                if let Some(sec) = s_opt {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(
+                        (sec % 60) as f64,
+                    ))])
+                } else if m_opt.is_some() {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(0.0))])
+                } else {
+                    Ok(vec![])
+                }
+            }
+            XdmItem::Node(n) => {
+                let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
+                if let Some(sec) = s_opt {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(
+                        (sec % 60) as f64,
+                    ))])
+                } else if m_opt.is_some() {
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(0.0))])
+                } else {
+                    Ok(vec![])
+                }
+            }
+            _ => Ok(vec![]),
         }
     });
 
@@ -1428,6 +2492,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             Err(_) => Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:dateTime")),
         }
     });
+    // (dateTime component extractors are registered earlier)
     reg.register_ns(XS, "date", 1, |_ctx, args| {
         if args[0].is_empty() {
             return Ok(vec![]);

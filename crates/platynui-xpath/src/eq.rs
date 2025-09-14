@@ -35,6 +35,7 @@ use crate::runtime::Error;
 use crate::xdm::XdmAtomicValue;
 use crate::xdm::XdmItem;
 
+use chrono::TimeZone;
 use core::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -114,7 +115,8 @@ pub struct QNameKey {
 pub struct DurationKey {
     pub kind: DurationKind,
     pub months: i64,
-    pub nanos: i128,
+    // For dayTimeDuration we use whole seconds to match internal storage
+    pub seconds: i128,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -158,7 +160,7 @@ impl PartialEq for EqKey {
             (Boolean(a), Boolean(b)) => a == b,
             (DateTime(a), DateTime(b)) => a.kind == b.kind && a.instant_ns == b.instant_ns,
             (Duration(a), Duration(b)) => {
-                a.kind == b.kind && a.months == b.months && a.nanos == b.nanos
+                a.kind == b.kind && a.months == b.months && a.seconds == b.seconds
             }
             (Node(a), Node(b)) => a == b,
             (NaN, NaN) => true,
@@ -198,7 +200,7 @@ impl core::hash::Hash for EqKey {
                 5u8.hash(state);
                 d.kind.hash(state);
                 d.months.hash(state);
-                d.nanos.hash(state);
+                d.seconds.hash(state);
             }
             Node(id) => {
                 6u8.hash(state);
@@ -273,8 +275,32 @@ fn date_time_instant_ns(dt: &XdmAtomicValue) -> Option<(DateTimeKind, i128)> {
     use XdmAtomicValue::*;
     match dt {
         DateTime(d) => Some((DateTimeKind::DateTime, safe_nanos(d))),
-        Date { .. } => None, // TODO: implement timezone aware date instant
-        Time { .. } => None, // TODO: implement timezone aware time instant
+        Date { date, tz } => {
+            // Only produce a key for timezone-aware dates; tz-less dates remain as Other
+            if let Some(off) = tz {
+                let naive = date.and_hms_opt(0, 0, 0)?;
+                let dt = off
+                    .from_local_datetime(&naive)
+                    .single()
+                    .unwrap_or_else(|| chrono::DateTime::from_naive_utc_and_offset(naive, *off));
+                Some((DateTimeKind::Date, safe_nanos(&dt)))
+            } else {
+                None
+            }
+        }
+        Time { time, tz } => {
+            // Only produce a key for timezone-aware times; anchor to 1970-01-01
+            if let Some(off) = tz {
+                let base = chrono::NaiveDate::from_ymd_opt(1970, 1, 1)?.and_time(*time);
+                let dt = off
+                    .from_local_datetime(&base)
+                    .single()
+                    .unwrap_or_else(|| chrono::DateTime::from_naive_utc_and_offset(base, *off));
+                Some((DateTimeKind::Time, safe_nanos(&dt)))
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
@@ -289,7 +315,7 @@ fn duration_key(a: &XdmAtomicValue) -> Option<DurationKey> {
         YearMonthDuration(m) => Some(DurationKey {
             kind: DurationKind::YearMonth,
             months: *m as i64,
-            nanos: 0,
+            seconds: 0,
         }),
         DayTimeDuration(d) => {
             // Stored as i64 (milliseconds? seconds? – assumed milliseconds?). Treat as milliseconds for now.
@@ -297,7 +323,7 @@ fn duration_key(a: &XdmAtomicValue) -> Option<DurationKey> {
             Some(DurationKey {
                 kind: DurationKind::DayTime,
                 months: 0,
-                nanos: *d as i128,
+                seconds: *d as i128,
             })
         }
         _ => None,

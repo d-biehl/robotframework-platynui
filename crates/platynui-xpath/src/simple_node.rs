@@ -55,9 +55,14 @@
 //! assert_eq!(attr_node.compare_document_order(&child_node).unwrap(), core::cmp::Ordering::Less);
 //! ```
 use std::fmt;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{
+    Arc, RwLock, Weak,
+    atomic::{AtomicBool, AtomicU64, Ordering as AtomicOrdering},
+};
 
 use crate::model::{NodeKind, QName, XdmNode};
+
+const XML_URI: &str = "http://www.w3.org/XML/1998/namespace";
 
 #[derive(Debug)]
 pub(crate) struct Inner {
@@ -69,6 +74,7 @@ pub(crate) struct Inner {
     namespaces: RwLock<Vec<SimpleNode>>, // namespace nodes
     children: RwLock<Vec<SimpleNode>>,
     cached_text: RwLock<Option<String>>, // memoized string value for element/document
+    doc_id: RwLock<u64>, // creation order of document root; inherited by descendants
 }
 
 /// A simple Arc-backed node implementation.
@@ -127,6 +133,10 @@ impl fmt::Debug for SimpleNode {
 }
 
 impl SimpleNode {
+    fn next_doc_id() -> u64 {
+        static COUNTER: AtomicU64 = AtomicU64::new(1);
+        COUNTER.fetch_add(1, AtomicOrdering::Relaxed)
+    }
     fn new(kind: NodeKind, name: Option<QName>, value: Option<String>) -> Self {
         SimpleNode(Arc::new(Inner {
             kind,
@@ -137,30 +147,56 @@ impl SimpleNode {
             namespaces: RwLock::new(Vec::new()),
             children: RwLock::new(Vec::new()),
             cached_text: RwLock::new(None),
+            doc_id: RwLock::new(0),
         }))
     }
 
     pub fn document() -> SimpleNodeBuilder {
-        SimpleNodeBuilder::new(NodeKind::Document, None, None)
+        let b = SimpleNodeBuilder::new(NodeKind::Document, None, None);
+        *b.node.0.doc_id.write().unwrap() = Self::next_doc_id();
+        b
     }
     pub fn element(name: &str) -> SimpleNodeBuilder {
+        // Support prefixed element names; actual namespace URI resolution happens during build
+        // once in-scope namespaces are attached or resolved via parent at attach time.
+        let (prefix, local, ns_uri) = if let Some((pre, loc)) = name.split_once(':') {
+            let uri = if pre == "xml" {
+                Some(XML_URI.to_string())
+            } else {
+                None
+            };
+            (Some(pre.to_string()), loc.to_string(), uri)
+        } else {
+            (None, name.to_string(), None)
+        };
         SimpleNodeBuilder::new(
             NodeKind::Element,
             Some(QName {
-                prefix: None,
-                local: name.to_string(),
-                ns_uri: None,
+                prefix,
+                local,
+                ns_uri,
             }),
             None,
         )
     }
     pub fn attribute(name: &str, value: &str) -> SimpleNode {
+        // Support namespaced attributes via prefix:local; bind 'xml' to the canonical XML namespace URI.
+        let (prefix, local, ns_uri) = if let Some((pre, loc)) = name.split_once(':') {
+            let uri = if pre == "xml" {
+                Some(XML_URI.to_string())
+            } else {
+                None
+            };
+            (Some(pre.to_string()), loc.to_string(), uri)
+        } else {
+            (None, name.to_string(), None)
+        };
         SimpleNode::new(
             NodeKind::Attribute,
             Some(QName {
-                prefix: None,
-                local: name.to_string(),
-                ns_uri: None,
+                prefix,
+                local,
+                ns_uri,
             }),
             Some(value.to_string()),
         )
@@ -283,30 +319,122 @@ impl SimpleNodeBuilder {
     pub fn build(self) -> SimpleNode {
         // finalize relationships
         {
-            let mut attrs = self.node.0.attributes.write().unwrap();
-            for a in &self.pending_attrs {
-                *a.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
-            }
-            attrs.extend(self.pending_attrs);
-        }
-        {
             let mut nss = self.node.0.namespaces.write().unwrap();
             for n in &self.pending_ns {
                 *n.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
+                let id = *self.node.0.doc_id.read().unwrap();
+                *n.0.doc_id.write().unwrap() = id;
             }
             nss.extend(self.pending_ns);
         }
         {
-            let mut ch = self.node.0.children.write().unwrap();
-            for c in &self.pending_children {
-                *c.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
+            let mut attrs = self.node.0.attributes.write().unwrap();
+            for a in self.pending_attrs {
+                // Resolve attribute namespace prefix using in-scope namespaces of the element.
+                // Default namespace does not apply to attributes; only prefixed names are resolved.
+                let mut pushed = false;
+                if let Some(qn) = &a.0.name {
+                    if let Some(pref) = &qn.prefix {
+                        let uri = if pref == "xml" {
+                            Some(XML_URI.to_string())
+                        } else {
+                            self.node.lookup_namespace_uri(pref)
+                        };
+                        if let Some(ns_uri) = uri {
+                            // Rebuild attribute node with resolved ns_uri
+                            let val = a.0.value.read().unwrap().clone();
+                            let rebuilt = SimpleNode::new(
+                                NodeKind::Attribute,
+                                Some(QName {
+                                    prefix: Some(pref.clone()),
+                                    local: qn.local.clone(),
+                                    ns_uri: Some(ns_uri),
+                                }),
+                                val,
+                            );
+                            *rebuilt.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
+                            let id = *self.node.0.doc_id.read().unwrap();
+                            *rebuilt.0.doc_id.write().unwrap() = id;
+                            attrs.push(rebuilt);
+                            pushed = true;
+                        }
+                    }
+                }
+                if !pushed {
+                    *a.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
+                    let id = *self.node.0.doc_id.read().unwrap();
+                    *a.0.doc_id.write().unwrap() = id;
+                    attrs.push(a);
+                }
             }
-            ch.extend(self.pending_children);
+        }
+        {
+            let mut ch = self.node.0.children.write().unwrap();
+            for c in self.pending_children {
+                *c.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
+                let idc = *self.node.0.doc_id.read().unwrap();
+                *c.0.doc_id.write().unwrap() = idc;
+                ch.push(c);
+            }
         }
         // Precompute cached text for element/document
         if matches!(self.node.kind(), NodeKind::Element | NodeKind::Document) {
             let _ = self.node.string_value();
         }
+        // Post-pass: resolve attribute namespace URIs using ancestor bindings now that parent links exist.
+        fn resolve_attr_ns_deep(node: &SimpleNode) {
+            use crate::model::NodeKind;
+            if matches!(node.kind(), NodeKind::Element) {
+                // Resolve on this element
+                let mut to_replace: Vec<(usize, SimpleNode)> = Vec::new();
+                {
+                    let attrs = node.0.attributes.read().unwrap();
+                    for (idx, a) in attrs.iter().enumerate() {
+                        if let Some(q) = a.name() {
+                            if let Some(pref) = q.prefix.as_ref() {
+                                // Only replace if ns_uri is None
+                                if q.ns_uri.is_none() {
+                                    let uri = if pref == "xml" {
+                                        Some(XML_URI.to_string())
+                                    } else {
+                                        node.lookup_namespace_uri(pref)
+                                    };
+                                    if let Some(ns_uri) = uri {
+                                        let val = a.0.value.read().unwrap().clone();
+                                        let rebuilt = SimpleNode::new(
+                                            NodeKind::Attribute,
+                                            Some(QName {
+                                                prefix: Some(pref.clone()),
+                                                local: q.local.clone(),
+                                                ns_uri: Some(ns_uri),
+                                            }),
+                                            val,
+                                        );
+                                        *rebuilt.0.parent.write().unwrap() =
+                                            Some(Arc::downgrade(&node.0));
+                                        let id = *node.0.doc_id.read().unwrap();
+                                        *rebuilt.0.doc_id.write().unwrap() = id;
+                                        to_replace.push((idx, rebuilt));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if !to_replace.is_empty() {
+                    let mut attrs_w = node.0.attributes.write().unwrap();
+                    for (idx, new_attr) in to_replace {
+                        attrs_w[idx] = new_attr;
+                    }
+                }
+            }
+            // Recurse into children
+            let children = node.children();
+            for c in children {
+                resolve_attr_ns_deep(&c);
+            }
+        }
+        resolve_attr_ns_deep(&self.node);
         self.node
     }
 }
@@ -444,6 +572,39 @@ impl XdmNode for SimpleNode {
         }
         out
     }
+
+    fn compare_document_order(
+        &self,
+        other: &Self,
+    ) -> Result<core::cmp::Ordering, crate::runtime::Error> {
+        match crate::model::try_compare_by_ancestry(self, other) {
+            Ok(ord) => Ok(ord),
+            Err(e) => {
+                if SIMPLE_NODE_CROSS_DOC_ORDER.load(AtomicOrdering::Relaxed) {
+                    let a = *self.0.doc_id.read().unwrap();
+                    let b = *other.0.doc_id.read().unwrap();
+                    if a != b {
+                        return Ok(a.cmp(&b));
+                    }
+                    let pa = Arc::as_ptr(&self.0) as usize;
+                    let pb = Arc::as_ptr(&other.0) as usize;
+                    Ok(pa.cmp(&pb))
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+}
+
+// Global opt-in for cross-document order on SimpleNode. Off by default to preserve prior semantics.
+static SIMPLE_NODE_CROSS_DOC_ORDER: AtomicBool = AtomicBool::new(false);
+
+/// Enable or disable cross-document total order for SimpleNode.
+/// When enabled, nodes from different document roots are compared by creation order of the
+/// document (and raw pointer address as a stable tie-breaker within the process).
+pub fn set_cross_document_order(enable: bool) {
+    SIMPLE_NODE_CROSS_DOC_ORDER.store(enable, AtomicOrdering::Relaxed);
 }
 
 // Tests relocated to integration file.

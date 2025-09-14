@@ -128,7 +128,7 @@ pub enum OpCode {
     InstanceOf(SeqTypeIR),
 
     // Functions
-    CallByName(ExpandedName, usize /* argc */),
+    CallByName(ExpandedName, usize),
     // Errors
     Raise(&'static str), // raise a dynamic error code (e.g., "err:XPTY0004")
 }

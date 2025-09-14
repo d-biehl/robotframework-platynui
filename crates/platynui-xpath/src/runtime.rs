@@ -35,7 +35,6 @@ pub struct CallCtx<'a, N> {
     pub static_ctx: &'a StaticContext,
     // Resolved default collation according to resolution order (if available)
     pub default_collation: Option<Arc<dyn Collation>>,
-    pub resolver: Option<Arc<dyn ResourceResolver>>,
     pub regex: Option<Arc<dyn RegexProvider>>,
 }
 
@@ -244,12 +243,6 @@ impl<N> FunctionRegistry<N> {
         self.register_fn(name, arity, f);
     }
 
-    // Removed: get_exact helper. Exact-arity matching is handled inline in `resolve`.
-
-    // Note: Previous Option-returning resolver was removed; use `resolve` for
-    // both lookup and diagnostics (it returns Ok(func) when found, otherwise
-    // returns a typed ResolveError to distinguish unknown from wrong-arity).
-
     /// Resolve a function by name/arity with optional default function namespace fallback.
     /// On success returns the function implementation; otherwise returns a typed
     /// error describing whether the function is unknown or known with different arities.
@@ -270,8 +263,8 @@ impl<N> FunctionRegistry<N> {
             None
         };
         let effective: &ExpandedName = effective_buf.as_ref().unwrap_or(name);
-        // First, support the legacy behavior: attempt an exact-arity match on the provided name
-        // (useful for locally-registered, no-namespace functions) before applying default NS.
+        // Attempt an exact-arity match on the provided name (useful for locally-registered,
+        // no-namespace functions) before applying default NS.
         if let Some(cands) = self.fns.get(name) {
             if let Some((_, _, f)) = cands
                 .iter()
@@ -307,11 +300,12 @@ impl<N> FunctionRegistry<N> {
     }
 }
 
-pub trait ResourceResolver: Send + Sync {
-    fn doc(&self, _uri: &str) -> Result<Option<String>, Error> {
+// Node-producing resolver for host adapters that can construct N directly
+pub trait NodeResolver<N>: Send + Sync {
+    fn doc_node(&self, _uri: &str) -> Result<Option<N>, Error> {
         Ok(None)
     }
-    fn collection(&self, _uri: Option<&str>) -> Result<Vec<String>, Error> {
+    fn collection_nodes(&self, _uri: Option<&str>) -> Result<Vec<N>, Error> {
         Ok(vec![])
     }
 }
@@ -333,7 +327,6 @@ pub struct FancyRegexProvider;
 
 impl FancyRegexProvider {
     fn build_with_flags(pattern: &str, flags: &str) -> Result<fancy_regex::Regex, Error> {
-        // Use RegexBuilder to configure flags instead of injecting inline flags.
         let mut builder = fancy_regex::RegexBuilder::new(pattern);
         for ch in flags.chars() {
             match ch {
@@ -378,8 +371,7 @@ impl RegexProvider for FancyRegexProvider {
         replacement: &str,
     ) -> Result<String, Error> {
         let re = Self::build_with_flags(pattern, flags)?;
-        // Pre-validate replacement template using fancy_regex::Expander to catch invalid references
-        // and then enforce XPath-specific rule that $0 is invalid.
+        // Pre-validate replacement template using fancy_regex::Expander and enforce that $0 is invalid.
         if let Err(_e) = fancy_regex::Expander::default().check(replacement, &re) {
             // Map any template validation errors to FORX0004
             return Err(Error::dynamic(
@@ -461,7 +453,7 @@ impl RegexProvider for FancyRegexProvider {
                 i += 1;
             }
         }
-        // Run replacement by iterating matches to detect zero-length matches and to expand via Expander
+        // Run replacement by iterating matches to detect zero-length matches and expand via Expander
         let mut out = String::new();
         let mut last = 0;
         for mc in re.captures_iter(text) {
@@ -472,7 +464,7 @@ impl RegexProvider for FancyRegexProvider {
                 .ok_or_else(|| Error::dynamic(ErrorCode::FORX0002, "no overall match"))?;
             // Append text before match
             out.push_str(&text[last..m.start()]);
-            // Append expanded replacement using fancy-regex Expander (default $-syntax)
+            // Append expanded replacement using fancy-regex Expander
             fancy_regex::Expander::default().append_expansion(&mut out, replacement, &cap);
             last = m.end();
             if m.start() == m.end() {
@@ -527,6 +519,7 @@ pub enum ErrorCode {
     FORG0005, // exactly-one violated
     FOCA0001, // invalid value for cast / out-of-range
     FOCH0002, // collation does not exist
+    FODC0005, // doc/document retrieval failure
     FORX0001, // regex flags invalid
     FORX0002, // regex invalid pattern / bad backref
     FORX0003, // fn:replace zero-length match error
@@ -558,6 +551,7 @@ impl ErrorCode {
             FORG0005 => "err:FORG0005",
             FOCA0001 => "err:FOCA0001",
             FOCH0002 => "err:FOCH0002",
+            FODC0005 => "err:FODC0005",
             FORX0001 => "err:FORX0001",
             FORX0002 => "err:FORX0002",
             FORX0003 => "err:FORX0003",
@@ -581,6 +575,7 @@ impl ErrorCode {
             "err:FORG0005" => FORG0005,
             "err:FOCA0001" => FOCA0001,
             "err:FOCH0002" => FOCH0002,
+            "err:FODC0005" => FODC0005,
             "err:FORX0001" => FORX0001,
             "err:FORX0002" => FORX0002,
             "err:FORX0003" => FORX0003,
@@ -745,7 +740,7 @@ pub struct DynamicContext<N> {
     pub default_collation: Option<String>,
     pub functions: Arc<FunctionRegistry<N>>,
     pub collations: Arc<CollationRegistry>,
-    pub resolver: Option<Arc<dyn ResourceResolver>>,
+    pub node_resolver: Option<Arc<dyn NodeResolver<N>>>,
     pub regex: Option<Arc<dyn RegexProvider>>,
     pub now: Option<chrono::DateTime<chrono::FixedOffset>>, // M8: current-*
     pub timezone_override: Option<chrono::FixedOffset>,     // M8: override zone
@@ -759,7 +754,7 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for Dynam
             default_collation: None,
             functions: Arc::new(crate::functions::default_function_registry()),
             collations: Arc::new(CollationRegistry::default()),
-            resolver: None,
+            node_resolver: None,
             regex: None,
             now: None,
             timezone_override: None,
@@ -811,8 +806,8 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBui
         self
     }
 
-    pub fn with_resolver(mut self, res: Arc<dyn ResourceResolver>) -> Self {
-        self.ctx.resolver = Some(res);
+    pub fn with_node_resolver(mut self, res: Arc<dyn NodeResolver<N>>) -> Self {
+        self.ctx.node_resolver = Some(res);
         self
     }
 

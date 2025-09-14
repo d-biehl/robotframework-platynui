@@ -821,7 +821,7 @@ fn build_kind_test(pair: Pair<Rule>) -> AstResult<ast::KindTest> {
                         found = Some(ast::KindTest::SchemaElement(q));
                         break;
                     }
-                    _ => { /* skip wrappers */ }
+                    _ => {}
                 }
             }
             if let Some(k) = found {
@@ -843,7 +843,7 @@ fn build_kind_test(pair: Pair<Rule>) -> AstResult<ast::KindTest> {
                     Rule::string_literal => {
                         arg = Some(unescape_string_literal(c));
                     }
-                    _ => { /* skip K_PROCESSING_INSTRUCTION, LPAR, RPAR */ }
+                    _ => {}
                 }
             }
             ast::KindTest::ProcessingInstruction(arg)

@@ -1,6 +1,6 @@
 use platynui_xpath::{
-    DynamicContextBuilder, SimpleNode, attr, compile_xpath, elem, evaluate, simple_doc, text,
-    xdm::XdmItem as Item,
+    DynamicContextBuilder, SimpleNode, XdmItem, attr, compile_xpath, elem, evaluate, simple_doc,
+    text,
 };
 
 fn main() {
@@ -23,10 +23,13 @@ fn main() {
         )
         .build();
 
+    let compiled = compile_xpath(".").unwrap();
+    print!("Compiled: ");
+    println!("{:?}", compiled);
+
     let ctx = DynamicContextBuilder::default()
-        .with_context_item(Item::Node(doc_node))
+        .with_context_item(XdmItem::Node(doc_node))
         .build();
-    let compiled = compile_xpath("every $part in /parts/part satisfies $part/@discounted").unwrap();
     let result = evaluate::<SimpleNode>(&compiled, &ctx);
     println!("{:?}", result);
 }
