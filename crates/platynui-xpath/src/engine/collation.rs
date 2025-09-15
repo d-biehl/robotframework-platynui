@@ -40,7 +40,7 @@ pub fn resolve_collation<N>(
         if let Some(c) = dyn_ctx.collations.get(u) {
             c
         } else {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FOCH0002,
                 format!("unknown collation URI: {u}"),
             ));

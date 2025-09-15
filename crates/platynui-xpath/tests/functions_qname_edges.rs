@@ -12,10 +12,10 @@ fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
 fn expect_err(expr: &str, frag: &str) {
     let c = ctx();
     let err = evaluate_expr::<N>(expr, &c).unwrap_err();
-    assert!(
-        err.code.contains(frag),
-        "expected error code containing {frag}, got {}",
-        err.code
+        assert!(
+            err.code_qname().unwrap().local.contains(frag),
+            "expected fragment {frag} in {:?}",
+            err.code_qname()
     );
 }
 
@@ -89,11 +89,12 @@ fn resolve_qname_invalid_lex(#[case] expr: &str) {
         .with_context_item(root)
         .build();
     let err = evaluate_expr::<N>(expr, &c).unwrap_err();
-    assert!(
-        err.code.contains("FORG0001"),
-        "expected FORG0001 style lexical error, got {}",
-        err.code
-    );
+        assert_eq!(
+            err.code_enum(),
+            platynui_xpath::engine::runtime::ErrorCode::FORG0001,
+            "expected FORG0001 style lexical error, got {:?}",
+            err.code_qname()
+        );
 }
 
 #[rstest]

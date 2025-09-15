@@ -1,5 +1,6 @@
 use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
 use platynui_xpath::{xdm::XdmItem as I, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
+use platynui_xpath::runtime::ErrorCode;
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -54,7 +55,7 @@ fn xs_anyuri_and_qname() {
 #[rstest]
 fn xs_qname_unknown_prefix_error() {
     let err = evaluate_expr::<N>("xs:QName('zzz:l')", &empty_ctx()).unwrap_err();
-    assert!(err.code.contains("FORG0001"));
+    assert_eq!(err.code_enum(), ErrorCode::FORG0001);
 }
 
 #[rstest]
@@ -69,7 +70,7 @@ fn xs_binary_constructors(#[case] expr: &str, #[case] expected: I<N>) {
 #[rstest]
 fn xs_hex_invalid() {
     let err = evaluate_expr::<N>("xs:hexBinary('abc')", &empty_ctx()).unwrap_err();
-    assert!(err.code.contains("FORG0001"));
+    assert_eq!(err.code_enum(), ErrorCode::FORG0001);
 }
 
 #[rstest]
@@ -98,7 +99,7 @@ fn xs_integer_subtypes_ranges() {
     let ok = evaluate_expr::<N>("xs:unsignedByte('255')", &c).unwrap();
     assert_eq!(ok, vec![I::Atomic(A::UnsignedByte(255))]);
     let err = evaluate_expr::<N>("xs:unsignedByte('256')", &c).unwrap_err();
-    assert!(err.code.contains("FORG0001"));
+    assert_eq!(err.code_enum(), ErrorCode::FORG0001);
 }
 
 #[rstest]

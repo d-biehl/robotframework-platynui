@@ -1,4 +1,5 @@
 use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
+use platynui_xpath::runtime::ErrorCode;
 use platynui_xpath::{model::simple::SimpleNode, xdm::XdmItem as I, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
 use rstest::rstest;
 
@@ -49,10 +50,10 @@ fn xs_boolean_lexical_forms_and_empty() {
 fn xs_boolean_invalid_raises_forg0001() {
     let err = evaluate_expr::<N>("xs:boolean('yes')", &empty_ctx())
         .expect_err("expected error");
-    assert!(
-        err.code.contains("FORG0001"),
-        "unexpected error code: {}",
-        err.code
+        assert!(
+            err.code_enum() == ErrorCode::FORG0001,
+            "unexpected error code: {:?}",
+            err.code_qname()
     );
 }
 
@@ -87,16 +88,16 @@ fn xs_integer_invalid_raises_forg0001() {
     let err_frac = evaluate_expr::<N>("xs:integer('3.14')", &empty_ctx())
         .expect_err("expected error");
     assert!(
-        err_frac.code.contains("FOCA0001"),
-        "3.14 expected FOCA0001, got {}",
-        err_frac.code
+        err_frac.code_enum() == ErrorCode::FOCA0001,
+        "3.14 expected FOCA0001, got {:?}",
+        err_frac.code_qname()
     );
     // Non-numeric lexical → FORG0001
     let err_lex = evaluate_expr::<N>("xs:integer('abc')", &empty_ctx())
         .expect_err("expected error");
     assert!(
-        err_lex.code.contains("FORG0001"),
-        "abc expected FORG0001, got {}",
-        err_lex.code
+        err_lex.code_enum() == ErrorCode::FORG0001,
+        "abc expected FORG0001, got {:?}",
+        err_lex.code_qname()
     );
 }

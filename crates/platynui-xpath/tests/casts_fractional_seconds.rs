@@ -1,5 +1,6 @@
 use chrono::Timelike; // for second() / nanosecond()
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::runtime::ErrorCode;
 use platynui_xpath::{xdm::XdmItem as I, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
 use rstest::rstest;
 
@@ -11,12 +12,7 @@ fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
 fn expect_err(expr: &str) {
     let c = ctx();
     let err = evaluate_expr::<N>(expr, &c).unwrap_err();
-    assert!(
-        err.code.contains("FORG0001"),
-        "expected FORG0001 got {} for {}",
-        err.code,
-        expr
-    );
+    assert_eq!(err.code_enum(), ErrorCode::FORG0001);
 }
 
 #[rstest]

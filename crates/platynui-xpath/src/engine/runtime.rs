@@ -29,7 +29,6 @@ pub enum ResolveError {
     },
 }
 
-// Context passed into function implementations (M6)
 pub struct CallCtx<'a, N> {
     pub dyn_ctx: &'a DynamicContext<N>,
     pub static_ctx: &'a StaticContext,
@@ -348,7 +347,7 @@ impl FancyRegexProvider {
                 }
                 _ => {
                     // validate_regex_flags should have rejected already, but keep a guard
-                    return Err(Error::dynamic(
+                    return Err(Error::from_code(
                         ErrorCode::FORX0001,
                         format!("unsupported regex flag: {}", ch),
                     ));
@@ -357,7 +356,7 @@ impl FancyRegexProvider {
         }
         builder
             .build()
-            .map_err(|_| Error::dynamic(ErrorCode::FORX0002, "invalid regex pattern"))
+            .map_err(|_| Error::from_code(ErrorCode::FORX0002, "invalid regex pattern"))
     }
 }
 
@@ -365,7 +364,7 @@ impl RegexProvider for FancyRegexProvider {
     fn matches(&self, pattern: &str, flags: &str, text: &str) -> Result<bool, Error> {
         let re = Self::build_with_flags(pattern, flags)?;
         re.is_match(text)
-            .map_err(|_| Error::dynamic(ErrorCode::FORX0002, "regex evaluation error"))
+            .map_err(|_| Error::from_code(ErrorCode::FORX0002, "regex evaluation error"))
     }
     fn replace(
         &self,
@@ -378,7 +377,7 @@ impl RegexProvider for FancyRegexProvider {
         // Pre-validate replacement template using fancy_regex::Expander and enforce that $0 is invalid.
         if let Err(_e) = fancy_regex::Expander::default().check(replacement, &re) {
             // Map any template validation errors to FORX0004
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORX0004,
                 "invalid replacement string",
             ));
@@ -391,7 +390,7 @@ impl RegexProvider for FancyRegexProvider {
                 if bytes[i] == b'$' {
                     if i + 1 >= bytes.len() {
                         // dangling $ at end of replacement
-                        return Err(Error::dynamic(
+                        return Err(Error::from_code(
                             ErrorCode::FORX0004,
                             "dangling $ at end of replacement",
                         ));
@@ -410,14 +409,14 @@ impl RegexProvider for FancyRegexProvider {
                             }
                             if j >= bytes.len() {
                                 // unmatched '{' -> let Expander::check have caught this; keep FORX0004
-                                return Err(Error::dynamic(
+                                return Err(Error::from_code(
                                     ErrorCode::FORX0004,
                                     "invalid replacement string",
                                 ));
                             }
                             let name = &replacement[(i + 2)..j];
                             if name == "0" {
-                                return Err(Error::dynamic(
+                                return Err(Error::from_code(
                                     ErrorCode::FORX0004,
                                     "invalid group $0",
                                 ));
@@ -431,7 +430,7 @@ impl RegexProvider for FancyRegexProvider {
                                 // "$0" (followed by non-digit or end) denotes group 0 which is invalid in XPath
                                 // If there are more digits, this is "$0<d>" which is not a valid number in our syntax
                                 // but Expander::check would have rejected invalid groups already; conservatively error here.
-                                return Err(Error::dynamic(
+                                return Err(Error::from_code(
                                     ErrorCode::FORX0004,
                                     "invalid group $0",
                                 ));
@@ -446,7 +445,7 @@ impl RegexProvider for FancyRegexProvider {
                         }
                         _ => {
                             // Unsupported $-escape
-                            return Err(Error::dynamic(
+                            return Err(Error::from_code(
                                 ErrorCode::FORX0004,
                                 "invalid $-escape in replacement",
                             ));
@@ -462,10 +461,10 @@ impl RegexProvider for FancyRegexProvider {
         let mut last = 0;
         for mc in re.captures_iter(text) {
             let cap =
-                mc.map_err(|_| Error::dynamic(ErrorCode::FORX0002, "regex evaluation error"))?;
+                mc.map_err(|_| Error::from_code(ErrorCode::FORX0002, "regex evaluation error"))?;
             let m = cap
                 .get(0)
-                .ok_or_else(|| Error::dynamic(ErrorCode::FORX0002, "no overall match"))?;
+                .ok_or_else(|| Error::from_code(ErrorCode::FORX0002, "no overall match"))?;
             // Append text before match
             out.push_str(&text[last..m.start()]);
             // Append expanded replacement using fancy-regex Expander
@@ -473,7 +472,7 @@ impl RegexProvider for FancyRegexProvider {
             last = m.end();
             if m.start() == m.end() {
                 // zero-length match – per XPath 2.0 fn:replace this is an error (FORX0003)
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::FORX0003,
                     "pattern matches zero-length in replace",
                 ));
@@ -490,7 +489,7 @@ impl RegexProvider for FancyRegexProvider {
             match part {
                 Ok(s) => tokens.push(s.to_string()),
                 Err(_e) => {
-                    return Err(Error::dynamic(
+                    return Err(Error::from_code(
                         ErrorCode::FORX0002,
                         "regex evaluation error",
                     ));
@@ -501,11 +500,7 @@ impl RegexProvider for FancyRegexProvider {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum ErrorKind {
-    Static,
-    Dynamic,
-}
+
 
 /// Canonicalized set of (initial) XPath/XQuery 2.0 error codes we currently emit.
 /// This is intentionally small and will be expanded alongside feature coverage.
@@ -542,28 +537,32 @@ pub enum ErrorCode {
 ///   safe fallback for forward compatibility with older compiled artifacts.
 /// - Use `Error::code_enum()` for structured handling instead of matching raw strings.
 impl ErrorCode {
-    pub fn as_str(&self) -> &'static str {
-        use ErrorCode::*;
-        match self {
-            FOAR0001 => "err:FOAR0001",
-            FOAR0002 => "err:FOAR0002",
-            FOER0000 => "err:FOER0000",
-            FORG0001 => "err:FORG0001",
-            FORG0006 => "err:FORG0006",
-            FORG0004 => "err:FORG0004",
-            FORG0005 => "err:FORG0005",
-            FOCA0001 => "err:FOCA0001",
-            FOCH0002 => "err:FOCH0002",
-            FODC0005 => "err:FODC0005",
-            FORX0001 => "err:FORX0001",
-            FORX0002 => "err:FORX0002",
-            FORX0003 => "err:FORX0003",
-            FORX0004 => "err:FORX0004",
-            XPTY0004 => "err:XPTY0004",
-            XPST0003 => "err:XPST0003",
-            XPST0017 => "err:XPST0017",
-            NYI0000 => "err:NYI0000",
-            Unknown => "err:UNKNOWN",
+    /// Returns the QName (ExpandedName) for this spec-defined error code.
+    /// Namespace: http://www.w3.org/2005/xqt-errors
+    pub fn qname(&self) -> ExpandedName {
+        ExpandedName {
+            ns_uri: Some(ERR_NS.to_string()),
+            local: match self {
+                ErrorCode::FOAR0001 => "FOAR0001".to_string(),
+                ErrorCode::FOAR0002 => "FOAR0002".to_string(),
+                ErrorCode::FOER0000 => "FOER0000".to_string(),
+                ErrorCode::FORG0001 => "FORG0001".to_string(),
+                ErrorCode::FORG0006 => "FORG0006".to_string(),
+                ErrorCode::FORG0004 => "FORG0004".to_string(),
+                ErrorCode::FORG0005 => "FORG0005".to_string(),
+                ErrorCode::FOCA0001 => "FOCA0001".to_string(),
+                ErrorCode::FOCH0002 => "FOCH0002".to_string(),
+                ErrorCode::FODC0005 => "FODC0005".to_string(),
+                ErrorCode::FORX0001 => "FORX0001".to_string(),
+                ErrorCode::FORX0002 => "FORX0002".to_string(),
+                ErrorCode::FORX0003 => "FORX0003".to_string(),
+                ErrorCode::FORX0004 => "FORX0004".to_string(),
+                ErrorCode::XPTY0004 => "XPTY0004".to_string(),
+                ErrorCode::XPST0003 => "XPST0003".to_string(),
+                ErrorCode::XPST0017 => "XPST0017".to_string(),
+                ErrorCode::NYI0000 => "NYI0000".to_string(),
+                ErrorCode::Unknown => "UNKNOWN".to_string(),
+            },
         }
     }
     pub fn from_code(s: &str) -> Self {
@@ -592,62 +591,93 @@ impl ErrorCode {
     }
 }
 
+/// Namespace URI used for W3C-defined XPath/XQuery error codes (xqt-errors).
+pub const ERR_NS: &str = "http://www.w3.org/2005/xqt-errors";
+
 #[derive(Debug, Clone)]
 pub struct Error {
-    pub kind: ErrorKind,
-    pub code: String, // legacy storage; canonical accessor via error_code()
+    pub code: ExpandedName,
     pub message: String,
 }
 
 impl Error {
-    pub fn static_err(code: &str, msg: impl Into<String>) -> Self {
+    /// New QName-centric constructor (preferred). Stores the QName directly.
+    pub fn new_qname(code: ExpandedName, msg: impl Into<String>) -> Self {
         Self {
-            kind: ErrorKind::Static,
-            code: code.to_string(),
-            message: msg.into(),
-        }
-    }
-    pub fn dynamic_err(code: &str, msg: impl Into<String>) -> Self {
-        Self {
-            kind: ErrorKind::Dynamic,
-            code: code.to_string(),
+            code,
             message: msg.into(),
         }
     }
     pub fn code_enum(&self) -> ErrorCode {
-        ErrorCode::from_code(&self.code)
+        // Only ERR_NS codes map to the enum; others are Unknown.
+        if self.code.ns_uri.as_deref() == Some(ERR_NS) {
+            let s = format!("err:{}", self.code.local);
+            ErrorCode::from_code(&s)
+        } else {
+            ErrorCode::Unknown
+        }
+    }
+    /// Attempt to reconstruct the QName from the stored string code.
+    /// Always returns the stored QName.
+    pub fn code_qname(&self) -> Option<ExpandedName> {
+        Some(self.code.clone())
+    }
+    /// Format the code as a human-readable string (err:LOCAL or Q{ns}local).
+    /// Owned formatter for human-readable code string.
+    pub fn format_code(&self) -> String {
+        if self.code.ns_uri.as_deref() == Some(ERR_NS) {
+            format!("err:{}", self.code.local)
+        } else if let Some(ns) = &self.code.ns_uri {
+            format!("Q{{{}}}{}", ns, self.code.local)
+        } else {
+            self.code.local.clone()
+        }
     }
     pub fn not_implemented(feature: &str) -> Self {
-        Self::dynamic_err(
-            ErrorCode::NYI0000.as_str(),
-            format!("not implemented: {}", feature),
-        )
+        Self::new_qname(ErrorCode::NYI0000.qname(), format!("not implemented: {}", feature))
     }
     // New helpers using strongly typed ErrorCode
-    pub fn dynamic(code: ErrorCode, msg: impl Into<String>) -> Self {
-        Self::dynamic_err(code.as_str(), msg)
+    pub fn from_code(code: ErrorCode, msg: impl Into<String>) -> Self {
+        Self::new_qname(code.qname(), msg)
     }
-    pub fn static_code(code: ErrorCode, msg: impl Into<String>) -> Self {
-        Self::static_err(code.as_str(), msg)
+
+    /// Public helper: parse a legacy error code string (e.g., "err:FOER0000" or "Q{ns}local")
+    /// into an ExpandedName. Prefer using typed ErrorCode where possible.
+    pub fn parse_code(s: &str) -> ExpandedName {
+        if let Some(rest) = s.strip_prefix("err:") {
+            return ExpandedName {
+                ns_uri: Some(ERR_NS.to_string()),
+                local: rest.to_string(),
+            };
+        }
+        if let Some(body) = s
+            .strip_prefix('Q')
+            .and_then(|t| t.strip_prefix('{'))
+            .and_then(|t| t.split_once('}'))
+        {
+            let (ns, local) = body;
+            return ExpandedName {
+                ns_uri: Some(ns.to_string()),
+                local: local.to_string(),
+            };
+        }
+        // Fallback: treat as unqualified local name
+        ExpandedName {
+            ns_uri: None,
+            local: s.to_string(),
+        }
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {} ({})", self.kind_str(), self.message, self.code)
+        write!(f, "error: {} ({})", self.message, self.format_code())
     }
 }
 
 impl core::error::Error for Error {}
 
-impl Error {
-    fn kind_str(&self) -> &str {
-        match self.kind {
-            ErrorKind::Static => "static",
-            ErrorKind::Dynamic => "dynamic",
-        }
-    }
-}
+
 
 #[derive(Debug, Clone, Default)]
 pub struct NamespaceBindings {
@@ -679,7 +709,7 @@ impl Default for StaticContext {
     }
 }
 
-/// Builder for `StaticContext` (Task 29 refinement): allows explicit namespace registrations
+/// Builder for `StaticContext`: allows explicit namespace registrations
 /// and default settings while preserving required implicit bindings.
 pub struct StaticContextBuilder {
     ctx: StaticContext,
@@ -745,8 +775,8 @@ pub struct DynamicContext<N> {
     pub collations: Arc<CollationRegistry>,
     pub node_resolver: Option<Arc<dyn NodeResolver<N>>>,
     pub regex: Option<Arc<dyn RegexProvider>>,
-    pub now: Option<chrono::DateTime<chrono::FixedOffset>>, // M8: current-*
-    pub timezone_override: Option<chrono::FixedOffset>,     // M8: override zone
+    pub now: Option<chrono::DateTime<chrono::FixedOffset>>,
+    pub timezone_override: Option<chrono::FixedOffset>,
 }
 
 impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for DynamicContext<N> {
@@ -819,13 +849,13 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBui
         self
     }
 
-    // M8: Set a fixed 'now' instant for deterministic date/time functions
+    // Set a fixed 'now' instant for deterministic date/time functions
     pub fn with_now(mut self, now: chrono::DateTime<chrono::FixedOffset>) -> Self {
         self.ctx.now = Some(now);
         self
     }
 
-    // M8: Override timezone for current-* formatting (applied to 'now' if set)
+    // Override timezone for current-* formatting (applied to 'now' if set)
     pub fn with_timezone(mut self, offset_minutes: i32) -> Self {
         let hours = offset_minutes / 60;
         let mins = offset_minutes % 60;

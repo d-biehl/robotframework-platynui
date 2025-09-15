@@ -1,6 +1,7 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::{xdm::XdmItem as I, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
 use rstest::rstest;
+use platynui_xpath::runtime::ErrorCode;
 
 type N = platynui_xpath::model::simple::SimpleNode;
 fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
@@ -82,7 +83,7 @@ fn div_by_zero_error_integer() {
     let err = evaluate_expr::<N>("1 idiv 0", &ctx())
         .expect_err("expected error");
     assert!(
-        err.code.contains("FOAR0001"),
+        err.code_enum() == ErrorCode::FOAR0001,
         "expected FOAR0001 got {err:?}"
     );
 }

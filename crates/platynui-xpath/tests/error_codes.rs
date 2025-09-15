@@ -27,7 +27,8 @@ fn enum_roundtrip_known() {
         ErrorCode::NYI0000,
     ];
     for c in codes {
-        assert_eq!(ErrorCode::from_code(c.as_str()), c);
+        let s = format!("err:{}", c.qname().local);
+        assert_eq!(ErrorCode::from_code(&s), c);
     }
 }
 
@@ -38,9 +39,9 @@ fn enum_unknown_fallback() {
 
 #[rstest]
 fn helper_constructors() {
-    let e = Error::dynamic(ErrorCode::FORG0006, "test");
+    let e = Error::from_code(ErrorCode::FORG0006, "test");
     assert_eq!(e.code_enum(), ErrorCode::FORG0006);
-    let e2 = Error::static_code(ErrorCode::XPST0003, "static");
+    let e2 = Error::from_code(ErrorCode::XPST0003, "static");
     assert_eq!(e2.code_enum(), ErrorCode::XPST0003);
 }
 

@@ -71,7 +71,7 @@ pub fn try_compare_by_ancestry<N: XdmNode>(a: &N, b: &N) -> Result<Ordering, Err
     // Diverged at index i.
     if i == 0 {
         // Different roots. Default fallback cannot establish global order.
-        return Err(Error::dynamic(
+        return Err(Error::from_code(
             ErrorCode::FOER0000,
             "document order requires adapter: nodes from different roots",
         ));

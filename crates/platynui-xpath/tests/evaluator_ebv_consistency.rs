@@ -1,4 +1,5 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::runtime::ErrorCode;
 use platynui_xpath::{xdm::XdmItem, engine::evaluator::evaluate_expr};
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -22,5 +23,5 @@ fn boolean_on_decimal_respects_zero_nonzero() {
 fn ebv_unsupported_atomic_raises_forg0006() {
     let ctx = DynamicContextBuilder::<N>::default().build();
     let err = evaluate_expr::<N>("boolean(QName('', 'a'))", &ctx).unwrap_err();
-    assert!(err.code.contains("FORG0006"), "got {}", err.code);
+    assert_eq!(err.code_enum(), ErrorCode::FORG0006);
 }

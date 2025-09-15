@@ -1,4 +1,5 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::runtime::ErrorCode;
 use platynui_xpath::{xdm::XdmItem, model::XdmNode, engine::evaluator::evaluate_expr};
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -64,7 +65,7 @@ fn namespace_uri_on_pi_and_namespace_nodes() {
 fn namespace_uri_type_error_on_non_node() {
     let ctx = DynamicContextBuilder::<N>::default().build();
     let err = evaluate_expr::<N>("namespace-uri('x')", &ctx).unwrap_err();
-    assert!(err.code.contains("XPTY0004"));
+    assert_eq!(err.code_enum(), ErrorCode::XPTY0004);
 }
 
 #[test]

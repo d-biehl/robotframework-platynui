@@ -1,5 +1,6 @@
 use pest::Parser;
 use pest::iterators::Pair;
+use crate::engine::runtime::{Error, ErrorCode};
 
 pub mod ast;
 
@@ -7,13 +8,13 @@ pub mod ast;
 #[grammar = "parser/xpath2.pest"]
 pub struct XPathParser;
 
-pub fn parse_xpath(input: &str) -> Result<ast::Expr, XPathParseError> {
+pub fn parse_xpath(input: &str) -> Result<ast::Expr, Error> {
     let mut pairs = XPathParser::parse(Rule::xpath, input)
-        .map_err(|e| XPathParseError::with_code(format!("{}", e), "XPST0003"))?;
+    .map_err(|e| Error::from_code(ErrorCode::XPST0003, format!("{}", e)))?;
 
     let pair = pairs
         .next()
-        .ok_or_else(|| XPathParseError::new("empty parse"))?;
+    .ok_or_else(|| Error::from_code(ErrorCode::XPST0003, "empty parse"))?;
 
     debug_assert_eq!(pair.as_rule(), Rule::xpath);
 
@@ -21,45 +22,10 @@ pub fn parse_xpath(input: &str) -> Result<ast::Expr, XPathParseError> {
     let mut inner = pair.into_inner();
     let expr_pair = inner
         .next()
-        .ok_or_else(|| XPathParseError::new("missing expr"))?;
+    .ok_or_else(|| Error::from_code(ErrorCode::XPST0003, "missing expr"))?;
 
-    build_expr(expr_pair).map_err(|e| XPathParseError::with_code(e.to_string(), "XPST0003"))
+    build_expr(expr_pair).map_err(|e| Error::from_code(ErrorCode::XPST0003, e.to_string()))
 }
-
-#[derive(Clone)]
-pub struct XPathParseError {
-    pub msg: String,
-    pub code: &'static str, // e.g. "XPST0003"
-}
-
-impl XPathParseError {
-    pub fn new(msg: impl Into<String>) -> Self {
-        Self {
-            msg: msg.into(),
-            code: "XPST0003",
-        }
-    }
-    pub fn with_code(msg: impl Into<String>, code: &'static str) -> Self {
-        Self {
-            msg: msg.into(),
-            code,
-        }
-    }
-}
-
-impl std::fmt::Display for XPathParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}] {}", self.code, self.msg)
-    }
-}
-
-impl std::fmt::Debug for XPathParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "XPathParseError[{}]: {}", self.code, self.msg)
-    }
-}
-
-impl std::error::Error for XPathParseError {}
 
 type AstResult<T> = Result<T, ParseAstError>;
 

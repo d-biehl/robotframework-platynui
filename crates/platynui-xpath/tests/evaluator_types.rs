@@ -1,6 +1,7 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::{xdm::XdmItem as I, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
 use rstest::rstest;
+use platynui_xpath::runtime::ErrorCode;
 type N = platynui_xpath::model::simple::SimpleNode;
 fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
     DynamicContextBuilder::default().build()
@@ -59,7 +60,7 @@ fn instance_of_cardinality_fail() {
 fn treat_cardinality_fail() {
     let err = evaluate_expr::<N>("('a','b') treat as xs:string?", &ctx())
         .expect_err("expected error");
-    assert!(err.code.contains("XPTY0004"));
+    assert_eq!(err.code_enum(), ErrorCode::XPTY0004);
 }
 
 #[rstest]

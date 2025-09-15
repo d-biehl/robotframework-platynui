@@ -107,7 +107,7 @@ fn incomparable_general_eq(#[case] expr: &str, #[case] expect: bool) {
     assert_eq!(eval_bool(expr), expect);
 }
 
-// Value comparisons (singletons only) should error on empty or arity >1 before comparison; here we just test positive paths & incomparable => error? For now expect false if incomparable until Task 52 finalizes.
+// Value comparisons (singletons only) should error on empty or arity >1 before comparison; here we just test positive paths. For incomparable values we currently expect false.
 #[rstest]
 #[case("1 eq 1", true)]
 #[case("1 eq 2", false)]

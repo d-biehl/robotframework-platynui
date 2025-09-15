@@ -1,4 +1,4 @@
-use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::engine::runtime::{DynamicContextBuilder, ErrorCode};
 use platynui_xpath::{xdm::XdmItem, model::XdmNode, engine::evaluator::evaluate_expr};
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -56,12 +56,12 @@ fn attribute_name_and_wildcard() {
 fn element_type_arg_rejected_without_schema_awareness() {
     let expr = "element(root, xs:string)";
     let err = platynui_xpath::compile_xpath(expr).expect_err("expected static error");
-    assert_eq!(err.code, "err:XPST0003");
+    assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }
 
 #[test]
 fn schema_element_rejected_without_schema_awareness() {
     let expr = "schema-element(root)";
     let err = platynui_xpath::compile_xpath(expr).expect_err("expected static error");
-    assert_eq!(err.code, "err:XPST0003");
+    assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }

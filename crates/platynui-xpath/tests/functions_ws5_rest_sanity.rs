@@ -1,4 +1,5 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::runtime::ErrorCode;
 use platynui_xpath::{xdm::XdmItem, engine::evaluator::evaluate_expr};
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -58,7 +59,7 @@ fn seconds_from_datetime_fractional_decimal() {
 fn normalize_unicode_invalid_form_errors() {
     let ctx = DynamicContextBuilder::<N>::default().build();
     let err = evaluate_expr::<N>("normalize-unicode('x','NOPE')", &ctx).unwrap_err();
-    assert!(err.code.contains("FORG0001"));
+    assert_eq!(err.code_enum(), ErrorCode::FORG0001);
 }
 
 #[test]
@@ -70,5 +71,5 @@ fn datetime_constructor_conflicting_timezones_errors() {
         &ctx,
     )
     .unwrap_err();
-    assert!(err.code.contains("FORG0001"));
+    assert_eq!(err.code_enum(), ErrorCode::FORG0001);
 }

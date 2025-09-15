@@ -1,7 +1,7 @@
 use platynui_xpath::{
     compiler::compile_xpath,
     engine::{evaluator::evaluate, runtime::DynamicContextBuilder},
-    model::simple::{attr, doc as simple_doc, elem, text, SimpleNode},
+    model::simple::{SimpleNode, attr, doc as simple_doc, elem, text},
     xdm::XdmItem,
 };
 
@@ -25,7 +25,8 @@ fn main() {
         )
         .build();
 
-    let compiled = compile_xpath(".").unwrap();
+    let compiled =
+        compile_xpath(" fn:error(fn:QName('http://www.w3.org/2005/xqt-errors', 'err:FOER0000'), 'Geht nicht')").unwrap();
     print!("Compiled: ");
     println!("{:?}", compiled);
 

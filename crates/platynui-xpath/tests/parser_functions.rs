@@ -1,4 +1,5 @@
 use platynui_xpath::parser::{ast, parse_xpath};
+use platynui_xpath::engine::runtime::ErrorCode;
 use rstest::rstest;
 
 fn parse(expr: &str) -> ast::Expr {
@@ -24,17 +25,17 @@ fn function_calls_ok(#[case] input: &str, #[case] expect: (&str, &str, usize)) {
 fn reserved_function_name_rejected() {
     // reserved names like 'if' cannot appear as function_qname
     let err = parse_xpath("if()").expect_err("expected error");
-    assert_eq!(err.code, "XPST0003");
+    assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }
 
 #[rstest]
 fn function_call_trailing_comma() {
     let err = parse_xpath("foo(1,)").expect_err("expected error");
-    assert_eq!(err.code, "XPST0003");
+    assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }
 
 #[rstest]
 fn function_call_missing_arg_between_commas() {
     let err = parse_xpath("foo(,1)").expect_err("expected error");
-    assert_eq!(err.code, "XPST0003");
+    assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }

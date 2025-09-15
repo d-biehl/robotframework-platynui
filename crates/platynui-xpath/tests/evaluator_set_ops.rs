@@ -52,5 +52,5 @@ fn except_nodes() {
 fn set_ops_on_atomics_error() {
     let err = evaluate_expr::<N>("(1,2) union (2,3)", &ctx())
         .expect_err("should error");
-    assert_eq!(err.code_enum().as_str(), "err:XPTY0004");
+    assert_eq!(err.code_enum(), platynui_xpath::engine::runtime::ErrorCode::XPTY0004);
 }

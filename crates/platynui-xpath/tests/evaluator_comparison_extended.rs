@@ -1,4 +1,5 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::runtime::ErrorCode;
 use platynui_xpath::{
     evaluate_expr,
     xdm::{XdmAtomicValue as A, XdmItem as I},
@@ -115,9 +116,5 @@ fn value_ge(#[case] expr: &str, #[case] expect: bool) {
 fn boolean_relational_errors(#[case] expr: &str) {
     let err = evaluate_expr::<N>(expr, &ctx())
         .expect_err("expected error");
-    assert!(
-        err.code.contains("XPTY0004"),
-        "expected XPTY0004, got {:?}",
-        err.code
-    );
+    assert_eq!(err.code_enum(), ErrorCode::XPTY0004, "expected XPTY0004, got {:?}", err.code_qname());
 }

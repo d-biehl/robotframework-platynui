@@ -30,13 +30,13 @@ fn ebv<N>(seq: &XdmSequence<N>) -> Result<bool, Error> {
             XdmItem::Atomic(XdmAtomicValue::Double(d)) => Ok(*d != 0.0 && !d.is_nan()),
             XdmItem::Atomic(XdmAtomicValue::Float(f)) => Ok(*f != 0.0 && !f.is_nan()),
             XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => Ok(!s.is_empty()),
-            XdmItem::Atomic(_) => Err(Error::dynamic(
+            XdmItem::Atomic(_) => Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "EBV for this atomic type not supported yet",
             )),
             XdmItem::Node(_) => Ok(true),
         },
-        _ => Err(Error::dynamic(
+        _ => Err(Error::from_code(
             ErrorCode::FORG0006,
             "EBV of sequence with more than one item",
         )),
@@ -183,17 +183,17 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 XdmItem::Atomic(XdmAtomicValue::Integer(i)) => {
                     let v = *i;
                     if !(0..=0x10FFFF).contains(&v) {
-                        return Err(Error::dynamic(ErrorCode::FORG0001, "invalid code point"));
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid code point"));
                     }
                     let u = v as u32;
                     if let Some(c) = char::from_u32(u) {
                         s.push(c);
                     } else {
-                        return Err(Error::dynamic(ErrorCode::FORG0001, "invalid code point"));
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid code point"));
                     }
                 }
                 _ => {
-                    return Err(Error::dynamic(
+                    return Err(Error::from_code(
                         ErrorCode::XPTY0004,
                         "codepoints-to-string expects xs:integer*",
                     ));
@@ -339,7 +339,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         ))])
     });
 
-    // ===== Node name functions (Task 72) =====
+    // ===== Node name functions =====
     // node-name($arg as node()?) as xs:QName?
     reg.register_ns(FNS, "node-name", 1, |ctx, args| {
         node_name_default(ctx, Some(&args[0]))
@@ -362,11 +362,11 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     });
     // namespace-uri()/namespace-uri($arg) — registered below in QName/Namespace functions section
 
-    // ===== QName / Namespace functions (Task 29) =====
+    // ===== QName / Namespace functions =====
     // fn:QName($namespaceURI as xs:string?, $qname as xs:string) as xs:QName
     reg.register_ns(FNS, "QName", 2, |_ctx, args| {
         if args[0].is_empty() {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0001,
                 "QName requires namespace string (use '' for none)",
             ));
@@ -378,7 +378,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             _ => String::new(),
         };
         if args[1].is_empty() {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0001,
                 "QName requires lexical QName",
             ));
@@ -386,14 +386,14 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let qn_lex = match &args[1][0] {
             XdmItem::Atomic(XdmAtomicValue::String(s)) => s.clone(),
             _ => {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::FORG0001,
                     "QName lexical must be string",
                 ));
             }
         };
         let (prefix_opt, local) = parse_qname_lexical(&qn_lex)
-            .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid QName lexical"))?;
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"))?;
         let ns_uri = if ns.is_empty() { None } else { Some(ns) };
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::QName {
             ns_uri,
@@ -439,7 +439,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let s = match &args[0][0] {
             XdmItem::Atomic(XdmAtomicValue::String(s)) => s.clone(),
             _ => {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::FORG0001,
                     "resolve-QName requires string",
                 ));
@@ -449,20 +449,20 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let enode = match &args[1][0] {
             XdmItem::Node(n) => n.clone(),
             _ => {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::XPTY0004,
                     "resolve-QName requires element()",
                 ));
             }
         };
         let (prefix_opt, local) = parse_qname_lexical(&s)
-            .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid QName lexical"))?;
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"))?;
         let ns_uri = match &prefix_opt {
             None => None,
             Some(p) => inscope_for(enode).get(p).cloned(),
         };
         if prefix_opt.is_some() && ns_uri.is_none() {
-            return Err(Error::dynamic(ErrorCode::FORG0001, "unknown prefix"));
+            return Err(Error::from_code(ErrorCode::FORG0001, "unknown prefix"));
         }
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::QName {
             ns_uri,
@@ -484,7 +484,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                     Ok(vec![])
                 }
             }
-            _ => Err(Error::dynamic(
+            _ => Err(Error::from_code(
                 ErrorCode::XPTY0004,
                 "namespace-uri-from-QName expects xs:QName",
             )),
@@ -500,7 +500,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             XdmItem::Atomic(XdmAtomicValue::QName { local, .. }) => {
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::NCName(local.clone()))])
             }
-            _ => Err(Error::dynamic(
+            _ => Err(Error::from_code(
                 ErrorCode::XPTY0004,
                 "local-name-from-QName expects xs:QName",
             )),
@@ -520,7 +520,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                     Ok(vec![])
                 }
             }
-            _ => Err(Error::dynamic(
+            _ => Err(Error::from_code(
                 ErrorCode::XPTY0004,
                 "prefix-from-QName expects xs:QName",
             )),
@@ -535,12 +535,12 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         }
         let p = match &args[0][0] {
             XdmItem::Atomic(XdmAtomicValue::String(s)) => s.clone(),
-            _ => return Err(Error::dynamic(ErrorCode::FORG0001, "prefix must be string")),
+            _ => return Err(Error::from_code(ErrorCode::FORG0001, "prefix must be string")),
         };
         let enode = match &args[1][0] {
             XdmItem::Node(n) => n.clone(),
             _ => {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::XPTY0004,
                     "namespace-uri-for-prefix requires element()",
                 ));
@@ -562,7 +562,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let enode = match &args[0][0] {
             XdmItem::Node(n) => n.clone(),
             _ => {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::XPTY0004,
                     "in-scope-prefixes requires element()",
                 ));
@@ -607,7 +607,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 }
                 Ok(vec![])
             }
-            _ => Err(Error::dynamic(
+            _ => Err(Error::from_code(
                 ErrorCode::XPTY0004,
                 "namespace-uri() expects node()",
             )),
@@ -654,7 +654,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let mut count: i64 = 0;
         for it in &args[0] {
             let XdmItem::Atomic(a) = it else {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::XPTY0004,
                     "avg on non-atomic item",
                 ));
@@ -686,7 +686,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 }
                 count += 1;
             } else {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::XPTY0004,
                     "avg requires numeric values",
                 ));
@@ -730,7 +730,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     // exactly-one($arg) => returns the item, else FORG0005
     reg.register_ns(FNS, "exactly-one", 1, |_ctx, args| {
         if args[0].len() != 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0005,
                 "exactly-one requires a sequence of length 1",
             ));
@@ -740,7 +740,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     // one-or-more($arg) => returns the sequence, else FORG0004
     reg.register_ns(FNS, "one-or-more", 1, |_ctx, args| {
         if args[0].is_empty() {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0004,
                 "one-or-more requires at least one item",
             ));
@@ -750,7 +750,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     // zero-or-one($arg) => returns as-is, else FORG0004
     reg.register_ns(FNS, "zero-or-one", 1, |_ctx, args| {
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0004,
                 "zero-or-one requires at most one item",
             ));
@@ -972,7 +972,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 }
                 Ok(vec![XdmItem::Node(cur)])
             }
-            _ => Err(Error::dynamic(ErrorCode::XPTY0004, "root() expects node()")),
+            _ => Err(Error::from_code(ErrorCode::XPTY0004, "root() expects node()")),
         }
     });
     // base-uri($arg as node()?) as xs:anyURI?
@@ -993,7 +993,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                     Ok(vec![])
                 }
             }
-            _ => Err(Error::dynamic(
+            _ => Err(Error::from_code(
                 ErrorCode::XPTY0004,
                 "base-uri() expects node()",
             )),
@@ -1017,7 +1017,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                     }
                 Ok(vec![])
             }
-            _ => Err(Error::dynamic(
+            _ => Err(Error::from_code(
                 ErrorCode::XPTY0004,
                 "document-uri() expects node()",
             )),
@@ -1387,7 +1387,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             "NFKC" => s.nfkc().collect::<String>(),
             "NFKD" => s.nfkd().collect::<String>(),
             _ => {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::FORG0001,
                     "invalid normalization form",
                 ));
@@ -1423,13 +1423,13 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             match nr.doc_node(&uri) {
                 Ok(Some(n)) => return Ok(vec![XdmItem::Node(n)]),
                 Ok(None) => {
-                    return Err(Error::dynamic(
+                    return Err(Error::from_code(
                         ErrorCode::FODC0005,
                         "document not available",
                     ));
                 }
                 Err(_e) => {
-                    return Err(Error::dynamic(
+                    return Err(Error::from_code(
                         ErrorCode::FODC0005,
                         "error retrieving document",
                     ));
@@ -1437,7 +1437,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             }
         }
         // No node resolver configured → signal FODC0005
-        Err(Error::dynamic(
+        Err(Error::from_code(
             ErrorCode::FODC0005,
             "no node resolver configured for fn:doc",
         ))
@@ -1479,7 +1479,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     // unordered($arg as item()*) as item()* — identity order for now
     reg.register_ns(FNS, "unordered", 1, |_ctx, args| Ok(args[0].clone()));
 
-    // Minimal constructor-like function (Task 11 subset): integer($arg)
+    // Minimal constructor-like function: integer($arg)
     reg.register_ns(FNS, "integer", 1, |_ctx, args| {
         if args[0].is_empty() {
             return Ok(vec![]);
@@ -1487,7 +1487,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let s = item_to_string(&args[0]);
         let i: i64 = s
             .parse()
-            .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid integer"))?;
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid integer"))?;
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(i))])
     });
 
@@ -1504,11 +1504,11 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             XdmItem::Atomic(XdmAtomicValue::String(s))
             | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
                 let (d, tzo) = parse_xs_date_local(s)
-                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:date"))?;
+                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:date"))?;
                 (d, tzo)
             }
             _ => {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::XPTY0004,
                     "dateTime expects xs:date? and xs:time?",
                 ));
@@ -1519,11 +1519,11 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             XdmItem::Atomic(XdmAtomicValue::String(s))
             | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
                 let (t, tzo) = crate::util::temporal::parse_time_lex(s)
-                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:time"))?;
+                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:time"))?;
                 (t, tzo)
             }
             _ => {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::XPTY0004,
                     "dateTime expects xs:date? and xs:time?",
                 ));
@@ -1534,7 +1534,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 if a.local_minus_utc() == b.local_minus_utc() {
                     Some(a)
                 } else {
-                    return Err(Error::dynamic(ErrorCode::FORG0001, "conflicting timezones"));
+                    return Err(Error::from_code(ErrorCode::FORG0001, "conflicting timezones"));
                 }
             }
             (Some(a), None) => Some(a),
@@ -1559,10 +1559,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             match &args[1][0] {
                 XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
                     ChronoFixedOffset::east_opt(*secs as i32)
-                        .ok_or_else(|| Error::dynamic(ErrorCode::FORG0001, "invalid timezone"))?
+                        .ok_or_else(|| Error::from_code(ErrorCode::FORG0001, "invalid timezone"))?
                 }
                 _ => {
-                    return Err(Error::dynamic(
+                    return Err(Error::from_code(
                         ErrorCode::XPTY0004,
                         "adjust-date-to-timezone expects xs:dayTimeDuration",
                     ));
@@ -1574,9 +1574,9 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             XdmItem::Atomic(XdmAtomicValue::Date { date, tz: _ }) => (*date, None),
             XdmItem::Atomic(XdmAtomicValue::String(s))
             | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => parse_xs_date_local(s)
-                .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:date"))?,
+                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:date"))?,
             _ => {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::XPTY0004,
                     "adjust-date-to-timezone expects xs:date?",
                 ));
@@ -1602,10 +1602,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             match &args[1][0] {
                 XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
                     ChronoFixedOffset::east_opt(*secs as i32)
-                        .ok_or_else(|| Error::dynamic(ErrorCode::FORG0001, "invalid timezone"))?
+                        .ok_or_else(|| Error::from_code(ErrorCode::FORG0001, "invalid timezone"))?
                 }
                 _ => {
-                    return Err(Error::dynamic(
+                    return Err(Error::from_code(
                         ErrorCode::XPTY0004,
                         "adjust-time-to-timezone expects xs:dayTimeDuration",
                     ));
@@ -1618,10 +1618,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             XdmItem::Atomic(XdmAtomicValue::String(s))
             | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
                 crate::util::temporal::parse_time_lex(s)
-                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:time"))?
+                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:time"))?
             }
             _ => {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::XPTY0004,
                     "adjust-time-to-timezone expects xs:time?",
                 ));
@@ -1651,12 +1651,11 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             } else {
                 Some(match &args[1][0] {
                     XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
-                        ChronoFixedOffset::east_opt(*secs as i32).ok_or_else(|| {
-                            Error::dynamic(ErrorCode::FORG0001, "invalid timezone")
-                        })?
+                        ChronoFixedOffset::east_opt(*secs as i32)
+                            .ok_or_else(|| Error::from_code(ErrorCode::FORG0001, "invalid timezone"))?
                     }
                     _ => {
-                        return Err(Error::dynamic(
+                        return Err(Error::from_code(
                             ErrorCode::XPTY0004,
                             "adjust-dateTime-to-timezone expects xs:dayTimeDuration",
                         ));
@@ -1669,10 +1668,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
                     crate::util::temporal::parse_date_time_lex(s)
                         .map(|(d, t, tz)| crate::util::temporal::build_naive_datetime(d, t, tz))
-                        .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:dateTime"))?
+                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:dateTime"))?
                 }
                 _ => {
-                    return Err(Error::dynamic(
+                    return Err(Error::from_code(
                         ErrorCode::XPTY0004,
                         "adjust-dateTime-to-timezone expects xs:dateTime?",
                     ));
@@ -1689,7 +1688,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         },
     );
 
-    // ===== Date/Time family (M8 subset) =====
+    // ===== Date/Time family =====
     reg.register_ns(FNS, "current-dateTime", 0, |ctx, _args| {
         let dt = now_in_effective_tz(ctx);
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::DateTime(dt))])
@@ -1892,7 +1891,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         if let Ok(sec) = parse_day_time_duration_secs(s) {
             return Ok((None, Some(sec)));
         }
-        Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:duration"))
+    Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:duration"))
     }
     // years-from-duration($arg as xs:duration?) as xs:integer?
     reg.register_ns(FNS, "years-from-duration", 1, |_ctx, args| {
@@ -2162,14 +2161,14 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             XdmItem::Atomic(XdmAtomicValue::String(s))
             | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
                 let (d, _) = parse_xs_date_local(s)
-                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:date"))?;
+                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:date"))?;
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
                     d.year() as i64
                 ))])
             }
             XdmItem::Node(n) => {
                 let (d, _) = parse_xs_date_local(&n.string_value())
-                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:date"))?;
+                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:date"))?;
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
                     d.year() as i64
                 ))])
@@ -2188,14 +2187,14 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             XdmItem::Atomic(XdmAtomicValue::String(s))
             | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
                 let (d, _) = parse_xs_date_local(s)
-                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:date"))?;
+                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:date"))?;
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
                     d.month() as i64
                 ))])
             }
             XdmItem::Node(n) => {
                 let (d, _) = parse_xs_date_local(&n.string_value())
-                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:date"))?;
+                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:date"))?;
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
                     d.month() as i64
                 ))])
@@ -2214,14 +2213,14 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             XdmItem::Atomic(XdmAtomicValue::String(s))
             | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
                 let (d, _) = parse_xs_date_local(s)
-                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:date"))?;
+                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:date"))?;
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
                     d.day() as i64
                 ))])
             }
             XdmItem::Node(n) => {
                 let (d, _) = parse_xs_date_local(&n.string_value())
-                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:date"))?;
+                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:date"))?;
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
                     d.day() as i64
                 ))])
@@ -2237,7 +2236,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2256,7 +2255,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2270,7 +2269,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2280,7 +2279,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let v = match s.as_str() {
             "true" | "1" => true,
             "false" | "0" => false,
-            _ => return Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:boolean")),
+            _ => return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:boolean")),
         };
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(v))])
     });
@@ -2290,7 +2289,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2298,20 +2297,20 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let s = item_to_string(&args[0]);
         let s_trim = s.trim();
         if s_trim.is_empty() {
-            return Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:integer"));
+            return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:integer"));
         }
         // If decimal point or exponent present attempt f64 parse to distinguish fractional (FOCA0001)
         if (s_trim.contains('.') || s_trim.contains('e') || s_trim.contains('E'))
             && let Ok(f) = s_trim.parse::<f64>()
                 && (!f.is_finite() || f.fract() != 0.0) {
-                    return Err(Error::dynamic(
+                    return Err(Error::from_code(
                         ErrorCode::FOCA0001,
                         "fractional part in integer cast",
                     ));
                 }
         let i: i64 = s_trim
             .parse()
-            .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:integer"))?;
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:integer"))?;
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(i))])
     });
 
@@ -2321,7 +2320,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2332,11 +2331,11 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             || s.eq_ignore_ascii_case("inf")
             || s.eq_ignore_ascii_case("-inf")
         {
-            return Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:decimal"));
+            return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"));
         }
         let v: f64 = s
             .parse()
-            .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:decimal"))?;
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?;
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(v))])
     });
     // xs:double($arg) as xs:double?
@@ -2345,7 +2344,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2357,7 +2356,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             "-INF" => f64::NEG_INFINITY,
             _ => s
                 .parse()
-                .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:double"))?,
+                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:double"))?,
         };
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(v))])
     });
@@ -2367,7 +2366,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2379,7 +2378,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             "-INF" => f32::NEG_INFINITY,
             _ => s
                 .parse()
-                .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:float"))?,
+                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:float"))?,
         };
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Float(v))])
     });
@@ -2390,7 +2389,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2406,21 +2405,21 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
         }
         let s = item_to_string(&args[0]);
         let (prefix_opt, local) = parse_qname_lexical(&s)
-            .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:QName"))?;
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:QName"))?;
         let ns_uri = match prefix_opt.as_deref() {
             None => None,
             Some("xml") => Some("http://www.w3.org/XML/1998/namespace".to_string()),
             Some(p) => ctx.static_ctx.namespaces.by_prefix.get(p).cloned(),
         };
         if prefix_opt.is_some() && ns_uri.is_none() {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0001,
                 "unknown namespace prefix for QName",
             ));
@@ -2438,7 +2437,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2449,7 +2448,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             .decode(&norm)
             .is_err()
         {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0001,
                 "invalid xs:base64Binary",
             ));
@@ -2461,7 +2460,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2469,7 +2468,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let raw = item_to_string(&args[0]);
         let norm: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
         if norm.len() % 2 != 0 || !norm.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:hexBinary"));
+            return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:hexBinary"));
         }
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::HexBinary(norm))])
     });
@@ -2480,7 +2479,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2491,7 +2490,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 let dt = crate::util::temporal::build_naive_datetime(d, t, tz);
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::DateTime(dt))])
             }
-            Err(_) => Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:dateTime")),
+            Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:dateTime")),
         }
     });
     // (dateTime component extractors are registered earlier)
@@ -2500,7 +2499,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2508,7 +2507,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let s = item_to_string(&args[0]);
         match crate::util::temporal::parse_date_lex(&s) {
             Ok((d, tz)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Date { date: d, tz })]),
-            Err(_) => Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:date")),
+            Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:date")),
         }
     });
     reg.register_ns(XS, "time", 1, |_ctx, args| {
@@ -2516,7 +2515,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2524,7 +2523,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let s = item_to_string(&args[0]);
         match crate::util::temporal::parse_time_lex(&s) {
             Ok((t, tz)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Time { time: t, tz })]),
-            Err(_) => Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:time")),
+            Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:time")),
         }
     });
 
@@ -2534,14 +2533,14 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
         }
         let s = item_to_string(&args[0]);
         let secs = parse_day_time_duration_secs(&s)
-            .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:dayTimeDuration"))?;
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:dayTimeDuration"))?;
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs))])
     });
     reg.register_ns(XS, "yearMonthDuration", 1, |_ctx, args| {
@@ -2549,14 +2548,14 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
         }
         let s = item_to_string(&args[0]);
         let months = parse_year_month_duration_months(&s)
-            .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid xs:yearMonthDuration"))?;
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:yearMonthDuration"))?;
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(
             months,
         ))])
@@ -2624,7 +2623,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2637,7 +2636,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
@@ -2650,14 +2649,14 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
         }
         let s = collapse_whitespace(&item_to_string(&args[0]));
         if !is_valid_language(&s) {
-            return Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:language"));
+            return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:language"));
         }
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Language(s))])
     });
@@ -2685,14 +2684,14 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             return Ok(vec![]);
         }
         if args[0].len() > 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "constructor expects at most one item",
             ));
         }
         let s = item_to_string(&args[0]);
         if parse_qname_lexical(&s).is_err() {
-            return Err(Error::dynamic(ErrorCode::FORG0001, "invalid xs:NOTATION"));
+            return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:NOTATION"));
         }
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::Notation(s))])
     });
@@ -2919,7 +2918,7 @@ fn node_name_default<N: crate::model::XdmNode + Clone>(
                 Ok(vec![])
             }
         }
-        _ => Err(Error::dynamic(
+        _ => Err(Error::from_code(
             ErrorCode::XPTY0004,
             "node-name expects node()",
         )),
@@ -3092,7 +3091,7 @@ fn sum_default<N: crate::model::XdmNode>(
     if seq.is_empty() {
         if let Some(z) = zero_opt {
             if z.is_empty() {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::FORG0001,
                     "sum seed required when first arg empty",
                 ));
@@ -3109,7 +3108,7 @@ fn sum_default<N: crate::model::XdmNode>(
     let mut use_int_acc = true;
     for it in seq {
         let XdmItem::Atomic(a) = it else {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::XPTY0004,
                 "sum on non-atomic item",
             ));
@@ -3140,7 +3139,7 @@ fn sum_default<N: crate::model::XdmNode>(
                 }
             }
         } else {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::XPTY0004,
                 "sum requires numeric values",
             ));
@@ -3341,13 +3340,13 @@ fn error_default<N: crate::model::XdmNode>(
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
     match args.len() {
-        0 => Err(Error::dynamic(ErrorCode::FOER0000, "fn:error()")),
+        0 => Err(Error::from_code(ErrorCode::FOER0000, "fn:error()")),
         1 => {
             let code = item_to_string(&args[0]);
             if code.is_empty() {
-                Err(Error::dynamic(ErrorCode::FOER0000, "fn:error"))
+                Err(Error::from_code(ErrorCode::FOER0000, "fn:error"))
             } else {
-                Err(Error::dynamic_err(&code, "fn:error"))
+                Err(Error::new_qname(Error::parse_code(&code), "fn:error"))
             }
         }
         2 => {
@@ -3359,9 +3358,9 @@ fn error_default<N: crate::model::XdmNode>(
                 desc
             };
             if code.is_empty() {
-                Err(Error::dynamic(ErrorCode::FOER0000, msg))
+                Err(Error::from_code(ErrorCode::FOER0000, msg))
             } else {
-                Err(Error::dynamic_err(&code, msg))
+                Err(Error::new_qname(Error::parse_code(&code), msg))
             }
         }
         _ => {
@@ -3374,9 +3373,9 @@ fn error_default<N: crate::model::XdmNode>(
                 desc
             };
             if code.is_empty() {
-                Err(Error::dynamic(ErrorCode::FOER0000, msg))
+                Err(Error::from_code(ErrorCode::FOER0000, msg))
             } else {
-                Err(Error::dynamic_err(&code, msg))
+                Err(Error::new_qname(Error::parse_code(&code), msg))
             }
         }
     }
@@ -3484,14 +3483,14 @@ fn to_number<N: crate::model::XdmNode>(seq: &XdmSequence<N>) -> Result<f64, Erro
         return Ok(f64::NAN);
     }
     if seq.len() != 1 {
-        return Err(Error::dynamic(ErrorCode::FORG0006, "expects single item"));
+        return Err(Error::from_code(ErrorCode::FORG0006, "expects single item"));
     }
     match &seq[0] {
         XdmItem::Atomic(a) => to_number_atomic(a),
         XdmItem::Node(n) => n
             .string_value()
             .parse::<f64>()
-            .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid number")),
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid number")),
     }
 }
 
@@ -3517,9 +3516,9 @@ fn to_number_atomic(a: &XdmAtomicValue) -> Result<f64, Error> {
         | XdmAtomicValue::String(s)
         | XdmAtomicValue::AnyUri(s) => s
             .parse::<f64>()
-            .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid number")),
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid number")),
         XdmAtomicValue::Boolean(b) => Ok(if *b { 1.0 } else { 0.0 }),
-        XdmAtomicValue::QName { .. } => Err(Error::dynamic(
+        XdmAtomicValue::QName { .. } => Err(Error::from_code(
             ErrorCode::XPTY0004,
             "cannot cast QName to number",
         )),
@@ -3544,7 +3543,7 @@ fn to_number_atomic(a: &XdmAtomicValue) -> Result<f64, Error> {
         | XdmAtomicValue::Id(_)
         | XdmAtomicValue::IdRef(_)
         | XdmAtomicValue::Entity(_)
-        | XdmAtomicValue::Notation(_) => Err(Error::dynamic(
+        | XdmAtomicValue::Notation(_) => Err(Error::from_code(
             ErrorCode::XPTY0004,
             "cannot cast value to number",
         )),
@@ -3777,7 +3776,7 @@ fn distinct_values_impl<N: crate::model::XdmNode>(
     for it in seq {
         match it {
             XdmItem::Node(_) => {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::XPTY0004,
                     "distinct-values on non-atomic item",
                 ));
@@ -3816,7 +3815,7 @@ fn atomic_equal_with_collation(
     Ok(ka == kb)
 }
 
-// ===== Helpers (M7 Regex) =====
+// ===== Helpers (Regex) =====
 fn get_regex_provider<N>(ctx: &CallCtx<N>) -> std::sync::Arc<dyn crate::engine::runtime::RegexProvider> {
     if let Some(p) = &ctx.regex {
         p.clone()
@@ -3878,7 +3877,7 @@ fn validate_regex_flags(flags: &str) -> Result<String, Error> {
                 }
             }
             _ => {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     crate::engine::runtime::ErrorCode::FORX0001,
                     format!("unsupported regex flag: {ch}"),
                 ));
@@ -3907,7 +3906,7 @@ fn reject_backref_in_char_class(pattern: &str) -> Result<(), Error> {
                     && i + 1 < bytes.len()
                     && (bytes[i + 1] as char).is_ascii_digit()
                 {
-                    return Err(Error::dynamic(
+                    return Err(Error::from_code(
                         crate::engine::runtime::ErrorCode::FORX0002,
                         "backreference not allowed in character class",
                     ));
@@ -4186,7 +4185,7 @@ fn now_in_effective_tz<N>(ctx: &CallCtx<N>) -> chrono::DateTime<chrono::FixedOff
     }
 }
 
-// ===== Helpers for M8b component functions =====
+// ===== Helpers for component functions =====
 fn parse_offset(tz: &str) -> Option<ChronoFixedOffset> {
     if tz.len() != 6 {
         return None;
@@ -4211,12 +4210,12 @@ fn get_datetime<N: crate::model::XdmNode>(
         | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
             ChronoDateTime::parse_from_rfc3339(s)
                 .map(Some)
-                .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:dateTime"))
+                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:dateTime"))
         }
         XdmItem::Node(n) => ChronoDateTime::parse_from_rfc3339(&n.string_value())
             .map(Some)
-            .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:dateTime")),
-        _ => Err(Error::dynamic_err("err:XPTY0004", "not a dateTime")),
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:dateTime")),
+    _ => Err(Error::from_code(ErrorCode::XPTY0004, "not a dateTime")),
     }
 }
 
@@ -4231,11 +4230,11 @@ fn get_time<N: crate::model::XdmNode>(
         XdmItem::Atomic(XdmAtomicValue::String(s))
         | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => crate::util::temporal::parse_time_lex(s)
             .map(Some)
-            .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:time")),
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:time")),
         XdmItem::Node(n) => crate::util::temporal::parse_time_lex(&n.string_value())
             .map(Some)
-            .map_err(|_| Error::dynamic_err("err:FORG0001", "invalid xs:time")),
-        _ => Err(Error::dynamic_err("err:XPTY0004", "not a time")),
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:time")),
+    _ => Err(Error::from_code(ErrorCode::XPTY0004, "not a time")),
     }
 }
 
@@ -4329,7 +4328,7 @@ fn parse_xs_date_local(s: &str) -> Result<(NaiveDate, Option<ChronoFixedOffset>)
     Ok((date, None))
 }
 
-// ===== Additional Helpers for Task 11 =====
+// ===== Additional Helpers =====
 
 fn collapse_whitespace(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -4560,7 +4559,7 @@ fn int_subtype_i64<N: crate::model::XdmNode>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::dynamic(
+        return Err(Error::from_code(
             ErrorCode::FORG0006,
             "constructor expects at most one item",
         ));
@@ -4568,9 +4567,9 @@ fn int_subtype_i64<N: crate::model::XdmNode>(
     let s = item_to_string(&args[0]).trim().to_string();
     let v: i64 = s
         .parse()
-        .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid integer"))?;
+        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid integer"))?;
     if v < min || v > max {
-        return Err(Error::dynamic(ErrorCode::FORG0001, "out of range"));
+        return Err(Error::from_code(ErrorCode::FORG0001, "out of range"));
     }
     Ok(vec![XdmItem::Atomic(mk(v))])
 }
@@ -4585,20 +4584,20 @@ fn uint_subtype_u128<N: crate::model::XdmNode>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::dynamic(
+        return Err(Error::from_code(
             ErrorCode::FORG0006,
             "constructor expects at most one item",
         ));
     }
     let s = item_to_string(&args[0]).trim().to_string();
     if s.starts_with('-') {
-        return Err(Error::dynamic(ErrorCode::FORG0001, "negative not allowed"));
+        return Err(Error::from_code(ErrorCode::FORG0001, "negative not allowed"));
     }
     let v: u128 = s
         .parse()
-        .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid unsigned integer"))?;
+        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid unsigned integer"))?;
     if v < min || v > max {
-        return Err(Error::dynamic(ErrorCode::FORG0001, "out of range"));
+        return Err(Error::from_code(ErrorCode::FORG0001, "out of range"));
     }
     Ok(vec![XdmItem::Atomic(mk(v))])
 }
@@ -4613,7 +4612,7 @@ fn str_name_like<N: crate::model::XdmNode>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::dynamic(
+        return Err(Error::from_code(
             ErrorCode::FORG0006,
             "constructor expects at most one item",
         ));
@@ -4624,7 +4623,7 @@ fn str_name_like<N: crate::model::XdmNode>(
         let mut chars = s.chars();
         if let Some(first) = chars.next() {
             if !(first == '_' || first.is_ascii_alphabetic() || (allow_colon && first == ':')) {
-                return Err(Error::dynamic(ErrorCode::FORG0001, "invalid Name"));
+                return Err(Error::from_code(ErrorCode::FORG0001, "invalid Name"));
             }
             for ch in chars {
                 if !(ch.is_ascii_alphanumeric()
@@ -4633,11 +4632,11 @@ fn str_name_like<N: crate::model::XdmNode>(
                     || ch == '.'
                     || (allow_colon && ch == ':'))
                 {
-                    return Err(Error::dynamic(ErrorCode::FORG0001, "invalid Name"));
+                    return Err(Error::from_code(ErrorCode::FORG0001, "invalid Name"));
                 }
             }
         } else {
-            return Err(Error::dynamic(ErrorCode::FORG0001, "invalid Name"));
+            return Err(Error::from_code(ErrorCode::FORG0001, "invalid Name"));
         }
     }
     Ok(vec![XdmItem::Atomic(mk(s))])

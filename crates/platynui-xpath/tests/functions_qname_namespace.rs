@@ -1,4 +1,5 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::runtime::ErrorCode;
 use platynui_xpath::model::simple::{elem, ns};
 use platynui_xpath::{xdm::XdmItem as I, model::XdmNode, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
 use rstest::rstest;
@@ -56,7 +57,7 @@ fn resolve_qname_and_in_scope() {
     );
     // unknown prefix errors
     let err = evaluate_expr::<N>("resolve-QName('zzz:l', .)", &ctx).unwrap_err();
-    assert!(err.code.contains("FORG0001"));
+    assert_eq!(err.code_enum(), ErrorCode::FORG0001);
     // namespace-uri-for-prefix
     let u = evaluate_expr::<N>("namespace-uri-for-prefix('p', .)", &ctx).unwrap();
     assert_eq!(u, vec![I::Atomic(A::AnyUri("urn:one".into()))]);

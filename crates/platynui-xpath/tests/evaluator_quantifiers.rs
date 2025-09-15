@@ -6,7 +6,7 @@ fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
     DynamicContextBuilder::default().build()
 }
 
-// Quantifier semantics: variable binding now active (Task 7). Tests assert correct XPath 2.0 logic.
+// Quantifier semantics: variable binding now active. Tests assert XPath 2.0 logic.
 
 #[rstest]
 fn some_quantifier_basic_true() {

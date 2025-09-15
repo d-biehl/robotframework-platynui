@@ -20,11 +20,10 @@ fn bool_expr(e: &str) -> bool {
 fn expect_err(e: &str, code_frag: &str) {
     let c = ctx();
     let err = evaluate_expr::<N>(e, &c).unwrap_err();
-    assert!(
-        err.code.contains(code_frag),
-        "expected code fragment {code_frag} in {} got {}",
-        e,
-        err.code
+        assert!(
+            err.code_qname().unwrap().local.contains(code_frag),
+            "expected fragment {code_frag}, got {:?}",
+            err.code_qname()
     );
 }
 

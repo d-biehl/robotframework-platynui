@@ -1,4 +1,5 @@
 use platynui_xpath::parser::{ast, parse_xpath};
+use platynui_xpath::engine::runtime::ErrorCode;
 use rstest::rstest;
 
 // Annex A.3 reserved function names
@@ -74,5 +75,5 @@ fn pi_with_target_is_node_test() {
 #[case("empty-sequence()")]
 fn reserved_sequence_type_names_rejected(#[case] input: &str) {
     let err = parse_xpath(input).expect_err("expected error");
-    assert_eq!(err.code, "XPST0003");
+    assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }

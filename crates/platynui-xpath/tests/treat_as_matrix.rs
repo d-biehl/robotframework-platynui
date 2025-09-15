@@ -1,5 +1,6 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::{xdm::XdmItem as I, engine::evaluator::evaluate_expr};
+use platynui_xpath::runtime::ErrorCode;
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -12,7 +13,7 @@ fn run(expr: &str) -> Result<Vec<I<N>>, platynui_xpath::engine::runtime::Error> 
 }
 fn expect_err(expr: &str, frag: &str) {
     let e = run(expr).unwrap_err();
-    assert!(e.code.contains("XPTY0004"));
+    assert_eq!(e.code_enum(), ErrorCode::XPTY0004);
     assert!(
         e.message.contains(frag),
         "expected fragment {frag} in '{}'; got '{}'",

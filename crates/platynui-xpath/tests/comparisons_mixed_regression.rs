@@ -1,5 +1,6 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::{xdm::XdmItem as I, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
+use platynui_xpath::runtime::ErrorCode;
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -28,9 +29,6 @@ fn string_numeric_value_comparison_type_error() {
     // Value comparison with disjoint types should raise a type error (XPTY0004 or similar)
     let c = ctx();
     let err = evaluate_expr::<N>("'abc' eq 10", &c).unwrap_err();
-    assert!(
-        err.code.contains("XPTY"),
-        "expected type error, got {}",
-        err.code
-    );
+    // The suite expects a type error. Current engine uses XPTY0004.
+    assert_eq!(err.code_enum(), ErrorCode::XPTY0004);
 }

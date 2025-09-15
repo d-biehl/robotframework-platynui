@@ -1,5 +1,5 @@
 //! Equality Kernel (EqKey) – central canonicalization for atomic & node values.
-//! Implements Task 103 (Vorphase F) providing a reusable hash/equality key used by
+//! Provides a reusable hash/equality key used by
 //! distinct-values, deep-equal, index-of, compare, codepoint-equal, min/max.
 //!
 //! Scope (initial): numeric, string (with collation key), boolean, QName, date/time,
@@ -460,7 +460,7 @@ fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
 
 fn ptr_as_u64<N: XdmNode>(n: &N) -> u64 {
     // Safety: relying on Eq/Hash semantics of underlying node types; for SimpleNode Arc ptr is stable.
-    
+
     (n as *const N) as usize as u64
 }
 

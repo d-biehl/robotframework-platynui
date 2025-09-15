@@ -220,7 +220,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     let rhs_seq = Self::atomize(self.pop_seq());
                     let lhs_seq = Self::atomize(self.pop_seq());
                     if lhs_seq.len() != 1 || rhs_seq.len() != 1 {
-                        return Err(Error::dynamic(
+                        return Err(Error::from_code(
                             ErrorCode::FORG0006,
                             "arithmetic operands must be singletons",
                         ));
@@ -228,7 +228,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     let (mut a, mut b) = match (&lhs_seq[0], &rhs_seq[0]) {
                         (XdmItem::Atomic(a), XdmItem::Atomic(b)) => (a.clone(), b.clone()),
                         _ => {
-                            return Err(Error::dynamic(
+                            return Err(Error::from_code(
                                 ErrorCode::XPTY0004,
                                 "arithmetic on non-atomic",
                             ));
@@ -478,7 +478,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         OpCode::Div => match (&a, &b) {
                             (V::YearMonthDuration(a_m), V::YearMonthDuration(b_m)) => {
                                 if *b_m == 0 {
-                                    return Err(Error::dynamic(
+                                    return Err(Error::from_code(
                                         ErrorCode::FOAR0001,
                                         "divide by zero",
                                     ));
@@ -490,7 +490,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             }
                             (V::DayTimeDuration(a_s), V::DayTimeDuration(b_s)) => {
                                 if *b_s == 0 {
-                                    return Err(Error::dynamic(
+                                    return Err(Error::from_code(
                                         ErrorCode::FOAR0001,
                                         "divide by zero",
                                     ));
@@ -503,7 +503,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             (V::YearMonthDuration(months), _) => {
                                 if let Some(n) = classify_numeric(&b) {
                                     if n == 0.0 {
-                                        return Err(Error::dynamic(
+                                        return Err(Error::from_code(
                                             ErrorCode::FOAR0001,
                                             "divide by zero",
                                         ));
@@ -520,7 +520,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             (V::DayTimeDuration(secs), _) => {
                                 if let Some(n) = classify_numeric(&b) {
                                     if n == 0.0 {
-                                        return Err(Error::dynamic(
+                                        return Err(Error::from_code(
                                             ErrorCode::FOAR0001,
                                             "divide by zero",
                                         ));
@@ -548,7 +548,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             V::UntypedAtomic(s) => match s.parse::<f64>() {
                                 Ok(num) => V::Double(num),
                                 Err(_) => {
-                                    return Err(Error::dynamic(
+                                    return Err(Error::from_code(
                                         ErrorCode::FORG0001,
                                         "invalid numeric literal for arithmetic",
                                     ));
@@ -607,7 +607,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     let (ka, kb) = match (classify(&a), classify(&b)) {
                         (Some(x), Some(y)) => (x, y),
                         _ => {
-                            return Err(Error::dynamic(ErrorCode::XPTY0004, "non-numeric operand"));
+                            return Err(Error::from_code(ErrorCode::XPTY0004, "non-numeric operand"));
                         }
                     };
                     let (ua, ub) = unify_numeric(ka, kb);
@@ -691,7 +691,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             }
                             OpCode::IDiv => {
                                 if bi == 0 {
-                                    return Err(Error::dynamic(
+                                    return Err(Error::from_code(
                                         ErrorCode::FOAR0001,
                                         "idiv by zero",
                                     ));
@@ -706,7 +706,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                         .push(vec![XdmItem::Atomic(V::Integer(q_floor as i64))]);
                                 } else {
                                     // xs:integer result cannot be represented by our i64 storage → FOAR0002
-                                    return Err(Error::dynamic(
+                                    return Err(Error::from_code(
                                         ErrorCode::FOAR0002,
                                         "idiv result overflows xs:integer range",
                                     ));
@@ -716,7 +716,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             }
                             OpCode::Mod => {
                                 if bi == 0 {
-                                    return Err(Error::dynamic(ErrorCode::FOAR0001, "mod by zero"));
+                                    return Err(Error::from_code(ErrorCode::FOAR0001, "mod by zero"));
                                 }
                                 // XPath mod defined as a - b*floor(a/b); for integers we can mirror via arithmetic
                                 let q_trunc = ai / bi;
@@ -753,7 +753,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                     NumKind::Double(_) | NumKind::Float(_) => av_f64 / bv_f64,
                                     // Decimal / Integer division by zero is an error per XPath 2.0
                                     _ => {
-                                        return Err(Error::dynamic(
+                                        return Err(Error::from_code(
                                             ErrorCode::FOAR0001,
                                             "divide by zero",
                                         ));
@@ -765,14 +765,14 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         }
                         OpCode::IDiv => {
                             if bv_f64 == 0.0 {
-                                return Err(Error::dynamic(ErrorCode::FOAR0001, "idiv by zero"));
+                                return Err(Error::from_code(ErrorCode::FOAR0001, "idiv by zero"));
                             }
                             // floor division per spec (handles negatives correctly)
                             (av_f64 / bv_f64).floor()
                         }
                         OpCode::Mod => {
                             if bv_f64 == 0.0 {
-                                return Err(Error::dynamic(ErrorCode::FOAR0001, "mod by zero"));
+                                return Err(Error::from_code(ErrorCode::FOAR0001, "mod by zero"));
                             }
                             av_f64 % bv_f64
                         }
@@ -790,7 +790,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                 || result_value < i64::MIN as f64
                                 || result_value > i64::MAX as f64
                             {
-                                return Err(Error::dynamic(
+                                return Err(Error::from_code(
                                     ErrorCode::FOAR0002,
                                     "idiv result overflows xs:integer range",
                                 ));
@@ -1000,7 +1000,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     let is_nodes_only =
                         |s: &XdmSequence<N>| s.iter().all(|it| matches!(it, XdmItem::Node(_)));
                     if !is_nodes_only(&lhs) || !is_nodes_only(&rhs) {
-                        return Err(Error::dynamic(
+                        return Err(Error::from_code(
                             ErrorCode::XPTY0004,
                             "set operators require node sequences",
                         ));
@@ -1226,7 +1226,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     let f = match self.dyn_ctx.functions.resolve(en, argc, def_ns) {
                         Ok(f) => f,
                         Err(crate::engine::runtime::ResolveError::Unknown(resolved)) => {
-                            return Err(Error::static_code(
+                            return Err(Error::from_code(
                                 ErrorCode::XPST0017,
                                 format!("unknown function: {{{:?}}}#{argc}", resolved),
                             ));
@@ -1242,7 +1242,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                 3 => "three arguments".to_string(),
                                 n => format!("{n} arguments"),
                             };
-                            return Err(Error::static_code(
+                            return Err(Error::from_code(
                                 ErrorCode::XPST0017,
                                 format!(
                                     "function {}() cannot be called with {}",
@@ -1266,7 +1266,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
 
                 // Errors
                 OpCode::Raise(code) => {
-                    return Err(Error::dynamic_err(code, "raised by program"));
+                    // Interpret legacy raise codes; prefer enum when possible.
+                    return Err(Error::new_qname(Error::parse_code(code), "raised by program"));
                 }
             }
         }
@@ -1291,15 +1292,9 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 XdmItem::Atomic(XdmAtomicValue::Float(f)) => Ok(*f != 0.0 && !f.is_nan()),
                 XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => Ok(!s.is_empty()),
                 XdmItem::Node(_) => Ok(true),
-                _ => Err(Error::dynamic_err(
-                    "err:FORG0006",
-                    "EBV for this atomic type not supported",
-                )),
+                _ => Err(Error::from_code(ErrorCode::FORG0006, "EBV for this atomic type not supported")),
             },
-            _ => Err(Error::dynamic_err(
-                "err:FORG0006",
-                "effective boolean value of sequence of length > 1",
-            )),
+            _ => Err(Error::from_code(ErrorCode::FORG0006, "effective boolean value of sequence of length > 1")),
         }
     }
 
@@ -1384,7 +1379,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         let la = Self::atomize(lhs.clone());
         let ra = Self::atomize(rhs.clone());
         if la.len() != 1 || ra.len() != 1 {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::FORG0006,
                 "value comparison requires singletons",
             ));
@@ -1468,7 +1463,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             {
                 let num = s
                     .parse::<f64>()
-                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid numeric literal"))?;
+                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid numeric literal"))?;
                 (V::Double(num), other.clone())
             }
             (other, V::UntypedAtomic(s))
@@ -1479,7 +1474,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             {
                 let num = s
                     .parse::<f64>()
-                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid numeric literal"))?;
+                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid numeric literal"))?;
                 (other.clone(), V::Double(num))
             }
             (V::UntypedAtomic(s), other) => (V::String(s.clone()), other.clone()),
@@ -1493,7 +1488,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 Eq => x == y,
                 Ne => x != y,
                 Lt | Le | Gt | Ge => {
-                    return Err(Error::dynamic(
+                    return Err(Error::from_code(
                         ErrorCode::XPTY0004,
                         "relational op on boolean",
                     ));
@@ -1561,7 +1556,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 Eq => nsa == nsb && la == lb,
                 Ne => nsa != nsb || la != lb,
                 Lt | Le | Gt | Ge => {
-                    return Err(Error::dynamic(
+                    return Err(Error::from_code(
                         ErrorCode::XPTY0004,
                         "relational op on QName",
                     ));
@@ -1575,7 +1570,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 Eq => na == nb,
                 Ne => na != nb,
                 Lt | Le | Gt | Ge => {
-                    return Err(Error::dynamic(
+                    return Err(Error::from_code(
                         ErrorCode::XPTY0004,
                         "relational op on NOTATION",
                     ));
@@ -1691,7 +1686,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         }
 
         // Unsupported / incomparable type combination → type error (XPTY0004)
-        Err(Error::dynamic(
+        Err(Error::from_code(
             ErrorCode::XPTY0004,
             "incomparable atomic types",
         ))
@@ -2037,13 +2032,13 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
     // ===== Type operations (very small subset) =====
     fn cast(&self, seq: XdmSequence<N>, t: &SingleTypeIR) -> Result<XdmSequence<N>, Error> {
         if seq.len() > 1 {
-            return Err(Error::dynamic(ErrorCode::XPTY0004, "cast of multi-item"));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "cast of multi-item"));
         }
         if seq.is_empty() {
             if t.optional {
                 return Ok(Vec::new());
             } else {
-                return Err(Error::static_code(ErrorCode::XPST0003, "empty not allowed"));
+                return Err(Error::from_code(ErrorCode::XPST0003, "empty not allowed"));
             }
         }
         let item = seq[0].clone();
@@ -2080,7 +2075,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             "false" => false,
                             "0" => false,
                             _ => {
-                                return Err(Error::dynamic(
+                                return Err(Error::from_code(
                                     ErrorCode::FORG0001,
                                     "invalid boolean lexical form",
                                 ));
@@ -2092,7 +2087,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     XdmAtomicValue::Double(d) => d != 0.0 && !d.is_nan(),
                     XdmAtomicValue::Float(f) => f != 0.0 && !f.is_nan(),
                     other => {
-                        return Err(Error::dynamic(
+                        return Err(Error::from_code(
                             ErrorCode::FORG0001,
                             format!("cannot cast {:?} to boolean", other),
                         ));
@@ -2109,7 +2104,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         if d.fract() == 0.0 {
                             return Ok(XdmAtomicValue::Integer(d as i64));
                         } else {
-                            return Err(Error::dynamic(
+                            return Err(Error::from_code(
                                 ErrorCode::FOCA0001,
                                 "fractional part in integer cast",
                             ));
@@ -2119,7 +2114,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         if d.fract() == 0.0 && d.is_finite() {
                             return Ok(XdmAtomicValue::Integer(d as i64));
                         } else {
-                            return Err(Error::dynamic(
+                            return Err(Error::from_code(
                                 ErrorCode::FOCA0001,
                                 "non-integer double for integer cast",
                             ));
@@ -2129,7 +2124,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         if f.fract() == 0.0 && f.is_finite() {
                             return Ok(XdmAtomicValue::Integer(f as i64));
                         } else {
-                            return Err(Error::dynamic(
+                            return Err(Error::from_code(
                                 ErrorCode::FOCA0001,
                                 "non-integer float for integer cast",
                             ));
@@ -2140,7 +2135,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 s.parse::<i64>()
                     .map(XdmAtomicValue::Integer)
                     .map_err(|_| {
-                        Error::dynamic(ErrorCode::FORG0001, "invalid integer lexical form")
+                        Error::from_code(ErrorCode::FORG0001, "invalid integer lexical form")
                     })
             }
             // decimal
@@ -2152,21 +2147,21 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         if d.is_finite() {
                             d
                         } else {
-                            return Err(Error::dynamic(ErrorCode::FOCA0001, "INF/NaN to decimal"));
+                            return Err(Error::from_code(ErrorCode::FOCA0001, "INF/NaN to decimal"));
                         }
                     }
                     XdmAtomicValue::Float(f) => {
                         if f.is_finite() {
                             f as f64
                         } else {
-                            return Err(Error::dynamic(ErrorCode::FOCA0001, "INF/NaN to decimal"));
+                            return Err(Error::from_code(ErrorCode::FOCA0001, "INF/NaN to decimal"));
                         }
                     }
                     XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => s
                         .parse::<f64>()
-                        .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid decimal"))?,
+                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid decimal"))?,
                     other => {
-                        return Err(Error::dynamic(
+                        return Err(Error::from_code(
                             ErrorCode::FORG0001,
                             format!("cannot cast {:?} to decimal", other),
                         ));
@@ -2178,14 +2173,14 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             "float" => {
                 let f = self
                     .to_f64(&a)
-                    .ok_or_else(|| Error::dynamic(ErrorCode::FORG0001, "non-numeric to float"))?
+                    .ok_or_else(|| Error::from_code(ErrorCode::FORG0001, "non-numeric to float"))?
                     as f32;
                 Ok(XdmAtomicValue::Float(f))
             }
             "double" => {
                 let f = self
                     .to_f64(&a)
-                    .ok_or_else(|| Error::dynamic(ErrorCode::FORG0001, "non-numeric to double"))?;
+                    .ok_or_else(|| Error::from_code(ErrorCode::FORG0001, "non-numeric to double"))?;
                 Ok(XdmAtomicValue::Double(f))
             }
             // anyURI: whitespace collapse only (simple form)
@@ -2207,14 +2202,14 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     other => self.atomic_to_string(&other),
                 };
                 if lex.is_empty() {
-                    return Err(Error::dynamic(ErrorCode::FORG0001, "empty QName"));
+                    return Err(Error::from_code(ErrorCode::FORG0001, "empty QName"));
                 }
                 let mut parts = lex.split(':');
                 let first = parts.next().unwrap();
                 let second = parts.next();
                 if let Some(local) = second {
                     if first.is_empty() || local.is_empty() {
-                        return Err(Error::dynamic(ErrorCode::FORG0001, "invalid QName lexical"));
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"));
                     }
                     // No static prefix resolution in pure cast (spec: QName constructor does resolve? kept simple)
                     Ok(XdmAtomicValue::QName {
@@ -2242,7 +2237,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 };
                 match self.parse_date(&s) {
                     Ok(v) => Ok(v),
-                    Err(_) => Err(Error::dynamic(ErrorCode::FORG0001, "invalid date")),
+                    Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid date")),
                 }
             }
             "dateTime" => {
@@ -2253,7 +2248,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 };
                 match self.parse_date_time(&s) {
                     Ok(v) => Ok(v),
-                    Err(_) => Err(Error::dynamic(ErrorCode::FORG0001, "invalid dateTime")),
+                    Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid dateTime")),
                 }
             }
             "time" => {
@@ -2266,15 +2261,15 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 };
                 match self.parse_time(&s) {
                     Ok(v) => Ok(v),
-                    Err(_) => Err(Error::dynamic(ErrorCode::FORG0001, "invalid time")),
+                    Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid time")),
                 }
             }
             "yearMonthDuration" => match a {
                 XdmAtomicValue::YearMonthDuration(m) => Ok(XdmAtomicValue::YearMonthDuration(m)),
                 XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => self
                     .parse_year_month_duration(&s)
-                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid yearMonthDuration")),
-                _ => Err(Error::dynamic(
+                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid yearMonthDuration")),
+                _ => Err(Error::from_code(
                     ErrorCode::FORG0001,
                     "cannot cast to yearMonthDuration",
                 )),
@@ -2283,8 +2278,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 XdmAtomicValue::DayTimeDuration(m) => Ok(XdmAtomicValue::DayTimeDuration(m)),
                 XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => self
                     .parse_day_time_duration(&s)
-                    .map_err(|_| Error::dynamic(ErrorCode::FORG0001, "invalid dayTimeDuration")),
-                _ => Err(Error::dynamic(
+                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid dayTimeDuration")),
+                _ => Err(Error::from_code(
                     ErrorCode::FORG0001,
                     "cannot cast to dayTimeDuration",
                 )),
@@ -2461,7 +2456,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         let (need_min, need_max, item_type) = match t {
             SeqTypeIR::EmptySequence => {
                 if !seq.is_empty() {
-                    return Err(Error::dynamic(
+                    return Err(Error::from_code(
                         ErrorCode::XPTY0004,
                         "treat as empty-sequence() failed: cardinality mismatch (expected 0 got >0)",
                     ));
@@ -2480,7 +2475,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         };
         let actual = seq.len();
         if actual < need_min {
-            return Err(Error::dynamic(
+            return Err(Error::from_code(
                 ErrorCode::XPTY0004,
                 format!(
                     "treat as failed: cardinality mismatch (expected min {} got {})",
@@ -2490,7 +2485,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         }
         if let Some(max) = need_max
             && actual > max {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::XPTY0004,
                     format!(
                         "treat as failed: cardinality mismatch (expected max {} got {})",
@@ -2500,7 +2495,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             }
         for it in seq {
             if !self.item_matches_type(it, item_type)? {
-                return Err(Error::dynamic(
+                return Err(Error::from_code(
                     ErrorCode::XPTY0004,
                     "treat as failed: type mismatch",
                 ));

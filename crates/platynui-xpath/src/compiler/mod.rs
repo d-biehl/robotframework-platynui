@@ -1,5 +1,6 @@
 use crate::parser::{ast, parse_xpath};
 use crate::engine::runtime::{Error, StaticContext};
+use crate::engine::runtime::ErrorCode;
 use crate::xdm::{ExpandedName, XdmAtomicValue};
 
 pub mod ir;
@@ -27,7 +28,7 @@ pub fn compile_xpath_with_context(
 
 /// Backing implementation shared by all compile entrypoints
 fn compile_inner(expr: &str, static_ctx: &StaticContext) -> Result<ir::CompiledXPath, Error> {
-    let ast = parse_xpath(expr).map_err(|e| Error::static_err("XPST0003", e.to_string()))?;
+    let ast = parse_xpath(expr)?;
     let mut c = Compiler::new(static_ctx, expr);
     c.lower_expr(&ast)?;
     Ok(ir::CompiledXPath {
@@ -268,8 +269,8 @@ impl<'a> Compiler<'a> {
             E::LetExpr { .. } => {
                 // Hinweis: 'let' ist Teil von XPath 2.0, wird in diesem Projekt aktuell bewusst nicht unterstützt.
                 // Wir lehnen es auf Parser-/Compiler-Ebene ab, um den Umfang "reines XPath 2.0 ohne let" einzuhalten.
-                Err(Error::static_err(
-                    "XPST0003",
+                Err(Error::from_code(
+                    ErrorCode::XPST0003,
                     "'let' expression wird in dieser Engine derzeit nicht unterstützt (Projektumfang)",
                 ))
             }
@@ -397,8 +398,8 @@ impl<'a> Compiler<'a> {
         match k {
             K::Element { ty, nillable, .. } => {
                 if ty.is_some() || *nillable {
-                    return Err(Error::static_err(
-                        "err:XPST0003",
+                    return Err(Error::from_code(
+                        ErrorCode::XPST0003,
                         "element() with type/nillable not supported without schema awareness",
                     ));
                 }
@@ -406,15 +407,15 @@ impl<'a> Compiler<'a> {
             }
             K::Attribute { ty, .. } => {
                 if ty.is_some() {
-                    return Err(Error::static_err(
-                        "err:XPST0003",
+                    return Err(Error::from_code(
+                        ErrorCode::XPST0003,
                         "attribute() with type not supported without schema awareness",
                     ));
                 }
                 Ok(())
             }
-            K::SchemaElement(_) | K::SchemaAttribute(_) => Err(Error::static_err(
-                "err:XPST0003",
+            K::SchemaElement(_) | K::SchemaAttribute(_) => Err(Error::from_code(
+                ErrorCode::XPST0003,
                 "schema-* kind tests are not supported without schema awareness",
             )),
             _ => Ok(()),

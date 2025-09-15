@@ -3,6 +3,7 @@ use platynui_xpath::{
     runtime::DynamicContext,
     xdm::{XdmAtomicValue, XdmItem},
 };
+use platynui_xpath::engine::runtime::ErrorCode;
 use rstest::rstest;
 
 fn ctx(val: &str) -> DynamicContext<platynui_xpath::model::simple::SimpleNode> {
@@ -34,5 +35,5 @@ fn untyped_comparison_truth(#[case] expr: &str, #[case] ctx_val: &str, #[case] e
 fn untyped_vs_numeric_invalid() {
     let c = ctx("abc");
     let err = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(". = 5", &c).unwrap_err();
-    assert_eq!(err.code, "err:FORG0001");
+    assert_eq!(err.code_enum(), ErrorCode::FORG0001);
 }

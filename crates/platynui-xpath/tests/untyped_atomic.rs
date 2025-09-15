@@ -69,7 +69,7 @@ fn arithmetic_untyped_numeric() {
 fn arithmetic_untyped_invalid_error() {
     let err = eval_with("xyz", ". + 1").unwrap_err();
     // runtime::Error stores code as 'err:CODE'; compare via enum
-    assert_eq!(err.code_enum().as_str(), "err:FORG0001");
+    assert_eq!(err.code_enum(), platynui_xpath::engine::runtime::ErrorCode::FORG0001);
 }
 
 #[rstest]
