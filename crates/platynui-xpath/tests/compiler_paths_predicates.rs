@@ -187,20 +187,22 @@ fn name_tests_wildcards() {
     let mut found_local = false;
     for op in &local_wc.0 {
         if let OpCode::AxisStep(_, NodeTestIR::LocalWildcard(l), _) = op
-            && l == "a" {
-                found_local = true;
-                break;
-            }
+            && l == "a"
+        {
+            found_local = true;
+            break;
+        }
     }
     assert!(found_local);
     let ns_wc = ir(".//ns:*");
     let mut found_ns = false;
     for op in &ns_wc.0 {
         if let OpCode::AxisStep(_, NodeTestIR::NsWildcard(p), _) = op
-            && p == "ns" {
-                found_ns = true;
-                break;
-            }
+            && p == "ns"
+        {
+            found_ns = true;
+            break;
+        }
     }
     assert!(found_ns);
 }
@@ -271,10 +273,11 @@ fn axis_multiple_predicates() {
     let mut seen_two = false;
     for op in &is.0 {
         if let OpCode::AxisStep(_, NodeTestIR::Name(ExpandedName { ns_uri: _, local }), preds) = op
-            && local == "a" {
-                seen_two = preds.len() == 2;
-                break;
-            }
+            && local == "a"
+        {
+            seen_two = preds.len() == 2;
+            break;
+        }
     }
     assert!(seen_two);
 }

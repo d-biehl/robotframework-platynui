@@ -52,9 +52,10 @@ fn split_tz(s: &str) -> (&str, Option<&str>) {
         return (stripped, Some("Z"));
     }
     if let Some(pos) = s.rfind(['+', '-'])
-        && s.len() - pos == 6 {
-            return (&s[..pos], Some(&s[pos..]));
-        }
+        && s.len() - pos == 6
+    {
+        return (&s[..pos], Some(&s[pos..]));
+    }
     (s, None)
 }
 
@@ -169,4 +170,3 @@ pub fn build_naive_datetime(
         }
     }
 }
-

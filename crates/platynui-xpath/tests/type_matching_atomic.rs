@@ -3,8 +3,10 @@ use platynui_xpath::{
     runtime::DynamicContextBuilder,
     xdm::{XdmAtomicValue as A, XdmItem as I},
 };
+use rstest::rstest;
 
-fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
+fn ctx()
+-> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 
@@ -12,60 +14,54 @@ fn eval(expr: &str) -> Vec<I<platynui_xpath::model::simple::SimpleNode>> {
     evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap()
 }
 
-#[test]
-fn instance_of_numeric_lattice() {
-    // integer is a decimal; but not vice-versa for float/double
+#[rstest]
+fn instance_of_integer_true() {
     let r = eval("1 instance of xs:integer");
-    match &r[0] {
-        I::Atomic(A::Boolean(true)) => {}
-        _ => panic!("expected true"),
-    }
+    assert!(matches!(&r[0], I::Atomic(A::Boolean(true))));
+}
 
+#[rstest]
+fn instance_of_decimal_true() {
     let r = eval("1 instance of xs:decimal");
-    match &r[0] {
-        I::Atomic(A::Boolean(true)) => {}
-        _ => panic!("expected true"),
-    }
+    assert!(matches!(&r[0], I::Atomic(A::Boolean(true))));
+}
 
-    let r = eval("1.0 instance of xs:integer"); // decimal literal not integer
-    match &r[0] {
-        I::Atomic(A::Boolean(false)) => {}
-        _ => panic!("expected false"),
-    }
+#[rstest]
+fn instance_of_decimal_literal_not_integer() {
+    let r = eval("1.0 instance of xs:integer");
+    assert!(matches!(&r[0], I::Atomic(A::Boolean(false))));
+}
 
+#[rstest]
+fn instance_of_double_true() {
     let r = eval("1e0 instance of xs:double");
-    match &r[0] {
-        I::Atomic(A::Boolean(true)) => {}
-        _ => panic!("expected true for double"),
-    }
+    assert!(matches!(&r[0], I::Atomic(A::Boolean(true))));
 }
 
-#[test]
-fn instance_of_string_family() {
+#[rstest]
+fn instance_of_string_true() {
     let r = eval("'a' instance of xs:string");
-    match &r[0] {
-        I::Atomic(A::Boolean(true)) => {}
-        _ => panic!("expected true"),
-    }
-
-    let r = eval("xs:QName('p') instance of xs:QName");
-    match &r[0] {
-        I::Atomic(A::Boolean(true)) => {}
-        _ => panic!("expected true for QName"),
-    }
-
-    let r = eval("xs:anyURI('http://x') instance of xs:anyURI");
-    match &r[0] {
-        I::Atomic(A::Boolean(true)) => {}
-        _ => panic!("expected true for anyURI"),
-    }
+    assert!(matches!(&r[0], I::Atomic(A::Boolean(true))));
 }
 
-#[test]
+#[rstest]
+fn instance_of_qname_true() {
+    let r = eval("xs:QName('p') instance of xs:QName");
+    assert!(matches!(&r[0], I::Atomic(A::Boolean(true))));
+}
+
+#[rstest]
+fn instance_of_anyuri_true() {
+    let r = eval("xs:anyURI('http://x') instance of xs:anyURI");
+    assert!(matches!(&r[0], I::Atomic(A::Boolean(true))));
+}
+
+#[rstest]
 fn treat_as_mismatch_reports() {
     // treat-as on wrong type must error with XPTY0004
-    let err =
-        platynui_xpath::engine::evaluator::evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("('a') treat as xs:integer", &ctx())
-            .unwrap_err();
+    let err = platynui_xpath::engine::evaluator::evaluate_expr::<
+        platynui_xpath::model::simple::SimpleNode,
+    >("('a') treat as xs:integer", &ctx())
+    .unwrap_err();
     assert!(format!("{}", err).contains("XPTY0004"));
 }

@@ -1,7 +1,8 @@
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, ErrorCode};
 use platynui_xpath::{
-    ExpandedName, xdm::XdmItem as I, XdmNode, evaluate_expr,
+    ExpandedName, XdmNode, evaluate_expr,
     simple_node::{doc, elem},
+    xdm::XdmItem as I,
 };
 use rstest::rstest;
 
@@ -26,8 +27,7 @@ fn node_before_cross_root_errors() {
         .with_context_item(I::Node(left))
         .with_variable(var_x.clone(), vec![I::Node(right)])
         .build();
-    let err = evaluate_expr::<N>(". << $x", &ctx)
-        .expect_err("should error for cross-root");
+    let err = evaluate_expr::<N>(". << $x", &ctx).expect_err("should error for cross-root");
     assert_eq!(err.code_enum(), ErrorCode::FOER0000);
 }
 
@@ -43,7 +43,6 @@ fn node_after_cross_root_errors() {
         .with_context_item(I::Node(left))
         .with_variable(var_x.clone(), vec![I::Node(right)])
         .build();
-    let err = evaluate_expr::<N>(". >> $x", &ctx)
-        .expect_err("should error for cross-root");
+    let err = evaluate_expr::<N>(". >> $x", &ctx).expect_err("should error for cross-root");
     assert_eq!(err.code_enum(), ErrorCode::FOER0000);
 }

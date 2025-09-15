@@ -1,7 +1,8 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::{
-    xdm::XdmItem as I, XdmNode, evaluate_expr,
+    XdmNode, evaluate_expr,
     simple_node::{doc, elem},
+    xdm::XdmItem as I,
 };
 use rstest::rstest;
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -50,7 +51,9 @@ fn except_nodes() {
 
 #[rstest]
 fn set_ops_on_atomics_error() {
-    let err = evaluate_expr::<N>("(1,2) union (2,3)", &ctx())
-        .expect_err("should error");
-    assert_eq!(err.code_enum(), platynui_xpath::engine::runtime::ErrorCode::XPTY0004);
+    let err = evaluate_expr::<N>("(1,2) union (2,3)", &ctx()).expect_err("should error");
+    assert_eq!(
+        err.code_enum(),
+        platynui_xpath::engine::runtime::ErrorCode::XPTY0004
+    );
 }

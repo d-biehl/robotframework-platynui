@@ -2,8 +2,9 @@ use platynui_xpath::{
     compiler::compile_xpath,
     engine::{evaluator::evaluate, runtime::DynamicContextBuilder},
     model::simple::{SimpleNode, attr, doc as simple_doc, elem, text},
-    xdm::XdmItem,
+    xdm::{PrettyNodeSeq, XdmItem},
 };
+use std::error::Error as _;
 
 fn main() {
     let doc_node = simple_doc()
@@ -13,26 +14,47 @@ fn main() {
         .child(
             elem("root")
                 .value("v")
-                .child(text("0"))
+                .child(text("Hallo Welt"))
                 .attr(attr("id", "r"))
                 .child(
                     elem("a")
                         .child(elem("b").child(text("one")))
                         .child(elem("b").child(text("two")))
-                        .attr(attr("id", "b")),
+                        .attr(attr("id", "b"))
+                        .child(text("Inner Hallo Welt")),
                 )
                 .child(elem("c").child(elem("d").child(text("three")))),
         )
         .build();
 
-    let compiled =
-        compile_xpath(" fn:error(fn:QName('http://www.w3.org/2005/xqt-errors', 'err:FOER0000'), 'Geht nicht')").unwrap();
-    print!("Compiled: ");
-    println!("{:?}", compiled);
+    let compiled = match compile_xpath("//*[text() = 'Inner Hallo Welt']") {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Compile error: {}", e);
+            let mut src = e.source();
+            while let Some(s) = src {
+                eprintln!("  caused by: {}", s);
+                src = s.source();
+            }
+            return;
+        }
+    };
+
+    println!("Compiled: {}", compiled);
 
     let ctx = DynamicContextBuilder::default()
         .with_context_item(XdmItem::Node(doc_node))
         .build();
     let result = evaluate::<SimpleNode>(&compiled, &ctx);
-    println!("{:?}", result);
+    match result {
+        Ok(v) => println!("{}", PrettyNodeSeq::new(&v)),
+        Err(e) => {
+            eprintln!("Evaluation error: {}", e);
+            let mut src = e.source();
+            while let Some(s) = src {
+                eprintln!("  caused by: {}", s);
+                src = s.source();
+            }
+        }
+    }
 }

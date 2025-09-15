@@ -1,5 +1,6 @@
 use platynui_xpath::engine::runtime::ErrorCode;
 use platynui_xpath::{engine::evaluator::evaluate_expr, runtime::DynamicContextBuilder};
+use rstest::rstest;
 
 fn err_code(expr: &str) -> ErrorCode {
     let ctx = DynamicContextBuilder::new().build();
@@ -8,41 +9,29 @@ fn err_code(expr: &str) -> ErrorCode {
         .code_enum()
 }
 
-#[test]
-fn date_constructor_lexical_vs_range() {
-    // Lexically malformed
-    let e = err_code("xs:date('2025-13-40')");
-    assert_eq!(e, ErrorCode::FORG0001);
-
-    // Proper lexical but invalid month
-    let e = err_code("xs:date('2025-00-10')");
-    assert_eq!(e, ErrorCode::FORG0001);
-
-    // Lexically malformed string
-    let e = err_code("xs:date('not-a-date')");
+#[rstest]
+#[case("xs:date('2025-13-40')")] // Lexically malformed
+#[case("xs:date('2025-00-10')")] // Proper lexical but invalid month
+#[case("xs:date('not-a-date')")] // Lexically malformed string
+fn date_constructor_lexical_vs_range(#[case] expr: &str) {
+    let e = err_code(expr);
     assert_eq!(e, ErrorCode::FORG0001);
 }
 
-#[test]
-fn time_constructor_lexical_vs_range() {
-    let e = err_code("xs:time('25:00:00')");
-    assert_eq!(e, ErrorCode::FORG0001);
-
-    let e = err_code("xs:time('23:60:00')");
-    assert_eq!(e, ErrorCode::FORG0001);
-
-    let e = err_code("xs:time('23:00:60')");
-    assert_eq!(e, ErrorCode::FORG0001);
-
-    let e = err_code("xs:time('bad')");
+#[rstest]
+#[case("xs:time('25:00:00')")]
+#[case("xs:time('23:60:00')")]
+#[case("xs:time('23:00:60')")]
+#[case("xs:time('bad')")]
+fn time_constructor_lexical_vs_range(#[case] expr: &str) {
+    let e = err_code(expr);
     assert_eq!(e, ErrorCode::FORG0001);
 }
 
-#[test]
-fn datetime_constructor_lexical_vs_range() {
-    let e = err_code("xs:dateTime('2025-09-13T23:59:60')");
-    assert_eq!(e, ErrorCode::FORG0001);
-
-    let e = err_code("xs:dateTime('2025-09-13Tnope')");
+#[rstest]
+#[case("xs:dateTime('2025-09-13T23:59:60')")]
+#[case("xs:dateTime('2025-09-13Tnope')")]
+fn datetime_constructor_lexical_vs_range(#[case] expr: &str) {
+    let e = err_code(expr);
     assert_eq!(e, ErrorCode::FORG0001);
 }

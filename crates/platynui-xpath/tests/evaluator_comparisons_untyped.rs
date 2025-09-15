@@ -1,9 +1,9 @@
+use platynui_xpath::engine::runtime::ErrorCode;
 use platynui_xpath::{
     SimpleNode, evaluate_expr,
     runtime::DynamicContext,
     xdm::{XdmAtomicValue, XdmItem},
 };
-use platynui_xpath::engine::runtime::ErrorCode;
 use rstest::rstest;
 
 fn ctx(val: &str) -> DynamicContext<platynui_xpath::model::simple::SimpleNode> {

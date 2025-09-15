@@ -1,6 +1,6 @@
+use platynui_xpath::engine::evaluator::evaluate_expr;
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::runtime::ErrorCode;
-use platynui_xpath::engine::evaluator::evaluate_expr;
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -11,15 +11,15 @@ fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
 fn expect_err(expr: &str, frag: &str) {
     let c = ctx();
     let err = evaluate_expr::<N>(expr, &c).unwrap_err();
-        assert!(
-            match frag {
-                "FORG0004" => err.code_enum() == ErrorCode::FORG0004,
-                "FORG0005" => err.code_enum() == ErrorCode::FORG0005,
-                _ => err.code_qname().unwrap().local.contains(frag),
-            },
-            "expected fragment {frag} in {:?}",
-            err.code_qname()
-        );
+    assert!(
+        match frag {
+            "FORG0004" => err.code_enum() == ErrorCode::FORG0004,
+            "FORG0005" => err.code_enum() == ErrorCode::FORG0005,
+            _ => err.code_qname().unwrap().local.contains(frag),
+        },
+        "expected fragment {frag} in {:?}",
+        err.code_qname()
+    );
 }
 
 // () cast as xs:integer?  ==> empty sequence (allowed because optional)

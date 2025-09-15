@@ -1,5 +1,7 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
-use platynui_xpath::{xdm::XdmItem as I, model::XdmNode, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
+use platynui_xpath::{
+    engine::evaluator::evaluate_expr, model::XdmNode, xdm::XdmAtomicValue as A, xdm::XdmItem as I,
+};
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -12,10 +14,10 @@ fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
 fn expect_err(expr: &str, frag: &str) {
     let c = ctx();
     let err = evaluate_expr::<N>(expr, &c).unwrap_err();
-        assert!(
-            err.code_qname().unwrap().local.contains(frag),
-            "expected fragment {frag} in {:?}",
-            err.code_qname()
+    assert!(
+        err.code_qname().unwrap().local.contains(frag),
+        "expected fragment {frag} in {:?}",
+        err.code_qname()
     );
 }
 
@@ -89,12 +91,12 @@ fn resolve_qname_invalid_lex(#[case] expr: &str) {
         .with_context_item(root)
         .build();
     let err = evaluate_expr::<N>(expr, &c).unwrap_err();
-        assert_eq!(
-            err.code_enum(),
-            platynui_xpath::engine::runtime::ErrorCode::FORG0001,
-            "expected FORG0001 style lexical error, got {:?}",
-            err.code_qname()
-        );
+    assert_eq!(
+        err.code_enum(),
+        platynui_xpath::engine::runtime::ErrorCode::FORG0001,
+        "expected FORG0001 style lexical error, got {:?}",
+        err.code_qname()
+    );
 }
 
 #[rstest]

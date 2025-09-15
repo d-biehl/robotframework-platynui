@@ -48,21 +48,24 @@ fn helper_constructors() {
 #[rstest]
 fn boolean_relational_type_error() {
     let c = ctx("");
-    let err = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("true() lt 1", &c).unwrap_err();
+    let err =
+        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("true() lt 1", &c).unwrap_err();
     assert_eq!(err.code_enum(), ErrorCode::XPTY0004);
 }
 
 #[rstest]
 fn boolean_numeric_eq_type_error() {
     let c = ctx("");
-    let err = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("true() eq 1", &c).unwrap_err();
+    let err =
+        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("true() eq 1", &c).unwrap_err();
     assert_eq!(err.code_enum(), ErrorCode::XPTY0004);
 }
 
 #[rstest]
 fn incomparable_general_comparison_skips_errors() {
     let c = ctx("");
-    let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("true() = (1,2)", &c).unwrap();
+    let seq =
+        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("true() = (1,2)", &c).unwrap();
     if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.first() {
         assert!(!b);
     } else {

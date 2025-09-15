@@ -1,6 +1,9 @@
 use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
 use platynui_xpath::runtime::ErrorCode;
-use platynui_xpath::{model::simple::SimpleNode, xdm::XdmItem as I, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
+use platynui_xpath::{
+    engine::evaluator::evaluate_expr, model::simple::SimpleNode, xdm::XdmAtomicValue as A,
+    xdm::XdmItem as I,
+};
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -48,12 +51,11 @@ fn xs_boolean_lexical_forms_and_empty() {
 
 #[rstest]
 fn xs_boolean_invalid_raises_forg0001() {
-    let err = evaluate_expr::<N>("xs:boolean('yes')", &empty_ctx())
-        .expect_err("expected error");
-        assert!(
-            err.code_enum() == ErrorCode::FORG0001,
-            "unexpected error code: {:?}",
-            err.code_qname()
+    let err = evaluate_expr::<N>("xs:boolean('yes')", &empty_ctx()).expect_err("expected error");
+    assert!(
+        err.code_enum() == ErrorCode::FORG0001,
+        "unexpected error code: {:?}",
+        err.code_qname()
     );
 }
 
@@ -85,16 +87,16 @@ fn xs_integer_on_node_atomizes() {
 #[rstest]
 fn xs_integer_invalid_raises_forg0001() {
     // Fractional numeric literal → FOCA0001 (fractional part) per updated constructor logic.
-    let err_frac = evaluate_expr::<N>("xs:integer('3.14')", &empty_ctx())
-        .expect_err("expected error");
+    let err_frac =
+        evaluate_expr::<N>("xs:integer('3.14')", &empty_ctx()).expect_err("expected error");
     assert!(
         err_frac.code_enum() == ErrorCode::FOCA0001,
         "3.14 expected FOCA0001, got {:?}",
         err_frac.code_qname()
     );
     // Non-numeric lexical → FORG0001
-    let err_lex = evaluate_expr::<N>("xs:integer('abc')", &empty_ctx())
-        .expect_err("expected error");
+    let err_lex =
+        evaluate_expr::<N>("xs:integer('abc')", &empty_ctx()).expect_err("expected error");
     assert!(
         err_lex.code_enum() == ErrorCode::FORG0001,
         "abc expected FORG0001, got {:?}",

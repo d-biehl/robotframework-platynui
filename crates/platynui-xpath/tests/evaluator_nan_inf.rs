@@ -1,7 +1,9 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
-use platynui_xpath::{xdm::XdmItem as I, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
-use rstest::rstest;
 use platynui_xpath::runtime::ErrorCode;
+use platynui_xpath::{
+    engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A, xdm::XdmItem as I,
+};
+use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
 fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
@@ -80,8 +82,7 @@ fn inf_ne_neg_inf_true() {
 #[rstest]
 fn div_by_zero_error_integer() {
     // Integer division by zero should raise FOAR0001 (arithmetic error) not produce INF.
-    let err = evaluate_expr::<N>("1 idiv 0", &ctx())
-        .expect_err("expected error");
+    let err = evaluate_expr::<N>("1 idiv 0", &ctx()).expect_err("expected error");
     assert!(
         err.code_enum() == ErrorCode::FOAR0001,
         "expected FOAR0001 got {err:?}"

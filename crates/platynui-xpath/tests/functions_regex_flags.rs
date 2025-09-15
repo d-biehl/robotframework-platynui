@@ -56,7 +56,10 @@ fn regex_tokenize_with_flags(#[case] expr: &str, #[case] expected_len: usize) {
 
 #[rstest]
 fn regex_invalid_flag_errors() {
-    let err = platynui_xpath::evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("matches('a','a','q')", &ctx());
+    let err = platynui_xpath::evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(
+        "matches('a','a','q')",
+        &ctx(),
+    );
     assert!(err.is_err());
     let e = format!("{}", err.err().unwrap());
     assert!(e.contains("FORX0001"));

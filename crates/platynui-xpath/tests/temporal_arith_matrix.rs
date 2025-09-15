@@ -1,6 +1,5 @@
 use platynui_xpath::{
-    xdm::XdmItem as I, evaluate_expr, runtime::DynamicContextBuilder,
-    xdm::XdmAtomicValue as A,
+    evaluate_expr, runtime::DynamicContextBuilder, xdm::XdmAtomicValue as A, xdm::XdmItem as I,
 };
 use rstest::rstest;
 
@@ -21,10 +20,10 @@ fn eval_bool(expr: &str) -> bool {
 fn expect_err(expr: &str, frag: &str) {
     let c = ctx();
     let err = evaluate_expr::<N>(expr, &c).unwrap_err();
-        assert!(
-            err.code_qname().unwrap().local.contains(frag),
-            "expected fragment {frag} in {:?}",
-            err.code_qname()
+    assert!(
+        err.code_qname().unwrap().local.contains(frag),
+        "expected fragment {frag} in {:?}",
+        err.code_qname()
     );
 }
 

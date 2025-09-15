@@ -1,7 +1,8 @@
 use platynui_xpath::model::XdmNode;
 use platynui_xpath::model::simple::{elem, ns};
+use rstest::rstest;
 
-#[test]
+#[rstest]
 fn element_prefix_resolves_against_own_namespaces() {
     // <p:root xmlns:p="urn:one" />
     let r = elem("p:root").namespace(ns("p", "urn:one")).build();
@@ -12,7 +13,7 @@ fn element_prefix_resolves_against_own_namespaces() {
     assert!(name.ns_uri.is_none());
 }
 
-#[test]
+#[rstest]
 fn child_element_prefix_resolves_against_parent_namespaces() {
     // <root xmlns:p="urn:one"><p:child/></root>
     let root = elem("root")

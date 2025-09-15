@@ -1,6 +1,7 @@
-use platynui_xpath::engine::runtime::{DynamicContextBuilder, NodeResolver};
+use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder, NodeResolver};
 use platynui_xpath::model::simple::{doc as sdoc, elem, text};
-use platynui_xpath::{xdm::XdmItem, engine::evaluator::evaluate_expr};
+use platynui_xpath::{engine::evaluator::evaluate_expr, xdm::XdmItem};
+use rstest::{fixture, rstest};
 use std::sync::Arc;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -26,12 +27,17 @@ impl NodeResolver<N> for TestNodeResolver {
     }
 }
 
-#[test]
-fn doc_returns_document_node_from_resolver() {
+#[fixture]
+fn ctx_with_resolver() -> DynamicContext<N> {
     let nr = Arc::new(TestNodeResolver);
-    let ctx = DynamicContextBuilder::<N>::default()
+    DynamicContextBuilder::<N>::default()
         .with_node_resolver(nr)
-        .build();
+        .build()
+}
+
+#[rstest]
+fn doc_returns_document_node_from_resolver(ctx_with_resolver: DynamicContext<N>) {
+    let ctx = ctx_with_resolver;
     let out = evaluate_expr::<N>("string(doc('urn:x')/element(root)/text())", &ctx).unwrap();
     assert_eq!(out.len(), 1);
     match &out[0] {
@@ -42,12 +48,9 @@ fn doc_returns_document_node_from_resolver() {
     }
 }
 
-#[test]
-fn collection_returns_nodes_from_resolver() {
-    let nr = Arc::new(TestNodeResolver);
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_node_resolver(nr)
-        .build();
+#[rstest]
+fn collection_returns_nodes_from_resolver(ctx_with_resolver: DynamicContext<N>) {
+    let ctx = ctx_with_resolver;
     let out = evaluate_expr::<N>("count(collection('urn:col'))", &ctx).unwrap();
     match &out[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(i)) => assert_eq!(*i, 2),
@@ -55,7 +58,7 @@ fn collection_returns_nodes_from_resolver() {
     }
 }
 
-#[test]
+#[rstest]
 fn doc_errors_when_unavailable_or_no_resolver() {
     // With resolver: unknown uri triggers FODC0005
     let nr = Arc::new(TestNodeResolver);

@@ -1,7 +1,8 @@
 use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
 use platynui_xpath::{
-    xdm::XdmItem as I, XdmNode, evaluate_expr,
+    XdmNode, evaluate_expr,
     simple_node::{attr, doc, elem, text},
+    xdm::XdmItem as I,
 };
 use rstest::{fixture, rstest};
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -20,7 +21,7 @@ fn build_tree() -> N {
                 .child(elem("c").child(elem("d").child(text("three")))),
         )
         .build();
-    
+
     doc_node.children()[0].clone()
 }
 

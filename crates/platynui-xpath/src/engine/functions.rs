@@ -413,9 +413,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             if matches!(n.kind(), NodeKind::Element) {
                 for ns in n.namespaces() {
                     if let Some(q) = ns.name()
-                        && let (Some(p), Some(uri)) = (q.prefix, q.ns_uri) {
-                            map.entry(p).or_insert(uri);
-                        }
+                        && let (Some(p), Some(uri)) = (q.prefix, q.ns_uri)
+                    {
+                        map.entry(p).or_insert(uri);
+                    }
                 }
             }
             if let Some(p) = n.parent() {
@@ -535,7 +536,12 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         }
         let p = match &args[0][0] {
             XdmItem::Atomic(XdmAtomicValue::String(s)) => s.clone(),
-            _ => return Err(Error::from_code(ErrorCode::FORG0001, "prefix must be string")),
+            _ => {
+                return Err(Error::from_code(
+                    ErrorCode::FORG0001,
+                    "prefix must be string",
+                ));
+            }
         };
         let enode = match &args[1][0] {
             XdmItem::Node(n) => n.clone(),
@@ -783,11 +789,11 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             distinct_values_impl(ctx, &args[0], None)
         } else {
             let uri = item_to_string(&args[1]);
-    let k = crate::engine::collation::resolve_collation(
-        ctx.dyn_ctx,
-        ctx.default_collation.as_ref(),
-        Some(&uri),
-    )?;
+            let k = crate::engine::collation::resolve_collation(
+                ctx.dyn_ctx,
+                ctx.default_collation.as_ref(),
+                Some(&uri),
+            )?;
             distinct_values_impl(ctx, &args[0], Some(k.as_trait()))
         }
     });
@@ -972,7 +978,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 }
                 Ok(vec![XdmItem::Node(cur)])
             }
-            _ => Err(Error::from_code(ErrorCode::XPTY0004, "root() expects node()")),
+            _ => Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "root() expects node()",
+            )),
         }
     });
     // base-uri($arg as node()?) as xs:anyURI?
@@ -1012,9 +1021,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         match item {
             XdmItem::Node(n) => {
                 if matches!(n.kind(), crate::model::NodeKind::Document)
-                    && let Some(uri) = n.base_uri() {
-                        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri))]);
-                    }
+                    && let Some(uri) = n.base_uri()
+                {
+                    return Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri))]);
+                }
                 Ok(vec![])
             }
             _ => Err(Error::from_code(
@@ -1534,7 +1544,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 if a.local_minus_utc() == b.local_minus_utc() {
                     Some(a)
                 } else {
-                    return Err(Error::from_code(ErrorCode::FORG0001, "conflicting timezones"));
+                    return Err(Error::from_code(
+                        ErrorCode::FORG0001,
+                        "conflicting timezones",
+                    ));
                 }
             }
             (Some(a), None) => Some(a),
@@ -1651,8 +1664,9 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
             } else {
                 Some(match &args[1][0] {
                     XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
-                        ChronoFixedOffset::east_opt(*secs as i32)
-                            .ok_or_else(|| Error::from_code(ErrorCode::FORG0001, "invalid timezone"))?
+                        ChronoFixedOffset::east_opt(*secs as i32).ok_or_else(|| {
+                            Error::from_code(ErrorCode::FORG0001, "invalid timezone")
+                        })?
                     }
                     _ => {
                         return Err(Error::from_code(
@@ -1891,7 +1905,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         if let Ok(sec) = parse_day_time_duration_secs(s) {
             return Ok((None, Some(sec)));
         }
-    Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:duration"))
+        Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:duration"))
     }
     // years-from-duration($arg as xs:duration?) as xs:integer?
     reg.register_ns(FNS, "years-from-duration", 1, |_ctx, args| {
@@ -2025,9 +2039,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         match &args[0][0] {
             XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
                 let rem = *secs % (24 * 3600);
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                    rem / 3600,
-                ))])
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(rem / 3600))])
             }
             XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(_)) => {
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
@@ -2037,9 +2049,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 let (m_opt, s_opt) = parse_duration_lexical(s)?;
                 if let Some(sec) = s_opt {
                     let rem = sec % (24 * 3600);
-                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                        rem / 3600,
-                    ))])
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(rem / 3600))])
                 } else if m_opt.is_some() {
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
                 } else {
@@ -2050,9 +2060,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
                 if let Some(sec) = s_opt {
                     let rem = sec % (24 * 3600);
-                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                        rem / 3600,
-                    ))])
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(rem / 3600))])
                 } else if m_opt.is_some() {
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
                 } else {
@@ -2070,9 +2078,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         match &args[0][0] {
             XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
                 let rem = *secs % 3600;
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                    rem / 60,
-                ))])
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(rem / 60))])
             }
             XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(_)) => {
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
@@ -2082,9 +2088,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 let (m_opt, s_opt) = parse_duration_lexical(s)?;
                 if let Some(sec) = s_opt {
                     let rem = sec % 3600;
-                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                        rem / 60,
-                    ))])
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(rem / 60))])
                 } else if m_opt.is_some() {
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
                 } else {
@@ -2095,9 +2099,7 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
                 let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
                 if let Some(sec) = s_opt {
                     let rem = sec % 3600;
-                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                        rem / 60,
-                    ))])
+                    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(rem / 60))])
                 } else if m_opt.is_some() {
                     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
                 } else {
@@ -2302,12 +2304,13 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         // If decimal point or exponent present attempt f64 parse to distinguish fractional (FOCA0001)
         if (s_trim.contains('.') || s_trim.contains('e') || s_trim.contains('E'))
             && let Ok(f) = s_trim.parse::<f64>()
-                && (!f.is_finite() || f.fract() != 0.0) {
-                    return Err(Error::from_code(
-                        ErrorCode::FOCA0001,
-                        "fractional part in integer cast",
-                    ));
-                }
+            && (!f.is_finite() || f.fract() != 0.0)
+        {
+            return Err(Error::from_code(
+                ErrorCode::FOCA0001,
+                "fractional part in integer cast",
+            ));
+        }
         let i: i64 = s_trim
             .parse()
             .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:integer"))?;
@@ -2468,7 +2471,10 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         let raw = item_to_string(&args[0]);
         let norm: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
         if norm.len() % 2 != 0 || !norm.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:hexBinary"));
+            return Err(Error::from_code(
+                ErrorCode::FORG0001,
+                "invalid xs:hexBinary",
+            ));
         }
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::HexBinary(norm))])
     });
@@ -3246,12 +3252,11 @@ fn compare_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     let sa = item_to_string(a);
     let sb = item_to_string(b);
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
-    let k =
-        crate::engine::collation::resolve_collation(
-            ctx.dyn_ctx,
-            ctx.default_collation.as_ref(),
-            uri_opt,
-        )?;
+    let k = crate::engine::collation::resolve_collation(
+        ctx.dyn_ctx,
+        ctx.default_collation.as_ref(),
+        uri_opt,
+    )?;
     let c = k.as_trait();
     let ord = c.compare(&sa, &sb);
     let v = match ord {
@@ -3272,12 +3277,11 @@ fn index_of_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     use crate::engine::eq::{EqKey, build_eq_key};
     let mut out: XdmSequence<N> = Vec::new();
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
-    let coll_kind =
-        crate::engine::collation::resolve_collation(
-            ctx.dyn_ctx,
-            ctx.default_collation.as_ref(),
-            uri_opt,
-        )?;
+    let coll_kind = crate::engine::collation::resolve_collation(
+        ctx.dyn_ctx,
+        ctx.default_collation.as_ref(),
+        uri_opt,
+    )?;
     let coll: Option<&dyn crate::engine::collation::Collation> = Some(coll_kind.as_trait());
     let needle_opt = search.first();
     // Precompute key for atomic needle; if NaN early return empty.
@@ -3816,7 +3820,9 @@ fn atomic_equal_with_collation(
 }
 
 // ===== Helpers (Regex) =====
-fn get_regex_provider<N>(ctx: &CallCtx<N>) -> std::sync::Arc<dyn crate::engine::runtime::RegexProvider> {
+fn get_regex_provider<N>(
+    ctx: &CallCtx<N>,
+) -> std::sync::Arc<dyn crate::engine::runtime::RegexProvider> {
     if let Some(p) = &ctx.regex {
         p.clone()
     } else {
@@ -3992,15 +3998,16 @@ fn minmax_impl<N: crate::model::XdmNode>(
         let mut kind = NumericKind::Integer;
         for it in seq {
             if let XdmItem::Atomic(a) = it
-                && let Some((nk, num)) = classify_numeric(a)? {
-                    if nk == NumericKind::Double && num.is_nan() {
-                        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
-                    }
-                    if nk == NumericKind::Float && num.is_nan() {
-                        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
-                    }
-                    kind = kind.promote(nk);
+                && let Some((nk, num)) = classify_numeric(a)?
+            {
+                if nk == NumericKind::Double && num.is_nan() {
+                    return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
                 }
+                if nk == NumericKind::Float && num.is_nan() {
+                    return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
+                }
+                kind = kind.promote(nk);
+            }
         }
         let out = match kind {
             NumericKind::Integer => XdmAtomicValue::Integer(acc_num as i64),
@@ -4215,7 +4222,7 @@ fn get_datetime<N: crate::model::XdmNode>(
         XdmItem::Node(n) => ChronoDateTime::parse_from_rfc3339(&n.string_value())
             .map(Some)
             .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:dateTime")),
-    _ => Err(Error::from_code(ErrorCode::XPTY0004, "not a dateTime")),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "not a dateTime")),
     }
 }
 
@@ -4228,13 +4235,15 @@ fn get_time<N: crate::model::XdmNode>(
     match &seq[0] {
         XdmItem::Atomic(XdmAtomicValue::Time { time, tz }) => Ok(Some((*time, *tz))),
         XdmItem::Atomic(XdmAtomicValue::String(s))
-        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => crate::util::temporal::parse_time_lex(s)
-            .map(Some)
-            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:time")),
+        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+            crate::util::temporal::parse_time_lex(s)
+                .map(Some)
+                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:time"))
+        }
         XdmItem::Node(n) => crate::util::temporal::parse_time_lex(&n.string_value())
             .map(Some)
             .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:time")),
-    _ => Err(Error::from_code(ErrorCode::XPTY0004, "not a time")),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "not a time")),
     }
 }
 
@@ -4591,7 +4600,10 @@ fn uint_subtype_u128<N: crate::model::XdmNode>(
     }
     let s = item_to_string(&args[0]).trim().to_string();
     if s.starts_with('-') {
-        return Err(Error::from_code(ErrorCode::FORG0001, "negative not allowed"));
+        return Err(Error::from_code(
+            ErrorCode::FORG0001,
+            "negative not allowed",
+        ));
     }
     let v: u128 = s
         .parse()

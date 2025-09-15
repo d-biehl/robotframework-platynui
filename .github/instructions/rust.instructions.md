@@ -5,7 +5,7 @@ applyTo: '**/*.rs'
 
 # Rust Coding Conventions and Best Practices
 
-Follow idiomatic Rust practices and community standards when writing Rust code. 
+Follow idiomatic Rust practices and community standards when writing Rust code.
 
 These instructions are based on [The Rust Book](https://doc.rust-lang.org/book/), [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/), [RFC 430 naming conventions](https://github.com/rust-lang/rfcs/blob/master/text/0430-finalizing-naming-conventions.md), and the broader Rust community at [users.rust-lang.org](https://users.rust-lang.org).
 
@@ -98,7 +98,7 @@ Eagerly implement common traits where appropriate:
 
 ## Testing and Documentation
 
-- use `rstest` or `proptest` for property-based testing where applicable.
+- use `rstest` and it features like cases, fixtures, matrixes, etc. for testing.
 - Write comprehensive unit tests using `#[cfg(test)]` modules.
 - Use test modules alongside the code they test (`mod tests { ... }`).
 - Write integration tests in `tests/` directory with descriptive filenames.

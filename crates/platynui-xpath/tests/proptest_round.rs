@@ -1,10 +1,9 @@
-use platynui_xpath::{
-    evaluator::evaluate_expr, runtime::DynamicContextBuilder,
-};
-use proptest::prelude::*;
+use platynui_xpath::xdm::{XdmAtomicValue as A, XdmItem as I};
+use platynui_xpath::{evaluator::evaluate_expr, runtime::DynamicContextBuilder};
 use rstest::rstest;
 
-fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
+fn ctx()
+-> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 
@@ -14,14 +13,13 @@ fn eval_double(expr: &str) -> Option<f64> {
     if seq.is_empty() {
         return None;
     }
-    let s = seq[0].to_string();
-    // Accept Debug variants Double(…) or Decimal(…)
-    for prefix in ["Double(", "Decimal("] {
-        if let Some(rest) = s.strip_prefix(prefix).and_then(|t| t.strip_suffix(")")) {
-            return rest.parse().ok();
+    match &seq[0] {
+        I::Atomic(A::Double(d)) => Some(*d),
+        I::Atomic(A::Decimal(d)) => Some(*d),
+        other => {
+            panic!("Expected Double/Decimal, got {:?}", other);
         }
     }
-    None
 }
 
 fn banker_scaled(x: f64, p: i32) -> f64 {
@@ -52,14 +50,23 @@ fn half_even(v: f64) -> f64 {
 }
 
 #[rstest]
-fn proptest_round_half_to_even_bankers() {
-    proptest!(ProptestConfig::with_cases(256), |(x in -100000f64..100000f64, prec in -4i32..8i32)| {
-        let expr = format!("round-half-to-even({}, {})", x, prec);
-        if let Some(r) = eval_double(&expr) {
-            let expected = banker_scaled(x, prec);
-            prop_assert!((r - expected).abs() <= 1e-9, "x={}, prec={}, r={}, expected={}", x, prec, r, expected);
-        } else {
-            prop_assert!(false, "evaluation failed for expression: {}", expr);
-        }
-    });
+fn round_half_to_even_bankers_matrix(
+    #[values(-100000.0, -2.5, -2.0, -1.5, -1.0, -0.5, -0.0, 0.0, 0.5, 1.5, 2.0, 2.5, 100000.0)]
+    x: f64,
+    #[values(-4, -1, 0, 1, 4, 7)] prec: i32,
+) {
+    let expr = format!("round-half-to-even({}, {})", x, prec);
+    if let Some(r) = eval_double(&expr) {
+        let expected = banker_scaled(x, prec);
+        assert!(
+            (r - expected).abs() <= 1e-9,
+            "x={}, prec={}, r={}, expected={}",
+            x,
+            prec,
+            r,
+            expected
+        );
+    } else {
+        panic!("evaluation failed for expression: {}", expr);
+    }
 }

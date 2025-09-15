@@ -1,6 +1,8 @@
 use platynui_xpath::model::simple::{attr, elem, ns, text};
-use platynui_xpath::xdm::XdmAtomicValue;
-use platynui_xpath::{xdm::XdmItem as I, model::XdmNode, engine::evaluator::evaluate_expr, runtime::DynamicContextBuilder};
+use platynui_xpath::xdm::{XdmAtomicValue, XdmItem};
+use platynui_xpath::{
+    engine::evaluator::evaluate_expr, model::XdmNode, runtime::DynamicContextBuilder,
+};
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -16,52 +18,72 @@ fn ctx_with_tree() -> platynui_xpath::engine::runtime::DynamicContext<N> {
     DynamicContextBuilder::new().with_context_item(root).build()
 }
 
+// --- Small helpers to reduce repetition ---
+fn eval_one(ctx: &platynui_xpath::engine::runtime::DynamicContext<N>, expr: &str) -> XdmItem<N> {
+    let out = evaluate_expr::<N>(expr, ctx).unwrap();
+    assert_eq!(out.len(), 1, "expected single item for expr {expr}");
+    out.into_iter().next().unwrap()
+}
+
+fn eval_string(ctx: &platynui_xpath::engine::runtime::DynamicContext<N>, expr: &str) -> String {
+    match eval_one(ctx, expr) {
+        XdmItem::Atomic(XdmAtomicValue::String(s)) => s,
+        other => panic!("expected String, got {other:?}"),
+    }
+}
+
+fn eval_qname(
+    ctx: &platynui_xpath::engine::runtime::DynamicContext<N>,
+    expr: &str,
+) -> (Option<String>, Option<String>, String) {
+    match eval_one(ctx, expr) {
+        XdmItem::Atomic(XdmAtomicValue::QName {
+            ns_uri,
+            prefix,
+            local,
+        }) => (ns_uri, prefix, local),
+        other => panic!("expected QName, got {other:?}"),
+    }
+}
+
+fn assert_empty(ctx: &platynui_xpath::engine::runtime::DynamicContext<N>, expr: &str) {
+    let out = evaluate_expr::<N>(expr, ctx).unwrap();
+    assert!(
+        out.is_empty(),
+        "expected empty sequence for expr {expr}, got {out:?}"
+    );
+}
+
 #[rstest]
 fn node_name_and_local_namespace() {
     let ctx = ctx_with_tree();
     // node-name on element
-    let out = evaluate_expr::<N>("node-name(.)", &ctx).unwrap();
-    assert_eq!(out.len(), 1);
-    let I::Atomic(XdmAtomicValue::QName {
-        ns_uri,
-        prefix,
-        local,
-    }) = &out[0]
-    else {
-        panic!("QName expected")
-    };
-    assert_eq!(prefix, &None);
+    let (ns_uri, prefix, local) = eval_qname(&ctx, "node-name(.)");
+    assert_eq!(prefix, None);
     assert_eq!(local, "root");
-    assert_eq!(ns_uri, &None);
+    assert_eq!(ns_uri, None);
 
     // name/local-name/namespace-uri on attribute node
-    let out = evaluate_expr::<N>("name(@a)", &ctx).unwrap();
-    assert_eq!(out[0].to_string(), "String(\"a\")");
-    let out = evaluate_expr::<N>("local-name(@a)", &ctx).unwrap();
-    assert_eq!(out[0].to_string(), "String(\"a\")");
-    let out = evaluate_expr::<N>("namespace-uri(@a)", &ctx).unwrap();
+    assert_eq!(eval_string(&ctx, "name(@a)"), "a");
+    assert_eq!(eval_string(&ctx, "local-name(@a)"), "a");
     // attributes in no namespace unless explicitly bound -> empty sequence per spec
-    assert!(out.is_empty());
+    assert_empty(&ctx, "namespace-uri(@a)");
 }
 
 #[rstest]
 fn empty_and_unnamed_nodes() {
     // Empty sequence
     let ctx = ctx_with_tree();
-    let out = evaluate_expr::<N>("node-name(())", &ctx).unwrap();
-    assert!(out.is_empty());
+    assert_empty(&ctx, "node-name(())");
 
     // Text node has no name
     let root = elem("r").child(text("t")).build();
     let ctx = DynamicContextBuilder::new()
         .with_context_item(root.children()[0].clone())
         .build();
-    let out = evaluate_expr::<N>("name(.)", &ctx).unwrap();
-    assert_eq!(out[0].to_string(), "String(\"\")");
-    let out = evaluate_expr::<N>("local-name(.)", &ctx).unwrap();
-    assert_eq!(out[0].to_string(), "String(\"\")");
-    let out = evaluate_expr::<N>("namespace-uri(.)", &ctx).unwrap();
-    assert!(out.is_empty());
+    assert!(eval_string(&ctx, "name(.)").is_empty());
+    assert!(eval_string(&ctx, "local-name(.)").is_empty());
+    assert_empty(&ctx, "namespace-uri(.)");
 }
 
 #[rstest]
@@ -80,13 +102,10 @@ fn prefixed_and_namespace_nodes() {
         .build();
 
     // namespace-uri for element with no ns is empty
-    let out = evaluate_expr::<N>("namespace-uri(.)", &ctx).unwrap();
-    assert!(out.is_empty());
+    assert_empty(&ctx, "namespace-uri(.)");
 
     // Namespace axis returns namespace nodes with prefix in name(), but namespace-uri(name()) is empty (name of namespace node is prefix)
-    let out = evaluate_expr::<N>("name(namespace::p)", &ctx).unwrap();
-    assert_eq!(out[0].to_string(), "String(\"p\")");
-    let out = evaluate_expr::<N>("namespace-uri(namespace::p)", &ctx).unwrap();
+    assert_eq!(eval_string(&ctx, "name(namespace::p)"), "p");
     // Namespace nodes have no QName -> empty sequence per fn:namespace-uri definition
-    assert!(out.is_empty());
+    assert_empty(&ctx, "namespace-uri(namespace::p)");
 }

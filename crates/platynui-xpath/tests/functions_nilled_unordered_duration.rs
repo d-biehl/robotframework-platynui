@@ -1,9 +1,10 @@
-use platynui_xpath::engine::runtime::DynamicContextBuilder;
-use platynui_xpath::{xdm::XdmItem, engine::evaluator::evaluate_expr};
+use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
+use platynui_xpath::{engine::evaluator::evaluate_expr, xdm::XdmItem};
+use rstest::{fixture, rstest};
 
 type N = platynui_xpath::model::simple::SimpleNode;
 
-#[test]
+#[rstest]
 fn nilled_true_false_and_empty() {
     use platynui_xpath::model::simple::{attr, doc, elem, ns};
     // <root xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -46,7 +47,7 @@ fn nilled_true_false_and_empty() {
     assert!(e.is_empty());
 }
 
-#[test]
+#[rstest]
 fn nilled_true_with_alternate_prefix_bound_to_xsi() {
     use platynui_xpath::model::simple::{attr, doc, elem, ns};
     // Bind custom prefix 'p' to xsi URI on ancestor only; use p:nil="1" on child
@@ -67,16 +68,19 @@ fn nilled_true_with_alternate_prefix_bound_to_xsi() {
     }
 }
 
-#[test]
-fn nilled_empty_sequence_returns_empty() {
-    let ctx = DynamicContextBuilder::<N>::default().build();
+#[fixture]
+fn ctx() -> DynamicContext<N> {
+    DynamicContextBuilder::<N>::default().build()
+}
+
+#[rstest]
+fn nilled_empty_sequence_returns_empty(ctx: DynamicContext<N>) {
     let r = evaluate_expr::<N>("nilled(())", &ctx).unwrap();
     assert!(r.is_empty());
 }
 
-#[test]
-fn unordered_identity_basic() {
-    let ctx = DynamicContextBuilder::<N>::default().build();
+#[rstest]
+fn unordered_identity_basic(ctx: DynamicContext<N>) {
     let r = evaluate_expr::<N>("unordered((3,1,2))", &ctx).unwrap();
     assert_eq!(r.len(), 3);
     // Expect identity order for now
@@ -90,9 +94,8 @@ fn unordered_identity_basic() {
     assert_eq!(vals, vec![3, 1, 2]);
 }
 
-#[test]
-fn duration_component_accessors_examples() {
-    let ctx = DynamicContextBuilder::<N>::default().build();
+#[rstest]
+fn duration_component_accessors_examples(ctx: DynamicContext<N>) {
     // years/months from yearMonthDuration
     let y =
         evaluate_expr::<N>("years-from-duration(xs:yearMonthDuration('P20Y15M'))", &ctx).unwrap();

@@ -1,7 +1,7 @@
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilder};
 use platynui_xpath::{
-    xdm::XdmItem as I, compiler::compile_xpath_with_context, evaluate, evaluate_expr,
-    xdm::XdmAtomicValue as A,
+    compiler::compile_xpath_with_context, evaluate, evaluate_expr, xdm::XdmAtomicValue as A,
+    xdm::XdmItem as I,
 };
 use rstest::rstest;
 

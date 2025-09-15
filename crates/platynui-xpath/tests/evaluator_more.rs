@@ -1,7 +1,5 @@
 use platynui_xpath::engine::runtime::{CallCtx, DynamicContextBuilder, Error, FunctionRegistry};
-use platynui_xpath::{
-    ExpandedName, xdm::XdmItem as I, evaluate_expr, xdm::XdmAtomicValue as A,
-};
+use platynui_xpath::{ExpandedName, evaluate_expr, xdm::XdmAtomicValue as A, xdm::XdmItem as I};
 use rstest::rstest;
 type N = platynui_xpath::model::simple::SimpleNode;
 fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {

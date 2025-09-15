@@ -1,6 +1,6 @@
-use crate::parser::{ast, parse_xpath};
-use crate::engine::runtime::{Error, StaticContext};
 use crate::engine::runtime::ErrorCode;
+use crate::engine::runtime::{Error, StaticContext};
+use crate::parser::{ast, parse_xpath};
 use crate::xdm::{ExpandedName, XdmAtomicValue};
 
 pub mod ir;
@@ -519,9 +519,10 @@ impl<'a> Compiler<'a> {
         };
         if ns.is_none()
             && let Some(pref) = &q.prefix
-                && let Some(uri) = self.static_ctx.namespaces.by_prefix.get(pref) {
-                    ns = Some(uri.clone());
-                }
+            && let Some(uri) = self.static_ctx.namespaces.by_prefix.get(pref)
+        {
+            ns = Some(uri.clone());
+        }
         ExpandedName {
             ns_uri: ns,
             local: q.local.clone(),

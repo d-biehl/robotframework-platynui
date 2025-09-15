@@ -236,13 +236,87 @@ impl SimpleNode {
         while let Some(n) = cur {
             for ns in n.namespaces() {
                 if let Some(name) = ns.name()
-                    && name.prefix.as_deref() == Some(prefix) {
-                        return ns.string_value().into();
-                    }
+                    && name.prefix.as_deref() == Some(prefix)
+                {
+                    return ns.string_value().into();
+                }
             }
             cur = n.parent();
         }
         None
+    }
+}
+
+impl fmt::Display for SimpleNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fn qname_to_string(q: &QName) -> String {
+            match (&q.prefix, &q.local) {
+                (Some(p), local) if !p.is_empty() => format!("{}:{}", p, local),
+                _ => q.local.clone(),
+            }
+        }
+        fn clip(s: &str) -> String {
+            const MAX: usize = 32;
+            if s.len() > MAX {
+                let mut out = s.chars().take(MAX).collect::<String>();
+                out.push_str("…");
+                out
+            } else {
+                s.to_string()
+            }
+        }
+        match self.kind() {
+            NodeKind::Document => {
+                let ch = self.children().len();
+                write!(f, "document(children={})", ch)
+            }
+            NodeKind::Element => {
+                let name = self
+                    .name()
+                    .map(|q| qname_to_string(&q))
+                    .unwrap_or_else(|| "<unnamed>".to_string());
+                let attrs = self.attributes().len();
+                let ch = self.children().len();
+                write!(f, "<{} attrs={} children={}>", name, attrs, ch)
+            }
+            NodeKind::Attribute => {
+                let name = self
+                    .name()
+                    .map(|q| qname_to_string(&q))
+                    .unwrap_or_else(|| "?".to_string());
+                let val = clip(&self.string_value());
+                write!(f, "@{}=\"{}\"", name, val)
+            }
+            NodeKind::Text => {
+                let val = clip(&self.string_value());
+                write!(f, "\"{}\"", val)
+            }
+            NodeKind::Comment => {
+                let val = clip(&self.string_value());
+                write!(f, "<!--{}-->", val)
+            }
+            NodeKind::ProcessingInstruction => {
+                let target = self
+                    .name()
+                    .map(|q| q.local)
+                    .unwrap_or_else(|| "".to_string());
+                let data = clip(&self.string_value());
+                if target.is_empty() {
+                    write!(f, "<?{}?>", data)
+                } else {
+                    write!(f, "<?{} {}?>", target, data)
+                }
+            }
+            NodeKind::Namespace => {
+                let prefix = self.name().and_then(|q| q.prefix).unwrap_or_default();
+                let uri = self.string_value();
+                if prefix.is_empty() {
+                    write!(f, "xmlns=\"{}\"", uri)
+                } else {
+                    write!(f, "xmlns:{}=\"{}\"", prefix, uri)
+                }
+            }
+        }
     }
 }
 
@@ -333,31 +407,32 @@ impl SimpleNodeBuilder {
                 // Default namespace does not apply to attributes; only prefixed names are resolved.
                 let mut pushed = false;
                 if let Some(qn) = &a.0.name
-                    && let Some(pref) = &qn.prefix {
-                        let uri = if pref == "xml" {
-                            Some(XML_URI.to_string())
-                        } else {
-                            self.node.lookup_namespace_uri(pref)
-                        };
-                        if let Some(ns_uri) = uri {
-                            // Rebuild attribute node with resolved ns_uri
-                            let val = a.0.value.read().unwrap().clone();
-                            let rebuilt = SimpleNode::new(
-                                NodeKind::Attribute,
-                                Some(QName {
-                                    prefix: Some(pref.clone()),
-                                    local: qn.local.clone(),
-                                    ns_uri: Some(ns_uri),
-                                }),
-                                val,
-                            );
-                            *rebuilt.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
-                            let id = *self.node.0.doc_id.read().unwrap();
-                            *rebuilt.0.doc_id.write().unwrap() = id;
-                            attrs.push(rebuilt);
-                            pushed = true;
-                        }
+                    && let Some(pref) = &qn.prefix
+                {
+                    let uri = if pref == "xml" {
+                        Some(XML_URI.to_string())
+                    } else {
+                        self.node.lookup_namespace_uri(pref)
+                    };
+                    if let Some(ns_uri) = uri {
+                        // Rebuild attribute node with resolved ns_uri
+                        let val = a.0.value.read().unwrap().clone();
+                        let rebuilt = SimpleNode::new(
+                            NodeKind::Attribute,
+                            Some(QName {
+                                prefix: Some(pref.clone()),
+                                local: qn.local.clone(),
+                                ns_uri: Some(ns_uri),
+                            }),
+                            val,
+                        );
+                        *rebuilt.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
+                        let id = *self.node.0.doc_id.read().unwrap();
+                        *rebuilt.0.doc_id.write().unwrap() = id;
+                        attrs.push(rebuilt);
+                        pushed = true;
                     }
+                }
                 if !pushed {
                     *a.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
                     let id = *self.node.0.doc_id.read().unwrap();
@@ -389,33 +464,34 @@ impl SimpleNodeBuilder {
                     let attrs = node.0.attributes.read().unwrap();
                     for (idx, a) in attrs.iter().enumerate() {
                         if let Some(q) = a.name()
-                            && let Some(pref) = q.prefix.as_ref() {
-                                // Only replace if ns_uri is None
-                                if q.ns_uri.is_none() {
-                                    let uri = if pref == "xml" {
-                                        Some(XML_URI.to_string())
-                                    } else {
-                                        node.lookup_namespace_uri(pref)
-                                    };
-                                    if let Some(ns_uri) = uri {
-                                        let val = a.0.value.read().unwrap().clone();
-                                        let rebuilt = SimpleNode::new(
-                                            NodeKind::Attribute,
-                                            Some(QName {
-                                                prefix: Some(pref.clone()),
-                                                local: q.local.clone(),
-                                                ns_uri: Some(ns_uri),
-                                            }),
-                                            val,
-                                        );
-                                        *rebuilt.0.parent.write().unwrap() =
-                                            Some(Arc::downgrade(&node.0));
-                                        let id = *node.0.doc_id.read().unwrap();
-                                        *rebuilt.0.doc_id.write().unwrap() = id;
-                                        to_replace.push((idx, rebuilt));
-                                    }
+                            && let Some(pref) = q.prefix.as_ref()
+                        {
+                            // Only replace if ns_uri is None
+                            if q.ns_uri.is_none() {
+                                let uri = if pref == "xml" {
+                                    Some(XML_URI.to_string())
+                                } else {
+                                    node.lookup_namespace_uri(pref)
+                                };
+                                if let Some(ns_uri) = uri {
+                                    let val = a.0.value.read().unwrap().clone();
+                                    let rebuilt = SimpleNode::new(
+                                        NodeKind::Attribute,
+                                        Some(QName {
+                                            prefix: Some(pref.clone()),
+                                            local: q.local.clone(),
+                                            ns_uri: Some(ns_uri),
+                                        }),
+                                        val,
+                                    );
+                                    *rebuilt.0.parent.write().unwrap() =
+                                        Some(Arc::downgrade(&node.0));
+                                    let id = *node.0.doc_id.read().unwrap();
+                                    *rebuilt.0.doc_id.write().unwrap() = id;
+                                    to_replace.push((idx, rebuilt));
                                 }
                             }
+                        }
                     }
                 }
                 if !to_replace.is_empty() {
@@ -493,9 +569,10 @@ impl XdmNode for SimpleNode {
                 let mut out = String::new();
                 fn dfs(n: &SimpleNode, out: &mut String) {
                     if n.kind() == NodeKind::Text
-                        && let Some(v) = &*n.0.value.read().unwrap() {
-                            out.push_str(v);
-                        }
+                        && let Some(v) = &*n.0.value.read().unwrap()
+                    {
+                        out.push_str(v);
+                    }
                     for c in n.children() {
                         dfs(&c, out);
                     }

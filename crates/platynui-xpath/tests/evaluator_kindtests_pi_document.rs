@@ -1,10 +1,11 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::model::simple::{doc, elem};
-use platynui_xpath::{xdm::XdmItem, model::XdmNode, engine::evaluator::evaluate_expr};
+use platynui_xpath::{engine::evaluator::evaluate_expr, model::XdmNode, xdm::XdmItem};
+use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
 
-#[test]
+#[rstest]
 fn processing_instruction_target_filter() {
     // <root><?go data?></root>
     let root = elem("root")
@@ -31,7 +32,7 @@ fn processing_instruction_target_filter() {
     assert!(empty.is_empty());
 }
 
-#[test]
+#[rstest]
 fn document_node_inner_test_matches_document_element() {
     // doc(root(child))
     let document = doc().child(elem("root").child(elem("child"))).build();

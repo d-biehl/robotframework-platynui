@@ -5,7 +5,9 @@ use platynui_xpath::{
 };
 use rstest::rstest;
 
-fn ctx_with_text(t: &str) -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
+fn ctx_with_text(
+    t: &str,
+) -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     let root = doc().child(elem("r").child(text(t))).build();
     DynamicContextBuilder::default()
         .with_context_item(root)
@@ -15,7 +17,8 @@ fn ctx_with_text(t: &str) -> platynui_xpath::engine::runtime::DynamicContext<pla
 #[rstest]
 fn boolean_ebv() {
     let c = ctx_with_text("");
-    let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("boolean(())", &c).unwrap();
+    let out =
+        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("boolean(())", &c).unwrap();
     assert_eq!(out.len(), 1);
     // EBV of empty is false
     if let platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(b)) =
@@ -26,7 +29,8 @@ fn boolean_ebv() {
         panic!("bool");
     }
 
-    let out2 = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("boolean((1))", &c).unwrap();
+    let out2 =
+        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("boolean((1))", &c).unwrap();
     if let platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(b)) =
         &out2[0]
     {
@@ -52,7 +56,8 @@ fn string_zero_arity_uses_context() {
 #[rstest]
 fn normalize_space_zero_arity() {
     let c = ctx_with_text("  A  B   C  ");
-    let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("normalize-space()", &c).unwrap();
+    let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("normalize-space()", &c)
+        .unwrap();
     let s = match &out[0] {
         platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(s)) => {
             s.clone()

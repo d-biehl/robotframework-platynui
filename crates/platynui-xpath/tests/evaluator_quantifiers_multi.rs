@@ -1,28 +1,23 @@
-use platynui_xpath::engine::runtime::DynamicContextBuilder;
-use platynui_xpath::{xdm::XdmItem, engine::evaluator::evaluate_expr};
+use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
+use platynui_xpath::{engine::evaluator::evaluate_expr, xdm::XdmItem};
+use rstest::{fixture, rstest};
 
 type N = platynui_xpath::model::simple::SimpleNode;
 
-#[test]
-fn some_two_bindings_product_true() {
-    let ctx = DynamicContextBuilder::<N>::default().build();
-    // some $x in (1,2), $y in (3) satisfies $x + $y = 5 -> true (2+3)
-    let expr = "some $x in (1,2), $y in (3) satisfies $x + $y = 5";
-    let out = evaluate_expr::<N>(expr, &ctx).unwrap();
-    match &out[0] {
-        XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(b)) => assert!(*b),
-        _ => panic!("expected boolean"),
-    }
+#[fixture]
+fn ctx() -> DynamicContext<N> {
+    DynamicContextBuilder::<N>::default().build()
 }
 
-#[test]
-fn every_two_bindings_product_true() {
-    let ctx = DynamicContextBuilder::<N>::default().build();
-    // every $x in (1,2), $y in (3) satisfies $x < 3 -> true
-    let expr = "every $x in (1,2), $y in (3) satisfies $x lt 3";
+#[rstest]
+#[case("some $x in (1,2), $y in (3) satisfies $x + $y = 5", true)]
+#[case("every $x in (1,2), $y in (3) satisfies $x lt 3", true)]
+fn quantifiers_two_bindings(#[case] expr: &str, #[case] expected: bool, ctx: DynamicContext<N>) {
     let out = evaluate_expr::<N>(expr, &ctx).unwrap();
     match &out[0] {
-        XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(b)) => assert!(*b),
+        XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(b)) => {
+            assert_eq!(*b, expected)
+        }
         _ => panic!("expected boolean"),
     }
 }

@@ -273,9 +273,9 @@ impl<N> FunctionRegistry<N> {
             && let Some((_, _, f)) = cands
                 .iter()
                 .find(|(min, max, _)| *min == arity && matches!(max, Some(m) if *m == arity))
-            {
-                return Ok(f);
-            }
+        {
+            return Ok(f);
+        }
         // Single map access for both range resolution and diagnostics
         if let Some(cands) = self.fns.get(effective) {
             if let Some((_, _, f)) = cands
@@ -354,17 +354,20 @@ impl FancyRegexProvider {
                 }
             }
         }
-        builder
-            .build()
-            .map_err(|_| Error::from_code(ErrorCode::FORX0002, "invalid regex pattern"))
+        builder.build().map_err(|e| {
+            Error::from_code(ErrorCode::FORX0002, "invalid regex pattern")
+                .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
+        })
     }
 }
 
 impl RegexProvider for FancyRegexProvider {
     fn matches(&self, pattern: &str, flags: &str, text: &str) -> Result<bool, Error> {
         let re = Self::build_with_flags(pattern, flags)?;
-        re.is_match(text)
-            .map_err(|_| Error::from_code(ErrorCode::FORX0002, "regex evaluation error"))
+        re.is_match(text).map_err(|e| {
+            Error::from_code(ErrorCode::FORX0002, "regex evaluation error")
+                .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
+        })
     }
     fn replace(
         &self,
@@ -375,12 +378,12 @@ impl RegexProvider for FancyRegexProvider {
     ) -> Result<String, Error> {
         let re = Self::build_with_flags(pattern, flags)?;
         // Pre-validate replacement template using fancy_regex::Expander and enforce that $0 is invalid.
-        if let Err(_e) = fancy_regex::Expander::default().check(replacement, &re) {
+        if let Err(e) = fancy_regex::Expander::default().check(replacement, &re) {
             // Map any template validation errors to FORX0004
-            return Err(Error::from_code(
-                ErrorCode::FORX0004,
-                "invalid replacement string",
-            ));
+            return Err(
+                Error::from_code(ErrorCode::FORX0004, "invalid replacement string")
+                    .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>)),
+            );
         }
         // Explicitly reject $0 (group zero) as per XPath 2.0 rules.
         {
@@ -460,8 +463,10 @@ impl RegexProvider for FancyRegexProvider {
         let mut out = String::new();
         let mut last = 0;
         for mc in re.captures_iter(text) {
-            let cap =
-                mc.map_err(|_| Error::from_code(ErrorCode::FORX0002, "regex evaluation error"))?;
+            let cap = mc.map_err(|e| {
+                Error::from_code(ErrorCode::FORX0002, "regex evaluation error")
+                    .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
+            })?;
             let m = cap
                 .get(0)
                 .ok_or_else(|| Error::from_code(ErrorCode::FORX0002, "no overall match"))?;
@@ -488,19 +493,19 @@ impl RegexProvider for FancyRegexProvider {
         for part in re.split(text) {
             match part {
                 Ok(s) => tokens.push(s.to_string()),
-                Err(_e) => {
-                    return Err(Error::from_code(
-                        ErrorCode::FORX0002,
-                        "regex evaluation error",
-                    ));
+                Err(e) => {
+                    return Err(
+                        Error::from_code(ErrorCode::FORX0002, "regex evaluation error")
+                            .with_source(Some(
+                                Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>
+                            )),
+                    );
                 }
             }
         }
         Ok(tokens)
     }
 }
-
-
 
 /// Canonicalized set of (initial) XPath/XQuery 2.0 error codes we currently emit.
 /// This is intentionally small and will be expanded alongside feature coverage.
@@ -594,10 +599,12 @@ impl ErrorCode {
 /// Namespace URI used for W3C-defined XPath/XQuery error codes (xqt-errors).
 pub const ERR_NS: &str = "http://www.w3.org/2005/xqt-errors";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub struct Error {
     pub code: ExpandedName,
     pub message: String,
+    #[source]
+    pub source: Option<Arc<dyn std::error::Error + Send + Sync>>, // optional chained cause
 }
 
 impl Error {
@@ -606,6 +613,7 @@ impl Error {
         Self {
             code,
             message: msg.into(),
+            source: None,
         }
     }
     pub fn code_enum(&self) -> ErrorCode {
@@ -634,11 +642,23 @@ impl Error {
         }
     }
     pub fn not_implemented(feature: &str) -> Self {
-        Self::new_qname(ErrorCode::NYI0000.qname(), format!("not implemented: {}", feature))
+        Self::new_qname(
+            ErrorCode::NYI0000.qname(),
+            format!("not implemented: {}", feature),
+        )
     }
     // New helpers using strongly typed ErrorCode
     pub fn from_code(code: ErrorCode, msg: impl Into<String>) -> Self {
         Self::new_qname(code.qname(), msg)
+    }
+
+    /// Compose an error with a source cause.
+    pub fn with_source(
+        mut self,
+        source: impl Into<Option<Arc<dyn std::error::Error + Send + Sync>>>,
+    ) -> Self {
+        self.source = source.into();
+        self
     }
 
     /// Public helper: parse a legacy error code string (e.g., "err:FOER0000" or "Q{ns}local")
@@ -669,15 +689,26 @@ impl Error {
     }
 }
 
+// Convenience conversions to attach common source errors with domain codes
+impl From<fancy_regex::Error> for Error {
+    fn from(e: fancy_regex::Error) -> Self {
+        Error::from_code(ErrorCode::FORX0002, "regex error")
+            .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::from_code(ErrorCode::FODC0005, e.to_string())
+            .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "error: {} ({})", self.message, self.format_code())
     }
 }
-
-impl core::error::Error for Error {}
-
-
 
 #[derive(Debug, Clone, Default)]
 pub struct NamespaceBindings {

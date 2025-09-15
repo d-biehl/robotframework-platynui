@@ -2,16 +2,28 @@ use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilde
 use platynui_xpath::{
     XdmItem, XdmNode, compiler::compile_xpath_with_context, evaluate, evaluate_expr,
 };
+use rstest::{fixture, rstest};
 
 type N = platynui_xpath::model::simple::SimpleNode;
 
-#[test]
-fn static_base_uri_reports_from_static_ctx() {
-    let sc = StaticContextBuilder::new()
+#[fixture]
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
+    DynamicContextBuilder::<N>::default().build()
+}
+
+#[fixture]
+fn sc_base() -> platynui_xpath::engine::runtime::StaticContext {
+    StaticContextBuilder::new()
         .with_base_uri("http://example.com/base/")
-        .build();
-    let compiled = compile_xpath_with_context("static-base-uri()", &sc).unwrap();
-    let ctx = DynamicContextBuilder::<N>::default().build();
+        .build()
+}
+
+#[rstest]
+fn static_base_uri_reports_from_static_ctx(
+    sc_base: platynui_xpath::engine::runtime::StaticContext,
+    ctx: platynui_xpath::engine::runtime::DynamicContext<N>,
+) {
+    let compiled = compile_xpath_with_context("static-base-uri()", &sc_base).unwrap();
     let out = evaluate(&compiled, &ctx).unwrap();
     match &out[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::AnyUri(u)) => {
@@ -21,13 +33,19 @@ fn static_base_uri_reports_from_static_ctx() {
     }
 }
 
-#[test]
-fn resolve_uri_relative_join() {
-    let sc = StaticContextBuilder::new()
+#[fixture]
+fn sc_ex_x() -> platynui_xpath::engine::runtime::StaticContext {
+    StaticContextBuilder::new()
         .with_base_uri("http://ex/x/")
-        .build();
-    let compiled = compile_xpath_with_context("resolve-uri('a/b')", &sc).unwrap();
-    let ctx = DynamicContextBuilder::<N>::default().build();
+        .build()
+}
+
+#[rstest]
+fn resolve_uri_relative_join(
+    sc_ex_x: platynui_xpath::engine::runtime::StaticContext,
+    ctx: platynui_xpath::engine::runtime::DynamicContext<N>,
+) {
+    let compiled = compile_xpath_with_context("resolve-uri('a/b')", &sc_ex_x).unwrap();
     let out = evaluate(&compiled, &ctx).unwrap();
     match &out[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::AnyUri(u)) => {
@@ -37,9 +55,8 @@ fn resolve_uri_relative_join() {
     }
 }
 
-#[test]
-fn encode_and_iri_to_uri() {
-    let ctx = DynamicContextBuilder::<N>::default().build();
+#[rstest]
+fn encode_for_uri(ctx: platynui_xpath::engine::runtime::DynamicContext<N>) {
     let enc = evaluate_expr::<N>("encode-for-uri('a b/β')", &ctx).unwrap();
     match &enc[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(s)) => {
@@ -47,6 +64,10 @@ fn encode_and_iri_to_uri() {
         }
         _ => panic!("expected string"),
     }
+}
+
+#[rstest]
+fn iri_to_uri(ctx: platynui_xpath::engine::runtime::DynamicContext<N>) {
     let iri = evaluate_expr::<N>("iri-to-uri('http://ex/ä')", &ctx).unwrap();
     match &iri[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(s)) => {
@@ -56,9 +77,8 @@ fn encode_and_iri_to_uri() {
     }
 }
 
-#[test]
-fn escape_html_uri_spaces() {
-    let ctx = DynamicContextBuilder::<N>::default().build();
+#[rstest]
+fn escape_html_uri_spaces(ctx: platynui_xpath::engine::runtime::DynamicContext<N>) {
     let esc = evaluate_expr::<N>("escape-html-uri('http://ex/a b?c=d')", &ctx).unwrap();
     match &esc[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(s)) => {
@@ -68,7 +88,7 @@ fn escape_html_uri_spaces() {
     }
 }
 
-#[test]
+#[rstest]
 fn lang_matches_ancestor_xml_lang() {
     use platynui_xpath::model::simple::{doc, elem};
     let root = elem("root")

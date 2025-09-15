@@ -1,5 +1,5 @@
-use platynui_xpath::parser::parse_xpath;
 use platynui_xpath::engine::runtime::ErrorCode;
+use platynui_xpath::parser::parse_xpath;
 use rstest::rstest;
 
 #[rstest]

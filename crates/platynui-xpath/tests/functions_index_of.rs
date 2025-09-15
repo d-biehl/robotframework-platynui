@@ -3,8 +3,10 @@ use platynui_xpath::{
     runtime::DynamicContextBuilder,
     xdm::{XdmAtomicValue as A, XdmItem as I},
 };
+use rstest::rstest;
 
-fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
+fn ctx()
+-> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 
@@ -12,7 +14,7 @@ fn eval(expr: &str) -> Vec<I<platynui_xpath::model::simple::SimpleNode>> {
     evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap()
 }
 
-#[test]
+#[rstest]
 fn index_of_mixed_numeric_equality() {
     let r = eval("index-of((1, 1.0, 2, 2.0, 3.00), 2)");
     // Expect both positions of 2 (integer 3rd and double 4th) to match
@@ -27,7 +29,7 @@ fn index_of_mixed_numeric_equality() {
     }
 }
 
-#[test]
+#[rstest]
 fn index_of_nan_never_matches() {
     let r = eval("index-of((number('NaN'), number('NaN')), number('NaN'))");
     assert!(r.is_empty(), "NaN must not equal anything, even itself");

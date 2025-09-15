@@ -2,8 +2,8 @@ use chrono::prelude::*; // bring year(), month(), etc. into scope
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::runtime::ErrorCode;
 use platynui_xpath::{
-    StaticContextBuilder, xdm::XdmItem as I, compile_xpath_with_context, evaluate_expr,
-    evaluator::evaluate, xdm::XdmAtomicValue as A,
+    StaticContextBuilder, compile_xpath_with_context, evaluate_expr, evaluator::evaluate,
+    xdm::XdmAtomicValue as A, xdm::XdmItem as I,
 };
 use rstest::rstest;
 
@@ -17,13 +17,27 @@ fn expect_err(expr: &str, frag: &str) {
     let err = evaluate_expr::<N>(expr, &c).unwrap_err();
     // For now, only FORG0001 cases are used here; map requested frag to enum when known
     if frag == "FORG0001" {
-        assert_eq!(err.code_enum(), ErrorCode::FORG0001, "expected {frag} in {expr} => {:?}", err.code_qname());
+        assert_eq!(
+            err.code_enum(),
+            ErrorCode::FORG0001,
+            "expected {frag} in {expr} => {:?}",
+            err.code_qname()
+        );
     } else if frag == "XPTY0004" {
-        assert_eq!(err.code_enum(), ErrorCode::XPTY0004, "expected {frag} in {expr} => {:?}", err.code_qname());
+        assert_eq!(
+            err.code_enum(),
+            ErrorCode::XPTY0004,
+            "expected {frag} in {expr} => {:?}",
+            err.code_qname()
+        );
     } else {
         // Fallback: check local part of QName contains fragment
         let q = err.code_qname().unwrap();
-        assert!(q.local.contains(frag), "expected fragment {frag} in {expr} => {:?}", q);
+        assert!(
+            q.local.contains(frag),
+            "expected fragment {frag} in {expr} => {:?}",
+            q
+        );
     }
 }
 
@@ -131,7 +145,8 @@ fn static_ctx_with_ns() -> platynui_xpath::engine::runtime::StaticContext {
 #[rstest]
 fn cast_qname_with_prefix_success() {
     let sc = static_ctx_with_ns();
-    let dc: platynui_xpath::engine::runtime::DynamicContext<N> = DynamicContextBuilder::default().build();
+    let dc: platynui_xpath::engine::runtime::DynamicContext<N> =
+        DynamicContextBuilder::default().build();
     let compiled = compile_xpath_with_context("xs:QName('ex:local')", &sc).unwrap();
     let r = evaluate(&compiled, &dc).unwrap();
     if let I::Atomic(A::QName {
@@ -153,7 +168,8 @@ fn cast_qname_with_unknown_prefix_error() {
     let sc = StaticContextBuilder::default()
         .with_namespace("ex", "http://example.com")
         .build();
-    let dc: platynui_xpath::engine::runtime::DynamicContext<N> = DynamicContextBuilder::default().build();
+    let dc: platynui_xpath::engine::runtime::DynamicContext<N> =
+        DynamicContextBuilder::default().build();
     let compiled = compile_xpath_with_context("xs:QName('foo:local')", &sc).unwrap();
     let err = evaluate(&compiled, &dc).unwrap_err();
     assert_eq!(err.code_enum(), ErrorCode::FORG0001);

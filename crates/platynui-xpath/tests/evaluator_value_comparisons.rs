@@ -1,10 +1,14 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
-use platynui_xpath::{xdm::XdmItem as I, engine::evaluator::evaluate_expr};
+use platynui_xpath::{engine::evaluator::evaluate_expr, xdm::XdmItem as I};
 use rstest::rstest;
 
 // Helper: evaluate simple expression with empty dynamic context
 fn eval(expr: &str) -> Vec<I<platynui_xpath::model::simple::SimpleNode>> {
-    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &DynamicContextBuilder::default().build()).unwrap()
+    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(
+        expr,
+        &DynamicContextBuilder::default().build(),
+    )
+    .unwrap()
 }
 
 #[rstest]

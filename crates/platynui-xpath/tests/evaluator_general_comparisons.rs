@@ -1,7 +1,8 @@
 use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
 use platynui_xpath::{
-    xdm::XdmItem as I, XdmNode, evaluate_expr,
+    XdmNode, evaluate_expr,
     simple_node::{doc, elem, text},
+    xdm::XdmItem as I,
 };
 use rstest::{fixture, rstest};
 

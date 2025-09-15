@@ -1,7 +1,9 @@
 use chrono::Timelike; // for second() / nanosecond()
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::runtime::ErrorCode;
-use platynui_xpath::{xdm::XdmItem as I, engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A};
+use platynui_xpath::{
+    engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A, xdm::XdmItem as I,
+};
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;

@@ -3,7 +3,8 @@ use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
 use rstest::rstest;
 
-fn dctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
+fn dctx()
+-> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 
@@ -34,9 +35,11 @@ fn compare_empty_operand() {
 #[rstest]
 fn compare_unknown_collation() {
     let dc = dctx();
-    let err =
-        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("fn:compare('a','b','http://example.com/unknown-coll')", &dc)
-            .unwrap_err();
+    let err = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(
+        "fn:compare('a','b','http://example.com/unknown-coll')",
+        &dc,
+    )
+    .unwrap_err();
     assert!(format!("{err}").contains("FOCH0002"));
 }
 

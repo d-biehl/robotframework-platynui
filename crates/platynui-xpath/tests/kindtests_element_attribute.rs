@@ -1,17 +1,23 @@
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, ErrorCode};
-use platynui_xpath::{xdm::XdmItem, model::XdmNode, engine::evaluator::evaluate_expr};
+use platynui_xpath::{engine::evaluator::evaluate_expr, model::XdmNode, xdm::XdmItem};
+use rstest::{fixture, rstest};
 
 type N = platynui_xpath::model::simple::SimpleNode;
 
-#[test]
-fn element_name_and_wildcard() {
+#[fixture]
+fn ctx_with_tree() -> platynui_xpath::engine::runtime::DynamicContext<N> {
     use platynui_xpath::model::simple::{doc, elem, text};
     let d = doc()
         .child(elem("root").child(elem("child").child(text("t"))))
         .build();
-    let ctx = DynamicContextBuilder::<N>::default()
+    DynamicContextBuilder::<N>::default()
         .with_context_item(d)
-        .build();
+        .build()
+}
+
+#[rstest]
+fn element_name_and_wildcard(ctx_with_tree: platynui_xpath::engine::runtime::DynamicContext<N>) {
+    let ctx = ctx_with_tree;
     // element(root)
     let a = evaluate_expr::<N>("/element(root)", &ctx).unwrap();
     assert_eq!(a.len(), 1);
@@ -31,7 +37,7 @@ fn element_name_and_wildcard() {
     }
 }
 
-#[test]
+#[rstest]
 fn attribute_name_and_wildcard() {
     use platynui_xpath::model::simple::{doc, elem};
     let d = doc()
@@ -52,14 +58,14 @@ fn attribute_name_and_wildcard() {
     assert_eq!(b.len(), 1);
 }
 
-#[test]
+#[rstest]
 fn element_type_arg_rejected_without_schema_awareness() {
     let expr = "element(root, xs:string)";
     let err = platynui_xpath::compile_xpath(expr).expect_err("expected static error");
     assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }
 
-#[test]
+#[rstest]
 fn schema_element_rejected_without_schema_awareness() {
     let expr = "schema-element(root)";
     let err = platynui_xpath::compile_xpath(expr).expect_err("expected static error");

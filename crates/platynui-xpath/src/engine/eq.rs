@@ -30,8 +30,8 @@
 //! No panics / unwraps on user data paths – failures surface as Error.
 
 use crate::engine::collation::Collation;
-use crate::model::XdmNode;
 use crate::engine::runtime::Error;
+use crate::model::XdmNode;
 use crate::xdm::XdmAtomicValue;
 use crate::xdm::XdmItem;
 

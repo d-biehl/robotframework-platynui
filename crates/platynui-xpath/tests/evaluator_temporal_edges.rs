@@ -1,5 +1,8 @@
-use platynui_xpath::{xdm::XdmItem, engine::evaluator::evaluate_expr, runtime::DynamicContextBuilder, xdm::XdmAtomicValue};
-use proptest::prelude::*;
+use platynui_xpath::{
+    engine::evaluator::evaluate_expr,
+    runtime::DynamicContextBuilder,
+    xdm::{XdmAtomicValue, XdmItem},
+};
 use rstest::rstest;
 
 // Helper to evaluate with default dynamic context
@@ -122,16 +125,21 @@ fn date_time_duration_round_trip(#[case] base: &str, #[case] dur: &str) {
     ));
 }
 
-// Property-based: for random hours/minutes (bounded) the round trip holds.
-proptest! {
-    #[test]
-    fn prop_round_trip_small_duration(hours in 0u32..6, minutes in 0u32..59) {
-        let base = "2024-01-01T00:00:00Z";
-        let dur = format!("PT{h}H{m}M", h=hours, m=minutes);
-        let expr = format!("((xs:dateTime('{base}') + xs:dayTimeDuration('{dur}')) - xs:dayTimeDuration('{dur}')) eq xs:dateTime('{base}')");
-        let r = eval(&expr);
-        prop_assert!(matches!(&r[0], XdmItem::Atomic(XdmAtomicValue::Boolean(true))));
-    }
+#[rstest]
+fn date_time_duration_round_trip_matrix(
+    #[values(0, 1, 3, 5)] hours: u32,
+    #[values(0, 1, 10, 30, 58, 59)] minutes: u32,
+) {
+    let base = "2024-01-01T00:00:00Z";
+    let dur = format!("PT{hours}H{minutes}M");
+    let expr = format!(
+        "((xs:dateTime('{base}') + xs:dayTimeDuration('{dur}')) - xs:dayTimeDuration('{dur}')) eq xs:dateTime('{base}')"
+    );
+    let r = eval(&expr);
+    assert!(matches!(
+        &r[0],
+        XdmItem::Atomic(XdmAtomicValue::Boolean(true))
+    ));
 }
 
 #[rstest]

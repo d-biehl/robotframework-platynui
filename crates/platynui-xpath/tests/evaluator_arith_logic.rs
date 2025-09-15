@@ -1,6 +1,5 @@
 use platynui_xpath::{
-    xdm::XdmItem as I, evaluate_expr, runtime::DynamicContextBuilder,
-    xdm::XdmAtomicValue as A,
+    evaluate_expr, runtime::DynamicContextBuilder, xdm::XdmAtomicValue as A, xdm::XdmItem as I,
 };
 use rstest::rstest;
 type N = platynui_xpath::model::simple::SimpleNode;

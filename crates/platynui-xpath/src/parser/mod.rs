@@ -1,6 +1,6 @@
+use crate::engine::runtime::{Error, ErrorCode};
 use pest::Parser;
 use pest::iterators::Pair;
-use crate::engine::runtime::{Error, ErrorCode};
 
 pub mod ast;
 
@@ -10,11 +10,11 @@ pub struct XPathParser;
 
 pub fn parse_xpath(input: &str) -> Result<ast::Expr, Error> {
     let mut pairs = XPathParser::parse(Rule::xpath, input)
-    .map_err(|e| Error::from_code(ErrorCode::XPST0003, format!("{}", e)))?;
+        .map_err(|e| Error::from_code(ErrorCode::XPST0003, format!("{}", e)))?;
 
     let pair = pairs
         .next()
-    .ok_or_else(|| Error::from_code(ErrorCode::XPST0003, "empty parse"))?;
+        .ok_or_else(|| Error::from_code(ErrorCode::XPST0003, "empty parse"))?;
 
     debug_assert_eq!(pair.as_rule(), Rule::xpath);
 
@@ -22,7 +22,7 @@ pub fn parse_xpath(input: &str) -> Result<ast::Expr, Error> {
     let mut inner = pair.into_inner();
     let expr_pair = inner
         .next()
-    .ok_or_else(|| Error::from_code(ErrorCode::XPST0003, "missing expr"))?;
+        .ok_or_else(|| Error::from_code(ErrorCode::XPST0003, "missing expr"))?;
 
     build_expr(expr_pair).map_err(|e| Error::from_code(ErrorCode::XPST0003, e.to_string()))
 }

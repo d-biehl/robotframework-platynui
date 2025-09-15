@@ -1,8 +1,9 @@
-use platynui_xpath::model::NodeKind;
 use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
+use platynui_xpath::model::NodeKind;
 use platynui_xpath::{
-    xdm::XdmItem as I, XdmNode, evaluate_expr,
+    XdmNode, evaluate_expr,
     simple_node::{attr, doc, elem, ns},
+    xdm::XdmItem as I,
 };
 use rstest::{fixture, rstest};
 type N = platynui_xpath::model::simple::SimpleNode;

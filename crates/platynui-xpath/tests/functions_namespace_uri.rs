@@ -1,10 +1,16 @@
-use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
 use platynui_xpath::runtime::ErrorCode;
-use platynui_xpath::{xdm::XdmItem, model::XdmNode, engine::evaluator::evaluate_expr};
+use platynui_xpath::{engine::evaluator::evaluate_expr, model::XdmNode, xdm::XdmItem};
+use rstest::{fixture, rstest};
 
 type N = platynui_xpath::model::simple::SimpleNode;
 
-#[test]
+#[fixture]
+fn empty_ctx() -> DynamicContext<N> {
+    DynamicContextBuilder::default().build()
+}
+
+#[rstest]
 fn namespace_uri_on_elements_and_attributes() {
     use platynui_xpath::model::simple::{attr, doc, elem, ns};
     // <p:root xmlns:p="urn:one" id="x" p:aid="y"/>
@@ -43,7 +49,7 @@ fn namespace_uri_on_elements_and_attributes() {
     }
 }
 
-#[test]
+#[rstest]
 fn namespace_uri_on_pi_and_namespace_nodes() {
     use platynui_xpath::model::simple::{SimpleNode, doc, elem};
     // <root><?target x?></root>
@@ -61,14 +67,14 @@ fn namespace_uri_on_pi_and_namespace_nodes() {
     assert!(empty.is_empty());
 }
 
-#[test]
-fn namespace_uri_type_error_on_non_node() {
-    let ctx = DynamicContextBuilder::<N>::default().build();
+#[rstest]
+fn namespace_uri_type_error_on_non_node(empty_ctx: DynamicContext<N>) {
+    let ctx = empty_ctx;
     let err = evaluate_expr::<N>("namespace-uri('x')", &ctx).unwrap_err();
     assert_eq!(err.code_enum(), ErrorCode::XPTY0004);
 }
 
-#[test]
+#[rstest]
 fn namespace_uri_uses_context_item_when_omitted() {
     use platynui_xpath::model::simple::{doc, elem, ns};
     let d = doc().child(elem("p:r").namespace(ns("p", "urn:x"))).build();

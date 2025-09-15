@@ -5,7 +5,8 @@ use platynui_xpath::{
 };
 use rstest::rstest;
 
-fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
+fn ctx()
+-> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 
@@ -76,7 +77,8 @@ fn distinct_values_with_collation_case_insensitive() {
 
 #[rstest]
 fn distinct_values_non_atomic_error_ok() {
-    let ok =
-        platynui_xpath::engine::evaluator::evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("distinct-values((1,2))", &ctx());
+    let ok = platynui_xpath::engine::evaluator::evaluate_expr::<
+        platynui_xpath::model::simple::SimpleNode,
+    >("distinct-values((1,2))", &ctx());
     assert!(ok.is_ok());
 }

@@ -1,10 +1,11 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::runtime::ErrorCode;
-use platynui_xpath::{xdm::XdmItem, engine::evaluator::evaluate_expr};
+use platynui_xpath::{engine::evaluator::evaluate_expr, xdm::XdmItem};
+use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
 
-#[test]
+#[rstest]
 fn boolean_on_decimal_respects_zero_nonzero() {
     let ctx = DynamicContextBuilder::<N>::default().build();
     let t = evaluate_expr::<N>("boolean(xs:decimal('1.25'))", &ctx).unwrap();
@@ -19,7 +20,7 @@ fn boolean_on_decimal_respects_zero_nonzero() {
     }
 }
 
-#[test]
+#[rstest]
 fn ebv_unsupported_atomic_raises_forg0006() {
     let ctx = DynamicContextBuilder::<N>::default().build();
     let err = evaluate_expr::<N>("boolean(QName('', 'a'))", &ctx).unwrap_err();

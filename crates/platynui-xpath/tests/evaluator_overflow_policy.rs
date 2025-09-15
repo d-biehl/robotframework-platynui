@@ -3,6 +3,7 @@ use platynui_xpath::{
     runtime::{DynamicContext, ErrorCode},
     xdm::{XdmAtomicValue, XdmItem},
 };
+use rstest::rstest;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct DummyNode;
@@ -42,7 +43,7 @@ fn eval_atomic(expr: &str) -> XdmAtomicValue {
     }
 }
 
-#[test]
+#[rstest]
 fn int_add_overflow_promotes_to_decimal() {
     // Build a very large sum that exceeds i64 range in our integer-exact path → decimal promotion
     // Choose (i64::MAX - 1) + (i64::MAX - 1) which must overflow i64
@@ -53,7 +54,7 @@ fn int_add_overflow_promotes_to_decimal() {
     }
 }
 
-#[test]
+#[rstest]
 fn int_mul_overflow_promotes_to_decimal() {
     // i64::MAX / 2 * 3 overflows i64; should become decimal
     let a = eval_atomic(&format!("{} * 3", i64::MAX / 2));
@@ -63,7 +64,7 @@ fn int_mul_overflow_promotes_to_decimal() {
     }
 }
 
-#[test]
+#[rstest]
 fn idiv_extreme_overflow_errors_foar0002() {
     let ctx: DynamicContext<DummyNode> = DynamicContext::default();
     // Construct numerator via multiplication: (i64::MAX * 3) idiv 1 → integer path computes product in i128,

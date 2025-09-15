@@ -1,5 +1,6 @@
-use platynui_xpath::engine::runtime::{DynamicContextBuilder, NodeResolver};
-use platynui_xpath::{xdm::XdmItem, model::XdmNode, engine::evaluator::evaluate_expr};
+use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder, NodeResolver};
+use platynui_xpath::{engine::evaluator::evaluate_expr, model::XdmNode, xdm::XdmItem};
+use rstest::{fixture, rstest};
 use std::sync::Arc;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -18,9 +19,13 @@ impl NodeResolver<N> for TestNodeResolver {
     }
 }
 
-#[test]
-fn default_collation_reports_uri() {
-    let ctx = DynamicContextBuilder::<N>::default().build();
+#[fixture]
+fn ctx() -> DynamicContext<N> {
+    DynamicContextBuilder::<N>::default().build()
+}
+
+#[rstest]
+fn default_collation_reports_uri(ctx: DynamicContext<N>) {
     let out = evaluate_expr::<N>("default-collation()", &ctx).unwrap();
     match &out[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(s)) => {
@@ -30,7 +35,7 @@ fn default_collation_reports_uri() {
     }
 }
 
-#[test]
+#[rstest]
 fn doc_available_uses_node_resolver() {
     let resolver = Arc::new(TestNodeResolver);
     let ctx = DynamicContextBuilder::<N>::default()
@@ -48,7 +53,7 @@ fn doc_available_uses_node_resolver() {
     }
 }
 
-#[test]
+#[rstest]
 fn root_function_returns_document_root() {
     use platynui_xpath::model::simple::{doc, elem};
     let d = doc().child(elem("root").child(elem("c"))).build();
@@ -71,7 +76,7 @@ fn root_function_returns_document_root() {
     }
 }
 
-#[test]
+#[rstest]
 fn base_uri_document_uri_empty_without_adapter_support() {
     use platynui_xpath::model::simple::{doc, elem};
     let d = doc().child(elem("root")).build();

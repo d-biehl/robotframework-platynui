@@ -2,8 +2,8 @@ use crate::compiler::ir::{
     AxisIR, ComparisonOp, CompiledXPath, InstrSeq, NameOrWildcard, NodeTestIR, OpCode,
     QuantifierKind, SeqTypeIR, SingleTypeIR,
 };
-use crate::model::XdmNode;
 use crate::engine::runtime::{CallCtx, DynamicContext, Error, ErrorCode};
+use crate::model::XdmNode;
 use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence};
 use chrono::Duration as ChronoDuration;
 use chrono::{FixedOffset as ChronoFixedOffset, NaiveTime as ChronoNaiveTime, TimeZone};
@@ -143,7 +143,22 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         if let XdmItem::Node(node) = it {
                             let nodes = self.axis_iter(node.clone(), axis);
                             for n in nodes {
-                                if self.node_test(&n, test) {
+                                // Base node-test evaluation
+                                let mut pass = self.node_test(&n, test);
+                                // XPath semantics: On the child axis, a wildcard NameTest ('*')
+                                // selects element nodes only (not text, comments, or PIs).
+                                // Our IR represents wildcard NameTests as NodeTestIR::WildcardAny.
+                                // Restrict this case to element nodes when axis is Child.
+                                if pass {
+                                    use crate::model::NodeKind;
+                                    match (axis, test) {
+                                        (AxisIR::Child, NodeTestIR::WildcardAny) => {
+                                            pass = matches!(n.kind(), NodeKind::Element);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                if pass {
                                     out.push(XdmItem::Node(n));
                                 }
                             }
@@ -607,7 +622,10 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     let (ka, kb) = match (classify(&a), classify(&b)) {
                         (Some(x), Some(y)) => (x, y),
                         _ => {
-                            return Err(Error::from_code(ErrorCode::XPTY0004, "non-numeric operand"));
+                            return Err(Error::from_code(
+                                ErrorCode::XPTY0004,
+                                "non-numeric operand",
+                            ));
                         }
                     };
                     let (ua, ub) = unify_numeric(ka, kb);
@@ -716,7 +734,10 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             }
                             OpCode::Mod => {
                                 if bi == 0 {
-                                    return Err(Error::from_code(ErrorCode::FOAR0001, "mod by zero"));
+                                    return Err(Error::from_code(
+                                        ErrorCode::FOAR0001,
+                                        "mod by zero",
+                                    ));
                                 }
                                 // XPath mod defined as a - b*floor(a/b); for integers we can mirror via arithmetic
                                 let q_trunc = ai / bi;
@@ -1232,7 +1253,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             ));
                         }
                         Err(crate::engine::runtime::ResolveError::WrongArity {
-                            name: resolved, ..
+                            name: resolved,
+                            ..
                         }) => {
                             // Humanize the provided argument count for a clearer diagnostic
                             let arg_phrase = match argc {
@@ -1267,7 +1289,10 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 // Errors
                 OpCode::Raise(code) => {
                     // Interpret legacy raise codes; prefer enum when possible.
-                    return Err(Error::new_qname(Error::parse_code(code), "raised by program"));
+                    return Err(Error::new_qname(
+                        Error::parse_code(code),
+                        "raised by program",
+                    ));
                 }
             }
         }
@@ -1292,9 +1317,15 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 XdmItem::Atomic(XdmAtomicValue::Float(f)) => Ok(*f != 0.0 && !f.is_nan()),
                 XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => Ok(!s.is_empty()),
                 XdmItem::Node(_) => Ok(true),
-                _ => Err(Error::from_code(ErrorCode::FORG0006, "EBV for this atomic type not supported")),
+                _ => Err(Error::from_code(
+                    ErrorCode::FORG0006,
+                    "EBV for this atomic type not supported",
+                )),
             },
-            _ => Err(Error::from_code(ErrorCode::FORG0006, "effective boolean value of sequence of length > 1")),
+            _ => Err(Error::from_code(
+                ErrorCode::FORG0006,
+                "effective boolean value of sequence of length > 1",
+            )),
         }
     }
 
@@ -1308,20 +1339,21 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
     ) -> Result<bool, Error> {
         if result.len() == 1
             && let XdmItem::Atomic(a) = &result[0]
-                && let Some(num) = match a {
-                    XdmAtomicValue::Integer(i) => Some(*i as f64),
-                    XdmAtomicValue::Decimal(d) => Some(*d),
-                    XdmAtomicValue::Double(d) => Some(*d),
-                    XdmAtomicValue::Float(f) => Some(*f as f64),
-                    XdmAtomicValue::UntypedAtomic(s) => s.parse::<f64>().ok(),
-                    _ => None,
-                } {
-                    // Numeric predicate: position match (NaN never matches)
-                    if num.is_nan() {
-                        return Ok(false);
-                    }
-                    return Ok((num - (position as f64)).abs() < f64::EPSILON);
-                }
+            && let Some(num) = match a {
+                XdmAtomicValue::Integer(i) => Some(*i as f64),
+                XdmAtomicValue::Decimal(d) => Some(*d),
+                XdmAtomicValue::Double(d) => Some(*d),
+                XdmAtomicValue::Float(f) => Some(*f as f64),
+                XdmAtomicValue::UntypedAtomic(s) => s.parse::<f64>().ok(),
+                _ => None,
+            }
+        {
+            // Numeric predicate: position match (NaN never matches)
+            if num.is_nan() {
+                return Ok(false);
+            }
+            return Ok((num - (position as f64)).abs() < f64::EPSILON);
+        }
         // Fallback to EBV rules
         Self::ebv(result)
     }
@@ -1461,9 +1493,9 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     V::Integer(_) | V::Decimal(_) | V::Double(_) | V::Float(_)
                 ) =>
             {
-                let num = s
-                    .parse::<f64>()
-                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid numeric literal"))?;
+                let num = s.parse::<f64>().map_err(|_| {
+                    Error::from_code(ErrorCode::FORG0001, "invalid numeric literal")
+                })?;
                 (V::Double(num), other.clone())
             }
             (other, V::UntypedAtomic(s))
@@ -1472,9 +1504,9 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     V::Integer(_) | V::Decimal(_) | V::Double(_) | V::Float(_)
                 ) =>
             {
-                let num = s
-                    .parse::<f64>()
-                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid numeric literal"))?;
+                let num = s.parse::<f64>().map_err(|_| {
+                    Error::from_code(ErrorCode::FORG0001, "invalid numeric literal")
+                })?;
                 (other.clone(), V::Double(num))
             }
             (V::UntypedAtomic(s), other) => (V::String(s.clone()), other.clone()),
@@ -1498,45 +1530,46 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
 
         // If both (after normalization) are strings and not numeric context
         if matches!((&a_norm, &b_norm), (V::String(_), V::String(_)))
-            && matches!(op, Lt | Le | Gt | Ge | Eq | Ne) {
-                let ls = if let V::String(s) = &a_norm {
-                    s
+            && matches!(op, Lt | Le | Gt | Ge | Eq | Ne)
+        {
+            let ls = if let V::String(s) = &a_norm {
+                s
+            } else {
+                unreachable!()
+            };
+            let rs = if let V::String(s) = &b_norm {
+                s
+            } else {
+                unreachable!()
+            };
+            // Collation-aware: use default collation (fallback to codepoint)
+            let coll_arc;
+            let coll: &dyn crate::engine::collation::Collation =
+                if let Some(c) = &self.default_collation {
+                    c.as_ref()
                 } else {
-                    unreachable!()
+                    coll_arc = self
+                        .dyn_ctx
+                        .collations
+                        .get(crate::engine::collation::CODEPOINT_URI)
+                        .expect("codepoint collation registered");
+                    coll_arc.as_ref()
                 };
-                let rs = if let V::String(s) = &b_norm {
-                    s
-                } else {
-                    unreachable!()
-                };
-                // Collation-aware: use default collation (fallback to codepoint)
-                let coll_arc;
-                let coll: &dyn crate::engine::collation::Collation =
-                    if let Some(c) = &self.default_collation {
-                        c.as_ref()
-                    } else {
-                        coll_arc = self
-                            .dyn_ctx
-                            .collations
-                            .get(crate::engine::collation::CODEPOINT_URI)
-                            .expect("codepoint collation registered");
-                        coll_arc.as_ref()
-                    };
-                return Ok(match op {
-                    Eq => coll.key(ls) == coll.key(rs),
-                    Ne => coll.key(ls) != coll.key(rs),
-                    Lt => coll.compare(ls, rs).is_lt(),
-                    Le => {
-                        let ord = coll.compare(ls, rs);
-                        ord.is_lt() || ord.is_eq()
-                    }
-                    Gt => coll.compare(ls, rs).is_gt(),
-                    Ge => {
-                        let ord = coll.compare(ls, rs);
-                        ord.is_gt() || ord.is_eq()
-                    }
-                });
-            }
+            return Ok(match op {
+                Eq => coll.key(ls) == coll.key(rs),
+                Ne => coll.key(ls) != coll.key(rs),
+                Lt => coll.compare(ls, rs).is_lt(),
+                Le => {
+                    let ord = coll.compare(ls, rs);
+                    ord.is_lt() || ord.is_eq()
+                }
+                Gt => coll.compare(ls, rs).is_gt(),
+                Ge => {
+                    let ord = coll.compare(ls, rs);
+                    ord.is_gt() || ord.is_eq()
+                }
+            });
+        }
 
         // QName equality (only Eq/Ne permitted); compare namespace URI + local name; ignore prefix
         if let (
@@ -2132,11 +2165,9 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     }
                     other => self.atomic_to_string(&other),
                 };
-                s.parse::<i64>()
-                    .map(XdmAtomicValue::Integer)
-                    .map_err(|_| {
-                        Error::from_code(ErrorCode::FORG0001, "invalid integer lexical form")
-                    })
+                s.parse::<i64>().map(XdmAtomicValue::Integer).map_err(|_| {
+                    Error::from_code(ErrorCode::FORG0001, "invalid integer lexical form")
+                })
             }
             // decimal
             "decimal" => {
@@ -2147,14 +2178,20 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         if d.is_finite() {
                             d
                         } else {
-                            return Err(Error::from_code(ErrorCode::FOCA0001, "INF/NaN to decimal"));
+                            return Err(Error::from_code(
+                                ErrorCode::FOCA0001,
+                                "INF/NaN to decimal",
+                            ));
                         }
                     }
                     XdmAtomicValue::Float(f) => {
                         if f.is_finite() {
                             f as f64
                         } else {
-                            return Err(Error::from_code(ErrorCode::FOCA0001, "INF/NaN to decimal"));
+                            return Err(Error::from_code(
+                                ErrorCode::FOCA0001,
+                                "INF/NaN to decimal",
+                            ));
                         }
                     }
                     XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => s
@@ -2178,9 +2215,9 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 Ok(XdmAtomicValue::Float(f))
             }
             "double" => {
-                let f = self
-                    .to_f64(&a)
-                    .ok_or_else(|| Error::from_code(ErrorCode::FORG0001, "non-numeric to double"))?;
+                let f = self.to_f64(&a).ok_or_else(|| {
+                    Error::from_code(ErrorCode::FORG0001, "non-numeric to double")
+                })?;
                 Ok(XdmAtomicValue::Double(f))
             }
             // anyURI: whitespace collapse only (simple form)
@@ -2209,7 +2246,10 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 let second = parts.next();
                 if let Some(local) = second {
                     if first.is_empty() || local.is_empty() {
-                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"));
+                        return Err(Error::from_code(
+                            ErrorCode::FORG0001,
+                            "invalid QName lexical",
+                        ));
                     }
                     // No static prefix resolution in pure cast (spec: QName constructor does resolve? kept simple)
                     Ok(XdmAtomicValue::QName {
@@ -2266,9 +2306,11 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             }
             "yearMonthDuration" => match a {
                 XdmAtomicValue::YearMonthDuration(m) => Ok(XdmAtomicValue::YearMonthDuration(m)),
-                XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => self
-                    .parse_year_month_duration(&s)
-                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid yearMonthDuration")),
+                XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => {
+                    self.parse_year_month_duration(&s).map_err(|_| {
+                        Error::from_code(ErrorCode::FORG0001, "invalid yearMonthDuration")
+                    })
+                }
                 _ => Err(Error::from_code(
                     ErrorCode::FORG0001,
                     "cannot cast to yearMonthDuration",
@@ -2304,33 +2346,34 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         };
         // Fast-path for QName to ensure prefix resolution requirement similar to constructor semantics.
         if t.atomic.local == "QName"
-            && let XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) = &atomic {
-                if let Some(idx) = s.find(':') {
-                    let p = &s[..idx];
-                    if p.is_empty() {
-                        return false;
-                    }
-                    if p == "xml" {
-                    } else {
-                        // look up prefix in static context
-                        if !self
-                            .compiled
-                            .static_ctx
-                            .namespaces
-                            .by_prefix
-                            .contains_key(p)
-                        {
-                            return false;
-                        }
-                    }
-                    // local part must exist
-                    if idx == s.len() - 1 {
-                        return false;
-                    }
-                } else if s.is_empty() {
+            && let XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) = &atomic
+        {
+            if let Some(idx) = s.find(':') {
+                let p = &s[..idx];
+                if p.is_empty() {
                     return false;
                 }
+                if p == "xml" {
+                } else {
+                    // look up prefix in static context
+                    if !self
+                        .compiled
+                        .static_ctx
+                        .namespaces
+                        .by_prefix
+                        .contains_key(p)
+                    {
+                        return false;
+                    }
+                }
+                // local part must exist
+                if idx == s.len() - 1 {
+                    return false;
+                }
+            } else if s.is_empty() {
+                return false;
             }
+        }
         self.cast_atomic(atomic, &t.atomic).is_ok()
     }
     // Helper: best-effort canonical string form for debugging / fallback casts
@@ -2355,7 +2398,10 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         let (t, tz) = crate::util::temporal::parse_time_lex(s)?;
         Ok(XdmAtomicValue::Time { time: t, tz })
     }
-    fn parse_date_time(&self, s: &str) -> Result<XdmAtomicValue, crate::util::temporal::TemporalErr> {
+    fn parse_date_time(
+        &self,
+        s: &str,
+    ) -> Result<XdmAtomicValue, crate::util::temporal::TemporalErr> {
         let (d, t, tz) = crate::util::temporal::parse_date_time_lex(s)?;
         let dt = crate::util::temporal::build_naive_datetime(d, t, tz);
         Ok(XdmAtomicValue::DateTime(dt))
@@ -2484,15 +2530,16 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             ));
         }
         if let Some(max) = need_max
-            && actual > max {
-                return Err(Error::from_code(
-                    ErrorCode::XPTY0004,
-                    format!(
-                        "treat as failed: cardinality mismatch (expected max {} got {})",
-                        max, actual
-                    ),
-                ));
-            }
+            && actual > max
+        {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                format!(
+                    "treat as failed: cardinality mismatch (expected max {} got {})",
+                    max, actual
+                ),
+            ));
+        }
         for it in seq {
             if !self.item_matches_type(it, item_type)? {
                 return Err(Error::from_code(
@@ -2537,10 +2584,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             (_, ItemTypeIR::AnyItem) => Ok(true),
             (Node(_), ItemTypeIR::AnyNode) => Ok(true),
             (Atomic(_), ItemTypeIR::AnyNode) => Ok(false),
-            (Node(n), ItemTypeIR::Kind(k)) => Ok(self.node_test(
-                n,
-                &k.clone(),
-            )), // reuse existing node_test via IR NodeTestIR
+            (Node(n), ItemTypeIR::Kind(k)) => Ok(self.node_test(n, &k.clone())), // reuse existing node_test via IR NodeTestIR
             (Atomic(a), ItemTypeIR::Atomic(exp)) => Ok(self.atomic_matches_name(a, exp)),
             (Atomic(_), ItemTypeIR::Kind(_)) => Ok(false),
             (Node(_), ItemTypeIR::Atomic(_)) => Ok(false),
@@ -2551,9 +2595,10 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         // Only recognize XML Schema built-ins (xs:*). Unknown namespaces do not match.
         let xs_ns = "http://www.w3.org/2001/XMLSchema";
         if let Some(ns) = &exp.ns_uri
-            && ns.as_str() != xs_ns {
-                return false;
-            }
+            && ns.as_str() != xs_ns
+        {
+            return false;
+        }
         match exp.local.as_str() {
             // Supertype
             "anyAtomicType" => true,
