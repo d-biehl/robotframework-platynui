@@ -1949,7 +1949,19 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             WildcardAny => true,
             NsWildcard(ns) => node
                 .name()
-                .map(|n| n.ns_uri.unwrap_or_default() == *ns)
+                .map(|n| {
+                    // Effective namespace URI: prefer the QName's ns_uri if present; otherwise resolve
+                    // using in-scope namespaces and the node's prefix (if any). The default namespace
+                    // does not apply to attributes, but resolution here only happens when a prefix exists.
+                    let eff = if let Some(uri) = n.ns_uri.clone() {
+                        Some(uri)
+                    } else if let Some(pref) = &n.prefix {
+                        self.resolve_in_scope_prefix(node, pref)
+                    } else {
+                        None
+                    };
+                    eff.unwrap_or_default() == *ns
+                })
                 .unwrap_or(false),
             LocalWildcard(local) => node.name().map(|n| n.local == *local).unwrap_or(false),
             KindText => matches!(node.kind(), crate::model::NodeKind::Text),
@@ -2011,6 +2023,31 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             }
             KindSchemaElement(_) | KindSchemaAttribute(_) => true, // simplified
         }
+    }
+
+    /// Resolve a namespace prefix to its in-scope namespace URI for the given node by walking
+    /// up the ancestor chain and inspecting declared namespace nodes. Honors the implicit `xml`
+    /// binding. Returns `None` when no binding is found.
+    fn resolve_in_scope_prefix(&self, node: &N, prefix: &str) -> Option<String> {
+        if prefix == "xml" {
+            return Some("http://www.w3.org/XML/1998/namespace".to_string());
+        }
+        use crate::model::NodeKind;
+        let mut cur = Some(node.clone());
+        while let Some(n) = cur {
+            if matches!(n.kind(), NodeKind::Element) {
+                for ns in n.namespaces() {
+                    if let Some(q) = ns.name() {
+                        let p = q.prefix.unwrap_or_default();
+                        if p == prefix {
+                            return Some(ns.string_value());
+                        }
+                    }
+                }
+            }
+            cur = n.parent();
+        }
+        None
     }
 
     // ===== Set operations (nodes-only; results in document order with duplicates removed) =====
