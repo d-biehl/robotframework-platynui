@@ -62,8 +62,6 @@ use std::sync::{
 
 use crate::model::{NodeKind, QName, XdmNode};
 
-const XML_URI: &str = "http://www.w3.org/XML/1998/namespace";
-
 #[derive(Debug)]
 pub(crate) struct Inner {
     kind: NodeKind,
@@ -161,7 +159,7 @@ impl SimpleNode {
         // once in-scope namespaces are attached or resolved via parent at attach time.
         let (prefix, local, ns_uri) = if let Some((pre, loc)) = name.split_once(':') {
             let uri = if pre == "xml" {
-                Some(XML_URI.to_string())
+                Some(crate::consts::XML_URI.to_string())
             } else {
                 None
             };
@@ -183,7 +181,7 @@ impl SimpleNode {
         // Support namespaced attributes via prefix:local; bind 'xml' to the canonical XML namespace URI.
         let (prefix, local, ns_uri) = if let Some((pre, loc)) = name.split_once(':') {
             let uri = if pre == "xml" {
-                Some(XML_URI.to_string())
+                Some(crate::consts::XML_URI.to_string())
             } else {
                 None
             };
@@ -256,10 +254,12 @@ impl fmt::Display for SimpleNode {
             }
         }
         fn clip(s: &str) -> String {
-            const MAX: usize = 32;
-            if s.len() > MAX {
-                let mut out = s.chars().take(MAX).collect::<String>();
-                out.push_str("…");
+            if s.len() > crate::consts::DISPLAY_CLIP_MAX {
+                let mut out = s
+                    .chars()
+                    .take(crate::consts::DISPLAY_CLIP_MAX)
+                    .collect::<String>();
+                out.push('…');
                 out
             } else {
                 s.to_string()
@@ -296,10 +296,7 @@ impl fmt::Display for SimpleNode {
                 write!(f, "<!--{}-->", val)
             }
             NodeKind::ProcessingInstruction => {
-                let target = self
-                    .name()
-                    .map(|q| q.local)
-                    .unwrap_or_else(|| "".to_string());
+                let target = self.name().map(|q| q.local).unwrap_or_default();
                 let data = clip(&self.string_value());
                 if target.is_empty() {
                     write!(f, "<?{}?>", data)
@@ -410,7 +407,7 @@ impl SimpleNodeBuilder {
                     && let Some(pref) = &qn.prefix
                 {
                     let uri = if pref == "xml" {
-                        Some(XML_URI.to_string())
+                        Some(crate::consts::XML_URI.to_string())
                     } else {
                         self.node.lookup_namespace_uri(pref)
                     };
@@ -469,7 +466,7 @@ impl SimpleNodeBuilder {
                             // Only replace if ns_uri is None
                             if q.ns_uri.is_none() {
                                 let uri = if pref == "xml" {
-                                    Some(XML_URI.to_string())
+                                    Some(crate::consts::XML_URI.to_string())
                                 } else {
                                     node.lookup_namespace_uri(pref)
                                 };
@@ -617,7 +614,6 @@ impl XdmNode for SimpleNode {
         let mut out: Vec<Self> = Vec::new();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         // Canonical xml URI
-        const XML_URI: &str = "http://www.w3.org/XML/1998/namespace";
         // 1) Add stored namespaces, but skip duplicates by prefix and ignore invalid attempts to override 'xml'
         for ns in stored {
             let name = ns.name();
@@ -628,7 +624,7 @@ impl XdmNode for SimpleNode {
             if prefix == "xml" {
                 // Only accept if URI is canonical; otherwise ignore (reserved cannot be rebound)
                 let uri = ns.string_value();
-                if uri != XML_URI {
+                if uri != crate::consts::XML_URI {
                     continue;
                 }
             }
@@ -638,7 +634,7 @@ impl XdmNode for SimpleNode {
         }
         // 2) Synthesize xml binding if not present
         if !seen.contains("xml") {
-            let xml = SimpleNode::namespace("xml", XML_URI);
+            let xml = SimpleNode::namespace("xml", crate::consts::XML_URI);
             // set parent to this element for proper ancestry comparisons
             *xml.0.parent.write().unwrap() = Some(std::sync::Arc::downgrade(&self.0));
             out.push(xml);

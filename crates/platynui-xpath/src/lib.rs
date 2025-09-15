@@ -1,4 +1,5 @@
 pub mod compiler;
+pub(crate) mod consts;
 pub mod engine;
 pub mod model;
 pub mod parser;

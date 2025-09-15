@@ -151,11 +151,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                 // Restrict this case to element nodes when axis is Child.
                                 if pass {
                                     use crate::model::NodeKind;
-                                    match (axis, test) {
-                                        (AxisIR::Child, NodeTestIR::WildcardAny) => {
-                                            pass = matches!(n.kind(), NodeKind::Element);
-                                        }
-                                        _ => {}
+                                    if let (AxisIR::Child, NodeTestIR::WildcardAny) = (axis, test) {
+                                        pass = matches!(n.kind(), NodeKind::Element);
                                     }
                                 }
                                 if pass {
@@ -2030,7 +2027,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
     /// binding. Returns `None` when no binding is found.
     fn resolve_in_scope_prefix(&self, node: &N, prefix: &str) -> Option<String> {
         if prefix == "xml" {
-            return Some("http://www.w3.org/XML/1998/namespace".to_string());
+            return Some(crate::consts::XML_URI.to_string());
         }
         use crate::model::NodeKind;
         let mut cur = Some(node.clone());
@@ -2630,7 +2627,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
     fn atomic_matches_name(&self, a: &XdmAtomicValue, exp: &crate::xdm::ExpandedName) -> bool {
         use XdmAtomicValue::*;
         // Only recognize XML Schema built-ins (xs:*). Unknown namespaces do not match.
-        let xs_ns = "http://www.w3.org/2001/XMLSchema";
+        let xs_ns = crate::consts::XS;
         if let Some(ns) = &exp.ns_uri
             && ns.as_str() != xs_ns
         {

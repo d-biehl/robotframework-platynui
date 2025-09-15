@@ -10,11 +10,10 @@ pub trait Collation: Send + Sync {
     }
 }
 
-pub const CODEPOINT_URI: &str = "http://www.w3.org/2005/xpath-functions/collation/codepoint";
-
-pub const SIMPLE_CASE_URI: &str = "urn:platynui:collation:simple-case";
-pub const SIMPLE_ACCENT_URI: &str = "urn:platynui:collation:simple-accent";
-pub const SIMPLE_CASE_ACCENT_URI: &str = "urn:platynui:collation:simple-case-accent";
+pub use crate::consts::CODEPOINT_URI;
+pub use crate::consts::SIMPLE_ACCENT_URI;
+pub use crate::consts::SIMPLE_CASE_ACCENT_URI;
+pub use crate::consts::SIMPLE_CASE_URI;
 
 #[derive(Clone)]
 pub enum CollationKind {

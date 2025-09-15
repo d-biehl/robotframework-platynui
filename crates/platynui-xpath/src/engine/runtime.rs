@@ -597,7 +597,7 @@ impl ErrorCode {
 }
 
 /// Namespace URI used for W3C-defined XPath/XQuery error codes (xqt-errors).
-pub const ERR_NS: &str = "http://www.w3.org/2005/xqt-errors";
+pub use crate::consts::ERR_NS;
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub struct Error {
@@ -727,13 +727,11 @@ impl Default for StaticContext {
     fn default() -> Self {
         let mut ns = NamespaceBindings::default();
         // Ensure implicit xml namespace binding (cannot be overridden per spec)
-        ns.by_prefix.insert(
-            "xml".to_string(),
-            "http://www.w3.org/XML/1998/namespace".to_string(),
-        );
+        ns.by_prefix
+            .insert("xml".to_string(), crate::consts::XML_URI.to_string());
         Self {
             base_uri: None,
-            default_function_namespace: Some("http://www.w3.org/2005/xpath-functions".to_string()),
+            default_function_namespace: Some(crate::consts::FNS.to_string()),
             default_collation: Some(CODEPOINT_URI.to_string()),
             namespaces: ns,
         }

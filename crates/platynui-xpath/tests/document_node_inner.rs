@@ -1,7 +1,7 @@
-use platynui_xpath::{evaluate_expr, xdm::XdmItem as I, XdmNode};
-use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
 use platynui_xpath::engine::runtime::ErrorCode;
+use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
 use platynui_xpath::model::simple::{doc, elem};
+use platynui_xpath::{XdmNode, evaluate_expr, xdm::XdmItem as I};
 use rstest::{fixture, rstest};
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -31,7 +31,10 @@ fn document_node_with_element_inner_returns_one(ctx_doc_root: DynamicContext<N>)
 fn document_node_with_element_inner_yields_document_node(ctx_doc_root: DynamicContext<N>) {
     let out = evaluate_expr::<N>("self::document-node(element(root))", &ctx_doc_root).unwrap();
     match &out[0] {
-        I::Node(n) => assert!(matches!(n.kind(), platynui_xpath::model::NodeKind::Document)),
+        I::Node(n) => assert!(matches!(
+            n.kind(),
+            platynui_xpath::model::NodeKind::Document
+        )),
         _ => panic!("expected node"),
     }
 }

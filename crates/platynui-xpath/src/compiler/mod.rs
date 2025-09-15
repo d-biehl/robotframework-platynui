@@ -73,8 +73,7 @@ impl<'a> Compiler<'a> {
                 // Special-case position() and last() as opcodes (zero-arg, default fn namespace or none)
                 if args.is_empty()
                     && (name.local == "position" || name.local == "last")
-                    && (name.ns_uri.is_none()
-                        || name.ns_uri.as_deref() == Some("http://www.w3.org/2005/xpath-functions"))
+                    && (name.ns_uri.is_none() || name.ns_uri.as_deref() == Some(crate::consts::FNS))
                 {
                     self.emit(match name.local.as_str() {
                         "position" => ir::OpCode::Position,
@@ -513,8 +512,8 @@ impl<'a> Compiler<'a> {
     fn to_expanded(&self, q: &ast::QName) -> ExpandedName {
         // Resolve namespace using static context; retain built-in defaults for fn/xs.
         let mut ns = match q.prefix.as_deref() {
-            Some("fn") => Some("http://www.w3.org/2005/xpath-functions".to_string()),
-            Some("xs") => Some("http://www.w3.org/2001/XMLSchema".to_string()),
+            Some("fn") => Some(crate::consts::FNS.to_string()),
+            Some("xs") => Some(crate::consts::XS.to_string()),
             _ => q.ns_uri.clone(),
         };
         if ns.is_none()

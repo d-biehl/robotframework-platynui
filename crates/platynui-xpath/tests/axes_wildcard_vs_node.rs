@@ -1,11 +1,13 @@
-use platynui_xpath::{evaluate_expr, xdm::XdmItem as I, XdmNode};
 use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
 use platynui_xpath::model::simple::{doc, elem, text};
+use platynui_xpath::{XdmNode, evaluate_expr, xdm::XdmItem as I};
 
 type N = platynui_xpath::model::simple::SimpleNode;
 
 fn ctx_with(root: N) -> DynamicContext<N> {
-    DynamicContextBuilder::default().with_context_item(I::Node(root)).build()
+    DynamicContextBuilder::default()
+        .with_context_item(I::Node(root))
+        .build()
 }
 
 #[test]
@@ -15,7 +17,12 @@ fn wildcard_child_vs_node_axis_differences() {
         .child(
             elem("root")
                 .child(text("pre"))
-                .child(elem("a").child(text("one")).child(elem("b")).child(text("two")))
+                .child(
+                    elem("a")
+                        .child(text("one"))
+                        .child(elem("b"))
+                        .child(text("two")),
+                )
                 .child(text("post")),
         )
         .build();
@@ -27,7 +34,10 @@ fn wildcard_child_vs_node_axis_differences() {
     // Should include <root>, <a>, <b>
     let names: Vec<String> = elements
         .iter()
-        .filter_map(|i| match i { I::Node(n) => n.name().map(|q| q.local), _ => None })
+        .filter_map(|i| match i {
+            I::Node(n) => n.name().map(|q| q.local),
+            _ => None,
+        })
         .collect();
     assert!(names.contains(&"root".to_string()));
     assert!(names.contains(&"a".to_string()));
@@ -41,11 +51,14 @@ fn wildcard_child_vs_node_axis_differences() {
         .iter()
         .filter(|i| matches!(i, I::Node(n) if matches!(n.kind(), platynui_xpath::model::NodeKind::Text)))
         .count();
-    assert!(count_text >= 4, "should include text nodes: pre, one, two, post");
+    assert!(
+        count_text >= 4,
+        "should include text nodes: pre, one, two, post"
+    );
 
     // Sanity: //* should not include text nodes
-    let has_text_in_star = elements
-        .iter()
-        .any(|i| matches!(i, I::Node(n) if matches!(n.kind(), platynui_xpath::model::NodeKind::Text)));
+    let has_text_in_star = elements.iter().any(
+        |i| matches!(i, I::Node(n) if matches!(n.kind(), platynui_xpath::model::NodeKind::Text)),
+    );
     assert!(!has_text_in_star, "//* must not include text nodes");
 }

@@ -1,11 +1,15 @@
-use platynui_xpath::{evaluate, compiler::compile_xpath_with_context, xdm::XdmItem as I, XdmNode};
-use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder, StaticContextBuilder};
-use platynui_xpath::model::simple::{doc, elem, ns, attr as mkattr};
+use platynui_xpath::engine::runtime::{
+    DynamicContext, DynamicContextBuilder, StaticContextBuilder,
+};
+use platynui_xpath::model::simple::{attr as mkattr, doc, elem, ns};
+use platynui_xpath::{XdmNode, compiler::compile_xpath_with_context, evaluate, xdm::XdmItem as I};
 
 type N = platynui_xpath::model::simple::SimpleNode;
 
 fn ctx_with(root: N) -> DynamicContext<N> {
-    DynamicContextBuilder::default().with_context_item(I::Node(root)).build()
+    DynamicContextBuilder::default()
+        .with_context_item(I::Node(root))
+        .build()
 }
 
 #[test]

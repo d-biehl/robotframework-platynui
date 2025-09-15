@@ -325,10 +325,12 @@ impl<'a, N: XdmNode> fmt::Display for PrettyNodeItem<'a, N> {
             }
         }
         fn clip(s: &str) -> String {
-            const MAX: usize = 32;
-            if s.len() > MAX {
-                let mut out = s.chars().take(MAX).collect::<String>();
-                out.push_str("…");
+            if s.len() > crate::consts::DISPLAY_CLIP_MAX {
+                let mut out = s
+                    .chars()
+                    .take(crate::consts::DISPLAY_CLIP_MAX)
+                    .collect::<String>();
+                out.push('…');
                 out
             } else {
                 s.to_string()
