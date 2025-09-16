@@ -1,5 +1,10 @@
-use platynui_xpath::engine::runtime::{CallCtx, DynamicContextBuilder, Error, FunctionRegistry};
-use platynui_xpath::{ExpandedName, evaluate_expr, xdm::XdmAtomicValue as A, xdm::XdmItem as I};
+use platynui_xpath::engine::runtime::{
+    CallCtx, DynamicContextBuilder, Error, FunctionRegistry, StaticContextBuilder,
+};
+use platynui_xpath::{
+    compile_xpath_with_context, evaluate, evaluate_expr, ExpandedName,
+    xdm::XdmAtomicValue as A, xdm::XdmItem as I,
+};
 use rstest::rstest;
 type N = platynui_xpath::model::simple::SimpleNode;
 fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
@@ -51,7 +56,11 @@ fn variables_and_functions() {
             vec![I::Atomic(A::Integer(5))],
         )
         .build();
-    let out = evaluate_expr::<N>("twice($x)", &dyn_ctx).unwrap();
+    let static_ctx = StaticContextBuilder::new()
+        .with_variable(ExpandedName::new(None, "x"))
+        .build();
+    let compiled = compile_xpath_with_context("twice($x)", &static_ctx).unwrap();
+    let out = evaluate::<N>(&compiled, &dyn_ctx).unwrap();
     assert_eq!(out, vec![I::Atomic(A::Integer(10))]);
 }
 

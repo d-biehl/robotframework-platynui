@@ -1,4 +1,5 @@
-use platynui_xpath::compiler::{compile_xpath, ir::*};
+use platynui_xpath::compiler::{compile_xpath, compile_xpath_with_context, ir::*};
+use platynui_xpath::engine::runtime::{ErrorCode, StaticContextBuilder};
 use platynui_xpath::xdm::ExpandedName;
 use rstest::rstest;
 
@@ -7,9 +8,18 @@ fn ir(src: &str) -> InstrSeq {
 }
 
 #[rstest]
-fn var_ref_load_by_name() {
-    let is = ir("$x");
-    assert!(is.0.iter().any(
+fn undeclared_variable_is_static_error() {
+    let err = compile_xpath("$x").expect_err("variable reference must be rejected");
+    assert_eq!(err.code_enum(), ErrorCode::XPST0008);
+}
+
+#[rstest]
+fn declared_variable_compiles() {
+    let static_ctx = StaticContextBuilder::new()
+        .with_variable(ExpandedName::new(None, "x"))
+        .build();
+    let compiled = compile_xpath_with_context("$x", &static_ctx).expect("compile ok");
+    assert!(compiled.instrs.0.iter().any(
         |op| matches!(op, OpCode::LoadVarByName(ExpandedName{ ns_uri: None, local }) if local=="x")
     ));
 }

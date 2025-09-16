@@ -42,6 +42,7 @@ struct Compiler<'a> {
     static_ctx: &'a StaticContext,
     source: &'a str,
     code: Vec<ir::OpCode>,
+    lexical_scopes: Vec<Vec<ExpandedName>>,
 }
 
 type CResult<T> = Result<T, Error>;
@@ -52,11 +53,46 @@ impl<'a> Compiler<'a> {
             static_ctx,
             source,
             code: Vec::new(),
+            lexical_scopes: Vec::new(),
+        }
+    }
+
+    fn fork(&self) -> Self {
+        Self {
+            static_ctx: self.static_ctx,
+            source: self.source,
+            code: Vec::new(),
+            lexical_scopes: self.lexical_scopes.clone(),
         }
     }
 
     fn emit(&mut self, op: ir::OpCode) {
         self.code.push(op);
+    }
+
+    fn push_scope(&mut self) {
+        self.lexical_scopes.push(Vec::new());
+    }
+
+    fn pop_scope(&mut self) {
+        self.lexical_scopes.pop();
+    }
+
+    fn declare_local(&mut self, name: ExpandedName) {
+        if self.lexical_scopes.is_empty() {
+            self.lexical_scopes.push(Vec::new());
+        }
+        if let Some(scope) = self.lexical_scopes.last_mut() {
+            scope.push(name);
+        }
+    }
+
+    fn var_in_scope(&self, name: &ExpandedName) -> bool {
+        self.lexical_scopes
+            .iter()
+            .rev()
+            .any(|scope| scope.iter().any(|n| n == name))
+            || self.static_ctx.in_scope_variables.contains(name)
     }
 
     fn lower_expr(&mut self, e: &ast::Expr) -> CResult<()> {
@@ -66,6 +102,12 @@ impl<'a> Compiler<'a> {
             E::Parenthesized(inner) => self.lower_expr(inner),
             E::VarRef(q) => {
                 let en = self.to_expanded(q);
+                if !self.var_in_scope(&en) {
+                    return Err(Error::from_code(
+                        ErrorCode::XPST0008,
+                        format!("Variable ${} is not declared in the static context", en),
+                    ));
+                }
                 self.emit(ir::OpCode::LoadVarByName(en));
                 Ok(())
             }
@@ -228,11 +270,13 @@ impl<'a> Compiler<'a> {
                     ast::Quantifier::Some => ir::QuantifierKind::Some,
                     ast::Quantifier::Every => ir::QuantifierKind::Every,
                 };
+                self.push_scope();
                 // Emit nested QuantStartByName for each binding
                 for b in bindings {
                     self.lower_expr(&b.in_expr)?;
                     let en = self.to_expanded(&b.var);
-                    self.emit(ir::OpCode::QuantStartByName(k, en));
+                    self.emit(ir::OpCode::QuantStartByName(k, en.clone()));
+                    self.declare_local(en);
                 }
                 // Body: satisfies expression (evaluated in innermost scope)
                 self.lower_expr(satisfies)?;
@@ -241,6 +285,7 @@ impl<'a> Compiler<'a> {
                 for _ in bindings {
                     self.emit(ir::OpCode::QuantEnd);
                 }
+                self.pop_scope();
                 Ok(())
             }
             E::ForExpr {
@@ -251,10 +296,13 @@ impl<'a> Compiler<'a> {
                     return self.lower_expr(return_expr);
                 }
                 // Nest for-loops left-to-right
+                self.push_scope();
                 self.emit(ir::OpCode::BeginScope(bindings.len()));
                 for b in bindings {
                     self.lower_expr(&b.in_expr)?;
-                    self.emit(ir::OpCode::ForStartByName(self.to_expanded(&b.var)));
+                    let en = self.to_expanded(&b.var);
+                    self.emit(ir::OpCode::ForStartByName(en.clone()));
+                    self.declare_local(en);
                 }
                 self.lower_expr(return_expr)?;
                 // Close loops: ForNext for each, then ForEnd for each
@@ -263,14 +311,15 @@ impl<'a> Compiler<'a> {
                     self.emit(ir::OpCode::ForEnd);
                 }
                 self.emit(ir::OpCode::EndScope);
+                self.pop_scope();
                 Ok(())
             }
             E::LetExpr { .. } => {
-                // Hinweis: 'let' ist Teil von XPath 2.0, wird in diesem Projekt aktuell bewusst nicht unterstützt.
-                // Wir lehnen es auf Parser-/Compiler-Ebene ab, um den Umfang "reines XPath 2.0 ohne let" einzuhalten.
+                // Note: 'let' is part of XPath 2.0, and is currently intentionally not supported in this project.
+                // We reject it at the parser/compiler level to maintain the scope of "pure XPath 2.0 without let".
                 Err(Error::from_code(
                     ErrorCode::XPST0003,
-                    "'let' expression wird in dieser Engine derzeit nicht unterstützt (Projektumfang)",
+                    "'let' is not supported in this XPath implementation",
                 ))
             }
             E::SetOp { left, op, right } => {
@@ -305,7 +354,7 @@ impl<'a> Compiler<'a> {
     fn lower_predicates(&mut self, preds: &[ast::Expr]) -> CResult<Vec<ir::InstrSeq>> {
         let mut v = Vec::with_capacity(preds.len());
         for p in preds {
-            let mut sub = Compiler::new(self.static_ctx, self.source);
+            let mut sub = self.fork();
             sub.lower_expr(p)?;
             v.push(ir::InstrSeq(sub.code));
         }

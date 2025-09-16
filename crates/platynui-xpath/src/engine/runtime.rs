@@ -1,7 +1,7 @@
 use crate::engine::collation::{CODEPOINT_URI, Collation, CollationRegistry};
 use crate::xdm::{ExpandedName, XdmItem, XdmSequence};
 use core::fmt;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 pub type Arity = usize;
@@ -534,6 +534,7 @@ pub enum ErrorCode {
     FORX0004, // invalid replacement string
     XPTY0004, // type error (e.g. cast of multi-item sequence)
     XPDY0002, // context item undefined
+    XPST0008, // undeclared variable / function
     XPST0003, // static type error (empty not allowed etc.)
     XPST0017, // unknown function
     NYI0000,  // project specific: not yet implemented
@@ -573,6 +574,7 @@ impl ErrorCode {
                 ErrorCode::FORX0004 => "FORX0004".to_string(),
                 ErrorCode::XPTY0004 => "XPTY0004".to_string(),
                 ErrorCode::XPDY0002 => "XPDY0002".to_string(),
+                ErrorCode::XPST0008 => "XPST0008".to_string(),
                 ErrorCode::XPST0003 => "XPST0003".to_string(),
                 ErrorCode::XPST0017 => "XPST0017".to_string(),
                 ErrorCode::NYI0000 => "NYI0000".to_string(),
@@ -603,6 +605,7 @@ impl ErrorCode {
             "err:FORX0004" => FORX0004,
             "err:XPTY0004" => XPTY0004,
             "err:XPDY0002" => XPDY0002,
+            "err:XPST0008" => XPST0008,
             "err:XPST0003" => XPST0003,
             "err:XPST0017" => XPST0017,
             "err:NYI0000" => NYI0000,
@@ -736,6 +739,7 @@ pub struct StaticContext {
     pub default_function_namespace: Option<String>,
     pub default_collation: Option<String>,
     pub namespaces: NamespaceBindings,
+    pub in_scope_variables: HashSet<ExpandedName>,
 }
 
 impl Default for StaticContext {
@@ -749,6 +753,7 @@ impl Default for StaticContext {
             default_function_namespace: Some(crate::consts::FNS.to_string()),
             default_collation: Some(CODEPOINT_URI.to_string()),
             namespaces: ns,
+            in_scope_variables: HashSet::new(),
         }
     }
 }
@@ -802,6 +807,12 @@ impl StaticContextBuilder {
             return self;
         }
         self.ctx.namespaces.by_prefix.insert(p, uri.into());
+        self
+    }
+
+    /// Register an in-scope variable that may be referenced without being bound locally.
+    pub fn with_variable(mut self, name: ExpandedName) -> Self {
+        self.ctx.in_scope_variables.insert(name);
         self
     }
 

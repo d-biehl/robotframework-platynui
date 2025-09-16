@@ -27,7 +27,7 @@ fn main() {
         )
         .build();
 
-    let compiled = match compile_xpath("//*[text() = 'Inner Hallo Welt']") {
+    let compiled = match compile_xpath("$variable") {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Compile error: {}", e);
