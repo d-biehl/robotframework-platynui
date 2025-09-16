@@ -13,8 +13,8 @@ This note summarizes how the crate lines up with the W3C *XPath 2.0* recommendat
 | In-scope schema definitions (types/elements/attributes) | ❌ missing | There is no schema catalog in the static context, so schema-aware features are unsupported. |
 | In-scope variables | ✅ tracked | `StaticContext.in_scope_variables` holds the global bindings (`crates/platynui-xpath/src/engine/runtime.rs:743`). |
 | Context item static type | ❌ missing | Static typing metadata is not recorded; only dynamic checks exist. |
-| Function signatures catalogue | ❌ missing | Signatures live only inside the dynamic function registry, so static resolution is not performed. |
-| Statically known collations | ❌ missing | Only a default collation is stored; there is no per-name registry in the static context. |
+| Function signatures catalogue | ✅ implemented | `StaticContext.function_signatures` records known functions and their arity ranges, enabling compile-time validation (`crates/platynui-xpath/src/engine/runtime.rs`). |
+| Statically known collations | ✅ implemented | `StaticContext.statically_known_collations` tracks available collations alongside the default (`crates/platynui-xpath/src/engine/runtime.rs`). |
 | Default collation | ✅ stored | `default_collation` defaults to codepoint collation (`crates/platynui-xpath/src/engine/runtime.rs:754`). |
 | Base URI | ✅ stored | `StaticContext.base_uri` is available and exposed to functions (`crates/platynui-xpath/src/engine/runtime.rs:738`). |
 | Statically known documents / collections / default collection type | ❌ missing | These collections are not tracked; `fn:doc`/`fn:collection` rely on the runtime `NodeResolver` instead. |

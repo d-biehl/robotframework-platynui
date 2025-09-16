@@ -123,6 +123,7 @@ impl<'a> Compiler<'a> {
                     });
                     return Ok(());
                 }
+                self.ensure_function_available(name, args.len())?;
                 for a in args {
                     self.lower_expr(a)?;
                 }
@@ -599,6 +600,59 @@ impl<'a> Compiler<'a> {
             ns_uri: ns,
             local: q.local.clone(),
         }
+    }
+
+    fn ensure_function_available(&self, name: &ast::QName, arity: usize) -> CResult<()> {
+        let expanded = self.to_expanded(name);
+        let signatures = &self.static_ctx.function_signatures;
+
+        let mut candidates: Vec<ExpandedName> = Vec::new();
+        candidates.push(expanded.clone());
+        if expanded.ns_uri.is_none() && name.prefix.is_none() {
+            if let Some(default_ns) = &self.static_ctx.default_function_namespace {
+                let mut with_default = expanded.clone();
+                with_default.ns_uri = Some(default_ns.clone());
+                candidates.push(with_default);
+            }
+        }
+
+        for cand in &candidates {
+            if signatures.supports(cand, arity) {
+                return Ok(());
+            }
+        }
+
+        let default_fn_ns = self.static_ctx.default_function_namespace.as_ref();
+
+        for cand in &candidates {
+            if let Some(_ranges) = signatures.arities(cand) {
+                let arg_phrase = match arity {
+                    0 => "no arguments".to_string(),
+                    1 => "one argument".to_string(),
+                    2 => "two arguments".to_string(),
+                    3 => "three arguments".to_string(),
+                    n => format!("{n} arguments"),
+                };
+                let friendly = if cand.ns_uri.as_ref() == default_fn_ns {
+                    cand.local.clone()
+                } else {
+                    cand.to_string()
+                };
+                return Err(Error::from_code(
+                    ErrorCode::XPST0017,
+                    format!(
+                        "function {}() cannot be called with {}",
+                        friendly, arg_phrase
+                    ),
+                ));
+            }
+        }
+
+        let display = candidates.last().cloned().unwrap_or(expanded);
+        Err(Error::from_code(
+            ErrorCode::XPST0017,
+            format!("unknown function: {}#{}", display, arity),
+        ))
     }
 
     fn patch_jump(code: &mut [ir::OpCode], pos: usize) {

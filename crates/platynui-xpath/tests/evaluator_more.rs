@@ -1,5 +1,5 @@
 use platynui_xpath::engine::runtime::{
-    CallCtx, DynamicContextBuilder, Error, FunctionRegistry, StaticContextBuilder,
+    CallCtx, DynamicContextBuilder, Error, FunctionImplementations, StaticContextBuilder,
 };
 use platynui_xpath::{
     ExpandedName, compile_xpath_with_context, evaluate, evaluate_expr, xdm::XdmAtomicValue as A,
@@ -28,7 +28,7 @@ fn comparisons_value_general() {
 #[rstest]
 fn variables_and_functions() {
     // Add a custom function in default functions namespace
-    let mut reg: FunctionRegistry<N> = FunctionRegistry::new();
+    let mut reg: FunctionImplementations<N> = FunctionImplementations::new();
     let ns = Some("http://www.w3.org/2005/xpath-functions".to_string());
     reg.register(
         ExpandedName {
@@ -58,6 +58,14 @@ fn variables_and_functions() {
         .build();
     let static_ctx = StaticContextBuilder::new()
         .with_variable(ExpandedName::new(None, "x"))
+        .with_function_signature(
+            ExpandedName {
+                ns_uri: ns,
+                local: "twice".to_string(),
+            },
+            1,
+            Some(1),
+        )
         .build();
     let compiled = compile_xpath_with_context("twice($x)", &static_ctx).unwrap();
     let out = evaluate::<N>(&compiled, &dyn_ctx).unwrap();

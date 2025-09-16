@@ -2,11 +2,12 @@ use crate::compiler::ir::{
     AxisIR, ComparisonOp, CompiledXPath, InstrSeq, NameOrWildcard, NodeTestIR, OpCode,
     QuantifierKind, SeqTypeIR, SingleTypeIR,
 };
-use crate::engine::runtime::{CallCtx, DynamicContext, Error, ErrorCode};
+use crate::engine::runtime::{CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations};
 use crate::model::XdmNode;
 use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence};
 use chrono::Duration as ChronoDuration;
 use chrono::{FixedOffset as ChronoFixedOffset, NaiveTime as ChronoNaiveTime, TimeZone};
+use std::sync::Arc;
 
 /// Evaluate a compiled XPath program against a dynamic context.
 pub fn evaluate<N: 'static + Send + Sync + XdmNode + Clone>(
@@ -35,6 +36,7 @@ struct Vm<'a, N> {
     frames: Vec<Frame>,
     // Cached default collation for this VM (dynamic overrides static)
     default_collation: Option<std::sync::Arc<dyn crate::engine::collation::Collation>>,
+    functions: Arc<FunctionImplementations<N>>,
 }
 
 #[derive(Clone, Debug)]
@@ -56,6 +58,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 None
             }
         };
+        let functions = dyn_ctx.provide_functions();
         Self {
             compiled,
             dyn_ctx,
@@ -63,6 +66,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             local_vars: Vec::new(),
             frames: Vec::new(),
             default_collation,
+            functions,
         }
     }
 
@@ -1279,7 +1283,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         .static_ctx
                         .default_function_namespace
                         .as_deref();
-                    let f = match self.dyn_ctx.functions.resolve(en, argc, def_ns) {
+                    let f = match self.functions.resolve(en, argc, def_ns) {
                         Ok(f) => f,
                         Err(crate::engine::runtime::ResolveError::Unknown(resolved)) => {
                             return Err(Error::from_code(

@@ -44,17 +44,11 @@ pub type FunctionImpl<N> =
 pub type FunctionOverload<N> = (Arity, Option<Arity>, FunctionImpl<N>);
 pub type FunctionOverloads<N> = Vec<FunctionOverload<N>>;
 
-pub struct FunctionRegistry<N> {
-    // Range-based registrations keyed by name; each entry holds one or more
-    // (min_arity, max_arity, impl) tuples. A call matches when argc >= min_arity
-    // and (max_arity is None or argc <= max_arity). Variadic functions are
-    // represented with max_arity = None. Exact-arity functions are stored with
-    // min_arity == max_arity == arity.
-    // Use type aliases to keep types readable and avoid excessive complexity
+pub struct FunctionImplementations<N> {
     fns: HashMap<ExpandedName, FunctionOverloads<N>>,
 }
 
-impl<N> Default for FunctionRegistry<N> {
+impl<N> Default for FunctionImplementations<N> {
     fn default() -> Self {
         Self {
             fns: HashMap::new(),
@@ -62,7 +56,7 @@ impl<N> Default for FunctionRegistry<N> {
     }
 }
 
-impl<N> FunctionRegistry<N> {
+impl<N> FunctionImplementations<N> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -724,13 +718,78 @@ impl From<std::io::Error> for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "error: {} ({})", self.message, self.format_code())
+        write!(f, "{} ({})", self.message, self.format_code())
     }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct NamespaceBindings {
     pub by_prefix: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArityRange {
+    pub min: usize,
+    pub max: Option<usize>,
+}
+
+impl ArityRange {
+    pub fn contains(&self, value: usize) -> bool {
+        if value < self.min {
+            return false;
+        }
+        match self.max {
+            Some(max) => value <= max,
+            None => true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FunctionSignatures {
+    entries: HashMap<ExpandedName, Vec<ArityRange>>,
+}
+
+impl FunctionSignatures {
+    pub fn register(&mut self, name: ExpandedName, min: usize, max: Option<usize>) {
+        let ranges = self.entries.entry(name).or_insert_with(Vec::new);
+        if !ranges.iter().any(|r| r.min == min && r.max == max) {
+            ranges.push(ArityRange { min, max });
+        }
+    }
+
+    pub fn register_ns(&mut self, ns: &str, local: &str, min: usize, max: Option<usize>) {
+        self.register(
+            ExpandedName {
+                ns_uri: Some(ns.to_string()),
+                local: local.to_string(),
+            },
+            min,
+            max,
+        );
+    }
+
+    pub fn register_local(&mut self, local: &str, min: usize, max: Option<usize>) {
+        self.register(
+            ExpandedName {
+                ns_uri: None,
+                local: local.to_string(),
+            },
+            min,
+            max,
+        );
+    }
+
+    pub fn arities(&self, name: &ExpandedName) -> Option<&[ArityRange]> {
+        self.entries.get(name).map(|v| v.as_slice())
+    }
+
+    pub fn supports(&self, name: &ExpandedName, arity: usize) -> bool {
+        self.entries
+            .get(name)
+            .map(|ranges| ranges.iter().any(|r| r.contains(arity)))
+            .unwrap_or(false)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -740,6 +799,8 @@ pub struct StaticContext {
     pub default_collation: Option<String>,
     pub namespaces: NamespaceBindings,
     pub in_scope_variables: HashSet<ExpandedName>,
+    pub function_signatures: FunctionSignatures,
+    pub statically_known_collations: HashSet<String>,
 }
 
 impl Default for StaticContext {
@@ -748,12 +809,16 @@ impl Default for StaticContext {
         // Ensure implicit xml namespace binding (cannot be overridden per spec)
         ns.by_prefix
             .insert("xml".to_string(), crate::consts::XML_URI.to_string());
+        let mut collations: HashSet<String> = HashSet::new();
+        collations.insert(CODEPOINT_URI.to_string());
         Self {
             base_uri: None,
             default_function_namespace: Some(crate::consts::FNS.to_string()),
             default_collation: Some(CODEPOINT_URI.to_string()),
             namespaces: ns,
             in_scope_variables: HashSet::new(),
+            function_signatures: crate::engine::functions::default_function_signatures(),
+            statically_known_collations: collations,
         }
     }
 }
@@ -816,6 +881,44 @@ impl StaticContextBuilder {
         self
     }
 
+    pub fn with_function_signature(
+        mut self,
+        name: ExpandedName,
+        min: usize,
+        max: Option<usize>,
+    ) -> Self {
+        self.ctx.function_signatures.register(name, min, max);
+        self
+    }
+
+    pub fn with_function_signature_ns(
+        mut self,
+        ns: &str,
+        local: &str,
+        min: usize,
+        max: Option<usize>,
+    ) -> Self {
+        self.ctx
+            .function_signatures
+            .register_ns(ns, local, min, max);
+        self
+    }
+
+    pub fn with_collation(mut self, uri: impl Into<String>) -> Self {
+        self.ctx.statically_known_collations.insert(uri.into());
+        self
+    }
+
+    pub fn with_function_signatures(mut self, sigs: FunctionSignatures) -> Self {
+        self.ctx.function_signatures = sigs;
+        self
+    }
+
+    pub fn with_collations(mut self, collations: HashSet<String>) -> Self {
+        self.ctx.statically_known_collations = collations;
+        self
+    }
+
     pub fn build(self) -> StaticContext {
         self.ctx
     }
@@ -826,7 +929,7 @@ pub struct DynamicContext<N> {
     pub context_item: Option<XdmItem<N>>,
     pub variables: HashMap<ExpandedName, XdmSequence<N>>,
     pub default_collation: Option<String>,
-    pub functions: Arc<FunctionRegistry<N>>,
+    pub functions: Option<Arc<FunctionImplementations<N>>>,
     pub collations: Arc<CollationRegistry>,
     pub node_resolver: Option<Arc<dyn NodeResolver<N>>>,
     pub regex: Option<Arc<dyn RegexProvider>>,
@@ -840,7 +943,7 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for Dynam
             context_item: None,
             variables: HashMap::new(),
             default_collation: None,
-            functions: Arc::new(crate::engine::functions::default_function_registry::<N>()),
+            functions: None,
             collations: Arc::new(CollationRegistry::default()),
             node_resolver: None,
             regex: None,
@@ -884,8 +987,8 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBui
         self
     }
 
-    pub fn with_functions(mut self, reg: Arc<FunctionRegistry<N>>) -> Self {
-        self.ctx.functions = reg;
+    pub fn with_functions(mut self, reg: Arc<FunctionImplementations<N>>) -> Self {
+        self.ctx.functions = Some(reg);
         self
     }
 
@@ -922,5 +1025,15 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBui
 
     pub fn build(self) -> DynamicContext<N> {
         self.ctx
+    }
+}
+
+impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContext<N> {
+    pub fn provide_functions(&self) -> Arc<FunctionImplementations<N>> {
+        if let Some(f) = &self.functions {
+            f.clone()
+        } else {
+            Arc::new(crate::engine::functions::default_function_registry::<N>())
+        }
     }
 }
