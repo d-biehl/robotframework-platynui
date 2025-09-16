@@ -17,3 +17,9 @@ History follows a Conventional Commit style: `type(scope): imperative subject` s
 
 ## Environment & Tooling Tips
 Use the pinned Python from `.python-version` and keep `uv` up to date so lockfiles stay reproducible. Install the VS Code settings in `.vscode/` for rust-analyzer hints, and call out any OS-specific dependencies in your PR so maintainers can reproduce issues quickly.
+
+## Project and Documentation Language
+All code, comments, and documentation should be in English to ensure accessibility for the global developer community. Use clear and concise language, avoiding idioms or colloquialisms that may not be universally understood.
+
+# Security and Privacy Considerations
+Be mindful of sensitive data: do not hardcode secrets, API keys, or personal information in the codebase. Use environment variables or secure vaults for such data. Regularly review dependencies for vulnerabilities and keep them updated. If you discover a security issue, report it privately to the maintainers rather than disclosing it publicly.
