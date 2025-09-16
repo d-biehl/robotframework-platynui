@@ -1,5 +1,5 @@
-use super::common::{as_string, collapse_whitespace};
-use crate::engine::runtime::{CallCtx, Error};
+use super::common::{as_string, collapse_whitespace, require_context_item};
+use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmItem, XdmSequence};
 use std::collections::HashSet;
 
@@ -48,10 +48,20 @@ pub(super) fn id_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     if tokens.is_empty() {
         return Ok(vec![]);
     }
-    let start_node_opt = if args.len() == 2 && !args[1].is_empty() {
-        Some(args[1][0].clone())
+    let start_node_opt = if args.len() == 2 {
+        if args[1].len() > 1 {
+            return Err(Error::from_code(
+                ErrorCode::FORG0006,
+                "fn:id second argument must be at most one node",
+            ));
+        }
+        if args[1].is_empty() {
+            None
+        } else {
+            Some(args[1][0].clone())
+        }
     } else {
-        ctx.dyn_ctx.context_item.clone()
+        Some(require_context_item(ctx)?)
     };
     find_elements_with_id(ctx, start_node_opt, &tokens)
 }
@@ -117,10 +127,20 @@ pub(super) fn element_with_id_fn<N: 'static + Send + Sync + crate::model::XdmNod
     if tokens.is_empty() {
         return Ok(vec![]);
     }
-    let start_node_opt = if args.len() == 2 && !args[1].is_empty() {
-        Some(args[1][0].clone())
+    let start_node_opt = if args.len() == 2 {
+        if args[1].len() > 1 {
+            return Err(Error::from_code(
+                ErrorCode::FORG0006,
+                "fn:element-with-id second argument must be at most one node",
+            ));
+        }
+        if args[1].is_empty() {
+            None
+        } else {
+            Some(args[1][0].clone())
+        }
     } else {
-        ctx.dyn_ctx.context_item.clone()
+        Some(require_context_item(ctx)?)
     };
     find_elements_with_id(ctx, start_node_opt, &tokens)
 }
@@ -142,10 +162,20 @@ pub(super) fn idref_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>
     if ids.is_empty() {
         return Ok(vec![]);
     }
-    let start_node_opt = if args.len() == 2 && !args[1].is_empty() {
-        Some(args[1][0].clone())
+    let start_node_opt = if args.len() == 2 {
+        if args[1].len() > 1 {
+            return Err(Error::from_code(
+                ErrorCode::FORG0006,
+                "fn:idref second argument must be at most one node",
+            ));
+        }
+        if args[1].is_empty() {
+            None
+        } else {
+            Some(args[1][0].clone())
+        }
     } else {
-        ctx.dyn_ctx.context_item.clone()
+        Some(require_context_item(ctx)?)
     };
     let Some(XdmItem::Node(start)) = start_node_opt else {
         return Ok(vec![]);

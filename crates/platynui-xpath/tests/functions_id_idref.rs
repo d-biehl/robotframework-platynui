@@ -1,4 +1,4 @@
-use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::engine::runtime::{DynamicContextBuilder, ErrorCode};
 use platynui_xpath::{engine::evaluator::evaluate_expr, model::XdmNode, xdm::XdmItem};
 use rstest::{fixture, rstest};
 
@@ -96,4 +96,25 @@ fn fn_id_ignores_non_ncname_tokens(doc: N) {
         .build();
     let out = evaluate_expr::<N>("id('1bad', /)", &ctx).unwrap();
     assert!(out.is_empty());
+}
+
+#[rstest]
+fn fn_id_requires_context_when_second_arg_missing() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let err = evaluate_expr::<N>("id('A')", &ctx).unwrap_err();
+    assert_eq!(err.code_enum(), ErrorCode::XPDY0002);
+}
+
+#[rstest]
+fn fn_element_with_id_requires_context_when_second_arg_missing() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let err = evaluate_expr::<N>("element-with-id('A')", &ctx).unwrap_err();
+    assert_eq!(err.code_enum(), ErrorCode::XPDY0002);
+}
+
+#[rstest]
+fn fn_idref_requires_context_when_second_arg_missing() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let err = evaluate_expr::<N>("idref('A')", &ctx).unwrap_err();
+    assert_eq!(err.code_enum(), ErrorCode::XPDY0002);
 }

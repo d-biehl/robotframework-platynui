@@ -261,12 +261,14 @@ pub(super) fn namespace_uri_fn<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    let node_opt = if args.is_empty() {
-        ctx.dyn_ctx.context_item.clone()
+    let item_opt = if args.is_empty() {
+        Some(super::common::require_context_item(ctx)?)
+    } else if args[0].is_empty() {
+        None
     } else {
-        args[0].first().cloned()
+        Some(args[0][0].clone())
     };
-    let Some(item) = node_opt else {
+    let Some(item) = item_opt else {
         return Ok(vec![]);
     };
     match item {
