@@ -1,0 +1,830 @@
+use crate::engine::runtime::FunctionRegistry;
+
+pub mod boolean;
+pub mod collations;
+mod common;
+pub mod constructors;
+pub mod datetime;
+pub mod diagnostics;
+pub mod durations;
+pub mod environment;
+pub mod ids;
+pub mod numeric;
+pub mod qnames;
+pub mod regex;
+pub mod sequences;
+pub mod strings;
+
+pub use common::deep_equal_with_collation;
+
+pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNode + Clone>()
+-> FunctionRegistry<N> {
+    let mut reg: FunctionRegistry<N> = FunctionRegistry::new();
+
+    // ===== Core booleans =====
+    reg.register_ns(crate::consts::FNS, "true", 0, boolean::fn_true::<N>);
+    reg.register_ns(crate::consts::FNS, "false", 0, boolean::fn_false::<N>);
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "data",
+        0,
+        Some(1),
+        boolean::data_fn::<N>,
+    );
+    reg.register_ns(crate::consts::FNS, "not", 1, boolean::fn_not::<N>);
+    reg.register_ns(crate::consts::FNS, "boolean", 1, boolean::fn_boolean::<N>);
+
+    // ===== Numeric core =====
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "number",
+        0,
+        Some(1),
+        numeric::number_fn::<N>,
+    );
+
+    // ===== String family =====
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "string",
+        0,
+        Some(1),
+        strings::string_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "string-length",
+        1,
+        strings::string_length_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "untypedAtomic",
+        1,
+        strings::untyped_atomic_fn::<N>,
+    );
+    reg.register_ns_variadic(crate::consts::FNS, "concat", 2, strings::concat_fn::<N>);
+    reg.register_ns(
+        crate::consts::FNS,
+        "string-to-codepoints",
+        1,
+        strings::string_to_codepoints_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "codepoints-to-string",
+        1,
+        strings::codepoints_to_string_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "contains",
+        2,
+        Some(3),
+        strings::contains_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "starts-with",
+        2,
+        Some(3),
+        strings::starts_with_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "ends-with",
+        2,
+        Some(3),
+        strings::ends_with_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "substring",
+        2,
+        Some(3),
+        strings::substring_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "substring-before",
+        2,
+        strings::substring_before_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "substring-after",
+        2,
+        strings::substring_after_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "normalize-space",
+        0,
+        Some(1),
+        strings::normalize_space_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "translate",
+        3,
+        strings::translate_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "lower-case",
+        1,
+        strings::lower_case_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "upper-case",
+        1,
+        strings::upper_case_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "string-join",
+        2,
+        strings::string_join_fn::<N>,
+    );
+
+    // ===== Node name functions =====
+    reg.register_ns(
+        crate::consts::FNS,
+        "node-name",
+        1,
+        qnames::node_name_fn::<N>,
+    );
+    reg.register_ns_range(crate::consts::FNS, "name", 0, Some(1), qnames::name_fn::<N>);
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "local-name",
+        0,
+        Some(1),
+        qnames::local_name_fn::<N>,
+    );
+
+    // ===== QName / Namespace functions =====
+    reg.register_ns(crate::consts::FNS, "QName", 2, qnames::qname_fn::<N>);
+    reg.register_ns(
+        crate::consts::FNS,
+        "resolve-QName",
+        2,
+        qnames::resolve_qname_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "namespace-uri-from-QName",
+        1,
+        qnames::namespace_uri_from_qname_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "local-name-from-QName",
+        1,
+        qnames::local_name_from_qname_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "prefix-from-QName",
+        1,
+        qnames::prefix_from_qname_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "namespace-uri-for-prefix",
+        2,
+        qnames::namespace_uri_for_prefix_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "in-scope-prefixes",
+        1,
+        qnames::in_scope_prefixes_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "namespace-uri",
+        0,
+        Some(1),
+        qnames::namespace_uri_fn::<N>,
+    );
+
+    // ===== Numeric family =====
+    reg.register_ns(crate::consts::FNS, "abs", 1, numeric::abs_fn::<N>);
+    reg.register_ns(crate::consts::FNS, "floor", 1, numeric::floor_fn::<N>);
+    reg.register_ns(crate::consts::FNS, "ceiling", 1, numeric::ceiling_fn::<N>);
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "round",
+        1,
+        Some(2),
+        numeric::round_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "round-half-to-even",
+        1,
+        Some(2),
+        numeric::round_half_to_even_fn::<N>,
+    );
+    reg.register_ns_range(crate::consts::FNS, "sum", 1, Some(2), numeric::sum_fn::<N>);
+    reg.register_ns(crate::consts::FNS, "avg", 1, numeric::avg_fn::<N>);
+
+    // ===== Sequence family =====
+    reg.register_ns(crate::consts::FNS, "empty", 1, sequences::empty_fn::<N>);
+    reg.register_ns(crate::consts::FNS, "exists", 1, sequences::exists_fn::<N>);
+    reg.register_ns(crate::consts::FNS, "count", 1, sequences::count_fn::<N>);
+    reg.register_ns(
+        crate::consts::FNS,
+        "exactly-one",
+        1,
+        sequences::exactly_one_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "one-or-more",
+        1,
+        sequences::one_or_more_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "zero-or-one",
+        1,
+        sequences::zero_or_one_fn::<N>,
+    );
+    reg.register_ns(crate::consts::FNS, "reverse", 1, sequences::reverse_fn::<N>);
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "subsequence",
+        2,
+        Some(3),
+        sequences::subsequence_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "distinct-values",
+        1,
+        Some(2),
+        sequences::distinct_values_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "index-of",
+        2,
+        Some(3),
+        sequences::index_of_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "insert-before",
+        3,
+        sequences::insert_before_fn::<N>,
+    );
+    reg.register_ns(crate::consts::FNS, "remove", 2, sequences::remove_fn::<N>);
+    reg.register_ns_range(crate::consts::FNS, "min", 1, Some(2), numeric::min_fn::<N>);
+    reg.register_ns_range(crate::consts::FNS, "max", 1, Some(2), numeric::max_fn::<N>);
+
+    // ===== Collation-related functions =====
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "compare",
+        2,
+        Some(3),
+        collations::compare_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "codepoint-equal",
+        2,
+        collations::codepoint_equal_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "deep-equal",
+        2,
+        Some(3),
+        collations::deep_equal_fn::<N>,
+    );
+
+    // ===== Regex family =====
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "matches",
+        2,
+        Some(3),
+        regex::matches_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "replace",
+        3,
+        Some(4),
+        regex::replace_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "tokenize",
+        2,
+        Some(3),
+        regex::tokenize_fn::<N>,
+    );
+
+    // ===== Diagnostics =====
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "error",
+        0,
+        Some(3),
+        diagnostics::error_fn::<N>,
+    );
+    reg.register_ns(crate::consts::FNS, "trace", 2, diagnostics::trace_fn::<N>);
+
+    // ===== Environment / Document / URI helpers =====
+    reg.register_ns(
+        crate::consts::FNS,
+        "default-collation",
+        0,
+        environment::default_collation_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "static-base-uri",
+        0,
+        environment::static_base_uri_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "root",
+        0,
+        Some(1),
+        environment::root_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "base-uri",
+        0,
+        Some(1),
+        environment::base_uri_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "document-uri",
+        0,
+        Some(1),
+        environment::document_uri_fn::<N>,
+    );
+    reg.register_ns(crate::consts::FNS, "lang", 1, environment::lang_fn::<N>);
+    reg.register_ns(
+        crate::consts::FNS,
+        "encode-for-uri",
+        1,
+        environment::encode_for_uri_fn::<N>,
+    );
+    reg.register_ns(crate::consts::FNS, "nilled", 1, environment::nilled_fn::<N>);
+    reg.register_ns(
+        crate::consts::FNS,
+        "iri-to-uri",
+        1,
+        environment::iri_to_uri_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "escape-html-uri",
+        1,
+        environment::escape_html_uri_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "resolve-uri",
+        1,
+        Some(2),
+        environment::resolve_uri_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "normalize-unicode",
+        1,
+        Some(2),
+        environment::normalize_unicode_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "doc-available",
+        1,
+        environment::doc_available_fn::<N>,
+    );
+    reg.register_ns(crate::consts::FNS, "doc", 1, environment::doc_fn::<N>);
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "collection",
+        0,
+        Some(1),
+        environment::collection_fn::<N>,
+    );
+
+    // ===== ID / IDREF helpers =====
+    reg.register_ns_range(crate::consts::FNS, "id", 1, Some(2), ids::id_fn::<N>);
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "element-with-id",
+        1,
+        Some(2),
+        ids::element_with_id_fn::<N>,
+    );
+    reg.register_ns_range(crate::consts::FNS, "idref", 1, Some(2), ids::idref_fn::<N>);
+
+    // ===== Regex replacements already handled =====
+    reg.register_ns(
+        crate::consts::FNS,
+        "unordered",
+        1,
+        sequences::unordered_fn::<N>,
+    );
+
+    // ===== Misc constructors =====
+    reg.register_ns(
+        crate::consts::FNS,
+        "integer",
+        1,
+        constructors::integer_fn::<N>,
+    );
+
+    // ===== Date/Time family =====
+    reg.register_ns(
+        crate::consts::FNS,
+        "dateTime",
+        2,
+        datetime::date_time_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "adjust-date-to-timezone",
+        1,
+        Some(2),
+        datetime::adjust_date_to_timezone_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "adjust-time-to-timezone",
+        1,
+        Some(2),
+        datetime::adjust_time_to_timezone_fn::<N>,
+    );
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "adjust-dateTime-to-timezone",
+        1,
+        Some(2),
+        datetime::adjust_datetime_to_timezone_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "current-dateTime",
+        0,
+        datetime::current_datetime_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "current-date",
+        0,
+        datetime::current_date_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "current-time",
+        0,
+        datetime::current_time_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "implicit-timezone",
+        0,
+        datetime::implicit_timezone_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "year-from-dateTime",
+        1,
+        datetime::year_from_datetime_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "hours-from-dateTime",
+        1,
+        datetime::hours_from_datetime_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "minutes-from-dateTime",
+        1,
+        datetime::minutes_from_datetime_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "seconds-from-dateTime",
+        1,
+        datetime::seconds_from_datetime_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "month-from-dateTime",
+        1,
+        datetime::month_from_datetime_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "day-from-dateTime",
+        1,
+        datetime::day_from_datetime_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "hours-from-time",
+        1,
+        datetime::hours_from_time_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "minutes-from-time",
+        1,
+        datetime::minutes_from_time_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "seconds-from-time",
+        1,
+        datetime::seconds_from_time_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "timezone-from-dateTime",
+        1,
+        datetime::timezone_from_datetime_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "timezone-from-date",
+        1,
+        datetime::timezone_from_date_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "timezone-from-time",
+        1,
+        datetime::timezone_from_time_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "year-from-date",
+        1,
+        datetime::year_from_date_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "month-from-date",
+        1,
+        datetime::month_from_date_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "day-from-date",
+        1,
+        datetime::day_from_date_fn::<N>,
+    );
+
+    // ===== Duration component accessors =====
+    reg.register_ns(
+        crate::consts::FNS,
+        "years-from-duration",
+        1,
+        durations::years_from_duration_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "months-from-duration",
+        1,
+        durations::months_from_duration_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "days-from-duration",
+        1,
+        durations::days_from_duration_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "hours-from-duration",
+        1,
+        durations::hours_from_duration_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "minutes-from-duration",
+        1,
+        durations::minutes_from_duration_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::FNS,
+        "seconds-from-duration",
+        1,
+        durations::seconds_from_duration_fn::<N>,
+    );
+
+    // ===== XML Schema constructors =====
+    reg.register_ns(
+        crate::consts::XS,
+        "string",
+        1,
+        constructors::xs_string_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "untypedAtomic",
+        1,
+        constructors::xs_untyped_atomic_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "boolean",
+        1,
+        constructors::xs_boolean_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "integer",
+        1,
+        constructors::xs_integer_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "decimal",
+        1,
+        constructors::xs_decimal_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "double",
+        1,
+        constructors::xs_double_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "float",
+        1,
+        constructors::xs_float_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "anyURI",
+        1,
+        constructors::xs_any_uri_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "QName",
+        1,
+        constructors::xs_qname_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "base64Binary",
+        1,
+        constructors::xs_base64_binary_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "hexBinary",
+        1,
+        constructors::xs_hex_binary_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "dateTime",
+        1,
+        constructors::xs_datetime_fn::<N>,
+    );
+    reg.register_ns(crate::consts::XS, "date", 1, constructors::xs_date_fn::<N>);
+    reg.register_ns(crate::consts::XS, "time", 1, constructors::xs_time_fn::<N>);
+    reg.register_ns(
+        crate::consts::XS,
+        "dayTimeDuration",
+        1,
+        constructors::xs_day_time_duration_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "yearMonthDuration",
+        1,
+        constructors::xs_year_month_duration_fn::<N>,
+    );
+    reg.register_ns(crate::consts::XS, "long", 1, constructors::xs_long_fn::<N>);
+    reg.register_ns(crate::consts::XS, "int", 1, constructors::xs_int_fn::<N>);
+    reg.register_ns(
+        crate::consts::XS,
+        "short",
+        1,
+        constructors::xs_short_fn::<N>,
+    );
+    reg.register_ns(crate::consts::XS, "byte", 1, constructors::xs_byte_fn::<N>);
+    reg.register_ns(
+        crate::consts::XS,
+        "unsignedLong",
+        1,
+        constructors::xs_unsigned_long_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "unsignedInt",
+        1,
+        constructors::xs_unsigned_int_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "unsignedShort",
+        1,
+        constructors::xs_unsigned_short_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "unsignedByte",
+        1,
+        constructors::xs_unsigned_byte_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "nonPositiveInteger",
+        1,
+        constructors::xs_non_positive_integer_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "negativeInteger",
+        1,
+        constructors::xs_negative_integer_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "nonNegativeInteger",
+        1,
+        constructors::xs_non_negative_integer_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "positiveInteger",
+        1,
+        constructors::xs_positive_integer_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "normalizedString",
+        1,
+        constructors::xs_normalized_string_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "token",
+        1,
+        constructors::xs_token_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "language",
+        1,
+        constructors::xs_language_fn::<N>,
+    );
+    reg.register_ns(crate::consts::XS, "Name", 1, constructors::xs_name_fn::<N>);
+    reg.register_ns(
+        crate::consts::XS,
+        "NCName",
+        1,
+        constructors::xs_ncname_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "NMTOKEN",
+        1,
+        constructors::xs_nmtoken_fn::<N>,
+    );
+    reg.register_ns(crate::consts::XS, "ID", 1, constructors::xs_id_fn::<N>);
+    reg.register_ns(
+        crate::consts::XS,
+        "IDREF",
+        1,
+        constructors::xs_idref_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "ENTITY",
+        1,
+        constructors::xs_entity_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
+        "NOTATION",
+        1,
+        constructors::xs_notation_fn::<N>,
+    );
+
+    reg
+}
