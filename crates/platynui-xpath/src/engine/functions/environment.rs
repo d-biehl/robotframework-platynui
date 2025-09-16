@@ -1,7 +1,8 @@
-use super::common::item_to_string;
+use super::common::{item_to_string, require_context_item};
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
 use unicode_normalization::UnicodeNormalization;
+use url::Url;
 
 pub(super) fn default_collation_fn<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
@@ -32,12 +33,14 @@ pub(super) fn root_fn<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    let node_opt = if args.is_empty() {
-        ctx.dyn_ctx.context_item.clone()
+    let item_opt = if args.is_empty() {
+        Some(require_context_item(ctx)?)
+    } else if args[0].is_empty() {
+        None
     } else {
-        args[0].first().cloned()
+        Some(args[0][0].clone())
     };
-    let Some(item) = node_opt else {
+    let Some(item) = item_opt else {
         return Ok(vec![]);
     };
     match item {
@@ -61,12 +64,14 @@ pub(super) fn base_uri_fn<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    let node_opt = if args.is_empty() {
-        ctx.dyn_ctx.context_item.clone()
+    let item_opt = if args.is_empty() {
+        Some(require_context_item(ctx)?)
+    } else if args[0].is_empty() {
+        None
     } else {
-        args[0].first().cloned()
+        Some(args[0][0].clone())
     };
-    let Some(item) = node_opt else {
+    let Some(item) = item_opt else {
         return Ok(vec![]);
     };
     match item {
@@ -88,12 +93,14 @@ pub(super) fn document_uri_fn<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    let node_opt = if args.is_empty() {
-        ctx.dyn_ctx.context_item.clone()
+    let item_opt = if args.is_empty() {
+        Some(require_context_item(ctx)?)
+    } else if args[0].is_empty() {
+        None
     } else {
-        args[0].first().cloned()
+        Some(args[0][0].clone())
     };
-    let Some(item) = node_opt else {
+    let Some(item) = item_opt else {
         return Ok(vec![]);
     };
     match item {
@@ -116,12 +123,35 @@ pub(super) fn lang_fn<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
+    if args[0].len() > 1 {
+        return Err(Error::from_code(
+            ErrorCode::FORG0006,
+            "fn:lang expects at most one string argument",
+        ));
+    }
     if args[0].is_empty() {
         return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]);
     }
     let test = item_to_string(&args[0]).to_ascii_lowercase();
-    let Some(XdmItem::Node(mut n)) = ctx.dyn_ctx.context_item.clone() else {
-        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]);
+    let target_item = if args.len() == 1 {
+        require_context_item(ctx)?
+    } else {
+        if args[1].len() != 1 {
+            return Err(Error::from_code(
+                ErrorCode::FORG0006,
+                "fn:lang requires exactly one node in second argument",
+            ));
+        }
+        args[1][0].clone()
+    };
+    let mut n = match target_item {
+        XdmItem::Node(node) => node,
+        _ => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "fn:lang requires node() as second argument",
+            ))
+        }
     };
     let mut lang_val: Option<String> = None;
     loop {
@@ -158,9 +188,18 @@ pub(super) fn encode_for_uri_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
+    if args[0].len() > 1 {
+        return Err(Error::from_code(
+            ErrorCode::FORG0006,
+            "encode-for-uri expects at most one string argument",
+        ));
+    }
+    if args[0].is_empty() {
+        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]);
+    }
     let s = item_to_string(&args[0]);
     fn is_unreserved(ch: char) -> bool {
-        ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '~' | '/')
+        ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '~')
     }
     let mut out = String::new();
     for ch in s.chars() {
@@ -233,16 +272,26 @@ pub(super) fn escape_html_uri_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
+    if args[0].len() > 1 {
+        return Err(Error::from_code(
+            ErrorCode::FORG0006,
+            "escape-html-uri expects at most one string argument",
+        ));
+    }
     if args[0].is_empty() {
         return Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]);
     }
     let s = item_to_string(&args[0]);
     let mut out = String::new();
     for ch in s.chars() {
-        if ch == ' ' {
-            out.push_str("%20");
-        } else {
+        if ch.is_ascii() && (ch as u32) >= 32 && (ch as u32) <= 126 && ch != ' ' {
             out.push(ch);
+        } else {
+            let mut buf = [0u8; 4];
+            for b in ch.encode_utf8(&mut buf).as_bytes() {
+                out.push('%');
+                out.push_str(&format!("{:02X}", b));
+            }
         }
     }
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
@@ -252,55 +301,91 @@ pub(super) fn resolve_uri_fn<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
+    if args[0].len() > 1 {
+        return Err(Error::from_code(
+            ErrorCode::FORG0006,
+            "resolve-uri expects at most one URI argument",
+        ));
+    }
+    if args.len() == 2 && args[1].len() > 1 {
+        return Err(Error::from_code(
+            ErrorCode::FORG0006,
+            "resolve-uri expects at most one base URI argument",
+        ));
+    }
     if args[0].is_empty() {
         return Ok(vec![]);
     }
     let rel = item_to_string(&args[0]);
-    let is_abs = rel.contains(":") || rel.starts_with('/') || rel.starts_with("#");
-    if is_abs {
-        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(rel))]);
+    if let Ok(abs) = Url::parse(&rel) {
+        let abs_str: String = abs.into();
+        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(abs_str))]);
     }
-    let base = if args.len() == 2 && !args[1].is_empty() {
-        Some(item_to_string(&args[1]))
+    let base_candidate = if args.len() == 2 {
+        if args[1].is_empty() {
+            ctx.static_ctx.base_uri.clone()
+        } else {
+            Some(item_to_string(&args[1]))
+        }
     } else {
         ctx.static_ctx.base_uri.clone()
     };
-    let Some(mut baseu) = base else {
-        return Ok(vec![]);
-    };
-    if !baseu.ends_with('/') {
-        if let Some(idx) = baseu.rfind('/') {
-            baseu.truncate(idx + 1);
-        } else {
-            baseu.push('/');
-        }
-    }
-    let joined = format!("{}{}", baseu, rel);
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(joined))])
+    let base_str = base_candidate
+        .ok_or_else(|| Error::from_code(ErrorCode::FONS0005, "base-uri is undefined"))?;
+    let base_url = Url::parse(&base_str)
+        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid base URI"))?;
+    let joined = base_url
+        .join(&rel)
+        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid relative URI"))?;
+    let joined_str: String = joined.into();
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(joined_str))])
 }
 
 pub(super) fn normalize_unicode_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
+    if args[0].len() > 1 {
+        return Err(Error::from_code(
+            ErrorCode::FORG0006,
+            "normalize-unicode expects at most one string argument",
+        ));
+    }
+    if args.len() == 2 && args[1].len() > 1 {
+        return Err(Error::from_code(
+            ErrorCode::FORG0006,
+            "normalize-unicode expects at most one form argument",
+        ));
+    }
     if args[0].is_empty() {
         return Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]);
     }
     let s = item_to_string(&args[0]);
     let form = if args.len() == 2 {
-        item_to_string(&args[1]).to_uppercase()
+        if args[1].is_empty() {
+            String::new()
+        } else {
+            item_to_string(&args[1]).trim().to_uppercase()
+        }
     } else {
         "NFC".to_string()
     };
     let out = match form.as_str() {
+        "" => s,
         "NFC" => s.nfc().collect::<String>(),
         "NFD" => s.nfd().collect::<String>(),
         "NFKC" => s.nfkc().collect::<String>(),
         "NFKD" => s.nfkd().collect::<String>(),
+        "FULLY-NORMALIZED" => {
+            return Err(Error::from_code(
+                ErrorCode::FOCH0003,
+                "FULLY-NORMALIZED is not supported",
+            ));
+        }
         _ => {
             return Err(Error::from_code(
-                ErrorCode::FORG0001,
-                "invalid normalization form",
+                ErrorCode::FOCH0003,
+                "unsupported normalization form",
             ));
         }
     };
@@ -361,14 +446,32 @@ pub(super) fn collection_fn<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    let uri = if args.len() == 1 && !args[0].is_empty() {
-        Some(item_to_string(&args[0]))
-    } else {
-        None
-    };
-    if let Some(nr) = &ctx.dyn_ctx.node_resolver {
-        let nodes = nr.collection_nodes(uri.as_deref())?;
-        return Ok(nodes.into_iter().map(XdmItem::Node).collect());
+    if args.len() > 1 {
+        return Err(Error::from_code(
+            ErrorCode::FORG0006,
+            "collection() accepts at most one argument",
+        ));
     }
-    Ok(vec![])
+    if args.get(0).map_or(false, |seq| seq.len() > 1) {
+        return Err(Error::from_code(
+            ErrorCode::FORG0006,
+            "collection() argument must be a single string",
+        ));
+    }
+    let uri_opt = if args.get(0).map_or(false, |seq| seq.is_empty()) {
+        None
+    } else if args.is_empty() {
+        None
+    } else {
+        Some(item_to_string(&args[0]))
+    };
+    let resolver = ctx.dyn_ctx.node_resolver.as_ref().ok_or_else(|| {
+        if uri_opt.is_some() {
+            Error::from_code(ErrorCode::FODC0004, "no collection resolver available")
+        } else {
+            Error::from_code(ErrorCode::FODC0002, "default collection is undefined")
+        }
+    })?;
+    let nodes = resolver.collection_nodes(uri_opt.as_deref())?;
+    Ok(nodes.into_iter().map(XdmItem::Node).collect())
 }

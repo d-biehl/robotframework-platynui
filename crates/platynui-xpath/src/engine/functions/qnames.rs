@@ -14,22 +14,22 @@ pub(super) fn name_fn<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    Ok(match args.len() {
+    match args.len() {
         0 => name_default(ctx, None),
         1 => name_default(ctx, Some(&args[0])),
         _ => unreachable!("registry guarantees arity in range"),
-    })
+    }
 }
 
 pub(super) fn local_name_fn<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    Ok(match args.len() {
+    match args.len() {
         0 => local_name_default(ctx, None),
         1 => local_name_default(ctx, Some(&args[0])),
         _ => unreachable!("registry guarantees arity in range"),
-    })
+    }
 }
 
 pub(super) fn qname_fn<N: crate::model::XdmNode + Clone>(

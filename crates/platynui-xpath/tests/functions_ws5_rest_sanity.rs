@@ -59,7 +59,7 @@ fn seconds_fractional_decimal(
 #[rstest]
 fn normalize_unicode_invalid_form_errors(ctx: platynui_xpath::engine::runtime::DynamicContext<N>) {
     let err = evaluate_expr::<N>("normalize-unicode('x','NOPE')", &ctx).unwrap_err();
-    assert_eq!(err.code_enum(), ErrorCode::FORG0001);
+    assert_eq!(err.code_enum(), ErrorCode::FOCH0003);
 }
 
 #[rstest]

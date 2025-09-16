@@ -17,10 +17,15 @@ pub(super) fn string_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone
 }
 
 pub(super) fn string_length_fn<N: crate::model::XdmNode + Clone>(
-    _ctx: &CallCtx<N>,
+    ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    let s = item_to_string(&args[0]);
+    let s = if args.is_empty() {
+        let seq = super::common::string_default(ctx, None)?;
+        item_to_string(&seq)
+    } else {
+        item_to_string(&args[0])
+    };
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
         s.chars().count() as i64,
     ))])
@@ -183,11 +188,11 @@ pub(super) fn normalize_space_fn<N: 'static + Send + Sync + crate::model::XdmNod
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    Ok(match args.len() {
+    match args.len() {
         0 => normalize_space_default(ctx, None),
         1 => normalize_space_default(ctx, Some(&args[0])),
         _ => unreachable!("registry guarantees arity in range"),
-    })
+    }
 }
 
 pub(super) fn translate_fn<N: crate::model::XdmNode + Clone>(

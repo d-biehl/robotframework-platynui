@@ -523,12 +523,17 @@ pub enum ErrorCode {
     FORG0005, // exactly-one violated
     FOCA0001, // invalid value for cast / out-of-range
     FOCH0002, // collation does not exist
+    FOCH0003, // unsupported normalization form
+    FODC0002, // default collection undefined
+    FODC0004, // collection lookup failure
     FODC0005, // doc/document retrieval failure
+    FONS0005, // base-uri unresolved
     FORX0001, // regex flags invalid
     FORX0002, // regex invalid pattern / bad backref
     FORX0003, // fn:replace zero-length match error
     FORX0004, // invalid replacement string
     XPTY0004, // type error (e.g. cast of multi-item sequence)
+    XPDY0002, // context item undefined
     XPST0003, // static type error (empty not allowed etc.)
     XPST0017, // unknown function
     NYI0000,  // project specific: not yet implemented
@@ -557,12 +562,17 @@ impl ErrorCode {
                 ErrorCode::FORG0005 => "FORG0005".to_string(),
                 ErrorCode::FOCA0001 => "FOCA0001".to_string(),
                 ErrorCode::FOCH0002 => "FOCH0002".to_string(),
+                ErrorCode::FOCH0003 => "FOCH0003".to_string(),
+                ErrorCode::FODC0002 => "FODC0002".to_string(),
+                ErrorCode::FODC0004 => "FODC0004".to_string(),
                 ErrorCode::FODC0005 => "FODC0005".to_string(),
+                ErrorCode::FONS0005 => "FONS0005".to_string(),
                 ErrorCode::FORX0001 => "FORX0001".to_string(),
                 ErrorCode::FORX0002 => "FORX0002".to_string(),
                 ErrorCode::FORX0003 => "FORX0003".to_string(),
                 ErrorCode::FORX0004 => "FORX0004".to_string(),
                 ErrorCode::XPTY0004 => "XPTY0004".to_string(),
+                ErrorCode::XPDY0002 => "XPDY0002".to_string(),
                 ErrorCode::XPST0003 => "XPST0003".to_string(),
                 ErrorCode::XPST0017 => "XPST0017".to_string(),
                 ErrorCode::NYI0000 => "NYI0000".to_string(),
@@ -582,12 +592,17 @@ impl ErrorCode {
             "err:FORG0005" => FORG0005,
             "err:FOCA0001" => FOCA0001,
             "err:FOCH0002" => FOCH0002,
+            "err:FOCH0003" => FOCH0003,
+            "err:FODC0002" => FODC0002,
+            "err:FODC0004" => FODC0004,
             "err:FODC0005" => FODC0005,
+            "err:FONS0005" => FONS0005,
             "err:FORX0001" => FORX0001,
             "err:FORX0002" => FORX0002,
             "err:FORX0003" => FORX0003,
             "err:FORX0004" => FORX0004,
             "err:XPTY0004" => XPTY0004,
+            "err:XPDY0002" => XPDY0002,
             "err:XPST0003" => XPST0003,
             "err:XPST0017" => XPST0017,
             "err:NYI0000" => NYI0000,

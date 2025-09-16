@@ -60,7 +60,7 @@ fn encode_for_uri(ctx: platynui_xpath::engine::runtime::DynamicContext<N>) {
     let enc = evaluate_expr::<N>("encode-for-uri('a b/β')", &ctx).unwrap();
     match &enc[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(s)) => {
-            assert_eq!(s, "a%20b/%CE%B2")
+            assert_eq!(s, "a%20b%2F%CE%B2")
         }
         _ => panic!("expected string"),
     }

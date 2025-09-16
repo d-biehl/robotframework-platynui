@@ -157,6 +157,111 @@ pub fn parse_date_time_lex(
     Ok((date, time, tz))
 }
 
+pub fn parse_g_year(s: &str) -> Result<(i32, Option<FixedOffset>), TemporalErr> {
+    let (main, tz_opt) = split_tz(s);
+    if main.is_empty() {
+        return Err(TemporalErr::Lexical);
+    }
+    let year = parse_year(main)?;
+    let tz = match tz_opt {
+        Some(t) => Some(parse_tz(t)?),
+        None => None,
+    };
+    Ok((year, tz))
+}
+
+pub fn parse_g_year_month(s: &str) -> Result<(i32, u8, Option<FixedOffset>), TemporalErr> {
+    let (main, tz_opt) = split_tz(s);
+    let (neg, body) = if let Some(stripped) = main.strip_prefix('-') {
+        (true, stripped)
+    } else {
+        (false, main)
+    };
+    let parts: Vec<&str> = body.split('-').collect();
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+        return Err(TemporalErr::Lexical);
+    }
+    let mut year_str = parts[0].to_string();
+    if neg {
+        year_str.insert(0, '-');
+    }
+    let year = parse_year(&year_str)?;
+    let month: u32 = parts[1].parse().map_err(|_| TemporalErr::Lexical)?;
+    if !(1..=12).contains(&month) {
+        return Err(TemporalErr::Range);
+    }
+    let tz = match tz_opt {
+        Some(t) => Some(parse_tz(t)?),
+        None => None,
+    };
+    Ok((year, month as u8, tz))
+}
+
+pub fn parse_g_month(s: &str) -> Result<(u8, Option<FixedOffset>), TemporalErr> {
+    let (main, tz_opt) = split_tz(s);
+    if !main.starts_with("--") {
+        return Err(TemporalErr::Lexical);
+    }
+    let month_str = &main[2..];
+    if month_str.len() != 2 || !month_str.chars().all(|c| c.is_ascii_digit()) {
+        return Err(TemporalErr::Lexical);
+    }
+    let month: u32 = month_str.parse().map_err(|_| TemporalErr::Lexical)?;
+    if !(1..=12).contains(&month) {
+        return Err(TemporalErr::Range);
+    }
+    let tz = match tz_opt {
+        Some(t) => Some(parse_tz(t)?),
+        None => None,
+    };
+    Ok((month as u8, tz))
+}
+
+pub fn parse_g_month_day(s: &str) -> Result<(u8, u8, Option<FixedOffset>), TemporalErr> {
+    let (main, tz_opt) = split_tz(s);
+    if !main.starts_with("--") {
+        return Err(TemporalErr::Lexical);
+    }
+    let body = &main[2..];
+    let parts: Vec<&str> = body.split('-').collect();
+    if parts.len() != 2 {
+        return Err(TemporalErr::Lexical);
+    }
+    let month: u32 = parts[0].parse().map_err(|_| TemporalErr::Lexical)?;
+    let day: u32 = parts[1].parse().map_err(|_| TemporalErr::Lexical)?;
+    if !(1..=12).contains(&month) {
+        return Err(TemporalErr::Range);
+    }
+    if !(1..=31).contains(&day) {
+        return Err(TemporalErr::Range);
+    }
+    let tz = match tz_opt {
+        Some(t) => Some(parse_tz(t)?),
+        None => None,
+    };
+    Ok((month as u8, day as u8, tz))
+}
+
+pub fn parse_g_day(s: &str) -> Result<(u8, Option<FixedOffset>), TemporalErr> {
+    let (main, tz_opt) = split_tz(s);
+    if !main.starts_with("---") {
+        return Err(TemporalErr::Lexical);
+    }
+    let day_str = &main[3..];
+    if day_str.len() != 2 || !day_str.chars().all(|c| c.is_ascii_digit()) {
+        return Err(TemporalErr::Lexical);
+    }
+    let day: u32 = day_str.parse().map_err(|_| TemporalErr::Lexical)?;
+    if !(1..=31).contains(&day) {
+        return Err(TemporalErr::Range);
+    }
+    let tz = match tz_opt {
+        Some(t) => Some(parse_tz(t)?),
+        None => None,
+    };
+    Ok((day as u8, tz))
+}
+
 pub fn build_naive_datetime(
     date: NaiveDate,
     time: NaiveTime,

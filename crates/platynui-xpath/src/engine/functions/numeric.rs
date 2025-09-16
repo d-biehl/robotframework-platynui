@@ -77,10 +77,18 @@ pub(super) fn avg_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     if args[0].is_empty() {
         return Ok(vec![]);
     }
+    enum AvgState {
+        Numeric,
+        YearMonth,
+        DayTime,
+    }
+    let mut state: Option<AvgState> = None;
     let mut kind = NumericKind::Integer;
     let mut int_acc: i128 = 0;
     let mut dec_acc: f64 = 0.0;
     let mut use_int_acc = true;
+    let mut ym_total: i64 = 0;
+    let mut dt_total: i128 = 0;
     let mut count: i64 = 0;
     for it in &args[0] {
         let XdmItem::Atomic(a) = it else {
@@ -89,52 +97,136 @@ pub(super) fn avg_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
                 "avg on non-atomic item",
             ));
         };
-        if let Some((nk, num)) = classify_numeric(a)? {
-            if nk == NumericKind::Double && num.is_nan() {
-                return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
+        match a {
+            XdmAtomicValue::YearMonthDuration(months) => {
+                state = match state {
+                    None => {
+                        ym_total = *months as i64;
+                        Some(AvgState::YearMonth)
+                    }
+                    Some(AvgState::YearMonth) => {
+                        ym_total = ym_total
+                            .checked_add(*months as i64)
+                            .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow"))?;
+                        Some(AvgState::YearMonth)
+                    }
+                    _ => {
+                        return Err(Error::from_code(
+                            ErrorCode::XPTY0004,
+                            "avg requires values of a single type",
+                        ))
+                    }
+                };
             }
-            kind = kind.promote(nk);
-            match nk {
-                NumericKind::Integer if use_int_acc => {
-                    if let Some(i) = a_as_i128(a) {
-                        if let Some(v) = int_acc.checked_add(i) {
-                            int_acc = v;
-                        } else {
-                            use_int_acc = false;
-                            dec_acc = int_acc as f64 + i as f64;
-                            kind = kind.promote(NumericKind::Decimal);
+            XdmAtomicValue::DayTimeDuration(secs) => {
+                state = match state {
+                    None => {
+                        dt_total = *secs as i128;
+                        Some(AvgState::DayTime)
+                    }
+                    Some(AvgState::DayTime) => {
+                        dt_total = dt_total
+                            .checked_add(*secs as i128)
+                            .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow"))?;
+                        Some(AvgState::DayTime)
+                    }
+                    _ => {
+                        return Err(Error::from_code(
+                            ErrorCode::XPTY0004,
+                            "avg requires values of a single type",
+                        ))
+                    }
+                };
+            }
+            _ => {
+                if let Some((nk, num)) = classify_numeric(a)? {
+                    if nk == NumericKind::Double && num.is_nan() {
+                        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
+                    }
+                    state = match state {
+                        None => Some(AvgState::Numeric),
+                        Some(AvgState::Numeric) => Some(AvgState::Numeric),
+                        _ => {
+                            return Err(Error::from_code(
+                                ErrorCode::XPTY0004,
+                                "avg requires values of a single type",
+                            ))
+                        }
+                    };
+                    kind = kind.promote(nk);
+                    match nk {
+                        NumericKind::Integer if use_int_acc => {
+                            if let Some(i) = a_as_i128(a) {
+                                if let Some(v) = int_acc.checked_add(i) {
+                                    int_acc = v;
+                                } else {
+                                    use_int_acc = false;
+                                    dec_acc = int_acc as f64 + i as f64;
+                                    kind = kind.promote(NumericKind::Decimal);
+                                }
+                            }
+                        }
+                        _ => {
+                            if use_int_acc {
+                                dec_acc = int_acc as f64;
+                                use_int_acc = false;
+                            }
+                            dec_acc += num;
                         }
                     }
-                }
-                _ => {
-                    if use_int_acc {
-                        dec_acc = int_acc as f64;
-                        use_int_acc = false;
-                    }
-                    dec_acc += num;
+                } else {
+                    return Err(Error::from_code(
+                        ErrorCode::XPTY0004,
+                        "avg requires numeric or duration values",
+                    ));
                 }
             }
-            count += 1;
-        } else {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "avg requires numeric values",
-            ));
         }
+        count += 1;
     }
     if count == 0 {
         return Ok(vec![]);
     }
-    let total = if use_int_acc && matches!(kind, NumericKind::Integer) {
-        int_acc as f64
-    } else {
-        dec_acc
-    };
-    let mean = total / (count as f64);
-    let out = match kind {
-        NumericKind::Integer | NumericKind::Decimal => XdmAtomicValue::Decimal(mean),
-        NumericKind::Float => XdmAtomicValue::Float(mean as f32),
-        NumericKind::Double => XdmAtomicValue::Double(mean),
+    let out = match state.unwrap_or(AvgState::Numeric) {
+        AvgState::Numeric => {
+            let total = if use_int_acc && matches!(kind, NumericKind::Integer) {
+                int_acc as f64
+            } else {
+                dec_acc
+            };
+            let mean = total / (count as f64);
+            match kind {
+                NumericKind::Integer | NumericKind::Decimal => {
+                    XdmAtomicValue::Decimal(mean)
+                }
+                NumericKind::Float => XdmAtomicValue::Float(mean as f32),
+                NumericKind::Double => XdmAtomicValue::Double(mean),
+            }
+        }
+        AvgState::YearMonth => {
+            if ym_total % count != 0 {
+                return Err(Error::from_code(
+                    ErrorCode::FOAR0002,
+                    "average yearMonthDuration is not integral months",
+                ));
+            }
+            let months: i32 = (ym_total / count)
+                .try_into()
+                .map_err(|_| Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow"))?;
+            XdmAtomicValue::YearMonthDuration(months)
+        }
+        AvgState::DayTime => {
+            if dt_total % (count as i128) != 0 {
+                return Err(Error::from_code(
+                    ErrorCode::FOAR0002,
+                    "average dayTimeDuration has fractional seconds",
+                ));
+            }
+            let secs: i64 = (dt_total / (count as i128))
+                .try_into()
+                .map_err(|_| Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow"))?;
+            XdmAtomicValue::DayTimeDuration(secs)
+        }
     };
     Ok(vec![XdmItem::Atomic(out)])
 }

@@ -2,6 +2,16 @@ use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
 use chrono::{DateTime as ChronoDateTime, FixedOffset as ChronoFixedOffset, NaiveDate, NaiveTime};
 
+pub(super) fn require_context_item<N: crate::model::XdmNode + Clone>(
+    ctx: &CallCtx<N>,
+) -> Result<XdmItem<N>, Error> {
+    ctx
+        .dyn_ctx
+        .context_item
+        .clone()
+        .ok_or_else(|| Error::from_code(ErrorCode::XPDY0002, "context item is undefined"))
+}
+
 pub(super) fn ebv<N>(seq: &XdmSequence<N>) -> Result<bool, Error> {
     match seq.len() {
         0 => Ok(false),
@@ -40,17 +50,13 @@ pub(super) fn item_to_string<N: crate::model::XdmNode>(seq: &XdmSequence<N>) -> 
 pub(super) fn normalize_space_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     arg_opt: Option<&XdmSequence<N>>,
-) -> XdmSequence<N> {
+) -> Result<XdmSequence<N>, Error> {
     let s = match arg_opt {
         Some(seq) => item_to_string(seq),
         None => {
-            if let Some(ci) = &ctx.dyn_ctx.context_item {
-                match ci {
-                    XdmItem::Atomic(a) => as_string(a),
-                    XdmItem::Node(n) => n.string_value(),
-                }
-            } else {
-                String::new()
+            match require_context_item(ctx)? {
+                XdmItem::Atomic(a) => as_string(&a),
+                XdmItem::Node(n) => n.string_value(),
             }
         }
     };
@@ -70,7 +76,7 @@ pub(super) fn normalize_space_default<N: 'static + Send + Sync + crate::model::X
     if out.ends_with(' ') {
         out.pop();
     }
-    vec![XdmItem::Atomic(XdmAtomicValue::String(out))]
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
 }
 
 // Default implementation for data() 0/1-arity
@@ -89,15 +95,13 @@ pub(super) fn data_default<N: 'static + Send + Sync + crate::model::XdmNode + Cl
             }
         }
         Ok(out)
-    } else if let Some(ci) = &ctx.dyn_ctx.context_item {
-        match ci {
-            XdmItem::Atomic(a) => Ok(vec![XdmItem::Atomic(a.clone())]),
+    } else {
+        match require_context_item(ctx)? {
+            XdmItem::Atomic(a) => Ok(vec![XdmItem::Atomic(a)]),
             XdmItem::Node(n) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(
                 n.string_value(),
             ))]),
         }
-    } else {
-        Ok(Vec::new())
     }
 }
 
@@ -108,10 +112,8 @@ pub(super) fn number_default<N: crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     let seq: XdmSequence<N> = if let Some(s) = arg_opt {
         s.clone()
-    } else if let Some(ci) = &ctx.dyn_ctx.context_item {
-        vec![ci.clone()]
     } else {
-        vec![]
+        vec![require_context_item(ctx)?]
     };
     let n = to_number(&seq).unwrap_or(f64::NAN);
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(n))])
@@ -124,16 +126,10 @@ pub(super) fn string_default<N: crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     let s = match arg_opt {
         Some(seq) => item_to_string(seq),
-        None => {
-            if let Some(ci) = &ctx.dyn_ctx.context_item {
-                match ci {
-                    XdmItem::Atomic(a) => as_string(a),
-                    XdmItem::Node(n) => n.string_value(),
-                }
-            } else {
-                String::new()
-            }
-        }
+        None => match require_context_item(ctx)? {
+            XdmItem::Atomic(a) => as_string(&a),
+            XdmItem::Node(n) => n.string_value(),
+        },
     };
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
 }
@@ -418,144 +414,239 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
     if seq.is_empty() {
         if let Some(z) = zero_opt {
             if z.is_empty() {
-                return Err(Error::from_code(
-                    ErrorCode::FORG0001,
-                    "sum seed required when first arg empty",
-                ));
-            } else {
-                return Ok(z.clone());
+                return Ok(vec![]);
             }
+            if z.len() != 1 {
+                return Err(Error::from_code(
+                    ErrorCode::FORG0006,
+                    "sum($seq,$zero) expects a single item for $zero",
+                ));
+            }
+            return Ok(z.clone());
         }
-        // when no seed provided, but empty seq: per existing behavior in 1-arity path we returned 0 for empty? Original 1-arity returned 0 as xs:integer.
         return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))]);
     }
-    let mut kind = NumericKind::Integer; // narrowest so far
-    let mut int_acc: i128 = 0; // integer accumulation
-    let mut dec_acc: f64 = 0.0; // promoted accumulation
-    let mut use_int_acc = true;
+    enum SumState {
+        None,
+        Numeric {
+            kind: NumericKind,
+            use_int: bool,
+            int_acc: i128,
+            dec_acc: f64,
+        },
+        YearMonth { total: i64 },
+        DayTime { total: i128 },
+    }
+    let mut state = SumState::None;
     for it in seq {
         let XdmItem::Atomic(a) = it else {
             return Err(Error::from_code(
                 ErrorCode::XPTY0004,
-                "sum on non-atomic item",
+                "sum requires atomic values",
             ));
         };
-        if let Some((nk, num)) = classify_numeric(a)? {
-            if nk == NumericKind::Double && num.is_nan() {
-                return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
+        match a {
+            XdmAtomicValue::YearMonthDuration(months) => {
+                state = match state {
+                    SumState::None => SumState::YearMonth {
+                        total: *months as i64,
+                    },
+                    SumState::YearMonth { total } => SumState::YearMonth {
+                        total: total
+                            .checked_add(*months as i64)
+                            .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow"))?,
+                    },
+                    _ => {
+                        return Err(Error::from_code(
+                            ErrorCode::XPTY0004,
+                            "mixed types in sum",
+                        ))
+                    }
+                };
             }
-            kind = kind.promote(nk);
-            match nk {
-                NumericKind::Integer if use_int_acc => {
-                    if let Some(i) = a_as_i128(a) {
-                        if let Some(v) = int_acc.checked_add(i) {
-                            int_acc = v;
-                        } else {
-                            use_int_acc = false;
-                            dec_acc = int_acc as f64 + i as f64;
-                            kind = kind.promote(NumericKind::Decimal);
+            XdmAtomicValue::DayTimeDuration(secs) => {
+                state = match state {
+                    SumState::None => SumState::DayTime {
+                        total: *secs as i128,
+                    },
+                    SumState::DayTime { total } => SumState::DayTime {
+                        total: total
+                            .checked_add(*secs as i128)
+                            .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow"))?,
+                    },
+                    _ => {
+                        return Err(Error::from_code(
+                            ErrorCode::XPTY0004,
+                            "mixed types in sum",
+                        ))
+                    }
+                };
+            }
+            _ => {
+                if let Some((nk, num)) = classify_numeric(a)? {
+                    if nk == NumericKind::Double && num.is_nan() {
+                        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
+                    }
+                    state = match state {
+                        SumState::None => SumState::Numeric {
+                            kind: nk,
+                            use_int: matches!(nk, NumericKind::Integer),
+                            int_acc: if matches!(nk, NumericKind::Integer) {
+                                a_as_i128(a).unwrap_or(0)
+                            } else {
+                                0
+                            },
+                            dec_acc: if matches!(nk, NumericKind::Integer) {
+                                a_as_i128(a).unwrap_or(0) as f64
+                            } else {
+                                num
+                            },
+                        },
+                        SumState::Numeric {
+                            mut kind,
+                            mut use_int,
+                            mut int_acc,
+                            mut dec_acc,
+                        } => {
+                            kind = kind.promote(nk);
+                            if matches!(nk, NumericKind::Integer) && use_int {
+                                if let Some(i) = a_as_i128(a) {
+                                    if let Some(v) = int_acc.checked_add(i) {
+                                        int_acc = v;
+                                    } else {
+                                        use_int = false;
+                                        dec_acc = int_acc as f64 + i as f64;
+                                    }
+                                }
+                            } else {
+                                if use_int {
+                                    dec_acc = int_acc as f64;
+                                    use_int = false;
+                                }
+                                dec_acc += num;
+                            }
+                            SumState::Numeric {
+                                kind,
+                                use_int,
+                                int_acc,
+                                dec_acc,
+                            }
                         }
-                    }
-                }
-                _ => {
-                    if use_int_acc {
-                        dec_acc = int_acc as f64;
-                        use_int_acc = false;
-                    }
-                    dec_acc += num;
+                        _ => {
+                            return Err(Error::from_code(
+                                ErrorCode::XPTY0004,
+                                "mixed types in sum",
+                            ))
+                        }
+                    };
+                } else {
+                    return Err(Error::from_code(
+                        ErrorCode::XPTY0004,
+                        "sum requires numeric or duration values",
+                    ));
                 }
             }
-        } else {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "sum requires numeric values",
-            ));
         }
     }
-    let out = if use_int_acc && matches!(kind, NumericKind::Integer) {
-        XdmAtomicValue::Integer(int_acc as i64)
-    } else {
-        match kind {
-            NumericKind::Integer => XdmAtomicValue::Integer(int_acc as i64),
-            NumericKind::Decimal => XdmAtomicValue::Decimal(dec_acc),
-            NumericKind::Float => XdmAtomicValue::Float(dec_acc as f32),
-            NumericKind::Double => XdmAtomicValue::Double(dec_acc),
+    let result = match state {
+        SumState::None => XdmAtomicValue::Integer(0),
+        SumState::Numeric {
+            kind,
+            use_int,
+            int_acc,
+            dec_acc,
+        } => {
+            if use_int && matches!(kind, NumericKind::Integer) {
+                XdmAtomicValue::Integer(int_acc as i64)
+            } else {
+                match kind {
+                    NumericKind::Integer => XdmAtomicValue::Integer(int_acc as i64),
+                    NumericKind::Decimal => XdmAtomicValue::Decimal(dec_acc),
+                    NumericKind::Float => XdmAtomicValue::Float(dec_acc as f32),
+                    NumericKind::Double => XdmAtomicValue::Double(dec_acc),
+                }
+            }
+        }
+        SumState::YearMonth { total } => {
+            let months: i32 = total
+                .try_into()
+                .map_err(|_| Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow"))?;
+            XdmAtomicValue::YearMonthDuration(months)
+        }
+        SumState::DayTime { total } => {
+            let secs: i64 = total
+                .try_into()
+                .map_err(|_| Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow"))?;
+            XdmAtomicValue::DayTimeDuration(secs)
         }
     };
-    Ok(vec![XdmItem::Atomic(out)])
+    Ok(vec![XdmItem::Atomic(result)])
 }
 
 // Default implementation for name() 0/1-arity
 pub(super) fn name_default<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     arg_opt: Option<&XdmSequence<N>>,
-) -> XdmSequence<N> {
+) -> Result<XdmSequence<N>, Error> {
     use crate::model::NodeKind;
-    let s = if let Some(seq) = arg_opt {
+    let target_opt = if let Some(seq) = arg_opt {
         if seq.is_empty() {
-            String::new()
+            None
         } else {
-            match &seq[0] {
-                XdmItem::Node(n) => n
-                    .name()
-                    .map(|q| {
-                        if matches!(n.kind(), NodeKind::Namespace) {
-                            q.local
-                        } else if let Some(p) = q.prefix {
-                            format!("{}:{}", p, q.local)
-                        } else {
-                            q.local
-                        }
-                    })
-                    .unwrap_or_default(),
-                _ => return vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))],
-            }
-        }
-    } else if let Some(ci) = &ctx.dyn_ctx.context_item {
-        match ci {
-            XdmItem::Node(n) => n
-                .name()
-                .map(|q| {
-                    if matches!(n.kind(), NodeKind::Namespace) {
-                        q.local
-                    } else if let Some(p) = q.prefix {
-                        format!("{}:{}", p, q.local)
-                    } else {
-                        q.local
-                    }
-                })
-                .unwrap_or_default(),
-            _ => String::new(),
+            Some(seq[0].clone())
         }
     } else {
-        String::new()
+        Some(require_context_item(ctx)?)
     };
-    vec![XdmItem::Atomic(XdmAtomicValue::String(s))]
+    let s = match target_opt {
+        None => String::new(),
+        Some(XdmItem::Node(n)) => n
+            .name()
+            .map(|q| {
+                if matches!(n.kind(), NodeKind::Namespace) {
+                    q.local
+                } else if let Some(p) = q.prefix {
+                    format!("{}:{}", p, q.local)
+                } else {
+                    q.local
+                }
+            })
+            .unwrap_or_default(),
+        Some(_) => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "name() expects node()",
+            ))
+        }
+    };
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
 }
 
 // Default implementation for local-name() 0/1-arity
 pub(super) fn local_name_default<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     arg_opt: Option<&XdmSequence<N>>,
-) -> XdmSequence<N> {
-    let s = if let Some(seq) = arg_opt {
+) -> Result<XdmSequence<N>, Error> {
+    let target_opt = if let Some(seq) = arg_opt {
         if seq.is_empty() {
-            String::new()
+            None
         } else {
-            match &seq[0] {
-                XdmItem::Node(n) => n.name().map(|q| q.local).unwrap_or_default(),
-                _ => return vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))],
-            }
-        }
-    } else if let Some(ci) = &ctx.dyn_ctx.context_item {
-        match ci {
-            XdmItem::Node(n) => n.name().map(|q| q.local).unwrap_or_default(),
-            _ => String::new(),
+            Some(seq[0].clone())
         }
     } else {
-        String::new()
+        Some(require_context_item(ctx)?)
     };
-    vec![XdmItem::Atomic(XdmAtomicValue::String(s))]
+    let s = match target_opt {
+        None => String::new(),
+        Some(XdmItem::Node(n)) => n.name().map(|q| q.local).unwrap_or_default(),
+        Some(_) => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "local-name() expects node()",
+            ))
+        }
+    };
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
 }
 
 // (namespace-uri default helper removed; single spec-compliant implementation is registered above)

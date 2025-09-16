@@ -51,10 +51,11 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         Some(1),
         strings::string_fn::<N>,
     );
-    reg.register_ns(
+    reg.register_ns_range(
         crate::consts::FNS,
         "string-length",
-        1,
+        0,
+        Some(1),
         strings::string_length_fn::<N>,
     );
     reg.register_ns(
@@ -374,7 +375,13 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         Some(1),
         environment::document_uri_fn::<N>,
     );
-    reg.register_ns(crate::consts::FNS, "lang", 1, environment::lang_fn::<N>);
+    reg.register_ns_range(
+        crate::consts::FNS,
+        "lang",
+        1,
+        Some(2),
+        environment::lang_fn::<N>,
+    );
     reg.register_ns(
         crate::consts::FNS,
         "encode-for-uri",
@@ -708,6 +715,12 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
     reg.register_ns(crate::consts::XS, "time", 1, constructors::xs_time_fn::<N>);
     reg.register_ns(
         crate::consts::XS,
+        "duration",
+        1,
+        constructors::xs_duration_fn::<N>,
+    );
+    reg.register_ns(
+        crate::consts::XS,
         "dayTimeDuration",
         1,
         constructors::xs_day_time_duration_fn::<N>,
@@ -718,6 +731,21 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         1,
         constructors::xs_year_month_duration_fn::<N>,
     );
+    reg.register_ns(crate::consts::XS, "gYear", 1, constructors::xs_g_year_fn::<N>);
+    reg.register_ns(
+        crate::consts::XS,
+        "gYearMonth",
+        1,
+        constructors::xs_g_year_month_fn::<N>,
+    );
+    reg.register_ns(crate::consts::XS, "gMonth", 1, constructors::xs_g_month_fn::<N>);
+    reg.register_ns(
+        crate::consts::XS,
+        "gMonthDay",
+        1,
+        constructors::xs_g_month_day_fn::<N>,
+    );
+    reg.register_ns(crate::consts::XS, "gDay", 1, constructors::xs_g_day_fn::<N>);
     reg.register_ns(crate::consts::XS, "long", 1, constructors::xs_long_fn::<N>);
     reg.register_ns(crate::consts::XS, "int", 1, constructors::xs_int_fn::<N>);
     reg.register_ns(
