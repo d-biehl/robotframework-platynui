@@ -71,6 +71,7 @@ pub enum OpCode {
 
     // Steps / filters
     AxisStep(AxisIR, NodeTestIR, Vec<InstrSeq>),
+    PathExprStep(InstrSeq),
     // Apply n predicates to TOS sequence; each predicate is a separate InstrSeq.
     ApplyPredicates(Vec<InstrSeq>),
     // Ensure document order and no duplicates for a node sequence
@@ -370,6 +371,7 @@ impl fmt::Display for OpCode {
                 }
                 Ok(())
             }
+            OpCode::PathExprStep(_) => write!(f, "path-expr-step"),
             OpCode::ApplyPredicates(seq) => {
                 if seq.is_empty() {
                     write!(f, "apply-predicates([])")

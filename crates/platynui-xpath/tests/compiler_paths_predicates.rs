@@ -56,6 +56,12 @@ fn filter_multiple_predicates() {
 }
 
 #[rstest]
+fn filter_step_in_path_emits_map_opcode() {
+    let is = ir("child::a/xs:string(.)");
+    assert!(is.0.iter().any(|op| matches!(op, OpCode::PathExprStep(_))));
+}
+
+#[rstest]
 fn path_from() {
     let is = ir("(.)/self::node()");
     assert!(is.0.iter().any(|op| matches!(
@@ -280,4 +286,20 @@ fn axis_multiple_predicates() {
         }
     }
     assert!(seen_two);
+}
+#[rstest]
+fn filter_step_preserves_doc_order_for_descendant_insertion() {
+    let is = ir(".//section/xs:string(value)");
+    let mut saw_descendant = false;
+    let mut saw_filter = false;
+    for op in &is.0 {
+        match op {
+            OpCode::AxisStep(AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _) => {
+                saw_descendant = true
+            }
+            OpCode::PathExprStep(_) => saw_filter = true,
+            _ => {}
+        }
+    }
+    assert!(saw_descendant && saw_filter);
 }

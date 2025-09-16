@@ -1074,7 +1074,7 @@ fn build_axis_step(pair: Pair<Rule>) -> AstResult<ast::Step> {
         it.next()
             .ok_or_else(|| ParseAstError::new("axis_step missing predicate_list"))?,
     )?;
-    Ok(ast::Step {
+    Ok(ast::Step::Axis {
         axis,
         test,
         predicates: preds,
@@ -1122,7 +1122,7 @@ fn build_primary_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
         Rule::parenthesized_expr => build_parenthesized(first),
         Rule::abbrev_reverse_step => {
             // ".." -> parent::node()
-            let step = ast::Step {
+            let step = ast::Step::Axis {
                 axis: ast::Axis::Parent,
                 test: ast::NodeTest::Kind(ast::KindTest::AnyKind),
                 predicates: vec![],
@@ -1160,7 +1160,7 @@ fn build_path_expr_from_absolute(pair: Pair<Rule>) -> AstResult<ast::Expr> {
             let rel = it
                 .next()
                 .ok_or_else(|| ParseAstError::new("// without relative_path_expr"))?;
-            let mut steps = vec![ast::Step {
+            let mut steps = vec![ast::Step::Axis {
                 axis: ast::Axis::DescendantOrSelf,
                 test: ast::NodeTest::Kind(ast::KindTest::AnyKind),
                 predicates: vec![],
@@ -1235,7 +1235,7 @@ fn build_path_expr_from_relative(
             op
         };
         if token.as_rule() == Rule::OP_DSLASH {
-            steps.push(ast::Step {
+            steps.push(ast::Step::Axis {
                 axis: ast::Axis::DescendantOrSelf,
                 test: ast::NodeTest::Kind(ast::KindTest::AnyKind),
                 predicates: vec![],
@@ -1252,17 +1252,11 @@ fn build_path_expr_from_relative(
         match step_variant.as_rule() {
             Rule::axis_step => steps.push(build_axis_step(step_variant)?),
             Rule::filter_expr => {
-                // Only allowed if it's the very first (i.e., base already set and no steps yet)
-                if base_expr.is_some() && steps.is_empty() {
-                    let f = build_filter_expr(step_variant)?;
-                    // Chain base with this: treat previous base as PathFrom base, then continue
-                    // Convert by merging: previous base becomes base_expr (already), and we don't add a step here.
-                    // NOTE: Full generality (filter_expr in the middle of a path) is not represented directly in AST.
+                let f = build_filter_expr(step_variant)?;
+                if base_expr.is_none() && steps.is_empty() {
                     base_expr = Some(f);
                 } else {
-                    return Err(ParseAstError::new(
-                        "filter_expr in the middle of path not supported by AST representation",
-                    ));
+                    steps.push(ast::Step::FilterExpr(Box::new(f)));
                 }
             }
             _ => {
@@ -1322,7 +1316,7 @@ fn build_relative_steps(pair: Pair<Rule>) -> AstResult<Vec<ast::Step>> {
             op.clone()
         };
         if token.as_rule() == Rule::OP_DSLASH {
-            steps.push(ast::Step {
+            steps.push(ast::Step::Axis {
                 axis: ast::Axis::DescendantOrSelf,
                 test: ast::NodeTest::Kind(ast::KindTest::AnyKind),
                 predicates: vec![],
@@ -1339,7 +1333,21 @@ fn build_relative_steps(pair: Pair<Rule>) -> AstResult<Vec<ast::Step>> {
         } else {
             step_expr
         };
-        steps.push(build_axis_step(step_variant)?);
+        match step_variant.as_rule() {
+            Rule::axis_step => steps.push(build_axis_step(step_variant)?),
+            Rule::filter_expr => {
+                let f = build_filter_expr(step_variant)?;
+                if steps.is_empty() {
+                    return Err(ParseAstError::new(
+                        "relative path starting with expression must be handled via build_path_expr_from_relative",
+                    ));
+                }
+                steps.push(ast::Step::FilterExpr(Box::new(f)));
+            }
+            _ => {
+                return Err(ParseAstError::new("unexpected step in relative steps"));
+            }
+        }
     }
     Ok(steps)
 }

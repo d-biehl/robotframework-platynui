@@ -14,7 +14,10 @@ fn axis_single_step(#[case] input: &str, #[case] axis: ast::Axis) {
     match parse(input) {
         ast::Expr::Path(p) => {
             assert_eq!(p.steps.len(), 1);
-            assert_eq!(p.steps[0].axis, axis);
+            match &p.steps[0] {
+                ast::Step::Axis { axis: actual, .. } => assert_eq!(actual, &axis),
+                other => panic!("unexpected step: {:?}", other),
+            }
         }
         x => panic!("unexpected: {:?}", x),
     }
@@ -26,7 +29,10 @@ fn reverse_abbrev(#[case] input: &str, #[case] axis: ast::Axis) {
     match parse(input) {
         ast::Expr::Path(p) => {
             assert_eq!(p.steps.len(), 1);
-            assert_eq!(p.steps[0].axis, axis);
+            match &p.steps[0] {
+                ast::Step::Axis { axis: actual, .. } => assert_eq!(actual, &axis),
+                other => panic!("unexpected step: {:?}", other),
+            }
         }
         x => panic!("unexpected: {:?}", x),
     }
@@ -47,9 +53,12 @@ fn double_slash_inserts_desc_or_self(#[case] input: &str, #[case] steps: usize) 
 #[case("processing-instruction('xml-stylesheet')")]
 fn pi_tests_parse(#[case] input: &str) {
     match parse(input) {
-        ast::Expr::Path(p) => match &p.steps[0].test {
-            ast::NodeTest::Kind(ast::KindTest::ProcessingInstruction(_)) => {}
-            x => panic!("unexpected: {:?}", x),
+        ast::Expr::Path(p) => match &p.steps[0] {
+            ast::Step::Axis { test, .. } => match test {
+                ast::NodeTest::Kind(ast::KindTest::ProcessingInstruction(_)) => {}
+                x => panic!("unexpected: {:?}", x),
+            },
+            other => panic!("unexpected step: {:?}", other),
         },
         x => panic!("unexpected: {:?}", x),
     }

@@ -20,9 +20,12 @@ use rstest::rstest;
 )]
 fn reserved_names_as_node_tests(#[case] input: &str, #[case] expect: ast::KindTest) {
     match parse_xpath(input).expect("parse failed") {
-        ast::Expr::Path(p) => match &p.steps[0].test {
-            ast::NodeTest::Kind(k) => assert_eq!(k, &expect),
-            x => panic!("unexpected: {:?}", x),
+        ast::Expr::Path(p) => match &p.steps[0] {
+            ast::Step::Axis { test, .. } => match test {
+                ast::NodeTest::Kind(k) => assert_eq!(k, &expect),
+                x => panic!("unexpected: {:?}", x),
+            },
+            other => panic!("unexpected step: {:?}", other),
         },
         x => panic!("unexpected: {:?}", x),
     }
@@ -37,20 +40,26 @@ fn reserved_names_schema_variants() {
         ns_uri: None,
     };
     match parse_xpath("schema-element(a)").expect("parse failed") {
-        ast::Expr::Path(p) => match &p.steps[0].test {
-            ast::NodeTest::Kind(ast::KindTest::SchemaElement(qn)) => {
-                assert_eq!(qn, &q("a"))
-            }
-            x => panic!("unexpected: {:?}", x),
+        ast::Expr::Path(p) => match &p.steps[0] {
+            ast::Step::Axis { test, .. } => match test {
+                ast::NodeTest::Kind(ast::KindTest::SchemaElement(qn)) => {
+                    assert_eq!(qn, &q("a"))
+                }
+                x => panic!("unexpected: {:?}", x),
+            },
+            other => panic!("unexpected step: {:?}", other),
         },
         x => panic!("unexpected: {:?}", x),
     }
     match parse_xpath("schema-attribute(a)").expect("parse failed") {
-        ast::Expr::Path(p) => match &p.steps[0].test {
-            ast::NodeTest::Kind(ast::KindTest::SchemaAttribute(qn)) => {
-                assert_eq!(qn, &q("a"))
-            }
-            x => panic!("unexpected: {:?}", x),
+        ast::Expr::Path(p) => match &p.steps[0] {
+            ast::Step::Axis { test, .. } => match test {
+                ast::NodeTest::Kind(ast::KindTest::SchemaAttribute(qn)) => {
+                    assert_eq!(qn, &q("a"))
+                }
+                x => panic!("unexpected: {:?}", x),
+            },
+            other => panic!("unexpected step: {:?}", other),
         },
         x => panic!("unexpected: {:?}", x),
     }
@@ -59,11 +68,14 @@ fn reserved_names_schema_variants() {
 #[rstest]
 fn pi_with_target_is_node_test() {
     match parse_xpath("processing-instruction('xml-stylesheet')").expect("parse failed") {
-        ast::Expr::Path(p) => match &p.steps[0].test {
-            ast::NodeTest::Kind(ast::KindTest::ProcessingInstruction(Some(t))) => {
-                assert_eq!(t, "xml-stylesheet");
-            }
-            x => panic!("unexpected: {:?}", x),
+        ast::Expr::Path(p) => match &p.steps[0] {
+            ast::Step::Axis { test, .. } => match test {
+                ast::NodeTest::Kind(ast::KindTest::ProcessingInstruction(Some(t))) => {
+                    assert_eq!(t, "xml-stylesheet");
+                }
+                x => panic!("unexpected: {:?}", x),
+            },
+            other => panic!("unexpected step: {:?}", other),
         },
         x => panic!("unexpected: {:?}", x),
     }

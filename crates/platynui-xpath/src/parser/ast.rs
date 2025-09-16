@@ -212,10 +212,13 @@ pub enum Axis {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Step {
-    pub axis: Axis,
-    pub test: NodeTest,
-    pub predicates: Vec<Expr>,
+pub enum Step {
+    Axis {
+        axis: Axis,
+        test: NodeTest,
+        predicates: Vec<Expr>,
+    },
+    FilterExpr(Box<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

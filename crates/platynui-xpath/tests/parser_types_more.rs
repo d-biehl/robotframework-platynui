@@ -11,9 +11,12 @@ fn parse(expr: &str) -> ast::Expr {
 #[case("element(a, xs:integer?)")]
 fn element_kind_tests(#[case] input: &str) {
     match parse(input) {
-        ast::Expr::Path(p) => match &p.steps[0].test {
-            ast::NodeTest::Kind(ast::KindTest::Element { .. }) => {}
-            x => panic!("unexpected: {:?}", x),
+        ast::Expr::Path(p) => match &p.steps[0] {
+            ast::Step::Axis { test, .. } => match test {
+                ast::NodeTest::Kind(ast::KindTest::Element { .. }) => {}
+                x => panic!("unexpected: {:?}", x),
+            },
+            other => panic!("unexpected step: {:?}", other),
         },
         x => panic!("unexpected: {:?}", x),
     }
@@ -24,9 +27,12 @@ fn element_kind_tests(#[case] input: &str) {
 #[case("attribute(*, xs:string)")]
 fn attribute_kind_tests(#[case] input: &str) {
     match parse(input) {
-        ast::Expr::Path(p) => match &p.steps[0].test {
-            ast::NodeTest::Kind(ast::KindTest::Attribute { .. }) => {}
-            x => panic!("unexpected: {:?}", x),
+        ast::Expr::Path(p) => match &p.steps[0] {
+            ast::Step::Axis { test, .. } => match test {
+                ast::NodeTest::Kind(ast::KindTest::Attribute { .. }) => {}
+                x => panic!("unexpected: {:?}", x),
+            },
+            other => panic!("unexpected step: {:?}", other),
         },
         x => panic!("unexpected: {:?}", x),
     }

@@ -395,11 +395,25 @@ impl<'a> Compiler<'a> {
 
     fn lower_path_steps(&mut self, steps: &[ast::Step]) -> CResult<()> {
         for s in steps {
-            let axis = self.map_axis(&s.axis);
-            let test = self.map_node_test_checked(&s.test)?;
-            let preds = self.lower_predicates(&s.predicates)?;
-            self.emit(ir::OpCode::AxisStep(axis, test, preds));
-            self.emit(ir::OpCode::DocOrderDistinct);
+            match s {
+                ast::Step::Axis {
+                    axis,
+                    test,
+                    predicates,
+                } => {
+                    let axis_ir = self.map_axis(axis);
+                    let test_ir = self.map_node_test_checked(test)?;
+                    let preds = self.lower_predicates(predicates)?;
+                    self.emit(ir::OpCode::AxisStep(axis_ir, test_ir, preds));
+                    self.emit(ir::OpCode::DocOrderDistinct);
+                }
+                ast::Step::FilterExpr(expr) => {
+                    let mut sub = self.fork();
+                    sub.lower_expr(expr)?;
+                    self.emit(ir::OpCode::PathExprStep(ir::InstrSeq(sub.code)));
+                    self.emit(ir::OpCode::DocOrderDistinct);
+                }
+            }
         }
         Ok(())
     }

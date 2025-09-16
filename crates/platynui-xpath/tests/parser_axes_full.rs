@@ -18,7 +18,10 @@ fn forward_axes(#[case] input: &str, #[case] axis: ast::Axis) {
     match parse(input) {
         ast::Expr::Path(p) => {
             assert_eq!(p.steps.len(), 1);
-            assert_eq!(p.steps[0].axis, axis);
+            match &p.steps[0] {
+                ast::Step::Axis { axis: actual, .. } => assert_eq!(actual, &axis),
+                other => panic!("unexpected step: {:?}", other),
+            }
         }
         x => panic!("unexpected: {:?}", x),
     }
@@ -34,7 +37,10 @@ fn reverse_axes(#[case] input: &str, #[case] axis: ast::Axis) {
     match parse(input) {
         ast::Expr::Path(p) => {
             assert_eq!(p.steps.len(), 1);
-            assert_eq!(p.steps[0].axis, axis);
+            match &p.steps[0] {
+                ast::Step::Axis { axis: actual, .. } => assert_eq!(actual, &axis),
+                other => panic!("unexpected step: {:?}", other),
+            }
         }
         x => panic!("unexpected: {:?}", x),
     }

@@ -12,9 +12,12 @@ fn parse(expr: &str) -> ast::Expr {
 #[case("processing-instruction()", ast::KindTest::ProcessingInstruction(None))]
 fn basic_kind_tests(#[case] input: &str, #[case] kind: ast::KindTest) {
     match parse(input) {
-        ast::Expr::Path(p) => match &p.steps[0].test {
-            ast::NodeTest::Kind(k) => assert_eq!(k, &kind),
-            x => panic!("unexpected: {:?}", x),
+        ast::Expr::Path(p) => match &p.steps[0] {
+            ast::Step::Axis { test, .. } => match test {
+                ast::NodeTest::Kind(k) => assert_eq!(k, &kind),
+                x => panic!("unexpected: {:?}", x),
+            },
+            other => panic!("unexpected step: {:?}", other),
         },
         x => panic!("unexpected: {:?}", x),
     }
@@ -23,12 +26,15 @@ fn basic_kind_tests(#[case] input: &str, #[case] kind: ast::KindTest) {
 #[rstest]
 fn document_node_wrapped_element() {
     match parse("document-node(element(*))") {
-        ast::Expr::Path(p) => match &p.steps[0].test {
-            ast::NodeTest::Kind(ast::KindTest::Document(Some(inner))) => match inner.as_ref() {
-                ast::KindTest::Element { .. } => {}
-                x => panic!("unexpected inner: {:?}", x),
+        ast::Expr::Path(p) => match &p.steps[0] {
+            ast::Step::Axis { test, .. } => match test {
+                ast::NodeTest::Kind(ast::KindTest::Document(Some(inner))) => match inner.as_ref() {
+                    ast::KindTest::Element { .. } => {}
+                    x => panic!("unexpected inner: {:?}", x),
+                },
+                x => panic!("unexpected: {:?}", x),
             },
-            x => panic!("unexpected: {:?}", x),
+            other => panic!("unexpected step: {:?}", other),
         },
         x => panic!("unexpected: {:?}", x),
     }

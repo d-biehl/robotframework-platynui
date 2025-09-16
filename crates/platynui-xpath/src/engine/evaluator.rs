@@ -194,6 +194,24 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     }
                     ip += 1;
                 }
+                OpCode::PathExprStep(step_ir) => {
+                    let input = self.pop_seq();
+                    let mut out: XdmSequence<N> = Vec::new();
+                    let len = input.len();
+                    for (idx, item) in input.into_iter().enumerate() {
+                        let mut child = self.dyn_ctx.clone();
+                        child.context_item = Some(item.clone());
+                        let mut vm = Vm::new(self.compiled, &child);
+                        vm.frames.push(Frame {
+                            last: len,
+                            pos: idx + 1,
+                        });
+                        let res = vm.run(step_ir)?;
+                        out.extend(res);
+                    }
+                    self.stack.push(out);
+                    ip += 1;
+                }
                 OpCode::ApplyPredicates(preds) => {
                     let input = self.pop_seq();
                     // Apply each predicate in order, boolean semantics only (compiler ensures ToEBV)
