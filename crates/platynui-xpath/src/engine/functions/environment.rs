@@ -150,7 +150,7 @@ pub(super) fn lang_fn<N: crate::model::XdmNode + Clone>(
             return Err(Error::from_code(
                 ErrorCode::XPTY0004,
                 "fn:lang requires node() as second argument",
-            ))
+            ));
         }
     };
     let mut lang_val: Option<String> = None;

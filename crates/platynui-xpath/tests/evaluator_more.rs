@@ -2,8 +2,8 @@ use platynui_xpath::engine::runtime::{
     CallCtx, DynamicContextBuilder, Error, FunctionRegistry, StaticContextBuilder,
 };
 use platynui_xpath::{
-    compile_xpath_with_context, evaluate, evaluate_expr, ExpandedName,
-    xdm::XdmAtomicValue as A, xdm::XdmItem as I,
+    ExpandedName, compile_xpath_with_context, evaluate, evaluate_expr, xdm::XdmAtomicValue as A,
+    xdm::XdmItem as I,
 };
 use rstest::rstest;
 type N = platynui_xpath::model::simple::SimpleNode;

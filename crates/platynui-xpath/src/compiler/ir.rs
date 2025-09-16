@@ -113,6 +113,8 @@ pub enum OpCode {
     // Enter/leave a new local scope with given number of slots
     BeginScope(usize),
     EndScope,
+    LetStartByName(ExpandedName),
+    LetEnd,
 
     // Quantifiers and iteration
     ForStartByName(ExpandedName),
@@ -412,6 +414,8 @@ impl fmt::Display for OpCode {
             // Control flow / bindings
             OpCode::BeginScope(n) => write!(f, "begin-scope slots={}", n),
             OpCode::EndScope => write!(f, "end-scope"),
+            OpCode::LetStartByName(n) => write!(f, "let-start {}", n),
+            OpCode::LetEnd => write!(f, "let-end"),
 
             // Quantifiers and iteration
             OpCode::ForStartByName(n) => write!(f, "for ${} in", n),

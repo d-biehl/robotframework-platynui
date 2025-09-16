@@ -30,6 +30,7 @@ struct Vm<'a, N> {
     compiled: &'a CompiledXPath,
     dyn_ctx: &'a DynamicContext<N>,
     stack: Vec<XdmSequence<N>>,
+    local_vars: Vec<(ExpandedName, XdmSequence<N>)>,
     // Frame stack for position()/last() support inside predicates / loops
     frames: Vec<Frame>,
     // Cached default collation for this VM (dynamic overrides static)
@@ -59,6 +60,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             compiled,
             dyn_ctx,
             stack: Vec::new(),
+            local_vars: Vec::new(),
             frames: Vec::new(),
             default_collation,
         }
@@ -75,13 +77,17 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     ip += 1;
                 }
                 OpCode::LoadVarByName(name) => {
-                    let v = self
-                        .dyn_ctx
-                        .variables
-                        .get(name)
-                        .cloned()
-                        .unwrap_or_else(Vec::new);
-                    self.stack.push(v);
+                    if let Some((_, v)) = self.local_vars.iter().rev().find(|(n, _)| n == name) {
+                        self.stack.push(v.clone());
+                    } else {
+                        let v = self
+                            .dyn_ctx
+                            .variables
+                            .get(name)
+                            .cloned()
+                            .unwrap_or_else(Vec::new);
+                        self.stack.push(v);
+                    }
                     ip += 1;
                 }
                 OpCode::LoadContextItem => {
@@ -1049,6 +1055,20 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
 
                 // Control flow / bindings (not fully supported)
                 OpCode::BeginScope(_) | OpCode::EndScope => {
+                    ip += 1;
+                }
+                OpCode::LetStartByName(var_name) => {
+                    let value = self.pop_seq();
+                    self.local_vars.push((var_name.clone(), value));
+                    ip += 1;
+                }
+                OpCode::LetEnd => {
+                    if self.local_vars.pop().is_none() {
+                        return Err(Error::from_code(
+                            ErrorCode::FOER0000,
+                            "imbalanced let scope during evaluation",
+                        ));
+                    }
                     ip += 1;
                 }
                 OpCode::ForStartByName(var_name) => {

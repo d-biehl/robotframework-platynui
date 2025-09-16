@@ -37,9 +37,3 @@ fn stray_operator(ctx: StaticContext) {
     let err = compile_xpath_with_context("1 +", &ctx).unwrap_err();
     assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }
-
-#[rstest]
-fn let_not_supported(ctx: StaticContext) {
-    let err = compile_xpath_with_context("let $x := 1 return $x", &ctx).unwrap_err();
-    assert_eq!(err.code_enum(), ErrorCode::XPST0003);
-}

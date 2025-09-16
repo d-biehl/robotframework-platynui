@@ -20,7 +20,7 @@ digits = { ASCII_DIGIT+ }
 
 // QNames and NCNames with XML 1.1 support
 // Note: qname is intentionally non-atomic so the evaluator can access prefix/local parts by rule name.
-qname        = { (qname_prefix ~ ":")? ~ qname_local }
+qname        = { (qname_prefix ~ ":" ~ qname_local) | qname_local }
 qname_prefix = { ncname }
 qname_local  = { ncname }
 
@@ -66,6 +66,7 @@ OP_AT          = @{ "@" }
 OP_DOT         = @{ "." }
 OP_DOTDOT      = @{ ".." }
 OP_COLONCOLON  = @{ "::" }
+OP_ASSIGN      = @{ ":=" }
 OP_SLASH       = @{ "/" }
 OP_DSLASH      = @{ "//" }
 OP_PIPE        = @{ "|" }
@@ -111,6 +112,7 @@ K_EXCEPT    = @{ "except"    ~ !ncname_char }
 
 // Structural
 K_FOR       = @{ "for"       ~ !ncname_char }
+K_LET       = @{ "let"       ~ !ncname_char }
 K_IN        = @{ "in"        ~ !ncname_char }
 K_RETURN    = @{ "return"    ~ !ncname_char }
 K_SOME      = @{ "some"      ~ !ncname_char }
@@ -161,10 +163,11 @@ K_ANCESTOR_OR_SELF   = @{ "ancestor-or-self"   ~ !ncname_char }
 // =========================
 xpath       = { SOI ~ expr ~ EOI }
 expr        = { expr_single ~ (COMMA ~ expr_single)* }
-expr_single = { for_expr | quantified_expr | if_expr | or_expr }
+expr_single = { for_expr | let_expr | quantified_expr | if_expr | or_expr }
 
 // For/quantified/if
 for_expr = { K_FOR ~ "$" ~ var_name ~ K_IN ~ expr_single ~ (COMMA ~ "$" ~ var_name ~ K_IN ~ expr_single)* ~ K_RETURN ~ expr_single }
+let_expr = { K_LET ~ "$" ~ var_name ~ OP_ASSIGN ~ expr_single ~ (COMMA ~ "$" ~ var_name ~ OP_ASSIGN ~ expr_single)* ~ K_RETURN ~ expr_single }
 quantified_expr = { (K_SOME | K_EVERY) ~ "$" ~ var_name ~ K_IN ~ expr_single ~ (COMMA ~ "$" ~ var_name ~ K_IN ~ expr_single)* ~ K_SATISFIES ~ expr_single }
 if_expr = { K_IF ~ LPAR ~ expr ~ RPAR ~ K_THEN ~ expr_single ~ K_ELSE ~ expr_single }
 

@@ -14,13 +14,12 @@ fn ctx_with_text(
         .build()
 }
 
-fn ctx_without_item(
-) -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
+fn ctx_without_item()
+-> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::default().build()
 }
 
-fn ctx_with_element(
-) -> (
+fn ctx_with_element() -> (
     platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode>,
     platynui_xpath::model::simple::SimpleNode,
 ) {
@@ -101,8 +100,7 @@ fn normalize_space_zero_arity() {
 #[case("document-uri()")]
 fn zero_arity_without_context_item_errors(#[case] expr: &str) {
     let ctx = ctx_without_item();
-    let err =
-        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx).unwrap_err();
+    let err = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx).unwrap_err();
     assert_eq!(err.code_enum(), ErrorCode::XPDY0002);
 }
 
@@ -111,7 +109,9 @@ fn data_zero_arity_uses_context() {
     let c = ctx_with_text("42");
     let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("data()", &c).unwrap();
     match &out[0] {
-        platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::UntypedAtomic(s)) => {
+        platynui_xpath::xdm::XdmItem::Atomic(
+            platynui_xpath::xdm::XdmAtomicValue::UntypedAtomic(s),
+        ) => {
             assert_eq!(s, "42")
         }
         _ => panic!("expected untypedAtomic"),
@@ -154,8 +154,8 @@ fn name_local_namespace_zero_arity() {
         _ => panic!("expected string"),
     }
 
-    let local = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("local-name()", &ctx)
-        .unwrap();
+    let local =
+        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("local-name()", &ctx).unwrap();
     match &local[0] {
         platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(s)) => {
             assert_eq!(s, "root")
@@ -178,7 +178,8 @@ fn name_local_namespace_zero_arity() {
         _ => panic!("expected node"),
     }
 
-    let base = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("base-uri()", &ctx).unwrap();
+    let base =
+        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("base-uri()", &ctx).unwrap();
     assert!(base.is_empty());
 
     let doc_uri =

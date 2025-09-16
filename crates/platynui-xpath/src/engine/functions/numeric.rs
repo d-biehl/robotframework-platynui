@@ -105,16 +105,16 @@ pub(super) fn avg_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
                         Some(AvgState::YearMonth)
                     }
                     Some(AvgState::YearMonth) => {
-                        ym_total = ym_total
-                            .checked_add(*months as i64)
-                            .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow"))?;
+                        ym_total = ym_total.checked_add(*months as i64).ok_or_else(|| {
+                            Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow")
+                        })?;
                         Some(AvgState::YearMonth)
                     }
                     _ => {
                         return Err(Error::from_code(
                             ErrorCode::XPTY0004,
                             "avg requires values of a single type",
-                        ))
+                        ));
                     }
                 };
             }
@@ -125,16 +125,16 @@ pub(super) fn avg_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
                         Some(AvgState::DayTime)
                     }
                     Some(AvgState::DayTime) => {
-                        dt_total = dt_total
-                            .checked_add(*secs as i128)
-                            .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow"))?;
+                        dt_total = dt_total.checked_add(*secs as i128).ok_or_else(|| {
+                            Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow")
+                        })?;
                         Some(AvgState::DayTime)
                     }
                     _ => {
                         return Err(Error::from_code(
                             ErrorCode::XPTY0004,
                             "avg requires values of a single type",
-                        ))
+                        ));
                     }
                 };
             }
@@ -150,7 +150,7 @@ pub(super) fn avg_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
                             return Err(Error::from_code(
                                 ErrorCode::XPTY0004,
                                 "avg requires values of a single type",
-                            ))
+                            ));
                         }
                     };
                     kind = kind.promote(nk);
@@ -196,9 +196,7 @@ pub(super) fn avg_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
             };
             let mean = total / (count as f64);
             match kind {
-                NumericKind::Integer | NumericKind::Decimal => {
-                    XdmAtomicValue::Decimal(mean)
-                }
+                NumericKind::Integer | NumericKind::Decimal => XdmAtomicValue::Decimal(mean),
                 NumericKind::Float => XdmAtomicValue::Float(mean as f32),
                 NumericKind::Double => XdmAtomicValue::Double(mean),
             }

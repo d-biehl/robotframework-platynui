@@ -314,13 +314,23 @@ impl<'a> Compiler<'a> {
                 self.pop_scope();
                 Ok(())
             }
-            E::LetExpr { .. } => {
-                // Note: 'let' is part of XPath 2.0, and is currently intentionally not supported in this project.
-                // We reject it at the parser/compiler level to maintain the scope of "pure XPath 2.0 without let".
-                Err(Error::from_code(
-                    ErrorCode::XPST0003,
-                    "'let' is not supported in this XPath implementation",
-                ))
+            E::LetExpr {
+                bindings,
+                return_expr,
+            } => {
+                self.push_scope();
+                for b in bindings {
+                    self.lower_expr(&b.value)?;
+                    let en = self.to_expanded(&b.var);
+                    self.emit(ir::OpCode::LetStartByName(en.clone()));
+                    self.declare_local(en);
+                }
+                self.lower_expr(return_expr)?;
+                for _ in bindings.iter().rev() {
+                    self.emit(ir::OpCode::LetEnd);
+                }
+                self.pop_scope();
+                Ok(())
             }
             E::SetOp { left, op, right } => {
                 self.lower_expr(left)?;

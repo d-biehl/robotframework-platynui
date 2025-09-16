@@ -76,6 +76,7 @@ fn build_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
                 .ok_or_else(|| ParseAstError::new("missing expr_single inner"))?,
         ),
         Rule::for_expr => build_for_expr(pair),
+        Rule::let_expr => build_let_expr(pair),
         Rule::quantified_expr => build_quantified_expr(pair),
         Rule::if_expr => build_if_expr(pair),
         Rule::or_expr => build_or_expr(pair),
@@ -1371,6 +1372,50 @@ fn build_for_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
         }
     }
     Err(ParseAstError::new("malformed for_expr"))
+}
+
+fn build_let_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
+    // K_LET ~ "$" ~ var_name ~ OP_ASSIGN ~ expr_single ~ (COMMA ~ "$" ~ var_name ~ OP_ASSIGN ~ expr_single)* ~ K_RETURN ~ expr_single
+    let mut it = pair.into_inner();
+    let mut bindings: Vec<ast::LetBinding> = Vec::new();
+    while let Some(p) = it.next() {
+        match p.as_rule() {
+            Rule::var_name => {
+                let var = build_qname_from_parts(p)?;
+                match it.next() {
+                    Some(assign) if assign.as_rule() == Rule::OP_ASSIGN => {}
+                    _ => {
+                        return Err(ParseAstError::new(
+                            "let_expr missing := after variable name",
+                        ));
+                    }
+                }
+                let value_expr =
+                    build_expr(it.next().ok_or_else(|| {
+                        ParseAstError::new("let_expr missing expr_single after :=")
+                    })?)?;
+                bindings.push(ast::LetBinding {
+                    var,
+                    value: value_expr,
+                });
+            }
+            Rule::K_RETURN => {
+                let return_expr =
+                    build_expr(it.next().ok_or_else(|| {
+                        ParseAstError::new("let_expr missing return expr_single")
+                    })?)?;
+                return Ok(ast::Expr::LetExpr {
+                    bindings,
+                    return_expr: Box::new(return_expr),
+                });
+            }
+            Rule::COMMA | Rule::OP_ASSIGN => {
+                // already handled implicitly by loop
+            }
+            _ => {}
+        }
+    }
+    Err(ParseAstError::new("malformed let_expr"))
 }
 
 fn build_quantified_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {

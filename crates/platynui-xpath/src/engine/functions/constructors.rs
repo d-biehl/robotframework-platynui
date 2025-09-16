@@ -4,11 +4,11 @@ use super::common::{
     parse_year_month_duration_months, replace_whitespace, str_name_like, uint_subtype_u128,
 };
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
-use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
-use base64::Engine as _;
 use crate::util::temporal::{
     parse_g_day, parse_g_month, parse_g_month_day, parse_g_year, parse_g_year_month,
 };
+use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
+use base64::Engine as _;
 
 pub(super) fn integer_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
@@ -377,7 +377,7 @@ pub(super) fn xs_duration_fn<N: crate::model::XdmNode + Clone>(
             return Err(Error::from_code(
                 ErrorCode::NYI0000,
                 "mixed duration components are not supported",
-            ))
+            ));
         }
     };
     Ok(vec![XdmItem::Atomic(value)])
@@ -416,8 +416,8 @@ pub(super) fn xs_g_year_fn<N: crate::model::XdmNode + Clone>(
         ));
     }
     let s = item_to_string(&args[0]);
-    let (year, tz) = parse_g_year(&s)
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYear"))?;
+    let (year, tz) =
+        parse_g_year(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYear"))?;
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::GYear { year, tz })])
 }
 
@@ -437,7 +437,11 @@ pub(super) fn xs_g_year_month_fn<N: crate::model::XdmNode + Clone>(
     let s = item_to_string(&args[0]);
     let (year, month, tz) = parse_g_year_month(&s)
         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYearMonth"))?;
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::GYearMonth { year, month, tz })])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::GYearMonth {
+        year,
+        month,
+        tz,
+    })])
 }
 
 pub(super) fn xs_g_month_fn<N: crate::model::XdmNode + Clone>(
@@ -475,7 +479,11 @@ pub(super) fn xs_g_month_day_fn<N: crate::model::XdmNode + Clone>(
     let s = item_to_string(&args[0]);
     let (month, day, tz) = parse_g_month_day(&s)
         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonthDay"))?;
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::GMonthDay { month, day, tz })])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::GMonthDay {
+        month,
+        day,
+        tz,
+    })])
 }
 
 pub(super) fn xs_g_day_fn<N: crate::model::XdmNode + Clone>(
@@ -492,8 +500,8 @@ pub(super) fn xs_g_day_fn<N: crate::model::XdmNode + Clone>(
         ));
     }
     let s = item_to_string(&args[0]);
-    let (day, tz) = parse_g_day(&s)
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gDay"))?;
+    let (day, tz) =
+        parse_g_day(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gDay"))?;
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::GDay { day, tz })])
 }
 

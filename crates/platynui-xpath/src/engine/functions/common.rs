@@ -5,8 +5,7 @@ use chrono::{DateTime as ChronoDateTime, FixedOffset as ChronoFixedOffset, Naive
 pub(super) fn require_context_item<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
 ) -> Result<XdmItem<N>, Error> {
-    ctx
-        .dyn_ctx
+    ctx.dyn_ctx
         .context_item
         .clone()
         .ok_or_else(|| Error::from_code(ErrorCode::XPDY0002, "context item is undefined"))
@@ -53,12 +52,10 @@ pub(super) fn normalize_space_default<N: 'static + Send + Sync + crate::model::X
 ) -> Result<XdmSequence<N>, Error> {
     let s = match arg_opt {
         Some(seq) => item_to_string(seq),
-        None => {
-            match require_context_item(ctx)? {
-                XdmItem::Atomic(a) => as_string(&a),
-                XdmItem::Node(n) => n.string_value(),
-            }
-        }
+        None => match require_context_item(ctx)? {
+            XdmItem::Atomic(a) => as_string(&a),
+            XdmItem::Node(n) => n.string_value(),
+        },
     };
     let mut out = String::new();
     let mut in_space = true;
@@ -434,8 +431,12 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
             int_acc: i128,
             dec_acc: f64,
         },
-        YearMonth { total: i64 },
-        DayTime { total: i128 },
+        YearMonth {
+            total: i64,
+        },
+        DayTime {
+            total: i128,
+        },
     }
     let mut state = SumState::None;
     for it in seq {
@@ -452,16 +453,11 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
                         total: *months as i64,
                     },
                     SumState::YearMonth { total } => SumState::YearMonth {
-                        total: total
-                            .checked_add(*months as i64)
-                            .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow"))?,
+                        total: total.checked_add(*months as i64).ok_or_else(|| {
+                            Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow")
+                        })?,
                     },
-                    _ => {
-                        return Err(Error::from_code(
-                            ErrorCode::XPTY0004,
-                            "mixed types in sum",
-                        ))
-                    }
+                    _ => return Err(Error::from_code(ErrorCode::XPTY0004, "mixed types in sum")),
                 };
             }
             XdmAtomicValue::DayTimeDuration(secs) => {
@@ -470,16 +466,11 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
                         total: *secs as i128,
                     },
                     SumState::DayTime { total } => SumState::DayTime {
-                        total: total
-                            .checked_add(*secs as i128)
-                            .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow"))?,
+                        total: total.checked_add(*secs as i128).ok_or_else(|| {
+                            Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow")
+                        })?,
                     },
-                    _ => {
-                        return Err(Error::from_code(
-                            ErrorCode::XPTY0004,
-                            "mixed types in sum",
-                        ))
-                    }
+                    _ => return Err(Error::from_code(ErrorCode::XPTY0004, "mixed types in sum")),
                 };
             }
             _ => {
@@ -536,7 +527,7 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
                             return Err(Error::from_code(
                                 ErrorCode::XPTY0004,
                                 "mixed types in sum",
-                            ))
+                            ));
                         }
                     };
                 } else {
@@ -616,7 +607,7 @@ pub(super) fn name_default<N: crate::model::XdmNode + Clone>(
             return Err(Error::from_code(
                 ErrorCode::XPTY0004,
                 "name() expects node()",
-            ))
+            ));
         }
     };
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
@@ -643,7 +634,7 @@ pub(super) fn local_name_default<N: crate::model::XdmNode + Clone>(
             return Err(Error::from_code(
                 ErrorCode::XPTY0004,
                 "local-name() expects node()",
-            ))
+            ));
         }
     };
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])

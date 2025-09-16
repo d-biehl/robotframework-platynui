@@ -731,14 +731,24 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
         1,
         constructors::xs_year_month_duration_fn::<N>,
     );
-    reg.register_ns(crate::consts::XS, "gYear", 1, constructors::xs_g_year_fn::<N>);
+    reg.register_ns(
+        crate::consts::XS,
+        "gYear",
+        1,
+        constructors::xs_g_year_fn::<N>,
+    );
     reg.register_ns(
         crate::consts::XS,
         "gYearMonth",
         1,
         constructors::xs_g_year_month_fn::<N>,
     );
-    reg.register_ns(crate::consts::XS, "gMonth", 1, constructors::xs_g_month_fn::<N>);
+    reg.register_ns(
+        crate::consts::XS,
+        "gMonth",
+        1,
+        constructors::xs_g_month_fn::<N>,
+    );
     reg.register_ns(
         crate::consts::XS,
         "gMonthDay",
