@@ -40,6 +40,7 @@ struct Vm<'a, N> {
     default_collation: Option<std::sync::Arc<dyn crate::engine::collation::Collation>>,
     functions: Arc<FunctionImplementations<N>>,
     current_context_item: Option<XdmItem<N>>,
+    axis_buffer: Vec<N>,
 }
 
 #[derive(Clone, Debug)]
@@ -72,6 +73,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             default_collation,
             functions,
             current_context_item,
+            axis_buffer: Vec::new(),
         }
     }
 
@@ -159,8 +161,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     let mut out: XdmSequence<N> = Vec::with_capacity(input.len());
                     for it in input {
                         if let XdmItem::Node(node) = it {
-                            let nodes = self.axis_iter(node.clone(), axis);
-                            for n in nodes {
+                            self.axis_iter(node.clone(), axis);
+                            for n in self.axis_buffer.iter() {
                                 // Base node-test evaluation
                                 let mut pass = self.node_test(&n, test);
                                 // XPath semantics: On the child axis, a wildcard NameTest ('*')
@@ -174,7 +176,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                     }
                                 }
                                 if pass {
-                                    out.push(XdmItem::Node(n));
+                                    out.push(XdmItem::Node(n.clone()));
                                 }
                             }
                         }
@@ -1875,87 +1877,43 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
     // (default_collation cached in Vm::new)
 
     // ===== Axis & NodeTest helpers =====
-    fn axis_iter(&self, node: N, axis: &AxisIR) -> Vec<N> {
+    fn axis_iter(&mut self, node: N, axis: &AxisIR) {
+        self.axis_buffer.clear();
         match axis {
-            AxisIR::SelfAxis => vec![node],
-            AxisIR::Child => node.children(),
-            AxisIR::Attribute => node.attributes(),
-            AxisIR::Parent => node.parent().into_iter().collect(),
-            AxisIR::Ancestor => {
-                let mut out = Vec::new();
-                let mut cur_opt = node.parent();
-                while let Some(p) = cur_opt {
-                    out.push(p.clone());
-                    cur_opt = p.parent();
+            AxisIR::SelfAxis => self.axis_buffer.push(node),
+            AxisIR::Child => self
+                .axis_buffer
+                .extend(node.children().into_iter().filter(|c| !Self::is_attr_or_namespace(c))),
+            AxisIR::Attribute => self.axis_buffer.extend(node.attributes()),
+            AxisIR::Parent => {
+                if let Some(parent) = node.parent() {
+                    self.axis_buffer.push(parent);
                 }
-                out
             }
-            AxisIR::AncestorOrSelf => {
-                let mut v = self.axis_iter(node.clone(), &AxisIR::Ancestor);
-                v.insert(0, node);
-                v
-            }
-            AxisIR::Descendant => self.collect_descendants(node, false),
-            AxisIR::DescendantOrSelf => self.collect_descendants(node, true),
-            AxisIR::FollowingSibling => self.siblings(node, false),
-            AxisIR::PrecedingSibling => self.siblings(node, true),
-            AxisIR::Following => {
-                let mut out = Vec::new();
-                let mut cursor = self.doc_successor(&node);
-                while let Some(next) = cursor {
-                    let next_cursor = self.doc_successor(&next);
-                    if !Self::is_attr_or_namespace(&next) && !self.is_descendant_of(&next, &node) {
-                        out.push(next.clone());
-                    }
-                    cursor = next_cursor;
-                }
-                out
-            }
-            AxisIR::Namespace => {
-                // Namespace axis: namespaces in scope for the element node.
-                // Walk self → ancestors collecting namespace nodes, keeping first binding per prefix.
-                use crate::model::NodeKind;
-                if !matches!(node.kind(), NodeKind::Element) {
-                    return Vec::new();
-                }
-                let mut out: Vec<N> = Vec::new();
-                let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-                let mut cur: Option<N> = Some(node);
-                while let Some(n) = cur {
-                    if matches!(n.kind(), NodeKind::Element) {
-                        for ns in n.namespaces() {
-                            if let Some(qn) = ns.name() {
-                                let pfx = qn.prefix.unwrap_or_default();
-                                if !seen.contains(&pfx) {
-                                    seen.insert(pfx.clone());
-                                    out.push(ns.clone());
-                                }
-                            }
-                        }
-                    }
-                    cur = n.parent();
-                }
-                out
-            }
-            AxisIR::Preceding => {
-                let mut out = Vec::new();
-                let mut cursor = self.doc_predecessor(&node);
-                while let Some(prev) = cursor {
-                    let prev_cursor = self.doc_predecessor(&prev);
-                    if !Self::is_attr_or_namespace(&prev) && !self.is_ancestor_of(&prev, &node) {
-                        out.push(prev.clone());
-                    }
-                    cursor = prev_cursor;
-                }
-                out.reverse();
-                out
-            }
+            AxisIR::Ancestor => self.push_ancestors(node, false),
+            AxisIR::AncestorOrSelf => self.push_ancestors(node, true),
+            AxisIR::Descendant => self.push_descendants(node, false),
+            AxisIR::DescendantOrSelf => self.push_descendants(node, true),
+            AxisIR::FollowingSibling => self.push_siblings(node, false),
+            AxisIR::PrecedingSibling => self.push_siblings(node, true),
+            AxisIR::Following => self.push_following(node),
+            AxisIR::Namespace => self.push_namespaces(node),
+            AxisIR::Preceding => self.push_preceding(node),
         }
     }
-    fn collect_descendants(&self, node: N, include_self: bool) -> Vec<N> {
-        let mut out = Vec::new();
+    fn push_ancestors(&mut self, node: N, include_self: bool) {
         if include_self {
-            out.push(node.clone());
+            self.axis_buffer.push(node.clone());
+        }
+        let mut current = node.parent();
+        while let Some(parent) = current {
+            self.axis_buffer.push(parent.clone());
+            current = parent.parent();
+        }
+    }
+    fn push_descendants(&mut self, node: N, include_self: bool) {
+        if include_self {
+            self.axis_buffer.push(node.clone());
         }
         let mut stack: Vec<N> = node
             .children()
@@ -1964,7 +1922,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             .collect();
         stack.reverse();
         while let Some(cur) = stack.pop() {
-            out.push(cur.clone());
+            self.axis_buffer.push(cur.clone());
             let mut children: Vec<N> = cur
                 .children()
                 .into_iter()
@@ -1973,7 +1931,74 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             children.reverse();
             stack.extend(children);
         }
-        out
+    }
+    fn push_siblings(&mut self, node: N, preceding: bool) {
+        if let Some(parent) = node.parent() {
+            let siblings = parent.children();
+            if preceding {
+                for sib in siblings.into_iter() {
+                    if sib == node {
+                        break;
+                    }
+                    if !Self::is_attr_or_namespace(&sib) {
+                        self.axis_buffer.push(sib);
+                    }
+                }
+            } else {
+                let mut seen = false;
+                for sib in siblings.into_iter() {
+                    if seen {
+                        if !Self::is_attr_or_namespace(&sib) {
+                            self.axis_buffer.push(sib);
+                        }
+                    } else if sib == node {
+                        seen = true;
+                    }
+                }
+            }
+        }
+    }
+    fn push_following(&mut self, node: N) {
+        let mut cursor = self.doc_successor(&node);
+        while let Some(next) = cursor {
+            let next_cursor = self.doc_successor(&next);
+            if !Self::is_attr_or_namespace(&next) && !self.is_descendant_of(&next, &node) {
+                self.axis_buffer.push(next.clone());
+            }
+            cursor = next_cursor;
+        }
+    }
+    fn push_namespaces(&mut self, node: N) {
+        use crate::model::NodeKind;
+        if !matches!(node.kind(), NodeKind::Element) {
+            return;
+        }
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut cur: Option<N> = Some(node);
+        while let Some(n) = cur {
+            if matches!(n.kind(), NodeKind::Element) {
+                for ns in n.namespaces() {
+                    if let Some(qn) = ns.name() {
+                        let pfx = qn.prefix.unwrap_or_default();
+                        if seen.insert(pfx.clone()) {
+                            self.axis_buffer.push(ns.clone());
+                        }
+                    }
+                }
+            }
+            cur = n.parent();
+        }
+    }
+    fn push_preceding(&mut self, node: N) {
+        let mut cursor = self.doc_predecessor(&node);
+        while let Some(prev) = cursor {
+            let prev_cursor = self.doc_predecessor(&prev);
+            if !Self::is_attr_or_namespace(&prev) && !self.is_ancestor_of(&prev, &node) {
+                self.axis_buffer.push(prev.clone());
+            }
+            cursor = prev_cursor;
+        }
+        self.axis_buffer.reverse();
     }
     fn doc_successor(&self, node: &N) -> Option<N> {
         if let Some(child) = Self::first_child_in_doc(node) {
@@ -2073,32 +2098,6 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
     }
     fn is_ancestor_of(&self, node: &N, descendant: &N) -> bool {
         self.is_descendant_of(descendant, node)
-    }
-    fn siblings(&self, node: N, preceding: bool) -> Vec<N> {
-        if let Some(parent) = node.parent() {
-            let sibs = parent.children();
-            // Find index of current node among element children
-            let mut idx_opt: Option<usize> = None;
-            for (i, s) in sibs.iter().enumerate() {
-                if s == &node {
-                    idx_opt = Some(i);
-                    break;
-                }
-            }
-            if let Some(idx) = idx_opt {
-                if preceding {
-                    // preceding-sibling: nodes before self, in document order (left to right)
-                    sibs.into_iter().take(idx).collect()
-                } else {
-                    // following-sibling: nodes after self, in document order (left to right)
-                    sibs.into_iter().skip(idx + 1).collect()
-                }
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        }
     }
     #[allow(clippy::only_used_in_recursion)]
     fn node_test(&self, node: &N, test: &NodeTestIR) -> bool {

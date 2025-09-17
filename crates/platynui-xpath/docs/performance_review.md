@@ -78,17 +78,16 @@
 ## Weitere Beobachtungen
 - `collect_descendants` rekursiert ohne Tiefenkontrolle (`crates/platynui-xpath/src/engine/evaluator.rs:1934-1946`); inzwischen wird eine iterative Variante genutzt, aber ein Stack-Sizing-Review steht auf der Agenda.
 - `SimpleNode::children`/`attributes` klonen jeweils den kompletten Vektor (`crates/platynui-xpath/src/model/simple.rs:592-604`). Langfristig sollten Iterator-Sichten mit `Arc`-Sharing eingeführt werden.
-- `AxisStep`/`PathExprStep` aktualisieren `DynamicContext` pro Item via Klon (`crates/platynui-xpath/src/engine/evaluator.rs:178`, `crates/platynui-xpath/src/engine/evaluator.rs:202`). Sobald Overlay-Frames existieren, lassen sich Kind-Voms vermeiden und Sequenzen direkt im Eltern-VM iterieren.
+- Achsen iterieren nun über einen wiederverwendbaren Buffer; ohne stabile Dokumentordnungs-Indizes bleiben Mengenoperatoren dennoch teuer.
 
 ## Empfohlene naechste Schritte
 ### Nächste Maßnahmen
 1. **DynamicContext-Overlays einführen**: Gemeinsamen Kontext in `Vm` teilen, Kind-VMs eliminieren und Frames für `context_item`/Variablen etablieren. Blockiert Folgeoptimierungen.
    - **Messung**: Predicate-/For-Schleifen-Benchmarks mit großen Kontexteingaben (`large_predicate.xml`).
    - **Ziel**: Single-VM-Pfade müssen den Regressionstest `predicate_heavy_sum_matches_manual` unter 100 ms halten.
-2. **Axis-/Pfadschritte streamen**: Iteratorbasierte `AxisStep`/`PathExprStep`-Implementierung mit smarter Vorausreservierung oder Lazy Materialisation; Sibling-Indizes nutzen, um `doc_successor`/`doc_predecessor` ohne Vektor-Klon zu fahren.
-   - **Messung**: Criterion `axes/following`, `axes/descendant`.
-3. **Set-Operatoren nachziehen**: Merge-Strategie und dokumentordnungsbasierte Deduplikation weiterhärten (bereits aktiv, aber mit neuen Iteratorwegen testen).
-   - **Status**: Merge-basierte `set_union` implementiert; Regressionstests mit neuen Axis-Iterationen wiederholen.
+2. **Axis-/Pfadschritte streamen**: Buffer-Reuse für `AxisStep`/`PathExprStep` umgesetzt; nächste Messrunde mit großen Dokumenten anstoßen.
+3. **Set-Operatoren nachziehen**: Merge-Strategie und dokumentordnungsbasierte Deduplikation weiterhärten (bereits aktiv, aber noch ohne Indizes testen).
+   - **Status**: Merge-basierte `set_union` implementiert; neue Axis-Pfade als Grundlage für nächste Iteration.
 4. **Compiler – Scope-Sharing**: `lexical_scopes` teilen und Instruktionspuffer reservieren, Criterion `compiler/compile_xpath`.
    - **Status**: Compiler nutzt jetzt SmallVec-Scopes und reserviert Instruktionspuffer; Bench-Zahlen dokumentiert.
 5. **Parser – Clone-freie `Pair`-Iteration**: `into_inner()` konsumieren, Parser-Bench messen.
@@ -123,3 +122,4 @@
 | abc123 | axes/following_preceding | 12.34 | 0.45 | 13.02 | 100 | Ausgangsbasis |
 | def456 | axes/following_preceding | 7.89 | 0.31 | 8.40 | 100 | Overlay-Frames aktiv |
 | 3d8b85a | evaluator/predicate_heavy/sum | 436.05 | 0.46 | 436.71 | 20 | Post-VM-Overlay, großes Dokument |
+| 3d8b85a | evaluator/predicate_heavy/sum | 461.22 | 1.05 | 463.34 | 20 | +Axis-Streaming, Indizes offen |
