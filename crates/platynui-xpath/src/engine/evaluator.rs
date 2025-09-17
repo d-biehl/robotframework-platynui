@@ -1821,47 +1821,43 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
     }
 
     fn doc_order_distinct(&self, seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
-        // For non-node items: return as-is; For nodes: sort+dedup by document order
-        let mut nodes: Vec<N> = Vec::new();
+        let mut keyed: SmallVec<[(u64, N); 8]> = SmallVec::new();
+        let mut fallback: SmallVec<[N; 8]> = SmallVec::new();
         let mut others: Vec<XdmItem<N>> = Vec::new();
         for it in seq {
             match it {
-                XdmItem::Node(n) => nodes.push(n),
+                XdmItem::Node(n) => {
+                    if let Some(key) = n.doc_order_key() {
+                        keyed.push((key, n));
+                    } else {
+                        fallback.push(n);
+                    }
+                }
                 other => others.push(other),
             }
         }
-        if nodes.is_empty() {
+        if keyed.is_empty() && fallback.is_empty() {
             return Ok(others);
         }
-        if nodes.len() == 1 {
-            others.push(XdmItem::Node(nodes.pop().unwrap()));
-            return Ok(others);
-        }
-        let mut out: XdmSequence<N> = others;
-        let mut keyed: SmallVec<[(u64, N); 8]> = SmallVec::new();
-        let mut fallback: SmallVec<[N; 8]> = SmallVec::new();
-        let mut all_keyed = true;
-        for node in nodes {
-            if let Some(k) = node.doc_order_key() {
-                keyed.push((k, node));
-            } else {
-                all_keyed = false;
-                fallback.push(node);
-            }
-        }
-        if all_keyed {
+        if fallback.is_empty() {
             keyed.sort_by_key(|(k, _)| *k);
             keyed.dedup_by(|a, b| a.0 == b.0);
-            out.extend(keyed.into_iter().map(|(_, n)| XdmItem::Node(n)));
-            return Ok(out);
+            others.extend(keyed.into_iter().map(|(_, n)| XdmItem::Node(n)));
+            return Ok(others);
         }
-
-        // Fallback: combine keyed (without reliable key usage) with non-keyed nodes
+        if keyed.is_empty() {
+            fallback.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
+            fallback.dedup();
+            others.extend(fallback.into_iter().map(XdmItem::Node));
+            return Ok(others);
+        }
+        keyed.sort_by_key(|(k, _)| *k);
+        keyed.dedup_by(|a, b| a.0 == b.0);
         fallback.extend(keyed.into_iter().map(|(_, n)| n));
         fallback.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
         fallback.dedup();
-        out.extend(fallback.into_iter().map(XdmItem::Node));
-        Ok(out)
+        others.extend(fallback.into_iter().map(XdmItem::Node));
+        Ok(others)
     }
 
     // (function name resolution for error messages is handled in FunctionRegistry::resolve)

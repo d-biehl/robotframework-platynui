@@ -250,7 +250,7 @@ impl SimpleNode {
         *self.0.doc_order.write().unwrap() = Some(value);
     }
 
-    fn set_doc_id_recursive(&self, doc_id: u64) {
+    pub fn set_doc_id_recursive(&self, doc_id: u64) {
         *self.0.doc_id.write().unwrap() = doc_id;
         {
             let attrs = self.0.attributes.read().unwrap().clone();
