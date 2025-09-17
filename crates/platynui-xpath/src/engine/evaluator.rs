@@ -40,7 +40,7 @@ struct Vm<'a, N> {
     default_collation: Option<std::sync::Arc<dyn crate::engine::collation::Collation>>,
     functions: Arc<FunctionImplementations<N>>,
     current_context_item: Option<XdmItem<N>>,
-    axis_buffer: Vec<N>,
+    axis_buffer: SmallVec<[N; 8]>,
 }
 
 #[derive(Clone, Debug)]
@@ -73,7 +73,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             default_collation,
             functions,
             current_context_item,
-            axis_buffer: Vec::new(),
+            axis_buffer: SmallVec::new(),
         }
     }
 
@@ -1838,8 +1838,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             return Ok(others);
         }
         let mut out: XdmSequence<N> = others;
-        let mut keyed: Vec<(u64, N)> = Vec::with_capacity(nodes.len());
-        let mut fallback: Vec<N> = Vec::new();
+        let mut keyed: SmallVec<[(u64, N); 8]> = SmallVec::new();
+        let mut fallback: SmallVec<[N; 8]> = SmallVec::new();
         let mut all_keyed = true;
         for node in nodes {
             if let Some(k) = node.doc_order_key() {

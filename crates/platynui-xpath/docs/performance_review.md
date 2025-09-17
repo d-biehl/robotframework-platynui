@@ -78,7 +78,7 @@
 ## Weitere Beobachtungen
 - `collect_descendants` rekursiert ohne Tiefenkontrolle (`crates/platynui-xpath/src/engine/evaluator.rs:1934-1946`); inzwischen wird eine iterative Variante genutzt, aber ein Stack-Sizing-Review steht auf der Agenda.
 - `SimpleNode::children`/`attributes` klonen jeweils den kompletten Vektor (`crates/platynui-xpath/src/model/simple.rs:592-604`). Langfristig sollten Iterator-Sichten mit `Arc`-Sharing eingeführt werden.
-- Achsen iterieren nun über einen wiederverwendbaren Buffer. `SimpleNode::doc_order_key` kodiert `(doc_id, preorder)`, aber Mengenoperatoren nutzen weiterhin sequentielle Merge-Pfade.
+- Achsen iterieren nun über einen `SmallVec`-gestützten Buffer. `SimpleNode::doc_order_key` kodiert `(doc_id, preorder)` und wird von den Set-Operatoren genutzt; Hash-gestützte Deduplikation steht noch aus.
 
 ## Empfohlene naechste Schritte
 ### Nächste Maßnahmen
@@ -87,7 +87,7 @@
    - **Ziel**: Single-VM-Pfade müssen den Regressionstest `predicate_heavy_sum_matches_manual` unter 100 ms halten.
 2. **Axis-/Pfadschritte streamen**: Buffer-Reuse für `AxisStep`/`PathExprStep` umgesetzt; nächste Messrunde mit großen Dokumenten anstoßen.
 3. **Set-Operatoren nachziehen**: Merge-Strategie und dokumentordnungsbasierte Deduplikation weiterhärten (bereits aktiv, aber noch ohne Hash-Indizes).
-   - **Status**: `doc_order_key` liefert stabile `(doc_id, preorder)`-Schlüssel; nächster Schritt: Hash-basierte Mengen und deduplizierte Vergleiche.
+   - **Status**: `doc_order_key` liefert stabile `(doc_id, preorder)`-Schlüssel; `SmallVec` puffert Achsen- und Set-Buffers, nächster Schritt: Hash-basierte Mengen.
 4. **Compiler – Scope-Sharing**: `lexical_scopes` teilen und Instruktionspuffer reservieren, Criterion `compiler/compile_xpath`.
    - **Status**: Compiler nutzt jetzt SmallVec-Scopes und reserviert Instruktionspuffer; Bench-Zahlen dokumentiert.
 5. **Parser – Clone-freie `Pair`-Iteration**: `into_inner()` konsumieren, Parser-Bench messen.
