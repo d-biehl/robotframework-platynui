@@ -1,10 +1,10 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use platynui_xpath::compiler::compile_xpath;
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, Error};
 use platynui_xpath::parser::parse_xpath;
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::xdm::XdmItem as I;
-use platynui_xpath::{evaluate, SimpleNode};
+use platynui_xpath::{SimpleNode, evaluate};
 
 fn sample_queries() -> Vec<&'static str> {
     vec![
@@ -88,8 +88,8 @@ fn build_sample_document() -> SimpleNode {
         .build()
 }
 
-fn prepared_compiled_queries(
-) -> Result<Vec<(String, platynui_xpath::compiler::ir::CompiledXPath)>, Error> {
+fn prepared_compiled_queries()
+-> Result<Vec<(String, platynui_xpath::compiler::ir::CompiledXPath)>, Error> {
     sample_queries()
         .into_iter()
         .map(|q| compile_xpath(q).map(|c| (q.to_string(), c)))
@@ -115,5 +115,10 @@ fn benchmark_evaluator(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, benchmark_parser, benchmark_compiler, benchmark_evaluator);
+criterion_group!(
+    benches,
+    benchmark_parser,
+    benchmark_compiler,
+    benchmark_evaluator
+);
 criterion_main!(benches);

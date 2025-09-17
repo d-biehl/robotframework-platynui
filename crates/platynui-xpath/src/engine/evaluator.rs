@@ -8,6 +8,7 @@ use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence};
 use chrono::Duration as ChronoDuration;
 use chrono::{FixedOffset as ChronoFixedOffset, NaiveTime as ChronoNaiveTime, TimeZone};
 use core::cmp::Ordering;
+use smallvec::SmallVec;
 use std::sync::Arc;
 
 /// Evaluate a compiled XPath program against a dynamic context.
@@ -31,10 +32,10 @@ pub fn evaluate_expr<N: 'static + Send + Sync + XdmNode + Clone>(
 struct Vm<'a, N> {
     compiled: &'a CompiledXPath,
     dyn_ctx: &'a DynamicContext<N>,
-    stack: Vec<XdmSequence<N>>,
-    local_vars: Vec<(ExpandedName, XdmSequence<N>)>,
+    stack: SmallVec<[XdmSequence<N>; 8]>,
+    local_vars: SmallVec<[(ExpandedName, XdmSequence<N>); 8]>,
     // Frame stack for position()/last() support inside predicates / loops
-    frames: Vec<Frame>,
+    frames: SmallVec<[Frame; 8]>,
     // Cached default collation for this VM (dynamic overrides static)
     default_collation: Option<std::sync::Arc<dyn crate::engine::collation::Collation>>,
     functions: Arc<FunctionImplementations<N>>,
@@ -63,9 +64,9 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         Self {
             compiled,
             dyn_ctx,
-            stack: Vec::new(),
-            local_vars: Vec::new(),
-            frames: Vec::new(),
+            stack: SmallVec::new(),
+            local_vars: SmallVec::new(),
+            frames: SmallVec::new(),
             default_collation,
             functions,
         }
@@ -144,7 +145,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 // Steps / filters
                 OpCode::AxisStep(axis, test, pred_ir) => {
                     let input = self.pop_seq();
-                    let mut out: XdmSequence<N> = Vec::new();
+                    let mut out: XdmSequence<N> = Vec::with_capacity(input.len());
                     for it in input {
                         if let XdmItem::Node(node) = it {
                             let nodes = self.axis_iter(node.clone(), axis);
@@ -172,7 +173,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         let mut current = out;
                         for pred_code in pred_ir {
                             let len = current.len();
-                            let mut next: XdmSequence<N> = Vec::new();
+                            let mut next: XdmSequence<N> = Vec::with_capacity(len);
                             for (idx, item) in current.into_iter().enumerate() {
                                 let child = self.dyn_ctx.with_context_item(Some(item.clone()));
                                 let mut vm = Vm::new(self.compiled, &child);
@@ -195,8 +196,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 }
                 OpCode::PathExprStep(step_ir) => {
                     let input = self.pop_seq();
-                    let mut out: XdmSequence<N> = Vec::new();
                     let len = input.len();
+                    let mut out: XdmSequence<N> = Vec::with_capacity(len);
                     for (idx, item) in input.into_iter().enumerate() {
                         let child = self.dyn_ctx.with_context_item(Some(item.clone()));
                         let mut vm = Vm::new(self.compiled, &child);
@@ -215,8 +216,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     // Apply each predicate in order, boolean semantics only (compiler ensures ToEBV)
                     let mut current = input;
                     for p in preds {
-                        let mut out: XdmSequence<N> = Vec::new();
                         let len = current.len();
+                        let mut out: XdmSequence<N> = Vec::with_capacity(len);
                         for (idx, it) in current.into_iter().enumerate() {
                             let child = self.dyn_ctx.with_context_item(Some(it.clone()));
                             let mut vm = Vm::new(self.compiled, &child);

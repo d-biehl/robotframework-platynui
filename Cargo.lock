@@ -728,6 +728,7 @@ dependencies = [
  "pest",
  "pest_derive",
  "rstest",
+ "smallvec",
  "thiserror",
  "unicode-normalization",
  "url",

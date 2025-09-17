@@ -67,10 +67,17 @@
 - **Status**: FancyRegexProvider cached patterns via global `OnceLock<Mutex<...>>`, sodass wiederholte Aufrufe identische Regexe teilen.
 
 ## Weitere Beobachtungen
-- `collect_descendants` rekursiert ohne Tiefenkontrolle (`crates/platynui-xpath/src/engine/evaluator.rs:1934-1946`); eine Iteration mit explizitem Stack verhindert Stack-Overflows auf tiefen Dokumenten.
-- `SimpleNode::children`/`attributes` klonen jeweils den kompletten unterliegenden Vektor (`crates/platynui-xpath/src/model/simple.rs:592-604`) und verstaerken damit den Allokationsdruck der oben genannten Hotspots. Geteilte `Arc<Vec<_>>`-Slices oder Iteratoren wuerden helfen, sobald das API angepasst werden kann.
+- `collect_descendants` rekursiert ohne Tiefenkontrolle (`crates/platynui-xpath/src/engine/evaluator.rs:1934-1946`); inzwischen wird eine iterative Variante genutzt, aber ein Stack-Sizing-Review steht auf der Agenda.
+- `SimpleNode::children`/`attributes` klonen jeweils den kompletten Vektor (`crates/platynui-xpath/src/model/simple.rs:592-604`). Langfristig sollten Iterator-Sichten mit `Arc`-Sharing eingeführt werden.
 
 ## Empfohlene naechste Schritte
+### Nächste Maßnahmen
+1. **Evaluator – VM-Frame-Reuse & Stackreserven**: Leichte Frames und SmallVec-Stacks umsetzen, Tests via Criterion `evaluator/evaluate`.
+   - **Status**: SmallVec-Stacks und Kapazitäts-Reservierung umgesetzt; weiterer VM-Reuse folgt.
+2. **Evaluator – Set-Union Merge**: Merge-Logik statt `doc_order_distinct` einsetzen, Benchmarks vergleichen.
+3. **Compiler – Scope-Sharing**: `lexical_scopes` teilen und Instruktionspuffer reservieren, Criterion `compiler/compile_xpath`.
+4. **Parser – Clone-freie `Pair`-Iteration**: `into_inner()` konsumieren, Parser-Bench messen.
+
 ## Umsetzungsreihenfolge
 - **1 – DynamicContext refaktorieren** (Finding 1, Zeile 16): Klonen eliminieren, bevor andere Optimierungen greifen.
 - **2 – Funktionsregister cachen** (Finding 2, Zeile 26): `OnceLock<Arc<_>>` fuer Standardfunktionen einbauen, senkt Latenz nach Refactor 1.
@@ -84,28 +91,5 @@
 - Hangenbleibende Jobs abbrechen und mit Logging/Profiling reproduzieren, bevor weitere Aenderungen gemerged werden.
 
 
-1. Einen leichtgewichtigen Ausfuehrungsframe prototypisieren, der `context_item` und Variablen ohne Klonen des Basis-`DynamicContext` mutiert.
-2. Dokumentordnungs-Metadaten (z. B. Preorder-Index) beim Baumaufbau einfuehren und Achsen- sowie Mengenoperationen darauf aufsetzen.
-3. Ein `OnceLock<Arc<FunctionImplementations<_>>>`-Cache hinzufuegen und `DynamicContext::provide_functions` darauf verweisen lassen.
-4. Memoisierung im `FancyRegexProvider` implementieren und die Wirkung auf vorhandene XPath-Tests messen.
-5. Nach den strukturellen Aenderungen Criterion-Benchmarks fuer repraesentative XPath-Programme aufbauen, um Regressionen abzusichern.
 
 
-
-## Weitere Optimierungsideen
-### A. Evaluator
-1. **Set-Union Merge-Pfad** (`src/engine/evaluator.rs:2146`): Analog zu `intersect`/`except` einen Merge-Operator bauen, der bereits dokumentgeordnete Sequenzen ohne `doc_order_distinct` zusammenführt. Messgröße: Bench `evaluator/evaluate`.
-2. **VM-Frame-Reuse** (`evaluator.rs:170,196,218`): Leichtgewichtige Frames (Stack/SmallVec) statt VM-Neuinstanz pro Item, Shared-Context-Overlay. Messgröße: Parser/Compiler/Evaluator Benchmarks.
-3. **Stackwachstum prüfen**: Großen `Vec<XdmSequence<N>>`-Stack in `Vm` mit `smallvec` oder Kapazitätsreservierung versorgen, um Reallocs zu reduzieren.
-
-### B. Compiler
-1. **Lexikalische Scopes teilen** (`compiler/mod.rs:62`): `lexical_scopes` über `Rc<RefCell<_>>` oder SmallVec-Overlay organisieren, damit `fork()` kein tiefes Clone ausführt. Bench mit `compiler/compile_xpath`.
-2. **Instruktionspuffer reservieren**: `Compiler::new` sollte `code` basierend auf Eingabelänge vorreservieren.
-
-### C. Parser
-1. **Iteratoren konsumieren statt `clone`** (`parser/mod.rs:63`, `:295`, ...): `Pair::into_inner()` direkt nutzen, `peekable` oder eigene Stack-Verwaltung, um wiederholte Clones zu vermeiden. Bench mit `parser/parse_xpath`.
-2. **Fehlerstrings rationeller erzeugen**: Häufige `format!` in Parserfehlern durch statische Texte ersetzen; Messung via Bench.
-
-### D. Dokumentation & Benchmarks
-- Benchmarks: `cargo bench` mit Parser/Compiler/Evaluator-Workloads als Pflichtschritt vor/ nach Optimierungen.
-- Erfasse Kennzahlen (Durchsatz, ns/op) pro Optimierung und dokumentiere im Review.

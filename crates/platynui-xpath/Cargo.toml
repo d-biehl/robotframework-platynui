@@ -19,6 +19,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 base64 = "0.22"
 thiserror = "2"
 url = "2"
+smallvec = "1"
 
 [dev-dependencies]
  rstest = "0.18"
