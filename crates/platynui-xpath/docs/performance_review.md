@@ -64,6 +64,8 @@
 - **Auswirkung**: Regex-intensive XPath-Ausdruecke investieren den Grossteil der Zeit in die Kompilation statt ins Matching. Der Backtracking-Engine-Overhead verstaerkt den Effekt.
 - **Empfehlung**: Kompilierte Regexe im Provider zwischenspeichern (z. B. `HashMap<(String, String), Arc<Regex>>` unter `RwLock` oder `dashmap`) und bei Bedarf mit Cache-Limits versehen.
 
+- **Status**: FancyRegexProvider cached patterns via global `OnceLock<Mutex<...>>`, sodass wiederholte Aufrufe identische Regexe teilen.
+
 ## Weitere Beobachtungen
 - `collect_descendants` rekursiert ohne Tiefenkontrolle (`crates/platynui-xpath/src/engine/evaluator.rs:1934-1946`); eine Iteration mit explizitem Stack verhindert Stack-Overflows auf tiefen Dokumenten.
 - `SimpleNode::children`/`attributes` klonen jeweils den kompletten unterliegenden Vektor (`crates/platynui-xpath/src/model/simple.rs:592-604`) und verstaerken damit den Allokationsdruck der oben genannten Hotspots. Geteilte `Arc<Vec<_>>`-Slices oder Iteratoren wuerden helfen, sobald das API angepasst werden kann.

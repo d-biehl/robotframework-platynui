@@ -2,7 +2,7 @@ use crate::engine::collation::{CODEPOINT_URI, Collation, CollationRegistry};
 use crate::xdm::{ExpandedName, XdmItem, XdmSequence};
 use core::fmt;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Clone)]
 pub struct VariableBindings<N> {
@@ -396,7 +396,18 @@ pub trait RegexProvider: Send + Sync {
 pub struct FancyRegexProvider;
 
 impl FancyRegexProvider {
-    fn build_with_flags(pattern: &str, flags: &str) -> Result<fancy_regex::Regex, Error> {
+    fn build_with_flags(
+        pattern: &str,
+        flags: &str,
+    ) -> Result<Arc<fancy_regex::Regex>, Error> {
+        static REGEX_CACHE: OnceLock<Mutex<HashMap<(String, String), Arc<fancy_regex::Regex>>>> =
+            OnceLock::new();
+        let cache = REGEX_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        let key = (pattern.to_string(), flags.to_string());
+        if let Some(existing) = cache.lock().unwrap().get(&key) {
+            return Ok(existing.clone());
+        }
+
         let mut builder = fancy_regex::RegexBuilder::new(pattern);
         for ch in flags.chars() {
             match ch {
@@ -421,10 +432,17 @@ impl FancyRegexProvider {
                 }
             }
         }
-        builder.build().map_err(|e| {
+        let compiled = builder.build().map_err(|e| {
             Error::from_code(ErrorCode::FORX0002, "invalid regex pattern")
                 .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
-        })
+        })?;
+        let arc = Arc::new(compiled);
+        cache
+            .lock()
+            .unwrap()
+            .entry(key)
+            .or_insert_with(|| arc.clone());
+        Ok(arc)
     }
 }
 
