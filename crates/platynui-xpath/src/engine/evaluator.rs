@@ -1780,7 +1780,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         }
         // Dedup preserving first occurrence order by document order
         nodes.sort_by(|a, b| {
-            a.compare_document_order(b)
+            self
+                .node_compare(a, b)
                 .unwrap_or(core::cmp::Ordering::Equal)
         });
         nodes.dedup();
