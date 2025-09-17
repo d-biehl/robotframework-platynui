@@ -5,6 +5,7 @@ use platynui_xpath::{
     ExpandedName, compile_xpath_with_context, evaluate, evaluate_expr, xdm::XdmAtomicValue as A,
     xdm::XdmItem as I,
 };
+use platynui_xpath::simple_node::{doc as simple_doc, elem, text};
 use rstest::rstest;
 type N = platynui_xpath::model::simple::SimpleNode;
 fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
@@ -82,4 +83,22 @@ fn predicates_filter() {
         out,
         vec![I::Atomic(A::Integer(2)), I::Atomic(A::Integer(3))]
     );
+}
+
+#[rstest]
+fn predicate_node_sequence_truthy() {
+    let document = simple_doc()
+        .child(
+            elem("root")
+                .child(elem("item").child(text("a")))
+                .child(elem("item").child(text("b")))
+                .child(elem("item").child(text("c"))),
+        )
+        .build();
+    let dyn_ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(document))
+        .build();
+    let out = evaluate_expr::<N>("count(/root/item[following-sibling::item])", &dyn_ctx)
+        .expect("predicate over node sequence should succeed");
+    assert_eq!(out, vec![I::Atomic(A::Integer(2))]);
 }

@@ -1353,10 +1353,16 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     "EBV for this atomic type not supported",
                 )),
             },
-            _ => Err(Error::from_code(
-                ErrorCode::FORG0006,
-                "effective boolean value of sequence of length > 1",
-            )),
+            _ => {
+                if seq.iter().all(|item| matches!(item, XdmItem::Node(_))) {
+                    Ok(true)
+                } else {
+                    Err(Error::from_code(
+                        ErrorCode::FORG0006,
+                        "effective boolean value of sequence of length > 1",
+                    ))
+                }
+            }
         }
     }
 
