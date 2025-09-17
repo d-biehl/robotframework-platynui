@@ -425,6 +425,12 @@ impl SimpleNodeBuilder {
     pub fn build(self) -> SimpleNode {
         // finalize relationships
         {
+            let mut id = self.node.0.doc_id.write().unwrap();
+            if *id == 0 {
+                *id = SimpleNode::next_doc_id();
+            }
+        }
+        {
             let mut nss = self.node.0.namespaces.write().unwrap();
             for n in &self.pending_ns {
                 *n.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
@@ -541,9 +547,7 @@ impl SimpleNodeBuilder {
             }
         }
         resolve_attr_ns_deep(&self.node);
-        if matches!(self.node.kind(), NodeKind::Document) {
-            self.node.assign_document_order();
-        }
+        self.node.assign_document_order();
         self.node
     }
 }

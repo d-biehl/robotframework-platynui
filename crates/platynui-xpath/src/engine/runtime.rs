@@ -396,10 +396,7 @@ pub trait RegexProvider: Send + Sync {
 pub struct FancyRegexProvider;
 
 impl FancyRegexProvider {
-    fn build_with_flags(
-        pattern: &str,
-        flags: &str,
-    ) -> Result<Arc<fancy_regex::Regex>, Error> {
+    fn build_with_flags(pattern: &str, flags: &str) -> Result<Arc<fancy_regex::Regex>, Error> {
         static REGEX_CACHE: OnceLock<Mutex<HashMap<(String, String), Arc<fancy_regex::Regex>>>> =
             OnceLock::new();
         let cache = REGEX_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
