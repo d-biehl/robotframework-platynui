@@ -42,6 +42,15 @@ pub fn evaluate_expr<N: 'static + Send + Sync + XdmNode + Clone>(
     evaluate(&compiled, dyn_ctx)
 }
 
+/// Convenience: compile+evaluate to a streaming sequence using default static context.
+pub fn evaluate_stream_expr<N: 'static + Send + Sync + XdmNode + Clone>(
+    expr: &str,
+    dyn_ctx: &DynamicContext<N>,
+) -> Result<XdmSequenceStream<N>, Error> {
+    let compiled = crate::compiler::compile_xpath(expr)?;
+    evaluate_stream(&compiled, dyn_ctx)
+}
+
 struct Vm<N> {
     compiled: Arc<CompiledXPath>,
     dyn_ctx: Arc<DynamicContext<N>>,
@@ -73,10 +82,7 @@ impl<N: XdmNode + Clone> Clone for VmSnapshot<N> {
             dyn_ctx: Arc::clone(&self.dyn_ctx),
             local_vars: self.local_vars.clone(),
             frames: self.frames.clone(),
-            default_collation: self
-                .default_collation
-                .as_ref()
-                .map(Arc::clone),
+            default_collation: self.default_collation.as_ref().map(Arc::clone),
             functions: Arc::clone(&self.functions),
             current_context_item: self.current_context_item.clone(),
         }
@@ -135,8 +141,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> AxisStepIter<N> {
     fn evaluate_node(&self, node: N) -> Result<Vec<N>, Error> {
         let mut vm = Vm::from_snapshot(&self.snapshot);
         vm.axis_iter(node.clone(), &self.axis);
-        let filter_child_elements = matches!(self.axis, AxisIR::Child)
-            && matches!(self.test, NodeTestIR::WildcardAny);
+        let filter_child_elements =
+            matches!(self.axis, AxisIR::Child) && matches!(self.test, NodeTestIR::WildcardAny);
         let drained: Vec<N> = vm.axis_buffer.drain(..).collect();
         let mut filtered: Vec<N> = Vec::new();
         for n in drained {
@@ -152,8 +158,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> AxisStepIter<N> {
             return Ok(Vec::new());
         }
         if !self.predicates.is_empty() {
-            let mut current: Vec<XdmItem<N>> =
-                filtered.into_iter().map(XdmItem::Node).collect();
+            let mut current: Vec<XdmItem<N>> = filtered.into_iter().map(XdmItem::Node).collect();
             for pred_code in &self.predicates {
                 let len = current.len();
                 let mut next: Vec<XdmItem<N>> = Vec::with_capacity(len);
@@ -247,10 +252,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     fn run(&mut self, code: &InstrSeq) -> Result<XdmSequenceStream<N>, Error> {
         let stack_base = self.stack.len();
         self.execute(code)?;
-        let result = self
-            .stack
-            .pop()
-            .unwrap_or_else(XdmSequenceStream::default);
+        let result = self.stack.pop().unwrap_or_else(XdmSequenceStream::default);
         debug_assert_eq!(self.stack.len(), stack_base);
         Ok(result)
     }
@@ -261,10 +263,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             dyn_ctx: Arc::clone(&self.dyn_ctx),
             local_vars: self.local_vars.clone(),
             frames: self.frames.clone(),
-            default_collation: self
-                .default_collation
-                .as_ref()
-                .map(Arc::clone),
+            default_collation: self.default_collation.as_ref().map(Arc::clone),
             functions: Arc::clone(&self.functions),
             current_context_item: self.current_context_item.clone(),
         }
@@ -277,10 +276,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             stack: SmallVec::new(),
             local_vars: snapshot.local_vars.clone(),
             frames: snapshot.frames.clone(),
-            default_collation: snapshot
-                .default_collation
-                .as_ref()
-                .map(Arc::clone),
+            default_collation: snapshot.default_collation.as_ref().map(Arc::clone),
             functions: Arc::clone(&snapshot.functions),
             current_context_item: snapshot.current_context_item.clone(),
             axis_buffer: SmallVec::new(),
@@ -288,8 +284,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     }
 
     fn push_seq(&mut self, seq: XdmSequence<N>) {
-        self.stack
-            .push(XdmSequenceStream::from_vec(seq));
+        self.stack.push(XdmSequenceStream::from_vec(seq));
     }
 
     fn push_stream(&mut self, seq: XdmSequenceStream<N>) {
@@ -297,9 +292,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     }
 
     fn pop_stream(&mut self) -> XdmSequenceStream<N> {
-        self.stack
-            .pop()
-            .unwrap_or_else(XdmSequenceStream::default)
+        self.stack.pop().unwrap_or_else(XdmSequenceStream::default)
     }
 
     fn pop_seq(&mut self) -> Result<XdmSequence<N>, Error> {
@@ -580,13 +573,19 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                                 }
                                 (V::Date { date, tz }, V::YearMonthDuration(months)) => {
                                     let nd = add_months_saturating(*date, *months);
-                                    self.push_seq(vec![XdmItem::Atomic(V::Date { date: nd, tz: *tz })]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Date {
+                                        date: nd,
+                                        tz: *tz,
+                                    })]);
                                     ip += 1;
                                     true
                                 }
                                 (V::YearMonthDuration(months), V::Date { date, tz }) => {
                                     let nd = add_months_saturating(*date, *months);
-                                    self.push_seq(vec![XdmItem::Atomic(V::Date { date: nd, tz: *tz })]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Date {
+                                        date: nd,
+                                        tz: *tz,
+                                    })]);
                                     ip += 1;
                                     true
                                 }
@@ -682,12 +681,16 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                                 true
                             }
                             (V::YearMonthDuration(a_m), V::YearMonthDuration(b_m)) => {
-                                self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(*a_m - *b_m))]);
+                                self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(
+                                    *a_m - *b_m,
+                                ))]);
                                 ip += 1;
                                 true
                             }
                             (V::DayTimeDuration(a_s), V::DayTimeDuration(b_s)) => {
-                                self.push_seq(vec![XdmItem::Atomic(V::DayTimeDuration(*a_s - *b_s))]);
+                                self.push_seq(vec![XdmItem::Atomic(V::DayTimeDuration(
+                                    *a_s - *b_s,
+                                ))]);
                                 ip += 1;
                                 true
                             }
@@ -709,7 +712,9 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                                 (V::YearMonthDuration(months), _) => {
                                     if let Some(n) = classify_numeric(&b) {
                                         let v = (*months as f64 * n).trunc() as i32;
-                                        self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(v))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(
+                                            v,
+                                        ))]);
                                         ip += 1;
                                         true
                                     } else {
@@ -729,7 +734,9 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                                 (_, V::YearMonthDuration(months)) => {
                                     if let Some(n) = classify_numeric(&a) {
                                         let v = (*months as f64 * n).trunc() as i32;
-                                        self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(v))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(
+                                            v,
+                                        ))]);
                                         ip += 1;
                                         true
                                     } else {
@@ -899,9 +906,13 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                             OpCode::Add => {
                                 if let Some(sum) = ai.checked_add(bi) {
                                     if sum >= i64::MIN as i128 && sum <= i64::MAX as i128 {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(sum as i64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(
+                                            sum as i64,
+                                        ))]);
                                     } else {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(sum as f64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(
+                                            sum as f64,
+                                        ))]);
                                     }
                                     ip += 1;
                                     pushed = true;
@@ -917,9 +928,13 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                             OpCode::Sub => {
                                 if let Some(diff) = ai.checked_sub(bi) {
                                     if diff >= i64::MIN as i128 && diff <= i64::MAX as i128 {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(diff as i64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(
+                                            diff as i64,
+                                        ))]);
                                     } else {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(diff as f64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(
+                                            diff as f64,
+                                        ))]);
                                     }
                                     ip += 1;
                                     pushed = true;
@@ -934,9 +949,13 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                             OpCode::Mul => {
                                 if let Some(prod) = ai.checked_mul(bi) {
                                     if prod >= i64::MIN as i128 && prod <= i64::MAX as i128 {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(prod as i64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(
+                                            prod as i64,
+                                        ))]);
                                     } else {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(prod as f64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(
+                                            prod as f64,
+                                        ))]);
                                     }
                                     ip += 1;
                                     pushed = true;
@@ -961,7 +980,9 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                                 let needs_adjust = (r != 0) && ((ai ^ bi) < 0);
                                 let q_floor = if needs_adjust { q_trunc - 1 } else { q_trunc };
                                 if q_floor >= i64::MIN as i128 && q_floor <= i64::MAX as i128 {
-                                    self.push_seq(vec![XdmItem::Atomic(V::Integer(q_floor as i64))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Integer(
+                                        q_floor as i64,
+                                    ))]);
                                 } else {
                                     // xs:integer result cannot be represented by our i64 storage → FOAR0002
                                     return Err(Error::from_code(
@@ -1975,8 +1996,11 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             AxisIR::SelfAxis => self.axis_buffer.push(node),
             AxisIR::Child => {
                 let children: Vec<N> = node.children_vec();
-                self.axis_buffer
-                    .extend(children.into_iter().filter(|c| !Self::is_attr_or_namespace(c)));
+                self.axis_buffer.extend(
+                    children
+                        .into_iter()
+                        .filter(|c| !Self::is_attr_or_namespace(c)),
+                );
             }
             AxisIR::Attribute => {
                 let attrs = node.attributes_vec();

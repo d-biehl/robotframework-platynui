@@ -612,9 +612,18 @@ pub fn doc() -> SimpleNodeBuilder {
 }
 
 impl XdmNode for SimpleNode {
-    type Children<'a> = AxisVecIter where Self: 'a;
-    type Attributes<'a> = AxisVecIter where Self: 'a;
-    type Namespaces<'a> = AxisVecIter where Self: 'a;
+    type Children<'a>
+        = AxisVecIter
+    where
+        Self: 'a;
+    type Attributes<'a>
+        = AxisVecIter
+    where
+        Self: 'a;
+    type Namespaces<'a>
+        = AxisVecIter
+    where
+        Self: 'a;
 
     fn kind(&self) -> NodeKind {
         self.0.kind.clone()

@@ -8,7 +8,7 @@ pub mod xdm;
 
 // Back-compat public surface for existing tests and examples
 pub use compiler::{compile_xpath, compile_xpath_with_context};
-pub use engine::evaluator::{evaluate, evaluate_expr};
+pub use engine::evaluator::{evaluate, evaluate_expr, evaluate_stream, evaluate_stream_expr};
 pub use engine::runtime::{
     DynamicContext, DynamicContextBuilder, StaticContext, StaticContextBuilder,
 };
