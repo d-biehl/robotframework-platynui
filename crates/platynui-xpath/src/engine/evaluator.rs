@@ -7,6 +7,7 @@ use crate::model::{NodeKind, XdmNode};
 use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence};
 use chrono::Duration as ChronoDuration;
 use chrono::{FixedOffset as ChronoFixedOffset, NaiveTime as ChronoNaiveTime, TimeZone};
+use core::cmp::Ordering;
 use std::sync::Arc;
 
 /// Evaluate a compiled XPath program against a dynamic context.
@@ -2138,51 +2139,69 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
 
     // ===== Set operations (nodes-only; results in document order with duplicates removed) =====
     fn set_union(&self, a: XdmSequence<N>, b: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
-        // Inputs are guaranteed node-only by caller. Concatenate then doc-order distinct.
         let mut both: XdmSequence<N> = Vec::with_capacity(a.len() + b.len());
         both.extend(a);
         both.extend(b);
         self.doc_order_distinct(both)
     }
     fn set_intersect(&self, a: XdmSequence<N>, b: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
-        // Keep nodes that are present in both sequences, then sort/dedup by document order.
-        let mut out: XdmSequence<N> = Vec::new();
-        for it in a.into_iter() {
-            if self.contains(&b, &it) {
-                out.push(it);
+        let lhs = self.sorted_distinct_nodes(a)?;
+        let rhs = self.sorted_distinct_nodes(b)?;
+        let mut out: Vec<N> = Vec::new();
+        let mut i = 0usize;
+        let mut j = 0usize;
+        while i < lhs.len() && j < rhs.len() {
+            match self.node_compare(&lhs[i], &rhs[j])? {
+                Ordering::Equal => {
+                    out.push(lhs[i].clone());
+                    i += 1;
+                    j += 1;
+                }
+                Ordering::Less => i += 1,
+                Ordering::Greater => j += 1,
             }
         }
-        self.doc_order_distinct(out)
+        Ok(out.into_iter().map(XdmItem::Node).collect())
     }
     fn set_except(&self, a: XdmSequence<N>, b: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
-        // Keep nodes in a that are not present in b, then sort/dedup by document order.
-        let mut out: XdmSequence<N> = Vec::new();
-        for it in a.into_iter() {
-            if !self.contains(&b, &it) {
-                out.push(it);
+        let lhs = self.sorted_distinct_nodes(a)?;
+        let rhs = self.sorted_distinct_nodes(b)?;
+        let mut out: Vec<N> = Vec::new();
+        let mut i = 0usize;
+        let mut j = 0usize;
+        while i < lhs.len() {
+            if j >= rhs.len() {
+                out.extend(lhs[i..].iter().cloned());
+                break;
             }
-        }
-        self.doc_order_distinct(out)
-    }
-    fn contains(&self, seq: &XdmSequence<N>, item: &XdmItem<N>) -> bool {
-        seq.iter().any(|i| self.item_equal(i, item))
-    }
-    fn item_equal(&self, a: &XdmItem<N>, b: &XdmItem<N>) -> bool {
-        use crate::engine::eq::build_eq_key;
-        match (a, b) {
-            (XdmItem::Node(x), XdmItem::Node(y)) => x == y,
-            (XdmItem::Atomic(_), XdmItem::Atomic(_)) => {
-                // Use EqKey with default collation for stable, spec-aligned equality
-                let coll = self.default_collation.clone();
-                let ca = build_eq_key(a, coll.as_deref());
-                let cb = build_eq_key(b, coll.as_deref());
-                match (ca, cb) {
-                    (Ok(ka), Ok(kb)) => ka == kb,
-                    _ => false,
+            match self.node_compare(&lhs[i], &rhs[j])? {
+                Ordering::Equal => {
+                    i += 1;
+                    j += 1;
                 }
+                Ordering::Less => {
+                    out.push(lhs[i].clone());
+                    i += 1;
+                }
+                Ordering::Greater => j += 1,
             }
-            _ => false,
         }
+        Ok(out.into_iter().map(XdmItem::Node).collect())
+    }
+    fn sorted_distinct_nodes(&self, seq: XdmSequence<N>) -> Result<Vec<N>, Error> {
+        let ordered = self.doc_order_distinct(seq)?;
+        ordered
+            .into_iter()
+            .map(|item| match item {
+                XdmItem::Node(n) => Ok(n),
+                _ => Err(Error::not_implemented(
+                    "non-node item encountered in set operation",
+                )),
+            })
+            .collect()
+    }
+    fn node_compare(&self, a: &N, b: &N) -> Result<Ordering, Error> {
+        a.compare_document_order(b)
     }
 
     // ===== Type operations (very small subset) =====

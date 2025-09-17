@@ -46,6 +46,8 @@
 - **Auswirkung**: `union`/`intersect`/`except` auf Knotensequenzen verursachen O(n^2), zusaetzlich verstaerkt durch teure Dokumentordnungs-Vergleiche. Groessere Ergebnislisten werden praktisch unhandhabbar.
 - **Empfehlung**: Temporare `HashSet`s aufbauen, die Knotensequenzen ueber Identitaet (Pointer/Handle) und atomare Werte ueber bestehende Equal-Keys abbilden. Das senkt Mitgliedstests auf O(1). Kombiniert mit vor-sortierten Dokumentordnungsmetadaten entfallen wiederholte Sortierungen.
 
+- **Status**: Set-Operatoren arbeiten jetzt auf dokumentgeordneten, deduplizierten Sequenzen und schneiden/vereinen via Merge-Strategie statt linearer Suchschleifen.
+
 ### 5. Normalisierung der Dokumentordnung nutzt teuren Komparator
 - **Schweregrad**: Mittel-Hoch
 - **Ort**: `crates/platynui-xpath/src/engine/evaluator.rs:1777-1798`, `crates/platynui-xpath/src/model/mod.rs:19-98`, `crates/platynui-xpath/src/model/simple.rs:645-665`
