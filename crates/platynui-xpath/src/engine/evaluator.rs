@@ -9,6 +9,7 @@ use chrono::Duration as ChronoDuration;
 use chrono::{FixedOffset as ChronoFixedOffset, NaiveTime as ChronoNaiveTime, TimeZone};
 use core::cmp::Ordering;
 use smallvec::SmallVec;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Evaluate a compiled XPath program against a dynamic context.
@@ -2209,51 +2210,31 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
 
     // ===== Set operations (nodes-only; results in document order with duplicates removed) =====
     fn set_union(&self, a: XdmSequence<N>, b: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
-        let lhs = self.sorted_distinct_nodes(a)?;
-        let rhs = self.sorted_distinct_nodes(b)?;
-        let mut out: Vec<N> = Vec::with_capacity(lhs.len() + rhs.len());
-        let mut i = 0usize;
-        let mut j = 0usize;
-        while i < lhs.len() && j < rhs.len() {
-            match self.node_compare(&lhs[i], &rhs[j])? {
-                Ordering::Less => {
-                    out.push(lhs[i].clone());
-                    i += 1;
-                }
-                Ordering::Greater => {
-                    out.push(rhs[j].clone());
-                    j += 1;
-                }
-                Ordering::Equal => {
-                    out.push(lhs[i].clone());
-                    i += 1;
-                    j += 1;
-                }
-            }
-        }
-        if i < lhs.len() {
-            out.extend(lhs[i..].iter().cloned());
-        }
-        if j < rhs.len() {
-            out.extend(rhs[j..].iter().cloned());
-        }
-        Ok(out.into_iter().map(XdmItem::Node).collect())
+        let mut combined: XdmSequence<N> = Vec::with_capacity(a.len() + b.len());
+        combined.extend(a);
+        combined.extend(b);
+        self.doc_order_distinct(combined)
     }
     fn set_intersect(&self, a: XdmSequence<N>, b: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
         let lhs = self.sorted_distinct_nodes(a)?;
         let rhs = self.sorted_distinct_nodes(b)?;
+        let mut rhs_keys: HashSet<u64> = HashSet::with_capacity(rhs.len());
+        let mut rhs_fallback: SmallVec<[N; 8]> = SmallVec::new();
+        for node in rhs {
+            if let Some(k) = node.doc_order_key() {
+                rhs_keys.insert(k);
+            } else {
+                rhs_fallback.push(node);
+            }
+        }
         let mut out: Vec<N> = Vec::new();
-        let mut i = 0usize;
-        let mut j = 0usize;
-        while i < lhs.len() && j < rhs.len() {
-            match self.node_compare(&lhs[i], &rhs[j])? {
-                Ordering::Equal => {
-                    out.push(lhs[i].clone());
-                    i += 1;
-                    j += 1;
+        for node in lhs {
+            if let Some(k) = node.doc_order_key() {
+                if rhs_keys.contains(&k) {
+                    out.push(node);
                 }
-                Ordering::Less => i += 1,
-                Ordering::Greater => j += 1,
+            } else if rhs_fallback.iter().any(|n| n == &node) {
+                out.push(node);
             }
         }
         Ok(out.into_iter().map(XdmItem::Node).collect())
@@ -2261,24 +2242,23 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
     fn set_except(&self, a: XdmSequence<N>, b: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
         let lhs = self.sorted_distinct_nodes(a)?;
         let rhs = self.sorted_distinct_nodes(b)?;
-        let mut out: Vec<N> = Vec::new();
-        let mut i = 0usize;
-        let mut j = 0usize;
-        while i < lhs.len() {
-            if j >= rhs.len() {
-                out.extend(lhs[i..].iter().cloned());
-                break;
+        let mut rhs_keys: HashSet<u64> = HashSet::with_capacity(rhs.len());
+        let mut rhs_fallback: SmallVec<[N; 8]> = SmallVec::new();
+        for node in rhs {
+            if let Some(k) = node.doc_order_key() {
+                rhs_keys.insert(k);
+            } else {
+                rhs_fallback.push(node);
             }
-            match self.node_compare(&lhs[i], &rhs[j])? {
-                Ordering::Equal => {
-                    i += 1;
-                    j += 1;
+        }
+        let mut out: Vec<N> = Vec::new();
+        for node in lhs {
+            if let Some(k) = node.doc_order_key() {
+                if !rhs_keys.contains(&k) {
+                    out.push(node);
                 }
-                Ordering::Less => {
-                    out.push(lhs[i].clone());
-                    i += 1;
-                }
-                Ordering::Greater => j += 1,
+            } else if !rhs_fallback.iter().any(|n| n == &node) {
+                out.push(node);
             }
         }
         Ok(out.into_iter().map(XdmItem::Node).collect())

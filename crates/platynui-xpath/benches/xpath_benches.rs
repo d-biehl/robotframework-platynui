@@ -208,12 +208,46 @@ fn benchmark_predicate_heavy(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_set_ops(c: &mut Criterion) {
+    let document = build_large_axis_document();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(document.clone()))
+        .build();
+    let compiled = prepare_set_queries().expect("compile failure");
+    let mut group = c.benchmark_group("evaluator/set_ops");
+    group.sample_size(20);
+    group.measurement_time(Duration::from_secs(10));
+    group.warm_up_time(Duration::from_secs(2));
+    for (name, program) in &compiled {
+        group.bench_with_input(BenchmarkId::from_parameter(name), program, |b, prog| {
+            b.iter(|| {
+                let result = evaluate::<SimpleNode>(prog, black_box(&ctx)).expect("eval failure");
+                black_box(result.len());
+            });
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     benchmark_parser,
     benchmark_compiler,
     benchmark_evaluator,
     benchmark_axes_following_preceding,
-    benchmark_predicate_heavy
+    benchmark_predicate_heavy,
+    benchmark_set_ops
 );
 criterion_main!(benches);
+fn prepare_set_queries()
+-> Result<Vec<(String, platynui_xpath::compiler::ir::CompiledXPath)>, Error> {
+    let queries = vec![
+        "count((//item[@type='a']) | (//item[@featured='true']))",
+        "count(//item[@type='a'] intersect //item[@featured='true'])",
+        "count(//item except //item[@type='a'])",
+    ];
+    queries
+        .into_iter()
+        .map(|q| compile_xpath(q).map(|compiled| (q.to_string(), compiled)))
+        .collect()
+}
