@@ -90,3 +90,22 @@
 4. Memoisierung im `FancyRegexProvider` implementieren und die Wirkung auf vorhandene XPath-Tests messen.
 5. Nach den strukturellen Aenderungen Criterion-Benchmarks fuer repraesentative XPath-Programme aufbauen, um Regressionen abzusichern.
 
+
+
+## Weitere Optimierungsideen
+### A. Evaluator
+1. **Set-Union Merge-Pfad** (`src/engine/evaluator.rs:2146`): Analog zu `intersect`/`except` einen Merge-Operator bauen, der bereits dokumentgeordnete Sequenzen ohne `doc_order_distinct` zusammenführt. Messgröße: Bench `evaluator/evaluate`.
+2. **VM-Frame-Reuse** (`evaluator.rs:170,196,218`): Leichtgewichtige Frames (Stack/SmallVec) statt VM-Neuinstanz pro Item, Shared-Context-Overlay. Messgröße: Parser/Compiler/Evaluator Benchmarks.
+3. **Stackwachstum prüfen**: Großen `Vec<XdmSequence<N>>`-Stack in `Vm` mit `smallvec` oder Kapazitätsreservierung versorgen, um Reallocs zu reduzieren.
+
+### B. Compiler
+1. **Lexikalische Scopes teilen** (`compiler/mod.rs:62`): `lexical_scopes` über `Rc<RefCell<_>>` oder SmallVec-Overlay organisieren, damit `fork()` kein tiefes Clone ausführt. Bench mit `compiler/compile_xpath`.
+2. **Instruktionspuffer reservieren**: `Compiler::new` sollte `code` basierend auf Eingabelänge vorreservieren.
+
+### C. Parser
+1. **Iteratoren konsumieren statt `clone`** (`parser/mod.rs:63`, `:295`, ...): `Pair::into_inner()` direkt nutzen, `peekable` oder eigene Stack-Verwaltung, um wiederholte Clones zu vermeiden. Bench mit `parser/parse_xpath`.
+2. **Fehlerstrings rationeller erzeugen**: Häufige `format!` in Parserfehlern durch statische Texte ersetzen; Messung via Bench.
+
+### D. Dokumentation & Benchmarks
+- Benchmarks: `cargo bench` mit Parser/Compiler/Evaluator-Workloads als Pflichtschritt vor/ nach Optimierungen.
+- Erfasse Kennzahlen (Durchsatz, ns/op) pro Optimierung und dokumentiere im Review.

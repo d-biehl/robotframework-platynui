@@ -22,3 +22,8 @@ url = "2"
 
 [dev-dependencies]
  rstest = "0.18"
+ criterion = "0.5"
+
+[[bench]]
+name = "xpath_benches"
+harness = false
