@@ -73,6 +73,7 @@ pub(crate) struct Inner {
     children: RwLock<Vec<SimpleNode>>,
     cached_text: RwLock<Option<String>>, // memoized string value for element/document
     doc_id: RwLock<u64>, // creation order of document root; inherited by descendants
+    doc_order: RwLock<Option<u64>>, // pre-order position within document
 }
 
 /// A simple Arc-backed node implementation.
@@ -146,6 +147,7 @@ impl SimpleNode {
             children: RwLock::new(Vec::new()),
             cached_text: RwLock::new(None),
             doc_id: RwLock::new(0),
+            doc_order: RwLock::new(None),
         }))
     }
 
@@ -242,6 +244,40 @@ impl SimpleNode {
             cur = n.parent();
         }
         None
+    }
+
+    fn set_doc_order(&self, value: u64) {
+        *self.0.doc_order.write().unwrap() = Some(value);
+    }
+
+    fn assign_document_order_with_counter(&self, counter: &mut u64) {
+        *counter += 1;
+        self.set_doc_order(*counter);
+
+        if matches!(self.kind(), NodeKind::Element) {
+            let attrs = self.0.attributes.read().unwrap().clone();
+            for attr in attrs {
+                attr.assign_document_order_with_counter(counter);
+            }
+            let namespaces = self.0.namespaces.read().unwrap().clone();
+            for ns in namespaces {
+                ns.assign_document_order_with_counter(counter);
+            }
+        }
+
+        let children = self.0.children.read().unwrap().clone();
+        for child in children {
+            child.assign_document_order_with_counter(counter);
+        }
+    }
+
+    fn assign_document_order(&self) {
+        let mut counter = 0u64;
+        self.assign_document_order_with_counter(&mut counter);
+    }
+
+    fn doc_order(&self) -> Option<u64> {
+        *self.0.doc_order.read().unwrap()
     }
 }
 
@@ -505,6 +541,9 @@ impl SimpleNodeBuilder {
             }
         }
         resolve_attr_ns_deep(&self.node);
+        if matches!(self.node.kind(), NodeKind::Document) {
+            self.node.assign_document_order();
+        }
         self.node
     }
 }
@@ -646,14 +685,19 @@ impl XdmNode for SimpleNode {
         &self,
         other: &Self,
     ) -> Result<core::cmp::Ordering, crate::engine::runtime::Error> {
+        let self_doc_id = *self.0.doc_id.read().unwrap();
+        let other_doc_id = *other.0.doc_id.read().unwrap();
+        if self_doc_id == other_doc_id {
+            if let (Some(a), Some(b)) = (self.doc_order(), other.doc_order()) {
+                return Ok(a.cmp(&b));
+            }
+        }
         match crate::model::try_compare_by_ancestry(self, other) {
             Ok(ord) => Ok(ord),
             Err(e) => {
                 if SIMPLE_NODE_CROSS_DOC_ORDER.load(AtomicOrdering::Relaxed) {
-                    let a = *self.0.doc_id.read().unwrap();
-                    let b = *other.0.doc_id.read().unwrap();
-                    if a != b {
-                        return Ok(a.cmp(&b));
+                    if self_doc_id != other_doc_id {
+                        return Ok(self_doc_id.cmp(&other_doc_id));
                     }
                     let pa = Arc::as_ptr(&self.0) as usize;
                     let pb = Arc::as_ptr(&other.0) as usize;
