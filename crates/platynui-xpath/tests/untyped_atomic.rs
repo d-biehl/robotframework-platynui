@@ -10,9 +10,18 @@ struct DummyNode {
     val: String,
 }
 impl platynui_xpath::model::XdmNode for DummyNode {
-    type Children<'a> = std::iter::Empty<Self> where Self: 'a;
-    type Attributes<'a> = std::iter::Empty<Self> where Self: 'a;
-    type Namespaces<'a> = std::iter::Empty<Self> where Self: 'a;
+    type Children<'a>
+        = std::iter::Empty<Self>
+    where
+        Self: 'a;
+    type Attributes<'a>
+        = std::iter::Empty<Self>
+    where
+        Self: 'a;
+    type Namespaces<'a>
+        = std::iter::Empty<Self>
+    where
+        Self: 'a;
 
     fn kind(&self) -> platynui_xpath::model::NodeKind {
         platynui_xpath::model::NodeKind::Element

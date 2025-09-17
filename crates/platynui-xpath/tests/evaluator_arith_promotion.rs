@@ -1,48 +1,12 @@
 use platynui_xpath::{
-    evaluate_expr,
+    SimpleNode, evaluate_expr,
     runtime::DynamicContext,
     xdm::{XdmAtomicValue, XdmItem},
 };
 use rstest::rstest;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct DummyNode;
-impl platynui_xpath::model::XdmNode for DummyNode {
-    type Children<'a> = std::iter::Empty<Self> where Self: 'a;
-    type Attributes<'a> = std::iter::Empty<Self> where Self: 'a;
-    type Namespaces<'a> = std::iter::Empty<Self> where Self: 'a;
-
-    fn kind(&self) -> platynui_xpath::model::NodeKind {
-        platynui_xpath::model::NodeKind::Document
-    }
-    fn string_value(&self) -> String {
-        String::new()
-    }
-    fn parent(&self) -> Option<Self> {
-        None
-    }
-    fn children(&self) -> Self::Children<'_> {
-        std::iter::empty()
-    }
-    fn attributes(&self) -> Self::Attributes<'_> {
-        std::iter::empty()
-    }
-    fn namespaces(&self) -> Self::Namespaces<'_> {
-        std::iter::empty()
-    }
-    fn compare_document_order(
-        &self,
-        _other: &Self,
-    ) -> Result<std::cmp::Ordering, platynui_xpath::engine::runtime::Error> {
-        Ok(std::cmp::Ordering::Equal)
-    }
-    fn name(&self) -> Option<platynui_xpath::QName> {
-        None
-    }
-}
-
 fn eval(expr: &str) -> XdmAtomicValue {
-    let ctx: DynamicContext<DummyNode> = DynamicContext::default();
+    let ctx: DynamicContext<SimpleNode> = DynamicContext::default();
     let seq = evaluate_expr(expr, &ctx).expect("eval");
     match seq.first() {
         Some(XdmItem::Atomic(a)) => a.clone(),

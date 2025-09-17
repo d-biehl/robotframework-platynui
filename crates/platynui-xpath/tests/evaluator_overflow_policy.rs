@@ -1,48 +1,12 @@
+use platynui_xpath::SimpleNode;
 use platynui_xpath::{
     evaluate_expr,
     runtime::{DynamicContext, ErrorCode},
     xdm::{XdmAtomicValue, XdmItem},
 };
-use rstest::rstest;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct DummyNode;
-impl platynui_xpath::model::XdmNode for DummyNode {
-    type Children<'a> = std::iter::Empty<Self> where Self: 'a;
-    type Attributes<'a> = std::iter::Empty<Self> where Self: 'a;
-    type Namespaces<'a> = std::iter::Empty<Self> where Self: 'a;
-
-    fn kind(&self) -> platynui_xpath::model::NodeKind {
-        platynui_xpath::model::NodeKind::Document
-    }
-    fn string_value(&self) -> String {
-        String::new()
-    }
-    fn parent(&self) -> Option<Self> {
-        None
-    }
-    fn children(&self) -> Self::Children<'_> {
-        std::iter::empty()
-    }
-    fn attributes(&self) -> Self::Attributes<'_> {
-        std::iter::empty()
-    }
-    fn namespaces(&self) -> Self::Namespaces<'_> {
-        std::iter::empty()
-    }
-    fn compare_document_order(
-        &self,
-        _other: &Self,
-    ) -> Result<std::cmp::Ordering, platynui_xpath::engine::runtime::Error> {
-        Ok(std::cmp::Ordering::Equal)
-    }
-    fn name(&self) -> Option<platynui_xpath::QName> {
-        None
-    }
-}
-
+use rstest::rstest; // Placeholder; no actual nodes needed for these tests
 fn eval_atomic(expr: &str) -> XdmAtomicValue {
-    let ctx: DynamicContext<DummyNode> = DynamicContext::default();
+    let ctx: DynamicContext<SimpleNode> = DynamicContext::default();
     let seq = evaluate_expr(expr, &ctx).expect("eval ok");
     match seq.first() {
         Some(XdmItem::Atomic(a)) => a.clone(),
@@ -73,7 +37,7 @@ fn int_mul_overflow_promotes_to_decimal() {
 
 #[rstest]
 fn idiv_extreme_overflow_errors_foar0002() {
-    let ctx: DynamicContext<DummyNode> = DynamicContext::default();
+    let ctx: DynamicContext<SimpleNode> = DynamicContext::default();
     // Construct numerator via multiplication: (i64::MAX * 3) idiv 1 → integer path computes product in i128,
     // which cannot fit into i64 for the final xs:integer, triggering FOAR0002.
     let expr = format!("({} * 3) idiv 1", i64::MAX);
