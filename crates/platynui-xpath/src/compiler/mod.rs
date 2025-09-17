@@ -258,7 +258,7 @@ impl<'a> Compiler<'a> {
                 bindings,
                 satisfies,
             } => {
-                // Support multiple bindings by nesting quantifiers left-to-right
+                // Support multiple bindings, nested left-to-right
                 if bindings.is_empty() {
                     // Vacuous: some() -> false, every() -> true
                     self.emit(ir::OpCode::PushAtomic(XdmAtomicValue::Boolean(
@@ -274,20 +274,7 @@ impl<'a> Compiler<'a> {
                     ast::Quantifier::Every => ir::QuantifierKind::Every,
                 };
                 self.push_scope();
-                // Emit nested QuantStartByName for each binding
-                for b in bindings {
-                    self.lower_expr(&b.in_expr)?;
-                    let en = self.to_expanded(&b.var);
-                    self.emit(ir::OpCode::QuantStartByName(k, en.clone()));
-                    self.declare_local(en);
-                }
-                // Body: satisfies expression (evaluated in innermost scope)
-                self.lower_expr(satisfies)?;
-                self.emit(ir::OpCode::ToEBV);
-                // Close quantifiers in reverse order
-                for _ in bindings {
-                    self.emit(ir::OpCode::QuantEnd);
-                }
+                self.lower_quant_chain(k, bindings, satisfies)?;
                 self.pop_scope();
                 Ok(())
             }
@@ -298,21 +285,9 @@ impl<'a> Compiler<'a> {
                 if bindings.is_empty() {
                     return self.lower_expr(return_expr);
                 }
-                // Nest for-loops left-to-right
                 self.push_scope();
                 self.emit(ir::OpCode::BeginScope(bindings.len()));
-                for b in bindings {
-                    self.lower_expr(&b.in_expr)?;
-                    let en = self.to_expanded(&b.var);
-                    self.emit(ir::OpCode::ForStartByName(en.clone()));
-                    self.declare_local(en);
-                }
-                self.lower_expr(return_expr)?;
-                // Close loops: ForNext for each, then ForEnd for each
-                for _ in 0..bindings.len() {
-                    self.emit(ir::OpCode::ForNext);
-                    self.emit(ir::OpCode::ForEnd);
-                }
+                self.lower_for_chain(bindings, return_expr)?;
                 self.emit(ir::OpCode::EndScope);
                 self.pop_scope();
                 Ok(())
@@ -367,11 +342,77 @@ impl<'a> Compiler<'a> {
     fn lower_predicates(&mut self, preds: &[ast::Expr]) -> CResult<Vec<ir::InstrSeq>> {
         let mut v = Vec::with_capacity(preds.len());
         for p in preds {
-            let mut sub = self.fork();
-            sub.lower_expr(p)?;
-            v.push(ir::InstrSeq(sub.code));
+            let start_len = self.code.len();
+            self.lower_expr(p)?;
+            let sub_code = self.code.split_off(start_len);
+            v.push(ir::InstrSeq(sub_code));
         }
         Ok(v)
+    }
+
+    fn lower_for_chain(
+        &mut self,
+        bindings: &[ast::ForBinding],
+        return_expr: &ast::Expr,
+    ) -> CResult<()> {
+        if bindings.is_empty() {
+            return self.lower_expr(return_expr);
+        }
+        let (first, rest) = bindings.split_first().ok_or_else(|| {
+            Error::from_code(ErrorCode::XPST0003, "for expression requires binding")
+        })?;
+
+        self.lower_expr(&first.in_expr)?;
+        let var = self.to_expanded(&first.var);
+
+        let mut body = self.fork();
+        body.declare_local(var.clone());
+        if rest.is_empty() {
+            body.lower_expr(return_expr)?;
+        } else {
+            body.lower_for_chain(rest, return_expr)?;
+        }
+        let body_instr = ir::InstrSeq(body.code);
+        self.emit(ir::OpCode::ForLoop {
+            var,
+            body: body_instr,
+        });
+        Ok(())
+    }
+
+    fn lower_quant_chain(
+        &mut self,
+        kind: ir::QuantifierKind,
+        bindings: &[ast::QuantifiedBinding],
+        satisfies: &ast::Expr,
+    ) -> CResult<()> {
+        if bindings.is_empty() {
+            return Ok(());
+        }
+        let (first, rest) = bindings.split_first().ok_or_else(|| {
+            Error::from_code(
+                ErrorCode::XPST0003,
+                "quantified expression requires binding",
+            )
+        })?;
+
+        self.lower_expr(&first.in_expr)?;
+        let var = self.to_expanded(&first.var);
+
+        let mut body = self.fork();
+        body.declare_local(var.clone());
+        if rest.is_empty() {
+            body.lower_expr(satisfies)?;
+        } else {
+            body.lower_quant_chain(kind, rest, satisfies)?;
+        }
+        let body_instr = ir::InstrSeq(body.code);
+        self.emit(ir::OpCode::QuantLoop {
+            kind,
+            var,
+            body: body_instr,
+        });
+        Ok(())
     }
 
     fn lower_path_expr(&mut self, p: &ast::PathExpr, base: Option<&ast::Expr>) -> CResult<()> {

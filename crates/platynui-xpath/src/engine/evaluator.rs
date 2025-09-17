@@ -1107,122 +1107,43 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     }
                     ip += 1;
                 }
-                OpCode::ForStartByName(var_name) => {
-                    // Input sequence is on stack before ForStartByName.
-                    // We execute the embedded body (between ForStartByName and ForNext at current depth)
-                    // once per item using a child VM with a cloned dynamic context where the variable is bound.
+                OpCode::ForLoop { var, body } => {
                     let input_seq = self.pop_seq();
                     let item_count = input_seq.len();
-
-                    // Locate the body [ip+1 .. for_next_index) and the matching ForEnd (to skip afterwards),
-                    // handling nesting via depth counting for ForStartByName/ForEnd pairs.
-                    let mut depth: i32 = 0;
-                    let mut j = ip + 1; // scan after ForStartByName
-                    let mut for_next_index: Option<usize> = None;
-                    let mut for_end_index: Option<usize> = None;
-                    while j < ops.len() {
-                        match &ops[j] {
-                            OpCode::ForStartByName(_) => {
-                                depth += 1;
-                            }
-                            OpCode::ForEnd => {
-                                if depth == 0 {
-                                    for_end_index = Some(j);
-                                    break;
-                                } else {
-                                    depth -= 1;
-                                }
-                            }
-                            OpCode::ForNext => {
-                                if depth == 0 && for_next_index.is_none() {
-                                    for_next_index = Some(j);
-                                }
-                            }
-                            _ => {}
-                        }
-                        j += 1;
-                    }
-                    let (for_next_ix, for_end_ix) = match (for_next_index, for_end_index) {
-                        (Some(n), Some(e)) => (n, e),
-                        _ => {
-                            return Err(Error::not_implemented(
-                                "unterminated or malformed for-expression body",
-                            ));
-                        }
-                    };
-                    let body_slice = &ops[ip + 1..for_next_ix];
-                    let body_instr = InstrSeq(body_slice.to_vec());
-
                     let mut acc: XdmSequence<N> = Vec::new();
                     for (idx, item) in input_seq.into_iter().enumerate() {
+                        let bound_item = vec![item.clone()];
                         let body_res = self.eval_subprogram(
-                            &body_instr,
-                            Some(item.clone()),
+                            body,
+                            Some(item),
                             Some(Frame {
                                 last: item_count,
                                 pos: idx + 1,
                             }),
-                            Some((var_name.clone(), vec![item.clone()])),
+                            Some((var.clone(), bound_item)),
                         )?;
                         acc.extend(body_res);
                     }
-
-                    // Push accumulated result and jump to instruction after ForEnd (skip body/ForNext/ForEnd entirely)
                     self.stack.push(acc);
-                    ip = for_end_ix + 1;
-                }
-                // These are effectively skipped when ForStart handles the loop; keep as harmless no-ops for safety.
-                OpCode::ForNext => {
                     ip += 1;
                 }
-                OpCode::ForEnd => {
-                    ip += 1;
-                }
-                OpCode::QuantStartByName(kind, var_name) => {
-                    // Sequence evaluated before quantifier is on stack
+                OpCode::QuantLoop { kind, var, body } => {
                     let input_seq = self.pop_seq();
                     let item_count = input_seq.len();
-
-                    // Find matching QuantEnd in CURRENT ops slice (handles nesting by depth counting)
-                    let mut depth: i32 = 0;
-                    let mut j = ip + 1; // start just after QuantStartByName
-                    while j < ops.len() {
-                        match &ops[j] {
-                            OpCode::QuantStartByName(_, _) => {
-                                depth += 1;
-                            }
-                            OpCode::QuantEnd => {
-                                if depth == 0 {
-                                    break;
-                                } else {
-                                    depth -= 1;
-                                }
-                            }
-                            _ => {}
-                        }
-                        j += 1;
-                    }
-                    if j >= ops.len() {
-                        return Err(Error::not_implemented("unterminated quantifier body"));
-                    }
-                    let end_index = j; // ops[end_index] is QuantEnd
-                    let body_slice = &ops[ip + 1..end_index];
-                    // Cache body instructions once
-                    let body_instr = InstrSeq(body_slice.to_vec());
-
                     let mut quant_result = match kind {
                         QuantifierKind::Some => false,
                         QuantifierKind::Every => true,
                     };
                     for (idx, item) in input_seq.into_iter().enumerate() {
+                        let bound_item = vec![item.clone()];
                         let body_res = self.eval_subprogram(
-                            &body_instr,
-                            Some(item.clone()),
+                            body,
+                            Some(item),
                             Some(Frame {
                                 last: item_count,
                                 pos: idx + 1,
                             }),
-                            Some((var_name.clone(), vec![item.clone()])),
+                            Some((var.clone(), bound_item)),
                         )?;
                         let truth = Self::ebv(&body_res)?;
                         match kind {
@@ -1240,12 +1161,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             }
                         }
                     }
-                    // Advance ip to instruction after QuantEnd
-                    ip = end_index + 1;
                     self.stack
                         .push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(quant_result))]);
-                }
-                OpCode::QuantEnd => {
                     ip += 1;
                 }
 
@@ -1846,12 +1763,14 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             others.extend(keyed.into_iter().map(|(_, n)| XdmItem::Node(n)));
             return Ok(others);
         }
+
         if keyed.is_empty() {
             fallback.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
             fallback.dedup();
             others.extend(fallback.into_iter().map(XdmItem::Node));
             return Ok(others);
         }
+
         keyed.sort_by_key(|(k, _)| *k);
         keyed.dedup_by(|a, b| a.0 == b.0);
         fallback.extend(keyed.into_iter().map(|(_, n)| n));
@@ -1906,21 +1825,19 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         if include_self {
             self.axis_buffer.push(node.clone());
         }
-        let mut stack: Vec<N> = node
-            .children()
-            .into_iter()
-            .filter(|child| !Self::is_attr_or_namespace(child))
-            .collect();
-        stack.reverse();
+        let mut stack: Vec<N> = Vec::new();
+        for child in node.children().into_iter().rev() {
+            if !Self::is_attr_or_namespace(&child) {
+                stack.push(child);
+            }
+        }
         while let Some(cur) = stack.pop() {
             self.axis_buffer.push(cur.clone());
-            let mut children: Vec<N> = cur
-                .children()
-                .into_iter()
-                .filter(|child| !Self::is_attr_or_namespace(child))
-                .collect();
-            children.reverse();
-            stack.extend(children);
+            for child in cur.children().into_iter().rev() {
+                if !Self::is_attr_or_namespace(&child) {
+                    stack.push(child);
+                }
+            }
         }
     }
     fn push_siblings(&mut self, node: N, preceding: bool) {
@@ -1950,13 +1867,14 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         }
     }
     fn push_following(&mut self, node: N) {
-        let mut cursor = self.doc_successor(&node);
+        let mut anchor = Self::last_descendant_in_doc(node);
+        let mut cursor = self.doc_successor(&anchor);
         while let Some(next) = cursor {
-            let next_cursor = self.doc_successor(&next);
-            if !Self::is_attr_or_namespace(&next) && !self.is_descendant_of(&next, &node) {
+            if !Self::is_attr_or_namespace(&next) {
                 self.axis_buffer.push(next.clone());
             }
-            cursor = next_cursor;
+            anchor = next;
+            cursor = self.doc_successor(&anchor);
         }
     }
     fn push_namespaces(&mut self, node: N) {
@@ -2908,4 +2826,4 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
     }
 }
 
-// (removed IterState; for-expr now handled entirely within ForStartByName execution)
+// (removed IterState; for-expr now handled entirely within ForLoop opcode execution)

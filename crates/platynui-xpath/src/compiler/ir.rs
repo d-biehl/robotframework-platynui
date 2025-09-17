@@ -118,12 +118,17 @@ pub enum OpCode {
     LetEnd,
 
     // Quantifiers and iteration
-    ForStartByName(ExpandedName),
-    ForNext,
-    ForEnd,
-    // Quantified expressions over a sequence on TOS
-    QuantStartByName(QuantifierKind, ExpandedName),
-    QuantEnd,
+    // For-expression loop over sequence on TOS
+    ForLoop {
+        var: ExpandedName,
+        body: InstrSeq,
+    },
+    // Quantified expression loop over sequence on TOS
+    QuantLoop {
+        kind: QuantifierKind,
+        var: ExpandedName,
+        body: InstrSeq,
+    },
 
     // Types
     Cast(SingleTypeIR),
@@ -420,11 +425,8 @@ impl fmt::Display for OpCode {
             OpCode::LetEnd => write!(f, "let-end"),
 
             // Quantifiers and iteration
-            OpCode::ForStartByName(n) => write!(f, "for ${} in", n),
-            OpCode::ForNext => write!(f, "for-next"),
-            OpCode::ForEnd => write!(f, "for-end"),
-            OpCode::QuantStartByName(k, n) => write!(f, "{} ${} in", k, n),
-            OpCode::QuantEnd => write!(f, "quant-end"),
+            OpCode::ForLoop { var, .. } => write!(f, "for ${} in …", var),
+            OpCode::QuantLoop { kind, var, .. } => write!(f, "{} ${} in …", kind, var),
 
             // Types
             OpCode::Cast(t) => write!(f, "cast as {}", t),
@@ -459,6 +461,14 @@ impl InstrSeq {
                         writeln!(f, "{}    [pred {}]", pad, pi)?;
                         p.fmt_with_indent(f, indent + 8)?;
                     }
+                }
+                OpCode::ForLoop { var, body } => {
+                    writeln!(f, "{}{:02}: for ${} in", pad, i, var)?;
+                    body.fmt_with_indent(f, indent + 4)?;
+                }
+                OpCode::QuantLoop { kind, var, body } => {
+                    writeln!(f, "{}{:02}: {} ${} in", pad, i, kind, var)?;
+                    body.fmt_with_indent(f, indent + 4)?;
                 }
                 _ => {
                     writeln!(f, "{}{:02}: {}", pad, i, op)?;

@@ -239,8 +239,8 @@ criterion_group!(
     benchmark_set_ops
 );
 criterion_main!(benches);
-fn prepare_set_queries()
--> Result<Vec<(String, platynui_xpath::compiler::ir::CompiledXPath)>, Error> {
+fn prepare_set_queries() -> Result<Vec<(String, platynui_xpath::compiler::ir::CompiledXPath)>, Error>
+{
     let queries = vec![
         "count((//item[@type='a']) | (//item[@featured='true']))",
         "count(//item[@type='a'] intersect //item[@featured='true'])",
