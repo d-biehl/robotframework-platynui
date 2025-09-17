@@ -24,11 +24,7 @@ fn ctx_split_text_root() -> DynamicContext<N> {
             ),
         )
         .build();
-    let root = d
-        .children()
-        .into_iter()
-        .next()
-        .expect("document has a root element");
+    let root = d.children().next().expect("document has a root element");
     ctx_with(root)
 }
 

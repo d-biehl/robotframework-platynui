@@ -651,12 +651,13 @@ impl<'a> Compiler<'a> {
 
         let mut candidates: Vec<ExpandedName> = Vec::new();
         candidates.push(expanded.clone());
-        if expanded.ns_uri.is_none() && name.prefix.is_none() {
-            if let Some(default_ns) = &self.static_ctx.default_function_namespace {
-                let mut with_default = expanded.clone();
-                with_default.ns_uri = Some(default_ns.clone());
-                candidates.push(with_default);
-            }
+        if expanded.ns_uri.is_none()
+            && name.prefix.is_none()
+            && let Some(default_ns) = &self.static_ctx.default_function_namespace
+        {
+            let mut with_default = expanded.clone();
+            with_default.ns_uri = Some(default_ns.clone());
+            candidates.push(with_default);
         }
 
         for cand in &candidates {

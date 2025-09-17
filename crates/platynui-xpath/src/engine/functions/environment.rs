@@ -452,15 +452,13 @@ pub(super) fn collection_fn<N: crate::model::XdmNode + Clone>(
             "collection() accepts at most one argument",
         ));
     }
-    if args.get(0).map_or(false, |seq| seq.len() > 1) {
+    if args.first().is_some_and(|seq| seq.len() > 1) {
         return Err(Error::from_code(
             ErrorCode::FORG0006,
             "collection() argument must be a single string",
         ));
     }
-    let uri_opt = if args.get(0).map_or(false, |seq| seq.is_empty()) {
-        None
-    } else if args.is_empty() {
+    let uri_opt = if args.is_empty() || args.first().is_some_and(|seq| seq.is_empty()) {
         None
     } else {
         Some(item_to_string(&args[0]))

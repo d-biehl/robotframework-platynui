@@ -1099,7 +1099,6 @@ pub(super) fn node_deep_equal<N: crate::model::XdmNode>(
             // Attributes unordered
             let mut attrs_a: Vec<(Option<String>, String, String)> = a
                 .attributes()
-                .into_iter()
                 .map(|at| {
                     let name = at.name();
                     let ns = name.as_ref().and_then(|q| q.ns_uri.clone());
@@ -1113,7 +1112,6 @@ pub(super) fn node_deep_equal<N: crate::model::XdmNode>(
                 .collect();
             let mut attrs_b: Vec<(Option<String>, String, String)> = b
                 .attributes()
-                .into_iter()
                 .map(|at| {
                     let name = at.name();
                     let ns = name.as_ref().and_then(|q| q.ns_uri.clone());
@@ -1133,7 +1131,6 @@ pub(super) fn node_deep_equal<N: crate::model::XdmNode>(
             // Namespace nodes unordered (exclude reserved xml prefix if present). Treat as (prefix, uri) pairs.
             let mut ns_a: Vec<(String, String)> = a
                 .namespaces()
-                .into_iter()
                 .filter_map(|ns| {
                     let name = ns.name()?; // prefix stored both in prefix/local
                     if name.prefix.as_deref() == Some("xml") {
@@ -1144,7 +1141,6 @@ pub(super) fn node_deep_equal<N: crate::model::XdmNode>(
                 .collect();
             let mut ns_b: Vec<(String, String)> = b
                 .namespaces()
-                .into_iter()
                 .filter_map(|ns| {
                     let name = ns.name()?;
                     if name.prefix.as_deref() == Some("xml") {

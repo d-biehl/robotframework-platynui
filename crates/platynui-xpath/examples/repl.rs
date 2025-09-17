@@ -92,7 +92,6 @@ fn main() {
     let document = build_sample_document();
     let context_node = document
         .children()
-        .into_iter()
         .next()
         .unwrap_or_else(|| document.clone());
 

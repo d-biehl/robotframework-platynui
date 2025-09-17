@@ -736,10 +736,10 @@ impl XdmNode for SimpleNode {
     ) -> Result<core::cmp::Ordering, crate::engine::runtime::Error> {
         let self_doc_id = *self.0.doc_id.read().unwrap();
         let other_doc_id = *other.0.doc_id.read().unwrap();
-        if self_doc_id == other_doc_id {
-            if let (Some(a), Some(b)) = (self.doc_order(), other.doc_order()) {
-                return Ok(a.cmp(&b));
-            }
+        if self_doc_id == other_doc_id
+            && let (Some(a), Some(b)) = (self.doc_order(), other.doc_order())
+        {
+            return Ok(a.cmp(&b));
         }
         match crate::model::try_compare_by_ancestry(self, other) {
             Ok(ord) => Ok(ord),

@@ -398,8 +398,11 @@ pub struct FancyRegexProvider;
 
 impl FancyRegexProvider {
     fn build_with_flags(pattern: &str, flags: &str) -> Result<Arc<fancy_regex::Regex>, Error> {
-        static REGEX_CACHE: OnceLock<Mutex<HashMap<(String, String), Arc<fancy_regex::Regex>>>> =
-            OnceLock::new();
+        type RegexCacheKey = (String, String);
+        type RegexCacheMap = HashMap<RegexCacheKey, Arc<fancy_regex::Regex>>;
+        type RegexCache = Mutex<RegexCacheMap>;
+
+        static REGEX_CACHE: OnceLock<RegexCache> = OnceLock::new();
         let cache = REGEX_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
         let key = (pattern.to_string(), flags.to_string());
         if let Some(existing) = cache.lock().unwrap().get(&key) {
@@ -841,7 +844,7 @@ pub struct FunctionSignatures {
 
 impl FunctionSignatures {
     pub fn register(&mut self, name: ExpandedName, min: usize, max: Option<usize>) {
-        let ranges = self.entries.entry(name).or_insert_with(Vec::new);
+        let ranges = self.entries.entry(name).or_default();
         if !ranges.iter().any(|r| r.min == min && r.max == max) {
             ranges.push(ArityRange { min, max });
         }

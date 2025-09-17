@@ -252,7 +252,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     fn run(&mut self, code: &InstrSeq) -> Result<XdmSequenceStream<N>, Error> {
         let stack_base = self.stack.len();
         self.execute(code)?;
-        let result = self.stack.pop().unwrap_or_else(XdmSequenceStream::default);
+        let result = self.stack.pop().unwrap_or_default();
         debug_assert_eq!(self.stack.len(), stack_base);
         Ok(result)
     }
@@ -292,7 +292,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     }
 
     fn pop_stream(&mut self) -> XdmSequenceStream<N> {
-        self.stack.pop().unwrap_or_else(XdmSequenceStream::default)
+        self.stack.pop().unwrap_or_default()
     }
 
     fn pop_seq(&mut self) -> Result<XdmSequence<N>, Error> {
@@ -313,7 +313,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                     if let Some((_, v)) = self.local_vars.iter().rev().find(|(n, _)| n == name) {
                         self.push_stream(v.clone());
                     } else {
-                        let v = self.dyn_ctx.variable(name).unwrap_or_else(Vec::new);
+                        let v = self.dyn_ctx.variable(name).unwrap_or_default();
                         self.push_seq(v);
                     }
                     ip += 1;
@@ -2152,12 +2152,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         None
     }
     fn first_child_in_doc(node: &N) -> Option<N> {
-        for child in node.children() {
-            if !Self::is_attr_or_namespace(&child) {
-                return Some(child);
-            }
-        }
-        None
+        node.children()
+            .find(|child| !Self::is_attr_or_namespace(child))
     }
     fn next_sibling_in_doc(node: &N) -> Option<N> {
         let parent = node.parent()?;
