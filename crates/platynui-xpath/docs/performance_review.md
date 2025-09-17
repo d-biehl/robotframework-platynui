@@ -79,6 +79,7 @@
 3. **Compiler – Scope-Sharing**: `lexical_scopes` teilen und Instruktionspuffer reservieren, Criterion `compiler/compile_xpath`.
    - **Status**: Compiler nutzt jetzt SmallVec-Scopes und reserviert Instruktionspuffer; Bench-Zahlen dokumentiert.
 4. **Parser – Clone-freie `Pair`-Iteration**: `into_inner()` konsumieren, Parser-Bench messen.
+   - **Status**: Erste Hotpaths auf `into_inner()` umgestellt; Bench `parser/parse_xpath` verzeichnet leichte Regression, weitere Feintuning nötig.
 
 ## Umsetzungsreihenfolge
 - **1 – DynamicContext refaktorieren** (Finding 1, Zeile 16): Klonen eliminieren, bevor andere Optimierungen greifen.

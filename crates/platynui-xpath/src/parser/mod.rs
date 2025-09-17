@@ -60,9 +60,7 @@ fn extract_qname_deep(pair: Pair<Rule>) -> AstResult<ast::QName> {
         if p.as_rule() == Rule::qname {
             return build_qname_from_parts(p);
         }
-        for c in p.clone().into_inner() {
-            stack.push(c);
-        }
+        stack.extend(p.into_inner());
     }
     Err(ParseAstError::new("expected qname in structure"))
 }
@@ -119,14 +117,9 @@ fn build_qname_from_parts(pair: Pair<Rule>) -> AstResult<ast::QName> {
     let qpair = if pair.as_rule() == Rule::qname {
         pair
     } else {
-        let mut found: Option<Pair<Rule>> = None;
-        for p in pair.clone().into_inner() {
-            if p.as_rule() == Rule::qname {
-                found = Some(p);
-                break;
-            }
-        }
-        found.ok_or_else(|| ParseAstError::new("expected qname inside wrapper"))?
+        pair.into_inner()
+            .find(|p| p.as_rule() == Rule::qname)
+            .ok_or_else(|| ParseAstError::new("expected qname inside wrapper"))?
     };
     let mut prefix: Option<String> = None;
     let mut local: Option<String> = None;
@@ -292,7 +285,7 @@ fn build_function_call(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 fn build_unary_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     let mut signs: Vec<ast::UnarySign> = Vec::new();
     let mut value: Option<Pair<Rule>> = None;
-    for p in pair.clone().into_inner() {
+    for p in pair.into_inner() {
         match p.as_rule() {
             Rule::value_expr => {
                 value = Some(p);
@@ -839,7 +832,7 @@ fn build_kind_test_element(pair: Pair<Rule>) -> AstResult<ast::KindTest> {
     for p in inner {
         match p.as_rule() {
             Rule::element_name_or_wildcard => {
-                let mut inn = p.clone().into_inner();
+                let mut inn = p.into_inner();
                 if let Some(ww) = inn.next() {
                     name = Some(match ww.as_rule() {
                         Rule::element_name => ast::ElementNameOrWildcard::Name(
@@ -878,7 +871,7 @@ fn build_kind_test_attribute(pair: Pair<Rule>) -> AstResult<ast::KindTest> {
     for p in inner {
         match p.as_rule() {
             Rule::attrib_name_or_wildcard => {
-                let mut inn = p.clone().into_inner();
+                let mut inn = p.into_inner();
                 if let Some(ww) = inn.next() {
                     name = Some(match ww.as_rule() {
                         Rule::attribute_name => ast::AttributeNameOrWildcard::Name(
