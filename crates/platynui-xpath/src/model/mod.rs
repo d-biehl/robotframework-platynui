@@ -109,6 +109,12 @@ pub trait XdmNode: Clone + Eq + core::fmt::Debug + Send + Sync {
         Vec::new()
     }
 
+    /// Optional hint for document order comparisons. If provided, the engine uses this
+    /// value to avoid recomputing ancestry during ordering operations.
+    fn doc_order_key(&self) -> Option<u64> {
+        None
+    }
+
     /// Default document order comparison uses ancestry and sibling order.
     /// Returns an error for multi-root comparisons unless overridden by adapter.
     fn compare_document_order(&self, other: &Self) -> Result<Ordering, Error> {

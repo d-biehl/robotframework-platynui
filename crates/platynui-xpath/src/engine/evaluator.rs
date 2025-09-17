@@ -1778,14 +1778,41 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         if nodes.is_empty() {
             return Ok(others);
         }
-        // Dedup preserving first occurrence order by document order
-        nodes.sort_by(|a, b| {
-            self
-                .node_compare(a, b)
-                .unwrap_or(core::cmp::Ordering::Equal)
-        });
-        nodes.dedup();
+        if nodes.len() == 1 {
+            others.push(XdmItem::Node(nodes.pop().unwrap()));
+            return Ok(others);
+        }
+        let mut deduped: Vec<N> = Vec::with_capacity(nodes.len());
+        let mut need_sort = false;
+        let mut last = nodes[0].clone();
+        deduped.push(last.clone());
+        for node in nodes.iter().skip(1) {
+            match self.node_compare(&last, node)? {
+                Ordering::Less => {
+                    deduped.push(node.clone());
+                    last = node.clone();
+                }
+                Ordering::Equal => {
+                    if last == *node {
+                        // exact duplicate
+                    } else {
+                        need_sort = true;
+                        break;
+                    }
+                }
+                Ordering::Greater => {
+                    need_sort = true;
+                    break;
+                }
+            }
+        }
         let mut out: XdmSequence<N> = others;
+        if !need_sort {
+            out.extend(deduped.into_iter().map(XdmItem::Node));
+            return Ok(out);
+        }
+        nodes.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
+        nodes.dedup();
         out.extend(nodes.into_iter().map(XdmItem::Node));
         Ok(out)
     }
@@ -2202,7 +2229,10 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             .collect()
     }
     fn node_compare(&self, a: &N, b: &N) -> Result<Ordering, Error> {
-        a.compare_document_order(b)
+        match (a.doc_order_key(), b.doc_order_key()) {
+            (Some(ak), Some(bk)) => Ok(ak.cmp(&bk)),
+            _ => a.compare_document_order(b),
+        }
     }
 
     // ===== Type operations (very small subset) =====
