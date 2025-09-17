@@ -1,5 +1,7 @@
 use crate::engine::runtime::{FunctionImplementations, FunctionSignatures};
-use std::sync::OnceLock;
+use std::any::{Any, TypeId};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub mod boolean;
 pub mod collations;
@@ -900,11 +902,26 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
 }
 
 pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNode + Clone>()
--> FunctionImplementations<N> {
+-> Arc<FunctionImplementations<N>> {
+    static CACHE: OnceLock<Mutex<HashMap<TypeId, Box<dyn Any + Send + Sync>>>> = OnceLock::new();
+    let map = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = map
+        .lock()
+        .expect("default function registry cache poisoned");
+    let type_id = TypeId::of::<N>();
+    if let Some(existing) = guard.get(&type_id) {
+        let arc = existing
+            .downcast_ref::<Arc<FunctionImplementations<N>>>()
+            .expect("cached registry type mismatch");
+        return arc.clone();
+    }
+
     let mut reg: FunctionImplementations<N> = FunctionImplementations::new();
     ensure_default_signatures();
     register_default_functions(Some(&mut reg), None);
-    reg
+    let arc = Arc::new(reg);
+    guard.insert(type_id, Box::new(arc.clone()));
+    arc
 }
 
 pub fn default_function_signatures() -> FunctionSignatures {

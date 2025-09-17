@@ -4,6 +4,79 @@ use core::fmt;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+#[derive(Clone)]
+pub struct VariableBindings<N> {
+    inner: Arc<VariableScope<N>>,
+}
+
+#[derive(Clone)]
+struct VariableScope<N> {
+    parent: Option<Arc<VariableScope<N>>>,
+    bindings: HashMap<ExpandedName, XdmSequence<N>>,
+}
+
+impl<N> VariableScope<N> {
+    fn empty() -> Arc<Self> {
+        Arc::new(Self {
+            parent: None,
+            bindings: HashMap::new(),
+        })
+    }
+
+    fn with_binding(parent: Arc<Self>, name: ExpandedName, value: XdmSequence<N>) -> Arc<Self> {
+        let mut bindings = HashMap::new();
+        bindings.insert(name, value);
+        Arc::new(Self {
+            parent: Some(parent),
+            bindings,
+        })
+    }
+
+    fn get(scope: &Arc<Self>, name: &ExpandedName) -> Option<XdmSequence<N>>
+    where
+        N: Clone,
+    {
+        let mut current: Option<&Arc<Self>> = Some(scope);
+        while let Some(layer) = current {
+            if let Some(value) = layer.bindings.get(name) {
+                return Some(value.clone());
+            }
+            current = layer.parent.as_ref();
+        }
+        None
+    }
+}
+
+impl<N> Default for VariableBindings<N> {
+    fn default() -> Self {
+        Self {
+            inner: VariableScope::empty(),
+        }
+    }
+}
+
+impl<N> VariableBindings<N> {
+    pub fn with_binding(&self, name: ExpandedName, value: XdmSequence<N>) -> Self {
+        Self {
+            inner: VariableScope::with_binding(self.inner.clone(), name, value),
+        }
+    }
+
+    pub fn insert(&mut self, name: ExpandedName, value: XdmSequence<N>)
+    where
+        N: Clone,
+    {
+        Arc::make_mut(&mut self.inner).bindings.insert(name, value);
+    }
+
+    pub fn get(&self, name: &ExpandedName) -> Option<XdmSequence<N>>
+    where
+        N: Clone,
+    {
+        VariableScope::get(&self.inner, name)
+    }
+}
+
 pub type Arity = usize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -927,7 +1000,7 @@ impl StaticContextBuilder {
 #[derive(Clone)]
 pub struct DynamicContext<N> {
     pub context_item: Option<XdmItem<N>>,
-    pub variables: HashMap<ExpandedName, XdmSequence<N>>,
+    pub variables: VariableBindings<N>,
     pub default_collation: Option<String>,
     pub functions: Option<Arc<FunctionImplementations<N>>>,
     pub collations: Arc<CollationRegistry>,
@@ -941,7 +1014,7 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for Dynam
     fn default() -> Self {
         Self {
             context_item: None,
-            variables: HashMap::new(),
+            variables: VariableBindings::default(),
             default_collation: None,
             functions: None,
             collations: Arc::new(CollationRegistry::default()),
@@ -978,7 +1051,7 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBui
     }
 
     pub fn with_variable(mut self, name: ExpandedName, value: impl Into<XdmSequence<N>>) -> Self {
-        self.ctx.variables.insert(name, value.into());
+        self.ctx.variables = self.ctx.variables.with_binding(name, value.into());
         self
     }
 
@@ -1033,7 +1106,26 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContext<N>
         if let Some(f) = &self.functions {
             f.clone()
         } else {
-            Arc::new(crate::engine::functions::default_function_registry::<N>())
+            crate::engine::functions::default_function_registry::<N>()
         }
+    }
+
+    pub fn with_context_item(&self, item: impl Into<Option<XdmItem<N>>>) -> Self {
+        let mut clone = self.clone();
+        clone.context_item = item.into();
+        clone
+    }
+
+    pub fn with_variable(&self, name: ExpandedName, value: XdmSequence<N>) -> Self {
+        let mut clone = self.clone();
+        clone.variables = clone.variables.with_binding(name, value);
+        clone
+    }
+
+    pub fn variable(&self, name: &ExpandedName) -> Option<XdmSequence<N>>
+    where
+        N: Clone,
+    {
+        self.variables.get(name)
     }
 }

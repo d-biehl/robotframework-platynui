@@ -3,7 +3,7 @@ use crate::compiler::ir::{
     QuantifierKind, SeqTypeIR, SingleTypeIR,
 };
 use crate::engine::runtime::{CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations};
-use crate::model::XdmNode;
+use crate::model::{NodeKind, XdmNode};
 use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence};
 use chrono::Duration as ChronoDuration;
 use chrono::{FixedOffset as ChronoFixedOffset, NaiveTime as ChronoNaiveTime, TimeZone};
@@ -84,12 +84,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     if let Some((_, v)) = self.local_vars.iter().rev().find(|(n, _)| n == name) {
                         self.stack.push(v.clone());
                     } else {
-                        let v = self
-                            .dyn_ctx
-                            .variables
-                            .get(name)
-                            .cloned()
-                            .unwrap_or_else(Vec::new);
+                        let v = self.dyn_ctx.variable(name).unwrap_or_else(Vec::new);
                         self.stack.push(v);
                     }
                     ip += 1;
@@ -178,8 +173,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             let len = current.len();
                             let mut next: XdmSequence<N> = Vec::new();
                             for (idx, item) in current.into_iter().enumerate() {
-                                let mut child = self.dyn_ctx.clone();
-                                child.context_item = Some(item.clone());
+                                let child = self.dyn_ctx.with_context_item(Some(item.clone()));
                                 let mut vm = Vm::new(self.compiled, &child);
                                 vm.frames.push(Frame {
                                     last: len,
@@ -203,8 +197,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     let mut out: XdmSequence<N> = Vec::new();
                     let len = input.len();
                     for (idx, item) in input.into_iter().enumerate() {
-                        let mut child = self.dyn_ctx.clone();
-                        child.context_item = Some(item.clone());
+                        let child = self.dyn_ctx.with_context_item(Some(item.clone()));
                         let mut vm = Vm::new(self.compiled, &child);
                         vm.frames.push(Frame {
                             last: len,
@@ -224,8 +217,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         let mut out: XdmSequence<N> = Vec::new();
                         let len = current.len();
                         for (idx, it) in current.into_iter().enumerate() {
-                            let mut child = self.dyn_ctx.clone();
-                            child.context_item = Some(it.clone());
+                            let child = self.dyn_ctx.with_context_item(Some(it.clone()));
                             let mut vm = Vm::new(self.compiled, &child);
                             vm.frames.push(Frame {
                                 last: len,
@@ -1139,15 +1131,14 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     let body_slice = &ops[ip + 1..for_next_ix];
                     let body_instr = InstrSeq(body_slice.to_vec());
 
-                    // Prepare shared child dynamic context we mutate per iteration
-                    let mut shared_ctx = self.dyn_ctx.clone();
+                    // Prepare base dynamic context for child VMs (shared via cheap clones)
+                    let shared_ctx = self.dyn_ctx.clone();
                     let mut acc: XdmSequence<N> = Vec::new();
                     for (idx, item) in input_seq.into_iter().enumerate() {
-                        shared_ctx.context_item = Some(item.clone());
-                        shared_ctx
-                            .variables
-                            .insert(var_name.clone(), vec![item.clone()]);
-                        let mut inner_vm = Vm::new(self.compiled, &shared_ctx);
+                        let iter_ctx = shared_ctx
+                            .with_context_item(Some(item.clone()))
+                            .with_variable(var_name.clone(), vec![item.clone()]);
+                        let mut inner_vm = Vm::new(self.compiled, &iter_ctx);
                         inner_vm.frames.push(Frame {
                             last: item_count,
                             pos: idx + 1,
@@ -1199,18 +1190,17 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     // Cache body instructions once
                     let body_instr = InstrSeq(body_slice.to_vec());
 
-                    // Clone context once; we'll mutate binding each iteration
-                    let mut shared_ctx = self.dyn_ctx.clone();
+                    // Clone context once; we'll derive per-iteration bindings from it
+                    let shared_ctx = self.dyn_ctx.clone();
                     let mut quant_result = match kind {
                         QuantifierKind::Some => false,
                         QuantifierKind::Every => true,
                     };
                     for (idx, item) in input_seq.into_iter().enumerate() {
-                        shared_ctx.context_item = Some(item.clone());
-                        shared_ctx
-                            .variables
-                            .insert(var_name.clone(), vec![item.clone()]);
-                        let mut inner_vm = Vm::new(self.compiled, &shared_ctx);
+                        let iter_ctx = shared_ctx
+                            .with_context_item(Some(item.clone()))
+                            .with_variable(var_name.clone(), vec![item.clone()]);
+                        let mut inner_vm = Vm::new(self.compiled, &iter_ctx);
                         inner_vm.frames.push(Frame {
                             last: item_count,
                             pos: idx + 1,
@@ -1828,42 +1818,14 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             AxisIR::FollowingSibling => self.siblings(node, false),
             AxisIR::PrecedingSibling => self.siblings(node, true),
             AxisIR::Following => {
-                // All nodes after context node in document order, excluding descendants and attribute/namespace nodes
-                // Find root
-                let mut root = node.clone();
-                while let Some(p) = root.parent() {
-                    root = p;
-                }
-                // Traverse whole document (elements/doc only), collect nodes with ord > and not descendant of node
-                let all = self.collect_descendants(root, true);
                 let mut out = Vec::new();
-                for n in all {
-                    // Skip attributes and namespaces everywhere
-                    use crate::model::NodeKind;
-                    if matches!(n.kind(), NodeKind::Attribute | NodeKind::Namespace) {
-                        continue;
+                let mut cursor = self.doc_successor(&node);
+                while let Some(next) = cursor {
+                    let next_cursor = self.doc_successor(&next);
+                    if !Self::is_attr_or_namespace(&next) && !self.is_descendant_of(&next, &node) {
+                        out.push(next.clone());
                     }
-                    if let Ok(ord) = node.compare_document_order(&n) {
-                        // Only nodes after the context node (node < n)
-                        if ord.is_gt() || matches!(ord, core::cmp::Ordering::Equal) {
-                            continue;
-                        }
-                        // Exclude descendants of the context node
-                        let mut cur = n.parent();
-                        let mut is_descendant = false;
-                        while let Some(c) = cur {
-                            if c == node {
-                                is_descendant = true;
-                                break;
-                            }
-                            cur = c.parent();
-                        }
-                        if !is_descendant {
-                            out.push(n);
-                        }
-                    } else {
-                        // Different roots: ignore (following is empty across roots)
-                    }
+                    cursor = next_cursor;
                 }
                 out
             }
@@ -1894,39 +1856,16 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 out
             }
             AxisIR::Preceding => {
-                // All nodes before context node in document order, excluding ancestors and attribute/namespace nodes
-                let mut root = node.clone();
-                while let Some(p) = root.parent() {
-                    root = p;
-                }
-                let all = self.collect_descendants(root, true);
                 let mut out = Vec::new();
-                for n in all {
-                    use crate::model::NodeKind;
-                    if matches!(n.kind(), NodeKind::Attribute | NodeKind::Namespace) {
-                        continue;
+                let mut cursor = self.doc_predecessor(&node);
+                while let Some(prev) = cursor {
+                    let prev_cursor = self.doc_predecessor(&prev);
+                    if !Self::is_attr_or_namespace(&prev) && !self.is_ancestor_of(&prev, &node) {
+                        out.push(prev.clone());
                     }
-                    if let Ok(ord) = node.compare_document_order(&n) {
-                        // n before node when node > n
-                        if ord.is_gt() {
-                            // Exclude ancestors of the context node
-                            let mut cur = node.parent();
-                            let mut is_ancestor = false;
-                            while let Some(c) = cur {
-                                if c == n {
-                                    is_ancestor = true;
-                                    break;
-                                }
-                                cur = c.parent();
-                            }
-                            if !is_ancestor {
-                                out.push(n);
-                            }
-                        }
-                    } else {
-                        // Different roots: ignore
-                    }
+                    cursor = prev_cursor;
                 }
+                out.reverse();
                 out
             }
         }
@@ -1936,14 +1875,122 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         if include_self {
             out.push(node.clone());
         }
-        fn dfs<N: XdmNode>(n: N, out: &mut Vec<N>) {
-            for c in n.children() {
-                out.push(c.clone());
-                dfs(c, out);
+        let mut stack: Vec<N> = node
+            .children()
+            .into_iter()
+            .filter(|child| !Self::is_attr_or_namespace(child))
+            .collect();
+        stack.reverse();
+        while let Some(cur) = stack.pop() {
+            out.push(cur.clone());
+            let mut children: Vec<N> = cur
+                .children()
+                .into_iter()
+                .filter(|child| !Self::is_attr_or_namespace(child))
+                .collect();
+            children.reverse();
+            stack.extend(children);
+        }
+        out
+    }
+    fn doc_successor(&self, node: &N) -> Option<N> {
+        if let Some(child) = Self::first_child_in_doc(node) {
+            return Some(child);
+        }
+        let mut current = node.clone();
+        while let Some(parent) = current.parent() {
+            if let Some(sib) = Self::next_sibling_in_doc(&current) {
+                return Some(sib);
+            }
+            current = parent;
+        }
+        None
+    }
+    fn doc_predecessor(&self, node: &N) -> Option<N> {
+        if let Some(prev) = Self::prev_sibling_in_doc(node) {
+            return Some(Self::last_descendant_in_doc(prev));
+        }
+        let mut current = node.clone();
+        while let Some(parent) = current.parent() {
+            if !Self::is_attr_or_namespace(&parent) {
+                return Some(parent);
+            }
+            if let Some(prev) = Self::prev_sibling_in_doc(&parent) {
+                return Some(Self::last_descendant_in_doc(prev));
+            }
+            current = parent;
+        }
+        None
+    }
+    fn first_child_in_doc(node: &N) -> Option<N> {
+        for child in node.children() {
+            if !Self::is_attr_or_namespace(&child) {
+                return Some(child);
             }
         }
-        dfs(node, &mut out);
-        out
+        None
+    }
+    fn next_sibling_in_doc(node: &N) -> Option<N> {
+        let parent = node.parent()?;
+        let siblings = parent.children();
+        let mut found = false;
+        for sib in siblings.iter() {
+            if found && !Self::is_attr_or_namespace(sib) {
+                return Some(sib.clone());
+            }
+            if sib == node {
+                found = true;
+            }
+        }
+        None
+    }
+    fn prev_sibling_in_doc(node: &N) -> Option<N> {
+        let parent = node.parent()?;
+        let siblings = parent.children();
+        let mut prev: Option<N> = None;
+        for sib in siblings {
+            if sib == *node {
+                break;
+            }
+            if !Self::is_attr_or_namespace(&sib) {
+                prev = Some(sib);
+            }
+        }
+        prev
+    }
+    fn last_descendant_in_doc(node: N) -> N {
+        let mut current = node;
+        loop {
+            let children = current.children();
+            let mut last_child: Option<N> = None;
+            for child in children.into_iter().rev() {
+                if !Self::is_attr_or_namespace(&child) {
+                    last_child = Some(child);
+                    break;
+                }
+            }
+            if let Some(child) = last_child {
+                current = child;
+            } else {
+                return current;
+            }
+        }
+    }
+    fn is_attr_or_namespace(node: &N) -> bool {
+        matches!(node.kind(), NodeKind::Attribute | NodeKind::Namespace)
+    }
+    fn is_descendant_of(&self, node: &N, ancestor: &N) -> bool {
+        let mut current = node.parent();
+        while let Some(parent) = current {
+            if parent == *ancestor {
+                return true;
+            }
+            current = parent.parent();
+        }
+        false
+    }
+    fn is_ancestor_of(&self, node: &N, descendant: &N) -> bool {
+        self.is_descendant_of(descendant, node)
     }
     fn siblings(&self, node: N, preceding: bool) -> Vec<N> {
         if let Some(parent) = node.parent() {
