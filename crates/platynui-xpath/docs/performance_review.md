@@ -78,7 +78,7 @@
 ## Weitere Beobachtungen
 - `collect_descendants` rekursiert ohne Tiefenkontrolle (`crates/platynui-xpath/src/engine/evaluator.rs:1934-1946`); inzwischen wird eine iterative Variante genutzt, aber ein Stack-Sizing-Review steht auf der Agenda.
 - `SimpleNode::children`/`attributes` klonen jeweils den kompletten Vektor (`crates/platynui-xpath/src/model/simple.rs:592-604`). Langfristig sollten Iterator-Sichten mit `Arc`-Sharing eingeführt werden.
-- Achsen iterieren nun über einen wiederverwendbaren Buffer; ohne stabile Dokumentordnungs-Indizes bleiben Mengenoperatoren dennoch teuer.
+- Achsen iterieren nun über einen wiederverwendbaren Buffer. `SimpleNode::doc_order_key` kodiert `(doc_id, preorder)`, aber Mengenoperatoren nutzen weiterhin sequentielle Merge-Pfade.
 
 ## Empfohlene naechste Schritte
 ### Nächste Maßnahmen
@@ -86,8 +86,8 @@
    - **Messung**: Predicate-/For-Schleifen-Benchmarks mit großen Kontexteingaben (`large_predicate.xml`).
    - **Ziel**: Single-VM-Pfade müssen den Regressionstest `predicate_heavy_sum_matches_manual` unter 100 ms halten.
 2. **Axis-/Pfadschritte streamen**: Buffer-Reuse für `AxisStep`/`PathExprStep` umgesetzt; nächste Messrunde mit großen Dokumenten anstoßen.
-3. **Set-Operatoren nachziehen**: Merge-Strategie und dokumentordnungsbasierte Deduplikation weiterhärten (bereits aktiv, aber noch ohne Indizes testen).
-   - **Status**: Merge-basierte `set_union` implementiert; neue Axis-Pfade als Grundlage für nächste Iteration.
+3. **Set-Operatoren nachziehen**: Merge-Strategie und dokumentordnungsbasierte Deduplikation weiterhärten (bereits aktiv, aber noch ohne Hash-Indizes).
+   - **Status**: `doc_order_key` liefert stabile `(doc_id, preorder)`-Schlüssel; nächster Schritt: Hash-basierte Mengen und deduplizierte Vergleiche.
 4. **Compiler – Scope-Sharing**: `lexical_scopes` teilen und Instruktionspuffer reservieren, Criterion `compiler/compile_xpath`.
    - **Status**: Compiler nutzt jetzt SmallVec-Scopes und reserviert Instruktionspuffer; Bench-Zahlen dokumentiert.
 5. **Parser – Clone-freie `Pair`-Iteration**: `into_inner()` konsumieren, Parser-Bench messen.
@@ -123,3 +123,4 @@
 | def456 | axes/following_preceding | 7.89 | 0.31 | 8.40 | 100 | Overlay-Frames aktiv |
 | 3d8b85a | evaluator/predicate_heavy/sum | 436.05 | 0.46 | 436.71 | 20 | Post-VM-Overlay, großes Dokument |
 | 3d8b85a | evaluator/predicate_heavy/sum | 461.22 | 1.05 | 463.34 | 20 | +Axis-Streaming, Indizes offen |
+| 3d8b85a | evaluator/predicate_heavy/sum | 459.64 | 3.24 | 463.40 | 20 | +doc_order_key (doc_id<<32 | preorder) |

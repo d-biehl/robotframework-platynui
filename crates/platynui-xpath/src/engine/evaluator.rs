@@ -1837,38 +1837,30 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             others.push(XdmItem::Node(nodes.pop().unwrap()));
             return Ok(others);
         }
-        let mut deduped: Vec<N> = Vec::with_capacity(nodes.len());
-        let mut need_sort = false;
-        let mut last = nodes[0].clone();
-        deduped.push(last.clone());
-        for node in nodes.iter().skip(1) {
-            match self.node_compare(&last, node)? {
-                Ordering::Less => {
-                    deduped.push(node.clone());
-                    last = node.clone();
-                }
-                Ordering::Equal => {
-                    if last == *node {
-                        // exact duplicate
-                    } else {
-                        need_sort = true;
-                        break;
-                    }
-                }
-                Ordering::Greater => {
-                    need_sort = true;
-                    break;
-                }
+        let mut out: XdmSequence<N> = others;
+        let mut keyed: Vec<(u64, N)> = Vec::with_capacity(nodes.len());
+        let mut fallback: Vec<N> = Vec::new();
+        let mut all_keyed = true;
+        for node in nodes {
+            if let Some(k) = node.doc_order_key() {
+                keyed.push((k, node));
+            } else {
+                all_keyed = false;
+                fallback.push(node);
             }
         }
-        let mut out: XdmSequence<N> = others;
-        if !need_sort {
-            out.extend(deduped.into_iter().map(XdmItem::Node));
+        if all_keyed {
+            keyed.sort_by_key(|(k, _)| *k);
+            keyed.dedup_by(|a, b| a.0 == b.0);
+            out.extend(keyed.into_iter().map(|(_, n)| XdmItem::Node(n)));
             return Ok(out);
         }
-        nodes.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
-        nodes.dedup();
-        out.extend(nodes.into_iter().map(XdmItem::Node));
+
+        // Fallback: combine keyed (without reliable key usage) with non-keyed nodes
+        fallback.extend(keyed.into_iter().map(|(_, n)| n));
+        fallback.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
+        fallback.dedup();
+        out.extend(fallback.into_iter().map(XdmItem::Node));
         Ok(out)
     }
 
@@ -1881,9 +1873,11 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         self.axis_buffer.clear();
         match axis {
             AxisIR::SelfAxis => self.axis_buffer.push(node),
-            AxisIR::Child => self
-                .axis_buffer
-                .extend(node.children().into_iter().filter(|c| !Self::is_attr_or_namespace(c))),
+            AxisIR::Child => self.axis_buffer.extend(
+                node.children()
+                    .into_iter()
+                    .filter(|c| !Self::is_attr_or_namespace(c)),
+            ),
             AxisIR::Attribute => self.axis_buffer.extend(node.attributes()),
             AxisIR::Parent => {
                 if let Some(parent) = node.parent() {

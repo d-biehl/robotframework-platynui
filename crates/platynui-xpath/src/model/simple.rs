@@ -250,6 +250,28 @@ impl SimpleNode {
         *self.0.doc_order.write().unwrap() = Some(value);
     }
 
+    fn set_doc_id_recursive(&self, doc_id: u64) {
+        *self.0.doc_id.write().unwrap() = doc_id;
+        {
+            let attrs = self.0.attributes.read().unwrap().clone();
+            for attr in attrs {
+                attr.set_doc_id_recursive(doc_id);
+            }
+        }
+        {
+            let namespaces = self.0.namespaces.read().unwrap().clone();
+            for ns in namespaces {
+                ns.set_doc_id_recursive(doc_id);
+            }
+        }
+        {
+            let children = self.0.children.read().unwrap().clone();
+            for child in children {
+                child.set_doc_id_recursive(doc_id);
+            }
+        }
+    }
+
     fn assign_document_order_with_counter(&self, counter: &mut u64) {
         *counter += 1;
         self.set_doc_order(*counter);
@@ -435,7 +457,7 @@ impl SimpleNodeBuilder {
             for n in &self.pending_ns {
                 *n.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
                 let id = *self.node.0.doc_id.read().unwrap();
-                *n.0.doc_id.write().unwrap() = id;
+                n.set_doc_id_recursive(id);
             }
             nss.extend(self.pending_ns);
         }
@@ -467,7 +489,7 @@ impl SimpleNodeBuilder {
                         );
                         *rebuilt.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
                         let id = *self.node.0.doc_id.read().unwrap();
-                        *rebuilt.0.doc_id.write().unwrap() = id;
+                        rebuilt.set_doc_id_recursive(id);
                         attrs.push(rebuilt);
                         pushed = true;
                     }
@@ -475,7 +497,7 @@ impl SimpleNodeBuilder {
                 if !pushed {
                     *a.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
                     let id = *self.node.0.doc_id.read().unwrap();
-                    *a.0.doc_id.write().unwrap() = id;
+                    a.set_doc_id_recursive(id);
                     attrs.push(a);
                 }
             }
@@ -485,7 +507,7 @@ impl SimpleNodeBuilder {
             for c in self.pending_children {
                 *c.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
                 let idc = *self.node.0.doc_id.read().unwrap();
-                *c.0.doc_id.write().unwrap() = idc;
+                c.set_doc_id_recursive(idc);
                 ch.push(c);
             }
         }
@@ -683,6 +705,12 @@ impl XdmNode for SimpleNode {
             out.push(xml);
         }
         out
+    }
+
+    fn doc_order_key(&self) -> Option<u64> {
+        let doc_id = *self.0.doc_id.read().ok()?;
+        let ord = self.doc_order()?;
+        Some((doc_id << 32) | (ord & 0xFFFF_FFFF))
     }
 
     fn compare_document_order(
