@@ -75,7 +75,9 @@
 1. **Evaluator – VM-Frame-Reuse & Stackreserven**: Leichte Frames und SmallVec-Stacks umsetzen, Tests via Criterion `evaluator/evaluate`.
    - **Status**: SmallVec-Stacks und Kapazitäts-Reservierung umgesetzt; weiterer VM-Reuse folgt.
 2. **Evaluator – Set-Union Merge**: Merge-Logik statt `doc_order_distinct` einsetzen, Benchmarks vergleichen.
+   - **Status**: Merge-basierte `set_union` implementiert; weitere Messungen via Criterion folgen.
 3. **Compiler – Scope-Sharing**: `lexical_scopes` teilen und Instruktionspuffer reservieren, Criterion `compiler/compile_xpath`.
+   - **Status**: Compiler nutzt jetzt SmallVec-Scopes und reserviert Instruktionspuffer; Bench-Zahlen dokumentiert.
 4. **Parser – Clone-freie `Pair`-Iteration**: `into_inner()` konsumieren, Parser-Bench messen.
 
 ## Umsetzungsreihenfolge

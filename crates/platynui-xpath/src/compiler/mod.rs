@@ -2,6 +2,7 @@ use crate::engine::runtime::ErrorCode;
 use crate::engine::runtime::{Error, StaticContext};
 use crate::parser::{ast, parse_xpath};
 use crate::xdm::{ExpandedName, XdmAtomicValue};
+use smallvec::SmallVec;
 
 pub mod ir;
 
@@ -42,18 +43,19 @@ struct Compiler<'a> {
     static_ctx: &'a StaticContext,
     source: &'a str,
     code: Vec<ir::OpCode>,
-    lexical_scopes: Vec<Vec<ExpandedName>>,
+    lexical_scopes: SmallVec<[SmallVec<[ExpandedName; 4]>; 8]>,
 }
 
 type CResult<T> = Result<T, Error>;
 
 impl<'a> Compiler<'a> {
     fn new(static_ctx: &'a StaticContext, source: &'a str) -> Self {
+        let reserve = std::cmp::max(32, source.len() / 2);
         Self {
             static_ctx,
             source,
-            code: Vec::new(),
-            lexical_scopes: Vec::new(),
+            code: Vec::with_capacity(reserve),
+            lexical_scopes: SmallVec::new(),
         }
     }
 
@@ -61,7 +63,7 @@ impl<'a> Compiler<'a> {
         Self {
             static_ctx: self.static_ctx,
             source: self.source,
-            code: Vec::new(),
+            code: Vec::with_capacity(self.code.capacity()),
             lexical_scopes: self.lexical_scopes.clone(),
         }
     }
@@ -71,7 +73,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn push_scope(&mut self) {
-        self.lexical_scopes.push(Vec::new());
+        self.lexical_scopes.push(SmallVec::new());
     }
 
     fn pop_scope(&mut self) {
@@ -80,7 +82,7 @@ impl<'a> Compiler<'a> {
 
     fn declare_local(&mut self, name: ExpandedName) {
         if self.lexical_scopes.is_empty() {
-            self.lexical_scopes.push(Vec::new());
+            self.lexical_scopes.push(SmallVec::new());
         }
         if let Some(scope) = self.lexical_scopes.last_mut() {
             scope.push(name);

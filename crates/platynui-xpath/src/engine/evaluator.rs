@@ -2168,10 +2168,35 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
 
     // ===== Set operations (nodes-only; results in document order with duplicates removed) =====
     fn set_union(&self, a: XdmSequence<N>, b: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
-        let mut both: XdmSequence<N> = Vec::with_capacity(a.len() + b.len());
-        both.extend(a);
-        both.extend(b);
-        self.doc_order_distinct(both)
+        let lhs = self.sorted_distinct_nodes(a)?;
+        let rhs = self.sorted_distinct_nodes(b)?;
+        let mut out: Vec<N> = Vec::with_capacity(lhs.len() + rhs.len());
+        let mut i = 0usize;
+        let mut j = 0usize;
+        while i < lhs.len() && j < rhs.len() {
+            match self.node_compare(&lhs[i], &rhs[j])? {
+                Ordering::Less => {
+                    out.push(lhs[i].clone());
+                    i += 1;
+                }
+                Ordering::Greater => {
+                    out.push(rhs[j].clone());
+                    j += 1;
+                }
+                Ordering::Equal => {
+                    out.push(lhs[i].clone());
+                    i += 1;
+                    j += 1;
+                }
+            }
+        }
+        if i < lhs.len() {
+            out.extend(lhs[i..].iter().cloned());
+        }
+        if j < rhs.len() {
+            out.extend(rhs[j..].iter().cloned());
+        }
+        Ok(out.into_iter().map(XdmItem::Node).collect())
     }
     fn set_intersect(&self, a: XdmSequence<N>, b: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
         let lhs = self.sorted_distinct_nodes(a)?;
