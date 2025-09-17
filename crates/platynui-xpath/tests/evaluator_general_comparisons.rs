@@ -24,7 +24,7 @@ fn build_doc() -> N {
                 .child(elem("n").attr(mkattr("v", "20")).child(text("twenty"))),
         )
         .build();
-    d.children()[0].clone()
+    d.children().next().unwrap()
 }
 
 #[fixture]

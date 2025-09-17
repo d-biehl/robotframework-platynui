@@ -10,20 +10,27 @@ struct DummyNode {
     val: String,
 }
 impl platynui_xpath::model::XdmNode for DummyNode {
+    type Children<'a> = std::iter::Empty<Self> where Self: 'a;
+    type Attributes<'a> = std::iter::Empty<Self> where Self: 'a;
+    type Namespaces<'a> = std::iter::Empty<Self> where Self: 'a;
+
     fn kind(&self) -> platynui_xpath::model::NodeKind {
         platynui_xpath::model::NodeKind::Element
     }
     fn string_value(&self) -> String {
         self.val.clone()
     }
-    fn children(&self) -> Vec<Self> {
-        vec![]
-    }
     fn parent(&self) -> Option<Self> {
         None
     }
-    fn attributes(&self) -> Vec<Self> {
-        vec![]
+    fn children(&self) -> Self::Children<'_> {
+        std::iter::empty()
+    }
+    fn attributes(&self) -> Self::Attributes<'_> {
+        std::iter::empty()
+    }
+    fn namespaces(&self) -> Self::Namespaces<'_> {
+        std::iter::empty()
     }
     fn compare_document_order(
         &self,

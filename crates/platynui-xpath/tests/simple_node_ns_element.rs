@@ -20,8 +20,7 @@ fn child_element_prefix_resolves_against_parent_namespaces() {
         .namespace(ns("p", "urn:one"))
         .child(elem("p:child"))
         .build();
-    let children = root.children();
-    let child = children[0].clone();
+    let child = root.children().next().unwrap();
     let q = child.name().unwrap();
     assert_eq!(q.local, "child");
     assert_eq!(q.prefix.as_deref(), Some("p"));

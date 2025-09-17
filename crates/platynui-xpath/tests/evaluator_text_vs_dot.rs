@@ -69,7 +69,7 @@ fn text_function_vs_dot_string_value_equivalence() {
         )
         .build();
 
-    let root = document.children()[0].clone();
+    let root = document.children().next().unwrap();
     let ctx = ctx_with(root.clone());
 
     // Evaluate both XPath expressions

@@ -43,7 +43,7 @@ fn resolve_qname_and_in_scope() {
     let doc = platynui_xpath::simple_doc()
         .child(elem("root").namespace(ns("p", "urn:one")).child(elem("c")))
         .build();
-    let root = doc.children()[0].clone();
+    let root = doc.children().next().unwrap();
     let ctx = DynamicContextBuilder::new()
         .with_context_item(root.clone())
         .build();

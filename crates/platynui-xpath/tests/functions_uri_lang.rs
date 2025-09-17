@@ -98,8 +98,10 @@ fn lang_matches_ancestor_xml_lang() {
         .child(elem("child"))
         .build();
     let d = doc().child(root.clone()).build();
+    let root = d.children().next().unwrap();
+    let target = root.children().next().unwrap();
     let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(d.children()[0].children()[0].clone())
+        .with_context_item(target)
         .build();
     let out = evaluate_expr::<N>("lang('en')", &ctx).unwrap();
     match &out[0] {

@@ -16,7 +16,7 @@ fn build_tree() -> N {
                 .child(elem("c")),
         )
         .build();
-    let root = d.children();
+    let root: Vec<_> = d.children().collect();
     assert_eq!(root.len(), 1);
     root[0].clone()
 }

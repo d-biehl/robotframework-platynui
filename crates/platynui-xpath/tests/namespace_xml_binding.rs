@@ -9,7 +9,7 @@ use rstest::rstest;
 fn ctx()
 -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     let document = doc().child(elem("r").child(text("x"))).build();
-    let root = document.children()[0].clone();
+    let root = document.children().next().unwrap();
     DynamicContextBuilder::default()
         .with_context_item(root)
         .build()
@@ -38,7 +38,7 @@ fn xml_namespace_not_overridden() {
                 .child(text("x")),
         )
         .build();
-    let root = docu.children()[0].clone();
+    let root = docu.children().next().unwrap();
     let c = DynamicContextBuilder::default()
         .with_context_item(root)
         .build();
@@ -61,7 +61,7 @@ fn xml_namespace_no_duplicate_when_declared() {
                 .child(text("x")),
         )
         .build();
-    let root = docu.children()[0].clone();
+    let root = docu.children().next().unwrap();
     let c = DynamicContextBuilder::default()
         .with_context_item(root)
         .build();

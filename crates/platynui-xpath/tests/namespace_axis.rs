@@ -21,7 +21,7 @@ fn namespace_axis_includes_declared_and_xml() {
                 .child(elem("child")),
         )
         .build();
-    let root = d.children()[0].clone();
+    let root = d.children().next().unwrap();
     let ctx = ctx_with(root.clone());
 
     let out = evaluate_expr::<N>("namespace::node()", &ctx).unwrap();

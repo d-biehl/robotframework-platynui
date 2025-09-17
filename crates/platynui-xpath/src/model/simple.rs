@@ -23,7 +23,7 @@
 //!     .build();
 //!
 //! assert_eq!(root.name().unwrap().local, "root");
-//! assert_eq!(root.children().len(), 2); // two child elements
+//! assert_eq!(root.children().count(), 2); // two child elements
 //! ```
 //!
 //! Document root & namespaces example:
@@ -37,7 +37,7 @@
 //!       .child(elem("child").child(text("Hi")))
 //!   )
 //!   .build();
-//! let root = document.children()[0].clone();
+//! let root = document.children().next().unwrap();
 //! assert_eq!(root.lookup_namespace_uri("p").as_deref(), Some("urn:one"));
 //! assert_eq!(root.string_value(), "Hi");
 //! ```
@@ -50,8 +50,8 @@
 //!   .attr(attr("a","1"))
 //!   .child(elem("c"))
 //!   .build();
-//! let attr_node = r.attributes()[0].clone();
-//! let child_node = r.children()[0].clone();
+//! let attr_node = r.attributes().next().unwrap();
+//! let child_node = r.children().next().unwrap();
 //! assert_eq!(attr_node.compare_document_order(&child_node).unwrap(), core::cmp::Ordering::Less);
 //! ```
 use std::fmt;
@@ -61,6 +61,8 @@ use std::sync::{
 };
 
 use crate::model::{NodeKind, QName, XdmNode};
+
+type AxisVecIter = std::vec::IntoIter<SimpleNode>;
 
 #[derive(Debug)]
 pub(crate) struct Inner {
@@ -325,7 +327,7 @@ impl fmt::Display for SimpleNode {
         }
         match self.kind() {
             NodeKind::Document => {
-                let ch = self.children().len();
+                let ch = self.children().count();
                 write!(f, "document(children={})", ch)
             }
             NodeKind::Element => {
@@ -333,8 +335,8 @@ impl fmt::Display for SimpleNode {
                     .name()
                     .map(|q| qname_to_string(&q))
                     .unwrap_or_else(|| "<unnamed>".to_string());
-                let attrs = self.attributes().len();
-                let ch = self.children().len();
+                let attrs = self.attributes().count();
+                let ch = self.children().count();
                 write!(f, "<{} attrs={} children={}>", name, attrs, ch)
             }
             NodeKind::Attribute => {
@@ -610,6 +612,10 @@ pub fn doc() -> SimpleNodeBuilder {
 }
 
 impl XdmNode for SimpleNode {
+    type Children<'a> = AxisVecIter where Self: 'a;
+    type Attributes<'a> = AxisVecIter where Self: 'a;
+    type Namespaces<'a> = AxisVecIter where Self: 'a;
+
     fn kind(&self) -> NodeKind {
         self.0.kind.clone()
     }
@@ -654,21 +660,23 @@ impl XdmNode for SimpleNode {
             .and_then(|w| w.upgrade())
             .map(SimpleNode)
     }
-    fn children(&self) -> Vec<Self> {
+    fn children(&self) -> Self::Children<'_> {
         self.0
             .children
             .read()
             .map(|v| v.clone())
             .unwrap_or_default()
+            .into_iter()
     }
-    fn attributes(&self) -> Vec<Self> {
+    fn attributes(&self) -> Self::Attributes<'_> {
         self.0
             .attributes
             .read()
             .map(|v| v.clone())
             .unwrap_or_default()
+            .into_iter()
     }
-    fn namespaces(&self) -> Vec<Self> {
+    fn namespaces(&self) -> Self::Namespaces<'_> {
         // Start with stored namespaces, then ensure implicit xml binding exists and deduplicate by prefix.
         let stored: Vec<Self> = self
             .0
@@ -704,7 +712,7 @@ impl XdmNode for SimpleNode {
             *xml.0.parent.write().unwrap() = Some(std::sync::Arc::downgrade(&self.0));
             out.push(xml);
         }
-        out
+        out.into_iter()
     }
 
     fn doc_order_key(&self) -> Option<u64> {

@@ -78,7 +78,7 @@ fn namespace_uri_type_error_on_non_node(empty_ctx: DynamicContext<N>) {
 fn namespace_uri_uses_context_item_when_omitted() {
     use platynui_xpath::model::simple::{doc, elem, ns};
     let d = doc().child(elem("p:r").namespace(ns("p", "urn:x"))).build();
-    let root = d.children()[0].clone();
+    let root = d.children().next().unwrap();
     let ctx = DynamicContextBuilder::<N>::default()
         .with_context_item(root)
         .build();

@@ -86,7 +86,7 @@ fn resolve_qname_invalid_lex(#[case] expr: &str) {
     // Build minimal context item (element) since resolve-QName needs a node context
     use platynui_xpath::model::simple::elem;
     let doc = platynui_xpath::simple_doc().child(elem("root")).build();
-    let root = doc.children()[0].clone();
+    let root = doc.children().next().unwrap();
     let c = DynamicContextBuilder::default()
         .with_context_item(root)
         .build();

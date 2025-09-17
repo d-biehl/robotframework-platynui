@@ -1,7 +1,7 @@
 use crate::engine::runtime::{Error, ErrorCode};
 
 pub mod simple;
-use core::cmp::Ordering;
+use core::{cmp::Ordering, marker::PhantomData};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum NodeKind {
@@ -80,9 +80,9 @@ pub fn try_compare_by_ancestry<N: XdmNode>(a: &N, b: &N) -> Result<Ordering, Err
     let parent = &pa[i - 1];
     // Sibling order: attributes, namespaces, then children
     let mut sibs: Vec<N> = Vec::new();
-    sibs.extend(parent.attributes());
-    sibs.extend(parent.namespaces());
-    sibs.extend(parent.children());
+    sibs.extend(parent.attributes_vec());
+    sibs.extend(parent.namespaces_vec());
+    sibs.extend(parent.children_vec());
     let na = &pa[i];
     let nb = &pb[i];
     let posa = sibs.iter().position(|n| n == na);
@@ -94,7 +94,33 @@ pub fn try_compare_by_ancestry<N: XdmNode>(a: &N, b: &N) -> Result<Ordering, Err
     })
 }
 
-pub trait XdmNode: Clone + Eq + core::fmt::Debug + Send + Sync {
+#[derive(Clone, Debug, Default)]
+pub struct EmptyAxis<N> {
+    _marker: PhantomData<N>,
+}
+
+impl<N> Iterator for EmptyAxis<N> {
+    type Item = N;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        None
+    }
+}
+
+unsafe impl<N: Send> Send for EmptyAxis<N> {}
+unsafe impl<N: Sync> Sync for EmptyAxis<N> {}
+
+pub trait XdmNode: Clone + Eq + core::fmt::Debug + Send + Sync + 'static {
+    type Children<'a>: Iterator<Item = Self> + Send + 'a
+    where
+        Self: 'a;
+    type Attributes<'a>: Iterator<Item = Self> + Send + 'a
+    where
+        Self: 'a;
+    type Namespaces<'a>: Iterator<Item = Self> + Send + 'a
+    where
+        Self: 'a;
+
     fn kind(&self) -> NodeKind;
     fn name(&self) -> Option<QName>;
     fn string_value(&self) -> String;
@@ -103,11 +129,9 @@ pub trait XdmNode: Clone + Eq + core::fmt::Debug + Send + Sync {
     }
 
     fn parent(&self) -> Option<Self>;
-    fn children(&self) -> Vec<Self>;
-    fn attributes(&self) -> Vec<Self>;
-    fn namespaces(&self) -> Vec<Self> {
-        Vec::new()
-    }
+    fn children(&self) -> Self::Children<'_>;
+    fn attributes(&self) -> Self::Attributes<'_>;
+    fn namespaces(&self) -> Self::Namespaces<'_>;
 
     /// Optional hint for document order comparisons. If provided, the engine uses this
     /// value to avoid recomputing ancestry during ordering operations.
@@ -119,5 +143,26 @@ pub trait XdmNode: Clone + Eq + core::fmt::Debug + Send + Sync {
     /// Returns an error for multi-root comparisons unless overridden by adapter.
     fn compare_document_order(&self, other: &Self) -> Result<Ordering, Error> {
         try_compare_by_ancestry(self, other)
+    }
+
+    fn children_vec(&self) -> Vec<Self>
+    where
+        Self: Sized,
+    {
+        self.children().collect()
+    }
+
+    fn attributes_vec(&self) -> Vec<Self>
+    where
+        Self: Sized,
+    {
+        self.attributes().collect()
+    }
+
+    fn namespaces_vec(&self) -> Vec<Self>
+    where
+        Self: Sized,
+    {
+        self.namespaces().collect()
     }
 }

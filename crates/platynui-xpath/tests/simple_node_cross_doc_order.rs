@@ -15,8 +15,8 @@ fn cross_document_order_uses_creation_order() {
     assert!(ord.is_lt());
 
     // Compare first children
-    let c1 = d1.children()[0].clone();
-    let c2 = d2.children()[0].clone();
+    let c1 = d1.children().next().unwrap();
+    let c2 = d2.children().next().unwrap();
     let ord_c = c1.compare_document_order(&c2).unwrap();
     assert!(ord_c.is_lt());
     // Reset to default (off) for other tests

@@ -69,7 +69,7 @@ fn root_function_returns_document_root() {
                 n.kind(),
                 platynui_xpath::model::NodeKind::Document
             ));
-            let ch = n.children();
+            let ch: Vec<_> = n.children().collect();
             assert_eq!(ch[0].name().unwrap().local, "root");
         }
         _ => panic!("expected node"),

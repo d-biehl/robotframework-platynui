@@ -18,8 +18,8 @@ fn ordering_attributes_before_children() {
         .child(elem("a"))
         .child(elem("b"))
         .build();
-    let attrs = root.attributes();
-    let kids = root.children();
+    let attrs: Vec<_> = root.attributes().collect();
+    let kids: Vec<_> = root.children().collect();
     assert_eq!(cmp(&attrs[0], &attrs[1]), "<");
     assert_eq!(cmp(&attrs[1], &kids[0]), "<");
     assert_eq!(cmp(&kids[0], &kids[1]), "<");
@@ -28,8 +28,8 @@ fn ordering_attributes_before_children() {
 #[rstest]
 fn ordering_ancestor_before_descendant() {
     let tree = elem("r").child(elem("a").child(elem("b"))).build();
-    let a = tree.children()[0].clone();
-    let b = a.children()[0].clone();
+    let a = tree.children().next().unwrap();
+    let b = a.children().next().unwrap();
     assert_eq!(cmp(&tree, &a), "<");
     assert_eq!(cmp(&a, &b), "<");
 }
@@ -44,8 +44,8 @@ fn namespaces_nested_lookup() {
                 .child(elem("leaf")),
         )
         .build();
-    let mid = t.children()[0].clone();
-    let leaf = mid.children()[0].clone();
+    let mid = t.children().next().unwrap();
+    let leaf = mid.children().next().unwrap();
     assert_eq!(mid.lookup_namespace_uri("p").as_deref(), Some("urn:one"));
     assert_eq!(leaf.lookup_namespace_uri("p").as_deref(), Some("urn:one"));
     assert_eq!(leaf.lookup_namespace_uri("q").as_deref(), Some("urn:two"));
@@ -62,7 +62,7 @@ fn document_builder_example() {
                 .child(elem("inner").child(text("!"))),
         )
         .build();
-    let root = doc.children()[0].clone();
+    let root = doc.children().next().unwrap();
     assert_eq!(root.string_value(), "Hello!");
 }
 
@@ -80,11 +80,12 @@ fn build_simple() {
         .child(elem("a").child(text("hi")))
         .child(elem("b"))
         .build();
-    assert_eq!(n.children().len(), 2);
-    assert_eq!(n.attributes().len(), 1);
-    let a = &n.children()[0];
+    assert_eq!(n.children().count(), 2);
+    assert_eq!(n.attributes().count(), 1);
+    let children: Vec<_> = n.children().collect();
+    let a = &children[0];
     assert_eq!(a.string_value(), "hi");
-    assert!(a.compare_document_order(&n.children()[1]).is_ok());
+    assert!(a.compare_document_order(&children[1]).is_ok());
 }
 
 #[rstest]
@@ -97,7 +98,7 @@ fn memoized_string_value_and_ns() {
                 .child(text("!")),
         )
         .build();
-    let doc_child = root.children()[0].clone();
+    let doc_child = root.children().next().unwrap();
     assert_eq!(doc_child.string_value(), "hi!");
     assert_eq!(doc_child.string_value(), "hi!");
     assert_eq!(

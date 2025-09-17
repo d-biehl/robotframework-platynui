@@ -18,7 +18,7 @@ fn build_tree() -> N {
                 .child(elem("a").child(text("four"))),
         )
         .build();
-    doc_node.children()[0].clone()
+    doc_node.children().next().unwrap()
 }
 
 fn ctx_with(item: N) -> DynamicContext<N> {

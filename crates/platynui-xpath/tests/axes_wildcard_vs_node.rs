@@ -26,7 +26,7 @@ fn wildcard_child_vs_node_axis_differences() {
                 .child(text("post")),
         )
         .build();
-    let root = d.children()[0].clone();
+    let root = d.children().next().unwrap();
     let ctx = ctx_with(root.clone());
 
     // //*: all element descendants (root,a,b) = 3 (root matched by desc-or-self from ToRoot step)

@@ -79,7 +79,7 @@ fn empty_and_unnamed_nodes() {
     // Text node has no name
     let root = elem("r").child(text("t")).build();
     let ctx = DynamicContextBuilder::new()
-        .with_context_item(root.children()[0].clone())
+        .with_context_item(root.children().next().unwrap())
         .build();
     assert!(eval_string(&ctx, "name(.)").is_empty());
     assert!(eval_string(&ctx, "local-name(.)").is_empty());
@@ -96,7 +96,7 @@ fn prefixed_and_namespace_nodes() {
                 .child(elem("child")),
         )
         .build();
-    let root = doc.children()[0].clone();
+    let root = doc.children().next().unwrap();
     let ctx = DynamicContextBuilder::new()
         .with_context_item(root.clone())
         .build();

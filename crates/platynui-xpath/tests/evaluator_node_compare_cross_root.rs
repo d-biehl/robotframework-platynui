@@ -10,7 +10,7 @@ type N = platynui_xpath::model::simple::SimpleNode;
 
 fn doc_root(name: &str) -> N {
     let d = doc().child(elem(name)).build();
-    let roots = d.children();
+    let roots: Vec<_> = d.children().collect();
     assert_eq!(roots.len(), 1);
     roots[0].clone()
 }

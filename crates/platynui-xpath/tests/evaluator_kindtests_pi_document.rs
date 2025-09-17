@@ -49,7 +49,7 @@ fn document_node_inner_test_matches_document_element() {
                 platynui_xpath::model::NodeKind::Document
             ));
             // Ensure its first child is <root>
-            let ch = n.children();
+            let ch: Vec<_> = n.children().collect();
             assert!(!ch.is_empty());
             assert_eq!(ch[0].name().unwrap().local, "root");
         }

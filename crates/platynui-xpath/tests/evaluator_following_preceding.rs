@@ -30,7 +30,7 @@ fn build_tree() -> N {
                 .child(elem("e")),
         )
         .build();
-    d.children()[0].clone()
+    d.children().next().unwrap()
 }
 
 fn ctx_with(item: N) -> DynamicContext<N> {

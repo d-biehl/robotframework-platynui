@@ -30,7 +30,7 @@ fn build_ns_tree() -> N {
                 ),
         )
         .build();
-    doc_node.children()[0].clone()
+    doc_node.children().next().unwrap()
 }
 
 #[fixture]

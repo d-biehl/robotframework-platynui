@@ -27,7 +27,7 @@ fn element_namespace_wildcards() {
                 .child(elem("c")),
         )
         .build();
-    let root = d.children()[0].clone();
+    let root = d.children().next().unwrap();
     let ctx = ctx_with(root.clone());
     // In XPath 2.0, prefixes in NameTests (like p:* or q:*) are resolved using the static context.
     // Provide static prefix bindings here to map p->urn:one and q->urn:two.
@@ -85,8 +85,8 @@ fn attribute_namespace_wildcards() {
                 ),
         )
         .build();
-    let root = d.children()[0].clone();
-    let ctx = ctx_with(root.children()[0].clone()); // context: <item>
+    let root = d.children().next().unwrap();
+    let ctx = ctx_with(root.children().next().unwrap()); // context: <item>
     // Bind namespace prefixes for attribute wildcards as well
     let static_ctx = StaticContextBuilder::new()
         .with_namespace("p", "urn:one")

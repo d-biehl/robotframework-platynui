@@ -4,12 +4,15 @@ use crate::compiler::ir::{
 };
 use crate::engine::runtime::{CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations};
 use crate::model::{NodeKind, XdmNode};
-use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence};
+use crate::xdm::{
+    ExpandedName, SequenceIter, SequenceProducer, XdmAtomicValue, XdmItem, XdmItemResult,
+    XdmSequence, XdmSequenceStream,
+};
 use chrono::Duration as ChronoDuration;
 use chrono::{FixedOffset as ChronoFixedOffset, NaiveTime as ChronoNaiveTime, TimeZone};
 use core::cmp::Ordering;
 use smallvec::SmallVec;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
 /// Evaluate a compiled XPath program against a dynamic context.
@@ -17,7 +20,16 @@ pub fn evaluate<N: 'static + Send + Sync + XdmNode + Clone>(
     compiled: &CompiledXPath,
     dyn_ctx: &DynamicContext<N>,
 ) -> Result<XdmSequence<N>, Error> {
-    let mut vm = Vm::new(compiled, dyn_ctx);
+    evaluate_stream(compiled, dyn_ctx)?.materialize()
+}
+
+pub fn evaluate_stream<N: 'static + Send + Sync + XdmNode + Clone>(
+    compiled: &CompiledXPath,
+    dyn_ctx: &DynamicContext<N>,
+) -> Result<XdmSequenceStream<N>, Error> {
+    let compiled_arc = Arc::new(compiled.clone());
+    let dyn_ctx_arc = Arc::new(dyn_ctx.clone());
+    let mut vm = Vm::new(compiled_arc, dyn_ctx_arc);
     vm.run(&compiled.instrs)
 }
 
@@ -30,11 +42,11 @@ pub fn evaluate_expr<N: 'static + Send + Sync + XdmNode + Clone>(
     evaluate(&compiled, dyn_ctx)
 }
 
-struct Vm<'a, N> {
-    compiled: &'a CompiledXPath,
-    dyn_ctx: &'a DynamicContext<N>,
-    stack: SmallVec<[XdmSequence<N>; 8]>,
-    local_vars: SmallVec<[(ExpandedName, XdmSequence<N>); 8]>,
+struct Vm<N> {
+    compiled: Arc<CompiledXPath>,
+    dyn_ctx: Arc<DynamicContext<N>>,
+    stack: SmallVec<[XdmSequenceStream<N>; 8]>,
+    local_vars: SmallVec<[(ExpandedName, XdmSequenceStream<N>); 8]>,
     // Frame stack for position()/last() support inside predicates / loops
     frames: SmallVec<[Frame; 8]>,
     // Cached default collation for this VM (dynamic overrides static)
@@ -44,14 +56,168 @@ struct Vm<'a, N> {
     axis_buffer: SmallVec<[N; 8]>,
 }
 
+struct VmSnapshot<N> {
+    compiled: Arc<CompiledXPath>,
+    dyn_ctx: Arc<DynamicContext<N>>,
+    local_vars: SmallVec<[(ExpandedName, XdmSequenceStream<N>); 8]>,
+    frames: SmallVec<[Frame; 8]>,
+    default_collation: Option<Arc<dyn crate::engine::collation::Collation>>,
+    functions: Arc<FunctionImplementations<N>>,
+    current_context_item: Option<XdmItem<N>>,
+}
+
+impl<N: XdmNode + Clone> Clone for VmSnapshot<N> {
+    fn clone(&self) -> Self {
+        Self {
+            compiled: Arc::clone(&self.compiled),
+            dyn_ctx: Arc::clone(&self.dyn_ctx),
+            local_vars: self.local_vars.clone(),
+            frames: self.frames.clone(),
+            default_collation: self
+                .default_collation
+                .as_ref()
+                .map(Arc::clone),
+            functions: Arc::clone(&self.functions),
+            current_context_item: self.current_context_item.clone(),
+        }
+    }
+}
+
+struct AxisStepProducer<N> {
+    snapshot: VmSnapshot<N>,
+    input: XdmSequenceStream<N>,
+    axis: AxisIR,
+    test: NodeTestIR,
+    predicates: Vec<InstrSeq>,
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> AxisStepProducer<N> {
+    fn new(
+        snapshot: VmSnapshot<N>,
+        input: XdmSequenceStream<N>,
+        axis: AxisIR,
+        test: NodeTestIR,
+        predicates: Vec<InstrSeq>,
+    ) -> Self {
+        Self {
+            snapshot,
+            input,
+            axis,
+            test,
+            predicates,
+        }
+    }
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceProducer<N> for AxisStepProducer<N> {
+    fn iter(&self) -> SequenceIter<N> {
+        Box::new(AxisStepIter {
+            snapshot: self.snapshot.clone(),
+            axis: self.axis.clone(),
+            test: self.test.clone(),
+            predicates: self.predicates.clone(),
+            input_iter: self.input.iter(),
+            pending: VecDeque::new(),
+        })
+    }
+}
+
+struct AxisStepIter<N> {
+    snapshot: VmSnapshot<N>,
+    axis: AxisIR,
+    test: NodeTestIR,
+    predicates: Vec<InstrSeq>,
+    input_iter: SequenceIter<N>,
+    pending: VecDeque<N>,
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> AxisStepIter<N> {
+    fn evaluate_node(&self, node: N) -> Result<Vec<N>, Error> {
+        let mut vm = Vm::from_snapshot(&self.snapshot);
+        vm.axis_iter(node.clone(), &self.axis);
+        let filter_child_elements = matches!(self.axis, AxisIR::Child)
+            && matches!(self.test, NodeTestIR::WildcardAny);
+        let drained: Vec<N> = vm.axis_buffer.drain(..).collect();
+        let mut filtered: Vec<N> = Vec::new();
+        for n in drained {
+            let mut pass = vm.node_test(&n, &self.test);
+            if pass && filter_child_elements {
+                pass = matches!(n.kind(), NodeKind::Element);
+            }
+            if pass {
+                filtered.push(n);
+            }
+        }
+        if filtered.is_empty() {
+            return Ok(Vec::new());
+        }
+        if !self.predicates.is_empty() {
+            let mut current: Vec<XdmItem<N>> =
+                filtered.into_iter().map(XdmItem::Node).collect();
+            for pred_code in &self.predicates {
+                let len = current.len();
+                let mut next: Vec<XdmItem<N>> = Vec::with_capacity(len);
+                for (idx, item) in current.into_iter().enumerate() {
+                    let result = vm.eval_subprogram(
+                        pred_code,
+                        Some(item.clone()),
+                        Some(Frame {
+                            last: len,
+                            pos: idx + 1,
+                        }),
+                        None,
+                    )?;
+                    if Vm::predicate_truth_value(&result, idx + 1, len)? {
+                        next.push(item);
+                    }
+                }
+                current = next;
+            }
+            filtered = current
+                .into_iter()
+                .filter_map(|it| match it {
+                    XdmItem::Node(n) => Some(n),
+                    _ => None,
+                })
+                .collect();
+        }
+        Ok(filtered)
+    }
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> Iterator for AxisStepIter<N> {
+    type Item = XdmItemResult<N>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(node) = self.pending.pop_front() {
+                return Some(Ok(XdmItem::Node(node)));
+            }
+            match self.input_iter.next()? {
+                Ok(XdmItem::Node(node)) => match self.evaluate_node(node) {
+                    Ok(nodes) => {
+                        if nodes.is_empty() {
+                            continue;
+                        }
+                        self.pending = nodes.into_iter().collect::<VecDeque<_>>();
+                    }
+                    Err(err) => return Some(Err(err)),
+                },
+                Ok(_) => continue,
+                Err(err) => return Some(Err(err)),
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Frame {
     last: usize,
     pos: usize,
 }
 
-impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
-    fn new(compiled: &'a CompiledXPath, dyn_ctx: &'a DynamicContext<N>) -> Self {
+impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
+    fn new(compiled: Arc<CompiledXPath>, dyn_ctx: Arc<DynamicContext<N>>) -> Self {
         // Resolve default collation once per VM (dynamic takes precedence over static)
         let default_collation = {
             let reg = &dyn_ctx.collations;
@@ -78,12 +244,66 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         }
     }
 
-    fn run(&mut self, code: &InstrSeq) -> Result<XdmSequence<N>, Error> {
+    fn run(&mut self, code: &InstrSeq) -> Result<XdmSequenceStream<N>, Error> {
         let stack_base = self.stack.len();
         self.execute(code)?;
-        let result = self.stack.pop().unwrap_or_default();
+        let result = self
+            .stack
+            .pop()
+            .unwrap_or_else(XdmSequenceStream::default);
         debug_assert_eq!(self.stack.len(), stack_base);
         Ok(result)
+    }
+
+    fn snapshot(&self) -> VmSnapshot<N> {
+        VmSnapshot {
+            compiled: Arc::clone(&self.compiled),
+            dyn_ctx: Arc::clone(&self.dyn_ctx),
+            local_vars: self.local_vars.clone(),
+            frames: self.frames.clone(),
+            default_collation: self
+                .default_collation
+                .as_ref()
+                .map(Arc::clone),
+            functions: Arc::clone(&self.functions),
+            current_context_item: self.current_context_item.clone(),
+        }
+    }
+
+    fn from_snapshot(snapshot: &VmSnapshot<N>) -> Self {
+        Self {
+            compiled: Arc::clone(&snapshot.compiled),
+            dyn_ctx: Arc::clone(&snapshot.dyn_ctx),
+            stack: SmallVec::new(),
+            local_vars: snapshot.local_vars.clone(),
+            frames: snapshot.frames.clone(),
+            default_collation: snapshot
+                .default_collation
+                .as_ref()
+                .map(Arc::clone),
+            functions: Arc::clone(&snapshot.functions),
+            current_context_item: snapshot.current_context_item.clone(),
+            axis_buffer: SmallVec::new(),
+        }
+    }
+
+    fn push_seq(&mut self, seq: XdmSequence<N>) {
+        self.stack
+            .push(XdmSequenceStream::from_vec(seq));
+    }
+
+    fn push_stream(&mut self, seq: XdmSequenceStream<N>) {
+        self.stack.push(seq);
+    }
+
+    fn pop_stream(&mut self) -> XdmSequenceStream<N> {
+        self.stack
+            .pop()
+            .unwrap_or_else(XdmSequenceStream::default)
+    }
+
+    fn pop_seq(&mut self) -> Result<XdmSequence<N>, Error> {
+        self.pop_stream().materialize()
     }
 
     fn execute(&mut self, code: &InstrSeq) -> Result<(), Error> {
@@ -93,35 +313,33 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             match &ops[ip] {
                 // Data and variables
                 OpCode::PushAtomic(a) => {
-                    self.stack.push(vec![XdmItem::Atomic(a.clone())]);
+                    self.push_seq(vec![XdmItem::Atomic(a.clone())]);
                     ip += 1;
                 }
                 OpCode::LoadVarByName(name) => {
                     if let Some((_, v)) = self.local_vars.iter().rev().find(|(n, _)| n == name) {
-                        self.stack.push(v.clone());
+                        self.push_stream(v.clone());
                     } else {
                         let v = self.dyn_ctx.variable(name).unwrap_or_else(Vec::new);
-                        self.stack.push(v);
+                        self.push_seq(v);
                     }
                     ip += 1;
                 }
                 OpCode::LoadContextItem => {
                     match &self.current_context_item {
-                        Some(it) => self.stack.push(vec![it.clone()]),
-                        None => self.stack.push(Vec::new()),
+                        Some(it) => self.push_seq(vec![it.clone()]),
+                        None => self.push_seq(Vec::new()),
                     }
                     ip += 1;
                 }
                 OpCode::Position => {
                     let v = self.frames.last().map(|f| f.pos).unwrap_or(0) as i64;
-                    self.stack
-                        .push(vec![XdmItem::Atomic(XdmAtomicValue::Integer(v))]);
+                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Integer(v))]);
                     ip += 1;
                 }
                 OpCode::Last => {
                     let v = self.frames.last().map(|f| f.last).unwrap_or(0) as i64;
-                    self.stack
-                        .push(vec![XdmItem::Atomic(XdmAtomicValue::Integer(v))]);
+                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Integer(v))]);
                     ip += 1;
                 }
                 OpCode::ToRoot => {
@@ -138,14 +356,14 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         }
                         _ => Vec::new(),
                     };
-                    self.stack.push(root);
+                    self.push_seq(root);
                     ip += 1;
                 }
 
                 // Stack helpers
                 OpCode::Dup => {
                     let top = self.stack.last().cloned().unwrap_or_default();
-                    self.stack.push(top);
+                    self.push_stream(top);
                     ip += 1;
                 }
                 OpCode::Swap => {
@@ -158,32 +376,36 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
 
                 // Steps / filters
                 OpCode::AxisStep(axis, test, pred_ir) => {
-                    let input = self.pop_seq();
-                    let mut out: XdmSequence<N> = Vec::with_capacity(input.len());
-                    for it in input {
-                        if let XdmItem::Node(node) = it {
-                            self.axis_iter(node.clone(), axis);
-                            for n in self.axis_buffer.iter() {
-                                // Base node-test evaluation
-                                let mut pass = self.node_test(&n, test);
-                                // XPath semantics: On the child axis, a wildcard NameTest ('*')
-                                // selects element nodes only (not text, comments, or PIs).
-                                // Our IR represents wildcard NameTests as NodeTestIR::WildcardAny.
-                                // Restrict this case to element nodes when axis is Child.
-                                if pass {
-                                    use crate::model::NodeKind;
-                                    if let (AxisIR::Child, NodeTestIR::WildcardAny) = (axis, test) {
+                    if pred_ir.is_empty() {
+                        let input_stream = self.pop_stream();
+                        let producer = AxisStepProducer::new(
+                            self.snapshot(),
+                            input_stream,
+                            axis.clone(),
+                            test.clone(),
+                            Vec::new(),
+                        );
+                        self.push_stream(XdmSequenceStream::new(producer));
+                    } else {
+                        let input = self.pop_seq()?;
+                        let mut out: XdmSequence<N> = Vec::with_capacity(input.len());
+                        for it in input {
+                            if let XdmItem::Node(node) = it {
+                                self.axis_iter(node.clone(), axis);
+                                for n in self.axis_buffer.iter() {
+                                    let mut pass = self.node_test(n, test);
+                                    if pass
+                                        && matches!(axis, AxisIR::Child)
+                                        && matches!(test, NodeTestIR::WildcardAny)
+                                    {
                                         pass = matches!(n.kind(), NodeKind::Element);
                                     }
-                                }
-                                if pass {
-                                    out.push(XdmItem::Node(n.clone()));
+                                    if pass {
+                                        out.push(XdmItem::Node(n.clone()));
+                                    }
                                 }
                             }
                         }
-                    }
-                    // Apply embedded predicates sequentially rebasing positions
-                    if !pred_ir.is_empty() {
                         let mut current = out;
                         for pred_code in pred_ir {
                             let len = current.len();
@@ -204,14 +426,12 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             }
                             current = next;
                         }
-                        self.stack.push(current);
-                    } else {
-                        self.stack.push(out);
+                        self.push_seq(current);
                     }
                     ip += 1;
                 }
                 OpCode::PathExprStep(step_ir) => {
-                    let input = self.pop_seq();
+                    let input = self.pop_seq()?;
                     let len = input.len();
                     let mut out: XdmSequence<N> = Vec::with_capacity(len);
                     for (idx, item) in input.into_iter().enumerate() {
@@ -226,11 +446,11 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         )?;
                         out.extend(res);
                     }
-                    self.stack.push(out);
+                    self.push_seq(out);
                     ip += 1;
                 }
                 OpCode::ApplyPredicates(preds) => {
-                    let input = self.pop_seq();
+                    let input = self.pop_seq()?;
                     // Apply each predicate in order, boolean semantics only (compiler ensures ToEBV)
                     let mut current = input;
                     for p in preds {
@@ -253,12 +473,12 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         }
                         current = out;
                     }
-                    self.stack.push(current);
+                    self.push_seq(current);
                     ip += 1;
                 }
                 OpCode::DocOrderDistinct => {
-                    let seq = self.pop_seq();
-                    self.stack.push(self.doc_order_distinct(seq)?);
+                    let seq = self.pop_seq()?;
+                    self.push_seq(self.doc_order_distinct(seq)?);
                     ip += 1;
                 }
 
@@ -271,8 +491,8 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 | OpCode::Mod => {
                     use XdmAtomicValue as V;
                     // Atomize and enforce singleton operands
-                    let rhs_seq = Self::atomize(self.pop_seq());
-                    let lhs_seq = Self::atomize(self.pop_seq());
+                    let rhs_seq = Self::atomize(self.pop_seq()?);
+                    let lhs_seq = Self::atomize(self.pop_seq()?);
                     if lhs_seq.len() != 1 || rhs_seq.len() != 1 {
                         return Err(Error::from_code(
                             ErrorCode::FORG0006,
@@ -348,27 +568,25 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             match (&a, &b) {
                                 (V::DateTime(dt), V::DayTimeDuration(secs)) => {
                                     let ndt = *dt + ChronoDuration::seconds(*secs);
-                                    self.stack.push(vec![XdmItem::Atomic(V::DateTime(ndt))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::DateTime(ndt))]);
                                     ip += 1;
                                     true
                                 }
                                 (V::DayTimeDuration(secs), V::DateTime(dt)) => {
                                     let ndt = *dt + ChronoDuration::seconds(*secs);
-                                    self.stack.push(vec![XdmItem::Atomic(V::DateTime(ndt))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::DateTime(ndt))]);
                                     ip += 1;
                                     true
                                 }
                                 (V::Date { date, tz }, V::YearMonthDuration(months)) => {
                                     let nd = add_months_saturating(*date, *months);
-                                    self.stack
-                                        .push(vec![XdmItem::Atomic(V::Date { date: nd, tz: *tz })]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Date { date: nd, tz: *tz })]);
                                     ip += 1;
                                     true
                                 }
                                 (V::YearMonthDuration(months), V::Date { date, tz }) => {
                                     let nd = add_months_saturating(*date, *months);
-                                    self.stack
-                                        .push(vec![XdmItem::Atomic(V::Date { date: nd, tz: *tz })]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Date { date: nd, tz: *tz })]);
                                     ip += 1;
                                     true
                                 }
@@ -387,7 +605,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                                 *dt.offset(),
                                             )
                                         });
-                                    self.stack.push(vec![XdmItem::Atomic(V::DateTime(ndt))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::DateTime(ndt))]);
                                     ip += 1;
                                     true
                                 }
@@ -405,19 +623,19 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                                 *dt.offset(),
                                             )
                                         });
-                                    self.stack.push(vec![XdmItem::Atomic(V::DateTime(ndt))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::DateTime(ndt))]);
                                     ip += 1;
                                     true
                                 }
                                 (V::YearMonthDuration(a_m), V::YearMonthDuration(b_m)) => {
-                                    self.stack.push(vec![XdmItem::Atomic(V::YearMonthDuration(
+                                    self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(
                                         *a_m + *b_m,
                                     ))]);
                                     ip += 1;
                                     true
                                 }
                                 (V::DayTimeDuration(a_s), V::DayTimeDuration(b_s)) => {
-                                    self.stack.push(vec![XdmItem::Atomic(V::DayTimeDuration(
+                                    self.push_seq(vec![XdmItem::Atomic(V::DayTimeDuration(
                                         *a_s + *b_s,
                                     ))]);
                                     ip += 1;
@@ -429,14 +647,13 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         OpCode::Sub => match (&a, &b) {
                             (V::DateTime(dt), V::DayTimeDuration(secs)) => {
                                 let ndt = *dt - ChronoDuration::seconds(*secs);
-                                self.stack.push(vec![XdmItem::Atomic(V::DateTime(ndt))]);
+                                self.push_seq(vec![XdmItem::Atomic(V::DateTime(ndt))]);
                                 ip += 1;
                                 true
                             }
                             (V::Date { date, tz }, V::YearMonthDuration(months)) => {
                                 let nd = add_months_saturating(*date, -*months);
-                                self.stack
-                                    .push(vec![XdmItem::Atomic(V::Date { date: nd, tz: *tz })]);
+                                self.push_seq(vec![XdmItem::Atomic(V::Date { date: nd, tz: *tz })]);
                                 ip += 1;
                                 true
                             }
@@ -454,26 +671,23 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                             *dt.offset(),
                                         )
                                     });
-                                self.stack.push(vec![XdmItem::Atomic(V::DateTime(ndt))]);
+                                self.push_seq(vec![XdmItem::Atomic(V::DateTime(ndt))]);
                                 ip += 1;
                                 true
                             }
                             (V::DateTime(da), V::DateTime(db)) => {
                                 let diff = (*da - *db).num_seconds();
-                                self.stack
-                                    .push(vec![XdmItem::Atomic(V::DayTimeDuration(diff))]);
+                                self.push_seq(vec![XdmItem::Atomic(V::DayTimeDuration(diff))]);
                                 ip += 1;
                                 true
                             }
                             (V::YearMonthDuration(a_m), V::YearMonthDuration(b_m)) => {
-                                self.stack
-                                    .push(vec![XdmItem::Atomic(V::YearMonthDuration(*a_m - *b_m))]);
+                                self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(*a_m - *b_m))]);
                                 ip += 1;
                                 true
                             }
                             (V::DayTimeDuration(a_s), V::DayTimeDuration(b_s)) => {
-                                self.stack
-                                    .push(vec![XdmItem::Atomic(V::DayTimeDuration(*a_s - *b_s))]);
+                                self.push_seq(vec![XdmItem::Atomic(V::DayTimeDuration(*a_s - *b_s))]);
                                 ip += 1;
                                 true
                             }
@@ -485,8 +699,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                 (V::DayTimeDuration(secs), _) => {
                                     if let Some(n) = classify_numeric(&b) {
                                         let v = (*secs as f64 * n).trunc() as i64;
-                                        self.stack
-                                            .push(vec![XdmItem::Atomic(V::DayTimeDuration(v))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::DayTimeDuration(v))]);
                                         ip += 1;
                                         true
                                     } else {
@@ -496,8 +709,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                 (V::YearMonthDuration(months), _) => {
                                     if let Some(n) = classify_numeric(&b) {
                                         let v = (*months as f64 * n).trunc() as i32;
-                                        self.stack
-                                            .push(vec![XdmItem::Atomic(V::YearMonthDuration(v))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(v))]);
                                         ip += 1;
                                         true
                                     } else {
@@ -507,8 +719,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                 (_, V::DayTimeDuration(secs)) => {
                                     if let Some(n) = classify_numeric(&a) {
                                         let v = (*secs as f64 * n).trunc() as i64;
-                                        self.stack
-                                            .push(vec![XdmItem::Atomic(V::DayTimeDuration(v))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::DayTimeDuration(v))]);
                                         ip += 1;
                                         true
                                     } else {
@@ -518,8 +729,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                 (_, V::YearMonthDuration(months)) => {
                                     if let Some(n) = classify_numeric(&a) {
                                         let v = (*months as f64 * n).trunc() as i32;
-                                        self.stack
-                                            .push(vec![XdmItem::Atomic(V::YearMonthDuration(v))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(v))]);
                                         ip += 1;
                                         true
                                     } else {
@@ -538,7 +748,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                     ));
                                 }
                                 let v = *a_m as f64 / *b_m as f64;
-                                self.stack.push(vec![XdmItem::Atomic(V::Double(v))]);
+                                self.push_seq(vec![XdmItem::Atomic(V::Double(v))]);
                                 ip += 1;
                                 true
                             }
@@ -550,7 +760,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                     ));
                                 }
                                 let v = *a_s as f64 / *b_s as f64;
-                                self.stack.push(vec![XdmItem::Atomic(V::Double(v))]);
+                                self.push_seq(vec![XdmItem::Atomic(V::Double(v))]);
                                 ip += 1;
                                 true
                             }
@@ -563,8 +773,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                         ));
                                     }
                                     let v = (*months as f64 / n).trunc() as i32;
-                                    self.stack
-                                        .push(vec![XdmItem::Atomic(V::YearMonthDuration(v))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(v))]);
                                     ip += 1;
                                     true
                                 } else {
@@ -580,8 +789,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                         ));
                                     }
                                     let v = (*secs as f64 / n).trunc() as i64;
-                                    self.stack
-                                        .push(vec![XdmItem::Atomic(V::DayTimeDuration(v))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::DayTimeDuration(v))]);
                                     ip += 1;
                                     true
                                 } else {
@@ -691,17 +899,15 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             OpCode::Add => {
                                 if let Some(sum) = ai.checked_add(bi) {
                                     if sum >= i64::MIN as i128 && sum <= i64::MAX as i128 {
-                                        self.stack
-                                            .push(vec![XdmItem::Atomic(V::Integer(sum as i64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(sum as i64))]);
                                     } else {
-                                        self.stack
-                                            .push(vec![XdmItem::Atomic(V::Decimal(sum as f64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(sum as f64))]);
                                     }
                                     ip += 1;
                                     pushed = true;
                                 } else {
                                     // i128 overflow (extremely rare) → promote to decimal
-                                    self.stack.push(vec![XdmItem::Atomic(V::Decimal(
+                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(
                                         (ai as f64) + (bi as f64),
                                     ))]);
                                     ip += 1;
@@ -711,16 +917,14 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             OpCode::Sub => {
                                 if let Some(diff) = ai.checked_sub(bi) {
                                     if diff >= i64::MIN as i128 && diff <= i64::MAX as i128 {
-                                        self.stack
-                                            .push(vec![XdmItem::Atomic(V::Integer(diff as i64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(diff as i64))]);
                                     } else {
-                                        self.stack
-                                            .push(vec![XdmItem::Atomic(V::Decimal(diff as f64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(diff as f64))]);
                                     }
                                     ip += 1;
                                     pushed = true;
                                 } else {
-                                    self.stack.push(vec![XdmItem::Atomic(V::Decimal(
+                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(
                                         (ai as f64) - (bi as f64),
                                     ))]);
                                     ip += 1;
@@ -730,16 +934,14 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             OpCode::Mul => {
                                 if let Some(prod) = ai.checked_mul(bi) {
                                     if prod >= i64::MIN as i128 && prod <= i64::MAX as i128 {
-                                        self.stack
-                                            .push(vec![XdmItem::Atomic(V::Integer(prod as i64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(prod as i64))]);
                                     } else {
-                                        self.stack
-                                            .push(vec![XdmItem::Atomic(V::Decimal(prod as f64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(prod as f64))]);
                                     }
                                     ip += 1;
                                     pushed = true;
                                 } else {
-                                    self.stack.push(vec![XdmItem::Atomic(V::Decimal(
+                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(
                                         (ai as f64) * (bi as f64),
                                     ))]);
                                     ip += 1;
@@ -759,8 +961,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                 let needs_adjust = (r != 0) && ((ai ^ bi) < 0);
                                 let q_floor = if needs_adjust { q_trunc - 1 } else { q_trunc };
                                 if q_floor >= i64::MIN as i128 && q_floor <= i64::MAX as i128 {
-                                    self.stack
-                                        .push(vec![XdmItem::Atomic(V::Integer(q_floor as i64))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Integer(q_floor as i64))]);
                                 } else {
                                     // xs:integer result cannot be represented by our i64 storage → FOAR0002
                                     return Err(Error::from_code(
@@ -785,8 +986,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                                 let q_floor = if needs_adjust { q_trunc - 1 } else { q_trunc };
                                 let rem = ai - bi * q_floor;
                                 // rem magnitude is < |bi|, thus guaranteed to fit into i64
-                                self.stack
-                                    .push(vec![XdmItem::Atomic(V::Integer(rem as i64))]);
+                                self.push_seq(vec![XdmItem::Atomic(V::Integer(rem as i64))]);
                                 ip += 1;
                                 pushed = true;
                             }
@@ -883,42 +1083,38 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         },
                         _ => unreachable!(),
                     };
-                    self.stack.push(vec![XdmItem::Atomic(result_atomic)]);
+                    self.push_seq(vec![XdmItem::Atomic(result_atomic)]);
                     ip += 1;
                 }
                 OpCode::And => {
-                    let rhs = self.pop_seq();
-                    let lhs = self.pop_seq();
+                    let rhs = self.pop_seq()?;
+                    let lhs = self.pop_seq()?;
                     let b = Self::ebv(&lhs)? && Self::ebv(&rhs)?;
-                    self.stack
-                        .push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
+                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
                 OpCode::Or => {
-                    let rhs = self.pop_seq();
-                    let lhs = self.pop_seq();
+                    let rhs = self.pop_seq()?;
+                    let lhs = self.pop_seq()?;
                     let b = Self::ebv(&lhs)? || Self::ebv(&rhs)?;
-                    self.stack
-                        .push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
+                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
                 OpCode::Not => {
-                    let v = self.pop_seq();
+                    let v = self.pop_seq()?;
                     let b = !Self::ebv(&v)?;
-                    self.stack
-                        .push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
+                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
                 OpCode::ToEBV => {
-                    let v = self.pop_seq();
+                    let v = self.pop_seq()?;
                     let b = Self::ebv(&v)?;
-                    self.stack
-                        .push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
+                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
                 OpCode::Atomize => {
-                    let v = self.pop_seq();
-                    self.stack.push(Self::atomize(v));
+                    let v = self.pop_seq()?;
+                    self.push_seq(Self::atomize(v));
                     ip += 1;
                 }
                 OpCode::Pop => {
@@ -926,7 +1122,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     ip += 1;
                 }
                 OpCode::JumpIfTrue(delta) => {
-                    let v = self.pop_seq();
+                    let v = self.pop_seq()?;
                     let b = Self::ebv(&v)?;
                     if b {
                         ip += 1 + *delta;
@@ -935,7 +1131,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     }
                 }
                 OpCode::JumpIfFalse(delta) => {
-                    let v = self.pop_seq();
+                    let v = self.pop_seq()?;
                     let b = Self::ebv(&v)?;
                     if !b {
                         ip += 1 + *delta;
@@ -952,18 +1148,17 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     // Value comparison ( =, !=, lt, etc. with 'value' grammar) expects each side to be a singleton.
                     // We atomize inside compare_value() exactly once per operand and error with FORG0006
                     // if cardinality != 1. Avoided adding a separate Atomize opcode here to keep bytecode compact.
-                    let rhs = self.pop_seq();
-                    let lhs = self.pop_seq();
+                    let rhs = self.pop_seq()?;
+                    let lhs = self.pop_seq()?;
                     let b = self.compare_value(&lhs, &rhs, *op)?;
-                    self.stack
-                        .push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
+                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
                 OpCode::CompareGeneral(op) => {
                     // General comparison (any-to-any). We atomize both sequences here once and then iterate pairs.
                     // Incomparable type pairs (FORG0006 / XPTY0004) are skipped per XPath 2.0 general comparison semantics.
-                    let rhs = Self::atomize(self.pop_seq());
-                    let lhs = Self::atomize(self.pop_seq());
+                    let rhs = Self::atomize(self.pop_seq()?);
+                    let lhs = Self::atomize(self.pop_seq()?);
                     let mut any_true = false;
                     'search: for a in &lhs {
                         for c in &rhs {
@@ -986,25 +1181,23 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             }
                         }
                     }
-                    self.stack
-                        .push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(any_true))]);
+                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(any_true))]);
                     ip += 1;
                 }
                 OpCode::NodeIs => {
-                    let rhs = self.pop_seq();
-                    let lhs = self.pop_seq();
+                    let rhs = self.pop_seq()?;
+                    let lhs = self.pop_seq()?;
                     let b = match (lhs.first(), rhs.first()) {
                         (Some(XdmItem::Node(a)), Some(XdmItem::Node(b))) => a == b,
                         _ => false,
                     };
-                    self.stack
-                        .push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
+                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
                 OpCode::NodeBefore | OpCode::NodeAfter => {
                     let after = matches!(&ops[ip], OpCode::NodeAfter);
-                    let rhs = self.pop_seq();
-                    let lhs = self.pop_seq();
+                    let rhs = self.pop_seq()?;
+                    let lhs = self.pop_seq()?;
                     let b = match (lhs.first(), rhs.first()) {
                         (Some(XdmItem::Node(a)), Some(XdmItem::Node(b))) => {
                             match a.compare_document_order(b) {
@@ -1022,8 +1215,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         }
                         _ => false,
                     };
-                    self.stack
-                        .push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
+                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
 
@@ -1032,30 +1224,27 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     let n = *n;
                     let mut items: XdmSequence<N> = Vec::new();
                     // Pop N sequences, preserving left-to-right order
-                    let len = self.stack.len();
-                    let start = len.saturating_sub(n);
-                    for _ in start..len {}
                     let mut parts: Vec<XdmSequence<N>> = Vec::with_capacity(n);
                     for _ in 0..n {
-                        parts.push(self.stack.pop().unwrap_or_default());
+                        parts.push(self.pop_seq()?);
                     }
                     parts.reverse();
                     for p in parts {
                         items.extend(p);
                     }
-                    self.stack.push(items);
+                    self.push_seq(items);
                     ip += 1;
                 }
                 OpCode::ConcatSeq => {
-                    let rhs = self.pop_seq();
-                    let mut lhs = self.pop_seq();
+                    let rhs = self.pop_seq()?;
+                    let mut lhs = self.pop_seq()?;
                     lhs.extend(rhs);
-                    self.stack.push(lhs);
+                    self.push_seq(lhs);
                     ip += 1;
                 }
                 OpCode::Union | OpCode::Intersect | OpCode::Except => {
-                    let rhs = self.pop_seq();
-                    let lhs = self.pop_seq();
+                    let rhs = self.pop_seq()?;
+                    let lhs = self.pop_seq()?;
                     // Spec: set operators apply to node sequences only
                     let is_nodes_only =
                         |s: &XdmSequence<N>| s.iter().all(|it| matches!(it, XdmItem::Node(_)));
@@ -1071,12 +1260,12 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         OpCode::Except => self.set_except(lhs, rhs),
                         _ => unreachable!(),
                     }?;
-                    self.stack.push(res);
+                    self.push_seq(res);
                     ip += 1;
                 }
                 OpCode::RangeTo => {
-                    let end = Self::to_number(&self.pop_seq())?;
-                    let start = Self::to_number(&self.pop_seq())?;
+                    let end = Self::to_number(&self.pop_seq()?)?;
+                    let start = Self::to_number(&self.pop_seq()?)?;
                     let mut out = Vec::new();
                     let a = start as i64;
                     let b = end as i64;
@@ -1085,7 +1274,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             out.push(XdmItem::Atomic(XdmAtomicValue::Integer(i)));
                         }
                     }
-                    self.stack.push(out);
+                    self.push_seq(out);
                     ip += 1;
                 }
 
@@ -1094,8 +1283,9 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     ip += 1;
                 }
                 OpCode::LetStartByName(var_name) => {
-                    let value = self.pop_seq();
-                    self.local_vars.push((var_name.clone(), value));
+                    let value = self.pop_seq()?;
+                    self.local_vars
+                        .push((var_name.clone(), XdmSequenceStream::from_vec(value)));
                     ip += 1;
                 }
                 OpCode::LetEnd => {
@@ -1108,7 +1298,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     ip += 1;
                 }
                 OpCode::ForLoop { var, body } => {
-                    let input_seq = self.pop_seq();
+                    let input_seq = self.pop_seq()?;
                     let item_count = input_seq.len();
                     let mut acc: XdmSequence<N> = Vec::new();
                     for (idx, item) in input_seq.into_iter().enumerate() {
@@ -1124,11 +1314,11 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         )?;
                         acc.extend(body_res);
                     }
-                    self.stack.push(acc);
+                    self.push_seq(acc);
                     ip += 1;
                 }
                 OpCode::QuantLoop { kind, var, body } => {
-                    let input_seq = self.pop_seq();
+                    let input_seq = self.pop_seq()?;
                     let item_count = input_seq.len();
                     let mut quant_result = match kind {
                         QuantifierKind::Some => false,
@@ -1161,36 +1351,33 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             }
                         }
                     }
-                    self.stack
-                        .push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(quant_result))]);
+                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(quant_result))]);
                     ip += 1;
                 }
 
                 // Types
                 OpCode::Cast(t) => {
-                    let v = self.pop_seq();
-                    self.stack.push(self.cast(v, t)?);
+                    let v = self.pop_seq()?;
+                    self.push_seq(self.cast(v, t)?);
                     ip += 1;
                 }
                 OpCode::Castable(t) => {
                     // Lightweight castability check per XPath 2.0: does NOT raise dynamic errors, returns false instead.
-                    let v = self.pop_seq();
+                    let v = self.pop_seq()?;
                     let ok = self.is_castable(&v, t);
-                    self.stack
-                        .push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(ok))]);
+                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(ok))]);
                     ip += 1;
                 }
                 OpCode::Treat(t) => {
-                    let v = self.pop_seq();
+                    let v = self.pop_seq()?;
                     self.assert_treat(&v, t)?;
-                    self.stack.push(v);
+                    self.push_seq(v);
                     ip += 1;
                 }
                 OpCode::InstanceOf(t) => {
-                    let v = self.pop_seq();
+                    let v = self.pop_seq()?;
                     let b = self.instance_of(&v, t)?;
-                    self.stack
-                        .push(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
+                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
 
@@ -1199,7 +1386,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     let argc = *argc;
                     let mut args: Vec<XdmSequence<N>> = Vec::with_capacity(argc);
                     for _ in 0..argc {
-                        args.push(self.pop_seq());
+                        args.push(self.pop_seq()?);
                     }
                     args.reverse();
                     let en = name; // lookup will resolve default namespace when needed
@@ -1240,14 +1427,14 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     // Use cached default collation for this VM
                     let default_collation = self.default_collation.clone();
                     let call_ctx = CallCtx {
-                        dyn_ctx: self.dyn_ctx,
+                        dyn_ctx: self.dyn_ctx.as_ref(),
                         static_ctx: &self.compiled.static_ctx,
                         default_collation,
                         regex: self.dyn_ctx.regex.clone(),
                         current_context_item: self.current_context_item.clone(),
                     };
                     let result = (f)(&call_ctx, &args)?;
-                    self.stack.push(result);
+                    self.push_seq(result);
                     ip += 1;
                 }
 
@@ -1280,13 +1467,14 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             self.frames.push(frame);
         }
         if let Some((name, value)) = extra_var {
-            self.local_vars.push((name, value));
+            self.local_vars
+                .push((name, XdmSequenceStream::from_vec(value)));
         }
         self.current_context_item = context_item;
 
         let result = (|| {
             self.execute(code)?;
-            let output = self.stack.pop().unwrap_or_default();
+            let output = self.pop_seq()?;
             Ok(output)
         })();
 
@@ -1296,10 +1484,6 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         self.current_context_item = saved_context;
 
         result
-    }
-
-    fn pop_seq(&mut self) -> XdmSequence<N> {
-        self.stack.pop().unwrap_or_default()
     }
 
     fn ebv(seq: &XdmSequence<N>) -> Result<bool, Error> {
@@ -1789,12 +1973,15 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
         self.axis_buffer.clear();
         match axis {
             AxisIR::SelfAxis => self.axis_buffer.push(node),
-            AxisIR::Child => self.axis_buffer.extend(
-                node.children()
-                    .into_iter()
-                    .filter(|c| !Self::is_attr_or_namespace(c)),
-            ),
-            AxisIR::Attribute => self.axis_buffer.extend(node.attributes()),
+            AxisIR::Child => {
+                let children: Vec<N> = node.children_vec();
+                self.axis_buffer
+                    .extend(children.into_iter().filter(|c| !Self::is_attr_or_namespace(c)));
+            }
+            AxisIR::Attribute => {
+                let attrs = node.attributes_vec();
+                self.axis_buffer.extend(attrs);
+            }
             AxisIR::Parent => {
                 if let Some(parent) = node.parent() {
                     self.axis_buffer.push(parent);
@@ -1826,14 +2013,16 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             self.axis_buffer.push(node.clone());
         }
         let mut stack: Vec<N> = Vec::new();
-        for child in node.children().into_iter().rev() {
+        let children: Vec<N> = node.children_vec();
+        for child in children.into_iter().rev() {
             if !Self::is_attr_or_namespace(&child) {
                 stack.push(child);
             }
         }
         while let Some(cur) = stack.pop() {
             self.axis_buffer.push(cur.clone());
-            for child in cur.children().into_iter().rev() {
+            let inner_children: Vec<N> = cur.children_vec();
+            for child in inner_children.into_iter().rev() {
                 if !Self::is_attr_or_namespace(&child) {
                     stack.push(child);
                 }
@@ -1842,7 +2031,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
     }
     fn push_siblings(&mut self, node: N, preceding: bool) {
         if let Some(parent) = node.parent() {
-            let siblings = parent.children();
+            let siblings: Vec<N> = parent.children_vec();
             if preceding {
                 for sib in siblings.into_iter() {
                     if sib == node {
@@ -1948,7 +2137,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
     }
     fn next_sibling_in_doc(node: &N) -> Option<N> {
         let parent = node.parent()?;
-        let siblings = parent.children();
+        let siblings: Vec<N> = parent.children_vec();
         let mut found = false;
         for sib in siblings.iter() {
             if found && !Self::is_attr_or_namespace(sib) {
@@ -1962,7 +2151,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
     }
     fn prev_sibling_in_doc(node: &N) -> Option<N> {
         let parent = node.parent()?;
-        let siblings = parent.children();
+        let siblings: Vec<N> = parent.children_vec();
         let mut prev: Option<N> = None;
         for sib in siblings {
             if sib == *node {
@@ -1977,7 +2166,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
     fn last_descendant_in_doc(node: N) -> N {
         let mut current = node;
         loop {
-            let children = current.children();
+            let children: Vec<N> = current.children_vec();
             let mut last_child: Option<N> = None;
             for child in children.into_iter().rev() {
                 if !Self::is_attr_or_namespace(&child) {

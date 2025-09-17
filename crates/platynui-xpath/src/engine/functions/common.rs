@@ -1159,8 +1159,8 @@ pub(super) fn node_deep_equal<N: crate::model::XdmNode>(
                 return Ok(false);
             }
             // Children ordered
-            let ca = a.children();
-            let cb = b.children();
+            let ca: Vec<N> = a.children_vec();
+            let cb: Vec<N> = b.children_vec();
             if ca.len() != cb.len() {
                 return Ok(false);
             }

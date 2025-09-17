@@ -104,6 +104,143 @@ pub enum XdmAtomicValue {
 
 pub type XdmSequence<N> = Vec<XdmItem<N>>;
 
+use crate::engine::runtime::Error;
+use std::marker::PhantomData;
+use std::sync::Arc;
+
+pub type XdmItemResult<N> = Result<XdmItem<N>, Error>;
+pub type SequenceIter<N> = Box<dyn Iterator<Item = XdmItemResult<N>> + Send + 'static>;
+
+pub trait SequenceProducer<N>: Send + Sync {
+    fn iter(&self) -> SequenceIter<N>;
+}
+
+#[derive(Clone)]
+pub struct XdmSequenceStream<N> {
+    producer: Arc<dyn SequenceProducer<N>>,
+}
+
+impl<N> XdmSequenceStream<N> {
+    pub fn new<P>(producer: P) -> Self
+    where
+        P: SequenceProducer<N> + 'static,
+    {
+        Self {
+            producer: Arc::new(producer),
+        }
+    }
+
+    pub fn empty() -> Self
+    where
+        N: Send + Sync + 'static,
+    {
+        struct EmptyProducer<N>(PhantomData<N>);
+
+        impl<N: Send + Sync + 'static> SequenceProducer<N> for EmptyProducer<N> {
+            fn iter(&self) -> SequenceIter<N> {
+                Box::new(std::iter::empty::<XdmItemResult<N>>())
+            }
+        }
+
+        Self::new(EmptyProducer(PhantomData))
+    }
+
+    pub fn from_vec(items: Vec<XdmItem<N>>) -> Self
+    where
+        N: Clone + Send + Sync + 'static,
+    {
+        Self::new(VecProducer::new(items))
+    }
+
+    pub fn iter(&self) -> SequenceIter<N> {
+        self.producer.iter()
+    }
+
+    pub fn materialize(&self) -> Result<XdmSequence<N>, Error>
+    where
+        N: Clone,
+    {
+        self.iter().collect()
+    }
+}
+
+impl<N> Default for XdmSequenceStream<N>
+where
+    N: Send + Sync + 'static,
+{
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+pub struct XdmSequenceStreamIter<N> {
+    inner: SequenceIter<N>,
+}
+
+impl<N> Iterator for XdmSequenceStreamIter<N> {
+    type Item = XdmItemResult<N>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+}
+
+impl<N> IntoIterator for XdmSequenceStream<N> {
+    type Item = XdmItemResult<N>;
+    type IntoIter = XdmSequenceStreamIter<N>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        XdmSequenceStreamIter {
+            inner: self.producer.iter(),
+        }
+    }
+}
+
+struct VecProducer<N> {
+    data: Arc<Vec<XdmItem<N>>>,
+}
+
+impl<N> VecProducer<N>
+where
+    N: Clone + Send + Sync + 'static,
+{
+    fn new(items: Vec<XdmItem<N>>) -> Self {
+        Self {
+            data: Arc::new(items),
+        }
+    }
+}
+
+impl<N> SequenceProducer<N> for VecProducer<N>
+where
+    N: Clone + Send + Sync + 'static,
+{
+    fn iter(&self) -> SequenceIter<N> {
+        Box::new(VecProducerIter {
+            data: self.data.clone(),
+            index: 0,
+        })
+    }
+}
+
+struct VecProducerIter<N> {
+    data: Arc<Vec<XdmItem<N>>>,
+    index: usize,
+}
+
+impl<N> Iterator for VecProducerIter<N>
+where
+    N: Clone + Send + Sync + 'static,
+{
+    type Item = XdmItemResult<N>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let item = self.data.get(self.index)?.clone();
+        self.index += 1;
+        Some(Ok(item))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum XdmItem<N> {
     Node(N),
@@ -340,7 +477,7 @@ impl<'a, N: XdmNode> fmt::Display for PrettyNodeItem<'a, N> {
             XdmItem::Atomic(a) => write!(f, "{}", a),
             XdmItem::Node(n) => match n.kind() {
                 NodeKind::Document => {
-                    let ch = n.children().len();
+                    let ch = n.children().count();
                     write!(f, "document(children={})", ch)
                 }
                 NodeKind::Element => {
@@ -348,8 +485,8 @@ impl<'a, N: XdmNode> fmt::Display for PrettyNodeItem<'a, N> {
                         .name()
                         .map(|q| qname_to_string(&q))
                         .unwrap_or_else(|| "<unnamed>".to_string());
-                    let attrs = n.attributes().len();
-                    let ch = n.children().len();
+                    let attrs = n.attributes().count();
+                    let ch = n.children().count();
                     write!(f, "<{} attrs={} children={}>", name, attrs, ch)
                 }
                 NodeKind::Attribute => {
