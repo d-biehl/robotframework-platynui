@@ -39,6 +39,7 @@ struct Vm<'a, N> {
     // Cached default collation for this VM (dynamic overrides static)
     default_collation: Option<std::sync::Arc<dyn crate::engine::collation::Collation>>,
     functions: Arc<FunctionImplementations<N>>,
+    current_context_item: Option<XdmItem<N>>,
 }
 
 #[derive(Clone, Debug)]
@@ -61,6 +62,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             }
         };
         let functions = dyn_ctx.provide_functions();
+        let current_context_item = dyn_ctx.context_item.clone();
         Self {
             compiled,
             dyn_ctx,
@@ -69,10 +71,19 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
             frames: SmallVec::new(),
             default_collation,
             functions,
+            current_context_item,
         }
     }
 
     fn run(&mut self, code: &InstrSeq) -> Result<XdmSequence<N>, Error> {
+        let stack_base = self.stack.len();
+        self.execute(code)?;
+        let result = self.stack.pop().unwrap_or_default();
+        debug_assert_eq!(self.stack.len(), stack_base);
+        Ok(result)
+    }
+
+    fn execute(&mut self, code: &InstrSeq) -> Result<(), Error> {
         let mut ip: usize = 0;
         let ops = &code.0;
         while ip < ops.len() {
@@ -92,7 +103,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     ip += 1;
                 }
                 OpCode::LoadContextItem => {
-                    match &self.dyn_ctx.context_item {
+                    match &self.current_context_item {
                         Some(it) => self.stack.push(vec![it.clone()]),
                         None => self.stack.push(Vec::new()),
                     }
@@ -112,7 +123,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 }
                 OpCode::ToRoot => {
                     // Navigate from current context item to root via parent() chain
-                    let root = match &self.dyn_ctx.context_item {
+                    let root = match &self.current_context_item {
                         Some(XdmItem::Node(n)) => {
                             let mut cur = n.clone();
                             let mut parent_opt = cur.parent();
@@ -175,13 +186,15 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                             let len = current.len();
                             let mut next: XdmSequence<N> = Vec::with_capacity(len);
                             for (idx, item) in current.into_iter().enumerate() {
-                                let child = self.dyn_ctx.with_context_item(Some(item.clone()));
-                                let mut vm = Vm::new(self.compiled, &child);
-                                vm.frames.push(Frame {
-                                    last: len,
-                                    pos: idx + 1,
-                                });
-                                let r = vm.run(pred_code)?;
+                                let r = self.eval_subprogram(
+                                    pred_code,
+                                    Some(item.clone()),
+                                    Some(Frame {
+                                        last: len,
+                                        pos: idx + 1,
+                                    }),
+                                    None,
+                                )?;
                                 if Self::predicate_truth_value(&r, idx + 1, len)? {
                                     next.push(item);
                                 }
@@ -199,13 +212,15 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     let len = input.len();
                     let mut out: XdmSequence<N> = Vec::with_capacity(len);
                     for (idx, item) in input.into_iter().enumerate() {
-                        let child = self.dyn_ctx.with_context_item(Some(item.clone()));
-                        let mut vm = Vm::new(self.compiled, &child);
-                        vm.frames.push(Frame {
-                            last: len,
-                            pos: idx + 1,
-                        });
-                        let res = vm.run(step_ir)?;
+                        let res = self.eval_subprogram(
+                            step_ir,
+                            Some(item.clone()),
+                            Some(Frame {
+                                last: len,
+                                pos: idx + 1,
+                            }),
+                            None,
+                        )?;
                         out.extend(res);
                     }
                     self.stack.push(out);
@@ -219,13 +234,15 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         let len = current.len();
                         let mut out: XdmSequence<N> = Vec::with_capacity(len);
                         for (idx, it) in current.into_iter().enumerate() {
-                            let child = self.dyn_ctx.with_context_item(Some(it.clone()));
-                            let mut vm = Vm::new(self.compiled, &child);
-                            vm.frames.push(Frame {
-                                last: len,
-                                pos: idx + 1,
-                            });
-                            let res = vm.run(p)?; // predicate raw result
+                            let res = self.eval_subprogram(
+                                p,
+                                Some(it.clone()),
+                                Some(Frame {
+                                    last: len,
+                                    pos: idx + 1,
+                                }),
+                                None,
+                            )?; // predicate raw result
                             let keep = Self::predicate_truth_value(&res, idx + 1, len)?;
                             if keep {
                                 out.push(it);
@@ -1133,19 +1150,17 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     let body_slice = &ops[ip + 1..for_next_ix];
                     let body_instr = InstrSeq(body_slice.to_vec());
 
-                    // Prepare base dynamic context for child VMs (shared via cheap clones)
-                    let shared_ctx = self.dyn_ctx.clone();
                     let mut acc: XdmSequence<N> = Vec::new();
                     for (idx, item) in input_seq.into_iter().enumerate() {
-                        let iter_ctx = shared_ctx
-                            .with_context_item(Some(item.clone()))
-                            .with_variable(var_name.clone(), vec![item.clone()]);
-                        let mut inner_vm = Vm::new(self.compiled, &iter_ctx);
-                        inner_vm.frames.push(Frame {
-                            last: item_count,
-                            pos: idx + 1,
-                        });
-                        let body_res = inner_vm.run(&body_instr)?;
+                        let body_res = self.eval_subprogram(
+                            &body_instr,
+                            Some(item.clone()),
+                            Some(Frame {
+                                last: item_count,
+                                pos: idx + 1,
+                            }),
+                            Some((var_name.clone(), vec![item.clone()])),
+                        )?;
                         acc.extend(body_res);
                     }
 
@@ -1192,22 +1207,20 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                     // Cache body instructions once
                     let body_instr = InstrSeq(body_slice.to_vec());
 
-                    // Clone context once; we'll derive per-iteration bindings from it
-                    let shared_ctx = self.dyn_ctx.clone();
                     let mut quant_result = match kind {
                         QuantifierKind::Some => false,
                         QuantifierKind::Every => true,
                     };
                     for (idx, item) in input_seq.into_iter().enumerate() {
-                        let iter_ctx = shared_ctx
-                            .with_context_item(Some(item.clone()))
-                            .with_variable(var_name.clone(), vec![item.clone()]);
-                        let mut inner_vm = Vm::new(self.compiled, &iter_ctx);
-                        inner_vm.frames.push(Frame {
-                            last: item_count,
-                            pos: idx + 1,
-                        });
-                        let body_res = inner_vm.run(&body_instr)?;
+                        let body_res = self.eval_subprogram(
+                            &body_instr,
+                            Some(item.clone()),
+                            Some(Frame {
+                                last: item_count,
+                                pos: idx + 1,
+                            }),
+                            Some((var_name.clone(), vec![item.clone()])),
+                        )?;
                         let truth = Self::ebv(&body_res)?;
                         match kind {
                             QuantifierKind::Some => {
@@ -1311,6 +1324,7 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                         static_ctx: &self.compiled.static_ctx,
                         default_collation,
                         regex: self.dyn_ctx.regex.clone(),
+                        current_context_item: self.current_context_item.clone(),
                     };
                     let result = (f)(&call_ctx, &args)?;
                     self.stack.push(result);
@@ -1327,9 +1341,41 @@ impl<'a, N: 'static + Send + Sync + XdmNode + Clone> Vm<'a, N> {
                 }
             }
         }
+        Ok(())
+    }
 
-        // Result is TOS or empty
-        Ok(self.stack.pop().unwrap_or_default())
+    fn eval_subprogram(
+        &mut self,
+        code: &InstrSeq,
+        context_item: Option<XdmItem<N>>,
+        frame: Option<Frame>,
+        extra_var: Option<(ExpandedName, XdmSequence<N>)>,
+    ) -> Result<XdmSequence<N>, Error> {
+        let saved_context = self.current_context_item.clone();
+        let stack_base = self.stack.len();
+        let locals_base = self.local_vars.len();
+        let frames_base = self.frames.len();
+
+        if let Some(frame) = frame {
+            self.frames.push(frame);
+        }
+        if let Some((name, value)) = extra_var {
+            self.local_vars.push((name, value));
+        }
+        self.current_context_item = context_item;
+
+        let result = (|| {
+            self.execute(code)?;
+            let output = self.stack.pop().unwrap_or_default();
+            Ok(output)
+        })();
+
+        self.stack.truncate(stack_base);
+        self.local_vars.truncate(locals_base);
+        self.frames.truncate(frames_base);
+        self.current_context_item = saved_context;
+
+        result
     }
 
     fn pop_seq(&mut self) -> XdmSequence<N> {

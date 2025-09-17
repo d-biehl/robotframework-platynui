@@ -1,15 +1,61 @@
 use platynui_xpath::engine::runtime::{
     CallCtx, DynamicContextBuilder, Error, FunctionImplementations, StaticContextBuilder,
 };
+use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::{
     ExpandedName, compile_xpath_with_context, evaluate, evaluate_expr, xdm::XdmAtomicValue as A,
     xdm::XdmItem as I,
 };
-use platynui_xpath::simple_node::{doc as simple_doc, elem, text};
 use rstest::rstest;
 type N = platynui_xpath::model::simple::SimpleNode;
 fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
     DynamicContextBuilder::default().build()
+}
+
+const AXIS_SECTIONS: usize = 12;
+const AXIS_ITEMS_PER_SECTION: usize = 32;
+
+fn build_large_axis_document() -> N {
+    let mut root_builder = elem("root");
+    for section_idx in 0..AXIS_SECTIONS {
+        let section_name = format!("section-{section_idx}");
+        let mut section_builder = elem("section").attr(attr("name", &section_name));
+        for item_idx in 0..AXIS_ITEMS_PER_SECTION {
+            let item_id = format!("item-{section_idx}-{item_idx}");
+            let text_content = format!("Section {section_idx} Item {item_idx}");
+            let mut item_builder = elem("item")
+                .attr(attr("id", &item_id))
+                .attr(attr("type", if item_idx % 2 == 0 { "a" } else { "b" }));
+            if item_idx % 25 == 0 {
+                item_builder = item_builder.attr(attr("featured", "true"));
+            }
+            item_builder = item_builder.child(text(&text_content));
+            section_builder = section_builder.child(item_builder);
+        }
+        root_builder = root_builder.child(section_builder);
+    }
+    simple_doc().child(root_builder).build()
+}
+
+fn manual_predicate_heavy_metrics() -> (i64, i64) {
+    let mut total_len: i64 = 0;
+    let mut selected_count: i64 = 0;
+    let mut position: usize = 0;
+    for section_idx in 0..AXIS_SECTIONS {
+        for item_idx in 0..AXIS_ITEMS_PER_SECTION {
+            let has_following_b = ((item_idx + 1)..AXIS_ITEMS_PER_SECTION).any(|j| j % 2 == 1);
+            if !has_following_b {
+                continue;
+            }
+            position += 1;
+            if position % 7 == 0 {
+                selected_count += 1;
+                let text_content = format!("Section {section_idx} Item {item_idx}");
+                total_len += text_content.len() as i64;
+            }
+        }
+    }
+    (total_len, selected_count)
 }
 
 #[rstest]
@@ -101,4 +147,34 @@ fn predicate_node_sequence_truthy() {
     let out = evaluate_expr::<N>("count(/root/item[following-sibling::item])", &dyn_ctx)
         .expect("predicate over node sequence should succeed");
     assert_eq!(out, vec![I::Atomic(A::Integer(2))]);
+}
+
+#[rstest]
+fn predicate_heavy_sum_matches_manual() {
+    let document = build_large_axis_document();
+    let dyn_ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(document))
+        .build();
+    let (expected_sum, expected_count) = manual_predicate_heavy_metrics();
+
+    let count_global = evaluate_expr::<N>(
+        "count(//item[following-sibling::item[@type='b']][position() mod 7 = 0])",
+        &dyn_ctx,
+    )
+    .expect("count must succeed");
+    assert_eq!(count_global, vec![I::Atomic(A::Integer(expected_count))]);
+
+    let sum_global = evaluate_expr::<N>(
+        "sum(for $i in //item[following-sibling::item[@type='b']][position() mod 7 = 0] return string-length($i))",
+        &dyn_ctx,
+    )
+    .expect("global sum must succeed");
+    assert_eq!(sum_global, vec![I::Atomic(A::Integer(expected_sum))]);
+
+    let per_item_sum = evaluate_expr::<N>(
+        "sum(for $i in //item return string-length($i[following-sibling::item[@type='b']][position() mod 7 = 0]))",
+        &dyn_ctx,
+    )
+    .expect("per-item sum must succeed");
+    assert_eq!(per_item_sum, vec![I::Atomic(A::Integer(0))]);
 }

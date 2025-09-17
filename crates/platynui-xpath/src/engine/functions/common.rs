@@ -5,10 +5,14 @@ use chrono::{DateTime as ChronoDateTime, FixedOffset as ChronoFixedOffset, Naive
 pub(super) fn require_context_item<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
 ) -> Result<XdmItem<N>, Error> {
-    ctx.dyn_ctx
-        .context_item
-        .clone()
-        .ok_or_else(|| Error::from_code(ErrorCode::XPDY0002, "context item is undefined"))
+    if let Some(item) = ctx.current_context_item.clone() {
+        Ok(item)
+    } else {
+        ctx.dyn_ctx
+            .context_item
+            .clone()
+            .ok_or_else(|| Error::from_code(ErrorCode::XPDY0002, "context item is undefined"))
+    }
 }
 
 pub(super) fn ebv<N>(seq: &XdmSequence<N>) -> Result<bool, Error> {

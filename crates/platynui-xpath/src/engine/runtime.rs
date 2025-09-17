@@ -108,6 +108,7 @@ pub struct CallCtx<'a, N> {
     // Resolved default collation according to resolution order (if available)
     pub default_collation: Option<Arc<dyn Collation>>,
     pub regex: Option<Arc<dyn RegexProvider>>,
+    pub current_context_item: Option<XdmItem<N>>,
 }
 
 pub type FunctionImpl<N> =

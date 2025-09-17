@@ -5,6 +5,57 @@ use platynui_xpath::parser::parse_xpath;
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::xdm::XdmItem as I;
 use platynui_xpath::{SimpleNode, evaluate};
+use std::time::Duration;
+
+const AXIS_SECTIONS: usize = 80;
+const AXIS_ITEMS_PER_SECTION: usize = 160;
+
+fn build_large_axis_document() -> SimpleNode {
+    let mut root_builder = elem("root");
+    for section_idx in 0..AXIS_SECTIONS {
+        let section_name = format!("section-{section_idx}");
+        let mut section_builder = elem("section").attr(attr("name", &section_name));
+        for item_idx in 0..AXIS_ITEMS_PER_SECTION {
+            let item_id = format!("item-{section_idx}-{item_idx}");
+            let text_content = format!("Section {section_idx} Item {item_idx}");
+            let mut item_builder = elem("item")
+                .attr(attr("id", &item_id))
+                .attr(attr("type", if item_idx % 2 == 0 { "a" } else { "b" }));
+            if item_idx % 25 == 0 {
+                item_builder = item_builder.attr(attr("featured", "true"));
+            }
+            item_builder = item_builder.child(text(&text_content));
+            section_builder = section_builder.child(item_builder);
+        }
+        root_builder = root_builder.child(section_builder);
+    }
+    simple_doc().child(root_builder).build()
+}
+
+fn prepare_axis_queries()
+-> Result<Vec<(String, platynui_xpath::compiler::ir::CompiledXPath)>, Error> {
+    let queries = vec![
+        "count(/root/section[1]/item[1]/following::item)",
+        "count(/root/section[last()]/item[last()]/preceding::item)",
+        "count(/root/section/item[@featured='true']/preceding-sibling::item)",
+    ];
+    queries
+        .into_iter()
+        .map(|q| compile_xpath(q).map(|compiled| (q.to_string(), compiled)))
+        .collect()
+}
+
+fn prepare_predicate_queries()
+-> Result<Vec<(String, platynui_xpath::compiler::ir::CompiledXPath)>, Error> {
+    let queries = vec![
+        "count(//item[@type='a'][position() mod 5 = 0][some $s in ancestor::section/item[@type='b'] satisfies contains($s, 'Item')])",
+        "sum(for $i in //item return string-length($i[following-sibling::item[@type='b']][position() mod 7 = 0]))",
+    ];
+    queries
+        .into_iter()
+        .map(|q| compile_xpath(q).map(|compiled| (q.to_string(), compiled)))
+        .collect()
+}
 
 fn sample_queries() -> Vec<&'static str> {
     vec![
@@ -115,10 +166,54 @@ fn benchmark_evaluator(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_axes_following_preceding(c: &mut Criterion) {
+    let document = build_large_axis_document();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(document.clone()))
+        .build();
+    let compiled = prepare_axis_queries().expect("compile failure");
+    let mut group = c.benchmark_group("axes/following_preceding");
+    group.sample_size(20);
+    group.measurement_time(Duration::from_secs(8));
+    group.warm_up_time(Duration::from_secs(2));
+    for (name, program) in &compiled {
+        group.bench_with_input(BenchmarkId::from_parameter(name), program, |b, prog| {
+            b.iter(|| {
+                let result = evaluate::<SimpleNode>(prog, black_box(&ctx)).expect("eval failure");
+                black_box(result.len());
+            });
+        });
+    }
+    group.finish();
+}
+
+fn benchmark_predicate_heavy(c: &mut Criterion) {
+    let document = build_large_axis_document();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(document.clone()))
+        .build();
+    let compiled = prepare_predicate_queries().expect("compile failure");
+    let mut group = c.benchmark_group("evaluator/predicate_heavy");
+    group.sample_size(20);
+    group.measurement_time(Duration::from_secs(20));
+    group.warm_up_time(Duration::from_secs(2));
+    for (name, program) in &compiled {
+        group.bench_with_input(BenchmarkId::from_parameter(name), program, |b, prog| {
+            b.iter(|| {
+                let result = evaluate::<SimpleNode>(prog, black_box(&ctx)).expect("eval failure");
+                black_box(result.len());
+            });
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     benchmark_parser,
     benchmark_compiler,
-    benchmark_evaluator
+    benchmark_evaluator,
+    benchmark_axes_following_preceding,
+    benchmark_predicate_heavy
 );
 criterion_main!(benches);

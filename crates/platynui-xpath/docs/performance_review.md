@@ -20,6 +20,7 @@
 - **Problem**: Jeder Praedikatdurchlauf, Pfadschritt, `for`-Loop und Quantor klont den kompletten `DynamicContext`. Das abgeleitete `Clone` kopiert `HashMap<ExpandedName, XdmSequence<N>>` und dupliziert damit Sequenzen und Variablenbindungen, obwohl meist nur `context_item` oder eine einzelne Variable angepasst wird.
 - **Auswirkung**: Laufzeit und Speicherverbrauch wachsen mit der Sequenzlaenge quadratisch; umfangreiche Kontexte bezahlen O(n^2) Klon-Kosten und erzeugen viele kurzlebige Objekte. Variablenreiche Kontexte verlieren zusaetzlich Caching-Vorteile.
 - **Empfehlung**: `Vm` so umbauen, dass ein geteilter `DynamicContext` nur geliehen wird und pro Ausfuehrungsrahmen ein leichtgewichtiger, mutierbarer Ueberlagerungs-Frame kontextbezogene Werte haelt. Optionen: `DynamicContext` in einen gemeinsamen `Arc`-Teil (`Arc<HashMap<...>>`) plus kleinen Frame aufspalten oder pro Frame Overlays mit Abweichungen gegen die Basismap speichern.
+- **Status**: Offen – Kind-VMs klonen weiterhin komplette Kontexte; Overlay-Frames sind der naechste Pflichtschritt.
 
 ### 2. Neuaufbau des Standard-Funktionsregisters bei jeder Ausfuehrung
 - **Schweregrad**: Mittel-Hoch
@@ -38,6 +39,14 @@
 - **Empfehlung**: Streaming-Iteratoren implementieren, die Geschwister- und Ahnenketten ohne vollstaendigen Neuaufbau durchlaufen. Dokumentordnungs-Indizes pro Knoten (z. B. beim Baumaufbau) cachen und damit arithmetisches Navigieren ermoeglichen. Minimal sollte eine einmal erzeugte Preorder-Traversierung pro Dokument wiederverwendet werden.
 
 - **Status**: Teilloesung umgesetzt – following/preceding-Achsen laufen nun ueber Dokument-Nachbarn statt komplette Baeume aufzubauen; spaetere Arbeiten fuer globale Dokumentordnungs-Indizes bleiben offen.
+- **Neue Beobachtung**: `doc_successor`/`doc_predecessor` gruenden weiterhin auf `parent.children()`, was komplette Geschwisterlisten kopiert; stabile Sibling-Indizes oder Next/Prev-Zeiger sollen diesen Overhead beseitigen.
+
+### 3b. Achsenausgabe und Pfadschritte allokieren zu konservativ
+- **Schweregrad**: Mittel
+- **Ort**: `crates/platynui-xpath/src/engine/evaluator.rs:148`, `crates/platynui-xpath/src/engine/evaluator.rs:200`
+- **Problem**: `AxisStep`, `PathExprStep` und `ApplyPredicates` initialisieren Ausgabe-Sequenzen mit der Eingangslaenge. Fuer Achsen wie `descendant` oder `child` kann die Ergebnismenge aber ein Vielfaches groesser werden; das fuehrt zu wiederholten Reallokationen und Kopien.
+- **Auswirkung**: Weite oder tiefe XML-Baeume verursachen systematische Reallokationen, obwohl bereits `SmallVec` und Preorder-IDs greifen. Bei predicate-lastigen Workloads ist die Zeit auf `Vec`-Wachstum und `memcpy` vergleichbar mit der eigentlichen Filterarbeit.
+- **Empfehlung**: Reservestrategien je Achsentyp einfuehren (z. B. `reserve(len * child_factor)` fuer `descendant`), laengerfristig Iterator-basierte Achsen implementieren und Predikate im selben VM-Frame auswerten, sodass Ausgaben gestreamt werden koennen.
 
 ### 4. Mengenoperationen arbeiten quadratisch
 - **Schweregrad**: Hoch
@@ -69,16 +78,20 @@
 ## Weitere Beobachtungen
 - `collect_descendants` rekursiert ohne Tiefenkontrolle (`crates/platynui-xpath/src/engine/evaluator.rs:1934-1946`); inzwischen wird eine iterative Variante genutzt, aber ein Stack-Sizing-Review steht auf der Agenda.
 - `SimpleNode::children`/`attributes` klonen jeweils den kompletten Vektor (`crates/platynui-xpath/src/model/simple.rs:592-604`). Langfristig sollten Iterator-Sichten mit `Arc`-Sharing eingeführt werden.
+- `AxisStep`/`PathExprStep` aktualisieren `DynamicContext` pro Item via Klon (`crates/platynui-xpath/src/engine/evaluator.rs:178`, `crates/platynui-xpath/src/engine/evaluator.rs:202`). Sobald Overlay-Frames existieren, lassen sich Kind-Voms vermeiden und Sequenzen direkt im Eltern-VM iterieren.
 
 ## Empfohlene naechste Schritte
 ### Nächste Maßnahmen
-1. **Evaluator – VM-Frame-Reuse & Stackreserven**: Leichte Frames und SmallVec-Stacks umsetzen, Tests via Criterion `evaluator/evaluate`.
-   - **Status**: SmallVec-Stacks und Kapazitäts-Reservierung umgesetzt; weiterer VM-Reuse folgt.
-2. **Evaluator – Set-Union Merge**: Merge-Logik statt `doc_order_distinct` einsetzen, Benchmarks vergleichen.
-   - **Status**: Merge-basierte `set_union` implementiert; weitere Messungen via Criterion folgen.
-3. **Compiler – Scope-Sharing**: `lexical_scopes` teilen und Instruktionspuffer reservieren, Criterion `compiler/compile_xpath`.
+1. **DynamicContext-Overlays einführen**: Gemeinsamen Kontext in `Vm` teilen, Kind-VMs eliminieren und Frames für `context_item`/Variablen etablieren. Blockiert Folgeoptimierungen.
+   - **Messung**: Predicate-/For-Schleifen-Benchmarks mit großen Kontexteingaben (`large_predicate.xml`).
+   - **Ziel**: Single-VM-Pfade müssen den Regressionstest `predicate_heavy_sum_matches_manual` unter 100 ms halten.
+2. **Axis-/Pfadschritte streamen**: Iteratorbasierte `AxisStep`/`PathExprStep`-Implementierung mit smarter Vorausreservierung oder Lazy Materialisation; Sibling-Indizes nutzen, um `doc_successor`/`doc_predecessor` ohne Vektor-Klon zu fahren.
+   - **Messung**: Criterion `axes/following`, `axes/descendant`.
+3. **Set-Operatoren nachziehen**: Merge-Strategie und dokumentordnungsbasierte Deduplikation weiterhärten (bereits aktiv, aber mit neuen Iteratorwegen testen).
+   - **Status**: Merge-basierte `set_union` implementiert; Regressionstests mit neuen Axis-Iterationen wiederholen.
+4. **Compiler – Scope-Sharing**: `lexical_scopes` teilen und Instruktionspuffer reservieren, Criterion `compiler/compile_xpath`.
    - **Status**: Compiler nutzt jetzt SmallVec-Scopes und reserviert Instruktionspuffer; Bench-Zahlen dokumentiert.
-4. **Parser – Clone-freie `Pair`-Iteration**: `into_inner()` konsumieren, Parser-Bench messen.
+5. **Parser – Clone-freie `Pair`-Iteration**: `into_inner()` konsumieren, Parser-Bench messen.
    - **Status**: Erste Hotpaths auf `into_inner()` umgestellt; Bench `parser/parse_xpath` verzeichnet leichte Regression, weitere Feintuning nötig.
 
 ## Umsetzungsreihenfolge
@@ -88,11 +101,25 @@
 - **4 – Dokumentordnungs-Indizes einfuehren** (Finding 5, Zeile 46): Stabiler Vergleich fuer Achsen und Mengen.
 - **5 – Mengenoperationen hashen** (Finding 4, Zeile 41): Mit Indizes effizient, verringert quadratische Vergleiche.
 - **6 – Regex-Caching implementieren** (Finding 6, Zeile 52): Feinschliff nach strukturellen Verbesserungen.
+
 ## Teststrategie
 - Tests stets ueber `timeout --foreground 300` aufrufen (maximal 5 Minuten Laufzeit), z. B. `timeout --foreground 300 cargo test -p platynui-xpath`.
 - Bei neuen Benchmarks oder langlaufenden Suites fruehzeitig Metriken sammeln, um Deadlocks/Endlosschleifen zu erkennen und den Timeout anzupassen.
 - Hangenbleibende Jobs abbrechen und mit Logging/Profiling reproduzieren, bevor weitere Aenderungen gemerged werden.
+- Vor jeder Optimierung einen aussagekraeftigen Benchmark (z. B. Criterion-Suites `axes/*`, `evaluator/*`) ohne Timeout-Mantel laufen lassen, Kennzahlen protokollieren und nach der Aenderung erneut ausfuehren, um die Wirkung nachvollziehbar zu vergleichen.
+- Baseline-Szenarien pflegen:
+  - `parser/parse_xpath` und `compiler/compile_xpath` (bereitgestellt in `crates/platynui-xpath/benches/xpath_benches.rs`).
+  - `evaluator/evaluate/<query>`-Gruppe (Stichproben-Queries auf moderatem Dokument).
+  - `axes/following_preceding` (große Dokumente mit >10 000 Knoten, Fokus auf Achsen-Iteratoren).
+  - `evaluator/predicate_heavy` (breite Kontexte und verschachtelte Praedikate zum Messen der DynamicContext-Frames).
+  - Eigenes Workload-Dump aus Integrationstests (mindestens 3 typische XPath-Ausdruecke pro Produktivfall).
+- Benchmarks als `criterion --message-format bencher` laufen lassen und Rohdaten (`target/criterion/**/benchmark.json`) archivieren.
+- Ergebnisse in einer Vorher/Nachher-Tabelle dokumentieren, inklusive Mittelwert, Std-Abweichung, Outlier-Anteil und Commit-Hash.
+- Neue Regression `predicate_heavy_sum_matches_manual` deckt die per-Item-Pfad-Schleifen ab; sie muss nach jeder Optimierung <100 ms bleiben, sonst priorisierte Arbeiten erneut bewerten.
 
-
-
-
+### Benchmark-Protokollvorlage
+| Commit | Benchmark | Mean (ms) | StdDev (ms) | p95 (ms) | Samples | Kommentar |
+|--------|-----------|-----------|-------------|----------|---------|-----------|
+| abc123 | axes/following_preceding | 12.34 | 0.45 | 13.02 | 100 | Ausgangsbasis |
+| def456 | axes/following_preceding | 7.89 | 0.31 | 8.40 | 100 | Overlay-Frames aktiv |
+| 3d8b85a | evaluator/predicate_heavy/sum | 436.05 | 0.46 | 436.71 | 20 | Post-VM-Overlay, großes Dokument |
