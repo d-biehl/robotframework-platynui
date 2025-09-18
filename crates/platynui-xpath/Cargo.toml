@@ -20,6 +20,7 @@ base64 = "0.22"
 thiserror = "2"
 url = "2"
 smallvec = "1"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 [dev-dependencies]
  rstest = "0.18"

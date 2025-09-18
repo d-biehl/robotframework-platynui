@@ -107,26 +107,32 @@ pub type XdmSequence<N> = Vec<XdmItem<N>>;
 use crate::engine::runtime::Error;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use tracing::trace;
 
 pub type XdmItemResult<N> = Result<XdmItem<N>, Error>;
-pub type SequenceIter<N> = Box<dyn Iterator<Item = XdmItemResult<N>> + Send + 'static>;
 
-pub trait SequenceProducer<N>: Send + Sync {
-    fn iter(&self) -> SequenceIter<N>;
+pub trait SequenceCursor<N>: Send + Sync {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>>;
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, None)
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>>;
 }
 
 #[derive(Clone)]
 pub struct XdmSequenceStream<N> {
-    producer: Arc<dyn SequenceProducer<N>>,
+    cursor: Arc<dyn SequenceCursor<N>>,
 }
 
 impl<N> XdmSequenceStream<N> {
-    pub fn new<P>(producer: P) -> Self
+    pub fn new<C>(cursor: C) -> Self
     where
-        P: SequenceProducer<N> + 'static,
+        C: SequenceCursor<N> + 'static,
     {
         Self {
-            producer: Arc::new(producer),
+            cursor: Arc::new(cursor),
         }
     }
 
@@ -134,32 +140,52 @@ impl<N> XdmSequenceStream<N> {
     where
         N: Send + Sync + 'static,
     {
-        struct EmptyProducer<N>(PhantomData<N>);
+        struct EmptyCursor<N>(PhantomData<N>);
 
-        impl<N: Send + Sync + 'static> SequenceProducer<N> for EmptyProducer<N> {
-            fn iter(&self) -> SequenceIter<N> {
-                Box::new(std::iter::empty::<XdmItemResult<N>>())
+        impl<N: Send + Sync + 'static> SequenceCursor<N> for EmptyCursor<N> {
+            fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+                None
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                (0, Some(0))
+            }
+
+            fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+                Box::new(Self(PhantomData))
             }
         }
 
-        Self::new(EmptyProducer(PhantomData))
+        Self::new(EmptyCursor(PhantomData))
     }
 
     pub fn from_vec(items: Vec<XdmItem<N>>) -> Self
     where
         N: Clone + Send + Sync + 'static,
     {
-        Self::new(VecProducer::new(items))
+        Self::new(VecCursor::new(items))
     }
 
-    pub fn iter(&self) -> SequenceIter<N> {
-        self.producer.iter()
+    pub fn iter(&self) -> XdmSequenceStreamIter<N> {
+        XdmSequenceStreamIter {
+            cursor: self.cursor.boxed_clone(),
+        }
+    }
+
+    pub fn cursor(&self) -> Box<dyn SequenceCursor<N>> {
+        self.cursor.boxed_clone()
     }
 
     pub fn materialize(&self) -> Result<XdmSequence<N>, Error>
     where
         N: Clone,
     {
+        let hint = self.cursor.size_hint();
+        trace!(
+            lower = hint.0,
+            upper = hint.1.map(|v| v as i64),
+            "xdm_sequence_stream_materialize"
+        );
         self.iter().collect()
     }
 }
@@ -174,14 +200,14 @@ where
 }
 
 pub struct XdmSequenceStreamIter<N> {
-    inner: SequenceIter<N>,
+    cursor: Box<dyn SequenceCursor<N>>,
 }
 
 impl<N> Iterator for XdmSequenceStreamIter<N> {
     type Item = XdmItemResult<N>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
+        self.cursor.next_item()
     }
 }
 
@@ -191,53 +217,46 @@ impl<N> IntoIterator for XdmSequenceStream<N> {
 
     fn into_iter(self) -> Self::IntoIter {
         XdmSequenceStreamIter {
-            inner: self.producer.iter(),
+            cursor: self.cursor.boxed_clone(),
         }
     }
 }
 
-struct VecProducer<N> {
+#[derive(Clone)]
+struct VecCursor<N> {
     data: Arc<Vec<XdmItem<N>>>,
+    index: usize,
 }
 
-impl<N> VecProducer<N>
+impl<N> VecCursor<N>
 where
     N: Clone + Send + Sync + 'static,
 {
     fn new(items: Vec<XdmItem<N>>) -> Self {
         Self {
             data: Arc::new(items),
+            index: 0,
         }
     }
 }
 
-impl<N> SequenceProducer<N> for VecProducer<N>
+impl<N> SequenceCursor<N> for VecCursor<N>
 where
     N: Clone + Send + Sync + 'static,
 {
-    fn iter(&self) -> SequenceIter<N> {
-        Box::new(VecProducerIter {
-            data: self.data.clone(),
-            index: 0,
-        })
-    }
-}
-
-struct VecProducerIter<N> {
-    data: Arc<Vec<XdmItem<N>>>,
-    index: usize,
-}
-
-impl<N> Iterator for VecProducerIter<N>
-where
-    N: Clone + Send + Sync + 'static,
-{
-    type Item = XdmItemResult<N>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         let item = self.data.get(self.index)?.clone();
         self.index += 1;
         Some(Ok(item))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.data.len().saturating_sub(self.index);
+        (remaining, Some(remaining))
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(self.clone())
     }
 }
 

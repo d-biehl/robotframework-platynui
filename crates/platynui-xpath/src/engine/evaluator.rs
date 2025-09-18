@@ -5,15 +5,16 @@ use crate::compiler::ir::{
 use crate::engine::runtime::{CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations};
 use crate::model::{NodeKind, XdmNode};
 use crate::xdm::{
-    ExpandedName, SequenceIter, SequenceProducer, XdmAtomicValue, XdmItem, XdmItemResult,
-    XdmSequence, XdmSequenceStream,
+    ExpandedName, SequenceCursor, XdmAtomicValue, XdmItem, XdmItemResult, XdmSequence,
+    XdmSequenceStream,
 };
 use chrono::Duration as ChronoDuration;
 use chrono::{FixedOffset as ChronoFixedOffset, NaiveTime as ChronoNaiveTime, TimeZone};
 use core::cmp::Ordering;
 use smallvec::SmallVec;
 use std::collections::{HashSet, VecDeque};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use std::sync::{Arc, Mutex};
 
 /// Evaluate a compiled XPath program against a dynamic context.
 pub fn evaluate<N: 'static + Send + Sync + XdmNode + Clone>(
@@ -63,6 +64,7 @@ struct Vm<N> {
     functions: Arc<FunctionImplementations<N>>,
     current_context_item: Option<XdmItem<N>>,
     axis_buffer: SmallVec<[N; 8]>,
+    cancel_flag: Option<Arc<AtomicBool>>,
 }
 
 struct VmSnapshot<N> {
@@ -73,6 +75,69 @@ struct VmSnapshot<N> {
     default_collation: Option<Arc<dyn crate::engine::collation::Collation>>,
     functions: Arc<FunctionImplementations<N>>,
     current_context_item: Option<XdmItem<N>>,
+}
+
+struct VmHandleInner<N> {
+    snapshot: VmSnapshot<N>,
+    cache: Mutex<Option<Vm<N>>>,
+    cancel_flag: Option<Arc<AtomicBool>>,
+}
+
+#[derive(Clone)]
+struct VmHandle<N> {
+    inner: Arc<VmHandleInner<N>>,
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> VmHandle<N> {
+    fn new(snapshot: VmSnapshot<N>, cancel_flag: Option<Arc<AtomicBool>>) -> Self {
+        Self {
+            inner: Arc::new(VmHandleInner {
+                snapshot,
+                cache: Mutex::new(None),
+                cancel_flag,
+            }),
+        }
+    }
+
+    fn with_vm<F, R>(&self, f: F) -> Result<R, Error>
+    where
+        F: FnOnce(&mut Vm<N>) -> Result<R, Error>,
+    {
+        if self
+            .inner
+            .cancel_flag
+            .as_ref()
+            .is_some_and(|flag| flag.load(AtomicOrdering::Relaxed))
+        {
+            return Err(Error::from_code(
+                ErrorCode::FOER0000,
+                "evaluation cancelled",
+            ));
+        }
+        let snapshot = &self.inner.snapshot;
+        let mut vm = {
+            let mut guard = self.inner.cache.lock().expect("vm cache poisoned");
+            guard.take()
+        }
+        .unwrap_or_else(|| Vm::from_snapshot(snapshot));
+
+        let result = f(&mut vm);
+
+        vm.reset_to_snapshot(snapshot);
+
+        let mut guard = self.inner.cache.lock().expect("vm cache poisoned");
+        *guard = Some(vm);
+
+        result
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.inner
+            .cancel_flag
+            .as_ref()
+            .map(|flag| flag.load(AtomicOrdering::Relaxed))
+            .unwrap_or(false)
+    }
 }
 
 impl<N: XdmNode + Clone> Clone for VmSnapshot<N> {
@@ -89,116 +154,53 @@ impl<N: XdmNode + Clone> Clone for VmSnapshot<N> {
     }
 }
 
-struct AxisStepProducer<N> {
-    snapshot: VmSnapshot<N>,
-    input: XdmSequenceStream<N>,
+struct AxisStepCursor<N> {
+    vm: VmHandle<N>,
     axis: AxisIR,
     test: NodeTestIR,
-    predicates: Vec<InstrSeq>,
+    input_cursor: Box<dyn SequenceCursor<N>>,
+    pending: VecDeque<N>,
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> AxisStepProducer<N> {
-    fn new(
-        snapshot: VmSnapshot<N>,
-        input: XdmSequenceStream<N>,
-        axis: AxisIR,
-        test: NodeTestIR,
-        predicates: Vec<InstrSeq>,
-    ) -> Self {
+impl<N: 'static + Send + Sync + XdmNode + Clone> AxisStepCursor<N> {
+    fn new(vm: VmHandle<N>, input: XdmSequenceStream<N>, axis: AxisIR, test: NodeTestIR) -> Self {
         Self {
-            snapshot,
-            input,
+            vm,
             axis,
             test,
-            predicates,
+            input_cursor: input.cursor(),
+            pending: VecDeque::new(),
         }
     }
-}
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceProducer<N> for AxisStepProducer<N> {
-    fn iter(&self) -> SequenceIter<N> {
-        Box::new(AxisStepIter {
-            snapshot: self.snapshot.clone(),
-            axis: self.axis.clone(),
-            test: self.test.clone(),
-            predicates: self.predicates.clone(),
-            input_iter: self.input.iter(),
-            pending: VecDeque::new(),
+    fn evaluate_node(&self, node: N) -> Result<Vec<N>, Error> {
+        self.vm.with_vm(|vm| {
+            vm.axis_iter(node.clone(), &self.axis);
+            let filter_child_elements =
+                matches!(self.axis, AxisIR::Child) && matches!(self.test, NodeTestIR::WildcardAny);
+            let drained: Vec<N> = vm.axis_buffer.drain(..).collect();
+            let mut filtered: Vec<N> = Vec::new();
+            for n in drained {
+                let mut pass = vm.node_test(&n, &self.test);
+                if pass && filter_child_elements {
+                    pass = matches!(n.kind(), NodeKind::Element);
+                }
+                if pass {
+                    filtered.push(n);
+                }
+            }
+            Ok(filtered)
         })
     }
 }
 
-struct AxisStepIter<N> {
-    snapshot: VmSnapshot<N>,
-    axis: AxisIR,
-    test: NodeTestIR,
-    predicates: Vec<InstrSeq>,
-    input_iter: SequenceIter<N>,
-    pending: VecDeque<N>,
-}
-
-impl<N: 'static + Send + Sync + XdmNode + Clone> AxisStepIter<N> {
-    fn evaluate_node(&self, node: N) -> Result<Vec<N>, Error> {
-        let mut vm = Vm::from_snapshot(&self.snapshot);
-        vm.axis_iter(node.clone(), &self.axis);
-        let filter_child_elements =
-            matches!(self.axis, AxisIR::Child) && matches!(self.test, NodeTestIR::WildcardAny);
-        let drained: Vec<N> = vm.axis_buffer.drain(..).collect();
-        let mut filtered: Vec<N> = Vec::new();
-        for n in drained {
-            let mut pass = vm.node_test(&n, &self.test);
-            if pass && filter_child_elements {
-                pass = matches!(n.kind(), NodeKind::Element);
-            }
-            if pass {
-                filtered.push(n);
-            }
-        }
-        if filtered.is_empty() {
-            return Ok(Vec::new());
-        }
-        if !self.predicates.is_empty() {
-            let mut current: Vec<XdmItem<N>> = filtered.into_iter().map(XdmItem::Node).collect();
-            for pred_code in &self.predicates {
-                let len = current.len();
-                let mut next: Vec<XdmItem<N>> = Vec::with_capacity(len);
-                for (idx, item) in current.into_iter().enumerate() {
-                    let result = vm.eval_subprogram(
-                        pred_code,
-                        Some(item.clone()),
-                        Some(Frame {
-                            last: len,
-                            pos: idx + 1,
-                        }),
-                        None,
-                    )?;
-                    if Vm::predicate_truth_value(&result, idx + 1, len)? {
-                        next.push(item);
-                    }
-                }
-                current = next;
-            }
-            filtered = current
-                .into_iter()
-                .filter_map(|it| match it {
-                    XdmItem::Node(n) => Some(n),
-                    _ => None,
-                })
-                .collect();
-        }
-        Ok(filtered)
-    }
-}
-
-impl<N: 'static + Send + Sync + XdmNode + Clone> Iterator for AxisStepIter<N> {
-    type Item = XdmItemResult<N>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for AxisStepCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         loop {
             if let Some(node) = self.pending.pop_front() {
                 return Some(Ok(XdmItem::Node(node)));
             }
-            match self.input_iter.next()? {
+            match self.input_cursor.next_item()? {
                 Ok(XdmItem::Node(node)) => match self.evaluate_node(node) {
                     Ok(nodes) => {
                         if nodes.is_empty() {
@@ -213,8 +215,726 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Iterator for AxisStepIter<N> {
             }
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let pending = self.pending.len();
+        let (lower, upper) = self.input_cursor.size_hint();
+        let lower = lower.saturating_add(pending);
+        let upper = upper.and_then(|v| v.checked_add(pending));
+        (lower, upper)
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            vm: self.vm.clone(),
+            axis: self.axis.clone(),
+            test: self.test.clone(),
+            input_cursor: self.input_cursor.boxed_clone(),
+            pending: self.pending.clone(),
+        })
+    }
 }
 
+struct PredicateCursor<N> {
+    vm: VmHandle<N>,
+    predicate: InstrSeq,
+    input: Box<dyn SequenceCursor<N>>,
+    seed: Option<Box<dyn SequenceCursor<N>>>,
+    position: usize,
+    last_cache: Option<usize>,
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> PredicateCursor<N> {
+    fn new(vm: VmHandle<N>, predicate: InstrSeq, input: Box<dyn SequenceCursor<N>>) -> Self {
+        let seed = Some(input.boxed_clone());
+        Self {
+            vm,
+            predicate,
+            input,
+            seed,
+            position: 0,
+            last_cache: None,
+        }
+    }
+
+    fn ensure_last(&mut self) -> Result<usize, Error> {
+        if let Some(last) = self.last_cache {
+            return Ok(last);
+        }
+        let mut cursor = if let Some(seed) = self.seed.take() {
+            seed
+        } else {
+            self.input.boxed_clone()
+        };
+        let mut count = 0usize;
+        while let Some(item) = cursor.next_item() {
+            match item {
+                Ok(_) => count = count.saturating_add(1),
+                Err(err) => return Err(err),
+            }
+        }
+        let total = self.position.saturating_add(count);
+        self.last_cache = Some(total);
+        Ok(total)
+    }
+
+    fn evaluate_predicate(
+        &self,
+        item: &XdmItem<N>,
+        pos: usize,
+        last: usize,
+    ) -> Result<bool, Error> {
+        self.vm.with_vm(|vm| {
+            let result = vm.eval_subprogram(
+                &self.predicate,
+                Some(item.clone()),
+                Some(Frame { last, pos }),
+                None,
+            )?;
+            Vm::predicate_truth_value(&result, pos, last)
+        })
+    }
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for PredicateCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        let last = match self.ensure_last() {
+            Ok(v) => v,
+            Err(err) => return Some(Err(err)),
+        };
+
+        while let Some(candidate) = self.input.next_item() {
+            match candidate {
+                Ok(item) => {
+                    let pos = self.position + 1;
+                    self.position = pos;
+                    match self.evaluate_predicate(&item, pos, last) {
+                        Ok(true) => return Some(Ok(item)),
+                        Ok(false) => continue,
+                        Err(err) => return Some(Err(err)),
+                    }
+                }
+                Err(err) => return Some(Err(err)),
+            }
+        }
+        None
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let upper = self
+            .last_cache
+            .map(|last| last.saturating_sub(self.position));
+        (0, upper)
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            vm: self.vm.clone(),
+            predicate: self.predicate.clone(),
+            input: self.input.boxed_clone(),
+            seed: self.seed.as_ref().map(|cursor| cursor.boxed_clone()),
+            position: self.position,
+            last_cache: self.last_cache,
+        })
+    }
+}
+
+struct PathStepCursor<N> {
+    vm: VmHandle<N>,
+    code: InstrSeq,
+    input: Box<dyn SequenceCursor<N>>,
+    seed: Option<Box<dyn SequenceCursor<N>>>,
+    input_len: Option<usize>,
+    position: usize,
+    current_output: Option<Box<dyn SequenceCursor<N>>>,
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> PathStepCursor<N> {
+    fn new(vm: VmHandle<N>, input_stream: XdmSequenceStream<N>, code: InstrSeq) -> Self {
+        let input = input_stream.cursor();
+        let seed = Some(input.boxed_clone());
+        Self {
+            vm,
+            code,
+            input,
+            seed,
+            input_len: None,
+            position: 0,
+            current_output: None,
+        }
+    }
+
+    fn ensure_input_len(&mut self) -> Result<usize, Error> {
+        if let Some(len) = self.input_len {
+            return Ok(len);
+        }
+        let mut cursor = if let Some(seed) = self.seed.take() {
+            seed
+        } else {
+            self.input.boxed_clone()
+        };
+        let mut count = 0usize;
+        while let Some(item) = cursor.next_item() {
+            match item {
+                Ok(_) => count = count.saturating_add(1),
+                Err(err) => return Err(err),
+            }
+        }
+        let total = self.position.saturating_add(count);
+        self.input_len = Some(total);
+        Ok(total)
+    }
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for PathStepCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        loop {
+            if let Some(ref mut current) = self.current_output {
+                if let Some(item) = current.next_item() {
+                    return Some(item);
+                }
+                self.current_output = None;
+            }
+
+            let candidate = match self.input.next_item()? {
+                Ok(item) => item,
+                Err(err) => return Some(Err(err)),
+            };
+
+            let last = match self.ensure_input_len() {
+                Ok(v) => v,
+                Err(err) => return Some(Err(err)),
+            };
+            let pos = self.position + 1;
+            self.position = pos;
+
+            let seq = match self.vm.with_vm(|vm| {
+                vm.eval_subprogram(
+                    &self.code,
+                    Some(candidate.clone()),
+                    Some(Frame { last, pos }),
+                    None,
+                )
+            }) {
+                Ok(seq) => seq,
+                Err(err) => return Some(Err(err)),
+            };
+
+            if seq.is_empty() {
+                continue;
+            }
+            let stream = XdmSequenceStream::from_vec(seq);
+            self.current_output = Some(stream.cursor());
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, None)
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            vm: self.vm.clone(),
+            code: self.code.clone(),
+            input: self.input.boxed_clone(),
+            seed: self.seed.as_ref().map(|cursor| cursor.boxed_clone()),
+            input_len: self.input_len,
+            position: self.position,
+            current_output: self
+                .current_output
+                .as_ref()
+                .map(|cursor| cursor.boxed_clone()),
+        })
+    }
+}
+
+struct DocOrderDistinctCursor<N> {
+    vm: VmHandle<N>,
+    input: Option<Box<dyn SequenceCursor<N>>>,
+    buffer: VecDeque<XdmItem<N>>,
+    initialized: bool,
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> DocOrderDistinctCursor<N> {
+    fn new(vm: VmHandle<N>, input: Box<dyn SequenceCursor<N>>) -> Self {
+        Self {
+            vm,
+            input: Some(input),
+            buffer: VecDeque::new(),
+            initialized: false,
+        }
+    }
+
+    fn ensure_buffer(&mut self) -> Result<(), Error> {
+        if self.initialized {
+            return Ok(());
+        }
+        let mut cursor = match self.input.take() {
+            Some(c) => c,
+            None => return Ok(()),
+        };
+        let mut keyed: SmallVec<[(u64, N); 8]> = SmallVec::new();
+        let mut fallback: SmallVec<[N; 8]> = SmallVec::new();
+        let mut others: Vec<XdmItem<N>> = Vec::new();
+        while let Some(item) = cursor.next_item() {
+            match item {
+                Ok(XdmItem::Node(n)) => {
+                    if let Some(key) = n.doc_order_key() {
+                        keyed.push((key, n));
+                    } else {
+                        fallback.push(n);
+                    }
+                }
+                Ok(other) => others.push(other),
+                Err(err) => return Err(err),
+            }
+        }
+
+        if keyed.is_empty() && fallback.is_empty() {
+            self.buffer = VecDeque::from(others);
+            self.initialized = true;
+            return Ok(());
+        }
+
+        if fallback.is_empty() {
+            keyed.sort_by_key(|(k, _)| *k);
+            keyed.dedup_by(|a, b| a.0 == b.0);
+            others.extend(keyed.into_iter().map(|(_, n)| XdmItem::Node(n)));
+            self.buffer = VecDeque::from(others);
+            self.initialized = true;
+            return Ok(());
+        }
+
+        if keyed.is_empty() {
+            fallback.sort_by(|a, b| self.compare_nodes(a, b));
+            fallback.dedup();
+            others.extend(fallback.into_iter().map(XdmItem::Node));
+            self.buffer = VecDeque::from(others);
+            self.initialized = true;
+            return Ok(());
+        }
+
+        keyed.sort_by_key(|(k, _)| *k);
+        keyed.dedup_by(|a, b| a.0 == b.0);
+        fallback.extend(keyed.into_iter().map(|(_, n)| n));
+        fallback.sort_by(|a, b| self.compare_nodes(a, b));
+        fallback.dedup();
+        others.extend(fallback.into_iter().map(XdmItem::Node));
+        self.buffer = VecDeque::from(others);
+        self.initialized = true;
+        Ok(())
+    }
+
+    fn compare_nodes(&self, a: &N, b: &N) -> Ordering {
+        self.vm
+            .with_vm(|vm| vm.node_compare(a, b))
+            .unwrap_or(Ordering::Equal)
+    }
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for DocOrderDistinctCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        if let Err(err) = self.ensure_buffer() {
+            return Some(Err(err));
+        }
+        self.buffer.pop_front().map(Ok)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.initialized {
+            let len = self.buffer.len();
+            (len, Some(len))
+        } else {
+            (0, None)
+        }
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            vm: self.vm.clone(),
+            input: self.input.as_ref().map(|c| c.boxed_clone()),
+            buffer: self.buffer.clone(),
+            initialized: self.initialized,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum SetOpKind {
+    Union,
+    Intersect,
+    Except,
+}
+
+struct SetOperationCursor<N> {
+    vm: VmHandle<N>,
+    lhs: Option<Box<dyn SequenceCursor<N>>>,
+    rhs: Option<Box<dyn SequenceCursor<N>>>,
+    kind: SetOpKind,
+    buffer: VecDeque<XdmItem<N>>,
+    initialized: bool,
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> SetOperationCursor<N> {
+    fn new(
+        vm: VmHandle<N>,
+        kind: SetOpKind,
+        lhs: Box<dyn SequenceCursor<N>>,
+        rhs: Box<dyn SequenceCursor<N>>,
+    ) -> Self {
+        Self {
+            vm,
+            lhs: Some(lhs),
+            rhs: Some(rhs),
+            kind,
+            buffer: VecDeque::new(),
+            initialized: false,
+        }
+    }
+
+    fn collect_sequence(cursor: Box<dyn SequenceCursor<N>>) -> Result<XdmSequence<N>, Error> {
+        let mut seq = Vec::new();
+        let mut cur = cursor;
+        while let Some(item) = cur.next_item() {
+            seq.push(item?);
+        }
+        Ok(seq)
+    }
+
+    fn ensure_buffer(&mut self) -> Result<(), Error> {
+        if self.initialized {
+            return Ok(());
+        }
+        let lhs_cursor = self.lhs.take().unwrap();
+        let rhs_cursor = self.rhs.take().unwrap();
+        let lhs_seq = Self::collect_sequence(lhs_cursor)?;
+        let rhs_seq = Self::collect_sequence(rhs_cursor)?;
+        let is_nodes_only =
+            |seq: &XdmSequence<N>| seq.iter().all(|it| matches!(it, XdmItem::Node(_)));
+        if !is_nodes_only(&lhs_seq) || !is_nodes_only(&rhs_seq) {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "set operators require node sequences",
+            ));
+        }
+        eprintln!(
+            "set op {:?}: lhs={}, rhs={}",
+            self.kind,
+            lhs_seq.len(),
+            rhs_seq.len()
+        );
+        let result = self.vm.with_vm(|vm| match self.kind {
+            SetOpKind::Union => vm.set_union(lhs_seq, rhs_seq),
+            SetOpKind::Intersect => vm.set_intersect(lhs_seq, rhs_seq),
+            SetOpKind::Except => vm.set_except(lhs_seq, rhs_seq),
+        })?;
+        self.buffer = VecDeque::from(result);
+        self.initialized = true;
+        Ok(())
+    }
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for SetOperationCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        if let Err(err) = self.ensure_buffer() {
+            return Some(Err(err));
+        }
+        self.buffer.pop_front().map(Ok)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.initialized {
+            let len = self.buffer.len();
+            (len, Some(len))
+        } else {
+            (0, None)
+        }
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            vm: self.vm.clone(),
+            lhs: self.lhs.as_ref().map(|c| c.boxed_clone()),
+            rhs: self.rhs.as_ref().map(|c| c.boxed_clone()),
+            kind: self.kind,
+            buffer: self.buffer.clone(),
+            initialized: self.initialized,
+        })
+    }
+}
+
+struct ForLoopCursor<N> {
+    vm: VmHandle<N>,
+    var: ExpandedName,
+    body: InstrSeq,
+    input: Box<dyn SequenceCursor<N>>,
+    seed: Option<Box<dyn SequenceCursor<N>>>,
+    input_len: Option<usize>,
+    position: usize,
+    current_output: Option<Box<dyn SequenceCursor<N>>>,
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> ForLoopCursor<N> {
+    fn new(
+        vm: VmHandle<N>,
+        input_stream: XdmSequenceStream<N>,
+        var: ExpandedName,
+        body: InstrSeq,
+    ) -> Self {
+        let input = input_stream.cursor();
+        let seed = Some(input.boxed_clone());
+        Self {
+            vm,
+            var,
+            body,
+            input,
+            seed,
+            input_len: None,
+            position: 0,
+            current_output: None,
+        }
+    }
+
+    fn ensure_input_len(&mut self) -> Result<usize, Error> {
+        if let Some(len) = self.input_len {
+            return Ok(len);
+        }
+        let mut cursor = if let Some(seed) = self.seed.take() {
+            seed
+        } else {
+            self.input.boxed_clone()
+        };
+        let mut remaining = 0usize;
+        while let Some(item) = cursor.next_item() {
+            match item {
+                Ok(_) => remaining = remaining.saturating_add(1),
+                Err(err) => return Err(err),
+            }
+        }
+        let total = self.position.saturating_add(remaining);
+        self.input_len = Some(total);
+        Ok(total)
+    }
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for ForLoopCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        loop {
+            if self.vm.is_cancelled() {
+                return Some(Err(Error::from_code(
+                    ErrorCode::FOER0000,
+                    "evaluation cancelled",
+                )));
+            }
+
+            if let Some(ref mut current) = self.current_output {
+                if let Some(item) = current.next_item() {
+                    return Some(item);
+                }
+                self.current_output = None;
+            }
+
+            let candidate = match self.input.next_item()? {
+                Ok(item) => item,
+                Err(err) => return Some(Err(err)),
+            };
+
+            let last = match self.ensure_input_len() {
+                Ok(v) => v,
+                Err(err) => return Some(Err(err)),
+            };
+
+            let pos = self.position + 1;
+            self.position = pos;
+
+            let context_item = candidate.clone();
+            let binding_stream = XdmSequenceStream::from_vec(vec![candidate]);
+            let stream = match self.vm.with_vm(|vm| {
+                vm.eval_subprogram_stream(
+                    &self.body,
+                    Some(context_item),
+                    Some(Frame { last, pos }),
+                    Some((self.var.clone(), binding_stream)),
+                )
+            }) {
+                Ok(stream) => stream,
+                Err(err) => return Some(Err(err)),
+            };
+            self.current_output = Some(stream.cursor());
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, None)
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            vm: self.vm.clone(),
+            var: self.var.clone(),
+            body: self.body.clone(),
+            input: self.input.boxed_clone(),
+            seed: self.seed.as_ref().map(|cursor| cursor.boxed_clone()),
+            input_len: self.input_len,
+            position: self.position,
+            current_output: self
+                .current_output
+                .as_ref()
+                .map(|cursor| cursor.boxed_clone()),
+        })
+    }
+}
+
+struct QuantLoopCursor<N> {
+    vm: VmHandle<N>,
+    kind: QuantifierKind,
+    var: ExpandedName,
+    body: InstrSeq,
+    input: Box<dyn SequenceCursor<N>>,
+    seed: Option<Box<dyn SequenceCursor<N>>>,
+    input_len: Option<usize>,
+    position: usize,
+    result: Option<bool>,
+    emitted: bool,
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> QuantLoopCursor<N> {
+    fn new(
+        vm: VmHandle<N>,
+        input_stream: XdmSequenceStream<N>,
+        kind: QuantifierKind,
+        var: ExpandedName,
+        body: InstrSeq,
+    ) -> Self {
+        let input = input_stream.cursor();
+        let seed = Some(input.boxed_clone());
+        Self {
+            vm,
+            kind,
+            var,
+            body,
+            input,
+            seed,
+            input_len: None,
+            position: 0,
+            result: None,
+            emitted: false,
+        }
+    }
+
+    fn ensure_input_len(&mut self) -> Result<usize, Error> {
+        if let Some(len) = self.input_len {
+            return Ok(len);
+        }
+        let mut cursor = if let Some(seed) = self.seed.take() {
+            seed
+        } else {
+            self.input.boxed_clone()
+        };
+        let mut remaining = 0usize;
+        while let Some(item) = cursor.next_item() {
+            match item {
+                Ok(_) => remaining = remaining.saturating_add(1),
+                Err(err) => return Err(err),
+            }
+        }
+        let total = self.position.saturating_add(remaining);
+        self.input_len = Some(total);
+        Ok(total)
+    }
+
+    fn evaluate(&mut self) -> Result<bool, Error> {
+        if let Some(cached) = self.result {
+            return Ok(cached);
+        }
+        let total = self.ensure_input_len()?;
+        let mut quant_result = match self.kind {
+            QuantifierKind::Some => false,
+            QuantifierKind::Every => true,
+        };
+
+        while let Some(item) = self.input.next_item() {
+            if self.vm.is_cancelled() {
+                return Err(Error::from_code(
+                    ErrorCode::FOER0000,
+                    "evaluation cancelled",
+                ));
+            }
+            let candidate = item?;
+            let pos = self.position + 1;
+            self.position = pos;
+            let context_item = candidate.clone();
+            let bound = vec![candidate];
+            let body_res = self.vm.with_vm(|vm| {
+                vm.eval_subprogram(
+                    &self.body,
+                    Some(context_item),
+                    Some(Frame { last: total, pos }),
+                    Some((self.var.clone(), bound)),
+                )
+            })?;
+            let truth = Vm::ebv(&body_res)?;
+            match self.kind {
+                QuantifierKind::Some => {
+                    if truth {
+                        quant_result = true;
+                        break;
+                    }
+                }
+                QuantifierKind::Every => {
+                    if !truth {
+                        quant_result = false;
+                        break;
+                    }
+                }
+            }
+        }
+
+        self.result = Some(quant_result);
+        Ok(quant_result)
+    }
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for QuantLoopCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        if self.emitted {
+            return None;
+        }
+        match self.evaluate() {
+            Ok(value) => {
+                self.emitted = true;
+                Some(Ok(XdmItem::Atomic(XdmAtomicValue::Boolean(value))))
+            }
+            Err(err) => {
+                self.emitted = true;
+                Some(Err(err))
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.emitted {
+            (0, Some(0))
+        } else {
+            (0, Some(1))
+        }
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            vm: self.vm.clone(),
+            kind: self.kind,
+            var: self.var.clone(),
+            body: self.body.clone(),
+            input: self.input.boxed_clone(),
+            seed: self.seed.as_ref().map(|cursor| cursor.boxed_clone()),
+            input_len: self.input_len,
+            position: self.position,
+            result: self.result,
+            emitted: self.emitted,
+        })
+    }
+}
 #[derive(Clone, Debug)]
 struct Frame {
     last: usize,
@@ -236,6 +956,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         };
         let functions = dyn_ctx.provide_functions();
         let current_context_item = dyn_ctx.context_item.clone();
+        let cancel_flag = dyn_ctx.cancel_flag.clone();
         Self {
             compiled,
             dyn_ctx,
@@ -246,6 +967,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             functions,
             current_context_item,
             axis_buffer: SmallVec::new(),
+            cancel_flag,
         }
     }
 
@@ -269,6 +991,10 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         }
     }
 
+    fn handle(&self) -> VmHandle<N> {
+        VmHandle::new(self.snapshot(), self.cancel_flag.clone())
+    }
+
     fn from_snapshot(snapshot: &VmSnapshot<N>) -> Self {
         Self {
             compiled: Arc::clone(&snapshot.compiled),
@@ -280,7 +1006,21 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             functions: Arc::clone(&snapshot.functions),
             current_context_item: snapshot.current_context_item.clone(),
             axis_buffer: SmallVec::new(),
+            cancel_flag: snapshot.dyn_ctx.cancel_flag.clone(),
         }
+    }
+
+    fn reset_to_snapshot(&mut self, snapshot: &VmSnapshot<N>) {
+        self.compiled = Arc::clone(&snapshot.compiled);
+        self.dyn_ctx = Arc::clone(&snapshot.dyn_ctx);
+        self.local_vars = snapshot.local_vars.clone();
+        self.frames = snapshot.frames.clone();
+        self.default_collation = snapshot.default_collation.as_ref().map(Arc::clone);
+        self.functions = Arc::clone(&snapshot.functions);
+        self.current_context_item = snapshot.current_context_item.clone();
+        self.stack.clear();
+        self.axis_buffer.clear();
+        self.cancel_flag = snapshot.dyn_ctx.cancel_flag.clone();
     }
 
     fn push_seq(&mut self, seq: XdmSequence<N>) {
@@ -299,10 +1039,55 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         self.pop_stream().materialize()
     }
 
+    fn check_cancel(&self) -> Result<(), Error> {
+        if self
+            .cancel_flag
+            .as_ref()
+            .is_some_and(|flag| flag.load(AtomicOrdering::Relaxed))
+        {
+            return Err(Error::from_code(
+                ErrorCode::FOER0000,
+                "evaluation cancelled",
+            ));
+        }
+        Ok(())
+    }
+
+    fn apply_predicates_stream(
+        &self,
+        stream: XdmSequenceStream<N>,
+        predicates: &[InstrSeq],
+    ) -> XdmSequenceStream<N> {
+        if predicates.is_empty() {
+            return stream;
+        }
+        let handle = self.handle();
+        predicates.iter().fold(stream, |current, pred| {
+            let cursor = PredicateCursor::new(handle.clone(), pred.clone(), current.cursor());
+            XdmSequenceStream::new(cursor)
+        })
+    }
+
+    fn doc_order_distinct_stream(&self, stream: XdmSequenceStream<N>) -> XdmSequenceStream<N> {
+        let cursor = DocOrderDistinctCursor::new(self.handle(), stream.cursor());
+        XdmSequenceStream::new(cursor)
+    }
+
+    fn set_operation_stream(
+        &self,
+        lhs: XdmSequenceStream<N>,
+        rhs: XdmSequenceStream<N>,
+        kind: SetOpKind,
+    ) -> XdmSequenceStream<N> {
+        let cursor = SetOperationCursor::new(self.handle(), kind, lhs.cursor(), rhs.cursor());
+        XdmSequenceStream::new(cursor)
+    }
+
     fn execute(&mut self, code: &InstrSeq) -> Result<(), Error> {
         let mut ip: usize = 0;
         let ops = &code.0;
         while ip < ops.len() {
+            self.check_cancel()?;
             match &ops[ip] {
                 // Data and variables
                 OpCode::PushAtomic(a) => {
@@ -369,109 +1154,34 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
 
                 // Steps / filters
                 OpCode::AxisStep(axis, test, pred_ir) => {
-                    if pred_ir.is_empty() {
-                        let input_stream = self.pop_stream();
-                        let producer = AxisStepProducer::new(
-                            self.snapshot(),
-                            input_stream,
-                            axis.clone(),
-                            test.clone(),
-                            Vec::new(),
-                        );
-                        self.push_stream(XdmSequenceStream::new(producer));
-                    } else {
-                        let input = self.pop_seq()?;
-                        let mut out: XdmSequence<N> = Vec::with_capacity(input.len());
-                        for it in input {
-                            if let XdmItem::Node(node) = it {
-                                self.axis_iter(node.clone(), axis);
-                                for n in self.axis_buffer.iter() {
-                                    let mut pass = self.node_test(n, test);
-                                    if pass
-                                        && matches!(axis, AxisIR::Child)
-                                        && matches!(test, NodeTestIR::WildcardAny)
-                                    {
-                                        pass = matches!(n.kind(), NodeKind::Element);
-                                    }
-                                    if pass {
-                                        out.push(XdmItem::Node(n.clone()));
-                                    }
-                                }
-                            }
-                        }
-                        let mut current = out;
-                        for pred_code in pred_ir {
-                            let len = current.len();
-                            let mut next: XdmSequence<N> = Vec::with_capacity(len);
-                            for (idx, item) in current.into_iter().enumerate() {
-                                let r = self.eval_subprogram(
-                                    pred_code,
-                                    Some(item.clone()),
-                                    Some(Frame {
-                                        last: len,
-                                        pos: idx + 1,
-                                    }),
-                                    None,
-                                )?;
-                                if Self::predicate_truth_value(&r, idx + 1, len)? {
-                                    next.push(item);
-                                }
-                            }
-                            current = next;
-                        }
-                        self.push_seq(current);
-                    }
+                    let input_stream = self.pop_stream();
+                    let axis_cursor = AxisStepCursor::new(
+                        self.handle(),
+                        input_stream,
+                        axis.clone(),
+                        test.clone(),
+                    );
+                    let axis_stream = XdmSequenceStream::new(axis_cursor);
+                    let filtered_stream = self.apply_predicates_stream(axis_stream, pred_ir);
+                    self.push_stream(filtered_stream);
                     ip += 1;
                 }
                 OpCode::PathExprStep(step_ir) => {
-                    let input = self.pop_seq()?;
-                    let len = input.len();
-                    let mut out: XdmSequence<N> = Vec::with_capacity(len);
-                    for (idx, item) in input.into_iter().enumerate() {
-                        let res = self.eval_subprogram(
-                            step_ir,
-                            Some(item.clone()),
-                            Some(Frame {
-                                last: len,
-                                pos: idx + 1,
-                            }),
-                            None,
-                        )?;
-                        out.extend(res);
-                    }
-                    self.push_seq(out);
+                    let input_stream = self.pop_stream();
+                    let cursor = PathStepCursor::new(self.handle(), input_stream, step_ir.clone());
+                    self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
                 OpCode::ApplyPredicates(preds) => {
-                    let input = self.pop_seq()?;
-                    // Apply each predicate in order, boolean semantics only (compiler ensures ToEBV)
-                    let mut current = input;
-                    for p in preds {
-                        let len = current.len();
-                        let mut out: XdmSequence<N> = Vec::with_capacity(len);
-                        for (idx, it) in current.into_iter().enumerate() {
-                            let res = self.eval_subprogram(
-                                p,
-                                Some(it.clone()),
-                                Some(Frame {
-                                    last: len,
-                                    pos: idx + 1,
-                                }),
-                                None,
-                            )?; // predicate raw result
-                            let keep = Self::predicate_truth_value(&res, idx + 1, len)?;
-                            if keep {
-                                out.push(it);
-                            }
-                        }
-                        current = out;
-                    }
-                    self.push_seq(current);
+                    let input_stream = self.pop_stream();
+                    let filtered = self.apply_predicates_stream(input_stream, preds);
+                    self.push_stream(filtered);
                     ip += 1;
                 }
                 OpCode::DocOrderDistinct => {
-                    let seq = self.pop_seq()?;
-                    self.push_seq(self.doc_order_distinct(seq)?);
+                    let stream = self.pop_stream();
+                    let ordered = self.doc_order_distinct_stream(stream);
+                    self.push_stream(ordered);
                     ip += 1;
                 }
 
@@ -1264,24 +1974,16 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                     ip += 1;
                 }
                 OpCode::Union | OpCode::Intersect | OpCode::Except => {
-                    let rhs = self.pop_seq()?;
-                    let lhs = self.pop_seq()?;
-                    // Spec: set operators apply to node sequences only
-                    let is_nodes_only =
-                        |s: &XdmSequence<N>| s.iter().all(|it| matches!(it, XdmItem::Node(_)));
-                    if !is_nodes_only(&lhs) || !is_nodes_only(&rhs) {
-                        return Err(Error::from_code(
-                            ErrorCode::XPTY0004,
-                            "set operators require node sequences",
-                        ));
-                    }
-                    let res = match &ops[ip] {
-                        OpCode::Union => self.set_union(lhs, rhs),
-                        OpCode::Intersect => self.set_intersect(lhs, rhs),
-                        OpCode::Except => self.set_except(lhs, rhs),
+                    let rhs_stream = self.pop_stream();
+                    let lhs_stream = self.pop_stream();
+                    let kind = match &ops[ip] {
+                        OpCode::Union => SetOpKind::Union,
+                        OpCode::Intersect => SetOpKind::Intersect,
+                        OpCode::Except => SetOpKind::Except,
                         _ => unreachable!(),
-                    }?;
-                    self.push_seq(res);
+                    };
+                    let result = self.set_operation_stream(lhs_stream, rhs_stream, kind);
+                    self.push_stream(result);
                     ip += 1;
                 }
                 OpCode::RangeTo => {
@@ -1304,9 +2006,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                     ip += 1;
                 }
                 OpCode::LetStartByName(var_name) => {
-                    let value = self.pop_seq()?;
-                    self.local_vars
-                        .push((var_name.clone(), XdmSequenceStream::from_vec(value)));
+                    let value_stream = self.pop_stream();
+                    self.local_vars.push((var_name.clone(), value_stream));
                     ip += 1;
                 }
                 OpCode::LetEnd => {
@@ -1319,60 +2020,22 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                     ip += 1;
                 }
                 OpCode::ForLoop { var, body } => {
-                    let input_seq = self.pop_seq()?;
-                    let item_count = input_seq.len();
-                    let mut acc: XdmSequence<N> = Vec::new();
-                    for (idx, item) in input_seq.into_iter().enumerate() {
-                        let bound_item = vec![item.clone()];
-                        let body_res = self.eval_subprogram(
-                            body,
-                            Some(item),
-                            Some(Frame {
-                                last: item_count,
-                                pos: idx + 1,
-                            }),
-                            Some((var.clone(), bound_item)),
-                        )?;
-                        acc.extend(body_res);
-                    }
-                    self.push_seq(acc);
+                    let input_stream = self.pop_stream();
+                    let cursor =
+                        ForLoopCursor::new(self.handle(), input_stream, var.clone(), body.clone());
+                    self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
                 OpCode::QuantLoop { kind, var, body } => {
-                    let input_seq = self.pop_seq()?;
-                    let item_count = input_seq.len();
-                    let mut quant_result = match kind {
-                        QuantifierKind::Some => false,
-                        QuantifierKind::Every => true,
-                    };
-                    for (idx, item) in input_seq.into_iter().enumerate() {
-                        let bound_item = vec![item.clone()];
-                        let body_res = self.eval_subprogram(
-                            body,
-                            Some(item),
-                            Some(Frame {
-                                last: item_count,
-                                pos: idx + 1,
-                            }),
-                            Some((var.clone(), bound_item)),
-                        )?;
-                        let truth = Self::ebv(&body_res)?;
-                        match kind {
-                            QuantifierKind::Some => {
-                                if truth {
-                                    quant_result = true;
-                                    break;
-                                }
-                            }
-                            QuantifierKind::Every => {
-                                if !truth {
-                                    quant_result = false;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(quant_result))]);
+                    let input_stream = self.pop_stream();
+                    let cursor = QuantLoopCursor::new(
+                        self.handle(),
+                        input_stream,
+                        *kind,
+                        var.clone(),
+                        body.clone(),
+                    );
+                    self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
 
@@ -1479,6 +2142,22 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         frame: Option<Frame>,
         extra_var: Option<(ExpandedName, XdmSequence<N>)>,
     ) -> Result<XdmSequence<N>, Error> {
+        let stream = self.eval_subprogram_stream(
+            code,
+            context_item,
+            frame,
+            extra_var.map(|(n, v)| (n, XdmSequenceStream::from_vec(v))),
+        )?;
+        stream.materialize()
+    }
+
+    fn eval_subprogram_stream(
+        &mut self,
+        code: &InstrSeq,
+        context_item: Option<XdmItem<N>>,
+        frame: Option<Frame>,
+        extra_var: Option<(ExpandedName, XdmSequenceStream<N>)>,
+    ) -> Result<XdmSequenceStream<N>, Error> {
         let saved_context = self.current_context_item.clone();
         let stack_base = self.stack.len();
         let locals_base = self.local_vars.len();
@@ -1488,14 +2167,13 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             self.frames.push(frame);
         }
         if let Some((name, value)) = extra_var {
-            self.local_vars
-                .push((name, XdmSequenceStream::from_vec(value)));
+            self.local_vars.push((name, value));
         }
         self.current_context_item = context_item;
 
         let result = (|| {
             self.execute(code)?;
-            let output = self.pop_seq()?;
+            let output = self.pop_stream();
             Ok(output)
         })();
 
@@ -1944,45 +2622,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     }
 
     fn doc_order_distinct(&self, seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
-        let mut keyed: SmallVec<[(u64, N); 8]> = SmallVec::new();
-        let mut fallback: SmallVec<[N; 8]> = SmallVec::new();
-        let mut others: Vec<XdmItem<N>> = Vec::new();
-        for it in seq {
-            match it {
-                XdmItem::Node(n) => {
-                    if let Some(key) = n.doc_order_key() {
-                        keyed.push((key, n));
-                    } else {
-                        fallback.push(n);
-                    }
-                }
-                other => others.push(other),
-            }
-        }
-        if keyed.is_empty() && fallback.is_empty() {
-            return Ok(others);
-        }
-        if fallback.is_empty() {
-            keyed.sort_by_key(|(k, _)| *k);
-            keyed.dedup_by(|a, b| a.0 == b.0);
-            others.extend(keyed.into_iter().map(|(_, n)| XdmItem::Node(n)));
-            return Ok(others);
-        }
-
-        if keyed.is_empty() {
-            fallback.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
-            fallback.dedup();
-            others.extend(fallback.into_iter().map(XdmItem::Node));
-            return Ok(others);
-        }
-
-        keyed.sort_by_key(|(k, _)| *k);
-        keyed.dedup_by(|a, b| a.0 == b.0);
-        fallback.extend(keyed.into_iter().map(|(_, n)| n));
-        fallback.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
-        fallback.dedup();
-        others.extend(fallback.into_iter().map(XdmItem::Node));
-        Ok(others)
+        let stream = XdmSequenceStream::from_vec(seq);
+        self.doc_order_distinct_stream(stream).materialize()
     }
 
     // (function name resolution for error messages is handled in FunctionRegistry::resolve)

@@ -2,6 +2,7 @@ use crate::engine::collation::{CODEPOINT_URI, Collation, CollationRegistry};
 use crate::xdm::{ExpandedName, XdmItem, XdmSequence};
 use core::fmt;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Clone)]
@@ -1027,6 +1028,7 @@ pub struct DynamicContext<N> {
     pub regex: Option<Arc<dyn RegexProvider>>,
     pub now: Option<chrono::DateTime<chrono::FixedOffset>>,
     pub timezone_override: Option<chrono::FixedOffset>,
+    pub cancel_flag: Option<Arc<AtomicBool>>,
 }
 
 impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for DynamicContext<N> {
@@ -1041,6 +1043,7 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for Dynam
             regex: None,
             now: None,
             timezone_override: None,
+            cancel_flag: None,
         }
     }
 }
@@ -1112,6 +1115,11 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBui
         if let Some(tz) = chrono::FixedOffset::east_opt(hours * 3600 + mins * 60) {
             self.ctx.timezone_override = Some(tz);
         }
+        self
+    }
+
+    pub fn with_cancel_flag(mut self, flag: Arc<AtomicBool>) -> Self {
+        self.ctx.cancel_flag = Some(flag);
         self
     }
 

@@ -3,6 +3,8 @@ use platynui_xpath::simple_node::{doc, elem, text};
 use platynui_xpath::xdm::{XdmAtomicValue as A, XdmItem as I};
 use platynui_xpath::{XdmNode, evaluate_expr, evaluate_stream_expr};
 use rstest::rstest;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 type N = platynui_xpath::model::simple::SimpleNode;
 
@@ -108,4 +110,348 @@ fn streaming_atomic_sequence_behaves_like_eager() {
         })
         .collect::<Vec<_>>();
     assert_eq!(via_stream, via_eager);
+}
+
+#[rstest]
+fn streaming_predicate_last_on_nodes() {
+    let document = doc()
+        .child(
+            elem("root")
+                .child(elem("item").child(text("one")))
+                .child(elem("item").child(text("two")))
+                .child(elem("item").child(text("three")))
+                .child(elem("item").child(text("four"))),
+        )
+        .build();
+    let root = document.children().next().unwrap();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(root.clone()))
+        .build();
+
+    let stream =
+        evaluate_stream_expr::<N>("child::item[position() = last()]", &ctx).expect("stream eval");
+    let values: Vec<_> = stream
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(values, ["four".to_string()]);
+}
+
+#[rstest]
+fn streaming_nested_predicates_position_tracking() {
+    let document = doc()
+        .child(
+            elem("root")
+                .child(elem("item").child(text("t1")))
+                .child(elem("item").child(text("t2")))
+                .child(elem("item").child(text("t3")))
+                .child(elem("item").child(text("t4"))),
+        )
+        .build();
+    let root = document.children().next().unwrap();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(root.clone()))
+        .build();
+
+    let expr = "child::item[position() <= 3][position() = last()]";
+    let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval");
+    let values: Vec<_> = stream
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(values, ["t3".to_string()]);
+}
+
+#[rstest]
+fn streaming_path_expr_step_flatmaps_lazily() {
+    let document = doc()
+        .child(
+            elem("root")
+                .child(elem("item").child(text("x")))
+                .child(elem("item").child(text("y")))
+                .child(elem("item").child(text("z"))),
+        )
+        .build();
+    let root = document.children().next().unwrap();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(root.clone()))
+        .build();
+
+    let stream = evaluate_stream_expr::<N>("child::item/child::text()", &ctx).expect("stream eval");
+    let via_stream: Vec<_> = stream
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(via_stream, ["x", "y", "z"]);
+}
+
+#[rstest]
+fn streaming_union_preserves_doc_order() {
+    let document = doc()
+        .child(
+            elem("root")
+                .child(elem("item").child(text("one")))
+                .child(elem("item").child(text("two")))
+                .child(elem("item").child(text("three")))
+                .child(elem("item").child(text("four"))),
+        )
+        .build();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(document.clone()))
+        .build();
+
+    let expr = "(/root/item[position() = 3]) union (/root/item[position() = 1])";
+    let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval");
+    let via_stream: Vec<_> = stream
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(via_stream, ["one", "three"]);
+
+    let via_eager: Vec<_> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(via_stream, via_eager);
+}
+
+#[rstest]
+fn streaming_intersect_matches_eager() {
+    let document = doc()
+        .child(
+            elem("root")
+                .child(elem("item").child(text("one")))
+                .child(elem("item").child(text("two")))
+                .child(elem("item").child(text("three"))),
+        )
+        .build();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(document.clone()))
+        .build();
+
+    let expr = "/root/item intersect /root/item[position() = 2]";
+    let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval");
+    let via_stream: Vec<_> = stream
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(via_stream, ["two"]);
+
+    let via_eager: Vec<_> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(via_stream, via_eager);
+}
+
+#[rstest]
+fn streaming_except_filters_nodes() {
+    let document = doc()
+        .child(
+            elem("root")
+                .child(elem("item").child(text("one")))
+                .child(elem("item").child(text("two")))
+                .child(elem("item").child(text("three"))),
+        )
+        .build();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(document.clone()))
+        .build();
+
+    let expr = "/root/item except /root/item[position() = 2]";
+    let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval");
+    let via_stream: Vec<_> = stream
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(via_stream, ["one", "three"]);
+
+    let via_eager: Vec<_> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(via_stream, via_eager);
+}
+
+#[rstest]
+fn streaming_union_large_dataset() {
+    let mut root_builder = elem("root");
+    for idx in 1..=200 {
+        let value = format!("{idx}");
+        root_builder = root_builder.child(elem("item").child(text(&value)));
+    }
+    let document = doc().child(root_builder).build();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(document.clone()))
+        .build();
+
+    let expr = "(/root/item[position() <= 150]) union (/root/item[position() > 50])";
+    let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval");
+    let via_stream: Vec<_> = stream
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(via_stream.len(), 200);
+    assert_eq!(via_stream.first().unwrap(), "1");
+    assert_eq!(via_stream.last().unwrap(), "200");
+
+    let via_eager: Vec<_> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(via_stream, via_eager);
+}
+
+#[rstest]
+fn streaming_for_loop_matches_eager() {
+    let document = doc()
+        .child(
+            elem("root")
+                .child(elem("item").child(text("one")))
+                .child(elem("item").child(text("two")))
+                .child(elem("item").child(text("three"))),
+        )
+        .build();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(document.clone()))
+        .build();
+
+    let expr = "for $x in /root/item return $x/text()";
+    let via_stream: Vec<_> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<_> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(via_stream, via_eager);
+}
+
+#[rstest]
+fn streaming_quantifiers_match_eager() {
+    let document = doc()
+        .child(
+            elem("root")
+                .child(elem("item").child(text("alpha")))
+                .child(elem("item").child(text("beta")))
+                .child(elem("item").child(text("gamma"))),
+        )
+        .build();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(document.clone()))
+        .build();
+
+    let expr_some = "some $x in /root/item satisfies $x/text() = 'beta'";
+    let expr_every = "every $x in /root/item satisfies string-length($x/text()) > 0";
+
+    let some_stream: bool = evaluate_stream_expr::<N>(expr_some, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Boolean(b)) => b,
+            other => panic!("expected boolean, got {other:?}"),
+        })
+        .next()
+        .expect("result");
+    let some_eager: bool = evaluate_expr::<N>(expr_some, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Atomic(A::Boolean(b)) => b,
+            other => panic!("expected boolean, got {other:?}"),
+        })
+        .next()
+        .expect("result");
+    assert_eq!(some_stream, some_eager);
+
+    let every_stream: bool = evaluate_stream_expr::<N>(expr_every, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Boolean(b)) => b,
+            other => panic!("expected boolean, got {other:?}"),
+        })
+        .next()
+        .expect("result");
+    let every_eager: bool = evaluate_expr::<N>(expr_every, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Atomic(A::Boolean(b)) => b,
+            other => panic!("expected boolean, got {other:?}"),
+        })
+        .next()
+        .expect("result");
+    assert_eq!(every_stream, every_eager);
+}
+
+#[rstest]
+fn streaming_cancellation_triggers_error() {
+    let cancel_flag = Arc::new(AtomicBool::new(true));
+    let document = doc()
+        .child(
+            elem("root")
+                .child(elem("item").child(text("a")))
+                .child(elem("item").child(text("b")))
+                .child(elem("item").child(text("c"))),
+        )
+        .build();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(document.clone()))
+        .with_cancel_flag(cancel_flag)
+        .build();
+
+    let err = evaluate_stream_expr::<N>("for $x in /root/item return $x", &ctx)
+        .err()
+        .expect("evaluation should cancel");
+    assert_eq!(
+        err.code_enum(),
+        platynui_xpath::engine::runtime::ErrorCode::FOER0000
+    );
 }
