@@ -135,8 +135,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> VmHandle<N> {
         self.inner
             .cancel_flag
             .as_ref()
-            .map(|flag| flag.load(AtomicOrdering::Relaxed))
-            .unwrap_or(false)
+            .is_some_and(|flag| flag.load(AtomicOrdering::Relaxed))
     }
 }
 
@@ -617,12 +616,6 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> SetOperationCursor<N> {
                 "set operators require node sequences",
             ));
         }
-        eprintln!(
-            "set op {:?}: lhs={}, rhs={}",
-            self.kind,
-            lhs_seq.len(),
-            rhs_seq.len()
-        );
         let result = self.vm.with_vm(|vm| match self.kind {
             SetOpKind::Union => vm.set_union(lhs_seq, rhs_seq),
             SetOpKind::Intersect => vm.set_intersect(lhs_seq, rhs_seq),
@@ -699,19 +692,43 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> ForLoopCursor<N> {
         if let Some(len) = self.input_len {
             return Ok(len);
         }
-        let mut cursor = if let Some(seed) = self.seed.take() {
-            seed
+        let total = if let Some(seed) = self.seed.as_ref() {
+            let (lower, upper) = seed.size_hint();
+            let total = if let Some(upper) = upper
+                && lower == upper
+            {
+                upper
+            } else {
+                let mut cursor = self.seed.take().unwrap();
+                let mut count = 0usize;
+                while let Some(item) = cursor.next_item() {
+                    match item {
+                        Ok(_) => count = count.saturating_add(1),
+                        Err(err) => return Err(err),
+                    }
+                }
+                count
+            };
+            self.seed = None;
+            total
         } else {
-            self.input.boxed_clone()
-        };
-        let mut remaining = 0usize;
-        while let Some(item) = cursor.next_item() {
-            match item {
-                Ok(_) => remaining = remaining.saturating_add(1),
-                Err(err) => return Err(err),
+            let (lower, upper) = self.input.size_hint();
+            if let Some(upper) = upper
+                && lower == upper
+            {
+                self.position + 1 + upper
+            } else {
+                let mut cursor = self.input.boxed_clone();
+                let mut remaining = 0usize;
+                while let Some(item) = cursor.next_item() {
+                    match item {
+                        Ok(_) => remaining = remaining.saturating_add(1),
+                        Err(err) => return Err(err),
+                    }
+                }
+                self.position + 1 + remaining
             }
-        }
-        let total = self.position.saturating_add(remaining);
+        };
         self.input_len = Some(total);
         Ok(total)
     }
@@ -826,19 +843,43 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> QuantLoopCursor<N> {
         if let Some(len) = self.input_len {
             return Ok(len);
         }
-        let mut cursor = if let Some(seed) = self.seed.take() {
-            seed
+        let total = if let Some(seed) = self.seed.as_ref() {
+            let (lower, upper) = seed.size_hint();
+            let total = if let Some(upper) = upper
+                && lower == upper
+            {
+                upper
+            } else {
+                let mut cursor = self.seed.take().unwrap();
+                let mut count = 0usize;
+                while let Some(item) = cursor.next_item() {
+                    match item {
+                        Ok(_) => count = count.saturating_add(1),
+                        Err(err) => return Err(err),
+                    }
+                }
+                count
+            };
+            self.seed = None;
+            total
         } else {
-            self.input.boxed_clone()
-        };
-        let mut remaining = 0usize;
-        while let Some(item) = cursor.next_item() {
-            match item {
-                Ok(_) => remaining = remaining.saturating_add(1),
-                Err(err) => return Err(err),
+            let (lower, upper) = self.input.size_hint();
+            if let Some(upper) = upper
+                && lower == upper
+            {
+                self.position + upper
+            } else {
+                let mut cursor = self.input.boxed_clone();
+                let mut remaining = 0usize;
+                while let Some(item) = cursor.next_item() {
+                    match item {
+                        Ok(_) => remaining = remaining.saturating_add(1),
+                        Err(err) => return Err(err),
+                    }
+                }
+                self.position + remaining
             }
-        }
-        let total = self.position.saturating_add(remaining);
+        };
         self.input_len = Some(total);
         Ok(total)
     }
@@ -864,15 +905,16 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> QuantLoopCursor<N> {
             let pos = self.position + 1;
             self.position = pos;
             let context_item = candidate.clone();
-            let bound = vec![candidate];
-            let body_res = self.vm.with_vm(|vm| {
-                vm.eval_subprogram(
+            let binding_stream = XdmSequenceStream::from_item(candidate);
+            let body_stream = self.vm.with_vm(|vm| {
+                vm.eval_subprogram_stream(
                     &self.body,
                     Some(context_item),
                     Some(Frame { last: total, pos }),
-                    Some((self.var.clone(), bound)),
+                    Some((self.var.clone(), binding_stream)),
                 )
             })?;
+            let body_res = body_stream.materialize()?;
             let truth = Vm::ebv(&body_res)?;
             match self.kind {
                 QuantifierKind::Some => {
@@ -1953,24 +1995,24 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 // Sequences and sets
                 OpCode::MakeSeq(n) => {
                     let n = *n;
-                    let mut items: XdmSequence<N> = Vec::new();
-                    // Pop N sequences, preserving left-to-right order
-                    let mut parts: Vec<XdmSequence<N>> = Vec::with_capacity(n);
+                    let mut parts: Vec<XdmSequenceStream<N>> = Vec::with_capacity(n);
                     for _ in 0..n {
-                        parts.push(self.pop_seq()?);
+                        parts.push(self.pop_stream());
                     }
                     parts.reverse();
-                    for p in parts {
-                        items.extend(p);
+                    let mut iter = parts.into_iter();
+                    if let Some(first) = iter.next() {
+                        let chained = iter.fold(first, |acc, stream| acc.chain(stream));
+                        self.push_stream(chained);
+                    } else {
+                        self.push_stream(XdmSequenceStream::empty());
                     }
-                    self.push_seq(items);
                     ip += 1;
                 }
                 OpCode::ConcatSeq => {
-                    let rhs = self.pop_seq()?;
-                    let mut lhs = self.pop_seq()?;
-                    lhs.extend(rhs);
-                    self.push_seq(lhs);
+                    let rhs = self.pop_stream();
+                    let lhs = self.pop_stream();
+                    self.push_stream(lhs.chain(rhs));
                     ip += 1;
                 }
                 OpCode::Union | OpCode::Intersect | OpCode::Except => {
@@ -1989,15 +2031,13 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 OpCode::RangeTo => {
                     let end = Self::to_number(&self.pop_seq()?)?;
                     let start = Self::to_number(&self.pop_seq()?)?;
-                    let mut out = Vec::new();
                     let a = start as i64;
                     let b = end as i64;
                     if a <= b {
-                        for i in a..=b {
-                            out.push(XdmItem::Atomic(XdmAtomicValue::Integer(i)));
-                        }
+                        self.push_stream(XdmSequenceStream::from_range_inclusive(a, b));
+                    } else {
+                        self.push_stream(XdmSequenceStream::empty());
                     }
-                    self.push_seq(out);
                     ip += 1;
                 }
 

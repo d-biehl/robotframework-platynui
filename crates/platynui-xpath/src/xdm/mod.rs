@@ -166,6 +166,20 @@ impl<N> XdmSequenceStream<N> {
         Self::new(VecCursor::new(items))
     }
 
+    pub fn from_item(item: XdmItem<N>) -> Self
+    where
+        N: Clone + Send + Sync + 'static,
+    {
+        Self::new(SingleItemCursor::new(item))
+    }
+
+    pub fn from_range_inclusive(start: i64, end: i64) -> Self
+    where
+        N: Clone + Send + Sync + 'static,
+    {
+        Self::new(RangeCursor::new(start, end))
+    }
+
     pub fn iter(&self) -> XdmSequenceStreamIter<N> {
         XdmSequenceStreamIter {
             cursor: self.cursor.boxed_clone(),
@@ -174,6 +188,15 @@ impl<N> XdmSequenceStream<N> {
 
     pub fn cursor(&self) -> Box<dyn SequenceCursor<N>> {
         self.cursor.boxed_clone()
+    }
+
+    pub fn chain(self, other: XdmSequenceStream<N>) -> Self
+    where
+        N: Clone + Send + Sync + 'static,
+    {
+        let left = self.cursor.boxed_clone();
+        let right = other.cursor.boxed_clone();
+        Self::new(ChainCursor::new(left, right))
     }
 
     pub fn materialize(&self) -> Result<XdmSequence<N>, Error>
@@ -253,6 +276,165 @@ where
     fn size_hint(&self) -> (usize, Option<usize>) {
         let remaining = self.data.len().saturating_sub(self.index);
         (remaining, Some(remaining))
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(self.clone())
+    }
+}
+
+#[derive(Clone)]
+struct SingleItemCursor<N> {
+    item: Arc<XdmItem<N>>,
+    consumed: bool,
+}
+
+impl<N> SingleItemCursor<N>
+where
+    N: Clone + Send + Sync + 'static,
+{
+    fn new(item: XdmItem<N>) -> Self {
+        Self {
+            item: Arc::new(item),
+            consumed: false,
+        }
+    }
+}
+
+impl<N> SequenceCursor<N> for SingleItemCursor<N>
+where
+    N: Clone + Send + Sync + 'static,
+{
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        if self.consumed {
+            None
+        } else {
+            self.consumed = true;
+            Some(Ok((*self.item).clone()))
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.consumed {
+            (0, Some(0))
+        } else {
+            (1, Some(1))
+        }
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(self.clone())
+    }
+}
+
+struct ChainCursor<N> {
+    left: Box<dyn SequenceCursor<N>>,
+    right: Box<dyn SequenceCursor<N>>,
+    left_exhausted: bool,
+}
+
+impl<N> ChainCursor<N>
+where
+    N: Clone + Send + Sync + 'static,
+{
+    fn new(left: Box<dyn SequenceCursor<N>>, right: Box<dyn SequenceCursor<N>>) -> Self {
+        Self {
+            left,
+            right,
+            left_exhausted: false,
+        }
+    }
+}
+
+impl<N> Clone for ChainCursor<N>
+where
+    N: Clone + Send + Sync + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            left: self.left.boxed_clone(),
+            right: self.right.boxed_clone(),
+            left_exhausted: self.left_exhausted,
+        }
+    }
+}
+
+impl<N> SequenceCursor<N> for ChainCursor<N>
+where
+    N: Clone + Send + Sync + 'static,
+{
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        if !self.left_exhausted {
+            if let Some(item) = self.left.next_item() {
+                return Some(item);
+            }
+            self.left_exhausted = true;
+        }
+        self.right.next_item()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (l_low, l_up) = if self.left_exhausted {
+            (0, Some(0))
+        } else {
+            self.left.size_hint()
+        };
+        let (r_low, r_up) = self.right.size_hint();
+        let low = l_low.saturating_add(r_low);
+        let upper = match (l_up, r_up) {
+            (Some(a), Some(b)) => Some(a.saturating_add(b)),
+            _ => None,
+        };
+        (low, upper)
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            left: self.left.boxed_clone(),
+            right: self.right.boxed_clone(),
+            left_exhausted: self.left_exhausted,
+        })
+    }
+}
+
+#[derive(Clone)]
+struct RangeCursor<N> {
+    current: i64,
+    end: i64,
+    _marker: PhantomData<N>,
+}
+
+impl<N> RangeCursor<N> {
+    fn new(start: i64, end: i64) -> Self {
+        Self {
+            current: start,
+            end,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<N> SequenceCursor<N> for RangeCursor<N>
+where
+    N: Clone + Send + Sync + 'static,
+{
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        if self.current > self.end {
+            None
+        } else {
+            let value = self.current;
+            self.current += 1;
+            Some(Ok(XdmItem::Atomic(XdmAtomicValue::Integer(value))))
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.current > self.end {
+            (0, Some(0))
+        } else {
+            let remaining = (self.end - self.current + 1) as usize;
+            (remaining, Some(remaining))
+        }
     }
 
     fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
