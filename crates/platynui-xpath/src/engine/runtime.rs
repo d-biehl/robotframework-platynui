@@ -889,11 +889,13 @@ impl FunctionSignatures {
 pub struct StaticContext {
     pub base_uri: Option<String>,
     pub default_function_namespace: Option<String>,
+    pub default_element_namespace: Option<String>,
     pub default_collation: Option<String>,
     pub namespaces: NamespaceBindings,
     pub in_scope_variables: HashSet<ExpandedName>,
     pub function_signatures: FunctionSignatures,
     pub statically_known_collations: HashSet<String>,
+    pub xpath_compatibility_mode: bool,
 }
 
 impl Default for StaticContext {
@@ -907,11 +909,13 @@ impl Default for StaticContext {
         Self {
             base_uri: None,
             default_function_namespace: Some(crate::consts::FNS.to_string()),
+            default_element_namespace: None,
             default_collation: Some(CODEPOINT_URI.to_string()),
             namespaces: ns,
             in_scope_variables: HashSet::new(),
             function_signatures: crate::engine::functions::default_function_signatures(),
             statically_known_collations: collations,
+            xpath_compatibility_mode: false,
         }
     }
 }
@@ -954,6 +958,16 @@ impl StaticContextBuilder {
 
     pub fn with_default_collation(mut self, uri: impl Into<String>) -> Self {
         self.ctx.default_collation = Some(uri.into());
+        self
+    }
+
+    pub fn with_default_element_namespace(mut self, uri: impl Into<String>) -> Self {
+        self.ctx.default_element_namespace = Some(uri.into());
+        self
+    }
+
+    pub fn with_xpath_compatibility_mode(mut self, enabled: bool) -> Self {
+        self.ctx.xpath_compatibility_mode = enabled;
         self
     }
 

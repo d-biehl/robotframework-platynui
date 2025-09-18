@@ -156,6 +156,80 @@ fn anyuri_success(#[case] expr: &str) {
     let _ = eval_atomic(expr);
 }
 
+#[rstest]
+#[case("'42' cast as xs:long", A::Long(42))]
+#[case("'42' cast as xs:int", A::Int(42))]
+#[case("'42' cast as xs:unsignedShort", A::UnsignedShort(42))]
+#[case("'42' cast as xs:positiveInteger", A::PositiveInteger(42))]
+fn numeric_subtypes_success(#[case] expr: &str, #[case] expected: A) {
+    let got = eval_atomic(expr);
+    assert_eq!(got, expected);
+}
+
+#[rstest]
+fn numeric_positive_integer_zero_fails() {
+    expect_err("'0' cast as xs:positiveInteger", "FORG0001");
+}
+
+#[rstest]
+#[case("'A\tB' cast as xs:normalizedString", A::NormalizedString("A B".into()))]
+#[case("'  a   b  ' cast as xs:token", A::Token("a b".into()))]
+#[case("'en-US' cast as xs:language", A::Language("en-US".into()))]
+#[case("'prefix:name' cast as xs:Name", A::Name("prefix:name".into()))]
+#[case("'name' cast as xs:NCName", A::NCName("name".into()))]
+#[case("'token' cast as xs:NMTOKEN", A::NMTOKEN("token".into()))]
+fn string_derived_success(#[case] expr: &str, #[case] expected: A) {
+    let got = eval_atomic(expr);
+    assert_eq!(got, expected);
+}
+
+#[rstest]
+fn string_derived_invalid_language() {
+    expect_err("'invalid_lang' cast as xs:language", "FORG0001");
+}
+
+#[rstest]
+#[case("'1abc' cast as xs:Name")]
+#[case("'prefix:name' cast as xs:NCName")]
+#[case("'prefix:name' cast as xs:ID")]
+fn string_derived_invalid_name_like(#[case] expr: &str) {
+    expect_err(expr, "FORG0001");
+}
+
+#[rstest]
+#[case("' YWJj ' cast as xs:base64Binary", A::Base64Binary("YWJj".into()))]
+#[case("'0a0b' cast as xs:hexBinary", A::HexBinary("0A0B".into()))]
+fn binary_casts_success(#[case] expr: &str, #[case] expected: A) {
+    let got = eval_atomic(expr);
+    assert_eq!(got, expected);
+}
+
+#[rstest]
+#[case("'zzz' cast as xs:hexBinary")]
+#[case("'0AA' cast as xs:hexBinary")]
+fn binary_cast_invalid_hex(#[case] expr: &str) {
+    expect_err(expr, "FORG0001");
+}
+
+#[rstest]
+#[case("'2024' cast as xs:gYear")]
+#[case("'2024-05' cast as xs:gYearMonth")]
+#[case("'--05' cast as xs:gMonth")]
+#[case("'--05-10' cast as xs:gMonthDay")]
+#[case("'---10' cast as xs:gDay")]
+fn g_types_success(#[case] expr: &str) {
+    let _ = eval_atomic(expr);
+}
+
+#[rstest]
+#[case("'2024-13' cast as xs:gYearMonth")]
+#[case("'--13' cast as xs:gMonth")]
+#[case("'--05-32' cast as xs:gMonthDay")]
+#[case("'---32' cast as xs:gDay")]
+fn g_types_invalid(#[case] expr: &str) {
+    expect_err(expr, "FORG0001");
+}
+
 // === Castable vs cast mismatch samples ===
 #[rstest]
 #[case("'123' castable as xs:integer", true)]

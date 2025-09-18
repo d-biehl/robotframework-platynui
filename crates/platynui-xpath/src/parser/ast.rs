@@ -1,12 +1,14 @@
+use compact_str::CompactString;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     Integer(i64),
     Decimal(f64),
     Double(f64),
-    String(String),
+    String(CompactString),
     Boolean(bool),
-    AnyUri(String),
-    UntypedAtomic(String),
+    AnyUri(CompactString),
+    UntypedAtomic(CompactString),
 }
 
 #[derive(Debug, Clone, PartialEq)]

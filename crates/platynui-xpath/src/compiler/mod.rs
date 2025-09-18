@@ -7,6 +7,7 @@ use smallvec::SmallVec;
 pub mod ir;
 
 use std::sync::OnceLock;
+use string_cache::DefaultAtom;
 
 static DEFAULT_STATIC_CONTEXT: OnceLock<StaticContext> = OnceLock::new();
 
@@ -330,10 +331,10 @@ impl<'a> Compiler<'a> {
             Integer(i) => XdmAtomicValue::Integer(*i),
             Decimal(d) => XdmAtomicValue::Decimal(*d),
             Double(d) => XdmAtomicValue::Double(*d),
-            String(s) => XdmAtomicValue::String(s.clone()),
+            String(s) => XdmAtomicValue::String(s.to_string()),
             Boolean(b) => XdmAtomicValue::Boolean(*b),
-            AnyUri(s) => XdmAtomicValue::AnyUri(s.clone()),
-            UntypedAtomic(s) => XdmAtomicValue::UntypedAtomic(s.clone()),
+            AnyUri(s) => XdmAtomicValue::AnyUri(s.to_string()),
+            UntypedAtomic(s) => XdmAtomicValue::UntypedAtomic(s.to_string()),
         };
         self.emit(ir::OpCode::PushAtomic(v));
         Ok(())
@@ -446,7 +447,7 @@ impl<'a> Compiler<'a> {
                     predicates,
                 } => {
                     let axis_ir = self.map_axis(axis);
-                    let test_ir = self.map_node_test_checked(test)?;
+                    let test_ir = self.map_node_test_checked(test, &axis_ir)?;
                     let preds = self.lower_predicates(predicates)?;
                     self.emit(ir::OpCode::AxisStep(axis_ir, test_ir, preds));
                     self.emit(ir::OpCode::DocOrderDistinct);
@@ -481,10 +482,29 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn map_node_test_checked(&self, t: &ast::NodeTest) -> CResult<ir::NodeTestIR> {
+    fn should_apply_default_element_namespace(&self, axis: &ir::AxisIR) -> bool {
+        !matches!(axis, ir::AxisIR::Attribute | ir::AxisIR::Namespace)
+            && self.static_ctx.default_element_namespace.is_some()
+    }
+
+    fn map_node_test_checked(
+        &self,
+        t: &ast::NodeTest,
+        axis: &ir::AxisIR,
+    ) -> CResult<ir::NodeTestIR> {
         Ok(match t {
             ast::NodeTest::Name(nt) => match nt {
-                ast::NameTest::QName(q) => ir::NodeTestIR::Name(self.to_expanded(q)),
+                ast::NameTest::QName(q) => {
+                    let mut expanded = self.to_expanded(q);
+                    if expanded.ns_uri.is_none()
+                        && q.prefix.is_none()
+                        && self.should_apply_default_element_namespace(axis)
+                        && let Some(ns) = &self.static_ctx.default_element_namespace
+                    {
+                        expanded.ns_uri = Some(ns.clone());
+                    }
+                    ir::NodeTestIR::Name(ir::InternedQName::from_expanded(expanded))
+                }
                 ast::NameTest::Wildcard(w) => match w {
                     ast::WildcardName::Any => ir::NodeTestIR::WildcardAny,
                     ast::WildcardName::NsWildcard(prefix) => {
@@ -495,10 +515,10 @@ impl<'a> Compiler<'a> {
                             .get(prefix)
                             .cloned()
                             .unwrap_or_else(|| prefix.clone());
-                        ir::NodeTestIR::NsWildcard(uri)
+                        ir::NodeTestIR::NsWildcard(DefaultAtom::from(uri.as_str()))
                     }
                     ast::WildcardName::LocalWildcard(loc) => {
-                        ir::NodeTestIR::LocalWildcard(loc.clone())
+                        ir::NodeTestIR::LocalWildcard(DefaultAtom::from(loc.as_str()))
                     }
                 },
             },
@@ -552,18 +572,33 @@ impl<'a> Compiler<'a> {
                 name: name.as_ref().map(|n| match n {
                     ast::ElementNameOrWildcard::Any => ir::NameOrWildcard::Any,
                     ast::ElementNameOrWildcard::Name(q) => {
-                        ir::NameOrWildcard::Name(self.to_expanded(q))
+                        let mut expanded = self.to_expanded(q);
+                        if expanded.ns_uri.is_none()
+                            && q.prefix.is_none()
+                            && let Some(ns) = &self.static_ctx.default_element_namespace
+                        {
+                            expanded.ns_uri = Some(ns.clone());
+                        }
+                        ir::NameOrWildcard::Name(ir::InternedQName::from_expanded(expanded))
                     }
                 }),
-                ty: ty.as_ref().map(|t| self.to_expanded(&t.0)),
+                ty: ty.as_ref().map(|t| {
+                    let mut expanded = self.to_expanded(&t.0);
+                    if expanded.ns_uri.is_none()
+                        && self.static_ctx.default_element_namespace.is_some()
+                    {
+                        expanded.ns_uri = self.static_ctx.default_element_namespace.clone();
+                    }
+                    expanded
+                }),
                 nillable: *nillable,
             },
             K::Attribute { name, ty } => ir::NodeTestIR::KindAttribute {
                 name: name.as_ref().map(|n| match n {
                     ast::AttributeNameOrWildcard::Any => ir::NameOrWildcard::Any,
-                    ast::AttributeNameOrWildcard::Name(q) => {
-                        ir::NameOrWildcard::Name(self.to_expanded(q))
-                    }
+                    ast::AttributeNameOrWildcard::Name(q) => ir::NameOrWildcard::Name(
+                        ir::InternedQName::from_expanded(self.to_expanded(q)),
+                    ),
                 }),
                 ty: ty.as_ref().map(|t| self.to_expanded(&t.0)),
             },

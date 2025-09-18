@@ -29,6 +29,11 @@ fn bool(expr: &str) -> bool {
 // untypedAtomic function-style constructor not implemented; skip direct tests
 #[case("() castable as xs:integer?", true)]
 #[case("() castable as xs:integer", false)]
+#[case("'YWJj' castable as xs:base64Binary", true)]
+#[case("'0G' castable as xs:hexBinary", false)]
+#[case("'name' castable as xs:NCName", true)]
+#[case("'prefix:name' castable as xs:NCName", false)]
+#[case("'2024' castable as xs:gYear", true)]
 fn castable_basic(#[case] expr: &str, #[case] expected: bool) {
     assert_eq!(bool(expr), expected, "expr={expr}");
 }

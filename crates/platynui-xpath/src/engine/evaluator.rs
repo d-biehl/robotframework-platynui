@@ -3,18 +3,25 @@ use crate::compiler::ir::{
     QuantifierKind, SeqTypeIR, SingleTypeIR,
 };
 use crate::engine::runtime::{CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations};
+// fast_names_equal inlined: equality on interned atoms is direct O(1) comparison
 use crate::model::{NodeKind, XdmNode};
+use crate::util::temporal::{
+    parse_g_day, parse_g_month, parse_g_month_day, parse_g_year, parse_g_year_month,
+};
 use crate::xdm::{
     ExpandedName, SequenceCursor, XdmAtomicValue, XdmItem, XdmItemResult, XdmSequence,
     XdmSequenceStream,
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use chrono::Duration as ChronoDuration;
 use chrono::{FixedOffset as ChronoFixedOffset, NaiveTime as ChronoNaiveTime, TimeZone};
 use core::cmp::Ordering;
+use core::mem;
 use smallvec::SmallVec;
 use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
+use string_cache::DefaultAtom;
 
 /// Evaluate a compiled XPath program against a dynamic context.
 pub fn evaluate<N: 'static + Send + Sync + XdmNode + Clone>(
@@ -55,23 +62,24 @@ pub fn evaluate_stream_expr<N: 'static + Send + Sync + XdmNode + Clone>(
 struct Vm<N> {
     compiled: Arc<CompiledXPath>,
     dyn_ctx: Arc<DynamicContext<N>>,
-    stack: SmallVec<[XdmSequenceStream<N>; 8]>,
-    local_vars: SmallVec<[(ExpandedName, XdmSequenceStream<N>); 8]>,
+    stack: SmallVec<[XdmSequenceStream<N>; 16]>, // Keep short evaluation stacks inline to avoid heap churn
+    local_vars: SmallVec<[(ExpandedName, XdmSequenceStream<N>); 12]>, // Small lexical scopes fit in the inline buffer
     // Frame stack for position()/last() support inside predicates / loops
-    frames: SmallVec<[Frame; 8]>,
+    frames: SmallVec<[Frame; 12]>, // Mirrors typical nesting depth for predicates/loops
     // Cached default collation for this VM (dynamic overrides static)
     default_collation: Option<std::sync::Arc<dyn crate::engine::collation::Collation>>,
     functions: Arc<FunctionImplementations<N>>,
     current_context_item: Option<XdmItem<N>>,
-    axis_buffer: SmallVec<[N; 8]>,
+    axis_buffer: SmallVec<[N; 32]>, // Shared scratch space for axis traversal results
     cancel_flag: Option<Arc<AtomicBool>>,
+    set_fallback: SmallVec<[N; 16]>, // Scratch buffer reused by set operations
 }
 
 struct VmSnapshot<N> {
     compiled: Arc<CompiledXPath>,
     dyn_ctx: Arc<DynamicContext<N>>,
-    local_vars: SmallVec<[(ExpandedName, XdmSequenceStream<N>); 8]>,
-    frames: SmallVec<[Frame; 8]>,
+    local_vars: SmallVec<[(ExpandedName, XdmSequenceStream<N>); 12]>,
+    frames: SmallVec<[Frame; 12]>,
     default_collation: Option<Arc<dyn crate::engine::collation::Collation>>,
     functions: Arc<FunctionImplementations<N>>,
     current_context_item: Option<XdmItem<N>>,
@@ -172,22 +180,151 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> AxisStepCursor<N> {
         }
     }
 
-    fn evaluate_node(&self, node: N) -> Result<Vec<N>, Error> {
+    /// Optimized path for child::* patterns
+    fn child_wildcard_fast(&self, _vm: &mut Vm<N>, node: N) -> Result<SmallVec<[N; 16]>, Error> {
+        // Pre-allocate with typical child count - most elements have 1-4 children
+        let mut result = SmallVec::with_capacity(4);
+
+        // For wildcard (*), only collect element children - this is XPath semantics!
+        for child in node.children() {
+            if matches!(child.kind(), NodeKind::Element) {
+                result.push(child);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Optimized path for child::element() patterns
+    fn child_elements_fast(&self, _vm: &mut Vm<N>, node: N) -> Result<SmallVec<[N; 16]>, Error> {
+        // Pre-allocate with typical child count - most elements have 1-4 children
+        let mut result = SmallVec::with_capacity(4);
+
+        // Direct iteration, only collect element children
+        for child in node.children() {
+            if matches!(child.kind(), NodeKind::Element) {
+                result.push(child);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Optimized path for descendant-or-self::* patterns
+    fn descendant_or_self_fast(
+        &self,
+        _vm: &mut Vm<N>,
+        node: N,
+    ) -> Result<SmallVec<[N; 16]>, Error> {
+        // Pre-allocate for typical document subtree - estimate based on depth and breadth
+        let mut result = SmallVec::with_capacity(16);
+        let mut stack: SmallVec<[N; 16]> = SmallVec::new();
+
+        // Start with the context node itself - for wildcard (*), only if it's an element
+        if matches!(node.kind(), NodeKind::Element) {
+            result.push(node.clone());
+        }
+
+        // Use a stack-based traversal, only collect element descendants
+        stack.push(node);
+
+        while let Some(current) = stack.pop() {
+            // Directly iterate over children without intermediate Vec allocation
+            for child in current.children() {
+                // For wildcard (*), only collect elements - this is XPath semantics!
+                if matches!(child.kind(), NodeKind::Element) {
+                    result.push(child.clone());
+                }
+                // Continue traversal for all children to find element descendants
+                stack.push(child);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Optimized path for descendant-or-self::element() patterns
+    fn descendant_or_self_elements_fast(
+        &self,
+        _vm: &mut Vm<N>,
+        node: N,
+    ) -> Result<SmallVec<[N; 16]>, Error> {
+        // Pre-allocate for typical document subtree
+        let mut result = SmallVec::with_capacity(16);
+        let mut stack: SmallVec<[N; 16]> = SmallVec::new();
+
+        // Start with the context node itself
+        if matches!(node.kind(), NodeKind::Element) {
+            result.push(node.clone());
+        }
+
+        // Use a stack-based traversal, only processing element nodes
+        stack.push(node);
+
+        while let Some(current) = stack.pop() {
+            for child in current.children() {
+                if matches!(child.kind(), NodeKind::Element) {
+                    result.push(child.clone());
+                    stack.push(child); // Only add elements to stack for further traversal
+                } else if matches!(child.kind(), NodeKind::Document) {
+                    // Documents can contain elements, so continue traversal
+                    stack.push(child);
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn evaluate_node(&self, node: N) -> Result<SmallVec<[N; 16]>, Error> {
         self.vm.with_vm(|vm| {
+            // Fast paths for common axis patterns
+            match (&self.axis, &self.test) {
+                // descendant-or-self optimizations
+                (AxisIR::DescendantOrSelf, NodeTestIR::WildcardAny) => {
+                    return self.descendant_or_self_fast(vm, node);
+                }
+                (
+                    AxisIR::DescendantOrSelf,
+                    NodeTestIR::KindElement {
+                        name: None,
+                        ty: None,
+                        nillable: false,
+                    },
+                ) => return self.descendant_or_self_elements_fast(vm, node),
+
+                // child axis optimizations
+                (AxisIR::Child, NodeTestIR::WildcardAny) => {
+                    return self.child_wildcard_fast(vm, node);
+                }
+                (
+                    AxisIR::Child,
+                    NodeTestIR::KindElement {
+                        name: None,
+                        ty: None,
+                        nillable: false,
+                    },
+                ) => return self.child_elements_fast(vm, node),
+
+                _ => {}
+            }
+
             vm.axis_iter(node.clone(), &self.axis);
             let filter_child_elements =
                 matches!(self.axis, AxisIR::Child) && matches!(self.test, NodeTestIR::WildcardAny);
-            let drained: Vec<N> = vm.axis_buffer.drain(..).collect();
-            let mut filtered: Vec<N> = Vec::new();
-            for n in drained {
-                let mut pass = vm.node_test(&n, &self.test);
+            let mut candidates = mem::take(&mut vm.axis_buffer);
+            let mut filtered: SmallVec<[N; 16]> = SmallVec::with_capacity(candidates.len());
+            for candidate in candidates.iter() {
+                let mut pass = vm.node_test(candidate, &self.test);
                 if pass && filter_child_elements {
-                    pass = matches!(n.kind(), NodeKind::Element);
+                    pass = matches!(candidate.kind(), NodeKind::Element);
                 }
                 if pass {
-                    filtered.push(n);
+                    filtered.push(candidate.clone());
                 }
             }
+            candidates.clear();
+            vm.axis_buffer = candidates;
             Ok(filtered)
         })
     }
@@ -452,6 +589,9 @@ struct DocOrderDistinctCursor<N> {
     input: Option<Box<dyn SequenceCursor<N>>>,
     buffer: VecDeque<XdmItem<N>>,
     initialized: bool,
+    keyed: SmallVec<[(u64, N); 16]>,
+    fallback: SmallVec<[N; 16]>,
+    others: Vec<XdmItem<N>>,
 }
 
 impl<N: 'static + Send + Sync + XdmNode + Clone> DocOrderDistinctCursor<N> {
@@ -461,6 +601,9 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> DocOrderDistinctCursor<N> {
             input: Some(input),
             buffer: VecDeque::new(),
             initialized: false,
+            keyed: SmallVec::new(),
+            fallback: SmallVec::new(),
+            others: Vec::with_capacity(32),
         }
     }
 
@@ -472,9 +615,15 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> DocOrderDistinctCursor<N> {
             Some(c) => c,
             None => return Ok(()),
         };
-        let mut keyed: SmallVec<[(u64, N); 8]> = SmallVec::new();
-        let mut fallback: SmallVec<[N; 8]> = SmallVec::new();
-        let mut others: Vec<XdmItem<N>> = Vec::new();
+
+        let mut keyed = mem::take(&mut self.keyed);
+        let mut fallback = mem::take(&mut self.fallback);
+        let mut others = mem::take(&mut self.others);
+        keyed.clear();
+        fallback.clear();
+        others.clear();
+        self.buffer.clear();
+
         while let Some(item) = cursor.next_item() {
             match item {
                 Ok(XdmItem::Node(n)) => {
@@ -490,37 +639,50 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> DocOrderDistinctCursor<N> {
         }
 
         if keyed.is_empty() && fallback.is_empty() {
-            self.buffer = VecDeque::from(others);
+            self.buffer.extend(others.drain(..));
             self.initialized = true;
+            self.keyed = keyed;
+            self.fallback = fallback;
+            self.others = others;
             return Ok(());
         }
 
         if fallback.is_empty() {
             keyed.sort_by_key(|(k, _)| *k);
             keyed.dedup_by(|a, b| a.0 == b.0);
-            others.extend(keyed.into_iter().map(|(_, n)| XdmItem::Node(n)));
-            self.buffer = VecDeque::from(others);
+            self.buffer.extend(others.drain(..));
+            self.buffer
+                .extend(keyed.drain(..).map(|(_, n)| XdmItem::Node(n)));
             self.initialized = true;
+            self.keyed = keyed;
+            self.fallback = fallback;
+            self.others = others;
             return Ok(());
         }
 
         if keyed.is_empty() {
             fallback.sort_by(|a, b| self.compare_nodes(a, b));
             fallback.dedup();
-            others.extend(fallback.into_iter().map(XdmItem::Node));
-            self.buffer = VecDeque::from(others);
+            self.buffer.extend(others.drain(..));
+            self.buffer.extend(fallback.drain(..).map(XdmItem::Node));
             self.initialized = true;
+            self.keyed = keyed;
+            self.fallback = fallback;
+            self.others = others;
             return Ok(());
         }
 
         keyed.sort_by_key(|(k, _)| *k);
         keyed.dedup_by(|a, b| a.0 == b.0);
-        fallback.extend(keyed.into_iter().map(|(_, n)| n));
+        fallback.extend(keyed.drain(..).map(|(_, n)| n));
         fallback.sort_by(|a, b| self.compare_nodes(a, b));
         fallback.dedup();
-        others.extend(fallback.into_iter().map(XdmItem::Node));
-        self.buffer = VecDeque::from(others);
+        self.buffer.extend(others.drain(..));
+        self.buffer.extend(fallback.drain(..).map(XdmItem::Node));
         self.initialized = true;
+        self.keyed = keyed;
+        self.fallback = fallback;
+        self.others = others;
         Ok(())
     }
 
@@ -554,6 +716,9 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for DocOrderD
             input: self.input.as_ref().map(|c| c.boxed_clone()),
             buffer: self.buffer.clone(),
             initialized: self.initialized,
+            keyed: self.keyed.clone(),
+            fallback: self.fallback.clone(),
+            others: self.others.clone(),
         })
     }
 }
@@ -591,10 +756,18 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> SetOperationCursor<N> {
         }
     }
 
-    fn collect_sequence(cursor: Box<dyn SequenceCursor<N>>) -> Result<XdmSequence<N>, Error> {
-        let mut seq = Vec::new();
-        let mut cur = cursor;
-        while let Some(item) = cur.next_item() {
+    fn collect_sequence(mut cursor: Box<dyn SequenceCursor<N>>) -> Result<XdmSequence<N>, Error> {
+        let (lower, upper) = cursor.size_hint();
+        let mut seq = match upper {
+            Some(exact) => Vec::with_capacity(exact),
+            None => Vec::with_capacity(lower.max(4)),
+        };
+
+        while let Some(item) = cursor.next_item() {
+            if seq.len() == seq.capacity() {
+                let grow = seq.len().max(16);
+                seq.reserve(grow);
+            }
             seq.push(item?);
         }
         Ok(seq)
@@ -1010,6 +1183,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             current_context_item,
             axis_buffer: SmallVec::new(),
             cancel_flag,
+            set_fallback: SmallVec::new(),
         }
     }
 
@@ -1049,6 +1223,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             current_context_item: snapshot.current_context_item.clone(),
             axis_buffer: SmallVec::new(),
             cancel_flag: snapshot.dyn_ctx.cancel_flag.clone(),
+            set_fallback: SmallVec::new(),
         }
     }
 
@@ -1063,6 +1238,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         self.stack.clear();
         self.axis_buffer.clear();
         self.cancel_flag = snapshot.dyn_ctx.cancel_flag.clone();
+        self.set_fallback.clear();
     }
 
     fn push_seq(&mut self, seq: XdmSequence<N>) {
@@ -2676,16 +2852,18 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         match axis {
             AxisIR::SelfAxis => self.axis_buffer.push(node),
             AxisIR::Child => {
-                let children: Vec<N> = node.children_vec();
-                self.axis_buffer.extend(
-                    children
-                        .into_iter()
-                        .filter(|c| !Self::is_attr_or_namespace(c)),
-                );
+                // Direct iteration without intermediate Vec allocation
+                for child in node.children() {
+                    if !Self::is_attr_or_namespace(&child) {
+                        self.axis_buffer.push(child);
+                    }
+                }
             }
             AxisIR::Attribute => {
-                let attrs = node.attributes_vec();
-                self.axis_buffer.extend(attrs);
+                // Direct iteration for attributes too
+                for attr in node.attributes() {
+                    self.axis_buffer.push(attr);
+                }
             }
             AxisIR::Parent => {
                 if let Some(parent) = node.parent() {
@@ -2717,17 +2895,19 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         if include_self {
             self.axis_buffer.push(node.clone());
         }
-        let mut stack: Vec<N> = Vec::new();
-        let children: Vec<N> = node.children_vec();
-        for child in children.into_iter().rev() {
+        let mut stack: SmallVec<[N; 16]> = SmallVec::new(); // Use SmallVec for better cache locality
+
+        // Collect children efficiently without intermediate allocation
+        for child in node.children() {
             if !Self::is_attr_or_namespace(&child) {
                 stack.push(child);
             }
         }
+
         while let Some(cur) = stack.pop() {
             self.axis_buffer.push(cur.clone());
-            let inner_children: Vec<N> = cur.children_vec();
-            for child in inner_children.into_iter().rev() {
+            // Process children directly without allocation
+            for child in cur.children() {
                 if !Self::is_attr_or_namespace(&child) {
                     stack.push(child);
                 }
@@ -2736,9 +2916,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     }
     fn push_siblings(&mut self, node: N, preceding: bool) {
         if let Some(parent) = node.parent() {
-            let siblings: Vec<N> = parent.children_vec();
             if preceding {
-                for sib in siblings.into_iter() {
+                for sib in parent.children() {
                     if sib == node {
                         break;
                     }
@@ -2748,7 +2927,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 }
             } else {
                 let mut seen = false;
-                for sib in siblings.into_iter() {
+                for sib in parent.children() {
                     if seen {
                         if !Self::is_attr_or_namespace(&sib) {
                             self.axis_buffer.push(sib);
@@ -2776,14 +2955,15 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         if !matches!(node.kind(), NodeKind::Element) {
             return;
         }
-        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut seen = SmallVec::<[DefaultAtom; 8]>::new();
         let mut cur: Option<N> = Some(node);
         while let Some(n) = cur {
             if matches!(n.kind(), NodeKind::Element) {
                 for ns in n.namespaces() {
                     if let Some(qn) = ns.name() {
-                        let pfx = qn.prefix.unwrap_or_default();
-                        if seen.insert(pfx.clone()) {
+                        let atom = DefaultAtom::from(qn.prefix.unwrap_or_default().as_str());
+                        if !seen.iter().any(|existing| existing == &atom) {
+                            seen.push(atom);
                             self.axis_buffer.push(ns.clone());
                         }
                     }
@@ -2838,13 +3018,12 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     }
     fn next_sibling_in_doc(node: &N) -> Option<N> {
         let parent = node.parent()?;
-        let siblings: Vec<N> = parent.children_vec();
         let mut found = false;
-        for sib in siblings.iter() {
-            if found && !Self::is_attr_or_namespace(sib) {
-                return Some(sib.clone());
+        for sib in parent.children() {
+            if found && !Self::is_attr_or_namespace(&sib) {
+                return Some(sib);
             }
-            if sib == node {
+            if sib == *node {
                 found = true;
             }
         }
@@ -2852,9 +3031,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     }
     fn prev_sibling_in_doc(node: &N) -> Option<N> {
         let parent = node.parent()?;
-        let siblings: Vec<N> = parent.children_vec();
         let mut prev: Option<N> = None;
-        for sib in siblings {
+        for sib in parent.children() {
             if sib == *node {
                 break;
             }
@@ -2867,12 +3045,10 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     fn last_descendant_in_doc(node: N) -> N {
         let mut current = node;
         loop {
-            let children: Vec<N> = current.children_vec();
             let mut last_child: Option<N> = None;
-            for child in children.into_iter().rev() {
+            for child in current.children() {
                 if !Self::is_attr_or_namespace(&child) {
                     last_child = Some(child);
-                    break;
                 }
             }
             if let Some(child) = last_child {
@@ -2898,6 +3074,43 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     fn is_ancestor_of(&self, node: &N, descendant: &N) -> bool {
         self.is_descendant_of(descendant, node)
     }
+
+    #[inline]
+    fn matches_interned_name(
+        &self,
+        node: &N,
+        expected: &crate::compiler::ir::InternedQName,
+    ) -> bool {
+        let node_name = match node.name() {
+            Some(n) => n,
+            None => return false,
+        };
+
+        if expected.local.as_ref() != node_name.local.as_str() {
+            return false;
+        }
+
+        let node_ns = node_name
+            .ns_uri
+            .as_ref()
+            .map(|ns| DefaultAtom::from(ns.as_str()));
+
+        let effective_ns = match node_ns {
+            Some(atom) => Some(atom),
+            None => match node_name.prefix.as_deref() {
+                Some(prefix) => self.resolve_prefix_namespace(node, prefix),
+                None if matches!(node.kind(), crate::model::NodeKind::Attribute) => None,
+                None => self.resolve_prefix_namespace(node, ""),
+            },
+        };
+
+        match (&effective_ns, &expected.ns_uri) {
+            (None, None) => true,
+            (Some(a), Some(b)) => a == b,
+            _ => false,
+        }
+    }
+
     #[allow(clippy::only_used_in_recursion)]
     fn node_test(&self, node: &N, test: &NodeTestIR) -> bool {
         use NodeTestIR::*;
@@ -2906,30 +3119,39 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             Name(q) => {
                 // For namespace nodes, the NameTest matches by prefix (local) only.
                 if matches!(node.kind(), crate::model::NodeKind::Namespace) {
-                    return node.name().map(|n| n.local == q.local).unwrap_or(false);
+                    return node
+                        .name()
+                        .map(|n| n.local == q.original.local)
+                        .unwrap_or(false);
                 }
-                node.name()
-                    .map(|n| n.local == q.local && q.ns_uri == n.ns_uri)
-                    .unwrap_or(false)
+                // Use fast path for name comparison
+                self.matches_interned_name(node, q)
             }
             WildcardAny => true,
             NsWildcard(ns) => node
                 .name()
                 .map(|n| {
-                    // Effective namespace URI: prefer the QName's ns_uri if present; otherwise resolve
-                    // using in-scope namespaces and the node's prefix (if any). The default namespace
-                    // does not apply to attributes, but resolution here only happens when a prefix exists.
-                    let eff = if let Some(uri) = n.ns_uri.clone() {
-                        Some(uri)
+                    let eff = if let Some(uri) = n.ns_uri.as_ref() {
+                        Some(DefaultAtom::from(uri.as_str()))
                     } else if let Some(pref) = &n.prefix {
-                        self.resolve_in_scope_prefix(node, pref)
+                        self.resolve_prefix_namespace(node, pref)
+                    } else if matches!(
+                        node.kind(),
+                        crate::model::NodeKind::Element | crate::model::NodeKind::Namespace
+                    ) {
+                        self.resolve_prefix_namespace(node, "")
                     } else {
                         None
                     };
-                    eff.unwrap_or_default() == *ns
+                    eff.is_some_and(|atom| atom == *ns)
                 })
                 .unwrap_or(false),
-            LocalWildcard(local) => node.name().map(|n| n.local == *local).unwrap_or(false),
+            LocalWildcard(local) => {
+                // Use interned comparison for local names
+                node.name()
+                    .map(|n| n.local.as_str() == local.as_ref())
+                    .unwrap_or(false)
+            }
             KindText => matches!(node.kind(), crate::model::NodeKind::Text),
             KindComment => matches!(node.kind(), crate::model::NodeKind::Comment),
             KindProcessingInstruction(target_opt) => {
@@ -2968,10 +3190,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 match name {
                     None => true,
                     Some(NameOrWildcard::Any) => true,
-                    Some(NameOrWildcard::Name(exp)) => node
-                        .name()
-                        .map(|n| n.local == exp.local && n.ns_uri == exp.ns_uri)
-                        .unwrap_or(false),
+                    Some(NameOrWildcard::Name(exp)) => self.matches_interned_name(node, exp),
                 }
             }
             KindAttribute { name, .. } => {
@@ -2981,10 +3200,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 match name {
                     None => true,
                     Some(NameOrWildcard::Any) => true,
-                    Some(NameOrWildcard::Name(exp)) => node
-                        .name()
-                        .map(|n| n.local == exp.local && n.ns_uri == exp.ns_uri)
-                        .unwrap_or(false),
+                    Some(NameOrWildcard::Name(exp)) => self.matches_interned_name(node, exp),
                 }
             }
             KindSchemaElement(_) | KindSchemaAttribute(_) => true, // simplified
@@ -2994,9 +3210,9 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     /// Resolve a namespace prefix to its in-scope namespace URI for the given node by walking
     /// up the ancestor chain and inspecting declared namespace nodes. Honors the implicit `xml`
     /// binding. Returns `None` when no binding is found.
-    fn resolve_in_scope_prefix(&self, node: &N, prefix: &str) -> Option<String> {
+    fn resolve_prefix_namespace(&self, node: &N, prefix: &str) -> Option<DefaultAtom> {
         if prefix == "xml" {
-            return Some(crate::consts::XML_URI.to_string());
+            return Some(DefaultAtom::from(crate::consts::XML_URI));
         }
         use crate::model::NodeKind;
         let mut cur = Some(node.clone());
@@ -3006,7 +3222,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                     if let Some(q) = ns.name() {
                         let p = q.prefix.unwrap_or_default();
                         if p == prefix {
-                            return Some(ns.string_value());
+                            return Some(DefaultAtom::from(ns.string_value().as_str()));
                         }
                     }
                 }
@@ -3017,17 +3233,22 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     }
 
     // ===== Set operations (nodes-only; results in document order with duplicates removed) =====
-    fn set_union(&self, a: XdmSequence<N>, b: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+    fn set_union(&mut self, a: XdmSequence<N>, b: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
         let mut combined: XdmSequence<N> = Vec::with_capacity(a.len() + b.len());
         combined.extend(a);
         combined.extend(b);
         self.doc_order_distinct(combined)
     }
-    fn set_intersect(&self, a: XdmSequence<N>, b: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+    fn set_intersect(
+        &mut self,
+        a: XdmSequence<N>,
+        b: XdmSequence<N>,
+    ) -> Result<XdmSequence<N>, Error> {
         let lhs = self.sorted_distinct_nodes(a)?;
         let rhs = self.sorted_distinct_nodes(b)?;
         let mut rhs_keys: HashSet<u64> = HashSet::with_capacity(rhs.len());
-        let mut rhs_fallback: SmallVec<[N; 8]> = SmallVec::new();
+        let mut rhs_fallback = core::mem::take(&mut self.set_fallback);
+        rhs_fallback.clear();
         for node in rhs {
             if let Some(k) = node.doc_order_key() {
                 rhs_keys.insert(k);
@@ -3035,7 +3256,9 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 rhs_fallback.push(node);
             }
         }
-        let mut out: Vec<N> = Vec::new();
+        // Pre-allocate with minimum estimate
+        let mut out: Vec<N> =
+            Vec::with_capacity(lhs.len().min(rhs_keys.len() + rhs_fallback.len()));
         for node in lhs {
             if let Some(k) = node.doc_order_key() {
                 if rhs_keys.contains(&k) {
@@ -3045,13 +3268,21 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 out.push(node);
             }
         }
-        Ok(out.into_iter().map(XdmItem::Node).collect())
+        let result = out.into_iter().map(XdmItem::Node).collect();
+        rhs_fallback.clear();
+        self.set_fallback = rhs_fallback;
+        Ok(result)
     }
-    fn set_except(&self, a: XdmSequence<N>, b: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+    fn set_except(
+        &mut self,
+        a: XdmSequence<N>,
+        b: XdmSequence<N>,
+    ) -> Result<XdmSequence<N>, Error> {
         let lhs = self.sorted_distinct_nodes(a)?;
         let rhs = self.sorted_distinct_nodes(b)?;
         let mut rhs_keys: HashSet<u64> = HashSet::with_capacity(rhs.len());
-        let mut rhs_fallback: SmallVec<[N; 8]> = SmallVec::new();
+        let mut rhs_fallback = core::mem::take(&mut self.set_fallback);
+        rhs_fallback.clear();
         for node in rhs {
             if let Some(k) = node.doc_order_key() {
                 rhs_keys.insert(k);
@@ -3059,7 +3290,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 rhs_fallback.push(node);
             }
         }
-        let mut out: Vec<N> = Vec::new();
+        // Pre-allocate with optimistic estimate (worst case is size of lhs)
+        let mut out: Vec<N> = Vec::with_capacity(lhs.len());
         for node in lhs {
             if let Some(k) = node.doc_order_key() {
                 if !rhs_keys.contains(&k) {
@@ -3069,7 +3301,10 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 out.push(node);
             }
         }
-        Ok(out.into_iter().map(XdmItem::Node).collect())
+        let result = out.into_iter().map(XdmItem::Node).collect();
+        rhs_fallback.clear();
+        self.set_fallback = rhs_fallback;
+        Ok(result)
     }
     fn sorted_distinct_nodes(&self, seq: XdmSequence<N>) -> Result<Vec<N>, Error> {
         let ordered = self.doc_order_distinct(seq)?;
@@ -3110,254 +3345,713 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         let casted = self.cast_atomic(val, &t.atomic)?;
         Ok(vec![XdmItem::Atomic(casted)])
     }
+    fn parse_integer_string(&self, text: &str, target: &str) -> Result<i128, Error> {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return Err(Error::from_code(
+                ErrorCode::FORG0001,
+                format!("cannot cast to {target}: empty string"),
+            ));
+        }
+        trimmed.parse::<i128>().map_err(|_| {
+            Error::from_code(ErrorCode::FORG0001, format!("invalid lexical for {target}"))
+        })
+    }
+
+    fn float_to_integer(&self, value: f64, target: &str) -> Result<i128, Error> {
+        if !value.is_finite() {
+            return Err(Error::from_code(
+                ErrorCode::FOCA0001,
+                format!("{target} overflow"),
+            ));
+        }
+        if value.fract() != 0.0 {
+            return Err(Error::from_code(
+                ErrorCode::FOCA0001,
+                format!("non-integer value for {target}"),
+            ));
+        }
+        if value < i128::MIN as f64 || value > i128::MAX as f64 {
+            return Err(Error::from_code(
+                ErrorCode::FOCA0001,
+                format!("{target} overflow"),
+            ));
+        }
+        Ok(value as i128)
+    }
+
+    fn integer_from_atomic(&self, atom: &XdmAtomicValue, target: &str) -> Result<i128, Error> {
+        use XdmAtomicValue::*;
+        match atom {
+            Integer(v) => Ok(*v as i128),
+            Long(v) => Ok(*v as i128),
+            Int(v) => Ok(*v as i128),
+            Short(v) => Ok(*v as i128),
+            Byte(v) => Ok(*v as i128),
+            NonPositiveInteger(v) => Ok(*v as i128),
+            NegativeInteger(v) => Ok(*v as i128),
+            UnsignedLong(v) => Ok(*v as i128),
+            UnsignedInt(v) => Ok(*v as i128),
+            UnsignedShort(v) => Ok(*v as i128),
+            UnsignedByte(v) => Ok(*v as i128),
+            NonNegativeInteger(v) => Ok(*v as i128),
+            PositiveInteger(v) => Ok(*v as i128),
+            Decimal(d) => self.float_to_integer(*d, target),
+            Double(d) => self.float_to_integer(*d, target),
+            Float(f) => self.float_to_integer(*f as f64, target),
+            other => {
+                if let Some(text) = string_like_value(other) {
+                    self.parse_integer_string(&text, target)
+                } else {
+                    Err(Error::from_code(
+                        ErrorCode::FORG0001,
+                        format!("cannot cast to {target}"),
+                    ))
+                }
+            }
+        }
+    }
+
+    fn unsigned_from_atomic(&self, atom: &XdmAtomicValue, target: &str) -> Result<u128, Error> {
+        match atom {
+            XdmAtomicValue::UnsignedLong(v) => Ok(*v as u128),
+            XdmAtomicValue::UnsignedInt(v) => Ok(*v as u128),
+            XdmAtomicValue::UnsignedShort(v) => Ok(*v as u128),
+            XdmAtomicValue::UnsignedByte(v) => Ok(*v as u128),
+            XdmAtomicValue::NonNegativeInteger(v) => Ok(*v as u128),
+            XdmAtomicValue::PositiveInteger(v) => Ok(*v as u128),
+            other => {
+                let signed = self.integer_from_atomic(other, target)?;
+                if signed < 0 {
+                    Err(Error::from_code(
+                        ErrorCode::FORG0001,
+                        format!("negative value not allowed for {target}"),
+                    ))
+                } else {
+                    Ok(signed as u128)
+                }
+            }
+        }
+    }
+
+    fn ensure_range_i128(
+        &self,
+        value: i128,
+        min: i128,
+        max: i128,
+        target: &str,
+    ) -> Result<i128, Error> {
+        if value < min || value > max {
+            Err(Error::from_code(
+                ErrorCode::FORG0001,
+                format!("value out of range for {target}"),
+            ))
+        } else {
+            Ok(value)
+        }
+    }
+
+    fn ensure_range_u128(
+        &self,
+        value: u128,
+        min: u128,
+        max: u128,
+        target: &str,
+    ) -> Result<u128, Error> {
+        if value < min || value > max {
+            Err(Error::from_code(
+                ErrorCode::FORG0001,
+                format!("value out of range for {target}"),
+            ))
+        } else {
+            Ok(value)
+        }
+    }
+
+    fn require_string_like(&self, atom: &XdmAtomicValue, target: &str) -> Result<String, Error> {
+        string_like_value(atom).ok_or_else(|| {
+            Error::from_code(ErrorCode::FORG0001, format!("cannot cast to {target}"))
+        })
+    }
     fn cast_atomic(
         &self,
         a: XdmAtomicValue,
         target: &ExpandedName,
     ) -> Result<XdmAtomicValue, Error> {
-        let local = &target.local;
-        // NOTE: Namespace of target currently ignored (assumes xs:*); extend when QName type system expanded.
-        match local.as_str() {
-            // xs:string
-            "string" => Ok(match a {
-                XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => {
-                    XdmAtomicValue::String(s)
+        let local = target.local.as_str();
+        match local {
+            "anyAtomicType" => Ok(a),
+            "string" => {
+                let text = string_like_value(&a).unwrap_or_else(|| self.atomic_to_string(&a));
+                Ok(XdmAtomicValue::String(text))
+            }
+            "untypedAtomic" => {
+                let text = string_like_value(&a).unwrap_or_else(|| self.atomic_to_string(&a));
+                Ok(XdmAtomicValue::UntypedAtomic(text))
+            }
+            "boolean" => match a {
+                XdmAtomicValue::Boolean(b) => Ok(XdmAtomicValue::Boolean(b)),
+                XdmAtomicValue::Integer(i) => Ok(XdmAtomicValue::Boolean(i != 0)),
+                XdmAtomicValue::Decimal(d) => Ok(XdmAtomicValue::Boolean(d != 0.0)),
+                XdmAtomicValue::Double(d) => Ok(XdmAtomicValue::Boolean(d != 0.0 && !d.is_nan())),
+                XdmAtomicValue::Float(f) => Ok(XdmAtomicValue::Boolean(f != 0.0 && !f.is_nan())),
+                other => {
+                    let text = self.require_string_like(&other, "xs:boolean")?;
+                    let b = match text.as_str() {
+                        "true" | "1" => true,
+                        "false" | "0" => false,
+                        _ => {
+                            return Err(Error::from_code(
+                                ErrorCode::FORG0001,
+                                "invalid boolean lexical form",
+                            ));
+                        }
+                    };
+                    Ok(XdmAtomicValue::Boolean(b))
                 }
-                other => XdmAtomicValue::String(self.atomic_to_string(&other)),
-            }),
-            // Boolean per XPath 2.0 casting rules (non-empty string except "0" and "false" => true)
-            "boolean" => {
-                let b = match a {
-                    XdmAtomicValue::Boolean(b) => b,
-                    XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => {
-                        match s.as_str() {
-                            "true" => true,
-                            "1" => true,
-                            "false" => false,
-                            "0" => false,
-                            _ => {
-                                return Err(Error::from_code(
-                                    ErrorCode::FORG0001,
-                                    "invalid boolean lexical form",
-                                ));
-                            }
-                        }
-                    }
-                    XdmAtomicValue::Integer(i) => i != 0,
-                    XdmAtomicValue::Decimal(d) => d != 0.0,
-                    XdmAtomicValue::Double(d) => d != 0.0 && !d.is_nan(),
-                    XdmAtomicValue::Float(f) => f != 0.0 && !f.is_nan(),
-                    other => {
-                        return Err(Error::from_code(
-                            ErrorCode::FORG0001,
-                            format!("cannot cast {:?} to boolean", other),
-                        ));
-                    }
-                };
-                Ok(XdmAtomicValue::Boolean(b))
-            }
-            // Integer family collapse to xs:integer (subset of numeric tower for now)
-            "integer" => {
-                let s = match a {
-                    XdmAtomicValue::Integer(i) => return Ok(XdmAtomicValue::Integer(i)),
-                    XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => s,
-                    XdmAtomicValue::Decimal(d) => {
-                        if d.fract() == 0.0 {
-                            return Ok(XdmAtomicValue::Integer(d as i64));
-                        } else {
-                            return Err(Error::from_code(
-                                ErrorCode::FOCA0001,
-                                "fractional part in integer cast",
-                            ));
-                        }
-                    }
-                    XdmAtomicValue::Double(d) => {
-                        if d.fract() == 0.0 && d.is_finite() {
-                            return Ok(XdmAtomicValue::Integer(d as i64));
-                        } else {
-                            return Err(Error::from_code(
-                                ErrorCode::FOCA0001,
-                                "non-integer double for integer cast",
-                            ));
-                        }
-                    }
-                    XdmAtomicValue::Float(f) => {
-                        if f.fract() == 0.0 && f.is_finite() {
-                            return Ok(XdmAtomicValue::Integer(f as i64));
-                        } else {
-                            return Err(Error::from_code(
-                                ErrorCode::FOCA0001,
-                                "non-integer float for integer cast",
-                            ));
-                        }
-                    }
-                    other => self.atomic_to_string(&other),
-                };
-                s.parse::<i64>().map(XdmAtomicValue::Integer).map_err(|_| {
-                    Error::from_code(ErrorCode::FORG0001, "invalid integer lexical form")
-                })
-            }
-            // decimal
-            "decimal" => {
-                let v = match a {
-                    XdmAtomicValue::Decimal(d) => return Ok(XdmAtomicValue::Decimal(d)),
-                    XdmAtomicValue::Integer(i) => i as f64,
-                    XdmAtomicValue::Double(d) => {
-                        if d.is_finite() {
-                            d
-                        } else {
-                            return Err(Error::from_code(
-                                ErrorCode::FOCA0001,
-                                "INF/NaN to decimal",
-                            ));
-                        }
-                    }
-                    XdmAtomicValue::Float(f) => {
-                        if f.is_finite() {
-                            f as f64
-                        } else {
-                            return Err(Error::from_code(
-                                ErrorCode::FOCA0001,
-                                "INF/NaN to decimal",
-                            ));
-                        }
-                    }
-                    XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => s
-                        .parse::<f64>()
-                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid decimal"))?,
-                    other => {
-                        return Err(Error::from_code(
-                            ErrorCode::FORG0001,
-                            format!("cannot cast {:?} to decimal", other),
-                        ));
-                    }
-                };
-                Ok(XdmAtomicValue::Decimal(v))
-            }
-            // float / double
-            "float" => {
-                let f = self
-                    .to_f64(&a)
-                    .ok_or_else(|| Error::from_code(ErrorCode::FORG0001, "non-numeric to float"))?
-                    as f32;
-                Ok(XdmAtomicValue::Float(f))
-            }
-            "double" => {
-                let f = self.to_f64(&a).ok_or_else(|| {
-                    Error::from_code(ErrorCode::FORG0001, "non-numeric to double")
-                })?;
-                Ok(XdmAtomicValue::Double(f))
-            }
-            // anyURI: whitespace collapse only (simple form)
-            "anyURI" => {
-                let s = match a {
-                    XdmAtomicValue::AnyUri(u) => u,
-                    XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => {
-                        s.trim().to_string()
-                    }
-                    other => self.atomic_to_string(&other),
-                };
-                // Project policy update: allow empty anyURI after whitespace collapse
-                Ok(XdmAtomicValue::AnyUri(s))
-            }
-            // QName lexical form (prefix:local or local); namespace resolution not attempted here for xs:QName(string)
-            "QName" => {
-                let lex = match a {
-                    XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => s,
-                    other => self.atomic_to_string(&other),
-                };
-                if lex.is_empty() {
-                    return Err(Error::from_code(ErrorCode::FORG0001, "empty QName"));
+            },
+            "integer" => match a {
+                XdmAtomicValue::Integer(v) => Ok(XdmAtomicValue::Integer(v)),
+                other => {
+                    let value = self.integer_from_atomic(&other, "xs:integer")?;
+                    let bounded = self.ensure_range_i128(
+                        value,
+                        i64::MIN as i128,
+                        i64::MAX as i128,
+                        "xs:integer",
+                    )?;
+                    Ok(XdmAtomicValue::Integer(bounded as i64))
                 }
-                let mut parts = lex.split(':');
-                let first = parts.next().unwrap();
-                let second = parts.next();
-                if let Some(local) = second {
-                    if first.is_empty() || local.is_empty() {
+            },
+            "decimal" => match a {
+                XdmAtomicValue::Decimal(d) => Ok(XdmAtomicValue::Decimal(d)),
+                XdmAtomicValue::Integer(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
+                XdmAtomicValue::Long(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
+                XdmAtomicValue::Int(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
+                XdmAtomicValue::Short(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
+                XdmAtomicValue::Byte(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
+                XdmAtomicValue::NonPositiveInteger(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
+                XdmAtomicValue::NegativeInteger(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
+                XdmAtomicValue::NonNegativeInteger(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
+                XdmAtomicValue::PositiveInteger(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
+                XdmAtomicValue::UnsignedLong(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
+                XdmAtomicValue::UnsignedInt(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
+                XdmAtomicValue::UnsignedShort(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
+                XdmAtomicValue::UnsignedByte(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
+                XdmAtomicValue::Double(d) => {
+                    if d.is_finite() {
+                        Ok(XdmAtomicValue::Decimal(d))
+                    } else {
+                        Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))
+                    }
+                }
+                XdmAtomicValue::Float(f) => {
+                    let v = f as f64;
+                    if v.is_finite() {
+                        Ok(XdmAtomicValue::Decimal(v))
+                    } else {
+                        Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))
+                    }
+                }
+                other => {
+                    let text = self.require_string_like(&other, "xs:decimal")?;
+                    let trimmed = text.trim();
+                    if trimmed.eq_ignore_ascii_case("nan")
+                        || trimmed.eq_ignore_ascii_case("inf")
+                        || trimmed.eq_ignore_ascii_case("-inf")
+                    {
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"));
+                    }
+                    let value: f64 = trimmed
+                        .parse()
+                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?;
+                    Ok(XdmAtomicValue::Decimal(value))
+                }
+            },
+            "double" => match a {
+                XdmAtomicValue::Double(d) => Ok(XdmAtomicValue::Double(d)),
+                XdmAtomicValue::Float(f) => Ok(XdmAtomicValue::Double(f as f64)),
+                XdmAtomicValue::Decimal(d) => Ok(XdmAtomicValue::Double(d)),
+                XdmAtomicValue::Integer(i) => Ok(XdmAtomicValue::Double(i as f64)),
+                XdmAtomicValue::Long(i) => Ok(XdmAtomicValue::Double(i as f64)),
+                XdmAtomicValue::Int(i) => Ok(XdmAtomicValue::Double(i as f64)),
+                XdmAtomicValue::Short(i) => Ok(XdmAtomicValue::Double(i as f64)),
+                XdmAtomicValue::Byte(i) => Ok(XdmAtomicValue::Double(i as f64)),
+                XdmAtomicValue::NonPositiveInteger(i) => Ok(XdmAtomicValue::Double(i as f64)),
+                XdmAtomicValue::NegativeInteger(i) => Ok(XdmAtomicValue::Double(i as f64)),
+                XdmAtomicValue::NonNegativeInteger(i) => Ok(XdmAtomicValue::Double(i as f64)),
+                XdmAtomicValue::PositiveInteger(i) => Ok(XdmAtomicValue::Double(i as f64)),
+                XdmAtomicValue::UnsignedLong(i) => Ok(XdmAtomicValue::Double(i as f64)),
+                XdmAtomicValue::UnsignedInt(i) => Ok(XdmAtomicValue::Double(i as f64)),
+                XdmAtomicValue::UnsignedShort(i) => Ok(XdmAtomicValue::Double(i as f64)),
+                XdmAtomicValue::UnsignedByte(i) => Ok(XdmAtomicValue::Double(i as f64)),
+                other => {
+                    let text = self.require_string_like(&other, "xs:double")?;
+                    let trimmed = text.trim();
+                    let value = match trimmed {
+                        "NaN" | "nan" => f64::NAN,
+                        "INF" | "inf" => f64::INFINITY,
+                        "-INF" | "-inf" => f64::NEG_INFINITY,
+                        _ => trimmed.parse().map_err(|_| {
+                            Error::from_code(ErrorCode::FORG0001, "invalid xs:double")
+                        })?,
+                    };
+                    Ok(XdmAtomicValue::Double(value))
+                }
+            },
+            "float" => match a {
+                XdmAtomicValue::Float(f) => Ok(XdmAtomicValue::Float(f)),
+                XdmAtomicValue::Double(d) => Ok(XdmAtomicValue::Float(d as f32)),
+                XdmAtomicValue::Decimal(d) => Ok(XdmAtomicValue::Float(d as f32)),
+                XdmAtomicValue::Integer(i) => Ok(XdmAtomicValue::Float(i as f32)),
+                XdmAtomicValue::Long(i) => Ok(XdmAtomicValue::Float(i as f32)),
+                XdmAtomicValue::Int(i) => Ok(XdmAtomicValue::Float(i as f32)),
+                XdmAtomicValue::Short(i) => Ok(XdmAtomicValue::Float(i as f32)),
+                XdmAtomicValue::Byte(i) => Ok(XdmAtomicValue::Float(i as f32)),
+                XdmAtomicValue::NonPositiveInteger(i) => Ok(XdmAtomicValue::Float(i as f32)),
+                XdmAtomicValue::NegativeInteger(i) => Ok(XdmAtomicValue::Float(i as f32)),
+                XdmAtomicValue::NonNegativeInteger(i) => Ok(XdmAtomicValue::Float(i as f32)),
+                XdmAtomicValue::PositiveInteger(i) => Ok(XdmAtomicValue::Float(i as f32)),
+                XdmAtomicValue::UnsignedLong(i) => Ok(XdmAtomicValue::Float(i as f32)),
+                XdmAtomicValue::UnsignedInt(i) => Ok(XdmAtomicValue::Float(i as f32)),
+                XdmAtomicValue::UnsignedShort(i) => Ok(XdmAtomicValue::Float(i as f32)),
+                XdmAtomicValue::UnsignedByte(i) => Ok(XdmAtomicValue::Float(i as f32)),
+                other => {
+                    let text = self.require_string_like(&other, "xs:float")?;
+                    let trimmed = text.trim();
+                    let value = match trimmed {
+                        "NaN" | "nan" => f32::NAN,
+                        "INF" | "inf" => f32::INFINITY,
+                        "-INF" | "-inf" => f32::NEG_INFINITY,
+                        _ => trimmed.parse().map_err(|_| {
+                            Error::from_code(ErrorCode::FORG0001, "invalid xs:float")
+                        })?,
+                    };
+                    Ok(XdmAtomicValue::Float(value))
+                }
+            },
+            "long" => match a {
+                XdmAtomicValue::Long(v) => Ok(XdmAtomicValue::Long(v)),
+                other => {
+                    let value = self.integer_from_atomic(&other, "xs:long")?;
+                    let bounded = self.ensure_range_i128(
+                        value,
+                        i64::MIN as i128,
+                        i64::MAX as i128,
+                        "xs:long",
+                    )?;
+                    Ok(XdmAtomicValue::Long(bounded as i64))
+                }
+            },
+            "int" => match a {
+                XdmAtomicValue::Int(v) => Ok(XdmAtomicValue::Int(v)),
+                other => {
+                    let value = self.integer_from_atomic(&other, "xs:int")?;
+                    let bounded = self.ensure_range_i128(
+                        value,
+                        i32::MIN as i128,
+                        i32::MAX as i128,
+                        "xs:int",
+                    )?;
+                    Ok(XdmAtomicValue::Int(bounded as i32))
+                }
+            },
+            "short" => match a {
+                XdmAtomicValue::Short(v) => Ok(XdmAtomicValue::Short(v)),
+                other => {
+                    let value = self.integer_from_atomic(&other, "xs:short")?;
+                    let bounded = self.ensure_range_i128(
+                        value,
+                        i16::MIN as i128,
+                        i16::MAX as i128,
+                        "xs:short",
+                    )?;
+                    Ok(XdmAtomicValue::Short(bounded as i16))
+                }
+            },
+            "byte" => match a {
+                XdmAtomicValue::Byte(v) => Ok(XdmAtomicValue::Byte(v)),
+                other => {
+                    let value = self.integer_from_atomic(&other, "xs:byte")?;
+                    let bounded =
+                        self.ensure_range_i128(value, i8::MIN as i128, i8::MAX as i128, "xs:byte")?;
+                    Ok(XdmAtomicValue::Byte(bounded as i8))
+                }
+            },
+            "unsignedLong" => match a {
+                XdmAtomicValue::UnsignedLong(v) => Ok(XdmAtomicValue::UnsignedLong(v)),
+                other => {
+                    let value = self.unsigned_from_atomic(&other, "xs:unsignedLong")?;
+                    let bounded =
+                        self.ensure_range_u128(value, 0, u64::MAX as u128, "xs:unsignedLong")?;
+                    Ok(XdmAtomicValue::UnsignedLong(bounded as u64))
+                }
+            },
+            "unsignedInt" => match a {
+                XdmAtomicValue::UnsignedInt(v) => Ok(XdmAtomicValue::UnsignedInt(v)),
+                other => {
+                    let value = self.unsigned_from_atomic(&other, "xs:unsignedInt")?;
+                    let bounded =
+                        self.ensure_range_u128(value, 0, u32::MAX as u128, "xs:unsignedInt")?;
+                    Ok(XdmAtomicValue::UnsignedInt(bounded as u32))
+                }
+            },
+            "unsignedShort" => match a {
+                XdmAtomicValue::UnsignedShort(v) => Ok(XdmAtomicValue::UnsignedShort(v)),
+                other => {
+                    let value = self.unsigned_from_atomic(&other, "xs:unsignedShort")?;
+                    let bounded =
+                        self.ensure_range_u128(value, 0, u16::MAX as u128, "xs:unsignedShort")?;
+                    Ok(XdmAtomicValue::UnsignedShort(bounded as u16))
+                }
+            },
+            "unsignedByte" => match a {
+                XdmAtomicValue::UnsignedByte(v) => Ok(XdmAtomicValue::UnsignedByte(v)),
+                other => {
+                    let value = self.unsigned_from_atomic(&other, "xs:unsignedByte")?;
+                    let bounded =
+                        self.ensure_range_u128(value, 0, u8::MAX as u128, "xs:unsignedByte")?;
+                    Ok(XdmAtomicValue::UnsignedByte(bounded as u8))
+                }
+            },
+            "nonPositiveInteger" => match a {
+                XdmAtomicValue::NonPositiveInteger(v) => Ok(XdmAtomicValue::NonPositiveInteger(v)),
+                other => {
+                    let value = self.integer_from_atomic(&other, "xs:nonPositiveInteger")?;
+                    if value > 0 {
                         return Err(Error::from_code(
                             ErrorCode::FORG0001,
-                            "invalid QName lexical",
+                            "value must be <= 0 for xs:nonPositiveInteger",
                         ));
                     }
-                    // No static prefix resolution in pure cast (spec: QName constructor does resolve? kept simple)
+                    let bounded = self.ensure_range_i128(
+                        value,
+                        i64::MIN as i128,
+                        0,
+                        "xs:nonPositiveInteger",
+                    )?;
+                    Ok(XdmAtomicValue::NonPositiveInteger(bounded as i64))
+                }
+            },
+            "negativeInteger" => match a {
+                XdmAtomicValue::NegativeInteger(v) => Ok(XdmAtomicValue::NegativeInteger(v)),
+                other => {
+                    let value = self.integer_from_atomic(&other, "xs:negativeInteger")?;
+                    if value >= 0 {
+                        return Err(Error::from_code(
+                            ErrorCode::FORG0001,
+                            "value must be < 0 for xs:negativeInteger",
+                        ));
+                    }
+                    let bounded =
+                        self.ensure_range_i128(value, i64::MIN as i128, -1, "xs:negativeInteger")?;
+                    Ok(XdmAtomicValue::NegativeInteger(bounded as i64))
+                }
+            },
+            "nonNegativeInteger" => match a {
+                XdmAtomicValue::NonNegativeInteger(v) => Ok(XdmAtomicValue::NonNegativeInteger(v)),
+                other => {
+                    let value = self.unsigned_from_atomic(&other, "xs:nonNegativeInteger")?;
+                    let bounded = self.ensure_range_u128(
+                        value,
+                        0,
+                        u64::MAX as u128,
+                        "xs:nonNegativeInteger",
+                    )?;
+                    Ok(XdmAtomicValue::NonNegativeInteger(bounded as u64))
+                }
+            },
+            "positiveInteger" => match a {
+                XdmAtomicValue::PositiveInteger(v) => Ok(XdmAtomicValue::PositiveInteger(v)),
+                other => {
+                    let value = self.unsigned_from_atomic(&other, "xs:positiveInteger")?;
+                    if value == 0 {
+                        return Err(Error::from_code(
+                            ErrorCode::FORG0001,
+                            "value must be > 0 for xs:positiveInteger",
+                        ));
+                    }
+                    let bounded =
+                        self.ensure_range_u128(value, 1, u64::MAX as u128, "xs:positiveInteger")?;
+                    Ok(XdmAtomicValue::PositiveInteger(bounded as u64))
+                }
+            },
+            "anyURI" => match a {
+                XdmAtomicValue::AnyUri(uri) => Ok(XdmAtomicValue::AnyUri(uri)),
+                other => {
+                    let text = self.require_string_like(&other, "xs:anyURI")?;
+                    Ok(XdmAtomicValue::AnyUri(text.trim().to_string()))
+                }
+            },
+            "QName" => match a {
+                XdmAtomicValue::QName {
+                    ns_uri,
+                    prefix,
+                    local,
+                } => Ok(XdmAtomicValue::QName {
+                    ns_uri,
+                    prefix,
+                    local,
+                }),
+                other => {
+                    let text = self.require_string_like(&other, "xs:QName")?;
+                    let (prefix, local) = parse_qname_lexical(&text).map_err(|_| {
+                        Error::from_code(ErrorCode::FORG0001, "invalid QName lexical")
+                    })?;
                     Ok(XdmAtomicValue::QName {
                         ns_uri: None,
-                        prefix: Some(first.to_string()),
-                        local: local.to_string(),
-                    })
-                } else {
-                    // unprefixed
-                    Ok(XdmAtomicValue::QName {
-                        ns_uri: None,
-                        prefix: None,
-                        local: first.to_string(),
+                        prefix,
+                        local,
                     })
                 }
-            }
-            // date / time (naive parsing subset)
-            "date" => {
-                let s = match a {
-                    XdmAtomicValue::Date { date, tz } => {
-                        return Ok(XdmAtomicValue::Date { date, tz });
+            },
+            "NOTATION" => match a {
+                XdmAtomicValue::Notation(s) => Ok(XdmAtomicValue::Notation(s)),
+                other => {
+                    let text = self.require_string_like(&other, "xs:NOTATION")?;
+                    if parse_qname_lexical(&text).is_err() {
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:NOTATION"));
                     }
-                    XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => s,
-                    _ => self.atomic_to_string(&a),
-                };
-                match self.parse_date(&s) {
-                    Ok(v) => Ok(v),
-                    Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid date")),
+                    Ok(XdmAtomicValue::Notation(text))
                 }
-            }
-            "dateTime" => {
-                let s = match a {
-                    XdmAtomicValue::DateTime(dt) => return Ok(XdmAtomicValue::DateTime(dt)),
-                    XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => s,
-                    _ => self.atomic_to_string(&a),
-                };
-                match self.parse_date_time(&s) {
-                    Ok(v) => Ok(v),
-                    Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid dateTime")),
+            },
+            "base64Binary" => match a {
+                XdmAtomicValue::Base64Binary(v) => Ok(XdmAtomicValue::Base64Binary(v)),
+                XdmAtomicValue::HexBinary(hex) => {
+                    let bytes = decode_hex(&hex).ok_or_else(|| {
+                        Error::from_code(ErrorCode::FORG0001, "invalid xs:hexBinary")
+                    })?;
+                    let encoded = BASE64_STANDARD.encode(bytes);
+                    Ok(XdmAtomicValue::Base64Binary(encoded))
                 }
-            }
-            "time" => {
-                let s = match a {
-                    XdmAtomicValue::Time { time, tz } => {
-                        return Ok(XdmAtomicValue::Time { time, tz });
+                other => {
+                    let text = self.require_string_like(&other, "xs:base64Binary")?;
+                    let normalized: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+                    if BASE64_STANDARD.decode(normalized.as_bytes()).is_err() {
+                        return Err(Error::from_code(
+                            ErrorCode::FORG0001,
+                            "invalid xs:base64Binary",
+                        ));
                     }
-                    XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => s,
-                    _ => self.atomic_to_string(&a),
-                };
-                match self.parse_time(&s) {
-                    Ok(v) => Ok(v),
-                    Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid time")),
+                    Ok(XdmAtomicValue::Base64Binary(normalized))
                 }
-            }
+            },
+            "hexBinary" => match a {
+                XdmAtomicValue::HexBinary(v) => Ok(XdmAtomicValue::HexBinary(v)),
+                XdmAtomicValue::Base64Binary(b64) => {
+                    let bytes = BASE64_STANDARD.decode(b64.as_bytes()).map_err(|_| {
+                        Error::from_code(ErrorCode::FORG0001, "invalid xs:base64Binary")
+                    })?;
+                    let encoded = encode_hex_upper(&bytes);
+                    Ok(XdmAtomicValue::HexBinary(encoded))
+                }
+                other => {
+                    let text = self.require_string_like(&other, "xs:hexBinary")?;
+                    let normalized: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+                    if decode_hex(&normalized).is_none() {
+                        return Err(Error::from_code(
+                            ErrorCode::FORG0001,
+                            "invalid xs:hexBinary",
+                        ));
+                    }
+                    Ok(XdmAtomicValue::HexBinary(normalized.to_uppercase()))
+                }
+            },
+            "normalizedString" => match a {
+                XdmAtomicValue::NormalizedString(s) => Ok(XdmAtomicValue::NormalizedString(s)),
+                other => {
+                    let text = self.require_string_like(&other, "xs:normalizedString")?;
+                    let normalized = replace_xml_whitespace(&text);
+                    Ok(XdmAtomicValue::NormalizedString(normalized))
+                }
+            },
+            "token" => match a {
+                XdmAtomicValue::Token(s) => Ok(XdmAtomicValue::Token(s)),
+                other => {
+                    let text = self.require_string_like(&other, "xs:token")?;
+                    let collapsed = collapse_xml_whitespace(&text);
+                    Ok(XdmAtomicValue::Token(collapsed))
+                }
+            },
+            "language" => match a {
+                XdmAtomicValue::Language(s) => Ok(XdmAtomicValue::Language(s)),
+                other => {
+                    let text = self.require_string_like(&other, "xs:language")?;
+                    let collapsed = collapse_xml_whitespace(&text);
+                    if !is_valid_language(&collapsed) {
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:language"));
+                    }
+                    Ok(XdmAtomicValue::Language(collapsed))
+                }
+            },
+            "Name" => match a {
+                XdmAtomicValue::Name(s) => Ok(XdmAtomicValue::Name(s)),
+                other => {
+                    let text = self.require_string_like(&other, "xs:Name")?;
+                    let collapsed = collapse_xml_whitespace(&text);
+                    if !is_valid_name(&collapsed, true, true) {
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:Name"));
+                    }
+                    Ok(XdmAtomicValue::Name(collapsed))
+                }
+            },
+            "NCName" => match a {
+                XdmAtomicValue::NCName(s) => Ok(XdmAtomicValue::NCName(s)),
+                other => {
+                    let text = self.require_string_like(&other, "xs:NCName")?;
+                    let collapsed = collapse_xml_whitespace(&text);
+                    if !is_valid_name(&collapsed, true, false) {
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:NCName"));
+                    }
+                    Ok(XdmAtomicValue::NCName(collapsed))
+                }
+            },
+            "NMTOKEN" => match a {
+                XdmAtomicValue::NMTOKEN(s) => Ok(XdmAtomicValue::NMTOKEN(s)),
+                other => {
+                    let text = self.require_string_like(&other, "xs:NMTOKEN")?;
+                    let collapsed = collapse_xml_whitespace(&text);
+                    if !is_valid_nmtoken(&collapsed) {
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:NMTOKEN"));
+                    }
+                    Ok(XdmAtomicValue::NMTOKEN(collapsed))
+                }
+            },
+            "ID" => match a {
+                XdmAtomicValue::Id(s) => Ok(XdmAtomicValue::Id(s)),
+                other => {
+                    let text = self.require_string_like(&other, "xs:ID")?;
+                    let collapsed = collapse_xml_whitespace(&text);
+                    if !is_valid_name(&collapsed, true, false) {
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:ID"));
+                    }
+                    Ok(XdmAtomicValue::Id(collapsed))
+                }
+            },
+            "IDREF" => match a {
+                XdmAtomicValue::IdRef(s) => Ok(XdmAtomicValue::IdRef(s)),
+                other => {
+                    let text = self.require_string_like(&other, "xs:IDREF")?;
+                    let collapsed = collapse_xml_whitespace(&text);
+                    if !is_valid_name(&collapsed, true, false) {
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:IDREF"));
+                    }
+                    Ok(XdmAtomicValue::IdRef(collapsed))
+                }
+            },
+            "ENTITY" => match a {
+                XdmAtomicValue::Entity(s) => Ok(XdmAtomicValue::Entity(s)),
+                other => {
+                    let text = self.require_string_like(&other, "xs:ENTITY")?;
+                    let collapsed = collapse_xml_whitespace(&text);
+                    if !is_valid_name(&collapsed, true, false) {
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:ENTITY"));
+                    }
+                    Ok(XdmAtomicValue::Entity(collapsed))
+                }
+            },
+            "date" => match a {
+                XdmAtomicValue::Date { date, tz } => Ok(XdmAtomicValue::Date { date, tz }),
+                other => {
+                    let text = self.require_string_like(&other, "xs:date")?;
+                    match self.parse_date(&text) {
+                        Ok(v) => Ok(v),
+                        Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid date")),
+                    }
+                }
+            },
+            "dateTime" => match a {
+                XdmAtomicValue::DateTime(dt) => Ok(XdmAtomicValue::DateTime(dt)),
+                other => {
+                    let text = self.require_string_like(&other, "xs:dateTime")?;
+                    match self.parse_date_time(&text) {
+                        Ok(v) => Ok(v),
+                        Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid dateTime")),
+                    }
+                }
+            },
+            "time" => match a {
+                XdmAtomicValue::Time { time, tz } => Ok(XdmAtomicValue::Time { time, tz }),
+                other => {
+                    let text = self.require_string_like(&other, "xs:time")?;
+                    match self.parse_time(&text) {
+                        Ok(v) => Ok(v),
+                        Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid time")),
+                    }
+                }
+            },
             "yearMonthDuration" => match a {
                 XdmAtomicValue::YearMonthDuration(m) => Ok(XdmAtomicValue::YearMonthDuration(m)),
-                XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => {
-                    self.parse_year_month_duration(&s).map_err(|_| {
+                other => {
+                    let text = self.require_string_like(&other, "xs:yearMonthDuration")?;
+                    self.parse_year_month_duration(&text).map_err(|_| {
                         Error::from_code(ErrorCode::FORG0001, "invalid yearMonthDuration")
                     })
                 }
-                _ => Err(Error::from_code(
-                    ErrorCode::FORG0001,
-                    "cannot cast to yearMonthDuration",
-                )),
             },
             "dayTimeDuration" => match a {
                 XdmAtomicValue::DayTimeDuration(m) => Ok(XdmAtomicValue::DayTimeDuration(m)),
-                XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => self
-                    .parse_day_time_duration(&s)
-                    .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid dayTimeDuration")),
-                _ => Err(Error::from_code(
-                    ErrorCode::FORG0001,
-                    "cannot cast to dayTimeDuration",
-                )),
+                other => {
+                    let text = self.require_string_like(&other, "xs:dayTimeDuration")?;
+                    self.parse_day_time_duration(&text).map_err(|_| {
+                        Error::from_code(ErrorCode::FORG0001, "invalid dayTimeDuration")
+                    })
+                }
+            },
+            "gYear" => match a {
+                XdmAtomicValue::GYear { year, tz } => Ok(XdmAtomicValue::GYear { year, tz }),
+                other => {
+                    let text = self.require_string_like(&other, "xs:gYear")?;
+                    let (year, tz) = parse_g_year(&text)
+                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYear"))?;
+                    Ok(XdmAtomicValue::GYear { year, tz })
+                }
+            },
+            "gYearMonth" => match a {
+                XdmAtomicValue::GYearMonth { year, month, tz } => {
+                    Ok(XdmAtomicValue::GYearMonth { year, month, tz })
+                }
+                other => {
+                    let text = self.require_string_like(&other, "xs:gYearMonth")?;
+                    let (year, month, tz) = parse_g_year_month(&text).map_err(|_| {
+                        Error::from_code(ErrorCode::FORG0001, "invalid xs:gYearMonth")
+                    })?;
+                    Ok(XdmAtomicValue::GYearMonth { year, month, tz })
+                }
+            },
+            "gMonth" => match a {
+                XdmAtomicValue::GMonth { month, tz } => Ok(XdmAtomicValue::GMonth { month, tz }),
+                other => {
+                    let text = self.require_string_like(&other, "xs:gMonth")?;
+                    let (month, tz) = parse_g_month(&text)
+                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonth"))?;
+                    Ok(XdmAtomicValue::GMonth { month, tz })
+                }
+            },
+            "gMonthDay" => match a {
+                XdmAtomicValue::GMonthDay { month, day, tz } => {
+                    Ok(XdmAtomicValue::GMonthDay { month, day, tz })
+                }
+                other => {
+                    let text = self.require_string_like(&other, "xs:gMonthDay")?;
+                    let (month, day, tz) = parse_g_month_day(&text).map_err(|_| {
+                        Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonthDay")
+                    })?;
+                    Ok(XdmAtomicValue::GMonthDay { month, day, tz })
+                }
+            },
+            "gDay" => match a {
+                XdmAtomicValue::GDay { day, tz } => Ok(XdmAtomicValue::GDay { day, tz }),
+                other => {
+                    let text = self.require_string_like(&other, "xs:gDay")?;
+                    let (day, tz) = parse_g_day(&text)
+                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gDay"))?;
+                    Ok(XdmAtomicValue::GDay { day, tz })
+                }
             },
             _ => Err(Error::not_implemented("cast target type")),
         }
     }
-    // Spec-compliant lightweight castability check: returns true iff a cast would succeed.
     fn is_castable(&self, seq: &XdmSequence<N>, t: &SingleTypeIR) -> bool {
         // Cardinality: empty sequence is castable only if optional
         if seq.is_empty() {
@@ -3407,16 +4101,6 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     // Helper: best-effort canonical string form for debugging / fallback casts
     fn atomic_to_string(&self, a: &XdmAtomicValue) -> String {
         format!("{:?}", a)
-    }
-    fn to_f64(&self, a: &XdmAtomicValue) -> Option<f64> {
-        match a {
-            XdmAtomicValue::Integer(i) => Some(*i as f64),
-            XdmAtomicValue::Decimal(d) => Some(*d),
-            XdmAtomicValue::Double(d) => Some(*d),
-            XdmAtomicValue::Float(f) => Some(*f as f64),
-            XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) => s.parse::<f64>().ok(),
-            _ => None,
-        }
     }
     fn parse_date(&self, s: &str) -> Result<XdmAtomicValue, crate::util::temporal::TemporalErr> {
         let (d, tz) = crate::util::temporal::parse_date_lex(s)?;
@@ -3717,3 +4401,147 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
 }
 
 // (removed IterState; for-expr now handled entirely within ForLoop opcode execution)
+
+fn string_like_value(atom: &XdmAtomicValue) -> Option<String> {
+    match atom {
+        XdmAtomicValue::String(s)
+        | XdmAtomicValue::UntypedAtomic(s)
+        | XdmAtomicValue::NormalizedString(s)
+        | XdmAtomicValue::Token(s)
+        | XdmAtomicValue::Language(s)
+        | XdmAtomicValue::Name(s)
+        | XdmAtomicValue::NCName(s)
+        | XdmAtomicValue::NMTOKEN(s)
+        | XdmAtomicValue::Id(s)
+        | XdmAtomicValue::IdRef(s)
+        | XdmAtomicValue::Entity(s)
+        | XdmAtomicValue::Notation(s)
+        | XdmAtomicValue::AnyUri(s) => Some(s.clone()),
+        _ => None,
+    }
+}
+
+fn replace_xml_whitespace(input: &str) -> String {
+    input
+        .chars()
+        .map(|ch| match ch {
+            '\t' | '\n' | '\r' => ' ',
+            other => other,
+        })
+        .collect()
+}
+
+fn collapse_xml_whitespace(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut in_space = false;
+    for ch in input.chars() {
+        if ch.is_whitespace() {
+            if !in_space {
+                out.push(' ');
+                in_space = true;
+            }
+        } else {
+            out.push(ch);
+            in_space = false;
+        }
+    }
+    while out.starts_with(' ') {
+        out.remove(0);
+    }
+    while out.ends_with(' ') {
+        out.pop();
+    }
+    out
+}
+
+fn is_valid_language(s: &str) -> bool {
+    let mut parts = s.split('-');
+    if let Some(first) = parts.next() {
+        if !(1..=8).contains(&first.len()) || !first.chars().all(|c| c.is_ascii_alphabetic()) {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    for part in parts {
+        if part.is_empty() || part.len() > 8 || !part.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return false;
+        }
+    }
+    true
+}
+
+fn is_name_start_char(ch: char, allow_colon: bool) -> bool {
+    (allow_colon && ch == ':') || ch == '_' || ch.is_ascii_alphabetic()
+}
+
+fn is_name_char(ch: char, allow_colon: bool) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '.' || (allow_colon && ch == ':')
+}
+
+fn is_valid_name(s: &str, require_start: bool, allow_colon: bool) -> bool {
+    let mut chars = s.chars();
+    let Some(first) = chars.next() else {
+        return !require_start;
+    };
+    if !is_name_start_char(first, allow_colon) {
+        return false;
+    }
+    for ch in chars {
+        if !is_name_char(ch, allow_colon) {
+            return false;
+        }
+    }
+    true
+}
+
+fn is_valid_nmtoken(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    s.chars().all(|ch| is_name_char(ch, true))
+}
+
+fn parse_qname_lexical(s: &str) -> Result<(Option<String>, String), ()> {
+    if s.is_empty() {
+        return Err(());
+    }
+    if let Some(pos) = s.find(':') {
+        let (prefix, local_with_colon) = s.split_at(pos);
+        let local = &local_with_colon[1..];
+        if prefix.is_empty() || local.is_empty() {
+            return Err(());
+        }
+        if !is_valid_name(prefix, true, false) || !is_valid_name(local, true, false) {
+            return Err(());
+        }
+        Ok((Some(prefix.to_string()), local.to_string()))
+    } else {
+        if !is_valid_name(s, true, false) {
+            return Err(());
+        }
+        Ok((None, s.to_string()))
+    }
+}
+
+fn decode_hex(input: &str) -> Option<Vec<u8>> {
+    if input.len() % 2 != 0 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(input.len() / 2);
+    let mut chars = input.chars();
+    while let (Some(high_ch), Some(low_ch)) = (chars.next(), chars.next()) {
+        let high = high_ch.to_digit(16)?;
+        let low = low_ch.to_digit(16)?;
+        bytes.push(((high << 4) | low) as u8);
+    }
+    Some(bytes)
+}
+
+fn encode_hex_upper(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push_str(&format!("{:02X}", byte));
+    }
+    out
+}

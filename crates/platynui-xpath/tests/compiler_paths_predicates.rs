@@ -1,5 +1,4 @@
 use platynui_xpath::compiler::{compile_xpath, ir::*};
-use platynui_xpath::xdm::ExpandedName;
 use rstest::rstest;
 
 fn ir(src: &str) -> InstrSeq {
@@ -13,7 +12,9 @@ fn path_steps_and_predicates() {
         op,
         OpCode::AxisStep(AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _)
     )));
-    assert!(is.0.iter().any(|op| matches!(op, OpCode::AxisStep(_, NodeTestIR::Name(ExpandedName{ ns_uri: _, local: _ }), preds) if !preds.is_empty())));
+    assert!(is.0.iter().any(
+        |op| matches!(op, OpCode::AxisStep(_, NodeTestIR::Name(_), preds) if !preds.is_empty())
+    ));
     assert!(is.0.iter().any(|op| matches!(op, OpCode::DocOrderDistinct)));
 }
 
@@ -193,7 +194,7 @@ fn name_tests_wildcards() {
     let mut found_local = false;
     for op in &local_wc.0 {
         if let OpCode::AxisStep(_, NodeTestIR::LocalWildcard(l), _) = op
-            && l == "a"
+            && l.as_ref() == "a"
         {
             found_local = true;
             break;
@@ -204,7 +205,7 @@ fn name_tests_wildcards() {
     let mut found_ns = false;
     for op in &ns_wc.0 {
         if let OpCode::AxisStep(_, NodeTestIR::NsWildcard(p), _) = op
-            && p == "ns"
+            && p.as_ref() == "ns"
         {
             found_ns = true;
             break;
@@ -219,22 +220,18 @@ fn path_ir_sequence_complex() {
     let ops = &is.0;
     assert!(matches!(ops.first(), Some(OpCode::ToRoot)));
     match ops.get(1) {
-        Some(OpCode::AxisStep(
-            AxisIR::Descendant,
-            NodeTestIR::Name(ExpandedName { ns_uri: _, local }),
-            preds,
-        )) if local == "a" => {
+        Some(OpCode::AxisStep(AxisIR::Descendant, NodeTestIR::Name(name), preds))
+            if name.original.local == "a" =>
+        {
             assert_eq!(preds.len(), 1);
         }
         other => panic!("unexpected first step: {:?}", other),
     }
     assert!(matches!(ops.get(2), Some(OpCode::DocOrderDistinct)));
     match ops.get(3) {
-        Some(OpCode::AxisStep(
-            AxisIR::Attribute,
-            NodeTestIR::Name(ExpandedName { ns_uri: _, local }),
-            preds,
-        )) if local == "class" => {
+        Some(OpCode::AxisStep(AxisIR::Attribute, NodeTestIR::Name(name), preds))
+            if name.original.local == "class" =>
+        {
             assert!(preds.is_empty());
         }
         other => panic!("unexpected second step: {:?}", other),
@@ -257,16 +254,16 @@ fn path_ir_multiple_steps_with_predicates() {
         (AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _)
     ));
     match &axis_steps[1] {
-        (ax, NodeTestIR::Name(ExpandedName { ns_uri: _, local }), preds) => {
+        (ax, NodeTestIR::Name(name), preds) => {
             assert!(matches!(ax, AxisIR::Child | AxisIR::Descendant));
-            assert_eq!(local, "section");
+            assert_eq!(name.original.local, "section");
             assert_eq!(preds.len(), 1);
         }
         _ => panic!("unexpected step 2"),
     }
     match &axis_steps[2] {
-        (AxisIR::Descendant, NodeTestIR::Name(ExpandedName { ns_uri: _, local }), preds) => {
-            assert_eq!(local, "a");
+        (AxisIR::Descendant, NodeTestIR::Name(name), preds) => {
+            assert_eq!(name.original.local, "a");
             assert_eq!(preds.len(), 2);
         }
         _ => panic!("unexpected step 3"),
@@ -278,8 +275,8 @@ fn axis_multiple_predicates() {
     let is = ir(".//a[@id][@class]");
     let mut seen_two = false;
     for op in &is.0 {
-        if let OpCode::AxisStep(_, NodeTestIR::Name(ExpandedName { ns_uri: _, local }), preds) = op
-            && local == "a"
+        if let OpCode::AxisStep(_, NodeTestIR::Name(name), preds) = op
+            && name.original.local == "a"
         {
             seen_two = preds.len() == 2;
             break;

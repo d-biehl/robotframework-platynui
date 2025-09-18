@@ -27,7 +27,7 @@ fn main() {
         )
         .build();
 
-    let compiled = match compile_xpath("$variable") {
+    let compiled = match compile_xpath("//b") {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Compile error: {}", e);

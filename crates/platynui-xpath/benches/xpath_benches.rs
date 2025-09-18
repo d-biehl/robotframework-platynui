@@ -194,8 +194,8 @@ fn benchmark_predicate_heavy(c: &mut Criterion) {
         .build();
     let compiled = prepare_predicate_queries().expect("compile failure");
     let mut group = c.benchmark_group("evaluator/predicate_heavy");
-    group.sample_size(20);
-    group.measurement_time(Duration::from_secs(20));
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(30));
     group.warm_up_time(Duration::from_secs(2));
     for (name, program) in &compiled {
         group.bench_with_input(BenchmarkId::from_parameter(name), program, |b, prog| {

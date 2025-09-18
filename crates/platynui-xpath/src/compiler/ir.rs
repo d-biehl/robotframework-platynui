@@ -2,6 +2,35 @@ use crate::engine::runtime::StaticContext;
 use crate::xdm::{ExpandedName, XdmAtomicValue};
 use core::fmt;
 use std::sync::Arc;
+use string_cache::DefaultAtom;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct InternedQName {
+    pub original: ExpandedName,
+    pub local: DefaultAtom,
+    pub ns_uri: Option<DefaultAtom>,
+}
+
+impl InternedQName {
+    pub fn from_expanded(expanded: ExpandedName) -> Self {
+        let local = DefaultAtom::from(expanded.local.as_str());
+        let ns_uri = expanded
+            .ns_uri
+            .as_ref()
+            .map(|uri| DefaultAtom::from(uri.as_str()));
+        Self {
+            original: expanded,
+            local,
+            ns_uri,
+        }
+    }
+}
+
+impl fmt::Display for InternedQName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.original)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AxisIR {
@@ -22,18 +51,18 @@ pub enum AxisIR {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NameOrWildcard {
-    Name(ExpandedName),
+    Name(InternedQName),
     Any,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeTestIR {
     // name tests
-    AnyKind,               // node()
-    Name(ExpandedName),    // QName
-    WildcardAny,           // *
-    NsWildcard(String),    // ns:*
-    LocalWildcard(String), // *:local
+    AnyKind,                    // node()
+    Name(InternedQName),        // QName
+    WildcardAny,                // *
+    NsWildcard(DefaultAtom),    // ns:*
+    LocalWildcard(DefaultAtom), // *:local
 
     // kind tests
     KindText,                                  // text()
@@ -495,9 +524,15 @@ impl fmt::Display for CompiledXPath {
             self.static_ctx.default_function_namespace,
             self.static_ctx.default_collation,
             {
-                let mut keys: Vec<&String> = self.static_ctx.namespaces.by_prefix.keys().collect();
+                use smallvec::SmallVec;
+                // Namespace prefix sets are usually tiny (handful); keep inline.
+                let mut keys: SmallVec<[&String; 8]> =
+                    self.static_ctx.namespaces.by_prefix.keys().collect();
                 keys.sort();
-                let parts: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
+                let mut parts: SmallVec<[&str; 8]> = SmallVec::with_capacity(keys.len());
+                for k in &keys {
+                    parts.push(k.as_str());
+                }
                 parts.join(", ")
             }
         )?;

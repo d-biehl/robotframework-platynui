@@ -1,5 +1,6 @@
+use platynui_xpath::simple_node::{doc, elem, ns, text};
 use platynui_xpath::{
-    XdmItem,
+    XdmItem, XdmNode,
     compiler::compile_xpath_with_context,
     evaluate,
     runtime::{DynamicContextBuilder, StaticContextBuilder},
@@ -85,12 +86,10 @@ fn unknown_prefix_still_errors_without_registration() {
 fn resolve_qname_uses_element_inscope_not_static() {
     // Static context defines prefix 'a' to urn:static, but element defines xmlns:a="urn:elem".
     // According to spec, resolve-QName should use the element's in-scope namespaces (not static context).
-    use platynui_xpath::model::simple::{elem, ns, text};
     let static_ctx = StaticContextBuilder::new()
         .with_namespace("a", "urn:static")
         .build();
     // Build document/root with namespace declaration a -> urn:elem and a child element
-    use platynui_xpath::model::simple::doc;
     let document = doc()
         .child(
             elem("root")
@@ -110,4 +109,35 @@ fn resolve_qname_uses_element_inscope_not_static() {
         _ => panic!("expected anyURI"),
     };
     assert_eq!(uri, "urn:elem"); // proves element in-scope took precedence
+}
+
+#[rstest]
+fn default_element_namespace_applies_to_unprefixed_steps() {
+    let static_ctx = StaticContextBuilder::new()
+        .with_default_element_namespace("urn:def")
+        .build();
+
+    let document = doc()
+        .child(
+            elem("root")
+                .namespace(ns("", "urn:def"))
+                .namespace(ns("p", "urn:def"))
+                .child(elem("p:foo").child(text("hit")))
+                .child(elem("other").child(text("skip"))),
+        )
+        .build();
+
+    let dyn_ctx = DynamicContextBuilder::default()
+        .with_context_item(document.clone())
+        .build();
+
+    let compiled = compile_xpath_with_context("//foo", &static_ctx).unwrap();
+    let seq = evaluate(&compiled, &dyn_ctx).unwrap();
+    assert_eq!(seq.len(), 1);
+    let node = match &seq[0] {
+        XdmItem::Node(n) => n.clone(),
+        _ => panic!("expected node"),
+    };
+    assert_eq!(node.name().unwrap().local, "foo");
+    assert_eq!(node.lookup_namespace_uri(""), Some("urn:def".to_string()));
 }

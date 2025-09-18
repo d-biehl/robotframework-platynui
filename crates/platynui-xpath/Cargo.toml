@@ -21,6 +21,9 @@ thiserror = "2"
 url = "2"
 smallvec = "1"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
+# Performance optimizations
+string_cache = "0.8"
+compact_str = "0.8"
 
 [dev-dependencies]
  rstest = "0.18"

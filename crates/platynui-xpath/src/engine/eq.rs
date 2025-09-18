@@ -36,6 +36,7 @@ use crate::xdm::XdmAtomicValue;
 use crate::xdm::XdmItem;
 
 use chrono::TimeZone;
+use compact_str::CompactString;
 use core::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -107,8 +108,8 @@ impl PartialEq for NumericKey {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct QNameKey {
-    pub ns: Option<String>,
-    pub local: String,
+    pub ns: Option<CompactString>,
+    pub local: CompactString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -127,8 +128,8 @@ pub struct DateTimeKey {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StringKey {
-    pub key: String,
-    pub original: String,
+    pub key: CompactString,
+    pub original: CompactString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -402,13 +403,13 @@ fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
                 s.clone()
             };
             EqKey::String(StringKey {
-                key,
-                original: s.clone(),
+                key: key.into(),
+                original: s.clone().into(),
             })
         }
         QName { ns_uri, local, .. } => EqKey::QName(QNameKey {
-            ns: ns_uri.clone(),
-            local: local.clone(),
+            ns: ns_uri.as_ref().map(|s| s.clone().into()),
+            local: local.clone().into(),
         }),
         DateTime(_) | Date { .. } | Time { .. } => {
             if let Some((kind, ns)) = date_time_instant_ns(a) {
@@ -446,8 +447,8 @@ fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
                 s.clone()
             };
             EqKey::String(StringKey {
-                key,
-                original: s.clone(),
+                key: key.into(),
+                original: s.clone().into(),
             })
         }
         // Fallback – pack debug; will be replaced by specialized handling later.

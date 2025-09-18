@@ -12,3 +12,4 @@ license.workspace = true
 
 [dependencies]
 platynui-core = { version = "0.1.0", path = "../platynui-core" }
+platynui-xpath = { version = "0.1.0", path = "../platynui-xpath" }

@@ -1,6 +1,9 @@
 use crate::engine::runtime::{Error, ErrorCode};
+use compact_str::CompactString;
 use pest::Parser;
 use pest::iterators::Pair;
+use smallvec::SmallVec; // Optimized small, frequently short-lived collections
+use std::borrow::Cow;
 
 pub mod ast;
 
@@ -162,13 +165,15 @@ fn build_literal(pair: Pair<Rule>) -> AstResult<ast::Expr> {
         .ok_or_else(|| ParseAstError::new("missing literal inner"))?;
     let lit = match inner.as_rule() {
         Rule::numeric_literal => build_numeric_literal(inner)?,
-        Rule::string_literal => ast::Literal::String(unescape_string_literal(inner)),
+        Rule::string_literal => {
+            ast::Literal::String(CompactString::from(unescape_string_literal(inner)))
+        }
         _ => return Err(ParseAstError::new("unknown literal")),
     };
     Ok(ast::Expr::Literal(lit))
 }
 
-fn unescape_string_literal(pair: Pair<Rule>) -> String {
+fn unescape_string_literal(pair: Pair<Rule>) -> Cow<str> {
     // Prefer inner capture when present; otherwise handle atomic string rules
     let mut node = pair;
     loop {
@@ -180,25 +185,49 @@ fn unescape_string_literal(pair: Pair<Rule>) -> String {
         }
     }
     match node.as_rule() {
-        Rule::dbl_string_inner => node.as_str().replace("\"\"", "\""),
-        Rule::sgl_string_inner => node.as_str().replace("''", "'"),
+        Rule::dbl_string_inner => {
+            let s = node.as_str();
+            if s.contains("\"\"") {
+                Cow::Owned(s.replace("\"\"", "\""))
+            } else {
+                Cow::Borrowed(s)
+            }
+        }
+        Rule::sgl_string_inner => {
+            let s = node.as_str();
+            if s.contains("''") {
+                Cow::Owned(s.replace("''", "'"))
+            } else {
+                Cow::Borrowed(s)
+            }
+        }
         Rule::dbl_string => {
             let s = node.as_str();
             if s.len() >= 2 {
-                s[1..s.len() - 1].replace("\"\"", "\"")
+                let inner = &s[1..s.len() - 1];
+                if inner.contains("\"\"") {
+                    Cow::Owned(inner.replace("\"\"", "\""))
+                } else {
+                    Cow::Borrowed(inner)
+                }
             } else {
-                String::new()
+                Cow::Borrowed("")
             }
         }
         Rule::sgl_string => {
             let s = node.as_str();
             if s.len() >= 2 {
-                s[1..s.len() - 1].replace("''", "'")
+                let inner = &s[1..s.len() - 1];
+                if inner.contains("''") {
+                    Cow::Owned(inner.replace("''", "'"))
+                } else {
+                    Cow::Borrowed(inner)
+                }
             } else {
-                String::new()
+                Cow::Borrowed("")
             }
         }
-        _ => String::new(),
+        _ => Cow::Borrowed(""),
     }
 }
 
@@ -273,7 +302,7 @@ fn build_function_call(pair: Pair<Rule>) -> AstResult<ast::Expr> {
         .ok_or_else(|| ParseAstError::new("function_call missing name"))?; // function_qname
     let qname = build_qname_from_function_qname(fn_name.as_str());
     // Next token is LPAR; but Pest groups arguments directly as expr_single
-    let mut args = Vec::new();
+    let mut args = Vec::with_capacity(4); // Most functions have 1-4 args
     for p in it {
         if p.as_rule() == Rule::expr_single {
             args.push(build_expr(p)?);
@@ -283,7 +312,8 @@ fn build_function_call(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 }
 
 fn build_unary_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
-    let mut signs: Vec<ast::UnarySign> = Vec::new();
+    // Unary plus/minus chains are almost always <= 2, keep inline on stack
+    let mut signs: SmallVec<[ast::UnarySign; 2]> = SmallVec::new();
     let mut value: Option<Pair<Rule>> = None;
     for p in pair.into_inner() {
         match p.as_rule() {
@@ -325,8 +355,9 @@ fn fold_left(
 
 fn build_or_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // and_expr (or and_expr)*
-    let mut exprs = Vec::new();
-    let mut ops = Vec::new();
+    // Typically 2 operands; keep inline
+    let mut exprs: SmallVec<[ast::Expr; 2]> = SmallVec::new();
+    let mut ops: SmallVec<[ast::BinaryOp; 2]> = SmallVec::new();
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::and_expr => exprs.push(build_and_expr(p)?),
@@ -340,8 +371,8 @@ fn build_or_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 
 fn build_and_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // comparison_expr (and comparison_expr)*
-    let mut exprs = Vec::new();
-    let mut ops = Vec::new();
+    let mut exprs: SmallVec<[ast::Expr; 2]> = SmallVec::new();
+    let mut ops: SmallVec<[ast::BinaryOp; 2]> = SmallVec::new();
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::comparison_expr => exprs.push(build_comparison_expr(p)?),
@@ -482,8 +513,8 @@ fn build_range_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 }
 
 fn build_additive_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
-    let mut exprs = Vec::new();
-    let mut ops = Vec::new();
+    let mut exprs: SmallVec<[ast::Expr; 2]> = SmallVec::new();
+    let mut ops: SmallVec<[ast::BinaryOp; 3]> = SmallVec::new(); // chains like a+b-c
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::multiplicative_expr => exprs.push(build_multiplicative_expr(p)?),
@@ -510,8 +541,8 @@ fn build_additive_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 }
 
 fn build_multiplicative_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
-    let mut exprs = Vec::new();
-    let mut ops = Vec::new();
+    let mut exprs: SmallVec<[ast::Expr; 2]> = SmallVec::new();
+    let mut ops: SmallVec<[ast::BinaryOp; 3]> = SmallVec::new();
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::union_expr => exprs.push(build_union_like(p)?),
@@ -542,8 +573,8 @@ fn build_multiplicative_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 
 fn build_union_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // intersect_except_expr (union_op intersect_except_expr)*
-    let mut exprs = Vec::new();
-    let mut ops = Vec::new();
+    let mut exprs: SmallVec<[ast::Expr; 2]> = SmallVec::new();
+    let mut ops: SmallVec<[ast::SetOp; 2]> = SmallVec::new();
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::intersect_except_expr => exprs.push(build_intersect_except_like(p)?),
@@ -553,13 +584,13 @@ fn build_union_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
             _ => {}
         }
     }
-    fold_set_ops(exprs, ops)
+    fold_set_ops(exprs.to_vec(), ops.to_vec())
 }
 
 fn build_intersect_except_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // instanceof_expr (intersect_except_op instanceof_expr)*
-    let mut exprs = Vec::new();
-    let mut ops = Vec::new();
+    let mut exprs: SmallVec<[ast::Expr; 2]> = SmallVec::new();
+    let mut ops: SmallVec<[ast::SetOp; 2]> = SmallVec::new();
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::instanceof_expr => exprs.push(build_instanceof_like(p)?),
@@ -581,7 +612,7 @@ fn build_intersect_except_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
             _ => {}
         }
     }
-    fold_set_ops(exprs, ops)
+    fold_set_ops(exprs.to_vec(), ops.to_vec())
 }
 
 fn fold_set_ops(mut exprs: Vec<ast::Expr>, mut ops: Vec<ast::SetOp>) -> AstResult<ast::Expr> {
@@ -801,7 +832,7 @@ fn build_kind_test(pair: Pair<Rule>) -> AstResult<ast::KindTest> {
                         arg = Some(c.as_str().to_string());
                     }
                     Rule::string_literal => {
-                        arg = Some(unescape_string_literal(c));
+                        arg = Some(unescape_string_literal(c).into_owned());
                     }
                     _ => {}
                 }
@@ -978,7 +1009,7 @@ fn build_axis(axis_pair: Pair<Rule>) -> AstResult<ast::Axis> {
 }
 
 fn build_predicate_list(pair: Pair<Rule>) -> AstResult<Vec<ast::Expr>> {
-    let mut preds = Vec::new();
+    let mut preds = Vec::with_capacity(2); // Most predicates have 1-2 conditions
     for p in pair.into_inner() {
         if p.as_rule() == Rule::predicate {
             // predicate = LBRACK ~ expr ~ RPAR
@@ -1161,7 +1192,7 @@ fn build_path_expr_from_absolute(pair: Pair<Rule>) -> AstResult<ast::Expr> {
             steps.extend(build_relative_steps(rel)?);
             Ok(ast::Expr::Path(ast::PathExpr {
                 start: ast::PathStart::Root,
-                steps,
+                steps: steps.to_vec(),
             }))
         }
         Rule::OP_SLASH => {
@@ -1169,7 +1200,7 @@ fn build_path_expr_from_absolute(pair: Pair<Rule>) -> AstResult<ast::Expr> {
                 let steps = build_relative_steps(rel)?;
                 Ok(ast::Expr::Path(ast::PathExpr {
                     start: ast::PathStart::Root,
-                    steps,
+                    steps: steps.to_vec(),
                 }))
             } else {
                 Ok(ast::Expr::Path(ast::PathExpr {
@@ -1191,7 +1222,8 @@ fn build_path_expr_from_relative(
     let first_step = it
         .next()
         .ok_or_else(|| ParseAstError::new("empty relative_path_expr"))?;
-    let mut steps: Vec<ast::Step> = Vec::new();
+    // Path step counts are small; inline first 4 steps before spilling to heap
+    let mut steps: SmallVec<[ast::Step; 4]> = SmallVec::new();
     let mut base_expr: Option<ast::Expr> = base;
 
     let step_variant = if first_step.as_rule() == Rule::step_expr {
@@ -1264,20 +1296,21 @@ fn build_path_expr_from_relative(
         } else {
             Ok(ast::Expr::PathFrom {
                 base: Box::new(base_e),
-                steps,
+                steps: steps.to_vec(),
             })
         }
     } else {
         Ok(ast::Expr::Path(ast::PathExpr {
             start: ast::PathStart::Relative,
-            steps,
+            steps: steps.to_vec(),
         }))
     }
 }
 
 fn build_relative_steps(pair: Pair<Rule>) -> AstResult<Vec<ast::Step>> {
     let mut it = pair.into_inner();
-    let mut steps: Vec<ast::Step> = Vec::new();
+    // Typical relative path length is short (<=4)
+    let mut steps: SmallVec<[ast::Step; 4]> = SmallVec::new();
     let first = it
         .next()
         .ok_or_else(|| ParseAstError::new("empty relative steps"))?;
@@ -1342,13 +1375,14 @@ fn build_relative_steps(pair: Pair<Rule>) -> AstResult<Vec<ast::Step>> {
             }
         }
     }
-    Ok(steps)
+    Ok(steps.to_vec())
 }
 
 fn build_for_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // K_FOR ~ "$" ~ var_name ~ K_IN ~ expr_single ~ (COMMA ~ "$" ~ var_name ~ K_IN ~ expr_single)* ~ K_RETURN ~ expr_single
     let mut it = pair.into_inner();
-    let mut bindings: Vec<ast::ForBinding> = Vec::new();
+    // For expressions commonly have few bindings (1-3)
+    let mut bindings: SmallVec<[ast::ForBinding; 4]> = SmallVec::new();
     while let Some(p) = it.next() {
         match p.as_rule() {
             Rule::var_name => {
@@ -1365,7 +1399,7 @@ fn build_for_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
                         ParseAstError::new("for_expr missing return expr_single")
                     })?)?;
                 return Ok(ast::Expr::ForExpr {
-                    bindings,
+                    bindings: bindings.to_vec(),
                     return_expr: Box::new(return_expr),
                 });
             }
@@ -1378,7 +1412,7 @@ fn build_for_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 fn build_let_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // K_LET ~ "$" ~ var_name ~ OP_ASSIGN ~ expr_single ~ (COMMA ~ "$" ~ var_name ~ OP_ASSIGN ~ expr_single)* ~ K_RETURN ~ expr_single
     let mut it = pair.into_inner();
-    let mut bindings: Vec<ast::LetBinding> = Vec::new();
+    let mut bindings: SmallVec<[ast::LetBinding; 4]> = SmallVec::new();
     while let Some(p) = it.next() {
         match p.as_rule() {
             Rule::var_name => {
@@ -1406,7 +1440,7 @@ fn build_let_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
                         ParseAstError::new("let_expr missing return expr_single")
                     })?)?;
                 return Ok(ast::Expr::LetExpr {
-                    bindings,
+                    bindings: bindings.to_vec(),
                     return_expr: Box::new(return_expr),
                 });
             }
@@ -1430,7 +1464,7 @@ fn build_quantified_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
         Rule::K_EVERY => ast::Quantifier::Every,
         _ => return Err(ParseAstError::new("expected quantifier")),
     };
-    let mut bindings: Vec<ast::QuantifiedBinding> = Vec::new();
+    let mut bindings: SmallVec<[ast::QuantifiedBinding; 4]> = SmallVec::new();
     // After quantifier, we expect sequences of var_name, K_IN, expr_single ... until K_SATISFIES
     loop {
         let p = it
@@ -1461,7 +1495,7 @@ fn build_quantified_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
                 })?)?;
                 return Ok(ast::Expr::Quantified {
                     kind,
-                    bindings,
+                    bindings: bindings.to_vec(),
                     satisfies: Box::new(satisfies),
                 });
             }
