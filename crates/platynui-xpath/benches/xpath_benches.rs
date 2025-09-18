@@ -1,10 +1,11 @@
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use platynui_xpath::compiler::compile_xpath;
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, Error};
 use platynui_xpath::parser::parse_xpath;
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::xdm::XdmItem as I;
 use platynui_xpath::{SimpleNode, evaluate};
+use std::hint::black_box;
 use std::time::Duration;
 
 const AXIS_SECTIONS: usize = 80;

@@ -1,9 +1,10 @@
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use platynui_xpath::compiler::compile_xpath;
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::xdm::XdmItem as I;
 use platynui_xpath::{SimpleNode, evaluate};
+use std::hint::black_box;
 
 fn create_large_html_document() -> SimpleNode {
     let mut root_builder = elem("html");

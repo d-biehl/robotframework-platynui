@@ -1,5 +1,6 @@
-use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use platynui_xpath::parser::parse_xpath;
+use std::hint::black_box;
 
 // A set of representative XPath expressions hitting different parser paths.
 const EXPRESSIONS: &[&str] = &[

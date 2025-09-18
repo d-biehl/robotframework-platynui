@@ -4,6 +4,7 @@ use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::xdm::XdmItem as I;
 use platynui_xpath::{SimpleNode, evaluate};
+use std::hint::black_box;
 
 fn string_operations_bench(c: &mut Criterion) {
     let document = build_string_heavy_document();
@@ -16,7 +17,7 @@ fn string_operations_bench(c: &mut Criterion) {
             compile_xpath("concat(//text[1], //text[2], //text[3], //text[4], //text[5])").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
-            criterion::black_box(result);
+            black_box(result);
         });
     });
 
@@ -24,7 +25,7 @@ fn string_operations_bench(c: &mut Criterion) {
         let compiled = compile_xpath("count(//text[contains(., 'specific')])").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
-            criterion::black_box(result);
+            black_box(result);
         });
     });
 
@@ -32,7 +33,7 @@ fn string_operations_bench(c: &mut Criterion) {
         let compiled = compile_xpath("sum(for $t in //text return string-length($t))").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
-            criterion::black_box(result);
+            black_box(result);
         });
     });
 }
@@ -48,7 +49,7 @@ fn node_operations_bench(c: &mut Criterion) {
             compile_xpath("(//*[@level='1'] | //*[@level='2'] | //*[@level='3'])").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
-            criterion::black_box(result.len());
+            black_box(result.len());
         });
     });
 
@@ -56,7 +57,7 @@ fn node_operations_bench(c: &mut Criterion) {
         let compiled = compile_xpath("(//*)[position() <= 500]").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
-            criterion::black_box(result.len());
+            black_box(result.len());
         });
     });
 
@@ -66,7 +67,7 @@ fn node_operations_bench(c: &mut Criterion) {
                 .unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
-            criterion::black_box(result);
+            black_box(result);
         });
     });
 }
@@ -81,7 +82,7 @@ fn memory_allocation_bench(c: &mut Criterion) {
         let compiled = compile_xpath("//item").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
-            criterion::black_box(result.len());
+            black_box(result.len());
         });
     });
 
@@ -89,7 +90,7 @@ fn memory_allocation_bench(c: &mut Criterion) {
         let compiled = compile_xpath("//item/@id").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
-            criterion::black_box(result.len());
+            black_box(result.len());
         });
     });
 
@@ -97,7 +98,7 @@ fn memory_allocation_bench(c: &mut Criterion) {
         let compiled = compile_xpath("for $i in //item return $i/@id").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
-            criterion::black_box(result.len());
+            black_box(result.len());
         });
     });
 }
@@ -112,7 +113,7 @@ fn numeric_operations_bench(c: &mut Criterion) {
         let compiled = compile_xpath("sum(//number/@value)").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
-            criterion::black_box(result);
+            black_box(result);
         });
     });
 
@@ -120,7 +121,7 @@ fn numeric_operations_bench(c: &mut Criterion) {
         let compiled = compile_xpath("sum(for $i in 1 to 1000 return $i * $i)").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
-            criterion::black_box(result);
+            black_box(result);
         });
     });
 
@@ -131,7 +132,7 @@ fn numeric_operations_bench(c: &mut Criterion) {
         .unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
-            criterion::black_box(result);
+            black_box(result);
         });
     });
 }
