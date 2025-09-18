@@ -78,7 +78,7 @@ fn find_elements_with_id<N: 'static + Send + Sync + crate::model::XdmNode + Clon
     let root = topmost_ancestor(start);
     let mut stack: Vec<N> = vec![root.clone()];
     while let Some(node) = stack.pop() {
-        let children: Vec<N> = node.children_vec();
+        let children: Vec<N> = node.children().collect();
         for c in children.into_iter().rev() {
             stack.push(c);
         }
@@ -184,7 +184,7 @@ pub(super) fn idref_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>
     let mut out: XdmSequence<N> = Vec::new();
     let mut stack: Vec<N> = vec![root.clone()];
     while let Some(node) = stack.pop() {
-        let children: Vec<N> = node.children_vec();
+        let children: Vec<N> = node.children().collect();
         for c in children.into_iter().rev() {
             stack.push(c);
         }

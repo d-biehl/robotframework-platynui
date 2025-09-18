@@ -80,9 +80,9 @@ pub fn try_compare_by_ancestry<N: XdmNode>(a: &N, b: &N) -> Result<Ordering, Err
     let parent = &pa[i - 1];
     // Sibling order: attributes, namespaces, then children
     let mut sibs: Vec<N> = Vec::new();
-    sibs.extend(parent.attributes_vec());
-    sibs.extend(parent.namespaces_vec());
-    sibs.extend(parent.children_vec());
+    sibs.extend(parent.attributes());
+    sibs.extend(parent.namespaces());
+    sibs.extend(parent.children());
     let na = &pa[i];
     let nb = &pb[i];
     let posa = sibs.iter().position(|n| n == na);
@@ -145,24 +145,4 @@ pub trait XdmNode: Clone + Eq + core::fmt::Debug + Send + Sync + 'static {
         try_compare_by_ancestry(self, other)
     }
 
-    fn children_vec(&self) -> Vec<Self>
-    where
-        Self: Sized,
-    {
-        self.children().collect()
-    }
-
-    fn attributes_vec(&self) -> Vec<Self>
-    where
-        Self: Sized,
-    {
-        self.attributes().collect()
-    }
-
-    fn namespaces_vec(&self) -> Vec<Self>
-    where
-        Self: Sized,
-    {
-        self.namespaces().collect()
-    }
 }
