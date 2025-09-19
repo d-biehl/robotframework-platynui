@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use platynui_xpath::compiler::compile_xpath;
+use platynui_xpath::compiler::compile;
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::xdm::XdmItem as I;
@@ -14,7 +14,7 @@ fn string_operations_bench(c: &mut Criterion) {
 
     c.bench_function("string/concat_multiple", |b| {
         let compiled =
-            compile_xpath("concat(//text[1], //text[2], //text[3], //text[4], //text[5])").unwrap();
+            compile("concat(//text[1], //text[2], //text[3], //text[4], //text[5])").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result);
@@ -22,7 +22,7 @@ fn string_operations_bench(c: &mut Criterion) {
     });
 
     c.bench_function("string/contains_search", |b| {
-        let compiled = compile_xpath("count(//text[contains(., 'specific')])").unwrap();
+        let compiled = compile("count(//text[contains(., 'specific')])").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result);
@@ -30,7 +30,7 @@ fn string_operations_bench(c: &mut Criterion) {
     });
 
     c.bench_function("string/string_length_sum", |b| {
-        let compiled = compile_xpath("sum(for $t in //text return string-length($t))").unwrap();
+        let compiled = compile("sum(for $t in //text return string-length($t))").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result);
@@ -46,7 +46,7 @@ fn node_operations_bench(c: &mut Criterion) {
 
     c.bench_function("node/large_union", |b| {
         let compiled =
-            compile_xpath("(//*[@level='1'] | //*[@level='2'] | //*[@level='3'])").unwrap();
+            compile("(//*[@level='1'] | //*[@level='2'] | //*[@level='3'])").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result.len());
@@ -54,7 +54,7 @@ fn node_operations_bench(c: &mut Criterion) {
     });
 
     c.bench_function("node/doc_order_large", |b| {
-        let compiled = compile_xpath("(//*)[position() <= 500]").unwrap();
+        let compiled = compile("(//*)[position() <= 500]").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result.len());
@@ -63,7 +63,7 @@ fn node_operations_bench(c: &mut Criterion) {
 
     c.bench_function("node/deep_descendants", |b| {
         let compiled =
-            compile_xpath("for $a in //*[@level='1'] return count($a/descendant-or-self::*)")
+            compile("for $a in //*[@level='1'] return count($a/descendant-or-self::*)")
                 .unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
@@ -79,7 +79,7 @@ fn memory_allocation_bench(c: &mut Criterion) {
         .build();
 
     c.bench_function("memory/large_result_set", |b| {
-        let compiled = compile_xpath("//item").unwrap();
+        let compiled = compile("//item").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result.len());
@@ -87,7 +87,7 @@ fn memory_allocation_bench(c: &mut Criterion) {
     });
 
     c.bench_function("memory/collect_attributes", |b| {
-        let compiled = compile_xpath("//item/@id").unwrap();
+        let compiled = compile("//item/@id").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result.len());
@@ -95,7 +95,7 @@ fn memory_allocation_bench(c: &mut Criterion) {
     });
 
     c.bench_function("memory/for_loop_construction", |b| {
-        let compiled = compile_xpath("for $i in //item return $i/@id").unwrap();
+        let compiled = compile("for $i in //item return $i/@id").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result.len());
@@ -110,7 +110,7 @@ fn numeric_operations_bench(c: &mut Criterion) {
         .build();
 
     c.bench_function("numeric/large_sum", |b| {
-        let compiled = compile_xpath("sum(//number/@value)").unwrap();
+        let compiled = compile("sum(//number/@value)").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result);
@@ -118,7 +118,7 @@ fn numeric_operations_bench(c: &mut Criterion) {
     });
 
     c.bench_function("numeric/arithmetic_sequence", |b| {
-        let compiled = compile_xpath("sum(for $i in 1 to 1000 return $i * $i)").unwrap();
+        let compiled = compile("sum(for $i in 1 to 1000 return $i * $i)").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result);
@@ -126,7 +126,7 @@ fn numeric_operations_bench(c: &mut Criterion) {
     });
 
     c.bench_function("numeric/conditional_calculations", |b| {
-        let compiled = compile_xpath(
+        let compiled = compile(
             "sum(for $n in //number return if ($n/@value mod 2 = 0) then $n/@value else 0)",
         )
         .unwrap();

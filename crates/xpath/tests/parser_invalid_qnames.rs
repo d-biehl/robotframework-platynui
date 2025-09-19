@@ -1,5 +1,5 @@
 use platynui_xpath::engine::runtime::ErrorCode;
-use platynui_xpath::parser::parse_xpath;
+use platynui_xpath::parser::parse;
 use rstest::rstest;
 
 #[rstest]
@@ -18,6 +18,6 @@ use rstest::rstest;
 #[case("a:*b")] // wildcard misuse in local part
 #[case("a:#bar")] // illegal character '#' in NCName
 fn invalid_qname_patterns(#[case] input: &str) {
-    let err = parse_xpath(input).expect_err("expected parse error");
+    let err = parse(input).expect_err("expected parse error");
     assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }

@@ -1,6 +1,6 @@
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, ErrorCode, StaticContextBuilder};
 use platynui_xpath::{
-    ExpandedName, XdmNode, compile_xpath_with_context, evaluate,
+    ExpandedName, XdmNode, compile_with_context, evaluate,
     simple_node::{doc, elem},
     xdm::XdmItem as I,
 };
@@ -30,7 +30,7 @@ fn node_before_cross_root_errors() {
     let static_ctx = StaticContextBuilder::new()
         .with_variable(var_x.clone())
         .build();
-    let compiled = compile_xpath_with_context(". << $x", &static_ctx).unwrap();
+    let compiled = compile_with_context(". << $x", &static_ctx).unwrap();
     let err = evaluate::<N>(&compiled, &ctx).expect_err("should error for cross-root");
     assert_eq!(err.code_enum(), ErrorCode::FOER0000);
 }
@@ -50,7 +50,7 @@ fn node_after_cross_root_errors() {
     let static_ctx = StaticContextBuilder::new()
         .with_variable(var_x.clone())
         .build();
-    let compiled = compile_xpath_with_context(". >> $x", &static_ctx).unwrap();
+    let compiled = compile_with_context(". >> $x", &static_ctx).unwrap();
     let err = evaluate::<N>(&compiled, &ctx).expect_err("should error for cross-root");
     assert_eq!(err.code_enum(), ErrorCode::FOER0000);
 }

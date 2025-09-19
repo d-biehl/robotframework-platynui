@@ -1,5 +1,5 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use platynui_xpath::compiler::compile_xpath;
+use platynui_xpath::compiler::compile;
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::xdm::XdmItem as I;
@@ -67,7 +67,7 @@ fn benchmark_string_operations(c: &mut Criterion) {
             BenchmarkId::new("xpath", description),
             &xpath,
             |b, xpath_str| {
-                let compiled = compile_xpath(xpath_str).unwrap();
+                let compiled = compile(xpath_str).unwrap();
 
                 b.iter(|| {
                     let result = evaluate(&compiled, black_box(&ctx)).unwrap();
@@ -103,7 +103,7 @@ fn benchmark_name_comparisons(c: &mut Criterion) {
             BenchmarkId::new("frequent_names", pattern),
             &pattern,
             |b, xpath_str| {
-                let compiled = compile_xpath(xpath_str).unwrap();
+                let compiled = compile(xpath_str).unwrap();
 
                 b.iter(|| {
                     let result = evaluate(&compiled, black_box(&ctx)).unwrap();
@@ -125,7 +125,7 @@ fn benchmark_cache_statistics(c: &mut Criterion) {
     // Run some operations to populate cache
     let warmup_patterns = vec!["//div", "//span", "//p", "//section", "//*[@class]"];
     for pattern in warmup_patterns {
-        let compiled = compile_xpath(pattern).unwrap();
+        let compiled = compile(pattern).unwrap();
         let _ = evaluate(&compiled, &ctx);
     }
 

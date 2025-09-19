@@ -1,7 +1,7 @@
 use platynui_xpath::simple_node::{doc, elem, ns, text};
 use platynui_xpath::{
     XdmItem, XdmNode,
-    compiler::compile_xpath_with_context,
+    compiler::compile_with_context,
     evaluate,
     runtime::{DynamicContextBuilder, StaticContextBuilder},
 };
@@ -19,7 +19,7 @@ fn register_and_use_custom_prefix_in_qname_constructor() {
         .with_namespace("ex", "urn:example")
         .build();
     let ctx = dyn_ctx();
-    let compiled = compile_xpath_with_context("xs:QName('ex:local')", &static_ctx).unwrap();
+    let compiled = compile_with_context("xs:QName('ex:local')", &static_ctx).unwrap();
     let seq = evaluate(&compiled, &ctx).unwrap();
     assert_eq!(seq.len(), 1);
     let atom = match &seq[0] {
@@ -41,7 +41,7 @@ fn resolve_qname_uses_static_namespace() {
         .build();
     let ctx = dyn_ctx();
     let compiled =
-        compile_xpath_with_context("namespace-uri-from-QName(xs:QName('p:thing'))", &static_ctx)
+        compile_with_context("namespace-uri-from-QName(xs:QName('p:thing'))", &static_ctx)
             .unwrap();
     let seq = evaluate(&compiled, &ctx).unwrap();
     let uri = match &seq[0] {
@@ -57,7 +57,7 @@ fn implicit_xml_binding_present_and_not_overridden() {
         .with_namespace("xml", "urn:override")
         .build();
     let ctx = dyn_ctx();
-    let compiled = compile_xpath_with_context(
+    let compiled = compile_with_context(
         "namespace-uri-from-QName(xs:QName('xml:lang'))",
         &static_ctx,
     )
@@ -74,7 +74,7 @@ fn implicit_xml_binding_present_and_not_overridden() {
 fn unknown_prefix_still_errors_without_registration() {
     let static_ctx = StaticContextBuilder::new().build();
     let ctx = dyn_ctx();
-    let compiled = compile_xpath_with_context("xs:QName('u:local')", &static_ctx).unwrap();
+    let compiled = compile_with_context("xs:QName('u:local')", &static_ctx).unwrap();
     let err = evaluate(&compiled, &ctx).expect_err("expected error");
     assert_eq!(
         err.code_enum(),
@@ -102,7 +102,7 @@ fn resolve_qname_uses_element_inscope_not_static() {
         .build();
     // Expression: resolve-QName('a:child', root/child) then namespace-uri-from-QName
     let expr = "namespace-uri-from-QName(resolve-QName('a:child', /root/child))";
-    let compiled = compile_xpath_with_context(expr, &static_ctx).unwrap();
+    let compiled = compile_with_context(expr, &static_ctx).unwrap();
     let seq = evaluate(&compiled, &dyn_ctx).unwrap();
     let uri = match &seq[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::AnyUri(s)) => s,
@@ -131,7 +131,7 @@ fn default_element_namespace_applies_to_unprefixed_steps() {
         .with_context_item(document.clone())
         .build();
 
-    let compiled = compile_xpath_with_context("//foo", &static_ctx).unwrap();
+    let compiled = compile_with_context("//foo", &static_ctx).unwrap();
     let seq = evaluate(&compiled, &dyn_ctx).unwrap();
     assert_eq!(seq.len(), 1);
     let node = match &seq[0] {

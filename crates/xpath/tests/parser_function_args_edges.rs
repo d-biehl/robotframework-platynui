@@ -1,8 +1,8 @@
-use platynui_xpath::parser::{ast, parse_xpath};
+use platynui_xpath::parser::{ast, parse};
 use rstest::rstest;
 
 fn parse(expr: &str) -> ast::Expr {
-    parse_xpath(expr).expect("parse failed")
+    parse(expr).expect("parse failed")
 }
 
 #[rstest]

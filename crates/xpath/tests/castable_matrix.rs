@@ -1,6 +1,6 @@
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilder};
 use platynui_xpath::{
-    compiler::compile_xpath_with_context, evaluate, evaluate_expr, xdm::XdmAtomicValue as A,
+    compiler::compile_with_context, evaluate, evaluate_expr, xdm::XdmAtomicValue as A,
     xdm::XdmItem as I,
 };
 use rstest::rstest;
@@ -46,9 +46,9 @@ fn castable_qname_with_prefix() {
         .build();
     let dyn_ctx = ctx();
     let compiled_ok =
-        compile_xpath_with_context("'p:l' castable as xs:QName", &static_ctx).unwrap();
+        compile_with_context("'p:l' castable as xs:QName", &static_ctx).unwrap();
     let compiled_bad =
-        compile_xpath_with_context("'zzz:l' castable as xs:QName", &static_ctx).unwrap();
+        compile_with_context("'zzz:l' castable as xs:QName", &static_ctx).unwrap();
     let r = evaluate(&compiled_ok, &dyn_ctx).unwrap();
     if let I::Atomic(A::Boolean(b)) = &r[0] {
         assert!(*b);

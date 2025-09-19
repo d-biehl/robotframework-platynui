@@ -1,5 +1,5 @@
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use platynui_xpath::parser::parse_xpath;
+use platynui_xpath::parser::parse;
 use std::hint::black_box;
 
 // A set of representative XPath expressions hitting different parser paths.
@@ -25,7 +25,7 @@ fn bench_parse(c: &mut Criterion) {
     for &expr in EXPRESSIONS {
         group.bench_function(expr, |b| {
             b.iter(|| {
-                let ast = parse_xpath(black_box(expr)).expect("parse ok");
+                let ast = parse(black_box(expr)).expect("parse ok");
                 black_box(ast);
             });
         });
@@ -37,7 +37,7 @@ fn bench_parse(c: &mut Criterion) {
             || EXPRESSIONS.to_vec(),
             |exprs| {
                 for e in exprs {
-                    let _ = parse_xpath(e).unwrap();
+                    let _ = parse(e).unwrap();
                 }
             },
             BatchSize::SmallInput,

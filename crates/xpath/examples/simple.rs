@@ -1,5 +1,5 @@
 use platynui_xpath::{
-    compiler::compile_xpath,
+    compiler::compile,
     engine::{evaluator::evaluate, runtime::DynamicContextBuilder},
     model::simple::{SimpleNode, attr, doc as simple_doc, elem, text},
     xdm::{PrettyNodeSeq, XdmItem},
@@ -27,7 +27,7 @@ fn main() {
         )
         .build();
 
-    let compiled = match compile_xpath("//b") {
+    let compiled = match compile("//b") {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Compile error: {}", e);

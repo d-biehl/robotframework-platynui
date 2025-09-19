@@ -2,7 +2,7 @@ use chrono::prelude::*; // bring year(), month(), etc. into scope
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::runtime::ErrorCode;
 use platynui_xpath::{
-    StaticContextBuilder, compile_xpath_with_context, evaluate_expr, evaluator::evaluate,
+    StaticContextBuilder, compile_with_context, evaluate_expr, evaluator::evaluate,
     xdm::XdmAtomicValue as A, xdm::XdmItem as I,
 };
 use rstest::rstest;
@@ -147,7 +147,7 @@ fn cast_qname_with_prefix_success() {
     let sc = static_ctx_with_ns();
     let dc: platynui_xpath::engine::runtime::DynamicContext<N> =
         DynamicContextBuilder::default().build();
-    let compiled = compile_xpath_with_context("xs:QName('ex:local')", &sc).unwrap();
+    let compiled = compile_with_context("xs:QName('ex:local')", &sc).unwrap();
     let r = evaluate(&compiled, &dc).unwrap();
     if let I::Atomic(A::QName {
         prefix,
@@ -170,7 +170,7 @@ fn cast_qname_with_unknown_prefix_error() {
         .build();
     let dc: platynui_xpath::engine::runtime::DynamicContext<N> =
         DynamicContextBuilder::default().build();
-    let compiled = compile_xpath_with_context("xs:QName('foo:local')", &sc).unwrap();
+    let compiled = compile_with_context("xs:QName('foo:local')", &sc).unwrap();
     let err = evaluate(&compiled, &dc).unwrap_err();
     assert_eq!(err.code_enum(), ErrorCode::FORG0001);
 }

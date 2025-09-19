@@ -2,7 +2,7 @@ use platynui_xpath::engine::runtime::{
     DynamicContext, DynamicContextBuilder, StaticContextBuilder,
 };
 use platynui_xpath::model::simple::{attr as mkattr, doc, elem, ns};
-use platynui_xpath::{XdmNode, compiler::compile_xpath_with_context, evaluate, xdm::XdmItem as I};
+use platynui_xpath::{XdmNode, compiler::compile_with_context, evaluate, xdm::XdmItem as I};
 
 type N = platynui_xpath::model::simple::SimpleNode;
 
@@ -37,7 +37,7 @@ fn element_namespace_wildcards() {
         .build();
 
     // child::p:* should match only elements in ns urn:one under root (p:a)
-    let compiled = compile_xpath_with_context("child::p:*", &static_ctx).unwrap();
+    let compiled = compile_with_context("child::p:*", &static_ctx).unwrap();
     let out = evaluate(&compiled, &ctx).unwrap();
     assert_eq!(out.len(), 1);
     match &out[0] {
@@ -55,7 +55,7 @@ fn element_namespace_wildcards() {
     }
 
     // child::*:b should match element with local b regardless of prefix (q:b)
-    let compiled = compile_xpath_with_context("child::*:b", &static_ctx).unwrap();
+    let compiled = compile_with_context("child::*:b", &static_ctx).unwrap();
     let out = evaluate(&compiled, &ctx).unwrap();
     assert_eq!(out.len(), 1);
     match &out[0] {
@@ -94,7 +94,7 @@ fn attribute_namespace_wildcards() {
         .build();
 
     // @p:* should return attribute in ns urn:one (p:x)
-    let compiled = compile_xpath_with_context("@p:*", &static_ctx).unwrap();
+    let compiled = compile_with_context("@p:*", &static_ctx).unwrap();
     let out = evaluate(&compiled, &ctx).unwrap();
     assert_eq!(out.len(), 1);
     match &out[0] {
@@ -107,7 +107,7 @@ fn attribute_namespace_wildcards() {
     }
 
     // @*:y should return q:y regardless of prefix
-    let compiled = compile_xpath_with_context("@*:y", &static_ctx).unwrap();
+    let compiled = compile_with_context("@*:y", &static_ctx).unwrap();
     let out = evaluate(&compiled, &ctx).unwrap();
     assert_eq!(out.len(), 1);
     match &out[0] {

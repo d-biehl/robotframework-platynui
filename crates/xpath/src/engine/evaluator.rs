@@ -46,7 +46,7 @@ pub fn evaluate_expr<N: 'static + Send + Sync + XdmNode + Clone>(
     expr: &str,
     dyn_ctx: &DynamicContext<N>,
 ) -> Result<XdmSequence<N>, Error> {
-    let compiled = crate::compiler::compile_xpath(expr)?;
+    let compiled = crate::compiler::compile(expr)?;
     evaluate(&compiled, dyn_ctx)
 }
 
@@ -55,7 +55,7 @@ pub fn evaluate_stream_expr<N: 'static + Send + Sync + XdmNode + Clone>(
     expr: &str,
     dyn_ctx: &DynamicContext<N>,
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let compiled = crate::compiler::compile_xpath(expr)?;
+    let compiled = crate::compiler::compile(expr)?;
     evaluate_stream(&compiled, dyn_ctx)
 }
 

@@ -1,4 +1,4 @@
-use platynui_xpath::compiler::compile_xpath_with_context;
+use platynui_xpath::compiler::compile_with_context;
 use platynui_xpath::engine::runtime::{
     DynamicContext, DynamicContextBuilder, StaticContextBuilder,
 };
@@ -133,7 +133,7 @@ fn namespace_prefixed_step_matches(ctx: DynamicContext<N>) {
     let static_ctx = StaticContextBuilder::new()
         .with_namespace("d", "urn:default")
         .build();
-    let compiled = compile_xpath_with_context("child::d:mid", &static_ctx).unwrap();
+    let compiled = compile_with_context("child::d:mid", &static_ctx).unwrap();
     let seq = evaluate(&compiled, &ctx).unwrap();
     assert_eq!(seq.len(), 1);
     let n = match &seq[0] {
@@ -147,7 +147,7 @@ fn namespace_prefixed_step_matches(ctx: DynamicContext<N>) {
 #[rstest]
 fn namespace_unprefixed_requires_default_static(ctx: DynamicContext<N>) {
     let static_ctx = StaticContextBuilder::new().build();
-    let compiled = compile_xpath_with_context("child::mid", &static_ctx).unwrap();
+    let compiled = compile_with_context("child::mid", &static_ctx).unwrap();
     let seq = evaluate(&compiled, &ctx).unwrap();
     assert!(seq.is_empty());
 }
@@ -155,7 +155,7 @@ fn namespace_unprefixed_requires_default_static(ctx: DynamicContext<N>) {
 #[rstest]
 fn namespace_wildcard_local_name(ctx: DynamicContext<N>) {
     let static_ctx = StaticContextBuilder::new().build();
-    let compiled = compile_xpath_with_context("child::*:mid", &static_ctx).unwrap();
+    let compiled = compile_with_context("child::*:mid", &static_ctx).unwrap();
     let seq = evaluate(&compiled, &ctx).unwrap();
     assert_eq!(seq.len(), 1);
     let n = match &seq[0] {
@@ -170,7 +170,7 @@ fn namespace_wildcard_prefix(ctx: DynamicContext<N>) {
     let static_ctx = StaticContextBuilder::new()
         .with_namespace("d", "urn:default")
         .build();
-    let compiled = compile_xpath_with_context("child::d:*", &static_ctx).unwrap();
+    let compiled = compile_with_context("child::d:*", &static_ctx).unwrap();
     let seq = evaluate(&compiled, &ctx).unwrap();
     assert_eq!(seq.len(), 1);
     let n = match &seq[0] {
@@ -197,11 +197,11 @@ fn attribute_default_namespace_not_applied(ctx: DynamicContext<N>) {
     let static_ctx = StaticContextBuilder::new()
         .with_namespace("xml", "http://www.w3.org/XML/1998/namespace")
         .build();
-    let compiled_pref = compile_xpath_with_context("attribute::xml:id", &static_ctx).unwrap();
+    let compiled_pref = compile_with_context("attribute::xml:id", &static_ctx).unwrap();
     let seq_pref = evaluate(&compiled_pref, &ctx).unwrap();
     assert_eq!(seq_pref.len(), 0);
 
-    let compiled_unpref = compile_xpath_with_context("attribute::id", &static_ctx).unwrap();
+    let compiled_unpref = compile_with_context("attribute::id", &static_ctx).unwrap();
     let seq_unpref = evaluate(&compiled_unpref, &ctx).unwrap();
     assert_eq!(seq_unpref.len(), 1);
 }

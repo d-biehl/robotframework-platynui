@@ -1,6 +1,6 @@
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilder};
 use platynui_xpath::{
-    XdmItem, XdmNode, compiler::compile_xpath_with_context, evaluate, evaluate_expr,
+    XdmItem, XdmNode, compiler::compile_with_context, evaluate, evaluate_expr,
 };
 use rstest::{fixture, rstest};
 
@@ -23,7 +23,7 @@ fn static_base_uri_reports_from_static_ctx(
     sc_base: platynui_xpath::engine::runtime::StaticContext,
     ctx: platynui_xpath::engine::runtime::DynamicContext<N>,
 ) {
-    let compiled = compile_xpath_with_context("static-base-uri()", &sc_base).unwrap();
+    let compiled = compile_with_context("static-base-uri()", &sc_base).unwrap();
     let out = evaluate(&compiled, &ctx).unwrap();
     match &out[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::AnyUri(u)) => {
@@ -45,7 +45,7 @@ fn resolve_uri_relative_join(
     sc_ex_x: platynui_xpath::engine::runtime::StaticContext,
     ctx: platynui_xpath::engine::runtime::DynamicContext<N>,
 ) {
-    let compiled = compile_xpath_with_context("resolve-uri('a/b')", &sc_ex_x).unwrap();
+    let compiled = compile_with_context("resolve-uri('a/b')", &sc_ex_x).unwrap();
     let out = evaluate(&compiled, &ctx).unwrap();
     match &out[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::AnyUri(u)) => {

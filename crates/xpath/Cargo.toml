@@ -15,7 +15,10 @@ pest = "2"
 pest_derive = "2"
 unicode-normalization = "0.1"
 fancy-regex = "0.16.2"
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "std",
+] }
 base64 = "0.22"
 thiserror = "2"
 url = "2"
@@ -26,9 +29,17 @@ string_cache = "0.9"
 compact_str = "0.9"
 
 [dev-dependencies]
- rstest = "0.26"
- criterion = "0.7"
+rstest = "0.26"
+criterion = "0.7"
 
 [[bench]]
 name = "xpath_benches"
 harness = false
+
+[[example]]
+name = "platynui_xpath_repl"
+path = "examples/repl.rs"
+
+[[example]]
+name = "platynui_xpath_simple"
+path = "examples/simple.rs"

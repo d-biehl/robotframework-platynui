@@ -1,4 +1,4 @@
-use platynui_xpath::compiler::compile_xpath_with_context;
+use platynui_xpath::compiler::compile_with_context;
 use platynui_xpath::engine::runtime::ErrorCode;
 use platynui_xpath::engine::runtime::{FunctionSignatures, StaticContext, StaticContextBuilder};
 use platynui_xpath::xdm::ExpandedName;
@@ -19,7 +19,7 @@ fn missing_signature_raises_static_error() {
         function_signatures: FunctionSignatures::default(),
         ..StaticContext::default()
     };
-    let err = compile_xpath_with_context("fn:true()", &ctx).expect_err("expected static error");
+    let err = compile_with_context("fn:true()", &ctx).expect_err("expected static error");
     assert_eq!(err.code_enum(), ErrorCode::XPST0017);
 }
 
@@ -35,7 +35,7 @@ fn custom_signature_allows_compilation() {
         .unwrap();
     ctx.function_signatures
         .register_ns(&default_ns, "true", 0, Some(0));
-    assert!(compile_xpath_with_context("fn:true()", &ctx).is_ok());
+    assert!(compile_with_context("fn:true()", &ctx).is_ok());
 }
 
 #[test]

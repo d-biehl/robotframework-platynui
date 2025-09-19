@@ -1,9 +1,9 @@
-use platynui_xpath::compiler::{compile_xpath, ir::*};
+use platynui_xpath::compiler::{compile, ir::*};
 use platynui_xpath::xdm::XdmAtomicValue;
 use rstest::rstest;
 
 fn ir(src: &str) -> InstrSeq {
-    compile_xpath(src).expect("compile ok").instrs
+    compile(src).expect("compile ok").instrs
 }
 
 #[rstest]

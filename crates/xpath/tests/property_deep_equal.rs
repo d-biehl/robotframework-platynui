@@ -38,7 +38,7 @@ fn deep_equal_reflexive() {
 fn eval_distinct_values(
     seq: &[XdmItem<platynui_xpath::model::simple::SimpleNode>],
 ) -> Vec<XdmItem<platynui_xpath::model::simple::SimpleNode>> {
-    use platynui_xpath::compile_xpath_with_context;
+    use platynui_xpath::compile_with_context;
     use platynui_xpath::engine::evaluator::evaluate;
     use platynui_xpath::engine::runtime::{DynamicContext, StaticContextBuilder};
     use platynui_xpath::xdm::ExpandedName;
@@ -49,7 +49,7 @@ fn eval_distinct_values(
     let static_ctx = StaticContextBuilder::new()
         .with_variable(ExpandedName::new(None, "s"))
         .build();
-    let compiled = compile_xpath_with_context("distinct-values($s)", &static_ctx)
+    let compiled = compile_with_context("distinct-values($s)", &static_ctx)
         .expect("compile distinct-values");
     evaluate(&compiled, &ctx)
         .expect("evaluation distinct-values")

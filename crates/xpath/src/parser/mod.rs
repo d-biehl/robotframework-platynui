@@ -11,7 +11,7 @@ pub mod ast;
 #[grammar = "parser/xpath2.pest"]
 pub struct XPathParser;
 
-pub fn parse_xpath(input: &str) -> Result<ast::Expr, Error> {
+pub fn parse(input: &str) -> Result<ast::Expr, Error> {
     let mut pairs = XPathParser::parse(Rule::xpath, input)
         .map_err(|e| Error::from_code(ErrorCode::XPST0003, format!("{}", e)))?;
 

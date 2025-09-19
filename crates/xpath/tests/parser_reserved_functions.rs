@@ -1,5 +1,5 @@
 use platynui_xpath::engine::runtime::ErrorCode;
-use platynui_xpath::parser::{ast, parse_xpath};
+use platynui_xpath::parser::{ast, parse};
 use rstest::rstest;
 
 // Annex A.3 reserved function names
@@ -19,7 +19,7 @@ use rstest::rstest;
     ast::KindTest::Attribute { name: None, ty: None }
 )]
 fn reserved_names_as_node_tests(#[case] input: &str, #[case] expect: ast::KindTest) {
-    match parse_xpath(input).expect("parse failed") {
+    match parse(input).expect("parse failed") {
         ast::Expr::Path(p) => match &p.steps[0] {
             ast::Step::Axis { test, .. } => match test {
                 ast::NodeTest::Kind(k) => assert_eq!(k, &expect),
@@ -39,7 +39,7 @@ fn reserved_names_schema_variants() {
         local: local.into(),
         ns_uri: None,
     };
-    match parse_xpath("schema-element(a)").expect("parse failed") {
+    match parse("schema-element(a)").expect("parse failed") {
         ast::Expr::Path(p) => match &p.steps[0] {
             ast::Step::Axis { test, .. } => match test {
                 ast::NodeTest::Kind(ast::KindTest::SchemaElement(qn)) => {
@@ -51,7 +51,7 @@ fn reserved_names_schema_variants() {
         },
         x => panic!("unexpected: {:?}", x),
     }
-    match parse_xpath("schema-attribute(a)").expect("parse failed") {
+    match parse("schema-attribute(a)").expect("parse failed") {
         ast::Expr::Path(p) => match &p.steps[0] {
             ast::Step::Axis { test, .. } => match test {
                 ast::NodeTest::Kind(ast::KindTest::SchemaAttribute(qn)) => {
@@ -67,7 +67,7 @@ fn reserved_names_schema_variants() {
 
 #[rstest]
 fn pi_with_target_is_node_test() {
-    match parse_xpath("processing-instruction('xml-stylesheet')").expect("parse failed") {
+    match parse("processing-instruction('xml-stylesheet')").expect("parse failed") {
         ast::Expr::Path(p) => match &p.steps[0] {
             ast::Step::Axis { test, .. } => match test {
                 ast::NodeTest::Kind(ast::KindTest::ProcessingInstruction(Some(t))) => {
@@ -86,6 +86,6 @@ fn pi_with_target_is_node_test() {
 #[case("item()")]
 #[case("empty-sequence()")]
 fn reserved_sequence_type_names_rejected(#[case] input: &str) {
-    let err = parse_xpath(input).expect_err("expected error");
+    let err = parse(input).expect_err("expected error");
     assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }

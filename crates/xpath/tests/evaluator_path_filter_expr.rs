@@ -1,4 +1,4 @@
-use platynui_xpath::compiler::compile_xpath_with_context;
+use platynui_xpath::compiler::compile_with_context;
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilder};
 use platynui_xpath::evaluate;
 use platynui_xpath::model::simple::{SimpleNode, doc, elem, text};
@@ -31,7 +31,7 @@ fn filter_step_in_path_evaluates() {
     let static_ctx = StaticContextBuilder::new()
         .with_variable(var_name.clone())
         .build();
-    let compiled = compile_xpath_with_context(expr, &static_ctx).expect("compile ok");
+    let compiled = compile_with_context(expr, &static_ctx).expect("compile ok");
     let dynamic_ctx = DynamicContextBuilder::default()
         .with_context_item(XdmItem::Node(doc.clone()))
         .with_variable(
@@ -52,7 +52,7 @@ fn filter_step_with_descendant_insertion() {
         .with_context_item(XdmItem::Node(doc))
         .build();
     let compiled =
-        compile_xpath_with_context(expr, &StaticContextBuilder::new().build()).expect("compile ok");
+        compile_with_context(expr, &StaticContextBuilder::new().build()).expect("compile ok");
     let result = evaluate::<SimpleNode>(&compiled, &dynamic_ctx).expect("eval ok");
     let ints: Vec<i64> = result
         .into_iter()
@@ -68,7 +68,7 @@ fn filter_step_with_descendant_insertion() {
 fn path_from_with_filter_step() {
     let expr = "(1, 2, 3)/xs:integer(.)";
     let compiled =
-        compile_xpath_with_context(expr, &StaticContextBuilder::new().build()).expect("compile ok");
+        compile_with_context(expr, &StaticContextBuilder::new().build()).expect("compile ok");
     let dyn_ctx = DynamicContextBuilder::<SimpleNode>::default().build();
     let result = evaluate::<SimpleNode>(&compiled, &dyn_ctx).expect("eval ok");
     let ints: Vec<i64> = result

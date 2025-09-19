@@ -61,13 +61,13 @@ fn attribute_name_and_wildcard() {
 #[rstest]
 fn element_type_arg_rejected_without_schema_awareness() {
     let expr = "element(root, xs:string)";
-    let err = platynui_xpath::compile_xpath(expr).expect_err("expected static error");
+    let err = platynui_xpath::compile(expr).expect_err("expected static error");
     assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }
 
 #[rstest]
 fn schema_element_rejected_without_schema_awareness() {
     let expr = "schema-element(root)";
-    let err = platynui_xpath::compile_xpath(expr).expect_err("expected static error");
+    let err = platynui_xpath::compile(expr).expect_err("expected static error");
     assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }

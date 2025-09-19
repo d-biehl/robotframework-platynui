@@ -1,5 +1,5 @@
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use platynui_xpath::compiler::compile_xpath;
+use platynui_xpath::compiler::compile;
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::xdm::XdmItem as I;
@@ -43,7 +43,7 @@ fn benchmark_string_operations(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for (name, query) in string_queries {
-        let compiled = compile_xpath(query).expect("compile failure");
+        let compiled = compile(query).expect("compile failure");
         group.bench_function(name, |b| {
             b.iter(|| {
                 let result =
@@ -95,7 +95,7 @@ fn benchmark_node_operations(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(15));
 
     for (name, query) in node_queries {
-        let compiled = compile_xpath(query).expect("compile failure");
+        let compiled = compile(query).expect("compile failure");
         group.bench_function(name, |b| {
             b.iter(|| {
                 let result =
@@ -145,7 +145,7 @@ fn benchmark_numeric_operations(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for (name, query) in numeric_queries {
-        let compiled = compile_xpath(query).expect("compile failure");
+        let compiled = compile(query).expect("compile failure");
         group.bench_function(name, |b| {
             b.iter(|| {
                 let result =
@@ -200,7 +200,7 @@ fn benchmark_complex_predicates(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(12));
 
     for (name, query) in predicate_queries {
-        let compiled = compile_xpath(query).expect("compile failure");
+        let compiled = compile(query).expect("compile failure");
         group.bench_function(name, |b| {
             b.iter(|| {
                 let result =
@@ -241,7 +241,7 @@ fn benchmark_memory_patterns(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(15));
 
     for (name, query) in memory_queries {
-        let compiled = compile_xpath(query).expect("compile failure");
+        let compiled = compile(query).expect("compile failure");
         group.bench_function(name, |b| {
             b.iter(|| {
                 let result =

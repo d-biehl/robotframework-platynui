@@ -1,7 +1,7 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use platynui_xpath::compiler::compile_xpath;
+use platynui_xpath::compiler::compile;
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, Error};
-use platynui_xpath::parser::parse_xpath;
+use platynui_xpath::parser::parse;
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::xdm::XdmItem as I;
 use platynui_xpath::{SimpleNode, evaluate};
@@ -42,7 +42,7 @@ fn prepare_axis_queries()
     ];
     queries
         .into_iter()
-        .map(|q| compile_xpath(q).map(|compiled| (q.to_string(), compiled)))
+        .map(|q| compile(q).map(|compiled| (q.to_string(), compiled)))
         .collect()
 }
 
@@ -54,7 +54,7 @@ fn prepare_predicate_queries()
     ];
     queries
         .into_iter()
-        .map(|q| compile_xpath(q).map(|compiled| (q.to_string(), compiled)))
+        .map(|q| compile(q).map(|compiled| (q.to_string(), compiled)))
         .collect()
 }
 
@@ -73,7 +73,7 @@ fn benchmark_parser(c: &mut Criterion) {
     c.bench_function("parser/parse_xpath", |b| {
         b.iter(|| {
             for q in &queries {
-                let ast = parse_xpath(black_box(q)).expect("parse failure");
+                let ast = parse(black_box(q)).expect("parse failure");
                 black_box(ast);
             }
         })
@@ -85,7 +85,7 @@ fn benchmark_compiler(c: &mut Criterion) {
     c.bench_function("compiler/compile_xpath", |b| {
         b.iter(|| {
             for q in &queries {
-                let compiled = compile_xpath(black_box(q)).expect("compile failure");
+                let compiled = compile(black_box(q)).expect("compile failure");
                 black_box(compiled);
             }
         })
@@ -144,7 +144,7 @@ fn prepared_compiled_queries()
 -> Result<Vec<(String, platynui_xpath::compiler::ir::CompiledXPath)>, Error> {
     sample_queries()
         .into_iter()
-        .map(|q| compile_xpath(q).map(|c| (q.to_string(), c)))
+        .map(|q| compile(q).map(|c| (q.to_string(), c)))
         .collect()
 }
 
@@ -249,6 +249,6 @@ fn prepare_set_queries() -> Result<Vec<(String, platynui_xpath::compiler::ir::Co
     ];
     queries
         .into_iter()
-        .map(|q| compile_xpath(q).map(|compiled| (q.to_string(), compiled)))
+        .map(|q| compile(q).map(|compiled| (q.to_string(), compiled)))
         .collect()
 }

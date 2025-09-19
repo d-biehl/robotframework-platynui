@@ -1,6 +1,6 @@
 use crate::engine::runtime::ErrorCode;
 use crate::engine::runtime::{Error, StaticContext};
-use crate::parser::{ast, parse_xpath};
+use crate::parser::{ast, parse};
 use crate::xdm::{ExpandedName, XdmAtomicValue};
 use smallvec::SmallVec;
 
@@ -16,12 +16,12 @@ fn default_static_ctx() -> &'static StaticContext {
 }
 
 /// Compile using a lazily initialized default StaticContext
-pub fn compile_xpath(expr: &str) -> Result<ir::CompiledXPath, Error> {
+pub fn compile(expr: &str) -> Result<ir::CompiledXPath, Error> {
     compile_inner(expr, default_static_ctx())
 }
 
 /// Compile with an explicitly provided StaticContext
-pub fn compile_xpath_with_context(
+pub fn compile_with_context(
     expr: &str,
     static_ctx: &StaticContext,
 ) -> Result<ir::CompiledXPath, Error> {
@@ -30,7 +30,7 @@ pub fn compile_xpath_with_context(
 
 /// Backing implementation shared by all compile entrypoints
 fn compile_inner(expr: &str, static_ctx: &StaticContext) -> Result<ir::CompiledXPath, Error> {
-    let ast = parse_xpath(expr)?;
+    let ast = parse(expr)?;
     let mut c = Compiler::new(static_ctx, expr);
     c.lower_expr(&ast)?;
     Ok(ir::CompiledXPath {

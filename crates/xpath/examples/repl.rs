@@ -6,7 +6,7 @@ use pest::{
 };
 use platynui_xpath::{
     XdmNode,
-    compiler::compile_xpath,
+    compiler::compile,
     engine::{
         evaluator::evaluate,
         runtime::{DynamicContextBuilder, ErrorCode},
@@ -161,7 +161,7 @@ fn main() {
             continue;
         }
 
-        match compile_xpath(&expression) {
+        match compile(&expression) {
             Ok(compiled) => {
                 match evaluate::<SimpleNode>(&compiled, &base_ctx) {
                     Ok(seq) => {
@@ -198,7 +198,7 @@ fn main() {
 }
 
 fn handle_expression(expr: &str, ctx: &platynui_xpath::DynamicContext<SimpleNode>) {
-    let compiled = match compile_xpath(expr) {
+    let compiled = match compile(expr) {
         Ok(c) => c,
         Err(err) => {
             eprintln!("Compile error: {}", err);
