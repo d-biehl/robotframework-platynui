@@ -1,7 +1,10 @@
+use crate::compiler::ir;
 use crate::engine::collation::{CODEPOINT_URI, Collation, CollationRegistry};
 use crate::xdm::{ExpandedName, XdmItem, XdmSequence};
 use core::fmt;
+use lru::LruCache;
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -118,6 +121,8 @@ pub type FunctionImpl<N> =
 // Type aliases to keep complex nested types readable
 pub type FunctionOverload<N> = (Arity, Option<Arity>, FunctionImpl<N>);
 pub type FunctionOverloads<N> = Vec<FunctionOverload<N>>;
+
+pub(crate) const STATIC_CONTEXT_COMPILE_CACHE_CAPACITY: usize = 20;
 
 pub struct FunctionImplementations<N> {
     fns: HashMap<ExpandedName, FunctionOverloads<N>>,
@@ -896,6 +901,7 @@ pub struct StaticContext {
     pub function_signatures: FunctionSignatures,
     pub statically_known_collations: HashSet<String>,
     pub xpath_compatibility_mode: bool,
+    pub(crate) compile_cache: Arc<Mutex<LruCache<String, Arc<ir::InstrSeq>>>>,
 }
 
 impl Default for StaticContext {
@@ -906,6 +912,8 @@ impl Default for StaticContext {
             .insert("xml".to_string(), crate::consts::XML_URI.to_string());
         let mut collations: HashSet<String> = HashSet::new();
         collations.insert(CODEPOINT_URI.to_string());
+        let cache_capacity = NonZeroUsize::new(STATIC_CONTEXT_COMPILE_CACHE_CAPACITY)
+            .expect("static context compile cache capacity must be non-zero");
         Self {
             base_uri: None,
             default_function_namespace: Some(crate::consts::FNS.to_string()),
@@ -916,6 +924,7 @@ impl Default for StaticContext {
             function_signatures: crate::engine::functions::default_function_signatures(),
             statically_known_collations: collations,
             xpath_compatibility_mode: false,
+            compile_cache: Arc::new(Mutex::new(LruCache::new(cache_capacity))),
         }
     }
 }

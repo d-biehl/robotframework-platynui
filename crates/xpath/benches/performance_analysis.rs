@@ -1,10 +1,78 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use platynui_xpath::compiler::compile;
-use platynui_xpath::engine::runtime::DynamicContextBuilder;
+use platynui_xpath::compiler::{compile, compile_with_context};
+use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContext};
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::xdm::XdmItem as I;
 use platynui_xpath::{SimpleNode, evaluate};
+use std::cell::Cell;
 use std::hint::black_box;
+
+fn compile_bench(c: &mut Criterion) {
+    c.bench_function("compile/cache_hit", |b| {
+        let ctx = StaticContext::default();
+        const COMPLEX_EXPR: &str = r#"
+            for $section in //library/section[@type = 'technical']
+            return (
+                $section/@name,
+                count($section/book[@available = 'true']),
+                for $book in $section/book[@available = 'true'][position() <= 5]
+                return concat(
+                    $section/@name,
+                    '::',
+                    normalize-space($book/title),
+                    '::',
+                    substring(
+                        string-join($book/summary//text(), ' '),
+                        1,
+                        60
+                    )
+                )
+            )
+        "#;
+        // Cache vorwärmen, damit spätere Iterationen echte Hits erzeugen.
+        compile_with_context(COMPLEX_EXPR, &ctx).expect("cache warm-up");
+
+        b.iter(|| {
+            let compiled = compile_with_context(black_box(COMPLEX_EXPR), &ctx).unwrap();
+            black_box(compiled);
+        });
+    });
+
+    c.bench_function("compile/cache_miss", |b| {
+        let ctx = StaticContext::default();
+        // Mehr verschiedene Ausdrücke als Cache-Plätze, um konstante Misses zu erzwingen.
+        const MISS_EXPR_COUNT: usize = 32;
+        let miss_exprs: Vec<String> = (0..MISS_EXPR_COUNT)
+            .map(|i| {
+                format!(
+                    "for $dept in //company/department[@floor = {floor}]\
+                     return (\
+                        $dept/@name,\
+                        sum(for $e in $dept/employee[@active = 'true'][position() <= {limit}]\
+                            return number($e/salary)),\
+                        for $e in $dept/employee[@active = 'true'][position() <= {limit}]\
+                        return concat(\
+                            normalize-space($e/name),\
+                            ' (', $dept/@code, ') - ',\
+                            string-join($e/role/text(), ', ')\
+                        )\
+                     )",
+                    floor = (i % 7) + 1,
+                    limit = (i % 5) + 3
+                )
+            })
+            .collect();
+        let index = Cell::new(0usize);
+
+        b.iter(|| {
+            let idx = index.get();
+            index.set(idx.wrapping_add(1));
+            let expr = &miss_exprs[idx % miss_exprs.len()];
+            let compiled = compile_with_context(black_box(expr.as_str()), &ctx).unwrap();
+            black_box(compiled);
+        });
+    });
+}
 
 fn string_operations_bench(c: &mut Criterion) {
     let document = build_string_heavy_document();
@@ -244,6 +312,7 @@ fn build_wide_document(num_sections: usize, items_per_section: usize) -> SimpleN
 
 criterion_group!(
     benches,
+    compile_bench,
     string_operations_bench,
     node_operations_bench,
     memory_allocation_bench,

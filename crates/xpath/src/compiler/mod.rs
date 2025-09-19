@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 
 pub mod ir;
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use string_cache::DefaultAtom;
 
 static DEFAULT_STATIC_CONTEXT: OnceLock<StaticContext> = OnceLock::new();
@@ -30,13 +30,37 @@ pub fn compile_with_context(
 
 /// Backing implementation shared by all compile entrypoints
 fn compile_inner(expr: &str, static_ctx: &StaticContext) -> Result<ir::CompiledXPath, Error> {
+    if let Some(instrs) = static_ctx
+        .compile_cache
+        .lock()
+        .expect("static context compile cache mutex poisoned")
+        .get(expr)
+        .cloned()
+    {
+        return Ok(ir::CompiledXPath {
+            instrs: (*instrs).clone(),
+            static_ctx: Arc::new(static_ctx.clone()),
+            source: expr.to_string(),
+        });
+    }
+
     let ast = parse(expr)?;
     let mut c = Compiler::new(static_ctx, expr);
     c.lower_expr(&ast)?;
+    let instrs = ir::InstrSeq(c.code);
+    let source = expr.to_string();
+    let cache_entry = Arc::new(instrs.clone());
+
+    static_ctx
+        .compile_cache
+        .lock()
+        .expect("static context compile cache mutex poisoned")
+        .put(source.clone(), cache_entry);
+
     Ok(ir::CompiledXPath {
-        instrs: ir::InstrSeq(c.code),
-        static_ctx: std::sync::Arc::new(static_ctx.clone()),
-        source: expr.to_string(),
+        instrs,
+        static_ctx: Arc::new(static_ctx.clone()),
+        source,
     })
 }
 
@@ -744,5 +768,89 @@ impl<'a> Compiler<'a> {
                 _ => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compile_with_context;
+    use crate::engine::runtime::{
+        STATIC_CONTEXT_COMPILE_CACHE_CAPACITY, StaticContext, StaticContextBuilder,
+    };
+    use std::sync::Arc;
+
+    #[test]
+    fn cache_serves_repeat_compiles_without_reparsing() {
+        let expr = "1 + 2";
+        let ctx = StaticContext::default();
+
+        assert_eq!(ctx.compile_cache.lock().expect("cache lock").len(), 0);
+
+        let first = compile_with_context(expr, &ctx).expect("first compile succeeds");
+
+        let first_ptr = {
+            let cache = ctx.compile_cache.lock().expect("cache lock");
+            let entry = cache.peek(expr).expect("entry present after first compile");
+            Arc::as_ptr(entry)
+        };
+
+        let second = compile_with_context(expr, &ctx).expect("second compile succeeds");
+
+        let second_ptr = {
+            let cache = ctx.compile_cache.lock().expect("cache lock");
+            let entry = cache
+                .peek(expr)
+                .expect("entry present after second compile");
+            Arc::as_ptr(entry)
+        };
+
+        assert_eq!(first.instrs, second.instrs);
+        assert_eq!(first_ptr, second_ptr);
+    }
+
+    #[test]
+    fn cache_separates_entries_by_static_context() {
+        let expr = "string(1)";
+        let default_ctx = StaticContext::default();
+        let custom_ctx = StaticContextBuilder::new()
+            .with_namespace("p", "http://example.com/custom")
+            .build();
+
+        compile_with_context(expr, &default_ctx).expect("default context compile succeeds");
+        compile_with_context(expr, &custom_ctx).expect("custom context compile succeeds");
+
+        let default_len = {
+            let cache = default_ctx
+                .compile_cache
+                .lock()
+                .expect("default cache lock poisoned");
+            cache.len()
+        };
+        let custom_len = {
+            let cache = custom_ctx
+                .compile_cache
+                .lock()
+                .expect("custom cache lock poisoned");
+            cache.len()
+        };
+
+        assert_eq!(default_len, 1);
+        assert_eq!(custom_len, 1);
+    }
+
+    #[test]
+    fn cache_respects_capacity_limit() {
+        let ctx = StaticContext::default();
+        for i in 0..(STATIC_CONTEXT_COMPILE_CACHE_CAPACITY + 5) {
+            let expr = format!("{} + {}", i, i + 1);
+            compile_with_context(&expr, &ctx).expect("compilation succeeds");
+        }
+
+        let len = ctx
+            .compile_cache
+            .lock()
+            .expect("test cache lock poisoned")
+            .len();
+        assert_eq!(len, STATIC_CONTEXT_COMPILE_CACHE_CAPACITY);
     }
 }
