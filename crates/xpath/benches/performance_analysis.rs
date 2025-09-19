@@ -1,4 +1,4 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{Criterion, SamplingMode, criterion_group, criterion_main};
 use platynui_xpath::compiler::{compile, compile_with_context};
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContext};
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
@@ -6,6 +6,7 @@ use platynui_xpath::xdm::XdmItem as I;
 use platynui_xpath::{SimpleNode, evaluate};
 use std::cell::Cell;
 use std::hint::black_box;
+use std::time::Duration;
 
 fn compile_bench(c: &mut Criterion) {
     c.bench_function("compile/cache_hit", |b| {
@@ -80,7 +81,12 @@ fn string_operations_bench(c: &mut Criterion) {
         .with_context_item(I::Node(document.clone()))
         .build();
 
-    c.bench_function("string/concat_multiple", |b| {
+    let mut group = c.benchmark_group("string");
+    group.sample_size(40);
+    group.measurement_time(Duration::from_secs(6));
+    group.warm_up_time(Duration::from_secs(2));
+
+    group.bench_function("concat_multiple", |b| {
         let compiled =
             compile("concat(//text[1], //text[2], //text[3], //text[4], //text[5])").unwrap();
         b.iter(|| {
@@ -89,7 +95,7 @@ fn string_operations_bench(c: &mut Criterion) {
         });
     });
 
-    c.bench_function("string/contains_search", |b| {
+    group.bench_function("contains_search", |b| {
         let compiled = compile("count(//text[contains(., 'specific')])").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
@@ -97,13 +103,15 @@ fn string_operations_bench(c: &mut Criterion) {
         });
     });
 
-    c.bench_function("string/string_length_sum", |b| {
+    group.bench_function("string_length_sum", |b| {
         let compiled = compile("sum(for $t in //text return string-length($t))").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result);
         });
     });
+
+    group.finish();
 }
 
 fn node_operations_bench(c: &mut Criterion) {
@@ -111,8 +119,13 @@ fn node_operations_bench(c: &mut Criterion) {
     let ctx = DynamicContextBuilder::default()
         .with_context_item(I::Node(document.clone()))
         .build();
+    let mut group = c.benchmark_group("node");
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(12));
+    group.warm_up_time(Duration::from_secs(3));
+    group.sampling_mode(SamplingMode::Flat);
 
-    c.bench_function("node/large_union", |b| {
+    group.bench_function("large_union", |b| {
         let compiled = compile("(//*[@level='1'] | //*[@level='2'] | //*[@level='3'])").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
@@ -120,7 +133,7 @@ fn node_operations_bench(c: &mut Criterion) {
         });
     });
 
-    c.bench_function("node/doc_order_large", |b| {
+    group.bench_function("doc_order_large", |b| {
         let compiled = compile("(//*)[position() <= 500]").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
@@ -128,7 +141,7 @@ fn node_operations_bench(c: &mut Criterion) {
         });
     });
 
-    c.bench_function("node/deep_descendants", |b| {
+    group.bench_function("deep_descendants", |b| {
         let compiled =
             compile("for $a in //*[@level='1'] return count($a/descendant-or-self::*)").unwrap();
         b.iter(|| {
@@ -136,6 +149,8 @@ fn node_operations_bench(c: &mut Criterion) {
             black_box(result);
         });
     });
+
+    group.finish();
 }
 
 fn memory_allocation_bench(c: &mut Criterion) {

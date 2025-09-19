@@ -1,4 +1,4 @@
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, SamplingMode, criterion_group, criterion_main};
 use platynui_xpath::compiler::compile;
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, Error};
 use platynui_xpath::parser::parse;
@@ -174,9 +174,10 @@ fn benchmark_axes_following_preceding(c: &mut Criterion) {
         .build();
     let compiled = prepare_axis_queries().expect("compile failure");
     let mut group = c.benchmark_group("axes/following_preceding");
-    group.sample_size(20);
+    group.sample_size(12);
     group.measurement_time(Duration::from_secs(8));
     group.warm_up_time(Duration::from_secs(2));
+    group.sampling_mode(SamplingMode::Flat);
     for (name, program) in &compiled {
         group.bench_with_input(BenchmarkId::from_parameter(name), program, |b, prog| {
             b.iter(|| {
@@ -196,8 +197,9 @@ fn benchmark_predicate_heavy(c: &mut Criterion) {
     let compiled = prepare_predicate_queries().expect("compile failure");
     let mut group = c.benchmark_group("evaluator/predicate_heavy");
     group.sample_size(10);
-    group.measurement_time(Duration::from_secs(30));
-    group.warm_up_time(Duration::from_secs(2));
+    group.measurement_time(Duration::from_secs(12));
+    group.warm_up_time(Duration::from_secs(3));
+    group.sampling_mode(SamplingMode::Flat);
     for (name, program) in &compiled {
         group.bench_with_input(BenchmarkId::from_parameter(name), program, |b, prog| {
             b.iter(|| {
@@ -216,9 +218,10 @@ fn benchmark_set_ops(c: &mut Criterion) {
         .build();
     let compiled = prepare_set_queries().expect("compile failure");
     let mut group = c.benchmark_group("evaluator/set_ops");
-    group.sample_size(20);
+    group.sample_size(12);
     group.measurement_time(Duration::from_secs(10));
     group.warm_up_time(Duration::from_secs(2));
+    group.sampling_mode(SamplingMode::Flat);
     for (name, program) in &compiled {
         group.bench_with_input(BenchmarkId::from_parameter(name), program, |b, prog| {
             b.iter(|| {
