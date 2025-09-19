@@ -12,7 +12,7 @@ This note summarizes how the crate lines up with the W3C *XPath 2.0* recommendat
 | Default function namespace | ✅ defaulted to `fn` | `default_function_namespace` initialises to the W3C function namespace (`crates/platynui-xpath/src/engine/runtime.rs:753`). |
 | In-scope schema definitions (types/elements/attributes) | ❌ missing | There is no schema catalog in the static context, so schema-aware features are unsupported. |
 | In-scope variables | ✅ tracked | `StaticContext.in_scope_variables` holds the global bindings (`crates/platynui-xpath/src/engine/runtime.rs:743`). |
-| Context item static type | ❌ missing | Static typing metadata is not recorded; only dynamic checks exist. |
+| Context item static type | ✅ optional | `StaticContext.context_item_type` speichert bei Bedarf einen `SeqTypeIR`; der Compiler erzwingt den Typ über `treat` für `.` und implizite Kontextzugriffe. |
 | Function signatures catalogue | ✅ implemented | `StaticContext.function_signatures` records known functions and their arity ranges, enabling compile-time validation (`crates/platynui-xpath/src/engine/runtime.rs`). |
 | Statically known collations | ✅ implemented | `StaticContext.statically_known_collations` tracks available collations alongside the default (`crates/platynui-xpath/src/engine/runtime.rs`). |
 | Default collation | ✅ stored | `default_collation` defaults to codepoint collation (`crates/platynui-xpath/src/engine/runtime.rs:754`). |

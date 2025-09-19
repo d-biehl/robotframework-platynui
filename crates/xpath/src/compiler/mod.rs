@@ -97,6 +97,23 @@ impl<'a> Compiler<'a> {
         self.code.push(op);
     }
 
+    fn load_context_item(&mut self, usage: &str) -> CResult<()> {
+        if let Some(t) = &self.static_ctx.context_item_type
+            && matches!(t, ir::SeqTypeIR::EmptySequence) {
+                return Err(Error::from_code(
+                    ErrorCode::XPST0003,
+                    format!(
+                        "context item is statically typed as empty-sequence(); cannot use {usage}"
+                    ),
+                ));
+            }
+        self.emit(ir::OpCode::LoadContextItem);
+        if let Some(t) = &self.static_ctx.context_item_type {
+            self.emit(ir::OpCode::Treat(t.clone()));
+        }
+        Ok(())
+    }
+
     fn push_scope(&mut self) {
         self.lexical_scopes.push(SmallVec::new());
     }
@@ -167,9 +184,9 @@ impl<'a> Compiler<'a> {
                         && specs
                             .get(idx)
                             .is_some_and(|spec| spec.requires_atomization())
-                        {
-                            self.emit(ir::OpCode::Atomize);
-                        }
+                    {
+                        self.emit(ir::OpCode::Atomize);
+                    }
                 }
                 self.emit(ir::OpCode::CallByName(en, args.len()));
                 Ok(())
@@ -285,10 +302,7 @@ impl<'a> Compiler<'a> {
                 self.emit(ir::OpCode::Cast(self.lower_single_type(ty)?));
                 Ok(())
             }
-            E::ContextItem => {
-                self.emit(ir::OpCode::LoadContextItem);
-                Ok(())
-            }
+            E::ContextItem => self.load_context_item("the context item expression"),
             E::Path(p) => self.lower_path_expr(p, None),
             E::PathFrom { base, steps } => {
                 self.lower_expr(base)?;
@@ -471,7 +485,7 @@ impl<'a> Compiler<'a> {
                 if let Some(b) = base {
                     self.lower_expr(b)?;
                 } else {
-                    self.emit(ir::OpCode::LoadContextItem);
+                    self.load_context_item("relative path")?;
                 }
             }
         }

@@ -851,8 +851,7 @@ impl ArityRange {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Occurrence {
     #[default]
     ExactlyOne,
@@ -870,7 +869,6 @@ impl Occurrence {
         matches!(self, Occurrence::ZeroOrMore | Occurrence::OneOrMore)
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ItemTypeSpec {
@@ -1869,13 +1867,14 @@ impl FunctionSignatures {
             return Some(types.as_slice());
         }
         if name.ns_uri.is_none()
-            && let Some(ns) = default_ns {
-                let mut resolved = name.clone();
-                resolved.ns_uri = Some(ns.to_string());
-                if let Some(types) = self.param_types.get(&(resolved, arity)) {
-                    return Some(types.as_slice());
-                }
+            && let Some(ns) = default_ns
+        {
+            let mut resolved = name.clone();
+            resolved.ns_uri = Some(ns.to_string());
+            if let Some(types) = self.param_types.get(&(resolved, arity)) {
+                return Some(types.as_slice());
             }
+        }
         None
     }
 }
@@ -1891,6 +1890,7 @@ pub struct StaticContext {
     pub function_signatures: FunctionSignatures,
     pub statically_known_collations: HashSet<String>,
     pub xpath_compatibility_mode: bool,
+    pub context_item_type: Option<ir::SeqTypeIR>,
     pub(crate) compile_cache: Arc<Mutex<LruCache<String, Arc<ir::InstrSeq>>>>,
 }
 
@@ -1914,6 +1914,7 @@ impl Default for StaticContext {
             function_signatures: crate::engine::functions::default_function_signatures(),
             statically_known_collations: collations,
             xpath_compatibility_mode: false,
+            context_item_type: None,
             compile_cache: Arc::new(Mutex::new(LruCache::new(cache_capacity))),
         }
     }
@@ -1967,6 +1968,16 @@ impl StaticContextBuilder {
 
     pub fn with_xpath_compatibility_mode(mut self, enabled: bool) -> Self {
         self.ctx.xpath_compatibility_mode = enabled;
+        self
+    }
+
+    pub fn with_context_item_type(mut self, ty: ir::SeqTypeIR) -> Self {
+        self.ctx.context_item_type = Some(ty);
+        self
+    }
+
+    pub fn clear_context_item_type(mut self) -> Self {
+        self.ctx.context_item_type = None;
         self
     }
 
