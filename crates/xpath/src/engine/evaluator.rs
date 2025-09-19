@@ -2,7 +2,10 @@ use crate::compiler::ir::{
     AxisIR, ComparisonOp, CompiledXPath, InstrSeq, NameOrWildcard, NodeTestIR, OpCode,
     QuantifierKind, SeqTypeIR, SingleTypeIR,
 };
-use crate::engine::runtime::{CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations};
+use crate::engine::functions::parse_qname_lexical;
+use crate::engine::runtime::{
+    CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations, ParamTypeSpec,
+};
 // fast_names_equal inlined: equality on interned atoms is direct O(1) comparison
 use crate::model::{NodeKind, XdmNode};
 use crate::util::temporal::{
@@ -2295,6 +2298,14 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                         .static_ctx
                         .default_function_namespace
                         .as_deref();
+                    if let Some(specs) = self
+                        .compiled
+                        .static_ctx
+                        .function_signatures
+                        .param_types_for_call(en, argc, def_ns)
+                    {
+                        self.apply_function_conversions(&mut args, specs)?;
+                    }
                     let f = match self.functions.resolve(en, argc, def_ns) {
                         Ok(f) => f,
                         Err(crate::engine::runtime::ResolveError::Unknown(resolved)) => {
@@ -2346,6 +2357,27 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                         "raised by program",
                     ));
                 }
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_function_conversions(
+        &self,
+        args: &mut [XdmSequence<N>],
+        specs: &[ParamTypeSpec],
+    ) -> Result<(), Error> {
+        for (idx, spec) in specs.iter().enumerate() {
+            if let Some(arg) = args.get_mut(idx) {
+                if spec.requires_atomization()
+                    && arg.iter().any(|item| matches!(item, XdmItem::Node(_)))
+                {
+                    let taken = mem::take(arg);
+                    *arg = Self::atomize(taken);
+                }
+                let converted =
+                    spec.apply_to_sequence(mem::take(arg), &self.compiled.static_ctx)?;
+                *arg = converted;
             }
         }
         Ok(())
@@ -4500,28 +4532,6 @@ fn is_valid_nmtoken(s: &str) -> bool {
         return false;
     }
     s.chars().all(|ch| is_name_char(ch, true))
-}
-
-fn parse_qname_lexical(s: &str) -> Result<(Option<String>, String), ()> {
-    if s.is_empty() {
-        return Err(());
-    }
-    if let Some(pos) = s.find(':') {
-        let (prefix, local_with_colon) = s.split_at(pos);
-        let local = &local_with_colon[1..];
-        if prefix.is_empty() || local.is_empty() {
-            return Err(());
-        }
-        if !is_valid_name(prefix, true, false) || !is_valid_name(local, true, false) {
-            return Err(());
-        }
-        Ok((Some(prefix.to_string()), local.to_string()))
-    } else {
-        if !is_valid_name(s, true, false) {
-            return Err(());
-        }
-        Ok((None, s.to_string()))
-    }
 }
 
 fn decode_hex(input: &str) -> Option<Vec<u8>> {

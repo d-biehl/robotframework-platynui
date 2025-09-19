@@ -52,15 +52,23 @@ This plan describes the work needed to bring the PlatynUI XPath engine into comp
 ## Status Tracker
 | Step | Description | Status |
 |------|-------------|--------|
-| 1 | Model parameter sequence types | Pending |
-| 2 | Expose metadata accessors | Pending |
-| 3 | Implement conversion pipeline in evaluator | Pending |
-| 4 | Adjust built-in function implementations | Pending |
-| 5 | Validate compiler integration | Pending |
-| 6 | Add regression and error tests | Pending |
-| 7 | Update docs / cleanup | Pending |
+| 1 | Model parameter sequence types | Completed |
+| 2 | Expose metadata accessors | Completed |
+| 3 | Implement conversion pipeline in evaluator | Completed |
+| 4 | Adjust built-in function implementations | Completed |
+| 5 | Validate compiler integration | Completed |
+| 6 | Add regression and error tests | Completed |
+| 7 | Update docs / cleanup | Completed |
 
 ## Notes
 - Focus initial coverage on core `fn:` functions; extension modules can follow once the pattern is proven.
 - Treat unspecified parameter metadata as accepting any sequence to remain backwards compatible until all functions are annotated.
 - Plan to re-run the full `cargo test -p platynui-xpath` suite plus relevant benchmarks after landing the conversion logic to confirm no regressions.
+- Runtime conversions now coerce `xs:untypedAtomic` inputs into strings, booleans, numeric families (`xs:double`, `xs:decimal`, `xs:float`), `xs:anyURI`, `xs:duration`, and `xs:QName` before dispatch, raising `err:XPTY0004` for cardinality violations and `err:FONS0004` when namespace prefixes are unknown.
+- Regression coverage includes string/numeric/URI/duration/QName promotion scenarios (e.g., `substring`, `round`, `encode-for-uri`, `resolve-uri`, `years-from-duration`, `namespace-uri-from-QName`); the compiler and runtime now share a single source of truth for these conversions, so new built-ins only need to register their `ParamTypeSpec`s.
+
+## Developer Guidance
+- Register every built-in through `register_default_functions` with both the arity range and the concrete `ParamTypeSpec` list. This keeps the compiler (`ParamTypeSpec::requires_atomization`) and runtime (`ParamTypeSpec::apply_to_sequence`) in sync.
+- Use `ParamTypeSpec::qname`, `::duration`, `::year_month_duration`, and `::day_time_duration` to opt-in to the relevant conversion helpers. Avoid per-function parsing; the runtime will supply already-typed atomics or raise the mandated errors.
+- When introducing new namespaces or prefixes in tests, prefer the statically declared namespaces (e.g., `xml`) or extend the test context via the compiler; the runtime now enforces prefix resolution rules strictly.
+- Legacy helpers that previously accepted strings/untyped values (e.g., duration accessors) should no longer perform inline parsing. If a helper still must accept multiple atomic flavours, document the expectation and rely on the centralized conversions for lexical handling.

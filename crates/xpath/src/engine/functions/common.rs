@@ -1777,7 +1777,7 @@ pub(super) fn replace_whitespace(s: &str) -> String {
         .collect()
 }
 
-pub(super) fn parse_qname_lexical(s: &str) -> Result<(Option<String>, String), ()> {
+pub(crate) fn parse_qname_lexical(s: &str) -> Result<(Option<String>, String), ()> {
     if s.is_empty() {
         return Err(());
     }
@@ -1831,7 +1831,7 @@ pub(super) fn is_valid_language(s: &str) -> bool {
     true
 }
 
-pub(super) fn parse_duration_lexical(s: &str) -> Result<(Option<i32>, Option<i64>), Error> {
+pub(crate) fn parse_duration_lexical(s: &str) -> Result<(Option<i32>, Option<i64>), Error> {
     if let Ok(m) = parse_year_month_duration_months(s) {
         return Ok((Some(m), None));
     }
@@ -1841,7 +1841,7 @@ pub(super) fn parse_duration_lexical(s: &str) -> Result<(Option<i32>, Option<i64
     Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:duration"))
 }
 
-pub(super) fn parse_year_month_duration_months(s: &str) -> Result<i32, ()> {
+pub(crate) fn parse_year_month_duration_months(s: &str) -> Result<i32, ()> {
     // Pattern: -?P(\d+Y)?(\d+M)? with at least one present
     let s = s.trim();
     if s.is_empty() {
@@ -1890,7 +1890,7 @@ pub(super) fn parse_year_month_duration_months(s: &str) -> Result<i32, ()> {
     Ok(if neg { -total } else { total })
 }
 
-pub(super) fn parse_day_time_duration_secs(s: &str) -> Result<i64, ()> {
+pub(crate) fn parse_day_time_duration_secs(s: &str) -> Result<i64, ()> {
     // Pattern: -?P(\d+D)?(T(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?
     let s = s.trim();
     if s.is_empty() {

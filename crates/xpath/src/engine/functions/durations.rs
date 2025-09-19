@@ -1,5 +1,4 @@
-use super::common::parse_duration_lexical;
-use crate::engine::runtime::{CallCtx, Error};
+use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
 
 pub(super) fn years_from_duration_fn<N: crate::model::XdmNode + Clone>(
@@ -16,32 +15,10 @@ pub(super) fn years_from_duration_fn<N: crate::model::XdmNode + Clone>(
         XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(_)) => {
             Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
         }
-        XdmItem::Atomic(XdmAtomicValue::String(s))
-        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
-            let (m_opt, s_opt) = parse_duration_lexical(s)?;
-            if let Some(m) = m_opt {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                    (m / 12) as i64,
-                ))])
-            } else if s_opt.is_some() {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
-            } else {
-                Ok(vec![])
-            }
-        }
-        XdmItem::Node(n) => {
-            let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
-            if let Some(m) = m_opt {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                    (m / 12) as i64,
-                ))])
-            } else if s_opt.is_some() {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
-            } else {
-                Ok(vec![])
-            }
-        }
-        _ => Ok(vec![]),
+        _ => Err(Error::from_code(
+            ErrorCode::XPTY0004,
+            "years-from-duration expects xs:duration",
+        )),
     }
 }
 
@@ -59,32 +36,10 @@ pub(super) fn months_from_duration_fn<N: crate::model::XdmNode + Clone>(
         XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(_)) => {
             Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
         }
-        XdmItem::Atomic(XdmAtomicValue::String(s))
-        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
-            let (m_opt, s_opt) = parse_duration_lexical(s)?;
-            if let Some(m) = m_opt {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                    (m % 12) as i64,
-                ))])
-            } else if s_opt.is_some() {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
-            } else {
-                Ok(vec![])
-            }
-        }
-        XdmItem::Node(n) => {
-            let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
-            if let Some(m) = m_opt {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                    (m % 12) as i64,
-                ))])
-            } else if s_opt.is_some() {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
-            } else {
-                Ok(vec![])
-            }
-        }
-        _ => Ok(vec![]),
+        _ => Err(Error::from_code(
+            ErrorCode::XPTY0004,
+            "months-from-duration expects xs:duration",
+        )),
     }
 }
 
@@ -102,32 +57,10 @@ pub(super) fn days_from_duration_fn<N: crate::model::XdmNode + Clone>(
         XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(_)) => {
             Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
         }
-        XdmItem::Atomic(XdmAtomicValue::String(s))
-        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
-            let (m_opt, s_opt) = parse_duration_lexical(s)?;
-            if let Some(sec) = s_opt {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                    sec / (24 * 3600),
-                ))])
-            } else if m_opt.is_some() {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
-            } else {
-                Ok(vec![])
-            }
-        }
-        XdmItem::Node(n) => {
-            let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
-            if let Some(sec) = s_opt {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                    sec / (24 * 3600),
-                ))])
-            } else if m_opt.is_some() {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
-            } else {
-                Ok(vec![])
-            }
-        }
-        _ => Ok(vec![]),
+        _ => Err(Error::from_code(
+            ErrorCode::XPTY0004,
+            "days-from-duration expects xs:duration",
+        )),
     }
 }
 
@@ -146,30 +79,10 @@ pub(super) fn hours_from_duration_fn<N: crate::model::XdmNode + Clone>(
         XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(_)) => {
             Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
         }
-        XdmItem::Atomic(XdmAtomicValue::String(s))
-        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
-            let (m_opt, s_opt) = parse_duration_lexical(s)?;
-            if let Some(sec) = s_opt {
-                let rem = sec % (24 * 3600);
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(rem / 3600))])
-            } else if m_opt.is_some() {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
-            } else {
-                Ok(vec![])
-            }
-        }
-        XdmItem::Node(n) => {
-            let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
-            if let Some(sec) = s_opt {
-                let rem = sec % (24 * 3600);
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(rem / 3600))])
-            } else if m_opt.is_some() {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
-            } else {
-                Ok(vec![])
-            }
-        }
-        _ => Ok(vec![]),
+        _ => Err(Error::from_code(
+            ErrorCode::XPTY0004,
+            "hours-from-duration expects xs:duration",
+        )),
     }
 }
 
@@ -188,30 +101,10 @@ pub(super) fn minutes_from_duration_fn<N: crate::model::XdmNode + Clone>(
         XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(_)) => {
             Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
         }
-        XdmItem::Atomic(XdmAtomicValue::String(s))
-        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
-            let (m_opt, s_opt) = parse_duration_lexical(s)?;
-            if let Some(sec) = s_opt {
-                let rem = sec % 3600;
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(rem / 60))])
-            } else if m_opt.is_some() {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
-            } else {
-                Ok(vec![])
-            }
-        }
-        XdmItem::Node(n) => {
-            let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
-            if let Some(sec) = s_opt {
-                let rem = sec % 3600;
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(rem / 60))])
-            } else if m_opt.is_some() {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))])
-            } else {
-                Ok(vec![])
-            }
-        }
-        _ => Ok(vec![]),
+        _ => Err(Error::from_code(
+            ErrorCode::XPTY0004,
+            "minutes-from-duration expects xs:duration",
+        )),
     }
 }
 
@@ -230,31 +123,9 @@ pub(super) fn seconds_from_duration_fn<N: crate::model::XdmNode + Clone>(
         XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(_)) => {
             Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(0.0))])
         }
-        XdmItem::Atomic(XdmAtomicValue::String(s))
-        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
-            let (m_opt, s_opt) = parse_duration_lexical(s)?;
-            if let Some(sec) = s_opt {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(
-                    (sec % 60) as f64,
-                ))])
-            } else if m_opt.is_some() {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(0.0))])
-            } else {
-                Ok(vec![])
-            }
-        }
-        XdmItem::Node(n) => {
-            let (m_opt, s_opt) = parse_duration_lexical(&n.string_value())?;
-            if let Some(sec) = s_opt {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(
-                    (sec % 60) as f64,
-                ))])
-            } else if m_opt.is_some() {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(0.0))])
-            } else {
-                Ok(vec![])
-            }
-        }
-        _ => Ok(vec![]),
+        _ => Err(Error::from_code(
+            ErrorCode::XPTY0004,
+            "seconds-from-duration expects xs:duration",
+        )),
     }
 }

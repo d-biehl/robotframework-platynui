@@ -1,5 +1,5 @@
 use crate::engine::runtime::ErrorCode;
-use crate::engine::runtime::{Error, ParamKind, StaticContext};
+use crate::engine::runtime::{Error, StaticContext};
 use crate::parser::{ast, parse};
 use crate::xdm::{ExpandedName, XdmAtomicValue};
 use smallvec::SmallVec;
@@ -152,20 +152,22 @@ impl<'a> Compiler<'a> {
                 }
                 let en = self.to_expanded(name);
                 self.ensure_function_available(name, args.len())?;
-                let param_kinds = self
+                let param_specs = self
                     .static_ctx
                     .function_signatures
-                    .param_kinds_for_call(
+                    .param_types_for_call(
                         &en,
                         args.len(),
                         self.static_ctx.default_function_namespace.as_deref(),
-                        name.prefix.is_some(),
                     )
                     .map(|kinds| kinds.to_vec());
                 for (idx, a) in args.iter().enumerate() {
                     self.lower_expr(a)?;
-                    if let Some(kinds) = &param_kinds {
-                        if kinds.get(idx).copied().unwrap_or(ParamKind::Any) == ParamKind::Atomic {
+                    if let Some(specs) = &param_specs {
+                        if specs
+                            .get(idx)
+                            .map_or(false, |spec| spec.requires_atomization())
+                        {
                             self.emit(ir::OpCode::Atomize);
                         }
                     }

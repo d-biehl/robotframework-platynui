@@ -145,18 +145,17 @@ pub(super) fn namespace_uri_from_qname_fn<N: crate::model::XdmNode + Clone>(
     if args[0].is_empty() {
         return Ok(vec![]);
     }
-    match &args[0][0] {
-        XdmItem::Atomic(XdmAtomicValue::QName { ns_uri, .. }) => {
-            if let Some(uri) = ns_uri {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri.clone()))])
-            } else {
-                Ok(vec![])
-            }
+    if let XdmItem::Atomic(XdmAtomicValue::QName { ns_uri, .. }) = &args[0][0] {
+        if let Some(uri) = ns_uri {
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri.clone()))])
+        } else {
+            Ok(vec![])
         }
-        _ => Err(Error::from_code(
+    } else {
+        Err(Error::from_code(
             ErrorCode::XPTY0004,
             "namespace-uri-from-QName expects xs:QName",
-        )),
+        ))
     }
 }
 
@@ -167,14 +166,13 @@ pub(super) fn local_name_from_qname_fn<N: crate::model::XdmNode + Clone>(
     if args[0].is_empty() {
         return Ok(vec![]);
     }
-    match &args[0][0] {
-        XdmItem::Atomic(XdmAtomicValue::QName { local, .. }) => {
-            Ok(vec![XdmItem::Atomic(XdmAtomicValue::NCName(local.clone()))])
-        }
-        _ => Err(Error::from_code(
+    if let XdmItem::Atomic(XdmAtomicValue::QName { local, .. }) = &args[0][0] {
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::NCName(local.clone()))])
+    } else {
+        Err(Error::from_code(
             ErrorCode::XPTY0004,
             "local-name-from-QName expects xs:QName",
-        )),
+        ))
     }
 }
 
@@ -185,18 +183,17 @@ pub(super) fn prefix_from_qname_fn<N: crate::model::XdmNode + Clone>(
     if args[0].is_empty() {
         return Ok(vec![]);
     }
-    match &args[0][0] {
-        XdmItem::Atomic(XdmAtomicValue::QName { prefix, .. }) => {
-            if let Some(p) = prefix {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::NCName(p.clone()))])
-            } else {
-                Ok(vec![])
-            }
+    if let XdmItem::Atomic(XdmAtomicValue::QName { prefix, .. }) = &args[0][0] {
+        if let Some(p) = prefix {
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::NCName(p.clone()))])
+        } else {
+            Ok(vec![])
         }
-        _ => Err(Error::from_code(
+    } else {
+        Err(Error::from_code(
             ErrorCode::XPTY0004,
             "prefix-from-QName expects xs:QName",
-        )),
+        ))
     }
 }
 

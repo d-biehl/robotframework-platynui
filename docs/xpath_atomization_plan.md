@@ -49,7 +49,7 @@ The XPath engine currently fails the `numeric/large_sum` benchmark because `fn:s
 - After the compiler change lands, re-run `cargo bench -p platynui-xpath numeric/large_sum --bench performance_analysis` to verify the panic is gone.
 
 ## Implementation Details for Contributors
-- Parameter requirements are stored via `FunctionSignatures::set_param_kinds`. Every entry is keyed by the function's expanded name plus the concrete arity and should list one `ParamKind` per parameter position.
-- `ParamKind::Atomic` triggers compiler-side emission of `OpCode::Atomize` immediately after lowering the corresponding argument expression. Use it for functions that, per spec, demand atomized operands (e.g., `fn:sum`, `fn:avg`, `fn:min`, `fn:max`).
-- Functions that accept nodes or heterogeneous inputs can continue to omit explicit parameter kinds; they will default to `ParamKind::Any` and bypass automatic atomization.
+- Parameter requirements are stored via `FunctionSignatures::set_param_types`. Every entry is keyed by the function's expanded name plus the concrete arity and should list one `ParamTypeSpec` per parameter position.
+- `ParamTypeSpec::requires_atomization()` drives compiler-side emission of `OpCode::Atomize` immediately after lowering the corresponding argument expression. Use atomic specs for functions that, per spec, demand atomized operands (e.g., `fn:sum`, `fn:avg`, `fn:min`, `fn:max`).
+- Functions that accept nodes or heterogeneous inputs can continue to omit explicit parameter specs; they default to accepting any item sequence and bypass automatic atomization.
 - When adding new built-ins, register both the signature range and, if applicable, the parameter kinds in `register_default_functions` so code generation stays consistent with the spec.

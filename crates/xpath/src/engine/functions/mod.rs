@@ -1,4 +1,6 @@
-use crate::engine::runtime::{FunctionImplementations, FunctionSignatures, ParamKind};
+use crate::engine::runtime::{
+    FunctionImplementations, FunctionSignatures, Occurrence, ParamTypeSpec,
+};
 use crate::xdm::ExpandedName;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -20,6 +22,10 @@ pub mod sequences;
 pub mod strings;
 
 pub use common::deep_equal_with_collation;
+pub(crate) use common::{
+    parse_day_time_duration_secs, parse_duration_lexical, parse_qname_lexical,
+    parse_year_month_duration_months,
+};
 
 fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     reg: Option<&mut FunctionImplementations<N>>,
@@ -36,11 +42,39 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
                 r.register_ns($ns, $local, $arity, $func);
             }
         }};
+        ($ns:expr, $local:expr, $arity:expr, $func:expr, $param_specs:expr $(,)?) => {{
+            if let Some(s) = sigs.as_mut() {
+                s.register_ns($ns, $local, $arity, Some($arity));
+                let name = ExpandedName {
+                    ns_uri: Some($ns.to_string()),
+                    local: $local.to_string(),
+                };
+                s.set_param_types(name, $arity, $param_specs);
+            }
+            if let Some(r) = reg.as_mut() {
+                r.register_ns($ns, $local, $arity, $func);
+            }
+        }};
     }
     macro_rules! reg_ns_range {
         ($ns:expr, $local:expr, $min:expr, $max:expr, $func:expr $(,)?) => {{
             if let Some(s) = sigs.as_mut() {
                 s.register_ns($ns, $local, $min, $max);
+            }
+            if let Some(r) = reg.as_mut() {
+                r.register_ns_range($ns, $local, $min, $max, $func);
+            }
+        }};
+        ($ns:expr, $local:expr, $min:expr, $max:expr, $func:expr, { $($arity:expr => $param_specs:expr),+ $(,)? }) => {{
+            if let Some(s) = sigs.as_mut() {
+                s.register_ns($ns, $local, $min, $max);
+                let name = ExpandedName {
+                    ns_uri: Some($ns.to_string()),
+                    local: $local.to_string(),
+                };
+                $(
+                    s.set_param_types(name.clone(), $arity, $param_specs);
+                )+
             }
             if let Some(r) = reg.as_mut() {
                 r.register_ns_range($ns, $local, $min, $max, $func);
@@ -56,6 +90,21 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
                 r.register_ns_variadic($ns, $local, $min, $func);
             }
         }};
+        ($ns:expr, $local:expr, $min:expr, $func:expr, { $($arity:expr => $param_specs:expr),+ $(,)? }) => {{
+            if let Some(s) = sigs.as_mut() {
+                s.register_ns($ns, $local, $min, None);
+                let name = ExpandedName {
+                    ns_uri: Some($ns.to_string()),
+                    local: $local.to_string(),
+                };
+                $(
+                    s.set_param_types(name.clone(), $arity, $param_specs);
+                )+
+            }
+            if let Some(r) = reg.as_mut() {
+                r.register_ns_variadic($ns, $local, $min, $func);
+            }
+        }};
     }
 
     // ===== Core booleans =====
@@ -66,10 +115,25 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
         "data",
         0,
         Some(1),
-        boolean::data_fn::<N>
+        boolean::data_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore)]
+        }
     );
-    reg_ns!(crate::consts::FNS, "not", 1, boolean::fn_not::<N>);
-    reg_ns!(crate::consts::FNS, "boolean", 1, boolean::fn_boolean::<N>);
+    reg_ns!(
+        crate::consts::FNS,
+        "not",
+        1,
+        boolean::fn_not::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore)]
+    );
+    reg_ns!(
+        crate::consts::FNS,
+        "boolean",
+        1,
+        boolean::fn_boolean::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore)]
+    );
 
     // ===== Numeric core =====
     reg_ns_range!(
@@ -77,7 +141,10 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
         "number",
         0,
         Some(1),
-        numeric::number_fn::<N>
+        numeric::number_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::any_atomic(Occurrence::ZeroOrOne)]
+        }
     );
 
     // ===== String family =====
@@ -86,14 +153,20 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
         "string",
         0,
         Some(1),
-        strings::string_fn::<N>
+        strings::string_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::any_atomic(Occurrence::ZeroOrOne)]
+        }
     );
     reg_ns_range!(
         crate::consts::FNS,
         "string-length",
         0,
         Some(1),
-        strings::string_length_fn::<N>
+        strings::string_length_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
+        }
     );
     reg_ns!(
         crate::consts::FNS,
@@ -106,7 +179,8 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
         crate::consts::FNS,
         "string-to-codepoints",
         1,
-        strings::string_to_codepoints_fn::<N>
+        strings::string_to_codepoints_fn::<N>,
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
     );
     reg_ns!(
         crate::consts::FNS,
@@ -119,71 +193,137 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
         "contains",
         2,
         Some(3),
-        strings::contains_fn::<N>
+        strings::contains_fn::<N>,
+        {
+            2 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ],
+            3 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ]
+        }
     );
     reg_ns_range!(
         crate::consts::FNS,
         "starts-with",
         2,
         Some(3),
-        strings::starts_with_fn::<N>
+        strings::starts_with_fn::<N>,
+        {
+            2 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ],
+            3 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ]
+        }
     );
     reg_ns_range!(
         crate::consts::FNS,
         "ends-with",
         2,
         Some(3),
-        strings::ends_with_fn::<N>
+        strings::ends_with_fn::<N>,
+        {
+            2 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ],
+            3 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ]
+        }
     );
     reg_ns_range!(
         crate::consts::FNS,
         "substring",
         2,
         Some(3),
-        strings::substring_fn::<N>
+        strings::substring_fn::<N>,
+        {
+            2 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::double(Occurrence::ExactlyOne),
+            ],
+            3 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::double(Occurrence::ExactlyOne),
+                ParamTypeSpec::double(Occurrence::ZeroOrOne),
+            ]
+        }
     );
     reg_ns!(
         crate::consts::FNS,
         "substring-before",
         2,
-        strings::substring_before_fn::<N>
+        strings::substring_before_fn::<N>,
+        vec![
+            ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ParamTypeSpec::string(Occurrence::ZeroOrOne),
+        ]
     );
     reg_ns!(
         crate::consts::FNS,
         "substring-after",
         2,
-        strings::substring_after_fn::<N>
+        strings::substring_after_fn::<N>,
+        vec![
+            ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ParamTypeSpec::string(Occurrence::ZeroOrOne),
+        ]
     );
     reg_ns_range!(
         crate::consts::FNS,
         "normalize-space",
         0,
         Some(1),
-        strings::normalize_space_fn::<N>
+        strings::normalize_space_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
+        }
     );
     reg_ns!(
         crate::consts::FNS,
         "translate",
         3,
-        strings::translate_fn::<N>
+        strings::translate_fn::<N>,
+        vec![
+            ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ParamTypeSpec::string(Occurrence::ExactlyOne),
+            ParamTypeSpec::string(Occurrence::ExactlyOne),
+        ]
     );
     reg_ns!(
         crate::consts::FNS,
         "lower-case",
         1,
-        strings::lower_case_fn::<N>
+        strings::lower_case_fn::<N>,
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
     );
     reg_ns!(
         crate::consts::FNS,
         "upper-case",
         1,
-        strings::upper_case_fn::<N>
+        strings::upper_case_fn::<N>,
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
     );
     reg_ns!(
         crate::consts::FNS,
         "string-join",
         2,
-        strings::string_join_fn::<N>
+        strings::string_join_fn::<N>,
+        vec![
+            ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore),
+            ParamTypeSpec::string(Occurrence::ExactlyOne),
+        ]
     );
 
     // ===== Node name functions =====
@@ -191,166 +331,321 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
         crate::consts::FNS,
         "node-name",
         1,
-        qnames::node_name_fn::<N>
+        qnames::node_name_fn::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
     );
-    reg_ns_range!(crate::consts::FNS, "name", 0, Some(1), qnames::name_fn::<N>);
+    reg_ns_range!(
+        crate::consts::FNS,
+        "name",
+        0,
+        Some(1),
+        qnames::name_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+        }
+    );
     reg_ns_range!(
         crate::consts::FNS,
         "local-name",
         0,
         Some(1),
-        qnames::local_name_fn::<N>
+        qnames::local_name_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+        }
     );
 
     // ===== QName / Namespace functions =====
-    reg_ns!(crate::consts::FNS, "QName", 2, qnames::qname_fn::<N>);
+    reg_ns!(
+        crate::consts::FNS,
+        "QName",
+        2,
+        qnames::qname_fn::<N>,
+        vec![
+            ParamTypeSpec::string(Occurrence::ExactlyOne),
+            ParamTypeSpec::string(Occurrence::ExactlyOne),
+        ]
+    );
     reg_ns!(
         crate::consts::FNS,
         "resolve-QName",
         2,
-        qnames::resolve_qname_fn::<N>
+        qnames::resolve_qname_fn::<N>,
+        vec![
+            ParamTypeSpec::string(Occurrence::ExactlyOne),
+            ParamTypeSpec::any_item(Occurrence::ExactlyOne),
+        ]
     );
     reg_ns!(
         crate::consts::FNS,
         "namespace-uri-from-QName",
         1,
-        qnames::namespace_uri_from_qname_fn::<N>
+        qnames::namespace_uri_from_qname_fn::<N>,
+        vec![ParamTypeSpec::qname(Occurrence::ZeroOrOne)]
     );
     reg_ns!(
         crate::consts::FNS,
         "local-name-from-QName",
         1,
-        qnames::local_name_from_qname_fn::<N>
+        qnames::local_name_from_qname_fn::<N>,
+        vec![ParamTypeSpec::qname(Occurrence::ZeroOrOne)]
     );
     reg_ns!(
         crate::consts::FNS,
         "prefix-from-QName",
         1,
-        qnames::prefix_from_qname_fn::<N>
+        qnames::prefix_from_qname_fn::<N>,
+        vec![ParamTypeSpec::qname(Occurrence::ZeroOrOne)]
     );
     reg_ns!(
         crate::consts::FNS,
         "namespace-uri-for-prefix",
         2,
-        qnames::namespace_uri_for_prefix_fn::<N>
+        qnames::namespace_uri_for_prefix_fn::<N>,
+        vec![
+            ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ParamTypeSpec::any_item(Occurrence::ExactlyOne),
+        ]
     );
     reg_ns!(
         crate::consts::FNS,
         "in-scope-prefixes",
         1,
-        qnames::in_scope_prefixes_fn::<N>
+        qnames::in_scope_prefixes_fn::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ExactlyOne)]
     );
     reg_ns_range!(
         crate::consts::FNS,
         "namespace-uri",
         0,
         Some(1),
-        qnames::namespace_uri_fn::<N>
+        qnames::namespace_uri_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+        }
     );
 
     // ===== Numeric family =====
-    reg_ns!(crate::consts::FNS, "abs", 1, numeric::abs_fn::<N>);
-    reg_ns!(crate::consts::FNS, "floor", 1, numeric::floor_fn::<N>);
-    reg_ns!(crate::consts::FNS, "ceiling", 1, numeric::ceiling_fn::<N>);
+    reg_ns!(
+        crate::consts::FNS,
+        "abs",
+        1,
+        numeric::abs_fn::<N>,
+        vec![ParamTypeSpec::numeric(Occurrence::ZeroOrOne)]
+    );
+    reg_ns!(
+        crate::consts::FNS,
+        "floor",
+        1,
+        numeric::floor_fn::<N>,
+        vec![ParamTypeSpec::numeric(Occurrence::ZeroOrOne)]
+    );
+    reg_ns!(
+        crate::consts::FNS,
+        "ceiling",
+        1,
+        numeric::ceiling_fn::<N>,
+        vec![ParamTypeSpec::numeric(Occurrence::ZeroOrOne)]
+    );
     reg_ns_range!(
         crate::consts::FNS,
         "round",
         1,
         Some(2),
-        numeric::round_fn::<N>
+        numeric::round_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::numeric(Occurrence::ZeroOrOne)],
+            2 => vec![
+                ParamTypeSpec::numeric(Occurrence::ZeroOrOne),
+                ParamTypeSpec::numeric(Occurrence::ExactlyOne),
+            ]
+        }
     );
     reg_ns_range!(
         crate::consts::FNS,
         "round-half-to-even",
         1,
         Some(2),
-        numeric::round_half_to_even_fn::<N>
+        numeric::round_half_to_even_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::numeric(Occurrence::ZeroOrOne)],
+            2 => vec![
+                ParamTypeSpec::numeric(Occurrence::ZeroOrOne),
+                ParamTypeSpec::numeric(Occurrence::ExactlyOne),
+            ]
+        }
     );
-    reg_ns_range!(crate::consts::FNS, "sum", 1, Some(2), numeric::sum_fn::<N>);
-    reg_ns!(crate::consts::FNS, "avg", 1, numeric::avg_fn::<N>);
+    reg_ns_range!(
+        crate::consts::FNS,
+        "sum",
+        1,
+        Some(2),
+        numeric::sum_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::numeric(Occurrence::ZeroOrMore)],
+            2 => vec![
+                ParamTypeSpec::numeric(Occurrence::ZeroOrMore),
+                ParamTypeSpec::numeric(Occurrence::ZeroOrOne),
+            ]
+        }
+    );
+    reg_ns!(
+        crate::consts::FNS,
+        "avg",
+        1,
+        numeric::avg_fn::<N>,
+        vec![ParamTypeSpec::numeric(Occurrence::ZeroOrMore)]
+    );
 
     // ===== Sequence family =====
-    reg_ns!(crate::consts::FNS, "empty", 1, sequences::empty_fn::<N>);
-    reg_ns!(crate::consts::FNS, "exists", 1, sequences::exists_fn::<N>);
-    reg_ns!(crate::consts::FNS, "count", 1, sequences::count_fn::<N>);
+    reg_ns!(
+        crate::consts::FNS,
+        "empty",
+        1,
+        sequences::empty_fn::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore)]
+    );
+    reg_ns!(
+        crate::consts::FNS,
+        "exists",
+        1,
+        sequences::exists_fn::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore)]
+    );
+    reg_ns!(
+        crate::consts::FNS,
+        "count",
+        1,
+        sequences::count_fn::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore)]
+    );
     reg_ns!(
         crate::consts::FNS,
         "exactly-one",
         1,
-        sequences::exactly_one_fn::<N>
+        sequences::exactly_one_fn::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore)]
     );
     reg_ns!(
         crate::consts::FNS,
         "one-or-more",
         1,
-        sequences::one_or_more_fn::<N>
+        sequences::one_or_more_fn::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore)]
     );
     reg_ns!(
         crate::consts::FNS,
         "zero-or-one",
         1,
-        sequences::zero_or_one_fn::<N>
+        sequences::zero_or_one_fn::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore)]
     );
-    reg_ns!(crate::consts::FNS, "reverse", 1, sequences::reverse_fn::<N>);
+    reg_ns!(
+        crate::consts::FNS,
+        "reverse",
+        1,
+        sequences::reverse_fn::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore)]
+    );
     reg_ns_range!(
         crate::consts::FNS,
         "subsequence",
         2,
         Some(3),
-        sequences::subsequence_fn::<N>
+        sequences::subsequence_fn::<N>,
+        {
+            2 => vec![
+                ParamTypeSpec::any_item(Occurrence::ZeroOrMore),
+                ParamTypeSpec::double(Occurrence::ExactlyOne),
+            ],
+            3 => vec![
+                ParamTypeSpec::any_item(Occurrence::ZeroOrMore),
+                ParamTypeSpec::double(Occurrence::ExactlyOne),
+                ParamTypeSpec::double(Occurrence::ZeroOrOne),
+            ]
+        }
     );
     reg_ns_range!(
         crate::consts::FNS,
         "distinct-values",
         1,
         Some(2),
-        sequences::distinct_values_fn::<N>
+        sequences::distinct_values_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore)],
+            2 => vec![
+                ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ]
+        }
     );
     reg_ns_range!(
         crate::consts::FNS,
         "index-of",
         2,
         Some(3),
-        sequences::index_of_fn::<N>
+        sequences::index_of_fn::<N>,
+        {
+            2 => vec![
+                ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore),
+                ParamTypeSpec::any_atomic(Occurrence::ExactlyOne),
+            ],
+            3 => vec![
+                ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore),
+                ParamTypeSpec::any_atomic(Occurrence::ExactlyOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ]
+        }
     );
     reg_ns!(
         crate::consts::FNS,
         "insert-before",
         3,
-        sequences::insert_before_fn::<N>
+        sequences::insert_before_fn::<N>,
+        vec![
+            ParamTypeSpec::any_item(Occurrence::ZeroOrMore),
+            ParamTypeSpec::double(Occurrence::ExactlyOne),
+            ParamTypeSpec::any_item(Occurrence::ZeroOrMore),
+        ]
     );
-    reg_ns!(crate::consts::FNS, "remove", 2, sequences::remove_fn::<N>);
-    reg_ns_range!(crate::consts::FNS, "min", 1, Some(2), numeric::min_fn::<N>);
-    reg_ns_range!(crate::consts::FNS, "max", 1, Some(2), numeric::max_fn::<N>);
-
-    if let Some(s) = sigs.as_mut() {
-        let sum_name = ExpandedName {
-            ns_uri: Some(crate::consts::FNS.to_string()),
-            local: "sum".to_string(),
-        };
-        s.set_param_kinds(sum_name.clone(), 1, vec![ParamKind::Atomic]);
-        s.set_param_kinds(sum_name, 2, vec![ParamKind::Atomic, ParamKind::Atomic]);
-
-        let avg_name = ExpandedName {
-            ns_uri: Some(crate::consts::FNS.to_string()),
-            local: "avg".to_string(),
-        };
-        s.set_param_kinds(avg_name, 1, vec![ParamKind::Atomic]);
-
-        let min_name = ExpandedName {
-            ns_uri: Some(crate::consts::FNS.to_string()),
-            local: "min".to_string(),
-        };
-        s.set_param_kinds(min_name.clone(), 1, vec![ParamKind::Atomic]);
-        s.set_param_kinds(min_name, 2, vec![ParamKind::Atomic, ParamKind::Atomic]);
-
-        let max_name = ExpandedName {
-            ns_uri: Some(crate::consts::FNS.to_string()),
-            local: "max".to_string(),
-        };
-        s.set_param_kinds(max_name.clone(), 1, vec![ParamKind::Atomic]);
-        s.set_param_kinds(max_name, 2, vec![ParamKind::Atomic, ParamKind::Atomic]);
-    }
+    reg_ns!(
+        crate::consts::FNS,
+        "remove",
+        2,
+        sequences::remove_fn::<N>,
+        vec![
+            ParamTypeSpec::any_item(Occurrence::ZeroOrMore),
+            ParamTypeSpec::double(Occurrence::ExactlyOne),
+        ]
+    );
+    reg_ns_range!(
+        crate::consts::FNS,
+        "min",
+        1,
+        Some(2),
+        numeric::min_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore)],
+            2 => vec![
+                ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore),
+                ParamTypeSpec::any_atomic(Occurrence::ZeroOrOne),
+            ]
+        }
+    );
+    reg_ns_range!(
+        crate::consts::FNS,
+        "max",
+        1,
+        Some(2),
+        numeric::max_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore)],
+            2 => vec![
+                ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore),
+                ParamTypeSpec::any_atomic(Occurrence::ZeroOrOne),
+            ]
+        }
+    );
 
     // ===== Collation-related functions =====
     reg_ns_range!(
@@ -358,20 +653,46 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
         "compare",
         2,
         Some(3),
-        collations::compare_fn::<N>
+        collations::compare_fn::<N>,
+        {
+            2 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ],
+            3 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ]
+        }
     );
     reg_ns!(
         crate::consts::FNS,
         "codepoint-equal",
         2,
-        collations::codepoint_equal_fn::<N>
+        collations::codepoint_equal_fn::<N>,
+        vec![
+            ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ParamTypeSpec::string(Occurrence::ZeroOrOne),
+        ]
     );
     reg_ns_range!(
         crate::consts::FNS,
         "deep-equal",
         2,
         Some(3),
-        collations::deep_equal_fn::<N>
+        collations::deep_equal_fn::<N>,
+        {
+            2 => vec![
+                ParamTypeSpec::any_item(Occurrence::ZeroOrMore),
+                ParamTypeSpec::any_item(Occurrence::ZeroOrMore),
+            ],
+            3 => vec![
+                ParamTypeSpec::any_item(Occurrence::ZeroOrMore),
+                ParamTypeSpec::any_item(Occurrence::ZeroOrMore),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ]
+        }
     );
 
     // ===== Regex family =====
@@ -380,21 +701,56 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
         "matches",
         2,
         Some(3),
-        regex::matches_fn::<N>
+        regex::matches_fn::<N>,
+        {
+            2 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ExactlyOne),
+            ],
+            3 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ExactlyOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ]
+        }
     );
     reg_ns_range!(
         crate::consts::FNS,
         "replace",
         3,
         Some(4),
-        regex::replace_fn::<N>
+        regex::replace_fn::<N>,
+        {
+            3 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ExactlyOne),
+                ParamTypeSpec::string(Occurrence::ExactlyOne),
+            ],
+            4 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ExactlyOne),
+                ParamTypeSpec::string(Occurrence::ExactlyOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ]
+        }
     );
     reg_ns_range!(
         crate::consts::FNS,
         "tokenize",
         2,
         Some(3),
-        regex::tokenize_fn::<N>
+        regex::tokenize_fn::<N>,
+        {
+            2 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ExactlyOne),
+            ],
+            3 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ExactlyOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ]
+        }
     );
 
     // ===== Diagnostics =====
@@ -425,94 +781,177 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
         "root",
         0,
         Some(1),
-        environment::root_fn::<N>
+        environment::root_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+        }
     );
     reg_ns_range!(
         crate::consts::FNS,
         "base-uri",
         0,
         Some(1),
-        environment::base_uri_fn::<N>
+        environment::base_uri_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+        }
     );
     reg_ns_range!(
         crate::consts::FNS,
         "document-uri",
         0,
         Some(1),
-        environment::document_uri_fn::<N>
+        environment::document_uri_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+        }
     );
     reg_ns_range!(
         crate::consts::FNS,
         "lang",
         1,
         Some(2),
-        environment::lang_fn::<N>
+        environment::lang_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)],
+            2 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::any_item(Occurrence::ZeroOrOne),
+            ]
+        }
     );
     reg_ns!(
         crate::consts::FNS,
         "encode-for-uri",
         1,
-        environment::encode_for_uri_fn::<N>
+        environment::encode_for_uri_fn::<N>,
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
     );
-    reg_ns!(crate::consts::FNS, "nilled", 1, environment::nilled_fn::<N>);
+    reg_ns!(
+        crate::consts::FNS,
+        "nilled",
+        1,
+        environment::nilled_fn::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
     reg_ns!(
         crate::consts::FNS,
         "iri-to-uri",
         1,
-        environment::iri_to_uri_fn::<N>
+        environment::iri_to_uri_fn::<N>,
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
     );
     reg_ns!(
         crate::consts::FNS,
         "escape-html-uri",
         1,
-        environment::escape_html_uri_fn::<N>
+        environment::escape_html_uri_fn::<N>,
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
     );
     reg_ns_range!(
         crate::consts::FNS,
         "resolve-uri",
         1,
         Some(2),
-        environment::resolve_uri_fn::<N>
+        environment::resolve_uri_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)],
+            2 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ]
+        }
     );
     reg_ns_range!(
         crate::consts::FNS,
         "normalize-unicode",
         1,
         Some(2),
-        environment::normalize_unicode_fn::<N>
+        environment::normalize_unicode_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)],
+            2 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+                ParamTypeSpec::string(Occurrence::ZeroOrOne),
+            ]
+        }
     );
     reg_ns!(
         crate::consts::FNS,
         "doc-available",
         1,
-        environment::doc_available_fn::<N>
+        environment::doc_available_fn::<N>,
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
     );
-    reg_ns!(crate::consts::FNS, "doc", 1, environment::doc_fn::<N>);
+    reg_ns!(
+        crate::consts::FNS,
+        "doc",
+        1,
+        environment::doc_fn::<N>,
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
+    );
     reg_ns_range!(
         crate::consts::FNS,
         "collection",
         0,
         Some(1),
-        environment::collection_fn::<N>
+        environment::collection_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
+        }
     );
 
     // ===== ID / IDREF helpers =====
-    reg_ns_range!(crate::consts::FNS, "id", 1, Some(2), ids::id_fn::<N>);
+    reg_ns_range!(
+        crate::consts::FNS,
+        "id",
+        1,
+        Some(2),
+        ids::id_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::string(Occurrence::ZeroOrMore)],
+            2 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrMore),
+                ParamTypeSpec::any_item(Occurrence::ZeroOrOne),
+            ]
+        }
+    );
     reg_ns_range!(
         crate::consts::FNS,
         "element-with-id",
         1,
         Some(2),
-        ids::element_with_id_fn::<N>
+        ids::element_with_id_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::string(Occurrence::ZeroOrMore)],
+            2 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrMore),
+                ParamTypeSpec::any_item(Occurrence::ZeroOrOne),
+            ]
+        }
     );
-    reg_ns_range!(crate::consts::FNS, "idref", 1, Some(2), ids::idref_fn::<N>);
+    reg_ns_range!(
+        crate::consts::FNS,
+        "idref",
+        1,
+        Some(2),
+        ids::idref_fn::<N>,
+        {
+            1 => vec![ParamTypeSpec::string(Occurrence::ZeroOrMore)],
+            2 => vec![
+                ParamTypeSpec::string(Occurrence::ZeroOrMore),
+                ParamTypeSpec::any_item(Occurrence::ZeroOrOne),
+            ]
+        }
+    );
 
     // ===== Regex replacements already handled =====
     reg_ns!(
         crate::consts::FNS,
         "unordered",
         1,
-        sequences::unordered_fn::<N>
+        sequences::unordered_fn::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore)]
     );
 
     // ===== Misc constructors =====
@@ -671,37 +1110,43 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
         crate::consts::FNS,
         "years-from-duration",
         1,
-        durations::years_from_duration_fn::<N>
+        durations::years_from_duration_fn::<N>,
+        vec![ParamTypeSpec::duration(Occurrence::ZeroOrOne)]
     );
     reg_ns!(
         crate::consts::FNS,
         "months-from-duration",
         1,
-        durations::months_from_duration_fn::<N>
+        durations::months_from_duration_fn::<N>,
+        vec![ParamTypeSpec::duration(Occurrence::ZeroOrOne)]
     );
     reg_ns!(
         crate::consts::FNS,
         "days-from-duration",
         1,
-        durations::days_from_duration_fn::<N>
+        durations::days_from_duration_fn::<N>,
+        vec![ParamTypeSpec::duration(Occurrence::ZeroOrOne)]
     );
     reg_ns!(
         crate::consts::FNS,
         "hours-from-duration",
         1,
-        durations::hours_from_duration_fn::<N>
+        durations::hours_from_duration_fn::<N>,
+        vec![ParamTypeSpec::duration(Occurrence::ZeroOrOne)]
     );
     reg_ns!(
         crate::consts::FNS,
         "minutes-from-duration",
         1,
-        durations::minutes_from_duration_fn::<N>
+        durations::minutes_from_duration_fn::<N>,
+        vec![ParamTypeSpec::duration(Occurrence::ZeroOrOne)]
     );
     reg_ns!(
         crate::consts::FNS,
         "seconds-from-duration",
         1,
-        durations::seconds_from_duration_fn::<N>
+        durations::seconds_from_duration_fn::<N>,
+        vec![ParamTypeSpec::duration(Occurrence::ZeroOrOne)]
     );
 
     // ===== XML Schema constructors =====

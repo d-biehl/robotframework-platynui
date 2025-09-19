@@ -1,6 +1,11 @@
 use crate::compiler::ir;
 use crate::engine::collation::{CODEPOINT_URI, Collation, CollationRegistry};
-use crate::xdm::{ExpandedName, XdmItem, XdmSequence};
+use crate::engine::functions::{
+    parse_day_time_duration_secs, parse_duration_lexical, parse_qname_lexical,
+    parse_year_month_duration_months,
+};
+use crate::model::XdmNode;
+use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence};
 use core::fmt;
 use lru::LruCache;
 use std::collections::{HashMap, HashSet};
@@ -619,6 +624,7 @@ pub enum ErrorCode {
     FODC0002, // default collection undefined
     FODC0004, // collection lookup failure
     FODC0005, // doc/document retrieval failure
+    FONS0004, // unknown namespace prefix
     FONS0005, // base-uri unresolved
     FORX0001, // regex flags invalid
     FORX0002, // regex invalid pattern / bad backref
@@ -659,6 +665,7 @@ impl ErrorCode {
                 ErrorCode::FODC0002 => "FODC0002".to_string(),
                 ErrorCode::FODC0004 => "FODC0004".to_string(),
                 ErrorCode::FODC0005 => "FODC0005".to_string(),
+                ErrorCode::FONS0004 => "FONS0004".to_string(),
                 ErrorCode::FONS0005 => "FONS0005".to_string(),
                 ErrorCode::FORX0001 => "FORX0001".to_string(),
                 ErrorCode::FORX0002 => "FORX0002".to_string(),
@@ -690,6 +697,7 @@ impl ErrorCode {
             "err:FODC0002" => FODC0002,
             "err:FODC0004" => FODC0004,
             "err:FODC0005" => FODC0005,
+            "err:FONS0004" => FONS0004,
             "err:FONS0005" => FONS0005,
             "err:FORX0001" => FORX0001,
             "err:FORX0002" => FORX0002,
@@ -844,21 +852,672 @@ impl ArityRange {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParamKind {
-    Any,
-    Atomic,
+pub enum Occurrence {
+    ExactlyOne,
+    ZeroOrOne,
+    ZeroOrMore,
+    OneOrMore,
 }
 
-impl Default for ParamKind {
-    fn default() -> Self {
-        ParamKind::Any
+impl Occurrence {
+    pub fn allows_empty(self) -> bool {
+        matches!(self, Occurrence::ZeroOrOne | Occurrence::ZeroOrMore)
     }
+
+    pub fn allows_multiple(self) -> bool {
+        matches!(self, Occurrence::ZeroOrMore | Occurrence::OneOrMore)
+    }
+}
+
+impl Default for Occurrence {
+    fn default() -> Self {
+        Occurrence::ExactlyOne
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ItemTypeSpec {
+    AnyItem,
+    AnyAtomic,
+    UntypedPromotable,
+    Numeric,
+    String,
+    Boolean,
+    Double,
+    Decimal,
+    Float,
+    AnyUri,
+    Duration,
+    YearMonthDuration,
+    DayTimeDuration,
+    QName,
+    SpecificAtomic(ExpandedName),
+}
+
+impl ItemTypeSpec {
+    pub fn is_atomic(&self) -> bool {
+        !matches!(self, ItemTypeSpec::AnyItem)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParamTypeSpec {
+    pub item: ItemTypeSpec,
+    pub occurrence: Occurrence,
+}
+
+impl ParamTypeSpec {
+    pub fn any_item(occurrence: Occurrence) -> Self {
+        Self {
+            item: ItemTypeSpec::AnyItem,
+            occurrence,
+        }
+    }
+
+    pub fn any_atomic(occurrence: Occurrence) -> Self {
+        Self {
+            item: ItemTypeSpec::AnyAtomic,
+            occurrence,
+        }
+    }
+
+    pub fn untyped_promotable(occurrence: Occurrence) -> Self {
+        Self {
+            item: ItemTypeSpec::UntypedPromotable,
+            occurrence,
+        }
+    }
+
+    pub fn numeric(occurrence: Occurrence) -> Self {
+        Self {
+            item: ItemTypeSpec::Numeric,
+            occurrence,
+        }
+    }
+
+    pub fn string(occurrence: Occurrence) -> Self {
+        Self {
+            item: ItemTypeSpec::String,
+            occurrence,
+        }
+    }
+
+    pub fn boolean(occurrence: Occurrence) -> Self {
+        Self {
+            item: ItemTypeSpec::Boolean,
+            occurrence,
+        }
+    }
+
+    pub fn double(occurrence: Occurrence) -> Self {
+        Self {
+            item: ItemTypeSpec::Double,
+            occurrence,
+        }
+    }
+
+    pub fn decimal(occurrence: Occurrence) -> Self {
+        Self {
+            item: ItemTypeSpec::Decimal,
+            occurrence,
+        }
+    }
+
+    pub fn float(occurrence: Occurrence) -> Self {
+        Self {
+            item: ItemTypeSpec::Float,
+            occurrence,
+        }
+    }
+
+    pub fn any_uri(occurrence: Occurrence) -> Self {
+        Self {
+            item: ItemTypeSpec::AnyUri,
+            occurrence,
+        }
+    }
+
+    pub fn qname(occurrence: Occurrence) -> Self {
+        Self {
+            item: ItemTypeSpec::QName,
+            occurrence,
+        }
+    }
+
+    pub fn duration(occurrence: Occurrence) -> Self {
+        Self {
+            item: ItemTypeSpec::Duration,
+            occurrence,
+        }
+    }
+
+    pub fn year_month_duration(occurrence: Occurrence) -> Self {
+        Self {
+            item: ItemTypeSpec::YearMonthDuration,
+            occurrence,
+        }
+    }
+
+    pub fn day_time_duration(occurrence: Occurrence) -> Self {
+        Self {
+            item: ItemTypeSpec::DayTimeDuration,
+            occurrence,
+        }
+    }
+
+    pub fn requires_atomization(&self) -> bool {
+        self.item.is_atomic()
+    }
+
+    pub fn apply_to_sequence<N: XdmNode + Clone>(
+        &self,
+        seq: XdmSequence<N>,
+        static_ctx: &StaticContext,
+    ) -> Result<XdmSequence<N>, Error> {
+        self.validate_cardinality(seq.len())?;
+        if seq.is_empty() {
+            return Ok(seq);
+        }
+        match self.item {
+            ItemTypeSpec::AnyItem => Ok(seq),
+            ItemTypeSpec::AnyAtomic | ItemTypeSpec::UntypedPromotable => {
+                ensure_atomic_sequence(seq)
+            }
+            ItemTypeSpec::Numeric => convert_numeric_sequence(seq),
+            ItemTypeSpec::String => convert_string_sequence(seq),
+            ItemTypeSpec::Boolean => convert_boolean_sequence(seq),
+            ItemTypeSpec::Double => convert_double_sequence(seq),
+            ItemTypeSpec::Decimal => convert_decimal_sequence(seq),
+            ItemTypeSpec::Float => convert_float_sequence(seq),
+            ItemTypeSpec::AnyUri => convert_any_uri_sequence(seq),
+            ItemTypeSpec::Duration => convert_duration_sequence(seq),
+            ItemTypeSpec::YearMonthDuration => convert_year_month_duration_sequence(seq),
+            ItemTypeSpec::DayTimeDuration => convert_day_time_duration_sequence(seq),
+            ItemTypeSpec::QName => convert_qname_sequence(seq, static_ctx),
+            ItemTypeSpec::SpecificAtomic(_) => ensure_atomic_sequence(seq),
+        }
+    }
+
+    fn validate_cardinality(&self, len: usize) -> Result<(), Error> {
+        match self.occurrence {
+            Occurrence::ExactlyOne => {
+                if len != 1 {
+                    return Err(Error::from_code(
+                        ErrorCode::XPTY0004,
+                        "function argument must be a singleton",
+                    ));
+                }
+            }
+            Occurrence::ZeroOrOne => {
+                if len > 1 {
+                    return Err(Error::from_code(
+                        ErrorCode::XPTY0004,
+                        "function argument allows at most one item",
+                    ));
+                }
+            }
+            Occurrence::ZeroOrMore => {}
+            Occurrence::OneOrMore => {
+                if len == 0 {
+                    return Err(Error::from_code(
+                        ErrorCode::XPTY0004,
+                        "function argument must contain at least one item",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn ensure_atomic_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+    let mut out = Vec::with_capacity(seq.len());
+    for item in seq {
+        match item {
+            XdmItem::Atomic(a) => out.push(XdmItem::Atomic(a)),
+            XdmItem::Node(_) => {
+                return Err(Error::from_code(
+                    ErrorCode::XPTY0004,
+                    "function argument must be atomic",
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn convert_numeric_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+    convert_atomic_sequence_with(seq, convert_numeric_atomic)
+}
+
+fn convert_numeric_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
+    use XdmAtomicValue as V;
+    Ok(match a {
+        V::UntypedAtomic(s) | V::String(s) => {
+            let parsed = s
+                .trim()
+                .parse::<f64>()
+                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:double"))?;
+            V::Double(parsed)
+        }
+        V::Float(_) => a,
+        V::Integer(_)
+        | V::Long(_)
+        | V::Int(_)
+        | V::Short(_)
+        | V::Byte(_)
+        | V::UnsignedLong(_)
+        | V::UnsignedInt(_)
+        | V::UnsignedShort(_)
+        | V::UnsignedByte(_)
+        | V::NonPositiveInteger(_)
+        | V::NegativeInteger(_)
+        | V::NonNegativeInteger(_)
+        | V::PositiveInteger(_)
+        | V::Decimal(_)
+        | V::Double(_) => a,
+        _ => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "function argument is not numeric",
+            ));
+        }
+    })
+}
+
+fn convert_string_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
+    use XdmAtomicValue as V;
+    Ok(match a {
+        V::String(_) => a,
+        V::UntypedAtomic(s) => V::String(s),
+        V::AnyUri(s) => V::String(s),
+        V::Boolean(b) => V::String(if b { "true" } else { "false" }.to_string()),
+        V::Double(d) => V::String(format_number(d)),
+        V::Decimal(d) => V::String(format_number(d)),
+        V::Float(f) => V::String(format_number(f as f64)),
+        V::Integer(i) => V::String(i.to_string()),
+        V::Long(i) => V::String(i.to_string()),
+        V::Int(i) => V::String(i.to_string()),
+        V::Short(i) => V::String(i.to_string()),
+        V::Byte(i) => V::String(i.to_string()),
+        V::NonPositiveInteger(i) => V::String(i.to_string()),
+        V::NegativeInteger(i) => V::String(i.to_string()),
+        V::UnsignedLong(i) => V::String(i.to_string()),
+        V::UnsignedInt(i) => V::String(i.to_string()),
+        V::UnsignedShort(i) => V::String(i.to_string()),
+        V::UnsignedByte(i) => V::String(i.to_string()),
+        V::NonNegativeInteger(i) => V::String(i.to_string()),
+        V::PositiveInteger(i) => V::String(i.to_string()),
+        other => other,
+    })
+}
+
+fn convert_boolean_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
+    use XdmAtomicValue as V;
+    Ok(match a {
+        V::Boolean(_) => a,
+        V::UntypedAtomic(s) | V::String(s) => {
+            let trimmed = s.trim();
+            match trimmed {
+                "true" | "1" => V::Boolean(true),
+                "false" | "0" => V::Boolean(false),
+                _ => {
+                    return Err(Error::from_code(
+                        ErrorCode::FORG0001,
+                        "invalid lexical form for xs:boolean",
+                    ));
+                }
+            }
+        }
+        V::Double(d) => V::Boolean(d != 0.0 && !d.is_nan()),
+        V::Float(f) => V::Boolean(f != 0.0 && !f.is_nan()),
+        V::Decimal(d) => V::Boolean(d != 0.0),
+        V::Integer(i) => V::Boolean(i != 0),
+        V::Long(i) => V::Boolean(i != 0),
+        V::Int(i) => V::Boolean(i != 0),
+        V::Short(i) => V::Boolean(i != 0),
+        V::Byte(i) => V::Boolean(i != 0),
+        V::NonPositiveInteger(i) => V::Boolean(i != 0),
+        V::NegativeInteger(i) => V::Boolean(i != 0),
+        V::UnsignedLong(i) => V::Boolean(i != 0),
+        V::UnsignedInt(i) => V::Boolean(i != 0),
+        V::UnsignedShort(i) => V::Boolean(i != 0),
+        V::UnsignedByte(i) => V::Boolean(i != 0),
+        V::NonNegativeInteger(i) => V::Boolean(i != 0),
+        V::PositiveInteger(i) => V::Boolean(i != 0),
+        _ => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "function argument cannot be cast to xs:boolean",
+            ));
+        }
+    })
+}
+
+fn convert_double_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
+    use XdmAtomicValue as V;
+    Ok(match a {
+        V::Double(_) => a,
+        V::Float(f) => V::Double(f as f64),
+        V::Decimal(d) => V::Double(d),
+        V::Integer(i) => V::Double(i as f64),
+        V::Long(i) => V::Double(i as f64),
+        V::Int(i) => V::Double(i as f64),
+        V::Short(i) => V::Double(i as f64),
+        V::Byte(i) => V::Double(i as f64),
+        V::NonPositiveInteger(i) => V::Double(i as f64),
+        V::NegativeInteger(i) => V::Double(i as f64),
+        V::UnsignedLong(i) => V::Double(i as f64),
+        V::UnsignedInt(i) => V::Double(i as f64),
+        V::UnsignedShort(i) => V::Double(i as f64),
+        V::UnsignedByte(i) => V::Double(i as f64),
+        V::NonNegativeInteger(i) => V::Double(i as f64),
+        V::PositiveInteger(i) => V::Double(i as f64),
+        V::UntypedAtomic(s) | V::String(s) => {
+            let parsed = s
+                .trim()
+                .parse::<f64>()
+                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:double"))?;
+            V::Double(parsed)
+        }
+        _ => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "function argument cannot be cast to xs:double",
+            ));
+        }
+    })
+}
+
+fn convert_decimal_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
+    use XdmAtomicValue as V;
+    Ok(match a {
+        V::Decimal(_) => a,
+        V::Integer(i) => V::Decimal(i as f64),
+        V::Long(i) => V::Decimal(i as f64),
+        V::Int(i) => V::Decimal(i as f64),
+        V::Short(i) => V::Decimal(i as f64),
+        V::Byte(i) => V::Decimal(i as f64),
+        V::NonPositiveInteger(i) => V::Decimal(i as f64),
+        V::NegativeInteger(i) => V::Decimal(i as f64),
+        V::UnsignedLong(i) => V::Decimal(i as f64),
+        V::UnsignedInt(i) => V::Decimal(i as f64),
+        V::UnsignedShort(i) => V::Decimal(i as f64),
+        V::UnsignedByte(i) => V::Decimal(i as f64),
+        V::NonNegativeInteger(i) => V::Decimal(i as f64),
+        V::PositiveInteger(i) => V::Decimal(i as f64),
+        V::Double(d) => V::Decimal(d),
+        V::Float(f) => V::Decimal(f as f64),
+        V::UntypedAtomic(s) | V::String(s) => {
+            let parsed = s
+                .trim()
+                .parse::<f64>()
+                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:decimal"))?;
+            V::Decimal(parsed)
+        }
+        _ => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "function argument cannot be cast to xs:decimal",
+            ));
+        }
+    })
+}
+
+fn convert_float_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
+    use XdmAtomicValue as V;
+    Ok(match a {
+        V::Float(_) => a,
+        V::Double(d) => V::Float(d as f32),
+        V::Decimal(d) => V::Float(d as f32),
+        V::Integer(i) => V::Float(i as f32),
+        V::Long(i) => V::Float(i as f32),
+        V::Int(i) => V::Float(i as f32),
+        V::Short(i) => V::Float(i as f32),
+        V::Byte(i) => V::Float(i as f32),
+        V::NonPositiveInteger(i) => V::Float(i as f32),
+        V::NegativeInteger(i) => V::Float(i as f32),
+        V::UnsignedLong(i) => V::Float(i as f32),
+        V::UnsignedInt(i) => V::Float(i as f32),
+        V::UnsignedShort(i) => V::Float(i as f32),
+        V::UnsignedByte(i) => V::Float(i as f32),
+        V::NonNegativeInteger(i) => V::Float(i as f32),
+        V::PositiveInteger(i) => V::Float(i as f32),
+        V::UntypedAtomic(s) | V::String(s) => {
+            let parsed = s
+                .trim()
+                .parse::<f32>()
+                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:float"))?;
+            V::Float(parsed)
+        }
+        _ => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "function argument cannot be cast to xs:float",
+            ));
+        }
+    })
+}
+
+fn convert_any_uri_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
+    use XdmAtomicValue as V;
+    Ok(match a {
+        V::AnyUri(_) => a,
+        V::String(s) | V::UntypedAtomic(s) => V::AnyUri(s),
+        _ => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "function argument cannot be cast to xs:anyURI",
+            ));
+        }
+    })
+}
+
+fn format_number(value: f64) -> String {
+    if value.is_nan() || value.is_infinite() {
+        value.to_string()
+    } else if value.fract() == 0.0 {
+        format!("{:.0}", value)
+    } else {
+        value.to_string()
+    }
+}
+
+fn convert_string_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+    convert_atomic_sequence_with(seq, convert_string_atomic)
+}
+
+fn convert_boolean_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+    convert_atomic_sequence_with(seq, convert_boolean_atomic)
+}
+
+fn convert_double_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+    convert_atomic_sequence_with(seq, convert_double_atomic)
+}
+
+fn convert_decimal_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+    convert_atomic_sequence_with(seq, convert_decimal_atomic)
+}
+
+fn convert_float_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+    convert_atomic_sequence_with(seq, convert_float_atomic)
+}
+
+fn convert_any_uri_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+    convert_atomic_sequence_with(seq, convert_any_uri_atomic)
+}
+
+fn convert_duration_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+    convert_atomic_sequence_with(seq, convert_duration_atomic)
+}
+
+fn convert_year_month_duration_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+    convert_atomic_sequence_with(seq, convert_year_month_duration_atomic)
+}
+
+fn convert_day_time_duration_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+    convert_atomic_sequence_with(seq, convert_day_time_duration_atomic)
+}
+
+fn convert_qname_sequence<N>(
+    seq: XdmSequence<N>,
+    static_ctx: &StaticContext,
+) -> Result<XdmSequence<N>, Error> {
+    let mut out = Vec::with_capacity(seq.len());
+    for item in seq {
+        match item {
+            XdmItem::Atomic(a) => out.push(XdmItem::Atomic(convert_qname_atomic(a, static_ctx)?)),
+            XdmItem::Node(_) => {
+                return Err(Error::from_code(
+                    ErrorCode::XPTY0004,
+                    "function argument must be atomic",
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn convert_atomic_sequence_with<N, F>(
+    seq: XdmSequence<N>,
+    mut f: F,
+) -> Result<XdmSequence<N>, Error>
+where
+    F: FnMut(XdmAtomicValue) -> Result<XdmAtomicValue, Error>,
+{
+    let mut out = Vec::with_capacity(seq.len());
+    for item in seq {
+        match item {
+            XdmItem::Atomic(a) => out.push(XdmItem::Atomic(f(a)?)),
+            XdmItem::Node(_) => {
+                return Err(Error::from_code(
+                    ErrorCode::XPTY0004,
+                    "function argument must be atomic",
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn convert_duration_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
+    use XdmAtomicValue as V;
+    Ok(match a {
+        V::YearMonthDuration(_) | V::DayTimeDuration(_) => a,
+        V::UntypedAtomic(s) | V::String(s) => duration_from_string(&s)?,
+        _ => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "function argument cannot be cast to xs:duration",
+            ));
+        }
+    })
+}
+
+fn convert_year_month_duration_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
+    use XdmAtomicValue as V;
+    Ok(match a {
+        V::YearMonthDuration(_) => a,
+        V::UntypedAtomic(s) | V::String(s) => {
+            let months = parse_year_month_duration_months(&s).map_err(|_| {
+                Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:yearMonthDuration")
+            })?;
+            V::YearMonthDuration(months)
+        }
+        V::DayTimeDuration(_) => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "function argument is not xs:yearMonthDuration",
+            ));
+        }
+        _ => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "function argument cannot be cast to xs:yearMonthDuration",
+            ));
+        }
+    })
+}
+
+fn convert_day_time_duration_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
+    use XdmAtomicValue as V;
+    Ok(match a {
+        V::DayTimeDuration(_) => a,
+        V::UntypedAtomic(s) | V::String(s) => {
+            let secs = parse_day_time_duration_secs(&s).map_err(|_| {
+                Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:dayTimeDuration")
+            })?;
+            V::DayTimeDuration(secs)
+        }
+        V::YearMonthDuration(_) => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "function argument is not xs:dayTimeDuration",
+            ));
+        }
+        _ => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "function argument cannot be cast to xs:dayTimeDuration",
+            ));
+        }
+    })
+}
+
+fn duration_from_string(s: &str) -> Result<XdmAtomicValue, Error> {
+    use XdmAtomicValue as V;
+    match parse_duration_lexical(s) {
+        Ok((Some(months), None)) => Ok(V::YearMonthDuration(months)),
+        Ok((None, Some(secs))) => Ok(V::DayTimeDuration(secs)),
+        Ok((Some(_), Some(_))) => Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:duration")),
+        Ok((None, None)) => Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:duration")),
+        Err(e) => Err(e),
+    }
+}
+
+fn convert_qname_atomic(
+    a: XdmAtomicValue,
+    static_ctx: &StaticContext,
+) -> Result<XdmAtomicValue, Error> {
+    use XdmAtomicValue as V;
+    Ok(match a {
+        V::QName { .. } => a,
+        V::UntypedAtomic(s) | V::String(s) => {
+            let (prefix_opt, local) = parse_qname_lexical(&s)
+                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:QName"))?;
+            let ns_uri = match prefix_opt.as_deref() {
+                None => None,
+                Some("xml") => Some(crate::consts::XML_URI.to_string()),
+                Some(prefix) => Some(
+                    static_ctx
+                        .namespaces
+                        .by_prefix
+                        .get(prefix)
+                        .cloned()
+                        .ok_or_else(|| {
+                            Error::from_code(ErrorCode::FONS0004, "unknown namespace prefix")
+                        })?,
+                ),
+            };
+            V::QName {
+                ns_uri,
+                prefix: prefix_opt,
+                local,
+            }
+        }
+        _ => {
+            return Err(Error::from_code(
+                ErrorCode::XPTY0004,
+                "function argument cannot be cast to xs:QName",
+            ));
+        }
+    })
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct FunctionSignatures {
     entries: HashMap<ExpandedName, Vec<ArityRange>>,
-    param_kinds: HashMap<(ExpandedName, usize), Vec<ParamKind>>,
+    param_types: HashMap<(ExpandedName, usize), Vec<ParamTypeSpec>>,
 }
 
 impl FunctionSignatures {
@@ -869,8 +1528,8 @@ impl FunctionSignatures {
         }
     }
 
-    pub fn set_param_kinds(&mut self, name: ExpandedName, arity: usize, kinds: Vec<ParamKind>) {
-        self.param_kinds.insert((name, arity), kinds);
+    pub fn set_param_types(&mut self, name: ExpandedName, arity: usize, specs: Vec<ParamTypeSpec>) {
+        self.param_types.insert((name, arity), specs);
     }
 
     pub fn register_ns(&mut self, ns: &str, local: &str, min: usize, max: Option<usize>) {
@@ -906,22 +1565,21 @@ impl FunctionSignatures {
             .unwrap_or(false)
     }
 
-    pub fn param_kinds_for_call(
+    pub fn param_types_for_call(
         &self,
         name: &ExpandedName,
         arity: usize,
         default_ns: Option<&str>,
-        has_prefix: bool,
-    ) -> Option<&[ParamKind]> {
-        if let Some(kinds) = self.param_kinds.get(&(name.clone(), arity)) {
-            return Some(kinds.as_slice());
+    ) -> Option<&[ParamTypeSpec]> {
+        if let Some(types) = self.param_types.get(&(name.clone(), arity)) {
+            return Some(types.as_slice());
         }
-        if name.ns_uri.is_none() && !has_prefix {
+        if name.ns_uri.is_none() {
             if let Some(ns) = default_ns {
                 let mut resolved = name.clone();
                 resolved.ns_uri = Some(ns.to_string());
-                if let Some(kinds) = self.param_kinds.get(&(resolved, arity)) {
-                    return Some(kinds.as_slice());
+                if let Some(types) = self.param_types.get(&(resolved, arity)) {
+                    return Some(types.as_slice());
                 }
             }
         }
