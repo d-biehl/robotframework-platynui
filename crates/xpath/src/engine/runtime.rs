@@ -843,9 +843,22 @@ impl ArityRange {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParamKind {
+    Any,
+    Atomic,
+}
+
+impl Default for ParamKind {
+    fn default() -> Self {
+        ParamKind::Any
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FunctionSignatures {
     entries: HashMap<ExpandedName, Vec<ArityRange>>,
+    param_kinds: HashMap<(ExpandedName, usize), Vec<ParamKind>>,
 }
 
 impl FunctionSignatures {
@@ -854,6 +867,10 @@ impl FunctionSignatures {
         if !ranges.iter().any(|r| r.min == min && r.max == max) {
             ranges.push(ArityRange { min, max });
         }
+    }
+
+    pub fn set_param_kinds(&mut self, name: ExpandedName, arity: usize, kinds: Vec<ParamKind>) {
+        self.param_kinds.insert((name, arity), kinds);
     }
 
     pub fn register_ns(&mut self, ns: &str, local: &str, min: usize, max: Option<usize>) {
@@ -887,6 +904,28 @@ impl FunctionSignatures {
             .get(name)
             .map(|ranges| ranges.iter().any(|r| r.contains(arity)))
             .unwrap_or(false)
+    }
+
+    pub fn param_kinds_for_call(
+        &self,
+        name: &ExpandedName,
+        arity: usize,
+        default_ns: Option<&str>,
+        has_prefix: bool,
+    ) -> Option<&[ParamKind]> {
+        if let Some(kinds) = self.param_kinds.get(&(name.clone(), arity)) {
+            return Some(kinds.as_slice());
+        }
+        if name.ns_uri.is_none() && !has_prefix {
+            if let Some(ns) = default_ns {
+                let mut resolved = name.clone();
+                resolved.ns_uri = Some(ns.to_string());
+                if let Some(kinds) = self.param_kinds.get(&(resolved, arity)) {
+                    return Some(kinds.as_slice());
+                }
+            }
+        }
+        None
     }
 }
 

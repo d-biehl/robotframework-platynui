@@ -1,4 +1,5 @@
-use crate::engine::runtime::{FunctionImplementations, FunctionSignatures};
+use crate::engine::runtime::{FunctionImplementations, FunctionSignatures, ParamKind};
+use crate::xdm::ExpandedName;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -321,6 +322,35 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
     reg_ns!(crate::consts::FNS, "remove", 2, sequences::remove_fn::<N>);
     reg_ns_range!(crate::consts::FNS, "min", 1, Some(2), numeric::min_fn::<N>);
     reg_ns_range!(crate::consts::FNS, "max", 1, Some(2), numeric::max_fn::<N>);
+
+    if let Some(s) = sigs.as_mut() {
+        let sum_name = ExpandedName {
+            ns_uri: Some(crate::consts::FNS.to_string()),
+            local: "sum".to_string(),
+        };
+        s.set_param_kinds(sum_name.clone(), 1, vec![ParamKind::Atomic]);
+        s.set_param_kinds(sum_name, 2, vec![ParamKind::Atomic, ParamKind::Atomic]);
+
+        let avg_name = ExpandedName {
+            ns_uri: Some(crate::consts::FNS.to_string()),
+            local: "avg".to_string(),
+        };
+        s.set_param_kinds(avg_name, 1, vec![ParamKind::Atomic]);
+
+        let min_name = ExpandedName {
+            ns_uri: Some(crate::consts::FNS.to_string()),
+            local: "min".to_string(),
+        };
+        s.set_param_kinds(min_name.clone(), 1, vec![ParamKind::Atomic]);
+        s.set_param_kinds(min_name, 2, vec![ParamKind::Atomic, ParamKind::Atomic]);
+
+        let max_name = ExpandedName {
+            ns_uri: Some(crate::consts::FNS.to_string()),
+            local: "max".to_string(),
+        };
+        s.set_param_kinds(max_name.clone(), 1, vec![ParamKind::Atomic]);
+        s.set_param_kinds(max_name, 2, vec![ParamKind::Atomic, ParamKind::Atomic]);
+    }
 
     // ===== Collation-related functions =====
     reg_ns_range!(
