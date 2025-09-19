@@ -11,9 +11,7 @@ fn ctx() -> StaticContext {
 }
 
 fn ir(src: &str, ctx: &StaticContext) -> InstrSeq {
-    compile_with_context(src, ctx)
-        .expect("compile ok")
-        .instrs
+    compile_with_context(src, ctx).expect("compile ok").instrs
 }
 
 #[rstest]

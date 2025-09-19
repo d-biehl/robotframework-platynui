@@ -144,5 +144,4 @@ pub trait XdmNode: Clone + Eq + core::fmt::Debug + Send + Sync + 'static {
     fn compare_document_order(&self, other: &Self) -> Result<Ordering, Error> {
         try_compare_by_ancestry(self, other)
     }
-
 }

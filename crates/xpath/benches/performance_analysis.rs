@@ -45,8 +45,7 @@ fn node_operations_bench(c: &mut Criterion) {
         .build();
 
     c.bench_function("node/large_union", |b| {
-        let compiled =
-            compile("(//*[@level='1'] | //*[@level='2'] | //*[@level='3'])").unwrap();
+        let compiled = compile("(//*[@level='1'] | //*[@level='2'] | //*[@level='3'])").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result.len());
@@ -63,8 +62,7 @@ fn node_operations_bench(c: &mut Criterion) {
 
     c.bench_function("node/deep_descendants", |b| {
         let compiled =
-            compile("for $a in //*[@level='1'] return count($a/descendant-or-self::*)")
-                .unwrap();
+            compile("for $a in //*[@level='1'] return count($a/descendant-or-self::*)").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result);

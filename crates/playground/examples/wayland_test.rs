@@ -5,9 +5,9 @@ mod linux {
     use std::{env, fs};
 
     use wayland_client::{
-        globals::{registry_queue_init, GlobalListContents},
-        protocol::{wl_registry::WlRegistry, wl_seat::WlSeat},
         Connection, Dispatch, Proxy, QueueHandle,
+        globals::{GlobalListContents, registry_queue_init},
+        protocol::{wl_registry::WlRegistry, wl_seat::WlSeat},
     };
     use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
         zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1,
@@ -163,7 +163,9 @@ mod linux {
             let version = g
                 .version
                 .min(ZwpVirtualKeyboardManagerV1::interface().version);
-            if let Ok(vk_mgr) = globals.bind::<ZwpVirtualKeyboardManagerV1, _, _>(&qh, 1..=version, ()) {
+            if let Ok(vk_mgr) =
+                globals.bind::<ZwpVirtualKeyboardManagerV1, _, _>(&qh, 1..=version, ())
+            {
                 let _vk = vk_mgr.create_virtual_keyboard(seat, &qh, ());
                 queue
                     .roundtrip(&mut state)
@@ -179,7 +181,9 @@ mod linux {
             let version = g
                 .version
                 .min(ZwlrVirtualPointerManagerV1::interface().version);
-            if let Ok(vp_mgr) = globals.bind::<ZwlrVirtualPointerManagerV1, _, _>(&qh, 1..=version, ()) {
+            if let Ok(vp_mgr) =
+                globals.bind::<ZwlrVirtualPointerManagerV1, _, _>(&qh, 1..=version, ())
+            {
                 let _vp = vp_mgr.create_virtual_pointer(Some(seat), &qh, ());
                 queue
                     .roundtrip(&mut state)

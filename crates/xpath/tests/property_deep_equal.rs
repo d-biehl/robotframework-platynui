@@ -49,8 +49,8 @@ fn eval_distinct_values(
     let static_ctx = StaticContextBuilder::new()
         .with_variable(ExpandedName::new(None, "s"))
         .build();
-    let compiled = compile_with_context("distinct-values($s)", &static_ctx)
-        .expect("compile distinct-values");
+    let compiled =
+        compile_with_context("distinct-values($s)", &static_ctx).expect("compile distinct-values");
     evaluate(&compiled, &ctx)
         .expect("evaluation distinct-values")
         .into_iter()

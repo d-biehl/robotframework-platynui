@@ -45,10 +45,8 @@ fn castable_qname_with_prefix() {
         .with_namespace("p", "urn:ex")
         .build();
     let dyn_ctx = ctx();
-    let compiled_ok =
-        compile_with_context("'p:l' castable as xs:QName", &static_ctx).unwrap();
-    let compiled_bad =
-        compile_with_context("'zzz:l' castable as xs:QName", &static_ctx).unwrap();
+    let compiled_ok = compile_with_context("'p:l' castable as xs:QName", &static_ctx).unwrap();
+    let compiled_bad = compile_with_context("'zzz:l' castable as xs:QName", &static_ctx).unwrap();
     let r = evaluate(&compiled_ok, &dyn_ctx).unwrap();
     if let I::Atomic(A::Boolean(b)) = &r[0] {
         assert!(*b);

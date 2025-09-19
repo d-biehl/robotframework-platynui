@@ -41,8 +41,7 @@ fn resolve_qname_uses_static_namespace() {
         .build();
     let ctx = dyn_ctx();
     let compiled =
-        compile_with_context("namespace-uri-from-QName(xs:QName('p:thing'))", &static_ctx)
-            .unwrap();
+        compile_with_context("namespace-uri-from-QName(xs:QName('p:thing'))", &static_ctx).unwrap();
     let seq = evaluate(&compiled, &ctx).unwrap();
     let uri = match &seq[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::AnyUri(s)) => s,
