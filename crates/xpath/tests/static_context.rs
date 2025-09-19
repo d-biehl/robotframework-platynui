@@ -15,20 +15,16 @@ fn default_context_contains_builtin_function() {
 
 #[test]
 fn missing_signature_raises_static_error() {
-    let ctx = StaticContext {
-        function_signatures: FunctionSignatures::default(),
-        ..StaticContext::default()
-    };
+    let mut ctx = StaticContext::default();
+    ctx.function_signatures = FunctionSignatures::default();
     let err = compile_with_context("fn:true()", &ctx).expect_err("expected static error");
     assert_eq!(err.code_enum(), ErrorCode::XPST0017);
 }
 
 #[test]
 fn custom_signature_allows_compilation() {
-    let mut ctx = StaticContext {
-        function_signatures: FunctionSignatures::default(),
-        ..StaticContext::default()
-    };
+    let mut ctx = StaticContext::default();
+    ctx.function_signatures = FunctionSignatures::default();
     let default_ns = StaticContext::default()
         .default_function_namespace
         .clone()

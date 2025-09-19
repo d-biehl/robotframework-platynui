@@ -1,10 +1,10 @@
 #![allow(clippy::approx_constant)]
 
-use platynui_xpath::parser::{ast, parse};
+use platynui_xpath::parser::{ast, parse as parse_expr};
 use rstest::rstest;
 
 fn parse(expr: &str) -> ast::Expr {
-    parse(expr).expect("parse failed")
+    parse_expr(expr).expect("parse failed")
 }
 
 #[rstest]
