@@ -79,6 +79,24 @@ fn context_item_type_empty_sequence_is_static_error() {
 }
 
 #[test]
+fn context_item_type_empty_sequence_rejects_root_path() {
+    let ctx = StaticContextBuilder::new()
+        .with_context_item_type(SeqTypeIR::EmptySequence)
+        .build();
+    let err = compile_with_context("/foo", &ctx).expect_err("expected static error");
+    assert_eq!(err.code_enum(), ErrorCode::XPST0003);
+}
+
+#[test]
+fn context_item_type_empty_sequence_rejects_root_descendant_path() {
+    let ctx = StaticContextBuilder::new()
+        .with_context_item_type(SeqTypeIR::EmptySequence)
+        .build();
+    let err = compile_with_context("//foo", &ctx).expect_err("expected static error");
+    assert_eq!(err.code_enum(), ErrorCode::XPST0003);
+}
+
+#[test]
 fn context_item_type_allows_node_usage() {
     let ctx = StaticContextBuilder::new()
         .with_context_item_type(SeqTypeIR::Typed {

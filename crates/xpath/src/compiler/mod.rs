@@ -472,8 +472,14 @@ impl<'a> Compiler<'a> {
 
     fn lower_path_expr(&mut self, p: &ast::PathExpr, base: Option<&ast::Expr>) -> CResult<()> {
         match p.start {
-            ast::PathStart::Root => self.emit(ir::OpCode::ToRoot),
+            ast::PathStart::Root => {
+                self.load_context_item("root path expression")?;
+                self.emit(ir::OpCode::Pop);
+                self.emit(ir::OpCode::ToRoot);
+            }
             ast::PathStart::RootDescendant => {
+                self.load_context_item("root descendant path expression")?;
+                self.emit(ir::OpCode::Pop);
                 self.emit(ir::OpCode::ToRoot);
                 self.emit(ir::OpCode::AxisStep(
                     ir::AxisIR::DescendantOrSelf,

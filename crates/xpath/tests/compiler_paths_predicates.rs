@@ -218,8 +218,17 @@ fn name_tests_wildcards() {
 fn path_ir_sequence_complex() {
     let is = ir("/descendant::a[@id]/@class");
     let ops = &is.0;
-    assert!(matches!(ops.first(), Some(OpCode::ToRoot)));
-    match ops.get(1) {
+    let mut idx = 0;
+    assert!(matches!(ops.get(idx), Some(OpCode::LoadContextItem)));
+    idx += 1;
+    if matches!(ops.get(idx), Some(OpCode::Treat(_))) {
+        idx += 1;
+    }
+    assert!(matches!(ops.get(idx), Some(OpCode::Pop)));
+    idx += 1;
+    assert!(matches!(ops.get(idx), Some(OpCode::ToRoot)));
+    idx += 1;
+    match ops.get(idx) {
         Some(OpCode::AxisStep(AxisIR::Descendant, NodeTestIR::Name(name), preds))
             if name.original.local == "a" =>
         {
@@ -227,8 +236,8 @@ fn path_ir_sequence_complex() {
         }
         other => panic!("unexpected first step: {:?}", other),
     }
-    assert!(matches!(ops.get(2), Some(OpCode::DocOrderDistinct)));
-    match ops.get(3) {
+    assert!(matches!(ops.get(idx + 1), Some(OpCode::DocOrderDistinct)));
+    match ops.get(idx + 2) {
         Some(OpCode::AxisStep(AxisIR::Attribute, NodeTestIR::Name(name), preds))
             if name.original.local == "class" =>
         {
@@ -236,7 +245,7 @@ fn path_ir_sequence_complex() {
         }
         other => panic!("unexpected second step: {:?}", other),
     }
-    assert!(matches!(ops.get(4), Some(OpCode::DocOrderDistinct)));
+    assert!(matches!(ops.get(idx + 3), Some(OpCode::DocOrderDistinct)));
 }
 
 #[rstest]
