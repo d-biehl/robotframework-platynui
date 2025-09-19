@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/*", "packages/server"]
-default-members = ["packages/server"]
+members = ["crates/*"]
+default-members = ["crates/playground"]
 resolver = "3"
 
 [workspace.package]
