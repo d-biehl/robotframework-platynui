@@ -6,9 +6,9 @@ This note summarizes how the crate lines up with the W3C *XPath 2.0* recommendat
 
 | Spec component | Status in crate | Notes |
 | --- | --- | --- |
-| XPath 1.0 compatibility mode | ❌ missing | `StaticContext` does not expose a compatibility flag (`crates/platynui-xpath/src/engine/runtime.rs:736`). |
-| Statically known namespaces | ✅ stored | `StaticContext.namespaces` keeps the prefix→URI map (`crates/platynui-xpath/src/engine/runtime.rs:736`). |
-| Default element/type namespace | ❌ missing | No dedicated field; only the function namespace is tracked (`crates/platynui-xpath/src/engine/runtime.rs:736`). |
+| XPath 1.0 compatibility mode | ⚠️ flag unused | `StaticContext` exposes `xpath_compatibility_mode`, aber die Laufzeit ignoriert es – faktisch bleibt nur der XPath-2.0-Modus aktiv (`crates/platynui-xpath/src/engine/runtime.rs:1883-1917`). |
+| Statically known namespaces | ✅ stored | `StaticContext.namespaces` hält das Prefix→URI-Mapping (`crates/platynui-xpath/src/engine/runtime.rs:1883-1917`). |
+| Default element/type namespace | ✅ optional | `default_element_namespace` plus Builder-Hilfen fließen in Compiler und Tests ein (`crates/platynui-xpath/src/engine/runtime.rs:1887-1964`, `crates/platynui-xpath/src/compiler/mod.rs:525-631`). |
 | Default function namespace | ✅ defaulted to `fn` | `default_function_namespace` initialises to the W3C function namespace (`crates/platynui-xpath/src/engine/runtime.rs:753`). |
 | In-scope schema definitions (types/elements/attributes) | ❌ missing | There is no schema catalog in the static context, so schema-aware features are unsupported. |
 | In-scope variables | ✅ tracked | `StaticContext.in_scope_variables` holds the global bindings (`crates/platynui-xpath/src/engine/runtime.rs:743`). |
@@ -86,6 +86,5 @@ Functions that depend on host-defined I/O or formatting rules from the 2010 spec
 - **Casting coverage**: `cast as` supports the common primitives but falls back to `err:NYI0000` for the rest of the XML Schema hierarchy (`crates/platynui-xpath/src/engine/evaluator.rs:2400-2402`).
 - **Function library completeness**: parts of the F&O catalogue that rely on host I/O or formatting (for example the `fn:unparsed-text*` family) are not implemented in `default_function_registry`.
 - **Host dependencies**: document and collection access rely on an external `NodeResolver`; without one the respective functions raise `FODC0005/0004` (`crates/platynui-xpath/src/engine/functions/environment.rs:414-468`).
-- **Default namespaces**: the static context does not track a default element/type namespace, so QName resolution for unprefixed element/type names is left to callers.
 
 Overall, the crate implements the full core expression grammar and a substantial subset of XPath 2.0 semantics. Completing schema awareness, static typing metadata, and the remaining F&O functions would be the largest steps toward full spec conformance.
