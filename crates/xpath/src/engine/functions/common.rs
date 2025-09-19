@@ -265,8 +265,16 @@ pub(super) fn round_default<N: crate::model::XdmNode>(
                 return Ok(vec![]);
             }
             let n = to_number(value_seq).unwrap_or(f64::NAN);
-            let p = to_number(pseq).unwrap_or(f64::NAN);
-            let precision = if p.is_nan() { 0 } else { p.trunc() as i64 };
+            let precision = match pseq.first() {
+                None => 0,
+                Some(XdmItem::Atomic(XdmAtomicValue::Integer(v))) => *v,
+                _ => {
+                    return Err(Error::from_code(
+                        ErrorCode::XPTY0004,
+                        "precision must be xs:integer",
+                    ));
+                }
+            };
             let r = round_with_precision(n, precision);
             Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(r))])
         }
@@ -289,8 +297,16 @@ pub(super) fn round_half_to_even_default<N: crate::model::XdmNode>(
                 return Ok(vec![]);
             }
             let n = to_number(value_seq).unwrap_or(f64::NAN);
-            let p = to_number(pseq).unwrap_or(f64::NAN);
-            let precision = if p.is_nan() { 0 } else { p.trunc() as i64 };
+            let precision = match pseq.first() {
+                None => 0,
+                Some(XdmItem::Atomic(XdmAtomicValue::Integer(v))) => *v,
+                _ => {
+                    return Err(Error::from_code(
+                        ErrorCode::XPTY0004,
+                        "precision must be xs:integer",
+                    ));
+                }
+            };
             let r = round_half_to_even_with_precision(n, precision);
             Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(r))])
         }
@@ -1538,7 +1554,7 @@ pub(super) fn classify_numeric(a: &XdmAtomicValue) -> Result<Option<(NumericKind
         Decimal(d) => Some((NumericKind::Decimal, *d)),
         Float(f) => Some((NumericKind::Float, *f as f64)),
         Double(d) => Some((NumericKind::Double, *d)),
-        UntypedAtomic(s) | String(s) | AnyUri(s) => {
+        UntypedAtomic(s) => {
             // Attempt numeric cast; if fails treat as non-numeric (caller will error)
             if let Ok(parsed) = s.parse::<f64>() {
                 Some((NumericKind::Double, parsed))
@@ -1546,6 +1562,7 @@ pub(super) fn classify_numeric(a: &XdmAtomicValue) -> Result<Option<(NumericKind
                 None
             }
         }
+        String(_) | AnyUri(_) => None,
         Boolean(b) => Some((NumericKind::Integer, if *b { 1.0 } else { 0.0 })),
         _ => None,
     })

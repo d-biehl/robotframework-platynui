@@ -36,17 +36,19 @@ pub(super) fn qname_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    if args[0].is_empty() {
-        return Err(Error::from_code(
-            ErrorCode::FORG0001,
-            "QName requires namespace string (use '' for none)",
-        ));
-    }
-    let ns = match &args[0][0] {
-        XdmItem::Atomic(XdmAtomicValue::String(s)) | XdmItem::Atomic(XdmAtomicValue::AnyUri(s)) => {
-            s.clone()
+    let ns_opt = if args[0].is_empty() {
+        None
+    } else {
+        match &args[0][0] {
+            XdmItem::Atomic(XdmAtomicValue::String(s))
+            | XdmItem::Atomic(XdmAtomicValue::AnyUri(s)) => Some(s.clone()),
+            _ => {
+                return Err(Error::from_code(
+                    ErrorCode::FORG0001,
+                    "QName namespace must be a string or anyURI",
+                ));
+            }
         }
-        _ => String::new(),
     };
     if args[1].is_empty() {
         return Err(Error::from_code(
@@ -65,7 +67,7 @@ pub(super) fn qname_fn<N: crate::model::XdmNode + Clone>(
     };
     let (prefix_opt, local) = parse_qname_lexical(&qn_lex)
         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"))?;
-    let ns_uri = if ns.is_empty() { None } else { Some(ns) };
+    let ns_uri = ns_opt.and_then(|s| if s.is_empty() { None } else { Some(s) });
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::QName {
         ns_uri,
         prefix: prefix_opt,
@@ -122,6 +124,12 @@ pub(super) fn resolve_qname_fn<N: crate::model::XdmNode + Clone>(
             ));
         }
     };
+    if !matches!(enode.kind(), crate::model::NodeKind::Element) {
+        return Err(Error::from_code(
+            ErrorCode::XPTY0004,
+            "resolve-QName requires element()",
+        ));
+    }
     let (prefix_opt, local) = parse_qname_lexical(&s)
         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"))?;
     let ns_uri = match &prefix_opt {
@@ -222,6 +230,12 @@ pub(super) fn namespace_uri_for_prefix_fn<N: crate::model::XdmNode + Clone>(
             ));
         }
     };
+    if !matches!(enode.kind(), crate::model::NodeKind::Element) {
+        return Err(Error::from_code(
+            ErrorCode::XPTY0004,
+            "namespace-uri-for-prefix requires element()",
+        ));
+    }
     if p.is_empty() {
         return Ok(vec![]);
     }
@@ -246,6 +260,12 @@ pub(super) fn in_scope_prefixes_fn<N: crate::model::XdmNode + Clone>(
             ));
         }
     };
+    if !matches!(enode.kind(), crate::model::NodeKind::Element) {
+        return Err(Error::from_code(
+            ErrorCode::XPTY0004,
+            "in-scope-prefixes requires element()",
+        ));
+    }
     let map = inscope_for(enode);
     let mut out: Vec<XdmItem<_>> = Vec::with_capacity(map.len());
     for k in map.keys() {

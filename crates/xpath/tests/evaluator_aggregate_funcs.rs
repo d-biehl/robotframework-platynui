@@ -29,7 +29,7 @@ fn sum_basic_and_empty(#[case] expr: &str, #[case] expected: f64) {
 }
 
 #[rstest]
-#[case("sum((1, '2', untypedAtomic('3')))", 6.0)] // untyped/string parsed as numbers
+#[case("sum((1, untypedAtomic('2'), untypedAtomic('3')))", 6.0)]
 fn sum_with_untyped_and_string_numbers(#[case] expr: &str, #[case] expected: f64) {
     assert_eq!(d(expr), expected);
 }

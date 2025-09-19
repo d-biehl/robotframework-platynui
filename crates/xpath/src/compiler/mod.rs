@@ -163,14 +163,13 @@ impl<'a> Compiler<'a> {
                     .map(|kinds| kinds.to_vec());
                 for (idx, a) in args.iter().enumerate() {
                     self.lower_expr(a)?;
-                    if let Some(specs) = &param_specs {
-                        if specs
+                    if let Some(specs) = &param_specs
+                        && specs
                             .get(idx)
-                            .map_or(false, |spec| spec.requires_atomization())
+                            .is_some_and(|spec| spec.requires_atomization())
                         {
                             self.emit(ir::OpCode::Atomize);
                         }
-                    }
                 }
                 self.emit(ir::OpCode::CallByName(en, args.len()));
                 Ok(())

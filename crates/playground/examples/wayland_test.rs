@@ -121,7 +121,7 @@ mod linux {
         let conn = Connection::connect_to_env().context("Wayland connect failed")?;
         let (globals, mut queue) =
             registry_queue_init::<AppState>(&conn).context("registry init failed")?;
-        let mut state = AppState::default();
+        let mut state = AppState;
         queue
             .roundtrip(&mut state)
             .context("initial registry roundtrip failed")?;
@@ -157,7 +157,7 @@ mod linux {
 
         // Try to create one object per capability if a seat is available
         let mut vk_cap = Capability::default();
-        if let (Some(g), Some(seat)) = (vk_mgr_global.as_ref(), seats.get(0)) {
+        if let (Some(g), Some(seat)) = (vk_mgr_global.as_ref(), seats.first()) {
             vk_cap.present = true;
             vk_cap.version = Some(g.version);
             let version = g
@@ -175,7 +175,7 @@ mod linux {
         }
 
         let mut vp_cap = Capability::default();
-        if let (Some(g), Some(seat)) = (vp_mgr_global.as_ref(), seats.get(0)) {
+        if let (Some(g), Some(seat)) = (vp_mgr_global.as_ref(), seats.first()) {
             vp_cap.present = true;
             vp_cap.version = Some(g.version);
             let version = g

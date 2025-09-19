@@ -3,6 +3,7 @@ use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::xdm::{XdmAtomicValue as A, XdmItem as I};
 use platynui_xpath::{SimpleNode, XdmNode, evaluate};
+use rstest::rstest;
 
 fn build_doc() -> SimpleNode {
     simple_doc()
@@ -19,6 +20,22 @@ fn make_context(doc: &SimpleNode) -> platynui_xpath::DynamicContext<SimpleNode> 
     DynamicContextBuilder::default()
         .with_context_item(I::Node(doc.clone()))
         .build()
+}
+
+fn empty_context() -> platynui_xpath::DynamicContext<SimpleNode> {
+    DynamicContextBuilder::default().build()
+}
+
+fn eval_expression(expr: &str) -> Vec<I<SimpleNode>> {
+    let compiled = compile(expr).expect("compile");
+    let ctx = empty_context();
+    evaluate::<SimpleNode>(&compiled, &ctx).expect("eval")
+}
+
+fn eval_expression_err(expr: &str) -> platynui_xpath::engine::runtime::Error {
+    let compiled = compile(expr).expect("compile");
+    let ctx = empty_context();
+    evaluate::<SimpleNode>(&compiled, &ctx).expect_err("expected error")
 }
 
 #[test]
@@ -147,6 +164,54 @@ fn compare_casts_string_arguments() {
     }
 }
 
+#[rstest]
+fn min_rejects_non_string_collation() {
+    let err = eval_expression_err("min(('a','b'), 1)");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn max_accepts_string_collation() {
+    let result = eval_expression(
+        "max(('a','b'), 'http://www.w3.org/2005/xpath-functions/collation/codepoint')",
+    );
+    assert_eq!(result.len(), 1);
+    match &result[0] {
+        I::Atomic(A::String(s)) => assert_eq!(s, "b"),
+        other => panic!("unexpected result: {other:?}"),
+    }
+}
+
+#[rstest]
+fn node_name_rejects_atomic() {
+    let err = eval_expression_err("node-name(1)");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn base_uri_rejects_atomic() {
+    let err = eval_expression_err("base-uri(1)");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn lang_rejects_non_node_context() {
+    let err = eval_expression_err("lang('en', 'text')");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn nilled_rejects_non_node() {
+    let err = eval_expression_err("nilled('string')");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn id_rejects_non_node_context() {
+    let err = eval_expression_err("id(('a'), 1)");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
 #[test]
 fn matches_atomizes_nodes() {
     let doc = build_doc();
@@ -244,17 +309,99 @@ fn index_of_casts_arguments() {
 fn insert_before_casts_position() {
     let doc = build_doc();
     let ctx = make_context(&doc);
-    let compiled = compile("insert-before(//item/@value, '2', 'Inserted')").expect("compile");
+    let compiled = compile("insert-before(//item/@value, 2, 'Inserted')").expect("compile");
     let result = evaluate::<SimpleNode>(&compiled, &ctx).expect("eval");
     assert_eq!(result.len(), 3);
     assert!(matches!(&result[1], I::Atomic(A::String(s)) if s == "Inserted"));
 }
 
-#[test]
-fn round_accepts_string_precision() {
-    let compiled = compile("round(xs:untypedAtomic('2.45'), '1')").expect("compile");
-    let ctx = make_context(&build_doc());
+#[rstest]
+#[case("insert-before(('a','b'), '2', 'x')", "XPTY0004")]
+#[case("insert-before(('a','b'), 2.5, 'x')", "FOCA0001")]
+fn insert_before_rejects_non_integer_position(#[case] expr: &str, #[case] code: &str) {
+    let err = eval_expression_err(expr);
+    assert_eq!(err.code.local, code);
+}
+
+#[rstest]
+#[case("remove(('a','b'), '1')", "XPTY0004")]
+#[case("remove(('a','b'), 1.2)", "FOCA0001")]
+fn remove_rejects_non_integer_position(#[case] expr: &str, #[case] code: &str) {
+    let err = eval_expression_err(expr);
+    assert_eq!(err.code.local, code);
+}
+
+#[rstest]
+#[case(
+    "sum((xs:yearMonthDuration('P1Y'), xs:yearMonthDuration('P2M')))",
+    A::YearMonthDuration(14)
+)]
+#[case(
+    "sum((xs:dayTimeDuration('PT3S'), xs:dayTimeDuration('PT5S')))",
+    A::DayTimeDuration(8)
+)]
+fn sum_accepts_duration_sequences(#[case] expr: &str, #[case] expected: A) {
+    let compiled = compile(expr).expect("compile");
+    let ctx = empty_context();
     let result = evaluate::<SimpleNode>(&compiled, &ctx).expect("eval");
+    assert_eq!(result.len(), 1);
+    match &result[0] {
+        I::Atomic(value) => assert_eq!(value, &expected),
+        other => panic!("unexpected result: {other:?}"),
+    }
+}
+
+#[rstest]
+#[case(
+    "avg((xs:yearMonthDuration('P2Y'), xs:yearMonthDuration('P4Y')))",
+    A::YearMonthDuration(36)
+)]
+#[case(
+    "avg((xs:dayTimeDuration('PT10S'), xs:dayTimeDuration('PT20S')))",
+    A::DayTimeDuration(15)
+)]
+fn avg_accepts_duration_sequences(#[case] expr: &str, #[case] expected: A) {
+    let compiled = compile(expr).expect("compile");
+    let ctx = empty_context();
+    let result = evaluate::<SimpleNode>(&compiled, &ctx).expect("eval");
+    assert_eq!(result.len(), 1);
+    match &result[0] {
+        I::Atomic(value) => assert_eq!(value, &expected),
+        other => panic!("unexpected result: {other:?}"),
+    }
+}
+
+#[rstest]
+fn sum_uses_duration_zero_parameter() {
+    let compiled = compile("sum((), xs:dayTimeDuration('PT5S'))").expect("compile");
+    let ctx = empty_context();
+    let result = evaluate::<SimpleNode>(&compiled, &ctx).expect("eval");
+    assert_eq!(result.len(), 1);
+    match &result[0] {
+        I::Atomic(A::DayTimeDuration(secs)) => assert_eq!(*secs, 5),
+        other => panic!("unexpected result: {other:?}"),
+    }
+}
+
+#[rstest]
+fn sum_rejects_string_sequence() {
+    let err = eval_expression_err("sum(('1','2'))");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn sum_accepts_untyped_atomic_literals() {
+    let result = eval_expression("sum((xs:untypedAtomic('1'), xs:untypedAtomic('2')))");
+    assert_eq!(result.len(), 1);
+    match &result[0] {
+        I::Atomic(A::Double(v)) => assert_eq!(*v, 3.0),
+        other => panic!("unexpected result: {other:?}"),
+    }
+}
+
+#[rstest]
+fn round_accepts_integer_precision() {
+    let result = eval_expression("round(xs:untypedAtomic('2.45'), 1)");
     assert_eq!(result.len(), 1);
     match &result[0] {
         I::Atomic(A::Double(v)) => assert_eq!(*v, 2.5),
@@ -262,12 +409,54 @@ fn round_accepts_string_precision() {
     }
 }
 
-#[test]
+#[rstest]
+fn round_half_to_even_accepts_integer_precision() {
+    let result = eval_expression("round-half-to-even(xs:double(2.55), 1)");
+    assert_eq!(result.len(), 1);
+    match &result[0] {
+        I::Atomic(A::Double(v)) => assert_eq!(*v, 2.6),
+        other => panic!("unexpected result: {other:?}"),
+    }
+}
+
+#[rstest]
+fn round_rejects_string_value() {
+    let err = eval_expression_err("round('2.45')");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+#[case("round(xs:double(2.45), 1.5)")]
+#[case("round-half-to-even(xs:double(2.45), 1.5)")]
+fn rounding_precision_rejects_non_integral(#[case] expr: &str) {
+    let err = eval_expression_err(expr);
+    assert_eq!(err.code.local, "FOCA0001");
+}
+
+#[rstest]
+#[case("round(xs:double(2.45), '1')")]
+#[case("round-half-to-even(xs:double(2.45), '1')")]
+fn rounding_precision_rejects_string(#[case] expr: &str) {
+    let err = eval_expression_err(expr);
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+#[case("round(2.75, ())", "round(2.75)")]
+#[case("round-half-to-even(2.05, ())", "round-half-to-even(2.05)")]
+fn rounding_precision_empty_sequence_defaults_to_zero(
+    #[case] with_precision: &str,
+    #[case] baseline: &str,
+) {
+    let with_precision_result = eval_expression(with_precision);
+    let baseline_result = eval_expression(baseline);
+    assert_eq!(with_precision_result, baseline_result);
+}
+
+#[rstest]
 fn round_precision_cardinality_error() {
-    let doc = build_doc();
-    let ctx = make_context(&doc);
-    let compiled = compile("round(//item/@value, ('1','2'))").expect("compile");
-    let err = evaluate::<SimpleNode>(&compiled, &ctx).expect_err("expected error");
+    let expr = "round(2.3, (1, 2))";
+    let err = eval_expression_err(expr);
     assert_eq!(err.code.local, "XPTY0004");
 }
 
@@ -289,6 +478,85 @@ fn encode_for_uri_reports_cardinality_errors() {
     let compiled = compile("encode-for-uri(('a','b'))").expect("compile");
     let err = evaluate::<SimpleNode>(&compiled, &ctx).expect_err("expected error");
     assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+#[case("string-length(1)")]
+#[case("contains(1, 'a')")]
+#[case("encode-for-uri(1)")]
+fn string_functions_reject_numeric_arguments(#[case] expr: &str) {
+    let err = eval_expression_err(expr);
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+#[case("contains(true(), 'a')")]
+#[case("substring-before(true(), 'a')")]
+fn string_functions_reject_boolean_arguments(#[case] expr: &str) {
+    let err = eval_expression_err(expr);
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn codepoints_to_string_rejects_non_integer() {
+    let err = eval_expression_err("codepoints-to-string(('a'))");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn codepoints_to_string_accepts_integers() {
+    let result = eval_expression("codepoints-to-string((97, 98))");
+    assert_eq!(result.len(), 1);
+    match &result[0] {
+        I::Atomic(A::String(s)) => assert_eq!(s, "ab"),
+        other => panic!("unexpected result: {other:?}"),
+    }
+}
+
+#[rstest]
+fn xs_boolean_multi_item_cardinality_error() {
+    let err = eval_expression_err("xs:boolean((1,2))");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn xs_boolean_accepts_numeric() {
+    let result = eval_expression("xs:boolean(1)");
+    assert_eq!(result.len(), 1);
+    match &result[0] {
+        I::Atomic(A::Boolean(v)) => assert!(*v),
+        other => panic!("unexpected result: {other:?}"),
+    }
+}
+
+#[rstest]
+fn xs_qname_rejects_numeric_argument() {
+    let err = eval_expression_err("xs:QName(1)");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn xs_datetime_accepts_empty_sequence() {
+    let result = eval_expression("xs:dateTime(())");
+    assert!(result.is_empty());
+}
+
+#[rstest]
+fn trace_rejects_non_string_label() {
+    let err = eval_expression_err("trace((), 1)");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn error_rejects_non_qname_code() {
+    let err = eval_expression_err("error('not:a:qname')");
+    assert_eq!(err.code.local, "FORG0001");
+}
+
+#[rstest]
+fn error_rejects_non_string_description() {
+    let err = eval_expression_err("error(xs:QName('err:oops'), 1)");
+    assert_eq!(err.code.local, "FORG0001");
 }
 
 #[test]
@@ -347,6 +615,24 @@ fn years_from_duration_invalid_lexical_reports_forg0001() {
     assert_eq!(err.code.local, "FORG0001");
 }
 
+#[rstest]
+fn year_from_datetime_rejects_non_datetime() {
+    let err = eval_expression_err("year-from-dateTime(1)");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn hours_from_time_rejects_non_time() {
+    let err = eval_expression_err("hours-from-time(1)");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn adjust_date_to_timezone_rejects_non_duration() {
+    let err = eval_expression_err("adjust-date-to-timezone(xs:date('2020-01-01'), 1)");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
 #[test]
 fn namespace_uri_from_qname_converts_untyped_atomic() {
     let compiled =
@@ -369,6 +655,48 @@ fn namespace_uri_from_qname_reports_unknown_prefix() {
     let ctx = make_context(&build_doc());
     let err = evaluate::<SimpleNode>(&compiled, &ctx).expect_err("expected error");
     assert_eq!(err.code.local, "FONS0004");
+}
+
+#[rstest]
+fn qname_accepts_empty_namespace() {
+    let result = eval_expression("QName((), 'local')");
+    assert_eq!(result.len(), 1);
+    match &result[0] {
+        I::Atomic(A::QName {
+            ns_uri,
+            prefix,
+            local,
+        }) => {
+            assert!(ns_uri.is_none());
+            assert!(prefix.is_none());
+            assert_eq!(local, "local");
+        }
+        other => panic!("unexpected result: {other:?}"),
+    }
+}
+
+#[rstest]
+fn qname_rejects_non_string_namespace() {
+    let err = eval_expression_err("QName(1, 'local')");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn resolve_qname_rejects_non_element_context() {
+    let err = eval_expression_err("resolve-QName('local', 1)");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn namespace_uri_for_prefix_rejects_non_element() {
+    let err = eval_expression_err("namespace-uri-for-prefix('p', 1)");
+    assert_eq!(err.code.local, "XPTY0004");
+}
+
+#[rstest]
+fn in_scope_prefixes_rejects_non_element() {
+    let err = eval_expression_err("in-scope-prefixes(1)");
+    assert_eq!(err.code.local, "XPTY0004");
 }
 
 #[test]

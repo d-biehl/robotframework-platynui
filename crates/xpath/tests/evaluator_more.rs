@@ -48,7 +48,7 @@ fn manual_predicate_heavy_metrics() -> (i64, i64) {
                 continue;
             }
             position += 1;
-            if position % 7 == 0 {
+            if position.is_multiple_of(7) {
                 selected_count += 1;
                 let text_content = format!("Section {section_idx} Item {item_idx}");
                 total_len += text_content.len() as i64;

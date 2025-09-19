@@ -283,7 +283,7 @@ pub(super) fn xs_hex_binary_fn<N: crate::model::XdmNode + Clone>(
     }
     let raw = item_to_string(&args[0]);
     let norm: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
-    if norm.len() % 2 != 0 || !norm.chars().all(|c| c.is_ascii_hexdigit()) {
+    if !norm.len().is_multiple_of(2) || !norm.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(Error::from_code(
             ErrorCode::FORG0001,
             "invalid xs:hexBinary",
