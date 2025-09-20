@@ -18,6 +18,14 @@ PlatynUI is a library for Robot Framework, providing a cross-platform solution f
 
 We aim to provide a Robot Framework-first library.
 
+### Documentation
+
+- Architektur- und Runtime-Konzept: `docs/architekturkonzept_runtime.md`
+- Umsetzungsschritte: `docs/umsetzungsplan.md`
+- Pattern-Katalog (Trait-basierte Fähigkeiten, Koordinatenrichtlinien, Mappings): `docs/patterns.md`
+
+Alle Dokumente sind lebende Entwürfe – wir aktualisieren sie parallel zur Implementierung.
+
 ### Why PlatynUI?
 
 - Cross-platform capability with consistent API across Windows, Linux, and MacOS
@@ -36,4 +44,3 @@ We aim to provide a Robot Framework-first library.
   - Accessibility API
 
 Extendable for any other ui technologies.
-
