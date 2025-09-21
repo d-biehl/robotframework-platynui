@@ -8,6 +8,8 @@
 - Plattformen werden strikt in zwei Crate-Gruppen aufgeteilt: (1) Geräte-/Window-Manager-Schicht unter `crates/platform-<ziel>` mit Paketnamen `platynui-platform-<ziel>` und (2) UiTreeProvider unter `crates/provider-<technik>` mit Paketnamen `platynui-provider-<technik>`. Neue Technologien müssen genau diesem Schema folgen; Abweichungen sind nicht erlaubt. Out-of-process-Anbindungen ergänzen das Set ausschließlich über `crates/provider-jsonrpc` (`platynui-provider-jsonrpc`).
 - Runtime verwaltet Provider, Devices, WindowManager, XPath-Pipeline, Highlighting und Screenshot-Funktionen.
 - CLI und Inspector dienen als Referenzwerkzeuge über Runtime bzw. JSON-RPC-Server.
+- Fokus der ersten Iterationen liegt auf Windows (UIA) und Linux/X11 (AT-SPI2); macOS-Implementierungen folgen, sobald diese beiden Plattformen stabil laufen.
+- Aktuelle Entwicklungsumgebung: WSL2 (Linux) mit Möglichkeit zum Cross-Build für Windows-Binaries; Windows-spezifische Tests laufen soweit machbar direkt oder per CI.
 - Rust-Toolchain: `rustc 1.90.0 (1159e78c4 2025-09-14)` ist die Basis. Wir verfolgen die zugehörigen Release Notes und nutzen neue Sprach-/Standardbibliotheksfeatures soweit sinnvoll (z. B. aktuelle `let-else`/`if-let`-Verbesserungen, stabilisierte Traits, `async`-Erweiterungen).
 
 ## Querschnittsrichtlinien
@@ -49,10 +51,17 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [ ] Provider-Checkliste (`docs/provider_checklist.md`) automatisiert verknüpfen (CI-Lints oder Contract-Test-Suite).
 
 ### 5. Native Provider (UiTree)
-- [ ] `platynui-provider-windows-uia`: UIA-Wrapper (COM-Helfer ggf. in `platynui-platform-windows-core`), Rollennormalisierung (ControlType → lokale Namen), `RuntimeId`-Weitergabe, `AcceptsUserInput` via `WaitForInputIdle`/Fallback.
+#### Phase 1 – Windows (UIA)
+- [ ] `platynui-provider-windows-uia`: UIA-Wrapper (COM-Helfer ggf. in `platynui-platform-windows`), Rollennormalisierung (ControlType → lokale Namen), `RuntimeId`-Weitergabe, `AcceptsUserInput` via `WaitForInputIdle`/Fallback.
+- [ ] Gemeinsame Tests (Provider vs. Mock) mit Snapshot-Baum & XPath-Abfragen; Dokumentation von Abweichungen der UIA-API.
+
+#### Phase 2 – Linux/X11 (AT-SPI2)
 - [ ] `platynui-provider-atspi`: D-Bus-Integration, Baumaufbau (Application → Window → Control/Item), RuntimeId aus Objektpfad, Fokus- und Sichtbarkeitsflags.
+- [ ] Ergänzende Tests (AT-SPI2) auf Basis des gleichen Testsets wie Windows, inklusive Namespaces `item`/`control`.
+
+#### Backlog – macOS (AX)
 - [ ] `platynui-provider-macos-ax`: AXUIElement-Brücke, Fenster-/App-Auflistung, RuntimeId aus AXIdentifier, Bound-Konvertierung (Core Graphics).
-- [ ] Gemeinsame Tests (pro Provider) mit Snapshot-Baum & XPath-Abfragen; Dokumentation von Abweichungen je API.
+- [ ] Plattformübergreifende Regressionstests um macOS-spezifische Unterschiede erweitern.
 
 ### 6. JSON-RPC-Provider & Out-of-Process Integration
 - [ ] JSON-RPC 2.0 Vertrag dokumentieren (Markdown + JSON-Schema): Mindestumfang `initialize`, `listApplications`, `getRoot`, `getNode`, `getChildren`, `getAttributes`, `getSupportedPatterns`, optional `resolveRuntimeId`, `ping`; Events `$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`.
@@ -70,8 +79,18 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 ### 8. Devices & Window-Management
 - [ ] Traits `PointerDevice`, `KeyboardDevice`, `TouchDevice`, `DisplayInfo`, `ScreenshotDevice`, `HighlightOverlay` (Desktop-Koordinaten, DPI-Korrektur).
 - [ ] WindowManager-Trait definieren (`activate`, `minimize`, `maximize`, `move`, `restore`, `bring_to_front`, Status-Abfragen) + Mapping in Patterns (`WindowSurface`).
-- [ ] Plattform-Implementierungen: Windows (Win32 + UIA), Linux/X11 (X11 + XTest, Fenstermanager-APIs), MacOS (AppKit/CoreGraphics). Wayland vorbereiten (Portal/XDG-Activation) als Option.
-- [ ] Fokus-Helper (`focus_control` Standardweg + Fallbacks, Integration mit `Focusable` Pattern).
+
+#### Phase 1 – Windows
+- [ ] `platynui-platform-windows`: Pointer/Keyboard via Win32 & UIAutomation Hilfen, Screenshot/Highlight (DComposition/GDI), Window-Manager-Bridge (SetForegroundWindow, Modal-Handling).
+- [ ] Fokus-Helper (`focus_control`) mit UIA-Fallbacks und Integration in `Focusable`.
+
+#### Phase 2 – Linux/X11
+- [ ] `platynui-platform-linux-x11`: Pointer/Keyboard via XTest oder äquivalente APIs, Screenshot (XShm), Highlight (XComposite), Window-Manager-Integration (EWMH/NetWM).
+- [ ] Fokus-Helper für AT-SPI2 + Window-Manager-Fallbacks.
+
+#### Backlog – macOS
+- [ ] `platynui-platform-macos`: Devices via Quartz/Event-Taps, Screenshot/Highlight mit CoreGraphics, Window-Manager via AppKit.
+
 - [ ] Tests: Desktop-Bounds, Default-Click-Point aus `ActivationTarget`, Sichtbarkeit (`IsVisible`, `IsOffscreen`).
 
 ### 9. Runtime-Kern
@@ -109,8 +128,8 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 ## Empfohlene Reihenfolge (High-Level)
 1. Fundament (Abschnitt 1) + Core-Datenmodell (2) als Basis.
 2. Pattern-System (3) und Provider-Infrastruktur-Core (4) definieren.
-3. Mocking (7) und Devices/Window-Management (8) für End-to-End-Prototyp sichern.
+3. Mocking (7) und Devices/Window-Management (8) – zunächst Windows, danach Linux/X11 – für End-to-End-Prototyp sichern.
 4. Runtime-Kern (9) mit XPath & Highlighting; parallel JSON-RPC-Provider (6) vorbereiten.
-5. Native Provider (5) inkrementell je Plattform integrieren.
+5. Native Provider (5) schrittweise: zuerst Windows, anschließend Linux/X11; macOS in den Backlog verschieben.
 6. Server & Tools (10–11) aufsetzen, sobald Runtime stabil ist.
-7. Qualitätssicherung (12) verankern, Backlog (13) nach Stabilisierung adressieren.
+7. Qualitätssicherung (12) verankern, Backlog (13) nach Stabilisierung adressieren; macOS-Implementierungen folgen nach Windows/Linux.

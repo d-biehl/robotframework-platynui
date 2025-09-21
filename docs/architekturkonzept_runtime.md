@@ -139,6 +139,8 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
 2. **Inspector (GUI)** – Tree-Ansicht, Property-Panel (`control:*`, `item:*`, `native:*`), XPath-Editor (Autocompletion), Ergebnisliste, Highlighting, Element-Picker, Export/Logging; arbeitet eingebettet oder über `crates/server` (Crate `platynui-server`).
 
 ## 12. Nächste Schritte
+> Kurzfristiger Fokus: Windows (UIA) und Linux/X11 (AT-SPI2) werden zuerst umgesetzt; macOS folgt, sobald beide Plattformen stabil laufen.
+
 1. **Core & XPath** – Attributkatalog finalisieren, `UiXdmNode`-Prototyp entwickeln, Tests schreiben.
 2. **Provider & JSON-RPC** – Crates (`platynui-provider-windows-uia`, `platynui-provider-atspi`, `platynui-provider-macos-ax`, `platynui-provider-mock`, `platynui-provider-jsonrpc`) anlegen; JSON-RPC-Schema/Registrierung/Heartbeats implementieren.
 3. **Devices & Interaktion** – Plattform-Devices fertigstellen, Screenshot/Highlight-PoCs, Fallback-Strategien definieren.

@@ -64,4 +64,6 @@ All concept documents are living drafts and evolve alongside the implementation.
 - **MacOS**
   - Accessibility API
 
+> Roadmap focus: Windows and Linux/X11 implementations are prioritized in the current development cycle; macOS support will follow once both are stable.
+
 Extendable for any other ui technologies.
