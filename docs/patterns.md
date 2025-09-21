@@ -15,16 +15,31 @@ PlatynUI modelliert Fähigkeiten von UI-Knoten mit Patterns. Diese Patterns verh
 - **Keine Events:** Statusänderungen spiegeln sich in Attributen wider und können durch erneute XPath-Abfragen ermittelt werden. Baum-Events existieren nur für die Synchronisation zwischen Runtime und Provider und sind kein Bestandteil einzelner Patterns.
 - **Erweiterbarkeit:** Neue Patterns lassen sich hinzufügen, ohne bestehende Abfragen zu brechen. Provider melden jedes unterstützte Pattern in `SupportedPatterns`.
 
-## Basisvertrag jeder UiNode
-Jede `UiNode` stellt unabhängig von Patterns mindestens folgende Felder bereit (Namespace `control` oder `item`, abhängig vom Knotentyp):
-- `Bounds` – Rechteck des Elements im Desktop-Koordinatensystem; beim Desktop-Wurzelknoten entspricht das dem gesamten Desktop. Die Runtime stellt neben `Bounds` automatisch die Komponenten `Bounds.X`, `Bounds.Y`, `Bounds.Width`, `Bounds.Height` bereit.
-- `Role` – Normalisierte Rolle in PascalCase; sie entspricht exakt dem lokalen Elementnamen in XPath. Die plattformspezifische Bezeichnung liegt zusätzlich als `native:Role` vor.
-- `Name` – Zugänglicher Anzeigename.
-- `IsVisible` – Sichtbarkeitsstatus gemäß API (z. B. sichtbar im Accessibility-Tree, nicht ausgeblendet).
-- `IsOffscreen` – Element liegt außerhalb des sichtbaren Viewports (optional, je nach Plattform verfügbar).
-- `RuntimeId` – Laufzeit-eindeutige Kennung (übernommen oder abgeleitet aus der jeweiligen Technologie, z. B. UIA `RuntimeId`, AT-SPI D-Bus-Objektpfad, macOS `AXUIElement` Identifier).
-- `Technology` – Quelle (z. B. `UIAutomation`, `AT-SPI`, `AX`, `JSONRPC`).
-- `SupportedPatterns` – Liste der aktivierten Pattern-Namen.
+## UiNode-Kategorien & Basisvertrag
+Wir unterscheiden drei Typen von UiNode-Namespace-Knoten:
+
+1. `control:` – Steuerelemente (Fenster, Buttons, Textfelder …).
+2. `item:` – Inhalte innerhalb von Containern (ListItem, TreeItem, TabItem).
+3. `app:` – Anwendungsknoten (`app:Application`) mit dem Application-Pattern.
+
+### Gemeinsamer Vertrag für `control` & `item`
+### Desktop-Knoten (`control:Desktop`)
+- Entspricht einem regulären `control`-Element, bezieht seine Daten jedoch aus dem Plattform-Trait `DesktopProvider` (Auflösung, Monitore, Primäranzeige).
+- `Bounds` umfasst den gesamten Desktop; `DisplayCount` und `Monitors` spiegeln die vom Trait gelieferten Informationen wider.
+
+- `Bounds` – Desktop-referenzierte Rechtecke; Aliaswerte `Bounds.X`, `Bounds.Y`, `Bounds.Width`, `Bounds.Height` werden automatisch ergänzt.
+- `Role` – Normalisierte PascalCase-Rolle, entspricht dem lokalen XPath-Elementnamen. Die native Rolle bleibt unter `native:Role` erhalten.
+- `Name` – Anzeigename für Benutzer.
+- `IsVisible` – Sichtbarkeit laut Backend.
+- `IsOffscreen` – Optionales Flag, falls das Element außerhalb des sichtbaren Bereichs liegt.
+- `RuntimeId` – Technologie-spezifische Laufzeit-ID (oder stabiler Fallback).
+- `Technology` – Quelle (`UIAutomation`, `AT-SPI`, `AX`, `JSONRPC`, …).
+- `SupportedPatterns` – Liste der aktivierten Pattern in PascalCase (wird über `UiNode::supported_patterns()` gemeldet).
+- Attribute werden über das `UiAttribute`-Trait bereitgestellt (`name`, `namespace`, `value -> UiValue`).
+
+### Spezifika für `app:`-Knoten
+- Müssen das `Application`-Pattern implementieren und stellen `app:*`-Attribute bereit (Prozessmetadaten, `AcceptsUserInput`, etc.).
+- `Bounds`, `Name`, `RuntimeId`, `Technology` gelten analog, wobei `Bounds` typischerweise den Desktop abbildet.
 
 ## Capability-Patterns (Draft)
 Die folgenden Patterns bilden wiederkehrende Fähigkeiten ab. Beispiel-Mappings auf UIA, AT-SPI oder AX dienen nur als Orientierung.
