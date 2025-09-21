@@ -533,7 +533,9 @@ fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
 mod tests {
     use super::*;
     use platynui_core::types::Rect;
-    use platynui_core::ui::{PatternId, RuntimeId, UiAttribute, UiNode, attribute_names};
+    use platynui_core::ui::{
+        PatternId, RuntimeId, UiAttribute, UiNode, attribute_names, supported_patterns_value,
+    };
     use std::sync::{Arc, Mutex, Weak};
 
     struct StaticAttribute {
@@ -584,48 +586,77 @@ mod tests {
         ) -> Arc<Self> {
             let runtime_id = RuntimeId::from(runtime_id);
             let patterns_vec: Vec<PatternId> = patterns.into_iter().map(PatternId::from).collect();
-            let supported = UiValue::Array(
-                patterns_vec.iter().map(|p| UiValue::from(p.as_str().to_owned())).collect(),
-            );
+            let supported = supported_patterns_value(&patterns_vec);
 
             let mut attributes: Vec<Arc<dyn UiAttribute>> = Vec::new();
             attributes.push(Arc::new(StaticAttribute::new(
                 namespace,
-                attribute_names::BOUNDS,
+                attribute_names::element::BOUNDS,
                 UiValue::Rect(bounds),
             )) as Arc<dyn UiAttribute>);
             attributes.push(Arc::new(StaticAttribute::new(
                 namespace,
-                attribute_names::ROLE,
+                attribute_names::common::ROLE,
                 UiValue::from(role),
             )) as Arc<dyn UiAttribute>);
             attributes.push(Arc::new(StaticAttribute::new(
                 namespace,
-                attribute_names::NAME,
+                attribute_names::common::NAME,
                 UiValue::from(name),
             )) as Arc<dyn UiAttribute>);
             attributes.push(Arc::new(StaticAttribute::new(
                 namespace,
-                attribute_names::IS_VISIBLE,
+                attribute_names::element::IS_VISIBLE,
                 UiValue::from(true),
             )) as Arc<dyn UiAttribute>);
             attributes.push(Arc::new(StaticAttribute::new(
                 namespace,
-                attribute_names::RUNTIME_ID,
+                attribute_names::element::IS_ENABLED,
+                UiValue::from(true),
+            )) as Arc<dyn UiAttribute>);
+            attributes.push(Arc::new(StaticAttribute::new(
+                namespace,
+                attribute_names::common::RUNTIME_ID,
                 UiValue::from(runtime_id.as_str().to_owned()),
             )) as Arc<dyn UiAttribute>);
             attributes.push(Arc::new(StaticAttribute::new(
                 namespace,
-                attribute_names::TECHNOLOGY,
+                attribute_names::common::TECHNOLOGY,
                 UiValue::from("Mock"),
             )) as Arc<dyn UiAttribute>);
             attributes.push(Arc::new(StaticAttribute::new(
                 namespace,
-                attribute_names::SUPPORTED_PATTERNS,
+                attribute_names::common::SUPPORTED_PATTERNS,
                 supported,
             )) as Arc<dyn UiAttribute>);
 
-            Arc::new(Self {
+            if role == "Desktop" {
+                attributes.push(Arc::new(StaticAttribute::new(
+                    namespace,
+                    attribute_names::desktop::DISPLAY_COUNT,
+                    UiValue::from(1_i64),
+                )) as Arc<dyn UiAttribute>);
+                attributes.push(Arc::new(StaticAttribute::new(
+                    namespace,
+                    attribute_names::desktop::OS_NAME,
+                    UiValue::from("Test OS"),
+                )) as Arc<dyn UiAttribute>);
+                attributes.push(Arc::new(StaticAttribute::new(
+                    namespace,
+                    attribute_names::desktop::OS_VERSION,
+                    UiValue::from("1.0"),
+                )) as Arc<dyn UiAttribute>);
+                let mut monitor = std::collections::BTreeMap::new();
+                monitor.insert("Name".to_string(), UiValue::from("Display 1"));
+                monitor.insert("Bounds".to_string(), UiValue::Rect(bounds));
+                attributes.push(Arc::new(StaticAttribute::new(
+                    namespace,
+                    attribute_names::desktop::MONITORS,
+                    UiValue::Array(vec![UiValue::Object(monitor)]),
+                )) as Arc<dyn UiAttribute>);
+            }
+
+            let node = Arc::new(Self {
                 namespace,
                 role,
                 name: name.to_string(),
@@ -634,7 +665,14 @@ mod tests {
                 patterns: patterns_vec,
                 children: Mutex::new(Vec::new()),
                 parent: Mutex::new(None),
-            })
+            });
+
+            if matches!(namespace, UiNamespace::Control | UiNamespace::Item) {
+                platynui_core::ui::validate_control_or_item(node.as_ref())
+                    .expect("StaticNode violates UiNode contract");
+            }
+
+            node
         }
 
         fn to_ref(this: &Arc<Self>) -> Arc<dyn UiNode> {
@@ -742,6 +780,43 @@ mod tests {
                 assert_eq!(node.runtime_id().as_str(), "desktop");
             }
             other => panic!("unexpected evaluation result: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn desktop_bounds_alias_attributes_are_available() {
+        let tree = sample_tree();
+        let items =
+            evaluate(None, "/control:Desktop/@Bounds.X", EvaluateOptions::new(tree.clone()))
+                .unwrap();
+        assert_eq!(items.len(), 1);
+        match &items[0] {
+            EvaluationItem::Attribute(attr) => {
+                assert_eq!(attr.name, "Bounds.X");
+                assert_eq!(attr.value, UiValue::Number(0.0));
+            }
+            other => panic!("unexpected attribute result: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn desktop_monitors_attribute_is_exposed() {
+        let tree = sample_tree();
+        let items =
+            evaluate(None, "/control:Desktop/@Monitors", EvaluateOptions::new(tree.clone()))
+                .unwrap();
+        assert_eq!(items.len(), 1);
+        match &items[0] {
+            EvaluationItem::Attribute(attr) => {
+                assert_eq!(attr.name, "Monitors");
+                match &attr.value {
+                    UiValue::Array(monitors) => {
+                        assert_eq!(monitors.len(), 1);
+                    }
+                    other => panic!("unexpected attribute type: {:?}", other),
+                }
+            }
+            other => panic!("unexpected monitors result: {:?}", other),
         }
     }
 }

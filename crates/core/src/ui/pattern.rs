@@ -1,0 +1,555 @@
+use super::value::UiValue;
+use crate::types::{Point, Rect, Size};
+use std::any::Any;
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+use std::sync::Arc;
+
+use super::identifiers::PatternId;
+
+/// Base trait for runtime patterns that enrich a [`UiNode`](super::UiNode).
+///
+/// Provider implementer hinterlegen Pattern-Instanzen im [`PatternRegistry`],
+/// damit `supported_patterns()` und `UiNode::pattern::<T>()` identische Daten
+/// verwenden.
+pub trait UiPattern: Any + Send + Sync {
+    fn id(&self) -> PatternId;
+
+    fn static_id() -> PatternId
+    where
+        Self: Sized;
+
+    fn as_any(&self) -> &dyn Any;
+}
+
+#[inline]
+pub fn downcast_pattern_arc<T>(pattern: Arc<dyn UiPattern>) -> Option<Arc<T>>
+where
+    T: UiPattern + 'static,
+{
+    if Arc::as_ref(&pattern).as_any().is::<T>() {
+        let raw_pattern = Arc::into_raw(pattern);
+        let raw_any = raw_pattern as *const (dyn Any + Send + Sync);
+        let any_arc = unsafe { Arc::from_raw(raw_any) };
+        Arc::downcast::<T>(any_arc).ok()
+    } else {
+        None
+    }
+}
+
+#[inline]
+pub fn downcast_pattern_ref<T>(pattern: &Arc<dyn UiPattern>) -> Option<Arc<T>>
+where
+    T: UiPattern + 'static,
+{
+    downcast_pattern_arc::<T>(Arc::clone(pattern))
+}
+
+#[derive(Default)]
+pub struct PatternRegistry {
+    order: Vec<PatternId>,
+    entries: HashMap<PatternId, Arc<dyn UiPattern>>,
+}
+
+impl PatternRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register<P>(&mut self, pattern: Arc<P>)
+    where
+        P: UiPattern + 'static,
+    {
+        self.register_dyn(pattern as Arc<dyn UiPattern>);
+    }
+
+    pub fn register_dyn(&mut self, pattern: Arc<dyn UiPattern>) {
+        let id = pattern.id();
+        if !self.entries.contains_key(&id) {
+            self.order.push(id.clone());
+        }
+        self.entries.insert(id, pattern);
+    }
+
+    pub fn get(&self, id: &PatternId) -> Option<Arc<dyn UiPattern>> {
+        self.entries.get(id).map(Arc::clone)
+    }
+
+    pub fn get_typed<T>(&self) -> Option<Arc<T>>
+    where
+        T: UiPattern + 'static,
+    {
+        let id = T::static_id();
+        self.get(&id).and_then(downcast_pattern_arc::<T>)
+    }
+
+    pub fn supported(&self) -> &[PatternId] {
+        &self.order
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+/// Converts a pattern list into the canonical `SupportedPatterns` value.
+pub fn supported_patterns_value(patterns: &[PatternId]) -> UiValue {
+    UiValue::Array(patterns.iter().map(|id| UiValue::from(id.as_str().to_owned())).collect())
+}
+
+type ActionHandler = Arc<dyn Fn() -> Result<(), PatternError> + Send + Sync>;
+type MoveHandler = Arc<dyn Fn(Point) -> Result<(), PatternError> + Send + Sync>;
+type ResizeHandler = Arc<dyn Fn(Size) -> Result<(), PatternError> + Send + Sync>;
+type InputHandler = Arc<dyn Fn() -> Result<Option<bool>, PatternError> + Send + Sync>;
+
+fn arc_action<F>(handler: F) -> ActionHandler
+where
+    F: Fn() -> Result<(), PatternError> + Send + Sync + 'static,
+{
+    Arc::new(handler)
+}
+
+fn arc_move<F>(handler: F) -> MoveHandler
+where
+    F: Fn(Point) -> Result<(), PatternError> + Send + Sync + 'static,
+{
+    Arc::new(handler)
+}
+
+fn arc_resize<F>(handler: F) -> ResizeHandler
+where
+    F: Fn(Size) -> Result<(), PatternError> + Send + Sync + 'static,
+{
+    Arc::new(handler)
+}
+
+fn arc_input<F>(handler: F) -> InputHandler
+where
+    F: Fn() -> Result<Option<bool>, PatternError> + Send + Sync + 'static,
+{
+    Arc::new(handler)
+}
+
+/// Simple focus implementation backed by a closure.
+pub struct FocusableAction {
+    handler: ActionHandler,
+}
+
+impl FocusableAction {
+    pub fn new<F>(handler: F) -> Self
+    where
+        F: Fn() -> Result<(), PatternError> + Send + Sync + 'static,
+    {
+        Self { handler: arc_action(handler) }
+    }
+
+    pub fn noop() -> Self {
+        Self::new(|| Ok(()))
+    }
+}
+
+impl UiPattern for FocusableAction {
+    fn id(&self) -> PatternId {
+        Self::static_id()
+    }
+
+    fn static_id() -> PatternId
+    where
+        Self: Sized,
+    {
+        PatternId::from("Focusable")
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl FocusablePattern for FocusableAction {
+    fn focus(&self) -> Result<(), PatternError> {
+        (self.handler)()
+    }
+}
+
+/// Configurable window-surface implementation used in tests and default runtime wiring.
+pub struct WindowSurfaceActions {
+    activate: ActionHandler,
+    minimize: ActionHandler,
+    maximize: ActionHandler,
+    restore: ActionHandler,
+    close: ActionHandler,
+    move_to: MoveHandler,
+    resize: ResizeHandler,
+}
+
+impl WindowSurfaceActions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_activate<F>(mut self, handler: F) -> Self
+    where
+        F: Fn() -> Result<(), PatternError> + Send + Sync + 'static,
+    {
+        self.activate = arc_action(handler);
+        self
+    }
+
+    pub fn with_minimize<F>(mut self, handler: F) -> Self
+    where
+        F: Fn() -> Result<(), PatternError> + Send + Sync + 'static,
+    {
+        self.minimize = arc_action(handler);
+        self
+    }
+
+    pub fn with_maximize<F>(mut self, handler: F) -> Self
+    where
+        F: Fn() -> Result<(), PatternError> + Send + Sync + 'static,
+    {
+        self.maximize = arc_action(handler);
+        self
+    }
+
+    pub fn with_restore<F>(mut self, handler: F) -> Self
+    where
+        F: Fn() -> Result<(), PatternError> + Send + Sync + 'static,
+    {
+        self.restore = arc_action(handler);
+        self
+    }
+
+    pub fn with_close<F>(mut self, handler: F) -> Self
+    where
+        F: Fn() -> Result<(), PatternError> + Send + Sync + 'static,
+    {
+        self.close = arc_action(handler);
+        self
+    }
+
+    pub fn with_move_to<F>(mut self, handler: F) -> Self
+    where
+        F: Fn(Point) -> Result<(), PatternError> + Send + Sync + 'static,
+    {
+        self.move_to = arc_move(handler);
+        self
+    }
+
+    pub fn with_resize<F>(mut self, handler: F) -> Self
+    where
+        F: Fn(Size) -> Result<(), PatternError> + Send + Sync + 'static,
+    {
+        self.resize = arc_resize(handler);
+        self
+    }
+}
+
+impl Default for WindowSurfaceActions {
+    fn default() -> Self {
+        Self {
+            activate: arc_action(|| Ok(())),
+            minimize: arc_action(|| Ok(())),
+            maximize: arc_action(|| Ok(())),
+            restore: arc_action(|| Ok(())),
+            close: arc_action(|| Ok(())),
+            move_to: arc_move(|_| Ok(())),
+            resize: arc_resize(|_| Ok(())),
+        }
+    }
+}
+
+impl UiPattern for WindowSurfaceActions {
+    fn id(&self) -> PatternId {
+        Self::static_id()
+    }
+
+    fn static_id() -> PatternId
+    where
+        Self: Sized,
+    {
+        PatternId::from("WindowSurface")
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl WindowSurfacePattern for WindowSurfaceActions {
+    fn activate(&self) -> Result<(), PatternError> {
+        (self.activate)()
+    }
+
+    fn minimize(&self) -> Result<(), PatternError> {
+        (self.minimize)()
+    }
+
+    fn maximize(&self) -> Result<(), PatternError> {
+        (self.maximize)()
+    }
+
+    fn restore(&self) -> Result<(), PatternError> {
+        (self.restore)()
+    }
+
+    fn close(&self) -> Result<(), PatternError> {
+        (self.close)()
+    }
+
+    fn move_to(&self, position: Point) -> Result<(), PatternError> {
+        (self.move_to)(position)
+    }
+
+    fn resize(&self, size: Size) -> Result<(), PatternError> {
+        (self.resize)(size)
+    }
+}
+
+/// Application pattern helper that defers to a closure.
+pub struct ApplicationStatus {
+    handler: InputHandler,
+}
+
+impl ApplicationStatus {
+    pub fn new<F>(handler: F) -> Self
+    where
+        F: Fn() -> Result<Option<bool>, PatternError> + Send + Sync + 'static,
+    {
+        Self { handler: arc_input(handler) }
+    }
+
+    pub fn unknown() -> Self {
+        Self::new(|| Ok(None))
+    }
+}
+
+impl UiPattern for ApplicationStatus {
+    fn id(&self) -> PatternId {
+        Self::static_id()
+    }
+
+    fn static_id() -> PatternId
+    where
+        Self: Sized,
+    {
+        PatternId::from("Application")
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl ApplicationPattern for ApplicationStatus {
+    fn accepts_user_input(&self) -> Result<Option<bool>, PatternError> {
+        (self.handler)()
+    }
+}
+
+/// Fehlerobjekt für Runtime-Aktionen, die aus einem Pattern heraus ausgelöst
+/// werden.
+#[derive(Debug, Clone)]
+pub struct PatternError {
+    message: Cow<'static, str>,
+}
+
+impl PatternError {
+    pub fn new<M: Into<Cow<'static, str>>>(message: M) -> Self {
+        Self { message: message.into() }
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl Display for PatternError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl Error for PatternError {}
+
+/// Pattern für Fokuswechsel – löst über die Runtime einen Fokuswechsel aus.
+pub trait FocusablePattern: UiPattern {
+    fn focus(&self) -> Result<(), PatternError>;
+}
+
+/// Pattern für Fenstersteuerung über den Window Manager.
+pub trait WindowSurfacePattern: UiPattern {
+    fn activate(&self) -> Result<(), PatternError>;
+    fn minimize(&self) -> Result<(), PatternError>;
+    fn maximize(&self) -> Result<(), PatternError>;
+    fn restore(&self) -> Result<(), PatternError>;
+    fn close(&self) -> Result<(), PatternError>;
+
+    fn move_to(&self, position: Point) -> Result<(), PatternError>;
+    fn resize(&self, size: Size) -> Result<(), PatternError>;
+
+    fn move_and_resize(&self, bounds: Rect) -> Result<(), PatternError> {
+        self.move_to(bounds.position())?;
+        self.resize(bounds.size())
+    }
+}
+
+/// Pattern für Applikationsknoten, die Eingabebereitschaft prüfen.
+pub trait ApplicationPattern: UiPattern {
+    fn accepts_user_input(&self) -> Result<Option<bool>, PatternError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+    use std::sync::{Arc, Mutex};
+
+    struct DummyPattern;
+
+    impl UiPattern for DummyPattern {
+        fn id(&self) -> PatternId {
+            Self::static_id()
+        }
+
+        fn static_id() -> PatternId
+        where
+            Self: Sized,
+        {
+            PatternId::from("Dummy")
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    #[rstest]
+    fn registry_registers_and_retrieves_typed_pattern() {
+        let mut registry = PatternRegistry::new();
+        registry.register(Arc::new(DummyPattern));
+
+        let stored = registry.get_typed::<DummyPattern>();
+        assert!(stored.is_some());
+        let supported = registry.supported();
+        assert_eq!(supported.len(), 1);
+        assert_eq!(supported[0], DummyPattern::static_id());
+    }
+
+    #[rstest]
+    fn downcast_returns_none_for_mismatched_type() {
+        let arc: Arc<dyn UiPattern> = Arc::new(DummyPattern);
+        assert!(downcast_pattern_arc::<DummyPattern>(Arc::clone(&arc)).is_some());
+
+        struct OtherPattern;
+        impl UiPattern for OtherPattern {
+            fn id(&self) -> PatternId {
+                Self::static_id()
+            }
+
+            fn static_id() -> PatternId
+            where
+                Self: Sized,
+            {
+                PatternId::from("Other")
+            }
+
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+        }
+
+        assert!(downcast_pattern_arc::<OtherPattern>(arc).is_none());
+    }
+
+    #[rstest]
+    #[case("error message")]
+    #[case("technical detail")]
+    fn pattern_error_exposes_message(#[case] message: &str) {
+        let err = PatternError::new(message.to_string());
+        assert_eq!(err.message(), message);
+        assert_eq!(format!("{}", err), message);
+    }
+
+    #[rstest]
+    fn focusable_action_invokes_handler() {
+        let calls = Arc::new(Mutex::new(0));
+        let action = {
+            let calls = Arc::clone(&calls);
+            FocusableAction::new(move || {
+                *calls.lock().unwrap() += 1;
+                Ok(())
+            })
+        };
+
+        action.focus().expect("focus should succeed");
+        assert_eq!(*calls.lock().unwrap(), 1);
+    }
+
+    #[rstest]
+    fn focusable_action_propagates_error() {
+        let action = FocusableAction::new(|| Err(PatternError::new("fail")));
+        let err = action.focus().expect_err("should bubble up error");
+        assert_eq!(err.message(), "fail");
+    }
+
+    #[rstest]
+    fn window_surface_actions_execute_handlers() {
+        let moves: Arc<Mutex<Vec<Point>>> = Arc::new(Mutex::new(Vec::new()));
+        let sizes: Arc<Mutex<Vec<Size>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let actions = WindowSurfaceActions::new()
+            .with_move_to({
+                let moves = Arc::clone(&moves);
+                move |point| {
+                    moves.lock().unwrap().push(point);
+                    Ok(())
+                }
+            })
+            .with_resize({
+                let sizes = Arc::clone(&sizes);
+                move |size| {
+                    sizes.lock().unwrap().push(size);
+                    Ok(())
+                }
+            });
+
+        actions
+            .move_and_resize(Rect::new(10.0, 20.0, 300.0, 200.0))
+            .expect("default implementation should succeed");
+
+        assert_eq!(moves.lock().unwrap().as_slice(), &[Point::new(10.0, 20.0)]);
+        assert_eq!(sizes.lock().unwrap().as_slice(), &[Size::new(300.0, 200.0)]);
+    }
+
+    #[rstest]
+    fn window_surface_actions_propagate_error() {
+        let actions = WindowSurfaceActions::new().with_activate(|| Err(PatternError::new("fail")));
+        let err = actions.activate().expect_err("should propagate");
+        assert_eq!(err.message(), "fail");
+    }
+
+    #[rstest]
+    fn application_status_reports_value() {
+        let status = ApplicationStatus::new(|| Ok(Some(true)));
+        assert_eq!(status.accepts_user_input().unwrap(), Some(true));
+    }
+
+    #[rstest]
+    fn application_status_propagates_error() {
+        let status = ApplicationStatus::new(|| Err(PatternError::new("io")));
+        let err = status.accepts_user_input().expect_err("should bubble up");
+        assert_eq!(err.message(), "io");
+    }
+
+    #[rstest]
+    fn supported_patterns_value_converts_ids() {
+        let patterns = vec![PatternId::from("Focusable"), PatternId::from("WindowSurface")];
+        let value = supported_patterns_value(&patterns);
+        assert_eq!(
+            value,
+            UiValue::Array(vec![UiValue::from("Focusable"), UiValue::from("WindowSurface")])
+        );
+    }
+}

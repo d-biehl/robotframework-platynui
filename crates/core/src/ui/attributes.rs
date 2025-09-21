@@ -1,45 +1,138 @@
-/// Canonical attribute keys according to `docs/patterns.md` (PascalCase).
-pub mod names {
-    pub const BOUNDS: &str = "Bounds";
-    pub const ROLE: &str = "Role";
-    pub const NAME: &str = "Name";
-    pub const IS_VISIBLE: &str = "IsVisible";
-    pub const IS_OFFSCREEN: &str = "IsOffscreen";
-    pub const RUNTIME_ID: &str = "RuntimeId";
-    pub const TECHNOLOGY: &str = "Technology";
-    pub const SUPPORTED_PATTERNS: &str = "SupportedPatterns";
-    pub const OS_NAME: &str = "OsName";
-    pub const OS_VERSION: &str = "OsVersion";
-    pub const DISPLAY_COUNT: &str = "DisplayCount";
-    pub const MONITORS: &str = "Monitors";
-}
+//! Canonical attribute names grouped by ClientPattern namespaces.
 
-/// Convenience list of every mandatory attribute.
-pub const REQUIRED: &[&str] = &[
-    names::BOUNDS,
-    names::ROLE,
-    names::NAME,
-    names::IS_VISIBLE,
-    names::RUNTIME_ID,
-    names::TECHNOLOGY,
-    names::SUPPORTED_PATTERNS,
-];
+pub mod pattern {
+    /// Attributes shared by every `control:`/`item:` node regardless of Pattern.
+    pub mod common {
+        pub const ROLE: &str = "Role";
+        pub const NAME: &str = "Name";
+        pub const RUNTIME_ID: &str = "RuntimeId";
+        pub const TECHNOLOGY: &str = "Technology";
+        pub const SUPPORTED_PATTERNS: &str = "SupportedPatterns";
+    }
 
-/// Optional attributes defined in the core contract.
-pub const OPTIONAL: &[&str] = &[
-    names::IS_OFFSCREEN,
-    names::OS_NAME,
-    names::OS_VERSION,
-    names::DISPLAY_COUNT,
-    names::MONITORS,
-];
+    /// Base attributes for visible UI elements (Element-Pattern).
+    pub mod element {
+        pub const BOUNDS: &str = "Bounds";
+        pub const IS_VISIBLE: &str = "IsVisible";
+        pub const IS_ENABLED: &str = "IsEnabled";
+        pub const IS_OFFSCREEN: &str = "IsOffscreen";
+    }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    /// Desktop root attributes (Desktop-Pattern).
+    pub mod desktop {
+        pub const BOUNDS: &str = "Bounds";
+        pub const DISPLAY_COUNT: &str = "DisplayCount";
+        pub const MONITORS: &str = "Monitors";
+        pub const OS_NAME: &str = "OsName";
+        pub const OS_VERSION: &str = "OsVersion";
+    }
 
-    #[test]
-    fn required_attributes_have_expected_length() {
-        assert_eq!(REQUIRED.len(), 7);
+    pub mod text_content {
+        pub const TEXT: &str = "Text";
+        pub const LOCALE: &str = "Locale";
+        pub const IS_TRUNCATED: &str = "IsTruncated";
+    }
+
+    pub mod text_editable {
+        pub const IS_READ_ONLY: &str = "IsReadOnly";
+        pub const MAX_LENGTH: &str = "MaxLength";
+        pub const SUPPORTS_PASSWORD_MODE: &str = "SupportsPasswordMode";
+    }
+
+    pub mod text_selection {
+        pub const CARET_POSITION: &str = "CaretPosition";
+        pub const SELECTION_RANGES: &str = "SelectionRanges";
+        pub const SELECTION_ANCHOR: &str = "SelectionAnchor";
+        pub const SELECTION_ACTIVE: &str = "SelectionActive";
+    }
+
+    pub mod selectable {
+        pub const IS_SELECTED: &str = "IsSelected";
+        pub const SELECTION_CONTAINER_ID: &str = "SelectionContainerId";
+    }
+
+    pub mod selection_provider {
+        pub const SELECTION_MODE: &str = "SelectionMode";
+        pub const SELECTED_IDS: &str = "SelectedIds";
+    }
+
+    pub mod toggleable {
+        pub const TOGGLE_STATE: &str = "ToggleState";
+        pub const SUPPORTS_THREE_STATE: &str = "SupportsThreeState";
+    }
+
+    pub mod stateful_value {
+        pub const CURRENT_VALUE: &str = "CurrentValue";
+        pub const MINIMUM: &str = "Minimum";
+        pub const MAXIMUM: &str = "Maximum";
+        pub const SMALL_CHANGE: &str = "SmallChange";
+        pub const LARGE_CHANGE: &str = "LargeChange";
+    }
+
+    pub mod activatable {
+        pub const IS_ACTIVATION_ENABLED: &str = "IsActivationEnabled";
+    }
+
+    pub mod activation_target {
+        pub const ACTIVATION_POINT: &str = "ActivationPoint";
+        pub const ACTIVATION_AREA: &str = "ActivationArea";
+    }
+
+    pub mod focusable {
+        pub const IS_FOCUSED: &str = "IsFocused";
+    }
+
+    pub mod scrollable {
+        pub const HORIZONTAL_PERCENT: &str = "HorizontalPercent";
+        pub const VERTICAL_PERCENT: &str = "VerticalPercent";
+        pub const CAN_SCROLL_HORIZONTALLY: &str = "CanScrollHorizontally";
+        pub const CAN_SCROLL_VERTICALLY: &str = "CanScrollVertically";
+        pub const HORIZONTAL_VIEW_SIZE: &str = "HorizontalViewSize";
+        pub const VERTICAL_VIEW_SIZE: &str = "VerticalViewSize";
+    }
+
+    pub mod expandable {
+        pub const IS_EXPANDED: &str = "IsExpanded";
+        pub const HAS_CHILDREN: &str = "HasChildren";
+    }
+
+    pub mod item_container {
+        pub const ITEM_COUNT: &str = "ItemCount";
+        pub const IS_VIRTUALIZED: &str = "IsVirtualized";
+        pub const VIRTUALIZATION_HINT: &str = "VirtualizationHint";
+    }
+
+    pub mod window_surface {
+        pub const IS_MINIMIZED: &str = "IsMinimized";
+        pub const IS_MAXIMIZED: &str = "IsMaximized";
+        pub const IS_TOPMOST: &str = "IsTopmost";
+        pub const SUPPORTS_RESIZE: &str = "SupportsResize";
+        pub const SUPPORTS_MOVE: &str = "SupportsMove";
+    }
+
+    pub mod dialog_surface {
+        pub const IS_MODAL: &str = "IsModal";
+        pub const DEFAULT_RESULT: &str = "DefaultResult";
+    }
+
+    pub mod application {
+        pub const PROCESS_ID: &str = "ProcessId";
+        pub const PROCESS_NAME: &str = "ProcessName";
+        pub const EXECUTABLE_PATH: &str = "ExecutablePath";
+        pub const COMMAND_LINE: &str = "CommandLine";
+        pub const USER_NAME: &str = "UserName";
+        pub const START_TIME: &str = "StartTime";
+        pub const MAIN_WINDOW_IDS: &str = "MainWindowIds";
+        pub const ARCHITECTURE: &str = "Architecture";
+        pub const ACCEPTS_USER_INPUT: &str = "AcceptsUserInput";
+    }
+
+    pub mod highlightable {
+        pub const SUPPORTS_HIGHLIGHT: &str = "SupportsHighlight";
+        pub const HIGHLIGHT_STYLES: &str = "HighlightStyles";
+    }
+
+    pub mod annotatable {
+        pub const ANNOTATIONS: &str = "Annotations";
     }
 }

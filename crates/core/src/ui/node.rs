@@ -1,5 +1,6 @@
 use super::identifiers::{PatternId, RuntimeId};
 use super::namespace::Namespace;
+use super::pattern::{UiPattern, downcast_pattern_arc};
 use super::value::UiValue;
 use std::sync::{Arc, Weak};
 
@@ -25,9 +26,28 @@ pub trait UiNode: Send + Sync {
     }
     /// Capability patterns implemented by the node.
     fn supported_patterns(&self) -> &[PatternId];
+    /// Retrieves a pattern instance by identifier. Default implementation
+    /// returns `None`; providers override this to surface concrete pattern
+    /// objects.
+    fn pattern_by_id(&self, _pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
+        None
+    }
     /// Invalidates cached state. Provider können den nächsten Zugriff nutzen,
     /// um Werte neu zu laden.
     fn invalidate(&self);
+}
+
+impl dyn UiNode {
+    /// Typed convenience accessor for pattern instances. Returns `Some(Arc<T>)`
+    /// if the pattern is available on this node.
+    pub fn pattern<T>(&self) -> Option<Arc<T>>
+    where
+        T: UiPattern + 'static,
+    {
+        let id = T::static_id();
+        let pattern = self.pattern_by_id(&id)?;
+        downcast_pattern_arc::<T>(pattern)
+    }
 }
 
 /// Trait describing a lazily computed attribute of a UI node.
@@ -45,6 +65,8 @@ pub trait UiAttribute: Send + Sync {
 mod tests {
     use super::*;
     use crate::types::Rect;
+    use crate::ui::PatternRegistry;
+    use rstest::rstest;
     use std::sync::{Arc, Mutex, Weak};
 
     struct TestAttribute {
@@ -73,12 +95,12 @@ mod tests {
         name: &'static str,
         runtime_id: RuntimeId,
         attributes: Vec<Arc<dyn UiAttribute>>,
-        patterns: Vec<PatternId>,
+        patterns: PatternRegistry,
         children: Mutex<Vec<Arc<dyn UiNode>>>,
     }
 
     impl TestNode {
-        fn new() -> Arc<Self> {
+        fn new_with_pattern(pattern: Arc<dyn UiPattern>) -> Arc<Self> {
             Arc::new(Self {
                 namespace: Namespace::Control,
                 role: "Button",
@@ -89,7 +111,27 @@ mod tests {
                     name: "Bounds",
                     value: UiValue::Rect(Rect::new(0.0, 0.0, 10.0, 5.0)),
                 }) as Arc<dyn UiAttribute>],
-                patterns: vec![PatternId::from("Activatable")],
+                patterns: {
+                    let mut registry = PatternRegistry::new();
+                    registry.register_dyn(pattern);
+                    registry
+                },
+                children: Mutex::new(Vec::new()),
+            })
+        }
+
+        fn new_without_pattern() -> Arc<Self> {
+            Arc::new(Self {
+                namespace: Namespace::Control,
+                role: "Button",
+                name: "OK",
+                runtime_id: RuntimeId::from("node-1"),
+                attributes: vec![Arc::new(TestAttribute {
+                    namespace: Namespace::Control,
+                    name: "Bounds",
+                    value: UiValue::Rect(Rect::new(0.0, 0.0, 10.0, 5.0)),
+                }) as Arc<dyn UiAttribute>],
+                patterns: PatternRegistry::new(),
                 children: Mutex::new(Vec::new()),
             })
         }
@@ -126,17 +168,62 @@ mod tests {
         }
 
         fn supported_patterns(&self) -> &[PatternId] {
-            &self.patterns
+            self.patterns.supported()
+        }
+
+        fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
+            self.patterns.get(pattern)
         }
 
         fn invalidate(&self) {}
     }
 
+    struct ActivatablePattern;
+
+    impl UiPattern for ActivatablePattern {
+        fn id(&self) -> PatternId {
+            Self::static_id()
+        }
+
+        fn static_id() -> PatternId
+        where
+            Self: Sized,
+        {
+            PatternId::from("Activatable")
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
     #[test]
     fn attribute_lookup_uses_namespace_and_name() {
-        let node = TestNode::new();
+        let node = TestNode::new_without_pattern();
         let attr = node.attribute(Namespace::Control, "Bounds");
         assert!(attr.is_some());
         assert!(node.attribute(Namespace::Control, "Missing").is_none());
+    }
+
+    #[rstest]
+    #[case(true)]
+    #[case(false)]
+    fn pattern_lookup_respects_registry(#[case] register_pattern: bool) {
+        let node = if register_pattern {
+            TestNode::new_with_pattern(Arc::new(ActivatablePattern) as Arc<dyn UiPattern>)
+        } else {
+            TestNode::new_without_pattern()
+        };
+
+        let ui_node: &dyn UiNode = &*node;
+        let pattern = ui_node.pattern::<ActivatablePattern>();
+
+        if register_pattern {
+            assert!(pattern.is_some());
+            assert_eq!(node.supported_patterns()[0], ActivatablePattern::static_id());
+        } else {
+            assert!(pattern.is_none());
+            assert!(node.supported_patterns().is_empty());
+        }
     }
 }

@@ -1,12 +1,20 @@
 pub mod attributes;
+pub mod contract;
 pub mod identifiers;
 pub mod namespace;
 pub mod node;
+pub mod pattern;
 pub mod value;
 
-pub use attributes::names as attribute_names;
+pub use attributes::pattern as attribute_names;
+pub use contract::{ContractViolation, validate_control_or_item};
 pub use identifiers::{PatternId, RuntimeId, TechnologyId};
 pub use namespace::{Namespace, all_namespaces, resolve_namespace};
 pub use node::UiAttribute;
 pub use node::UiNode;
+pub use pattern::{
+    ApplicationPattern, ApplicationStatus, FocusableAction, FocusablePattern, PatternError,
+    PatternRegistry, UiPattern, WindowSurfaceActions, WindowSurfacePattern, downcast_pattern_arc,
+    downcast_pattern_ref, supported_patterns_value,
+};
 pub use value::UiValue;

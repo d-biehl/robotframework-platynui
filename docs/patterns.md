@@ -14,7 +14,8 @@ PlatynUI modelliert Fähigkeiten von UI-Knoten mit Patterns. Diese Patterns verh
 - **Lesende Fähigkeiten:** Patterns beschreiben ausschließlich Zustände und zusätzliche Attribute. Aktionen liegen in der Verantwortung der Clients, mit Ausnahme von Fokuswechsel und Fenstersteuerung, die die Runtime direkt anbietet.
 - **Keine Events:** Statusänderungen spiegeln sich in Attributen wider und können durch erneute XPath-Abfragen ermittelt werden. Baum-Events existieren nur für die Synchronisation zwischen Runtime und Provider und sind kein Bestandteil einzelner Patterns.
 - **Erweiterbarkeit:** Neue Patterns lassen sich hinzufügen, ohne bestehende Abfragen zu brechen. Provider melden jedes unterstützte Pattern in `SupportedPatterns`.
-- **Runtime-Zugriff:** Patterns implementieren das Trait `UiPattern`. Provider halten passende Instanzen bereit und liefern sie über `UiNode::pattern::<T>()` aus; dort existieren optional Runtime-Aktionen (z. B. `focus()`, `maximize()`). `SupportedPatterns` und die tatsächlich abrufbaren Instanzen müssen übereinstimmen.
+- **Runtime vs. Client:** Nur Patterns mit Runtime-Aktionen (`Focusable`, `WindowSurface`, `Application`) implementieren das Trait `UiPattern`. Provider liefern sie über `UiNode::pattern::<T>()` aus; deren Methoden geben immer `Result<_, PatternError>` zurück. Alle anderen Patterns agieren als ClientPattern – sie bleiben reine Attributbeschreibungen, deren Interpretation der Client übernimmt.
+- **Registry-Unterstützung:** `PatternRegistry` im Core erleichtert die Verwaltung (`PatternId` → `Arc<dyn UiPattern>`) und sorgt dafür, dass `supported_patterns()` und `pattern::<T>()` dieselbe Datenbasis nutzen.
 
 ## UiNode-Kategorien & Basisvertrag
 Wir unterscheiden drei Typen von UiNode-Namespace-Knoten:
@@ -24,28 +25,74 @@ Wir unterscheiden drei Typen von UiNode-Namespace-Knoten:
 3. `app:` – Anwendungsknoten (`app:Application`) mit dem Application-Pattern.
 
 ### Gemeinsamer Vertrag für `control` & `item`
-### Desktop-Knoten (`control:Desktop`)
-- Entspricht einem regulären `control`-Element, bezieht seine Daten jedoch aus dem Plattform-Trait `DesktopProvider` (Auflösung, Monitore, Primäranzeige).
-- `Bounds` umfasst den gesamten Desktop; `DisplayCount` und `Monitors` spiegeln die vom Trait gelieferten Informationen wider.
-
-- `Bounds` – Desktop-referenzierte Rechtecke; Aliaswerte `Bounds.X`, `Bounds.Y`, `Bounds.Width`, `Bounds.Height` werden automatisch ergänzt.
-- `Role` – Normalisierte PascalCase-Rolle, entspricht dem lokalen XPath-Elementnamen. Die native Rolle bleibt unter `native:Role` erhalten.
-- `Name` – Anzeigename für Benutzer.
-- `IsVisible` – Sichtbarkeit laut Backend.
-- `IsOffscreen` – Optionales Flag, falls das Element außerhalb des sichtbaren Bereichs liegt.
-- `RuntimeId` – Technologie-spezifische Laufzeit-ID (oder stabiler Fallback).
-- `Technology` – Quelle (`UIAutomation`, `AT-SPI`, `AX`, `JSONRPC`, …).
-- `SupportedPatterns` – Liste der aktivierten Pattern in PascalCase (wird über `UiNode::supported_patterns()` gemeldet).
-- Attribute werden über das `UiAttribute`-Trait bereitgestellt (`name`, `namespace`, `value -> UiValue`).
+- Jeder Knoten stellt die Basisattribute des `UiNode`-Traits bereit: `Role` (normalisiert, PascalCase), `RuntimeId`, `Technology`, `SupportedPatterns` sowie der sichtbare `Name`. Diese Werte werden als reguläre Attribute im jeweiligen Namespace (Standard: `control`) geliefert und stehen damit auch XPath zur Verfügung.
+- Provider müssen `Role` so wählen, dass `local-name()` ohne weiteres Mapping genutzt werden kann (`UIA_Button` → `control:Button`, `ATSPI_ROLE_PUSH_BUTTON` → `control:Button`). Die originale Rollenbezeichnung erscheint zusätzlich in `native:Role`.
+- `SupportedPatterns` listet ausschließlich Patterns auf, für die alle Pflichtattribute verfügbar sind **und** für die `UiNode::pattern::<T>()` (bei RuntimePatterns) ein Objekt zurückliefert. Damit bleibt die Pattern-Liste konsistent.
+- `RuntimeId` bleibt während der gesamten Lebensdauer eines Elements stabil; wird ein Element zerstört und neu erzeugt, darf sich die ID ändern.
+- `Technology` kennzeichnet die Quelle (`UIAutomation`, `AT-SPI`, `AX`, `JSONRPC`, …) und hilft bei Debugging sowie gemischten Provider-Szenarien.
+- `Name` liefert den zugänglichen Anzeigenamen. Falls die Plattform keinen Namen anbietet, entscheidet der Provider über einen sinnvollen Fallback (z. B. Beschriftung aus Unterelementen) und dokumentiert das Verhalten.
 
 ### Spezifika für `app:`-Knoten
-- Müssen das `Application`-Pattern implementieren und stellen `app:*`-Attribute bereit (Prozessmetadaten, `AcceptsUserInput`, etc.).
-- `Bounds`, `Name`, `RuntimeId`, `Technology` gelten analog, wobei `Bounds` typischerweise den Desktop abbildet.
+- `app:`-Knoten repräsentieren Anwendungen oder Prozesse. Sie erfüllen zusätzlich das ClientPattern `Application` (siehe unten) und stellen ihre Metadaten ausschließlich über `app:*`-Attribute bereit.
 
-## Capability-Patterns (Draft)
-Die folgenden Patterns bilden wiederkehrende Fähigkeiten ab. Beispiel-Mappings auf UIA, AT-SPI oder AX dienen nur als Orientierung.
+## Pattern-Übersicht
 
-### Textbezogene Fähigkeiten
+Wir unterscheiden zwei Kategorien:
+
+1. **ClientPatterns (Attributverträge)** – beschreiben, welche zusätzlichen Attribute Elemente bereitstellen sollten. Die Runtime liefert lediglich die Attribute; ob ein Element ein bestimmtes ClientPattern erfüllt, entscheiden Konsumenten (z. B. XPath-/Clientlogik) selbst.
+2. **RuntimePatterns (Aktionen)** – werden direkt in der Runtime umgesetzt und bieten explizite Methoden für Laufzeitaktionen (`Result<_, PatternError>`). Nur diese Patterns besitzen ein `UiPattern`-Trait.
+
+Die folgenden Abschnitte listen beide Kategorien auf. Beispiel-Mappings auf UIA, AT-SPI oder AX dienen als Orientierung.
+
+## ClientPatterns – Attributverträge
+
+### Attributübersicht
+Die folgende Tabelle fasst die aktuell vorgesehenen Attributnamen zusammen und ordnet sie den jeweiligen ClientPatterns zu. Sie dient als Nachschlagewerk bei Provider-Implementierungen, damit dieselben Bezeichner plattformübergreifend verwendet werden. Zusätzliche technologie-spezifische Felder gehören in den `native`-Namespace und sollten in Provider-Dokumentation begründet werden.
+
+| Pattern | Pflichtattribute | Optionale Attribute |
+| --- | --- | --- |
+| (Grundvertrag `control`/`item`) | `Role`, `Name`, `RuntimeId`, `Technology`, `SupportedPatterns` | – |
+| Element | `Bounds`, `IsVisible`, `IsEnabled` | `IsOffscreen` |
+| Desktop | `Bounds`, `DisplayCount`, `Monitors`, `OsName`, `OsVersion` | – |
+| TextContent | `Text` | `Locale`, `IsTruncated` |
+| TextEditable | `IsReadOnly` | `MaxLength`, `SupportsPasswordMode` |
+| TextSelection | `CaretPosition`, `SelectionRanges` | `SelectionAnchor`, `SelectionActive` |
+| Selectable | `IsSelected` | `SelectionContainerId` |
+| SelectionProvider | `SelectionMode`, `SelectedIds` | – |
+| Toggleable | `ToggleState` | `SupportsThreeState` |
+| StatefulValue | `CurrentValue`, `Minimum`, `Maximum` | `SmallChange`, `LargeChange` |
+| Activatable | `IsActivationEnabled` | – |
+| ActivationTarget | `ActivationPoint` | `ActivationArea` |
+| Focusable | `IsFocused` | – |
+| Scrollable | `HorizontalPercent`, `VerticalPercent` | `CanScrollHorizontally`, `CanScrollVertically`, `HorizontalViewSize`, `VerticalViewSize` |
+| Expandable | `IsExpanded`, `HasChildren` | – |
+| ItemContainer | `ItemCount`, `IsVirtualized` | `VirtualizationHint` |
+| WindowSurface (Leseteil) | `IsMinimized`, `IsMaximized`, `IsTopmost` | `SupportsResize`, `SupportsMove` |
+| DialogSurface | `IsModal` | `DefaultResult` |
+| Application | `ProcessId`, `ProcessName`/`Name`, `ExecutablePath` | `CommandLine`, `UserName`, `StartTime`, `MainWindowIds`, `Architecture`, `AcceptsUserInput` |
+| Highlightable | `SupportsHighlight` | `HighlightStyles` |
+| Annotatable | `Annotations` | – |
+
+> Hinweis: Diese Aufstellung ergänzt die textuellen Beschreibungen weiter unten und soll beim Implementieren als Referenz dienen. Die gleichen Konstanten stehen im Code unter `platynui_core::ui::attribute_names::<pattern>::*` bereit, sodass Provider-Implementierungen die Benennung direkt wiederverwenden können. Wenn ein Pattern neue Attribute benötigt oder Technologien zusätzliche Felder erfordern, bitte Tabelle **und** Attribut-Konstanten erweitern.
+
+### Elementbasis (ClientPattern)
+
+#### Element
+- **Beschreibung:** Grundlegender Vertrag für sichtbare UI-Elemente (gilt für `control:`- und `item:`-Knoten).
+- **Pflichtattribute:**
+  - `Bounds` (Desktop-Koordinaten als `Rect`)
+  - `Name` (sichtbarer Anzeigename)
+  - `IsVisible` (bool)
+  - `IsEnabled` (bool; gibt an, ob das Element Aktionen entgegennimmt)
+- **Optionale Attribute:** `IsOffscreen`, technologie-spezifische Ergänzungen unter `native:*`.
+- **Hinweis:** Attribute wie `Role`, `Technology`, `RuntimeId`, `SupportedPatterns` gelten für alle `UiNode`s (siehe Grundvertrag) und werden hier nicht erneut aufgeführt. Provider müssen die Element-Pflichtfelder für alle `control:`-/`item:`-Knoten konsistent bereitstellen; Clients entscheiden anhand dieser Werte, welche weiteren ClientPatterns zutreffen.
+
+#### Desktop
+- **Beschreibung:** Beschreibt den Wurzelknoten (`control:Desktop`) des UI-Baums. Der Desktop gilt nicht als reguläres UI-Element, sondern liefert System- und Monitorinformationen.
+- **Pflichtattribute:** `Bounds`, `DisplayCount`, `Monitors`, `OsName`, `OsVersion`.
+- **Hinweis:** Weitere Basisattribute entstammen dem allgemeinen UiNode-Vertrag; Ableitungen wie `Bounds.X`/`Bounds.Width` werden automatisch erzeugt.
+
+### Textbezogene Fähigkeiten (ClientPatterns)
 
 #### TextContent
 - **Beschreibung:** Stellt dar, dass ein Knoten sichtbaren oder zugänglichen Text transportiert.
@@ -65,12 +112,12 @@ Die folgenden Patterns bilden wiederkehrende Fähigkeiten ab. Beispiel-Mappings 
 - **Optionale Attribute:** `SelectionAnchor`, `SelectionActive`.
 - **Abhängigkeiten:** Erwartet `TextContent`.
 
-### Fokus & Aktivierung
+### Fokus & Aktivierung (ClientPatterns)
 
 #### Focusable
 - **Beschreibung:** Element kann den Eingabefokus aufnehmen.
 - **Pflichtattribute:** `IsFocused`.
-- **Runtime-Aktion:** `focus()` über `UiNode::pattern::<FocusablePattern>()`.
+- **Runtime-Hinweis:** Die tatsächliche Aktion (`focus()`) stellt das RuntimePattern `Focusable` bereit (siehe Abschnitt „RuntimePatterns“).
 
 #### Activatable
 - **Beschreibung:** Element unterstützt einen primären Aktivierungsbefehl. Die Runtime stellt keine direkte Aktion bereit; Clients lösen die Aktivierung z. B. per Tastatur/Maus aus.
@@ -84,7 +131,7 @@ Die folgenden Patterns bilden wiederkehrende Fähigkeiten ab. Beispiel-Mappings 
 - **Optionale Attribute:** `ActivationArea` (absolutes Rechteck im Desktop-Koordinatensystem für erweiterte Zielzonen), `ActivationHint` (Kurzbeschreibung des empfohlenen Ziels).
 - **Verwendung:** Buttons, Checkboxen, Radiobuttons, Listeneinträge, Tree-Items oder andere Steuerelemente mit klar definierter Interaktionsfläche.
 
-### Auswahl & Zustand
+### Auswahl & Zustand (ClientPatterns)
 
 #### Selectable
 - **Beschreibung:** Element kann ausgewählt / deselektiert werden.
@@ -108,7 +155,7 @@ Die folgenden Patterns bilden wiederkehrende Fähigkeiten ab. Beispiel-Mappings 
 - **Optionale Attribute:** `SmallChange`, `LargeChange`, `Unit`.
 - **Verwendung:** Slider, ProgressBars (lesend), Spinner.
 
-### Struktur & Navigation
+### Struktur & Navigation (ClientPatterns)
 
 #### Expandable
 - **Beschreibung:** Knoten kann eine untergeordnete Struktur ein- oder ausblenden.
@@ -127,12 +174,12 @@ Die folgenden Patterns bilden wiederkehrende Fähigkeiten ab. Beispiel-Mappings 
 - **Optionale Attribute:** `SupportsContainerSearch`.
 - **Verwendung:** Tabellen, Listen, virtuelle Kataloge.
 
-### Fenster & Oberflächen
+### Fenster & Oberflächen (ClientPatterns)
 
 #### WindowSurface
 - **Beschreibung:** Bindeglied zum platform-spezifischen Window Manager.
 - **Pflichtattribute:** `IsMinimized`, `IsMaximized`, `IsTopmost`.
-- **Runtime-Aktionen:** via `UiNode::pattern::<WindowSurfacePattern>()` – `activate()`, `minimize()`, `maximize()`, `restore()`, `move(bounds)`, `resize(bounds)`, `close()`.
+- **Runtime-Hinweis:** Die zugehörigen Aktionen (`activate()`, `minimize()`, …) liefert das RuntimePattern `WindowSurface`.
 
 #### DialogSurface
 - **Beschreibung:** Spezialisierung für modale Dialoge.
@@ -140,13 +187,14 @@ Die folgenden Patterns bilden wiederkehrende Fähigkeiten ab. Beispiel-Mappings 
 - **Optionale Attribute:** `DefaultResult`.
 - **Abhängigkeiten:** Erwartet `WindowSurface`.
 
-### Applikationen & Prozesse
+### Applikationen & Prozesse (ClientPatterns)
 
 #### Application
 - **Beschreibung:** Repräsentiert eine ausführende Anwendung oder einen Prozesskontext, aus dem Fenster und UI-Elemente stammen.
-- **Pflichtattribute:** `ProcessId`, `ProcessName`, `ExecutablePath`.
+- **Pflichtattribute:** `ProcessId`, `ProcessName` und/oder `Name`, `ExecutablePath`
 - **Optionale Attribute:** `CommandLine`, `UserName`, `StartTime`, `MainWindowIds` (Liste von `RuntimeId`s der führenden Fenster), `Architecture` (z. B. `x86_64`), `AcceptsUserInput` (bool; gibt an, ob die Anwendung aktuell Eingaben annimmt – unter Windows via `WaitForInputIdle`, auf anderen Plattformen bestmögliche Heuristik).
 - **Hinweis:** Application-Knoten sind Einstiegspunkte für XPath-Abfragen über den `app`-Namespace; sie bündeln Metadaten, ersetzen aber keine Prozessverwaltung.
+- **Runtime-Hinweis:** Das RuntimePattern `Application` liefert die Methode `accepts_user_input()` für on-demand-Abfragen.
 
 ### Visualisierung & Annotation
 
@@ -159,6 +207,16 @@ Die folgenden Patterns bilden wiederkehrende Fähigkeiten ab. Beispiel-Mappings 
 #### Annotatable
 - **Beschreibung:** Element kann Zusatzinformationen tragen (Fehler, Status, Hinweis).
 - **Pflichtattribute:** `Annotations` (Liste strukturierter Datensätze).
+
+## RuntimePatterns – Laufzeitaktionen
+
+| Pattern | Methoden | Beschreibung |
+| --- | --- | --- |
+| `Focusable` | `focus()` | Wechselt den Eingabefokus des Elements über die Runtime. |
+| `WindowSurface` | `activate()`, `minimize()`, `maximize()`, `restore()`, `move_to(Point)`, `resize(Size)`, `move_and_resize(Rect)`, `close()` | Delegiert die Fensterkontrolle an den plattformspezifischen Window Manager. |
+| `Application` | `accepts_user_input()` | Fragt on-demand, ob der zugrunde liegende Prozess aktuell Eingaben annimmt. |
+
+Alle Methoden liefern `Result<_, PatternError>`; Fehler bleiben damit transparent für Clients. Provider registrieren RuntimePatterns im `PatternRegistry`, während ClientPatterns ausschließlich über Attribute beschrieben werden.
 
 ### Geräteinteraktion (Idee)
 Diese Patterns sind Diskussionsstoff, da sie eng mit Device-Providern verknüpft sind und `ActivationTarget` ergänzen könnten:
@@ -186,6 +244,8 @@ Diese Patterns sind Diskussionsstoff, da sie eng mit Device-Providern verknüpft
 | `Scrollable` | `ScrollPattern` (`HorizontalPercent`, `VerticalPercent`) | `Component::scroll_to_point`, `Value` | `AXHorizontalScrollBar`, `AXVerticalScrollBar` | `VerticalPercent=55.0`, `CanScrollVertically=true` | Provider melden ViewSize und Scrollbarkeit getrennt. |
 | `Expandable` | `ExpandCollapsePattern` | `Action::do_action("expand")` | `AXExpanded`, `AXPress` | `IsExpanded=false`, `HasChildren=true` | Provider geben nur dann `HasChildren=true` an, wenn API dies bestätigen kann. |
 | `ItemContainer` | `ItemContainerPattern` (WinUI/Custom) | `Table`, `Collection` Interfaces | `AXChildrenInNavigationOrder` | `ItemCount=500`, `IsVirtualized=true` | Bei virtuellen Listen optional Paging-Attribute ergänzen. |
+
+> Hinweis: Für Runtime-Aktionen stellt `platynui-core` bereits Hilfstypen bereit (`FocusableAction`, `WindowSurfaceActions`, `ApplicationStatus`). Diese kapseln die zugehörigen Methoden über Closures und werden im Runtime-Code wie auch in Tests wiederverwendet.
 
 > Diese Tabelle dient als Startpunkt. Bei Abweichungen oder zusätzlichen Quellen sollte der jeweilige Provider die Entscheidung dokumentieren.
 

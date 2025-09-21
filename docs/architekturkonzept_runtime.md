@@ -40,7 +40,7 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
 - `crates/core` definiert Marker-Traits (z. B. `PlatformModule`, `UiTreeProviderFactory`, `DeviceProviderFactory`, `WindowManagerFactory`). Alle Erweiterungen implementieren genau diese Traits und exportieren sich über ein `inventory`-basiertes Registrierungs-Makro. Die Runtime instanziiert ausschließlich über diese Abstraktionen und kennt keine konkreten Typen.
 - Die Runtime initialisiert zur Compile-Zeit bekannte Erweiterungen über Inventory-Registrierungen (`register_platform_module!`, `register_provider!`). Eine dynamische Nachladefunktion ist derzeit nicht vorgesehen; zukünftige Erweiterungen greifen direkt auf denselben Mechanismus zurück.
 - Welche Module eingebunden werden, entscheidet der Build: Über `cfg`-Attribute (z. B. `#[cfg(target_os = "windows")]`) binden wir die passenden Plattform- und Provider-Crates ein. Die Runtime führt lediglich die bereits kompilierten Registrierungen zusammen; es findet keine Plattform-Auswahl zur Laufzeit statt.
-- Provider laufen entweder **in-process** (Rust-Crate) oder **out-of-process** (JSON-RPC). Für externe Provider stellt `platynui-provider-jsonrpc` Transport- und Vertragsebene bereit: Eine schlanke JSON-RPC-Spezifikation beschreibt den Mindestumfang (`initialize`, `listApplications`, `getRoot`, `getNode`, `getChildren`, `getAttributes`, `getSupportedPatterns`, optional `resolveRuntimeId`, `ping`). Die Runtime hält dazu einen JSON-RPC-Client, der den Provider zunächst über `initialize` nach Basismetadaten (Version, Technologiekennung, RuntimeId-Schema, Heartbeat-Intervall, optionale vendor-spezifische Hinweise) abfragt und anschließend die genannten Knotenoperationen aufruft. Provider senden Baum-Events (`$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`) zur Synchronisation. Der eigentliche Provider-Prozess liefert ausschließlich die UI-Baum-Daten und bleibt unabhängig vom Runtime-Prozess. Sicherheitsschichten (Pipe-/Socket-Namen, ACLs/Tokens) werden auf Transportebene definiert. Komfortfunktionen wie Kontext-Abfragen (`evaluate(node, xpath, cache_policy)`) liegen vollständig bei der Runtime; Provider liefern ausschließlich Rohdaten.
+- Provider laufen entweder **in-process** (Rust-Crate) oder **out-of-process** (JSON-RPC). Für externe Provider stellt `platynui-provider-jsonrpc` Transport- und Vertragsebene bereit: Eine schlanke JSON-RPC-Spezifikation beschreibt den Mindestumfang (`initialize`, `listApplications`, `getRoot`, `getNode`, `getChildren`, `getAttributes`, `getSupportedPatterns`, optional `resolveRuntimeId`, `ping`). Die Runtime hält dazu einen JSON-RPC-Client, der den Provider zunächst über `initialize` nach Basismetadaten (Version, Technologiekennung, RuntimeId-Schema, Heartbeat-Intervall, optionale vendor-spezifische Hinweise) abfragt und anschließend die genannten Knotenoperationen aufruft. Provider senden Baum-Events (`$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`) zur Synchronisation. Der eigentliche Provider-Prozess liefert ausschließlich die UI-Baum-Daten und bleibt unabhängig vom Runtime-Prozess. Sicherheitsschichten (Pipe-/Socket-Namen, ACLs/Tokens) werden auf Transportebene definiert. Komfortfunktionen wie Kontext-Abfragen (`evaluate(node, xpath, options)`) liegen vollständig bei der Runtime; Provider liefern ausschließlich Rohdaten.
 - Tests können das gleiche Registrierungsmodell nutzen: Mock-Plattformen oder -Provider registrieren sich mit niedriger Priorität und werden in Test-Szenarien vorrangig geladen, ohne produktive Module manipulieren zu müssen.
 
 ### 2.3 Laufzeitkontext
@@ -64,10 +64,17 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
       fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_>;
       fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>>;
       fn supported_patterns(&self) -> &[PatternId];
-      fn pattern<P>(&self) -> Option<Arc<P>>
-      where
-          P: UiPattern + ?Sized + 'static;
+      fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>>;
       fn invalidate(&self);
+  }
+
+  impl dyn UiNode {
+      pub fn pattern<P>(&self) -> Option<Arc<P>>
+      where
+          P: UiPattern + 'static,
+      {
+          // delegiert an pattern_by_id + Downcast (siehe platynui-core)
+      }
   }
 
   pub trait UiAttribute: Send + Sync {
@@ -78,12 +85,37 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
 
   pub trait UiPattern: Any + Send + Sync {
       fn id(&self) -> PatternId;
+      fn static_id() -> PatternId
+      where
+          Self: Sized;
+      fn as_any(&self) -> &dyn Any;
+  }
+
+  pub struct PatternError { /* message, Display + Error */ }
+
+  pub trait FocusablePattern: UiPattern {
+      fn focus(&self) -> Result<(), PatternError>;
+  }
+
+  pub trait WindowSurfacePattern: UiPattern {
+      fn activate(&self) -> Result<(), PatternError>;
+      fn minimize(&self) -> Result<(), PatternError>;
+      fn maximize(&self) -> Result<(), PatternError>;
+      fn restore(&self) -> Result<(), PatternError>;
+      fn close(&self) -> Result<(), PatternError>;
+      fn move_to(&self, position: Point) -> Result<(), PatternError>;
+      fn resize(&self, size: Size) -> Result<(), PatternError>;
+  }
+
+  pub trait ApplicationPattern: UiPattern {
+      fn accepts_user_input(&self) -> Result<Option<bool>, PatternError>;
   }
   ```
-  Die Aliase `UiNodeChildren<'a>` und `UiNodeAttributes<'a>` stehen für `Box<dyn Iterator<...> + Send + 'a>`. Provider können eigene Typen als Attribute einsetzen, solange sie dieses Trait implementieren. Die Laufzeit übernimmt keine Vorab-Materialisierung, sondern ruft `UiAttribute::value()` nur bei Bedarf auf.
-- **Attribute statt Methoden:** Pflichtinformationen wie `Technology`, `IsVisible` oder `IsOffscreen` werden ausschließlich als Attribute bereitgestellt. Das Trait liefert nur Struktur- und Navigationsinformationen; Clients greifen über `UiNode::attribute(...)` oder die XPath-Ausgabe darauf zu.
-- **Pattern-Zugriff:** `UiPattern` ist das gemeinsame Basistrait für Fähigkeiten mit optionalen Runtime-Aktionen (`Any + Send + Sync`). Provider registrieren jede implementierte Pattern-Instanz intern (z. B. `HashMap<TypeId, Arc<dyn UiPattern>>`) und liefern sie über `UiNode::pattern::<FocusablePattern>()`. `supported_patterns()` und `pattern::<T>()` müssen konsistent sein: Ein Pattern taucht nur in der Liste auf, wenn auch eine Instanz bereitsteht. Aktionen wie `FocusablePattern::focus()` oder `WindowSurfacePattern::maximize()` bleiben so explizit abrufbar, ohne dass der `UiNode` selbst Plattform-Logik enthält.
+  Kinder- und Attributlisten werden als `Box<dyn Iterator<...> + Send + '_>` zurückgegeben. Provider können eigene Iterator-Typen verwenden, solange sie das Trait erfüllen. Die Laufzeit übernimmt keine Vorab-Materialisierung, sondern ruft `UiAttribute::value()` nur bei Bedarf auf.
+- **Attribute statt Methoden:** Informationen wie `Technology`, Sichtbarkeits- oder Geometriedaten werden ausschließlich als Attribute bereitgestellt. Welche Felder vorhanden sind, ergibt sich aus den gemeldeten Patterns und der jeweiligen Plattform. Das Trait liefert nur Struktur- und Navigationsinformationen; Clients greifen über `UiNode::attribute(...)` oder die XPath-Ausgabe darauf zu. Für konsistente Benennungen stellt `platynui-core::ui::attribute_names::<pattern>::*` Konstanten bereit.
+- **Pattern-Zugriff:** `UiPattern` ist das gemeinsame Basistrait für Runtime-Aktionen (`Any + Send + Sync`). Provider hinterlegen ihre Instanzen in einer Registry (z. B. `PatternRegistry` aus `platynui-core`, basierend auf `HashMap<PatternId, Arc<dyn UiPattern>>` plus Erfassungsreihenfolge) und liefern sie über `UiNode::pattern::<FocusablePattern>()`. `supported_patterns()` und `pattern::<T>()` müssen konsistent sein: Ein Pattern taucht nur in der Liste auf, wenn auch eine Instanz bereitsteht. Aktionen wie `FocusablePattern::focus()` oder `WindowSurfacePattern::maximize()` geben `Result<_, PatternError>` zurück, sodass Fehler sauber an Clients propagiert werden. Reine Lese-Informationen bleiben Attribute ohne zusätzliche Runtime-Traits.
 - **Lazy Modell:** Die Runtime fordert Attribute/Kinder immer on-demand an. Provider können intern cachen, aber die Schnittstelle zwingt keine Vorab-Materialisierung.
+- **Vertragsprüfung:** `platynui-core` stellt mit `validate_control_or_item(node)` einen Hilfsprüfer bereit, der lediglich prüft, ob `SupportedPatterns` keine Duplikate enthält. Weitere Attribut- oder Pattern-Prüfungen verbleiben bei Provider- oder Pattern-spezifischen Tests.
 - **`UiValue`:** Typisiert (String, Bool, Integer, Float, strukturierte Werte wie `Rect`, `Point`, `Size`). Für strukturierte Werte erzeugt der XPath-Wrapper zusätzliche Alias-Attribute (`Bounds.X`, `Bounds.Width`, `ActivationPoint.Y`), damit Abfragen simpel bleiben.
 - **Namespaces:**
   - `control` (Standard) – Steuerelemente.
@@ -92,10 +124,10 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
   - `native` – Technologie-spezifische Rohattribute.
 - **Standardpräfix:** `control` wird als Default registriert. Ausdrücke ohne Präfix beziehen sich nur auf Steuerelemente; `item:` oder ein Wildcard-Namespace erweitern den Suchraum.
 - **Desktop-Quelle:** Jede Plattform liefert eine `DesktopInfo` über ein Trait (z. B. `DesktopProvider`), das Auflösung, Monitore, Primäranzeige etc. bereitstellt. `control:Desktop` ist somit ebenfalls ein regulärer `UiNode`, dessen Attribute von diesem Trait gespeist werden – die Runtime erzeugt keinen eigenen Desktopknoten.
-- **Fehlerbehandlung:** Provider dürfen Backend-Fehler in Attributewerten reflektieren (z. B. `UiValue::Error` oder `null`). Die Runtime konvertiert Fehler nicht in Panics, sondern propagiert sie an den Client.
+- **Fehlerbehandlung:** Provider dürfen Backend-Fehler in Attributewerten reflektieren (z. B. `UiValue::Null`). Die Runtime konvertiert Fehler nicht in Panics, sondern propagiert sie an den Client.
 
 ### 3.2 Pflichtattribute & Normalisierung
-- **Pflichtattribute:** `Name`, `Role`, `RuntimeId`, `Bounds`, `IsVisible`, `Technology`, `SupportedPatterns`. Desktop ergänzt `OsName`, `OsVersion`, `DisplayCount`, `Monitors` und nutzt `Bounds` als Gesamtfläche in Desktop-Koordinaten. `IsOffscreen` bleibt optional, wenn die Plattform es bereitstellt.
+- **Attribute & Normalisierung:** Provider liefern Attribute entsprechend der eigenen Technologie und den gemeldeten Patterns. Übliche Felder wie `Role`, `RuntimeId`, `Bounds`, `Technology` oder `Name` sollten weiterhin verfügbar sein, damit XPath-Abfragen und Tools damit arbeiten können. `SupportedPatterns` dient als deklarative Liste und darf keine Duplikate enthalten.
 - **Rollen & PascalCase:** Provider übersetzen native Rollen (`UIA_ButtonControlTypeId`, `ATSPI_ROLE_PUSH_BUTTON`, `kAXButtonRole`) in PascalCase (`Button`). Dieser Wert erscheint sowohl als lokaler Name (`control:Button`) als auch im Attribut `Role`. Die Originalrolle wird zusätzlich als `native:Role` abgelegt.
 - **ActivationTarget:** Wird dieses Pattern gemeldet, muss `ActivationPoint` (absoluter Desktop-Koordinatenwert) vorhanden sein. Native APIs (`GetClickablePoint`, `Component::get_extents`, `AXPosition`) haben Vorrang; gibt es keine dedizierte Funktion, dient das Zentrum von `Bounds` als Fallback. Optional kann `ActivationArea` ein erweitertes Zielrechteck liefern. `ActivationPoint`/`ActivationArea` liegen im Namespace des Elements (`control` oder `item`).
 - **Anwendungsbereitschaft:** Das Feld `app:AcceptsUserInput` spiegelt, ob die Anwendung Eingaben akzeptiert (`WaitForInputIdle` auf Windows; best effort Heuristiken auf anderen Plattformen). Bei Nichtverfügbarkeit wird das Attribut ausgelassen oder als `null` geliefert.
@@ -106,6 +138,7 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
 - Elemente deklarieren reine Capability-Patterns über `SupportedPatterns` im jeweiligen Namespace (`control:SupportedPatterns` oder `item:SupportedPatterns`). Der ausführliche Entwurf liegt in `docs/patterns.md` und bleibt diskutierbar.
 - Patterns verhalten sich wie Traits: Sie beschreiben zusätzliche Attribute (z. B. `TextContent`, `Selectable`, `StatefulValue`, `ActivationTarget`) und können beliebig kombiniert werden. Die Runtime stellt keine generischen Aktions-APIs mehr bereit.
 - Ausnahmen: Fokuswechsel (`Focusable` → `focus()`) und Fenstersteuerung (`WindowSurface` → `activate()`, `maximize()`, …) sind weiterhin Runtime-Funktionen, die über die Device-/Window-Manager abstrahiert werden.
+- Hilfstypen im Core (`FocusableAction`, `WindowSurfaceActions`, `ApplicationStatus`) kapseln die Laufzeitaktionen als Closure-basierte Implementierungen und dienen sowohl Tests als auch späteren Runtime-Registrierungen.
 - `ActivationTarget` liefert absolute Desktop-Koordinaten für Standard-Klickpositionen; Provider müssen Koordinaten und Flächen immer im Desktop-Bezugssystem melden, damit Geräte-/Highlight-Komponenten ohne zusätzliche Transformation arbeiten können.
 - Die aktuelle Mapping-Tabelle zwischen Patterns und nativen APIs (UIA, AT-SPI2, AX) liegt in `docs/patterns.md` und wird gemeinsam mit den Providerteams gepflegt.
 - Hinweis zur Terminologie: Patterns definieren keinerlei Event-Mechanik; Änderungen werden ausschließlich über aktualisierte Attribute sichtbar. Tree- oder Provider-Ereignisse (z. B. `NodeAdded`) existieren weiterhin zur Synchronisation der Runtime, sind aber von den Pattern-Spezifikationen getrennt.

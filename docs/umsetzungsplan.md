@@ -4,7 +4,7 @@
 
 ## Ausgangspunkt & Zielbild
 - Konsistenter Desktop-zentrierter UI-Baum mit den Namespaces `control` (Standard), `item`, `app` und `native`.
-- Trait-basierte Pattern-Schicht gemäß `docs/patterns.md`, inklusive `ActivationTarget`, `Application`, `Focusable`, `WindowSurface` und `AcceptsUserInput`-Hilfen.
+- Trait-basierte Pattern-Schicht gemäß `docs/patterns.md`, mit Runtime-Aktionen (`Focusable`, `WindowSurface`, `Application`) und Attribut-basierter Datenlage (z. B. `ActivationTarget`, Auswahl-/Textinformationen).
 - Plattformen werden strikt in zwei Crate-Gruppen aufgeteilt: (1) Geräte-/Window-Manager-Schicht unter `crates/platform-<ziel>` mit Paketnamen `platynui-platform-<ziel>` und (2) UiTreeProvider unter `crates/provider-<technik>` mit Paketnamen `platynui-provider-<technik>`. Neue Technologien müssen genau diesem Schema folgen; Abweichungen sind nicht erlaubt. Out-of-process-Anbindungen ergänzen das Set ausschließlich über `crates/provider-jsonrpc` (`platynui-provider-jsonrpc`).
 - Runtime verwaltet Provider, Devices, WindowManager, XPath-Pipeline, Highlighting und Screenshot-Funktionen.
 - CLI und Inspector dienen als Referenzwerkzeuge über Runtime bzw. JSON-RPC-Server.
@@ -32,21 +32,21 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 ### 2. Core-Datenmodell & XPath-Grundlagen
 - [x] `UiNode`-/`UiAttribute`-Traits einführen und den alten Struct-/Builder-Ansatz vollständig entfernen (kein Übergangs-Mockbaum im Core).
 - [x] Runtime-Wrapper für `UiNode`/`UiAttribute` implementieren (direkte `Arc<dyn UiNode>`-Adapter ohne Snapshot, kontextabhängige Invalidierung optional).
-- [ ] `UiPattern`-Basistrait plus `UiNode::pattern::<T>()`-Lookup implementieren; Provider müssen konsistente Pattern-Instanzen registrieren (Map nach `TypeId`). Contract-Tests decken Diskrepanzen zwischen `supported_patterns()` und abrufbaren Instanzen auf.
+- [x] `UiPattern`-Basistrait plus `UiNode::pattern::<T>()`-Lookup implementieren; `PatternRegistry` in `platynui-core` stellt konsistente Speicherung (`PatternId` → `Arc<dyn UiPattern>`) sicher. Contract-Tests folgen, um Diskrepanzen zwischen `supported_patterns()` und abrufbaren Instanzen aufzudecken.
 - [x] `UiValue` definieren: strukturierte Werte (`Rect`, `Point`, `Size`, `Integer`) und JSON-kompatible Konvertierungen.
 - [x] Namespace-Registry (`control`, `item`, `app`, `native`) und Hilfsfunktionen implementieren.
 - [x] Evaluation-API auf `EvaluationItem` (Node/Attribute/Value) umstellen und Konsumenten/Tests anpassen (Kontext per `Option<Arc<dyn UiNode>>`).
-- [ ] Kontextknoten außerhalb des aktuellen Wurzelknotens bei Bedarf über `RuntimeId` neu auflösen (Root-Wechsel berücksichtigen).
-- [ ] Pflichtattribute (`Bounds`, `Role`, `Name`, `IsVisible`, optional `IsOffscreen`, `RuntimeId`, `Technology`, `SupportedPatterns`) mit Trait-Validierung hinterlegen und `UiAttribute`-Trait finalisieren (inkl. Runtime-Wrapper für XPath).
-- [ ] Dokumentwurzel „Desktop“ samt Monitor-Alias-Attributen (Bounds.X usw.) beschreiben und Tests erstellen.
+- [ ] Kontextknoten außerhalb des aktuellen Wurzelknotens bei Bedarf über `RuntimeId` neu auflösen (Root-Wechsel berücksichtigen). **Blockiert:** benötigt Provider-Registry (`Arbeitsbereich 4`).
+- [x] Basis-Validator implementieren (`validate_control_or_item`), der aktuell nur doppelte `SupportedPatterns` meldet; weitere Attribut-Prüfungen erfolgen pattern- bzw. provider-spezifisch. `UiAttribute`-Trait + XPath-Wrapper bleiben bestehen.
+- [x] Dokumentwurzel „Desktop“ samt Monitor-Alias-Attributen (Bounds.X usw.) beschreiben und Tests erstellen.
 
 ### 3. Pattern-System
-- [ ] Pattern-Traits als `struct`/`trait`-Kombination definieren (z. B. `TextContent`, `TextEditable`, `ActivationTarget`, `Application`, `WindowSurface`, `AcceptsUserInput`).
-- [ ] Runtime-Aktionsschnittstellen der Patterns (z. B. `FocusablePattern::focus()`, `WindowSurfacePattern::maximize()`) präzisieren und Beispiel-Implementierungen samt Tests dokumentieren; nur diese Pattern dürfen Laufzeitaktionen anbieten.
+- [x] Runtime-Pattern-Traits in `platynui-core` anlegen (`FocusablePattern`, `WindowSurfacePattern`, `ApplicationPattern`) inkl. `PatternError`-Fehlertyp; rein lesende Patterns verbleiben bei Attributen.
+- [x] Runtime-Aktionsschnittstellen der Patterns (z. B. `FocusablePattern::focus()`, `WindowSurfacePattern::maximize()`) präzisieren und Beispiel-Implementierungen samt Tests dokumentieren; nur diese Pattern dürfen Laufzeitaktionen anbieten. (Umgesetzt via `FocusableAction`, `WindowSurfaceActions`, `ApplicationStatus` + rstest-Coverage.)
 - [ ] `SupportedPatterns`-Enum oder Identifier-Registry plus Validierung (z. B. `TextEditable` → erfordert `TextContent`).
-- [ ] Provider-facing Contract-Tests: prüfen, dass Pflichtattribute vorhanden sind und Coordinates Desktop-relativ bleiben.
-- [ ] Mapping-Hilfen zwischen Patterns und Technologie-spezifischen APIs (UIA-ControlType, AT-SPI Rollen, AX Attribute) bereitstellen.
-- [ ] Patterns-Dokument (`docs/patterns.md`) parallel synchron halten (Beispiele, offene Punkte, Erweiterungswünsche).
+- [ ] Provider-facing Contract-Tests: definieren, welche attribuierten Felder pro Pattern erwartet werden, und Desktop-Koordinaten/Skalierung überprüfen.
+- [ ] Mapping-Hilfen zwischen Patterns und Technologie-spezifischen APIs (UIA-ControlType, AT-SPI Rollen, AX Attribute) bereitstellen. **Plan:** als Markdown + Hilfsfunktion im Core, bevor Provider starten.
+- [ ] Patterns-Dokument (`docs/patterns.md`) parallel synchron halten (Beispiele, offene Punkte, Attributtabelle pro Pattern). Attribut-Konstanten liegen gespiegelt unter `platynui_core::ui::attribute_names::<pattern>` und müssen bei Änderungen mitgepflegt werden.
 
 ### 4. Provider-Infrastruktur (Core)
 - [ ] Traits `UiTreeProvider`, `UiTreeProviderFactory`, Lifecycle (`initialize`, `shutdown`, Events), Fehler-/Result-Typen.
@@ -95,7 +95,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 #### Backlog – macOS
 - [ ] `platynui-platform-macos`: Devices via Quartz/Event-Taps, Screenshot/Highlight mit CoreGraphics, Window-Manager via AppKit.
 
-- [ ] Tests: Desktop-Bounds, Default-Click-Point aus `ActivationTarget`, Sichtbarkeit (`IsVisible`, `IsOffscreen`).
+- [ ] Tests: Desktop-Bounds, Default-Click-Point aus `ActivationTarget`, Basiseigenschaften (`IsVisible`, `IsEnabled`, `IsOffscreen`).
 
 ### 9. Runtime-Kern
 - [ ] Provider-Registry initialisieren (Inventory lesen, `cfg` prüfen, Prioritäten setzen), Provider-Lifecycle steuern.
@@ -118,7 +118,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 
 ### 12. Qualitätssicherung & Prozesse
 - [ ] CI-Pipeline: `cargo fmt --all`, `cargo clippy --all`, `cargo test --workspace`, `uv run ruff check .`, `uv run mypy src/PlatynUI packages/core/src` (sofern Python-Anteile relevant).
-- [ ] Contract-Tests für Provider & Devices (Pflichtattribute, Desktop-Koordinaten, Pattern-Abhängigkeiten, RuntimeId-Quellen).
+- [ ] Contract-Tests für Provider & Devices (pattern-spezifische Attribute, Desktop-Koordinaten, RuntimeId-Quellen).
 - [ ] Dokumentation pflegen: Architekturkonzept, Patterns, Provider-Checkliste, Legacy-Analyse; Hinweis auf lebende Dokumente beibehalten.
 - [ ] Release-/Versionierungsstrategie festlegen (SemVer pro Crate? Workspace-Version?).
 

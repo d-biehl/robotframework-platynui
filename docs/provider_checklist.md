@@ -13,6 +13,8 @@
 - [ ] Koordinatenfelder (`Bounds`, `ActivationPoint`, `ActivationArea`) liefern `Rect`/`Point`-Varianten; die Runtime erzeugt daraus automatisch Ableitungen wie `Bounds.X`, `Bounds.Width`. Provider müssen nur den Basistyp korrekt füllen.
 - [ ] `SupportedPatterns` enthält nur Patterns, deren Pflichtattribute vollständig gesetzt sind; optionale Felder sind `null` oder fehlen (Namespace entsprechend `control` oder `item`).
 - [ ] Für Pattern mit Runtime-Aktionen stellen Provider konkrete Instanzen bereit (`UiNode::pattern::<T>()` → `Some(Arc<T>)`); `supported_patterns()` und abrufbare Pattern-Objekte bleiben synchron.
+- [ ] Fehler von Runtime-Aktionen (`focus()`, `activate()`, …) werden als `PatternError` mit prägnanter Nachricht zurückgegeben (kein Panic / unwrap innerhalb der Provider-Schicht).
+- [ ] Bereitgestellte Attribute stimmen mit den ClientPattern-Anforderungen aus `docs/patterns.md` überein (Bezeichner in PascalCase, Wertebereiche, optional vs. Pflichtfelder).
 - [ ] `Role` entspricht dem normalisierten Namen (lokaler Name im Namespace `control` oder `item`), die native Rolle liegt zusätzlich unter `native:Role` (oder äquivalenten Feldern).
 - [ ] Meldet ein Element das Pattern `ActivationTarget`, liefert es `ActivationPoint` (Desktop-Koordinaten, ggf. Fallback auf Rechteckzentrum) und optional `ActivationArea`.
 - [ ] `Technology` ist für jede `UiNode` gesetzt (`UIAutomation`, `AT-SPI`, `AX`, `JSONRPC`, ...).
@@ -48,7 +50,7 @@
 - [ ] Provider-Kennzeichnung erfolgt durch `Technology="JSONRPC"`; Versionsinformationen liefert der `initialize`-Handshake.
 - [ ] `initialize`-Handshake liefert Transport-Endpunkt, Version, Technologiekennung, RuntimeId-Schema sowie Heartbeat-Einstellungen; `resolveRuntimeId`-Unterstützung (oder explizite Nicht-Unterstützung) wird deklariert.
 - [ ] Baum-Events (`$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`) sind implementiert und werden in Tests ausgelöst.
-- [ ] Nachrichten-Contract (z. B. OpenRPC/JSON Schema oder Typsystem) gepflegt, damit Requests/Responses validiert werden können.
+- [ ] Nachrichten-Contract (z. B. JSON Schema oder Typsystem) gepflegt, damit Requests/Responses validiert werden können.
 - [ ] Heartbeat-/Reconnect-Logik im Runtime-Client getestet.
 - [ ] Sicherheitsrichtlinien (Pipe/Soket-Namensschema, Berechtigungen) umgesetzt.
 - [ ] Provider liefern ausschließlich den UI-Baum; Eingabe- oder Window-Management-Funktionen verbleiben bei den Plattform-Crates.
