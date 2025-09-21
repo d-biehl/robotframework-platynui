@@ -1,0 +1,8 @@
+[build]
+target-dir = "target"
+
+[alias]
+fmt-all = "fmt --all"
+lint = "clippy --all-targets --all-features --workspace -- -D warnings"
+check-all = "check --workspace --all-targets"
+test-all = "test --workspace --all-targets"

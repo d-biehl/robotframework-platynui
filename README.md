@@ -20,22 +20,32 @@ We aim to provide a Robot Framework-first library.
 
 ### Documentation
 
-- Architektur- und Runtime-Konzept: `docs/architekturkonzept_runtime.md`
-- Umsetzungsschritte: `docs/umsetzungsplan.md`
-- Pattern-Katalog (Trait-basierte Fähigkeiten, Koordinatenrichtlinien, Mappings): `docs/patterns.md`
+- Architecture & Runtime Concept (German): `docs/architekturkonzept_runtime.md`
+- Implementation Plan (German): `docs/umsetzungsplan.md`
+- Pattern Catalogue (German – trait capabilities, coordinate rules, mappings): `docs/patterns.md`
 
-Alle Dokumente sind lebende Entwürfe – wir aktualisieren sie parallel zur Implementierung.
+All concept documents are living drafts and evolve alongside the implementation.
 
 ### Workspace Layout
 
-- `crates/core`: Gemeinsame Datentypen (UiNode, Attribute-Keys, Pattern-Basistypen).
-- `crates/xpath`: XPath-Evaluator und Parser-Hilfen für PlatynUI.
-- `crates/runtime` (`platynui-runtime`): Orchestrierung von Providern, Geräten, Window Manager und XPath.
-- `crates/server` (`platynui-server`): JSON-RPC-Server-Fassade über der Runtime.
-- `crates/platform-*` (`platynui-platform-*`): Plattformnahe Gerätetreiber und Window-Management (Windows, Linux/X11, macOS, Mock).
-- `crates/provider-*` (`platynui-provider-*`): UiTreeProvider-Implementierungen (UIAutomation, AT-SPI, macOS AX, JSON-RPC, Mock).
-- `crates/cli` (`platynui-cli`): Kommandozeilenwerkzeug für XPath-Abfragen, Highlighting und Diagnosen.
-- `apps/inspector` (`platynui-inspector`): Geplante GUI-Anwendung zum Erkunden des UI-Baums und Entwerfen von XPath-Ausdrücken.
+- `crates/core`: Shared datatypes (UiNode, attribute keys, pattern primitives).
+- `crates/xpath`: XPath evaluator and parser helpers tailored for PlatynUI.
+- `crates/runtime` (`platynui-runtime`): Orchestrates providers, devices, window manager, and XPath pipeline.
+- `crates/server` (`platynui-server`): JSON-RPC façade that exposes the runtime.
+- `crates/platform-*` (`platynui-platform-*`): Platform-level device drivers and window management (Windows, Linux/X11, macOS, mock).
+- `crates/provider-*` (`platynui-provider-*`): UiTreeProvider implementations (UIAutomation, AT-SPI, macOS AX, JSON-RPC, mock).
+- `crates/cli` (`platynui-cli`): Command-line utility for XPath queries, highlighting, and diagnostics.
+- `apps/inspector` (`platynui-inspector`): Planned GUI to explore the UI tree and craft XPath expressions.
+
+### Contribution Workflow (At a Glance)
+
+- Initialize the Python tooling once via `uv sync --dev` (matching `.python-version`).
+- Ensure every new crate entry in `Cargo.toml` uses the `platynui-` prefix.
+- Pin dependencies to the latest stable release (`cargo search`, crates.io, or `cargo outdated`).
+- Before committing, run `cargo fmt-all`, `cargo lint`, `cargo check-all`, and `cargo test-all`.
+- Write unit and integration tests with `rstest` (fixtures, `#[case]`, `#[matrix]`).
+- After each work batch, update `docs/umsetzungsplan.md` and tick off completed tasks.
+- See `CONTRIBUTING.md` for the full contributor guide.
 
 ### Why PlatynUI?
 
