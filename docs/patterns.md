@@ -8,16 +8,17 @@ PlatynUI modelliert Fähigkeiten von UI-Knoten mit Patterns. Diese Patterns verh
 
 ## Grundprinzipien
 - **Komposition statt Vererbung:** Eine `UiNode` kann beliebig viele Patterns deklarieren. Abhängigkeiten werden explizit referenziert, nicht impliziert.
-- **Standard-Namespace:** XPath-Ausdrücke nutzen standardmäßig den `ui`-Namespace. Weitere Namensräume (`app`, `native`) ergänzen wir nur bei Bedarf.
+- **Standard-Namespace:** XPath-Ausdrücke nutzen standardmäßig den `control`-Namespace. Weitere Namensräume (`item`, `app`, `native`) ergänzen wir nur bei Bedarf.
+- **Item-Namespace:** Elemente, die Teil eines Control-Containers sind (z. B. `ListItem`, `TreeItem`, `MenuItem`), verwenden den Namespace `item`. So lassen sich Einträge großer Sammlungen gezielt filtern.
 - **Attribute in PascalCase:** Alle Attribute folgen derselben Konvention (z. B. `Bounds`, `IsSelected`, `Text`).
 - **Lesende Fähigkeiten:** Patterns beschreiben ausschließlich Zustände und zusätzliche Attribute. Aktionen liegen in der Verantwortung der Clients, mit Ausnahme von Fokuswechsel und Fenstersteuerung, die die Runtime direkt anbietet.
 - **Keine Events:** Statusänderungen spiegeln sich in Attributen wider und können durch erneute XPath-Abfragen ermittelt werden. Baum-Events existieren nur für die Synchronisation zwischen Runtime und Provider und sind kein Bestandteil einzelner Patterns.
 - **Erweiterbarkeit:** Neue Patterns lassen sich hinzufügen, ohne bestehende Abfragen zu brechen. Provider melden jedes unterstützte Pattern in `SupportedPatterns`.
 
 ## Basisvertrag jeder UiNode
-Jede `UiNode` stellt unabhängig von Patterns mindestens folgende Felder bereit (Namespace `ui`):
+Jede `UiNode` stellt unabhängig von Patterns mindestens folgende Felder bereit (Namespace `control` oder `item`, abhängig vom Knotentyp):
 - `Bounds` – Rechteck des Elements im Desktop-Koordinatensystem; beim Desktop-Wurzelknoten entspricht das dem gesamten Desktop.
-- `Role` – Technologie-spezifische Rolle; der lokale Name kann direkt in XPath als Elementname genutzt werden.
+- `Role` – Normalisierte Rolle in PascalCase; sie entspricht exakt dem lokalen Elementnamen in XPath. Die plattformspezifische Bezeichnung liegt zusätzlich als `native:Role` vor.
 - `Name` – Zugänglicher Anzeigename.
 - `IsVisible` – Sichtbarkeitsstatus gemäß API (z. B. sichtbar im Accessibility-Tree, nicht ausgeblendet).
 - `IsOffscreen` – Element liegt außerhalb des sichtbaren Viewports (optional, je nach Plattform verfügbar).
