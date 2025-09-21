@@ -50,7 +50,7 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
 
 ## 3. Datenmodell & Namespaces
 ### 3.1 Knoten- & Attributmodell
-- **`UiNode` & `UiValue`:** Attribute liefern lazily typisierte Werte (`UiValue`). Provider hinterlegen Getter, die erst beim Zugriff ausgeführt werden (Pull-Modell); der XPath-Layer ruft `attribute(&ExpandedName)` bzw. `attributes()` on-demand auf. `UiSnapshot` friert eine konsistente Sicht pro Abfrage ein und verhindert seiteneffektreiche Zweifachabfragen.
+- **`UiNode` & `UiValue`:** Attribute liefern lazily typisierte Werte (`UiValue`). Neben Strings/Bools/Floats unterstützen wir explizit Ganzzahlen sowie strukturierte Geometrietypen (`Point`, `Size`, `Rect`). Provider hinterlegen Getter, die erst beim Zugriff ausgeführt werden (Pull-Modell); der XPath-Layer ruft `attribute(&ExpandedName)` bzw. `attributes()` on-demand auf. `UiSnapshot` friert eine konsistente Sicht pro Abfrage ein und verhindert seiteneffektreiche Zweifachabfragen. Für XPath und JSON-Ausgaben erzeugt die Runtime zusätzlich flache Ableitungen (z. B. `Bounds.X`, `Bounds.Width`, `ActivationPoint.X`), damit strukturierte Werte bequem filterbar bleiben.
 - **Namespaces:**
   - `control` (Standard) – Oberflächen-Steuerelemente (Fenster, Buttons, Textfelder, Listen, TreeViews). Elementnamen entsprechen der normalisierten Rolle (`control:Button`); Attribute sind PascalCase (`Name`, `Bounds`, `RuntimeId`, …).
   - `item` – Inhaltselemente innerhalb von Containern (`item:ListItem`, `item:TreeItem`, `item:TabItem`). Attribute folgen denselben Konventionen wie bei `control`-Elementen. Durch den separaten Namespace lassen sich umfangreiche Item-Bäume gezielt filtern.

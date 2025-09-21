@@ -30,10 +30,11 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Dev-Tooling notieren (`uv`, `cargo`, Inspector-Abhängigkeiten) und Basis-Skripte (Format/Lint/Test).
 
 ### 2. Core-Datenmodell & XPath-Grundlagen
-- [ ] `UiNode`/`UiSnapshot`/`UiValue` finalisieren: Zugriffsmethoden, Lebensdauern, Serialisierung für Debugging.
-- [ ] Pflichtattribute (`Bounds`, `Role`, `Name`, `IsVisible`, optional `IsOffscreen`, `RuntimeId`, `Technology`, `SupportedPatterns`) als Konstanten/Enums hinterlegen.
-- [ ] Namespace-Registry (`control` als Standard, `item`, `app`, `native`) und XPath-Helper (`local-name()`-Mapping auf Rollen) implementieren.
-- [ ] Dokumentwurzel „Desktop“ modellieren (komplette Desktop-Bounds, Monitor-Infos über Pattern oder Attribute).
+- [x] `UiNode`/`UiSnapshot`/`UiValue` finalisieren: Zugriffsmethoden, Lebensdauern, Serialisierung für Debugging.
+- [x] Pflichtattribute (`Bounds`, `Role`, `Name`, `IsVisible`, optional `IsOffscreen`, `RuntimeId`, `Technology`, `SupportedPatterns`) als Konstanten/Enums hinterlegen.
+- [x] Namespace-Registry (`control` als Standard, `item`, `app`, `native`) und XPath-Helper (`local-name()`-Mapping auf Rollen) implementieren.
+- [x] Dokumentwurzel „Desktop“ modellieren (komplette Desktop-Bounds, Monitor-Infos über Pattern oder Attribute).
+- [x] Strukturierte Geometriedaten (`Rect`, `Point`, `Size`) als `UiValue`-Varianten aufnehmen und automatisch in flache Attribute (z. B. `Bounds.X`, `ActivationPoint.Y`) entfalten.
 - [ ] XPath-Engine-Integration (Streaming-Auswertung, Attribute-/Namespace-Resolver, Tests mit synthetischem Baum).
 - [ ] Abgleich zum „Knoten- und Attributmodell“ aus dem Architekturkonzept herstellen; Unit-Tests für Attributschlüssel.
 

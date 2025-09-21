@@ -9,6 +9,7 @@
 - [ ] `RuntimeId` bleibt stabil, solange das zugrunde liegende Element existiert; bei Neuaufbau ändert sich die ID nachvollziehbar.
 - [ ] Quelle der `RuntimeId` dokumentiert (z. B. UIA `RuntimeId`, AT-SPI D-Bus-Objektpfad, macOS `AXUIElement` Identifier); bei fehlender nativer ID existiert ein deterministischer Fallback.
 - [ ] `IsVisible` korrekt gesetzt (Accessibility-API meldet sichtbares Element); falls verfügbar, `IsOffscreen` konsistent mit Koordinaten/Viewports.
+- [ ] Koordinatenfelder (`Bounds`, `ActivationPoint`, `ActivationArea`) liefern `Rect`/`Point`-Varianten; die Runtime erzeugt daraus automatisch Ableitungen wie `Bounds.X`, `Bounds.Width`. Provider müssen nur den Basistyp korrekt füllen.
 - [ ] `SupportedPatterns` enthält nur Patterns, deren Pflichtattribute vollständig gesetzt sind; optionale Felder sind `null` oder fehlen (Namespace entsprechend `control` oder `item`).
 - [ ] `Role` entspricht dem normalisierten Namen (lokaler Name im Namespace `control` oder `item`), die native Rolle liegt zusätzlich unter `native:Role` (oder äquivalenten Feldern).
 - [ ] Meldet ein Element das Pattern `ActivationTarget`, liefert es `ActivationPoint` (Desktop-Koordinaten, ggf. Fallback auf Rechteckzentrum) und optional `ActivationArea`.

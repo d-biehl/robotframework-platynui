@@ -17,7 +17,7 @@ PlatynUI modelliert Fähigkeiten von UI-Knoten mit Patterns. Diese Patterns verh
 
 ## Basisvertrag jeder UiNode
 Jede `UiNode` stellt unabhängig von Patterns mindestens folgende Felder bereit (Namespace `control` oder `item`, abhängig vom Knotentyp):
-- `Bounds` – Rechteck des Elements im Desktop-Koordinatensystem; beim Desktop-Wurzelknoten entspricht das dem gesamten Desktop.
+- `Bounds` – Rechteck des Elements im Desktop-Koordinatensystem; beim Desktop-Wurzelknoten entspricht das dem gesamten Desktop. Die Runtime stellt neben `Bounds` automatisch die Komponenten `Bounds.X`, `Bounds.Y`, `Bounds.Width`, `Bounds.Height` bereit.
 - `Role` – Normalisierte Rolle in PascalCase; sie entspricht exakt dem lokalen Elementnamen in XPath. Die plattformspezifische Bezeichnung liegt zusätzlich als `native:Role` vor.
 - `Name` – Zugänglicher Anzeigename.
 - `IsVisible` – Sichtbarkeitsstatus gemäß API (z. B. sichtbar im Accessibility-Tree, nicht ausgeblendet).
@@ -64,7 +64,7 @@ Die folgenden Patterns bilden wiederkehrende Fähigkeiten ab. Beispiel-Mappings 
 
 #### ActivationTarget
 - **Beschreibung:** Liefert eine standardisierte Zeiger- bzw. Klickposition innerhalb der Elementgrenzen, damit Clients Interaktionen zuverlässig auf die aktive Fläche richten können.
-- **Pflichtattribute:** `ActivationPoint` (absoluter Koordinatenwert im Desktop-Bezugssystem, innerhalb der globalen `Bounds` des Elements, z. B. `{ "x": 840, "y": 420 }`).
+- **Pflichtattribute:** `ActivationPoint` (absoluter Koordinatenwert im Desktop-Bezugssystem, innerhalb der globalen `Bounds` des Elements). Komponenten stehen zusätzlich als `ActivationPoint.X`/`ActivationPoint.Y` zur Verfügung.
 - **Optionale Attribute:** `ActivationArea` (absolutes Rechteck im Desktop-Koordinatensystem für erweiterte Zielzonen), `ActivationHint` (Kurzbeschreibung des empfohlenen Ziels).
 - **Verwendung:** Buttons, Checkboxen, Radiobuttons, Listeneinträge, Tree-Items oder andere Steuerelemente mit klar definierter Interaktionsfläche.
 
