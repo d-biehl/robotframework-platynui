@@ -12,16 +12,8 @@ impl Size {
     /// Create a new Size. Negative dimensions are clamped to 0.0.
     pub fn new(width: f64, height: f64) -> Self {
         Size {
-            width: if width.is_finite() {
-                width.max(0.0)
-            } else {
-                width
-            },
-            height: if height.is_finite() {
-                height.max(0.0)
-            } else {
-                height
-            },
+            width: if width.is_finite() { width.max(0.0) } else { width },
+            height: if height.is_finite() { height.max(0.0) } else { height },
         }
     }
 
@@ -37,11 +29,7 @@ impl Size {
     }
 
     pub fn area(&self) -> f64 {
-        if self.width > 0.0 && self.height > 0.0 {
-            self.width * self.height
-        } else {
-            0.0
-        }
+        if self.width > 0.0 && self.height > 0.0 { self.width * self.height } else { 0.0 }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -56,20 +44,14 @@ impl Size {
 impl Add for Size {
     type Output = Self;
     fn add(self, other: Self) -> Self {
-        Self {
-            width: self.width + other.width,
-            height: self.height + other.height,
-        }
+        Self { width: self.width + other.width, height: self.height + other.height }
     }
 }
 
 impl Sub for Size {
     type Output = Self;
     fn sub(self, other: Self) -> Self {
-        Self {
-            width: self.width - other.width,
-            height: self.height - other.height,
-        }
+        Self { width: self.width - other.width, height: self.height - other.height }
     }
 }
 

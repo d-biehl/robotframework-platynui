@@ -46,19 +46,13 @@ impl Point {
 impl Add for Point {
     type Output = Self;
     fn add(self, other: Self) -> Self {
-        Self {
-            x: self.x + other.x,
-            y: self.y + other.y,
-        }
+        Self { x: self.x + other.x, y: self.y + other.y }
     }
 }
 impl Sub for Point {
     type Output = Self;
     fn sub(self, other: Self) -> Self {
-        Self {
-            x: self.x - other.x,
-            y: self.y - other.y,
-        }
+        Self { x: self.x - other.x, y: self.y - other.y }
     }
 }
 

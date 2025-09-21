@@ -28,12 +28,7 @@ impl Rect {
             y += h;
             h = -h;
         }
-        Rect {
-            x,
-            y,
-            width: w,
-            height: h,
-        }
+        Rect { x, y, width: w, height: h }
     }
 
     pub fn left(&self) -> f64 {
@@ -78,11 +73,7 @@ impl Rect {
         let y1 = (self.y + self.height).min(other.y + other.height);
         let w = x1 - x0;
         let h = y1 - y0;
-        if w > 0.0 && h > 0.0 {
-            Some(Rect::new(x0, y0, w, h))
-        } else {
-            None
-        }
+        if w > 0.0 && h > 0.0 { Some(Rect::new(x0, y0, w, h)) } else { None }
     }
 
     pub fn union(&self, other: &Rect) -> Rect {
@@ -98,12 +89,7 @@ impl Rect {
     }
 
     pub fn inflate(&self, dw: f64, dh: f64) -> Rect {
-        Rect::new(
-            self.x - dw,
-            self.y - dh,
-            self.width + 2.0 * dw,
-            self.height + 2.0 * dh,
-        )
+        Rect::new(self.x - dw, self.y - dh, self.width + 2.0 * dw, self.height + 2.0 * dh)
     }
 
     pub fn deflate(&self, dw: f64, dh: f64) -> Rect {
@@ -143,11 +129,7 @@ impl From<(f64, f64, f64, f64)> for Rect {
 impl Display for Rect {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         // plain tuple-like representation consistent with Point
-        write!(
-            f,
-            "({}, {}, {}, {})",
-            self.x, self.y, self.width, self.height
-        )
+        write!(f, "({}, {}, {}, {})", self.x, self.y, self.width, self.height)
     }
 }
 
