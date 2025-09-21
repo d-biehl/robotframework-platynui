@@ -69,6 +69,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [ ] Dokumentaufbau: Desktop-Wurzel laden, App- und Control-Nodes verknüpfen, `item`-Namespace an Container-Knoten hängen.
 - [ ] `AcceptsUserInput`-Hilfsmethode (Windows `WaitForInputIdle`, Linux/macOS heuristische Implementierung), Rückfallverhalten dokumentieren.
 - [ ] XPath-Auswertung → `UiNodeRef`-Iterator, Filterung nach Patterns, Attribute-Lazy-Loading.
+- [ ] API-Variante `evaluate(node: Option<UiNodeRef>, xpath, cache_policy)` implementieren; `None` verwendet automatisch das Desktop-Dokument, ansonsten wird der Knoten als Kontext genutzt (`.//item:*`). `cache_policy` entscheidet, ob ein vorhandener Snapshot genutzt oder frische Provider-Daten geladen werden (Namensfindung noch offen).
 - [ ] Highlighting/Screenshot orchestrieren: Koordination zwischen Runtime, Devices, WindowManager.
 - [ ] Fehler- & Telemetrieschnittstelle (Tracing, Logging, Metriken) entwerfen.
 
