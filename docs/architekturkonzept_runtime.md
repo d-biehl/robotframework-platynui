@@ -11,25 +11,23 @@
 ### 2.1 Crate-Landschaft
 ```
 crates/
-├─ core                      # Gemeinsame Traits/Typen (UiTreeProvider, DeviceProvider, WindowManager, Patterns)
-├─ runtime                   # Runtime, Provider-Registry, XPath-Pipeline, Fokus/Fenster-Aktionen
-├─ server                    # JSON-RPC-Server als Frontend zur Runtime
-├─ platform-windows-core     # (optional) Utilities für Windows (Handles, COM-Helfer)
-├─ platform-windows          # Geräte, Window-Manager und sonstige Windows-spezifische Ressourcen
-├─ provider-windows-uia      # UiTreeProvider auf Basis von UI Automation
-├─ platform-linux-x11        # Geräte/Window-Manager für Linux/X11
-├─ platform-linux-wayland    # Geräte/Window-Manager für Linux/Wayland (optional)
-├─ provider-atspi            # UiTreeProvider auf Basis von AT-SPI2 (X11)
-├─ platform-macos            # Geräte/Window-Manager für macOS
-├─ provider-macos-ax         # UiTreeProvider auf Basis der macOS Accessibility API
-├─ platform-mock             # Mock-Geräte und Window-Manager
-├─ provider-mock             # Mock-UiTreeProvider (statisch/skriptbar)
-├─ provider-jsonrpc          # Referenz-Adapter für externe JSON-RPC-Provider (optional)
-├─ cli                       # `platynui-cli` Kommandozeilenwerkzeug
-└─ inspector                 # (optional als crate oder unter apps/) GUI-Inspector
+├─ core                      # Gemeinsame Traits/Typen (UiTreeProvider, DeviceProvider, WindowManager, Patterns) – Crate `platynui-core`
+├─ xpath                     # XPath-Evaluator und Parser-Hilfen – Crate `platynui-xpath`
+├─ runtime                   # Runtime, Provider-Registry, XPath-Pipeline, Fokus/Fenster-Aktionen – Crate `platynui-runtime`
+├─ server                    # JSON-RPC-Server als Frontend zur Runtime – Crate `platynui-server`
+├─ platform-windows          # Geräte, Window-Manager und sonstige Windows-spezifische Ressourcen – Crate `platynui-platform-windows`
+├─ provider-windows-uia      # UiTreeProvider auf Basis von UI Automation – Crate `platynui-provider-windows-uia`
+├─ platform-linux-x11        # Geräte/Window-Manager für Linux/X11 – Crate `platynui-platform-linux-x11`
+├─ provider-atspi            # UiTreeProvider auf Basis von AT-SPI2 (X11) – Crate `platynui-provider-atspi`
+├─ platform-macos            # Geräte/Window-Manager für macOS – Crate `platynui-platform-macos`
+├─ provider-macos-ax         # UiTreeProvider auf Basis der macOS Accessibility API – Crate `platynui-provider-macos-ax`
+├─ platform-mock             # Mock-Geräte und Window-Manager – Crate `platynui-platform-mock`
+├─ provider-mock             # Mock-UiTreeProvider (statisch/skriptbar) – Crate `platynui-provider-mock`
+├─ provider-jsonrpc          # Referenz-Adapter für externe JSON-RPC-Provider (optional) – Crate `platynui-provider-jsonrpc`
+└─ cli                       # Kommandozeilenwerkzeug – Crate `platynui-cli`
 
 apps/
-└─ inspector                 # Alternative Ablage für GUI-Inspector falls nicht als crate
+└─ inspector                # GUI-Inspector (falls als App ausgelagert) – Crate `platynui-inspector`
 
 docs/
 ├─ architekturkonzept_runtime.md # Architekturkonzept (dieses Dokument)
@@ -42,12 +40,12 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
 - `crates/core` definiert Marker-Traits (z. B. `PlatformModule`, `UiTreeProviderFactory`, `DeviceProviderFactory`, `WindowManagerFactory`). Alle Erweiterungen implementieren genau diese Traits und exportieren sich über ein `inventory`-basiertes Registrierungs-Makro. Die Runtime instanziiert ausschließlich über diese Abstraktionen und kennt keine konkreten Typen.
 - Die Runtime initialisiert zur Compile-Zeit bekannte Erweiterungen über Inventory-Registrierungen (`register_platform_module!`, `register_provider!`). Eine dynamische Nachladefunktion ist derzeit nicht vorgesehen; zukünftige Erweiterungen greifen direkt auf denselben Mechanismus zurück.
 - Welche Module eingebunden werden, entscheidet der Build: Über `cfg`-Attribute (z. B. `#[cfg(target_os = "windows")]`) binden wir die passenden Plattform- und Provider-Crates ein. Die Runtime führt lediglich die bereits kompilierten Registrierungen zusammen; es findet keine Plattform-Auswahl zur Laufzeit statt.
-- Provider laufen entweder **in-process** (Rust-Crate) oder **out-of-process** (JSON-RPC). Für externe Provider stellt `provider-jsonrpc` Transport- und Vertragsebene bereit: Eine schlanke JSON-RPC-Spezifikation beschreibt den Mindestumfang (`initialize`, `listApplications`, `getRoot`, `getNode`, `getChildren`, `getAttributes`, `getSupportedPatterns`, optional `resolveRuntimeId`, `ping`). Die Runtime hält dazu einen JSON-RPC-Client, der den Provider zunächst über `initialize` nach Basismetadaten (Version, Technologiekennung, RuntimeId-Schema, Heartbeat-Intervall, optionale vendor-spezifische Hinweise) abfragt und anschließend die genannten Knotenoperationen aufruft. Provider senden Baum-Events (`$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`) zur Synchronisation. Der eigentliche Provider-Prozess liefert ausschließlich die UI-Baum-Daten und bleibt unabhängig vom Runtime-Prozess. Sicherheitsschichten (Pipe-/Socket-Namen, ACLs/Tokens) werden auf Transportebene definiert. Komfortfunktionen wie Kontext-Abfragen (`evaluate(node, xpath, cache_policy)`) liegen vollständig bei der Runtime; Provider liefern ausschließlich Rohdaten.
+- Provider laufen entweder **in-process** (Rust-Crate) oder **out-of-process** (JSON-RPC). Für externe Provider stellt `platynui-provider-jsonrpc` Transport- und Vertragsebene bereit: Eine schlanke JSON-RPC-Spezifikation beschreibt den Mindestumfang (`initialize`, `listApplications`, `getRoot`, `getNode`, `getChildren`, `getAttributes`, `getSupportedPatterns`, optional `resolveRuntimeId`, `ping`). Die Runtime hält dazu einen JSON-RPC-Client, der den Provider zunächst über `initialize` nach Basismetadaten (Version, Technologiekennung, RuntimeId-Schema, Heartbeat-Intervall, optionale vendor-spezifische Hinweise) abfragt und anschließend die genannten Knotenoperationen aufruft. Provider senden Baum-Events (`$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`) zur Synchronisation. Der eigentliche Provider-Prozess liefert ausschließlich die UI-Baum-Daten und bleibt unabhängig vom Runtime-Prozess. Sicherheitsschichten (Pipe-/Socket-Namen, ACLs/Tokens) werden auf Transportebene definiert. Komfortfunktionen wie Kontext-Abfragen (`evaluate(node, xpath, cache_policy)`) liegen vollständig bei der Runtime; Provider liefern ausschließlich Rohdaten.
 - Tests können das gleiche Registrierungsmodell nutzen: Mock-Plattformen oder -Provider registrieren sich mit niedriger Priorität und werden in Test-Szenarien vorrangig geladen, ohne produktive Module manipulieren zu müssen.
 
 ### 2.3 Laufzeitkontext
 - Runtime läuft lokal, verwaltet Provider-Instanzen (nativ oder JSON-RPC) und agiert als Backend für CLI/Inspector.
-- `crates/server` exponiert optional eine JSON-RPC-2.0-Schnittstelle (Language-Server-ähnlich) für Remote-Clients.
+- `crates/server` (Crate `platynui-server`) exponiert optional eine JSON-RPC-2.0-Schnittstelle (Language-Server-ähnlich) für Remote-Clients.
 - Build-Targets und `cfg`-Attribute legen fest, welche Plattform-/Providerkombinationen in einem Artefakt enthalten sind.
 
 ## 3. Datenmodell & Namespaces
@@ -80,8 +78,8 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
 
 ## 5. UiTreeProvider & Plattformlayer
 - `crates/core` stellt Traits und Caching-Hilfen (`UiTreeProvider`, `ProviderDescriptor`, `ProviderHandle`) bereit.
-- Plattform-Crates liefern OS-spezifische Infrastruktur (Handles, D-Bus/COM-Brücken, Geräte, Window-Manager): `platform-windows(-core)`, `platform-linux-x11`, optional `platform-linux-wayland`, `platform-macos`, `platform-mock`.
-- Provider-Crates bauen darauf auf: `provider-windows-uia`, `provider-atspi`, `provider-macos-ax`, `provider-mock`, `provider-jsonrpc`.
+- Plattform-Crates liefern OS-spezifische Infrastruktur (Handles, D-Bus/COM-Brücken, Geräte, Window-Manager): `crates/platform-windows` (Crate `platynui-platform-windows`, optional `platynui-platform-windows-core`), `crates/platform-linux-x11` (Crate `platynui-platform-linux-x11`), optional `platynui-platform-linux-wayland`, `crates/platform-macos` (Crate `platynui-platform-macos`), `crates/platform-mock` (Crate `platynui-platform-mock`).
+- Provider-Crates bauen darauf auf: `crates/provider-windows-uia` (Crate `platynui-provider-windows-uia`), `crates/provider-atspi` (Crate `platynui-provider-atspi`), `crates/provider-macos-ax` (Crate `platynui-provider-macos-ax`), `crates/provider-mock` (Crate `platynui-provider-mock`), `crates/provider-jsonrpc` (Crate `platynui-provider-jsonrpc`).
 - Tests prüfen, ob Pflichtattribute und Patterns eingehalten werden; der Buildumfang wird über `cfg`-Attribute bzw. Ziel-Tripel gesteuert.
 
 ### 5.1 Provider-Richtlinien
@@ -98,20 +96,20 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
 ## 6. Geräte- und Interaktionsdienste
 - `DeviceProvider`-Trait + Capability-Typen leben in `crates/core` (Pointer, Keyboard, Touch, Display, Capture, Highlight).
 - Implementierungen:
-  - `platform-windows`: `SendInput`/`InjectTouchInput`, Desktop Duplication/BitBlt, Overlays.
-  - `platform-linux-x11`: `x11rb` + XTEST, Screenshots via X11 `GetImage`/Pipewire, Overlays.
-  - `platform-linux-wayland` (optional): Wayland-APIs (Virtuelles Keyboard, Screencopy, Portal-Fallbacks).
-  - `platform-macos`: `CGEvent`, `CGDisplayCreateImage`, transparente `NSWindow`/CoreAnimation.
-- `platform-mock` stellt In-Memory-Devices, Event-Logging und Highlight/Capture-Simulation bereit; unterstützt JSON-RPC-Tests.
+  - `crates/platform-windows` (Crate `platynui-platform-windows`): `SendInput`/`InjectTouchInput`, Desktop Duplication/BitBlt, Overlays.
+  - `crates/platform-linux-x11` (Crate `platynui-platform-linux-x11`): `x11rb` + XTEST, Screenshots via X11 `GetImage`/Pipewire, Overlays.
+  - `platynui-platform-linux-wayland` (optional): Wayland-APIs (Virtuelles Keyboard, Screencopy, Portal-Fallbacks).
+  - `crates/platform-macos` (Crate `platynui-platform-macos`): `CGEvent`, `CGDisplayCreateImage`, transparente `NSWindow`/CoreAnimation.
+- `crates/platform-mock` (Crate `platynui-platform-mock`) stellt In-Memory-Devices, Event-Logging und Highlight/Capture-Simulation bereit; unterstützt JSON-RPC-Tests.
 
 ## 7. Window-Management-Schicht
 - `WindowManager`-Trait im `core`-Crate; Implementierungen in den Plattform-Crates.
 - Funktionen: Fensterlisten, Aktivieren/Minimieren/Maximieren/Restore, `move`/`resize`, Fokus setzen; Zugriff auf native Windowing-APIs (`HWND`, X11 Window IDs, `NSWindow`).
 - Linux: Runtime entscheidet anhand `XDG_SESSION_TYPE`, `WAYLAND_DISPLAY`, XWayland-Anwesenheit zwischen X11- und Wayland-Pfaden.
-- `platform-mock` liefert deterministische Window-Manager-Mocks für Tests.
+- `crates/platform-mock` (Crate `platynui-platform-mock`) liefert deterministische Window-Manager-Mocks für Tests.
 
 -## 8. JSON-RPC Provider & Adapter
-- `provider-jsonrpc` stellt einen klar definierten JSON-RPC 2.0-Vertrag für externe Sprachen bereit. Kernkomponenten:
+- `platynui-provider-jsonrpc` stellt einen klar definierten JSON-RPC 2.0-Vertrag für externe Sprachen bereit. Kernkomponenten:
   - **Transport:** Named Pipes unter Windows (`\\.\pipe\PlatynUI+<pid>+<user>+<id>`), Unix Domain Sockets (`/tmp/platynui.<pid>.<user>.<id>`) oder Loopback TCP (per Konfiguration). Die Runtime stellt keine Transportinstanzen bereit, sondern verbindet sich mit dem vom Provider bereitgestellten Endpunkt. Sicherheitsanforderungen (ACLs/Tokens) liegen beim Provider.
   - **Handshake (`initialize`):** Provider melden Version, Technologiekennung, RuntimeId-Schema, Heartbeat-Intervalle/Zeitouts sowie optionale Zusatzinformationen (z. B. eigene Namensräume). Welche Rollen/Pattern letztlich verfügbar sind, ergibt sich aus den gelieferten Baumdaten.
   - **Knoten-API:** `listApplications`, `getRoot`, `getNode`, `getChildren`, `getAttributes`, `getSupportedPatterns`, optional `resolveRuntimeId`, `ping`. Alle Antworten liefern normalisierte Attribute (`control:*`, `item:*`, `app:*`, `native:*`).
@@ -129,21 +127,21 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
 - Typische Abfrage: `app:Application[@Name='Foo']/control:Window//control:Button[@Name='Ok']`; Items lassen sich über Ausdrücke wie `control:List/item:ListItem` adressieren. Generische Tests können `*[local-name()='Button']` nutzen (Standardnamespace `control`).
 
 ## 10. Runtime-Pipeline & Komposition
-1. **Runtime (`crates/runtime`)** – verwaltet `PlatformRegistry`/`PlatformBundle`, lädt Desktop (`UiXdmDocument`), evaluiert XPath (Streaming), triggert Highlight/Screenshot.
-2. **Server (`crates/server`)** – JSON-RPC-2.0-Frontend (Language-Server-ähnlich) für Remote-Clients.
+1. **Runtime (`crates/runtime`, Crate `platynui-runtime`)** – verwaltet `PlatformRegistry`/`PlatformBundle`, lädt Desktop (`UiXdmDocument`), evaluiert XPath (Streaming), triggert Highlight/Screenshot.
+2. **Server (`crates/server`, Crate `platynui-server`)** – JSON-RPC-2.0-Frontend (Language-Server-ähnlich) für Remote-Clients.
 3. **Pipelines** – Mischbetrieb (z. B. AT-SPI2 + XTEST) möglich; Plattform-Erkennung wählt Implementierungen zur Laufzeit.
 4. **Application Readiness** – Runtime stellt Hilfsfunktionen bereit, um `Application`-Knoten auf `AcceptsUserInput` zu prüfen (Windows nutzt `WaitForInputIdle`; andere Plattformen liefern bestmöglich heuristische Werte oder `null`). Diese Informationen werden nicht gecacht, sondern bei Bedarf abgefragt.
 
 > Hinweis: Die Runtime lädt und bewertet nur die aktuell vorliegenden Knoten. Wenn Elemente erst durch Benutzerinteraktion erscheinen (z. B. Scrollen, Paging, Kontextmenüs), müssen Clients dieselben Eingaben auslösen wie ein Mensch vor dem Bildschirm. So behalten Automationen identische Freiheitsgrade wie interaktive Anwender.
 
 ## 11. Werkzeuge auf Basis der Runtime
-1. **CLI (`crates/cli`)** – Befehle `query`, `highlight`, `watch`, Ausgabe in JSON/YAML/Tabellen, Filteroptionen, optionaler REPL; nutzt Runtime direkt oder via JSON-RPC.
-2. **Inspector (GUI)** – Tree-Ansicht, Property-Panel (`control:*`, `item:*`, `native:*`), XPath-Editor (Autocompletion), Ergebnisliste, Highlighting, Element-Picker, Export/Logging; arbeitet eingebettet oder über `crates/server`.
+1. **CLI (`crates/cli`, Crate `platynui-cli`)** – Befehle `query`, `highlight`, `watch`, Ausgabe in JSON/YAML/Tabellen, Filteroptionen, optionaler REPL; nutzt Runtime direkt oder via JSON-RPC.
+2. **Inspector (GUI)** – Tree-Ansicht, Property-Panel (`control:*`, `item:*`, `native:*`), XPath-Editor (Autocompletion), Ergebnisliste, Highlighting, Element-Picker, Export/Logging; arbeitet eingebettet oder über `crates/server` (Crate `platynui-server`).
 
 ## 12. Nächste Schritte
 1. **Core & XPath** – Attributkatalog finalisieren, `UiXdmNode`-Prototyp entwickeln, Tests schreiben.
-2. **Provider & JSON-RPC** – Crates (`provider-windows-uia`, `provider-atspi`, `provider-macos-ax`, `provider-mock`, `provider-jsonrpc`) anlegen; JSON-RPC-Schema/Registrierung/Heartbeats implementieren.
+2. **Provider & JSON-RPC** – Crates (`platynui-provider-windows-uia`, `platynui-provider-atspi`, `platynui-provider-macos-ax`, `platynui-provider-mock`, `platynui-provider-jsonrpc`) anlegen; JSON-RPC-Schema/Registrierung/Heartbeats implementieren.
 3. **Devices & Interaktion** – Plattform-Devices fertigstellen, Screenshot/Highlight-PoCs, Fallback-Strategien definieren.
 4. **Runtime & Server** – Runtime-API, Fehlerbehandlung, Provider-Registry und JSON-RPC-Server (Sicherheitsgrenzen) umsetzen.
-5. **Tooling** – CLI-MVP, Inspector-Prototyp, Integrationstests mit `platform-mock`/`provider-mock`.
+5. **Tooling** – CLI-MVP, Inspector-Prototyp, Integrationstests mit `crates/platform-mock` (`platynui-platform-mock`) und `crates/provider-mock` (`platynui-provider-mock`).
 6. **Optionale Erweiterungen** – Wayland-spezifische Bausteine, Performance-Tuning, Community-Dokumentation.

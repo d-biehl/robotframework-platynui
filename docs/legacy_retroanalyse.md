@@ -31,9 +31,9 @@ Die ursprüngliche .NET-basierte Version von PlatynUI sollte Robot Framework pla
 - `src/PlatynUI.Provider.Core/PipeHelper.cs`: Pipe-Namensschema `Global\PlatynUI.Provider_{UserId}_{Pid}` – spiegelt das Konzept der namensgebenden Pipes wider.
 
 **Mitnahme:**
-- Die strikte Trennung zwischen Runtime und externen Providern validiert unseren `provider-*` Crate-Plan.
+- Die strikte Trennung zwischen Runtime und externen Providern validiert unseren `platynui-provider-*` Crate-Plan.
 - Das Pipe-Schema lässt sich auf Unix Sockets / Named Pipes in Rust übertragen.
-- Die Verträge liefern genau die Operationen, die wir für unser `provider-jsonrpc`-Crate benötigen.
+- Die Verträge liefern genau die Operationen, die wir für unser `platynui-provider-jsonrpc`-Crate benötigen.
 
 ### Plattformbausteine
 - `src/PlatynUI.Platform.Win32/Highlighter.cs`, `KeyboardDevice.cs`, `MouseDevice.cs`, `DisplayDevice.cs`: Kapseln Ein-/Ausgabe und Highlighter-Overlay. Der Highlighter nutzte eigene Fensterrahmen, um UI-Elemente zu markieren.

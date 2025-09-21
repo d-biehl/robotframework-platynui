@@ -5,15 +5,23 @@
 ## Ausgangspunkt & Zielbild
 - Konsistenter Desktop-zentrierter UI-Baum mit den Namespaces `control` (Standard), `item`, `app` und `native`.
 - Trait-basierte Pattern-Schicht gemäß `docs/patterns.md`, inklusive `ActivationTarget`, `Application`, `Focusable`, `WindowSurface` und `AcceptsUserInput`-Hilfen.
-- Plattformen werden durch klar getrennte Crates für Devices (`platform-*`) und UiTreeProvider (`provider-*`) abgebildet; JSON-RPC-Provider ergänzen die Architektur optional.
+- Plattformen werden strikt in zwei Crate-Gruppen aufgeteilt: (1) Geräte-/Window-Manager-Schicht unter `crates/platform-<ziel>` mit Paketnamen `platynui-platform-<ziel>` und (2) UiTreeProvider unter `crates/provider-<technik>` mit Paketnamen `platynui-provider-<technik>`. Neue Technologien müssen genau diesem Schema folgen; Abweichungen sind nicht erlaubt. Out-of-process-Anbindungen ergänzen das Set ausschließlich über `crates/provider-jsonrpc` (`platynui-provider-jsonrpc`).
 - Runtime verwaltet Provider, Devices, WindowManager, XPath-Pipeline, Highlighting und Screenshot-Funktionen.
 - CLI und Inspector dienen als Referenzwerkzeuge über Runtime bzw. JSON-RPC-Server.
+- Rust-Toolchain: `rustc 1.90.0 (1159e78c4 2025-09-14)` ist die Basis. Wir verfolgen die zugehörigen Release Notes und nutzen neue Sprach-/Standardbibliotheksfeatures soweit sinnvoll (z. B. aktuelle `let-else`/`if-let`-Verbesserungen, stabilisierte Traits, `async`-Erweiterungen).
+
+## Querschnittsrichtlinien
+- Abhängigkeiten: Beim Hinzufügen oder Aktualisieren immer die aktuell stabil veröffentlichte Version verwenden. Dafür `cargo search`, crates.io-API oder `cargo outdated` einsetzen und Versionsstand explizit im Review erwähnen.
+- Crate-Erstellung: In jeder neuen oder überarbeiteten `Cargo.toml` muss der Eintrag `package.name` mit `platynui-` beginnen. Verzeichnisnamen dürfen kürzer sein (`crates/runtime` → `platynui-runtime`), entscheidend ist der Paketname. Bei Reviews aktiv prüfen, dass keine Ausnahme entsteht.
+- Tests: In Rust-Unit- und Integrationstests konsequent `rstest` einsetzen und dessen Features nutzen (Fixtures, `#[rstest]` mit `case`/`matrix`, parametrische Tests). Bestehende Tests bei Anpassungen entsprechend migrieren.
+- Typbenennung: Neue Rust-Typen (Structs, Enums, Traits) folgen dem üblichen Namensraum über Module – kein zusätzlicher `Platynui`-Präfix nötig. Stattdessen aussagekräftige Namen im entsprechenden Modul wählen (`RuntimeState`, `WindowsDeviceBundle`, ...).
+- Planpflege: Nach jedem Arbeitspaket den Plan aktualisieren, erledigte Aufgaben abhaken und ggf. neue Erkenntnisse ergänzen. Der Umsetzungsplan bleibt so synchron zur tatsächlichen Umsetzung.
 
 ## Arbeitsbereiche
 Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschnitts sind Empfehlungen, keine starre Vorgabe.
 
 ### 1. Fundament & Repository-Struktur
-- [ ] Workspace aufsetzen/aufräumen: `crates/core`, `crates/runtime`, `crates/server`, `crates/platform-{windows,linux-x11,linux-wayland?,macos,mock}`, `crates/provider-{windows-uia,atspi,macos-ax,jsonrpc,mock}`, `crates/cli`, `apps/inspector` (oder eigenes Crate).
+- [x] Workspace aufsetzen/aufräumen: `crates/core`, `crates/runtime` (Crate `platynui-runtime`), `crates/server` (Crate `platynui-server`), `crates/platform-{windows,linux-x11,linux-wayland?,macos,mock}` (Crates `platynui-platform-*`), `crates/provider-{windows-uia,atspi,macos-ax,jsonrpc,mock}` (Crates `platynui-provider-*`), `crates/cli` (Crate `platynui-cli`), `apps/inspector` (Crate `platynui-inspector`; alternativ eigenes Crate).
 - [ ] Gemeinsame Cargo-Einstellungen (Edition, Lints, Features) und Rustfmt/Clippy-Konfiguration vereinheitlichen.
 - [ ] README/CONTRIBUTING aktualisieren: Namenskonventionen (PascalCase-Attribute, Namespaces), Architekturüberblick, Hinweis auf lebende Konzeptdokumente.
 - [ ] Dev-Tooling notieren (`uv`, `cargo`, Inspector-Abhängigkeiten) und Basis-Skripte (Format/Lint/Test).
@@ -40,22 +48,23 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [ ] Provider-Checkliste (`docs/provider_checklist.md`) automatisiert verknüpfen (CI-Lints oder Contract-Test-Suite).
 
 ### 5. Native Provider (UiTree)
-- [ ] `provider-windows-uia`: UIA-Wrapper (COM-Helfer ggf. in `platform-windows-core`), Rollennormalisierung (ControlType → lokale Namen), `RuntimeId`-Weitergabe, `AcceptsUserInput` via `WaitForInputIdle`/Fallback.
-- [ ] `provider-atspi`: D-Bus-Integration, Baumaufbau (Application → Window → Control/Item), RuntimeId aus Objektpfad, Fokus- und Sichtbarkeitsflags.
-- [ ] `provider-macos-ax`: AXUIElement-Brücke, Fenster-/App-Auflistung, RuntimeId aus AXIdentifier, Bound-Konvertierung (Core Graphics).
+- [ ] `platynui-provider-windows-uia`: UIA-Wrapper (COM-Helfer ggf. in `platynui-platform-windows-core`), Rollennormalisierung (ControlType → lokale Namen), `RuntimeId`-Weitergabe, `AcceptsUserInput` via `WaitForInputIdle`/Fallback.
+- [ ] `platynui-provider-atspi`: D-Bus-Integration, Baumaufbau (Application → Window → Control/Item), RuntimeId aus Objektpfad, Fokus- und Sichtbarkeitsflags.
+- [ ] `platynui-provider-macos-ax`: AXUIElement-Brücke, Fenster-/App-Auflistung, RuntimeId aus AXIdentifier, Bound-Konvertierung (Core Graphics).
 - [ ] Gemeinsame Tests (pro Provider) mit Snapshot-Baum & XPath-Abfragen; Dokumentation von Abweichungen je API.
 
 ### 6. JSON-RPC-Provider & Out-of-Process Integration
 - [ ] JSON-RPC 2.0 Vertrag dokumentieren (Markdown + JSON-Schema): Mindestumfang `initialize`, `listApplications`, `getRoot`, `getNode`, `getChildren`, `getAttributes`, `getSupportedPatterns`, optional `resolveRuntimeId`, `ping`; Events `$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`.
-- [ ] `provider-jsonrpc` implementieren: Verbindung über Named Pipe/Unix Socket/localhost, Registrierung bei Runtime, Heartbeat/Timeout-Handling, Sicherheit (Namenskonvention „PlatynUI+PID+User+…“).
+- [ ] `platynui-provider-jsonrpc` implementieren: Verbindung über Named Pipe/Unix Socket/localhost, Registrierung bei Runtime, Heartbeat/Timeout-Handling, Sicherheit (Namenskonvention „PlatynUI+PID+User+…“).
 - [ ] Beispiel-Provider (Mock oder UIA-Proxy) dokumentieren; Leitfaden für Drittanbieter.
 - [ ] Runtime-Client-Schicht (Multiplexing, Fehler-Mapping, Provider-Restart-Strategien).
 - [ ] Handshake- und Capability-Design an LSP/MCP-Prinzipien ausrichten (Versionsangaben, optionale Fähigkeiten, klare Rollen), Dokumentation entsprechend ergänzen.
 
 ### 7. Mocking & Tests
-- [ ] `platform-mock`: Geräte (Pointer, Keyboard, Display, Highlight, Screenshot) als In-Memory-Implementierungen, Logging für Assertions.
-- [ ] `provider-mock`: `StaticMockTree`, Skriptbares Verhalten (z. B. über JSON/Szenario-Dateien), deterministische `RuntimeId`s.
+- [ ] `platynui-platform-mock`: Geräte (Pointer, Keyboard, Display, Highlight, Screenshot) als In-Memory-Implementierungen, Logging für Assertions.
+- [ ] `platynui-provider-mock`: `StaticMockTree`, Skriptbares Verhalten (z. B. über JSON/Szenario-Dateien), deterministische `RuntimeId`s.
 - [ ] Integrationstest-Suite (Runtime + Mock-Provider + Mock-Devices) mit Beispiel-XPath-Abfragen, Pattern-Verifikation, Highlight-Simulation.
+- [ ] Sämtliche neuen Unit- und Integrationstests mit `rstest`-Makros (Fixtures, `#[rstest]`, `#[case]`, `#[matrix]`) modellieren; bestehende Tests bei Gelegenheit migrieren.
 
 ### 8. Devices & Window-Management
 - [ ] Traits `PointerDevice`, `KeyboardDevice`, `TouchDevice`, `DisplayInfo`, `ScreenshotDevice`, `HighlightOverlay` (Desktop-Koordinaten, DPI-Korrektur).
@@ -74,12 +83,12 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [ ] Fehler- & Telemetrieschnittstelle (Tracing, Logging, Metriken) entwerfen.
 
 ### 10. JSON-RPC-Server & APIs
-- [ ] `crates/server`: JSON-RPC-Endpunkte für XPath-Abfragen, Fokus- und Fensteraktionen (über `Focusable`/`WindowSurface`), Highlighting, Screenshot, Provider/Device-Status sowie Heartbeat – keine generischen UI-Aktions-APIs.
+- [ ] `crates/platynui-server`: JSON-RPC-Endpunkte für XPath-Abfragen, Fokus- und Fensteraktionen (über `Focusable`/`WindowSurface`), Highlighting, Screenshot, Provider/Device-Status sowie Heartbeat – keine generischen UI-Aktions-APIs.
 - [ ] Security-Guidelines (lokaler Zugriff, Authentication-Optionen) definieren.
 - [ ] Versionierung & Capability-Negotiation (Server ↔ Client) dokumentieren – Orientierung an LSP/MCP-Konzepten festhalten.
 
 ### 11. Werkzeuge
-- [ ] CLI (`crates/cli`): Befehle `query`, `highlight`, `watch`, `dump-node`, `focus`, optional `--json`/`--yaml` Ausgabe.
+- [ ] CLI (`crates/platynui-cli`): Befehle `query`, `highlight`, `watch`, `dump-node`, `focus`, optional `--json`/`--yaml` Ausgabe.
 - [ ] Inspector (GUI): Tree-Ansicht mit Namespaces, Property-Panel (Patterns), XPath-Editor, Element-Picker, Highlight; arbeitet wahlweise Embedded oder via JSON-RPC.
 - [ ] Beispiel-Workflows dokumentieren (Readme/Docs): XPath → Highlight, Fokus setzen, AcceptsUserInput prüfen.
 
@@ -104,4 +113,3 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 5. Native Provider (5) inkrementell je Plattform integrieren.
 6. Server & Tools (10–11) aufsetzen, sobald Runtime stabil ist.
 7. Qualitätssicherung (12) verankern, Backlog (13) nach Stabilisierung adressieren.
-

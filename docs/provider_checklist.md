@@ -17,7 +17,7 @@
 - [ ] Mapping-Entscheidungen gegen `docs/patterns.md` dokumentiert (insb. bei Mehrfachzuordnungen).
 - [ ] Baum-Ereignisse (`NodeAdded`, `NodeUpdated`, `NodeRemoved`) getestet; sicherstellen, dass sie nur zur Synchronisation dienen und keine Pattern-spezifischen Nebenwirkungen haben.
 
-## Windows (`provider-windows-uia`)
+## Windows (`platynui-provider-windows-uia`)
 - [ ] `Bounds` basieren auf `IUIAutomationElement::CurrentBoundingRectangle` und sind in Desktop-Koordinaten umgerechnet.
 - [ ] `ActivationPoint` nutzt `GetClickablePoint()`; fehlende Werte werden über das Elementzentrum ersetzt.
 - [ ] `TextContent`, `TextEditable`, `TextSelection` nutzen Priority: `NameProperty` → `ValuePattern` → `TextPattern`.
@@ -27,21 +27,21 @@
 - [ ] `Selectable`/`SelectionProvider` synchronisiert über `SelectionItemPattern`/`SelectionPattern`.
 - [ ] Highlight/Overlay Pfad (DirectComposition/GDI) liefert konsistente Ergebnisse im Vergleich zu `Bounds`.
 
-## Linux X11 (`provider-atspi` + `platform-linux-x11`)
+## Linux X11 (`platynui-provider-atspi` + `platynui-platform-linux-x11`)
 - [ ] Koordinaten stammen aus `Component::get_extents(ATSPI_COORD_TYPE_SCREEN)`.
 - [ ] `TextContent`/`TextSelection` über `Text`-Interface, UTF-8 sauber gehandhabt.
 - [ ] `SelectionProvider` nutzt `Selection`-Interface, `SelectionContainerId` basiert auf `Accessible::path` oder stabilem Handle.
-- [ ] `WindowSurface`-Aktionen delegieren an X11 Window-Manager (EWMH) via `platform-linux-x11`.
+- [ ] `WindowSurface`-Aktionen delegieren an X11 Window-Manager (EWMH) via `platynui-platform-linux-x11`.
 - [ ] `ActivationTarget` berechnet optional eigene Center-Punkte, wenn `Component::get_offset_at_point` nicht verfügbar ist.
 
-## macOS (`provider-macos-ax`)
+## macOS (`platynui-provider-macos-ax`)
 - [ ] Koordinaten aus `AXFrame` in Core Graphics Desktop-Koordinaten (unter Berücksichtigung mehrerer Monitore) transformiert.
 - [ ] `TextEditable` setzt `IsReadOnly` basierend auf `AXEditable`/`AXEnabled`.
 - [ ] `Activatable` verwendet `AXPress`; `IsActivationEnabled` spiegelt `AXEnabled`.
 - [ ] `WindowSurface`-Aktionen nutzen Accessibility-API + `CGWindow`/`NSWorkspace`-Hilfen.
 - [ ] Monitorliste (Desktop) über `NSScreen` bzw. `CoreGraphics` zur Verfügung gestellt.
 
-## JSON-RPC (`provider-jsonrpc`)
+## JSON-RPC (`platynui-provider-jsonrpc`)
 - [ ] Provider-Kennzeichnung erfolgt durch `Technology="JSONRPC"`; Versionsinformationen liefert der `initialize`-Handshake.
 - [ ] `initialize`-Handshake liefert Transport-Endpunkt, Version, Technologiekennung, RuntimeId-Schema sowie Heartbeat-Einstellungen; `resolveRuntimeId`-Unterstützung (oder explizite Nicht-Unterstützung) wird deklariert.
 - [ ] Baum-Events (`$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`) sind implementiert und werden in Tests ausgelöst.
@@ -50,7 +50,7 @@
 - [ ] Sicherheitsrichtlinien (Pipe/Soket-Namensschema, Berechtigungen) umgesetzt.
 - [ ] Provider liefern ausschließlich den UI-Baum; Eingabe- oder Window-Management-Funktionen verbleiben bei den Plattform-Crates.
 
-## Mock (`provider-mock` & `platform-mock`)
+## Mock (`platynui-provider-mock` & `platynui-platform-mock`)
 - [ ] Referenzdaten decken typische Pattern-Kombinationen ab (z. B. Button, Textfeld, Checkbox, Tree Item).
 - [ ] Tests validieren Desktop-Koordinaten und `ActivationTarget`.
 - [ ] Scripted-Mock erlaubt negative Szenarien (fehlende Pflichtattribute, ungültige Koordinaten) für Contract-Tests.

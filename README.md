@@ -26,6 +26,17 @@ We aim to provide a Robot Framework-first library.
 
 Alle Dokumente sind lebende Entwürfe – wir aktualisieren sie parallel zur Implementierung.
 
+### Workspace Layout
+
+- `crates/core`: Gemeinsame Datentypen (UiNode, Attribute-Keys, Pattern-Basistypen).
+- `crates/xpath`: XPath-Evaluator und Parser-Hilfen für PlatynUI.
+- `crates/runtime` (`platynui-runtime`): Orchestrierung von Providern, Geräten, Window Manager und XPath.
+- `crates/server` (`platynui-server`): JSON-RPC-Server-Fassade über der Runtime.
+- `crates/platform-*` (`platynui-platform-*`): Plattformnahe Gerätetreiber und Window-Management (Windows, Linux/X11, macOS, Mock).
+- `crates/provider-*` (`platynui-provider-*`): UiTreeProvider-Implementierungen (UIAutomation, AT-SPI, macOS AX, JSON-RPC, Mock).
+- `crates/cli` (`platynui-cli`): Kommandozeilenwerkzeug für XPath-Abfragen, Highlighting und Diagnosen.
+- `apps/inspector` (`platynui-inspector`): Geplante GUI-Anwendung zum Erkunden des UI-Baums und Entwerfen von XPath-Ausdrücken.
+
 ### Why PlatynUI?
 
 - Cross-platform capability with consistent API across Windows, Linux, and MacOS
