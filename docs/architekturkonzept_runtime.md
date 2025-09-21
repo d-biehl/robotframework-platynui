@@ -52,24 +52,37 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
 ### 3.1 Knoten- & Attributmodell
 - **`UiNode`-Trait:** Provider stellen ihren UI-Baum als `Arc<dyn UiNode>` bereit. Das Trait kapselt ausschließlich Strukturinformationen, alles weitere erfolgt über Attribute bzw. Patterns:
   ```rust
+  use std::any::Any;
+  use std::sync::{Arc, Weak};
   pub trait UiNode: Send + Sync {
+      fn namespace(&self) -> Namespace;
+      fn role(&self) -> &str;                // z. B. "Window", "Button", "ListItem"
+      fn name(&self) -> &str;
+      fn runtime_id(&self) -> &RuntimeId;    // stabil pro Lebensdauer
       fn parent(&self) -> Option<Weak<dyn UiNode>>;
-      fn children(&self) -> Vec<Arc<dyn UiNode>>;
-      fn attributes(&self) -> Vec<Arc<dyn UiAttribute>>;
-      fn supported_patterns(&self) -> Vec<String>;
+      fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_>;
+      fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_>;
+      fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>>;
+      fn supported_patterns(&self) -> &[PatternId];
+      fn pattern<P>(&self) -> Option<Arc<P>>
+      where
+          P: UiPattern + ?Sized + 'static;
       fn invalidate(&self);
-      fn role(&self) -> String;        // z. B. "Window", "Button", "ListItem"
-      fn namespace(&self) -> String;   // "control", "item", "app", "native"
-      fn runtime_id(&self) -> String;  // stabil pro Lebensdauer
   }
 
   pub trait UiAttribute: Send + Sync {
-      fn name(&self) -> String;            // PascalCase
-      fn namespace(&self) -> String;       // "control", "app", "native" …
-      fn value(&self) -> UiValue;          // lazily ermittelter Wert
+      fn namespace(&self) -> Namespace;
+      fn name(&self) -> &str;        // PascalCase
+      fn value(&self) -> UiValue;    // lazily ermittelter Wert
+  }
+
+  pub trait UiPattern: Any + Send + Sync {
+      fn id(&self) -> PatternId;
   }
   ```
-  Provider können eigene Typen als Attribute einsetzen, solange sie dieses Trait implementieren. Die Laufzeit übernimmt keine Vorab-Materialisierung, sondern ruft `UiAttribute::value()` nur bei Bedarf auf.
+  Die Aliase `UiNodeChildren<'a>` und `UiNodeAttributes<'a>` stehen für `Box<dyn Iterator<...> + Send + 'a>`. Provider können eigene Typen als Attribute einsetzen, solange sie dieses Trait implementieren. Die Laufzeit übernimmt keine Vorab-Materialisierung, sondern ruft `UiAttribute::value()` nur bei Bedarf auf.
+- **Attribute statt Methoden:** Pflichtinformationen wie `Technology`, `IsVisible` oder `IsOffscreen` werden ausschließlich als Attribute bereitgestellt. Das Trait liefert nur Struktur- und Navigationsinformationen; Clients greifen über `UiNode::attribute(...)` oder die XPath-Ausgabe darauf zu.
+- **Pattern-Zugriff:** `UiPattern` ist das gemeinsame Basistrait für Fähigkeiten mit optionalen Runtime-Aktionen (`Any + Send + Sync`). Provider registrieren jede implementierte Pattern-Instanz intern (z. B. `HashMap<TypeId, Arc<dyn UiPattern>>`) und liefern sie über `UiNode::pattern::<FocusablePattern>()`. `supported_patterns()` und `pattern::<T>()` müssen konsistent sein: Ein Pattern taucht nur in der Liste auf, wenn auch eine Instanz bereitsteht. Aktionen wie `FocusablePattern::focus()` oder `WindowSurfacePattern::maximize()` bleiben so explizit abrufbar, ohne dass der `UiNode` selbst Plattform-Logik enthält.
 - **Lazy Modell:** Die Runtime fordert Attribute/Kinder immer on-demand an. Provider können intern cachen, aber die Schnittstelle zwingt keine Vorab-Materialisierung.
 - **`UiValue`:** Typisiert (String, Bool, Integer, Float, strukturierte Werte wie `Rect`, `Point`, `Size`). Für strukturierte Werte erzeugt der XPath-Wrapper zusätzliche Alias-Attribute (`Bounds.X`, `Bounds.Width`, `ActivationPoint.Y`), damit Abfragen simpel bleiben.
 - **Namespaces:**
@@ -142,13 +155,13 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
 - Der Adapter kapselt sämtliche JSON-RPC-spezifischen Typen (Requests, Notifications, Fehler) und mappt sie auf die internen Provider-Traits.
 
 ## 9. XPath-Integration
-- **Wrapper statt Duplikate:** Für jede XPath-Abfrage erzeugt die Runtime eine flüchtige `XPathSnapshot`, die die vorhandenen `Arc<dyn UiNode>` in Objekte umwickelt, die das `XdmNode`-Trait erfüllen. Es entstehen keine Kopien des UI-Baums; die Wrapper delegieren alle Aufrufe (`children()`, `attributes()`, `string_value()`) zurück an das Provider-Objekt.
-- **Dokument & Ordnung:** Der Snapshot verankert einen virtuellen Dokumentknoten (Desktop) und vergibt fortlaufende Dokument-Order-Keys, damit XPath-Vergleiche (`document-order`) deterministisch funktionieren. Der Wrapper meldet diesen Knoten als `NodeKind::Document`, während alle `control:`-/`item:`-Knoten als `NodeKind::Element` auftreten.
-- **Abfrage-API:** `evaluate(node: Option<Arc<dyn UiNode>>, xpath: &str, cache_policy)` wird zur zentralen Schnittstelle. Ohne Kontext (`None`) startet die Auswertung beim Desktop. Mit Kontext wird der übergebene Knoten als Startpunkt genutzt (`.//item:*`). Die `cache_policy` (z. B. `UseCache`, `Refresh`) legt fest, ob vorhandene Wrapper recycelt oder komplett neu erzeugt werden.
-- **Namespaces & Präfixe:** Der `StaticContext` registriert die festen Präfixe `control`, `item`, `app`, `native`. Provider können zusätzliche Präfixe erweitern (z. B. `uia`, `ax`).
-- **Strukturierte Attribute:** Der Wrapper erzeugt on-the-fly abgeleitete Attribute (`Bounds.X`, `ActivationPoint.Y`), damit XPath keine Sonderfunktionen benötigt. `UiAttribute`-Instanzen werden ebenfalls gewrappt (z. B. in `XPathAttribute`), sodass der XPath-Layer direkt auf `UiValue`-Ergebnisse zugreifen kann, ohne Provider-Objekte zu duplizieren.
+- **Wrapper statt Kopien:** Für jede XPath-Abfrage erstellt die Runtime zurzeit flüchtige Wrapper, die die vorhandenen `Arc<dyn UiNode>` in `XdmNode`-fähige Objekte übersetzen. Die Wrapper existieren nur während der Auswertung und delegieren sämtliche Aufrufe (`children()`, `attributes()`, `string_value()`) direkt an das Provider-Objekt.
+- **Dokument & Ordnung:** Der virtuelle Dokumentknoten (Desktop) wird pro Evaluation erzeugt und als `NodeKind::Document` deklariert; alle `control:`-/`item:`-Knoten erscheinen als `NodeKind::Element`. Eine separate Snapshot-/Caching-Schicht verschieben wir, bis konkrete Performance-Anforderungen vorliegen.
+- **Abfrage-API:** `evaluate(node: Option<Arc<dyn UiNode>>, xpath: &str, options)` ist die zentrale Schnittstelle. Ohne Kontext (`None`) startet die Auswertung beim Desktop. Mit Kontext arbeitet die Runtime mit dem übergebenen `Arc<dyn UiNode>`; existiert dessen `RuntimeId` nicht mehr (z. B. nach Provider-Neuladen), fällt die Abfrage kontrolliert zurück (Fehler) oder versucht eine Re-Auflösung über die Provider-Registry, sobald wir diese Fähigkeit implementiert haben. Die Options-Struktur erlaubt lediglich leichte Steuerung (z. B. Provider vorab invalidieren); ein Cache bleibt explizit außen vor.
+- **Namespaces & Präfixe:** Der `StaticContext` registriert die festen Präfixe `control`, `item`, `app`, `native`. Provider können zusätzliche Präfixe ergänzen (z. B. `uia`, `ax`).
+- **Strukturierte Attribute:** Die Wrapper erzeugen on-the-fly abgeleitete Attribute (`Bounds.X`, `ActivationPoint.Y`), damit XPath keine Sonderfunktionen benötigt. `UiAttribute`-Instanzen werden ebenfalls gewrappt, sodass der XPath-Layer direkt auf `UiValue`-Ergebnisse zugreifen kann, ohne Provider-Objekte zu duplizieren.
 - **Ergebnisformat:** Die Abfrage liefert eine Sequenz aus `EvaluationItem`-Enums. Unterstützt werden `Node` (Dokument-, Element-, Attribut-, Text-Knoten) und `Value` (`UiValue`). Kommentar- oder Namespace-Knoten sowie Funktions-/Map-/Array-Items aus XPath 3.x sind vorerst nicht vorgesehen und würden als Fehler gemeldet.
-- **Ausblick:** Mittelfristig zieht die Snapshot-Logik in eine eigenständige `NodeResolver`-Schicht um, die Provider bei Bedarf überschreiben können (z. B. um native handle-basierte Zugriffe zu beschleunigen).
+- **Ausblick:** Ein dediziertes Caching (inklusive Wiederverwendung von Wrappern und Rehydratisierung nach `invalidate`) bleibt ein späteres Performance-Thema. Die aktuelle Implementierung priorisiert Korrektheit und Einfachheit.
 
 ## 10. Runtime-Pipeline & Komposition
 1. **Runtime (`crates/runtime`, Crate `platynui-runtime`)** – verwaltet `PlatformRegistry`/`PlatformBundle`, lädt Desktop (`UiXdmDocument`), evaluiert XPath (Streaming), triggert Highlight/Screenshot.
@@ -165,7 +178,7 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
 ## 12. Nächste Schritte
 > Kurzfristiger Fokus: Windows (UIA) und Linux/X11 (AT-SPI2) werden zuerst umgesetzt; macOS folgt, sobald beide Plattformen stabil laufen.
 
-1. **Core & XPath** – Attributkatalog finalisieren, `UiXdmNode`-Prototyp entwickeln, Tests schreiben. Priorität: Trait-basierten Snapshot-Wrapper (`XPathSnapshot`) fertigstellen, der `UiNode` ohne Duplikate in `XdmNode` überführt, inkl. Caching-Strategie und Tests.
+1. **Core & XPath** – Attributkatalog finalisieren, direkte Wrapper für `UiNode` → `XdmNode` weiter ausbauen und Tests schreiben. Caching/Snapshot-Mechanismen wandern bewusst in den Backlog, bis Performancebedarfe auftreten.
 2. **Provider & JSON-RPC** – Crates (`platynui-provider-windows-uia`, `platynui-provider-atspi`, `platynui-provider-macos-ax`, `platynui-provider-mock`, `platynui-provider-jsonrpc`) anlegen; JSON-RPC-Schema/Registrierung/Heartbeats implementieren.
 3. **Devices & Interaktion** – Plattform-Devices fertigstellen, Screenshot/Highlight-PoCs, Fallback-Strategien definieren.
 4. **Runtime & Server** – Runtime-API, Fehlerbehandlung, Provider-Registry und JSON-RPC-Server (Sicherheitsgrenzen) umsetzen.

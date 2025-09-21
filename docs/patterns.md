@@ -14,6 +14,7 @@ PlatynUI modelliert Fähigkeiten von UI-Knoten mit Patterns. Diese Patterns verh
 - **Lesende Fähigkeiten:** Patterns beschreiben ausschließlich Zustände und zusätzliche Attribute. Aktionen liegen in der Verantwortung der Clients, mit Ausnahme von Fokuswechsel und Fenstersteuerung, die die Runtime direkt anbietet.
 - **Keine Events:** Statusänderungen spiegeln sich in Attributen wider und können durch erneute XPath-Abfragen ermittelt werden. Baum-Events existieren nur für die Synchronisation zwischen Runtime und Provider und sind kein Bestandteil einzelner Patterns.
 - **Erweiterbarkeit:** Neue Patterns lassen sich hinzufügen, ohne bestehende Abfragen zu brechen. Provider melden jedes unterstützte Pattern in `SupportedPatterns`.
+- **Runtime-Zugriff:** Patterns implementieren das Trait `UiPattern`. Provider halten passende Instanzen bereit und liefern sie über `UiNode::pattern::<T>()` aus; dort existieren optional Runtime-Aktionen (z. B. `focus()`, `maximize()`). `SupportedPatterns` und die tatsächlich abrufbaren Instanzen müssen übereinstimmen.
 
 ## UiNode-Kategorien & Basisvertrag
 Wir unterscheiden drei Typen von UiNode-Namespace-Knoten:
@@ -69,7 +70,7 @@ Die folgenden Patterns bilden wiederkehrende Fähigkeiten ab. Beispiel-Mappings 
 #### Focusable
 - **Beschreibung:** Element kann den Eingabefokus aufnehmen.
 - **Pflichtattribute:** `IsFocused`.
-- **Runtime-Aktion:** `focus()`.
+- **Runtime-Aktion:** `focus()` über `UiNode::pattern::<FocusablePattern>()`.
 
 #### Activatable
 - **Beschreibung:** Element unterstützt einen primären Aktivierungsbefehl. Die Runtime stellt keine direkte Aktion bereit; Clients lösen die Aktivierung z. B. per Tastatur/Maus aus.
@@ -131,7 +132,7 @@ Die folgenden Patterns bilden wiederkehrende Fähigkeiten ab. Beispiel-Mappings 
 #### WindowSurface
 - **Beschreibung:** Bindeglied zum platform-spezifischen Window Manager.
 - **Pflichtattribute:** `IsMinimized`, `IsMaximized`, `IsTopmost`.
-- **Runtime-Aktionen:** `activate()`, `minimize()`, `maximize()`, `restore()`, `move(bounds)`, `resize(bounds)`, `close()`.
+- **Runtime-Aktionen:** via `UiNode::pattern::<WindowSurfacePattern>()` – `activate()`, `minimize()`, `maximize()`, `restore()`, `move(bounds)`, `resize(bounds)`, `close()`.
 
 #### DialogSurface
 - **Beschreibung:** Spezialisierung für modale Dialoge.

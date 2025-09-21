@@ -1,11 +1,10 @@
-use std::collections::HashMap;
+use std::sync::Arc;
 
-use platynui_core::ui::{Namespace as UiNamespace, UiNode, UiValue, attribute_names};
+use platynui_core::ui::{Namespace as UiNamespace, UiNode, UiValue};
 use platynui_xpath::compiler;
 use platynui_xpath::engine::evaluator;
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilder};
-use platynui_xpath::model::NodeKind;
-use platynui_xpath::simple_node::{self, SimpleNode};
+use platynui_xpath::model::{NodeKind, QName};
 use platynui_xpath::xdm::{XdmAtomicValue, XdmItem};
 use platynui_xpath::{self, XdmNode};
 use serde_json;
@@ -16,16 +15,28 @@ const ITEM_NS_URI: &str = "urn:platynui:item";
 const APP_NS_URI: &str = "urn:platynui:app";
 const NATIVE_NS_URI: &str = "urn:platynui:native";
 
-/// Options passed to the XPath evaluator.
-#[derive(Default)]
-pub struct EvaluateOptions<'a> {
-    pub context_node: Option<&'a UiNode>,
+#[derive(Clone)]
+pub struct EvaluateOptions {
+    desktop: Arc<dyn UiNode>,
+    invalidate_before_eval: bool,
 }
 
-impl<'a> EvaluateOptions<'a> {
-    pub fn with_context_node(mut self, node: &'a UiNode) -> Self {
-        self.context_node = Some(node);
+impl EvaluateOptions {
+    pub fn new(desktop: Arc<dyn UiNode>) -> Self {
+        Self { desktop, invalidate_before_eval: false }
+    }
+
+    pub fn desktop(&self) -> Arc<dyn UiNode> {
+        Arc::clone(&self.desktop)
+    }
+
+    pub fn with_invalidation(mut self, invalidate: bool) -> Self {
+        self.invalidate_before_eval = invalidate;
         self
+    }
+
+    pub fn invalidate_before_eval(&self) -> bool {
+        self.invalidate_before_eval
     }
 }
 
@@ -33,25 +44,58 @@ impl<'a> EvaluateOptions<'a> {
 pub enum EvaluateError {
     #[error("XPath evaluation failed: {0}")]
     XPath(#[from] platynui_xpath::engine::runtime::Error),
-    #[error("context node not part of snapshot (runtime id: {0})")]
+    #[error("context node not part of current evaluation (runtime id: {0})")]
     ContextNodeUnknown(String),
 }
 
-#[derive(Debug, Default, PartialEq)]
-pub struct EvaluationResult {
-    pub nodes: Vec<UiNode>,
-    pub atomics: Vec<UiValue>,
+#[derive(Clone)]
+pub struct EvaluatedAttribute {
+    pub owner: Arc<dyn UiNode>,
+    pub namespace: UiNamespace,
+    pub name: String,
+    pub value: UiValue,
 }
 
-pub fn evaluate_xpath(
-    expr: &str,
-    root: &UiNode,
-    options: EvaluateOptions<'_>,
-) -> Result<EvaluationResult, EvaluateError> {
-    let mut source_map = HashMap::new();
-    let mut simple_map = HashMap::new();
-    let simple_root = build_simple_node(root, true, &mut source_map, &mut simple_map);
-    let _document = simple_node::doc().child(simple_root).build();
+impl std::fmt::Debug for EvaluatedAttribute {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EvaluatedAttribute")
+            .field("namespace", &self.namespace)
+            .field("name", &self.name)
+            .field("value", &self.value)
+            .finish()
+    }
+}
+
+#[derive(Clone)]
+pub enum EvaluationItem {
+    Node(Arc<dyn UiNode>),
+    Attribute(EvaluatedAttribute),
+    Value(UiValue),
+}
+
+impl std::fmt::Debug for EvaluationItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EvaluationItem::Node(node) => {
+                f.debug_tuple("Node").field(&node.runtime_id().as_str()).finish()
+            }
+            EvaluationItem::Attribute(attr) => f.debug_tuple("Attribute").field(attr).finish(),
+            EvaluationItem::Value(value) => f.debug_tuple("Value").field(value).finish(),
+        }
+    }
+}
+
+pub fn evaluate(
+    node: Option<Arc<dyn UiNode>>,
+    xpath: &str,
+    options: EvaluateOptions,
+) -> Result<Vec<EvaluationItem>, EvaluateError> {
+    let root = options.desktop();
+    let context = node.unwrap_or_else(|| root.clone());
+
+    if options.invalidate_before_eval() {
+        context.invalidate();
+    }
 
     let static_ctx = StaticContextBuilder::new()
         .with_default_element_namespace(CONTROL_NS_URI)
@@ -61,101 +105,289 @@ pub fn evaluate_xpath(
         .with_namespace("native", NATIVE_NS_URI)
         .build();
 
-    let compiled = compiler::compile_with_context(expr, &static_ctx)?;
+    let compiled = compiler::compile_with_context(xpath, &static_ctx)?;
 
     let mut dyn_builder = DynamicContextBuilder::new();
-    if let Some(ctx_node) = options.context_node {
-        let runtime_id = ctx_node.runtime_id().as_str();
-        let simple_node = simple_map
-            .get(runtime_id)
-            .cloned()
-            .ok_or_else(|| EvaluateError::ContextNodeUnknown(runtime_id.to_string()))?;
-        dyn_builder = dyn_builder.with_context_item(simple_node);
-    } else {
-        let root_id = root.runtime_id().as_str();
-        if let Some(simple_root) = simple_map.get(root_id).cloned() {
-            dyn_builder = dyn_builder.with_context_item(simple_root);
-        }
-    }
+    dyn_builder = dyn_builder.with_context_item(RuntimeXdmNode::element(context.clone()));
     let dyn_ctx = dyn_builder.build();
 
     let sequence = evaluator::evaluate(&compiled, &dyn_ctx)?;
 
-    let mut result = EvaluationResult::default();
+    let mut items = Vec::new();
     for item in sequence {
         match item {
-            XdmItem::Node(node) => match node.kind() {
-                NodeKind::Element => {
-                    if let Some(id) = extract_runtime_id(&node) {
-                        if let Some(original) = source_map.get(&id) {
-                            result.nodes.push(original.clone());
-                        }
-                    }
+            XdmItem::Node(node) => match node {
+                RuntimeXdmNode::Document(doc) => {
+                    items.push(EvaluationItem::Node(doc.root.clone()));
                 }
-                NodeKind::Attribute | NodeKind::Text => {
-                    result.atomics.push(UiValue::String(node.string_value()));
+                RuntimeXdmNode::Element(element) => {
+                    items.push(EvaluationItem::Node(element.node.clone()));
                 }
-                _ => {}
+                RuntimeXdmNode::Attribute(attr) => {
+                    items.push(EvaluationItem::Attribute(attr.to_evaluated()));
+                }
             },
             XdmItem::Atomic(atom) => {
-                result.atomics.push(atomic_to_ui_value(&atom));
+                items.push(EvaluationItem::Value(atomic_to_ui_value(&atom)));
             }
         }
     }
 
-    Ok(result)
+    Ok(items)
 }
 
-fn build_simple_node(
-    node: &UiNode,
-    is_root: bool,
-    source_map: &mut HashMap<String, UiNode>,
-    simple_map: &mut HashMap<String, SimpleNode>,
-) -> SimpleNode {
-    let qname = element_qname(node.namespace(), node.role());
-    let mut builder = simple_node::elem(&qname);
+#[derive(Clone)]
+enum RuntimeXdmNode {
+    Document(DocumentData),
+    Element(ElementData),
+    Attribute(AttributeData),
+}
 
-    if is_root {
-        builder = builder
-            .namespace(simple_node::ns("", CONTROL_NS_URI))
-            .namespace(simple_node::ns("control", CONTROL_NS_URI))
-            .namespace(simple_node::ns("item", ITEM_NS_URI))
-            .namespace(simple_node::ns("app", APP_NS_URI))
-            .namespace(simple_node::ns("native", NATIVE_NS_URI));
+impl RuntimeXdmNode {
+    fn document(root: Arc<dyn UiNode>) -> Self {
+        let runtime_id = root.runtime_id().as_str().to_string();
+        RuntimeXdmNode::Document(DocumentData { root, runtime_id })
     }
 
-    for (key, value) in node.attributes().iter() {
-        if let Some(attr_node) = convert_attribute(key, value) {
-            builder = builder.attr(attr_node);
+    fn element(node: Arc<dyn UiNode>) -> Self {
+        let runtime_id = node.runtime_id().as_str().to_string();
+        let namespace = node.namespace();
+        let role = node.role().to_string();
+        RuntimeXdmNode::Element(ElementData { node, runtime_id, namespace, role })
+    }
+
+    fn attribute(
+        owner: Arc<dyn UiNode>,
+        namespace: UiNamespace,
+        name: String,
+        value: UiValue,
+        text: String,
+    ) -> Self {
+        let owner_runtime_id = owner.runtime_id().as_str().to_string();
+        RuntimeXdmNode::Attribute(AttributeData {
+            owner,
+            owner_runtime_id,
+            namespace,
+            name,
+            value,
+            text,
+        })
+    }
+}
+
+impl PartialEq for RuntimeXdmNode {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (RuntimeXdmNode::Document(a), RuntimeXdmNode::Document(b)) => {
+                a.runtime_id == b.runtime_id
+            }
+            (RuntimeXdmNode::Element(a), RuntimeXdmNode::Element(b)) => {
+                a.runtime_id == b.runtime_id
+            }
+            (RuntimeXdmNode::Attribute(a), RuntimeXdmNode::Attribute(b)) => {
+                a.owner_runtime_id == b.owner_runtime_id
+                    && a.namespace == b.namespace
+                    && a.name == b.name
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for RuntimeXdmNode {}
+
+impl std::fmt::Debug for RuntimeXdmNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RuntimeXdmNode::Document(doc) => {
+                f.debug_struct("Document").field("runtime_id", &doc.runtime_id).finish()
+            }
+            RuntimeXdmNode::Element(elem) => f
+                .debug_struct("Element")
+                .field("runtime_id", &elem.runtime_id)
+                .field("role", &elem.role)
+                .finish(),
+            RuntimeXdmNode::Attribute(attr) => f
+                .debug_struct("Attribute")
+                .field("owner", &attr.owner_runtime_id)
+                .field("name", &attr.name)
+                .finish(),
+        }
+    }
+}
+
+impl XdmNode for RuntimeXdmNode {
+    type Children<'a>
+        = std::vec::IntoIter<RuntimeXdmNode>
+    where
+        Self: 'a;
+    type Attributes<'a>
+        = std::vec::IntoIter<RuntimeXdmNode>
+    where
+        Self: 'a;
+    type Namespaces<'a>
+        = std::vec::IntoIter<RuntimeXdmNode>
+    where
+        Self: 'a;
+
+    fn kind(&self) -> NodeKind {
+        match self {
+            RuntimeXdmNode::Document(_) => NodeKind::Document,
+            RuntimeXdmNode::Element(_) => NodeKind::Element,
+            RuntimeXdmNode::Attribute(_) => NodeKind::Attribute,
         }
     }
 
-    for child in node.children() {
-        let simple_child = build_simple_node(child, false, source_map, simple_map);
-        builder = builder.child(simple_child);
+    fn name(&self) -> Option<QName> {
+        match self {
+            RuntimeXdmNode::Document(_) => None,
+            RuntimeXdmNode::Element(elem) => Some(element_qname(elem.namespace, &elem.role)),
+            RuntimeXdmNode::Attribute(attr) => Some(attribute_qname(attr.namespace, &attr.name)),
+        }
     }
 
-    let built = builder.build();
-    let runtime_id = node.runtime_id().as_str().to_string();
-    source_map.insert(runtime_id.clone(), node.clone());
-    simple_map.insert(runtime_id, built.clone());
-    built
+    fn string_value(&self) -> String {
+        match self {
+            RuntimeXdmNode::Document(_) => String::new(),
+            RuntimeXdmNode::Element(_) => String::new(),
+            RuntimeXdmNode::Attribute(attr) => attr.text.clone(),
+        }
+    }
+
+    fn base_uri(&self) -> Option<String> {
+        None
+    }
+
+    fn parent(&self) -> Option<Self> {
+        match self {
+            RuntimeXdmNode::Document(_) => None,
+            RuntimeXdmNode::Element(elem) => match elem.node.parent() {
+                Some(parent) => parent.upgrade().map(RuntimeXdmNode::element),
+                None => Some(RuntimeXdmNode::document(elem.node.clone())),
+            },
+            RuntimeXdmNode::Attribute(attr) => Some(RuntimeXdmNode::element(attr.owner.clone())),
+        }
+    }
+
+    fn children(&self) -> Self::Children<'_> {
+        match self {
+            RuntimeXdmNode::Document(doc) => {
+                vec![RuntimeXdmNode::element(doc.root.clone())].into_iter()
+            }
+            RuntimeXdmNode::Element(elem) => {
+                let mut results = Vec::new();
+                for child in elem.node.children() {
+                    results.push(RuntimeXdmNode::element(child));
+                }
+                results.into_iter()
+            }
+            RuntimeXdmNode::Attribute(_) => Vec::new().into_iter(),
+        }
+    }
+
+    fn attributes(&self) -> Self::Attributes<'_> {
+        match self {
+            RuntimeXdmNode::Element(elem) => collect_attribute_nodes(&elem.node).into_iter(),
+            _ => Vec::new().into_iter(),
+        }
+    }
+
+    fn namespaces(&self) -> Self::Namespaces<'_> {
+        Vec::new().into_iter()
+    }
 }
 
-fn convert_attribute(
-    key: &platynui_core::ui::node::AttributeKey,
-    value: &UiValue,
-) -> Option<SimpleNode> {
-    let name = match key.namespace() {
-        UiNamespace::Control => key.name().to_string(),
-        other => {
-            let prefix = namespace_prefix(other);
-            format!("{}:{}", prefix, key.name())
-        }
-    };
+#[derive(Clone)]
+struct DocumentData {
+    root: Arc<dyn UiNode>,
+    runtime_id: String,
+}
 
-    let text = ui_value_to_string(value)?;
-    Some(simple_node::attr(&name, &text))
+#[derive(Clone)]
+struct ElementData {
+    node: Arc<dyn UiNode>,
+    runtime_id: String,
+    namespace: UiNamespace,
+    role: String,
+}
+
+#[derive(Clone)]
+struct AttributeData {
+    owner: Arc<dyn UiNode>,
+    owner_runtime_id: String,
+    namespace: UiNamespace,
+    name: String,
+    value: UiValue,
+    text: String,
+}
+
+impl AttributeData {
+    fn to_evaluated(&self) -> EvaluatedAttribute {
+        EvaluatedAttribute {
+            owner: self.owner.clone(),
+            namespace: self.namespace,
+            name: self.name.clone(),
+            value: self.value.clone(),
+        }
+    }
+}
+
+fn collect_attribute_nodes(node: &Arc<dyn UiNode>) -> Vec<RuntimeXdmNode> {
+    let mut nodes = Vec::new();
+
+    for attribute in node.attributes() {
+        let namespace = attribute.namespace();
+        let base_name = attribute.name().to_string();
+        let value = attribute.value();
+
+        if let Some(text) = ui_value_to_string(&value) {
+            nodes.push(RuntimeXdmNode::attribute(
+                Arc::clone(node),
+                namespace,
+                base_name.clone(),
+                value.clone(),
+                text,
+            ));
+        }
+
+        for (derived_name, derived_value) in expand_structured_attribute(&base_name, &value) {
+            if let Some(text) = ui_value_to_string(&derived_value) {
+                nodes.push(RuntimeXdmNode::attribute(
+                    Arc::clone(node),
+                    namespace,
+                    derived_name,
+                    derived_value,
+                    text,
+                ));
+            }
+        }
+    }
+
+    nodes
+}
+
+fn expand_structured_attribute(base_name: &str, value: &UiValue) -> Vec<(String, UiValue)> {
+    match value {
+        UiValue::Rect(rect) => vec![
+            (component_attribute_name(base_name, "X"), UiValue::from(rect.x())),
+            (component_attribute_name(base_name, "Y"), UiValue::from(rect.y())),
+            (component_attribute_name(base_name, "Width"), UiValue::from(rect.width())),
+            (component_attribute_name(base_name, "Height"), UiValue::from(rect.height())),
+        ],
+        UiValue::Point(point) => vec![
+            (component_attribute_name(base_name, "X"), UiValue::from(point.x())),
+            (component_attribute_name(base_name, "Y"), UiValue::from(point.y())),
+        ],
+        UiValue::Size(size) => vec![
+            (component_attribute_name(base_name, "Width"), UiValue::from(size.width())),
+            (component_attribute_name(base_name, "Height"), UiValue::from(size.height())),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+fn component_attribute_name(base: &str, suffix: &str) -> String {
+    format!("{}.{}", base, suffix)
 }
 
 fn ui_value_to_string(value: &UiValue) -> Option<String> {
@@ -178,31 +410,56 @@ fn trim_float(value: f64) -> String {
     if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s }
 }
 
-fn element_qname(ns: UiNamespace, role: &str) -> String {
-    match ns {
-        UiNamespace::Control => role.to_string(),
-        _ => format!("{}:{}", namespace_prefix(ns), role),
+fn element_qname(ns: UiNamespace, role: &str) -> QName {
+    QName {
+        prefix: namespace_prefix(ns).map(|p| p.to_string()),
+        local: role.to_string(),
+        ns_uri: Some(namespace_uri(ns).to_string()),
     }
 }
 
-fn namespace_prefix(ns: UiNamespace) -> &'static str {
-    match ns {
-        UiNamespace::Control => "control",
-        UiNamespace::Item => "item",
-        UiNamespace::App => "app",
-        UiNamespace::Native => "native",
+fn attribute_qname(ns: UiNamespace, name: &str) -> QName {
+    QName {
+        prefix: attribute_prefix(ns).map(|p| p.to_string()),
+        local: name.to_string(),
+        ns_uri: attribute_namespace(ns).map(|uri| uri.to_string()),
     }
 }
 
-fn extract_runtime_id(node: &SimpleNode) -> Option<String> {
-    for attr in node.attributes() {
-        if let Some(name) = attr.name()
-            && name.local == attribute_names::RUNTIME_ID
-        {
-            return Some(attr.string_value());
-        }
+fn namespace_prefix(ns: UiNamespace) -> Option<&'static str> {
+    match ns {
+        UiNamespace::Control => None,
+        UiNamespace::Item => Some("item"),
+        UiNamespace::App => Some("app"),
+        UiNamespace::Native => Some("native"),
     }
-    None
+}
+
+fn namespace_uri(ns: UiNamespace) -> &'static str {
+    match ns {
+        UiNamespace::Control => CONTROL_NS_URI,
+        UiNamespace::Item => ITEM_NS_URI,
+        UiNamespace::App => APP_NS_URI,
+        UiNamespace::Native => NATIVE_NS_URI,
+    }
+}
+
+fn attribute_prefix(ns: UiNamespace) -> Option<&'static str> {
+    match ns {
+        UiNamespace::Control => None,
+        UiNamespace::Item => Some("item"),
+        UiNamespace::App => Some("app"),
+        UiNamespace::Native => Some("native"),
+    }
+}
+
+fn attribute_namespace(ns: UiNamespace) -> Option<&'static str> {
+    match ns {
+        UiNamespace::Control => None,
+        UiNamespace::Item => Some(ITEM_NS_URI),
+        UiNamespace::App => Some(APP_NS_URI),
+        UiNamespace::Native => Some(NATIVE_NS_URI),
+    }
 }
 
 fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
@@ -216,7 +473,9 @@ fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
         Integer(i) | Long(i) | NonPositiveInteger(i) | NegativeInteger(i) => UiValue::Integer(*i),
         Decimal(d) | Double(d) => UiValue::Number(*d),
         Float(f) => UiValue::Number(*f as f64),
-        UnsignedLong(u) | NonNegativeInteger(u) | PositiveInteger(u) => UiValue::Integer(*u as i64),
+        UnsignedLong(u) => UiValue::Integer(*u as i64),
+        NonNegativeInteger(u) => UiValue::Integer(*u as i64),
+        PositiveInteger(u) => UiValue::Integer(*u as i64),
         UnsignedInt(u) => UiValue::Integer(*u as i64),
         UnsignedShort(u) => UiValue::Integer(*u as i64),
         UnsignedByte(u) => UiValue::Integer(*u as i64),
@@ -274,55 +533,215 @@ fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
 mod tests {
     use super::*;
     use platynui_core::types::Rect;
-    use platynui_core::ui::UiNode;
+    use platynui_core::ui::{PatternId, RuntimeId, UiAttribute, UiNode, attribute_names};
+    use std::sync::{Arc, Mutex, Weak};
 
-    fn sample_tree() -> UiNode {
-        let window = UiNode::builder(
+    struct StaticAttribute {
+        namespace: UiNamespace,
+        name: String,
+        value: UiValue,
+    }
+
+    impl StaticAttribute {
+        fn new(namespace: UiNamespace, name: &str, value: UiValue) -> Self {
+            Self { namespace, name: name.to_string(), value }
+        }
+    }
+
+    impl UiAttribute for StaticAttribute {
+        fn namespace(&self) -> UiNamespace {
+            self.namespace
+        }
+
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        fn value(&self) -> UiValue {
+            self.value.clone()
+        }
+    }
+
+    struct StaticNode {
+        namespace: UiNamespace,
+        role: &'static str,
+        name: String,
+        runtime_id: RuntimeId,
+        attributes: Vec<Arc<dyn UiAttribute>>,
+        patterns: Vec<PatternId>,
+        children: Mutex<Vec<Arc<dyn UiNode>>>,
+        parent: Mutex<Option<Weak<dyn UiNode>>>,
+    }
+
+    impl StaticNode {
+        fn new(
+            namespace: UiNamespace,
+            runtime_id: &str,
+            role: &'static str,
+            name: &str,
+            bounds: Rect,
+            patterns: Vec<&str>,
+        ) -> Arc<Self> {
+            let runtime_id = RuntimeId::from(runtime_id);
+            let patterns_vec: Vec<PatternId> = patterns.into_iter().map(PatternId::from).collect();
+            let supported = UiValue::Array(
+                patterns_vec.iter().map(|p| UiValue::from(p.as_str().to_owned())).collect(),
+            );
+
+            let mut attributes: Vec<Arc<dyn UiAttribute>> = Vec::new();
+            attributes.push(Arc::new(StaticAttribute::new(
+                namespace,
+                attribute_names::BOUNDS,
+                UiValue::Rect(bounds),
+            )) as Arc<dyn UiAttribute>);
+            attributes.push(Arc::new(StaticAttribute::new(
+                namespace,
+                attribute_names::ROLE,
+                UiValue::from(role),
+            )) as Arc<dyn UiAttribute>);
+            attributes.push(Arc::new(StaticAttribute::new(
+                namespace,
+                attribute_names::NAME,
+                UiValue::from(name),
+            )) as Arc<dyn UiAttribute>);
+            attributes.push(Arc::new(StaticAttribute::new(
+                namespace,
+                attribute_names::IS_VISIBLE,
+                UiValue::from(true),
+            )) as Arc<dyn UiAttribute>);
+            attributes.push(Arc::new(StaticAttribute::new(
+                namespace,
+                attribute_names::RUNTIME_ID,
+                UiValue::from(runtime_id.as_str().to_owned()),
+            )) as Arc<dyn UiAttribute>);
+            attributes.push(Arc::new(StaticAttribute::new(
+                namespace,
+                attribute_names::TECHNOLOGY,
+                UiValue::from("Mock"),
+            )) as Arc<dyn UiAttribute>);
+            attributes.push(Arc::new(StaticAttribute::new(
+                namespace,
+                attribute_names::SUPPORTED_PATTERNS,
+                supported,
+            )) as Arc<dyn UiAttribute>);
+
+            Arc::new(Self {
+                namespace,
+                role,
+                name: name.to_string(),
+                runtime_id,
+                attributes,
+                patterns: patterns_vec,
+                children: Mutex::new(Vec::new()),
+                parent: Mutex::new(None),
+            })
+        }
+
+        fn to_ref(this: &Arc<Self>) -> Arc<dyn UiNode> {
+            Arc::clone(this) as Arc<dyn UiNode>
+        }
+
+        fn add_child(parent: &Arc<Self>, child: &Arc<Self>) {
+            *child.parent.lock().unwrap() =
+                Some(Arc::downgrade(&(Arc::clone(parent) as Arc<dyn UiNode>)));
+            parent.children.lock().unwrap().push(Self::to_ref(child));
+        }
+    }
+
+    impl UiNode for StaticNode {
+        fn namespace(&self) -> UiNamespace {
+            self.namespace
+        }
+
+        fn role(&self) -> &str {
+            self.role
+        }
+
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        fn runtime_id(&self) -> &RuntimeId {
+            &self.runtime_id
+        }
+
+        fn parent(&self) -> Option<Weak<dyn UiNode>> {
+            self.parent.lock().unwrap().clone()
+        }
+
+        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+            let snapshot = self.children.lock().unwrap().clone();
+            Box::new(snapshot.into_iter())
+        }
+
+        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+            Box::new(self.attributes.clone().into_iter())
+        }
+
+        fn supported_patterns(&self) -> &[PatternId] {
+            &self.patterns
+        }
+
+        fn invalidate(&self) {}
+    }
+
+    fn sample_tree() -> Arc<dyn UiNode> {
+        let window = StaticNode::new(
             UiNamespace::Control,
+            "window-1",
             "Window",
             "Main",
             Rect::new(0.0, 0.0, 800.0, 600.0),
-            "window-1",
-            "Mock",
-        )
-        .with_attribute(
+            vec![],
+        );
+        let desktop = StaticNode::new(
             UiNamespace::Control,
-            attribute_names::NAME,
-            UiValue::String("Main Window".into()),
-        )
-        .build();
-
-        UiNode::builder(
-            UiNamespace::Control,
+            "desktop",
             "Desktop",
             "Desktop",
             Rect::new(0.0, 0.0, 1920.0, 1080.0),
-            "desktop",
-            "Runtime",
-        )
-        .with_attribute(
-            UiNamespace::Control,
-            attribute_names::OS_NAME,
-            UiValue::String("Linux".into()),
-        )
-        .with_children(vec![window])
-        .build()
+            vec![],
+        );
+
+        StaticNode::add_child(&desktop, &window);
+
+        StaticNode::to_ref(&desktop)
     }
 
     #[test]
     fn evaluates_node_selection() {
         let tree = sample_tree();
-        let result = evaluate_xpath("//Window", &tree, EvaluateOptions::default()).unwrap();
-        assert_eq!(result.nodes.len(), 1);
-        assert_eq!(result.nodes[0].runtime_id().as_str(), "window-1");
+        let items = evaluate(None, "//Window", EvaluateOptions::new(tree.clone())).unwrap();
+        assert_eq!(items.len(), 1);
+        match &items[0] {
+            EvaluationItem::Node(node) => {
+                assert_eq!(node.runtime_id().as_str(), "window-1");
+            }
+            other => panic!("unexpected evaluation result: {:?}", other),
+        }
     }
 
     #[test]
     fn evaluates_count_function() {
         let tree = sample_tree();
-        let result = evaluate_xpath("count(//Window)", &tree, EvaluateOptions::default()).unwrap();
-        assert!(result.nodes.is_empty());
-        assert_eq!(result.atomics.len(), 1);
-        assert_eq!(result.atomics[0], UiValue::Integer(1));
+        let items = evaluate(None, "count(//Window)", EvaluateOptions::new(tree.clone())).unwrap();
+        assert_eq!(items.len(), 1);
+        match &items[0] {
+            EvaluationItem::Value(value) => assert_eq!(value, &UiValue::Integer(1)),
+            other => panic!("unexpected evaluation result: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn absolute_path_from_context_root() {
+        let tree = sample_tree();
+        let items = evaluate(None, "/control:Desktop", EvaluateOptions::new(tree.clone())).unwrap();
+        assert_eq!(items.len(), 1);
+        match &items[0] {
+            EvaluationItem::Node(node) => {
+                assert_eq!(node.runtime_id().as_str(), "desktop");
+            }
+            other => panic!("unexpected evaluation result: {:?}", other),
+        }
     }
 }

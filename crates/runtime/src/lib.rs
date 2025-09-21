@@ -1,3 +1,3 @@
 mod xpath;
 
-pub use xpath::{EvaluateError, EvaluateOptions, EvaluationResult, evaluate_xpath};
+pub use xpath::{EvaluateError, EvaluateOptions, EvaluatedAttribute, EvaluationItem, evaluate};

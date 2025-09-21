@@ -30,16 +30,19 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Dev-Tooling notieren (`uv`, `cargo`, Inspector-Abhängigkeiten) und Basis-Skripte (Format/Lint/Test).
 
 ### 2. Core-Datenmodell & XPath-Grundlagen
-- [ ] `UiNode`-/`UiAttribute`-Traits samt Runtime-Wrappper implementieren (Eltern/Kind-Beziehungen, Lazy-Attribute, `supported_patterns()`), bestehende Struktur-Typen migrieren.
+- [x] `UiNode`-/`UiAttribute`-Traits einführen und den alten Struct-/Builder-Ansatz vollständig entfernen (kein Übergangs-Mockbaum im Core).
+- [x] Runtime-Wrapper für `UiNode`/`UiAttribute` implementieren (direkte `Arc<dyn UiNode>`-Adapter ohne Snapshot, kontextabhängige Invalidierung optional).
+- [ ] `UiPattern`-Basistrait plus `UiNode::pattern::<T>()`-Lookup implementieren; Provider müssen konsistente Pattern-Instanzen registrieren (Map nach `TypeId`). Contract-Tests decken Diskrepanzen zwischen `supported_patterns()` und abrufbaren Instanzen auf.
 - [x] `UiValue` definieren: strukturierte Werte (`Rect`, `Point`, `Size`, `Integer`) und JSON-kompatible Konvertierungen.
 - [x] Namespace-Registry (`control`, `item`, `app`, `native`) und Hilfsfunktionen implementieren.
-- [ ] Dynamische XPath-Snapshots: `Arc<dyn UiNode>` in `XdmNode`-Wrapper mappen, Dokumentknoten/Caching definieren, Tests ergänzen.
-- [ ] Evaluation-API auf `EvaluationItem` (Node/Attribute/Value) umstellen und Konsumenten/Tests anpassen.
+- [x] Evaluation-API auf `EvaluationItem` (Node/Attribute/Value) umstellen und Konsumenten/Tests anpassen (Kontext per `Option<Arc<dyn UiNode>>`).
+- [ ] Kontextknoten außerhalb des aktuellen Wurzelknotens bei Bedarf über `RuntimeId` neu auflösen (Root-Wechsel berücksichtigen).
 - [ ] Pflichtattribute (`Bounds`, `Role`, `Name`, `IsVisible`, optional `IsOffscreen`, `RuntimeId`, `Technology`, `SupportedPatterns`) mit Trait-Validierung hinterlegen und `UiAttribute`-Trait finalisieren (inkl. Runtime-Wrapper für XPath).
 - [ ] Dokumentwurzel „Desktop“ samt Monitor-Alias-Attributen (Bounds.X usw.) beschreiben und Tests erstellen.
 
 ### 3. Pattern-System
 - [ ] Pattern-Traits als `struct`/`trait`-Kombination definieren (z. B. `TextContent`, `TextEditable`, `ActivationTarget`, `Application`, `WindowSurface`, `AcceptsUserInput`).
+- [ ] Runtime-Aktionsschnittstellen der Patterns (z. B. `FocusablePattern::focus()`, `WindowSurfacePattern::maximize()`) präzisieren und Beispiel-Implementierungen samt Tests dokumentieren; nur diese Pattern dürfen Laufzeitaktionen anbieten.
 - [ ] `SupportedPatterns`-Enum oder Identifier-Registry plus Validierung (z. B. `TextEditable` → erfordert `TextContent`).
 - [ ] Provider-facing Contract-Tests: prüfen, dass Pflichtattribute vorhanden sind und Coordinates Desktop-relativ bleiben.
 - [ ] Mapping-Hilfen zwischen Patterns und Technologie-spezifischen APIs (UIA-ControlType, AT-SPI Rollen, AX Attribute) bereitstellen.
@@ -54,7 +57,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 ### 5. Native Provider (UiTree)
 #### Phase 1 – Windows (UIA)
 - [ ] `platynui-provider-windows-uia`: UIA-Wrapper (COM-Helfer ggf. in `platynui-platform-windows`), Rollennormalisierung (ControlType → lokale Namen), `RuntimeId`-Weitergabe, `AcceptsUserInput` via `WaitForInputIdle`/Fallback.
-- [ ] Gemeinsame Tests (Provider vs. Mock) mit Snapshot-Baum & XPath-Abfragen; Dokumentation von Abweichungen der UIA-API.
+- [ ] Gemeinsame Tests (Provider vs. Mock) mit bereitgestelltem UI-Baum & XPath-Abfragen; Dokumentation von Abweichungen der UIA-API.
 
 #### Phase 2 – Linux/X11 (AT-SPI2)
 - [ ] `platynui-provider-atspi`: D-Bus-Integration, Baumaufbau (Application → Window → Control/Item), RuntimeId aus Objektpfad, Fokus- und Sichtbarkeitsflags.
@@ -98,8 +101,8 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [ ] Provider-Registry initialisieren (Inventory lesen, `cfg` prüfen, Prioritäten setzen), Provider-Lifecycle steuern.
 - [ ] Dokumentaufbau: Desktop-Wurzel laden, App- und Control-Nodes verknüpfen, `item`-Namespace an Container-Knoten hängen.
 - [ ] `AcceptsUserInput`-Hilfsmethode (Windows `WaitForInputIdle`, Linux/macOS heuristische Implementierung), Rückfallverhalten dokumentieren.
-- [ ] XPath-Auswertung → `UiNodeRef`-Iterator, Filterung nach Patterns, Attribute-Lazy-Loading.
-- [ ] API-Variante `evaluate(node: Option<UiNodeRef>, xpath, cache_policy)` implementieren; `None` verwendet automatisch das Desktop-Dokument, ansonsten wird der Knoten als Kontext genutzt (`.//item:*`). `cache_policy` entscheidet, ob ein vorhandener Snapshot genutzt oder frische Provider-Daten geladen werden (Namensfindung noch offen).
+- [ ] XPath-Auswertung → Iterator über `Arc<dyn UiNode>`, Filterung nach Patterns, Attribute-Lazy-Loading.
+- [ ] API-Variante `evaluate(node: Option<Arc<dyn UiNode>>, xpath, options)` implementieren; `None` verwendet automatisch das Desktop-Dokument, ansonsten dient der übergebene Knoten als Kontext (`.//item:*`). Die Options-Struktur steuert nur, ob vor der Auswertung ein Provider-Refresh ausgelöst wird – persistentes Caching bleibt ein Backlog-Thema.
 - [ ] Highlighting/Screenshot orchestrieren: Koordination zwischen Runtime, Devices, WindowManager.
 - [ ] Fehler- & Telemetrieschnittstelle (Tracing, Logging, Metriken) entwerfen.
 
@@ -123,7 +126,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - Optionaler Wayland-Support (Runtime-Erkennung Wayland/X11, Provider-Auswahl, Devices).
 - Weitere Patterns (z. B. Tabellen-Navigation, Drag&Drop) nach Bedarf evaluieren.
 - Erweiterte Eingabegeräte (Gamepad, Stift), Barrierefreiheits-Funktionen.
-- Performance-Optimierungen (Delta-Updates, Caching, Binary Transport).
+- Performance-Optimierungen (Delta-Updates, Snapshot-/Caching-Layer für XPath, Binary Transport).
 - Community-Guides, Beispiel-Provider, Trainingsmaterial.
 
 ## Empfohlene Reihenfolge (High-Level)
