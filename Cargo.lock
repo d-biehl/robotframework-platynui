@@ -855,6 +855,12 @@ version = "0.1.0"
 [[package]]
 name = "platynui-runtime"
 version = "0.1.0"
+dependencies = [
+ "platynui-core",
+ "platynui-xpath",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "platynui-server"
