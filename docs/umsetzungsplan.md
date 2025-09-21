@@ -30,7 +30,8 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Dev-Tooling notieren (`uv`, `cargo`, Inspector-Abhängigkeiten) und Basis-Skripte (Format/Lint/Test).
 
 ### 2. Core-Datenmodell & XPath-Grundlagen
-- [x] `UiNode`/`UiValue` definieren: Traits, Zugriffsmethoden, strukturierte Werte.
+- [ ] `UiNode`-/`UiAttribute`-Traits samt Runtime-Wrappper implementieren (Eltern/Kind-Beziehungen, Lazy-Attribute, `supported_patterns()`), bestehende Struktur-Typen migrieren.
+- [x] `UiValue` definieren: strukturierte Werte (`Rect`, `Point`, `Size`, `Integer`) und JSON-kompatible Konvertierungen.
 - [x] Namespace-Registry (`control`, `item`, `app`, `native`) und Hilfsfunktionen implementieren.
 - [ ] Dynamische XPath-Snapshots: `Arc<dyn UiNode>` in `XdmNode`-Wrapper mappen, Dokumentknoten/Caching definieren, Tests ergänzen.
 - [ ] Evaluation-API auf `EvaluationItem` (Node/Attribute/Value) umstellen und Konsumenten/Tests anpassen.

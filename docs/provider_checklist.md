@@ -4,6 +4,7 @@
 
 ## Gemeinsame Prüfschritte
 - [ ] Modul registriert sich über das vorgesehene `inventory`-Makro (`register_platform_module!`, `register_provider!`) und exportiert exakt eine Factory-Implementierung je Rolle (Plattform, Device, Provider, Window-Manager).
+- [ ] Provider geben ihren Baum als `Arc<dyn UiNode>` zurück; Attribute implementieren das `UiAttribute`-Trait und liefern Werte erst bei Bedarf (`UiAttribute::value()` → `UiValue`).
 - [ ] Steuerelemente erscheinen im `control`-Namespace, Items in Containerstrukturen im `item`-Namespace; andere Namensräume (`app`, `native`) bleiben ergänzend.
 - [ ] Alle Koordinaten (`Bounds`, `ActivationPoint`, `ActivationArea`, Fensterrahmen) werden im Desktop-Koordinatensystem geliefert (linke obere Ecke des Primärmonitors = Ursprung, DPI-/Scaling berücksichtigt).
 - [ ] `RuntimeId` bleibt stabil, solange das zugrunde liegende Element existiert; bei Neuaufbau ändert sich die ID nachvollziehbar.
