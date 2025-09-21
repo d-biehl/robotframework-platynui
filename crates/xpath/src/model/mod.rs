@@ -62,11 +62,7 @@ pub fn try_compare_by_ancestry<N: XdmNode>(a: &N, b: &N) -> Result<Ordering, Err
     // One path is a prefix of the other → ancestor check
     if i == len {
         // shorter path is ancestor
-        return Ok(if pa.len() < pb.len() {
-            Ordering::Less
-        } else {
-            Ordering::Greater
-        });
+        return Ok(if pa.len() < pb.len() { Ordering::Less } else { Ordering::Greater });
     }
     // Diverged at index i.
     if i == 0 {

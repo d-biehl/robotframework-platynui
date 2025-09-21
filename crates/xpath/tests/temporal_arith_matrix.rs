@@ -67,27 +67,19 @@ fn datetime_cross_day(#[case] expr: &str) {
 // 5. Invalid: time + yearMonthDuration (type error XPTY0004 expected)
 #[rstest]
 fn time_plus_yearmonth_duration_error() {
-    expect_err(
-        "xs:time('10:00:00') + xs:yearMonthDuration('P1M')",
-        "XPTY0004",
-    );
+    expect_err("xs:time('10:00:00') + xs:yearMonthDuration('P1M')", "XPTY0004");
 }
 
 // 6. Invalid: yearMonthDuration + dayTimeDuration (no direct addition)
 #[rstest]
 fn mixed_duration_add_error() {
-    expect_err(
-        "xs:yearMonthDuration('P1M') + xs:dayTimeDuration('PT60S')",
-        "XPTY0004",
-    );
+    expect_err("xs:yearMonthDuration('P1M') + xs:dayTimeDuration('PT60S')", "XPTY0004");
 }
 
 // 7. Negative zero normalization ( -PT0S == PT0S )
 #[rstest]
 fn negative_zero_duration_normalization() {
-    assert!(eval_bool(
-        "xs:dayTimeDuration('-PT0S') = xs:dayTimeDuration('PT0S')"
-    ));
+    assert!(eval_bool("xs:dayTimeDuration('-PT0S') = xs:dayTimeDuration('PT0S')"));
 }
 
 // 8. date - date ordering sign correctness

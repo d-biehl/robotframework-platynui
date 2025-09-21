@@ -27,10 +27,7 @@ fn deep_equal_same_namespaces_different_prefix_order() {
 
 #[rstest]
 fn deep_equal_namespace_missing() {
-    let a = elem("r")
-        .namespace(ns("p1", "urn:one"))
-        .child(text("x"))
-        .build();
+    let a = elem("r").namespace(ns("p1", "urn:one")).child(text("x")).build();
     let b = elem("r")
         .namespace(ns("p1", "urn:one"))
         .namespace(ns("p2", "urn:two"))
@@ -42,14 +39,8 @@ fn deep_equal_namespace_missing() {
 
 #[rstest]
 fn deep_equal_namespace_uri_diff_same_prefix() {
-    let a = elem("r")
-        .namespace(ns("p", "urn:one"))
-        .child(text("x"))
-        .build();
-    let b = elem("r")
-        .namespace(ns("p", "urn:two"))
-        .child(text("x"))
-        .build();
+    let a = elem("r").namespace(ns("p", "urn:one")).child(text("x")).build();
+    let b = elem("r").namespace(ns("p", "urn:two")).child(text("x")).build();
     let result = deep_equal_with_collation(&wrap(a), &wrap(b), None).unwrap();
     assert!(!result, "Same prefix different URI should be unequal");
 }

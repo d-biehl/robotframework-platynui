@@ -57,9 +57,7 @@ fn eval_with(
     expr: &str,
 ) -> Result<Vec<XdmItem<DummyNode>>, platynui_xpath::engine::runtime::Error> {
     let ctx: DynamicContext<DummyNode> = DynamicContext::<DummyNode> {
-        context_item: Some(XdmItem::Node(DummyNode {
-            val: val.to_string(),
-        })),
+        context_item: Some(XdmItem::Node(DummyNode { val: val.to_string() })),
         ..Default::default()
     };
     evaluate_expr(expr, &ctx)
@@ -90,10 +88,7 @@ fn arithmetic_untyped_numeric() {
 fn arithmetic_untyped_invalid_error() {
     let err = eval_with("xyz", ". + 1").unwrap_err();
     // runtime::Error stores code as 'err:CODE'; compare via enum
-    assert_eq!(
-        err.code_enum(),
-        platynui_xpath::engine::runtime::ErrorCode::FORG0001
-    );
+    assert_eq!(err.code_enum(), platynui_xpath::engine::runtime::ErrorCode::FORG0001);
 }
 
 #[rstest]

@@ -38,11 +38,7 @@ fn ordering_ancestor_before_descendant() {
 fn namespaces_nested_lookup() {
     let t = elem("root")
         .namespace(ns("p", "urn:one"))
-        .child(
-            elem("mid")
-                .namespace(ns("q", "urn:two"))
-                .child(elem("leaf")),
-        )
+        .child(elem("mid").namespace(ns("q", "urn:two")).child(elem("leaf")))
         .build();
     let mid = t.children().next().unwrap();
     let leaf = mid.children().next().unwrap();
@@ -101,8 +97,5 @@ fn memoized_string_value_and_ns() {
     let doc_child = root.children().next().unwrap();
     assert_eq!(doc_child.string_value(), "hi!");
     assert_eq!(doc_child.string_value(), "hi!");
-    assert_eq!(
-        doc_child.lookup_namespace_uri("p").as_deref(),
-        Some("urn:x")
-    );
+    assert_eq!(doc_child.lookup_namespace_uri("p").as_deref(), Some("urn:x"));
 }

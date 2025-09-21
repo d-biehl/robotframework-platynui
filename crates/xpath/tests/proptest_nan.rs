@@ -25,10 +25,7 @@ fn number_alpha_nan_equality_behavior(#[case] s: &str) {
             Some(XdmItem::Atomic(XdmAtomicValue::Boolean(beq))),
             Some(XdmItem::Atomic(XdmAtomicValue::Boolean(bne))),
         ) => {
-            assert!(
-                !beq && *bne,
-                "expected NaN equality false & inequality true for {s}"
-            );
+            assert!(!beq && *bne, "expected NaN equality false & inequality true for {s}");
         }
         _ => panic!("expected boolean results"),
     }

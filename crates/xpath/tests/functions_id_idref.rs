@@ -32,9 +32,7 @@ fn doc() -> N {
 
 #[rstest]
 fn fn_id_returns_element_by_xml_id(doc: N) {
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(doc.clone())
-        .build();
+    let ctx = DynamicContextBuilder::<N>::default().with_context_item(doc.clone()).build();
     let a = evaluate_expr::<N>("id('A', /)", &ctx).unwrap();
     assert_eq!(a.len(), 1);
     match &a[0] {
@@ -45,9 +43,7 @@ fn fn_id_returns_element_by_xml_id(doc: N) {
 
 #[rstest]
 fn fn_id_returns_element_by_plain_id(doc: N) {
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(doc.clone())
-        .build();
+    let ctx = DynamicContextBuilder::<N>::default().with_context_item(doc.clone()).build();
     let c = evaluate_expr::<N>("id('C', /)", &ctx).unwrap();
     assert_eq!(c.len(), 1);
     match &c[0] {
@@ -58,9 +54,7 @@ fn fn_id_returns_element_by_plain_id(doc: N) {
 
 #[rstest]
 fn fn_element_with_id_behaves_like_id_for_attributes(doc: N) {
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(doc.clone())
-        .build();
+    let ctx = DynamicContextBuilder::<N>::default().with_context_item(doc.clone()).build();
     let b = evaluate_expr::<N>("element-with-id('B', /)", &ctx).unwrap();
     assert_eq!(b.len(), 1);
     match &b[0] {
@@ -71,9 +65,7 @@ fn fn_element_with_id_behaves_like_id_for_attributes(doc: N) {
 
 #[rstest]
 fn fn_idref_returns_attributes_referencing_ids(doc: N) {
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(doc.clone())
-        .build();
+    let ctx = DynamicContextBuilder::<N>::default().with_context_item(doc.clone()).build();
     let r = evaluate_expr::<N>("idref('A', /)", &ctx).unwrap();
     // Expect two attributes: @idref on <ref1> and @ref on <ref2>
     assert_eq!(r.len(), 2);
@@ -91,9 +83,7 @@ fn fn_idref_returns_attributes_referencing_ids(doc: N) {
 
 #[rstest]
 fn fn_id_ignores_non_ncname_tokens(doc: N) {
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(doc.clone())
-        .build();
+    let ctx = DynamicContextBuilder::<N>::default().with_context_item(doc.clone()).build();
     let out = evaluate_expr::<N>("id('1bad', /)", &ctx).unwrap();
     assert!(out.is_empty());
 }

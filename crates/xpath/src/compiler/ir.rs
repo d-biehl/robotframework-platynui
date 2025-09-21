@@ -14,15 +14,8 @@ pub struct InternedQName {
 impl InternedQName {
     pub fn from_expanded(expanded: ExpandedName) -> Self {
         let local = DefaultAtom::from(expanded.local.as_str());
-        let ns_uri = expanded
-            .ns_uri
-            .as_ref()
-            .map(|uri| DefaultAtom::from(uri.as_str()));
-        Self {
-            original: expanded,
-            local,
-            ns_uri,
-        }
+        let ns_uri = expanded.ns_uri.as_ref().map(|uri| DefaultAtom::from(uri.as_str()));
+        Self { original: expanded, local, ns_uri }
     }
 }
 
@@ -148,16 +141,9 @@ pub enum OpCode {
 
     // Quantifiers and iteration
     // For-expression loop over sequence on TOS
-    ForLoop {
-        var: ExpandedName,
-        body: InstrSeq,
-    },
+    ForLoop { var: ExpandedName, body: InstrSeq },
     // Quantified expression loop over sequence on TOS
-    QuantLoop {
-        kind: QuantifierKind,
-        var: ExpandedName,
-        body: InstrSeq,
-    },
+    QuantLoop { kind: QuantifierKind, var: ExpandedName, body: InstrSeq },
 
     // Types
     Cast(SingleTypeIR),
@@ -352,11 +338,7 @@ impl fmt::Display for OccurrenceIR {
 
 impl fmt::Display for SingleTypeIR {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.optional {
-            write!(f, "{}?", self.atomic)
-        } else {
-            write!(f, "{}", self.atomic)
-        }
+        if self.optional { write!(f, "{}?", self.atomic) } else { write!(f, "{}", self.atomic) }
     }
 }
 

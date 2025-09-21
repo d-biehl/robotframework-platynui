@@ -13,11 +13,7 @@ fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
 fn bool(expr: &str) -> bool {
     let c = ctx();
     let r = evaluate_expr::<N>(expr, &c).unwrap();
-    if let I::Atomic(A::Boolean(b)) = &r[0] {
-        *b
-    } else {
-        panic!("expected boolean")
-    }
+    if let I::Atomic(A::Boolean(b)) = &r[0] { *b } else { panic!("expected boolean") }
 }
 
 #[rstest]
@@ -41,9 +37,7 @@ fn castable_basic(#[case] expr: &str, #[case] expected: bool) {
 // QName with prefix requires static namespace; provide one context for prefixed case
 #[rstest]
 fn castable_qname_with_prefix() {
-    let static_ctx = StaticContextBuilder::new()
-        .with_namespace("p", "urn:ex")
-        .build();
+    let static_ctx = StaticContextBuilder::new().with_namespace("p", "urn:ex").build();
     let dyn_ctx = ctx();
     let compiled_ok = compile_with_context("'p:l' castable as xs:QName", &static_ctx).unwrap();
     let compiled_bad = compile_with_context("'zzz:l' castable as xs:QName", &static_ctx).unwrap();

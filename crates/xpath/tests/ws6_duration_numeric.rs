@@ -44,11 +44,8 @@ fn index_of_reports_all_equal_positions_after_truncation(ctx: DynamicContext<N>)
 
 #[rstest]
 fn duration_division_returns_double(ctx: DynamicContext<N>) {
-    let r = evaluate_expr::<N>(
-        "xs:dayTimeDuration('PT20S') div xs:dayTimeDuration('PT5S')",
-        &ctx,
-    )
-    .unwrap();
+    let r = evaluate_expr::<N>("xs:dayTimeDuration('PT20S') div xs:dayTimeDuration('PT5S')", &ctx)
+        .unwrap();
     match &r[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Double(d)) => {
             assert!((*d - 4.0).abs() < 1e-12)

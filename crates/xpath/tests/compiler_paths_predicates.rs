@@ -33,10 +33,7 @@ fn filter_apply_predicates() {
             assert_eq!(preds.len(), 1);
             let p = &preds[0].0;
             // Predicate body should no longer be auto-wrapped with ToEBV; last op is comparison
-            assert!(matches!(
-                p.last(),
-                Some(OpCode::CompareGeneral(_) | OpCode::CompareValue(_))
-            ));
+            assert!(matches!(p.last(), Some(OpCode::CompareGeneral(_) | OpCode::CompareValue(_))));
             found = true;
         }
     }
@@ -65,10 +62,10 @@ fn filter_step_in_path_emits_map_opcode() {
 #[rstest]
 fn path_from() {
     let is = ir("(.)/self::node()");
-    assert!(is.0.iter().any(|op| matches!(
-        op,
-        OpCode::AxisStep(AxisIR::SelfAxis, NodeTestIR::AnyKind, _)
-    )));
+    assert!(
+        is.0.iter()
+            .any(|op| matches!(op, OpCode::AxisStep(AxisIR::SelfAxis, NodeTestIR::AnyKind, _)))
+    );
 }
 
 #[rstest]
@@ -85,10 +82,7 @@ fn root_descendant() {
 fn axes_all() {
     let src = "/child::node()/descendant::node()/attribute::*/self::node()/descendant-or-self::node()/following-sibling::node()/following::node()/namespace::node()/parent::node()/ancestor::node()/preceding-sibling::node()/preceding::node()/ancestor-or-self::node()";
     let is = ir(src);
-    let has = |ax| {
-        is.0.iter()
-            .any(|op| matches!(op, OpCode::AxisStep(a, _, _) if *a==ax))
-    };
+    let has = |ax| is.0.iter().any(|op| matches!(op, OpCode::AxisStep(a, _, _) if *a==ax));
     assert!(has(AxisIR::Child));
     assert!(has(AxisIR::Descendant));
     assert!(has(AxisIR::Attribute));
@@ -110,10 +104,7 @@ fn kind_tests() {
         ("self::node()", NodeTestIR::AnyKind),
         ("self::text()", NodeTestIR::KindText),
         ("self::comment()", NodeTestIR::KindComment),
-        (
-            "self::processing-instruction()",
-            NodeTestIR::KindProcessingInstruction(None),
-        ),
+        ("self::processing-instruction()", NodeTestIR::KindProcessingInstruction(None)),
         (
             "self::processing-instruction('t')",
             NodeTestIR::KindProcessingInstruction(Some("t".into())),
@@ -128,18 +119,11 @@ fn kind_tests() {
         ),
         (
             "self::element(*)",
-            NodeTestIR::KindElement {
-                name: Some(NameOrWildcard::Any),
-                ty: None,
-                nillable: false,
-            },
+            NodeTestIR::KindElement { name: Some(NameOrWildcard::Any), ty: None, nillable: false },
         ),
         (
             "self::attribute(*)",
-            NodeTestIR::KindAttribute {
-                name: Some(NameOrWildcard::Any),
-                ty: None,
-            },
+            NodeTestIR::KindAttribute { name: Some(NameOrWildcard::Any), ty: None },
         ),
     ] {
         let is = ir(src);
@@ -160,16 +144,8 @@ fn kind_tests() {
                     }
                 }
                 (
-                    NodeTestIR::KindElement {
-                        name: an,
-                        ty: at,
-                        nillable: anil,
-                    },
-                    NodeTestIR::KindElement {
-                        name: bn,
-                        ty: bt,
-                        nillable: bnil,
-                    },
+                    NodeTestIR::KindElement { name: an, ty: at, nillable: anil },
+                    NodeTestIR::KindElement { name: bn, ty: bt, nillable: bnil },
                 ) => an == bn && at == bt && anil == bnil,
                 (
                     NodeTestIR::KindAttribute { name: an, ty: at },
@@ -185,11 +161,7 @@ fn kind_tests() {
 #[rstest]
 fn name_tests_wildcards() {
     let any = ir(".//*");
-    assert!(
-        any.0
-            .iter()
-            .any(|op| matches!(op, OpCode::AxisStep(_, NodeTestIR::WildcardAny, _)))
-    );
+    assert!(any.0.iter().any(|op| matches!(op, OpCode::AxisStep(_, NodeTestIR::WildcardAny, _))));
     let local_wc = ir(".//*:a");
     let mut found_local = false;
     for op in &local_wc.0 {
@@ -258,10 +230,7 @@ fn path_ir_multiple_steps_with_predicates() {
         }
     }
     assert_eq!(axis_steps.len(), 3);
-    assert!(matches!(
-        axis_steps[0],
-        (AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _)
-    ));
+    assert!(matches!(axis_steps[0], (AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _)));
     match &axis_steps[1] {
         (ax, NodeTestIR::Name(name), preds) => {
             assert!(matches!(ax, AxisIR::Child | AxisIR::Descendant));

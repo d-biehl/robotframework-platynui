@@ -236,10 +236,7 @@ fn canonicalize_decimal(v: f64) -> DecimalKey {
     // formatting then stripping trailing zeros; this is a stop-gap until a BigDecimal /
     // exact decimal representation is introduced. Accept minor risk of floating artifacts.
     if v == 0.0 {
-        return DecimalKey {
-            mantissa: 0,
-            scale: 0,
-        };
+        return DecimalKey { mantissa: 0, scale: 0 };
     }
     let s = format!("{v:.15}"); // high precision string
     let trimmed = s.trim_end_matches('0').trim_end_matches('.');
@@ -251,15 +248,9 @@ fn canonicalize_decimal(v: f64) -> DecimalKey {
         let digits = format!("{int_part}{frac_part}");
         let mantissa: i128 = digits.parse().unwrap_or(0);
         let (m, s) = normalize_decimal(mantissa, scale);
-        DecimalKey {
-            mantissa: m,
-            scale: s,
-        }
+        DecimalKey { mantissa: m, scale: s }
     } else {
-        DecimalKey {
-            mantissa: trimmed.parse().unwrap_or(0),
-            scale: 0,
-        }
+        DecimalKey { mantissa: trimmed.parse().unwrap_or(0), scale: 0 }
     }
 }
 
@@ -313,19 +304,13 @@ fn safe_nanos(dt: &chrono::DateTime<chrono::FixedOffset>) -> i128 {
 fn duration_key(a: &XdmAtomicValue) -> Option<DurationKey> {
     use XdmAtomicValue::*;
     match a {
-        YearMonthDuration(m) => Some(DurationKey {
-            kind: DurationKind::YearMonth,
-            months: *m as i64,
-            seconds: 0,
-        }),
+        YearMonthDuration(m) => {
+            Some(DurationKey { kind: DurationKind::YearMonth, months: *m as i64, seconds: 0 })
+        }
         DayTimeDuration(d) => {
             // Stored as i64 (milliseconds? seconds? – assumed milliseconds?). Treat as milliseconds for now.
             // TODO(#duration-precision): confirm internal unit; adjust to nanos precisely.
-            Some(DurationKey {
-                kind: DurationKind::DayTime,
-                months: 0,
-                seconds: *d as i128,
-            })
+            Some(DurationKey { kind: DurationKind::DayTime, months: 0, seconds: *d as i128 })
         }
         _ => None,
     }
@@ -349,11 +334,7 @@ fn numeric_key(a: &XdmAtomicValue) -> Option<NumericKey> {
         PositiveInteger(i) => NumericKey::Integer(*i as i128),
         Decimal(d) => {
             let dk = canonicalize_decimal(*d);
-            if dk.scale == 0 {
-                NumericKey::Integer(dk.mantissa)
-            } else {
-                NumericKey::Decimal(dk)
-            }
+            if dk.scale == 0 { NumericKey::Integer(dk.mantissa) } else { NumericKey::Decimal(dk) }
         }
         Float(f) if f.is_nan() => return None,
         Float(f) => NumericKey::Float(float_norm(*f)),
@@ -397,15 +378,8 @@ fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
         Double(f) if f.is_nan() => EqKey::NaN,
         Boolean(b) => EqKey::Boolean(*b),
         String(s) | AnyUri(s) | UntypedAtomic(s) => {
-            let key = if let Some(c) = coll {
-                c.key(s)
-            } else {
-                s.clone()
-            };
-            EqKey::String(StringKey {
-                key: key.into(),
-                original: s.clone().into(),
-            })
+            let key = if let Some(c) = coll { c.key(s) } else { s.clone() };
+            EqKey::String(StringKey { key: key.into(), original: s.clone().into() })
         }
         QName { ns_uri, local, .. } => EqKey::QName(QNameKey {
             ns: ns_uri.as_ref().map(|s| s.clone().into()),
@@ -413,49 +387,29 @@ fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
         }),
         DateTime(_) | Date { .. } | Time { .. } => {
             if let Some((kind, ns)) = date_time_instant_ns(a) {
-                EqKey::DateTime(DateTimeKey {
-                    kind,
-                    instant_ns: ns,
-                })
+                EqKey::DateTime(DateTimeKey { kind, instant_ns: ns })
             } else {
-                EqKey::Other(OtherKey {
-                    type_tag: 1,
-                    bytes: format!("{:?}", a).into_bytes(),
-                })
+                EqKey::Other(OtherKey { type_tag: 1, bytes: format!("{:?}", a).into_bytes() })
             }
         }
         YearMonthDuration(_) | DayTimeDuration(_) => {
             if let Some(dk) = duration_key(a) {
                 EqKey::Duration(dk)
             } else {
-                EqKey::Other(OtherKey {
-                    type_tag: 2,
-                    bytes: format!("{:?}", a).into_bytes(),
-                })
+                EqKey::Other(OtherKey { type_tag: 2, bytes: format!("{:?}", a).into_bytes() })
             }
         }
-        Base64Binary(b) | HexBinary(b) => EqKey::Other(OtherKey {
-            type_tag: 10,
-            bytes: b.as_bytes().to_vec(),
-        }),
+        Base64Binary(b) | HexBinary(b) => {
+            EqKey::Other(OtherKey { type_tag: 10, bytes: b.as_bytes().to_vec() })
+        }
         // g* and string derived types collapse to their string value (spec: value space maps)
         NormalizedString(s) | Token(s) | Language(s) | Name(s) | NCName(s) | NMTOKEN(s) | Id(s)
         | IdRef(s) | Entity(s) | Notation(s) => {
-            let key = if let Some(c) = coll {
-                c.key(s)
-            } else {
-                s.clone()
-            };
-            EqKey::String(StringKey {
-                key: key.into(),
-                original: s.clone().into(),
-            })
+            let key = if let Some(c) = coll { c.key(s) } else { s.clone() };
+            EqKey::String(StringKey { key: key.into(), original: s.clone().into() })
         }
         // Fallback – pack debug; will be replaced by specialized handling later.
-        _ => EqKey::Other(OtherKey {
-            type_tag: 255,
-            bytes: format!("{:?}", a).into_bytes(),
-        }),
+        _ => EqKey::Other(OtherKey { type_tag: 255, bytes: format!("{:?}", a).into_bytes() }),
     }
 }
 

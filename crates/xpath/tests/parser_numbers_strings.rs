@@ -22,10 +22,7 @@ fn numeric_literals(#[case] input: &str, #[case] lit: ast::Literal) {
 #[rstest]
 fn numeric_unary_minus() {
     match parse("-42") {
-        ast::Expr::Unary {
-            sign: ast::UnarySign::Minus,
-            expr,
-        } => match *expr {
+        ast::Expr::Unary { sign: ast::UnarySign::Minus, expr } => match *expr {
             ast::Expr::Literal(ast::Literal::Integer(42)) => {}
             x => panic!("unexpected inner: {:?}", x),
         },

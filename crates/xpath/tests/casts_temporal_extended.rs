@@ -33,11 +33,7 @@ fn expect_err(expr: &str, frag: &str) {
     } else {
         // Fallback: check local part of QName contains fragment
         let q = err.code_qname().unwrap();
-        assert!(
-            q.local.contains(frag),
-            "expected fragment {frag} in {expr} => {:?}",
-            q
-        );
+        assert!(q.local.contains(frag), "expected fragment {frag} in {expr} => {:?}", q);
     }
 }
 
@@ -83,17 +79,7 @@ fn cast_datetime_basic(#[case] expr: &str, #[case] ymdhms: (i32, u32, u32, u32, 
     let c = ctx();
     let r = evaluate_expr::<N>(expr, &c).unwrap();
     if let I::Atomic(A::DateTime(dt)) = &r[0] {
-        assert_eq!(
-            (
-                dt.year(),
-                dt.month(),
-                dt.day(),
-                dt.hour(),
-                dt.minute(),
-                dt.second()
-            ),
-            ymdhms
-        );
+        assert_eq!((dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second()), ymdhms);
     } else {
         panic!("expected dateTime");
     }
@@ -137,9 +123,7 @@ fn cast_dt_duration_invalid_time_component() {
 
 // QName extended tests
 fn static_ctx_with_ns() -> platynui_xpath::engine::runtime::StaticContext {
-    StaticContextBuilder::default()
-        .with_namespace("ex", "http://example.com")
-        .build()
+    StaticContextBuilder::default().with_namespace("ex", "http://example.com").build()
 }
 
 #[rstest]
@@ -149,12 +133,7 @@ fn cast_qname_with_prefix_success() {
         DynamicContextBuilder::default().build();
     let compiled = compile_with_context("xs:QName('ex:local')", &sc).unwrap();
     let r = evaluate(&compiled, &dc).unwrap();
-    if let I::Atomic(A::QName {
-        prefix,
-        local,
-        ns_uri,
-    }) = &r[0]
-    {
+    if let I::Atomic(A::QName { prefix, local, ns_uri }) = &r[0] {
         assert_eq!(prefix.as_deref(), Some("ex"));
         assert_eq!(local, "local");
         assert_eq!(ns_uri.as_deref(), Some("http://example.com"));
@@ -165,9 +144,7 @@ fn cast_qname_with_prefix_success() {
 
 #[rstest]
 fn cast_qname_with_unknown_prefix_error() {
-    let sc = StaticContextBuilder::default()
-        .with_namespace("ex", "http://example.com")
-        .build();
+    let sc = StaticContextBuilder::default().with_namespace("ex", "http://example.com").build();
     let dc: platynui_xpath::engine::runtime::DynamicContext<N> =
         DynamicContextBuilder::default().build();
     let compiled = compile_with_context("xs:QName('foo:local')", &sc).unwrap();

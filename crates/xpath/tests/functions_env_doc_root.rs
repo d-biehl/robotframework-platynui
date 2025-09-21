@@ -38,9 +38,7 @@ fn default_collation_reports_uri(ctx: DynamicContext<N>) {
 #[rstest]
 fn doc_available_uses_node_resolver() {
     let resolver = Arc::new(TestNodeResolver);
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_node_resolver(resolver)
-        .build();
+    let ctx = DynamicContextBuilder::<N>::default().with_node_resolver(resolver).build();
     let t1 = evaluate_expr::<N>("doc-available('urn:ok')", &ctx).unwrap();
     match &t1[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(b)) => assert!(*b),
@@ -57,18 +55,13 @@ fn doc_available_uses_node_resolver() {
 fn root_function_returns_document_root() {
     use platynui_xpath::model::simple::{doc, elem};
     let d = doc().child(elem("root").child(elem("c"))).build();
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(d.clone())
-        .build();
+    let ctx = DynamicContextBuilder::<N>::default().with_context_item(d.clone()).build();
     // root(/root/c)
     let out = evaluate_expr::<N>("root(/root/c)", &ctx).unwrap();
     assert_eq!(out.len(), 1);
     match &out[0] {
         XdmItem::Node(n) => {
-            assert!(matches!(
-                n.kind(),
-                platynui_xpath::model::NodeKind::Document
-            ));
+            assert!(matches!(n.kind(), platynui_xpath::model::NodeKind::Document));
             let ch: Vec<_> = n.children().collect();
             assert_eq!(ch[0].name().unwrap().local, "root");
         }
@@ -80,9 +73,7 @@ fn root_function_returns_document_root() {
 fn base_uri_document_uri_empty_without_adapter_support() {
     use platynui_xpath::model::simple::{doc, elem};
     let d = doc().child(elem("root")).build();
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(d.clone())
-        .build();
+    let ctx = DynamicContextBuilder::<N>::default().with_context_item(d.clone()).build();
     // base-uri(/) -> empty for SimpleNode
     let b = evaluate_expr::<N>("base-uri(/)", &ctx).unwrap();
     assert!(b.is_empty());

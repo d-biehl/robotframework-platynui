@@ -5,9 +5,7 @@ use platynui_xpath::{XdmNode, evaluate_expr, xdm::XdmItem as I};
 type N = platynui_xpath::model::simple::SimpleNode;
 
 fn ctx_with(root: N) -> DynamicContext<N> {
-    DynamicContextBuilder::default()
-        .with_context_item(I::Node(root))
-        .build()
+    DynamicContextBuilder::default().with_context_item(I::Node(root)).build()
 }
 
 #[test]

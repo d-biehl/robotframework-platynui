@@ -6,21 +6,11 @@ fn parse(expr: &str) -> ast::Expr {
 }
 
 #[rstest]
-#[case(
-    "some $x in (1,2), $y in (3,4) satisfies $x lt $y",
-    ast::Quantifier::Some,
-    2
-)]
-#[case(
-    "every $a in (1,2), $b in (1,2) satisfies $a ge $b",
-    ast::Quantifier::Every,
-    2
-)]
+#[case("some $x in (1,2), $y in (3,4) satisfies $x lt $y", ast::Quantifier::Some, 2)]
+#[case("every $a in (1,2), $b in (1,2) satisfies $a ge $b", ast::Quantifier::Every, 2)]
 fn quantified_multi_bindings(#[case] input: &str, #[case] kind: ast::Quantifier, #[case] n: usize) {
     match parse(input) {
-        ast::Expr::Quantified {
-            kind: k, bindings, ..
-        } => {
+        ast::Expr::Quantified { kind: k, bindings, .. } => {
             assert_eq!(k, kind);
             assert_eq!(bindings.len(), n);
         }

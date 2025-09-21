@@ -40,10 +40,7 @@ fn prepare_axis_queries()
         "count(/root/section[last()]/item[last()]/preceding::item)",
         "count(/root/section/item[@featured='true']/preceding-sibling::item)",
     ];
-    queries
-        .into_iter()
-        .map(|q| compile(q).map(|compiled| (q.to_string(), compiled)))
-        .collect()
+    queries.into_iter().map(|q| compile(q).map(|compiled| (q.to_string(), compiled))).collect()
 }
 
 fn prepare_predicate_queries()
@@ -52,10 +49,7 @@ fn prepare_predicate_queries()
         "count(//item[@type='a'][position() mod 5 = 0][some $s in ancestor::section/item[@type='b'] satisfies contains($s, 'Item')])",
         "sum(for $i in //item return string-length($i[following-sibling::item[@type='b']][position() mod 7 = 0]))",
     ];
-    queries
-        .into_iter()
-        .map(|q| compile(q).map(|compiled| (q.to_string(), compiled)))
-        .collect()
+    queries.into_iter().map(|q| compile(q).map(|compiled| (q.to_string(), compiled))).collect()
 }
 
 fn sample_queries() -> Vec<&'static str> {
@@ -142,17 +136,12 @@ fn build_sample_document() -> SimpleNode {
 
 fn prepared_compiled_queries()
 -> Result<Vec<(String, platynui_xpath::compiler::ir::CompiledXPath)>, Error> {
-    sample_queries()
-        .into_iter()
-        .map(|q| compile(q).map(|c| (q.to_string(), c)))
-        .collect()
+    sample_queries().into_iter().map(|q| compile(q).map(|c| (q.to_string(), c))).collect()
 }
 
 fn benchmark_evaluator(c: &mut Criterion) {
     let document = build_sample_document();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
     let compiled = prepared_compiled_queries().expect("compile failure");
 
     let mut group = c.benchmark_group("evaluator/evaluate");
@@ -169,9 +158,7 @@ fn benchmark_evaluator(c: &mut Criterion) {
 
 fn benchmark_axes_following_preceding(c: &mut Criterion) {
     let document = build_large_axis_document();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
     let compiled = prepare_axis_queries().expect("compile failure");
     let mut group = c.benchmark_group("axes/following_preceding");
     group.sample_size(12);
@@ -191,9 +178,7 @@ fn benchmark_axes_following_preceding(c: &mut Criterion) {
 
 fn benchmark_predicate_heavy(c: &mut Criterion) {
     let document = build_large_axis_document();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
     let compiled = prepare_predicate_queries().expect("compile failure");
     let mut group = c.benchmark_group("evaluator/predicate_heavy");
     group.sample_size(10);
@@ -213,9 +198,7 @@ fn benchmark_predicate_heavy(c: &mut Criterion) {
 
 fn benchmark_set_ops(c: &mut Criterion) {
     let document = build_large_axis_document();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
     let compiled = prepare_set_queries().expect("compile failure");
     let mut group = c.benchmark_group("evaluator/set_ops");
     group.sample_size(12);
@@ -250,8 +233,5 @@ fn prepare_set_queries() -> Result<Vec<(String, platynui_xpath::compiler::ir::Co
         "count(//item[@type='a'] intersect //item[@featured='true'])",
         "count(//item except //item[@type='a'])",
     ];
-    queries
-        .into_iter()
-        .map(|q| compile(q).map(|compiled| (q.to_string(), compiled)))
-        .collect()
+    queries.into_iter().map(|q| compile(q).map(|compiled| (q.to_string(), compiled))).collect()
 }

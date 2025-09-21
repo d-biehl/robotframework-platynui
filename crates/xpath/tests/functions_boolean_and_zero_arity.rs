@@ -9,9 +9,7 @@ fn ctx_with_text(
     t: &str,
 ) -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     let root = doc().child(elem("r").child(text(t))).build();
-    DynamicContextBuilder::default()
-        .with_context_item(root)
-        .build()
+    DynamicContextBuilder::default().with_context_item(root).build()
 }
 
 fn ctx_without_item()
@@ -23,13 +21,8 @@ fn ctx_with_element() -> (
     platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode>,
     platynui_xpath::model::simple::SimpleNode,
 ) {
-    let elem_node = elem("p:root")
-        .namespace(ns("p", "urn:one"))
-        .child(text("abc"))
-        .build();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(elem_node.clone())
-        .build();
+    let elem_node = elem("p:root").namespace(ns("p", "urn:one")).child(text("abc")).build();
+    let ctx = DynamicContextBuilder::default().with_context_item(elem_node.clone()).build();
     (ctx, elem_node)
 }
 

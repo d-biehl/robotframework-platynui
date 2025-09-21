@@ -7,12 +7,8 @@ type N = platynui_xpath::model::simple::SimpleNode;
 #[fixture]
 fn ctx_with_tree() -> platynui_xpath::engine::runtime::DynamicContext<N> {
     use platynui_xpath::model::simple::{doc, elem, text};
-    let d = doc()
-        .child(elem("root").child(elem("child").child(text("t"))))
-        .build();
-    DynamicContextBuilder::<N>::default()
-        .with_context_item(d)
-        .build()
+    let d = doc().child(elem("root").child(elem("child").child(text("t")))).build();
+    DynamicContextBuilder::<N>::default().with_context_item(d).build()
 }
 
 #[rstest]
@@ -40,12 +36,8 @@ fn element_name_and_wildcard(ctx_with_tree: platynui_xpath::engine::runtime::Dyn
 #[rstest]
 fn attribute_name_and_wildcard() {
     use platynui_xpath::model::simple::{doc, elem};
-    let d = doc()
-        .child(elem("root").attr(platynui_xpath::model::simple::attr("id", "1")))
-        .build();
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(d)
-        .build();
+    let d = doc().child(elem("root").attr(platynui_xpath::model::simple::attr("id", "1"))).build();
+    let ctx = DynamicContextBuilder::<N>::default().with_context_item(d).build();
     // attribute axis via abbreviation
     let a = evaluate_expr::<N>("/element(root)/@id", &ctx).unwrap();
     assert_eq!(a.len(), 1);

@@ -11,13 +11,7 @@ fn union_vs_intersect_except() {
     match parse("a union b intersect c") {
         ast::Expr::SetOp { op, right, .. } => {
             assert!(matches!(op, ast::SetOp::Union));
-            assert!(matches!(
-                *right,
-                ast::Expr::SetOp {
-                    op: ast::SetOp::Intersect,
-                    ..
-                }
-            ));
+            assert!(matches!(*right, ast::Expr::SetOp { op: ast::SetOp::Intersect, .. }));
         }
         x => panic!("unexpected: {:?}", x),
     }
@@ -27,18 +21,8 @@ fn union_vs_intersect_except() {
 fn arithmetic_precedence_shape() {
     // 1 + 2 * 3 should group as (1 + (2 * 3))
     match parse("1 + 2 * 3") {
-        ast::Expr::Binary {
-            op: ast::BinaryOp::Add,
-            right,
-            ..
-        } => {
-            assert!(matches!(
-                *right,
-                ast::Expr::Binary {
-                    op: ast::BinaryOp::Mul,
-                    ..
-                }
-            ));
+        ast::Expr::Binary { op: ast::BinaryOp::Add, right, .. } => {
+            assert!(matches!(*right, ast::Expr::Binary { op: ast::BinaryOp::Mul, .. }));
         }
         x => panic!("unexpected: {:?}", x),
     }

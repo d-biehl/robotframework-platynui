@@ -13,11 +13,7 @@ fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
 fn bool_expr(e: &str) -> bool {
     let c = ctx();
     let r = evaluate_expr::<N>(e, &c).unwrap();
-    if let I::Atomic(A::Boolean(b)) = &r[0] {
-        *b
-    } else {
-        panic!("expected boolean")
-    }
+    if let I::Atomic(A::Boolean(b)) = &r[0] { *b } else { panic!("expected boolean") }
 }
 
 #[rstest]

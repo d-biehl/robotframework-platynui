@@ -23,9 +23,7 @@ fn build_tree() -> N {
                 .child(elem("a"))
                 .child(elem("b").attr(attr("class", "B")))
                 .child(
-                    elem("c")
-                        .namespace(ns("q", "urn:y"))
-                        .child(elem("d").attr(attr("data", "D"))),
+                    elem("c").namespace(ns("q", "urn:y")).child(elem("d").attr(attr("data", "D"))),
                 )
                 .child(elem("e")),
         )
@@ -66,10 +64,7 @@ fn axis_following(ctx: DynamicContext<N>) {
             _ => unreachable!(),
         })
         .collect();
-    assert_eq!(
-        names,
-        vec!["c".to_string(), "d".to_string(), "e".to_string()]
-    );
+    assert_eq!(names, vec!["c".to_string(), "d".to_string(), "e".to_string()]);
 }
 
 #[rstest]

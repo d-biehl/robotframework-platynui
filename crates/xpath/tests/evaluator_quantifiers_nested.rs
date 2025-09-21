@@ -27,11 +27,9 @@ fn nested_some_every_true() {
 
 #[rstest]
 fn nested_every_some_false() {
-    let out = evaluate_expr::<N>(
-        "every $x in (1,2) satisfies some $y in (1) satisfies $y = $x",
-        &ctx(),
-    )
-    .unwrap();
+    let out =
+        evaluate_expr::<N>("every $x in (1,2) satisfies some $y in (1) satisfies $y = $x", &ctx())
+            .unwrap();
     assert_eq!(out, vec![I::Atomic(A::Boolean(false))]);
 }
 

@@ -33,11 +33,7 @@ fn assert_xpath_false(expr: &str) {
 #[case::dec_double("1.0 eq 1e0", true)]
 #[case::float_double("1e0 eq 1E0", true)]
 fn value_numeric_cross_type_eq(#[case] expr: &str, #[case] expected: bool) {
-    if expected {
-        assert_xpath_true(expr)
-    } else {
-        assert_xpath_false(expr)
-    }
+    if expected { assert_xpath_true(expr) } else { assert_xpath_false(expr) }
 }
 
 // Value comparisons lt/gt across cross types
@@ -47,11 +43,7 @@ fn value_numeric_cross_type_eq(#[case] expr: &str, #[case] expected: bool) {
 #[case::int_vs_double_arith("1 lt 1e0 + 0.1", true)]
 #[case::double_vs_double_plus_dec("1e0 lt 1E0 + 1.0", true)]
 fn value_numeric_cross_type_lt_gt(#[case] expr: &str, #[case] expected: bool) {
-    if expected {
-        assert_xpath_true(expr)
-    } else {
-        assert_xpath_false(expr)
-    }
+    if expected { assert_xpath_true(expr) } else { assert_xpath_false(expr) }
 }
 
 // General comparisons (=) across sequences
@@ -60,11 +52,7 @@ fn value_numeric_cross_type_lt_gt(#[case] expr: &str, #[case] expected: bool) {
 #[case::any_match_2("(1,2) = (2e0,3)", true)]
 #[case::no_match("(1,2) = (3.1,4.2)", false)]
 fn general_numeric_sequence_any_match(#[case] expr: &str, #[case] expected: bool) {
-    if expected {
-        assert_xpath_true(expr)
-    } else {
-        assert_xpath_false(expr)
-    }
+    if expected { assert_xpath_true(expr) } else { assert_xpath_false(expr) }
 }
 
 // ne and promotion sanity
@@ -73,11 +61,7 @@ fn general_numeric_sequence_any_match(#[case] expr: &str, #[case] expected: bool
 #[case::ne_2("1.0 ne 2e0", true)]
 #[case::ne_equal("1 ne 1.0", false)]
 fn numeric_ne_and_promotion(#[case] expr: &str, #[case] expected: bool) {
-    if expected {
-        assert_xpath_true(expr)
-    } else {
-        assert_xpath_false(expr)
-    }
+    if expected { assert_xpath_true(expr) } else { assert_xpath_false(expr) }
 }
 
 // Edge cases: NaN, ±INF, signed zero
@@ -95,11 +79,7 @@ fn numeric_ne_and_promotion(#[case] expr: &str, #[case] expected: bool) {
 #[case::signed_zero_lt("0e0 lt -0e0", false)]
 #[case::signed_zero_gt("0e0 gt -0e0", false)]
 fn numeric_edge_cases(#[case] expr: &str, #[case] expected: bool) {
-    if expected {
-        assert_xpath_true(expr)
-    } else {
-        assert_xpath_false(expr)
-    }
+    if expected { assert_xpath_true(expr) } else { assert_xpath_false(expr) }
 }
 
 // Value comparisons must error on non-singleton sequences (XPTY0004)

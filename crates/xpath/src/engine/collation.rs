@@ -47,10 +47,7 @@ pub fn resolve_collation<N>(
     } else if let Some(c) = default_collation {
         c.clone()
     } else {
-        dyn_ctx
-            .collations
-            .get(CODEPOINT_URI)
-            .expect("codepoint collation registered")
+        dyn_ctx.collations.get(CODEPOINT_URI).expect("codepoint collation registered")
     };
     if arc.uri() == CODEPOINT_URI {
         Ok(CollationKind::Codepoint(arc))
@@ -127,22 +124,13 @@ pub struct CollationRegistry {
 
 impl Default for CollationRegistry {
     fn default() -> Self {
-        let mut reg = Self {
-            by_uri: HashMap::new(),
-        };
+        let mut reg = Self { by_uri: HashMap::new() };
         let def: Arc<dyn Collation> = Arc::new(CodepointCollation);
         reg.by_uri.insert(def.uri().to_string(), def);
         // Built-in simple collations
-        reg.by_uri
-            .insert(SIMPLE_CASE_URI.to_string(), Arc::new(SimpleCaseCollation));
-        reg.by_uri.insert(
-            SIMPLE_ACCENT_URI.to_string(),
-            Arc::new(SimpleAccentCollation),
-        );
-        reg.by_uri.insert(
-            SIMPLE_CASE_ACCENT_URI.to_string(),
-            Arc::new(SimpleCaseAccentCollation),
-        );
+        reg.by_uri.insert(SIMPLE_CASE_URI.to_string(), Arc::new(SimpleCaseCollation));
+        reg.by_uri.insert(SIMPLE_ACCENT_URI.to_string(), Arc::new(SimpleAccentCollation));
+        reg.by_uri.insert(SIMPLE_CASE_ACCENT_URI.to_string(), Arc::new(SimpleCaseAccentCollation));
         reg
     }
 }

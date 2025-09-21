@@ -39,16 +39,8 @@ fn sequence_make_seq(ctx: StaticContext) {
 #[rstest]
 fn unary_plus_minus(ctx: StaticContext) {
     let plus = ir("+2", &ctx);
-    assert!(matches!(
-        plus.0.last(),
-        Some(OpCode::PushAtomic(XdmAtomicValue::Integer(2)))
-    ));
+    assert!(matches!(plus.0.last(), Some(OpCode::PushAtomic(XdmAtomicValue::Integer(2)))));
     let minus = ir("-2", &ctx);
-    assert!(
-        minus
-            .0
-            .iter()
-            .any(|op| matches!(op, OpCode::PushAtomic(XdmAtomicValue::Integer(0))))
-    );
+    assert!(minus.0.iter().any(|op| matches!(op, OpCode::PushAtomic(XdmAtomicValue::Integer(0)))));
     assert!(matches!(minus.0.last(), Some(OpCode::Sub)));
 }

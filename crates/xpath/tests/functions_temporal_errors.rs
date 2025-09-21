@@ -4,9 +4,7 @@ use rstest::rstest;
 
 fn err_code(expr: &str) -> ErrorCode {
     let ctx = DynamicContextBuilder::new().build();
-    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx)
-        .unwrap_err()
-        .code_enum()
+    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx).unwrap_err().code_enum()
 }
 
 #[rstest]

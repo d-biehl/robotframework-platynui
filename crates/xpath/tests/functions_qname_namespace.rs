@@ -27,14 +27,7 @@ fn qname_construction_and_from_parts() {
     );
     // empty namespace
     let q2 = evaluate_expr::<N>("QName('', 'local')", &c).unwrap();
-    assert_eq!(
-        q2,
-        vec![I::Atomic(A::QName {
-            ns_uri: None,
-            prefix: None,
-            local: "local".into()
-        })]
-    );
+    assert_eq!(q2, vec![I::Atomic(A::QName { ns_uri: None, prefix: None, local: "local".into() })]);
 }
 
 #[rstest]
@@ -44,9 +37,7 @@ fn resolve_qname_and_in_scope() {
         .child(elem("root").namespace(ns("p", "urn:one")).child(elem("c")))
         .build();
     let root = doc.children().next().unwrap();
-    let ctx = DynamicContextBuilder::new()
-        .with_context_item(root.clone())
-        .build();
+    let ctx = DynamicContextBuilder::new().with_context_item(root.clone()).build();
     // resolve-QName with element
     let r = evaluate_expr::<N>("resolve-QName('p:l', .)", &ctx).unwrap();
     assert_eq!(
@@ -67,13 +58,7 @@ fn resolve_qname_and_in_scope() {
     let v = evaluate_expr::<N>("in-scope-prefixes(.)", &ctx).unwrap();
     let mut prefixes: Vec<String> = v
         .iter()
-        .filter_map(|i| {
-            if let I::Atomic(A::NCName(s)) = i {
-                Some(s.clone())
-            } else {
-                None
-            }
-        })
+        .filter_map(|i| if let I::Atomic(A::NCName(s)) = i { Some(s.clone()) } else { None })
         .collect();
     prefixes.sort();
     assert!(prefixes.contains(&"p".to_string()));

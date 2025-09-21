@@ -7,9 +7,7 @@ use platynui_xpath::{XdmNode, compiler::compile_with_context, evaluate, xdm::Xdm
 type N = platynui_xpath::model::simple::SimpleNode;
 
 fn ctx_with(root: N) -> DynamicContext<N> {
-    DynamicContextBuilder::default()
-        .with_context_item(I::Node(root))
-        .build()
+    DynamicContextBuilder::default().with_context_item(I::Node(root)).build()
 }
 
 #[test]
@@ -46,9 +44,8 @@ fn element_namespace_wildcards() {
             assert_eq!(q.local, "a");
             // Some models may leave ns_uri unset on creation and resolve via in-scope namespaces.
             // Ensure the effective namespace URI resolves to urn:one.
-            let effective = q
-                .ns_uri
-                .or_else(|| n.lookup_namespace_uri(q.prefix.as_deref().unwrap_or("")));
+            let effective =
+                q.ns_uri.or_else(|| n.lookup_namespace_uri(q.prefix.as_deref().unwrap_or("")));
             assert_eq!(effective.as_deref(), Some("urn:one"));
         }
         _ => panic!("expected node"),
@@ -73,17 +70,9 @@ fn attribute_namespace_wildcards() {
     //   <item p:x="1" q:y="2" z="3"/>
     // </root>
     let d = doc()
-        .child(
-            elem("root")
-                .namespace(ns("p", "urn:one"))
-                .namespace(ns("q", "urn:two"))
-                .child(
-                    elem("item")
-                        .attr(mkattr("p:x", "1"))
-                        .attr(mkattr("q:y", "2"))
-                        .attr(mkattr("z", "3")),
-                ),
-        )
+        .child(elem("root").namespace(ns("p", "urn:one")).namespace(ns("q", "urn:two")).child(
+            elem("item").attr(mkattr("p:x", "1")).attr(mkattr("q:y", "2")).attr(mkattr("z", "3")),
+        ))
         .build();
     let root = d.children().next().unwrap();
     let ctx = ctx_with(root.children().next().unwrap()); // context: <item>

@@ -16,10 +16,7 @@ fn element_prefix_resolves_against_own_namespaces() {
 #[rstest]
 fn child_element_prefix_resolves_against_parent_namespaces() {
     // <root xmlns:p="urn:one"><p:child/></root>
-    let root = elem("root")
-        .namespace(ns("p", "urn:one"))
-        .child(elem("p:child"))
-        .build();
+    let root = elem("root").namespace(ns("p", "urn:one")).child(elem("p:child")).build();
     let child = root.children().next().unwrap();
     let q = child.name().unwrap();
     assert_eq!(q.local, "child");

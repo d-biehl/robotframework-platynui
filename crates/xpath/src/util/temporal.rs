@@ -83,11 +83,8 @@ fn parse_tz(tz: &str) -> Result<FixedOffset, TemporalErr> {
 
 pub fn parse_date_lex(s: &str) -> Result<(NaiveDate, Option<FixedOffset>), TemporalErr> {
     let (main, tz_opt) = split_tz(s);
-    let (neg, body) = if let Some(stripped) = main.strip_prefix('-') {
-        (true, stripped)
-    } else {
-        (false, main)
-    };
+    let (neg, body) =
+        if let Some(stripped) = main.strip_prefix('-') { (true, stripped) } else { (false, main) };
     let parts: Vec<&str> = body.split('-').collect();
     if parts.len() != 3 {
         return Err(TemporalErr::Lexical);
@@ -125,11 +122,7 @@ pub fn parse_time_lex(s: &str) -> Result<(NaiveTime, Option<FixedOffset>), Tempo
         return Err(TemporalErr::Range);
     }
     let frac_opt = sec_iter.next();
-    let nanos = if let Some(f) = frac_opt {
-        parse_fraction(f)?
-    } else {
-        0
-    };
+    let nanos = if let Some(f) = frac_opt { parse_fraction(f)? } else { 0 };
     let time = NaiveTime::from_num_seconds_from_midnight_opt(h * 3600 + m * 60 + s_whole, nanos)
         .ok_or(TemporalErr::Range)?;
     let tz = match tz_opt {
@@ -172,11 +165,8 @@ pub fn parse_g_year(s: &str) -> Result<(i32, Option<FixedOffset>), TemporalErr> 
 
 pub fn parse_g_year_month(s: &str) -> Result<(i32, u8, Option<FixedOffset>), TemporalErr> {
     let (main, tz_opt) = split_tz(s);
-    let (neg, body) = if let Some(stripped) = main.strip_prefix('-') {
-        (true, stripped)
-    } else {
-        (false, main)
-    };
+    let (neg, body) =
+        if let Some(stripped) = main.strip_prefix('-') { (true, stripped) } else { (false, main) };
     let parts: Vec<&str> = body.split('-').collect();
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
         return Err(TemporalErr::Lexical);

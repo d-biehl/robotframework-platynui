@@ -17,9 +17,7 @@ fn build_doc() -> SimpleNode {
 }
 
 fn make_context(doc: &SimpleNode) -> platynui_xpath::DynamicContext<SimpleNode> {
-    DynamicContextBuilder::default()
-        .with_context_item(I::Node(doc.clone()))
-        .build()
+    DynamicContextBuilder::default().with_context_item(I::Node(doc.clone())).build()
 }
 
 fn empty_context() -> platynui_xpath::DynamicContext<SimpleNode> {
@@ -332,14 +330,8 @@ fn remove_rejects_non_integer_position(#[case] expr: &str, #[case] code: &str) {
 }
 
 #[rstest]
-#[case(
-    "sum((xs:yearMonthDuration('P1Y'), xs:yearMonthDuration('P2M')))",
-    A::YearMonthDuration(14)
-)]
-#[case(
-    "sum((xs:dayTimeDuration('PT3S'), xs:dayTimeDuration('PT5S')))",
-    A::DayTimeDuration(8)
-)]
+#[case("sum((xs:yearMonthDuration('P1Y'), xs:yearMonthDuration('P2M')))", A::YearMonthDuration(14))]
+#[case("sum((xs:dayTimeDuration('PT3S'), xs:dayTimeDuration('PT5S')))", A::DayTimeDuration(8))]
 fn sum_accepts_duration_sequences(#[case] expr: &str, #[case] expected: A) {
     let compiled = compile(expr).expect("compile");
     let ctx = empty_context();
@@ -352,14 +344,8 @@ fn sum_accepts_duration_sequences(#[case] expr: &str, #[case] expected: A) {
 }
 
 #[rstest]
-#[case(
-    "avg((xs:yearMonthDuration('P2Y'), xs:yearMonthDuration('P4Y')))",
-    A::YearMonthDuration(36)
-)]
-#[case(
-    "avg((xs:dayTimeDuration('PT10S'), xs:dayTimeDuration('PT20S')))",
-    A::DayTimeDuration(15)
-)]
+#[case("avg((xs:yearMonthDuration('P2Y'), xs:yearMonthDuration('P4Y')))", A::YearMonthDuration(36))]
+#[case("avg((xs:dayTimeDuration('PT10S'), xs:dayTimeDuration('PT20S')))", A::DayTimeDuration(15))]
 fn avg_accepts_duration_sequences(#[case] expr: &str, #[case] expected: A) {
     let compiled = compile(expr).expect("compile");
     let ctx = empty_context();
@@ -662,11 +648,7 @@ fn qname_accepts_empty_namespace() {
     let result = eval_expression("QName((), 'local')");
     assert_eq!(result.len(), 1);
     match &result[0] {
-        I::Atomic(A::QName {
-            ns_uri,
-            prefix,
-            local,
-        }) => {
+        I::Atomic(A::QName { ns_uri, prefix, local }) => {
             assert!(ns_uri.is_none());
             assert!(prefix.is_none());
             assert_eq!(local, "local");

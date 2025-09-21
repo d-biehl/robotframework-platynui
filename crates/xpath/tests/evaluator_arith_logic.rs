@@ -32,10 +32,6 @@ fn range_to() {
     let out = evaluate_expr::<N>("1 to 3", &ctx()).unwrap();
     assert_eq!(
         out,
-        vec![
-            I::Atomic(A::Integer(1)),
-            I::Atomic(A::Integer(2)),
-            I::Atomic(A::Integer(3))
-        ]
+        vec![I::Atomic(A::Integer(1)), I::Atomic(A::Integer(2)), I::Atomic(A::Integer(3))]
     );
 }

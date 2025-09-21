@@ -10,10 +10,7 @@ pub struct ExpandedName {
 
 impl ExpandedName {
     pub fn new(ns_uri: Option<String>, local: impl Into<String>) -> Self {
-        Self {
-            ns_uri,
-            local: local.into(),
-        }
+        Self { ns_uri, local: local.into() }
     }
 }
 
@@ -33,21 +30,11 @@ pub enum XdmAtomicValue {
     Double(f64),
     Float(f32),
     AnyUri(String),
-    QName {
-        ns_uri: Option<String>,
-        prefix: Option<String>,
-        local: String,
-    },
+    QName { ns_uri: Option<String>, prefix: Option<String>, local: String },
     UntypedAtomic(String),
     DateTime(DateTime<FixedOffset>),
-    Date {
-        date: NaiveDate,
-        tz: Option<FixedOffset>,
-    },
-    Time {
-        time: NaiveTime,
-        tz: Option<FixedOffset>,
-    },
+    Date { date: NaiveDate, tz: Option<FixedOffset> },
+    Time { time: NaiveTime, tz: Option<FixedOffset> },
     YearMonthDuration(i32),
     DayTimeDuration(i64),
     // Additional numeric subtypes (stored losslessly or mapped onto existing primitives)
@@ -67,28 +54,11 @@ pub enum XdmAtomicValue {
     Base64Binary(String),
     HexBinary(String),
     // g* date/time fragment types
-    GYear {
-        year: i32,
-        tz: Option<FixedOffset>,
-    },
-    GYearMonth {
-        year: i32,
-        month: u8,
-        tz: Option<FixedOffset>,
-    },
-    GMonth {
-        month: u8,
-        tz: Option<FixedOffset>,
-    },
-    GMonthDay {
-        month: u8,
-        day: u8,
-        tz: Option<FixedOffset>,
-    },
-    GDay {
-        day: u8,
-        tz: Option<FixedOffset>,
-    },
+    GYear { year: i32, tz: Option<FixedOffset> },
+    GYearMonth { year: i32, month: u8, tz: Option<FixedOffset> },
+    GMonth { month: u8, tz: Option<FixedOffset> },
+    GMonthDay { month: u8, day: u8, tz: Option<FixedOffset> },
+    GDay { day: u8, tz: Option<FixedOffset> },
     // String-derived subtypes (no separate storage; kept as canonical string)
     NormalizedString(String),
     Token(String),
@@ -131,9 +101,7 @@ impl<N> XdmSequenceStream<N> {
     where
         C: SequenceCursor<N> + 'static,
     {
-        Self {
-            cursor: Arc::new(cursor),
-        }
+        Self { cursor: Arc::new(cursor) }
     }
 
     pub fn empty() -> Self
@@ -181,9 +149,7 @@ impl<N> XdmSequenceStream<N> {
     }
 
     pub fn iter(&self) -> XdmSequenceStreamIter<N> {
-        XdmSequenceStreamIter {
-            cursor: self.cursor.boxed_clone(),
-        }
+        XdmSequenceStreamIter { cursor: self.cursor.boxed_clone() }
     }
 
     pub fn cursor(&self) -> Box<dyn SequenceCursor<N>> {
@@ -204,11 +170,7 @@ impl<N> XdmSequenceStream<N> {
         N: Clone,
     {
         let hint = self.cursor.size_hint();
-        trace!(
-            lower = hint.0,
-            upper = hint.1.map(|v| v as i64),
-            "xdm_sequence_stream_materialize"
-        );
+        trace!(lower = hint.0, upper = hint.1.map(|v| v as i64), "xdm_sequence_stream_materialize");
         self.iter().collect()
     }
 }
@@ -239,9 +201,7 @@ impl<N> IntoIterator for XdmSequenceStream<N> {
     type IntoIter = XdmSequenceStreamIter<N>;
 
     fn into_iter(self) -> Self::IntoIter {
-        XdmSequenceStreamIter {
-            cursor: self.cursor.boxed_clone(),
-        }
+        XdmSequenceStreamIter { cursor: self.cursor.boxed_clone() }
     }
 }
 
@@ -256,10 +216,7 @@ where
     N: Clone + Send + Sync + 'static,
 {
     fn new(items: Vec<XdmItem<N>>) -> Self {
-        Self {
-            data: Arc::new(items),
-            index: 0,
-        }
+        Self { data: Arc::new(items), index: 0 }
     }
 }
 
@@ -294,10 +251,7 @@ where
     N: Clone + Send + Sync + 'static,
 {
     fn new(item: XdmItem<N>) -> Self {
-        Self {
-            item: Arc::new(item),
-            consumed: false,
-        }
+        Self { item: Arc::new(item), consumed: false }
     }
 }
 
@@ -315,11 +269,7 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.consumed {
-            (0, Some(0))
-        } else {
-            (1, Some(1))
-        }
+        if self.consumed { (0, Some(0)) } else { (1, Some(1)) }
     }
 
     fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
@@ -338,11 +288,7 @@ where
     N: Clone + Send + Sync + 'static,
 {
     fn new(left: Box<dyn SequenceCursor<N>>, right: Box<dyn SequenceCursor<N>>) -> Self {
-        Self {
-            left,
-            right,
-            left_exhausted: false,
-        }
+        Self { left, right, left_exhausted: false }
     }
 }
 
@@ -374,11 +320,7 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let (l_low, l_up) = if self.left_exhausted {
-            (0, Some(0))
-        } else {
-            self.left.size_hint()
-        };
+        let (l_low, l_up) = if self.left_exhausted { (0, Some(0)) } else { self.left.size_hint() };
         let (r_low, r_up) = self.right.size_hint();
         let low = l_low.saturating_add(r_low);
         let upper = match (l_up, r_up) {
@@ -406,11 +348,7 @@ struct RangeCursor<N> {
 
 impl<N> RangeCursor<N> {
     fn new(start: i64, end: i64) -> Self {
-        Self {
-            current: start,
-            end,
-            _marker: PhantomData,
-        }
+        Self { current: start, end, _marker: PhantomData }
     }
 }
 
@@ -488,11 +426,7 @@ impl fmt::Display for XdmAtomicValue {
             Double(d) => write!(f, "{}E", d),
             Float(fl) => write!(f, "{}F", fl),
             AnyUri(u) => write!(f, "anyURI(\"{}\")", u),
-            QName {
-                ns_uri,
-                prefix,
-                local,
-            } => match (ns_uri, prefix) {
+            QName { ns_uri, prefix, local } => match (ns_uri, prefix) {
                 (Some(ns), Some(p)) => write!(f, "QName(ns='{}', {}:{})", ns, p, local),
                 (Some(ns), None) => write!(f, "QName(ns='{}', {})", ns, local),
                 (None, Some(p)) => write!(f, "QName({}:{})", p, local),
@@ -664,10 +598,7 @@ impl<'a, N: XdmNode> fmt::Display for PrettyNodeItem<'a, N> {
         }
         fn clip(s: &str) -> String {
             if s.len() > crate::consts::DISPLAY_CLIP_MAX {
-                let mut out = s
-                    .chars()
-                    .take(crate::consts::DISPLAY_CLIP_MAX)
-                    .collect::<String>();
+                let mut out = s.chars().take(crate::consts::DISPLAY_CLIP_MAX).collect::<String>();
                 out.push('…');
                 out
             } else {
@@ -691,10 +622,8 @@ impl<'a, N: XdmNode> fmt::Display for PrettyNodeItem<'a, N> {
                     write!(f, "<{} attrs={} children={}>", name, attrs, ch)
                 }
                 NodeKind::Attribute => {
-                    let name = n
-                        .name()
-                        .map(|q| qname_to_string(&q))
-                        .unwrap_or_else(|| "?".to_string());
+                    let name =
+                        n.name().map(|q| qname_to_string(&q)).unwrap_or_else(|| "?".to_string());
                     let val = clip(&n.string_value());
                     write!(f, "@{}=\"{}\"", name, val)
                 }

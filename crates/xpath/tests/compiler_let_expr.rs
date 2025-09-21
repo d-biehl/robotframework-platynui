@@ -10,14 +10,7 @@ fn ir(src: &str) -> InstrSeq {
 fn let_binding_emits_opcodes() {
     let instrs = ir("let $x := 1 return $x");
     assert!(instrs.0.iter().any(|op| matches!(op, OpCode::LetStartByName(ExpandedName { ns_uri: None, local }) if local == "x")));
-    assert_eq!(
-        instrs
-            .0
-            .iter()
-            .filter(|op| matches!(op, OpCode::LetEnd))
-            .count(),
-        1
-    );
+    assert_eq!(instrs.0.iter().filter(|op| matches!(op, OpCode::LetEnd)).count(), 1);
 }
 
 #[rstest]
@@ -32,12 +25,5 @@ fn sequential_let_bindings_are_declared() {
         })
         .collect::<Vec<_>>();
     assert_eq!(let_starts, vec!["x", "y"]);
-    assert_eq!(
-        instrs
-            .0
-            .iter()
-            .filter(|op| matches!(op, OpCode::LetEnd))
-            .count(),
-        2
-    );
+    assert_eq!(instrs.0.iter().filter(|op| matches!(op, OpCode::LetEnd)).count(), 2);
 }

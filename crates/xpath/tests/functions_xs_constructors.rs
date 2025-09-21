@@ -77,9 +77,8 @@ fn xs_integer_valid_and_empty() {
 
 #[rstest]
 fn xs_integer_on_node_atomizes() {
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(SimpleNode::text("7")))
-        .build();
+    let ctx =
+        DynamicContextBuilder::default().with_context_item(I::Node(SimpleNode::text("7"))).build();
     let out = evaluate_expr::<N>("xs:integer(.)", &ctx).unwrap();
     assert_eq!(out, vec![I::Atomic(A::Integer(7))]);
 }

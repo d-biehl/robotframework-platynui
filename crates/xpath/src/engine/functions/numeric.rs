@@ -92,10 +92,7 @@ pub(super) fn avg_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     let mut count: i64 = 0;
     for it in &args[0] {
         let XdmItem::Atomic(a) = it else {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "avg on non-atomic item",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "avg on non-atomic item"));
         };
         match a {
             XdmAtomicValue::YearMonthDuration(months) => {

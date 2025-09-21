@@ -103,12 +103,7 @@ impl fmt::Debug for SimpleNode {
         let attr_count = self.0.attributes.read().map(|v| v.len()).unwrap_or(0);
         let ns_count = self.0.namespaces.read().map(|v| v.len()).unwrap_or(0);
         let child_count = self.0.children.read().map(|v| v.len()).unwrap_or(0);
-        let cached = self
-            .0
-            .cached_text
-            .read()
-            .map(|c| c.is_some())
-            .unwrap_or(false);
+        let cached = self.0.cached_text.read().map(|c| c.is_some()).unwrap_or(false);
         let mut ds = f.debug_struct("SimpleNode");
         ds.field("id", &format_args!("0x{id:016x}"));
         ds.field("kind", kind);
@@ -162,44 +157,24 @@ impl SimpleNode {
         // Support prefixed element names; actual namespace URI resolution happens during build
         // once in-scope namespaces are attached or resolved via parent at attach time.
         let (prefix, local, ns_uri) = if let Some((pre, loc)) = name.split_once(':') {
-            let uri = if pre == "xml" {
-                Some(crate::consts::XML_URI.to_string())
-            } else {
-                None
-            };
+            let uri = if pre == "xml" { Some(crate::consts::XML_URI.to_string()) } else { None };
             (Some(pre.to_string()), loc.to_string(), uri)
         } else {
             (None, name.to_string(), None)
         };
-        SimpleNodeBuilder::new(
-            NodeKind::Element,
-            Some(QName {
-                prefix,
-                local,
-                ns_uri,
-            }),
-            None,
-        )
+        SimpleNodeBuilder::new(NodeKind::Element, Some(QName { prefix, local, ns_uri }), None)
     }
     pub fn attribute(name: &str, value: &str) -> SimpleNode {
         // Support namespaced attributes via prefix:local; bind 'xml' to the canonical XML namespace URI.
         let (prefix, local, ns_uri) = if let Some((pre, loc)) = name.split_once(':') {
-            let uri = if pre == "xml" {
-                Some(crate::consts::XML_URI.to_string())
-            } else {
-                None
-            };
+            let uri = if pre == "xml" { Some(crate::consts::XML_URI.to_string()) } else { None };
             (Some(pre.to_string()), loc.to_string(), uri)
         } else {
             (None, name.to_string(), None)
         };
         SimpleNode::new(
             NodeKind::Attribute,
-            Some(QName {
-                prefix,
-                local,
-                ns_uri,
-            }),
+            Some(QName { prefix, local, ns_uri }),
             Some(value.to_string()),
         )
     }
@@ -212,11 +187,7 @@ impl SimpleNode {
     pub fn pi(target: &str, data: &str) -> SimpleNode {
         SimpleNode::new(
             NodeKind::ProcessingInstruction,
-            Some(QName {
-                prefix: None,
-                local: target.to_string(),
-                ns_uri: None,
-            }),
+            Some(QName { prefix: None, local: target.to_string(), ns_uri: None }),
             Some(data.to_string()),
         )
     }
@@ -315,10 +286,7 @@ impl fmt::Display for SimpleNode {
         }
         fn clip(s: &str) -> String {
             if s.len() > crate::consts::DISPLAY_CLIP_MAX {
-                let mut out = s
-                    .chars()
-                    .take(crate::consts::DISPLAY_CLIP_MAX)
-                    .collect::<String>();
+                let mut out = s.chars().take(crate::consts::DISPLAY_CLIP_MAX).collect::<String>();
                 out.push('…');
                 out
             } else {
@@ -340,10 +308,8 @@ impl fmt::Display for SimpleNode {
                 write!(f, "<{} attrs={} children={}>", name, attrs, ch)
             }
             NodeKind::Attribute => {
-                let name = self
-                    .name()
-                    .map(|q| qname_to_string(&q))
-                    .unwrap_or_else(|| "?".to_string());
+                let name =
+                    self.name().map(|q| qname_to_string(&q)).unwrap_or_else(|| "?".to_string());
                 let val = clip(&self.string_value());
                 write!(f, "@{}=\"{}\"", name, val)
             }
@@ -661,48 +627,24 @@ impl XdmNode for SimpleNode {
         }
     }
     fn parent(&self) -> Option<Self> {
-        self.0
-            .parent
-            .read()
-            .ok()?
-            .as_ref()
-            .and_then(|w| w.upgrade())
-            .map(SimpleNode)
+        self.0.parent.read().ok()?.as_ref().and_then(|w| w.upgrade()).map(SimpleNode)
     }
     fn children(&self) -> Self::Children<'_> {
-        self.0
-            .children
-            .read()
-            .map(|v| v.clone())
-            .unwrap_or_default()
-            .into_iter()
+        self.0.children.read().map(|v| v.clone()).unwrap_or_default().into_iter()
     }
     fn attributes(&self) -> Self::Attributes<'_> {
-        self.0
-            .attributes
-            .read()
-            .map(|v| v.clone())
-            .unwrap_or_default()
-            .into_iter()
+        self.0.attributes.read().map(|v| v.clone()).unwrap_or_default().into_iter()
     }
     fn namespaces(&self) -> Self::Namespaces<'_> {
         // Start with stored namespaces, then ensure implicit xml binding exists and deduplicate by prefix.
-        let stored: Vec<Self> = self
-            .0
-            .namespaces
-            .read()
-            .map(|v| v.clone())
-            .unwrap_or_default();
+        let stored: Vec<Self> = self.0.namespaces.read().map(|v| v.clone()).unwrap_or_default();
         let mut out: Vec<Self> = Vec::new();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         // Canonical xml URI
         // 1) Add stored namespaces, but skip duplicates by prefix and ignore invalid attempts to override 'xml'
         for ns in stored {
             let name = ns.name();
-            let prefix = name
-                .as_ref()
-                .and_then(|q| q.prefix.clone())
-                .unwrap_or_default();
+            let prefix = name.as_ref().and_then(|q| q.prefix.clone()).unwrap_or_default();
             if prefix == "xml" {
                 // Only accept if URI is canonical; otherwise ignore (reserved cannot be rebound)
                 let uri = ns.string_value();

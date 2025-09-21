@@ -68,88 +68,27 @@ pub enum Expr {
     Literal(Literal),
     Parenthesized(Box<Expr>),
     VarRef(QName),
-    FunctionCall {
-        name: QName,
-        args: Vec<Expr>,
-    },
-    Filter {
-        input: Box<Expr>,
-        predicates: Vec<Expr>,
-    },
+    FunctionCall { name: QName, args: Vec<Expr> },
+    Filter { input: Box<Expr>, predicates: Vec<Expr> },
     Sequence(Vec<Expr>),
-    Binary {
-        left: Box<Expr>,
-        op: BinaryOp,
-        right: Box<Expr>,
-    },
-    GeneralComparison {
-        left: Box<Expr>,
-        op: GeneralComp,
-        right: Box<Expr>,
-    },
-    ValueComparison {
-        left: Box<Expr>,
-        op: ValueComp,
-        right: Box<Expr>,
-    },
-    NodeComparison {
-        left: Box<Expr>,
-        op: NodeComp,
-        right: Box<Expr>,
-    },
-    Unary {
-        sign: UnarySign,
-        expr: Box<Expr>,
-    },
-    IfThenElse {
-        cond: Box<Expr>,
-        then_expr: Box<Expr>,
-        else_expr: Box<Expr>,
-    },
-    Range {
-        start: Box<Expr>,
-        end: Box<Expr>,
-    },
-    InstanceOf {
-        expr: Box<Expr>,
-        ty: SequenceType,
-    },
-    TreatAs {
-        expr: Box<Expr>,
-        ty: SequenceType,
-    },
-    CastableAs {
-        expr: Box<Expr>,
-        ty: SingleType,
-    },
-    CastAs {
-        expr: Box<Expr>,
-        ty: SingleType,
-    },
+    Binary { left: Box<Expr>, op: BinaryOp, right: Box<Expr> },
+    GeneralComparison { left: Box<Expr>, op: GeneralComp, right: Box<Expr> },
+    ValueComparison { left: Box<Expr>, op: ValueComp, right: Box<Expr> },
+    NodeComparison { left: Box<Expr>, op: NodeComp, right: Box<Expr> },
+    Unary { sign: UnarySign, expr: Box<Expr> },
+    IfThenElse { cond: Box<Expr>, then_expr: Box<Expr>, else_expr: Box<Expr> },
+    Range { start: Box<Expr>, end: Box<Expr> },
+    InstanceOf { expr: Box<Expr>, ty: SequenceType },
+    TreatAs { expr: Box<Expr>, ty: SequenceType },
+    CastableAs { expr: Box<Expr>, ty: SingleType },
+    CastAs { expr: Box<Expr>, ty: SingleType },
     ContextItem, // .
     Path(PathExpr),
-    PathFrom {
-        base: Box<Expr>,
-        steps: Vec<Step>,
-    },
-    Quantified {
-        kind: Quantifier,
-        bindings: Vec<QuantifiedBinding>,
-        satisfies: Box<Expr>,
-    },
-    ForExpr {
-        bindings: Vec<ForBinding>,
-        return_expr: Box<Expr>,
-    },
-    LetExpr {
-        bindings: Vec<LetBinding>,
-        return_expr: Box<Expr>,
-    },
-    SetOp {
-        left: Box<Expr>,
-        op: SetOp,
-        right: Box<Expr>,
-    },
+    PathFrom { base: Box<Expr>, steps: Vec<Step> },
+    Quantified { kind: Quantifier, bindings: Vec<QuantifiedBinding>, satisfies: Box<Expr> },
+    ForExpr { bindings: Vec<ForBinding>, return_expr: Box<Expr> },
+    LetExpr { bindings: Vec<LetBinding>, return_expr: Box<Expr> },
+    SetOp { left: Box<Expr>, op: SetOp, right: Box<Expr> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -215,11 +154,7 @@ pub enum Axis {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
-    Axis {
-        axis: Axis,
-        test: NodeTest,
-        predicates: Vec<Expr>,
-    },
+    Axis { axis: Axis, test: NodeTest, predicates: Vec<Expr> },
     FilterExpr(Box<Expr>),
 }
 
@@ -249,15 +184,8 @@ pub enum KindTest {
     Text,
     Comment,
     ProcessingInstruction(Option<String>),
-    Element {
-        name: Option<ElementNameOrWildcard>,
-        ty: Option<TypeName>,
-        nillable: bool,
-    },
-    Attribute {
-        name: Option<AttributeNameOrWildcard>,
-        ty: Option<TypeName>,
-    },
+    Element { name: Option<ElementNameOrWildcard>, ty: Option<TypeName>, nillable: bool },
+    Attribute { name: Option<AttributeNameOrWildcard>, ty: Option<TypeName> },
     SchemaElement(QName),
     SchemaAttribute(QName),
 }

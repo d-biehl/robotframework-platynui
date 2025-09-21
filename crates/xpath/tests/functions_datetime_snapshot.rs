@@ -60,10 +60,7 @@ fn snapshot_defaults_utc() {
 fn snapshot_with_timezone_override() {
     // Base now at UTC; override to +02:30
     let now = dt(2025, 9, 12, 1, 2, 3, 0);
-    let ctx = DynamicContextBuilder::default()
-        .with_now(now)
-        .with_timezone(150)
-        .build();
+    let ctx = DynamicContextBuilder::default().with_now(now).with_timezone(150).build();
 
     let r_dt = evaluate_expr::<N>("current-dateTime()", &ctx).unwrap();
     let r_d = evaluate_expr::<N>("current-date()", &ctx).unwrap();

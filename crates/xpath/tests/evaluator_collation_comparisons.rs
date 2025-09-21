@@ -5,9 +5,7 @@ use rstest::{fixture, rstest};
 type N = platynui_xpath::model::simple::SimpleNode;
 
 fn dyn_ctx_with_collation(uri: &str) -> platynui_xpath::engine::runtime::DynamicContext<N> {
-    DynamicContextBuilder::default()
-        .with_default_collation(uri.to_string())
-        .build()
+    DynamicContextBuilder::default().with_default_collation(uri.to_string()).build()
 }
 
 #[fixture]

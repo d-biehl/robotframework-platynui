@@ -27,8 +27,5 @@ fn avg_mixed_cases(#[case] expr: &str, #[case] expected: f64) {
         XdmItem::Atomic(XdmAtomicValue::Integer(i)) => *i as f64,
         _ => panic!("expected numeric"),
     };
-    assert!(
-        (got - expected).abs() < 1e-9,
-        "avg mismatch got {got} expected {expected}"
-    );
+    assert!((got - expected).abs() < 1e-9, "avg mismatch got {got} expected {expected}");
 }

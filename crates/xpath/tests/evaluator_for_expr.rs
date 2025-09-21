@@ -17,11 +17,7 @@ fn for_simple_numeric() {
     .unwrap();
     assert_eq!(
         out,
-        vec![
-            I::Atomic(A::Integer(2)),
-            I::Atomic(A::Integer(3)),
-            I::Atomic(A::Integer(4))
-        ]
+        vec![I::Atomic(A::Integer(2)), I::Atomic(A::Integer(3)), I::Atomic(A::Integer(4))]
     );
 }
 
@@ -42,19 +38,13 @@ fn for_position_last() {
         &ctx(),
     )
     .unwrap();
-    assert_eq!(
-        out,
-        vec![I::Atomic(A::Integer(1)), I::Atomic(A::Integer(2))]
-    );
+    assert_eq!(out, vec![I::Atomic(A::Integer(1)), I::Atomic(A::Integer(2))]);
     let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(
         "for $x in (10,20) return last()",
         &ctx(),
     )
     .unwrap();
-    assert_eq!(
-        out,
-        vec![I::Atomic(A::Integer(2)), I::Atomic(A::Integer(2))]
-    );
+    assert_eq!(out, vec![I::Atomic(A::Integer(2)), I::Atomic(A::Integer(2))]);
 }
 
 #[rstest]

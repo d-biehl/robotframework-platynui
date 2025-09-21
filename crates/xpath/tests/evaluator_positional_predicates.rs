@@ -87,11 +87,8 @@ fn predicate_position_eq_last(ctx: DynamicContext<N>) {
 #[rstest]
 fn predicate_chained_numeric_boolean(ctx: DynamicContext<N>) {
     // First keep position() <= 3 (one,two,three), then boolean length test > 3 -> only "three"
-    let out = evaluate_expr::<N>(
-        "child::a[position() <= 3][string-length(string(.)) > 3]",
-        &ctx,
-    )
-    .unwrap();
+    let out = evaluate_expr::<N>("child::a[position() <= 3][string-length(string(.)) > 3]", &ctx)
+        .unwrap();
     assert_eq!(out.len(), 1);
     assert!(matches!(&out[0], I::Node(n) if n.string_value()=="three"));
 }

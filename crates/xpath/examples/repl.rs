@@ -24,39 +24,15 @@ fn build_sample_document() -> SimpleNode {
                 .namespace(ns("bar", "http://www.bar.org"))
                 .child(
                     elem("actors")
-                        .child(
-                            elem("actor")
-                                .attr(attr("id", "1"))
-                                .child(text("Christian Bale")),
-                        )
-                        .child(
-                            elem("actor")
-                                .attr(attr("id", "2"))
-                                .child(text("Liam Neeson")),
-                        )
-                        .child(
-                            elem("actor")
-                                .attr(attr("id", "3"))
-                                .child(text("Michael Caine")),
-                        ),
+                        .child(elem("actor").attr(attr("id", "1")).child(text("Christian Bale")))
+                        .child(elem("actor").attr(attr("id", "2")).child(text("Liam Neeson")))
+                        .child(elem("actor").attr(attr("id", "3")).child(text("Michael Caine"))),
                 )
                 .child(
                     elem("foo:singers")
-                        .child(
-                            elem("foo:singer")
-                                .attr(attr("id", "4"))
-                                .child(text("Tom Waits")),
-                        )
-                        .child(
-                            elem("foo:singer")
-                                .attr(attr("id", "5"))
-                                .child(text("B.B. King")),
-                        )
-                        .child(
-                            elem("foo:singer")
-                                .attr(attr("id", "6"))
-                                .child(text("Ray Charles")),
-                        ),
+                        .child(elem("foo:singer").attr(attr("id", "4")).child(text("Tom Waits")))
+                        .child(elem("foo:singer").attr(attr("id", "5")).child(text("B.B. King")))
+                        .child(elem("foo:singer").attr(attr("id", "6")).child(text("Ray Charles"))),
                 ),
         )
         .build()
@@ -90,10 +66,7 @@ fn expression_needs_more_input(expr: &str) -> bool {
 
 fn main() {
     let document = build_sample_document();
-    let context_node = document
-        .children()
-        .next()
-        .unwrap_or_else(|| document.clone());
+    let context_node = document.children().next().unwrap_or_else(|| document.clone());
 
     println!("PlatynUI XPath REPL");
     println!("Context node: <root> element with actor and singer data.");

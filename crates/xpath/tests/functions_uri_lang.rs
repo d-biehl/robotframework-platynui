@@ -11,9 +11,7 @@ fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
 
 #[fixture]
 fn sc_base() -> platynui_xpath::engine::runtime::StaticContext {
-    StaticContextBuilder::new()
-        .with_base_uri("http://example.com/base/")
-        .build()
+    StaticContextBuilder::new().with_base_uri("http://example.com/base/").build()
 }
 
 #[rstest]
@@ -33,9 +31,7 @@ fn static_base_uri_reports_from_static_ctx(
 
 #[fixture]
 fn sc_ex_x() -> platynui_xpath::engine::runtime::StaticContext {
-    StaticContextBuilder::new()
-        .with_base_uri("http://ex/x/")
-        .build()
+    StaticContextBuilder::new().with_base_uri("http://ex/x/").build()
 }
 
 #[rstest]
@@ -90,17 +86,13 @@ fn escape_html_uri_spaces(ctx: platynui_xpath::engine::runtime::DynamicContext<N
 fn lang_matches_ancestor_xml_lang() {
     use platynui_xpath::model::simple::{doc, elem};
     let root = elem("root")
-        .attr(platynui_xpath::model::simple::SimpleNode::attribute(
-            "xml:lang", "en-US",
-        ))
+        .attr(platynui_xpath::model::simple::SimpleNode::attribute("xml:lang", "en-US"))
         .child(elem("child"))
         .build();
     let d = doc().child(root.clone()).build();
     let root = d.children().next().unwrap();
     let target = root.children().next().unwrap();
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(target)
-        .build();
+    let ctx = DynamicContextBuilder::<N>::default().with_context_item(target).build();
     let out = evaluate_expr::<N>("lang('en')", &ctx).unwrap();
     match &out[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(b)) => assert!(*b),

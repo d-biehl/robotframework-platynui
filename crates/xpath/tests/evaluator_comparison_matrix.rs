@@ -29,14 +29,8 @@ fn eval_bool(expr: &str) -> bool {
     "(xs:date('2024-01-01Z'), xs:date('2024-01-02Z')) = (xs:date('2023-12-31Z'), xs:date('2024-01-02Z'))",
     true
 )]
-#[case(
-    "(xs:date('2024-01-01Z'), xs:date('2024-01-02Z')) = (xs:date('2024-01-03Z'))",
-    false
-)]
-#[case(
-    "(xs:time('12:00:00Z'), xs:time('18:00:00Z')) = (xs:time('18:00:00Z'))",
-    true
-)]
+#[case("(xs:date('2024-01-01Z'), xs:date('2024-01-02Z')) = (xs:date('2024-01-03Z'))", false)]
+#[case("(xs:time('12:00:00Z'), xs:time('18:00:00Z')) = (xs:time('18:00:00Z'))", true)]
 #[case("(xs:time('12:00:00Z')) = (xs:time('18:00:00Z'))", false)]
 #[case(
     "(xs:dayTimeDuration('PT1H'), xs:dayTimeDuration('PT2H')) = (xs:dayTimeDuration('PT2H'))",
@@ -75,15 +69,9 @@ fn general_ne_matrix(#[case] expr: &str, #[case] expect: bool) {
 #[rstest]
 #[case("(1,5) < (4,2)", true)] // 1<4
 #[case("(5,6) < (1,2)", false)]
-#[case(
-    "(xs:date('2024-01-01Z'), xs:date('2024-01-03Z')) < (xs:date('2024-01-02Z'))",
-    true
-)]
+#[case("(xs:date('2024-01-01Z'), xs:date('2024-01-03Z')) < (xs:date('2024-01-02Z'))", true)]
 #[case("(xs:date('2024-01-03Z')) < (xs:date('2024-01-02Z'))", false)]
-#[case(
-    "(xs:time('12:00:00Z'), xs:time('18:00:00Z')) < (xs:time('13:00:00Z'))",
-    true
-)]
+#[case("(xs:time('12:00:00Z'), xs:time('18:00:00Z')) < (xs:time('13:00:00Z'))", true)]
 #[case("(xs:time('18:00:00Z')) < (xs:time('13:00:00Z'))", false)]
 #[case(
     "(xs:dayTimeDuration('PT1H'), xs:dayTimeDuration('PT3H')) < (xs:dayTimeDuration('PT2H'))",

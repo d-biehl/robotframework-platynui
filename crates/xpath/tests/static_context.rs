@@ -31,33 +31,21 @@ fn missing_signature_raises_static_error() {
 fn custom_signature_allows_compilation() {
     let mut ctx = StaticContext::default();
     ctx.function_signatures = FunctionSignatures::default();
-    let default_ns = StaticContext::default()
-        .default_function_namespace
-        .clone()
-        .unwrap();
-    ctx.function_signatures
-        .register_ns(&default_ns, "true", 0, Some(0));
+    let default_ns = StaticContext::default().default_function_namespace.clone().unwrap();
+    ctx.function_signatures.register_ns(&default_ns, "true", 0, Some(0));
     assert!(compile_with_context("fn:true()", &ctx).is_ok());
 }
 
 #[test]
 fn default_context_has_codepoint_collation() {
     let ctx = StaticContext::default();
-    assert!(
-        ctx.statically_known_collations
-            .contains(platynui_xpath::collation::CODEPOINT_URI)
-    );
+    assert!(ctx.statically_known_collations.contains(platynui_xpath::collation::CODEPOINT_URI));
 }
 
 #[test]
 fn builder_can_add_collation() {
-    let ctx = StaticContextBuilder::new()
-        .with_collation("urn:example:collation")
-        .build();
-    assert!(
-        ctx.statically_known_collations
-            .contains("urn:example:collation")
-    );
+    let ctx = StaticContextBuilder::new().with_collation("urn:example:collation").build();
+    assert!(ctx.statically_known_collations.contains("urn:example:collation"));
 }
 
 #[test]
@@ -71,27 +59,21 @@ fn builder_can_clear_context_item_type() {
 
 #[test]
 fn context_item_type_empty_sequence_is_static_error() {
-    let ctx = StaticContextBuilder::new()
-        .with_context_item_type(SeqTypeIR::EmptySequence)
-        .build();
+    let ctx = StaticContextBuilder::new().with_context_item_type(SeqTypeIR::EmptySequence).build();
     let err = compile_with_context(".", &ctx).expect_err("expected static error");
     assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }
 
 #[test]
 fn context_item_type_empty_sequence_rejects_root_path() {
-    let ctx = StaticContextBuilder::new()
-        .with_context_item_type(SeqTypeIR::EmptySequence)
-        .build();
+    let ctx = StaticContextBuilder::new().with_context_item_type(SeqTypeIR::EmptySequence).build();
     let err = compile_with_context("/foo", &ctx).expect_err("expected static error");
     assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }
 
 #[test]
 fn context_item_type_empty_sequence_rejects_root_descendant_path() {
-    let ctx = StaticContextBuilder::new()
-        .with_context_item_type(SeqTypeIR::EmptySequence)
-        .build();
+    let ctx = StaticContextBuilder::new().with_context_item_type(SeqTypeIR::EmptySequence).build();
     let err = compile_with_context("//foo", &ctx).expect_err("expected static error");
     assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }
@@ -127,9 +109,8 @@ fn context_item_type_rejects_mismatched_runtime_item() {
         .build();
     let compiled = compile_with_context(".", &ctx).expect("compile context item");
     let doc = simple_doc().child(elem("root")).build();
-    let dyn_ctx = DynamicContextBuilder::<SimpleNode>::new()
-        .with_context_item(XdmItem::Node(doc))
-        .build();
+    let dyn_ctx =
+        DynamicContextBuilder::<SimpleNode>::new().with_context_item(XdmItem::Node(doc)).build();
     let err = evaluate(&compiled, &dyn_ctx).expect_err("expected runtime type error");
     assert_eq!(err.code_enum(), ErrorCode::XPTY0004);
 }
@@ -147,9 +128,7 @@ fn context_item_type_element_allows_attribute_access() {
         })
         .build();
     let compiled = compile_with_context("@class", &ctx).expect("compile attribute access");
-    let doc = simple_doc()
-        .child(elem("root").attr(attr("class", "foo")))
-        .build();
+    let doc = simple_doc().child(elem("root").attr(attr("class", "foo"))).build();
     let element = doc.children().next().expect("element child");
     let dyn_ctx = DynamicContextBuilder::<SimpleNode>::new()
         .with_context_item(XdmItem::Node(element))
@@ -173,9 +152,9 @@ fn context_item_type_element_rejects_atomic_runtime_item() {
         .build();
     let compiled = compile_with_context(".//child", &ctx).expect("compile descendant path");
     let dyn_ctx = DynamicContextBuilder::<SimpleNode>::new()
-        .with_context_item(XdmItem::Atomic(
-            platynui_xpath::xdm::XdmAtomicValue::String("text".to_string()),
-        ))
+        .with_context_item(XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(
+            "text".to_string(),
+        )))
         .build();
     let err = evaluate(&compiled, &dyn_ctx).expect_err("expected type error");
     assert_eq!(err.code_enum(), ErrorCode::XPTY0004);

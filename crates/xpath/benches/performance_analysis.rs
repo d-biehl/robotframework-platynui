@@ -77,9 +77,7 @@ fn compile_bench(c: &mut Criterion) {
 
 fn string_operations_bench(c: &mut Criterion) {
     let document = build_string_heavy_document();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     let mut group = c.benchmark_group("string");
     group.sample_size(40);
@@ -116,9 +114,7 @@ fn string_operations_bench(c: &mut Criterion) {
 
 fn node_operations_bench(c: &mut Criterion) {
     let document = build_deep_document(6, 8); // 6 levels deep, 8 children per level
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
     let mut group = c.benchmark_group("node");
     group.sample_size(10);
     group.measurement_time(Duration::from_secs(12));
@@ -155,9 +151,7 @@ fn node_operations_bench(c: &mut Criterion) {
 
 fn memory_allocation_bench(c: &mut Criterion) {
     let document = build_wide_document(200, 25); // 200 sections, 25 items each = 5000 items
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     c.bench_function("memory/large_result_set", |b| {
         let compiled = compile("//item").unwrap();
@@ -186,9 +180,7 @@ fn memory_allocation_bench(c: &mut Criterion) {
 
 fn numeric_operations_bench(c: &mut Criterion) {
     let document = build_numeric_document();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     c.bench_function("numeric/large_sum", |b| {
         let compiled = compile("sum(//number/@value)").unwrap();
@@ -223,13 +215,9 @@ fn build_string_heavy_document() -> SimpleNode {
     let mut root_builder = elem("root");
 
     for i in 0..500 {
-        let text_content = format!(
-            "Text content number {} with some specific keywords and patterns that end",
-            i
-        );
-        let node = elem("text")
-            .attr(attr("id", &format!("text-{}", i)))
-            .child(text(&text_content));
+        let text_content =
+            format!("Text content number {} with some specific keywords and patterns that end", i);
+        let node = elem("text").attr(attr("id", &format!("text-{}", i))).child(text(&text_content));
         root_builder = root_builder.child(node);
     }
 
@@ -271,13 +259,8 @@ fn build_deep_document(max_depth: usize, children_per_level: usize) -> SimpleNod
         parent
     }
 
-    root_builder = add_children_recursive(
-        root_builder,
-        0,
-        max_depth,
-        children_per_level,
-        &mut node_counter,
-    );
+    root_builder =
+        add_children_recursive(root_builder, 0, max_depth, children_per_level, &mut node_counter);
     simple_doc().child(root_builder).build()
 }
 
@@ -312,10 +295,7 @@ fn build_wide_document(num_sections: usize, items_per_section: usize) -> SimpleN
         for item_id in 0..items_per_section {
             let item = elem("item")
                 .attr(attr("id", &format!("item-{}-{}", section_id, item_id)))
-                .child(text(&format!(
-                    "Content for item {} in section {}",
-                    item_id, section_id
-                )));
+                .child(text(&format!("Content for item {} in section {}", item_id, section_id)));
             section_builder = section_builder.child(item);
         }
 

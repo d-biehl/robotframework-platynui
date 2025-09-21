@@ -45,10 +45,8 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
         ($ns:expr, $local:expr, $arity:expr, $func:expr, $param_specs:expr $(,)?) => {{
             if let Some(s) = sigs.as_mut() {
                 s.register_ns($ns, $local, $arity, Some($arity));
-                let name = ExpandedName {
-                    ns_uri: Some($ns.to_string()),
-                    local: $local.to_string(),
-                };
+                let name =
+                    ExpandedName { ns_uri: Some($ns.to_string()), local: $local.to_string() };
                 s.set_param_types(name, $arity, $param_specs);
             }
             if let Some(r) = reg.as_mut() {
@@ -168,12 +166,7 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
             1 => vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
         }
     );
-    reg_ns!(
-        crate::consts::FNS,
-        "untypedAtomic",
-        1,
-        strings::untyped_atomic_fn::<N>
-    );
+    reg_ns!(crate::consts::FNS, "untypedAtomic", 1, strings::untyped_atomic_fn::<N>);
     reg_ns_variadic!(crate::consts::FNS, "concat", 2, strings::concat_fn::<N>);
     reg_ns!(
         crate::consts::FNS,
@@ -786,18 +779,8 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
     );
 
     // ===== Environment / Document / URI helpers =====
-    reg_ns!(
-        crate::consts::FNS,
-        "default-collation",
-        0,
-        environment::default_collation_fn::<N>
-    );
-    reg_ns!(
-        crate::consts::FNS,
-        "static-base-uri",
-        0,
-        environment::static_base_uri_fn::<N>
-    );
+    reg_ns!(crate::consts::FNS, "default-collation", 0, environment::default_collation_fn::<N>);
+    reg_ns!(crate::consts::FNS, "static-base-uri", 0, environment::static_base_uri_fn::<N>);
     reg_ns_range!(
         crate::consts::FNS,
         "root",
@@ -977,12 +960,7 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
     );
 
     // ===== Misc constructors =====
-    reg_ns!(
-        crate::consts::FNS,
-        "integer",
-        1,
-        constructors::integer_fn::<N>
-    );
+    reg_ns!(crate::consts::FNS, "integer", 1, constructors::integer_fn::<N>);
 
     // ===== Date/Time family =====
     reg_ns!(
@@ -1037,30 +1015,10 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
             ]
         }
     );
-    reg_ns!(
-        crate::consts::FNS,
-        "current-dateTime",
-        0,
-        datetime::current_datetime_fn::<N>
-    );
-    reg_ns!(
-        crate::consts::FNS,
-        "current-date",
-        0,
-        datetime::current_date_fn::<N>
-    );
-    reg_ns!(
-        crate::consts::FNS,
-        "current-time",
-        0,
-        datetime::current_time_fn::<N>
-    );
-    reg_ns!(
-        crate::consts::FNS,
-        "implicit-timezone",
-        0,
-        datetime::implicit_timezone_fn::<N>
-    );
+    reg_ns!(crate::consts::FNS, "current-dateTime", 0, datetime::current_datetime_fn::<N>);
+    reg_ns!(crate::consts::FNS, "current-date", 0, datetime::current_date_fn::<N>);
+    reg_ns!(crate::consts::FNS, "current-time", 0, datetime::current_time_fn::<N>);
+    reg_ns!(crate::consts::FNS, "implicit-timezone", 0, datetime::implicit_timezone_fn::<N>);
     reg_ns!(
         crate::consts::FNS,
         "year-from-dateTime",
@@ -1317,159 +1275,57 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
         constructors::xs_duration_fn::<N>,
         vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
     );
-    reg_ns!(
-        crate::consts::XS,
-        "dayTimeDuration",
-        1,
-        constructors::xs_day_time_duration_fn::<N>
-    );
+    reg_ns!(crate::consts::XS, "dayTimeDuration", 1, constructors::xs_day_time_duration_fn::<N>);
     reg_ns!(
         crate::consts::XS,
         "yearMonthDuration",
         1,
         constructors::xs_year_month_duration_fn::<N>,
     );
-    reg_ns!(
-        crate::consts::XS,
-        "gYear",
-        1,
-        constructors::xs_g_year_fn::<N>
-    );
-    reg_ns!(
-        crate::consts::XS,
-        "gYearMonth",
-        1,
-        constructors::xs_g_year_month_fn::<N>
-    );
-    reg_ns!(
-        crate::consts::XS,
-        "gMonth",
-        1,
-        constructors::xs_g_month_fn::<N>
-    );
-    reg_ns!(
-        crate::consts::XS,
-        "gMonthDay",
-        1,
-        constructors::xs_g_month_day_fn::<N>
-    );
+    reg_ns!(crate::consts::XS, "gYear", 1, constructors::xs_g_year_fn::<N>);
+    reg_ns!(crate::consts::XS, "gYearMonth", 1, constructors::xs_g_year_month_fn::<N>);
+    reg_ns!(crate::consts::XS, "gMonth", 1, constructors::xs_g_month_fn::<N>);
+    reg_ns!(crate::consts::XS, "gMonthDay", 1, constructors::xs_g_month_day_fn::<N>);
     reg_ns!(crate::consts::XS, "gDay", 1, constructors::xs_g_day_fn::<N>);
     reg_ns!(crate::consts::XS, "long", 1, constructors::xs_long_fn::<N>);
     reg_ns!(crate::consts::XS, "int", 1, constructors::xs_int_fn::<N>);
-    reg_ns!(
-        crate::consts::XS,
-        "short",
-        1,
-        constructors::xs_short_fn::<N>
-    );
+    reg_ns!(crate::consts::XS, "short", 1, constructors::xs_short_fn::<N>);
     reg_ns!(crate::consts::XS, "byte", 1, constructors::xs_byte_fn::<N>);
-    reg_ns!(
-        crate::consts::XS,
-        "unsignedLong",
-        1,
-        constructors::xs_unsigned_long_fn::<N>
-    );
-    reg_ns!(
-        crate::consts::XS,
-        "unsignedInt",
-        1,
-        constructors::xs_unsigned_int_fn::<N>
-    );
-    reg_ns!(
-        crate::consts::XS,
-        "unsignedShort",
-        1,
-        constructors::xs_unsigned_short_fn::<N>,
-    );
-    reg_ns!(
-        crate::consts::XS,
-        "unsignedByte",
-        1,
-        constructors::xs_unsigned_byte_fn::<N>
-    );
+    reg_ns!(crate::consts::XS, "unsignedLong", 1, constructors::xs_unsigned_long_fn::<N>);
+    reg_ns!(crate::consts::XS, "unsignedInt", 1, constructors::xs_unsigned_int_fn::<N>);
+    reg_ns!(crate::consts::XS, "unsignedShort", 1, constructors::xs_unsigned_short_fn::<N>,);
+    reg_ns!(crate::consts::XS, "unsignedByte", 1, constructors::xs_unsigned_byte_fn::<N>);
     reg_ns!(
         crate::consts::XS,
         "nonPositiveInteger",
         1,
         constructors::xs_non_positive_integer_fn::<N>,
     );
-    reg_ns!(
-        crate::consts::XS,
-        "negativeInteger",
-        1,
-        constructors::xs_negative_integer_fn::<N>,
-    );
+    reg_ns!(crate::consts::XS, "negativeInteger", 1, constructors::xs_negative_integer_fn::<N>,);
     reg_ns!(
         crate::consts::XS,
         "nonNegativeInteger",
         1,
         constructors::xs_non_negative_integer_fn::<N>,
     );
-    reg_ns!(
-        crate::consts::XS,
-        "positiveInteger",
-        1,
-        constructors::xs_positive_integer_fn::<N>,
-    );
-    reg_ns!(
-        crate::consts::XS,
-        "normalizedString",
-        1,
-        constructors::xs_normalized_string_fn::<N>,
-    );
-    reg_ns!(
-        crate::consts::XS,
-        "token",
-        1,
-        constructors::xs_token_fn::<N>
-    );
-    reg_ns!(
-        crate::consts::XS,
-        "language",
-        1,
-        constructors::xs_language_fn::<N>
-    );
+    reg_ns!(crate::consts::XS, "positiveInteger", 1, constructors::xs_positive_integer_fn::<N>,);
+    reg_ns!(crate::consts::XS, "normalizedString", 1, constructors::xs_normalized_string_fn::<N>,);
+    reg_ns!(crate::consts::XS, "token", 1, constructors::xs_token_fn::<N>);
+    reg_ns!(crate::consts::XS, "language", 1, constructors::xs_language_fn::<N>);
     reg_ns!(crate::consts::XS, "Name", 1, constructors::xs_name_fn::<N>);
-    reg_ns!(
-        crate::consts::XS,
-        "NCName",
-        1,
-        constructors::xs_ncname_fn::<N>
-    );
-    reg_ns!(
-        crate::consts::XS,
-        "NMTOKEN",
-        1,
-        constructors::xs_nmtoken_fn::<N>
-    );
+    reg_ns!(crate::consts::XS, "NCName", 1, constructors::xs_ncname_fn::<N>);
+    reg_ns!(crate::consts::XS, "NMTOKEN", 1, constructors::xs_nmtoken_fn::<N>);
     reg_ns!(crate::consts::XS, "ID", 1, constructors::xs_id_fn::<N>);
-    reg_ns!(
-        crate::consts::XS,
-        "IDREF",
-        1,
-        constructors::xs_idref_fn::<N>
-    );
-    reg_ns!(
-        crate::consts::XS,
-        "ENTITY",
-        1,
-        constructors::xs_entity_fn::<N>
-    );
-    reg_ns!(
-        crate::consts::XS,
-        "NOTATION",
-        1,
-        constructors::xs_notation_fn::<N>
-    );
+    reg_ns!(crate::consts::XS, "IDREF", 1, constructors::xs_idref_fn::<N>);
+    reg_ns!(crate::consts::XS, "ENTITY", 1, constructors::xs_entity_fn::<N>);
+    reg_ns!(crate::consts::XS, "NOTATION", 1, constructors::xs_notation_fn::<N>);
 }
 
 pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNode + Clone>()
 -> Arc<FunctionImplementations<N>> {
     static CACHE: OnceLock<Mutex<HashMap<TypeId, Box<dyn Any + Send + Sync>>>> = OnceLock::new();
     let map = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = map
-        .lock()
-        .expect("default function registry cache poisoned");
+    let mut guard = map.lock().expect("default function registry cache poisoned");
     let type_id = TypeId::of::<N>();
     if let Some(existing) = guard.get(&type_id) {
         let arc = existing

@@ -20,9 +20,7 @@ fn streaming_child_axis_iterates_in_order() {
         )
         .build();
     let root = document.children().next().unwrap();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(root.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
 
     let stream = evaluate_stream_expr::<N>("child::item", &ctx).expect("stream eval succeeds");
     let mut iter = stream.iter();
@@ -53,9 +51,7 @@ fn streaming_iter_is_repeatable_and_matches_eager() {
                 .child(elem("item").child(text("gamma"))),
         )
         .build();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     let stream = evaluate_stream_expr::<N>("//item", &ctx).expect("stream eval succeeds");
     // First pass
@@ -124,9 +120,7 @@ fn streaming_predicate_last_on_nodes() {
         )
         .build();
     let root = document.children().next().unwrap();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(root.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
 
     let stream =
         evaluate_stream_expr::<N>("child::item[position() = last()]", &ctx).expect("stream eval");
@@ -152,9 +146,7 @@ fn streaming_nested_predicates_position_tracking() {
         )
         .build();
     let root = document.children().next().unwrap();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(root.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
 
     let expr = "child::item[position() <= 3][position() = last()]";
     let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval");
@@ -179,9 +171,7 @@ fn streaming_path_expr_step_flatmaps_lazily() {
         )
         .build();
     let root = document.children().next().unwrap();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(root.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
 
     let stream = evaluate_stream_expr::<N>("child::item/child::text()", &ctx).expect("stream eval");
     let via_stream: Vec<_> = stream
@@ -205,9 +195,7 @@ fn streaming_union_preserves_doc_order() {
                 .child(elem("item").child(text("four"))),
         )
         .build();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     let expr = "(/root/item[position() = 3]) union (/root/item[position() = 1])";
     let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval");
@@ -241,9 +229,7 @@ fn streaming_intersect_matches_eager() {
                 .child(elem("item").child(text("three"))),
         )
         .build();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     let expr = "/root/item intersect /root/item[position() = 2]";
     let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval");
@@ -277,9 +263,7 @@ fn streaming_except_filters_nodes() {
                 .child(elem("item").child(text("three"))),
         )
         .build();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     let expr = "/root/item except /root/item[position() = 2]";
     let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval");
@@ -311,9 +295,7 @@ fn streaming_union_large_dataset() {
         root_builder = root_builder.child(elem("item").child(text(&value)));
     }
     let document = doc().child(root_builder).build();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     let expr = "(/root/item[position() <= 150]) union (/root/item[position() > 50])";
     let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval");
@@ -349,9 +331,7 @@ fn streaming_for_loop_matches_eager() {
                 .child(elem("item").child(text("three"))),
         )
         .build();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     let expr = "for $x in /root/item return $x/text()";
     let via_stream: Vec<_> = evaluate_stream_expr::<N>(expr, &ctx)
@@ -383,9 +363,7 @@ fn streaming_quantifiers_match_eager() {
                 .child(elem("item").child(text("gamma"))),
         )
         .build();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     let expr_some = "some $x in /root/item satisfies $x/text() = 'beta'";
     let expr_every = "every $x in /root/item satisfies string-length($x/text()) > 0";
@@ -450,8 +428,5 @@ fn streaming_cancellation_triggers_error() {
     let err = evaluate_stream_expr::<N>("for $x in /root/item return $x", &ctx)
         .err()
         .expect("evaluation should cancel");
-    assert_eq!(
-        err.code_enum(),
-        platynui_xpath::engine::runtime::ErrorCode::FOER0000
-    );
+    assert_eq!(err.code_enum(), platynui_xpath::engine::runtime::ErrorCode::FOER0000);
 }

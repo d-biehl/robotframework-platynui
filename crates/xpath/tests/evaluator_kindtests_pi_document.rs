@@ -8,20 +8,14 @@ type N = platynui_xpath::model::simple::SimpleNode;
 #[rstest]
 fn processing_instruction_target_filter() {
     // <root><?go data?></root>
-    let root = elem("root")
-        .child(platynui_xpath::model::simple::SimpleNode::pi("go", "data"))
-        .build();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(root.clone())
-        .build();
+    let root =
+        elem("root").child(platynui_xpath::model::simple::SimpleNode::pi("go", "data")).build();
+    let ctx = DynamicContextBuilder::default().with_context_item(root.clone()).build();
     let seq = evaluate_expr::<N>("child::processing-instruction('go')", &ctx).unwrap();
     assert_eq!(seq.len(), 1);
     match &seq[0] {
         XdmItem::Node(n) => {
-            assert!(matches!(
-                n.kind(),
-                platynui_xpath::model::NodeKind::ProcessingInstruction
-            ));
+            assert!(matches!(n.kind(), platynui_xpath::model::NodeKind::ProcessingInstruction));
             let nm = n.name().unwrap();
             assert_eq!(nm.local, "go");
         }
@@ -36,18 +30,13 @@ fn processing_instruction_target_filter() {
 fn document_node_inner_test_matches_document_element() {
     // doc(root(child))
     let document = doc().child(elem("root").child(elem("child"))).build();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(document.clone())
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(document.clone()).build();
     // self::document-node(element(root)) should match the document node
     let out = evaluate_expr::<N>("self::document-node(element(root))", &ctx).unwrap();
     assert_eq!(out.len(), 1);
     match &out[0] {
         XdmItem::Node(n) => {
-            assert!(matches!(
-                n.kind(),
-                platynui_xpath::model::NodeKind::Document
-            ));
+            assert!(matches!(n.kind(), platynui_xpath::model::NodeKind::Document));
             // Ensure its first child is <root>
             let ch: Vec<_> = n.children().collect();
             assert!(!ch.is_empty());

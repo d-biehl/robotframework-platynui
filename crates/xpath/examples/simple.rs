@@ -42,9 +42,7 @@ fn main() {
 
     println!("Compiled: {}", compiled);
 
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(XdmItem::Node(doc_node))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc_node)).build();
     let result = evaluate::<SimpleNode>(&compiled, &ctx);
     match result {
         Ok(v) => println!("{}", PrettyNodeSeq::new(&v)),

@@ -55,11 +55,7 @@ pub(super) fn id_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
                 "fn:id second argument must be at most one node",
             ));
         }
-        if args[1].is_empty() {
-            None
-        } else {
-            Some(args[1][0].clone())
-        }
+        if args[1].is_empty() { None } else { Some(args[1][0].clone()) }
     } else {
         Some(require_context_item(ctx)?)
     };
@@ -134,11 +130,7 @@ pub(super) fn element_with_id_fn<N: 'static + Send + Sync + crate::model::XdmNod
                 "fn:element-with-id second argument must be at most one node",
             ));
         }
-        if args[1].is_empty() {
-            None
-        } else {
-            Some(args[1][0].clone())
-        }
+        if args[1].is_empty() { None } else { Some(args[1][0].clone()) }
     } else {
         Some(require_context_item(ctx)?)
     };
@@ -169,11 +161,7 @@ pub(super) fn idref_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>
                 "fn:idref second argument must be at most one node",
             ));
         }
-        if args[1].is_empty() {
-            None
-        } else {
-            Some(args[1][0].clone())
-        }
+        if args[1].is_empty() { None } else { Some(args[1][0].clone()) }
     } else {
         Some(require_context_item(ctx)?)
     };

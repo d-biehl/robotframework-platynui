@@ -30,10 +30,7 @@ fn treat_success_scalar_int(#[case] expr: &str, #[case] expect: &str) {
     assert_eq!(r.len(), 1);
     // Fallback Debug formatting since Display not implemented; rely on Debug string containing the literal
     let dbg = format!("{:?}", &r[0]);
-    assert!(
-        dbg.contains(expect),
-        "debug repr {dbg} did not contain {expect}"
-    );
+    assert!(dbg.contains(expect), "debug repr {dbg} did not contain {expect}");
 }
 
 #[rstest]

@@ -8,9 +8,7 @@ use rstest::rstest;
 fn ctx()
 -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     let root = doc().child(elem("r").child(text("x"))).build();
-    DynamicContextBuilder::default()
-        .with_context_item(root)
-        .build()
+    DynamicContextBuilder::default().with_context_item(root).build()
 }
 
 #[rstest]
@@ -26,10 +24,7 @@ fn exactly_one_error() {
     let c = ctx();
     let err = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("exactly-one((1,2))", &c)
         .unwrap_err();
-    assert_eq!(
-        err.code_enum(),
-        platynui_xpath::engine::runtime::ErrorCode::FORG0005
-    );
+    assert_eq!(err.code_enum(), platynui_xpath::engine::runtime::ErrorCode::FORG0005);
 }
 
 #[rstest]
@@ -45,10 +40,7 @@ fn one_or_more_error() {
     let c = ctx();
     let err = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("one-or-more(())", &c)
         .unwrap_err();
-    assert_eq!(
-        err.code_enum(),
-        platynui_xpath::engine::runtime::ErrorCode::FORG0004
-    );
+    assert_eq!(err.code_enum(), platynui_xpath::engine::runtime::ErrorCode::FORG0004);
 }
 
 #[rstest]
@@ -64,8 +56,5 @@ fn zero_or_one_error() {
     let c = ctx();
     let err = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("zero-or-one((1,2))", &c)
         .unwrap_err();
-    assert_eq!(
-        err.code_enum(),
-        platynui_xpath::engine::runtime::ErrorCode::FORG0004
-    );
+    assert_eq!(err.code_enum(), platynui_xpath::engine::runtime::ErrorCode::FORG0004);
 }

@@ -20,16 +20,14 @@ fn create_large_html_document() -> SimpleNode {
             .attr(attr("id", &format!("section-{}", i)));
 
         for j in 0..20 {
-            let mut div_builder = elem("div")
-                .attr(attr("class", "content"))
-                .attr(attr("data-index", &j.to_string()));
+            let mut div_builder =
+                elem("div").attr(attr("class", "content")).attr(attr("data-index", &j.to_string()));
 
             let p_builder =
                 elem("p").child(text(&format!("Content paragraph {} in section {}", j, i)));
 
-            let span_builder = elem("span")
-                .attr(attr("class", "highlight"))
-                .child(text("highlighted text"));
+            let span_builder =
+                elem("span").attr(attr("class", "highlight")).child(text("highlighted text"));
 
             div_builder = div_builder.child(p_builder).child(span_builder);
             section_builder = section_builder.child(div_builder);
@@ -63,18 +61,14 @@ fn benchmark_string_operations(c: &mut Criterion) {
     ];
 
     for (xpath, description) in test_cases {
-        group.bench_with_input(
-            BenchmarkId::new("xpath", description),
-            &xpath,
-            |b, xpath_str| {
-                let compiled = compile(xpath_str).unwrap();
+        group.bench_with_input(BenchmarkId::new("xpath", description), &xpath, |b, xpath_str| {
+            let compiled = compile(xpath_str).unwrap();
 
-                b.iter(|| {
-                    let result = evaluate(&compiled, black_box(&ctx)).unwrap();
-                    black_box(result.len())
-                });
-            },
-        );
+            b.iter(|| {
+                let result = evaluate(&compiled, black_box(&ctx)).unwrap();
+                black_box(result.len())
+            });
+        });
     }
 
     group.finish();
@@ -89,14 +83,7 @@ fn benchmark_name_comparisons(c: &mut Criterion) {
     let mut group = c.benchmark_group("name_comparison");
 
     // Test frequent name patterns that should benefit from interning
-    let frequent_patterns = vec![
-        "//div",
-        "//span",
-        "//p",
-        "//section",
-        "//*[@class]",
-        "//*[@id]",
-    ];
+    let frequent_patterns = vec!["//div", "//span", "//p", "//section", "//*[@class]", "//*[@id]"];
 
     for pattern in frequent_patterns {
         group.bench_with_input(

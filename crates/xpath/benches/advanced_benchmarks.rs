@@ -10,28 +10,14 @@ use std::time::Duration;
 // Benchmark complex string operations and manipulations
 fn benchmark_string_operations(c: &mut Criterion) {
     let document = build_string_heavy_document();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     let string_queries = vec![
-        (
-            "concat",
-            "concat(//text[1], //text[2], //text[3], //text[4], //text[5])",
-        ),
-        (
-            "substring",
-            "substring(//text[position() mod 10 = 0], 1, 20)",
-        ),
+        ("concat", "concat(//text[1], //text[2], //text[3], //text[4], //text[5])"),
+        ("substring", "substring(//text[position() mod 10 = 0], 1, 20)"),
         ("contains_many", "count(//text[contains(., 'specific')])"),
-        (
-            "string_length",
-            "sum(for $t in //text return string-length($t))",
-        ),
-        (
-            "normalize_space",
-            "normalize-space(string-join(//text, ' '))",
-        ),
+        ("string_length", "sum(for $t in //text return string-length($t))"),
+        ("normalize_space", "normalize-space(string-join(//text, ' '))"),
         ("starts_with", "count(//text[starts-with(., 'Text')])"),
         ("ends_with", "count(//text[ends-with(., 'end')])"),
         ("translate", "translate(//text[1], 'aeiou', 'AEIOU')"),
@@ -58,36 +44,16 @@ fn benchmark_string_operations(c: &mut Criterion) {
 // Benchmark node comparison and ordering performance
 fn benchmark_node_operations(c: &mut Criterion) {
     let document = build_deep_document(8, 10); // 8 levels deep, 10 children per level
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     let node_queries = vec![
-        (
-            "large_union",
-            "(//*[@level='1'] | //*[@level='2'] | //*[@level='3'] | //*[@level='4'])",
-        ),
-        (
-            "complex_intersect",
-            "(//*[@type='even'] intersect //*[@level > '2'])",
-        ),
-        (
-            "multiple_except",
-            "((//* except //*[@type='odd']) except //*[@level > '5'])",
-        ),
+        ("large_union", "(//*[@level='1'] | //*[@level='2'] | //*[@level='3'] | //*[@level='4'])"),
+        ("complex_intersect", "(//*[@type='even'] intersect //*[@level > '2'])"),
+        ("multiple_except", "((//* except //*[@type='odd']) except //*[@level > '5'])"),
         ("doc_order_large", "(//*)[position() <= 1000]"),
-        (
-            "deep_comparison",
-            "for $a in //*[@level='1'] return count($a/descendant-or-self::*)",
-        ),
-        (
-            "sibling_comparison",
-            "count(//node[@level='4']/preceding-sibling::node)",
-        ),
-        (
-            "ancestor_comparison",
-            "count(//node[@level='6']/ancestor::node)",
-        ),
+        ("deep_comparison", "for $a in //*[@level='1'] return count($a/descendant-or-self::*)"),
+        ("sibling_comparison", "count(//node[@level='4']/preceding-sibling::node)"),
+        ("ancestor_comparison", "count(//node[@level='6']/ancestor::node)"),
     ];
 
     let mut group = c.benchmark_group("node_operations");
@@ -110,21 +76,13 @@ fn benchmark_node_operations(c: &mut Criterion) {
 // Benchmark numeric computations and aggregations
 fn benchmark_numeric_operations(c: &mut Criterion) {
     let document = build_numeric_document();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     let numeric_queries = vec![
         ("large_sum", "sum(//number/@value)"),
-        (
-            "complex_avg",
-            "avg(for $n in //number return $n/@value * 2 + 1)",
-        ),
+        ("complex_avg", "avg(for $n in //number return $n/@value * 2 + 1)"),
         ("min_max", "max(//number/@value) - min(//number/@value)"),
-        (
-            "arithmetic_sequence",
-            "sum(for $i in 1 to 1000 return $i * $i)",
-        ),
+        ("arithmetic_sequence", "sum(for $i in 1 to 1000 return $i * $i)"),
         (
             "conditional_sum",
             "sum(for $n in //number return if ($n/@value mod 2 = 0) then $n/@value else 0)",
@@ -133,10 +91,7 @@ fn benchmark_numeric_operations(c: &mut Criterion) {
             "nested_calculations",
             "sum(for $s in //section return count($s/number) * avg($s/number/@value))",
         ),
-        (
-            "floor_ceiling",
-            "sum(for $n in //number return floor($n/@value) + ceiling($n/@value))",
-        ),
+        ("floor_ceiling", "sum(for $n in //number return floor($n/@value) + ceiling($n/@value))"),
     ];
 
     let mut group = c.benchmark_group("numeric_operations");
@@ -160,23 +115,12 @@ fn benchmark_numeric_operations(c: &mut Criterion) {
 // Benchmark nested predicate and complex filtering scenarios
 fn benchmark_complex_predicates(c: &mut Criterion) {
     let document = build_complex_predicate_document();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     let predicate_queries = vec![
-        (
-            "nested_position",
-            "//item[position() > 5][position() < 10][position() mod 2 = 0]",
-        ),
-        (
-            "multiple_attributes",
-            "//item[@type='special'][@category='important'][@status='active']",
-        ),
-        (
-            "existential_quantifier",
-            "//section[some $item in item satisfies $item/@value > 100]",
-        ),
+        ("nested_position", "//item[position() > 5][position() < 10][position() mod 2 = 0]"),
+        ("multiple_attributes", "//item[@type='special'][@category='important'][@status='active']"),
+        ("existential_quantifier", "//section[some $item in item satisfies $item/@value > 100]"),
         (
             "universal_quantifier",
             "//section[every $item in item satisfies $item/@status = 'active']",
@@ -215,9 +159,7 @@ fn benchmark_complex_predicates(c: &mut Criterion) {
 // Benchmark memory allocation patterns with large result sets
 fn benchmark_memory_patterns(c: &mut Criterion) {
     let document = build_wide_document(1000, 50); // 1000 sections, 50 items each
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     let memory_queries = vec![
         ("large_result_set", "//item"),
@@ -229,10 +171,7 @@ fn benchmark_memory_patterns(c: &mut Criterion) {
             "(//item/following-sibling::item | //item/preceding-sibling::item)",
         ),
         ("for_loop_memory", "for $i in //item return $i/@id"),
-        (
-            "sequence_construction",
-            "for $s in //section return $s/item",
-        ),
+        ("sequence_construction", "for $s in //section return $s/item"),
     ];
 
     let mut group = c.benchmark_group("memory_patterns");
@@ -258,13 +197,9 @@ fn build_string_heavy_document() -> SimpleNode {
     let mut root_builder = elem("root");
 
     for i in 0..1000 {
-        let text_content = format!(
-            "Text content number {} with some specific keywords and patterns that end",
-            i
-        );
-        let node = elem("text")
-            .attr(attr("id", &format!("text-{}", i)))
-            .child(text(&text_content));
+        let text_content =
+            format!("Text content number {} with some specific keywords and patterns that end", i);
+        let node = elem("text").attr(attr("id", &format!("text-{}", i))).child(text(&text_content));
         root_builder = root_builder.child(node);
     }
 
@@ -307,13 +242,8 @@ fn build_deep_document(max_depth: usize, children_per_level: usize) -> SimpleNod
         parent
     }
 
-    root_builder = add_children_recursive(
-        root_builder,
-        0,
-        max_depth,
-        children_per_level,
-        &mut node_counter,
-    );
+    root_builder =
+        add_children_recursive(root_builder, 0, max_depth, children_per_level, &mut node_counter);
     simple_doc().child(root_builder).build()
 }
 
@@ -346,10 +276,7 @@ fn build_complex_predicate_document() -> SimpleNode {
     for section_id in 0..50 {
         let mut section_builder = elem("section")
             .attr(attr("id", &format!("section-{}", section_id)))
-            .attr(attr(
-                "type",
-                if section_id < 25 { "main" } else { "secondary" },
-            ));
+            .attr(attr("type", if section_id < 25 { "main" } else { "secondary" }));
 
         if section_id % 10 == 0 {
             let summary = elem("summary").child(text(if section_id % 20 == 0 {
@@ -365,10 +292,7 @@ fn build_complex_predicate_document() -> SimpleNode {
             let mut item_builder = elem("item")
                 .attr(attr("id", &format!("item-{}-{}", section_id, item_id)))
                 .attr(attr("value", &value.to_string()))
-                .attr(attr(
-                    "status",
-                    if value % 7 == 0 { "active" } else { "inactive" },
-                ));
+                .attr(attr("status", if value % 7 == 0 { "active" } else { "inactive" }));
 
             if item_id % 5 == 0 {
                 item_builder = item_builder.attr(attr("type", "special"));
@@ -403,10 +327,7 @@ fn build_wide_document(num_sections: usize, items_per_section: usize) -> SimpleN
         for item_id in 0..items_per_section {
             let item = elem("item")
                 .attr(attr("id", &format!("item-{}-{}", section_id, item_id)))
-                .child(text(&format!(
-                    "Content for item {} in section {}",
-                    item_id, section_id
-                )));
+                .child(text(&format!("Content for item {} in section {}", item_id, section_id)));
             section_builder = section_builder.child(item);
         }
 

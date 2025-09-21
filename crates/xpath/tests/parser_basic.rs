@@ -16,14 +16,8 @@ fn literal_numbers_strings() {
         ast::Expr::Literal(ast::Literal::Double(_)) => {}
         _ => panic!(),
     }
-    assert_eq!(
-        parse("'a'"),
-        ast::Expr::Literal(ast::Literal::String("a".into()))
-    );
-    assert_eq!(
-        parse("\"a\""),
-        ast::Expr::Literal(ast::Literal::String("a".into()))
-    );
+    assert_eq!(parse("'a'"), ast::Expr::Literal(ast::Literal::String("a".into())));
+    assert_eq!(parse("\"a\""), ast::Expr::Literal(ast::Literal::String("a".into())));
 }
 
 #[rstest]
@@ -31,10 +25,7 @@ fn arithmetic_and_logic() {
     let e = parse("1 + 2 * 3");
     // Expect (1 + (2 * 3))
     match e {
-        ast::Expr::Binary {
-            op: ast::BinaryOp::Add,
-            ..
-        } => {}
+        ast::Expr::Binary { op: ast::BinaryOp::Add, .. } => {}
         _ => panic!("wrong shape"),
     }
     let e = parse("1 to 3");
@@ -44,10 +35,7 @@ fn arithmetic_and_logic() {
     }
     let e = parse("true() and false() or true()");
     match e {
-        ast::Expr::Binary {
-            op: ast::BinaryOp::Or,
-            ..
-        } => {}
+        ast::Expr::Binary { op: ast::BinaryOp::Or, .. } => {}
         _ => panic!(),
     }
 }
@@ -151,18 +139,12 @@ fn if_some_every_for() {
     }
     let e = parse("some $x in (1,2) satisfies $x gt 1");
     match e {
-        ast::Expr::Quantified {
-            kind: ast::Quantifier::Some,
-            ..
-        } => {}
+        ast::Expr::Quantified { kind: ast::Quantifier::Some, .. } => {}
         _ => panic!(),
     }
     let e = parse("every $x in (1,2) satisfies $x ge 1");
     match e {
-        ast::Expr::Quantified {
-            kind: ast::Quantifier::Every,
-            ..
-        } => {}
+        ast::Expr::Quantified { kind: ast::Quantifier::Every, .. } => {}
         _ => panic!(),
     }
     let e = parse("for $x in (1,2) return $x");

@@ -32,10 +32,7 @@ pub(super) fn ebv<N>(seq: &XdmSequence<N>) -> Result<bool, Error> {
             )),
             XdmItem::Node(_) => Ok(true),
         },
-        _ => Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "EBV of sequence with more than one item",
-        )),
+        _ => Err(Error::from_code(ErrorCode::FORG0006, "EBV of sequence with more than one item")),
     }
 }
 
@@ -90,18 +87,18 @@ pub(super) fn data_default<N: 'static + Send + Sync + crate::model::XdmNode + Cl
         for it in seq {
             match it {
                 XdmItem::Atomic(a) => out.push(XdmItem::Atomic(a.clone())),
-                XdmItem::Node(n) => out.push(XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(
-                    n.string_value(),
-                ))),
+                XdmItem::Node(n) => {
+                    out.push(XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(n.string_value())))
+                }
             }
         }
         Ok(out)
     } else {
         match require_context_item(ctx)? {
             XdmItem::Atomic(a) => Ok(vec![XdmItem::Atomic(a)]),
-            XdmItem::Node(n) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(
-                n.string_value(),
-            ))]),
+            XdmItem::Node(n) => {
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(n.string_value()))])
+            }
         }
     }
 }
@@ -111,11 +108,8 @@ pub(super) fn number_default<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     arg_opt: Option<&XdmSequence<N>>,
 ) -> Result<XdmSequence<N>, Error> {
-    let seq: XdmSequence<N> = if let Some(s) = arg_opt {
-        s.clone()
-    } else {
-        vec![require_context_item(ctx)?]
-    };
+    let seq: XdmSequence<N> =
+        if let Some(s) = arg_opt { s.clone() } else { vec![require_context_item(ctx)?] };
     let n = to_number(&seq).unwrap_or(f64::NAN);
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(n))])
 }
@@ -193,11 +187,7 @@ pub(super) fn substring_default(s: &str, start_raw: f64, len_raw_opt: Option<f64
         }
         let chars: Vec<char> = s.chars().collect();
         let total = chars.len() as isize;
-        let first_pos: isize = if start_rounded < 1.0 {
-            1
-        } else {
-            start_rounded as isize
-        };
+        let first_pos: isize = if start_rounded < 1.0 { 1 } else { start_rounded as isize };
         let mut last_pos: isize = first_pos + len_rounded as isize - 1;
         if first_pos > total {
             return String::new();
@@ -242,10 +232,7 @@ pub(super) fn node_name_default<N: crate::model::XdmNode + Clone>(
                 Ok(vec![])
             }
         }
-        _ => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "node-name expects node()",
-        )),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "node-name expects node()")),
     }
 }
 
@@ -335,11 +322,7 @@ pub(super) fn subsequence_default<N: crate::model::XdmNode + Clone>(
             return Ok(vec![]);
         }
         let total = seq.len() as isize;
-        let first_pos: isize = if start_rounded < 1.0 {
-            1
-        } else {
-            start_rounded as isize
-        };
+        let first_pos: isize = if start_rounded < 1.0 { 1 } else { start_rounded as isize };
         let last_pos = first_pos + len_rounded as isize - 1;
         if first_pos > total {
             return Ok(vec![]);
@@ -347,12 +330,7 @@ pub(super) fn subsequence_default<N: crate::model::XdmNode + Clone>(
         let last_pos = last_pos.min(total);
         let from_index = (first_pos - 1).max(0) as usize;
         let to_index_exclusive = last_pos as usize;
-        Ok(seq
-            .iter()
-            .skip(from_index)
-            .take(to_index_exclusive - from_index)
-            .cloned()
-            .collect())
+        Ok(seq.iter().skip(from_index).take(to_index_exclusive - from_index).cloned().collect())
     } else {
         if start_rounded <= 1.0 {
             return Ok(seq.clone());
@@ -417,10 +395,7 @@ pub(super) fn tokenize_default<N: crate::model::XdmNode + Clone>(
     let pat = item_to_string(pattern);
     let flags = flags_opt.unwrap_or("");
     let parts = regex_tokenize(ctx, &inp, &pat, flags)?;
-    Ok(parts
-        .into_iter()
-        .map(|s| XdmItem::Atomic(XdmAtomicValue::String(s)))
-        .collect())
+    Ok(parts.into_iter().map(|s| XdmItem::Atomic(XdmAtomicValue::String(s))).collect())
 }
 
 // Default for sum($seq[, $zero])
@@ -445,33 +420,19 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
     }
     enum SumState {
         None,
-        Numeric {
-            kind: NumericKind,
-            use_int: bool,
-            int_acc: i128,
-            dec_acc: f64,
-        },
-        YearMonth {
-            total: i64,
-        },
-        DayTime {
-            total: i128,
-        },
+        Numeric { kind: NumericKind, use_int: bool, int_acc: i128, dec_acc: f64 },
+        YearMonth { total: i64 },
+        DayTime { total: i128 },
     }
     let mut state = SumState::None;
     for it in seq {
         let XdmItem::Atomic(a) = it else {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "sum requires atomic values",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "sum requires atomic values"));
         };
         match a {
             XdmAtomicValue::YearMonthDuration(months) => {
                 state = match state {
-                    SumState::None => SumState::YearMonth {
-                        total: *months as i64,
-                    },
+                    SumState::None => SumState::YearMonth { total: *months as i64 },
                     SumState::YearMonth { total } => SumState::YearMonth {
                         total: total.checked_add(*months as i64).ok_or_else(|| {
                             Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow")
@@ -482,9 +443,7 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
             }
             XdmAtomicValue::DayTimeDuration(secs) => {
                 state = match state {
-                    SumState::None => SumState::DayTime {
-                        total: *secs as i128,
-                    },
+                    SumState::None => SumState::DayTime { total: *secs as i128 },
                     SumState::DayTime { total } => SumState::DayTime {
                         total: total.checked_add(*secs as i128).ok_or_else(|| {
                             Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow")
@@ -513,12 +472,7 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
                                 num
                             },
                         },
-                        SumState::Numeric {
-                            mut kind,
-                            mut use_int,
-                            mut int_acc,
-                            mut dec_acc,
-                        } => {
+                        SumState::Numeric { mut kind, mut use_int, mut int_acc, mut dec_acc } => {
                             kind = kind.promote(nk);
                             if matches!(nk, NumericKind::Integer) && use_int {
                                 if let Some(i) = a_as_i128(a) {
@@ -536,12 +490,7 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
                                 }
                                 dec_acc += num;
                             }
-                            SumState::Numeric {
-                                kind,
-                                use_int,
-                                int_acc,
-                                dec_acc,
-                            }
+                            SumState::Numeric { kind, use_int, int_acc, dec_acc }
                         }
                         _ => {
                             return Err(Error::from_code(
@@ -561,12 +510,7 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
     }
     let result = match state {
         SumState::None => XdmAtomicValue::Integer(0),
-        SumState::Numeric {
-            kind,
-            use_int,
-            int_acc,
-            dec_acc,
-        } => {
+        SumState::Numeric { kind, use_int, int_acc, dec_acc } => {
             if use_int && matches!(kind, NumericKind::Integer) {
                 XdmAtomicValue::Integer(int_acc as i64)
             } else {
@@ -601,11 +545,7 @@ pub(super) fn name_default<N: crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     use crate::model::NodeKind;
     let target_opt = if let Some(seq) = arg_opt {
-        if seq.is_empty() {
-            None
-        } else {
-            Some(seq[0].clone())
-        }
+        if seq.is_empty() { None } else { Some(seq[0].clone()) }
     } else {
         Some(require_context_item(ctx)?)
     };
@@ -624,10 +564,7 @@ pub(super) fn name_default<N: crate::model::XdmNode + Clone>(
             })
             .unwrap_or_default(),
         Some(_) => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "name() expects node()",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "name() expects node()"));
         }
     };
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
@@ -639,11 +576,7 @@ pub(super) fn local_name_default<N: crate::model::XdmNode + Clone>(
     arg_opt: Option<&XdmSequence<N>>,
 ) -> Result<XdmSequence<N>, Error> {
     let target_opt = if let Some(seq) = arg_opt {
-        if seq.is_empty() {
-            None
-        } else {
-            Some(seq[0].clone())
-        }
+        if seq.is_empty() { None } else { Some(seq[0].clone()) }
     } else {
         Some(require_context_item(ctx)?)
     };
@@ -651,10 +584,7 @@ pub(super) fn local_name_default<N: crate::model::XdmNode + Clone>(
         None => String::new(),
         Some(XdmItem::Node(n)) => n.name().map(|q| q.local).unwrap_or_default(),
         Some(_) => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "local-name() expects node()",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "local-name() expects node()"));
         }
     };
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
@@ -779,11 +709,7 @@ pub(super) fn error_default<N: crate::model::XdmNode>(
         2 => {
             let code = item_to_string(&args[0]);
             let desc = item_to_string(&args[1]);
-            let msg = if desc.is_empty() {
-                "fn:error".to_string()
-            } else {
-                desc
-            };
+            let msg = if desc.is_empty() { "fn:error".to_string() } else { desc };
             if code.is_empty() {
                 Err(Error::from_code(ErrorCode::FOER0000, msg))
             } else {
@@ -794,11 +720,7 @@ pub(super) fn error_default<N: crate::model::XdmNode>(
             // 3 or more: third arg (data) ignored for now
             let code = item_to_string(&args[0]);
             let desc = item_to_string(&args[1]);
-            let msg = if desc.is_empty() {
-                "fn:error".to_string()
-            } else {
-                desc
-            };
+            let msg = if desc.is_empty() { "fn:error".to_string() } else { desc };
             if code.is_empty() {
                 Err(Error::from_code(ErrorCode::FOER0000, msg))
             } else {
@@ -875,33 +797,27 @@ pub(super) fn as_string(a: &XdmAtomicValue) -> String {
         | XdmAtomicValue::Entity(s)
         | XdmAtomicValue::Notation(s) => s.clone(),
         // g* date fragments: simple ISO-ish formatting
-        XdmAtomicValue::GYear { year, tz } => format!(
-            "{:04}{}",
-            year,
-            tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()
-        ),
+        XdmAtomicValue::GYear { year, tz } => {
+            format!("{:04}{}", year, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default())
+        }
         XdmAtomicValue::GYearMonth { year, month, tz } => format!(
             "{:04}-{:02}{}",
             year,
             month,
             tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()
         ),
-        XdmAtomicValue::GMonth { month, tz } => format!(
-            "--{:02}{}",
-            month,
-            tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()
-        ),
+        XdmAtomicValue::GMonth { month, tz } => {
+            format!("--{:02}{}", month, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default())
+        }
         XdmAtomicValue::GMonthDay { month, day, tz } => format!(
             "--{:02}-{:02}{}",
             month,
             day,
             tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()
         ),
-        XdmAtomicValue::GDay { day, tz } => format!(
-            "---{:02}{}",
-            day,
-            tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()
-        ),
+        XdmAtomicValue::GDay { day, tz } => {
+            format!("---{:02}{}", day, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default())
+        }
     }
 }
 
@@ -941,14 +857,13 @@ pub(super) fn to_number_atomic(a: &XdmAtomicValue) -> Result<f64, Error> {
         XdmAtomicValue::Decimal(d) => Ok(*d),
         XdmAtomicValue::UntypedAtomic(s)
         | XdmAtomicValue::String(s)
-        | XdmAtomicValue::AnyUri(s) => s
-            .parse::<f64>()
-            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid number")),
+        | XdmAtomicValue::AnyUri(s) => {
+            s.parse::<f64>().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid number"))
+        }
         XdmAtomicValue::Boolean(b) => Ok(if *b { 1.0 } else { 0.0 }),
-        XdmAtomicValue::QName { .. } => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "cannot cast QName to number",
-        )),
+        XdmAtomicValue::QName { .. } => {
+            Err(Error::from_code(ErrorCode::XPTY0004, "cannot cast QName to number"))
+        }
         XdmAtomicValue::DateTime(_)
         | XdmAtomicValue::Date { .. }
         | XdmAtomicValue::Time { .. }
@@ -970,10 +885,9 @@ pub(super) fn to_number_atomic(a: &XdmAtomicValue) -> Result<f64, Error> {
         | XdmAtomicValue::Id(_)
         | XdmAtomicValue::IdRef(_)
         | XdmAtomicValue::Entity(_)
-        | XdmAtomicValue::Notation(_) => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "cannot cast value to number",
-        )),
+        | XdmAtomicValue::Notation(_) => {
+            Err(Error::from_code(ErrorCode::XPTY0004, "cannot cast value to number"))
+        }
     }
 }
 
@@ -1355,21 +1269,13 @@ pub(super) fn round_half_to_even_f64(x: f64) -> f64 {
     const EPS: f64 = 1e-12; // tolerant epsilon for .5 detection
     let rounded_abs = if (frac - 0.5).abs() < EPS {
         // tie -> even
-        if ((floor as i64) & 1) == 0 {
-            floor
-        } else {
-            floor + 1.0
-        }
+        if ((floor as i64) & 1) == 0 { floor } else { floor + 1.0 }
     } else if frac < 0.5 {
         floor
     } else {
         floor + 1.0
     };
-    if x.is_sign_negative() {
-        -rounded_abs
-    } else {
-        rounded_abs
-    }
+    if x.is_sign_negative() { -rounded_abs } else { rounded_abs }
 }
 
 pub(super) fn minmax_impl<N: crate::model::XdmNode>(
@@ -1383,11 +1289,7 @@ pub(super) fn minmax_impl<N: crate::model::XdmNode>(
     }
     // numeric if all numeric, else string using collation (default or provided)
     let mut all_num = true;
-    let mut acc_num = if is_min {
-        f64::INFINITY
-    } else {
-        f64::NEG_INFINITY
-    };
+    let mut acc_num = if is_min { f64::INFINITY } else { f64::NEG_INFINITY };
     for it in seq {
         match it {
             XdmItem::Atomic(a) => match to_number_atomic(a) {
@@ -1395,11 +1297,7 @@ pub(super) fn minmax_impl<N: crate::model::XdmNode>(
                     if n.is_nan() {
                         return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
                     }
-                    if is_min {
-                        acc_num = acc_num.min(n)
-                    } else {
-                        acc_num = acc_num.max(n)
-                    }
+                    if is_min { acc_num = acc_num.min(n) } else { acc_num = acc_num.max(n) }
                 }
                 Err(_) => {
                     all_num = false;
@@ -1488,11 +1386,7 @@ pub(super) fn minmax_impl<N: crate::model::XdmNode>(
             };
             let ord = s.cmp(&acc);
             if is_min {
-                if ord == core::cmp::Ordering::Less {
-                    s
-                } else {
-                    acc
-                }
+                if ord == core::cmp::Ordering::Less { s } else { acc }
             } else if ord == core::cmp::Ordering::Greater {
                 s
             } else {
@@ -1605,11 +1499,7 @@ pub(super) fn now_in_effective_tz<N>(ctx: &CallCtx<N>) -> chrono::DateTime<chron
         let fixed = chrono::FixedOffset::east_opt(0).unwrap();
         utc.with_timezone(&fixed)
     };
-    if let Some(tz) = ctx.dyn_ctx.timezone_override {
-        base.with_timezone(&tz)
-    } else {
-        base
-    }
+    if let Some(tz) = ctx.dyn_ctx.timezone_override { base.with_timezone(&tz) } else { base }
 }
 
 // ===== Helpers for component functions =====
@@ -1784,13 +1674,7 @@ pub(super) fn collapse_whitespace(s: &str) -> String {
 
 pub(super) fn replace_whitespace(s: &str) -> String {
     s.chars()
-        .map(|c| {
-            if matches!(c, '\u{0009}' | '\u{000A}' | '\u{000D}') {
-                ' '
-            } else {
-                c
-            }
-        })
+        .map(|c| if matches!(c, '\u{0009}' | '\u{000A}' | '\u{000D}') { ' ' } else { c })
         .collect()
 }
 
@@ -1899,11 +1783,7 @@ pub(crate) fn parse_year_month_duration_months(s: &str) -> Result<i32, ()> {
     if !consumed_any || !cur.is_empty() {
         return Err(());
     }
-    let total = years
-        .checked_mul(12)
-        .ok_or(())?
-        .checked_add(months)
-        .ok_or(())?;
+    let total = years.checked_mul(12).ok_or(())?.checked_add(months).ok_or(())?;
     Ok(if neg { -total } else { total })
 }
 
@@ -1998,15 +1878,10 @@ pub(super) fn int_subtype_i64<N: crate::model::XdmNode>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]).trim().to_string();
-    let v: i64 = s
-        .parse()
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid integer"))?;
+    let v: i64 = s.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid integer"))?;
     if v < min || v > max {
         return Err(Error::from_code(ErrorCode::FORG0001, "out of range"));
     }
@@ -2023,21 +1898,14 @@ pub(super) fn uint_subtype_u128<N: crate::model::XdmNode>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]).trim().to_string();
     if s.starts_with('-') {
-        return Err(Error::from_code(
-            ErrorCode::FORG0001,
-            "negative not allowed",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0001, "negative not allowed"));
     }
-    let v: u128 = s
-        .parse()
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid unsigned integer"))?;
+    let v: u128 =
+        s.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid unsigned integer"))?;
     if v < min || v > max {
         return Err(Error::from_code(ErrorCode::FORG0001, "out of range"));
     }
@@ -2054,10 +1922,7 @@ pub(super) fn str_name_like<N: crate::model::XdmNode>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = collapse_whitespace(&item_to_string(&args[0]));
     // Simplified validation

@@ -18,9 +18,8 @@ fn build_numeric_attr_doc() -> SimpleNode {
 #[test]
 fn sum_atomizes_attribute_nodes() {
     let doc = build_numeric_attr_doc();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(XdmItem::Node(doc.clone()))
-        .build();
+    let ctx =
+        DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc.clone())).build();
 
     let compiled = compile("sum(//number/@value)").expect("compile ok");
     let result = evaluate::<SimpleNode>(&compiled, &ctx).expect("eval ok");
@@ -36,9 +35,8 @@ fn sum_atomizes_attribute_nodes() {
 #[test]
 fn avg_atomizes_attribute_nodes() {
     let doc = build_numeric_attr_doc();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(XdmItem::Node(doc.clone()))
-        .build();
+    let ctx =
+        DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc.clone())).build();
 
     let compiled = compile("avg(//number/@value)").expect("compile ok");
     let result = evaluate::<SimpleNode>(&compiled, &ctx).expect("eval ok");

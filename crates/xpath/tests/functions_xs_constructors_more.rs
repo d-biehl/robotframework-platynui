@@ -46,11 +46,7 @@ fn xs_anyuri_and_qname() {
     let qunp = evaluate_expr::<N>("xs:QName('local')", &ctx).unwrap();
     assert_eq!(
         qunp,
-        vec![I::Atomic(A::QName {
-            ns_uri: None,
-            prefix: None,
-            local: "local".into()
-        })]
+        vec![I::Atomic(A::QName { ns_uri: None, prefix: None, local: "local".into() })]
     );
 }
 
@@ -87,12 +83,7 @@ fn xs_dates_times_and_durations() {
     let ymd = evaluate_expr::<N>("xs:yearMonthDuration('P1Y2M')", &c).unwrap();
     assert_eq!(ymd, vec![I::Atomic(A::YearMonthDuration(14))]);
     let dtd = evaluate_expr::<N>("xs:dayTimeDuration('P1DT2H3M4S')", &c).unwrap();
-    assert_eq!(
-        dtd,
-        vec![I::Atomic(A::DayTimeDuration(
-            24 * 3600 + 2 * 3600 + 3 * 60 + 4
-        ))]
-    );
+    assert_eq!(dtd, vec![I::Atomic(A::DayTimeDuration(24 * 3600 + 2 * 3600 + 3 * 60 + 4))]);
 }
 
 #[rstest]

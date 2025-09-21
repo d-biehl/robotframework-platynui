@@ -25,11 +25,7 @@ fn eval_atomic(expr: &str) -> A {
     if r.len() != 1 {
         panic!("expected single item got {:?}", r);
     }
-    if let I::Atomic(a) = &r[0] {
-        a.clone()
-    } else {
-        panic!("expected atomic")
-    }
+    if let I::Atomic(a) = &r[0] { a.clone() } else { panic!("expected atomic") }
 }
 
 // === Numeric tower and cross casts ===

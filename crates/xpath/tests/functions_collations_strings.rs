@@ -29,10 +29,7 @@ fn eval_bool(expr: &str) -> bool {
 #[rstest]
 #[case("fn:contains('abc','b')", true)]
 #[case("fn:contains('abc','d')", false)]
-#[case(
-    "fn:contains('abC','C','http://www.w3.org/2005/xpath-functions/collation/codepoint')",
-    true
-)]
+#[case("fn:contains('abC','C','http://www.w3.org/2005/xpath-functions/collation/codepoint')", true)]
 fn contains_cases(#[case] expr: &str, #[case] expected: bool) {
     assert_eq!(eval_bool(expr), expected);
 }

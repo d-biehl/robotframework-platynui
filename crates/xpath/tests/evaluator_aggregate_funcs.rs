@@ -48,10 +48,7 @@ fn avg_basic(#[case] expr: &str, #[case] expected: Option<f64>) {
                 XdmItem::Atomic(XdmAtomicValue::Integer(v)) => *v as f64,
                 _ => panic!("expected numeric atomic"),
             };
-            assert!(
-                (got - val).abs() < 1e-9,
-                "avg mismatch: got {got} expected {val}"
-            );
+            assert!((got - val).abs() < 1e-9, "avg mismatch: got {got} expected {val}");
         }
         None => assert!(seq.is_empty()),
     }

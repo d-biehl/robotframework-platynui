@@ -37,21 +37,14 @@ fn eval_qname(
     expr: &str,
 ) -> (Option<String>, Option<String>, String) {
     match eval_one(ctx, expr) {
-        XdmItem::Atomic(XdmAtomicValue::QName {
-            ns_uri,
-            prefix,
-            local,
-        }) => (ns_uri, prefix, local),
+        XdmItem::Atomic(XdmAtomicValue::QName { ns_uri, prefix, local }) => (ns_uri, prefix, local),
         other => panic!("expected QName, got {other:?}"),
     }
 }
 
 fn assert_empty(ctx: &platynui_xpath::engine::runtime::DynamicContext<N>, expr: &str) {
     let out = evaluate_expr::<N>(expr, ctx).unwrap();
-    assert!(
-        out.is_empty(),
-        "expected empty sequence for expr {expr}, got {out:?}"
-    );
+    assert!(out.is_empty(), "expected empty sequence for expr {expr}, got {out:?}");
 }
 
 #[rstest]
@@ -78,9 +71,8 @@ fn empty_and_unnamed_nodes() {
 
     // Text node has no name
     let root = elem("r").child(text("t")).build();
-    let ctx = DynamicContextBuilder::new()
-        .with_context_item(root.children().next().unwrap())
-        .build();
+    let ctx =
+        DynamicContextBuilder::new().with_context_item(root.children().next().unwrap()).build();
     assert!(eval_string(&ctx, "name(.)").is_empty());
     assert!(eval_string(&ctx, "local-name(.)").is_empty());
     assert_empty(&ctx, "namespace-uri(.)");
@@ -90,16 +82,10 @@ fn empty_and_unnamed_nodes() {
 fn prefixed_and_namespace_nodes() {
     // Create element with namespace node and prefixed child
     let doc = platynui_xpath::simple_doc()
-        .child(
-            elem("root")
-                .namespace(ns("p", "urn:one"))
-                .child(elem("child")),
-        )
+        .child(elem("root").namespace(ns("p", "urn:one")).child(elem("child")))
         .build();
     let root = doc.children().next().unwrap();
-    let ctx = DynamicContextBuilder::new()
-        .with_context_item(root.clone())
-        .build();
+    let ctx = DynamicContextBuilder::new().with_context_item(root.clone()).build();
 
     // namespace-uri for element with no ns is empty
     assert_empty(&ctx, "namespace-uri(.)");

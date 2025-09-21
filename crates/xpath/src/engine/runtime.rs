@@ -26,19 +26,13 @@ struct VariableScope<N> {
 
 impl<N> VariableScope<N> {
     fn empty() -> Arc<Self> {
-        Arc::new(Self {
-            parent: None,
-            bindings: HashMap::new(),
-        })
+        Arc::new(Self { parent: None, bindings: HashMap::new() })
     }
 
     fn with_binding(parent: Arc<Self>, name: ExpandedName, value: XdmSequence<N>) -> Arc<Self> {
         let mut bindings = HashMap::new();
         bindings.insert(name, value);
-        Arc::new(Self {
-            parent: Some(parent),
-            bindings,
-        })
+        Arc::new(Self { parent: Some(parent), bindings })
     }
 
     fn get(scope: &Arc<Self>, name: &ExpandedName) -> Option<XdmSequence<N>>
@@ -58,17 +52,13 @@ impl<N> VariableScope<N> {
 
 impl<N> Default for VariableBindings<N> {
     fn default() -> Self {
-        Self {
-            inner: VariableScope::empty(),
-        }
+        Self { inner: VariableScope::empty() }
     }
 }
 
 impl<N> VariableBindings<N> {
     pub fn with_binding(&self, name: ExpandedName, value: XdmSequence<N>) -> Self {
-        Self {
-            inner: VariableScope::with_binding(self.inner.clone(), name, value),
-        }
+        Self { inner: VariableScope::with_binding(self.inner.clone(), name, value) }
     }
 
     pub fn insert(&mut self, name: ExpandedName, value: XdmSequence<N>)
@@ -105,10 +95,7 @@ pub enum ResolveError {
     /// No function with the (possibly default-namespace resolved) name exists.
     Unknown(ExpandedName),
     /// Function exists, but not for the requested arity. Provides known arities.
-    WrongArity {
-        name: ExpandedName,
-        available: Vec<Arity>,
-    },
+    WrongArity { name: ExpandedName, available: Vec<Arity> },
 }
 
 pub struct CallCtx<'a, N> {
@@ -135,9 +122,7 @@ pub struct FunctionImplementations<N> {
 
 impl<N> Default for FunctionImplementations<N> {
     fn default() -> Self {
-        Self {
-            fns: HashMap::new(),
-        }
+        Self { fns: HashMap::new() }
     }
 }
 
@@ -171,10 +156,7 @@ impl<N> FunctionImplementations<N> {
             + Sync
             + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
     {
-        let name = ExpandedName {
-            ns_uri: Some(ns_uri.to_string()),
-            local: local.to_string(),
-        };
+        let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
         self.register_fn(name, arity, f);
     }
 
@@ -248,10 +230,7 @@ impl<N> FunctionImplementations<N> {
             + Sync
             + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
     {
-        let name = ExpandedName {
-            ns_uri: Some(ns_uri.to_string()),
-            local: local.to_string(),
-        };
+        let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
         self.register_variadic(name, min_arity, Arc::new(f));
     }
 
@@ -263,10 +242,7 @@ impl<N> FunctionImplementations<N> {
             + Sync
             + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
     {
-        let name = ExpandedName {
-            ns_uri: None,
-            local: local.to_string(),
-        };
+        let name = ExpandedName { ns_uri: None, local: local.to_string() };
         self.register_variadic(name, min_arity, Arc::new(f));
     }
 
@@ -284,10 +260,7 @@ impl<N> FunctionImplementations<N> {
             + Sync
             + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
     {
-        let name = ExpandedName {
-            ns_uri: Some(ns_uri.to_string()),
-            local: local.to_string(),
-        };
+        let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
         self.register_range(name, min_arity, max_arity, Arc::new(f));
     }
 
@@ -304,10 +277,7 @@ impl<N> FunctionImplementations<N> {
             + Sync
             + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
     {
-        let name = ExpandedName {
-            ns_uri: None,
-            local: local.to_string(),
-        };
+        let name = ExpandedName { ns_uri: None, local: local.to_string() };
         self.register_range(name, min_arity, max_arity, Arc::new(f));
     }
 
@@ -319,10 +289,7 @@ impl<N> FunctionImplementations<N> {
             + Sync
             + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
     {
-        let name = ExpandedName {
-            ns_uri: None,
-            local: local.to_string(),
-        };
+        let name = ExpandedName { ns_uri: None, local: local.to_string() };
         self.register_fn(name, arity, f);
     }
 
@@ -338,10 +305,8 @@ impl<N> FunctionImplementations<N> {
         // Determine the effective name reference for search/diagnostics.
         // Only allocate when default function namespace needs to be applied.
         let effective_buf: Option<ExpandedName> = if name.ns_uri.is_none() {
-            default_ns.map(|ns| ExpandedName {
-                ns_uri: Some(ns.to_string()),
-                local: name.local.clone(),
-            })
+            default_ns
+                .map(|ns| ExpandedName { ns_uri: Some(ns.to_string()), local: name.local.clone() })
         } else {
             None
         };
@@ -357,9 +322,8 @@ impl<N> FunctionImplementations<N> {
         }
         // Single map access for both range resolution and diagnostics
         if let Some(cands) = self.fns.get(effective) {
-            if let Some((_, _, f)) = cands
-                .iter()
-                .find(|(min, max, _)| arity >= *min && max.is_none_or(|m| arity <= m))
+            if let Some((_, _, f)) =
+                cands.iter().find(|(min, max, _)| arity >= *min && max.is_none_or(|m| arity <= m))
             {
                 return Ok(f);
             }
@@ -372,10 +336,7 @@ impl<N> FunctionImplementations<N> {
             }
             arities.sort_unstable();
             arities.dedup();
-            return Err(ResolveError::WrongArity {
-                name: effective.clone(),
-                available: arities,
-            });
+            return Err(ResolveError::WrongArity { name: effective.clone(), available: arities });
         }
         // No registration under effective name at all
         Err(ResolveError::Unknown(effective.clone()))
@@ -449,11 +410,7 @@ impl FancyRegexProvider {
                 .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
         })?;
         let arc = Arc::new(compiled);
-        cache
-            .lock()
-            .unwrap()
-            .entry(key)
-            .or_insert_with(|| arc.clone());
+        cache.lock().unwrap().entry(key).or_insert_with(|| arc.clone());
         Ok(arc)
     }
 }
@@ -477,10 +434,8 @@ impl RegexProvider for FancyRegexProvider {
         // Pre-validate replacement template using fancy_regex::Expander and enforce that $0 is invalid.
         if let Err(e) = fancy_regex::Expander::default().check(replacement, &re) {
             // Map any template validation errors to FORX0004
-            return Err(
-                Error::from_code(ErrorCode::FORX0004, "invalid replacement string")
-                    .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>)),
-            );
+            return Err(Error::from_code(ErrorCode::FORX0004, "invalid replacement string")
+                .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>)));
         }
         // Explicitly reject $0 (group zero) as per XPath 2.0 rules.
         {
@@ -591,12 +546,10 @@ impl RegexProvider for FancyRegexProvider {
             match part {
                 Ok(s) => tokens.push(s.to_string()),
                 Err(e) => {
-                    return Err(
-                        Error::from_code(ErrorCode::FORX0002, "regex evaluation error")
-                            .with_source(Some(
-                                Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>
-                            )),
-                    );
+                    return Err(Error::from_code(ErrorCode::FORX0002, "regex evaluation error")
+                        .with_source(Some(
+                            Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>
+                        )));
                 }
             }
         }
@@ -728,11 +681,7 @@ pub struct Error {
 impl Error {
     /// New QName-centric constructor (preferred). Stores the QName directly.
     pub fn new_qname(code: ExpandedName, msg: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: msg.into(),
-            source: None,
-        }
+        Self { code, message: msg.into(), source: None }
     }
     pub fn code_enum(&self) -> ErrorCode {
         // Only ERR_NS codes map to the enum; others are Unknown.
@@ -760,10 +709,7 @@ impl Error {
         }
     }
     pub fn not_implemented(feature: &str) -> Self {
-        Self::new_qname(
-            ErrorCode::NYI0000.qname(),
-            format!("not implemented: {}", feature),
-        )
+        Self::new_qname(ErrorCode::NYI0000.qname(), format!("not implemented: {}", feature))
     }
     // New helpers using strongly typed ErrorCode
     pub fn from_code(code: ErrorCode, msg: impl Into<String>) -> Self {
@@ -783,27 +729,16 @@ impl Error {
     /// into an ExpandedName. Prefer using typed ErrorCode where possible.
     pub fn parse_code(s: &str) -> ExpandedName {
         if let Some(rest) = s.strip_prefix("err:") {
-            return ExpandedName {
-                ns_uri: Some(ERR_NS.to_string()),
-                local: rest.to_string(),
-            };
+            return ExpandedName { ns_uri: Some(ERR_NS.to_string()), local: rest.to_string() };
         }
-        if let Some(body) = s
-            .strip_prefix('Q')
-            .and_then(|t| t.strip_prefix('{'))
-            .and_then(|t| t.split_once('}'))
+        if let Some(body) =
+            s.strip_prefix('Q').and_then(|t| t.strip_prefix('{')).and_then(|t| t.split_once('}'))
         {
             let (ns, local) = body;
-            return ExpandedName {
-                ns_uri: Some(ns.to_string()),
-                local: local.to_string(),
-            };
+            return ExpandedName { ns_uri: Some(ns.to_string()), local: local.to_string() };
         }
         // Fallback: treat as unqualified local name
-        ExpandedName {
-            ns_uri: None,
-            local: s.to_string(),
-        }
+        ExpandedName { ns_uri: None, local: s.to_string() }
     }
 }
 
@@ -931,150 +866,87 @@ pub struct ParamTypeSpec {
 
 impl ParamTypeSpec {
     pub fn any_item(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::AnyItem,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::AnyItem, occurrence }
     }
 
     pub fn node(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::Node,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::Node, occurrence }
     }
 
     pub fn element(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::Element,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::Element, occurrence }
     }
 
     pub fn any_atomic(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::AnyAtomic,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::AnyAtomic, occurrence }
     }
 
     pub fn untyped_promotable(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::UntypedPromotable,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::UntypedPromotable, occurrence }
     }
 
     pub fn numeric(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::Numeric,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::Numeric, occurrence }
     }
 
     pub fn numeric_or_duration(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::NumericOrDuration,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::NumericOrDuration, occurrence }
     }
 
     pub fn integer(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::Integer,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::Integer, occurrence }
     }
 
     pub fn string(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::String,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::String, occurrence }
     }
 
     pub fn boolean(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::Boolean,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::Boolean, occurrence }
     }
 
     pub fn double(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::Double,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::Double, occurrence }
     }
 
     pub fn decimal(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::Decimal,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::Decimal, occurrence }
     }
 
     pub fn float(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::Float,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::Float, occurrence }
     }
 
     pub fn any_uri(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::AnyUri,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::AnyUri, occurrence }
     }
 
     pub fn qname(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::QName,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::QName, occurrence }
     }
 
     pub fn duration(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::Duration,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::Duration, occurrence }
     }
 
     pub fn year_month_duration(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::YearMonthDuration,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::YearMonthDuration, occurrence }
     }
 
     pub fn day_time_duration(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::DayTimeDuration,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::DayTimeDuration, occurrence }
     }
 
     pub fn date_time(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::DateTime,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::DateTime, occurrence }
     }
 
     pub fn date(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::Date,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::Date, occurrence }
     }
 
     pub fn time(occurrence: Occurrence) -> Self {
-        Self {
-            item: ItemTypeSpec::Time,
-            occurrence,
-        }
+        Self { item: ItemTypeSpec::Time, occurrence }
     }
 
     pub fn requires_atomization(&self) -> bool {
@@ -1168,10 +1040,7 @@ fn ensure_atomic_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSequence<N>, Erro
 fn ensure_node_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
     for item in &seq {
         if matches!(item, XdmItem::Atomic(_)) {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "function argument must be node()",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "function argument must be node()"));
         }
     }
     Ok(seq)
@@ -1259,19 +1128,13 @@ fn convert_integer_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
         V::NegativeInteger(v) => V::Integer(v),
         V::NonNegativeInteger(v) => {
             let val = i64::try_from(v).map_err(|_| {
-                Error::from_code(
-                    ErrorCode::FOCA0001,
-                    "integer argument exceeds supported range",
-                )
+                Error::from_code(ErrorCode::FOCA0001, "integer argument exceeds supported range")
             })?;
             V::Integer(val)
         }
         V::PositiveInteger(v) => {
             let val = i64::try_from(v).map_err(|_| {
-                Error::from_code(
-                    ErrorCode::FOCA0001,
-                    "integer argument exceeds supported range",
-                )
+                Error::from_code(ErrorCode::FOCA0001, "integer argument exceeds supported range")
             })?;
             V::Integer(val)
         }
@@ -1381,10 +1244,7 @@ fn convert_numeric_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
         | V::PositiveInteger(_)
         | V::Decimal(_)
         | V::Double(_) => Ok(a),
-        _ => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "function argument is not numeric",
-        )),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "function argument is not numeric")),
     }
 }
 
@@ -1780,22 +1640,13 @@ fn convert_qname_atomic(
             let ns_uri = match prefix_opt.as_deref() {
                 None => None,
                 Some("xml") => Some(crate::consts::XML_URI.to_string()),
-                Some(prefix) => Some(
-                    static_ctx
-                        .namespaces
-                        .by_prefix
-                        .get(prefix)
-                        .cloned()
-                        .ok_or_else(|| {
-                            Error::from_code(ErrorCode::FONS0004, "unknown namespace prefix")
-                        })?,
-                ),
+                Some(prefix) => {
+                    Some(static_ctx.namespaces.by_prefix.get(prefix).cloned().ok_or_else(|| {
+                        Error::from_code(ErrorCode::FONS0004, "unknown namespace prefix")
+                    })?)
+                }
             };
-            V::QName {
-                ns_uri,
-                prefix: prefix_opt,
-                local,
-            }
+            V::QName { ns_uri, prefix: prefix_opt, local }
         }
         _ => {
             return Err(Error::from_code(
@@ -1826,24 +1677,14 @@ impl FunctionSignatures {
 
     pub fn register_ns(&mut self, ns: &str, local: &str, min: usize, max: Option<usize>) {
         self.register(
-            ExpandedName {
-                ns_uri: Some(ns.to_string()),
-                local: local.to_string(),
-            },
+            ExpandedName { ns_uri: Some(ns.to_string()), local: local.to_string() },
             min,
             max,
         );
     }
 
     pub fn register_local(&mut self, local: &str, min: usize, max: Option<usize>) {
-        self.register(
-            ExpandedName {
-                ns_uri: None,
-                local: local.to_string(),
-            },
-            min,
-            max,
-        );
+        self.register(ExpandedName { ns_uri: None, local: local.to_string() }, min, max);
     }
 
     pub fn arities(&self, name: &ExpandedName) -> Option<&[ArityRange]> {
@@ -1898,8 +1739,7 @@ impl Default for StaticContext {
     fn default() -> Self {
         let mut ns = NamespaceBindings::default();
         // Ensure implicit xml namespace binding (cannot be overridden per spec)
-        ns.by_prefix
-            .insert("xml".to_string(), crate::consts::XML_URI.to_string());
+        ns.by_prefix.insert("xml".to_string(), crate::consts::XML_URI.to_string());
         let mut collations: HashSet<String> = HashSet::new();
         collations.insert(CODEPOINT_URI.to_string());
         let cache_capacity = NonZeroUsize::new(STATIC_CONTEXT_COMPILE_CACHE_CAPACITY)
@@ -1941,9 +1781,7 @@ impl StaticContextBuilder {
     /// `StaticContext` at evaluation time has no effect. This mirrors XPath 2.0's separation
     /// of static and dynamic context (static parts fixed during static analysis / compilation).
     pub fn new() -> Self {
-        Self {
-            ctx: StaticContext::default(),
-        }
+        Self { ctx: StaticContext::default() }
     }
 
     pub fn with_base_uri(mut self, uri: impl Into<String>) -> Self {
@@ -2015,9 +1853,7 @@ impl StaticContextBuilder {
         min: usize,
         max: Option<usize>,
     ) -> Self {
-        self.ctx
-            .function_signatures
-            .register_ns(ns, local, min, max);
+        self.ctx.function_signatures.register_ns(ns, local, min, max);
         self
     }
 
@@ -2086,9 +1922,7 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default
 
 impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBuilder<N> {
     pub fn new() -> Self {
-        Self {
-            ctx: DynamicContext::default(),
-        }
+        Self { ctx: DynamicContext::default() }
     }
 
     pub fn with_context_item(mut self, item: impl Into<XdmItem<N>>) -> Self {

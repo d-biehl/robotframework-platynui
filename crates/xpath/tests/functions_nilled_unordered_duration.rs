@@ -21,9 +21,7 @@ fn nilled_true_false_and_empty() {
                 .child(elem("c")),
         )
         .build();
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(d.clone())
-        .build();
+    let ctx = DynamicContextBuilder::<N>::default().with_context_item(d.clone()).build();
     // true case
     let t = evaluate_expr::<N>("nilled(/root/a)", &ctx).unwrap();
     match &t[0] {
@@ -58,9 +56,7 @@ fn nilled_true_with_alternate_prefix_bound_to_xsi() {
                 .child(elem("n").attr(attr("p:nil", "1"))),
         )
         .build();
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(d.clone())
-        .build();
+    let ctx = DynamicContextBuilder::<N>::default().with_context_item(d.clone()).build();
     let r = evaluate_expr::<N>("nilled(/root/n)", &ctx).unwrap();
     match &r[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(b)) => assert!(*b),
@@ -103,11 +99,8 @@ fn duration_component_accessors_examples(ctx: DynamicContext<N>) {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(i)) => assert_eq!(*i, 21),
         _ => panic!(),
     }
-    let m = evaluate_expr::<N>(
-        "months-from-duration(xs:yearMonthDuration('P20Y15M'))",
-        &ctx,
-    )
-    .unwrap();
+    let m =
+        evaluate_expr::<N>("months-from-duration(xs:yearMonthDuration('P20Y15M'))", &ctx).unwrap();
     match &m[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(i)) => assert_eq!(*i, 3),
         _ => panic!(),
@@ -118,11 +111,8 @@ fn duration_component_accessors_examples(ctx: DynamicContext<N>) {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(i)) => assert_eq!(*i, -1),
         _ => panic!(),
     }
-    let m_neg = evaluate_expr::<N>(
-        "months-from-duration(xs:yearMonthDuration('-P20Y18M'))",
-        &ctx,
-    )
-    .unwrap();
+    let m_neg =
+        evaluate_expr::<N>("months-from-duration(xs:yearMonthDuration('-P20Y18M'))", &ctx).unwrap();
     match &m_neg[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(i)) => assert_eq!(*i, -6),
         _ => panic!(),
@@ -145,11 +135,9 @@ fn duration_component_accessors_examples(ctx: DynamicContext<N>) {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(i)) => assert_eq!(*i, -10),
         _ => panic!(),
     }
-    let min_neg = evaluate_expr::<N>(
-        "minutes-from-duration(xs:dayTimeDuration('-P5DT12H30M'))",
-        &ctx,
-    )
-    .unwrap();
+    let min_neg =
+        evaluate_expr::<N>("minutes-from-duration(xs:dayTimeDuration('-P5DT12H30M'))", &ctx)
+            .unwrap();
     match &min_neg[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(i)) => assert_eq!(*i, -30),
         _ => panic!(),

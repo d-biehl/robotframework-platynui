@@ -6,27 +6,21 @@ pub(super) fn empty_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(
-        args[0].is_empty(),
-    ))])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(args[0].is_empty()))])
 }
 
 pub(super) fn exists_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(
-        !args[0].is_empty(),
-    ))])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(!args[0].is_empty()))])
 }
 
 pub(super) fn count_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-        args[0].len() as i64,
-    ))])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(args[0].len() as i64))])
 }
 
 pub(super) fn exactly_one_fn<N: crate::model::XdmNode + Clone>(
@@ -60,10 +54,7 @@ pub(super) fn zero_or_one_fn<N: crate::model::XdmNode + Clone>(
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0004,
-            "zero-or-one requires at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0004, "zero-or-one requires at most one item"));
     }
     Ok(args[0].clone())
 }
@@ -114,12 +105,7 @@ pub(super) fn index_of_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clo
         index_of_default(ctx, &args[0], &args[1], None)
     } else {
         let uri = super::common::item_to_string(&args[2]);
-        index_of_default(
-            ctx,
-            &args[0],
-            &args[1],
-            if uri.is_empty() { None } else { Some(&uri) },
-        )
+        index_of_default(ctx, &args[0], &args[1], if uri.is_empty() { None } else { Some(&uri) })
     }
 }
 

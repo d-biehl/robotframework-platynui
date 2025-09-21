@@ -22,9 +22,7 @@ fn namespace_uri_on_elements_and_attributes() {
                 .attr(attr("p:aid", "y")),
         )
         .build();
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(d.clone())
-        .build();
+    let ctx = DynamicContextBuilder::<N>::default().with_context_item(d.clone()).build();
 
     // Element namespace
     let r = evaluate_expr::<N>("namespace-uri(/*)", &ctx).unwrap();
@@ -53,12 +51,8 @@ fn namespace_uri_on_elements_and_attributes() {
 fn namespace_uri_on_pi_and_namespace_nodes() {
     use platynui_xpath::model::simple::{SimpleNode, doc, elem};
     // <root><?target x?></root>
-    let d = doc()
-        .child(elem("root").child(SimpleNode::pi("target", "x")))
-        .build();
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(d.clone())
-        .build();
+    let d = doc().child(elem("root").child(SimpleNode::pi("target", "x"))).build();
+    let ctx = DynamicContextBuilder::<N>::default().with_context_item(d.clone()).build();
     // Processing-instruction has no QName -> empty sequence
     let pi_ns = evaluate_expr::<N>("namespace-uri(//processing-instruction())", &ctx).unwrap();
     assert!(pi_ns.is_empty());
@@ -79,9 +73,7 @@ fn namespace_uri_uses_context_item_when_omitted() {
     use platynui_xpath::model::simple::{doc, elem, ns};
     let d = doc().child(elem("p:r").namespace(ns("p", "urn:x"))).build();
     let root = d.children().next().unwrap();
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_context_item(root)
-        .build();
+    let ctx = DynamicContextBuilder::<N>::default().with_context_item(root).build();
     let r = evaluate_expr::<N>("namespace-uri()", &ctx).unwrap();
     match &r.first() {
         Some(XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::AnyUri(u))) => {

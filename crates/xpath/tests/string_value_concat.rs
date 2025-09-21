@@ -6,9 +6,7 @@ use rstest::{fixture, rstest};
 type N = platynui_xpath::model::simple::SimpleNode;
 
 fn ctx_with(root: N) -> DynamicContext<N> {
-    DynamicContextBuilder::default()
-        .with_context_item(I::Node(root))
-        .build()
+    DynamicContextBuilder::default().with_context_item(I::Node(root)).build()
 }
 
 // Fixture: context for <root><e>foo<em/>bar</e></root>, with context item set to <root>
@@ -16,12 +14,7 @@ fn ctx_with(root: N) -> DynamicContext<N> {
 fn ctx_split_text_root() -> DynamicContext<N> {
     let d = doc()
         .child(
-            elem("root").child(
-                elem("e")
-                    .child(text("foo"))
-                    .child(elem("em"))
-                    .child(text("bar")),
-            ),
+            elem("root").child(elem("e").child(text("foo")).child(elem("em")).child(text("bar"))),
         )
         .build();
     let root = d.children().next().expect("document has a root element");

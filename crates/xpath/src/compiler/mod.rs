@@ -57,11 +57,7 @@ fn compile_inner(expr: &str, static_ctx: &StaticContext) -> Result<ir::CompiledX
         .expect("static context compile cache mutex poisoned")
         .put(source.clone(), cache_entry);
 
-    Ok(ir::CompiledXPath {
-        instrs,
-        static_ctx: Arc::new(static_ctx.clone()),
-        source,
-    })
+    Ok(ir::CompiledXPath { instrs, static_ctx: Arc::new(static_ctx.clone()), source })
 }
 
 struct Compiler<'a> {
@@ -99,14 +95,13 @@ impl<'a> Compiler<'a> {
 
     fn load_context_item(&mut self, usage: &str) -> CResult<()> {
         if let Some(t) = &self.static_ctx.context_item_type
-            && matches!(t, ir::SeqTypeIR::EmptySequence) {
-                return Err(Error::from_code(
-                    ErrorCode::XPST0003,
-                    format!(
-                        "context item is statically typed as empty-sequence(); cannot use {usage}"
-                    ),
-                ));
-            }
+            && matches!(t, ir::SeqTypeIR::EmptySequence)
+        {
+            return Err(Error::from_code(
+                ErrorCode::XPST0003,
+                format!("context item is statically typed as empty-sequence(); cannot use {usage}"),
+            ));
+        }
         self.emit(ir::OpCode::LoadContextItem);
         if let Some(t) = &self.static_ctx.context_item_type {
             self.emit(ir::OpCode::Treat(t.clone()));
@@ -132,10 +127,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn var_in_scope(&self, name: &ExpandedName) -> bool {
-        self.lexical_scopes
-            .iter()
-            .rev()
-            .any(|scope| scope.iter().any(|n| n == name))
+        self.lexical_scopes.iter().rev().any(|scope| scope.iter().any(|n| n == name))
             || self.static_ctx.in_scope_variables.contains(name)
     }
 
@@ -181,9 +173,7 @@ impl<'a> Compiler<'a> {
                 for (idx, a) in args.iter().enumerate() {
                     self.lower_expr(a)?;
                     if let Some(specs) = &param_specs
-                        && specs
-                            .get(idx)
-                            .is_some_and(|spec| spec.requires_atomization())
+                        && specs.get(idx).is_some_and(|spec| spec.requires_atomization())
                     {
                         self.emit(ir::OpCode::Atomize);
                     }
@@ -255,11 +245,7 @@ impl<'a> Compiler<'a> {
                 }
                 Ok(())
             }
-            E::IfThenElse {
-                cond,
-                then_expr,
-                else_expr,
-            } => {
+            E::IfThenElse { cond, then_expr, else_expr } => {
                 self.lower_expr(cond)?;
                 self.emit(ir::OpCode::ToEBV);
                 // JumpIfFalse to else
@@ -308,20 +294,14 @@ impl<'a> Compiler<'a> {
                 self.lower_expr(base)?;
                 self.lower_path_steps(steps)
             }
-            E::Quantified {
-                kind,
-                bindings,
-                satisfies,
-            } => {
+            E::Quantified { kind, bindings, satisfies } => {
                 // Support multiple bindings, nested left-to-right
                 if bindings.is_empty() {
                     // Vacuous: some() -> false, every() -> true
-                    self.emit(ir::OpCode::PushAtomic(XdmAtomicValue::Boolean(
-                        match kind {
-                            ast::Quantifier::Some => false,
-                            ast::Quantifier::Every => true,
-                        },
-                    )));
+                    self.emit(ir::OpCode::PushAtomic(XdmAtomicValue::Boolean(match kind {
+                        ast::Quantifier::Some => false,
+                        ast::Quantifier::Every => true,
+                    })));
                     return Ok(());
                 }
                 let k = match kind {
@@ -333,10 +313,7 @@ impl<'a> Compiler<'a> {
                 self.pop_scope();
                 Ok(())
             }
-            E::ForExpr {
-                bindings,
-                return_expr,
-            } => {
+            E::ForExpr { bindings, return_expr } => {
                 if bindings.is_empty() {
                     return self.lower_expr(return_expr);
                 }
@@ -347,10 +324,7 @@ impl<'a> Compiler<'a> {
                 self.pop_scope();
                 Ok(())
             }
-            E::LetExpr {
-                bindings,
-                return_expr,
-            } => {
+            E::LetExpr { bindings, return_expr } => {
                 self.push_scope();
                 for b in bindings {
                     self.lower_expr(&b.value)?;
@@ -428,10 +402,7 @@ impl<'a> Compiler<'a> {
             body.lower_for_chain(rest, return_expr)?;
         }
         let body_instr = ir::InstrSeq(body.code);
-        self.emit(ir::OpCode::ForLoop {
-            var,
-            body: body_instr,
-        });
+        self.emit(ir::OpCode::ForLoop { var, body: body_instr });
         Ok(())
     }
 
@@ -445,10 +416,7 @@ impl<'a> Compiler<'a> {
             return Ok(());
         }
         let (first, rest) = bindings.split_first().ok_or_else(|| {
-            Error::from_code(
-                ErrorCode::XPST0003,
-                "quantified expression requires binding",
-            )
+            Error::from_code(ErrorCode::XPST0003, "quantified expression requires binding")
         })?;
 
         self.lower_expr(&first.in_expr)?;
@@ -462,11 +430,7 @@ impl<'a> Compiler<'a> {
             body.lower_quant_chain(kind, rest, satisfies)?;
         }
         let body_instr = ir::InstrSeq(body.code);
-        self.emit(ir::OpCode::QuantLoop {
-            kind,
-            var,
-            body: body_instr,
-        });
+        self.emit(ir::OpCode::QuantLoop { kind, var, body: body_instr });
         Ok(())
     }
 
@@ -501,11 +465,7 @@ impl<'a> Compiler<'a> {
     fn lower_path_steps(&mut self, steps: &[ast::Step]) -> CResult<()> {
         for s in steps {
             match s {
-                ast::Step::Axis {
-                    axis,
-                    test,
-                    predicates,
-                } => {
+                ast::Step::Axis { axis, test, predicates } => {
                     let axis_ir = self.map_axis(axis);
                     let test_ir = self.map_node_test_checked(test, &axis_ir)?;
                     let preds = self.lower_predicates(predicates)?;
@@ -685,19 +645,15 @@ impl<'a> Compiler<'a> {
     }
 
     fn lower_single_type(&self, t: &ast::SingleType) -> CResult<ir::SingleTypeIR> {
-        Ok(ir::SingleTypeIR {
-            atomic: self.to_expanded(&t.atomic),
-            optional: t.optional,
-        })
+        Ok(ir::SingleTypeIR { atomic: self.to_expanded(&t.atomic), optional: t.optional })
     }
     fn lower_seq_type(&self, t: &ast::SequenceType) -> CResult<ir::SeqTypeIR> {
         use ast::SequenceType::*;
         Ok(match t {
             EmptySequence => ir::SeqTypeIR::EmptySequence,
-            Typed { item, occ } => ir::SeqTypeIR::Typed {
-                item: self.lower_item_type(item)?,
-                occ: self.lower_occ(occ),
-            },
+            Typed { item, occ } => {
+                ir::SeqTypeIR::Typed { item: self.lower_item_type(item)?, occ: self.lower_occ(occ) }
+            }
         })
     }
     fn lower_item_type(&self, t: &ast::ItemType) -> CResult<ir::ItemTypeIR> {
@@ -734,10 +690,7 @@ impl<'a> Compiler<'a> {
         {
             ns = Some(uri.clone());
         }
-        ExpandedName {
-            ns_uri: ns,
-            local: q.local.clone(),
-        }
+        ExpandedName { ns_uri: ns, local: q.local.clone() }
     }
 
     fn ensure_function_available(&self, name: &ast::QName, arity: usize) -> CResult<()> {
@@ -779,10 +732,7 @@ impl<'a> Compiler<'a> {
                 };
                 return Err(Error::from_code(
                     ErrorCode::XPST0017,
-                    format!(
-                        "function {}() cannot be called with {}",
-                        friendly, arg_phrase
-                    ),
+                    format!("function {}() cannot be called with {}", friendly, arg_phrase),
                 ));
             }
         }
@@ -834,9 +784,7 @@ mod tests {
 
         let second_ptr = {
             let cache = ctx.compile_cache.lock().expect("cache lock");
-            let entry = cache
-                .peek(expr)
-                .expect("entry present after second compile");
+            let entry = cache.peek(expr).expect("entry present after second compile");
             Arc::as_ptr(entry)
         };
 
@@ -848,25 +796,18 @@ mod tests {
     fn cache_separates_entries_by_static_context() {
         let expr = "string(1)";
         let default_ctx = StaticContext::default();
-        let custom_ctx = StaticContextBuilder::new()
-            .with_namespace("p", "http://example.com/custom")
-            .build();
+        let custom_ctx =
+            StaticContextBuilder::new().with_namespace("p", "http://example.com/custom").build();
 
         compile_with_context(expr, &default_ctx).expect("default context compile succeeds");
         compile_with_context(expr, &custom_ctx).expect("custom context compile succeeds");
 
         let default_len = {
-            let cache = default_ctx
-                .compile_cache
-                .lock()
-                .expect("default cache lock poisoned");
+            let cache = default_ctx.compile_cache.lock().expect("default cache lock poisoned");
             cache.len()
         };
         let custom_len = {
-            let cache = custom_ctx
-                .compile_cache
-                .lock()
-                .expect("custom cache lock poisoned");
+            let cache = custom_ctx.compile_cache.lock().expect("custom cache lock poisoned");
             cache.len()
         };
 
@@ -882,11 +823,7 @@ mod tests {
             compile_with_context(&expr, &ctx).expect("compilation succeeds");
         }
 
-        let len = ctx
-            .compile_cache
-            .lock()
-            .expect("test cache lock poisoned")
-            .len();
+        let len = ctx.compile_cache.lock().expect("test cache lock poisoned").len();
         assert_eq!(len, STATIC_CONTEXT_COMPILE_CACHE_CAPACITY);
     }
 }

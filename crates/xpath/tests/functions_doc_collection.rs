@@ -30,9 +30,7 @@ impl NodeResolver<N> for TestNodeResolver {
 #[fixture]
 fn ctx_with_resolver() -> DynamicContext<N> {
     let nr = Arc::new(TestNodeResolver);
-    DynamicContextBuilder::<N>::default()
-        .with_node_resolver(nr)
-        .build()
+    DynamicContextBuilder::<N>::default().with_node_resolver(nr).build()
 }
 
 #[rstest]
@@ -62,19 +60,11 @@ fn collection_returns_nodes_from_resolver(ctx_with_resolver: DynamicContext<N>) 
 fn doc_errors_when_unavailable_or_no_resolver() {
     // With resolver: unknown uri triggers FODC0005
     let nr = Arc::new(TestNodeResolver);
-    let ctx = DynamicContextBuilder::<N>::default()
-        .with_node_resolver(nr)
-        .build();
+    let ctx = DynamicContextBuilder::<N>::default().with_node_resolver(nr).build();
     let err = evaluate_expr::<N>("doc('urn:nope')", &ctx).expect_err("expected error");
-    assert_eq!(
-        err.code_enum(),
-        platynui_xpath::engine::runtime::ErrorCode::FODC0005
-    );
+    assert_eq!(err.code_enum(), platynui_xpath::engine::runtime::ErrorCode::FODC0005);
     // Without resolver: any uri triggers FODC0005
     let ctx2 = DynamicContextBuilder::<N>::default().build();
     let err2 = evaluate_expr::<N>("doc('urn:any')", &ctx2).expect_err("expected error");
-    assert_eq!(
-        err2.code_enum(),
-        platynui_xpath::engine::runtime::ErrorCode::FODC0005
-    );
+    assert_eq!(err2.code_enum(), platynui_xpath::engine::runtime::ErrorCode::FODC0005);
 }

@@ -27,18 +27,14 @@ pub(super) fn string_length_fn<N: crate::model::XdmNode + Clone>(
     } else {
         item_to_string(&args[0])
     };
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-        s.chars().count() as i64,
-    ))])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(s.chars().count() as i64))])
 }
 
 pub(super) fn untyped_atomic_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(
-        item_to_string(&args[0]),
-    ))])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(item_to_string(&args[0])))])
 }
 
 pub(super) fn concat_fn<N: crate::model::XdmNode + Clone>(
@@ -101,11 +97,7 @@ pub(super) fn contains_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clo
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    let uri_opt = if args.len() == 3 {
-        Some(item_to_string(&args[2]))
-    } else {
-        None
-    };
+    let uri_opt = if args.len() == 3 { Some(item_to_string(&args[2])) } else { None };
     contains_default(ctx, &args[0], &args[1], uri_opt.as_deref())
 }
 
@@ -113,11 +105,7 @@ pub(super) fn starts_with_fn<N: 'static + Send + Sync + crate::model::XdmNode + 
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    let uri_opt = if args.len() == 3 {
-        Some(item_to_string(&args[2]))
-    } else {
-        None
-    };
+    let uri_opt = if args.len() == 3 { Some(item_to_string(&args[2])) } else { None };
     starts_with_default(ctx, &args[0], &args[1], uri_opt.as_deref())
 }
 
@@ -125,11 +113,7 @@ pub(super) fn ends_with_fn<N: 'static + Send + Sync + crate::model::XdmNode + Cl
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    let uri_opt = if args.len() == 3 {
-        Some(item_to_string(&args[2]))
-    } else {
-        None
-    };
+    let uri_opt = if args.len() == 3 { Some(item_to_string(&args[2])) } else { None };
     ends_with_default(ctx, &args[0], &args[1], uri_opt.as_deref())
 }
 
@@ -158,9 +142,7 @@ pub(super) fn substring_before_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]);
     }
     if let Some(idx) = s.find(&sub) {
-        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(
-            s[..idx].to_string(),
-        ))])
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s[..idx].to_string()))])
     } else {
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))])
     }
@@ -177,9 +159,7 @@ pub(super) fn substring_after_fn<N: crate::model::XdmNode + Clone>(
     }
     if let Some(idx) = s.find(&sub) {
         let after = &s[idx + sub.len()..];
-        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(
-            after.to_string(),
-        ))])
+        Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(after.to_string()))])
     } else {
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))])
     }
@@ -233,18 +213,14 @@ pub(super) fn lower_case_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(
-        item_to_string(&args[0]).to_lowercase(),
-    ))])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(item_to_string(&args[0]).to_lowercase()))])
 }
 
 pub(super) fn upper_case_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(
-        item_to_string(&args[0]).to_uppercase(),
-    ))])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(item_to_string(&args[0]).to_uppercase()))])
 }
 
 pub(super) fn string_join_fn<N: crate::model::XdmNode + Clone>(
@@ -259,9 +235,7 @@ pub(super) fn string_join_fn<N: crate::model::XdmNode + Clone>(
             XdmItem::Node(n) => parts.push(n.string_value()),
         }
     }
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(
-        parts.join(&sep),
-    ))])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(parts.join(&sep)))])
 }
 
 fn contains_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(

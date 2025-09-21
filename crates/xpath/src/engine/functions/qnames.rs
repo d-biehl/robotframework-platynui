@@ -51,28 +51,18 @@ pub(super) fn qname_fn<N: crate::model::XdmNode + Clone>(
         }
     };
     if args[1].is_empty() {
-        return Err(Error::from_code(
-            ErrorCode::FORG0001,
-            "QName requires lexical QName",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0001, "QName requires lexical QName"));
     }
     let qn_lex = match &args[1][0] {
         XdmItem::Atomic(XdmAtomicValue::String(s)) => s.clone(),
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::FORG0001,
-                "QName lexical must be string",
-            ));
+            return Err(Error::from_code(ErrorCode::FORG0001, "QName lexical must be string"));
         }
     };
     let (prefix_opt, local) = parse_qname_lexical(&qn_lex)
         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"))?;
     let ns_uri = ns_opt.and_then(|s| if s.is_empty() { None } else { Some(s) });
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::QName {
-        ns_uri,
-        prefix: prefix_opt,
-        local,
-    })])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::QName { ns_uri, prefix: prefix_opt, local })])
 }
 
 fn inscope_for<N: crate::model::XdmNode + Clone>(mut n: N) -> HashMap<String, String> {
@@ -94,8 +84,7 @@ fn inscope_for<N: crate::model::XdmNode + Clone>(mut n: N) -> HashMap<String, St
             break;
         }
     }
-    map.entry("xml".to_string())
-        .or_insert(crate::consts::XML_URI.to_string());
+    map.entry("xml".to_string()).or_insert(crate::consts::XML_URI.to_string());
     map
 }
 
@@ -109,26 +98,17 @@ pub(super) fn resolve_qname_fn<N: crate::model::XdmNode + Clone>(
     let s = match &args[0][0] {
         XdmItem::Atomic(XdmAtomicValue::String(s)) => s.clone(),
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::FORG0001,
-                "resolve-QName requires string",
-            ));
+            return Err(Error::from_code(ErrorCode::FORG0001, "resolve-QName requires string"));
         }
     };
     let enode = match &args[1][0] {
         XdmItem::Node(n) => n.clone(),
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "resolve-QName requires element()",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "resolve-QName requires element()"));
         }
     };
     if !matches!(enode.kind(), crate::model::NodeKind::Element) {
-        return Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "resolve-QName requires element()",
-        ));
+        return Err(Error::from_code(ErrorCode::XPTY0004, "resolve-QName requires element()"));
     }
     let (prefix_opt, local) = parse_qname_lexical(&s)
         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"))?;
@@ -139,11 +119,7 @@ pub(super) fn resolve_qname_fn<N: crate::model::XdmNode + Clone>(
     if prefix_opt.is_some() && ns_uri.is_none() {
         return Err(Error::from_code(ErrorCode::FORG0001, "unknown prefix"));
     }
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::QName {
-        ns_uri,
-        prefix: prefix_opt,
-        local,
-    })])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::QName { ns_uri, prefix: prefix_opt, local })])
 }
 
 pub(super) fn namespace_uri_from_qname_fn<N: crate::model::XdmNode + Clone>(
@@ -160,10 +136,7 @@ pub(super) fn namespace_uri_from_qname_fn<N: crate::model::XdmNode + Clone>(
             Ok(vec![])
         }
     } else {
-        Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "namespace-uri-from-QName expects xs:QName",
-        ))
+        Err(Error::from_code(ErrorCode::XPTY0004, "namespace-uri-from-QName expects xs:QName"))
     }
 }
 
@@ -177,10 +150,7 @@ pub(super) fn local_name_from_qname_fn<N: crate::model::XdmNode + Clone>(
     if let XdmItem::Atomic(XdmAtomicValue::QName { local, .. }) = &args[0][0] {
         Ok(vec![XdmItem::Atomic(XdmAtomicValue::NCName(local.clone()))])
     } else {
-        Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "local-name-from-QName expects xs:QName",
-        ))
+        Err(Error::from_code(ErrorCode::XPTY0004, "local-name-from-QName expects xs:QName"))
     }
 }
 
@@ -198,10 +168,7 @@ pub(super) fn prefix_from_qname_fn<N: crate::model::XdmNode + Clone>(
             Ok(vec![])
         }
     } else {
-        Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "prefix-from-QName expects xs:QName",
-        ))
+        Err(Error::from_code(ErrorCode::XPTY0004, "prefix-from-QName expects xs:QName"))
     }
 }
 
@@ -215,10 +182,7 @@ pub(super) fn namespace_uri_for_prefix_fn<N: crate::model::XdmNode + Clone>(
     let p = match &args[0][0] {
         XdmItem::Atomic(XdmAtomicValue::String(s)) => s.clone(),
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::FORG0001,
-                "prefix must be string",
-            ));
+            return Err(Error::from_code(ErrorCode::FORG0001, "prefix must be string"));
         }
     };
     let enode = match &args[1][0] {
@@ -261,10 +225,7 @@ pub(super) fn in_scope_prefixes_fn<N: crate::model::XdmNode + Clone>(
         }
     };
     if !matches!(enode.kind(), crate::model::NodeKind::Element) {
-        return Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "in-scope-prefixes requires element()",
-        ));
+        return Err(Error::from_code(ErrorCode::XPTY0004, "in-scope-prefixes requires element()"));
     }
     let map = inscope_for(enode);
     let mut out: Vec<XdmItem<_>> = Vec::with_capacity(map.len());
@@ -307,9 +268,6 @@ pub(super) fn namespace_uri_fn<N: crate::model::XdmNode + Clone>(
             }
             Ok(vec![])
         }
-        _ => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "namespace-uri() expects node()",
-        )),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "namespace-uri() expects node()")),
     }
 }

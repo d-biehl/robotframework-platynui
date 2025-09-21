@@ -15,17 +15,14 @@ pub fn parse(input: &str) -> Result<ast::Expr, Error> {
     let mut pairs = XPathParser::parse(Rule::xpath, input)
         .map_err(|e| Error::from_code(ErrorCode::XPST0003, format!("{}", e)))?;
 
-    let pair = pairs
-        .next()
-        .ok_or_else(|| Error::from_code(ErrorCode::XPST0003, "empty parse"))?;
+    let pair = pairs.next().ok_or_else(|| Error::from_code(ErrorCode::XPST0003, "empty parse"))?;
 
     debug_assert_eq!(pair.as_rule(), Rule::xpath);
 
     // xpath = SOI ~ expr ~ EOI
     let mut inner = pair.into_inner();
-    let expr_pair = inner
-        .next()
-        .ok_or_else(|| Error::from_code(ErrorCode::XPST0003, "missing expr"))?;
+    let expr_pair =
+        inner.next().ok_or_else(|| Error::from_code(ErrorCode::XPST0003, "missing expr"))?;
 
     build_expr(expr_pair).map_err(|e| Error::from_code(ErrorCode::XPST0003, e.to_string()))
 }
@@ -108,10 +105,7 @@ fn build_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
         Rule::literal => build_literal(pair),
         Rule::parenthesized_expr => build_parenthesized(pair),
         Rule::context_item_expr => Ok(ast::Expr::ContextItem),
-        _ => Err(ParseAstError::new(format!(
-            "unhandled rule in build_expr: {:?}",
-            pair.as_rule()
-        ))),
+        _ => Err(ParseAstError::new(format!("unhandled rule in build_expr: {:?}", pair.as_rule()))),
     }
 }
 
@@ -134,35 +128,21 @@ fn build_qname_from_parts(pair: Pair<Rule>) -> AstResult<ast::QName> {
         }
     }
     let local = local.ok_or_else(|| ParseAstError::new("qname missing local part"))?;
-    Ok(ast::QName {
-        prefix,
-        local,
-        ns_uri: None,
-    })
+    Ok(ast::QName { prefix, local, ns_uri: None })
 }
 
 fn build_qname_from_function_qname(s: &str) -> ast::QName {
     if let Some((pre, loc)) = s.split_once(':') {
-        ast::QName {
-            prefix: Some(pre.to_string()),
-            local: loc.to_string(),
-            ns_uri: None,
-        }
+        ast::QName { prefix: Some(pre.to_string()), local: loc.to_string(), ns_uri: None }
     } else {
-        ast::QName {
-            prefix: None,
-            local: s.to_string(),
-            ns_uri: None,
-        }
+        ast::QName { prefix: None, local: s.to_string(), ns_uri: None }
     }
 }
 
 fn build_literal(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     debug_assert_eq!(pair.as_rule(), Rule::literal);
-    let inner = pair
-        .into_inner()
-        .next()
-        .ok_or_else(|| ParseAstError::new("missing literal inner"))?;
+    let inner =
+        pair.into_inner().next().ok_or_else(|| ParseAstError::new("missing literal inner"))?;
     let lit = match inner.as_rule() {
         Rule::numeric_literal => build_numeric_literal(inner)?,
         Rule::string_literal => {
@@ -187,19 +167,11 @@ fn unescape_string_literal(pair: Pair<Rule>) -> Cow<str> {
     match node.as_rule() {
         Rule::dbl_string_inner => {
             let s = node.as_str();
-            if s.contains("\"\"") {
-                Cow::Owned(s.replace("\"\"", "\""))
-            } else {
-                Cow::Borrowed(s)
-            }
+            if s.contains("\"\"") { Cow::Owned(s.replace("\"\"", "\"")) } else { Cow::Borrowed(s) }
         }
         Rule::sgl_string_inner => {
             let s = node.as_str();
-            if s.contains("''") {
-                Cow::Owned(s.replace("''", "'"))
-            } else {
-                Cow::Borrowed(s)
-            }
+            if s.contains("''") { Cow::Owned(s.replace("''", "'")) } else { Cow::Borrowed(s) }
         }
         Rule::dbl_string => {
             let s = node.as_str();
@@ -240,21 +212,18 @@ fn build_numeric_literal(pair: Pair<Rule>) -> AstResult<ast::Literal> {
     let text = inner.as_str();
     match inner.as_rule() {
         Rule::integer_literal => {
-            let v: i64 = text
-                .parse()
-                .map_err(|e| ParseAstError::new(format!("bad integer: {e}")))?;
+            let v: i64 =
+                text.parse().map_err(|e| ParseAstError::new(format!("bad integer: {e}")))?;
             Ok(ast::Literal::Integer(v))
         }
         Rule::decimal_literal => {
-            let v: f64 = text
-                .parse()
-                .map_err(|e| ParseAstError::new(format!("bad decimal: {e}")))?;
+            let v: f64 =
+                text.parse().map_err(|e| ParseAstError::new(format!("bad decimal: {e}")))?;
             Ok(ast::Literal::Decimal(v))
         }
         Rule::double_literal => {
-            let v: f64 = text
-                .parse()
-                .map_err(|e| ParseAstError::new(format!("bad double: {e}")))?;
+            let v: f64 =
+                text.parse().map_err(|e| ParseAstError::new(format!("bad double: {e}")))?;
             Ok(ast::Literal::Double(v))
         }
         _ => Err(ParseAstError::new("unknown numeric literal")),
@@ -271,35 +240,24 @@ fn build_parenthesized(pair: Pair<Rule>) -> AstResult<ast::Expr> {
         other => other,
     };
     if let Some(e) = maybe_expr {
-        if e.as_rule() == Rule::expr {
-            build_expr(e)
-        } else {
-            Ok(ast::Expr::Sequence(vec![]))
-        }
+        if e.as_rule() == Rule::expr { build_expr(e) } else { Ok(ast::Expr::Sequence(vec![])) }
     } else {
         Ok(ast::Expr::Sequence(vec![]))
     }
 }
 
 fn build_var_ref(pair: Pair<Rule>) -> AstResult<ast::Expr> {
-    let q = pair
-        .into_inner()
-        .next()
-        .ok_or_else(|| ParseAstError::new("var_ref without name"))?;
+    let q = pair.into_inner().next().ok_or_else(|| ParseAstError::new("var_ref without name"))?;
     debug_assert_eq!(q.as_rule(), Rule::var_name);
     let qname = build_qname_from_parts(
-        q.into_inner()
-            .next()
-            .ok_or_else(|| ParseAstError::new("var_name missing qname"))?,
+        q.into_inner().next().ok_or_else(|| ParseAstError::new("var_name missing qname"))?,
     )?; // var_name -> qname
     Ok(ast::Expr::VarRef(qname))
 }
 
 fn build_function_call(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     let mut it = pair.into_inner();
-    let fn_name = it
-        .next()
-        .ok_or_else(|| ParseAstError::new("function_call missing name"))?; // function_qname
+    let fn_name = it.next().ok_or_else(|| ParseAstError::new("function_call missing name"))?; // function_qname
     let qname = build_qname_from_function_qname(fn_name.as_str());
     // Next token is LPAR; but Pest groups arguments directly as expr_single
     let mut args = Vec::with_capacity(4); // Most functions have 1-4 args
@@ -328,10 +286,7 @@ fn build_unary_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     let mut expr = build_expr(value.ok_or_else(|| ParseAstError::new("unary missing value"))?)?;
     for s in signs.into_iter().rev() {
         // apply last sign closest to value
-        expr = ast::Expr::Unary {
-            sign: s,
-            expr: Box::new(expr),
-        };
+        expr = ast::Expr::Unary { sign: s, expr: Box::new(expr) };
     }
     Ok(expr)
 }
@@ -340,15 +295,10 @@ fn fold_left(
     mut items: impl Iterator<Item = ast::Expr>,
     ops: impl Iterator<Item = ast::BinaryOp>,
 ) -> AstResult<ast::Expr> {
-    let mut left = items
-        .next()
-        .ok_or_else(|| ParseAstError::new("empty expression list for fold"))?;
+    let mut left =
+        items.next().ok_or_else(|| ParseAstError::new("empty expression list for fold"))?;
     for (op, right) in ops.zip(items) {
-        left = ast::Expr::Binary {
-            left: Box::new(left),
-            op,
-            right: Box::new(right),
-        };
+        left = ast::Expr::Binary { left: Box::new(left), op, right: Box::new(right) };
     }
     Ok(left)
 }
@@ -386,9 +336,8 @@ fn build_and_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 
 fn build_comparison_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     let mut it = pair.into_inner();
-    let left_pair = it
-        .next()
-        .ok_or_else(|| ParseAstError::new("missing left operand in comparison_expr"))?;
+    let left_pair =
+        it.next().ok_or_else(|| ParseAstError::new("missing left operand in comparison_expr"))?;
     if let Some(op_pair) = it.next() {
         let right_pair = it
             .next()
@@ -494,19 +443,14 @@ fn build_comparison_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 fn build_range_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     let mut it = pair.into_inner();
     let start = build_additive_expr(
-        it.next()
-            .ok_or_else(|| ParseAstError::new("missing start of range"))?,
+        it.next().ok_or_else(|| ParseAstError::new("missing start of range"))?,
     )?;
     if it.next().is_some() {
         // K_TO
         let end = build_additive_expr(
-            it.next()
-                .ok_or_else(|| ParseAstError::new("missing end of range"))?,
+            it.next().ok_or_else(|| ParseAstError::new("missing end of range"))?,
         )?;
-        Ok(ast::Expr::Range {
-            start: Box::new(start),
-            end: Box::new(end),
-        })
+        Ok(ast::Expr::Range { start: Box::new(start), end: Box::new(end) })
     } else {
         Ok(start)
     }
@@ -617,15 +561,9 @@ fn build_intersect_except_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 
 fn fold_set_ops(mut exprs: Vec<ast::Expr>, mut ops: Vec<ast::SetOp>) -> AstResult<ast::Expr> {
     let mut it = exprs.drain(..);
-    let mut left = it
-        .next()
-        .ok_or_else(|| ParseAstError::new("empty set operation"))?;
+    let mut left = it.next().ok_or_else(|| ParseAstError::new("empty set operation"))?;
     for (op, right) in ops.drain(..).zip(it) {
-        left = ast::Expr::SetOp {
-            left: Box::new(left),
-            op,
-            right: Box::new(right),
-        };
+        left = ast::Expr::SetOp { left: Box::new(left), op, right: Box::new(right) };
     }
     Ok(left)
 }
@@ -634,18 +572,14 @@ fn build_instanceof_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // treat_expr (K_INSTANCE K_OF sequence_type)?
     let mut it = pair.into_inner();
     let base = build_treat_like(
-        it.next()
-            .ok_or_else(|| ParseAstError::new("missing base in instanceof_expr"))?,
+        it.next().ok_or_else(|| ParseAstError::new("missing base in instanceof_expr"))?,
     )?;
     if let Some(_op) = it.next() {
         let ty = build_sequence_type(
             it.next()
                 .ok_or_else(|| ParseAstError::new("missing sequence_type in instanceof_expr"))?,
         )?;
-        Ok(ast::Expr::InstanceOf {
-            expr: Box::new(base),
-            ty,
-        })
+        Ok(ast::Expr::InstanceOf { expr: Box::new(base), ty })
     } else {
         Ok(base)
     }
@@ -655,18 +589,13 @@ fn build_treat_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // castable_expr (K_TREAT K_AS sequence_type)?
     let mut it = pair.into_inner();
     let base = build_castable_like(
-        it.next()
-            .ok_or_else(|| ParseAstError::new("missing base in treat_expr"))?,
+        it.next().ok_or_else(|| ParseAstError::new("missing base in treat_expr"))?,
     )?;
     if let Some(_op) = it.next() {
         let ty = build_sequence_type(
-            it.next()
-                .ok_or_else(|| ParseAstError::new("missing sequence_type in treat_expr"))?,
+            it.next().ok_or_else(|| ParseAstError::new("missing sequence_type in treat_expr"))?,
         )?;
-        Ok(ast::Expr::TreatAs {
-            expr: Box::new(base),
-            ty,
-        })
+        Ok(ast::Expr::TreatAs { expr: Box::new(base), ty })
     } else {
         Ok(base)
     }
@@ -676,18 +605,13 @@ fn build_castable_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // cast_expr (K_CASTABLE K_AS single_type)?
     let mut it = pair.into_inner();
     let base = build_cast_like(
-        it.next()
-            .ok_or_else(|| ParseAstError::new("missing base in castable_expr"))?,
+        it.next().ok_or_else(|| ParseAstError::new("missing base in castable_expr"))?,
     )?;
     if let Some(_op) = it.next() {
         let ty = build_single_type(
-            it.next()
-                .ok_or_else(|| ParseAstError::new("missing single_type in castable_expr"))?,
+            it.next().ok_or_else(|| ParseAstError::new("missing single_type in castable_expr"))?,
         )?;
-        Ok(ast::Expr::CastableAs {
-            expr: Box::new(base),
-            ty,
-        })
+        Ok(ast::Expr::CastableAs { expr: Box::new(base), ty })
     } else {
         Ok(base)
     }
@@ -697,18 +621,13 @@ fn build_cast_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // unary_expr (K_CAST K_AS single_type)?
     let mut it = pair.into_inner();
     let base = build_unary_expr(
-        it.next()
-            .ok_or_else(|| ParseAstError::new("missing base in cast_expr"))?,
+        it.next().ok_or_else(|| ParseAstError::new("missing base in cast_expr"))?,
     )?;
     if let Some(_op) = it.next() {
         let ty = build_single_type(
-            it.next()
-                .ok_or_else(|| ParseAstError::new("missing single_type in cast_expr"))?,
+            it.next().ok_or_else(|| ParseAstError::new("missing single_type in cast_expr"))?,
         )?;
-        Ok(ast::Expr::CastAs {
-            expr: Box::new(base),
-            ty,
-        })
+        Ok(ast::Expr::CastAs { expr: Box::new(base), ty })
     } else {
         Ok(base)
     }
@@ -718,9 +637,7 @@ fn build_sequence_type(pair: Pair<Rule>) -> AstResult<ast::SequenceType> {
     match pair.as_rule() {
         Rule::sequence_type => {
             let mut it = pair.into_inner();
-            let first = it
-                .next()
-                .ok_or_else(|| ParseAstError::new("empty sequence_type"))?;
+            let first = it.next().ok_or_else(|| ParseAstError::new("empty sequence_type"))?;
             match first.as_rule() {
                 Rule::K_EMPTY_SEQUENCE => {
                     // (K_EMPTY_SEQUENCE LPAR RPAR)
@@ -746,8 +663,7 @@ fn build_single_type(pair: Pair<Rule>) -> AstResult<ast::SingleType> {
     debug_assert_eq!(pair.as_rule(), Rule::single_type);
     let mut it = pair.into_inner();
     let atomic = build_qname_from_parts(
-        it.next()
-            .ok_or_else(|| ParseAstError::new("single_type missing atomic_type"))?,
+        it.next().ok_or_else(|| ParseAstError::new("single_type missing atomic_type"))?,
     )?; // atomic_type -> qname
     let mut optional = false;
     if let Some(next) = it.next() {
@@ -760,9 +676,7 @@ fn build_single_type(pair: Pair<Rule>) -> AstResult<ast::SingleType> {
 
 fn build_item_type(pair: Pair<Rule>) -> AstResult<ast::ItemType> {
     let mut it = pair.into_inner();
-    let first = it
-        .next()
-        .ok_or_else(|| ParseAstError::new("empty item_type"))?;
+    let first = it.next().ok_or_else(|| ParseAstError::new("empty item_type"))?;
     match first.as_rule() {
         Rule::kind_test => Ok(ast::ItemType::Kind(build_kind_test(first)?)),
         Rule::K_ITEM => Ok(ast::ItemType::Item),
@@ -792,9 +706,7 @@ fn build_occurrence(pair: Pair<Rule>) -> AstResult<ast::Occurrence> {
 
 fn build_kind_test(pair: Pair<Rule>) -> AstResult<ast::KindTest> {
     let mut it = pair.into_inner();
-    let first = it
-        .next()
-        .ok_or_else(|| ParseAstError::new("empty kind_test"))?;
+    let first = it.next().ok_or_else(|| ParseAstError::new("empty kind_test"))?;
     let res = match first.as_rule() {
         Rule::any_kind_test => ast::KindTest::AnyKind,
         Rule::document_test => {
@@ -933,10 +845,7 @@ fn build_kind_test_attribute(pair: Pair<Rule>) -> AstResult<ast::KindTest> {
 }
 
 fn build_name_test(pair: Pair<Rule>) -> AstResult<ast::NameTest> {
-    let first = pair
-        .into_inner()
-        .next()
-        .ok_or_else(|| ParseAstError::new("empty name_test"))?;
+    let first = pair.into_inner().next().ok_or_else(|| ParseAstError::new("empty name_test"))?;
     match first.as_rule() {
         Rule::qname => Ok(ast::NameTest::QName(build_qname_from_parts(first)?)),
         Rule::wildcard_name => Ok(ast::NameTest::Wildcard(build_wildcard_name(first.as_str()))),
@@ -958,10 +867,7 @@ fn build_wildcard_name(s: &str) -> ast::WildcardName {
 }
 
 fn build_node_test(pair: Pair<Rule>) -> AstResult<ast::NodeTest> {
-    let first = pair
-        .into_inner()
-        .next()
-        .ok_or_else(|| ParseAstError::new("empty node_test"))?;
+    let first = pair.into_inner().next().ok_or_else(|| ParseAstError::new("empty node_test"))?;
     match first.as_rule() {
         Rule::kind_test => Ok(ast::NodeTest::Kind(build_kind_test(first)?)),
         Rule::name_test => Ok(ast::NodeTest::Name(build_name_test(first)?)),
@@ -1016,11 +922,7 @@ fn build_predicate_list(pair: Pair<Rule>) -> AstResult<Vec<ast::Expr>> {
             let mut inn = p.into_inner();
             let first = inn.next(); // LBRACK
             let maybe_expr = if let Some(f) = first {
-                if f.as_rule() == Rule::LBRACK {
-                    inn.next()
-                } else {
-                    Some(f)
-                }
+                if f.as_rule() == Rule::LBRACK { inn.next() } else { Some(f) }
             } else {
                 None
             };
@@ -1035,27 +937,22 @@ fn build_predicate_list(pair: Pair<Rule>) -> AstResult<Vec<ast::Expr>> {
 fn build_axis_step(pair: Pair<Rule>) -> AstResult<ast::Step> {
     // (reverse_step | forward_step) ~ predicate_list
     let mut it = pair.into_inner();
-    let step = it
-        .next()
-        .ok_or_else(|| ParseAstError::new("axis_step missing step"))?;
+    let step = it.next().ok_or_else(|| ParseAstError::new("axis_step missing step"))?;
     let (axis, test) = match step.as_rule() {
         Rule::reverse_step => {
             let mut inn = step.into_inner();
             let axis = build_axis(
-                inn.next()
-                    .ok_or_else(|| ParseAstError::new("reverse_step missing axis"))?,
+                inn.next().ok_or_else(|| ParseAstError::new("reverse_step missing axis"))?,
             )?;
             let test = build_node_test(
-                inn.next()
-                    .ok_or_else(|| ParseAstError::new("reverse_step missing node_test"))?,
+                inn.next().ok_or_else(|| ParseAstError::new("reverse_step missing node_test"))?,
             )?;
             (axis, test)
         }
         Rule::forward_step => {
             let mut inn = step.into_inner();
-            let first = inn
-                .next()
-                .ok_or_else(|| ParseAstError::new("forward_step missing inner"))?;
+            let first =
+                inn.next().ok_or_else(|| ParseAstError::new("forward_step missing inner"))?;
             match first.as_rule() {
                 Rule::forward_axis => {
                     let axis = build_axis(first)?;
@@ -1076,10 +973,7 @@ fn build_axis_step(pair: Pair<Rule>) -> AstResult<ast::Step> {
                                 .next()
                                 .ok_or_else(|| ParseAstError::new("@ without name_test"))?;
                             debug_assert_eq!(nt.as_rule(), Rule::name_test);
-                            (
-                                ast::Axis::Attribute,
-                                ast::NodeTest::Name(build_name_test(nt)?),
-                            )
+                            (ast::Axis::Attribute, ast::NodeTest::Name(build_name_test(nt)?))
                         }
                         Rule::node_test => (ast::Axis::Child, build_node_test(a)?),
                         _ => {
@@ -1095,50 +989,33 @@ fn build_axis_step(pair: Pair<Rule>) -> AstResult<ast::Step> {
         _ => return Err(ParseAstError::new("unexpected axis_step child")),
     };
     let preds = build_predicate_list(
-        it.next()
-            .ok_or_else(|| ParseAstError::new("axis_step missing predicate_list"))?,
+        it.next().ok_or_else(|| ParseAstError::new("axis_step missing predicate_list"))?,
     )?;
-    Ok(ast::Step::Axis {
-        axis,
-        test,
-        predicates: preds,
-    })
+    Ok(ast::Step::Axis { axis, test, predicates: preds })
 }
 
 fn build_filter_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     let mut it = pair.into_inner();
-    let primary = it
-        .next()
-        .ok_or_else(|| ParseAstError::new("filter_expr missing primary"))?;
+    let primary = it.next().ok_or_else(|| ParseAstError::new("filter_expr missing primary"))?;
     let input = build_primary_expr(primary)?;
     let preds = build_predicate_list(
-        it.next()
-            .ok_or_else(|| ParseAstError::new("filter_expr missing predicate_list"))?,
+        it.next().ok_or_else(|| ParseAstError::new("filter_expr missing predicate_list"))?,
     )?;
     if preds.is_empty() {
         Ok(input)
     } else {
-        Ok(ast::Expr::Filter {
-            input: Box::new(input),
-            predicates: preds,
-        })
+        Ok(ast::Expr::Filter { input: Box::new(input), predicates: preds })
     }
 }
 
 fn build_axis_step_as_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     let step = build_axis_step(pair)?;
     // Represent a single-step relative path starting at context as Path(Relative)
-    Ok(ast::Expr::Path(ast::PathExpr {
-        start: ast::PathStart::Relative,
-        steps: vec![step],
-    }))
+    Ok(ast::Expr::Path(ast::PathExpr { start: ast::PathStart::Relative, steps: vec![step] }))
 }
 
 fn build_primary_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
-    let first = pair
-        .into_inner()
-        .next()
-        .ok_or_else(|| ParseAstError::new("empty primary_expr"))?;
+    let first = pair.into_inner().next().ok_or_else(|| ParseAstError::new("empty primary_expr"))?;
     match first.as_rule() {
         Rule::var_ref => build_var_ref(first),
         Rule::function_call => build_function_call(first),
@@ -1162,10 +1039,7 @@ fn build_primary_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 }
 
 fn build_path_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
-    let first = pair
-        .into_inner()
-        .next()
-        .ok_or_else(|| ParseAstError::new("empty path_expr"))?;
+    let first = pair.into_inner().next().ok_or_else(|| ParseAstError::new("empty path_expr"))?;
     match first.as_rule() {
         Rule::absolute_path => build_path_expr_from_absolute(first),
         Rule::relative_path_expr => build_path_expr_from_relative(first, None),
@@ -1176,14 +1050,11 @@ fn build_path_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 fn build_path_expr_from_absolute(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // absolute_path = ("//" ~ relative_path_expr) | ("/" ~ relative_path_expr?)
     let mut it = pair.into_inner();
-    let first = it
-        .next()
-        .ok_or_else(|| ParseAstError::new("empty absolute_path"))?;
+    let first = it.next().ok_or_else(|| ParseAstError::new("empty absolute_path"))?;
     match first.as_rule() {
         Rule::OP_DSLASH => {
-            let rel = it
-                .next()
-                .ok_or_else(|| ParseAstError::new("// without relative_path_expr"))?;
+            let rel =
+                it.next().ok_or_else(|| ParseAstError::new("// without relative_path_expr"))?;
             let mut steps = vec![ast::Step::Axis {
                 axis: ast::Axis::DescendantOrSelf,
                 test: ast::NodeTest::Kind(ast::KindTest::AnyKind),
@@ -1203,10 +1074,7 @@ fn build_path_expr_from_absolute(pair: Pair<Rule>) -> AstResult<ast::Expr> {
                     steps: steps.to_vec(),
                 }))
             } else {
-                Ok(ast::Expr::Path(ast::PathExpr {
-                    start: ast::PathStart::Root,
-                    steps: vec![],
-                }))
+                Ok(ast::Expr::Path(ast::PathExpr { start: ast::PathStart::Root, steps: vec![] }))
             }
         }
         _ => Err(ParseAstError::new("unexpected absolute_path")),
@@ -1219,9 +1087,7 @@ fn build_path_expr_from_relative(
 ) -> AstResult<ast::Expr> {
     // If the first step is a filter_expr whose primary is not context item, treat as PathFrom base
     let mut it = pair.into_inner();
-    let first_step = it
-        .next()
-        .ok_or_else(|| ParseAstError::new("empty relative_path_expr"))?;
+    let first_step = it.next().ok_or_else(|| ParseAstError::new("empty relative_path_expr"))?;
     // Path step counts are small; inline first 4 steps before spilling to heap
     let mut steps: SmallVec<[ast::Step; 4]> = SmallVec::new();
     let mut base_expr: Option<ast::Expr> = base;
@@ -1248,14 +1114,11 @@ fn build_path_expr_from_relative(
     // Process following (path_operator, step_expr) pairs
     while let Some(op) = it.next() {
         // op can be path_operator (wrapper) or a direct OP_SLASH/OP_DSLASH depending on context
-        let step_expr = it
-            .next()
-            .ok_or_else(|| ParseAstError::new("missing step_expr after path operator"))?;
+        let step_expr =
+            it.next().ok_or_else(|| ParseAstError::new("missing step_expr after path operator"))?;
         // Insert implicit descendant-or-self::node() for //
         let token = if op.as_rule() == Rule::path_operator {
-            op.into_inner()
-                .next()
-                .ok_or_else(|| ParseAstError::new("empty path_operator"))?
+            op.into_inner().next().ok_or_else(|| ParseAstError::new("empty path_operator"))?
         } else {
             op
         };
@@ -1294,10 +1157,7 @@ fn build_path_expr_from_relative(
         if steps.is_empty() {
             Ok(base_e)
         } else {
-            Ok(ast::Expr::PathFrom {
-                base: Box::new(base_e),
-                steps: steps.to_vec(),
-            })
+            Ok(ast::Expr::PathFrom { base: Box::new(base_e), steps: steps.to_vec() })
         }
     } else {
         Ok(ast::Expr::Path(ast::PathExpr {
@@ -1311,9 +1171,7 @@ fn build_relative_steps(pair: Pair<Rule>) -> AstResult<Vec<ast::Step>> {
     let mut it = pair.into_inner();
     // Typical relative path length is short (<=4)
     let mut steps: SmallVec<[ast::Step; 4]> = SmallVec::new();
-    let first = it
-        .next()
-        .ok_or_else(|| ParseAstError::new("empty relative steps"))?;
+    let first = it.next().ok_or_else(|| ParseAstError::new("empty relative steps"))?;
     let first_variant = if first.as_rule() == Rule::step_expr {
         first
             .into_inner()
@@ -1348,9 +1206,8 @@ fn build_relative_steps(pair: Pair<Rule>) -> AstResult<Vec<ast::Step>> {
                 predicates: vec![],
             });
         }
-        let step_expr = it
-            .next()
-            .ok_or_else(|| ParseAstError::new("missing step_expr in relative steps"))?;
+        let step_expr =
+            it.next().ok_or_else(|| ParseAstError::new("missing step_expr in relative steps"))?;
         let step_variant = if step_expr.as_rule() == Rule::step_expr {
             step_expr
                 .into_inner()
@@ -1420,19 +1277,14 @@ fn build_let_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
                 match it.next() {
                     Some(assign) if assign.as_rule() == Rule::OP_ASSIGN => {}
                     _ => {
-                        return Err(ParseAstError::new(
-                            "let_expr missing := after variable name",
-                        ));
+                        return Err(ParseAstError::new("let_expr missing := after variable name"));
                     }
                 }
                 let value_expr =
                     build_expr(it.next().ok_or_else(|| {
                         ParseAstError::new("let_expr missing expr_single after :=")
                     })?)?;
-                bindings.push(ast::LetBinding {
-                    var,
-                    value: value_expr,
-                });
+                bindings.push(ast::LetBinding { var, value: value_expr });
             }
             Rule::K_RETURN => {
                 let return_expr =
@@ -1456,9 +1308,8 @@ fn build_let_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 fn build_quantified_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // (K_SOME | K_EVERY) ~ "$" ~ var_name ~ K_IN ~ expr_single ~ (COMMA ~ "$" ~ var_name ~ K_IN ~ expr_single)* ~ K_SATISFIES ~ expr_single
     let mut it = pair.into_inner();
-    let first = it
-        .next()
-        .ok_or_else(|| ParseAstError::new("quantified_expr missing quantifier"))?;
+    let first =
+        it.next().ok_or_else(|| ParseAstError::new("quantified_expr missing quantifier"))?;
     let kind = match first.as_rule() {
         Rule::K_SOME => ast::Quantifier::Some,
         Rule::K_EVERY => ast::Quantifier::Every,
@@ -1467,9 +1318,7 @@ fn build_quantified_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     let mut bindings: SmallVec<[ast::QuantifiedBinding; 4]> = SmallVec::new();
     // After quantifier, we expect sequences of var_name, K_IN, expr_single ... until K_SATISFIES
     loop {
-        let p = it
-            .next()
-            .ok_or_else(|| ParseAstError::new("incomplete quantified bindings"))?;
+        let p = it.next().ok_or_else(|| ParseAstError::new("incomplete quantified bindings"))?;
         match p.as_rule() {
             Rule::var_name => {
                 let var = build_qname_from_parts(p)?;
@@ -1510,20 +1359,16 @@ fn build_if_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     let mut it = pair.into_inner();
     let _if = it.next(); // K_IF
     let _lpar = it.next();
-    let cond = build_expr(
-        it.next()
-            .ok_or_else(|| ParseAstError::new("if_expr missing condition"))?,
-    )?; // expr
+    let cond =
+        build_expr(it.next().ok_or_else(|| ParseAstError::new("if_expr missing condition"))?)?; // expr
     let _rpar = it.next();
     let _then = it.next();
     let then_expr = build_expr(
-        it.next()
-            .ok_or_else(|| ParseAstError::new("if_expr missing then expr_single"))?,
+        it.next().ok_or_else(|| ParseAstError::new("if_expr missing then expr_single"))?,
     )?; // expr_single
     let _else = it.next();
     let else_expr = build_expr(
-        it.next()
-            .ok_or_else(|| ParseAstError::new("if_expr missing else expr_single"))?,
+        it.next().ok_or_else(|| ParseAstError::new("if_expr missing else expr_single"))?,
     )?; // expr_single
     Ok(ast::Expr::IfThenElse {
         cond: Box::new(cond),
@@ -1540,9 +1385,5 @@ fn build_comma_sequence(pair: Pair<Rule>) -> AstResult<ast::Expr> {
             items.push(build_expr(p)?);
         }
     }
-    if items.len() == 1 {
-        Ok(items.remove(0))
-    } else {
-        Ok(ast::Expr::Sequence(items))
-    }
+    if items.len() == 1 { Ok(items.remove(0)) } else { Ok(ast::Expr::Sequence(items)) }
 }

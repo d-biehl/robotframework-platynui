@@ -18,9 +18,7 @@ pub(super) fn integer_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     let s = item_to_string(&args[0]);
-    let i: i64 = s
-        .parse()
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid integer"))?;
+    let i: i64 = s.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid integer"))?;
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(i))])
 }
 
@@ -32,14 +30,9 @@ pub(super) fn xs_string_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(
-        item_to_string(&args[0]),
-    ))])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(item_to_string(&args[0])))])
 }
 
 pub(super) fn xs_untyped_atomic_fn<N: crate::model::XdmNode + Clone>(
@@ -50,10 +43,7 @@ pub(super) fn xs_untyped_atomic_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s))])
@@ -67,10 +57,7 @@ pub(super) fn xs_boolean_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     let v = match s.as_str() {
@@ -89,10 +76,7 @@ pub(super) fn xs_integer_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     let s_trim = s.trim();
@@ -103,14 +87,10 @@ pub(super) fn xs_integer_fn<N: crate::model::XdmNode + Clone>(
         && let Ok(f) = s_trim.parse::<f64>()
         && (!f.is_finite() || f.fract() != 0.0)
     {
-        return Err(Error::from_code(
-            ErrorCode::FOCA0001,
-            "fractional part in integer cast",
-        ));
+        return Err(Error::from_code(ErrorCode::FOCA0001, "fractional part in integer cast"));
     }
-    let i: i64 = s_trim
-        .parse()
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:integer"))?;
+    let i: i64 =
+        s_trim.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:integer"))?;
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(i))])
 }
 
@@ -122,10 +102,7 @@ pub(super) fn xs_decimal_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]).trim().to_string();
     if s.eq_ignore_ascii_case("nan")
@@ -134,9 +111,8 @@ pub(super) fn xs_decimal_fn<N: crate::model::XdmNode + Clone>(
     {
         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"));
     }
-    let v: f64 = s
-        .parse()
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?;
+    let v: f64 =
+        s.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?;
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Decimal(v))])
 }
 
@@ -148,19 +124,14 @@ pub(super) fn xs_double_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]).trim().to_string();
     let v = match s.as_str() {
         "NaN" => f64::NAN,
         "INF" => f64::INFINITY,
         "-INF" => f64::NEG_INFINITY,
-        _ => s
-            .parse()
-            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:double"))?,
+        _ => s.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:double"))?,
     };
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(v))])
 }
@@ -173,19 +144,14 @@ pub(super) fn xs_float_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]).trim().to_string();
     let v = match s.as_str() {
         "NaN" => f32::NAN,
         "INF" => f32::INFINITY,
         "-INF" => f32::NEG_INFINITY,
-        _ => s
-            .parse()
-            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:float"))?,
+        _ => s.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:float"))?,
     };
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Float(v))])
 }
@@ -198,10 +164,7 @@ pub(super) fn xs_any_uri_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = collapse_whitespace(&item_to_string(&args[0]));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(s))])
@@ -215,10 +178,7 @@ pub(super) fn xs_qname_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     let (prefix_opt, local) = parse_qname_lexical(&s)
@@ -229,16 +189,9 @@ pub(super) fn xs_qname_fn<N: crate::model::XdmNode + Clone>(
         Some(p) => ctx.static_ctx.namespaces.by_prefix.get(p).cloned(),
     };
     if prefix_opt.is_some() && ns_uri.is_none() {
-        return Err(Error::from_code(
-            ErrorCode::FORG0001,
-            "unknown namespace prefix for QName",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0001, "unknown namespace prefix for QName"));
     }
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::QName {
-        ns_uri,
-        prefix: prefix_opt,
-        local,
-    })])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::QName { ns_uri, prefix: prefix_opt, local })])
 }
 
 pub(super) fn xs_base64_binary_fn<N: crate::model::XdmNode + Clone>(
@@ -249,21 +202,12 @@ pub(super) fn xs_base64_binary_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let raw = item_to_string(&args[0]);
     let norm: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
-    if base64::engine::general_purpose::STANDARD
-        .decode(&norm)
-        .is_err()
-    {
-        return Err(Error::from_code(
-            ErrorCode::FORG0001,
-            "invalid xs:base64Binary",
-        ));
+    if base64::engine::general_purpose::STANDARD.decode(&norm).is_err() {
+        return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:base64Binary"));
     }
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Base64Binary(norm))])
 }
@@ -276,18 +220,12 @@ pub(super) fn xs_hex_binary_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let raw = item_to_string(&args[0]);
     let norm: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
     if !norm.len().is_multiple_of(2) || !norm.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(Error::from_code(
-            ErrorCode::FORG0001,
-            "invalid xs:hexBinary",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:hexBinary"));
     }
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::HexBinary(norm))])
 }
@@ -300,10 +238,7 @@ pub(super) fn xs_datetime_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     match crate::util::temporal::parse_date_time_lex(&s) {
@@ -323,10 +258,7 @@ pub(super) fn xs_date_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     match crate::util::temporal::parse_date_lex(&s) {
@@ -343,10 +275,7 @@ pub(super) fn xs_time_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     match crate::util::temporal::parse_time_lex(&s) {
@@ -363,10 +292,7 @@ pub(super) fn xs_duration_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     let (months_opt, secs_opt) = parse_duration_lexical(&s)?;
@@ -391,10 +317,7 @@ pub(super) fn xs_day_time_duration_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     let secs = parse_day_time_duration_secs(&s)
@@ -410,10 +333,7 @@ pub(super) fn xs_g_year_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     let (year, tz) =
@@ -429,19 +349,12 @@ pub(super) fn xs_g_year_month_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     let (year, month, tz) = parse_g_year_month(&s)
         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYearMonth"))?;
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::GYearMonth {
-        year,
-        month,
-        tz,
-    })])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::GYearMonth { year, month, tz })])
 }
 
 pub(super) fn xs_g_month_fn<N: crate::model::XdmNode + Clone>(
@@ -452,10 +365,7 @@ pub(super) fn xs_g_month_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     let (month, tz) = parse_g_month(&s)
@@ -471,19 +381,12 @@ pub(super) fn xs_g_month_day_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     let (month, day, tz) = parse_g_month_day(&s)
         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonthDay"))?;
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::GMonthDay {
-        month,
-        day,
-        tz,
-    })])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::GMonthDay { month, day, tz })])
 }
 
 pub(super) fn xs_g_day_fn<N: crate::model::XdmNode + Clone>(
@@ -494,10 +397,7 @@ pub(super) fn xs_g_day_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     let (day, tz) =
@@ -513,17 +413,12 @@ pub(super) fn xs_year_month_duration_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     let months = parse_year_month_duration_months(&s)
         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:yearMonthDuration"))?;
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(
-        months,
-    ))])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(months))])
 }
 
 pub(super) fn xs_long_fn<N: crate::model::XdmNode + Clone>(
@@ -537,63 +432,49 @@ pub(super) fn xs_int_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    int_subtype_i64(args, i32::MIN as i64, i32::MAX as i64, |v| {
-        XdmAtomicValue::Int(v as i32)
-    })
+    int_subtype_i64(args, i32::MIN as i64, i32::MAX as i64, |v| XdmAtomicValue::Int(v as i32))
 }
 
 pub(super) fn xs_short_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    int_subtype_i64(args, i16::MIN as i64, i16::MAX as i64, |v| {
-        XdmAtomicValue::Short(v as i16)
-    })
+    int_subtype_i64(args, i16::MIN as i64, i16::MAX as i64, |v| XdmAtomicValue::Short(v as i16))
 }
 
 pub(super) fn xs_byte_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    int_subtype_i64(args, i8::MIN as i64, i8::MAX as i64, |v| {
-        XdmAtomicValue::Byte(v as i8)
-    })
+    int_subtype_i64(args, i8::MIN as i64, i8::MAX as i64, |v| XdmAtomicValue::Byte(v as i8))
 }
 
 pub(super) fn xs_unsigned_long_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    uint_subtype_u128(args, 0, u64::MAX as u128, |v| {
-        XdmAtomicValue::UnsignedLong(v as u64)
-    })
+    uint_subtype_u128(args, 0, u64::MAX as u128, |v| XdmAtomicValue::UnsignedLong(v as u64))
 }
 
 pub(super) fn xs_unsigned_int_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    uint_subtype_u128(args, 0, u32::MAX as u128, |v| {
-        XdmAtomicValue::UnsignedInt(v as u32)
-    })
+    uint_subtype_u128(args, 0, u32::MAX as u128, |v| XdmAtomicValue::UnsignedInt(v as u32))
 }
 
 pub(super) fn xs_unsigned_short_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    uint_subtype_u128(args, 0, u16::MAX as u128, |v| {
-        XdmAtomicValue::UnsignedShort(v as u16)
-    })
+    uint_subtype_u128(args, 0, u16::MAX as u128, |v| XdmAtomicValue::UnsignedShort(v as u16))
 }
 
 pub(super) fn xs_unsigned_byte_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    uint_subtype_u128(args, 0, u8::MAX as u128, |v| {
-        XdmAtomicValue::UnsignedByte(v as u8)
-    })
+    uint_subtype_u128(args, 0, u8::MAX as u128, |v| XdmAtomicValue::UnsignedByte(v as u8))
 }
 
 pub(super) fn xs_non_positive_integer_fn<N: crate::model::XdmNode + Clone>(
@@ -614,18 +495,14 @@ pub(super) fn xs_non_negative_integer_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    uint_subtype_u128(args, 0, u64::MAX as u128, |v| {
-        XdmAtomicValue::NonNegativeInteger(v as u64)
-    })
+    uint_subtype_u128(args, 0, u64::MAX as u128, |v| XdmAtomicValue::NonNegativeInteger(v as u64))
 }
 
 pub(super) fn xs_positive_integer_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    uint_subtype_u128(args, 1, u64::MAX as u128, |v| {
-        XdmAtomicValue::PositiveInteger(v as u64)
-    })
+    uint_subtype_u128(args, 1, u64::MAX as u128, |v| XdmAtomicValue::PositiveInteger(v as u64))
 }
 
 pub(super) fn xs_normalized_string_fn<N: crate::model::XdmNode + Clone>(
@@ -636,10 +513,7 @@ pub(super) fn xs_normalized_string_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = replace_whitespace(&item_to_string(&args[0]));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::NormalizedString(s))])
@@ -653,10 +527,7 @@ pub(super) fn xs_token_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = collapse_whitespace(&item_to_string(&args[0]));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Token(s))])
@@ -670,10 +541,7 @@ pub(super) fn xs_language_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = collapse_whitespace(&item_to_string(&args[0]));
     if !is_valid_language(&s) {
@@ -732,10 +600,7 @@ pub(super) fn xs_notation_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "constructor expects at most one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&args[0]);
     if parse_qname_lexical(&s).is_err() {

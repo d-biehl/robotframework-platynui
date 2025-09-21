@@ -15,13 +15,7 @@ fn string_to_codepoints_basic() {
     let r = evaluate_expr::<N>("fn:string-to-codepoints('ABC')", &ctx()).unwrap();
     let ints: Vec<i64> = r
         .into_iter()
-        .map(|i| {
-            if let I::Atomic(A::Integer(v)) = i {
-                v
-            } else {
-                panic!("expected int")
-            }
-        })
+        .map(|i| if let I::Atomic(A::Integer(v)) = i { v } else { panic!("expected int") })
         .collect();
     assert_eq!(ints, vec!['A' as i64, 'B' as i64, 'C' as i64]);
 }
@@ -38,11 +32,8 @@ fn codepoints_to_string_basic() {
 
 #[rstest]
 fn roundtrip_property_ascii() {
-    let r = evaluate_expr::<N>(
-        "fn:codepoints-to-string(fn:string-to-codepoints('Hello'))",
-        &ctx(),
-    )
-    .unwrap();
+    let r = evaluate_expr::<N>("fn:codepoints-to-string(fn:string-to-codepoints('Hello'))", &ctx())
+        .unwrap();
     if let I::Atomic(A::String(s)) = &r[0] {
         assert_eq!(s, "Hello");
     } else {
@@ -53,10 +44,7 @@ fn roundtrip_property_ascii() {
 #[rstest]
 fn unicode_roundtrip() {
     let src = "Grüß 😊";
-    let expr = format!(
-        "fn:codepoints-to-string(fn:string-to-codepoints('{}'))",
-        src
-    );
+    let expr = format!("fn:codepoints-to-string(fn:string-to-codepoints('{}'))", src);
     let r = evaluate_expr::<N>(&expr, &ctx()).unwrap();
     if let I::Atomic(A::String(s)) = &r[0] {
         assert_eq!(s, src);

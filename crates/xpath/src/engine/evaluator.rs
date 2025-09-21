@@ -101,29 +101,15 @@ struct VmHandle<N> {
 
 impl<N: 'static + Send + Sync + XdmNode + Clone> VmHandle<N> {
     fn new(snapshot: VmSnapshot<N>, cancel_flag: Option<Arc<AtomicBool>>) -> Self {
-        Self {
-            inner: Arc::new(VmHandleInner {
-                snapshot,
-                cache: Mutex::new(None),
-                cancel_flag,
-            }),
-        }
+        Self { inner: Arc::new(VmHandleInner { snapshot, cache: Mutex::new(None), cancel_flag }) }
     }
 
     fn with_vm<F, R>(&self, f: F) -> Result<R, Error>
     where
         F: FnOnce(&mut Vm<N>) -> Result<R, Error>,
     {
-        if self
-            .inner
-            .cancel_flag
-            .as_ref()
-            .is_some_and(|flag| flag.load(AtomicOrdering::Relaxed))
-        {
-            return Err(Error::from_code(
-                ErrorCode::FOER0000,
-                "evaluation cancelled",
-            ));
+        if self.inner.cancel_flag.as_ref().is_some_and(|flag| flag.load(AtomicOrdering::Relaxed)) {
+            return Err(Error::from_code(ErrorCode::FOER0000, "evaluation cancelled"));
         }
         let snapshot = &self.inner.snapshot;
         let mut vm = {
@@ -143,10 +129,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> VmHandle<N> {
     }
 
     fn is_cancelled(&self) -> bool {
-        self.inner
-            .cancel_flag
-            .as_ref()
-            .is_some_and(|flag| flag.load(AtomicOrdering::Relaxed))
+        self.inner.cancel_flag.as_ref().is_some_and(|flag| flag.load(AtomicOrdering::Relaxed))
     }
 }
 
@@ -174,13 +157,7 @@ struct AxisStepCursor<N> {
 
 impl<N: 'static + Send + Sync + XdmNode + Clone> AxisStepCursor<N> {
     fn new(vm: VmHandle<N>, input: XdmSequenceStream<N>, axis: AxisIR, test: NodeTestIR) -> Self {
-        Self {
-            vm,
-            axis,
-            test,
-            input_cursor: input.cursor(),
-            pending: VecDeque::new(),
-        }
+        Self { vm, axis, test, input_cursor: input.cursor(), pending: VecDeque::new() }
     }
 
     /// Optimized path for child::* patterns
@@ -289,11 +266,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> AxisStepCursor<N> {
                 }
                 (
                     AxisIR::DescendantOrSelf,
-                    NodeTestIR::KindElement {
-                        name: None,
-                        ty: None,
-                        nillable: false,
-                    },
+                    NodeTestIR::KindElement { name: None, ty: None, nillable: false },
                 ) => return self.descendant_or_self_elements_fast(vm, node),
 
                 // child axis optimizations
@@ -302,11 +275,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> AxisStepCursor<N> {
                 }
                 (
                     AxisIR::Child,
-                    NodeTestIR::KindElement {
-                        name: None,
-                        ty: None,
-                        nillable: false,
-                    },
+                    NodeTestIR::KindElement { name: None, ty: None, nillable: false },
                 ) => return self.child_elements_fast(vm, node),
 
                 _ => {}
@@ -386,25 +355,15 @@ struct PredicateCursor<N> {
 impl<N: 'static + Send + Sync + XdmNode + Clone> PredicateCursor<N> {
     fn new(vm: VmHandle<N>, predicate: InstrSeq, input: Box<dyn SequenceCursor<N>>) -> Self {
         let seed = Some(input.boxed_clone());
-        Self {
-            vm,
-            predicate,
-            input,
-            seed,
-            position: 0,
-            last_cache: None,
-        }
+        Self { vm, predicate, input, seed, position: 0, last_cache: None }
     }
 
     fn ensure_last(&mut self) -> Result<usize, Error> {
         if let Some(last) = self.last_cache {
             return Ok(last);
         }
-        let mut cursor = if let Some(seed) = self.seed.take() {
-            seed
-        } else {
-            self.input.boxed_clone()
-        };
+        let mut cursor =
+            if let Some(seed) = self.seed.take() { seed } else { self.input.boxed_clone() };
         let mut count = 0usize;
         while let Some(item) = cursor.next_item() {
             match item {
@@ -460,9 +419,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for Predicate
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let upper = self
-            .last_cache
-            .map(|last| last.saturating_sub(self.position));
+        let upper = self.last_cache.map(|last| last.saturating_sub(self.position));
         (0, upper)
     }
 
@@ -492,26 +449,15 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> PathStepCursor<N> {
     fn new(vm: VmHandle<N>, input_stream: XdmSequenceStream<N>, code: InstrSeq) -> Self {
         let input = input_stream.cursor();
         let seed = Some(input.boxed_clone());
-        Self {
-            vm,
-            code,
-            input,
-            seed,
-            input_len: None,
-            position: 0,
-            current_output: None,
-        }
+        Self { vm, code, input, seed, input_len: None, position: 0, current_output: None }
     }
 
     fn ensure_input_len(&mut self) -> Result<usize, Error> {
         if let Some(len) = self.input_len {
             return Ok(len);
         }
-        let mut cursor = if let Some(seed) = self.seed.take() {
-            seed
-        } else {
-            self.input.boxed_clone()
-        };
+        let mut cursor =
+            if let Some(seed) = self.seed.take() { seed } else { self.input.boxed_clone() };
         let mut count = 0usize;
         while let Some(item) = cursor.next_item() {
             match item {
@@ -579,10 +525,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for PathStepC
             seed: self.seed.as_ref().map(|cursor| cursor.boxed_clone()),
             input_len: self.input_len,
             position: self.position,
-            current_output: self
-                .current_output
-                .as_ref()
-                .map(|cursor| cursor.boxed_clone()),
+            current_output: self.current_output.as_ref().map(|cursor| cursor.boxed_clone()),
         })
     }
 }
@@ -654,8 +597,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> DocOrderDistinctCursor<N> {
             keyed.sort_by_key(|(k, _)| *k);
             keyed.dedup_by(|a, b| a.0 == b.0);
             self.buffer.extend(others.drain(..));
-            self.buffer
-                .extend(keyed.drain(..).map(|(_, n)| XdmItem::Node(n)));
+            self.buffer.extend(keyed.drain(..).map(|(_, n)| XdmItem::Node(n)));
             self.initialized = true;
             self.keyed = keyed;
             self.fallback = fallback;
@@ -690,9 +632,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> DocOrderDistinctCursor<N> {
     }
 
     fn compare_nodes(&self, a: &N, b: &N) -> Ordering {
-        self.vm
-            .with_vm(|vm| vm.node_compare(a, b))
-            .unwrap_or(Ordering::Equal)
+        self.vm.with_vm(|vm| vm.node_compare(a, b)).unwrap_or(Ordering::Equal)
     }
 }
 
@@ -852,16 +792,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> ForLoopCursor<N> {
     ) -> Self {
         let input = input_stream.cursor();
         let seed = Some(input.boxed_clone());
-        Self {
-            vm,
-            var,
-            body,
-            input,
-            seed,
-            input_len: None,
-            position: 0,
-            current_output: None,
-        }
+        Self { vm, var, body, input, seed, input_len: None, position: 0, current_output: None }
     }
 
     fn ensure_input_len(&mut self) -> Result<usize, Error> {
@@ -914,10 +845,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for ForLoopCu
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         loop {
             if self.vm.is_cancelled() {
-                return Some(Err(Error::from_code(
-                    ErrorCode::FOER0000,
-                    "evaluation cancelled",
-                )));
+                return Some(Err(Error::from_code(ErrorCode::FOER0000, "evaluation cancelled")));
             }
 
             if let Some(ref mut current) = self.current_output {
@@ -970,10 +898,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for ForLoopCu
             seed: self.seed.as_ref().map(|cursor| cursor.boxed_clone()),
             input_len: self.input_len,
             position: self.position,
-            current_output: self
-                .current_output
-                .as_ref()
-                .map(|cursor| cursor.boxed_clone()),
+            current_output: self.current_output.as_ref().map(|cursor| cursor.boxed_clone()),
         })
     }
 }
@@ -1072,10 +997,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> QuantLoopCursor<N> {
 
         while let Some(item) = self.input.next_item() {
             if self.vm.is_cancelled() {
-                return Err(Error::from_code(
-                    ErrorCode::FOER0000,
-                    "evaluation cancelled",
-                ));
+                return Err(Error::from_code(ErrorCode::FOER0000, "evaluation cancelled"));
             }
             let candidate = item?;
             let pos = self.position + 1;
@@ -1131,11 +1053,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for QuantLoop
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.emitted {
-            (0, Some(0))
-        } else {
-            (0, Some(1))
-        }
+        if self.emitted { (0, Some(0)) } else { (0, Some(1)) }
     }
 
     fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
@@ -1261,15 +1179,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     }
 
     fn check_cancel(&self) -> Result<(), Error> {
-        if self
-            .cancel_flag
-            .as_ref()
-            .is_some_and(|flag| flag.load(AtomicOrdering::Relaxed))
-        {
-            return Err(Error::from_code(
-                ErrorCode::FOER0000,
-                "evaluation cancelled",
-            ));
+        if self.cancel_flag.as_ref().is_some_and(|flag| flag.load(AtomicOrdering::Relaxed)) {
+            return Err(Error::from_code(ErrorCode::FOER0000, "evaluation cancelled"));
         }
         Ok(())
     }
@@ -2293,11 +2204,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                     }
                     args.reverse();
                     let en = name; // lookup will resolve default namespace when needed
-                    let def_ns = self
-                        .compiled
-                        .static_ctx
-                        .default_function_namespace
-                        .as_deref();
+                    let def_ns = self.compiled.static_ctx.default_function_namespace.as_deref();
                     if let Some(specs) = self
                         .compiled
                         .static_ctx
@@ -2352,10 +2259,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 // Errors
                 OpCode::Raise(code) => {
                     // Interpret legacy raise codes; prefer enum when possible.
-                    return Err(Error::new_qname(
-                        Error::parse_code(code),
-                        "raised by program",
-                    ));
+                    return Err(Error::new_qname(Error::parse_code(code), "raised by program"));
                 }
             }
         }
@@ -2497,9 +2401,9 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         for it in seq {
             match it {
                 XdmItem::Atomic(a) => out.push(XdmItem::Atomic(a)),
-                XdmItem::Node(n) => out.push(XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(
-                    n.string_value(),
-                ))),
+                XdmItem::Node(n) => {
+                    out.push(XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(n.string_value())))
+                }
             }
         }
         out
@@ -2622,10 +2526,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 (V::String(sa.clone()), V::String(sb.clone()))
             }
             (V::UntypedAtomic(s), other)
-                if matches!(
-                    other,
-                    V::Integer(_) | V::Decimal(_) | V::Double(_) | V::Float(_)
-                ) =>
+                if matches!(other, V::Integer(_) | V::Decimal(_) | V::Double(_) | V::Float(_)) =>
             {
                 let num = s.parse::<f64>().map_err(|_| {
                     Error::from_code(ErrorCode::FORG0001, "invalid numeric literal")
@@ -2633,10 +2534,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 (V::Double(num), other.clone())
             }
             (other, V::UntypedAtomic(s))
-                if matches!(
-                    other,
-                    V::Integer(_) | V::Decimal(_) | V::Double(_) | V::Float(_)
-                ) =>
+                if matches!(other, V::Integer(_) | V::Decimal(_) | V::Double(_) | V::Float(_)) =>
             {
                 let num = s.parse::<f64>().map_err(|_| {
                     Error::from_code(ErrorCode::FORG0001, "invalid numeric literal")
@@ -2654,10 +2552,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 Eq => x == y,
                 Ne => x != y,
                 Lt | Le | Gt | Ge => {
-                    return Err(Error::from_code(
-                        ErrorCode::XPTY0004,
-                        "relational op on boolean",
-                    ));
+                    return Err(Error::from_code(ErrorCode::XPTY0004, "relational op on boolean"));
                 }
             });
         }
@@ -2666,16 +2561,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         if matches!((&a_norm, &b_norm), (V::String(_), V::String(_)))
             && matches!(op, Lt | Le | Gt | Ge | Eq | Ne)
         {
-            let ls = if let V::String(s) = &a_norm {
-                s
-            } else {
-                unreachable!()
-            };
-            let rs = if let V::String(s) = &b_norm {
-                s
-            } else {
-                unreachable!()
-            };
+            let ls = if let V::String(s) = &a_norm { s } else { unreachable!() };
+            let rs = if let V::String(s) = &b_norm { s } else { unreachable!() };
             // Collation-aware: use default collation (fallback to codepoint)
             let coll_arc;
             let coll: &dyn crate::engine::collation::Collation =
@@ -2707,26 +2594,15 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
 
         // QName equality (only Eq/Ne permitted); compare namespace URI + local name; ignore prefix
         if let (
-            XdmAtomicValue::QName {
-                ns_uri: nsa,
-                local: la,
-                ..
-            },
-            XdmAtomicValue::QName {
-                ns_uri: nsb,
-                local: lb,
-                ..
-            },
+            XdmAtomicValue::QName { ns_uri: nsa, local: la, .. },
+            XdmAtomicValue::QName { ns_uri: nsb, local: lb, .. },
         ) = (a, b)
         {
             return Ok(match op {
                 Eq => nsa == nsb && la == lb,
                 Ne => nsa != nsb || la != lb,
                 Lt | Le | Gt | Ge => {
-                    return Err(Error::from_code(
-                        ErrorCode::XPTY0004,
-                        "relational op on QName",
-                    ));
+                    return Err(Error::from_code(ErrorCode::XPTY0004, "relational op on QName"));
                 }
             });
         }
@@ -2737,10 +2613,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 Eq => na == nb,
                 Ne => na != nb,
                 Lt | Le | Gt | Ge => {
-                    return Err(Error::from_code(
-                        ErrorCode::XPTY0004,
-                        "relational op on NOTATION",
-                    ));
+                    return Err(Error::from_code(ErrorCode::XPTY0004, "relational op on NOTATION"));
                 }
             });
         }
@@ -2853,10 +2726,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         }
 
         // Unsupported / incomparable type combination → type error (XPTY0004)
-        Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "incomparable atomic types",
-        ))
+        Err(Error::from_code(ErrorCode::XPTY0004, "incomparable atomic types"))
     }
 
     fn implicit_timezone(&self) -> ChronoFixedOffset {
@@ -3045,8 +2915,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         None
     }
     fn first_child_in_doc(node: &N) -> Option<N> {
-        node.children()
-            .find(|child| !Self::is_attr_or_namespace(child))
+        node.children().find(|child| !Self::is_attr_or_namespace(child))
     }
     fn next_sibling_in_doc(node: &N) -> Option<N> {
         let parent = node.parent()?;
@@ -3122,10 +2991,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             return false;
         }
 
-        let node_ns = node_name
-            .ns_uri
-            .as_ref()
-            .map(|ns| DefaultAtom::from(ns.as_str()));
+        let node_ns = node_name.ns_uri.as_ref().map(|ns| DefaultAtom::from(ns.as_str()));
 
         let effective_ns = match node_ns {
             Some(atom) => Some(atom),
@@ -3151,10 +3017,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             Name(q) => {
                 // For namespace nodes, the NameTest matches by prefix (local) only.
                 if matches!(node.kind(), crate::model::NodeKind::Namespace) {
-                    return node
-                        .name()
-                        .map(|n| n.local == q.original.local)
-                        .unwrap_or(false);
+                    return node.name().map(|n| n.local == q.original.local).unwrap_or(false);
                 }
                 // Use fast path for name comparison
                 self.matches_interned_name(node, q)
@@ -3180,9 +3043,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 .unwrap_or(false),
             LocalWildcard(local) => {
                 // Use interned comparison for local names
-                node.name()
-                    .map(|n| n.local.as_str() == local.as_ref())
-                    .unwrap_or(false)
+                node.name().map(|n| n.local.as_str() == local.as_ref()).unwrap_or(false)
             }
             KindText => matches!(node.kind(), crate::model::NodeKind::Text),
             KindComment => matches!(node.kind(), crate::model::NodeKind::Comment),
@@ -3191,11 +3052,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                     return false;
                 }
                 if let Some(target) = target_opt {
-                    if let Some(nm) = node.name() {
-                        nm.local == *target
-                    } else {
-                        false
-                    }
+                    if let Some(nm) = node.name() { nm.local == *target } else { false }
                 } else {
                     true
                 }
@@ -3344,9 +3201,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             .into_iter()
             .map(|item| match item {
                 XdmItem::Node(n) => Ok(n),
-                _ => Err(Error::not_implemented(
-                    "non-node item encountered in set operation",
-                )),
+                _ => Err(Error::not_implemented("non-node item encountered in set operation")),
             })
             .collect()
     }
@@ -3392,10 +3247,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
 
     fn float_to_integer(&self, value: f64, target: &str) -> Result<i128, Error> {
         if !value.is_finite() {
-            return Err(Error::from_code(
-                ErrorCode::FOCA0001,
-                format!("{target} overflow"),
-            ));
+            return Err(Error::from_code(ErrorCode::FOCA0001, format!("{target} overflow")));
         }
         if value.fract() != 0.0 {
             return Err(Error::from_code(
@@ -3404,10 +3256,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             ));
         }
         if value < i128::MIN as f64 || value > i128::MAX as f64 {
-            return Err(Error::from_code(
-                ErrorCode::FOCA0001,
-                format!("{target} overflow"),
-            ));
+            return Err(Error::from_code(ErrorCode::FOCA0001, format!("{target} overflow")));
         }
         Ok(value as i128)
     }
@@ -3435,10 +3284,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 if let Some(text) = string_like_value(other) {
                     self.parse_integer_string(&text, target)
                 } else {
-                    Err(Error::from_code(
-                        ErrorCode::FORG0001,
-                        format!("cannot cast to {target}"),
-                    ))
+                    Err(Error::from_code(ErrorCode::FORG0001, format!("cannot cast to {target}")))
                 }
             }
         }
@@ -3474,10 +3320,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         target: &str,
     ) -> Result<i128, Error> {
         if value < min || value > max {
-            Err(Error::from_code(
-                ErrorCode::FORG0001,
-                format!("value out of range for {target}"),
-            ))
+            Err(Error::from_code(ErrorCode::FORG0001, format!("value out of range for {target}")))
         } else {
             Ok(value)
         }
@@ -3491,10 +3334,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         target: &str,
     ) -> Result<u128, Error> {
         if value < min || value > max {
-            Err(Error::from_code(
-                ErrorCode::FORG0001,
-                format!("value out of range for {target}"),
-            ))
+            Err(Error::from_code(ErrorCode::FORG0001, format!("value out of range for {target}")))
         } else {
             Ok(value)
         }
@@ -3816,25 +3656,15 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 }
             },
             "QName" => match a {
-                XdmAtomicValue::QName {
-                    ns_uri,
-                    prefix,
-                    local,
-                } => Ok(XdmAtomicValue::QName {
-                    ns_uri,
-                    prefix,
-                    local,
-                }),
+                XdmAtomicValue::QName { ns_uri, prefix, local } => {
+                    Ok(XdmAtomicValue::QName { ns_uri, prefix, local })
+                }
                 other => {
                     let text = self.require_string_like(&other, "xs:QName")?;
                     let (prefix, local) = parse_qname_lexical(&text).map_err(|_| {
                         Error::from_code(ErrorCode::FORG0001, "invalid QName lexical")
                     })?;
-                    Ok(XdmAtomicValue::QName {
-                        ns_uri: None,
-                        prefix,
-                        local,
-                    })
+                    Ok(XdmAtomicValue::QName { ns_uri: None, prefix, local })
                 }
             },
             "NOTATION" => match a {
@@ -3881,10 +3711,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                     let text = self.require_string_like(&other, "xs:hexBinary")?;
                     let normalized: String = text.chars().filter(|c| !c.is_whitespace()).collect();
                     if decode_hex(&normalized).is_none() {
-                        return Err(Error::from_code(
-                            ErrorCode::FORG0001,
-                            "invalid xs:hexBinary",
-                        ));
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:hexBinary"));
                     }
                     Ok(XdmAtomicValue::HexBinary(normalized.to_uppercase()))
                 }
@@ -4110,13 +3937,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 if p == "xml" {
                 } else {
                     // look up prefix in static context
-                    if !self
-                        .compiled
-                        .static_ctx
-                        .namespaces
-                        .by_prefix
-                        .contains_key(p)
-                    {
+                    if !self.compiled.static_ctx.namespaces.by_prefix.contains_key(p) {
                         return false;
                     }
                 }

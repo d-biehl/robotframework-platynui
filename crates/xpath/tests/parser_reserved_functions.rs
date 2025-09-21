@@ -34,11 +34,7 @@ fn reserved_names_as_node_tests(#[case] input: &str, #[case] expect: ast::KindTe
 #[rstest]
 fn reserved_names_schema_variants() {
     // schema-element/attribute should also parse as node tests
-    let q = |local: &str| ast::QName {
-        prefix: None,
-        local: local.into(),
-        ns_uri: None,
-    };
+    let q = |local: &str| ast::QName { prefix: None, local: local.into(), ns_uri: None };
     match parse("schema-element(a)").expect("parse failed") {
         ast::Expr::Path(p) => match &p.steps[0] {
             ast::Step::Axis { test, .. } => match test {

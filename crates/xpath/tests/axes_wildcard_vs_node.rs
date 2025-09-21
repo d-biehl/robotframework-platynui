@@ -5,9 +5,7 @@ use platynui_xpath::{XdmNode, evaluate_expr, xdm::XdmItem as I};
 type N = platynui_xpath::model::simple::SimpleNode;
 
 fn ctx_with(root: N) -> DynamicContext<N> {
-    DynamicContextBuilder::default()
-        .with_context_item(I::Node(root))
-        .build()
+    DynamicContextBuilder::default().with_context_item(I::Node(root)).build()
 }
 
 #[test]
@@ -17,12 +15,7 @@ fn wildcard_child_vs_node_axis_differences() {
         .child(
             elem("root")
                 .child(text("pre"))
-                .child(
-                    elem("a")
-                        .child(text("one"))
-                        .child(elem("b"))
-                        .child(text("two")),
-                )
+                .child(elem("a").child(text("one")).child(elem("b")).child(text("two")))
                 .child(text("post")),
         )
         .build();
@@ -51,10 +44,7 @@ fn wildcard_child_vs_node_axis_differences() {
         .iter()
         .filter(|i| matches!(i, I::Node(n) if matches!(n.kind(), platynui_xpath::model::NodeKind::Text)))
         .count();
-    assert!(
-        count_text >= 4,
-        "should include text nodes: pre, one, two, post"
-    );
+    assert!(count_text >= 4, "should include text nodes: pre, one, two, post");
 
     // Sanity: //* should not include text nodes
     let has_text_in_star = elements.iter().any(

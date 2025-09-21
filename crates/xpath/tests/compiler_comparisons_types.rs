@@ -17,28 +17,16 @@ fn comparisons_all() {
         ("2 ge 1", OpCode::CompareValue(ComparisonOp::Ge)),
     ] {
         let is = ir(src);
-        assert!(
-            is.0.iter()
-                .any(|i| std::mem::discriminant(i) == std::mem::discriminant(&op))
-        );
+        assert!(is.0.iter().any(|i| std::mem::discriminant(i) == std::mem::discriminant(&op)));
     }
 }
 
 #[rstest]
 fn comparisons_general_value_node() {
     let gen_ir = ir("(1,2) = (2,3)");
-    assert!(
-        gen_ir
-            .0
-            .iter()
-            .any(|op| matches!(op, OpCode::CompareGeneral(ComparisonOp::Eq)))
-    );
+    assert!(gen_ir.0.iter().any(|op| matches!(op, OpCode::CompareGeneral(ComparisonOp::Eq))));
     let val = ir("2 eq 2");
-    assert!(
-        val.0
-            .iter()
-            .any(|op| matches!(op, OpCode::CompareValue(ComparisonOp::Eq)))
-    );
+    assert!(val.0.iter().any(|op| matches!(op, OpCode::CompareValue(ComparisonOp::Eq))));
     let node = ir(". is .");
     assert!(node.0.iter().any(|op| matches!(op, OpCode::NodeIs)));
 }
@@ -46,18 +34,8 @@ fn comparisons_general_value_node() {
 #[rstest]
 fn node_comparisons() {
     assert!(ir(". is .").0.iter().any(|i| matches!(i, OpCode::NodeIs)));
-    assert!(
-        ir(". << .")
-            .0
-            .iter()
-            .any(|i| matches!(i, OpCode::NodeBefore))
-    );
-    assert!(
-        ir(". >> .")
-            .0
-            .iter()
-            .any(|i| matches!(i, OpCode::NodeAfter))
-    );
+    assert!(ir(". << .").0.iter().any(|i| matches!(i, OpCode::NodeBefore)));
+    assert!(ir(". >> .").0.iter().any(|i| matches!(i, OpCode::NodeAfter)));
 }
 
 #[rstest]
@@ -71,10 +49,7 @@ fn comparisons_all_ops() {
         ("2 >= 1", ComparisonOp::Ge),
     ] {
         let is = ir(src);
-        assert!(
-            is.0.iter()
-                .any(|i| matches!(i, OpCode::CompareGeneral(o) if *o==op))
-        );
+        assert!(is.0.iter().any(|i| matches!(i, OpCode::CompareGeneral(o) if *o==op)));
     }
     // value comparisons
     for (src, op) in [
@@ -85,10 +60,7 @@ fn comparisons_all_ops() {
         ("2 ge 1", ComparisonOp::Ge),
     ] {
         let is = ir(src);
-        assert!(
-            is.0.iter()
-                .any(|i| matches!(i, OpCode::CompareValue(o) if *o==op))
-        );
+        assert!(is.0.iter().any(|i| matches!(i, OpCode::CompareValue(o) if *o==op)));
     }
 }
 
@@ -109,25 +81,16 @@ fn types_occurrences() {
     let t_opt = ir("1 treat as xs:integer?");
     assert!(t_opt.0.iter().any(|op| matches!(
         op,
-        OpCode::Treat(SeqTypeIR::Typed {
-            item: _,
-            occ: OccurrenceIR::ZeroOrOne
-        })
+        OpCode::Treat(SeqTypeIR::Typed { item: _, occ: OccurrenceIR::ZeroOrOne })
     )));
     let t_plus = ir("1 treat as xs:integer+");
     assert!(t_plus.0.iter().any(|op| matches!(
         op,
-        OpCode::Treat(SeqTypeIR::Typed {
-            item: _,
-            occ: OccurrenceIR::OneOrMore
-        })
+        OpCode::Treat(SeqTypeIR::Typed { item: _, occ: OccurrenceIR::OneOrMore })
     )));
     let t_star = ir("1 treat as xs:integer*");
     assert!(t_star.0.iter().any(|op| matches!(
         op,
-        OpCode::Treat(SeqTypeIR::Typed {
-            item: _,
-            occ: OccurrenceIR::ZeroOrMore
-        })
+        OpCode::Treat(SeqTypeIR::Typed { item: _, occ: OccurrenceIR::ZeroOrMore })
     )));
 }

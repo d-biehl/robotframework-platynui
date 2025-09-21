@@ -15,9 +15,7 @@ fn dyn_ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
 
 #[rstest]
 fn register_and_use_custom_prefix_in_qname_constructor() {
-    let static_ctx = StaticContextBuilder::new()
-        .with_namespace("ex", "urn:example")
-        .build();
+    let static_ctx = StaticContextBuilder::new().with_namespace("ex", "urn:example").build();
     let ctx = dyn_ctx();
     let compiled = compile_with_context("xs:QName('ex:local')", &static_ctx).unwrap();
     let seq = evaluate(&compiled, &ctx).unwrap();
@@ -36,9 +34,7 @@ fn register_and_use_custom_prefix_in_qname_constructor() {
 
 #[rstest]
 fn resolve_qname_uses_static_namespace() {
-    let static_ctx = StaticContextBuilder::new()
-        .with_namespace("p", "urn:ns")
-        .build();
+    let static_ctx = StaticContextBuilder::new().with_namespace("p", "urn:ns").build();
     let ctx = dyn_ctx();
     let compiled =
         compile_with_context("namespace-uri-from-QName(xs:QName('p:thing'))", &static_ctx).unwrap();
@@ -52,15 +48,11 @@ fn resolve_qname_uses_static_namespace() {
 
 #[rstest]
 fn implicit_xml_binding_present_and_not_overridden() {
-    let static_ctx = StaticContextBuilder::new()
-        .with_namespace("xml", "urn:override")
-        .build();
+    let static_ctx = StaticContextBuilder::new().with_namespace("xml", "urn:override").build();
     let ctx = dyn_ctx();
-    let compiled = compile_with_context(
-        "namespace-uri-from-QName(xs:QName('xml:lang'))",
-        &static_ctx,
-    )
-    .unwrap();
+    let compiled =
+        compile_with_context("namespace-uri-from-QName(xs:QName('xml:lang'))", &static_ctx)
+            .unwrap();
     let seq = evaluate(&compiled, &ctx).unwrap();
     let uri = match &seq[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::AnyUri(s)) => s,
@@ -75,30 +67,21 @@ fn unknown_prefix_still_errors_without_registration() {
     let ctx = dyn_ctx();
     let compiled = compile_with_context("xs:QName('u:local')", &static_ctx).unwrap();
     let err = evaluate(&compiled, &ctx).expect_err("expected error");
-    assert_eq!(
-        err.code_enum(),
-        platynui_xpath::engine::runtime::ErrorCode::FORG0001
-    );
+    assert_eq!(err.code_enum(), platynui_xpath::engine::runtime::ErrorCode::FORG0001);
 }
 
 #[rstest]
 fn resolve_qname_uses_element_inscope_not_static() {
     // Static context defines prefix 'a' to urn:static, but element defines xmlns:a="urn:elem".
     // According to spec, resolve-QName should use the element's in-scope namespaces (not static context).
-    let static_ctx = StaticContextBuilder::new()
-        .with_namespace("a", "urn:static")
-        .build();
+    let static_ctx = StaticContextBuilder::new().with_namespace("a", "urn:static").build();
     // Build document/root with namespace declaration a -> urn:elem and a child element
     let document = doc()
         .child(
-            elem("root")
-                .namespace(ns("a", "urn:elem"))
-                .child(elem("child").child(text("content"))),
+            elem("root").namespace(ns("a", "urn:elem")).child(elem("child").child(text("content"))),
         )
         .build();
-    let dyn_ctx = DynamicContextBuilder::default()
-        .with_context_item(document.clone())
-        .build();
+    let dyn_ctx = DynamicContextBuilder::default().with_context_item(document.clone()).build();
     // Expression: resolve-QName('a:child', root/child) then namespace-uri-from-QName
     let expr = "namespace-uri-from-QName(resolve-QName('a:child', /root/child))";
     let compiled = compile_with_context(expr, &static_ctx).unwrap();
@@ -112,9 +95,7 @@ fn resolve_qname_uses_element_inscope_not_static() {
 
 #[rstest]
 fn default_element_namespace_applies_to_unprefixed_steps() {
-    let static_ctx = StaticContextBuilder::new()
-        .with_default_element_namespace("urn:def")
-        .build();
+    let static_ctx = StaticContextBuilder::new().with_default_element_namespace("urn:def").build();
 
     let document = doc()
         .child(
@@ -126,9 +107,7 @@ fn default_element_namespace_applies_to_unprefixed_steps() {
         )
         .build();
 
-    let dyn_ctx = DynamicContextBuilder::default()
-        .with_context_item(document.clone())
-        .build();
+    let dyn_ctx = DynamicContextBuilder::default().with_context_item(document.clone()).build();
 
     let compiled = compile_with_context("//foo", &static_ctx).unwrap();
     let seq = evaluate(&compiled, &dyn_ctx).unwrap();

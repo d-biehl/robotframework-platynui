@@ -29,11 +29,7 @@ fn distinct_values(
     let vals: Vec<String> = r
         .iter()
         .filter_map(|i| {
-            if let XdmItem::Atomic(XdmAtomicValue::String(s)) = i {
-                Some(s.clone())
-            } else {
-                None
-            }
+            if let XdmItem::Atomic(XdmAtomicValue::String(s)) = i { Some(s.clone()) } else { None }
         })
         .collect();
     let expected: Vec<String> = expected.into_iter().map(|s| s.to_string()).collect();

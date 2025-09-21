@@ -106,10 +106,9 @@ fn translate_basic_mapping() {
     .unwrap();
     // mapping: a->x, b->y, c->z ; other chars unchanged
     match &r[0] {
-        XdmItem::Atomic(XdmAtomicValue::String(s)) => assert!(
-            s.contains("xyrxzxdxyrx"),
-            "unexpected translate result: {s}"
-        ),
+        XdmItem::Atomic(XdmAtomicValue::String(s)) => {
+            assert!(s.contains("xyrxzxdxyrx"), "unexpected translate result: {s}")
+        }
         other => panic!("expected String, got {other:?}"),
     }
 }

@@ -53,10 +53,7 @@ pub(super) fn root_fn<N: crate::model::XdmNode + Clone>(
             }
             Ok(vec![XdmItem::Node(cur)])
         }
-        _ => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "root() expects node()",
-        )),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "root() expects node()")),
     }
 }
 
@@ -82,10 +79,7 @@ pub(super) fn base_uri_fn<N: crate::model::XdmNode + Clone>(
                 Ok(vec![])
             }
         }
-        _ => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "base-uri() expects node()",
-        )),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "base-uri() expects node()")),
     }
 }
 
@@ -112,10 +106,7 @@ pub(super) fn document_uri_fn<N: crate::model::XdmNode + Clone>(
             }
             Ok(vec![])
         }
-        _ => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "document-uri() expects node()",
-        )),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "document-uri() expects node()")),
     }
 }
 
@@ -377,16 +368,10 @@ pub(super) fn normalize_unicode_fn<N: crate::model::XdmNode + Clone>(
         "NFKC" => s.nfkc().collect::<String>(),
         "NFKD" => s.nfkd().collect::<String>(),
         "FULLY-NORMALIZED" => {
-            return Err(Error::from_code(
-                ErrorCode::FOCH0003,
-                "FULLY-NORMALIZED is not supported",
-            ));
+            return Err(Error::from_code(ErrorCode::FOCH0003, "FULLY-NORMALIZED is not supported"));
         }
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::FOCH0003,
-                "unsupported normalization form",
-            ));
+            return Err(Error::from_code(ErrorCode::FOCH0003, "unsupported normalization form"));
         }
     };
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
@@ -423,23 +408,14 @@ pub(super) fn doc_fn<N: crate::model::XdmNode + Clone>(
         match nr.doc_node(&uri) {
             Ok(Some(n)) => return Ok(vec![XdmItem::Node(n)]),
             Ok(None) => {
-                return Err(Error::from_code(
-                    ErrorCode::FODC0005,
-                    "document not available",
-                ));
+                return Err(Error::from_code(ErrorCode::FODC0005, "document not available"));
             }
             Err(_e) => {
-                return Err(Error::from_code(
-                    ErrorCode::FODC0005,
-                    "error retrieving document",
-                ));
+                return Err(Error::from_code(ErrorCode::FODC0005, "error retrieving document"));
             }
         }
     }
-    Err(Error::from_code(
-        ErrorCode::FODC0005,
-        "no node resolver configured for fn:doc",
-    ))
+    Err(Error::from_code(ErrorCode::FODC0005, "no node resolver configured for fn:doc"))
 }
 
 pub(super) fn collection_fn<N: crate::model::XdmNode + Clone>(

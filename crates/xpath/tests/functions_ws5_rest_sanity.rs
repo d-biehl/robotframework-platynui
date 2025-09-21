@@ -12,11 +12,8 @@ fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
 
 #[rstest]
 fn minutes_from_datetime_basic(ctx: platynui_xpath::engine::runtime::DynamicContext<N>) {
-    let m = evaluate_expr::<N>(
-        "minutes-from-dateTime(xs:dateTime('2020-01-02T03:04:05Z'))",
-        &ctx,
-    )
-    .unwrap();
+    let m = evaluate_expr::<N>("minutes-from-dateTime(xs:dateTime('2020-01-02T03:04:05Z'))", &ctx)
+        .unwrap();
     match &m[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(v)) => assert_eq!(*v, 4),
         _ => panic!("expected integer"),
@@ -25,11 +22,8 @@ fn minutes_from_datetime_basic(ctx: platynui_xpath::engine::runtime::DynamicCont
 
 #[rstest]
 fn seconds_from_datetime_basic(ctx: platynui_xpath::engine::runtime::DynamicContext<N>) {
-    let s = evaluate_expr::<N>(
-        "seconds-from-dateTime(xs:dateTime('2020-01-02T03:04:05Z'))",
-        &ctx,
-    )
-    .unwrap();
+    let s = evaluate_expr::<N>("seconds-from-dateTime(xs:dateTime('2020-01-02T03:04:05Z'))", &ctx)
+        .unwrap();
     match &s[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Decimal(v)) => assert_eq!(*v, 5.0),
         _ => panic!("expected decimal"),
@@ -38,10 +32,7 @@ fn seconds_from_datetime_basic(ctx: platynui_xpath::engine::runtime::DynamicCont
 
 #[rstest]
 #[case("seconds-from-time(xs:time('10:11:12.125'))", 12.125)]
-#[case(
-    "seconds-from-dateTime(xs:dateTime('2020-01-02T03:04:05.007Z'))",
-    5.007
-)]
+#[case("seconds-from-dateTime(xs:dateTime('2020-01-02T03:04:05.007Z'))", 5.007)]
 fn seconds_fractional_decimal(
     ctx: platynui_xpath::engine::runtime::DynamicContext<N>,
     #[case] expr: &str,
@@ -67,10 +58,8 @@ fn datetime_constructor_conflicting_timezones_errors(
     ctx: platynui_xpath::engine::runtime::DynamicContext<N>,
 ) {
     // date has Z, time has +01:00 -> conflict
-    let err = evaluate_expr::<N>(
-        "dateTime(xs:date('2020-01-02Z'), xs:time('10:00:00+01:00'))",
-        &ctx,
-    )
-    .unwrap_err();
+    let err =
+        evaluate_expr::<N>("dateTime(xs:date('2020-01-02Z'), xs:time('10:00:00+01:00'))", &ctx)
+            .unwrap_err();
     assert_eq!(err.code_enum(), ErrorCode::FORG0001);
 }

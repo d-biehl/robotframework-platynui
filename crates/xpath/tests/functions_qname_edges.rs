@@ -26,10 +26,7 @@ fn accessors_on_unprefixed_qname() {
     let c = ctx();
     // namespace-uri-from-QName on no-namespace returns empty sequence per spec
     let u = evaluate_expr::<N>("namespace-uri-from-QName(QName('', 'local'))", &c).unwrap();
-    assert!(
-        u.is_empty(),
-        "expected empty sequence for missing namespace URI"
-    );
+    assert!(u.is_empty(), "expected empty sequence for missing namespace URI");
     // prefix-from-QName on unprefixed returns empty sequence
     let p = evaluate_expr::<N>("prefix-from-QName(QName('', 'local'))", &c).unwrap();
     assert!(p.is_empty(), "expected empty sequence for missing prefix");
@@ -64,12 +61,7 @@ fn qname_function_prefixed_with_empty_ns_current_behavior() {
     let c = ctx();
     let r = evaluate_expr::<N>("QName('', 'p:l')", &c).unwrap();
     assert_eq!(r.len(), 1);
-    if let I::Atomic(A::QName {
-        ns_uri,
-        prefix,
-        local,
-    }) = &r[0]
-    {
+    if let I::Atomic(A::QName { ns_uri, prefix, local }) = &r[0] {
         assert!(ns_uri.is_none());
         assert_eq!(prefix.as_deref(), Some("p"));
         assert_eq!(local, "l");
@@ -87,9 +79,7 @@ fn resolve_qname_invalid_lex(#[case] expr: &str) {
     use platynui_xpath::model::simple::elem;
     let doc = platynui_xpath::simple_doc().child(elem("root")).build();
     let root = doc.children().next().unwrap();
-    let c = DynamicContextBuilder::default()
-        .with_context_item(root)
-        .build();
+    let c = DynamicContextBuilder::default().with_context_item(root).build();
     let err = evaluate_expr::<N>(expr, &c).unwrap_err();
     assert_eq!(
         err.code_enum(),

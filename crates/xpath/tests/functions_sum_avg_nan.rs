@@ -12,11 +12,7 @@ fn ctx()
 
 fn double(expr: &str) -> f64 {
     let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::Double(d))) = seq.first() {
-        *d
-    } else {
-        f64::NAN
-    }
+    if let Some(XdmItem::Atomic(XdmAtomicValue::Double(d))) = seq.first() { *d } else { f64::NAN }
 }
 
 #[rstest]

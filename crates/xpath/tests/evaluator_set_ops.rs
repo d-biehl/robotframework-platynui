@@ -8,14 +8,7 @@ use rstest::rstest;
 type N = platynui_xpath::model::simple::SimpleNode;
 fn build_tree() -> N {
     // <root><a/><b/><c/></root>
-    let d = doc()
-        .child(
-            elem("root")
-                .child(elem("a"))
-                .child(elem("b"))
-                .child(elem("c")),
-        )
-        .build();
+    let d = doc().child(elem("root").child(elem("a")).child(elem("b")).child(elem("c"))).build();
     let root: Vec<_> = d.children().collect();
     assert_eq!(root.len(), 1);
     root[0].clone()
@@ -34,11 +27,8 @@ fn union_nodes() {
 
 #[rstest]
 fn intersect_nodes() {
-    let out = evaluate_expr::<N>(
-        "(child::a, child::b) intersect (child::b, child::c)",
-        &ctx(),
-    )
-    .unwrap();
+    let out =
+        evaluate_expr::<N>("(child::a, child::b) intersect (child::b, child::c)", &ctx()).unwrap();
     assert_eq!(out.len(), 1);
 }
 
@@ -52,8 +42,5 @@ fn except_nodes() {
 #[rstest]
 fn set_ops_on_atomics_error() {
     let err = evaluate_expr::<N>("(1,2) union (2,3)", &ctx()).expect_err("should error");
-    assert_eq!(
-        err.code_enum(),
-        platynui_xpath::engine::runtime::ErrorCode::XPTY0004
-    );
+    assert_eq!(err.code_enum(), platynui_xpath::engine::runtime::ErrorCode::XPTY0004);
 }

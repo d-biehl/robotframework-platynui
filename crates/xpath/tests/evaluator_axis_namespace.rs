@@ -60,10 +60,7 @@ fn namespace_axis_on_element(ctx: DynamicContext<N>) {
     // Ensure these are namespace nodes
     for it in &out {
         if let I::Node(n) = it {
-            assert!(matches!(
-                n.kind(),
-                platynui_xpath::model::NodeKind::Namespace
-            ));
+            assert!(matches!(n.kind(), platynui_xpath::model::NodeKind::Namespace));
         }
     }
 }
@@ -111,28 +108,20 @@ fn following_preceding_exclude_namespaces(ctx: DynamicContext<N>) {
     let out = evaluate_expr::<N>("child::*[local-name()='mid']/following::node()", &ctx).unwrap();
     for it in &out {
         if let I::Node(n) = it {
-            assert!(!matches!(
-                n.kind(),
-                platynui_xpath::model::NodeKind::Namespace
-            ));
+            assert!(!matches!(n.kind(), platynui_xpath::model::NodeKind::Namespace));
         }
     }
     let out2 = evaluate_expr::<N>("child::*[local-name()='mid']/preceding::node()", &ctx).unwrap();
     for it in &out2 {
         if let I::Node(n) = it {
-            assert!(!matches!(
-                n.kind(),
-                platynui_xpath::model::NodeKind::Namespace
-            ));
+            assert!(!matches!(n.kind(), platynui_xpath::model::NodeKind::Namespace));
         }
     }
 }
 
 #[rstest]
 fn namespace_prefixed_step_matches(ctx: DynamicContext<N>) {
-    let static_ctx = StaticContextBuilder::new()
-        .with_namespace("d", "urn:default")
-        .build();
+    let static_ctx = StaticContextBuilder::new().with_namespace("d", "urn:default").build();
     let compiled = compile_with_context("child::d:mid", &static_ctx).unwrap();
     let seq = evaluate(&compiled, &ctx).unwrap();
     assert_eq!(seq.len(), 1);
@@ -167,9 +156,7 @@ fn namespace_wildcard_local_name(ctx: DynamicContext<N>) {
 
 #[rstest]
 fn namespace_wildcard_prefix(ctx: DynamicContext<N>) {
-    let static_ctx = StaticContextBuilder::new()
-        .with_namespace("d", "urn:default")
-        .build();
+    let static_ctx = StaticContextBuilder::new().with_namespace("d", "urn:default").build();
     let compiled = compile_with_context("child::d:*", &static_ctx).unwrap();
     let seq = evaluate(&compiled, &ctx).unwrap();
     assert_eq!(seq.len(), 1);

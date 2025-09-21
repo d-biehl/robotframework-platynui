@@ -23,10 +23,7 @@ fn eval_bool(expr: &str) -> bool {
 #[rstest]
 #[case("(1,5) > (0,-1)", true)] // 5>0 or 1>0
 #[case("(1,2) > (3,4)", false)] // no pair with left>right
-#[case(
-    "(xs:date('2024-01-03Z'), xs:date('2024-01-01Z')) > (xs:date('2024-01-02Z'))",
-    true
-)]
+#[case("(xs:date('2024-01-03Z'), xs:date('2024-01-01Z')) > (xs:date('2024-01-02Z'))", true)]
 #[case("(xs:date('2024-01-01Z')) > (xs:date('2024-01-02Z'))", false)]
 #[case("(xs:time('18:00:00Z')) > (xs:time('17:59:59Z'))", true)]
 #[case("(xs:time('12:00:00Z')) > (xs:time('18:00:00Z'))", false)]
@@ -54,10 +51,7 @@ fn general_leq_matrix(#[case] expr: &str, #[case] expect: bool) {
 #[case("(1,5) >= (5,9)", true)] // 5>=5
 #[case("(1,2) >= (3,4)", false)]
 #[case("(xs:yearMonthDuration('P2Y')) >= (xs:yearMonthDuration('P2Y'))", true)]
-#[case(
-    "(xs:yearMonthDuration('P1Y')) >= (xs:yearMonthDuration('P2Y'))",
-    false
-)]
+#[case("(xs:yearMonthDuration('P1Y')) >= (xs:yearMonthDuration('P2Y'))", false)]
 fn general_geq_matrix(#[case] expr: &str, #[case] expect: bool) {
     assert_eq!(eval_bool(expr), expect, "expr={expr}");
 }

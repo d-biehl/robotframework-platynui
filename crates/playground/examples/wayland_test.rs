@@ -122,9 +122,7 @@ mod linux {
         let (globals, mut queue) =
             registry_queue_init::<AppState>(&conn).context("registry init failed")?;
         let mut state = AppState;
-        queue
-            .roundtrip(&mut state)
-            .context("initial registry roundtrip failed")?;
+        queue.roundtrip(&mut state).context("initial registry roundtrip failed")?;
         let qh = queue.handle();
 
         // Enumerate seats; at least one seat is required for the feature checks
@@ -139,9 +137,7 @@ mod linux {
             .iter()
             .map(|g| {
                 let version = g.version.min(WlSeat::interface().version);
-                globals
-                    .registry()
-                    .bind::<WlSeat, _, _>(g.name, version, &qh, ())
+                globals.registry().bind::<WlSeat, _, _>(g.name, version, &qh, ())
             })
             .collect();
 
@@ -160,16 +156,12 @@ mod linux {
         if let (Some(g), Some(seat)) = (vk_mgr_global.as_ref(), seats.first()) {
             vk_cap.present = true;
             vk_cap.version = Some(g.version);
-            let version = g
-                .version
-                .min(ZwpVirtualKeyboardManagerV1::interface().version);
+            let version = g.version.min(ZwpVirtualKeyboardManagerV1::interface().version);
             if let Ok(vk_mgr) =
                 globals.bind::<ZwpVirtualKeyboardManagerV1, _, _>(&qh, 1..=version, ())
             {
                 let _vk = vk_mgr.create_virtual_keyboard(seat, &qh, ());
-                queue
-                    .roundtrip(&mut state)
-                    .context("virtual keyboard roundtrip failed")?;
+                queue.roundtrip(&mut state).context("virtual keyboard roundtrip failed")?;
                 vk_cap.creatable = true;
             }
         }
@@ -178,16 +170,12 @@ mod linux {
         if let (Some(g), Some(seat)) = (vp_mgr_global.as_ref(), seats.first()) {
             vp_cap.present = true;
             vp_cap.version = Some(g.version);
-            let version = g
-                .version
-                .min(ZwlrVirtualPointerManagerV1::interface().version);
+            let version = g.version.min(ZwlrVirtualPointerManagerV1::interface().version);
             if let Ok(vp_mgr) =
                 globals.bind::<ZwlrVirtualPointerManagerV1, _, _>(&qh, 1..=version, ())
             {
                 let _vp = vp_mgr.create_virtual_pointer(Some(seat), &qh, ());
-                queue
-                    .roundtrip(&mut state)
-                    .context("virtual pointer roundtrip failed")?;
+                queue.roundtrip(&mut state).context("virtual pointer roundtrip failed")?;
                 vp_cap.creatable = true;
             }
         }

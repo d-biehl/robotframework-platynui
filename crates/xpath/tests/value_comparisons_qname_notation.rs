@@ -13,15 +13,9 @@ fn eval(expr: &str) -> Vec<I<platynui_xpath::model::simple::SimpleNode>> {
 #[rstest]
 fn qname_equality_and_inequality() {
     let out = eval("QName('urn:x','p:l') eq QName('urn:x','q:l')");
-    assert!(matches!(
-        &out[0],
-        I::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(true))
-    ));
+    assert!(matches!(&out[0], I::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(true))));
     let out2 = eval("QName('urn:x','p:l') ne QName('urn:y','p:l')");
-    assert!(matches!(
-        &out2[0],
-        I::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(true))
-    ));
+    assert!(matches!(&out2[0], I::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(true))));
 }
 
 #[rstest]
@@ -38,15 +32,9 @@ fn qname_relational_errors() {
 #[rstest]
 fn notation_equality_and_inequality() {
     let out = eval("xs:NOTATION('p:l') eq xs:NOTATION('p:l')");
-    assert!(matches!(
-        &out[0],
-        I::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(true))
-    ));
+    assert!(matches!(&out[0], I::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(true))));
     let out2 = eval("xs:NOTATION('p:l') ne xs:NOTATION('q:l')");
-    assert!(matches!(
-        &out2[0],
-        I::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(true))
-    ));
+    assert!(matches!(&out2[0], I::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(true))));
 }
 
 #[rstest]

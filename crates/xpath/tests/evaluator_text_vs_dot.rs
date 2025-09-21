@@ -5,9 +5,7 @@ type N = platynui_xpath::model::simple::SimpleNode;
 use platynui_xpath::model::simple::{attr as mkattr, doc, elem, ns, text};
 
 fn ctx_with(root: N) -> DynamicContext<N> {
-    DynamicContextBuilder::default()
-        .with_context_item(I::Node(root))
-        .build()
+    DynamicContextBuilder::default().with_context_item(I::Node(root)).build()
 }
 
 #[test]
@@ -32,38 +30,16 @@ fn text_function_vs_dot_string_value_equivalence() {
                 .namespace(ns("bar", "http://www.bar.org"))
                 .child(
                     elem("actors")
-                        .child(
-                            elem("actor")
-                                .attr(mkattr("id", "1"))
-                                .child(text("Christian Bale")),
-                        )
-                        .child(
-                            elem("actor")
-                                .attr(mkattr("id", "2"))
-                                .child(text("Liam Neeson")),
-                        )
-                        .child(
-                            elem("actor")
-                                .attr(mkattr("id", "3"))
-                                .child(text("Michael Caine")),
-                        ),
+                        .child(elem("actor").attr(mkattr("id", "1")).child(text("Christian Bale")))
+                        .child(elem("actor").attr(mkattr("id", "2")).child(text("Liam Neeson")))
+                        .child(elem("actor").attr(mkattr("id", "3")).child(text("Michael Caine"))),
                 )
                 .child(
                     elem("foo:singers")
+                        .child(elem("foo:singer").attr(mkattr("id", "4")).child(text("Tom Waits")))
+                        .child(elem("foo:singer").attr(mkattr("id", "5")).child(text("B.B. King")))
                         .child(
-                            elem("foo:singer")
-                                .attr(mkattr("id", "4"))
-                                .child(text("Tom Waits")),
-                        )
-                        .child(
-                            elem("foo:singer")
-                                .attr(mkattr("id", "5"))
-                                .child(text("B.B. King")),
-                        )
-                        .child(
-                            elem("foo:singer")
-                                .attr(mkattr("id", "6"))
-                                .child(text("Ray Charles")),
+                            elem("foo:singer").attr(mkattr("id", "6")).child(text("Ray Charles")),
                         ),
                 ),
         )

@@ -45,10 +45,7 @@ pub(super) fn date_time_fn<N: crate::model::XdmNode + Clone>(
             if a.local_minus_utc() == b.local_minus_utc() {
                 Some(a)
             } else {
-                return Err(Error::from_code(
-                    ErrorCode::FORG0001,
-                    "conflicting timezones",
-                ));
+                return Err(Error::from_code(ErrorCode::FORG0001, "conflicting timezones"));
             }
         }
         (Some(a), None) => Some(a),
@@ -102,10 +99,7 @@ pub(super) fn adjust_date_to_timezone_fn<
             ));
         }
     };
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Date {
-        date,
-        tz: tz_opt,
-    })])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Date { date, tz: tz_opt })])
 }
 
 pub(super) fn adjust_time_to_timezone_fn<
@@ -153,10 +147,7 @@ pub(super) fn adjust_time_to_timezone_fn<
             ));
         }
     };
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Time {
-        time,
-        tz: tz_opt,
-    })])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Time { time, tz: tz_opt })])
 }
 
 pub(super) fn adjust_datetime_to_timezone_fn<
@@ -207,9 +198,7 @@ pub(super) fn adjust_datetime_to_timezone_fn<
     let naive = dt.naive_utc();
     let res = match tz_opt {
         Some(ofs) => ofs.from_utc_datetime(&naive),
-        None => ChronoFixedOffset::east_opt(0)
-            .unwrap()
-            .from_utc_datetime(&naive),
+        None => ChronoFixedOffset::east_opt(0).unwrap().from_utc_datetime(&naive),
     };
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::DateTime(res))])
 }
@@ -238,10 +227,7 @@ pub(super) fn current_time_fn<N: crate::model::XdmNode + Clone>(
     _args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
     let dt = now_in_effective_tz(ctx);
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Time {
-        time: dt.time(),
-        tz: Some(*dt.offset()),
-    })])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Time { time: dt.time(), tz: Some(*dt.offset()) })])
 }
 
 pub(super) fn implicit_timezone_fn<N: crate::model::XdmNode + Clone>(
@@ -255,9 +241,7 @@ pub(super) fn implicit_timezone_fn<N: crate::model::XdmNode + Clone>(
     } else {
         0
     };
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(
-        offset_secs as i64,
-    ))])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(offset_secs as i64))])
 }
 
 pub(super) fn year_from_datetime_fn<N: crate::model::XdmNode + Clone>(
@@ -266,9 +250,7 @@ pub(super) fn year_from_datetime_fn<N: crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     match get_datetime(&args[0])? {
         None => Ok(vec![]),
-        Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-            dt.year() as i64
-        ))]),
+        Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(dt.year() as i64))]),
     }
 }
 
@@ -278,9 +260,7 @@ pub(super) fn hours_from_datetime_fn<N: crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     match get_datetime(&args[0])? {
         None => Ok(vec![]),
-        Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-            dt.hour() as i64
-        ))]),
+        Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(dt.hour() as i64))]),
     }
 }
 
@@ -290,9 +270,7 @@ pub(super) fn minutes_from_datetime_fn<N: crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     match get_datetime(&args[0])? {
         None => Ok(vec![]),
-        Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-            dt.minute() as i64
-        ))]),
+        Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(dt.minute() as i64))]),
     }
 }
 
@@ -315,9 +293,7 @@ pub(super) fn month_from_datetime_fn<N: crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     match get_datetime(&args[0])? {
         None => Ok(vec![]),
-        Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-            dt.month() as i64
-        ))]),
+        Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(dt.month() as i64))]),
     }
 }
 
@@ -327,9 +303,7 @@ pub(super) fn day_from_datetime_fn<N: crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     match get_datetime(&args[0])? {
         None => Ok(vec![]),
-        Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-            dt.day() as i64
-        ))]),
+        Some(dt) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(dt.day() as i64))]),
     }
 }
 
@@ -339,9 +313,7 @@ pub(super) fn hours_from_time_fn<N: crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     match get_time(&args[0])? {
         None => Ok(vec![]),
-        Some((time, _)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-            time.hour() as i64
-        ))]),
+        Some((time, _)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(time.hour() as i64))]),
     }
 }
 
@@ -351,9 +323,7 @@ pub(super) fn minutes_from_time_fn<N: crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     match get_time(&args[0])? {
         None => Ok(vec![]),
-        Some((time, _)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-            time.minute() as i64,
-        ))]),
+        Some((time, _)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(time.minute() as i64))]),
     }
 }
 
@@ -393,7 +363,7 @@ pub(super) fn timezone_from_date_fn<N: crate::model::XdmNode + Clone>(
         XdmItem::Atomic(XdmAtomicValue::Date { tz, .. }) => {
             if let Some(off) = tz {
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(
-                    off.local_minus_utc() as i64,
+                    off.local_minus_utc() as i64
                 ))])
             } else {
                 Ok(vec![])
@@ -403,7 +373,7 @@ pub(super) fn timezone_from_date_fn<N: crate::model::XdmNode + Clone>(
         | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
             if let Ok((_d, Some(off))) = parse_xs_date_local(s) {
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(
-                    off.local_minus_utc() as i64,
+                    off.local_minus_utc() as i64
                 ))])
             } else {
                 Ok(vec![])
@@ -412,7 +382,7 @@ pub(super) fn timezone_from_date_fn<N: crate::model::XdmNode + Clone>(
         XdmItem::Node(n) => {
             if let Ok((_d, Some(off))) = parse_xs_date_local(&n.string_value()) {
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(
-                    off.local_minus_utc() as i64,
+                    off.local_minus_utc() as i64
                 ))])
             } else {
                 Ok(vec![])
@@ -428,9 +398,9 @@ pub(super) fn timezone_from_time_fn<N: crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     match get_time(&args[0])? {
         None => Ok(vec![]),
-        Some((_t, Some(off))) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(
-            off.local_minus_utc() as i64,
-        ))]),
+        Some((_t, Some(off))) => {
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(off.local_minus_utc() as i64))])
+        }
         Some((_t, None)) => Ok(vec![]),
     }
 }
@@ -443,23 +413,19 @@ pub(super) fn year_from_date_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     match &args[0][0] {
-        XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => Ok(vec![XdmItem::Atomic(
-            XdmAtomicValue::Integer(date.year() as i64),
-        )]),
+        XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => {
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(date.year() as i64))])
+        }
         XdmItem::Atomic(XdmAtomicValue::String(s))
         | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
             let (d, _) = parse_xs_date_local(s)
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:date"))?;
-            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                d.year() as i64
-            ))])
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.year() as i64))])
         }
         XdmItem::Node(n) => {
             let (d, _) = parse_xs_date_local(&n.string_value())
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:date"))?;
-            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                d.year() as i64
-            ))])
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.year() as i64))])
         }
         _ => Ok(vec![]),
     }
@@ -473,23 +439,19 @@ pub(super) fn month_from_date_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     match &args[0][0] {
-        XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => Ok(vec![XdmItem::Atomic(
-            XdmAtomicValue::Integer(date.month() as i64),
-        )]),
+        XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => {
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(date.month() as i64))])
+        }
         XdmItem::Atomic(XdmAtomicValue::String(s))
         | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
             let (d, _) = parse_xs_date_local(s)
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:date"))?;
-            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                d.month() as i64
-            ))])
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.month() as i64))])
         }
         XdmItem::Node(n) => {
             let (d, _) = parse_xs_date_local(&n.string_value())
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:date"))?;
-            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                d.month() as i64
-            ))])
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.month() as i64))])
         }
         _ => Ok(vec![]),
     }
@@ -503,23 +465,19 @@ pub(super) fn day_from_date_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![]);
     }
     match &args[0][0] {
-        XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => Ok(vec![XdmItem::Atomic(
-            XdmAtomicValue::Integer(date.day() as i64),
-        )]),
+        XdmItem::Atomic(XdmAtomicValue::Date { date, .. }) => {
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(date.day() as i64))])
+        }
         XdmItem::Atomic(XdmAtomicValue::String(s))
         | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
             let (d, _) = parse_xs_date_local(s)
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:date"))?;
-            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                d.day() as i64
-            ))])
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.day() as i64))])
         }
         XdmItem::Node(n) => {
             let (d, _) = parse_xs_date_local(&n.string_value())
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:date"))?;
-            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(
-                d.day() as i64
-            ))])
+            Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(d.day() as i64))])
         }
         _ => Ok(vec![]),
     }
