@@ -182,6 +182,7 @@ pub struct WindowSurfaceActions {
     close: ActionHandler,
     move_to: MoveHandler,
     resize: ResizeHandler,
+    accepts_user_input: InputHandler,
 }
 
 impl WindowSurfaceActions {
@@ -244,6 +245,14 @@ impl WindowSurfaceActions {
         self.resize = arc_resize(handler);
         self
     }
+
+    pub fn with_accepts_user_input<F>(mut self, handler: F) -> Self
+    where
+        F: Fn() -> Result<Option<bool>, PatternError> + Send + Sync + 'static,
+    {
+        self.accepts_user_input = arc_input(handler);
+        self
+    }
 }
 
 impl Default for WindowSurfaceActions {
@@ -256,6 +265,7 @@ impl Default for WindowSurfaceActions {
             close: arc_action(|| Ok(())),
             move_to: arc_move(|_| Ok(())),
             resize: arc_resize(|_| Ok(())),
+            accepts_user_input: arc_input(|| Ok(None)),
         }
     }
 }
@@ -305,46 +315,9 @@ impl WindowSurfacePattern for WindowSurfaceActions {
     fn resize(&self, size: Size) -> Result<(), PatternError> {
         (self.resize)(size)
     }
-}
 
-/// Application pattern helper that defers to a closure.
-pub struct ApplicationStatus {
-    handler: InputHandler,
-}
-
-impl ApplicationStatus {
-    pub fn new<F>(handler: F) -> Self
-    where
-        F: Fn() -> Result<Option<bool>, PatternError> + Send + Sync + 'static,
-    {
-        Self { handler: arc_input(handler) }
-    }
-
-    pub fn unknown() -> Self {
-        Self::new(|| Ok(None))
-    }
-}
-
-impl UiPattern for ApplicationStatus {
-    fn id(&self) -> PatternId {
-        Self::static_id()
-    }
-
-    fn static_id() -> PatternId
-    where
-        Self: Sized,
-    {
-        PatternId::from("Application")
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-impl ApplicationPattern for ApplicationStatus {
     fn accepts_user_input(&self) -> Result<Option<bool>, PatternError> {
-        (self.handler)()
+        (self.accepts_user_input)()
     }
 }
 
@@ -389,15 +362,12 @@ pub trait WindowSurfacePattern: UiPattern {
     fn move_to(&self, position: Point) -> Result<(), PatternError>;
     fn resize(&self, size: Size) -> Result<(), PatternError>;
 
+    fn accepts_user_input(&self) -> Result<Option<bool>, PatternError>;
+
     fn move_and_resize(&self, bounds: Rect) -> Result<(), PatternError> {
         self.move_to(bounds.position())?;
         self.resize(bounds.size())
     }
-}
-
-/// Pattern für Applikationsknoten, die Eingabebereitschaft prüfen.
-pub trait ApplicationPattern: UiPattern {
-    fn accepts_user_input(&self) -> Result<Option<bool>, PatternError>;
 }
 
 #[cfg(test)]
@@ -531,15 +501,16 @@ mod tests {
     }
 
     #[rstest]
-    fn application_status_reports_value() {
-        let status = ApplicationStatus::new(|| Ok(Some(true)));
-        assert_eq!(status.accepts_user_input().unwrap(), Some(true));
+    fn window_surface_accepts_user_input_reports_value() {
+        let actions = WindowSurfaceActions::new().with_accepts_user_input(|| Ok(Some(true)));
+        assert_eq!(actions.accepts_user_input().unwrap(), Some(true));
     }
 
     #[rstest]
-    fn application_status_propagates_error() {
-        let status = ApplicationStatus::new(|| Err(PatternError::new("io")));
-        let err = status.accepts_user_input().expect_err("should bubble up");
+    fn window_surface_accepts_user_input_propagates_error() {
+        let actions =
+            WindowSurfaceActions::new().with_accepts_user_input(|| Err(PatternError::new("io")));
+        let err = actions.accepts_user_input().expect_err("should bubble up");
         assert_eq!(err.message(), "io");
     }
 

@@ -13,8 +13,8 @@ pub use namespace::{Namespace, all_namespaces, resolve_namespace};
 pub use node::UiAttribute;
 pub use node::UiNode;
 pub use pattern::{
-    ApplicationPattern, ApplicationStatus, FocusableAction, FocusablePattern, PatternError,
-    PatternRegistry, UiPattern, WindowSurfaceActions, WindowSurfacePattern, downcast_pattern_arc,
-    downcast_pattern_ref, supported_patterns_value,
+    FocusableAction, FocusablePattern, PatternError, PatternRegistry, UiPattern,
+    WindowSurfaceActions, WindowSurfacePattern, downcast_pattern_arc, downcast_pattern_ref,
+    supported_patterns_value,
 };
 pub use value::UiValue;
