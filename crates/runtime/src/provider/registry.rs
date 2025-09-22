@@ -33,11 +33,6 @@ impl ProviderRegistry {
             if tech_cmp != std::cmp::Ordering::Equal {
                 return tech_cmp;
             }
-            let priority_a: u8 = a.descriptor.priority.0;
-            let priority_b: u8 = b.descriptor.priority.0;
-            if priority_a != priority_b {
-                return priority_a.cmp(&priority_b);
-            }
             a.descriptor.id.cmp(b.descriptor.id)
         });
 
@@ -74,7 +69,7 @@ mod tests {
     use crate::provider::event::ProviderEventDispatcher;
     use platynui_core::provider::{
         ProviderDescriptor, ProviderEvent, ProviderEventKind, ProviderEventListener, ProviderKind,
-        ProviderPriority, UiTreeProviderFactory, register_provider,
+        UiTreeProviderFactory, register_provider,
     };
     use platynui_core::ui::identifiers::TechnologyId;
     use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
@@ -178,7 +173,6 @@ mod tests {
                     "Dummy",
                     TechnologyId::from("DummyTech"),
                     ProviderKind::Native,
-                    ProviderPriority::DEFAULT,
                 )
             });
             &DESCRIPTOR

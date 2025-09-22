@@ -15,8 +15,7 @@ pub fn provider_factories() -> impl Iterator<Item = &'static dyn UiTreeProviderF
 mod tests {
     use super::*;
     use crate::provider::{
-        ProviderDescriptor, ProviderError, ProviderKind, ProviderPriority, UiTreeProvider,
-        register_provider,
+        ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, register_provider,
     };
     use crate::ui::{Namespace, RuntimeId, UiAttribute, UiNode, UiValue};
     use rstest::rstest;
@@ -102,7 +101,6 @@ mod tests {
                     "Dummy Provider",
                     crate::ui::TechnologyId::from("Dummy"),
                     ProviderKind::Native,
-                    ProviderPriority::DEFAULT,
                 ),
             }
         }
@@ -132,7 +130,6 @@ mod tests {
                         "Dummy Factory",
                         crate::ui::TechnologyId::from("Dummy"),
                         ProviderKind::Native,
-                        ProviderPriority::DEFAULT,
                     )
                 });
             &DESCRIPTOR

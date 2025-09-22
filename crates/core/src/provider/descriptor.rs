@@ -7,7 +7,6 @@ pub struct ProviderDescriptor {
     pub display_name: &'static str,
     pub technology: TechnologyId,
     pub kind: ProviderKind,
-    pub priority: ProviderPriority,
 }
 
 impl ProviderDescriptor {
@@ -16,9 +15,8 @@ impl ProviderDescriptor {
         display_name: &'static str,
         technology: TechnologyId,
         kind: ProviderKind,
-        priority: ProviderPriority,
     ) -> Self {
-        Self { id, display_name, technology, kind, priority }
+        Self { id, display_name, technology, kind }
     }
 }
 
@@ -32,21 +30,5 @@ pub enum ProviderKind {
 impl Default for ProviderKind {
     fn default() -> Self {
         ProviderKind::Native
-    }
-}
-
-/// Expresses the provider priority within a technology segment.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ProviderPriority(pub u8);
-
-impl ProviderPriority {
-    pub const PRIMARY: ProviderPriority = ProviderPriority(0);
-    pub const DEFAULT: ProviderPriority = ProviderPriority(50);
-    pub const FALLBACK: ProviderPriority = ProviderPriority(100);
-}
-
-impl Default for ProviderPriority {
-    fn default() -> Self {
-        ProviderPriority::DEFAULT
     }
 }

@@ -85,7 +85,7 @@ mod tests {
     use super::*;
     use platynui_core::provider::{
         ProviderDescriptor, ProviderEvent, ProviderEventKind, ProviderEventListener, ProviderKind,
-        ProviderPriority, UiTreeProviderFactory, register_provider,
+        UiTreeProviderFactory, register_provider,
     };
     use platynui_core::ui::identifiers::TechnologyId;
     use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
@@ -197,7 +197,6 @@ mod tests {
                     "Runtime Stub",
                     TechnologyId::from("RuntimeTech"),
                     ProviderKind::Native,
-                    ProviderPriority::DEFAULT,
                 )
             });
             &DESCRIPTOR
