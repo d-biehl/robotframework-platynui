@@ -241,19 +241,15 @@ mod geometry_tests {
     use once_cell::sync::Lazy;
     use std::sync::Arc;
 
-    const ELEMENT_EXPECTATIONS: [AttributeExpectation; 1] = [
-        AttributeExpectation::required(
-            Namespace::Control,
-            crate::ui::attribute_names::element::BOUNDS,
-        ),
-    ];
+    const ELEMENT_EXPECTATIONS: [AttributeExpectation; 1] = [AttributeExpectation::required(
+        Namespace::Control,
+        crate::ui::attribute_names::element::BOUNDS,
+    )];
 
-    const ACTIVATION_EXPECTATIONS: [AttributeExpectation; 1] = [
-        AttributeExpectation::required(
-            Namespace::Control,
-            crate::ui::attribute_names::activation_target::ACTIVATION_POINT,
-        ),
-    ];
+    const ACTIVATION_EXPECTATIONS: [AttributeExpectation; 1] = [AttributeExpectation::required(
+        Namespace::Control,
+        crate::ui::attribute_names::activation_target::ACTIVATION_POINT,
+    )];
 
     struct StaticAttribute {
         namespace: Namespace,
@@ -282,8 +278,10 @@ mod geometry_tests {
     }
 
     fn sample_expectation() -> NodeExpectation {
-        NodeExpectation::default()
-            .with_pattern(PatternExpectation::new(PatternId::from("Element"), &ELEMENT_EXPECTATIONS))
+        NodeExpectation::default().with_pattern(PatternExpectation::new(
+            PatternId::from("Element"),
+            &ELEMENT_EXPECTATIONS,
+        ))
     }
 
     struct AttrNode {

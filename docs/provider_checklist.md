@@ -10,7 +10,9 @@
 - [ ] Alle Koordinaten (`Bounds`, `ActivationPoint`, `ActivationArea`, Fensterrahmen) werden im Desktop-Koordinatensystem geliefert (linke obere Ecke des Primärmonitors = Ursprung, DPI-/Scaling berücksichtigt).
 - [ ] `RuntimeId` bleibt stabil, solange das zugrunde liegende Element existiert; bei Neuaufbau ändert sich die ID nachvollziehbar.
 - [ ] Quelle der `RuntimeId` dokumentiert (z. B. UIA `RuntimeId`, AT-SPI D-Bus-Objektpfad, macOS `AXUIElement` Identifier); bei fehlender nativer ID existiert ein deterministischer Fallback.
-- [ ] `UiTreeProvider::get_nodes(parent)` liefert einen Iterator über Knoten, die unterhalb des angegebenen Parents eingehängt werden. Die Provider-Nodes dürfen keine eigenen Desktop-Attribute besitzen; setze den `parent()`-Verweis korrekt, damit die Runtime sie unter den plattformspezifischen `control:Desktop` einhängen kann.
+- [ ] `UiTreeProvider::get_nodes(parent)` liefert einen Iterator über Knoten, die unterhalb des angegebenen Parents eingehängt werden. Die Provider-Nodes dürfen keine eigenen Desktop-Attribute besitzen; setze den `parent()`-Verweis korrekt, damit die Runtime sie unterhalb des Desktop-Dokumentknotens einhängen kann.
+- [ ] Falls technisch möglich, stellen Provider zwei Sichten bereit: (a) eine flache Liste der obersten `control:`-/`item:`-Knoten direkt unter dem Desktop (Standard-Namespace) und (b) eine gruppierte Sicht, in der dieselben Knoten zusätzlich unter `app:Application` einsortiert sind. Jede Anwendung enthält dabei nur die Fenster/Controls, die ihr tatsächlich zugeordnet sind (z. B. per Prozess-ID, App-Handle, Accessibility-Relation). Sollte nur eine der beiden Varianten praktikabel sein, reicht ein kurzer Hinweis in der Provider-Dokumentation, wie Anwender Anwendungszuordnungen alternativ erkennen können.
+- [ ] Alias-Knoten müssen trotz identischer `RuntimeId` stabile Dokumentordnungs-Schlüssel liefern, damit XPath-Deduplikation nicht greift.
 - [ ] Falls der Provider eigene Ressourcen hält (Threads, Handles), implementiert `UiTreeProvider::shutdown()` und gibt diese Ressourcen frei.
 - [ ] `IsVisible` korrekt gesetzt (Accessibility-API meldet sichtbares Element); falls verfügbar, `IsOffscreen` konsistent mit Koordinaten/Viewports.
 - [ ] Koordinatenfelder (`Bounds`, `ActivationPoint`, `ActivationArea`) liefern `Rect`/`Point`-Varianten; die Runtime erzeugt daraus automatisch Ableitungen wie `Bounds.X`, `Bounds.Width`. Provider müssen nur den Basistyp korrekt füllen.
@@ -23,7 +25,7 @@
 - [ ] `Role` entspricht dem normalisierten Namen (lokaler Name im Namespace `control` oder `item`), die native Rolle liegt zusätzlich unter `native:Role` (oder äquivalenten Feldern).
 - [ ] Meldet ein Element das Pattern `ActivationTarget`, liefert es `ActivationPoint` (Desktop-Koordinaten, ggf. Fallback auf Rechteckzentrum) und optional `ActivationArea`.
 - [ ] `Technology` ist für jede `UiNode` gesetzt (`UIAutomation`, `AT-SPI`, `AX`, `JSONRPC`, ...).
-- [ ] Provider erzeugen keinen eigenen `control:Desktop`-Knoten; die Plattform-/Runtime-Schicht stellt Desktop-Metadaten (`Bounds`, `OsName`, `OsVersion`, `DisplayCount`, `Monitors`) bereit.
+- [ ] Provider erzeugen keinen eigenen Desktop-Dokumentknoten; die Plattform-/Runtime-Schicht stellt Desktop-Metadaten (`Bounds`, `OsName`, `OsVersion`, `DisplayCount`, `Monitors`) bereit.
 - [ ] Mapping-Entscheidungen gegen `docs/patterns.md` dokumentiert (insb. bei Mehrfachzuordnungen).
 - [ ] Baum-Ereignisse (`NodeAdded`, `NodeUpdated`, `NodeRemoved`) getestet; sicherstellen, dass sie nur zur Synchronisation dienen und keine Pattern-spezifischen Nebenwirkungen haben.
 

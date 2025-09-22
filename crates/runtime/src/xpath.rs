@@ -138,7 +138,7 @@ pub fn evaluate(
     let compiled = compiler::compile_with_context(xpath, &static_ctx)?;
 
     let mut dyn_builder = DynamicContextBuilder::new();
-    dyn_builder = dyn_builder.with_context_item(RuntimeXdmNode::element(context.clone()));
+    dyn_builder = dyn_builder.with_context_item(RuntimeXdmNode::from_node(context.clone()));
     let dyn_ctx = dyn_builder.build();
 
     let sequence = evaluator::evaluate(&compiled, &dyn_ctx)?;
@@ -183,7 +183,16 @@ impl RuntimeXdmNode {
         let runtime_id = node.runtime_id().as_str().to_string();
         let namespace = node.namespace();
         let role = node.role().to_string();
-        RuntimeXdmNode::Element(ElementData { node, runtime_id, namespace, role })
+        let order_key = node.doc_order_key();
+        RuntimeXdmNode::Element(ElementData { node, runtime_id, namespace, role, order_key })
+    }
+
+    fn from_node(node: Arc<dyn UiNode>) -> Self {
+        if node.parent().is_none() {
+            RuntimeXdmNode::document(node)
+        } else {
+            RuntimeXdmNode::element(node)
+        }
     }
 
     fn attribute(
@@ -212,7 +221,7 @@ impl PartialEq for RuntimeXdmNode {
                 a.runtime_id == b.runtime_id
             }
             (RuntimeXdmNode::Element(a), RuntimeXdmNode::Element(b)) => {
-                a.runtime_id == b.runtime_id
+                a.runtime_id == b.runtime_id && a.order_key == b.order_key
             }
             (RuntimeXdmNode::Attribute(a), RuntimeXdmNode::Attribute(b)) => {
                 a.owner_runtime_id == b.owner_runtime_id
@@ -235,6 +244,7 @@ impl std::fmt::Debug for RuntimeXdmNode {
             RuntimeXdmNode::Element(elem) => f
                 .debug_struct("Element")
                 .field("runtime_id", &elem.runtime_id)
+                .field("order_key", &elem.order_key)
                 .field("role", &elem.role)
                 .finish(),
             RuntimeXdmNode::Attribute(attr) => f
@@ -292,22 +302,26 @@ impl XdmNode for RuntimeXdmNode {
         match self {
             RuntimeXdmNode::Document(_) => None,
             RuntimeXdmNode::Element(elem) => match elem.node.parent() {
-                Some(parent) => parent.upgrade().map(RuntimeXdmNode::element),
+                Some(parent) => parent.upgrade().map(RuntimeXdmNode::from_node),
                 None => Some(RuntimeXdmNode::document(elem.node.clone())),
             },
-            RuntimeXdmNode::Attribute(attr) => Some(RuntimeXdmNode::element(attr.owner.clone())),
+            RuntimeXdmNode::Attribute(attr) => Some(RuntimeXdmNode::from_node(attr.owner.clone())),
         }
     }
 
     fn children(&self) -> Self::Children<'_> {
         match self {
             RuntimeXdmNode::Document(doc) => {
-                vec![RuntimeXdmNode::element(doc.root.clone())].into_iter()
+                let mut results = Vec::new();
+                for child in doc.root.children() {
+                    results.push(RuntimeXdmNode::from_node(child));
+                }
+                results.into_iter()
             }
             RuntimeXdmNode::Element(elem) => {
                 let mut results = Vec::new();
                 for child in elem.node.children() {
-                    results.push(RuntimeXdmNode::element(child));
+                    results.push(RuntimeXdmNode::from_node(child));
                 }
                 results.into_iter()
             }
@@ -317,13 +331,21 @@ impl XdmNode for RuntimeXdmNode {
 
     fn attributes(&self) -> Self::Attributes<'_> {
         match self {
+            RuntimeXdmNode::Document(doc) => collect_attribute_nodes(&doc.root).into_iter(),
             RuntimeXdmNode::Element(elem) => collect_attribute_nodes(&elem.node).into_iter(),
-            _ => Vec::new().into_iter(),
+            RuntimeXdmNode::Attribute(_) => Vec::new().into_iter(),
         }
     }
 
     fn namespaces(&self) -> Self::Namespaces<'_> {
         Vec::new().into_iter()
+    }
+
+    fn doc_order_key(&self) -> Option<u64> {
+        match self {
+            RuntimeXdmNode::Element(elem) => elem.order_key,
+            RuntimeXdmNode::Document(_) | RuntimeXdmNode::Attribute(_) => None,
+        }
     }
 }
 
@@ -339,6 +361,7 @@ struct ElementData {
     runtime_id: String,
     namespace: UiNamespace,
     role: String,
+    order_key: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -804,13 +827,13 @@ mod tests {
     }
 
     #[rstest]
-    fn absolute_path_from_context_root() {
+    fn absolute_path_from_document_returns_children() {
         let tree = sample_tree();
-        let items = evaluate(None, "/control:Desktop", EvaluateOptions::new(tree.clone())).unwrap();
+        let items = evaluate(None, "/*", EvaluateOptions::new(tree.clone())).unwrap();
         assert_eq!(items.len(), 1);
         match &items[0] {
             EvaluationItem::Node(node) => {
-                assert_eq!(node.runtime_id().as_str(), "desktop");
+                assert_eq!(node.runtime_id().as_str(), "window-1");
             }
             other => panic!("unexpected evaluation result: {:?}", other),
         }
@@ -819,9 +842,7 @@ mod tests {
     #[rstest]
     fn desktop_bounds_alias_attributes_are_available() {
         let tree = sample_tree();
-        let items =
-            evaluate(None, "/control:Desktop/@Bounds.X", EvaluateOptions::new(tree.clone()))
-                .unwrap();
+        let items = evaluate(None, "./@Bounds.X", EvaluateOptions::new(tree.clone())).unwrap();
         assert_eq!(items.len(), 1);
         match &items[0] {
             EvaluationItem::Attribute(attr) => {
@@ -835,9 +856,7 @@ mod tests {
     #[rstest]
     fn desktop_monitors_attribute_is_exposed() {
         let tree = sample_tree();
-        let items =
-            evaluate(None, "/control:Desktop/@Monitors", EvaluateOptions::new(tree.clone()))
-                .unwrap();
+        let items = evaluate(None, "./@Monitors", EvaluateOptions::new(tree.clone())).unwrap();
         assert_eq!(items.len(), 1);
         match &items[0] {
             EvaluationItem::Attribute(attr) => {

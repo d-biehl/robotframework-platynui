@@ -2,11 +2,13 @@ use clap::{Parser, Subcommand, ValueEnum};
 use platynui_core::platform::{DesktopInfo, MonitorInfo};
 use platynui_core::provider::{ProviderError, ProviderKind};
 use platynui_core::types::Rect;
-use platynui_runtime::Runtime;
+use platynui_core::ui::{Namespace, PatternId, UiValue};
+use platynui_runtime::{EvaluateError, EvaluationItem, Runtime};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Write;
+use std::str::FromStr;
 
 #[allow(unused_imports)]
 use platynui_platform_mock as _;
@@ -31,6 +33,17 @@ enum Commands {
     },
     #[command(name = "info", about = "Show desktop and platform metadata.")]
     Info {
+        #[arg(long = "format", value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
+    },
+    #[command(name = "query", about = "Evaluate XPath expressions.")]
+    Query {
+        #[arg(value_name = "XPATH")]
+        expression: String,
+        #[arg(long = "namespace")]
+        namespaces: Vec<String>,
+        #[arg(long = "pattern")]
+        patterns: Vec<String>,
         #[arg(long = "format", value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
     },
@@ -72,6 +85,42 @@ struct DesktopSummary {
     monitors: Vec<MonitorSummary>,
 }
 
+#[derive(Serialize, Debug, Clone, PartialEq)]
+struct AttributeSummary {
+    namespace: String,
+    name: String,
+    value: UiValue,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(tag = "type")]
+enum QueryItemSummary {
+    Node {
+        runtime_id: String,
+        namespace: String,
+        role: String,
+        name: String,
+        supported_patterns: Vec<String>,
+        attributes: Vec<AttributeSummary>,
+    },
+    Attribute {
+        owner_runtime_id: String,
+        namespace: String,
+        name: String,
+        value: UiValue,
+    },
+    Value {
+        value: UiValue,
+    },
+}
+
+struct QueryArgs<'a> {
+    expression: &'a str,
+    format: OutputFormat,
+    namespaces: &'a [String],
+    patterns: &'a [String],
+}
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("Error: {error}");
@@ -90,6 +139,16 @@ fn run() -> CliResult<()> {
         }
         Commands::Info { format } => {
             let output = show_info(&runtime, format)?;
+            println!("{output}");
+        }
+        Commands::Query { expression, namespaces, patterns, format } => {
+            let args = QueryArgs {
+                expression: &expression,
+                format,
+                namespaces: &namespaces,
+                patterns: &patterns,
+            };
+            let output = handle_query(&runtime, args)?;
             println!("{output}");
         }
     }
@@ -176,6 +235,220 @@ fn render_info_json(summary: &DesktopSummary) -> CliResult<String> {
     Ok(serde_json::to_string_pretty(summary)?)
 }
 
+fn handle_query(runtime: &Runtime, args: QueryArgs) -> CliResult<String> {
+    let namespace_filters = parse_namespace_filters(args.namespaces)?;
+    let pattern_filters = if args.patterns.is_empty() {
+        None
+    } else {
+        Some(args.patterns.iter().cloned().collect::<HashSet<_>>())
+    };
+
+    let results = runtime.evaluate(None, args.expression).map_err(map_evaluate_error)?;
+
+    let summaries =
+        summarize_query_results(results, namespace_filters.as_ref(), pattern_filters.as_ref());
+
+    match args.format {
+        OutputFormat::Text => Ok(render_query_text(&summaries)),
+        OutputFormat::Json => render_query_json(&summaries),
+    }
+}
+
+fn parse_namespace_filters(values: &[String]) -> CliResult<Option<HashSet<Namespace>>> {
+    if values.is_empty() {
+        return Ok(None);
+    }
+
+    let mut filters = HashSet::new();
+    for value in values {
+        let namespace =
+            Namespace::from_str(value).map_err(|_| format!("unknown namespace prefix: {value}"))?;
+        filters.insert(namespace);
+    }
+    Ok(Some(filters))
+}
+
+fn summarize_query_results(
+    results: Vec<EvaluationItem>,
+    namespace_filters: Option<&HashSet<Namespace>>,
+    pattern_filters: Option<&HashSet<String>>,
+) -> Vec<QueryItemSummary> {
+    results
+        .into_iter()
+        .filter_map(|item| match item {
+            EvaluationItem::Node(node) => {
+                let namespace = node.namespace();
+                if let Some(filters) = namespace_filters
+                    && !filters.contains(&namespace)
+                {
+                    return None;
+                }
+
+                if let Some(filters) = pattern_filters
+                    && !matches_pattern_filter(node.supported_patterns(), filters)
+                {
+                    return None;
+                }
+
+                let supported_patterns =
+                    node.supported_patterns().iter().map(|id| id.as_str().to_owned()).collect();
+
+                let mut attributes: Vec<AttributeSummary> = node
+                    .attributes()
+                    .map(|attribute| AttributeSummary {
+                        namespace: attribute.namespace().as_str().to_owned(),
+                        name: attribute.name().to_owned(),
+                        value: attribute.value(),
+                    })
+                    .collect();
+                attributes.sort_by(|lhs, rhs| {
+                    (lhs.namespace.as_str(), lhs.name.as_str())
+                        .cmp(&(rhs.namespace.as_str(), rhs.name.as_str()))
+                });
+
+                Some(QueryItemSummary::Node {
+                    runtime_id: node.runtime_id().as_str().to_owned(),
+                    namespace: namespace.as_str().to_owned(),
+                    role: node.role().to_owned(),
+                    name: node.name().to_owned(),
+                    supported_patterns,
+                    attributes,
+                })
+            }
+            EvaluationItem::Attribute(attr) => {
+                if let Some(filters) = namespace_filters
+                    && !filters.contains(&attr.namespace)
+                {
+                    return None;
+                }
+
+                Some(QueryItemSummary::Attribute {
+                    owner_runtime_id: attr.owner.runtime_id().as_str().to_owned(),
+                    namespace: attr.namespace.as_str().to_owned(),
+                    name: attr.name.clone(),
+                    value: attr.value.clone(),
+                })
+            }
+            EvaluationItem::Value(value) => {
+                if namespace_filters.is_some() {
+                    return None;
+                }
+                Some(QueryItemSummary::Value { value })
+            }
+        })
+        .collect()
+}
+
+fn matches_pattern_filter(patterns: &[PatternId], filters: &HashSet<String>) -> bool {
+    filters.iter().all(|pattern| patterns.iter().any(|id| id.as_str() == pattern))
+}
+
+fn render_query_text(items: &[QueryItemSummary]) -> String {
+    let mut output = String::new();
+    for item in items {
+        match item {
+            QueryItemSummary::Node {
+                runtime_id,
+                namespace,
+                role,
+                name,
+                supported_patterns,
+                attributes,
+            } => {
+                let ns_label = capitalize_namespace(namespace);
+                let mut base_attrs = vec![
+                    format!("RuntimeId=\"{}\"", runtime_id),
+                    format!("Name=\"{}\"", name),
+                    format!("Role=\"{}\"", role),
+                ];
+                if !supported_patterns.is_empty() {
+                    base_attrs
+                        .push(format!("SupportedPatterns=\"{}\"", supported_patterns.join(", ")));
+                }
+
+                let mut extra_attrs: Vec<String> = attributes
+                    .iter()
+                    .filter(|attr| !should_skip_attribute(attr))
+                    .map(|attr| {
+                        let key = attribute_display_name(namespace, attr);
+                        let value = format_attribute_value(&attr.value);
+                        format!("{}=\"{}\"", key, value)
+                    })
+                    .collect();
+                extra_attrs.sort();
+
+                base_attrs.extend(extra_attrs);
+                let attr_block = base_attrs.join(" ");
+                let _ = writeln!(&mut output, "{} <{} {} />", ns_label, role, attr_block);
+            }
+            QueryItemSummary::Attribute { owner_runtime_id, namespace, name, value } => {
+                let _ = writeln!(
+                    &mut output,
+                    "Attribute owner={} namespace={} name={} value={}",
+                    owner_runtime_id,
+                    namespace,
+                    name,
+                    format_ui_value(value)
+                );
+            }
+            QueryItemSummary::Value { value } => {
+                let _ = writeln!(&mut output, "Value   {}", format_ui_value(value));
+            }
+        }
+    }
+
+    output.trim_end().to_owned()
+}
+
+fn render_query_json(items: &[QueryItemSummary]) -> CliResult<String> {
+    Ok(serde_json::to_string_pretty(items)?)
+}
+
+fn capitalize_namespace(ns: &str) -> String {
+    let mut chars = ns.chars();
+    match chars.next() {
+        Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+        None => String::new(),
+    }
+}
+
+fn attribute_display_name(node_namespace: &str, attr: &AttributeSummary) -> String {
+    if attr.namespace == node_namespace || attr.namespace == "control" {
+        attr.name.clone()
+    } else {
+        format!("{}:{}", attr.namespace, attr.name)
+    }
+}
+
+fn should_skip_attribute(attr: &AttributeSummary) -> bool {
+    let key = attr.name.as_str();
+    let ns = attr.namespace.as_str();
+    (ns == "control" && matches!(key, "Name" | "Role" | "RuntimeId" | "SupportedPatterns"))
+        || (ns == "app" && matches!(key, "Name" | "Role" | "RuntimeId"))
+}
+
+fn format_attribute_value(value: &UiValue) -> String {
+    match value {
+        UiValue::Null => "null".to_string(),
+        UiValue::Bool(b) => b.to_string(),
+        UiValue::Integer(i) => i.to_string(),
+        UiValue::Number(n) => format!("{n}"),
+        UiValue::String(text) => text.clone(),
+        _ => serde_json::to_string(value).unwrap_or_else(|_| String::from("<value>")),
+    }
+}
+
+fn format_ui_value(value: &UiValue) -> String {
+    match value {
+        UiValue::Null => "null".to_string(),
+        UiValue::Bool(b) => b.to_string(),
+        UiValue::Integer(i) => i.to_string(),
+        UiValue::Number(n) => format!("{n}"),
+        UiValue::String(text) => format!("\"{}\"", text),
+        _ => serde_json::to_string(value).unwrap_or_else(|_| "<value>".to_string()),
+    }
+}
+
 fn yes_no(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
 }
@@ -232,6 +505,10 @@ fn kind_label(kind: ProviderKind) -> &'static str {
 }
 
 fn map_provider_error(err: ProviderError) -> Box<dyn Error> {
+    Box::new(err)
+}
+
+fn map_evaluate_error(err: EvaluateError) -> Box<dyn Error> {
     Box::new(err)
 }
 
@@ -320,5 +597,56 @@ mod tests {
         let rendered = render_info_json(&summary).expect("json");
         let value: serde_json::Value = serde_json::from_str(&rendered).expect("valid json");
         assert_eq!(value.get("name").unwrap(), "Mock Desktop");
+    }
+
+    #[rstest]
+    fn query_text_returns_nodes() {
+        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+        let namespaces = Vec::new();
+        let patterns = Vec::new();
+        let args = QueryArgs {
+            expression: "//control:Button",
+            format: OutputFormat::Text,
+            namespaces: &namespaces,
+            patterns: &patterns,
+        };
+        let output = handle_query(&runtime, args).expect("query");
+        runtime.shutdown();
+        assert!(output.contains("mock://button/ok"));
+    }
+
+    #[rstest]
+    fn query_json_produces_valid_payload() {
+        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+        let namespaces = Vec::new();
+        let patterns = Vec::new();
+        let args = QueryArgs {
+            expression: "//control:Button",
+            format: OutputFormat::Json,
+            namespaces: &namespaces,
+            patterns: &patterns,
+        };
+        let output = handle_query(&runtime, args).expect("query");
+        runtime.shutdown();
+
+        let value: serde_json::Value = serde_json::from_str(&output).expect("valid json");
+        assert!(value.is_array());
+        assert_eq!(value[0]["type"], "Node");
+    }
+
+    #[rstest]
+    fn query_namespace_filter_limits_results() {
+        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+        let namespaces = vec!["item".to_string()];
+        let patterns = Vec::new();
+        let args = QueryArgs {
+            expression: "//control:Button",
+            format: OutputFormat::Text,
+            namespaces: &namespaces,
+            patterns: &patterns,
+        };
+        let output = handle_query(&runtime, args).expect("query");
+        runtime.shutdown();
+        assert!(output.trim().is_empty());
     }
 }

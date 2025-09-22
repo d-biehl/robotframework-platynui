@@ -5,7 +5,6 @@ use pest::{
     error::{ErrorVariant, InputLocation},
 };
 use platynui_xpath::{
-    XdmNode,
     compiler::compile,
     engine::{
         evaluator::evaluate,
@@ -66,10 +65,10 @@ fn expression_needs_more_input(expr: &str) -> bool {
 
 fn main() {
     let document = build_sample_document();
-    let context_node = document.children().next().unwrap_or_else(|| document.clone());
+    let context_node = document.clone();
 
     println!("PlatynUI XPath REPL");
-    println!("Context node: <root> element with actor and singer data.");
+    println!("Context node: document node with <root> element as child.");
     println!("Enter XPath expressions to evaluate. Type :exit or :quit to leave.\n");
 
     let stdin = io::stdin();

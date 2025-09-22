@@ -32,6 +32,11 @@ pub trait UiNode: Send + Sync {
     fn pattern_by_id(&self, _pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
         None
     }
+    /// Optional hint for Dokumentordnungs-Vergleiche. Wenn vorhanden, muss der Wert
+    /// für jeden Knoten eindeutig sein.
+    fn doc_order_key(&self) -> Option<u64> {
+        None
+    }
     /// Invalidates cached state. Provider können den nächsten Zugriff nutzen,
     /// um Werte neu zu laden.
     fn invalidate(&self);

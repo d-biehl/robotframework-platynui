@@ -21,11 +21,9 @@ impl ProviderDescriptor {
 }
 
 /// Differentiates between native/in-process and external provider variants.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ProviderKind {
     #[default]
     Native,
     External,
 }
-

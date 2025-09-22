@@ -4,8 +4,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 /// Known namespaces within the PlatynUI document model.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum Namespace {
     /// Default namespace for Controls (Buttons, TextBoxes, etc.).
     #[default]
@@ -34,7 +33,6 @@ impl Namespace {
         matches!(self, Namespace::Control)
     }
 }
-
 
 impl Display for Namespace {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

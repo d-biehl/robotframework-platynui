@@ -65,15 +65,19 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 ### 6. CLI `info` – Desktop-/Plattform-Metadaten
 - [x] `DesktopInfoProvider`-Trait in `platynui-core` definieren (OS-/Monitor-Metadaten, Bounds) und in Runtime verankern.
 - [x] `platynui-platform-mock`: Liefert DesktopInfo-Daten (OS, Monitorliste, Auflösung) zum Testen.
-- [x] Runtime baut `control:Desktop`-Knoten aus `DesktopInfoProvider` und stellt Daten für CLI bereit.
+- [x] Runtime baut den Desktop-Dokumentknoten aus `DesktopInfoProvider` und stellt Daten für CLI bereit.
 - [x] CLI-Kommando `info`: Zeigt Plattform, Desktop-Bounds, Monitore, verfügbare Provider. Ausgabe als Text/JSON.
 - [x] Tests: `info`-Kommando mit Mock-Daten (Mehrmonitor, OS-Varianten) validieren.
 
 ### 7. CLI `query` – XPath-Abfragen
-- [ ] `platynui-provider-mock`: Erzeugt einen skriptbaren Baum (`StaticMockTree`) mit deterministischen `RuntimeId`s.
-- [ ] API-Variante `evaluate(node: Option<Arc<dyn UiNode>>, xpath, options)` fertigstellen; Kontextsteuerung ohne Cache.
-- [ ] CLI-Kommando `query`: Führt XPath aus, unterstützt Formatoptionen (Text, JSON) und Filter (`--namespace`, `--pattern`).
-- [ ] Tests: Beispiel-XPath-Abfragen gegen Mock-Baum (control/item/app/native Namen, Attribute, Patterns).
+- [x] `platynui-provider-mock`: Erzeugt einen skriptbaren Baum (`StaticMockTree`) mit deterministischen `RuntimeId`s.
+- [x] API-Variante `evaluate(node: Option<Arc<dyn UiNode>>, xpath, options)` fertigstellen; Kontextsteuerung ohne Cache.
+- [x] CLI-Kommando `query`: Führt XPath aus, unterstützt Formatoptionen (Text, JSON) und Filter (`--namespace`, `--pattern`).
+- [x] Tests: Beispiel-XPath-Abfragen gegen Mock-Baum (control/item/app/native Namen, Attribute, Patterns).
+- [x] Referenzbaum in `crates/provider-mock/assets/mock_tree.xml` dokumentiert (Struktur, RuntimeIds, Beispiele).
+- [x] Baumdefinition aus `crates/provider-mock/assets/mock_tree.xml` laden und in NodeSpecs konvertieren.
+- [x] Textausgabe der `query`-Nodes auf XML-ähnliches Format umgestellt; JSON liefert nun vollständige Attributlisten.
+- [x] Provider-Doppelsicht (flach + gruppiert) umgesetzt: Mock-Provider erzeugt Desktop-Alias-Knoten mit eindeutigen Ordnungsschlüsseln, Dokumentation angepasst. Konfigurationsoptionen können später ergänzt werden.
 
 ### 8. CLI `watch` – Ereignisse beobachten
 - [ ] Event-Pipeline der Runtime an CLI anbinden (`watch` lauscht auf `ProviderEventKind` und optional wiederholt Abfragen).

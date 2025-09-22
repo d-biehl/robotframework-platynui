@@ -91,9 +91,9 @@ Die folgende Tabelle fasst die aktuell vorgesehenen Attributnamen zusammen und o
 - **Contract-Test:** Das Core-Testkit (`platynui_core::ui::contract::testkit`) vergleicht optionale Alias-Werte (`Bounds.X`, `Bounds.Y`, `Bounds.Width`, `Bounds.Height`), sofern vorhanden, mit dem gelieferten `Bounds`-Rechteck.
 
 #### Desktop
-- **Beschreibung:** Beschreibt den Wurzelknoten (`control:Desktop`) des UI-Baums. Der Desktop gilt nicht als reguläres UI-Element, sondern liefert System- und Monitorinformationen.
+- **Beschreibung:** Beschreibt den Dokumentknoten des UI-Baums. Der Desktop wird als `document-node()` im `control`-Namespace exponiert. XPath-Abfragen beginnen somit mit `.` bzw. `document-node()`, während `/*` die obersten UI-Kinder (z. B. Anwendungen) liefert. Der Desktop gilt nicht als reguläres UI-Element, sondern stellt System- und Monitorinformationen bereit.
 - **Pflichtattribute:** `Bounds`, `DisplayCount`, `Monitors`, `OsName`, `OsVersion`.
-- **Hinweis:** Weitere Basisattribute entstammen dem allgemeinen UiNode-Vertrag; Ableitungen wie `Bounds.X`/`Bounds.Width` werden automatisch erzeugt.
+- **Hinweis:** Weitere Basisattribute entstammen dem allgemeinen UiNode-Vertrag; Ableitungen wie `Bounds.X`/`Bounds.Width` werden automatisch erzeugt. Die Attribute sind über den Dokumentkontext abrufbar (z. B. `./@Bounds.X`).
 
 ### Textbezogene Fähigkeiten (ClientPatterns)
 

@@ -15,7 +15,7 @@ use platynui_core::ui::{
 use crate::provider::ProviderRegistry;
 use crate::provider::event::{ProviderEventDispatcher, ProviderEventSink};
 
-use crate::EvaluateOptions;
+use crate::{EvaluateError, EvaluateOptions, EvaluationItem, evaluate};
 
 /// Central orchestrator that owns provider instances and the provider event dispatcher.
 pub struct Runtime {
@@ -71,6 +71,15 @@ impl Runtime {
         EvaluateOptions::new(self.desktop_node())
     }
 
+    pub fn evaluate(
+        &self,
+        node: Option<Arc<dyn UiNode>>,
+        xpath: &str,
+    ) -> Result<Vec<EvaluationItem>, EvaluateError> {
+        self.refresh_desktop_nodes().map_err(EvaluateError::from)?;
+        evaluate(node, xpath, self.evaluate_options())
+    }
+
     pub fn desktop_node(&self) -> Arc<dyn UiNode> {
         self.desktop.as_ui_node()
     }
@@ -95,6 +104,17 @@ impl Runtime {
         for provider in &self.providers {
             provider.shutdown();
         }
+    }
+
+    fn refresh_desktop_nodes(&self) -> Result<(), ProviderError> {
+        let mut aggregated: Vec<Arc<dyn UiNode>> = Vec::new();
+        for provider in &self.providers {
+            let parent = self.desktop.as_ui_node();
+            let nodes = provider.get_nodes(parent)?.collect::<Vec<_>>();
+            aggregated.extend(nodes);
+        }
+        self.desktop.replace_children(aggregated);
+        Ok(())
     }
 }
 
@@ -201,6 +221,10 @@ impl DesktopNode {
     #[allow(dead_code)]
     fn attach_child(&self, child: Arc<dyn UiNode>) {
         self.children.lock().unwrap().push(child);
+    }
+
+    fn replace_children(&self, nodes: Vec<Arc<dyn UiNode>>) {
+        *self.children.lock().unwrap() = nodes;
     }
 }
 
@@ -489,6 +513,13 @@ mod tests {
         let mut runtime = Runtime::new().expect("runtime initializes");
         runtime.shutdown();
         assert!(SHUTDOWN_TRIGGERED.load(Ordering::SeqCst));
+    }
+
+    #[rstest]
+    fn runtime_evaluate_executes_xpath() {
+        let runtime = Runtime::new().expect("runtime initializes");
+        let results = runtime.evaluate(None, "//control:Button").expect("evaluation");
+        assert!(!results.is_empty());
     }
 
     #[rstest]
