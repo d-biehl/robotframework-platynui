@@ -89,6 +89,10 @@ mod tests {
     };
     use platynui_core::ui::identifiers::TechnologyId;
     use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
+    #[allow(unused_imports)]
+    use platynui_platform_mock as _;
+    #[allow(unused_imports)]
+    use platynui_provider_mock as _;
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, LazyLock, Mutex, Weak};
@@ -146,6 +150,46 @@ mod tests {
         fn supported_patterns(&self) -> &[PatternId] {
             &[]
         }
+        fn invalidate(&self) {}
+    }
+
+    struct StubDesktop;
+
+    impl UiNode for StubDesktop {
+        fn namespace(&self) -> Namespace {
+            Namespace::Control
+        }
+
+        fn role(&self) -> &str {
+            "Desktop"
+        }
+
+        fn name(&self) -> &str {
+            "Desktop"
+        }
+
+        fn runtime_id(&self) -> &RuntimeId {
+            static RUNTIME_ID: LazyLock<RuntimeId> =
+                LazyLock::new(|| RuntimeId::from("mock-desktop"));
+            &RUNTIME_ID
+        }
+
+        fn parent(&self) -> Option<Weak<dyn UiNode>> {
+            None
+        }
+
+        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+            Box::new(std::iter::empty())
+        }
+
+        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+            Box::new(std::iter::empty())
+        }
+
+        fn supported_patterns(&self) -> &[PatternId] {
+            &[]
+        }
+
         fn invalidate(&self) {}
     }
 
@@ -281,11 +325,27 @@ mod tests {
         let parent: Arc<dyn UiNode> = Arc::new(StubNode::new("parent"));
         let node = runtime
             .providers()
-            .next()
+            .find(|provider| provider.descriptor().id == "runtime-stub")
             .and_then(|provider| {
                 provider.get_nodes(Arc::clone(&parent)).ok().and_then(|mut nodes| nodes.next())
             })
-            .expect("provider node available");
+            .expect("runtime stub provider node available");
         assert!(node.parent().is_some());
+    }
+
+    #[rstest]
+    fn mock_provider_attaches_to_desktop() {
+        let runtime = Runtime::new().expect("runtime initializes");
+        let desktop: Arc<dyn UiNode> = Arc::new(StubDesktop);
+        let app = runtime
+            .providers()
+            .find(|provider| provider.descriptor().id == "mock")
+            .and_then(|provider| provider.get_nodes(Arc::clone(&desktop)).ok())
+            .and_then(|mut nodes| nodes.next())
+            .expect("mock provider root node");
+
+        assert_eq!(app.namespace(), Namespace::App);
+        let parent = app.parent().and_then(|weak| weak.upgrade()).expect("desktop parent");
+        assert_eq!(parent.runtime_id().as_str(), desktop.runtime_id().as_str());
     }
 }

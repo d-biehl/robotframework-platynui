@@ -19,3 +19,5 @@ thiserror = "2.0"
 [dev-dependencies]
 inventory = "0.3.21"
 rstest = "0.26.1"
+platynui-provider-mock = { path = "../provider-mock" }
+platynui-platform-mock = { path = "../platform-mock" }

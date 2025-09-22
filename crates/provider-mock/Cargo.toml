@@ -12,6 +12,7 @@ license.workspace = true
 
 [dependencies]
 platynui-core = { path = "../core" }
+inventory = "0.3.21"
 
 [dev-dependencies]
 rstest = "0.26.1"

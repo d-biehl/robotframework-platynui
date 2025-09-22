@@ -75,7 +75,7 @@ mod tests {
     use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, LazyLock, Mutex, Weak};
+    use std::sync::{Arc, LazyLock, Weak};
 
     struct DummyAttribute;
     impl UiAttribute for DummyAttribute {
