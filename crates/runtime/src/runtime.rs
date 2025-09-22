@@ -1,12 +1,19 @@
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
-use platynui_core::provider::{ProviderError, UiTreeProvider};
+use platynui_core::platform::{
+    DesktopInfo, MonitorInfo, PlatformError, PlatformErrorKind, desktop_info_providers,
+};
+use platynui_core::provider::{ProviderError, ProviderErrorKind, ProviderEvent, UiTreeProvider};
+use platynui_core::types::Rect;
+use platynui_core::ui::attribute_names;
+use platynui_core::ui::identifiers::TechnologyId;
+use platynui_core::ui::{
+    Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue, supported_patterns_value,
+};
 
 use crate::provider::ProviderRegistry;
 use crate::provider::event::{ProviderEventDispatcher, ProviderEventSink};
-use platynui_core::provider::ProviderEvent;
-use platynui_core::ui::UiNode;
-use platynui_core::ui::identifiers::TechnologyId;
 
 use crate::EvaluateOptions;
 
@@ -15,6 +22,7 @@ pub struct Runtime {
     registry: ProviderRegistry,
     providers: Vec<Arc<dyn UiTreeProvider>>,
     dispatcher: Arc<ProviderEventDispatcher>,
+    desktop: Arc<DesktopNode>,
 }
 
 impl Runtime {
@@ -27,7 +35,9 @@ impl Runtime {
             provider.subscribe_events(dispatcher.clone())?;
         }
 
-        Ok(Self { registry, providers, dispatcher })
+        let desktop = build_desktop_node().map_err(map_desktop_error)?;
+
+        Ok(Self { registry, providers, dispatcher, desktop })
     }
 
     /// Returns a reference to the provider registry (discovered entries including metadata).
@@ -56,9 +66,17 @@ impl Runtime {
     }
 
     /// Convenience helper that preconfigures `EvaluateOptions` with the runtime
-    /// resolver so callers do not have to wire it manually.
-    pub fn evaluate_options(&self, desktop: Arc<dyn UiNode>) -> EvaluateOptions {
-        EvaluateOptions::new(desktop)
+    /// desktop node so callers do not have to wire it manually.
+    pub fn evaluate_options(&self) -> EvaluateOptions {
+        EvaluateOptions::new(self.desktop_node())
+    }
+
+    pub fn desktop_node(&self) -> Arc<dyn UiNode> {
+        self.desktop.as_ui_node()
+    }
+
+    pub fn desktop_info(&self) -> &DesktopInfo {
+        self.desktop.info()
     }
 
     /// Registers a new event sink that will receive provider events.
@@ -77,6 +95,200 @@ impl Runtime {
         for provider in &self.providers {
             provider.shutdown();
         }
+    }
+}
+
+fn build_desktop_node() -> Result<Arc<DesktopNode>, PlatformError> {
+    let mut providers = desktop_info_providers();
+    let provider = providers.next().ok_or_else(|| {
+        PlatformError::new(
+            PlatformErrorKind::UnsupportedPlatform,
+            "no DesktopInfoProvider registered",
+        )
+    })?;
+    let info = provider.desktop_info()?;
+    Ok(DesktopNode::new(info))
+}
+
+fn map_desktop_error(err: PlatformError) -> ProviderError {
+    ProviderError::new(
+        ProviderErrorKind::InitializationFailed,
+        format!("desktop initialization failed: {err}"),
+    )
+}
+
+struct DesktopNode {
+    info: DesktopInfo,
+    attributes: Vec<Arc<dyn UiAttribute>>,
+    supported: Vec<PatternId>,
+    children: Mutex<Vec<Arc<dyn UiNode>>>,
+}
+
+impl DesktopNode {
+    fn new(info: DesktopInfo) -> Arc<Self> {
+        let namespace = Namespace::Control;
+        let mut attributes: Vec<Arc<dyn UiAttribute>> = Vec::new();
+        let supported = vec![PatternId::from("Desktop")];
+
+        attributes.push(attr(namespace, attribute_names::common::ROLE, UiValue::from("Desktop")));
+        attributes.push(attr(
+            namespace,
+            attribute_names::common::NAME,
+            UiValue::from(info.name.clone()),
+        ));
+        attributes.push(attr(
+            namespace,
+            attribute_names::common::RUNTIME_ID,
+            UiValue::from(info.runtime_id.as_str().to_owned()),
+        ));
+        attributes.push(attr(
+            namespace,
+            attribute_names::common::TECHNOLOGY,
+            UiValue::from(info.technology.as_str().to_owned()),
+        ));
+        attributes.push(attr(
+            namespace,
+            attribute_names::common::SUPPORTED_PATTERNS,
+            supported_patterns_value(&supported),
+        ));
+
+        attributes.push(attr(
+            namespace,
+            attribute_names::element::BOUNDS,
+            UiValue::from(info.bounds),
+        ));
+        attributes.extend(rect_alias_attributes(namespace, "Bounds", &info.bounds));
+        attributes.push(attr(namespace, attribute_names::element::IS_VISIBLE, UiValue::from(true)));
+        attributes.push(attr(namespace, attribute_names::element::IS_ENABLED, UiValue::from(true)));
+        attributes.push(attr(
+            namespace,
+            attribute_names::element::IS_OFFSCREEN,
+            UiValue::from(false),
+        ));
+
+        attributes.push(attr(
+            namespace,
+            attribute_names::desktop::DISPLAY_COUNT,
+            UiValue::from(info.display_count() as i64),
+        ));
+        attributes.push(attr(
+            namespace,
+            attribute_names::desktop::OS_NAME,
+            UiValue::from(info.os_name.clone()),
+        ));
+        attributes.push(attr(
+            namespace,
+            attribute_names::desktop::OS_VERSION,
+            UiValue::from(info.os_version.clone()),
+        ));
+        attributes.push(attr(
+            namespace,
+            attribute_names::desktop::MONITORS,
+            UiValue::Array(info.monitors.iter().map(monitor_to_value).collect()),
+        ));
+
+        Arc::new(Self { info, attributes, supported, children: Mutex::new(Vec::new()) })
+    }
+
+    fn info(&self) -> &DesktopInfo {
+        &self.info
+    }
+
+    fn as_ui_node(self: &Arc<Self>) -> Arc<dyn UiNode> {
+        Arc::clone(self) as Arc<dyn UiNode>
+    }
+
+    #[allow(dead_code)]
+    fn attach_child(&self, child: Arc<dyn UiNode>) {
+        self.children.lock().unwrap().push(child);
+    }
+}
+
+impl UiNode for DesktopNode {
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+
+    fn role(&self) -> &str {
+        "Desktop"
+    }
+
+    fn name(&self) -> &str {
+        &self.info.name
+    }
+
+    fn runtime_id(&self) -> &RuntimeId {
+        &self.info.runtime_id
+    }
+
+    fn parent(&self) -> Option<std::sync::Weak<dyn UiNode>> {
+        None
+    }
+
+    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+        let snapshot = self.children.lock().unwrap().clone();
+        Box::new(snapshot.into_iter())
+    }
+
+    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+        Box::new(self.attributes.clone().into_iter())
+    }
+
+    fn supported_patterns(&self) -> &[PatternId] {
+        &self.supported
+    }
+
+    fn invalidate(&self) {}
+}
+
+fn attr(namespace: Namespace, name: impl Into<String>, value: UiValue) -> Arc<dyn UiAttribute> {
+    Arc::new(DesktopAttribute { namespace, name: name.into(), value })
+}
+
+fn rect_alias_attributes(
+    namespace: Namespace,
+    base: &str,
+    rect: &Rect,
+) -> Vec<Arc<dyn UiAttribute>> {
+    vec![
+        attr(namespace, format!("{base}.X"), UiValue::from(rect.x())),
+        attr(namespace, format!("{base}.Y"), UiValue::from(rect.y())),
+        attr(namespace, format!("{base}.Width"), UiValue::from(rect.width())),
+        attr(namespace, format!("{base}.Height"), UiValue::from(rect.height())),
+    ]
+}
+
+fn monitor_to_value(info: &MonitorInfo) -> UiValue {
+    let mut map = BTreeMap::new();
+    map.insert("Id".to_string(), UiValue::from(info.id.clone()));
+    if let Some(name) = &info.name {
+        map.insert("Name".to_string(), UiValue::from(name.clone()));
+    }
+    map.insert("Bounds".to_string(), UiValue::from(info.bounds));
+    map.insert("IsPrimary".to_string(), UiValue::from(info.is_primary));
+    if let Some(scale) = info.scale_factor {
+        map.insert("ScaleFactor".to_string(), UiValue::from(scale));
+    }
+    UiValue::Object(map)
+}
+
+struct DesktopAttribute {
+    namespace: Namespace,
+    name: String,
+    value: UiValue,
+}
+
+impl UiAttribute for DesktopAttribute {
+    fn namespace(&self) -> Namespace {
+        self.namespace
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn value(&self) -> UiValue {
+        self.value.clone()
     }
 }
 
@@ -150,46 +362,6 @@ mod tests {
         fn supported_patterns(&self) -> &[PatternId] {
             &[]
         }
-        fn invalidate(&self) {}
-    }
-
-    struct StubDesktop;
-
-    impl UiNode for StubDesktop {
-        fn namespace(&self) -> Namespace {
-            Namespace::Control
-        }
-
-        fn role(&self) -> &str {
-            "Desktop"
-        }
-
-        fn name(&self) -> &str {
-            "Desktop"
-        }
-
-        fn runtime_id(&self) -> &RuntimeId {
-            static RUNTIME_ID: LazyLock<RuntimeId> =
-                LazyLock::new(|| RuntimeId::from("mock-desktop"));
-            &RUNTIME_ID
-        }
-
-        fn parent(&self) -> Option<Weak<dyn UiNode>> {
-            None
-        }
-
-        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
-            Box::new(std::iter::empty())
-        }
-
-        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
-            Box::new(std::iter::empty())
-        }
-
-        fn supported_patterns(&self) -> &[PatternId] {
-            &[]
-        }
-
         fn invalidate(&self) {}
     }
 
@@ -336,7 +508,7 @@ mod tests {
     #[rstest]
     fn mock_provider_attaches_to_desktop() {
         let runtime = Runtime::new().expect("runtime initializes");
-        let desktop: Arc<dyn UiNode> = Arc::new(StubDesktop);
+        let desktop = runtime.desktop_node();
         let app = runtime
             .providers()
             .find(|provider| provider.descriptor().id == "mock")
@@ -346,6 +518,6 @@ mod tests {
 
         assert_eq!(app.namespace(), Namespace::App);
         let parent = app.parent().and_then(|weak| weak.upgrade()).expect("desktop parent");
-        assert_eq!(parent.runtime_id().as_str(), desktop.runtime_id().as_str());
+        assert_eq!(parent.runtime_id().as_str(), runtime.desktop_info().runtime_id.as_str());
     }
 }

@@ -1,7 +1,11 @@
+mod desktop;
 mod error;
 mod module;
 mod registration;
 
+pub use desktop::{
+    DesktopInfo, DesktopInfoProvider, DesktopInfoRegistration, MonitorInfo, desktop_info_providers,
+};
 pub use error::{PlatformError, PlatformErrorKind};
 pub use module::PlatformModule;
 pub use registration::{PlatformRegistration, platform_modules};

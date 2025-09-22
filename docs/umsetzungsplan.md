@@ -63,11 +63,11 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Tests: Provider-Registry + CLI-Output gegen Mock-Setup; `rstest` verwenden.
 
 ### 6. CLI `info` – Desktop-/Plattform-Metadaten
-- [ ] `DesktopInfoProvider`-Trait in `platynui-core` definieren (OS-/Monitor-Metadaten, Bounds) und in Runtime verankern.
-- [ ] `platynui-platform-mock`: Liefert DesktopInfo-Daten (OS, Monitorliste, Auflösung) zum Testen.
-- [ ] Runtime baut `control:Desktop`-Knoten aus `DesktopInfoProvider` und stellt Daten für CLI bereit.
-- [ ] CLI-Kommando `info`: Zeigt Plattform, Desktop-Bounds, Monitore, verfügbare Provider. Ausgabe als Text/JSON.
-- [ ] Tests: `info`-Kommando mit Mock-Daten (Mehrmonitor, OS-Varianten) validieren.
+- [x] `DesktopInfoProvider`-Trait in `platynui-core` definieren (OS-/Monitor-Metadaten, Bounds) und in Runtime verankern.
+- [x] `platynui-platform-mock`: Liefert DesktopInfo-Daten (OS, Monitorliste, Auflösung) zum Testen.
+- [x] Runtime baut `control:Desktop`-Knoten aus `DesktopInfoProvider` und stellt Daten für CLI bereit.
+- [x] CLI-Kommando `info`: Zeigt Plattform, Desktop-Bounds, Monitore, verfügbare Provider. Ausgabe als Text/JSON.
+- [x] Tests: `info`-Kommando mit Mock-Daten (Mehrmonitor, OS-Varianten) validieren.
 
 ### 7. CLI `query` – XPath-Abfragen
 - [ ] `platynui-provider-mock`: Erzeugt einen skriptbaren Baum (`StaticMockTree`) mit deterministischen `RuntimeId`s.
