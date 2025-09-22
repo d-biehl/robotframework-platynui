@@ -4,7 +4,7 @@
 
 ## Gemeinsame Prüfschritte
 - [ ] Modul registriert sich über das vorgesehene `inventory`-Makro (`register_platform_module!`, `register_provider!`) und exportiert exakt eine Factory-Implementierung je Rolle (Plattform, Device, Provider, Window-Manager).
-- [ ] `ProviderDescriptor` ist vollständig ausgefüllt (`id`, Anzeigename, `Technology`, `ProviderKind`, passende `ProviderPriority`) und spiegelt die tatsächliche Quelle wider.
+- [ ] `ProviderDescriptor` ist vollständig ausgefüllt (`id`, Anzeigename, `Technology`, `ProviderKind`) und spiegelt die tatsächliche Quelle wider.
 - [ ] Provider geben ihren Baum als `Arc<dyn UiNode>` zurück; Attribute implementieren das `UiAttribute`-Trait und liefern Werte erst bei Bedarf (`UiAttribute::value()` → `UiValue`).
 - [ ] Steuerelemente erscheinen im `control`-Namespace, Items in Containerstrukturen im `item`-Namespace; andere Namensräume (`app`, `native`) bleiben ergänzend.
 - [ ] Alle Koordinaten (`Bounds`, `ActivationPoint`, `ActivationArea`, Fensterrahmen) werden im Desktop-Koordinatensystem geliefert (linke obere Ecke des Primärmonitors = Ursprung, DPI-/Scaling berücksichtigt).
@@ -33,7 +33,7 @@
 - [ ] `TextContent`, `TextEditable`, `TextSelection` nutzen Priority: `NameProperty` → `ValuePattern` → `TextPattern`.
 - [ ] `WindowSurface`-Attribute (`IsMinimized`, `IsMaximized`, `IsTopmost`) spiegeln `WindowPattern`/`TransformPattern` wider.
 - [ ] `Application`-Knoten liefern Prozessmetadaten (`ProcessId`, `ProcessName`, `ExecutablePath`) und optional `CommandLine`, `UserName`.
-- [ ] `AcceptsUserInput` verfügbar, sofern die Plattform eine zuverlässige Abfrage erlaubt (Windows: `WaitForInputIdle`; andere Plattformen dokumentieren die verwendete Heuristik oder lassen das Feld weg).
+- [ ] `WindowSurface::accepts_user_input()` liefert – sofern die Plattform eine zuverlässige Abfrage erlaubt – den aktuellen Eingabestatus (Windows: `WaitForInputIdle`; andere Plattformen dokumentieren die verwendete Heuristik oder geben `None` zurück). Ein optionales Attribut `window:AcceptsUserInput` darf den Wert spiegeln.
 - [ ] `Selectable`/`SelectionProvider` synchronisiert über `SelectionItemPattern`/`SelectionPattern`.
 - [ ] Highlight/Overlay Pfad (DirectComposition/GDI) liefert konsistente Ergebnisse im Vergleich zu `Bounds`.
 

@@ -53,13 +53,13 @@ Die ursprüngliche .NET-basierte Version von PlatynUI sollte Robot Framework pla
 ## Übertragbare Konzepte für das neue Projekt
 1. **Registrierungsmodell:** Plattform-/Provider-Pakete melden sich über ein Attribut bzw. Trait-Marker und werden zur Laufzeit injiziert.
 2. **Nodes & Patterns:** Pflichtattribute (`RuntimeId`, `Bounds`, `IsVisible`, `IsEnabled`, `SupportedPatterns`) sowie optionale Pattern-spezifische Daten (z. B. Fensterzustand) dienen als Grundlage für `patterns.md`.
-3. **Window Manager:** Aktivierungs- und Fokus-Heuristiken zeigen, wie plattformnahe APIs genutzt werden können. Diese Logik wandert in unser `WindowManager`-Trait.
+3. **Window Manager:** Aktivierungs- und Fokus-Heuristiken zeigen, wie plattformnahe APIs genutzt werden können. Diese Logik fließt in die Implementierung des `WindowSurface`-Patterns ein.
 4. **Devices & Highlighting:** Ein dedizierter Highlighter pro Plattform und Device-Abstraktionen (`Mouse`, `Keyboard`, `Display`) sind bereits funktional wertvoll.
 5. **JSON-RPC-Bridge:** Provider sollen über Pipes/Sockets RPC anbieten, ohne dass die Runtime sie starten muss. Das Legacy-Vorgehen bestätigt dieses Modell.
 
 ## Ergänzungen für das aktuelle Konzept
 - Document `RuntimeId`-Pflichten analog zu Windows/AT-SPI (Hex-Strings vs. D-Bus Pfade).
-- `AcceptsUserInput`: Der Legacy-Code nutzt `WaitForInputIdle`; wir können das als Plattformstrategie adaptieren.
+- `AcceptsUserInput`: Der Legacy-Code nutzt `WaitForInputIdle`; wir können das als Plattformstrategie adaptieren (jetzt Teil des `WindowSurface`-Patterns).
 - `DefaultClickPoint` als eigenes Pattern, statt nur Attribut.
 - Erweiterte Provider-Checkliste: Sichtbarkeit, Bounds, Pattern-Flags und Herkunft der IDs dokumentieren.
 

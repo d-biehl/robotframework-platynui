@@ -69,9 +69,9 @@ Die folgende Tabelle fasst die aktuell vorgesehenen Attributnamen zusammen und o
 | Scrollable | `HorizontalPercent`, `VerticalPercent` | `CanScrollHorizontally`, `CanScrollVertically`, `HorizontalViewSize`, `VerticalViewSize` |
 | Expandable | `IsExpanded`, `HasChildren` | – |
 | ItemContainer | `ItemCount`, `IsVirtualized` | `VirtualizationHint` |
-| WindowSurface (Leseteil) | `IsMinimized`, `IsMaximized`, `IsTopmost` | `SupportsResize`, `SupportsMove` |
+| WindowSurface (Leseteil) | `IsMinimized`, `IsMaximized`, `IsTopmost` | `SupportsResize`, `SupportsMove`, `AcceptsUserInput` |
 | DialogSurface | `IsModal` | `DefaultResult` |
-| Application | `ProcessId`, `ProcessName`/`Name`, `ExecutablePath` | `CommandLine`, `UserName`, `StartTime`, `MainWindowIds`, `Architecture`, `AcceptsUserInput` |
+| Application | `ProcessId`, `ProcessName`/`Name`, `ExecutablePath` | `CommandLine`, `UserName`, `StartTime`, `MainWindowIds`, `Architecture` |
 | Highlightable | `SupportsHighlight` | `HighlightStyles` |
 | Annotatable | `Annotations` | – |
 
@@ -209,7 +209,8 @@ Provider sollten dokumentieren, wenn sie von den vorgeschlagenen Zuordnungen abw
 #### WindowSurface
 - **Beschreibung:** Bindeglied zum platform-spezifischen Window Manager.
 - **Pflichtattribute:** `IsMinimized`, `IsMaximized`, `IsTopmost`.
-- **Runtime-Hinweis:** Die zugehörigen Aktionen (`activate()`, `minimize()`, …) liefert das RuntimePattern `WindowSurface`.
+- **Optionale Attribute:** `AcceptsUserInput` (bool; Abbild des Runtime-Status, falls verfügbar).
+- **Runtime-Hinweis:** Das RuntimePattern `WindowSurface` stellt Aktionen (`activate()`, `minimize()`, …) sowie `accepts_user_input()` bereit.
 
 #### DialogSurface
 - **Beschreibung:** Spezialisierung für modale Dialoge.
@@ -222,9 +223,8 @@ Provider sollten dokumentieren, wenn sie von den vorgeschlagenen Zuordnungen abw
 #### Application
 - **Beschreibung:** Repräsentiert eine ausführende Anwendung oder einen Prozesskontext, aus dem Fenster und UI-Elemente stammen.
 - **Pflichtattribute:** `ProcessId`, `ProcessName` und/oder `Name`, `ExecutablePath`
-- **Optionale Attribute:** `CommandLine`, `UserName`, `StartTime`, `MainWindowIds` (Liste von `RuntimeId`s der führenden Fenster), `Architecture` (z. B. `x86_64`), `AcceptsUserInput` (bool; gibt an, ob die Anwendung aktuell Eingaben annimmt – unter Windows via `WaitForInputIdle`, auf anderen Plattformen bestmögliche Heuristik).
+- **Optionale Attribute:** `CommandLine`, `UserName`, `StartTime`, `MainWindowIds` (Liste von `RuntimeId`s der führenden Fenster), `Architecture` (z. B. `x86_64`).
 - **Hinweis:** Application-Knoten sind Einstiegspunkte für XPath-Abfragen über den `app`-Namespace; sie bündeln Metadaten, ersetzen aber keine Prozessverwaltung.
-- **Runtime-Hinweis:** Das RuntimePattern `Application` liefert die Methode `accepts_user_input()` für on-demand-Abfragen.
 
 ### Visualisierung & Annotation
 
@@ -243,8 +243,7 @@ Provider sollten dokumentieren, wenn sie von den vorgeschlagenen Zuordnungen abw
 | Pattern | Methoden | Beschreibung |
 | --- | --- | --- |
 | `Focusable` | `focus()` | Wechselt den Eingabefokus des Elements über die Runtime. |
-| `WindowSurface` | `activate()`, `minimize()`, `maximize()`, `restore()`, `move_to(Point)`, `resize(Size)`, `move_and_resize(Rect)`, `close()` | Delegiert die Fensterkontrolle an den plattformspezifischen Window Manager. |
-| `Application` | `accepts_user_input()` | Fragt on-demand, ob der zugrunde liegende Prozess aktuell Eingaben annimmt. |
+| `WindowSurface` | `activate()`, `minimize()`, `maximize()`, `restore()`, `move_to(Point)`, `resize(Size)`, `move_and_resize(Rect)`, `close()`, `accepts_user_input()` | Delegiert die Fensterkontrolle an den plattformspezifischen Window Manager und liefert den Eingabestatus des Fensters. |
 
 Alle Methoden liefern `Result<_, PatternError>`; Fehler bleiben damit transparent für Clients. Provider registrieren RuntimePatterns im `PatternRegistry`, während ClientPatterns ausschließlich über Attribute beschrieben werden.
 
@@ -258,7 +257,8 @@ Diese Patterns sind Diskussionsstoff, da sie eng mit Device-Providern verknüpft
 
 | Pattern | UI Automation (Windows) | AT-SPI2 (Linux) | macOS AX | Beispielwerte | Hinweise |
 | --- | --- | --- | --- | --- | --- |
-| `Application` | `IUIAutomationElement` mit `ControlType=UIA_WindowControlTypeId` (Application Root), Prozessinfos über Win32 APIs | `Accessible` über `org.a11y.atspi.Application` Interface | `AXApplication`, NSRunningApplication | `ProcessId=1234`, `AcceptsUserInput=true` | Prozessmetadaten stammen aus Plattform-API; `AcceptsUserInput` unter Windows via `WaitForInputIdle`, andernorts best effort. |
+| `WindowSurface` | `IUIAutomationElement` mit `ControlType=UIA_WindowControlTypeId` | `Accessible::get_application` + `Component`, Window Manager | `AXWindow`, `NSWindow` | `accepts_user_input()` → `true` | Aktionen laufen über Plattform-Window-Manager (`SetForegroundWindow`, EWMH, AppKit). |
+| `Application` | `IUIAutomationElement` (Application Root), Prozessinfos über Win32 APIs | `Accessible` über `org.a11y.atspi.Application` Interface | `AXApplication`, NSRunningApplication | `ProcessId=1234` | Prozessmetadaten stammen aus Plattform-API. |
 | `TextContent` | `NameProperty`, ggf. `ValuePattern.Value` | `Accessible::name`, `Text::get_text` | `AXValue`, `AXDescription` | `Text="Datei"` | Provider wählen die aussagekräftigste Quelle (Priorität: Name → Value). |
 | `TextEditable` | `ValuePattern.IsReadOnly`, `TextPattern` | `EditableText` Interface | `AXEditable`, `AXValue` | `IsReadOnly=false`, `MaxLength=256` | `IsReadOnly = true`, wenn API keine Bearbeitung erlaubt. |
 | `TextSelection` | `TextPattern::GetSelection`, `CaretRangeEndpoint` | `Text::get_selection`, `Text::get_caret_offset` | `AXSelectedText`, `AXSelectedTextRange` | `CaretPosition=5`, `SelectionRanges=[(2,4)]` | Leerlisten signalisieren fehlende Selektion. |
@@ -269,13 +269,12 @@ Diese Patterns sind Diskussionsstoff, da sie eng mit Device-Providern verknüpft
 | `Focusable` | `HasKeyboardFocus`, `SetFocus()` | `Component::grab_focus`, `StateSet` (`STATE_FOCUSED`) | `AXFocused`, `AXSetFocus` | `IsFocused=false` | Runtime nutzt native Fokusfunktionen. |
 | `Activatable` | `InvokePattern.Invoke`, `LegacyIAccessible::DoDefaultAction` | `Action::do_action(0)` | `AXPress` | `IsActivationEnabled=true` | Client ahmt Aktivierung per Tastatur/Maus nach; `IsActivationEnabled` spiegelt `IsEnabled`. |
 | `ActivationTarget` | `IUIAutomationElement::GetClickablePoint` | `Component::get_extents`, `Component::get_offset_at_point` | `AXPosition`, `AXFrame` | `ActivationPoint={"x":840,"y":420}` | Provider berechnen Desktop-Koordinaten, ggf. Fallback auf Mittelpunkt. |
-| `WindowSurface` | `WindowPattern`, `TransformPattern` | Window-Management API (`org.freedesktop.DBus` + X11/Wayland) | `AXWindow`, Core Graphics | `IsMinimized=false`, `IsTopmost=false` | Aktionen laufen über Plattform-Window-Manager. |
 | `Highlightable` | Provider-Overlay, `TransformPattern.GetRuntimeId` | Provider-Overlay via XComposite/Wayland Layer | `AXFrame`, transparentes `NSWindow` | `SupportsHighlight=true` | Runtime zeichnet Highlight, benötigt gültige `Bounds`. |
 | `Scrollable` | `ScrollPattern` (`HorizontalPercent`, `VerticalPercent`) | `Component::scroll_to_point`, `Value` | `AXHorizontalScrollBar`, `AXVerticalScrollBar` | `VerticalPercent=55.0`, `CanScrollVertically=true` | Provider melden ViewSize und Scrollbarkeit getrennt. |
 | `Expandable` | `ExpandCollapsePattern` | `Action::do_action("expand")` | `AXExpanded`, `AXPress` | `IsExpanded=false`, `HasChildren=true` | Provider geben nur dann `HasChildren=true` an, wenn API dies bestätigen kann. |
 | `ItemContainer` | `ItemContainerPattern` (WinUI/Custom) | `Table`, `Collection` Interfaces | `AXChildrenInNavigationOrder` | `ItemCount=500`, `IsVirtualized=true` | Bei virtuellen Listen optional Paging-Attribute ergänzen. |
 
-> Hinweis: Für Runtime-Aktionen stellt `platynui-core` bereits Hilfstypen bereit (`FocusableAction`, `WindowSurfaceActions`, `ApplicationStatus`). Diese kapseln die zugehörigen Methoden über Closures und werden im Runtime-Code wie auch in Tests wiederverwendet.
+> Hinweis: Für Runtime-Aktionen stellt `platynui-core` bereits Hilfstypen bereit (`FocusableAction`, `WindowSurfaceActions`). Diese kapseln die zugehörigen Methoden über Closures und werden im Runtime-Code wie auch in Tests wiederverwendet.
 
 > Diese Tabelle dient als Startpunkt. Bei Abweichungen oder zusätzlichen Quellen sollte der jeweilige Provider die Entscheidung dokumentieren.
 

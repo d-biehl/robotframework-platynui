@@ -10,7 +10,7 @@ Thank you for your interest in PlatynUI! This guide summarizes our current workf
 ## Naming & Structure Conventions
 - **Crate names**: Every `Cargo.toml` entry must start with the `platynui-` prefix (`platynui-runtime`, `platynui-provider-jsonrpc`, ...). Directory names may differ; the package name defines the purpose.
 - **Namespaces & attributes**: Attributes use PascalCase. The default XPath namespace is `control`; additional namespaces are `item`, `app`, and `native`.
-- **Rust types**: Avoid redundant prefixes such as `Platynui` inside modules—clear type names like `RuntimeRegistry` or `MockWindowManager` are sufficient.
+- **Rust types**: Avoid redundant prefixes such as `Platynui` inside modules—clear type names like `RuntimeRegistry` or `MockWindowSurface` are sufficient.
 
 ## Dependencies
 - When adding or updating dependencies, use the latest stable release. Verify with `cargo search`, crates.io, or `cargo outdated`.

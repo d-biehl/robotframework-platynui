@@ -4,9 +4,9 @@
 
 ## Ausgangspunkt & Zielbild
 - Konsistenter Desktop-zentrierter UI-Baum mit den Namespaces `control` (Standard), `item`, `app` und `native`.
-- Trait-basierte Pattern-Schicht gemäß `docs/patterns.md`, mit Runtime-Aktionen (`Focusable`, `WindowSurface`, `Application`) und Attribut-basierter Datenlage (z. B. `ActivationTarget`, Auswahl-/Textinformationen).
-- Plattformen werden strikt in zwei Crate-Gruppen aufgeteilt: (1) Geräte-/Window-Manager-Schicht unter `crates/platform-<ziel>` mit Paketnamen `platynui-platform-<ziel>` und (2) UiTreeProvider unter `crates/provider-<technik>` mit Paketnamen `platynui-provider-<technik>`. Neue Technologien müssen genau diesem Schema folgen; Abweichungen sind nicht erlaubt. Out-of-process-Anbindungen ergänzen das Set ausschließlich über `crates/provider-jsonrpc` (`platynui-provider-jsonrpc`).
-- Runtime verwaltet Provider, Devices, WindowManager, XPath-Pipeline, Highlighting und Screenshot-Funktionen.
+- Trait-basierte Pattern-Schicht gemäß `docs/patterns.md`, mit Runtime-Aktionen (`Focusable`, `WindowSurface`) und Attribut-basierter Datenlage (z. B. `ActivationTarget`, Auswahl-/Textinformationen).
+- Plattformen werden strikt in zwei Crate-Gruppen aufgeteilt: (1) Geräte-/Infrastruktur-Schicht unter `crates/platform-<ziel>` mit Paketnamen `platynui-platform-<ziel>` und (2) UiTreeProvider unter `crates/provider-<technik>` mit Paketnamen `platynui-provider-<technik>`. Neue Technologien müssen genau diesem Schema folgen; Abweichungen sind nicht erlaubt. Out-of-process-Anbindungen ergänzen das Set ausschließlich über `crates/provider-jsonrpc` (`platynui-provider-jsonrpc`).
+- Runtime verwaltet Provider, Devices, XPath-Pipeline, Highlighting und Screenshot-Funktionen.
 - CLI und Inspector dienen als Referenzwerkzeuge über Runtime bzw. JSON-RPC-Server.
 - Fokus der ersten Iterationen liegt auf Windows (UIA) und Linux/X11 (AT-SPI2); macOS-Implementierungen folgen, sobald diese beiden Plattformen stabil laufen.
 - Aktuelle Entwicklungsumgebung: WSL2 (Linux) mit Möglichkeit zum Cross-Build für Windows-Binaries; Windows-spezifische Tests laufen soweit machbar direkt oder per CI.
@@ -36,13 +36,12 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] `UiValue` definieren: strukturierte Werte (`Rect`, `Point`, `Size`, `Integer`) und JSON-kompatible Konvertierungen.
 - [x] Namespace-Registry (`control`, `item`, `app`, `native`) und Hilfsfunktionen implementieren.
 - [x] Evaluation-API auf `EvaluationItem` (Node/Attribute/Value) umstellen und Konsumenten/Tests anpassen (Kontext per `Option<Arc<dyn UiNode>>`).
-- [ ] Kontextknoten außerhalb des aktuellen Wurzelknotens über `RuntimeId` neu auflösen. (Backlog) – derzeit liefert die Runtime bei ungültigen Kontextknoten einen kontrollierten Fehler; ein Resolver folgt bei Bedarf.
 - [x] Basis-Validator implementieren (`validate_control_or_item`), der aktuell nur doppelte `SupportedPatterns` meldet; weitere Attribut-Prüfungen erfolgen pattern- bzw. provider-spezifisch. `UiAttribute`-Trait + XPath-Wrapper bleiben bestehen.
 - [x] Dokumentwurzel „Desktop“ samt Monitor-Alias-Attributen (Bounds.X usw.) beschreiben und Tests erstellen.
 
 ### 3. Pattern-System
-- [x] Runtime-Pattern-Traits in `platynui-core` anlegen (`FocusablePattern`, `WindowSurfacePattern`, `ApplicationPattern`) inkl. `PatternError`-Fehlertyp; rein lesende Patterns verbleiben bei Attributen.
-- [x] Runtime-Aktionsschnittstellen der Patterns (z. B. `FocusablePattern::focus()`, `WindowSurfacePattern::maximize()`) präzisieren und Beispiel-Implementierungen samt Tests dokumentieren; nur diese Pattern dürfen Laufzeitaktionen anbieten. (Umgesetzt via `FocusableAction`, `WindowSurfaceActions`, `ApplicationStatus` + rstest-Coverage.)
+- [x] Runtime-Pattern-Traits in `platynui-core` anlegen (`FocusablePattern`, `WindowSurfacePattern`) inkl. `PatternError`-Fehlertyp; rein lesende Patterns verbleiben bei Attributen.
+- [x] Runtime-Aktionsschnittstellen der Patterns (z. B. `FocusablePattern::focus()`, `WindowSurfacePattern::maximize()`) präzisieren und Beispiel-Implementierungen samt Tests dokumentieren; nur diese Pattern dürfen Laufzeitaktionen anbieten. (Umgesetzt via `FocusableAction`, `WindowSurfaceActions` + rstest-Coverage.)
 - [x] Leitfaden für `SupportedPatterns`-Verwendung (Dokumentation erledigt; providerseitige Tests folgen in den konkreten Provider-Szenarien), damit Pattern-Kombinationen nachvollziehbar bleiben.
 - [x] Provider-facing Contract-Tests: Core-Testkit (`platynui_core::ui::contract::testkit`) meldet fehlende/abweichende Alias-Werte (`Bounds.*`, `ActivationPoint.*`) und stellt Hilfen für Pattern-Erwartungen bereit.
 - [x] Mapping-Hilfen zwischen Patterns und Technologie-spezifischen APIs (UIA-ControlType, AT-SPI Rollen, AX Attribute) ergänzt. `docs/patterns.md` enthält eine Orientierungstabelle; Provider dokumentieren Abweichungen individuell.
@@ -50,93 +49,136 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 
 ### 4. Provider-Infrastruktur (Core)
 - [x] Traits `UiTreeProvider`, `UiTreeProviderFactory` plus Basistypen (`ProviderDescriptor`, `ProviderEvent`, Fehler) definiert; Lifecycle-Erweiterungen (Events weiterreichen, Shutdown) folgen beim Runtime-Wiring.
-- [x] `ProviderRegistry` im Runtime-Crate sammelt registrierte Factories via `inventory`, sortiert nach Technologie/Priorität und erzeugt Instanzen.
+- [x] `ProviderRegistry` im Runtime-Crate sammelt registrierte Factories via `inventory`, gruppiert sie je Technologie und erzeugt Instanzen.
 - [x] Event-Pipeline auf Runtime-Seite: Dispatcher verteilt Ereignisse an registrierte Sinks, Shutdown leert Abonnenten, Runtime ruft `UiTreeProvider::subscribe_events(...)` für alle Provider auf und stellt über `register_event_sink` eine einfache Erweiterungsstelle bereit.
 - [x] Inventory-basierte Registrierungsmakros (`register_provider!`, `register_platform_module!`), inkl. Tests für Registrierungsauflistung; weitere `cfg`-Szenarien folgen bei der Runtime-Einbindung.
-- [x] Factory-Lifecycle: Entscheidung dokumentiert – Provider erhalten bewusst nur `Arc<dyn UiTreeProvider>` ohne zusätzliche Services; Geräte/Window-Manager bleiben in der Runtime. Optionales Erweiterungs-Interface bleibt ein Backlog-Thema.
+- [x] Factory-Lifecycle: Entscheidung dokumentiert – Provider erhalten bewusst nur `Arc<dyn UiTreeProvider>` ohne zusätzliche Services; Geräte/Window-Manager bleiben in der Runtime.
 - [x] Provider-Checkliste (`docs/provider_checklist.md`) via Contract-Test-Suite abgedeckt (Mock-Provider nutzt `contract::testkit`; künftige Provider erhalten dieselben Prüfungen, Tests laufen unter `cargo test`).
 
-### 5. Native Provider (UiTree)
-#### Phase 1 – Windows (UIA)
-- [ ] `platynui-provider-windows-uia`: UIA-Wrapper (COM-Helfer ggf. in `platynui-platform-windows`), Rollennormalisierung (ControlType → lokale Namen), `RuntimeId`-Weitergabe, `AcceptsUserInput` via `WaitForInputIdle`/Fallback. Mapping-/Namensentscheidungen dokumentieren (Abgleich mit `docs/patterns.md`).
+### 5. CLI `list-providers` – Mock-Basis schaffen
+- [ ] Minimalen Laufweg „Runtime + platynui-platform-mock + platynui-provider-mock“ herstellen (Provider-Registry initialisieren, Mock-Provider instanziieren).
+- [ ] `platynui-platform-mock`: Grundgerüst mit Stub-Geräten & Logging, liefert zumindest Technologie-/Versionsinformationen.
+- [ ] `platynui-provider-mock`: Registriert sich mit eindeutiger `ProviderDescriptor`, stellt einfache Baumdaten bereit.
+- [ ] CLI-Kommando `list-providers`: Gibt registrierte Provider/Technologien aus (Name, Version, Aktiv-Status), unterstützt Text und JSON.
+- [ ] Tests: Provider-Registry + CLI-Output gegen Mock-Setup; `rstest` verwenden.
+
+### 6. CLI `info` – Desktop-/Plattform-Metadaten
+- [ ] `DesktopInfoProvider`-Trait in `platynui-core` definieren (OS-/Monitor-Metadaten, Bounds) und in Runtime verankern.
+- [ ] `platynui-platform-mock`: Liefert DesktopInfo-Daten (OS, Monitorliste, Auflösung) zum Testen.
+- [ ] Runtime baut `control:Desktop`-Knoten aus `DesktopInfoProvider` und stellt Daten für CLI bereit.
+- [ ] CLI-Kommando `info`: Zeigt Plattform, Desktop-Bounds, Monitore, verfügbare Provider. Ausgabe als Text/JSON.
+- [ ] Tests: `info`-Kommando mit Mock-Daten (Mehrmonitor, OS-Varianten) validieren.
+
+### 7. CLI `query` – XPath-Abfragen
+- [ ] `platynui-provider-mock`: Erzeugt einen skriptbaren Baum (`StaticMockTree`) mit deterministischen `RuntimeId`s.
+- [ ] API-Variante `evaluate(node: Option<Arc<dyn UiNode>>, xpath, options)` fertigstellen; Kontextsteuerung ohne Cache.
+- [ ] CLI-Kommando `query`: Führt XPath aus, unterstützt Formatoptionen (Text, JSON) und Filter (`--namespace`, `--pattern`).
+- [ ] Tests: Beispiel-XPath-Abfragen gegen Mock-Baum (control/item/app/native Namen, Attribute, Patterns).
+
+### 8. CLI `watch` – Ereignisse beobachten
+- [ ] Event-Pipeline der Runtime an CLI anbinden (`watch` lauscht auf `ProviderEventKind` und optional wiederholt Abfragen).
+- [ ] Mock-Provider erweitert Szenarien um Event-Simulation (NodeAdded/Removed/Updated, TreeInvalidated).
+- [ ] CLI-Kommando `watch`: Ausgabe im Streaming-Modus; Optionen für Filter (Namespace, Pattern, RuntimeId).
+- [ ] Tests: Simulierte Eventsequenzen prüfen (z. B. NodeAdded → Query-Ergebnis).
+
+### 9. CLI `highlight`
+- [ ] `HighlightProvider` in `platynui-core` finalisieren.
+- [ ] `platynui-platform-mock`: Stellt Highlight-Attrappe (Logging) bereit.
+- [ ] CLI-Kommando `highlight`: Markiert Bounding-Boxen basierend auf `ActivationTarget`/`Bounds` aus `query`-Ergebnissen.
+- [ ] Tests: Highlight-Aufrufe protokollieren und überprüfen (`rstest`).
+
+### 10. CLI `screenshot`
+- [ ] `ScreenshotProvider`-Trait in `platynui-core` festlegen (Pixel-Format, Pfad/Ziel).
+- [ ] `platynui-platform-mock`: Liefert Testbilder/Screenshot-Attrappe.
+- [ ] CLI-Kommando `screenshot`: Fertigt Bildschirm-/Bereichsaufnahmen an (`--bbox`, `--output`), nutzt Mock zum Speichern/Logging.
+- [ ] Tests: Screenshot-Aufrufe prüfen (Datei/Logging).
+
+### 11. CLI `focus`
+- [ ] `FocusablePattern`-Nutzung in Runtime/CLI freischalten; Mock-Knoten unterstützen Fokuswechsel.
+- [ ] CLI-Kommando `focus`: Setzt Fokus auf Knoten (z. B. via RuntimeId oder XPath-Resultatindex).
+- [ ] Tests: Fokuswechsel protokollieren (Mock-Highlight/Pointer optional nicht nötig).
+
+### 12. CLI `pointer`
+- [ ] `PointerDevice`-Trait in `platynui-core` fixieren (Desktop-Koordinaten, Buttons, Scroll).
+- [ ] `platynui-platform-mock`: Simuliert Zeigeraktionen (Move/Click/Scroll) inkl. Logging.
+- [ ] CLI-Kommando `pointer`: Führt Bewegungen und Klicks aus (z. B. `--move x y`, `--click left`).
+- [ ] Tests: Pointer-Aufrufe gegen Mock protokollieren und verifizieren (`rstest`).
+
+### 13. CLI `keyboard`
+- [ ] `KeyboardDevice`-Trait in `platynui-core` fixieren (Keycodes, Texteingabe, Modifiers).
+- [ ] `platynui-platform-mock`: Simuliert Tastatureingaben (Sequenzen, Sondertasten) inkl. Logging.
+- [ ] CLI-Kommando `keyboard`: Sendet Sequenzen (`--text`, `--key ENTER`) an das fokussierte Element.
+- [ ] Tests: Keyboard-Aufrufe gegen Mock prüfen (`rstest`).
+
+### 14. CLI `window` – Fensteraktionen (Mock)
+- [ ] `WindowSurface`-Pattern im Mock vollständig befüllen (`activate`, `minimize`, `maximize`, `restore`, `move`, `resize`, `accepts_user_input`).
+- [ ] CLI-Kommando `window`: Unterstützt Aktionen wie `--activate`, `--minimize`, `--maximize`, `--move x y`, `--list` (Fenster/Mappings).
+- [ ] Tests: Window-CLI-Aufrufe gegen Mock verifizieren (`rstest`).
+
+### 15. Runtime-Pattern-Integration (Mock)
+- [ ] Mock-UiTreeProvider reichert stabile Testknoten mit `supported_patterns()` und `pattern::<T>()`-Instanzen (Focusable, WindowSurface) an.
+- [ ] PatternRegistry-/Lookup-Mechanismen in Runtime-Wrappern verifizieren und Tests ergänzen (`rstest`).
+- [ ] CLI-Befehle `focus` und `window` (Mock) auf die vorhandenen Pattern-Actions aufsetzen; Fehlerpfade dokumentieren.
+
+### 16. Runtime-Ausbau – Plattformunabhängige Basis
+- [ ] `PlatformRegistry`/`PlatformBundle` implementieren: Plattformmodule registrieren Devices, Runtime bündelt sie je Technologie.
+- [ ] `WindowSurface`-Pattern-Schnittstelle final durchgehen (Methoden klar dokumentieren, keine zusätzlichen Wrapper nötig).
+
+### 17. Plattform Windows – Devices & UiTree
+- [ ] `platynui-platform-windows`: Pointer/Keyboard via Win32 & UIAutomation-Hilfen, Screenshot/Highlight (DComposition/GDI).
+- [ ] Fokus-Helper (`focus_control`) mit UIA-Fallbacks und Integration in `Focusable`.
+- [ ] Tests: Desktop-Bounds, ActivationPoint, Sichtbarkeits-/Enabled-Flags unter Windows.
+- [ ] `platynui-provider-windows-uia`: UIA-Wrapper (COM-Helfer ggf. in `platynui-platform-windows`), Rollennormalisierung, `RuntimeId`-Weitergabe.
+- [ ] `WindowSurface`-Pattern implementieren: Aktionen (aktivieren/minimieren/maximieren/verschieben) und `accepts_user_input()` via Windows-spezifische APIs (`SetForegroundWindow`, `ShowWindow`, `WaitForInputIdle`).
 - [ ] Gemeinsame Tests (Provider vs. Mock) mit bereitgestelltem UI-Baum & XPath-Abfragen; Dokumentation von Abweichungen der UIA-API.
 
-#### Phase 2 – Linux/X11 (AT-SPI2)
-- [ ] `platynui-provider-atspi`: D-Bus-Integration, Baumaufbau (Application → Window → Control/Item), RuntimeId aus Objektpfad, Fokus- und Sichtbarkeitsflags. Plattform-spezifische Mapping-Entscheidungen (AT-SPI Rollen) im Provider festhalten.
-- [ ] Ergänzende Tests (AT-SPI2) auf Basis des gleichen Testsets wie Windows, inklusive Namespaces `item`/`control`.
+### 18. CLI `window` – Windows-Integration
+- [ ] CLI-Kommandos erweitern, um Windows-spezifische Optionen (z. B. Fensterliste mit Prozessinfos) zu nutzen.
+- [ ] Tests: CLI `window` gegen reale Windows-Fenstersteuerung (soweit automatisierbar) bzw. Mock-Abdeckung.
 
-#### Backlog – macOS (AX)
-- [ ] `platynui-provider-macos-ax`: AXUIElement-Brücke, Fenster-/App-Auflistung, RuntimeId aus AXIdentifier, Bound-Konvertierung (Core Graphics). AX-Rollen/Subrollen-Mapping dokumentieren und mit `docs/patterns.md` abgleichen.
-- [ ] Plattformübergreifende Regressionstests um macOS-spezifische Unterschiede erweitern.
+### 19. Plattform Linux/X11 – Devices & UiTree
+- [ ] `platynui-platform-linux-x11`: Pointer/Keyboard via XTest oder äquivalente APIs, Screenshot (XShm), Highlight (XComposite), Fenstersteuerung über EWMH/NetWM.
+- [ ] Fokus-Helper für AT-SPI2 + plattformspezifische Fallbacks.
+- [ ] Tests: Desktop-Bounds, ActivationPoint, Sichtbarkeits- und Enable-Flags unter X11.
+- [ ] `platynui-provider-atspi`: D-Bus-Integration, Baumaufbau (Application → Window → Control/Item), RuntimeId aus Objektpfad, Fokus-/Sichtbarkeitsflags.
+- [ ] Ergänzende Tests (AT-SPI2) auf Basis des Windows-Testsets inkl. Namespaces `item`/`control`.
 
-### 6. JSON-RPC-Provider & Out-of-Process Integration
-- [ ] JSON-RPC 2.0 Vertrag dokumentieren (Markdown + JSON-Schema): Mindestumfang `initialize`, `getNodes(parentRuntimeId|null)`, `getAttributes(nodeRuntimeId)`, `getSupportedPatterns(nodeRuntimeId)`, optional `ping`; Events `$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`.
-- [ ] `platynui-provider-jsonrpc` implementieren: Verbindung über Named Pipe/Unix Socket/localhost, Registrierung bei Runtime, Heartbeat/Timeout-Handling, Sicherheit (Namenskonvention „PlatynUI+PID+User+…“).
-- [ ] Beispiel-Provider (Mock oder UIA-Proxy) dokumentieren; Leitfaden für Drittanbieter.
-- [ ] Runtime-Client-Schicht (Multiplexing, Fehler-Mapping, Provider-Restart-Strategien).
-- [ ] Handshake- und Capability-Design an LSP/MCP-Prinzipien ausrichten (Versionsangaben, optionale Fähigkeiten, klare Rollen), Dokumentation entsprechend ergänzen.
+### 20. CLI `window` – Linux/X11-Integration
+- [ ] CLI `window` nutzt X11-spezifische Funktionen (EWMH/NetWM) für Fensterlisten, Move/Resize etc.
+- [ ] Tests: CLI `window` gegen Mock/X11-spezifische Szenarien (soweit automatisierbar).
 
-### 7. Mocking & Tests
-- [ ] `platynui-platform-mock`: Geräte (Pointer, Keyboard, Display, Highlight, Screenshot) als In-Memory-Implementierungen, Logging für Assertions.
-- [ ] `platynui-provider-mock`: `StaticMockTree`, Skriptbares Verhalten (z. B. über JSON/Szenario-Dateien), deterministische `RuntimeId`s.
-- [ ] Integrationstest-Suite (Runtime + Mock-Provider + Mock-Devices) mit Beispiel-XPath-Abfragen, Pattern-Verifikation, Highlight-Simulation.
-- [ ] Sämtliche neuen Unit- und Integrationstests mit `rstest`-Makros (Fixtures, `#[rstest]`, `#[case]`, `#[matrix]`) modellieren; bestehende Tests bei Gelegenheit migrieren.
-
-### 8. Devices & Window-Management
-- [ ] Traits `PointerDevice`, `KeyboardDevice`, `TouchDevice`, `DisplayInfo`, `ScreenshotDevice`, `HighlightOverlay` (Desktop-Koordinaten, DPI-Korrektur).
-- [ ] WindowManager-Trait definieren (`activate`, `minimize`, `maximize`, `move`, `restore`, `bring_to_front`, Status-Abfragen) + Mapping in Patterns (`WindowSurface`).
-
-#### Phase 1 – Windows
-- [ ] `platynui-platform-windows`: Pointer/Keyboard via Win32 & UIAutomation Hilfen, Screenshot/Highlight (DComposition/GDI), Window-Manager-Bridge (SetForegroundWindow, Modal-Handling).
-- [ ] Fokus-Helper (`focus_control`) mit UIA-Fallbacks und Integration in `Focusable`.
-
-#### Phase 2 – Linux/X11
-- [ ] `platynui-platform-linux-x11`: Pointer/Keyboard via XTest oder äquivalente APIs, Screenshot (XShm), Highlight (XComposite), Window-Manager-Integration (EWMH/NetWM).
-- [ ] Fokus-Helper für AT-SPI2 + Window-Manager-Fallbacks.
-
-#### Backlog – macOS
-- [ ] `platynui-platform-macos`: Devices via Quartz/Event-Taps, Screenshot/Highlight mit CoreGraphics, Window-Manager via AppKit.
-
-- [ ] Tests: Desktop-Bounds, Default-Click-Point aus `ActivationTarget`, Basiseigenschaften (`IsVisible`, `IsEnabled`, `IsOffscreen`).
-
-### 9. Runtime-Kern
-- [ ] Provider-Registry initialisieren (Inventory lesen, `cfg` prüfen, Prioritäten setzen), Provider-Lifecycle steuern.
-- [ ] Provider-Auswahl nach `ProviderPriority` (Fallback-Strategie) und Routing mehrerer Provider derselben Technologie implementieren.
-- [ ] Dokumentaufbau: Desktop-Wurzel laden, App- und Control-Nodes verknüpfen, `item`-Namespace an Container-Knoten hängen.
-- [ ] `AcceptsUserInput`-Hilfsmethode (Windows `WaitForInputIdle`, Linux/macOS heuristische Implementierung), Rückfallverhalten dokumentieren.
-- [ ] XPath-Auswertung → Iterator über `Arc<dyn UiNode>`, Filterung nach Patterns, Attribute-Lazy-Loading.
-- [ ] API-Variante `evaluate(node: Option<Arc<dyn UiNode>>, xpath, options)` implementieren; `None` verwendet automatisch das Desktop-Dokument, ansonsten dient der übergebene Knoten als Kontext (`.//item:*`). Die Options-Struktur steuert nur, ob vor der Auswertung ein Provider-Refresh ausgelöst wird – persistentes Caching bleibt ein Backlog-Thema.
-- [ ] Highlighting/Screenshot orchestrieren: Koordination zwischen Runtime, Devices, WindowManager.
-- [ ] Fehler- & Telemetrieschnittstelle (Tracing, Logging, Metriken) entwerfen.
-
-### 10. JSON-RPC-Server & APIs
-- [ ] `crates/platynui-server`: JSON-RPC-Endpunkte für XPath-Abfragen, Fokus- und Fensteraktionen (über `Focusable`/`WindowSurface`), Highlighting, Screenshot, Provider/Device-Status sowie Heartbeat – keine generischen UI-Aktions-APIs.
-- [ ] Security-Guidelines (lokaler Zugriff, Authentication-Optionen) definieren.
-- [ ] Versionierung & Capability-Negotiation (Server ↔ Client) dokumentieren – Orientierung an LSP/MCP-Konzepten festhalten.
-
-### 11. Werkzeuge
-- [ ] CLI (`crates/platynui-cli`): Befehle `query`, `highlight`, `watch`, `dump-node`, `focus`, optional `--json`/`--yaml` Ausgabe.
+- ### 21. Werkzeuge
+- [ ] CLI (`crates/platynui-cli`): Erweiterungen für `watch`, `dump-node`, strukturierte Ausgabe (`--json`, `--yaml`), Skript-Integration; ergänzt die MVP-Kommandos (`query`/`highlight`).
 - [ ] Inspector (GUI): Tree-Ansicht mit Namespaces, Property-Panel (Patterns), XPath-Editor, Element-Picker, Highlight; arbeitet wahlweise Embedded oder via JSON-RPC.
-- [ ] Beispiel-Workflows dokumentieren (Readme/Docs): XPath → Highlight, Fokus setzen, AcceptsUserInput prüfen.
+- [ ] Beispiel-Workflows dokumentieren (Readme/Docs): XPath → Highlight, Fokus setzen, Fensterstatus (`accepts_user_input`) ermitteln.
 
-### 12. Qualitätssicherung & Prozesse
+### 22. Qualitätssicherung & Prozesse
 - [ ] CI-Pipeline: `cargo fmt --all`, `cargo clippy --all`, `cargo test --workspace`, `uv run ruff check .`, `uv run mypy src/PlatynUI packages/core/src` (sofern Python-Anteile relevant).
 - [ ] Contract-Tests für Provider & Devices (pattern-spezifische Attribute, Desktop-Koordinaten, RuntimeId-Quellen).
 - [ ] Dokumentation pflegen: Architekturkonzept, Patterns, Provider-Checkliste, Legacy-Analyse; Hinweis auf lebende Dokumente beibehalten.
 - [ ] Release-/Versionierungsstrategie festlegen (SemVer pro Crate? Workspace-Version?).
 
-### 13. Backlog & Explorations
+### 23. Backlog & Explorations
+- Kontextknoten-Resolver: `RuntimeId`-basierte Re-Resolution für Kontextknoten außerhalb des aktuellen Wurzelknotens.
+- JSON-RPC-Provider & Out-of-Process Integration
+  - JSON-RPC 2.0 Vertrag dokumentieren (Markdown + JSON-Schema): Mindestumfang `initialize`, `getNodes(parentRuntimeId|null)`, `getAttributes(nodeRuntimeId)`, `getSupportedPatterns(nodeRuntimeId)`, optional `ping`; Events `$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`.
+  - `platynui-provider-jsonrpc` implementieren: Verbindung über Named Pipe/Unix Socket/localhost, Registrierung bei Runtime, Heartbeat/Timeout-Handling, Sicherheit (Namenskonvention „PlatynUI+PID+User+…“).
+  - Beispiel-Provider (Mock oder UIA-Proxy) dokumentieren; Leitfaden für Drittanbieter.
+  - Runtime-Client-Schicht (Multiplexing, Fehler-Mapping, Provider-Restart-Strategien).
+  - Handshake- und Capability-Design an LSP/MCP-Prinzipien ausrichten (Versionsangaben, optionale Fähigkeiten, klare Rollen), Dokumentation entsprechend ergänzen.
+- JSON-RPC-Server & APIs
+  - `crates/platynui-server`: JSON-RPC-Endpunkte für XPath-Abfragen, Fokus- und Fensteraktionen (über `Focusable`/`WindowSurface`), Highlighting, Screenshot, Provider/Device-Status sowie Heartbeat – keine generischen UI-Aktions-APIs.
+  - Security-Guidelines (lokaler Zugriff, Authentication-Optionen) definieren.
+  - Versionierung & Capability-Negotiation (Server ↔ Client) dokumentieren – Orientierung an LSP/MCP-Konzepten festhalten.
+- macOS (AX) Provider
+  - `platynui-provider-macos-ax`: AXUIElement-Brücke, Fenster-/App-Auflistung, RuntimeId aus AXIdentifier, Bound-Konvertierung (Core Graphics). AX-Rollen/Subrollen-Mapping dokumentieren und mit `docs/patterns.md` abgleichen.
+  - Plattformübergreifende Regressionstests um macOS-spezifische Unterschiede erweitern.
+- macOS Plattformmodule
+  - `platynui-platform-macos`: Devices via Quartz/Event-Taps, Screenshot/Highlight mit CoreGraphics, Window-Manager via AppKit.
+- Optionales Erweiterungs-Interface für Provider (z. B. optionale Runtime-Services).
+- Persistentes XPath-Caching & Snapshot-Layer.
 - Optionaler Wayland-Support (Runtime-Erkennung Wayland/X11, Provider-Auswahl, Devices).
 - Weitere Patterns (z. B. Tabellen-Navigation, Drag&Drop) nach Bedarf evaluieren.
 - Erweiterte Eingabegeräte (Gamepad, Stift), Barrierefreiheits-Funktionen.
-- Performance-Optimierungen (Delta-Updates, Snapshot-/Caching-Layer für XPath, Binary Transport).
+- Touch-Device-Unterstützung (Traits, CLI-Befehle) nach erfolgreichem Pointer/Keyboard-Ausbau.
 - Community-Guides, Beispiel-Provider, Trainingsmaterial.
-
-## Empfohlene Reihenfolge (High-Level)
-1. Fundament (Abschnitt 1) + Core-Datenmodell (2) als Basis.
-2. Pattern-System (3) und Provider-Infrastruktur-Core (4) definieren.
-3. Mocking (7) und Devices/Window-Management (8) – zunächst Windows, danach Linux/X11 – für End-to-End-Prototyp sichern.
-4. Runtime-Kern (9) mit XPath & Highlighting; parallel JSON-RPC-Provider (6) vorbereiten.
-5. Native Provider (5) schrittweise: zuerst Windows, anschließend Linux/X11; macOS in den Backlog verschieben.
-6. Server & Tools (10–11) aufsetzen, sobald Runtime stabil ist.
-7. Qualitätssicherung (12) verankern, Backlog (13) nach Stabilisierung adressieren; macOS-Implementierungen folgen nach Windows/Linux.
