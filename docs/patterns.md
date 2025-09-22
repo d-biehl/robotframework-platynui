@@ -243,7 +243,7 @@ Provider sollten dokumentieren, wenn sie von den vorgeschlagenen Zuordnungen abw
 | Pattern | Methoden | Beschreibung |
 | --- | --- | --- |
 | `Focusable` | `focus()` | Wechselt den Eingabefokus des Elements über die Runtime. |
-| `WindowSurface` | `activate()`, `minimize()`, `maximize()`, `restore()`, `move_to(Point)`, `resize(Size)`, `move_and_resize(Rect)`, `close()`, `accepts_user_input()` | Delegiert die Fensterkontrolle an den plattformspezifischen Window Manager und liefert den Eingabestatus des Fensters. |
+| `WindowSurface` | `activate()`, `minimize()`, `maximize()`, `restore()`, `move_to(Point)`, `resize(Size)`, `move_and_resize(Rect)`, `close()`, `accepts_user_input()` | Delegiert Fensteraktionen an plattformspezifische APIs und liefert den Eingabestatus des Fensters. |
 
 Alle Methoden liefern `Result<_, PatternError>`; Fehler bleiben damit transparent für Clients. Provider registrieren RuntimePatterns im `PatternRegistry`, während ClientPatterns ausschließlich über Attribute beschrieben werden.
 
@@ -257,7 +257,7 @@ Diese Patterns sind Diskussionsstoff, da sie eng mit Device-Providern verknüpft
 
 | Pattern | UI Automation (Windows) | AT-SPI2 (Linux) | macOS AX | Beispielwerte | Hinweise |
 | --- | --- | --- | --- | --- | --- |
-| `WindowSurface` | `IUIAutomationElement` mit `ControlType=UIA_WindowControlTypeId` | `Accessible::get_application` + `Component`, Window Manager | `AXWindow`, `NSWindow` | `accepts_user_input()` → `true` | Aktionen laufen über Plattform-Window-Manager (`SetForegroundWindow`, EWMH, AppKit). |
+| `WindowSurface` | `IUIAutomationElement` mit `ControlType=UIA_WindowControlTypeId` | `Accessible::get_application` + `Component` | `AXWindow`, `NSWindow` | `accepts_user_input()` → `true` | Aktionen nutzen Plattform-Fenster-APIs (`SetForegroundWindow`, EWMH, AppKit). |
 | `Application` | `IUIAutomationElement` (Application Root), Prozessinfos über Win32 APIs | `Accessible` über `org.a11y.atspi.Application` Interface | `AXApplication`, NSRunningApplication | `ProcessId=1234` | Prozessmetadaten stammen aus Plattform-API. |
 | `TextContent` | `NameProperty`, ggf. `ValuePattern.Value` | `Accessible::name`, `Text::get_text` | `AXValue`, `AXDescription` | `Text="Datei"` | Provider wählen die aussagekräftigste Quelle (Priorität: Name → Value). |
 | `TextEditable` | `ValuePattern.IsReadOnly`, `TextPattern` | `EditableText` Interface | `AXEditable`, `AXValue` | `IsReadOnly=false`, `MaxLength=256` | `IsReadOnly = true`, wenn API keine Bearbeitung erlaubt. |

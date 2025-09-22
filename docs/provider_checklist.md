@@ -3,7 +3,7 @@
 > Status: Draft – use this list to verify provider compliance before merging changes. Extend or adjust as platform support evolves.
 
 ## Gemeinsame Prüfschritte
-- [ ] Modul registriert sich über das vorgesehene `inventory`-Makro (`register_platform_module!`, `register_provider!`) und exportiert exakt eine Factory-Implementierung je Rolle (Plattform, Device, Provider, Window-Manager).
+- [ ] Modul registriert sich über das vorgesehene `inventory`-Makro (`register_platform_module!`, `register_provider!`) und exportiert exakt eine Factory-Implementierung je Rolle (Plattform, Device, Provider).
 - [ ] `ProviderDescriptor` ist vollständig ausgefüllt (`id`, Anzeigename, `Technology`, `ProviderKind`) und spiegelt die tatsächliche Quelle wider.
 - [ ] `ProviderDescriptor::event_capabilities` beschreibt exakt, welche Ereignisse die Implementierung liefern kann (`None`, `ChangeHint`, `Structure`, `StructureWithProperties`). Wird keine Stufe gesetzt, muss der Provider davon ausgehen, dass die Runtime vor Abfragen Vollabfragen triggert.
 - [ ] Provider geben ihren Baum als `Arc<dyn UiNode>` zurück; Attribute implementieren das `UiAttribute`-Trait und liefern Werte erst bei Bedarf (`UiAttribute::value()` → `UiValue`).
@@ -45,7 +45,7 @@
 - [ ] Koordinaten stammen aus `Component::get_extents(ATSPI_COORD_TYPE_SCREEN)`.
 - [ ] `TextContent`/`TextSelection` über `Text`-Interface, UTF-8 sauber gehandhabt.
 - [ ] `SelectionProvider` nutzt `Selection`-Interface, `SelectionContainerId` basiert auf `Accessible::path` oder stabilem Handle.
-- [ ] `WindowSurface`-Aktionen delegieren an X11 Window-Manager (EWMH) via `platynui-platform-linux-x11`.
+- [ ] `WindowSurface`-Aktionen delegieren an die X11-Fenster-APIs (EWMH) via `platynui-platform-linux-x11`.
 - [ ] `ActivationTarget` berechnet optional eigene Center-Punkte, wenn `Component::get_offset_at_point` nicht verfügbar ist.
 
 ## macOS (`platynui-provider-macos-ax`)

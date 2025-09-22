@@ -15,13 +15,13 @@ crates/
 ├─ xpath                     # XPath-Evaluator und Parser-Hilfen – Crate `platynui-xpath`
 ├─ runtime                   # Runtime, Provider-Registry, XPath-Pipeline, Fokus/Fenster-Aktionen – Crate `platynui-runtime`
 ├─ server                    # JSON-RPC-Server als Frontend zur Runtime – Crate `platynui-server`
-├─ platform-windows          # Geräte, Window-Manager und sonstige Windows-spezifische Ressourcen – Crate `platynui-platform-windows`
+├─ platform-windows          # Geräte und sonstige Windows-spezifische Ressourcen – Crate `platynui-platform-windows`
 ├─ provider-windows-uia      # UiTreeProvider auf Basis von UI Automation – Crate `platynui-provider-windows-uia`
-├─ platform-linux-x11        # Geräte/Window-Manager für Linux/X11 – Crate `platynui-platform-linux-x11`
+├─ platform-linux-x11        # Geräte für Linux/X11 – Crate `platynui-platform-linux-x11`
 ├─ provider-atspi            # UiTreeProvider auf Basis von AT-SPI2 (X11) – Crate `platynui-provider-atspi`
-├─ platform-macos            # Geräte/Window-Manager für macOS – Crate `platynui-platform-macos`
+├─ platform-macos            # Geräte für macOS – Crate `platynui-platform-macos`
 ├─ provider-macos-ax         # UiTreeProvider auf Basis der macOS Accessibility API – Crate `platynui-provider-macos-ax`
-├─ platform-mock             # Mock-Geräte und Window-Manager – Crate `platynui-platform-mock`
+├─ platform-mock             # Mock-Geräte und Infrastruktur – Crate `platynui-platform-mock`
 ├─ provider-mock             # Mock-UiTreeProvider (statisch/skriptbar) – Crate `platynui-provider-mock`
 ├─ provider-jsonrpc          # Referenz-Adapter für externe JSON-RPC-Provider (optional) – Crate `platynui-provider-jsonrpc`
 └─ cli                       # Kommandozeilenwerkzeug – Crate `platynui-cli`
@@ -34,7 +34,7 @@ docs/
 ├─ umsetzungsplan.md         # Aufgabenplan
 └─ patterns.md               # Pattern-Spezifikation (Entwurf)
 ```
-Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Crates liefern den UiTreeProvider. Beide greifen auf die gemeinsamen Traits im `crates/core` zurück.
+Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den UiTreeProvider. Beide greifen auf die gemeinsamen Traits im `crates/core` zurück.
 
 ### 2.2 Registrierungs- und Erweiterungsmodell
 - `crates/core` definiert aktuell Marker-Traits wie `PlatformModule` und `UiTreeProviderFactory`. Weitere Erweiterungspunkte (`DeviceProviderFactory`) sind vorgesehen, aber noch nicht umgesetzt; solange diese Traits fehlen, dokumentieren wir sie hier ausdrücklich als geplante Ergänzungen. Alle Erweiterungen exportieren sich über ein `inventory`-basiertes Registrierungs-Makro. Die Runtime instanziiert ausschließlich über diese Abstraktionen und kennt keine konkreten Typen.
@@ -156,8 +156,8 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
 - Ebenfalls neu ist der `ProviderEventDispatcher`: eine Fan-Out-Komponente, die Provider-Ereignisse synchron an registrierte Sinks weiterleitet. Provider registrieren den Dispatcher aktiv über `UiTreeProvider::subscribe_events(listener)`; externe Provider senden analoge JSON-RPC-Notifications, die der Adapter in `ProviderEvent`-Strukturen übersetzt.
 - `ProviderEventKind` bildet die Synchronisationsereignisse ab (`NodeAdded`, `NodeUpdated`, `NodeRemoved`, `TreeInvalidated`). Die Runtime führt die Events in einer zentralen Pipeline zusammen; Provider melden neue Knoten immer inklusive vollständiger `UiNode`-Instanz. Weitere Konsumenten können sich über `Runtime::register_event_sink` einklinken.
 - Registrierungen erfolgen über die neuen Makros `register_provider!(&FACTORY)` bzw. `register_platform_module!(&MODULE)`. Beide Makros hängen statische Einträge an eine `inventory`-Sammlung; Hilfsfunktionen (`provider_factories()`, `platform_modules()`) erlauben es der Runtime, zur Laufzeit alle registrierten Erweiterungen zu enumerieren. Tests können denselben Mechanismus nutzen, um Mocks temporär zu registrieren. Die Runtime nutzt anschließend den `ProviderRegistry`, um die erzeugten Factories je Technologie zu gruppieren.
-- Plattform-spezifische Helfer implementieren das Trait `PlatformModule` (Methoden `name()` und `initialize() -> Result<(), PlatformError>`). Darüber stellen Plattform-Crates ihre Geräte-/Window-Manager-Bündel bereit und können beim Programmstart deterministisch initialisiert werden.
-- Plattform-Crates liefern OS-spezifische Infrastruktur (Handles, D-Bus/COM-Brücken, Geräte, Window-Manager): `crates/platform-windows` (Crate `platynui-platform-windows`, optional `platynui-platform-windows-core`), `crates/platform-linux-x11` (Crate `platynui-platform-linux-x11`), optional `platynui-platform-linux-wayland`, `crates/platform-macos` (Crate `platynui-platform-macos`), `crates/platform-mock` (Crate `platynui-platform-mock`).
+- Plattform-spezifische Helfer implementieren das Trait `PlatformModule` (Methoden `name()` und `initialize() -> Result<(), PlatformError>`). Darüber stellen Plattform-Crates ihre Geräte-Bündel bereit und können beim Programmstart deterministisch initialisiert werden.
+- Plattform-Crates liefern OS-spezifische Infrastruktur (Handles, D-Bus/COM-Brücken, Geräte): `crates/platform-windows` (Crate `platynui-platform-windows`, optional `platynui-platform-windows-core`), `crates/platform-linux-x11` (Crate `platynui-platform-linux-x11`), optional `platynui-platform-linux-wayland`, `crates/platform-macos` (Crate `platynui-platform-macos`), `crates/platform-mock` (Crate `platynui-platform-mock`).
 - Provider-Crates bauen darauf auf: `crates/provider-windows-uia` (Crate `platynui-provider-windows-uia`), `crates/provider-atspi` (Crate `platynui-provider-atspi`), `crates/provider-macos-ax` (Crate `platynui-provider-macos-ax`), `crates/provider-mock` (Crate `platynui-provider-mock`), `crates/provider-jsonrpc` (Crate `platynui-provider-jsonrpc`).
 - Das Mock-Provider-Crate stellt zusätzlich einen skriptbaren `StaticMockTree` sowie Hilfsfunktionen wie `install_mock_tree`/`TreeGuard` bereit. Tests und Werkzeuge können damit deterministische Bäume aufbauen, ohne den produktiven Code zu verändern; nach dem Guard-Drop wird der Standardbaum automatisch wiederhergestellt.
 - Tests prüfen, ob Pflichtattribute und Patterns eingehalten werden; der Buildumfang wird über `cfg`-Attribute bzw. Ziel-Tripel gesteuert.
@@ -185,7 +185,7 @@ Plattform-Crates bündeln Geräte, Window-Manager und Hilfen je OS; Provider-Cra
 ## 7. Window-Management-Schicht
 - Funktionen: Fensterlisten, Aktivieren/Minimieren/Maximieren/Restore, `move`/`resize`, Fokus setzen; Zugriff auf native Windowing-APIs (`HWND`, X11 Window IDs, `NSWindow`).
 - Linux: Runtime entscheidet anhand `XDG_SESSION_TYPE`, `WAYLAND_DISPLAY`, XWayland-Anwesenheit zwischen X11- und Wayland-Pfaden.
-- `crates/platform-mock` (Crate `platynui-platform-mock`) liefert deterministische Window-Manager-Mocks für Tests.
+- `crates/platform-mock` (Crate `platynui-platform-mock`) liefert deterministische Infrastruktur-Mocks für Tests.
 
 -## 8. JSON-RPC Provider & Adapter
 - `platynui-provider-jsonrpc` stellt einen klar definierten JSON-RPC 2.0-Vertrag für externe Sprachen bereit. Kernkomponenten:

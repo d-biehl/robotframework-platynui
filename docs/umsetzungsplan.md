@@ -53,7 +53,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Event-Pipeline auf Runtime-Seite: Dispatcher verteilt Ereignisse an registrierte Sinks, Shutdown leert Abonnenten, Runtime ruft `UiTreeProvider::subscribe_events(...)` für alle Provider auf und stellt über `register_event_sink` eine einfache Erweiterungsstelle bereit.
 - [x] Provider-spezifische Snapshots: Runtime hält pro Provider einen eigenen Knoten-Snapshot und aktualisiert ihn nur, wenn `event_capabilities = None` (Polling) oder ein passendes Ereignis / Change-Hint eintrifft.
 - [x] Inventory-basierte Registrierungsmakros (`register_provider!`, `register_platform_module!`), inkl. Tests für Registrierungsauflistung; weitere `cfg`-Szenarien folgen bei der Runtime-Einbindung.
-- [x] Factory-Lifecycle: Entscheidung dokumentiert – Provider erhalten bewusst nur `Arc<dyn UiTreeProvider>` ohne zusätzliche Services; Geräte/Window-Manager bleiben in der Runtime.
+- [x] Factory-Lifecycle: Entscheidung dokumentiert – Provider erhalten bewusst nur `Arc<dyn UiTreeProvider>` ohne zusätzliche Services; Geräte bleiben in der Runtime.
 - [x] Provider-Checkliste (`docs/provider_checklist.md`) via Contract-Test-Suite abgedeckt (Mock-Provider nutzt `contract::testkit`; künftige Provider erhalten dieselben Prüfungen, Tests laufen unter `cargo test`).
 - [x] `ProviderDescriptor` um `event_capabilities` erweitern (Bitset `None`/`ChangeHint`/`Structure`/`StructureWithProperties`), Runtime-Strategie dokumentieren und Tests vorbereiten, damit Voll-Refresh nur bei fehlender Event-Unterstützung nötig bleibt.
 
@@ -181,7 +181,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
   - `platynui-provider-macos-ax`: AXUIElement-Brücke, Fenster-/App-Auflistung, RuntimeId aus AXIdentifier, Bound-Konvertierung (Core Graphics). AX-Rollen/Subrollen-Mapping dokumentieren und mit `docs/patterns.md` abgleichen.
   - Plattformübergreifende Regressionstests um macOS-spezifische Unterschiede erweitern.
 - macOS Plattformmodule
-  - `platynui-platform-macos`: Devices via Quartz/Event-Taps, Screenshot/Highlight mit CoreGraphics, Window-Manager via AppKit.
+  - `platynui-platform-macos`: Devices via Quartz/Event-Taps, Screenshot/Highlight mit CoreGraphics, Fenstersteuerung via AppKit.
 - Optionales Erweiterungs-Interface für Provider (z. B. optionale Runtime-Services).
 - Persistentes XPath-Caching & Snapshot-Layer.
 - Optionaler Wayland-Support (Runtime-Erkennung Wayland/X11, Provider-Auswahl, Devices).
