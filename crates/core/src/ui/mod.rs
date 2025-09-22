@@ -7,7 +7,7 @@ pub mod pattern;
 pub mod value;
 
 pub use attributes::pattern as attribute_names;
-pub use contract::{ContractViolation, validate_control_or_item};
+pub use contract::{ContractViolation, testkit, validate_control_or_item};
 pub use identifiers::{PatternId, RuntimeId, TechnologyId};
 pub use namespace::{Namespace, all_namespaces, resolve_namespace};
 pub use node::UiAttribute;

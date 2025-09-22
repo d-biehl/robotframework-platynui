@@ -4,17 +4,22 @@
 
 ## Gemeinsame Prüfschritte
 - [ ] Modul registriert sich über das vorgesehene `inventory`-Makro (`register_platform_module!`, `register_provider!`) und exportiert exakt eine Factory-Implementierung je Rolle (Plattform, Device, Provider, Window-Manager).
+- [ ] `ProviderDescriptor` ist vollständig ausgefüllt (`id`, Anzeigename, `Technology`, `ProviderKind`, passende `ProviderPriority`) und spiegelt die tatsächliche Quelle wider.
 - [ ] Provider geben ihren Baum als `Arc<dyn UiNode>` zurück; Attribute implementieren das `UiAttribute`-Trait und liefern Werte erst bei Bedarf (`UiAttribute::value()` → `UiValue`).
 - [ ] Steuerelemente erscheinen im `control`-Namespace, Items in Containerstrukturen im `item`-Namespace; andere Namensräume (`app`, `native`) bleiben ergänzend.
 - [ ] Alle Koordinaten (`Bounds`, `ActivationPoint`, `ActivationArea`, Fensterrahmen) werden im Desktop-Koordinatensystem geliefert (linke obere Ecke des Primärmonitors = Ursprung, DPI-/Scaling berücksichtigt).
 - [ ] `RuntimeId` bleibt stabil, solange das zugrunde liegende Element existiert; bei Neuaufbau ändert sich die ID nachvollziehbar.
 - [ ] Quelle der `RuntimeId` dokumentiert (z. B. UIA `RuntimeId`, AT-SPI D-Bus-Objektpfad, macOS `AXUIElement` Identifier); bei fehlender nativer ID existiert ein deterministischer Fallback.
+- [ ] `UiTreeProvider::get_nodes(parent)` liefert einen Iterator über Knoten, die unterhalb des angegebenen Parents eingehängt werden. Die Provider-Nodes dürfen keine eigenen Desktop-Attribute besitzen; setze den `parent()`-Verweis korrekt, damit die Runtime sie unter den plattformspezifischen `control:Desktop` einhängen kann.
+- [ ] Falls der Provider eigene Ressourcen hält (Threads, Handles), implementiert `UiTreeProvider::shutdown()` und gibt diese Ressourcen frei.
 - [ ] `IsVisible` korrekt gesetzt (Accessibility-API meldet sichtbares Element); falls verfügbar, `IsOffscreen` konsistent mit Koordinaten/Viewports.
 - [ ] Koordinatenfelder (`Bounds`, `ActivationPoint`, `ActivationArea`) liefern `Rect`/`Point`-Varianten; die Runtime erzeugt daraus automatisch Ableitungen wie `Bounds.X`, `Bounds.Width`. Provider müssen nur den Basistyp korrekt füllen.
-- [ ] `SupportedPatterns` enthält nur Patterns, deren Pflichtattribute vollständig gesetzt sind; optionale Felder sind `null` oder fehlen (Namespace entsprechend `control` oder `item`).
-- [ ] Für Pattern mit Runtime-Aktionen stellen Provider konkrete Instanzen bereit (`UiNode::pattern::<T>()` → `Some(Arc<T>)`); `supported_patterns()` und abrufbare Pattern-Objekte bleiben synchron.
+- [ ] `SupportedPatterns` enthält nur Patterns, deren Pflichtattribute vollständig gesetzt sind; optionale Felder sind `null` oder fehlen (Namespace entsprechend `control` oder `item`). Erst wenn diese Bedingungen erfüllt sind, darf die Pattern-ID eingetragen werden.
+- [ ] Für RuntimePatterns (Fokus, WindowSurface, Application) stellen Provider konkrete Instanzen bereit (`UiNode::pattern::<T>()` → `Some(Arc<T>)`). Die Einträge in `supported_patterns()` müssen exakt mit den abrufbaren Pattern-Objekten übereinstimmen.
 - [ ] Fehler von Runtime-Aktionen (`focus()`, `activate()`, …) werden als `PatternError` mit prägnanter Nachricht zurückgegeben (kein Panic / unwrap innerhalb der Provider-Schicht).
-- [ ] Bereitgestellte Attribute stimmen mit den ClientPattern-Anforderungen aus `docs/patterns.md` überein (Bezeichner in PascalCase, Wertebereiche, optional vs. Pflichtfelder).
+- [ ] Bereitgestellte Attribute stimmen mit den ClientPattern-Anforderungen aus `docs/patterns.md` überein (Bezeichner in PascalCase, Wertebereiche, optional vs. Pflichtfelder). Das Core-Testkit `platynui_core::ui::contract::testkit` prüft diese Zuordnung automatisiert – Provider sollten die erwarteten Konstanten (`platynui_core::ui::attribute_names`) wiederverwenden.
+- [ ] Geometrie-Aliaswerte (`Bounds.X`, `Bounds.Width`, `ActivationPoint.X`, `ActivationPoint.Y` …), sofern geliefert, spiegeln die zugrunde liegenden `Rect`-/`Point`-Attribute wider. Das Contract-Testkit meldet Abweichungen; unterschiedliche Werte gelten als Fehler.
+- [ ] `UiTreeProvider::subscribe_events(listener)` implementiert den Event-Weg: Sobald die Runtime (oder ein anderer Host) einen Listener registriert, liefert der Provider zukünftige Baumereignisse über diesen Kanal.
 - [ ] `Role` entspricht dem normalisierten Namen (lokaler Name im Namespace `control` oder `item`), die native Rolle liegt zusätzlich unter `native:Role` (oder äquivalenten Feldern).
 - [ ] Meldet ein Element das Pattern `ActivationTarget`, liefert es `ActivationPoint` (Desktop-Koordinaten, ggf. Fallback auf Rechteckzentrum) und optional `ActivationArea`.
 - [ ] `Technology` ist für jede `UiNode` gesetzt (`UIAutomation`, `AT-SPI`, `AX`, `JSONRPC`, ...).

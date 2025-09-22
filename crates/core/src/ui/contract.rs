@@ -1,5 +1,7 @@
 use super::identifiers::PatternId;
 use super::{Namespace, UiNode};
+
+pub mod testkit;
 use std::collections::HashSet;
 
 /// Describes violations against the shared node contract.

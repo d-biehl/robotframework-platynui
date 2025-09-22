@@ -14,6 +14,7 @@ PlatynUI modelliert Fähigkeiten von UI-Knoten mit Patterns. Diese Patterns verh
 - **Lesende Fähigkeiten:** Patterns beschreiben ausschließlich Zustände und zusätzliche Attribute. Aktionen liegen in der Verantwortung der Clients, mit Ausnahme von Fokuswechsel und Fenstersteuerung, die die Runtime direkt anbietet.
 - **Keine Events:** Statusänderungen spiegeln sich in Attributen wider und können durch erneute XPath-Abfragen ermittelt werden. Baum-Events existieren nur für die Synchronisation zwischen Runtime und Provider und sind kein Bestandteil einzelner Patterns.
 - **Erweiterbarkeit:** Neue Patterns lassen sich hinzufügen, ohne bestehende Abfragen zu brechen. Provider melden jedes unterstützte Pattern in `SupportedPatterns`.
+- **SupportedPatterns-Leitplanken:** Der Eintrag eines Patterns setzt voraus, dass alle Pflichtattribute des jeweiligen ClientPatterns bereitstehen und – falls es sich um ein RuntimePattern handelt – `UiNode::pattern::<T>()` ein Objekt liefert. Optional markierte Attribute dürfen fehlen oder `null` sein; andernfalls darf das Pattern nicht aufgeführt werden.
 - **Runtime vs. Client:** Nur Patterns mit Runtime-Aktionen (`Focusable`, `WindowSurface`, `Application`) implementieren das Trait `UiPattern`. Provider liefern sie über `UiNode::pattern::<T>()` aus; deren Methoden geben immer `Result<_, PatternError>` zurück. Alle anderen Patterns agieren als ClientPattern – sie bleiben reine Attributbeschreibungen, deren Interpretation der Client übernimmt.
 - **Registry-Unterstützung:** `PatternRegistry` im Core erleichtert die Verwaltung (`PatternId` → `Arc<dyn UiPattern>`) und sorgt dafür, dass `supported_patterns()` und `pattern::<T>()` dieselbe Datenbasis nutzen.
 
@@ -27,10 +28,11 @@ Wir unterscheiden drei Typen von UiNode-Namespace-Knoten:
 ### Gemeinsamer Vertrag für `control` & `item`
 - Jeder Knoten stellt die Basisattribute des `UiNode`-Traits bereit: `Role` (normalisiert, PascalCase), `RuntimeId`, `Technology`, `SupportedPatterns` sowie der sichtbare `Name`. Diese Werte werden als reguläre Attribute im jeweiligen Namespace (Standard: `control`) geliefert und stehen damit auch XPath zur Verfügung.
 - Provider müssen `Role` so wählen, dass `local-name()` ohne weiteres Mapping genutzt werden kann (`UIA_Button` → `control:Button`, `ATSPI_ROLE_PUSH_BUTTON` → `control:Button`). Die originale Rollenbezeichnung erscheint zusätzlich in `native:Role`.
-- `SupportedPatterns` listet ausschließlich Patterns auf, für die alle Pflichtattribute verfügbar sind **und** für die `UiNode::pattern::<T>()` (bei RuntimePatterns) ein Objekt zurückliefert. Damit bleibt die Pattern-Liste konsistent.
+- `SupportedPatterns` listet ausschließlich Patterns auf, für die alle Pflichtattribute verfügbar sind **und** für die `UiNode::pattern::<T>()` (bei RuntimePatterns) ein Objekt zurückliefert. Optional beschriebene Felder dürfen fehlen oder `null` sein – erscheinen jedoch Pflichtfelder nicht, muss das Pattern aus der Liste entfernt werden. Damit bleibt die Pattern-Liste konsistent.
 - `RuntimeId` bleibt während der gesamten Lebensdauer eines Elements stabil; wird ein Element zerstört und neu erzeugt, darf sich die ID ändern.
 - `Technology` kennzeichnet die Quelle (`UIAutomation`, `AT-SPI`, `AX`, `JSONRPC`, …) und hilft bei Debugging sowie gemischten Provider-Szenarien.
 - `Name` liefert den zugänglichen Anzeigenamen. Falls die Plattform keinen Namen anbietet, entscheidet der Provider über einen sinnvollen Fallback (z. B. Beschriftung aus Unterelementen) und dokumentiert das Verhalten.
+> **Hinweis:** Alias-Attribute (`Bounds.X`, `ActivationPoint.X`, …) müssen immer mit den zugrunde liegenden `Rect`-/`Point`-Werten übereinstimmen. Das Contract-Testkit meldet fehlende oder inkonsistente Alias-Einträge.
 
 ### Spezifika für `app:`-Knoten
 - `app:`-Knoten repräsentieren Anwendungen oder Prozesse. Sie erfüllen zusätzlich das ClientPattern `Application` (siehe unten) und stellen ihre Metadaten ausschließlich über `app:*`-Attribute bereit.
@@ -86,6 +88,7 @@ Die folgende Tabelle fasst die aktuell vorgesehenen Attributnamen zusammen und o
   - `IsEnabled` (bool; gibt an, ob das Element Aktionen entgegennimmt)
 - **Optionale Attribute:** `IsOffscreen`, technologie-spezifische Ergänzungen unter `native:*`.
 - **Hinweis:** Attribute wie `Role`, `Technology`, `RuntimeId`, `SupportedPatterns` gelten für alle `UiNode`s (siehe Grundvertrag) und werden hier nicht erneut aufgeführt. Provider müssen die Element-Pflichtfelder für alle `control:`-/`item:`-Knoten konsistent bereitstellen; Clients entscheiden anhand dieser Werte, welche weiteren ClientPatterns zutreffen.
+- **Contract-Test:** Das Core-Testkit (`platynui_core::ui::contract::testkit`) vergleicht optionale Alias-Werte (`Bounds.X`, `Bounds.Y`, `Bounds.Width`, `Bounds.Height`), sofern vorhanden, mit dem gelieferten `Bounds`-Rechteck.
 
 #### Desktop
 - **Beschreibung:** Beschreibt den Wurzelknoten (`control:Desktop`) des UI-Baums. Der Desktop gilt nicht als reguläres UI-Element, sondern liefert System- und Monitorinformationen.
@@ -130,6 +133,33 @@ Die folgende Tabelle fasst die aktuell vorgesehenen Attributnamen zusammen und o
 - **Pflichtattribute:** `ActivationPoint` (absoluter Koordinatenwert im Desktop-Bezugssystem, innerhalb der globalen `Bounds` des Elements). Komponenten stehen zusätzlich als `ActivationPoint.X`/`ActivationPoint.Y` zur Verfügung.
 - **Optionale Attribute:** `ActivationArea` (absolutes Rechteck im Desktop-Koordinatensystem für erweiterte Zielzonen), `ActivationHint` (Kurzbeschreibung des empfohlenen Ziels).
 - **Verwendung:** Buttons, Checkboxen, Radiobuttons, Listeneinträge, Tree-Items oder andere Steuerelemente mit klar definierter Interaktionsfläche.
+- **Contract-Test:** Alias-Werte (`ActivationPoint.X`, `ActivationPoint.Y`), sofern gesetzt, müssen rechnerisch zum `ActivationPoint` passen; das Core-Testkit meldet Abweichungen.
+
+### Mapping-Hinweise (informativ)
+
+Die folgende Tabelle ordnet ausgewählte Patterns den gebräuchlichsten Technologie-Bezeichnern zu. Sie dient als Orientierung; genaue Zuordnungen dokumentieren die jeweiligen Provider.
+
+| Pattern / Rolle                | UIAutomation (Win32)                                        | AT-SPI2 (Linux)                              | macOS AX                                   |
+|--------------------------------|--------------------------------------------------------------|---------------------------------------------|---------------------------------------------|
+| `control:Button` / `Button`    | `InvokePattern` + `UIA_ButtonControlTypeId`                  | `ATSPI_ROLE_PUSH_BUTTON`                     | `kAXButtonRole`                              |
+| `control:CheckBox`             | `TogglePattern` + `UIA_CheckBoxControlTypeId`               | `ATSPI_ROLE_CHECK_BOX`                       | `kAXCheckBoxRole`                            |
+| `control:RadioButton`          | `SelectionItemPattern` + `UIA_RadioButtonControlTypeId`     | `ATSPI_ROLE_RADIO_BUTTON`                    | `kAXRadioButtonRole`                         |
+| `control:Text` (read-only)     | `TextPattern` / `ValuePattern` (readonly) + `UIA_TextControlTypeId` | `ATSPI_ROLE_LABEL` / `ATSPI_ROLE_TEXT`       | `kAXStaticTextRole`                          |
+| `control:Edit` (editierbar)    | `ValuePattern` + `UIA_EditControlTypeId`                     | `ATSPI_ROLE_TEXT` + `Editable` property      | `kAXTextFieldRole`                           |
+| `control:List`                 | `SelectionPattern` + `UIA_ListControlTypeId`                 | `ATSPI_ROLE_LIST`                            | `kAXListRole`                                |
+| `item:ListItem`                | `SelectionItemPattern`                                      | `ATSPI_ROLE_LIST_ITEM`                       | `kAXRowRole` / `kAXOutlineRowRole`           |
+| `control:Tree`                 | `ExpandCollapsePattern` + `UIA_TreeControlTypeId`           | `ATSPI_ROLE_TREE`                            | `kAXOutlineRole`                             |
+| `item:TreeItem`                | `ExpandCollapsePattern` + `SelectionItemPattern`            | `ATSPI_ROLE_TREE_ITEM`                       | `kAXOutlineRowRole`                          |
+| `control:Window`               | `WindowPattern` + `UIA_WindowControlTypeId`                 | `ATSPI_ROLE_WINDOW`                          | `kAXWindowRole`                              |
+| `control:Menu`                 | `ExpandCollapsePattern` + `UIA_MenuControlTypeId`           | `ATSPI_ROLE_MENU_BAR` / `ATSPI_ROLE_MENU`    | `kAXMenuBarRole` / `kAXMenuRole`             |
+| `item:MenuItem`                | `InvokePattern` + `UIA_MenuItemControlTypeId`               | `ATSPI_ROLE_MENU_ITEM`                       | `kAXMenuItemRole`                            |
+| `control:ScrollBar`            | `RangeValuePattern` + `UIA_ScrollBarControlTypeId`          | `ATSPI_ROLE_SCROLL_BAR`                      | `kAXScrollBarRole`                           |
+| `control:Slider`               | `RangeValuePattern` + `UIA_SliderControlTypeId`             | `ATSPI_ROLE_SLIDER`                          | `kAXSliderRole`                              |
+| `control:Tab` / Tab-Container  | `SelectionPattern` + `UIA_TabControlTypeId`                 | `ATSPI_ROLE_PAGE_TAB_LIST`                   | `kAXTabGroupRole`                            |
+| `item:TabItem`                 | `SelectionItemPattern`                                      | `ATSPI_ROLE_PAGE_TAB`                        | `kAXRadioButtonRole` mit Subrole `Tab`       |
+| `app:Application`              | `CurrentProcessId`, `ProcessName`, `ExecutablePath`         | `ATSPI_ROLE_APPLICATION`                     | `kAXApplicationRole`                         |
+
+Provider sollten dokumentieren, wenn sie von den vorgeschlagenen Zuordnungen abweichen (z. B. Proprietäre Rollen oder Unterrollen).
 
 ### Auswahl & Zustand (ClientPatterns)
 
@@ -272,5 +302,5 @@ Diese Beispiele zeigen, dass Kontrollelemente keine eigenen Patterns brauchen: i
 ## Nächste Schritte
 - Feedback einholen, Patterns finalisieren und Prioritäten festlegen.
 - Mapping-Tabellen zwischen Patterns und UIA/AT-SPI/AX erstellen.
-- Contract-Tests definieren, die Provider gegen diese Pattern-Spezifikation ausführen müssen.
+- Contract-Tests definieren, die Provider gegen diese Pattern-Spezifikation ausführen müssen – Grundlage bilden die hier aufgeführten Pflichtattribute sowie die Konstanten unter `platynui_core::ui::attribute_names`.
 - Nach der Abstimmung Version 1.0 des Pattern-Katalogs festschreiben und im Architekturkonzept verlinken.

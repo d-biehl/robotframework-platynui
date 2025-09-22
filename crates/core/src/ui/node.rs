@@ -221,9 +221,14 @@ mod tests {
         if register_pattern {
             assert!(pattern.is_some());
             assert_eq!(node.supported_patterns()[0], ActivatablePattern::static_id());
+            assert_eq!(node.supported_patterns(), node.patterns.supported());
+            for id in node.supported_patterns() {
+                assert!(node.pattern_by_id(id).is_some(), "pattern {id:?} missing instance");
+            }
         } else {
             assert!(pattern.is_none());
             assert!(node.supported_patterns().is_empty());
+            assert_eq!(node.supported_patterns(), node.patterns.supported());
         }
     }
 }

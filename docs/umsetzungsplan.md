@@ -36,39 +36,41 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] `UiValue` definieren: strukturierte Werte (`Rect`, `Point`, `Size`, `Integer`) und JSON-kompatible Konvertierungen.
 - [x] Namespace-Registry (`control`, `item`, `app`, `native`) und Hilfsfunktionen implementieren.
 - [x] Evaluation-API auf `EvaluationItem` (Node/Attribute/Value) umstellen und Konsumenten/Tests anpassen (Kontext per `Option<Arc<dyn UiNode>>`).
-- [ ] Kontextknoten außerhalb des aktuellen Wurzelknotens bei Bedarf über `RuntimeId` neu auflösen (Root-Wechsel berücksichtigen). **Blockiert:** benötigt Provider-Registry (`Arbeitsbereich 4`).
+- [ ] Kontextknoten außerhalb des aktuellen Wurzelknotens über `RuntimeId` neu auflösen. (Backlog) – derzeit liefert die Runtime bei ungültigen Kontextknoten einen kontrollierten Fehler; ein Resolver folgt bei Bedarf.
 - [x] Basis-Validator implementieren (`validate_control_or_item`), der aktuell nur doppelte `SupportedPatterns` meldet; weitere Attribut-Prüfungen erfolgen pattern- bzw. provider-spezifisch. `UiAttribute`-Trait + XPath-Wrapper bleiben bestehen.
 - [x] Dokumentwurzel „Desktop“ samt Monitor-Alias-Attributen (Bounds.X usw.) beschreiben und Tests erstellen.
 
 ### 3. Pattern-System
 - [x] Runtime-Pattern-Traits in `platynui-core` anlegen (`FocusablePattern`, `WindowSurfacePattern`, `ApplicationPattern`) inkl. `PatternError`-Fehlertyp; rein lesende Patterns verbleiben bei Attributen.
 - [x] Runtime-Aktionsschnittstellen der Patterns (z. B. `FocusablePattern::focus()`, `WindowSurfacePattern::maximize()`) präzisieren und Beispiel-Implementierungen samt Tests dokumentieren; nur diese Pattern dürfen Laufzeitaktionen anbieten. (Umgesetzt via `FocusableAction`, `WindowSurfaceActions`, `ApplicationStatus` + rstest-Coverage.)
-- [ ] `SupportedPatterns`-Enum oder Identifier-Registry plus Validierung (z. B. `TextEditable` → erfordert `TextContent`).
-- [ ] Provider-facing Contract-Tests: definieren, welche attribuierten Felder pro Pattern erwartet werden, und Desktop-Koordinaten/Skalierung überprüfen.
-- [ ] Mapping-Hilfen zwischen Patterns und Technologie-spezifischen APIs (UIA-ControlType, AT-SPI Rollen, AX Attribute) bereitstellen. **Plan:** als Markdown + Hilfsfunktion im Core, bevor Provider starten.
-- [ ] Patterns-Dokument (`docs/patterns.md`) parallel synchron halten (Beispiele, offene Punkte, Attributtabelle pro Pattern). Attribut-Konstanten liegen gespiegelt unter `platynui_core::ui::attribute_names::<pattern>` und müssen bei Änderungen mitgepflegt werden.
+- [x] Leitfaden für `SupportedPatterns`-Verwendung (Dokumentation erledigt; providerseitige Tests folgen in den konkreten Provider-Szenarien), damit Pattern-Kombinationen nachvollziehbar bleiben.
+- [x] Provider-facing Contract-Tests: Core-Testkit (`platynui_core::ui::contract::testkit`) meldet fehlende/abweichende Alias-Werte (`Bounds.*`, `ActivationPoint.*`) und stellt Hilfen für Pattern-Erwartungen bereit.
+- [x] Mapping-Hilfen zwischen Patterns und Technologie-spezifischen APIs (UIA-ControlType, AT-SPI Rollen, AX Attribute) ergänzt. `docs/patterns.md` enthält eine Orientierungstabelle; Provider dokumentieren Abweichungen individuell.
+- [x] Patterns-Dokument (`docs/patterns.md`) aktualisiert: Alias-Hinweise, Rollenkatalog und Mapping-Tabelle für UIA/AT-SPI/AX ergänzt; bleibt ein lebendes Dokument für weitere Erweiterungen.
 
 ### 4. Provider-Infrastruktur (Core)
-- [ ] Traits `UiTreeProvider`, `UiTreeProviderFactory`, Lifecycle (`initialize`, `shutdown`, Events), Fehler-/Result-Typen.
-- [ ] Baum-Event-Typen (`NodeAdded`, `NodeUpdated`, `NodeRemoved`) und Event-Verteiler in der Runtime.
-- [ ] Inventory-basierte Registrierungsmakros (`register_provider!`, `register_platform_module!`), inkl. Tests für Mehrfach-Registrierung und `cfg`-gesteuerte Aktivierung.
-- [ ] Provider-Checkliste (`docs/provider_checklist.md`) automatisiert verknüpfen (CI-Lints oder Contract-Test-Suite).
+- [x] Traits `UiTreeProvider`, `UiTreeProviderFactory` plus Basistypen (`ProviderDescriptor`, `ProviderEvent`, Fehler) definiert; Lifecycle-Erweiterungen (Events weiterreichen, Shutdown) folgen beim Runtime-Wiring.
+- [x] `ProviderRegistry` im Runtime-Crate sammelt registrierte Factories via `inventory`, sortiert nach Technologie/Priorität und erzeugt Instanzen.
+- [x] Event-Pipeline auf Runtime-Seite: Dispatcher verteilt Ereignisse an registrierte Sinks, Shutdown leert Abonnenten, Runtime ruft `UiTreeProvider::subscribe_events(...)` für alle Provider auf und stellt über `register_event_sink` eine einfache Erweiterungsstelle bereit.
+- [x] Inventory-basierte Registrierungsmakros (`register_provider!`, `register_platform_module!`), inkl. Tests für Registrierungsauflistung; weitere `cfg`-Szenarien folgen bei der Runtime-Einbindung.
+- [x] Factory-Lifecycle: Entscheidung dokumentiert – Provider erhalten bewusst nur `Arc<dyn UiTreeProvider>` ohne zusätzliche Services; Geräte/Window-Manager bleiben in der Runtime. Optionales Erweiterungs-Interface bleibt ein Backlog-Thema.
+- [x] Provider-Checkliste (`docs/provider_checklist.md`) via Contract-Test-Suite abgedeckt (Mock-Provider nutzt `contract::testkit`; künftige Provider erhalten dieselben Prüfungen, Tests laufen unter `cargo test`).
 
 ### 5. Native Provider (UiTree)
 #### Phase 1 – Windows (UIA)
-- [ ] `platynui-provider-windows-uia`: UIA-Wrapper (COM-Helfer ggf. in `platynui-platform-windows`), Rollennormalisierung (ControlType → lokale Namen), `RuntimeId`-Weitergabe, `AcceptsUserInput` via `WaitForInputIdle`/Fallback.
+- [ ] `platynui-provider-windows-uia`: UIA-Wrapper (COM-Helfer ggf. in `platynui-platform-windows`), Rollennormalisierung (ControlType → lokale Namen), `RuntimeId`-Weitergabe, `AcceptsUserInput` via `WaitForInputIdle`/Fallback. Mapping-/Namensentscheidungen dokumentieren (Abgleich mit `docs/patterns.md`).
 - [ ] Gemeinsame Tests (Provider vs. Mock) mit bereitgestelltem UI-Baum & XPath-Abfragen; Dokumentation von Abweichungen der UIA-API.
 
 #### Phase 2 – Linux/X11 (AT-SPI2)
-- [ ] `platynui-provider-atspi`: D-Bus-Integration, Baumaufbau (Application → Window → Control/Item), RuntimeId aus Objektpfad, Fokus- und Sichtbarkeitsflags.
+- [ ] `platynui-provider-atspi`: D-Bus-Integration, Baumaufbau (Application → Window → Control/Item), RuntimeId aus Objektpfad, Fokus- und Sichtbarkeitsflags. Plattform-spezifische Mapping-Entscheidungen (AT-SPI Rollen) im Provider festhalten.
 - [ ] Ergänzende Tests (AT-SPI2) auf Basis des gleichen Testsets wie Windows, inklusive Namespaces `item`/`control`.
 
 #### Backlog – macOS (AX)
-- [ ] `platynui-provider-macos-ax`: AXUIElement-Brücke, Fenster-/App-Auflistung, RuntimeId aus AXIdentifier, Bound-Konvertierung (Core Graphics).
+- [ ] `platynui-provider-macos-ax`: AXUIElement-Brücke, Fenster-/App-Auflistung, RuntimeId aus AXIdentifier, Bound-Konvertierung (Core Graphics). AX-Rollen/Subrollen-Mapping dokumentieren und mit `docs/patterns.md` abgleichen.
 - [ ] Plattformübergreifende Regressionstests um macOS-spezifische Unterschiede erweitern.
 
 ### 6. JSON-RPC-Provider & Out-of-Process Integration
-- [ ] JSON-RPC 2.0 Vertrag dokumentieren (Markdown + JSON-Schema): Mindestumfang `initialize`, `listApplications`, `getRoot`, `getNode`, `getChildren`, `getAttributes`, `getSupportedPatterns`, optional `resolveRuntimeId`, `ping`; Events `$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`.
+- [ ] JSON-RPC 2.0 Vertrag dokumentieren (Markdown + JSON-Schema): Mindestumfang `initialize`, `getNodes(parentRuntimeId|null)`, `getAttributes(nodeRuntimeId)`, `getSupportedPatterns(nodeRuntimeId)`, optional `ping`; Events `$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`.
 - [ ] `platynui-provider-jsonrpc` implementieren: Verbindung über Named Pipe/Unix Socket/localhost, Registrierung bei Runtime, Heartbeat/Timeout-Handling, Sicherheit (Namenskonvention „PlatynUI+PID+User+…“).
 - [ ] Beispiel-Provider (Mock oder UIA-Proxy) dokumentieren; Leitfaden für Drittanbieter.
 - [ ] Runtime-Client-Schicht (Multiplexing, Fehler-Mapping, Provider-Restart-Strategien).
@@ -99,6 +101,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 
 ### 9. Runtime-Kern
 - [ ] Provider-Registry initialisieren (Inventory lesen, `cfg` prüfen, Prioritäten setzen), Provider-Lifecycle steuern.
+- [ ] Provider-Auswahl nach `ProviderPriority` (Fallback-Strategie) und Routing mehrerer Provider derselben Technologie implementieren.
 - [ ] Dokumentaufbau: Desktop-Wurzel laden, App- und Control-Nodes verknüpfen, `item`-Namespace an Container-Knoten hängen.
 - [ ] `AcceptsUserInput`-Hilfsmethode (Windows `WaitForInputIdle`, Linux/macOS heuristische Implementierung), Rückfallverhalten dokumentieren.
 - [ ] XPath-Auswertung → Iterator über `Arc<dyn UiNode>`, Filterung nach Patterns, Attribute-Lazy-Loading.

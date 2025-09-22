@@ -15,3 +15,7 @@ platynui-core = { path = "../core" }
 platynui-xpath = { path = "../xpath" }
 serde_json = "1.0"
 thiserror = "2.0"
+
+[dev-dependencies]
+inventory = "0.3.21"
+rstest = "0.26.1"

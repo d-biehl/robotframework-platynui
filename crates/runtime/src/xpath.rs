@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use platynui_core::provider::ProviderError;
+use platynui_core::ui::identifiers::RuntimeId;
 use platynui_core::ui::{Namespace as UiNamespace, UiNode, UiValue};
 use platynui_xpath::compiler;
 use platynui_xpath::engine::evaluator;
@@ -15,15 +17,21 @@ const ITEM_NS_URI: &str = "urn:platynui:item";
 const APP_NS_URI: &str = "urn:platynui:app";
 const NATIVE_NS_URI: &str = "urn:platynui:native";
 
+/// Resolves nodes by runtime identifier on demand (e.g. after provider reloads).
+pub trait NodeResolver: Send + Sync {
+    fn resolve(&self, runtime_id: &RuntimeId) -> Result<Option<Arc<dyn UiNode>>, ProviderError>;
+}
+
 #[derive(Clone)]
 pub struct EvaluateOptions {
     desktop: Arc<dyn UiNode>,
     invalidate_before_eval: bool,
+    resolver: Option<Arc<dyn NodeResolver>>,
 }
 
 impl EvaluateOptions {
     pub fn new(desktop: Arc<dyn UiNode>) -> Self {
-        Self { desktop, invalidate_before_eval: false }
+        Self { desktop, invalidate_before_eval: false, resolver: None }
     }
 
     pub fn desktop(&self) -> Arc<dyn UiNode> {
@@ -38,6 +46,15 @@ impl EvaluateOptions {
     pub fn invalidate_before_eval(&self) -> bool {
         self.invalidate_before_eval
     }
+
+    pub fn with_node_resolver(mut self, resolver: Arc<dyn NodeResolver>) -> Self {
+        self.resolver = Some(resolver);
+        self
+    }
+
+    pub fn node_resolver(&self) -> Option<Arc<dyn NodeResolver>> {
+        self.resolver.as_ref().map(Arc::clone)
+    }
 }
 
 #[derive(Debug, Error)]
@@ -46,6 +63,8 @@ pub enum EvaluateError {
     XPath(#[from] platynui_xpath::engine::runtime::Error),
     #[error("context node not part of current evaluation (runtime id: {0})")]
     ContextNodeUnknown(String),
+    #[error("provider error during context resolution: {0}")]
+    Provider(#[from] ProviderError),
 }
 
 #[derive(Clone)]
@@ -91,7 +110,19 @@ pub fn evaluate(
     options: EvaluateOptions,
 ) -> Result<Vec<EvaluationItem>, EvaluateError> {
     let root = options.desktop();
-    let context = node.unwrap_or_else(|| root.clone());
+    let context = if let Some(node_ref) = node.as_ref() {
+        if let Some(resolver) = options.node_resolver() {
+            let runtime_id = node_ref.runtime_id().clone();
+            match resolver.resolve(&runtime_id)? {
+                Some(resolved) => resolved,
+                None => return Err(EvaluateError::ContextNodeUnknown(runtime_id.to_string())),
+            }
+        } else {
+            Arc::clone(node_ref)
+        }
+    } else {
+        root.clone()
+    };
 
     if options.invalidate_before_eval() {
         context.invalidate();
@@ -532,10 +563,12 @@ fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use platynui_core::provider::{ProviderError, ProviderErrorKind};
     use platynui_core::types::Rect;
     use platynui_core::ui::{
         PatternId, RuntimeId, UiAttribute, UiNode, attribute_names, supported_patterns_value,
     };
+    use rstest::rstest;
     use std::sync::{Arc, Mutex, Weak};
 
     struct StaticAttribute {
@@ -746,7 +779,7 @@ mod tests {
         StaticNode::to_ref(&desktop)
     }
 
-    #[test]
+    #[rstest]
     fn evaluates_node_selection() {
         let tree = sample_tree();
         let items = evaluate(None, "//Window", EvaluateOptions::new(tree.clone())).unwrap();
@@ -759,7 +792,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn evaluates_count_function() {
         let tree = sample_tree();
         let items = evaluate(None, "count(//Window)", EvaluateOptions::new(tree.clone())).unwrap();
@@ -770,7 +803,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn absolute_path_from_context_root() {
         let tree = sample_tree();
         let items = evaluate(None, "/control:Desktop", EvaluateOptions::new(tree.clone())).unwrap();
@@ -783,7 +816,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn desktop_bounds_alias_attributes_are_available() {
         let tree = sample_tree();
         let items =
@@ -799,7 +832,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn desktop_monitors_attribute_is_exposed() {
         let tree = sample_tree();
         let items =
@@ -817,6 +850,134 @@ mod tests {
                 }
             }
             other => panic!("unexpected monitors result: {:?}", other),
+        }
+    }
+
+    struct ResolverOk {
+        node: Arc<dyn UiNode>,
+    }
+
+    impl NodeResolver for ResolverOk {
+        fn resolve(
+            &self,
+            _runtime_id: &RuntimeId,
+        ) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
+            Ok(Some(self.node.clone()))
+        }
+    }
+
+    struct ResolverMissing;
+
+    impl NodeResolver for ResolverMissing {
+        fn resolve(
+            &self,
+            _runtime_id: &RuntimeId,
+        ) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
+            Ok(None)
+        }
+    }
+
+    struct ResolverError;
+
+    impl NodeResolver for ResolverError {
+        fn resolve(
+            &self,
+            _runtime_id: &RuntimeId,
+        ) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
+            Err(ProviderError::simple(ProviderErrorKind::TreeUnavailable))
+        }
+    }
+
+    #[rstest]
+    fn context_is_re_resolved_via_resolver() {
+        let tree = sample_tree();
+        let stale = StaticNode::new(
+            UiNamespace::Control,
+            "stale-window",
+            "Window",
+            "Old",
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            vec![],
+        );
+        let fresh = StaticNode::new(
+            UiNamespace::Control,
+            "stale-window",
+            "Window",
+            "New",
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            vec![],
+        );
+        let stale_node = StaticNode::to_ref(&stale);
+        let fresh_node = StaticNode::to_ref(&fresh);
+        let resolver = Arc::new(ResolverOk { node: fresh_node.clone() });
+
+        let items = evaluate(
+            Some(stale_node.clone()),
+            ".",
+            EvaluateOptions::new(tree.clone()).with_node_resolver(resolver),
+        )
+        .unwrap();
+
+        match &items[0] {
+            EvaluationItem::Node(node) => {
+                assert!(Arc::ptr_eq(node, &fresh_node));
+            }
+            other => panic!("unexpected result: {:?}", other),
+        }
+    }
+
+    #[rstest]
+    fn context_missing_yields_error() {
+        let tree = sample_tree();
+        let stale = StaticNode::new(
+            UiNamespace::Control,
+            "missing-window",
+            "Window",
+            "Old",
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            vec![],
+        );
+        let stale_node = StaticNode::to_ref(&stale);
+        let runtime_id = stale_node.runtime_id().as_str().to_string();
+        let resolver = Arc::new(ResolverMissing);
+
+        let result = evaluate(
+            Some(stale_node.clone()),
+            ".",
+            EvaluateOptions::new(tree.clone()).with_node_resolver(resolver),
+        );
+
+        match result {
+            Err(EvaluateError::ContextNodeUnknown(id)) => assert_eq!(id, runtime_id),
+            other => panic!("unexpected result: {:?}", other),
+        }
+    }
+
+    #[rstest]
+    fn resolver_error_is_propagated() {
+        let tree = sample_tree();
+        let stale = StaticNode::new(
+            UiNamespace::Control,
+            "errored-window",
+            "Window",
+            "Old",
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            vec![],
+        );
+        let stale_node = StaticNode::to_ref(&stale);
+        let resolver = Arc::new(ResolverError);
+
+        let result = evaluate(
+            Some(stale_node.clone()),
+            ".",
+            EvaluateOptions::new(tree.clone()).with_node_resolver(resolver),
+        );
+
+        match result {
+            Err(EvaluateError::Provider(err)) => {
+                assert_eq!(err.kind, ProviderErrorKind::TreeUnavailable);
+            }
+            other => panic!("unexpected result: {:?}", other),
         }
     }
 }

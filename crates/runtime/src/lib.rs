@@ -1,3 +1,8 @@
+pub mod provider;
+pub mod runtime;
 mod xpath;
 
-pub use xpath::{EvaluateError, EvaluateOptions, EvaluatedAttribute, EvaluationItem, evaluate};
+pub use runtime::Runtime;
+pub use xpath::{
+    EvaluateError, EvaluateOptions, EvaluatedAttribute, EvaluationItem, NodeResolver, evaluate,
+};

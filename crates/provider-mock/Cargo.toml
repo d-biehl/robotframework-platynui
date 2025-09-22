@@ -11,3 +11,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+platynui-core = { path = "../core" }
+
+[dev-dependencies]
+rstest = "0.26.1"
