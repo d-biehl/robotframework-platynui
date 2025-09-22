@@ -280,17 +280,12 @@ mod tests {
     #[rstest]
     fn contract_helper_flags_missing_alias() {
         let node = MockElement::focusable_button();
-        node.attributes
-            .lock()
-            .unwrap()
-            .retain(|attr| attr.name() != "Bounds.X");
+        node.attributes.lock().unwrap().retain(|attr| attr.name() != "Bounds.X");
 
         let issues = verify_node(
             node.as_ref(),
-            &NodeExpectation::default().with_pattern(PatternExpectation::new(
-                PatternId::from("Element"),
-                ELEMENT_ATTRS,
-            )),
+            &NodeExpectation::default()
+                .with_pattern(PatternExpectation::new(PatternId::from("Element"), ELEMENT_ATTRS)),
         );
 
         assert!(issues.iter().any(|issue| matches!(

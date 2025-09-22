@@ -49,11 +49,13 @@ pub mod pattern {
     pub mod selectable {
         pub const IS_SELECTED: &str = "IsSelected";
         pub const SELECTION_CONTAINER_ID: &str = "SelectionContainerId";
+        pub const SELECTION_ORDER: &str = "SelectionOrder";
     }
 
     pub mod selection_provider {
         pub const SELECTION_MODE: &str = "SelectionMode";
         pub const SELECTED_IDS: &str = "SelectedIds";
+        pub const SUPPORTS_RANGE_SELECTION: &str = "SupportsRangeSelection";
     }
 
     pub mod toggleable {
@@ -67,15 +69,18 @@ pub mod pattern {
         pub const MAXIMUM: &str = "Maximum";
         pub const SMALL_CHANGE: &str = "SmallChange";
         pub const LARGE_CHANGE: &str = "LargeChange";
+        pub const UNIT: &str = "Unit";
     }
 
     pub mod activatable {
         pub const IS_ACTIVATION_ENABLED: &str = "IsActivationEnabled";
+        pub const DEFAULT_ACCELERATOR: &str = "DefaultAccelerator";
     }
 
     pub mod activation_target {
         pub const ACTIVATION_POINT: &str = "ActivationPoint";
         pub const ACTIVATION_AREA: &str = "ActivationArea";
+        pub const ACTIVATION_HINT: &str = "ActivationHint";
     }
 
     pub mod focusable {
@@ -89,6 +94,7 @@ pub mod pattern {
         pub const CAN_SCROLL_VERTICALLY: &str = "CanScrollVertically";
         pub const HORIZONTAL_VIEW_SIZE: &str = "HorizontalViewSize";
         pub const VERTICAL_VIEW_SIZE: &str = "VerticalViewSize";
+        pub const SCROLL_GRANULARITY: &str = "ScrollGranularity";
     }
 
     pub mod expandable {
@@ -100,6 +106,7 @@ pub mod pattern {
         pub const ITEM_COUNT: &str = "ItemCount";
         pub const IS_VIRTUALIZED: &str = "IsVirtualized";
         pub const VIRTUALIZATION_HINT: &str = "VirtualizationHint";
+        pub const SUPPORTS_CONTAINER_SEARCH: &str = "SupportsContainerSearch";
     }
 
     pub mod window_surface {

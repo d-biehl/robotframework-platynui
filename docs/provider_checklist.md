@@ -23,7 +23,7 @@
 - [ ] `Role` entspricht dem normalisierten Namen (lokaler Name im Namespace `control` oder `item`), die native Rolle liegt zusätzlich unter `native:Role` (oder äquivalenten Feldern).
 - [ ] Meldet ein Element das Pattern `ActivationTarget`, liefert es `ActivationPoint` (Desktop-Koordinaten, ggf. Fallback auf Rechteckzentrum) und optional `ActivationArea`.
 - [ ] `Technology` ist für jede `UiNode` gesetzt (`UIAutomation`, `AT-SPI`, `AX`, `JSONRPC`, ...).
-- [ ] Desktop-Knoten liefern `Bounds`, `OsName`, `OsVersion`, `DisplayCount`, `Monitors`.
+- [ ] Provider erzeugen keinen eigenen `control:Desktop`-Knoten; die Plattform-/Runtime-Schicht stellt Desktop-Metadaten (`Bounds`, `OsName`, `OsVersion`, `DisplayCount`, `Monitors`) bereit.
 - [ ] Mapping-Entscheidungen gegen `docs/patterns.md` dokumentiert (insb. bei Mehrfachzuordnungen).
 - [ ] Baum-Ereignisse (`NodeAdded`, `NodeUpdated`, `NodeRemoved`) getestet; sicherstellen, dass sie nur zur Synchronisation dienen und keine Pattern-spezifischen Nebenwirkungen haben.
 
