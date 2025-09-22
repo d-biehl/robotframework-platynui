@@ -114,10 +114,6 @@ fn show_info(runtime: &Runtime, format: OutputFormat) -> CliResult<String> {
     }
 }
 
-fn desktop_summary(runtime: &Runtime) -> DesktopSummary {
-    DesktopSummary::from_info(runtime.desktop_info())
-}
-
 impl DesktopSummary {
     fn from_info(info: &DesktopInfo) -> Self {
         Self {
@@ -205,8 +201,8 @@ fn render_provider_text(summaries: &[ProviderSummary]) -> String {
     let mut output = String::new();
     let _ = writeln!(
         &mut output,
-        "{:<16} {:<12} {:<8} {:<7} {}",
-        "ID", "Technology", "Kind", "Active", "Name"
+        "{:<16} {:<12} {:<8} {:<7} Name",
+        "ID", "Technology", "Kind", "Active"
     );
 
     for summary in summaries {
@@ -308,7 +304,7 @@ mod tests {
     #[rstest]
     fn desktop_summary_uses_mock_desktop() {
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
-        let summary = desktop_summary(&runtime);
+        let summary = DesktopSummary::from_info(runtime.desktop_info());
         runtime.shutdown();
 
         assert_eq!(summary.os_name, "MockOS");
@@ -318,7 +314,7 @@ mod tests {
     #[rstest]
     fn render_info_json_is_valid() {
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
-        let summary = desktop_summary(&runtime);
+        let summary = DesktopSummary::from_info(runtime.desktop_info());
         runtime.shutdown();
 
         let rendered = render_info_json(&summary).expect("json");

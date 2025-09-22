@@ -234,12 +234,26 @@ fn check_activation_point_aliases(
 }
 
 #[cfg(test)]
-mod tests {
+mod geometry_tests {
     use super::*;
     use crate::types::{Point, Rect};
     use crate::ui::{Namespace, UiAttribute};
     use once_cell::sync::Lazy;
     use std::sync::Arc;
+
+    const ELEMENT_EXPECTATIONS: [AttributeExpectation; 1] = [
+        AttributeExpectation::required(
+            Namespace::Control,
+            crate::ui::attribute_names::element::BOUNDS,
+        ),
+    ];
+
+    const ACTIVATION_EXPECTATIONS: [AttributeExpectation; 1] = [
+        AttributeExpectation::required(
+            Namespace::Control,
+            crate::ui::attribute_names::activation_target::ACTIVATION_POINT,
+        ),
+    ];
 
     struct StaticAttribute {
         namespace: Namespace,
@@ -268,13 +282,8 @@ mod tests {
     }
 
     fn sample_expectation() -> NodeExpectation {
-        NodeExpectation::default().with_pattern(PatternExpectation::new(
-            PatternId::from("Element"),
-            &[AttributeExpectation::required(
-                Namespace::Control,
-                crate::ui::attribute_names::element::BOUNDS,
-            )],
-        ))
+        NodeExpectation::default()
+            .with_pattern(PatternExpectation::new(PatternId::from("Element"), &ELEMENT_EXPECTATIONS))
     }
 
     struct AttrNode {
@@ -364,10 +373,7 @@ mod tests {
     fn checks_activation_point_aliases() {
         let expectation = NodeExpectation::default().with_pattern(PatternExpectation::new(
             PatternId::from("ActivationTarget"),
-            &[AttributeExpectation::required(
-                Namespace::Control,
-                crate::ui::attribute_names::activation_target::ACTIVATION_POINT,
-            )],
+            &ACTIVATION_EXPECTATIONS,
         ));
 
         let node = AttrNode::new(vec![StaticAttribute::new(
@@ -385,7 +391,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod tests {
+mod expectation_tests {
     use super::*;
     use crate::types::Rect;
     use crate::ui::attribute_names::{activatable, common, element, text_content};
@@ -531,37 +537,38 @@ mod tests {
             .with_pattern(PatternId::from("Element"))
             .with_pattern(PatternId::from("Activatable"));
 
-        let mut attrs = Vec::<Arc<dyn UiAttribute>>::new();
-        attrs.push(Arc::new(StaticAttribute {
-            namespace: Namespace::Control,
-            name: common::ROLE,
-            value: UiValue::from("Button"),
-        }));
-        attrs.push(Arc::new(StaticAttribute {
-            namespace: Namespace::Control,
-            name: common::RUNTIME_ID,
-            value: UiValue::from("node-1"),
-        }));
-        attrs.push(Arc::new(StaticAttribute {
-            namespace: Namespace::Control,
-            name: text_content::TEXT,
-            value: UiValue::from("OK"),
-        }));
-        attrs.push(Arc::new(StaticAttribute {
-            namespace: Namespace::Control,
-            name: element::BOUNDS,
-            value: UiValue::Rect(Rect::new(0.0, 0.0, 10.0, 5.0)),
-        }));
-        attrs.push(Arc::new(StaticAttribute {
-            namespace: Namespace::Control,
-            name: element::IS_VISIBLE,
-            value: UiValue::from(true),
-        }));
-        attrs.push(Arc::new(StaticAttribute {
-            namespace: Namespace::Control,
-            name: activatable::IS_ACTIVATION_ENABLED,
-            value: UiValue::from(true),
-        }));
+        let attrs: Vec<Arc<dyn UiAttribute>> = vec![
+            Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: common::ROLE,
+                value: UiValue::from("Button"),
+            }),
+            Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: common::RUNTIME_ID,
+                value: UiValue::from("node-1"),
+            }),
+            Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: text_content::TEXT,
+                value: UiValue::from("OK"),
+            }),
+            Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: element::BOUNDS,
+                value: UiValue::Rect(Rect::new(0.0, 0.0, 10.0, 5.0)),
+            }),
+            Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: element::IS_VISIBLE,
+                value: UiValue::from(true),
+            }),
+            Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: activatable::IS_ACTIVATION_ENABLED,
+                value: UiValue::from(true),
+            }),
+        ];
 
         {
             let mut lock = node.attributes.lock().unwrap();

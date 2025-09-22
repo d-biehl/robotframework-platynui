@@ -5,8 +5,10 @@ use std::str::FromStr;
 
 /// Known namespaces within the PlatynUI document model.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default)]
 pub enum Namespace {
     /// Default namespace for Controls (Buttons, TextBoxes, etc.).
+    #[default]
     Control,
     /// Namespace for items belonging to container controls (ListItem, TreeItem, ...).
     Item,
@@ -33,11 +35,6 @@ impl Namespace {
     }
 }
 
-impl Default for Namespace {
-    fn default() -> Self {
-        Namespace::Control
-    }
-}
 
 impl Display for Namespace {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -72,7 +69,7 @@ static PREFIX_LOOKUP: Lazy<HashMap<&'static str, Namespace>> = Lazy::new(|| {
 pub fn resolve_namespace(prefix: Option<&str>) -> Namespace {
     match prefix {
         None => Namespace::Control,
-        Some(p) if p.is_empty() => Namespace::Control,
+        Some("") => Namespace::Control,
         Some(p) => match PREFIX_LOOKUP.get(p) {
             Some(ns) => *ns,
             None => panic!("unknown namespace prefix: {}", p),

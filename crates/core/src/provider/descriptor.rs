@@ -22,13 +22,10 @@ impl ProviderDescriptor {
 
 /// Differentiates between native/in-process and external provider variants.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Default)]
 pub enum ProviderKind {
+    #[default]
     Native,
     External,
 }
 
-impl Default for ProviderKind {
-    fn default() -> Self {
-        ProviderKind::Native
-    }
-}

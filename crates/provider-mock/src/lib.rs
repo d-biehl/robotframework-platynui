@@ -88,7 +88,7 @@ impl MockProvider {
         if let Some(node) = self.nodes.get(parent.runtime_id().as_str()) {
             node.children_snapshot()
         } else if parent.namespace() == Namespace::Control && parent.role() == "Desktop" {
-            self.roots.iter().cloned().collect()
+            self.roots.to_vec()
         } else {
             Vec::new()
         }
@@ -126,27 +126,34 @@ struct MockNode {
     children: Mutex<Vec<Arc<MockNode>>>,
 }
 
+struct NodePatternContext {
+    runtime_patterns: PatternRegistry,
+    supported_patterns: Vec<PatternId>,
+}
+
 impl MockNode {
     fn application(id: &str, name: &str, descriptor: &ProviderDescriptor) -> Arc<Self> {
-        Self::new(
-            Namespace::App,
-            "Application",
-            name,
-            id,
-            descriptor,
-            Vec::new(),
-            PatternRegistry::new(),
-            vec![PatternId::from("Application")],
-        )
+        let context = NodePatternContext {
+            runtime_patterns: PatternRegistry::new(),
+            supported_patterns: vec![PatternId::from("Application")],
+        };
+        Self::new(Namespace::App, "Application", name, id, descriptor, Vec::new(), context)
     }
 
     fn window(id: &str, name: &str, descriptor: &ProviderDescriptor) -> Arc<Self> {
         let bounds = Rect::new(100.0, 100.0, 800.0, 600.0);
-        let mut attributes = Vec::new();
-        attributes.push(attr(Namespace::Control, element::BOUNDS, UiValue::from(bounds)));
-        attributes.extend(rect_aliases(Namespace::Control, "Bounds", &bounds));
-        attributes.push(attr(Namespace::Control, element::IS_VISIBLE, UiValue::from(true)));
-        attributes.push(attr(Namespace::Control, element::IS_ENABLED, UiValue::from(true)));
+        let mut attributes = rect_aliases(Namespace::Control, "Bounds", &bounds);
+        let mut base_attributes = vec![
+            attr(Namespace::Control, element::BOUNDS, UiValue::from(bounds)),
+            attr(Namespace::Control, element::IS_VISIBLE, UiValue::from(true)),
+            attr(Namespace::Control, element::IS_ENABLED, UiValue::from(true)),
+        ];
+        base_attributes.append(&mut attributes);
+
+        let context = NodePatternContext {
+            runtime_patterns: PatternRegistry::new(),
+            supported_patterns: vec![PatternId::from("Element")],
+        };
 
         Self::new(
             Namespace::Control,
@@ -154,31 +161,42 @@ impl MockNode {
             name,
             id,
             descriptor,
-            attributes,
-            PatternRegistry::new(),
-            vec![PatternId::from("Element")],
+            base_attributes,
+            context,
         )
     }
 
     fn button(id: &str, name: &str, descriptor: &ProviderDescriptor) -> Arc<Self> {
         let bounds = Rect::new(140.0, 620.0, 120.0, 32.0);
         let activation = bounds.center();
-        let mut attributes = Vec::new();
-        attributes.push(attr(Namespace::Control, element::BOUNDS, UiValue::from(bounds)));
-        attributes.extend(rect_aliases(Namespace::Control, "Bounds", &bounds));
-        attributes.push(attr(Namespace::Control, element::IS_VISIBLE, UiValue::from(true)));
-        attributes.push(attr(Namespace::Control, element::IS_ENABLED, UiValue::from(true)));
-        attributes.push(attr(
-            Namespace::Control,
-            activation_target::ACTIVATION_POINT,
-            UiValue::from(activation),
-        ));
-        attributes.extend(point_aliases(Namespace::Control, "ActivationPoint", &activation));
-        attributes.push(attr(
-            Namespace::Control,
-            text_content::TEXT,
-            UiValue::from(name.to_owned()),
-        ));
+        let mut attributes = rect_aliases(Namespace::Control, "Bounds", &bounds);
+        let mut activation_aliases = point_aliases(Namespace::Control, "ActivationPoint", &activation);
+        let mut base_attributes = vec![
+            attr(Namespace::Control, element::BOUNDS, UiValue::from(bounds)),
+            attr(Namespace::Control, element::IS_VISIBLE, UiValue::from(true)),
+            attr(Namespace::Control, element::IS_ENABLED, UiValue::from(true)),
+            attr(
+                Namespace::Control,
+                activation_target::ACTIVATION_POINT,
+                UiValue::from(activation),
+            ),
+            attr(
+                Namespace::Control,
+                text_content::TEXT,
+                UiValue::from(name.to_owned()),
+            ),
+        ];
+        base_attributes.append(&mut attributes);
+        base_attributes.append(&mut activation_aliases);
+
+        let context = NodePatternContext {
+            runtime_patterns: PatternRegistry::new(),
+            supported_patterns: vec![
+                PatternId::from("Element"),
+                PatternId::from("TextContent"),
+                PatternId::from("ActivationTarget"),
+            ],
+        };
 
         Self::new(
             Namespace::Control,
@@ -186,13 +204,8 @@ impl MockNode {
             name,
             id,
             descriptor,
-            attributes,
-            PatternRegistry::new(),
-            vec![
-                PatternId::from("Element"),
-                PatternId::from("TextContent"),
-                PatternId::from("ActivationTarget"),
-            ],
+            base_attributes,
+            context,
         )
     }
 
@@ -203,20 +216,28 @@ impl MockNode {
         runtime_id: &str,
         descriptor: &ProviderDescriptor,
         mut additional_attributes: Vec<Arc<dyn UiAttribute>>,
-        runtime_patterns: PatternRegistry,
-        supported_patterns: Vec<PatternId>,
+        pattern_context: NodePatternContext,
     ) -> Arc<Self> {
         let technology = descriptor.technology.as_str().to_owned();
         let runtime_id = RuntimeId::from(runtime_id);
-        let mut attributes = Vec::new();
-        attributes.push(attr(namespace, common::ROLE, UiValue::from(role)));
-        attributes.push(attr(namespace, common::NAME, UiValue::from(name.to_owned())));
-        attributes.push(attr(
-            namespace,
-            common::RUNTIME_ID,
-            UiValue::from(runtime_id.as_str().to_owned()),
-        ));
-        attributes.push(attr(namespace, common::TECHNOLOGY, UiValue::from(technology)));
+        let mut attributes = vec![
+            attr(namespace, common::ROLE, UiValue::from(role)),
+            attr(namespace, common::NAME, UiValue::from(name.to_owned())),
+            attr(
+                namespace,
+                common::RUNTIME_ID,
+                UiValue::from(runtime_id.as_str().to_owned()),
+            ),
+            attr(namespace, common::TECHNOLOGY, UiValue::from(technology)),
+        ];
+
+        let NodePatternContext { runtime_patterns, supported_patterns } = pattern_context;
+        let supported_patterns = if runtime_patterns.is_empty() {
+            supported_patterns
+        } else {
+            runtime_patterns.supported().to_vec()
+        };
+
         attributes.push(attr(
             namespace,
             common::SUPPORTED_PATTERNS,

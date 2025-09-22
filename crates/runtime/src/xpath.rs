@@ -9,7 +9,6 @@ use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilde
 use platynui_xpath::model::{NodeKind, QName};
 use platynui_xpath::xdm::{XdmAtomicValue, XdmItem};
 use platynui_xpath::{self, XdmNode};
-use serde_json;
 use thiserror::Error;
 
 const CONTROL_NS_URI: &str = "urn:platynui:control";
@@ -621,47 +620,48 @@ mod tests {
             let patterns_vec: Vec<PatternId> = patterns.into_iter().map(PatternId::from).collect();
             let supported = supported_patterns_value(&patterns_vec);
 
-            let mut attributes: Vec<Arc<dyn UiAttribute>> = Vec::new();
-            attributes.push(Arc::new(StaticAttribute::new(
-                namespace,
-                attribute_names::element::BOUNDS,
-                UiValue::Rect(bounds),
-            )) as Arc<dyn UiAttribute>);
-            attributes.push(Arc::new(StaticAttribute::new(
-                namespace,
-                attribute_names::common::ROLE,
-                UiValue::from(role),
-            )) as Arc<dyn UiAttribute>);
-            attributes.push(Arc::new(StaticAttribute::new(
-                namespace,
-                attribute_names::common::NAME,
-                UiValue::from(name),
-            )) as Arc<dyn UiAttribute>);
-            attributes.push(Arc::new(StaticAttribute::new(
-                namespace,
-                attribute_names::element::IS_VISIBLE,
-                UiValue::from(true),
-            )) as Arc<dyn UiAttribute>);
-            attributes.push(Arc::new(StaticAttribute::new(
-                namespace,
-                attribute_names::element::IS_ENABLED,
-                UiValue::from(true),
-            )) as Arc<dyn UiAttribute>);
-            attributes.push(Arc::new(StaticAttribute::new(
-                namespace,
-                attribute_names::common::RUNTIME_ID,
-                UiValue::from(runtime_id.as_str().to_owned()),
-            )) as Arc<dyn UiAttribute>);
-            attributes.push(Arc::new(StaticAttribute::new(
-                namespace,
-                attribute_names::common::TECHNOLOGY,
-                UiValue::from("Mock"),
-            )) as Arc<dyn UiAttribute>);
-            attributes.push(Arc::new(StaticAttribute::new(
-                namespace,
-                attribute_names::common::SUPPORTED_PATTERNS,
-                supported,
-            )) as Arc<dyn UiAttribute>);
+            let mut attributes: Vec<Arc<dyn UiAttribute>> = vec![
+                Arc::new(StaticAttribute::new(
+                    namespace,
+                    attribute_names::element::BOUNDS,
+                    UiValue::Rect(bounds),
+                )) as Arc<dyn UiAttribute>,
+                Arc::new(StaticAttribute::new(
+                    namespace,
+                    attribute_names::common::ROLE,
+                    UiValue::from(role),
+                )) as Arc<dyn UiAttribute>,
+                Arc::new(StaticAttribute::new(
+                    namespace,
+                    attribute_names::common::NAME,
+                    UiValue::from(name),
+                )) as Arc<dyn UiAttribute>,
+                Arc::new(StaticAttribute::new(
+                    namespace,
+                    attribute_names::element::IS_VISIBLE,
+                    UiValue::from(true),
+                )) as Arc<dyn UiAttribute>,
+                Arc::new(StaticAttribute::new(
+                    namespace,
+                    attribute_names::element::IS_ENABLED,
+                    UiValue::from(true),
+                )) as Arc<dyn UiAttribute>,
+                Arc::new(StaticAttribute::new(
+                    namespace,
+                    attribute_names::common::RUNTIME_ID,
+                    UiValue::from(runtime_id.as_str().to_owned()),
+                )) as Arc<dyn UiAttribute>,
+                Arc::new(StaticAttribute::new(
+                    namespace,
+                    attribute_names::common::TECHNOLOGY,
+                    UiValue::from("Mock"),
+                )) as Arc<dyn UiAttribute>,
+                Arc::new(StaticAttribute::new(
+                    namespace,
+                    attribute_names::common::SUPPORTED_PATTERNS,
+                    supported,
+                )) as Arc<dyn UiAttribute>,
+            ];
 
             if role == "Desktop" {
                 attributes.push(Arc::new(StaticAttribute::new(

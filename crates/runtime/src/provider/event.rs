@@ -35,6 +35,12 @@ impl ProviderEventDispatcher {
     }
 }
 
+impl Default for ProviderEventDispatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProviderEventListener for ProviderEventDispatcher {
     fn on_event(&self, event: ProviderEvent) {
         self.dispatch(event);
