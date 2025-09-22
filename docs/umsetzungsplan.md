@@ -51,9 +51,11 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Traits `UiTreeProvider`, `UiTreeProviderFactory` plus Basistypen (`ProviderDescriptor`, `ProviderEvent`, Fehler) definiert; Lifecycle-Erweiterungen (Events weiterreichen, Shutdown) folgen beim Runtime-Wiring.
 - [x] `ProviderRegistry` im Runtime-Crate sammelt registrierte Factories via `inventory`, gruppiert sie je Technologie und erzeugt Instanzen.
 - [x] Event-Pipeline auf Runtime-Seite: Dispatcher verteilt Ereignisse an registrierte Sinks, Shutdown leert Abonnenten, Runtime ruft `UiTreeProvider::subscribe_events(...)` für alle Provider auf und stellt über `register_event_sink` eine einfache Erweiterungsstelle bereit.
+- [x] Provider-spezifische Snapshots: Runtime hält pro Provider einen eigenen Knoten-Snapshot und aktualisiert ihn nur, wenn `event_capabilities = None` (Polling) oder ein passendes Ereignis / Change-Hint eintrifft.
 - [x] Inventory-basierte Registrierungsmakros (`register_provider!`, `register_platform_module!`), inkl. Tests für Registrierungsauflistung; weitere `cfg`-Szenarien folgen bei der Runtime-Einbindung.
 - [x] Factory-Lifecycle: Entscheidung dokumentiert – Provider erhalten bewusst nur `Arc<dyn UiTreeProvider>` ohne zusätzliche Services; Geräte/Window-Manager bleiben in der Runtime.
 - [x] Provider-Checkliste (`docs/provider_checklist.md`) via Contract-Test-Suite abgedeckt (Mock-Provider nutzt `contract::testkit`; künftige Provider erhalten dieselben Prüfungen, Tests laufen unter `cargo test`).
+- [x] `ProviderDescriptor` um `event_capabilities` erweitern (Bitset `None`/`ChangeHint`/`Structure`/`StructureWithProperties`), Runtime-Strategie dokumentieren und Tests vorbereiten, damit Voll-Refresh nur bei fehlender Event-Unterstützung nötig bleibt.
 
 ### 5. CLI `list-providers` – Mock-Basis schaffen
 - [x] Minimalen Laufweg „Runtime + platynui-platform-mock + platynui-provider-mock“ herstellen (Provider-Registry initialisieren, Mock-Provider instanziieren).
@@ -82,6 +84,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 ### 8. CLI `watch` – Ereignisse beobachten
 - [ ] Event-Pipeline der Runtime an CLI anbinden (`watch` lauscht auf `ProviderEventKind` und optional wiederholt Abfragen).
 - [ ] Mock-Provider erweitert Szenarien um Event-Simulation (NodeAdded/Removed/Updated, TreeInvalidated).
+- [ ] CLI und Runtime berücksichtigen `event_capabilities`: Provider ohne Events triggern weiterhin Vollabfragen, Event-fähige Provider laufen über Invalidierung und optionale Folge-Abfragen (`watch --refresh` o. ä.).
 - [ ] CLI-Kommando `watch`: Ausgabe im Streaming-Modus; Optionen für Filter (Namespace, Pattern, RuntimeId).
 - [ ] Tests: Simulierte Eventsequenzen prüfen (z. B. NodeAdded → Query-Ergebnis).
 

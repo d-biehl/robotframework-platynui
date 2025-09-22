@@ -5,7 +5,7 @@ mod factory;
 mod registration;
 mod tree_provider;
 
-pub use descriptor::{ProviderDescriptor, ProviderKind};
+pub use descriptor::{ProviderDescriptor, ProviderEventCapabilities, ProviderKind};
 pub use error::{ProviderError, ProviderErrorKind};
 pub use event::{ProviderEvent, ProviderEventKind, ProviderEventListener};
 pub use factory::UiTreeProviderFactory;

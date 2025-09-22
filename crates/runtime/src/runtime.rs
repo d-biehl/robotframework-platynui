@@ -20,9 +20,15 @@ use crate::{EvaluateError, EvaluateOptions, EvaluationItem, evaluate};
 /// Central orchestrator that owns provider instances and the provider event dispatcher.
 pub struct Runtime {
     registry: ProviderRegistry,
-    providers: Vec<Arc<dyn UiTreeProvider>>,
+    providers: Vec<ProviderRuntimeState>,
     dispatcher: Arc<ProviderEventDispatcher>,
     desktop: Arc<DesktopNode>,
+}
+
+struct ProviderRuntimeState {
+    provider: Arc<dyn UiTreeProvider>,
+    requires_full_refresh: bool,
+    snapshot: Mutex<Vec<Arc<dyn UiNode>>>,
 }
 
 impl Runtime {
@@ -30,14 +36,24 @@ impl Runtime {
     pub fn new() -> Result<Self, ProviderError> {
         let registry = ProviderRegistry::discover();
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
-        let providers = registry.instantiate_all()?;
-        for provider in &providers {
+        let provider_instances = registry.instantiate_all()?;
+        let mut providers = Vec::with_capacity(provider_instances.len());
+        for provider in provider_instances {
             provider.subscribe_events(dispatcher.clone())?;
+            let requires_full_refresh = provider.descriptor().event_capabilities.is_empty();
+            providers.push(ProviderRuntimeState {
+                provider,
+                requires_full_refresh,
+                snapshot: Mutex::new(Vec::new()),
+            });
         }
 
         let desktop = build_desktop_node().map_err(map_desktop_error)?;
 
-        Ok(Self { registry, providers, dispatcher, desktop })
+        let runtime = Self { registry, providers, dispatcher, desktop };
+        runtime.refresh_desktop_nodes(true)?;
+
+        Ok(runtime)
     }
 
     /// Returns a reference to the provider registry (discovered entries including metadata).
@@ -47,7 +63,7 @@ impl Runtime {
 
     /// Returns the instantiated providers in priority order.
     pub fn providers(&self) -> impl Iterator<Item = &Arc<dyn UiTreeProvider>> {
-        self.providers.iter()
+        self.providers.iter().map(|state| &state.provider)
     }
 
     /// Returns providers registered for the given technology identifier.
@@ -57,7 +73,8 @@ impl Runtime {
     ) -> impl Iterator<Item = &'a Arc<dyn UiTreeProvider>> + 'a {
         self.providers
             .iter()
-            .filter(move |provider| provider.descriptor().technology == *technology)
+            .filter(move |state| state.provider.descriptor().technology == *technology)
+            .map(|state| &state.provider)
     }
 
     /// Access to the shared provider event dispatcher.
@@ -76,7 +93,9 @@ impl Runtime {
         node: Option<Arc<dyn UiNode>>,
         xpath: &str,
     ) -> Result<Vec<EvaluationItem>, EvaluateError> {
-        self.refresh_desktop_nodes().map_err(EvaluateError::from)?;
+        if self.providers.iter().any(|state| state.requires_full_refresh) {
+            self.refresh_desktop_nodes(false).map_err(EvaluateError::from)?;
+        }
         evaluate(node, xpath, self.evaluate_options())
     }
 
@@ -101,17 +120,26 @@ impl Runtime {
     /// Invokes shutdown on dispatcher and providers.
     pub fn shutdown(&mut self) {
         self.dispatcher.shutdown();
-        for provider in &self.providers {
-            provider.shutdown();
+        for state in &self.providers {
+            state.provider.shutdown();
         }
     }
 
-    fn refresh_desktop_nodes(&self) -> Result<(), ProviderError> {
-        let mut aggregated: Vec<Arc<dyn UiNode>> = Vec::new();
-        for provider in &self.providers {
+    fn refresh_desktop_nodes(&self, force_all: bool) -> Result<(), ProviderError> {
+        for state in &self.providers {
+            if !force_all && !state.requires_full_refresh {
+                continue;
+            }
             let parent = self.desktop.as_ui_node();
-            let nodes = provider.get_nodes(parent)?.collect::<Vec<_>>();
-            aggregated.extend(nodes);
+            let nodes = state.provider.get_nodes(parent)?.collect::<Vec<_>>();
+            let mut snapshot = state.snapshot.lock().unwrap();
+            *snapshot = nodes;
+        }
+
+        let mut aggregated: Vec<Arc<dyn UiNode>> = Vec::new();
+        for state in &self.providers {
+            let snapshot = state.snapshot.lock().unwrap();
+            aggregated.extend(snapshot.iter().cloned());
         }
         self.desktop.replace_children(aggregated);
         Ok(())

@@ -960,6 +960,7 @@ dependencies = [
 name = "platynui-core"
 version = "0.1.0"
 dependencies = [
+ "bitflags",
  "inventory",
  "once_cell",
  "rstest",
