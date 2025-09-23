@@ -82,11 +82,11 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Provider-Doppelsicht (flach + gruppiert) umgesetzt: Mock-Provider erzeugt Desktop-Alias-Knoten mit eindeutigen Ordnungsschlüsseln, Dokumentation angepasst. Konfigurationsoptionen können später ergänzt werden.
 
 ### 8. CLI `watch` – Ereignisse beobachten
-- [ ] Event-Pipeline der Runtime an CLI anbinden (`watch` lauscht auf `ProviderEventKind` und optional wiederholt Abfragen).
-- [ ] Mock-Provider erweitert Szenarien um Event-Simulation (NodeAdded/Removed/Updated, TreeInvalidated).
-- [ ] CLI und Runtime berücksichtigen `event_capabilities`: Provider ohne Events triggern weiterhin Vollabfragen, Event-fähige Provider laufen über Invalidierung und optionale Folge-Abfragen (`watch --refresh` o. ä.).
-- [ ] CLI-Kommando `watch`: Ausgabe im Streaming-Modus; Optionen für Filter (Namespace, Pattern, RuntimeId).
-- [ ] Tests: Simulierte Eventsequenzen prüfen (z. B. NodeAdded → Query-Ergebnis).
+- [x] Event-Pipeline der Runtime an CLI anbinden (`watch` lauscht auf `ProviderEventKind`, kann optional Folgeabfragen auslösen).
+- [x] Mock-Provider erweitert Szenarien um Event-Simulation (`emit_event`, `emit_node_updated`, initiales `TreeInvalidated`).
+- [x] Runtime respektiert `event_capabilities`: Event-fähige Provider markieren Snapshots als „dirty“, ereignislose Provider lösen weiterhin Vollabfragen aus.
+- [x] CLI-Kommando `watch`: Streaming-Ausgabe (Text/JSON) mit Filtern (`--namespace`, `--pattern`, `--runtime-id`) sowie optionaler XPath-Nachabfrage (`--expression`) und `--limit` für Tests.
+- [x] Tests: Simulierte Eventsequenzen (TreeInvalidated + NodeUpdated) prüfen Ausgabe in Text/JSON-Format.
 
 ### 9. CLI `highlight`
 - [ ] `HighlightProvider` in `platynui-core` finalisieren.

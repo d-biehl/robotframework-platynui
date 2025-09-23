@@ -1,10 +1,14 @@
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use platynui_core::platform::{
     DesktopInfo, MonitorInfo, PlatformError, PlatformErrorKind, desktop_info_providers,
 };
-use platynui_core::provider::{ProviderError, ProviderErrorKind, ProviderEvent, UiTreeProvider};
+use platynui_core::provider::{
+    ProviderError, ProviderErrorKind, ProviderEvent, ProviderEventKind, ProviderEventListener,
+    UiTreeProvider,
+};
 use platynui_core::types::Rect;
 use platynui_core::ui::attribute_names;
 use platynui_core::ui::identifiers::TechnologyId;
@@ -20,7 +24,7 @@ use crate::{EvaluateError, EvaluateOptions, EvaluationItem, evaluate};
 /// Central orchestrator that owns provider instances and the provider event dispatcher.
 pub struct Runtime {
     registry: ProviderRegistry,
-    providers: Vec<ProviderRuntimeState>,
+    providers: Vec<Arc<ProviderRuntimeState>>,
     dispatcher: Arc<ProviderEventDispatcher>,
     desktop: Arc<DesktopNode>,
 }
@@ -29,6 +33,62 @@ struct ProviderRuntimeState {
     provider: Arc<dyn UiTreeProvider>,
     requires_full_refresh: bool,
     snapshot: Mutex<Vec<Arc<dyn UiNode>>>,
+    dirty: AtomicBool,
+}
+
+impl ProviderRuntimeState {
+    fn new(provider: Arc<dyn UiTreeProvider>, requires_full_refresh: bool) -> Self {
+        Self {
+            provider,
+            requires_full_refresh,
+            snapshot: Mutex::new(Vec::new()),
+            dirty: AtomicBool::new(true),
+        }
+    }
+
+    fn provider(&self) -> &Arc<dyn UiTreeProvider> {
+        &self.provider
+    }
+
+    fn mark_dirty(&self) {
+        if !self.requires_full_refresh {
+            self.dirty.store(true, Ordering::SeqCst);
+        }
+    }
+
+    fn take_dirty(&self) -> bool {
+        if self.requires_full_refresh {
+            return true;
+        }
+        self.dirty.swap(false, Ordering::SeqCst)
+    }
+
+    fn reset_dirty(&self) {
+        if !self.requires_full_refresh {
+            self.dirty.store(false, Ordering::SeqCst);
+        }
+    }
+}
+
+struct RuntimeEventListener {
+    dispatcher: Arc<ProviderEventDispatcher>,
+    state: Arc<ProviderRuntimeState>,
+}
+
+impl RuntimeEventListener {
+    fn new(dispatcher: Arc<ProviderEventDispatcher>, state: Arc<ProviderRuntimeState>) -> Self {
+        Self { dispatcher, state }
+    }
+}
+
+impl ProviderEventListener for RuntimeEventListener {
+    fn on_event(&self, event: ProviderEvent) {
+        self.state.mark_dirty();
+        if let ProviderEventKind::NodeUpdated { node } = &event.kind {
+            node.invalidate();
+        }
+        self.dispatcher.on_event(event);
+    }
 }
 
 impl Runtime {
@@ -39,13 +99,11 @@ impl Runtime {
         let provider_instances = registry.instantiate_all()?;
         let mut providers = Vec::with_capacity(provider_instances.len());
         for provider in provider_instances {
-            provider.subscribe_events(dispatcher.clone())?;
-            let requires_full_refresh = provider.descriptor().event_capabilities.is_empty();
-            providers.push(ProviderRuntimeState {
-                provider,
-                requires_full_refresh,
-                snapshot: Mutex::new(Vec::new()),
-            });
+            let requires_full_refresh = provider.descriptor().event_capabilities().is_empty();
+            let state = Arc::new(ProviderRuntimeState::new(provider, requires_full_refresh));
+            let listener = Arc::new(RuntimeEventListener::new(dispatcher.clone(), state.clone()));
+            state.provider().subscribe_events(listener)?;
+            providers.push(state);
         }
 
         let desktop = build_desktop_node().map_err(map_desktop_error)?;
@@ -63,7 +121,7 @@ impl Runtime {
 
     /// Returns the instantiated providers in priority order.
     pub fn providers(&self) -> impl Iterator<Item = &Arc<dyn UiTreeProvider>> {
-        self.providers.iter().map(|state| &state.provider)
+        self.providers.iter().map(|state| state.provider())
     }
 
     /// Returns providers registered for the given technology identifier.
@@ -73,8 +131,8 @@ impl Runtime {
     ) -> impl Iterator<Item = &'a Arc<dyn UiTreeProvider>> + 'a {
         self.providers
             .iter()
-            .filter(move |state| state.provider.descriptor().technology == *technology)
-            .map(|state| &state.provider)
+            .filter(move |state| state.provider().descriptor().technology == *technology)
+            .map(|state| state.provider())
     }
 
     /// Access to the shared provider event dispatcher.
@@ -93,9 +151,7 @@ impl Runtime {
         node: Option<Arc<dyn UiNode>>,
         xpath: &str,
     ) -> Result<Vec<EvaluationItem>, EvaluateError> {
-        if self.providers.iter().any(|state| state.requires_full_refresh) {
-            self.refresh_desktop_nodes(false).map_err(EvaluateError::from)?;
-        }
+        self.refresh_desktop_nodes(false).map_err(EvaluateError::from)?;
         evaluate(node, xpath, self.evaluate_options())
     }
 
@@ -121,19 +177,20 @@ impl Runtime {
     pub fn shutdown(&mut self) {
         self.dispatcher.shutdown();
         for state in &self.providers {
-            state.provider.shutdown();
+            state.provider().shutdown();
         }
     }
 
     fn refresh_desktop_nodes(&self, force_all: bool) -> Result<(), ProviderError> {
         for state in &self.providers {
-            if !force_all && !state.requires_full_refresh {
+            if !force_all && !state.take_dirty() {
                 continue;
             }
             let parent = self.desktop.as_ui_node();
-            let nodes = state.provider.get_nodes(parent)?.collect::<Vec<_>>();
+            let nodes = state.provider().get_nodes(parent)?.collect::<Vec<_>>();
             let mut snapshot = state.snapshot.lock().unwrap();
             *snapshot = nodes;
+            state.reset_dirty();
         }
 
         let mut aggregated: Vec<Arc<dyn UiNode>> = Vec::new();

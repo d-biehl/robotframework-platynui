@@ -558,6 +558,26 @@ mod expectation_tests {
             }),
             Arc::new(StaticAttribute {
                 namespace: Namespace::Control,
+                name: "Bounds.X",
+                value: UiValue::from(0.0),
+            }),
+            Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: "Bounds.Y",
+                value: UiValue::from(0.0),
+            }),
+            Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: "Bounds.Width",
+                value: UiValue::from(10.0),
+            }),
+            Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: "Bounds.Height",
+                value: UiValue::from(5.0),
+            }),
+            Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
                 name: element::IS_VISIBLE,
                 value: UiValue::from(true),
             }),
@@ -622,6 +642,26 @@ mod expectation_tests {
                 namespace: Namespace::Control,
                 name: element::BOUNDS,
                 value: UiValue::Rect(Rect::new(0.0, 0.0, 10.0, 5.0)),
+            }))
+            .with_attribute(Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: "Bounds.X",
+                value: UiValue::from(0.0),
+            }))
+            .with_attribute(Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: "Bounds.Y",
+                value: UiValue::from(0.0),
+            }))
+            .with_attribute(Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: "Bounds.Width",
+                value: UiValue::from(10.0),
+            }))
+            .with_attribute(Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: "Bounds.Height",
+                value: UiValue::from(5.0),
             }))
             .with_attribute(Arc::new(StaticAttribute {
                 namespace: Namespace::Control,

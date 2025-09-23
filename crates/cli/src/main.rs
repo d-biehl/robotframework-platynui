@@ -1,14 +1,18 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use platynui_core::platform::{DesktopInfo, MonitorInfo};
-use platynui_core::provider::{ProviderError, ProviderKind};
+use platynui_core::provider::{ProviderError, ProviderEvent, ProviderEventKind, ProviderKind};
 use platynui_core::types::Rect;
-use platynui_core::ui::{Namespace, PatternId, UiValue};
+use platynui_core::ui::{Namespace, PatternId, UiNode, UiValue};
+use platynui_runtime::provider::event::ProviderEventSink;
 use platynui_runtime::{EvaluateError, EvaluationItem, Runtime};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Write;
+use std::io::{self, Write as IoWrite};
 use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::mpsc;
 
 #[allow(unused_imports)]
 use platynui_platform_mock as _;
@@ -46,6 +50,21 @@ enum Commands {
         patterns: Vec<String>,
         #[arg(long = "format", value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
+    },
+    #[command(name = "watch", about = "Watch provider events.")]
+    Watch {
+        #[arg(long = "format", value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
+        #[arg(long = "namespace")]
+        namespaces: Vec<String>,
+        #[arg(long = "pattern")]
+        patterns: Vec<String>,
+        #[arg(long = "runtime-id")]
+        runtime_ids: Vec<String>,
+        #[arg(long = "expression")]
+        expression: Option<String>,
+        #[arg(long = "limit")]
+        limit: Option<usize>,
     },
 }
 
@@ -92,7 +111,7 @@ struct AttributeSummary {
     value: UiValue,
 }
 
-#[derive(Serialize, Debug, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 #[serde(tag = "type")]
 enum QueryItemSummary {
     Node {
@@ -119,6 +138,15 @@ struct QueryArgs<'a> {
     format: OutputFormat,
     namespaces: &'a [String],
     patterns: &'a [String],
+}
+
+struct WatchArgs<'a> {
+    format: OutputFormat,
+    namespaces: &'a [String],
+    patterns: &'a [String],
+    runtime_ids: &'a [String],
+    expression: Option<&'a str>,
+    limit: Option<usize>,
 }
 
 fn main() {
@@ -150,6 +178,17 @@ fn run() -> CliResult<()> {
             };
             let output = handle_query(&runtime, args)?;
             println!("{output}");
+        }
+        Commands::Watch { format, namespaces, patterns, runtime_ids, expression, limit } => {
+            let args = WatchArgs {
+                format,
+                namespaces: &namespaces,
+                patterns: &patterns,
+                runtime_ids: &runtime_ids,
+                expression: expression.as_deref(),
+                limit,
+            };
+            handle_watch(&mut runtime, args)?;
         }
     }
 
@@ -290,30 +329,7 @@ fn summarize_query_results(
                     return None;
                 }
 
-                let supported_patterns =
-                    node.supported_patterns().iter().map(|id| id.as_str().to_owned()).collect();
-
-                let mut attributes: Vec<AttributeSummary> = node
-                    .attributes()
-                    .map(|attribute| AttributeSummary {
-                        namespace: attribute.namespace().as_str().to_owned(),
-                        name: attribute.name().to_owned(),
-                        value: attribute.value(),
-                    })
-                    .collect();
-                attributes.sort_by(|lhs, rhs| {
-                    (lhs.namespace.as_str(), lhs.name.as_str())
-                        .cmp(&(rhs.namespace.as_str(), rhs.name.as_str()))
-                });
-
-                Some(QueryItemSummary::Node {
-                    runtime_id: node.runtime_id().as_str().to_owned(),
-                    namespace: namespace.as_str().to_owned(),
-                    role: node.role().to_owned(),
-                    name: node.name().to_owned(),
-                    supported_patterns,
-                    attributes,
-                })
+                Some(node_to_query_summary(node))
             }
             EvaluationItem::Attribute(attr) => {
                 if let Some(filters) = namespace_filters
@@ -339,8 +355,124 @@ fn summarize_query_results(
         .collect()
 }
 
+fn node_to_query_summary(node: Arc<dyn UiNode>) -> QueryItemSummary {
+    let namespace = node.namespace();
+    let supported_patterns =
+        node.supported_patterns().iter().map(|id| id.as_str().to_owned()).collect();
+
+    let mut attributes: Vec<AttributeSummary> = node
+        .attributes()
+        .map(|attribute| AttributeSummary {
+            namespace: attribute.namespace().as_str().to_owned(),
+            name: attribute.name().to_owned(),
+            value: attribute.value(),
+        })
+        .collect();
+    attributes.sort_by(|lhs, rhs| {
+        (lhs.namespace.as_str(), lhs.name.as_str())
+            .cmp(&(rhs.namespace.as_str(), rhs.name.as_str()))
+    });
+
+    QueryItemSummary::Node {
+        runtime_id: node.runtime_id().as_str().to_owned(),
+        namespace: namespace.as_str().to_owned(),
+        role: node.role().to_owned(),
+        name: node.name().to_owned(),
+        supported_patterns,
+        attributes,
+    }
+}
+
 fn matches_pattern_filter(patterns: &[PatternId], filters: &HashSet<String>) -> bool {
     filters.iter().all(|pattern| patterns.iter().any(|id| id.as_str() == pattern))
+}
+
+fn handle_watch(runtime: &mut Runtime, args: WatchArgs) -> CliResult<()> {
+    let mut stdout = io::stdout();
+    handle_watch_with_writer(runtime, args, &mut stdout)
+}
+
+fn handle_watch_with_writer<W: IoWrite>(
+    runtime: &mut Runtime,
+    args: WatchArgs,
+    writer: &mut W,
+) -> CliResult<()> {
+    handle_watch_with_writer_internal(runtime, args, writer, || {})
+}
+
+fn handle_watch_with_writer_internal<W, F>(
+    runtime: &mut Runtime,
+    args: WatchArgs,
+    writer: &mut W,
+    after_register: F,
+) -> CliResult<()>
+where
+    W: IoWrite,
+    F: FnOnce(),
+{
+    let namespace_filters = parse_namespace_filters(args.namespaces)?;
+    let pattern_filters = if args.patterns.is_empty() {
+        None
+    } else {
+        Some(args.patterns.iter().cloned().collect::<HashSet<_>>())
+    };
+    let runtime_filters = if args.runtime_ids.is_empty() {
+        None
+    } else {
+        Some(args.runtime_ids.iter().cloned().collect::<HashSet<_>>())
+    };
+
+    let filters = WatchFilters::new(namespace_filters, pattern_filters, runtime_filters);
+    let (sender, receiver) = mpsc::channel::<ProviderEvent>();
+    let sink = Arc::new(ChannelSink::new(sender));
+    runtime.register_event_sink(sink);
+    after_register();
+
+    let limit = args.limit.unwrap_or(usize::MAX);
+    if limit == 0 {
+        return Ok(());
+    }
+
+    let expression = args.expression;
+    let mut processed = 0usize;
+
+    while processed < limit {
+        let event =
+            receiver.recv().map_err(|err| format!("failed to receive provider event: {err}"))?;
+
+        if !filters.matches(&event.kind) {
+            continue;
+        }
+
+        let summary = watch_event_summary(&event);
+        let query_results = if let Some(expr) = expression {
+            let results = runtime.evaluate(None, expr).map_err(map_evaluate_error)?;
+            Some(summarize_query_results(
+                results,
+                filters.namespace_filters(),
+                filters.pattern_filters(),
+            ))
+        } else {
+            None
+        };
+
+        match args.format {
+            OutputFormat::Text => {
+                let text = render_watch_text(&summary, query_results.as_deref());
+                writeln!(writer, "{}", text)
+                    .map_err(|err| format!("failed to write output: {err}"))?;
+            }
+            OutputFormat::Json => {
+                let json = render_watch_json(&summary, query_results.as_deref())?;
+                writeln!(writer, "{}", json)
+                    .map_err(|err| format!("failed to write output: {err}"))?;
+            }
+        }
+
+        processed += 1;
+    }
+
+    Ok(())
 }
 
 fn render_query_text(items: &[QueryItemSummary]) -> String {
@@ -402,6 +534,215 @@ fn render_query_text(items: &[QueryItemSummary]) -> String {
 
 fn render_query_json(items: &[QueryItemSummary]) -> CliResult<String> {
     Ok(serde_json::to_string_pretty(items)?)
+}
+
+#[derive(Clone)]
+struct WatchFilters {
+    namespaces: Option<HashSet<Namespace>>,
+    patterns: Option<HashSet<String>>,
+    runtime_ids: Option<HashSet<String>>,
+}
+
+impl WatchFilters {
+    fn new(
+        namespaces: Option<HashSet<Namespace>>,
+        patterns: Option<HashSet<String>>,
+        runtime_ids: Option<HashSet<String>>,
+    ) -> Self {
+        Self { namespaces, patterns, runtime_ids }
+    }
+
+    fn matches(&self, event: &ProviderEventKind) -> bool {
+        match event {
+            ProviderEventKind::NodeAdded { parent, node } => {
+                if let Some(filters) = &self.runtime_ids {
+                    let runtime_id = node.runtime_id().as_str();
+                    let parent_match =
+                        parent.as_ref().map(|id| filters.contains(id.as_str())).unwrap_or(false);
+                    if !filters.contains(runtime_id) && !parent_match {
+                        return false;
+                    }
+                }
+                self.matches_node(node)
+            }
+            ProviderEventKind::NodeUpdated { node } => self.matches_node(node),
+            ProviderEventKind::NodeRemoved { runtime_id } => {
+                if let Some(filters) = &self.runtime_ids {
+                    filters.contains(runtime_id.as_str())
+                } else {
+                    true
+                }
+            }
+            ProviderEventKind::TreeInvalidated => true,
+        }
+    }
+
+    fn matches_node(&self, node: &Arc<dyn UiNode>) -> bool {
+        if let Some(filters) = &self.runtime_ids
+            && !filters.contains(node.runtime_id().as_str())
+        {
+            return false;
+        }
+
+        if let Some(filters) = &self.namespaces
+            && !filters.contains(&node.namespace())
+        {
+            return false;
+        }
+
+        if let Some(filters) = &self.patterns
+            && !matches_pattern_filter(node.supported_patterns(), filters)
+        {
+            return false;
+        }
+
+        true
+    }
+
+    fn namespace_filters(&self) -> Option<&HashSet<Namespace>> {
+        self.namespaces.as_ref()
+    }
+
+    fn pattern_filters(&self) -> Option<&HashSet<String>> {
+        self.patterns.as_ref()
+    }
+}
+
+struct ChannelSink {
+    sender: mpsc::Sender<ProviderEvent>,
+}
+
+impl ChannelSink {
+    fn new(sender: mpsc::Sender<ProviderEvent>) -> Self {
+        Self { sender }
+    }
+}
+
+impl ProviderEventSink for ChannelSink {
+    fn dispatch(&self, event: ProviderEvent) {
+        let _ = self.sender.send(event);
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct WatchEventSummary {
+    event: String,
+    runtime_id: Option<String>,
+    parent_runtime_id: Option<String>,
+    node: Option<QueryItemSummary>,
+}
+
+#[derive(Serialize)]
+struct WatchEventJson {
+    event: String,
+    runtime_id: Option<String>,
+    parent_runtime_id: Option<String>,
+    node: Option<QueryItemSummary>,
+    query_results: Option<Vec<QueryItemSummary>>,
+}
+
+fn watch_event_summary(event: &ProviderEvent) -> WatchEventSummary {
+    match &event.kind {
+        ProviderEventKind::NodeAdded { parent, node } => WatchEventSummary {
+            event: "NodeAdded".to_string(),
+            runtime_id: Some(node.runtime_id().as_str().to_owned()),
+            parent_runtime_id: parent.as_ref().map(|id| id.as_str().to_owned()),
+            node: Some(node_to_query_summary(Arc::clone(node))),
+        },
+        ProviderEventKind::NodeUpdated { node } => WatchEventSummary {
+            event: "NodeUpdated".to_string(),
+            runtime_id: Some(node.runtime_id().as_str().to_owned()),
+            parent_runtime_id: None,
+            node: Some(node_to_query_summary(Arc::clone(node))),
+        },
+        ProviderEventKind::NodeRemoved { runtime_id } => WatchEventSummary {
+            event: "NodeRemoved".to_string(),
+            runtime_id: Some(runtime_id.as_str().to_owned()),
+            parent_runtime_id: None,
+            node: None,
+        },
+        ProviderEventKind::TreeInvalidated => WatchEventSummary {
+            event: "TreeInvalidated".to_string(),
+            runtime_id: None,
+            parent_runtime_id: None,
+            node: None,
+        },
+    }
+}
+
+fn render_watch_text(
+    summary: &WatchEventSummary,
+    query_results: Option<&[QueryItemSummary]>,
+) -> String {
+    let mut sections: Vec<String> = Vec::new();
+
+    match (&summary.event[..], &summary.runtime_id, &summary.parent_runtime_id, &summary.node) {
+        ("NodeAdded", runtime_id, parent, node) => {
+            let mut header = String::from("Event NodeAdded");
+            if let Some(id) = runtime_id {
+                header.push_str(&format!(" runtime_id=\"{}\"", id));
+            }
+            if let Some(parent_id) = parent {
+                header.push_str(&format!(" parent=\"{}\"", parent_id));
+            }
+            sections.push(header);
+            if let Some(node_summary) = node {
+                let node_text = render_query_text(std::slice::from_ref(node_summary));
+                if !node_text.is_empty() {
+                    sections.push(node_text);
+                }
+            }
+        }
+        ("NodeUpdated", runtime_id, _, node) => {
+            let mut header = String::from("Event NodeUpdated");
+            if let Some(id) = runtime_id {
+                header.push_str(&format!(" runtime_id=\"{}\"", id));
+            }
+            sections.push(header);
+            if let Some(node_summary) = node {
+                let node_text = render_query_text(std::slice::from_ref(node_summary));
+                if !node_text.is_empty() {
+                    sections.push(node_text);
+                }
+            }
+        }
+        ("NodeRemoved", runtime_id, _, _) => {
+            let mut header = String::from("Event NodeRemoved");
+            if let Some(id) = runtime_id {
+                header.push_str(&format!(" runtime_id=\"{}\"", id));
+            }
+            sections.push(header);
+        }
+        ("TreeInvalidated", _, _, _) => {
+            sections.push("Event TreeInvalidated".to_string());
+        }
+        _ => {}
+    }
+
+    if let Some(results) = query_results {
+        sections.push("-- Query Results --".to_string());
+        if results.is_empty() {
+            sections.push("(empty)".to_string());
+        } else {
+            sections.push(render_query_text(results));
+        }
+    }
+
+    sections.join("\n")
+}
+
+fn render_watch_json(
+    summary: &WatchEventSummary,
+    query_results: Option<&[QueryItemSummary]>,
+) -> CliResult<String> {
+    let payload = WatchEventJson {
+        event: summary.event.clone(),
+        runtime_id: summary.runtime_id.clone(),
+        parent_runtime_id: summary.parent_runtime_id.clone(),
+        node: summary.node.clone(),
+        query_results: query_results.map(|items| items.to_vec()),
+    };
+    Ok(serde_json::to_string(&payload)?)
 }
 
 fn capitalize_namespace(ns: &str) -> String {
@@ -648,5 +989,54 @@ mod tests {
         let output = handle_query(&runtime, args).expect("query");
         runtime.shutdown();
         assert!(output.trim().is_empty());
+    }
+
+    #[rstest]
+    fn watch_text_streams_events() {
+        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+        let args = WatchArgs {
+            format: OutputFormat::Text,
+            namespaces: &[],
+            patterns: &[],
+            runtime_ids: &[],
+            expression: None,
+            limit: Some(1),
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+
+        handle_watch_with_writer_internal(&mut runtime, args, &mut buffer, || {
+            platynui_provider_mock::emit_node_updated("mock://button/ok");
+        })
+        .expect("watch");
+        runtime.shutdown();
+
+        let output = String::from_utf8(buffer).expect("utf8");
+        assert!(output.contains("NodeUpdated"));
+        assert!(output.contains("mock://button/ok"));
+    }
+
+    #[rstest]
+    fn watch_json_produces_serializable_payload() {
+        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+        let args = WatchArgs {
+            format: OutputFormat::Json,
+            namespaces: &[],
+            patterns: &[],
+            runtime_ids: &[],
+            expression: None,
+            limit: Some(1),
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+
+        handle_watch_with_writer_internal(&mut runtime, args, &mut buffer, || {
+            platynui_provider_mock::emit_event(ProviderEventKind::TreeInvalidated);
+        })
+        .expect("watch");
+        runtime.shutdown();
+
+        let output = String::from_utf8(buffer).expect("utf8");
+        let line = output.lines().next().expect("line");
+        let value: serde_json::Value = serde_json::from_str(line).expect("json");
+        assert_eq!(value["event"], "TreeInvalidated");
     }
 }

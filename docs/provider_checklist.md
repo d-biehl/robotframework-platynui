@@ -23,6 +23,7 @@
 - [ ] Bereitgestellte Attribute stimmen mit den ClientPattern-Anforderungen aus `docs/patterns.md` überein (Bezeichner in PascalCase, Wertebereiche, optional vs. Pflichtfelder). Das Core-Testkit `platynui_core::ui::contract::testkit` prüft diese Zuordnung automatisiert – Provider sollten die erwarteten Konstanten (`platynui_core::ui::attribute_names`) wiederverwenden.
 - [ ] Geometrie-Aliaswerte (`Bounds.X`, `Bounds.Width`, `ActivationPoint.X`, `ActivationPoint.Y` …), sofern geliefert, spiegeln die zugrunde liegenden `Rect`-/`Point`-Attribute wider. Das Contract-Testkit meldet Abweichungen; unterschiedliche Werte gelten als Fehler.
 - [ ] `UiTreeProvider::subscribe_events(listener)` implementiert den Event-Weg: Sobald die Runtime (oder ein anderer Host) einen Listener registriert, liefert der Provider zukünftige Baumereignisse über diesen Kanal.
+- [ ] Optional, aber empfohlen: Beim Registrieren eines Listeners ein initiales `TreeInvalidated` senden, damit Konsumenten (Runtime, CLI `watch`) unmittelbar einen konsistenten Refresh auslösen können.
 - [ ] `Role` entspricht dem normalisierten Namen (lokaler Name im Namespace `control` oder `item`), die native Rolle liegt zusätzlich unter `native:Role` (oder äquivalenten Feldern).
 - [ ] Meldet ein Element das Pattern `ActivationTarget`, liefert es `ActivationPoint` (Desktop-Koordinaten, ggf. Fallback auf Rechteckzentrum) und optional `ActivationArea`.
 - [ ] `Technology` ist für jede `UiNode` gesetzt (`UIAutomation`, `AT-SPI`, `AX`, `JSONRPC`, ...).

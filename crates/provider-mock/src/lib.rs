@@ -11,7 +11,8 @@ use std::fmt;
 use std::sync::{Arc, LazyLock, Mutex, RwLock, Weak};
 
 use platynui_core::provider::{
-    ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory,
+    ProviderDescriptor, ProviderError, ProviderEvent, ProviderEventCapabilities, ProviderEventKind,
+    ProviderEventListener, ProviderKind, UiTreeProvider, UiTreeProviderFactory,
 };
 use platynui_core::register_provider;
 use platynui_core::types::{Point, Rect};
@@ -50,6 +51,7 @@ impl MockProviderFactory {
                 TechnologyId::from(TECHNOLOGY),
                 ProviderKind::Native,
             )
+            .with_event_capabilities(ProviderEventCapabilities::STRUCTURE_WITH_PROPERTIES)
         });
         &DESCRIPTOR
     }
@@ -62,6 +64,7 @@ impl UiTreeProviderFactory for MockProviderFactory {
 
     fn create(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
         let provider: Arc<MockProvider> = Arc::new(MockProvider::new(Self::descriptor_static()));
+        register_active_instance(&provider);
         Ok(provider)
     }
 }
@@ -71,12 +74,13 @@ struct MockProvider {
     roots: Vec<Arc<MockNode>>,
     flat_nodes: Vec<Arc<MockNode>>,
     nodes: HashMap<String, Arc<MockNode>>,
+    listeners: RwLock<Vec<Arc<dyn ProviderEventListener>>>,
 }
 
 impl MockProvider {
     fn new(descriptor: &'static ProviderDescriptor) -> Self {
         let (roots, flat_nodes, nodes) = tree::instantiate_nodes(descriptor);
-        Self { descriptor, roots, flat_nodes, nodes }
+        Self { descriptor, roots, flat_nodes, nodes, listeners: RwLock::new(Vec::new()) }
     }
 
     fn children_for_parent(&self, parent: &Arc<dyn UiNode>) -> Vec<Arc<MockNode>> {
@@ -91,6 +95,17 @@ impl MockProvider {
             nodes
         } else {
             Vec::new()
+        }
+    }
+
+    fn notify_listeners(&self, event: ProviderEventKind) {
+        let snapshot = {
+            let listeners = self.listeners.read().unwrap();
+            listeners.clone()
+        };
+        let event = ProviderEvent { kind: event };
+        for listener in snapshot {
+            listener.on_event(event.clone());
         }
     }
 }
@@ -111,6 +126,15 @@ impl UiTreeProvider for MockProvider {
         }
 
         Ok(Box::new(children.into_iter().map(|child| -> Arc<dyn UiNode> { child })))
+    }
+
+    fn subscribe_events(
+        &self,
+        listener: Arc<dyn ProviderEventListener>,
+    ) -> Result<(), ProviderError> {
+        listener.on_event(ProviderEvent { kind: ProviderEventKind::TreeInvalidated });
+        self.listeners.write().unwrap().push(listener);
+        Ok(())
     }
 }
 
@@ -242,6 +266,53 @@ impl UiNode for MockNode {
     }
 
     fn invalidate(&self) {}
+}
+
+/// Global registry of active provider instances so tests/CLI can emit mock events.
+static ACTIVE_PROVIDERS: LazyLock<RwLock<Vec<Weak<MockProvider>>>> =
+    LazyLock::new(|| RwLock::new(Vec::new()));
+
+fn register_active_instance(provider: &Arc<MockProvider>) {
+    let weak = Arc::downgrade(provider);
+    let mut list = ACTIVE_PROVIDERS.write().unwrap();
+    list.retain(|weak_provider| weak_provider.upgrade().is_some());
+    list.push(weak);
+}
+
+fn active_providers() -> Vec<Arc<MockProvider>> {
+    let mut list = ACTIVE_PROVIDERS.write().unwrap();
+    list.retain(|weak_provider| weak_provider.upgrade().is_some());
+    list.iter().filter_map(|weak_provider| weak_provider.upgrade()).collect()
+}
+
+/// Emits an event to all active mock provider instances without mutating the tree.
+pub fn emit_event(event: ProviderEventKind) {
+    for provider in active_providers() {
+        provider.notify_listeners(event.clone());
+    }
+}
+
+/// Emits a node-updated event for the given runtime id, cloning the current node state.
+pub fn emit_node_updated(runtime_id: &str) {
+    for provider in active_providers() {
+        if let Some(node) = provider.nodes.get(runtime_id) {
+            let node_clone = Arc::clone(node);
+            let node_trait: Arc<dyn UiNode> = node_clone;
+            provider.notify_listeners(ProviderEventKind::NodeUpdated { node: node_trait });
+        }
+    }
+}
+
+/// Returns a clone of the current node for the provided runtime id, if available.
+pub fn node_by_runtime_id(runtime_id: &str) -> Option<Arc<dyn UiNode>> {
+    for provider in active_providers() {
+        if let Some(node) = provider.nodes.get(runtime_id) {
+            let node_clone = Arc::clone(node);
+            let node_trait: Arc<dyn UiNode> = node_clone;
+            return Some(node_trait);
+        }
+    }
+    None
 }
 
 pub mod tree {
