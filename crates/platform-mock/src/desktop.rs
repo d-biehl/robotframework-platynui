@@ -52,7 +52,7 @@ impl DesktopInfoProvider for MockPlatform {
         };
 
         Ok(DesktopInfo {
-            runtime_id: RuntimeId::from("mock-desktop"),
+            runtime_id: RuntimeId::from("mock://desktop"),
             name: "Mock Desktop".into(),
             technology: TechnologyId::from("MockPlatform"),
             bounds: desktop_bounds,

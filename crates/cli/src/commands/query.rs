@@ -1,6 +1,7 @@
 use crate::OutputFormat;
 use crate::util::{CliResult, map_evaluate_error, parse_namespace_filters};
 use clap::Args;
+use owo_colors::{OwoColorize, Stream};
 use platynui_core::ui::{Namespace, PatternId, UiNode, UiValue};
 use platynui_runtime::{EvaluationItem, Runtime};
 use serde::Serialize;
@@ -40,6 +41,9 @@ pub enum QueryItemSummary {
     },
     Attribute {
         owner_runtime_id: String,
+        owner_namespace: String,
+        owner_role: String,
+        owner_name: String,
         namespace: String,
         name: String,
         value: UiValue,
@@ -103,6 +107,9 @@ pub(crate) fn summarize_query_results(
 
                 Some(QueryItemSummary::Attribute {
                     owner_runtime_id: attr.owner.runtime_id().as_str().to_owned(),
+                    owner_namespace: attr.owner.namespace().as_str().to_owned(),
+                    owner_role: attr.owner.role().to_owned(),
+                    owner_name: attr.owner.name().to_owned(),
                     namespace: attr.namespace.as_str().to_owned(),
                     name: attr.name.clone(),
                     value: attr.value.clone(),
@@ -156,9 +163,42 @@ fn format_attribute_value(value: &UiValue) -> String {
         UiValue::Bool(b) => b.to_string(),
         UiValue::Integer(i) => i.to_string(),
         UiValue::Number(n) => format!("{n}"),
-        UiValue::String(text) => text.clone(),
+        UiValue::String(text) => serde_json::to_string(text)
+            .unwrap_or_else(|_| format!("\"{}\"", text.replace('"', "\\\""))),
         _ => serde_json::to_string(value).unwrap_or_else(|_| String::from("<value>")),
     }
+}
+
+fn format_namespace_prefix(namespace: &str) -> String {
+    if namespace == Namespace::Control.as_str() { String::new() } else { format!("{namespace}:") }
+}
+
+fn format_node_label(namespace: &str, role: &str, name: &str) -> String {
+    let prefix = format_namespace_prefix(namespace);
+    if name.is_empty() { format!("{prefix}{role}") } else { format!("{prefix}{role} \"{name}\"") }
+}
+
+fn colorize_node_label(label: &str) -> String {
+    label
+        .if_supports_color(Stream::Stdout, |text| text.bold().fg_rgb::<79, 166, 255>().to_string())
+        .to_string()
+}
+
+fn colorize_attribute_name(namespace_prefix: &str, name: &str) -> String {
+    let rendered = format!("@{namespace_prefix}{name}");
+    rendered
+        .if_supports_color(Stream::Stdout, |text| text.bold().fg_rgb::<241, 149, 255>().to_string())
+        .to_string()
+}
+
+fn colorize_attribute_value(value: &str) -> String {
+    value
+        .if_supports_color(Stream::Stdout, |text| text.fg_rgb::<136, 192, 74>().to_string())
+        .to_string()
+}
+
+fn colorize_owner_label(label: &str) -> String {
+    label.if_supports_color(Stream::Stdout, |text| text.dimmed().to_string()).to_string()
 }
 
 pub(crate) fn render_query_text(items: &[QueryItemSummary]) -> String {
@@ -166,36 +206,52 @@ pub(crate) fn render_query_text(items: &[QueryItemSummary]) -> String {
     for item in items {
         match item {
             QueryItemSummary::Node {
-                runtime_id,
+                runtime_id: _,
                 namespace,
                 role,
                 name,
-                supported_patterns,
+                supported_patterns: _,
                 attributes,
             } => {
-                let _ = writeln!(
-                    &mut output,
-                    "{namespace}:{role} ({runtime_id}) \"{name}\" patterns={:?}",
-                    supported_patterns
-                );
+                let node_label =
+                    format_node_label(namespace.as_str(), role.as_str(), name.as_str());
+                let colored_node_label = colorize_node_label(&node_label);
+                let _ = writeln!(&mut output, "{colored_node_label}");
                 for attribute in attributes {
                     let value = format_attribute_value(&attribute.value);
-                    let _ = writeln!(
-                        &mut output,
-                        "  @{}:{} = {}",
-                        attribute.namespace, attribute.name, value
-                    );
+                    let attribute_namespace = format_namespace_prefix(attribute.namespace.as_str());
+                    let colored_name =
+                        colorize_attribute_name(&attribute_namespace, &attribute.name);
+                    let colored_value = colorize_attribute_value(&value);
+                    let _ = writeln!(&mut output, "    {colored_name} = {colored_value}",);
                 }
             }
-            QueryItemSummary::Attribute { owner_runtime_id, namespace, name, value } => {
-                let _ = writeln!(
-                    &mut output,
-                    "@{namespace}:{name} of {owner_runtime_id} = {}",
-                    format_attribute_value(value)
+            QueryItemSummary::Attribute {
+                owner_runtime_id: _,
+                owner_namespace,
+                owner_role,
+                owner_name,
+                namespace,
+                name,
+                value,
+            } => {
+                let attribute_namespace = format_namespace_prefix(namespace.as_str());
+                let owner_label = format_node_label(
+                    owner_namespace.as_str(),
+                    owner_role.as_str(),
+                    owner_name.as_str(),
                 );
+                let colored_owner = colorize_owner_label(&owner_label);
+                let colored_name = colorize_attribute_name(&attribute_namespace, name);
+                let value_text = format_attribute_value(value);
+                let colored_value = colorize_attribute_value(&value_text);
+                let _ =
+                    writeln!(&mut output, "{colored_name} = {colored_value} ({colored_owner})",);
             }
             QueryItemSummary::Value { value } => {
-                let _ = writeln!(&mut output, "{}", format_attribute_value(value));
+                let plain = format_attribute_value(value);
+                let colored = colorize_attribute_value(&plain);
+                let _ = writeln!(&mut output, "{colored}");
             }
         }
     }
@@ -224,7 +280,9 @@ mod tests {
             format: OutputFormat::Text,
         };
         let output = run(&runtime, &args).expect("query");
-        assert!(output.contains("control:Button"));
+        assert!(output.contains("Button \""));
+        assert!(!output.contains("control:Button"));
+        assert!(!output.contains("mock://desktop"));
         runtime.shutdown();
     }
 
@@ -239,6 +297,23 @@ mod tests {
         };
         let output = run(&runtime, &args).expect("query");
         assert!(output.contains("app:"));
+        runtime.shutdown();
+    }
+
+    #[rstest]
+    fn query_attribute_text_omits_default_namespace() {
+        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+        let args = QueryArgs {
+            expression: "//control:Button/@Name".into(),
+            namespaces: vec![],
+            patterns: vec![],
+            format: OutputFormat::Text,
+        };
+        let output = run(&runtime, &args).expect("query");
+        assert!(output.contains("@Name = \""));
+        assert!(output.contains("(Button \""));
+        assert!(!output.contains("@control:Name"));
+        assert!(!output.contains("mock://desktop"));
         runtime.shutdown();
     }
 
