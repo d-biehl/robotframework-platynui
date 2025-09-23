@@ -96,10 +96,10 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Tests: Highlight-Aufrufe protokollieren und überprüfen (`rstest`, Mock-Log-Auswertung).
 
 ### 10. CLI `screenshot`
-- [ ] `ScreenshotProvider`-Trait in `platynui-core` festlegen (Pixel-Format, Pfad/Ziel).
-- [ ] `platynui-platform-mock`: Liefert Testbilder/Screenshot-Attrappe.
-- [ ] CLI-Kommando `screenshot`: Fertigt Bildschirm-/Bereichsaufnahmen an (`--bbox`, `--output`), nutzt Mock zum Speichern/Logging.
-- [ ] Tests: Screenshot-Aufrufe prüfen (Datei/Logging).
+- [x] `ScreenshotProvider`-Trait in `platynui-core` festgelegt (`ScreenshotRequest`, `Screenshot`, `PixelFormat`).
+- [x] `platynui-platform-mock`: Liefert deterministischen RGBA-Gradienten und Logging-Helfer (`take_screenshot_log`, `reset_screenshot_state`).
+- [x] CLI-Kommando `screenshot`: Akzeptiert `--bbox` (`x,y,width,height`) und `--output`, speichert PNG-Dateien via `png` 0.18.0.
+- [x] Tests: Screenshot-Aufrufe verifizieren Ausgabe, Logging und erzeugte Dateien (Temp-Verzeichnis über `tempfile` 3.23.0).
 
 ### 11. CLI `focus`
 - [ ] `FocusablePattern`-Nutzung in Runtime/CLI freischalten; Mock-Knoten unterstützen Fokuswechsel.

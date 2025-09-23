@@ -112,7 +112,9 @@ mod tests {
         runtime.shutdown();
 
         assert_eq!(summary.name, "Mock Desktop");
-        assert_eq!(summary.display_count, 1);
+        assert_eq!(summary.display_count, 3);
+        assert_eq!(summary.monitors.len(), 3);
+        assert_eq!(summary.bounds, Rect::new(-2160.0, -840.0, 7920.0, 3840.0));
     }
 
     #[rstest]
@@ -121,10 +123,10 @@ mod tests {
             runtime_id: "mock".into(),
             name: "Mock Desktop".into(),
             technology: "MockTech".into(),
-            bounds: Rect::new(0.0, 0.0, 1920.0, 1080.0),
+            bounds: Rect::new(-2160.0, -840.0, 7920.0, 3840.0),
             os_name: "MockOS".into(),
             os_version: "1.0".into(),
-            display_count: 1,
+            display_count: 3,
             monitors: vec![],
         };
 

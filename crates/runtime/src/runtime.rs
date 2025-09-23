@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use platynui_core::platform::{
     DesktopInfo, HighlightProvider, HighlightRequest, MonitorInfo, PlatformError,
-    PlatformErrorKind, desktop_info_providers, highlight_providers,
+    PlatformErrorKind, Screenshot, ScreenshotProvider, ScreenshotRequest, desktop_info_providers,
+    highlight_providers, screenshot_providers,
 };
 use platynui_core::provider::{
     ProviderError, ProviderErrorKind, ProviderEvent, ProviderEventKind, ProviderEventListener,
@@ -29,6 +30,7 @@ pub struct Runtime {
     dispatcher: Arc<ProviderEventDispatcher>,
     desktop: Arc<DesktopNode>,
     highlight: Option<&'static dyn HighlightProvider>,
+    screenshot: Option<&'static dyn ScreenshotProvider>,
 }
 
 struct ProviderRuntimeState {
@@ -111,8 +113,9 @@ impl Runtime {
         let desktop = build_desktop_node().map_err(map_desktop_error)?;
 
         let highlight = highlight_providers().next();
+        let screenshot = screenshot_providers().next();
 
-        let runtime = Self { registry, providers, dispatcher, desktop, highlight };
+        let runtime = Self { registry, providers, dispatcher, desktop, highlight, screenshot };
         runtime.refresh_desktop_nodes(true)?;
 
         Ok(runtime)
@@ -185,6 +188,17 @@ impl Runtime {
             None => Err(PlatformError::new(
                 PlatformErrorKind::UnsupportedPlatform,
                 "no HighlightProvider registered",
+            )),
+        }
+    }
+
+    /// Captures a screenshot using the registered screenshot provider.
+    pub fn screenshot(&self, request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
+        match self.screenshot {
+            Some(provider) => provider.capture(request),
+            None => Err(PlatformError::new(
+                PlatformErrorKind::UnsupportedPlatform,
+                "no ScreenshotProvider registered",
             )),
         }
     }
@@ -425,14 +439,18 @@ impl UiAttribute for DesktopAttribute {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use platynui_core::platform::PlatformErrorKind;
+    use platynui_core::platform::{HighlightRequest, ScreenshotRequest};
     use platynui_core::provider::{
         ProviderDescriptor, ProviderEvent, ProviderEventKind, ProviderEventListener, ProviderKind,
         UiTreeProviderFactory, register_provider,
     };
+    use platynui_core::types::Rect;
     use platynui_core::ui::identifiers::TechnologyId;
     use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
     use platynui_platform_mock as _;
+    use platynui_platform_mock::{
+        reset_highlight_state, reset_screenshot_state, take_highlight_log, take_screenshot_log,
+    };
     use platynui_provider_mock as _;
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -658,9 +676,27 @@ mod tests {
     }
 
     #[rstest]
-    fn highlight_without_registered_provider_yields_error() {
+    fn highlight_invokes_registered_provider() {
+        reset_highlight_state();
         let runtime = Runtime::new().expect("runtime initializes");
-        let err = runtime.highlight(&[]).expect_err("highlight without provider");
-        assert_eq!(err.kind, PlatformErrorKind::UnsupportedPlatform);
+        let request = HighlightRequest::new(Rect::new(0.0, 0.0, 50.0, 25.0));
+        runtime.highlight(std::slice::from_ref(&request)).expect("highlight succeeds");
+
+        let log = take_highlight_log();
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0].len(), 1);
+        assert_eq!(log[0][0], request);
+    }
+
+    #[rstest]
+    fn screenshot_invokes_registered_provider() {
+        reset_screenshot_state();
+        let runtime = Runtime::new().expect("runtime initializes");
+        let request = ScreenshotRequest::with_region(Rect::new(0.0, 0.0, 20.0, 10.0));
+        let screenshot = runtime.screenshot(&request).expect("screenshot captures");
+
+        assert_eq!(screenshot.width, 20);
+        assert_eq!(screenshot.height, 10);
+        assert_eq!(take_screenshot_log().len(), 1);
     }
 }

@@ -11,6 +11,7 @@ use commands::{
     highlight::{self, HighlightArgs},
     info, list_providers,
     query::{self, QueryArgs},
+    screenshot::{self, ScreenshotArgs},
     watch::{self, WatchArgs},
 };
 use platynui_runtime::Runtime;
@@ -41,6 +42,8 @@ enum Commands {
     Watch(WatchArgs),
     #[command(name = "highlight", about = "Highlight elements matching an XPath expression.")]
     Highlight(HighlightArgs),
+    #[command(name = "screenshot", about = "Capture a screenshot and save it as PNG.")]
+    Screenshot(ScreenshotArgs),
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -76,6 +79,10 @@ fn run() -> CliResult<()> {
         Commands::Watch(args) => watch::run(&mut runtime, &args)?,
         Commands::Highlight(args) => {
             let output = highlight::run(&runtime, &args)?;
+            println!("{output}");
+        }
+        Commands::Screenshot(args) => {
+            let output = screenshot::run(&runtime, &args)?;
             println!("{output}");
         }
     }

@@ -181,12 +181,13 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
     * `HighlightRequest` enthält die Desktop-Koordinaten (`Rect`). Optional kann eine gewünschte Sichtbarkeitsdauer (`Duration`) mitgegeben werden.
     * Fehlt die Dauer, entscheidet die Plattform über einen sinnvollen Default (z. B. Overlay bleibt sichtbar, bis `clear()` aufgerufen wird).
     * Es existiert immer nur ein aktives Highlight. Erneute Aufrufe ersetzen das bestehende Overlay: Der Rahmen wandert zur neuen Position, die Dauer beginnt von vorne.
+  - `ScreenshotProvider` liefert Bildschirmaufnahmen. `ScreenshotRequest` beschreibt optional eine Teilfläche, ansonsten wird der komplette Desktop aufgenommen. Das Resultat (`Screenshot`) enthält Breite, Höhe, Rohdaten (`Vec<u8>`) und das Pixelformat (`PixelFormat::Rgba8` oder `PixelFormat::Bgra8`). Aufrufende Komponenten (Runtime, CLI, Inspector) sind dafür verantwortlich, die Daten in gewünschte Containerformate (PNG, JPEG, …) umzuwandeln.
 - Implementierungen:
   - `crates/platform-windows` (Crate `platynui-platform-windows`): `SendInput`, Desktop Duplication/BitBlt, Overlays.
   - `crates/platform-linux-x11` (Crate `platynui-platform-linux-x11`): `x11rb` + XTEST, Screenshots via X11 `GetImage`/Pipewire, Overlays.
   - `platynui-platform-linux-wayland` (optional): Wayland-APIs (Virtuelles Keyboard, Screencopy, Portal-Fallbacks).
   - `crates/platform-macos` (Crate `platynui-platform-macos`): `CGEvent`, `CGDisplayCreateImage`, transparente `NSWindow`/CoreAnimation.
-- `crates/platform-mock` (Crate `platynui-platform-mock`) stellt In-Memory-Devices, Event-Logging und Highlight/Capture-Simulation bereit; unterstützt JSON-RPC-Tests.
+- `crates/platform-mock` (Crate `platynui-platform-mock`) stellt In-Memory-Devices, Event-Logging sowie Highlight- und Screenshot-Simulation bereit (`take_highlight_log`, `take_screenshot_log`, entsprechende `reset_*`-Helfer); unterstützt JSON-RPC-Tests. Das Mock-Setup spiegelt ein dreiteiliges Monitor-Arrangement wider: links ein hochkant ausgerichtetes 2160×3840-Display, in der Mitte ein primärer UHD-Monitor (3840×2160) und rechts ein FHD-Monitor (1920×1080), dessen Oberkante vertikal zum Primärmonitor zentriert ist. Der Desktop-Bereich vereinigt alle Monitore, sodass XPath/Screenshot-Beispiele auch übergreifende Bounding-Boxen prüfen können.
 
 ## 7. Window-Management-Schicht
 - Funktionen: Fensterlisten, Aktivieren/Minimieren/Maximieren/Restore, `move`/`resize`, Fokus setzen; Zugriff auf native Windowing-APIs (`HWND`, X11 Window IDs, `NSWindow`).
@@ -232,7 +233,7 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
    - Referenzstruktur des Mock-Baums: siehe `crates/provider-mock/assets/mock_tree.xml`; für Tests stellt `platynui-provider-mock` Hilfsfunktionen wie `emit_event(...)` und `emit_node_updated(...)` bereit, um gezielt Ereignisse zu erzeugen. Der Mock wird nur eingebunden, wenn das Cargo-Feature `mock-provider` aktiviert ist (z. B. `cargo run -p platynui-cli --features mock-provider -- watch --limit 1`).
    - `watch`: Provider-Ereignisse streamen (Text oder JSON), Filter auf Namespace/Pattern/RuntimeId anwenden und optional per `--expression` nach jedem Event eine XPath-Abfrage nachschieben; `--limit` erleichtert automatisierte Tests.
    - `highlight`: Bounding-Boxen hervorheben; nutzt `HighlightProvider` (Mock, später nativ) und akzeptiert XPath-Ausdrücke, eine optionale Dauer (`--duration-ms`), sowie `--clear`, um bestehende Hervorhebungen zu entfernen oder neu zu positionieren.
-   - `screenshot`: Bildschirm-/Bereichsaufnahmen über `ScreenshotProvider` erzeugen.
+  - `screenshot`: Bildschirm-/Bereichsaufnahmen über `ScreenshotProvider` erzeugen, `--bbox` (optional, `x,y,width,height`) und `--output` (Pfad) akzeptieren und die Daten aktuell als PNG ablegen. Ohne Bounding-Box wird automatisch der vollständige Desktop (vereinigt über alle Monitore laut `DesktopInfo`) aufgenommen. Übergebene Bereiche dürfen sich über mehrere Monitore erstrecken; die Runtime reicht die Werte unverändert an den Provider durch.
    - `focus`: Fokuswechsel über `FocusablePattern` orchestrieren.
    - `window`: Fensteraktionen (aktivieren, minimieren, maximieren, verschieben) und Eingabestatus (`accepts_user_input`) über das `WindowSurface`-Pattern abfragen.
    - `pointer`: Zeigeraktionen (Move/Click/Scroll) über `PointerDevice` ausführen.
