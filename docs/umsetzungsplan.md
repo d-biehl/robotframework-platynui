@@ -90,10 +90,10 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Tests: Simulierte Eventsequenzen (TreeInvalidated + NodeUpdated) prüfen Ausgabe in Text/JSON-Format.
 
 ### 9. CLI `highlight`
-- [ ] `HighlightProvider` in `platynui-core` finalisieren.
-- [ ] `platynui-platform-mock`: Stellt Highlight-Attrappe (Logging) bereit.
-- [ ] CLI-Kommando `highlight`: Markiert Bounding-Boxen basierend auf `ActivationTarget`/`Bounds` aus `query`-Ergebnissen.
-- [ ] Tests: Highlight-Aufrufe protokollieren und überprüfen (`rstest`).
+- [x] `HighlightProvider` in `platynui-core` finalisieren (`highlight(&[HighlightRequest])`, `clear()` inkl. optionaler Dauerangabe).
+- [x] `platynui-platform-mock`: Stellt Highlight-Attrappe (Logging) bereit (`take_highlight_log`, `reset_highlight_state`).
+- [x] CLI-Kommando `highlight`: Markiert Bounding-Boxen über XPath-Ergebnisse (`Bounds`), unterstützt `--duration-ms` und `--clear`.
+- [x] Tests: Highlight-Aufrufe protokollieren und überprüfen (`rstest`, Mock-Log-Auswertung).
 
 ### 10. CLI `screenshot`
 - [ ] `ScreenshotProvider`-Trait in `platynui-core` festlegen (Pixel-Format, Pfad/Ziel).

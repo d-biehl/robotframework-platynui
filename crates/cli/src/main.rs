@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use platynui_core::platform::{DesktopInfo, MonitorInfo};
+use platynui_core::platform::{DesktopInfo, HighlightRequest, MonitorInfo, PlatformError};
 use platynui_core::provider::{ProviderError, ProviderEvent, ProviderEventKind, ProviderKind};
 use platynui_core::types::Rect;
 use platynui_core::ui::{Namespace, PatternId, UiNode, UiValue};
@@ -13,6 +13,7 @@ use std::io::{self, Write as IoWrite};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::mpsc;
+use std::time::Duration;
 
 #[cfg(any(test, feature = "mock-provider"))]
 use platynui_platform_mock as _;
@@ -65,6 +66,22 @@ enum Commands {
         expression: Option<String>,
         #[arg(long = "limit")]
         limit: Option<usize>,
+    },
+    #[command(name = "highlight", about = "Highlight elements matching an XPath expression.")]
+    Highlight {
+        #[arg(value_name = "XPATH")]
+        expression: Option<String>,
+        #[arg(
+            long = "duration-ms",
+            value_parser = parse_duration_ms,
+            help = "Duration in milliseconds the highlight stays visible before it fades."
+        )]
+        duration_ms: Option<u64>,
+        #[arg(
+            long = "clear",
+            help = "Clear existing highlights before applying a new one or alone."
+        )]
+        clear: bool,
     },
 }
 
@@ -149,6 +166,12 @@ struct WatchArgs<'a> {
     limit: Option<usize>,
 }
 
+struct HighlightArgs<'a> {
+    expression: Option<&'a str>,
+    duration: Option<Duration>,
+    clear: bool,
+}
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("Error: {error}");
@@ -189,6 +212,15 @@ fn run() -> CliResult<()> {
                 limit,
             };
             handle_watch(&mut runtime, args)?;
+        }
+        Commands::Highlight { expression, duration_ms, clear } => {
+            let args = HighlightArgs {
+                expression: expression.as_deref(),
+                duration: duration_ms.map(Duration::from_millis),
+                clear,
+            };
+            let message = handle_highlight(&runtime, args)?;
+            println!("{message}");
         }
     }
 
@@ -398,6 +430,87 @@ fn handle_watch_with_writer<W: IoWrite>(
     writer: &mut W,
 ) -> CliResult<()> {
     handle_watch_with_writer_internal(runtime, args, writer, || {})
+}
+
+fn handle_highlight(runtime: &Runtime, args: HighlightArgs) -> CliResult<String> {
+    if args.expression.is_none() && !args.clear {
+        return Err("highlight requires an XPath expression unless --clear is set".into());
+    }
+
+    let mut actions = Vec::new();
+
+    if args.clear {
+        runtime.clear_highlight().map_err(map_platform_error)?;
+        actions.push("Cleared existing highlights.".to_owned());
+    }
+
+    if let Some(expression) = args.expression {
+        let highlight = collect_highlight_requests(runtime, expression, args.duration)?;
+        if highlight.requests.is_empty() {
+            return Err(format!("no highlightable nodes for expression `{expression}`").into());
+        }
+
+        runtime.highlight(&highlight.requests).map_err(map_platform_error)?;
+
+        let mut message = format!("Highlighted {} node(s).", highlight.requests.len());
+        if !highlight.skipped.is_empty() {
+            let skipped = highlight.skipped.join(", ");
+            message.push_str(&format!(" Skipped nodes without Bounds: {skipped}."));
+        }
+        actions.push(message);
+    }
+
+    if actions.is_empty() {
+        actions.push("No highlight action executed.".to_owned());
+    }
+
+    Ok(actions.join("\n"))
+}
+
+struct HighlightComputation {
+    requests: Vec<HighlightRequest>,
+    skipped: Vec<String>,
+}
+
+fn collect_highlight_requests(
+    runtime: &Runtime,
+    expression: &str,
+    duration: Option<Duration>,
+) -> CliResult<HighlightComputation> {
+    let results = runtime.evaluate(None, expression).map_err(map_evaluate_error)?;
+    let mut requests = Vec::new();
+    let mut skipped = Vec::new();
+
+    for item in results {
+        let EvaluationItem::Node(node) = item else {
+            continue;
+        };
+
+        let Some(attribute) = node.attribute(Namespace::Control, "Bounds") else {
+            skipped.push(node.runtime_id().as_str().to_owned());
+            continue;
+        };
+
+        let value = attribute.value();
+        let UiValue::Rect(bounds) = value else {
+            skipped.push(node.runtime_id().as_str().to_owned());
+            continue;
+        };
+
+        if bounds.is_empty() {
+            skipped.push(node.runtime_id().as_str().to_owned());
+            continue;
+        }
+
+        let request = if let Some(duration) = duration {
+            HighlightRequest::new(bounds).with_duration(duration)
+        } else {
+            HighlightRequest::new(bounds)
+        };
+        requests.push(request);
+    }
+
+    Ok(HighlightComputation { requests, skipped })
 }
 
 fn handle_watch_with_writer_internal<W, F>(
@@ -853,10 +966,21 @@ fn map_evaluate_error(err: EvaluateError) -> Box<dyn Error> {
     Box::new(err)
 }
 
+fn map_platform_error(err: PlatformError) -> Box<dyn Error> {
+    Box::new(err)
+}
+
+fn parse_duration_ms(value: &str) -> Result<u64, String> {
+    value.parse::<u64>().map_err(|_| format!("invalid duration in milliseconds: {value}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use clap::Parser;
+    use platynui_platform_mock::{
+        highlight_clear_count, reset_highlight_state, take_highlight_log,
+    };
     use rstest::rstest;
 
     #[rstest]
@@ -1038,5 +1162,56 @@ mod tests {
         let line = output.lines().next().expect("line");
         let value: serde_json::Value = serde_json::from_str(line).expect("json");
         assert_eq!(value["event"], "TreeInvalidated");
+    }
+
+    #[rstest]
+    fn highlight_records_requests() {
+        reset_highlight_state();
+        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+
+        let args = HighlightArgs {
+            expression: Some("//control:Button"),
+            duration: Some(Duration::from_millis(500)),
+            clear: false,
+        };
+
+        let message = handle_highlight(&runtime, args).expect("highlight execution");
+        assert!(message.contains("Highlighted"));
+
+        let log = take_highlight_log();
+        assert!(!log.is_empty());
+        assert!(!log[0].is_empty());
+        assert_eq!(log[0][0].duration, Some(Duration::from_millis(500)));
+
+        reset_highlight_state();
+        runtime.shutdown();
+    }
+
+    #[rstest]
+    fn highlight_clear_only_triggers_provider_clear() {
+        reset_highlight_state();
+        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+
+        let args = HighlightArgs { expression: None, duration: None, clear: true };
+        let message = handle_highlight(&runtime, args).expect("highlight clear");
+        assert!(message.contains("Cleared"));
+        assert_eq!(highlight_clear_count(), 1);
+
+        reset_highlight_state();
+        runtime.shutdown();
+    }
+
+    #[rstest]
+    fn highlight_requires_expression_or_clear() {
+        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+
+        let err = handle_highlight(
+            &runtime,
+            HighlightArgs { expression: None, duration: None, clear: false },
+        )
+        .expect_err("missing expression should error");
+        assert!(err.to_string().contains("requires"));
+
+        runtime.shutdown();
     }
 }

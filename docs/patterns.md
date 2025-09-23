@@ -233,6 +233,7 @@ Provider sollten dokumentieren, wenn sie von den vorgeschlagenen Zuordnungen abw
 - **Pflichtattribute:** `SupportsHighlight` (bool).
 - **Optionale Attribute:** `HighlightStyles` (Liste vordefinierter Stile).
 - **Hinweis:** Die Runtime stellt eine eigene Highlight-Funktion bereit; kein Pattern-spezifisches Aktions-API erforderlich.
+- **Runtime-Hinweis:** Das Highlighting nutzt den `HighlightProvider` (`highlight(&[HighlightRequest])`, `clear()`), der Desktop-Koordinaten verarbeitet und optional eine Dauer erhält, nach der der Overlay-Rahmen automatisch verschwindet oder bei neuen Anfragen verschoben wird.
 
 #### Annotatable
 - **Beschreibung:** Element kann Zusatzinformationen tragen (Fehler, Status, Hinweis).

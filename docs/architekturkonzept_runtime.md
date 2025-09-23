@@ -173,9 +173,14 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
 - Typische Quellen für `RuntimeId`: UI Automation `RuntimeId`, AT-SPI D-Bus-Objektpfad auf dem Accessibility-Bus, macOS `AXUIElement` Identifier (kombiniert mit Prozessinformationen). Fehlt eine native Kennung, generiere eine deterministische ID, die während der Lebensdauer des Elements stabil bleibt.
 - Dokumentiere Mapping-Entscheidungen in `docs/patterns.md`, wenn native APIs mehrere Möglichkeiten bieten (z. B. AX-Subrole vs. Role).
 - Nutze die in `docs/provider_checklist.md` gepflegten Prüfschritte, bevor Provider-Änderungen gemergt werden (manuelle Review + automatisierte Tests).
+- UI-Bäume dürfen keine Fenster oder Overlays des eigenen Prozesses enthalten. Highlight-Overlays oder andere Hilfsfenster werden ausschließlich von der Plattformebene verwaltet und niemals als reguläre `UiNode`-Elemente exponiert.
 
 ## 6. Geräte- und Interaktionsdienste
 - `DeviceProvider`-Trait + Capability-Typen leben in `crates/core` (Pointer, Keyboard, DesktopInfoProvider, ScreenshotProvider, HighlightProvider); Touch-Unterstützung wird später ergänzt.
+  - `HighlightProvider` zeichnet Hervorhebungen über `highlight(&[HighlightRequest])` und entfernt sie via `clear()`.
+    * `HighlightRequest` enthält die Desktop-Koordinaten (`Rect`). Optional kann eine gewünschte Sichtbarkeitsdauer (`Duration`) mitgegeben werden.
+    * Fehlt die Dauer, entscheidet die Plattform über einen sinnvollen Default (z. B. Overlay bleibt sichtbar, bis `clear()` aufgerufen wird).
+    * Es existiert immer nur ein aktives Highlight. Erneute Aufrufe ersetzen das bestehende Overlay: Der Rahmen wandert zur neuen Position, die Dauer beginnt von vorne.
 - Implementierungen:
   - `crates/platform-windows` (Crate `platynui-platform-windows`): `SendInput`, Desktop Duplication/BitBlt, Overlays.
   - `crates/platform-linux-x11` (Crate `platynui-platform-linux-x11`): `x11rb` + XTEST, Screenshots via X11 `GetImage`/Pipewire, Overlays.
@@ -226,7 +231,7 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
    - `query`: XPath-Auswertung mit Ausgabe als Tabelle oder JSON; optional lassen sich Ergebnisse nach Namespace (`--namespace`) und Patterns (`--pattern`) filtern.
    - Referenzstruktur des Mock-Baums: siehe `crates/provider-mock/assets/mock_tree.xml`; für Tests stellt `platynui-provider-mock` Hilfsfunktionen wie `emit_event(...)` und `emit_node_updated(...)` bereit, um gezielt Ereignisse zu erzeugen. Der Mock wird nur eingebunden, wenn das Cargo-Feature `mock-provider` aktiviert ist (z. B. `cargo run -p platynui-cli --features mock-provider -- watch --limit 1`).
    - `watch`: Provider-Ereignisse streamen (Text oder JSON), Filter auf Namespace/Pattern/RuntimeId anwenden und optional per `--expression` nach jedem Event eine XPath-Abfrage nachschieben; `--limit` erleichtert automatisierte Tests.
-   - `highlight`: Bounding-Boxen hervorheben; nutzt `HighlightProvider` (Mock, später nativ).
+   - `highlight`: Bounding-Boxen hervorheben; nutzt `HighlightProvider` (Mock, später nativ) und akzeptiert XPath-Ausdrücke, eine optionale Dauer (`--duration-ms`), sowie `--clear`, um bestehende Hervorhebungen zu entfernen oder neu zu positionieren.
    - `screenshot`: Bildschirm-/Bereichsaufnahmen über `ScreenshotProvider` erzeugen.
    - `focus`: Fokuswechsel über `FocusablePattern` orchestrieren.
    - `window`: Fensteraktionen (aktivieren, minimieren, maximieren, verschieben) und Eingabestatus (`accepts_user_input`) über das `WindowSurface`-Pattern abfragen.

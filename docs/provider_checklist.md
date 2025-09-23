@@ -40,7 +40,8 @@
 - [ ] `Application`-Knoten liefern Prozessmetadaten (`ProcessId`, `ProcessName`, `ExecutablePath`) und optional `CommandLine`, `UserName`.
 - [ ] `WindowSurface::accepts_user_input()` liefert – sofern die Plattform eine zuverlässige Abfrage erlaubt – den aktuellen Eingabestatus (Windows: `WaitForInputIdle`; andere Plattformen dokumentieren die verwendete Heuristik oder geben `None` zurück). Ein optionales Attribut `window:AcceptsUserInput` darf den Wert spiegeln.
 - [ ] `Selectable`/`SelectionProvider` synchronisiert über `SelectionItemPattern`/`SelectionPattern`.
-- [ ] Highlight/Overlay Pfad (DirectComposition/GDI) liefert konsistente Ergebnisse im Vergleich zu `Bounds`.
+- [ ] Highlight/Overlay-Pfad (DirectComposition/GDI/XComposite/…) respektiert die gelieferten `Bounds`, unterstützt optionale Dauerangaben und garantiert, dass maximal ein Overlay aktiv ist: Neue Highlight-Anfragen verschieben den bestehenden Rahmen und setzen die Laufzeit zurück, statt zusätzliche Fenster zu erzeugen.
+- [ ] Eigenständige Hilfsfenster des Providers (Highlight-Overlay, Inspectoren, Debug-Panels) tauchen nicht im UiTree auf; der Provider filtert alle Fenster des eigenen Prozesses konsequent heraus.
 
 ## Linux X11 (`platynui-provider-atspi` + `platynui-platform-linux-x11`)
 - [ ] Koordinaten stammen aus `Component::get_extents(ATSPI_COORD_TYPE_SCREEN)`.

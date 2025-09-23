@@ -3,7 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use platynui_core::platform::{
-    DesktopInfo, MonitorInfo, PlatformError, PlatformErrorKind, desktop_info_providers,
+    DesktopInfo, HighlightProvider, HighlightRequest, MonitorInfo, PlatformError,
+    PlatformErrorKind, desktop_info_providers, highlight_providers,
 };
 use platynui_core::provider::{
     ProviderError, ProviderErrorKind, ProviderEvent, ProviderEventKind, ProviderEventListener,
@@ -27,6 +28,7 @@ pub struct Runtime {
     providers: Vec<Arc<ProviderRuntimeState>>,
     dispatcher: Arc<ProviderEventDispatcher>,
     desktop: Arc<DesktopNode>,
+    highlight: Option<&'static dyn HighlightProvider>,
 }
 
 struct ProviderRuntimeState {
@@ -108,7 +110,9 @@ impl Runtime {
 
         let desktop = build_desktop_node().map_err(map_desktop_error)?;
 
-        let runtime = Self { registry, providers, dispatcher, desktop };
+        let highlight = highlight_providers().next();
+
+        let runtime = Self { registry, providers, dispatcher, desktop, highlight };
         runtime.refresh_desktop_nodes(true)?;
 
         Ok(runtime)
@@ -161,6 +165,28 @@ impl Runtime {
 
     pub fn desktop_info(&self) -> &DesktopInfo {
         self.desktop.info()
+    }
+
+    /// Highlights the given regions using the registered highlight provider.
+    pub fn highlight(&self, requests: &[HighlightRequest]) -> Result<(), PlatformError> {
+        match self.highlight {
+            Some(provider) => provider.highlight(requests),
+            None => Err(PlatformError::new(
+                PlatformErrorKind::UnsupportedPlatform,
+                "no HighlightProvider registered",
+            )),
+        }
+    }
+
+    /// Clears an active highlight overlay if a provider is available.
+    pub fn clear_highlight(&self) -> Result<(), PlatformError> {
+        match self.highlight {
+            Some(provider) => provider.clear(),
+            None => Err(PlatformError::new(
+                PlatformErrorKind::UnsupportedPlatform,
+                "no HighlightProvider registered",
+            )),
+        }
     }
 
     /// Registers a new event sink that will receive provider events.
@@ -399,6 +425,7 @@ impl UiAttribute for DesktopAttribute {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use platynui_core::platform::PlatformErrorKind;
     use platynui_core::provider::{
         ProviderDescriptor, ProviderEvent, ProviderEventKind, ProviderEventListener, ProviderKind,
         UiTreeProviderFactory, register_provider,
@@ -628,5 +655,12 @@ mod tests {
         assert_eq!(app.namespace(), Namespace::App);
         let parent = app.parent().and_then(|weak| weak.upgrade()).expect("desktop parent");
         assert_eq!(parent.runtime_id().as_str(), runtime.desktop_info().runtime_id.as_str());
+    }
+
+    #[rstest]
+    fn highlight_without_registered_provider_yields_error() {
+        let runtime = Runtime::new().expect("runtime initializes");
+        let err = runtime.highlight(&[]).expect_err("highlight without provider");
+        assert_eq!(err.kind, PlatformErrorKind::UnsupportedPlatform);
     }
 }
