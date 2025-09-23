@@ -3009,7 +3009,6 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         }
     }
 
-    #[allow(clippy::only_used_in_recursion)]
     fn node_test(&self, node: &N, test: &NodeTestIR) -> bool {
         use NodeTestIR::*;
         match test {
