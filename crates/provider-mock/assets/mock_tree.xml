@@ -2,31 +2,31 @@
 <mock-tree>
   <node namespace="app" role="Application" name="Mock Application" runtime_id="mock://app/main">
     <patterns>Application</patterns>
-    <node namespace="control" role="Window" name="Operationskonsole" runtime_id="mock://window/main" bounds="80,80,1040,640" expose_flat="true">
+    <node namespace="control" role="Window" name="Operations Console" runtime_id="mock://window/main" bounds="80,80,1040,640" expose_flat="true">
       <attribute namespace="control" name="AutomationId" value="MainWindow" />
       <attribute namespace="native" name="ProcessId" value="4242" />
       <patterns>Element</patterns>
-      <node namespace="control" role="Panel" name="Arbeitsbereich" runtime_id="mock://panel/workspace" bounds="100,140,960,520">
+      <node namespace="control" role="Panel" name="Workspace" runtime_id="mock://panel/workspace" bounds="100,140,960,520">
         <patterns>Element,TextContent</patterns>
         <text>Workspace</text>
         <node namespace="control" role="List" name="Task List" runtime_id="mock://list/tasks" bounds="120,180,540,340">
           <patterns>Element,TextContent</patterns>
-          <text>Aufgaben</text>
-          <node namespace="item" role="ListItem" name="Analyse Projektstatus" runtime_id="mock://list/task/1" bounds="140,200,500,32">
+        <text>Tasks</text>
+          <node namespace="item" role="ListItem" name="Analyze Project Status" runtime_id="mock://list/task/1" bounds="140,200,500,32">
             <patterns>Element,TextContent</patterns>
-            <text>Analyse Projektstatus</text>
+            <text>Analyze Project Status</text>
           </node>
-          <node namespace="item" role="ListItem" name="Tests ausführen" runtime_id="mock://list/task/2" bounds="140,248,500,32">
+          <node namespace="item" role="ListItem" name="Run Tests" runtime_id="mock://list/task/2" bounds="140,248,500,32">
             <patterns>Element,TextContent</patterns>
-            <text>Tests ausführen</text>
+            <text>Run Tests</text>
           </node>
-          <node namespace="item" role="ListItem" name="Bericht generieren" runtime_id="mock://list/task/3" bounds="140,296,500,32">
+          <node namespace="item" role="ListItem" name="Generate Report" runtime_id="mock://list/task/3" bounds="140,296,500,32">
             <patterns>Element,TextContent</patterns>
-            <text>Bericht generieren</text>
+            <text>Generate Report</text>
           </node>
-          <node namespace="item" role="ListItem" name="Ergebnisse validieren" runtime_id="mock://list/task/4" bounds="140,344,500,32">
+          <node namespace="item" role="ListItem" name="Validate Results" runtime_id="mock://list/task/4" bounds="140,344,500,32">
             <patterns>Element,TextContent</patterns>
-            <text>Ergebnisse validieren</text>
+            <text>Validate Results</text>
           </node>
         </node>
         <node namespace="control" role="Tree" name="Navigation" runtime_id="mock://tree/navigation" bounds="720,180,320,472">
@@ -35,35 +35,35 @@
           <node namespace="item" role="TreeItem" name="Dashboard" runtime_id="mock://tree/node/dashboard" bounds="720,220,320,36">
             <patterns>Element,TextContent</patterns>
             <text>Dashboard</text>
-            <node namespace="item" role="TreeItem" name="Übersicht" runtime_id="mock://tree/node/dashboard/child/0" bounds="744,228,272,28">
+            <node namespace="item" role="TreeItem" name="Overview" runtime_id="mock://tree/node/dashboard/child/0" bounds="744,228,272,28">
               <patterns>Element,TextContent</patterns>
-              <text>Übersicht</text>
+              <text>Overview</text>
             </node>
-            <node namespace="item" role="TreeItem" name="Metriken" runtime_id="mock://tree/node/dashboard/child/1" bounds="744,256,272,28">
+            <node namespace="item" role="TreeItem" name="Metrics" runtime_id="mock://tree/node/dashboard/child/1" bounds="744,256,272,28">
               <patterns>Element,TextContent</patterns>
-              <text>Metriken</text>
+              <text>Metrics</text>
             </node>
           </node>
-          <node namespace="item" role="TreeItem" name="Berichte" runtime_id="mock://tree/node/reports" bounds="720,268,320,36">
+          <node namespace="item" role="TreeItem" name="Reports" runtime_id="mock://tree/node/reports" bounds="720,268,320,36">
             <patterns>Element,TextContent</patterns>
-            <text>Berichte</text>
+            <text>Reports</text>
             <node namespace="item" role="TreeItem" name="Täglich" runtime_id="mock://tree/node/reports/child/0" bounds="744,276,272,28">
               <patterns>Element,TextContent</patterns>
-              <text>Täglich</text>
+              <text>Daily</text>
             </node>
             <node namespace="item" role="TreeItem" name="Monatlich" runtime_id="mock://tree/node/reports/child/1" bounds="744,304,272,28">
               <patterns>Element,TextContent</patterns>
-              <text>Monatlich</text>
+              <text>Monthly</text>
             </node>
             <node namespace="item" role="TreeItem" name="Jährlich" runtime_id="mock://tree/node/reports/child/2" bounds="744,332,272,28">
               <patterns>Element,TextContent</patterns>
-              <text>Jährlich</text>
+              <text>Yearly</text>
             </node>
           </node>
         </node>
         <node namespace="control" role="Text" name="Status" runtime_id="mock://text/status" bounds="120,560,520,32">
           <patterns>Element,TextContent</patterns>
-          <text>Bereit</text>
+          <text>Ready</text>
         </node>
         <node namespace="control" role="Button" name="OK" runtime_id="mock://button/ok" bounds="140,620,120,32" activation_point="200,636">
           <patterns>Element,TextContent,ActivationTarget</patterns>
@@ -75,34 +75,34 @@
         </node>
       </node>
     </node>
-    <node namespace="control" role="Window" name="Detailansicht" runtime_id="mock://window/details" bounds="360,160,720,540" expose_flat="true">
+    <node namespace="control" role="Window" name="Detail View" runtime_id="mock://window/details" bounds="360,160,720,540" expose_flat="true">
       <attribute namespace="control" name="AutomationId" value="DetailWindow" />
       <patterns>Element</patterns>
-      <node namespace="control" role="Text" name="Beschreibung" runtime_id="mock://text/details" bounds="400,220,640,80">
+      <node namespace="control" role="Text" name="Description" runtime_id="mock://text/details" bounds="400,220,640,80">
         <patterns>Element,TextContent</patterns>
-        <text>Hier erscheinen Details zum ausgewählten Element.</text>
+        <text>Details for the selected element appear here.</text>
       </node>
     </node>
   </node>
   <node namespace="app" role="Application" name="Mock Settings" runtime_id="mock://app/settings">
     <patterns>Application</patterns>
-    <node namespace="control" role="Window" name="Einstellungen" runtime_id="mock://window/settings" bounds="120,120,680,520" expose_flat="true">
+    <node namespace="control" role="Window" name="Settings" runtime_id="mock://window/settings" bounds="120,120,680,520" expose_flat="true">
       <attribute namespace="native" name="AXSubrole" value="AXDialog" />
       <patterns>Element</patterns>
-      <node namespace="control" role="CheckBox" name="Berichte automatisch versenden" runtime_id="mock://checkbox/reports" bounds="180,220,360,28">
+      <node namespace="control" role="CheckBox" name="Send reports automatically" runtime_id="mock://checkbox/reports" bounds="180,220,360,28">
         <patterns>Element,TextContent</patterns>
-        <text>Berichte automatisch versenden</text>
+        <text>Send reports automatically</text>
       </node>
       <node namespace="control" role="ComboBox" name="Theme" runtime_id="mock://combo/theme" bounds="180,280,320,32">
         <patterns>Element,TextContent</patterns>
         <text>Theme</text>
-        <node namespace="item" role="ComboBoxItem" name="Hell" runtime_id="mock://combo/theme/0" bounds="180,320,320,24">
+        <node namespace="item" role="ComboBoxItem" name="Light" runtime_id="mock://combo/theme/0" bounds="180,320,320,24">
           <patterns>Element,TextContent</patterns>
-          <text>Hell</text>
+          <text>Light</text>
         </node>
-        <node namespace="item" role="ComboBoxItem" name="Dunkel" runtime_id="mock://combo/theme/1" bounds="180,348,320,24">
+        <node namespace="item" role="ComboBoxItem" name="Dark" runtime_id="mock://combo/theme/1" bounds="180,348,320,24">
           <patterns>Element,TextContent</patterns>
-          <text>Dunkel</text>
+          <text>Dark</text>
         </node>
         <node namespace="item" role="ComboBoxItem" name="System" runtime_id="mock://combo/theme/2" bounds="180,376,320,24">
           <patterns>Element,TextContent</patterns>
