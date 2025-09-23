@@ -41,8 +41,8 @@ Die ursprüngliche .NET-basierte Version von PlatynUI sollte Robot Framework pla
 - `src/PlatynUI.Platform.X11` und `src/PlatynUI.Platform.MacOS`: Entsprechende Gegenstücke für Linux (X11) und macOS.
 
 **Mitnahme:**
-- Unsere `platform-*` Crates sollten ähnliche Dienste anbieten: Window Manager Trait, Highlighter, Screenshot, Devices.
-- Die Aktivierungslogik liefert Blaupausen für unseren Window Manager (z. B. Umgang mit Modals, Foreground-Wechsel).
+- Unsere `platform-*` Crates sollten ähnliche Dienste anbieten: Highlighter, Screenshot, Devices sowie direkten Zugriff auf die Fenster-APIs, damit das `WindowSurface`-Pattern Aktionen ausführen kann.
+- Die Aktivierungslogik liefert Blaupausen für unser `WindowSurface`-Pattern (z. B. Umgang mit Modals, Foreground-Wechsel).
 
 ## Auffällige Schwachstellen
 - **Zielgruppenfokus:** Der Legacy-Code richtet sich unmittelbar an Robot Framework. Wir entkoppeln stärker und stellen zuerst eine Runtime bereit.
@@ -53,7 +53,7 @@ Die ursprüngliche .NET-basierte Version von PlatynUI sollte Robot Framework pla
 ## Übertragbare Konzepte für das neue Projekt
 1. **Registrierungsmodell:** Plattform-/Provider-Pakete melden sich über ein Attribut bzw. Trait-Marker und werden zur Laufzeit injiziert.
 2. **Nodes & Patterns:** Pflichtattribute (`RuntimeId`, `Bounds`, `IsVisible`, `IsEnabled`, `SupportedPatterns`) sowie optionale Pattern-spezifische Daten (z. B. Fensterzustand) dienen als Grundlage für `patterns.md`.
-3. **Window Manager:** Aktivierungs- und Fokus-Heuristiken zeigen, wie plattformnahe APIs genutzt werden können. Diese Logik fließt in die Implementierung des `WindowSurface`-Patterns ein.
+3. **Fenster-Heuristiken:** Aktivierungs- und Fokus-Strategien zeigen, wie plattformnahe APIs genutzt werden können. Diese Logik fließt direkt in die Implementierung des `WindowSurface`-Patterns ein.
 4. **Devices & Highlighting:** Ein dedizierter Highlighter pro Plattform und Device-Abstraktionen (`Mouse`, `Keyboard`, `Display`) sind bereits funktional wertvoll.
 5. **JSON-RPC-Bridge:** Provider sollen über Pipes/Sockets RPC anbieten, ohne dass die Runtime sie starten muss. Das Legacy-Vorgehen bestätigt dieses Modell.
 
@@ -69,4 +69,4 @@ Die ursprüngliche .NET-basierte Version von PlatynUI sollte Robot Framework pla
 - Müssen wir für Pipes plattformabhängige Sicherheitsrichtlinien dokumentieren (z. B. Windows Global Namespace vs. Unix Domain Sockets)?
 
 ## Fazit
-Der Legacy-Code bestätigt viele unserer Annahmen: plattformgetrennte Crates, lauffähige Provider per JSON-RPC, ein Desktop-Root mit PascalCase-Rollen und Pflichtattributen, Geräte-Wrapper sowie ein Window Manager als zentrale Abstraktion. Die neue Architektur kann diese Ideen überführen, sie aber schlanker und technologieagnostischer gestalten. Dieses Dokument bleibt in Bewegung – sobald wir neue Erkenntnisse gewinnen oder erste Rust-Prototypen entstehen, erweitern wir die Analyse entsprechend.
+Der Legacy-Code bestätigt viele unserer Annahmen: plattformgetrennte Crates, lauffähige Provider per JSON-RPC, ein Desktop-Root mit PascalCase-Rollen und Pflichtattributen sowie Geräte-Wrapper. Die gewonnenen Fenster-Heuristiken übernehmen wir über das `WindowSurface`-Pattern, das die nötigen Aktionen bündelt. Die neue Architektur kann diese Ideen überführen, sie aber schlanker und technologieagnostischer gestalten. Dieses Dokument bleibt in Bewegung – sobald wir neue Erkenntnisse gewinnen oder erste Rust-Prototypen entstehen, erweitern wir die Analyse entsprechend.

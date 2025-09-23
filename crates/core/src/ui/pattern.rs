@@ -351,7 +351,7 @@ pub trait FocusablePattern: UiPattern {
     fn focus(&self) -> Result<(), PatternError>;
 }
 
-/// Pattern für Fenstersteuerung über den Window Manager.
+/// Pattern für Fenstersteuerung via plattformspezifische Fenster-APIs.
 pub trait WindowSurfacePattern: UiPattern {
     fn activate(&self) -> Result<(), PatternError>;
     fn minimize(&self) -> Result<(), PatternError>;

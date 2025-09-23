@@ -30,9 +30,9 @@ All concept documents are living drafts and evolve alongside the implementation.
 
 - `crates/core`: Shared datatypes (UiNode, attribute keys, pattern primitives).
 - `crates/xpath`: XPath evaluator and parser helpers tailored for PlatynUI.
-- `crates/runtime` (`platynui-runtime`): Orchestrates providers, devices, window manager, and XPath pipeline.
+- `crates/runtime` (`platynui-runtime`): Orchestrates providers, devices, and the XPath pipeline.
 - `crates/server` (`platynui-server`): JSON-RPC façade that exposes the runtime.
-- `crates/platform-*` (`platynui-platform-*`): Platform-level device drivers and window management (Windows, Linux/X11, macOS, mock).
+- `crates/platform-*` (`platynui-platform-*`): Platform-level device drivers and window control APIs (Windows, Linux/X11, macOS, mock).
 - `crates/provider-*` (`platynui-provider-*`): UiTreeProvider implementations (UIAutomation, AT-SPI, macOS AX, JSON-RPC, mock).
 - `crates/cli` (`platynui-cli`): Command-line utility for XPath queries, highlighting, and diagnostics.
 - `apps/inspector` (`platynui-inspector`): Planned GUI to explore the UI tree and craft XPath expressions.

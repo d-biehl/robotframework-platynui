@@ -207,7 +207,7 @@ Provider sollten dokumentieren, wenn sie von den vorgeschlagenen Zuordnungen abw
 ### Fenster & Oberflächen (ClientPatterns)
 
 #### WindowSurface
-- **Beschreibung:** Bindeglied zum platform-spezifischen Window Manager.
+- **Beschreibung:** Bindeglied zu den plattformspezifischen Fenster-APIs.
 - **Pflichtattribute:** `IsMinimized`, `IsMaximized`, `IsTopmost`.
 - **Optionale Attribute:** `AcceptsUserInput` (bool; Abbild des Runtime-Status, falls verfügbar).
 - **Runtime-Hinweis:** Das RuntimePattern `WindowSurface` stellt Aktionen (`activate()`, `minimize()`, …) sowie `accepts_user_input()` bereit.
