@@ -10,14 +10,24 @@ repository.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = []
+mock-provider = [
+    "platynui-runtime/mock-provider",
+    "platynui-provider-mock",
+    "platynui-platform-mock",
+]
+
 [dependencies]
 clap = { version = "4.5.48", features = ["derive"] }
-platynui-runtime = { path = "../runtime" }
-platynui-provider-mock = { path = "../provider-mock" }
-platynui-platform-mock = { path = "../platform-mock" }
+platynui-runtime = { path = "../runtime", default-features = false }
 platynui-core = { path = "../core" }
 serde = { version = "1.0.226", features = ["derive"] }
 serde_json = "1.0.145"
+platynui-provider-mock = { path = "../provider-mock", optional = true }
+platynui-platform-mock = { path = "../platform-mock", optional = true }
 
 [dev-dependencies]
 rstest = "0.26.1"
+platynui-provider-mock = { path = "../provider-mock" }
+platynui-platform-mock = { path = "../platform-mock" }

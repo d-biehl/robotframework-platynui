@@ -303,11 +303,6 @@ impl DesktopNode {
         Arc::clone(self) as Arc<dyn UiNode>
     }
 
-    #[allow(dead_code)]
-    fn attach_child(&self, child: Arc<dyn UiNode>) {
-        self.children.lock().unwrap().push(child);
-    }
-
     fn replace_children(&self, nodes: Vec<Arc<dyn UiNode>>) {
         *self.children.lock().unwrap() = nodes;
     }
@@ -410,9 +405,7 @@ mod tests {
     };
     use platynui_core::ui::identifiers::TechnologyId;
     use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
-    #[allow(unused_imports)]
     use platynui_platform_mock as _;
-    #[allow(unused_imports)]
     use platynui_provider_mock as _;
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, Ordering};

@@ -14,9 +14,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::mpsc;
 
-#[allow(unused_imports)]
+#[cfg(any(test, feature = "mock-provider"))]
 use platynui_platform_mock as _;
-#[allow(unused_imports)]
+#[cfg(any(test, feature = "mock-provider"))]
 use platynui_provider_mock as _;
 
 type CliResult<T> = Result<T, Box<dyn Error>>;

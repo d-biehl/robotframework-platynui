@@ -224,7 +224,7 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
    - `list-providers`: registrierte Provider/Technologien anzeigen (Name, Version, Aktiv-Status; Mock → reale Plattformen).
    - `info`: Desktop-/Plattformmetadaten (OS, Auflösung, Monitore) über `DesktopInfoProvider` ausgeben.
    - `query`: XPath-Auswertung mit Ausgabe als Tabelle oder JSON; optional lassen sich Ergebnisse nach Namespace (`--namespace`) und Patterns (`--pattern`) filtern.
-   - Referenzstruktur des Mock-Baums: siehe `crates/provider-mock/assets/mock_tree.xml`; für Tests stellt `platynui-provider-mock` Hilfsfunktionen wie `emit_event(...)` und `emit_node_updated(...)` bereit, um gezielt Ereignisse zu erzeugen.
+   - Referenzstruktur des Mock-Baums: siehe `crates/provider-mock/assets/mock_tree.xml`; für Tests stellt `platynui-provider-mock` Hilfsfunktionen wie `emit_event(...)` und `emit_node_updated(...)` bereit, um gezielt Ereignisse zu erzeugen. Der Mock wird nur eingebunden, wenn das Cargo-Feature `mock-provider` aktiviert ist (z. B. `cargo run -p platynui-cli --features mock-provider -- watch --limit 1`).
    - `watch`: Provider-Ereignisse streamen (Text oder JSON), Filter auf Namespace/Pattern/RuntimeId anwenden und optional per `--expression` nach jedem Event eine XPath-Abfrage nachschieben; `--limit` erleichtert automatisierte Tests.
    - `highlight`: Bounding-Boxen hervorheben; nutzt `HighlightProvider` (Mock, später nativ).
    - `screenshot`: Bildschirm-/Bereichsaufnahmen über `ScreenshotProvider` erzeugen.

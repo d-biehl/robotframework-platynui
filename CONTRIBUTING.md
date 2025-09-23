@@ -24,6 +24,7 @@ Thank you for your interest in PlatynUI! This guide summarizes our current workf
   - `cargo test-all`
 - Author unit and integration tests with [`rstest`](https://docs.rs/rstest/latest/rstest/)—leverage fixtures, `#[case]`, `#[matrix]`, etc., to cover variations succinctly.
 - Follow the repository `rustfmt.toml` and run `cargo fmt-all` before opening a pull request.
+- Mock-based tests and demos: the mock platform/provider stack is gated behind the `mock-provider` feature. Unit tests pull it in automatically through dev-dependencies, but manual runs (CLI, ad-hoc experiments) need the flag explicitly, e.g. `cargo run --features mock-provider -p platynui-cli -- watch` or `cargo test --features mock-provider -p platynui-cli`.
 
 ## Workflow & Planning
 - `docs/umsetzungsplan.md` is treated as a living plan. After each work batch, tick off completed items, capture new findings, and adjust priorities.
