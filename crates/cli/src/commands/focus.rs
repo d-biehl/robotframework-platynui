@@ -1,0 +1,153 @@
+use crate::util::{CliResult, map_evaluate_error};
+use clap::Args;
+use owo_colors::{OwoColorize, Stream};
+use platynui_core::ui::{Namespace, UiNode};
+use platynui_runtime::{EvaluationItem, FocusError, Runtime};
+use std::collections::HashSet;
+use std::sync::Arc;
+
+#[derive(Args, Debug, Clone)]
+pub struct FocusArgs {
+    #[arg(value_name = "XPATH", help = "XPath expression selecting nodes to focus.")]
+    pub expression: String,
+}
+
+pub fn run(runtime: &Runtime, args: &FocusArgs) -> CliResult<String> {
+    let results = runtime.evaluate(None, &args.expression).map_err(map_evaluate_error)?;
+
+    let mut seen = HashSet::<String>::new();
+    let mut focused = Vec::new();
+    let mut missing = Vec::new();
+    let mut failed = Vec::new();
+
+    for item in results {
+        let EvaluationItem::Node(node) = item else { continue };
+        let runtime_id = node.runtime_id().as_str().to_owned();
+        if !seen.insert(runtime_id.clone()) {
+            continue;
+        }
+
+        match runtime.focus(&node) {
+            Ok(()) => focused.push(render_node(&node)),
+            Err(FocusError::PatternMissing { .. }) => missing.push(render_node(&node)),
+            Err(FocusError::ActionFailed { source, .. }) => {
+                failed.push((render_node(&node), source.message().to_owned()));
+            }
+        }
+    }
+
+    if focused.is_empty() && missing.is_empty() && failed.is_empty() {
+        return Err(format!("expression `{}` did not match any nodes", args.expression).into());
+    }
+
+    let mut lines = Vec::new();
+
+    if !focused.is_empty() {
+        lines.push(format!("Focused {} node(s):", focused.len()));
+        lines.extend(focused.iter().map(|entry| format!("- {entry}")));
+    } else {
+        lines.push("Focused 0 node(s).".to_owned());
+    }
+
+    if !missing.is_empty() {
+        lines.push("Skipped (missing Focusable pattern):".to_owned());
+        lines.extend(missing.iter().map(|entry| format!("- {entry}")));
+    }
+
+    if !failed.is_empty() {
+        lines.push("Failed to focus:".to_owned());
+        for (entry, reason) in failed {
+            lines.push(format!("- {entry}: {reason}"));
+        }
+    }
+
+    Ok(lines.join("\n"))
+}
+
+fn render_node(node: &Arc<dyn UiNode>) -> String {
+    let namespace = node.namespace().as_str();
+    let prefix = if namespace == Namespace::Control.as_str() {
+        String::new()
+    } else {
+        format!("{namespace}:")
+    };
+
+    let role = node.role();
+    let name = node.name();
+
+    let label = if name.is_empty() {
+        format!("{prefix}{role}")
+    } else {
+        let quoted_name = serde_json::to_string(name).unwrap_or_else(|_| format!("\"{name}\""));
+        format!("{prefix}{role} {quoted_name}")
+    };
+
+    let colored_label = label
+        .if_supports_color(Stream::Stdout, |text| text.bold().fg_rgb::<79, 166, 255>().to_string())
+        .to_string();
+
+    format!("{colored_label} ({})", node.runtime_id().as_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::util::{map_evaluate_error, map_provider_error};
+    use platynui_core::ui::UiValue;
+    use platynui_core::ui::attribute_names::focusable;
+    use platynui_runtime::Runtime;
+    use rstest::rstest;
+
+    #[rstest]
+    fn focus_command_sets_focus() {
+        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+        let args = FocusArgs { expression: "//control:Button[@Name='OK']".into() };
+
+        let output = run(&runtime, &args).expect("focus execution");
+        assert!(output.contains("Focused 1 node"));
+        assert!(output.contains("mock://button/ok"));
+
+        let results = runtime
+            .evaluate(None, "//control:Button[@Name='OK']")
+            .map_err(map_evaluate_error)
+            .expect("evaluation");
+
+        let focused = results
+            .into_iter()
+            .find_map(|item| match item {
+                EvaluationItem::Node(node) => Some(node),
+                _ => None,
+            })
+            .expect("button node present");
+
+        let attr =
+            focused.attribute(Namespace::Control, focusable::IS_FOCUSED).expect("focus attribute");
+        assert_eq!(attr.value(), UiValue::from(true));
+
+        runtime.shutdown();
+    }
+
+    #[rstest]
+    fn focus_command_reports_missing_pattern() {
+        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+        let args = FocusArgs { expression: "//control:Panel[@Name='Workspace']".into() };
+
+        let output = run(&runtime, &args).expect("focus execution");
+        assert!(output.contains("Skipped (missing Focusable pattern)"));
+        assert!(output.contains("mock://panel/workspace"));
+        assert!(output.contains("Focused 0 node"));
+
+        runtime.shutdown();
+    }
+
+    #[rstest]
+    fn focus_command_errors_on_empty_result() {
+        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+        let args = FocusArgs { expression: "//control:Button[@Name='Nonexistent']".into() };
+
+        let err = run(&runtime, &args).expect_err("no node should error");
+        assert!(err.to_string().contains("did not match any nodes"));
+
+        runtime.shutdown();
+    }
+}

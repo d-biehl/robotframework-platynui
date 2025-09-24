@@ -8,6 +8,7 @@ use platynui_provider_mock as _;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use commands::{
+    focus::{self, FocusArgs},
     highlight::{self, HighlightArgs},
     info, list_providers,
     query::{self, QueryArgs},
@@ -44,6 +45,8 @@ enum Commands {
     Highlight(HighlightArgs),
     #[command(name = "screenshot", about = "Capture a screenshot and save it as PNG.")]
     Screenshot(ScreenshotArgs),
+    #[command(name = "focus", about = "Set focus on nodes selected by an XPath expression.")]
+    Focus(FocusArgs),
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -85,6 +88,10 @@ fn run() -> CliResult<()> {
             let output = screenshot::run(&runtime, &args)?;
             println!("{output}");
         }
+        Commands::Focus(args) => {
+            let output = focus::run(&runtime, &args)?;
+            println!("{output}");
+        }
     }
 
     runtime.shutdown();
@@ -111,5 +118,16 @@ mod tests {
             Commands::Info { format } => assert!(matches!(format, OutputFormat::Text)),
             _ => panic!("unexpected command"),
         };
+    }
+
+    #[test]
+    fn clap_parsing_focus_requires_expression() {
+        let cli = Cli::try_parse_from(["platynui", "focus", "//control:Button"]).expect("parse");
+        match cli.command {
+            Commands::Focus(args) => {
+                assert_eq!(args.expression, "//control:Button");
+            }
+            _ => panic!("unexpected command"),
+        }
     }
 }

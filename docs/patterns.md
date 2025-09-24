@@ -126,8 +126,8 @@ Die folgende Tabelle fasst die aktuell vorgesehenen Attributnamen zusammen und o
 
 #### Focusable
 - **Beschreibung:** Element kann den Eingabefokus aufnehmen.
-- **Pflichtattribute:** `IsFocused` (`xs:boolean`).
-- **Runtime-Hinweis:** Die tatsächliche Aktion (`focus()`) stellt das RuntimePattern `Focusable` bereit (siehe Abschnitt „RuntimePatterns“).
+- **Pflichtattribute:** `IsFocused` (`xs:boolean`). Der Wert muss den aktuellen Fokusstatus widerspiegeln und bei Änderungen sofort angepasst werden (z. B. durch Lazy-Attribute oder Cache-Invalidierung).
+- **Runtime-Hinweis:** Die tatsächliche Aktion (`focus()`) stellt das RuntimePattern `Focusable` bereit (siehe Abschnitt „RuntimePatterns“). Provider rufen native Fokusmechanismen auf und lösen anschließend `ProviderEventKind::NodeUpdated` (für altes und neues Fokusziel) aus, damit nachfolgende XPath-Abfragen und Clients den aktualisierten Zustand erkennen.
 
 #### Activatable
 - **Beschreibung:** Element unterstützt einen primären Aktivierungsbefehl. Die Runtime stellt keine direkte Aktion bereit; Clients lösen die Aktivierung z. B. per Tastatur/Maus aus.

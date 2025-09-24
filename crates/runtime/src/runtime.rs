@@ -15,8 +15,10 @@ use platynui_core::types::Rect;
 use platynui_core::ui::attribute_names;
 use platynui_core::ui::identifiers::TechnologyId;
 use platynui_core::ui::{
-    Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue, supported_patterns_value,
+    FocusableAction, FocusablePattern, Namespace, PatternError, PatternId, RuntimeId, UiAttribute,
+    UiNode, UiValue, supported_patterns_value,
 };
+use thiserror::Error;
 
 use crate::provider::ProviderRegistry;
 use crate::provider::event::{ProviderEventDispatcher, ProviderEventSink};
@@ -72,6 +74,18 @@ impl ProviderRuntimeState {
             self.dirty.store(false, Ordering::SeqCst);
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum FocusError {
+    #[error("node `{runtime_id}` does not expose the Focusable pattern")]
+    PatternMissing { runtime_id: String },
+    #[error("focus action failed for node `{runtime_id}`: {source}")]
+    ActionFailed {
+        runtime_id: String,
+        #[source]
+        source: PatternError,
+    },
 }
 
 struct RuntimeEventListener {
@@ -160,6 +174,20 @@ impl Runtime {
     ) -> Result<Vec<EvaluationItem>, EvaluateError> {
         self.refresh_desktop_nodes(false).map_err(EvaluateError::from)?;
         evaluate(node, xpath, self.evaluate_options())
+    }
+
+    pub fn focus(&self, node: &Arc<dyn UiNode>) -> Result<(), FocusError> {
+        let runtime_id = node.runtime_id().as_str().to_owned();
+        let pattern = match node.pattern::<FocusableAction>() {
+            Some(pattern) => pattern,
+            None => return Err(FocusError::PatternMissing { runtime_id }),
+        };
+
+        if let Err(source) = pattern.focus() {
+            return Err(FocusError::ActionFailed { runtime_id, source });
+        }
+
+        Ok(())
     }
 
     pub fn desktop_node(&self) -> Arc<dyn UiNode> {
@@ -439,12 +467,14 @@ impl UiAttribute for DesktopAttribute {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::EvaluationItem;
     use platynui_core::platform::{HighlightRequest, ScreenshotRequest};
     use platynui_core::provider::{
         ProviderDescriptor, ProviderEvent, ProviderEventKind, ProviderEventListener, ProviderKind,
         UiTreeProviderFactory, register_provider,
     };
     use platynui_core::types::Rect;
+    use platynui_core::ui::attribute_names::focusable;
     use platynui_core::ui::identifiers::TechnologyId;
     use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
     use platynui_platform_mock as _;
@@ -673,6 +703,51 @@ mod tests {
         assert_eq!(app.namespace(), Namespace::App);
         let parent = app.parent().and_then(|weak| weak.upgrade()).expect("desktop parent");
         assert_eq!(parent.runtime_id().as_str(), runtime.desktop_info().runtime_id.as_str());
+    }
+
+    #[rstest]
+    fn runtime_focus_sets_focus_state() {
+        let mut runtime = Runtime::new().expect("runtime initializes");
+        let results =
+            runtime.evaluate(None, "//control:Button[@Name='OK']").expect("button evaluation");
+
+        let button = results
+            .into_iter()
+            .find_map(|item| match item {
+                EvaluationItem::Node(node) => Some(node),
+                _ => None,
+            })
+            .expect("button node available");
+
+        runtime.focus(&button).expect("focus succeeds");
+
+        let value = button
+            .attribute(Namespace::Control, focusable::IS_FOCUSED)
+            .expect("focus attribute present")
+            .value();
+        assert_eq!(value, UiValue::from(true));
+
+        runtime.shutdown();
+    }
+
+    #[rstest]
+    fn runtime_focus_requires_focusable_pattern() {
+        let mut runtime = Runtime::new().expect("runtime initializes");
+        let results =
+            runtime.evaluate(None, "//control:Panel[@Name='Workspace']").expect("panel evaluation");
+
+        let panel = results
+            .into_iter()
+            .find_map(|item| match item {
+                EvaluationItem::Node(node) => Some(node),
+                _ => None,
+            })
+            .expect("panel node available");
+
+        let err = runtime.focus(&panel).expect_err("panel should not support focus");
+        assert!(matches!(err, FocusError::PatternMissing { .. }));
+
+        runtime.shutdown();
     }
 
     #[rstest]

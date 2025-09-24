@@ -1,8 +1,11 @@
+use crate::focus;
 use crate::node::{MockNode, NodePatternContext, attr};
 use platynui_core::provider::ProviderDescriptor;
 use platynui_core::types::{Point, Rect};
 use platynui_core::ui::attribute_names::{activation_target, element, text_content};
-use platynui_core::ui::{Namespace, PatternId, PatternRegistry, UiAttribute, UiNode, UiValue};
+use platynui_core::ui::{
+    FocusableAction, Namespace, PatternId, PatternRegistry, RuntimeId, UiAttribute, UiNode, UiValue,
+};
 use quick_xml::de::from_str;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -492,25 +495,45 @@ fn instantiate_node(
     parent: Option<&Arc<MockNode>>,
     all: &mut Vec<Arc<MockNode>>,
 ) -> Arc<MockNode> {
-    let pattern_context = NodePatternContext {
-        runtime_patterns: PatternRegistry::new(),
-        supported_patterns: spec.patterns.iter().map(|p| PatternId::from(p.as_str())).collect(),
-        order_key: spec.order_key,
-    };
+    let runtime_id = RuntimeId::from(spec.runtime_id.as_str());
+
+    let mut runtime_patterns = PatternRegistry::new();
+    let mut dynamic_attributes: Vec<Arc<dyn UiAttribute>> = Vec::new();
+
+    if spec.patterns.iter().any(|pattern| pattern == "Focusable") {
+        let action_runtime_id = runtime_id.clone();
+        let action =
+            Arc::new(FocusableAction::new(move || focus::request_focus(action_runtime_id.clone())));
+        runtime_patterns.register(action);
+        dynamic_attributes.push(focus::focus_attribute(spec.namespace, runtime_id.clone()));
+    }
+
+    let mut supported_patterns: Vec<PatternId> =
+        spec.patterns.iter().map(|p| PatternId::from(p.as_str())).collect();
+
+    for pattern_id in runtime_patterns.supported() {
+        if !supported_patterns.contains(pattern_id) {
+            supported_patterns.push(pattern_id.clone());
+        }
+    }
+
+    let pattern_context =
+        NodePatternContext { runtime_patterns, supported_patterns, order_key: spec.order_key };
 
     let technology = descriptor.technology.as_str();
 
-    let attributes: Vec<Arc<dyn UiAttribute>> = spec
+    let mut attributes: Vec<Arc<dyn UiAttribute>> = spec
         .attributes
         .iter()
         .map(|attr_spec| attr(attr_spec.namespace, attr_spec.name.clone(), attr_spec.value.clone()))
         .collect();
+    attributes.extend(dynamic_attributes);
 
     let node = MockNode::new(
         spec.namespace,
         spec.role.clone(),
         spec.name.clone(),
-        spec.runtime_id.as_str(),
+        runtime_id.as_str(),
         technology,
         attributes,
         pattern_context,

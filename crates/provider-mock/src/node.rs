@@ -44,13 +44,15 @@ impl MockNode {
             attr(namespace, common::TECHNOLOGY, UiValue::from(technology.to_owned())),
         ];
 
-        let NodePatternContext { runtime_patterns, supported_patterns, order_key } =
+        let NodePatternContext { runtime_patterns, mut supported_patterns, order_key } =
             pattern_context;
-        let supported_patterns = if runtime_patterns.is_empty() {
-            supported_patterns
-        } else {
-            runtime_patterns.supported().to_vec()
-        };
+        if !runtime_patterns.is_empty() {
+            for id in runtime_patterns.supported() {
+                if !supported_patterns.contains(id) {
+                    supported_patterns.push(id.clone());
+                }
+            }
+        }
 
         attributes.push(attr(
             namespace,

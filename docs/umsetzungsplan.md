@@ -103,9 +103,9 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Tests: Screenshot-Aufrufe verifizieren Ausgabe, Logging und erzeugte Dateien (Temp-Verzeichnis über `tempfile` 3.23.0).
 
 ### 11. CLI `focus`
-- [ ] `FocusablePattern`-Nutzung in Runtime/CLI freischalten; Mock-Knoten unterstützen Fokuswechsel.
-- [ ] CLI-Kommando `focus`: Setzt Fokus auf Knoten (z. B. via RuntimeId oder XPath-Resultatindex).
-- [ ] Tests: Fokuswechsel protokollieren (Mock-Highlight/Pointer optional nicht nötig).
+- [x] `FocusablePattern` im Mock-Baum aktiviert: `IsFocused` wird dynamisch aus dem globalen Fokusstatus berechnet, Fokuswechsel senden `ProviderEventKind::NodeUpdated` für alte und neue Ziele.
+- [x] Runtime-API `Runtime::focus(&Arc<dyn UiNode>)` greift auf das registrierte `FocusableAction` zu und liefert differenzierte Fehler (`PatternMissing`, `ActionFailed`).
+- [x] CLI-Kommando `focus`: XPath-Auswahl fokusfähiger Knoten, Ausgabe mit Erfolgs-/Skip-Liste, Tests verifizieren Zustandswechsel und Fehlermeldungen.
 
 ### 12. CLI `pointer`
 - [ ] `PointerDevice`-Trait in `platynui-core` fixieren (Desktop-Koordinaten, Buttons, Scroll).
@@ -125,9 +125,9 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [ ] Tests: Window-CLI-Aufrufe gegen Mock verifizieren (`rstest`).
 
 ### 15. Runtime-Pattern-Integration (Mock)
-- [ ] Mock-UiTreeProvider reichert stabile Testknoten mit `supported_patterns()` und `pattern::<T>()`-Instanzen (Focusable, WindowSurface) an.
-- [ ] PatternRegistry-/Lookup-Mechanismen in Runtime-Wrappern verifizieren und Tests ergänzen (`rstest`).
-- [ ] CLI-Befehle `focus` und `window` (Mock) auf die vorhandenen Pattern-Actions aufsetzen; Fehlerpfade dokumentieren.
+- [x] Mock-UiTreeProvider liefert `FocusableAction`-Instanzen inkl. dynamischem `IsFocused`-Attribut; `WindowSurface` folgt separat.
+- [x] PatternRegistry-/Lookup-Mechanismen über Tests abgesichert (`UiNode::pattern::<T>()`, Runtime `focus()`); verbleibende Szenarien für `WindowSurface` stehen aus.
+- [ ] CLI-Befehl `window` (Mock) an die vorhandenen Pattern-Actions anbinden; Fokuspfad ist umgesetzt (`focus`).
 
 ### 16. Runtime-Ausbau – Plattformunabhängige Basis
 - [ ] `PlatformRegistry`/`PlatformBundle` implementieren: Plattformmodule registrieren Devices, Runtime bündelt sie je Technologie.

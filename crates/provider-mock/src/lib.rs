@@ -6,6 +6,7 @@
 
 mod events;
 mod factory;
+mod focus;
 mod node;
 mod provider;
 pub mod tree;

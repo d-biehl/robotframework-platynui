@@ -3,11 +3,14 @@ use crate::provider::{self, MockProvider};
 use crate::tree::{NodeSpec, StaticMockTree, install_mock_tree, reset_mock_tree};
 use platynui_core::provider::{UiTreeProvider, provider_factories};
 use platynui_core::types::Point;
-use platynui_core::ui::attribute_names::{activation_target, element, text_content};
+use platynui_core::ui::attribute_names::{activation_target, element, focusable, text_content};
 use platynui_core::ui::contract::testkit::{
     AttributeExpectation, NodeExpectation, PatternExpectation, require_node, verify_node,
 };
-use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
+use platynui_core::ui::{
+    FocusableAction, FocusablePattern, Namespace, PatternId, RuntimeId, UiAttribute, UiNode,
+    UiValue,
+};
 use rstest::rstest;
 use serial_test::serial;
 use std::sync::{Arc, LazyLock, Weak};
@@ -23,6 +26,11 @@ const TEXT_CONTENT_EXPECTATIONS: [AttributeExpectation; 1] =
 
 const ACTIVATION_TARGET_EXPECTATIONS: [AttributeExpectation; 1] =
     [AttributeExpectation::required(Namespace::Control, activation_target::ACTIVATION_POINT)];
+
+const FOCUSABLE_EXPECTATIONS: [AttributeExpectation; 1] =
+    [AttributeExpectation::required(Namespace::Control, focusable::IS_FOCUSED)];
+
+const CANCEL_RUNTIME_ID: &str = "mock://button/cancel";
 
 fn mock_provider() -> Arc<dyn UiTreeProvider> {
     reset_mock_tree();
@@ -156,6 +164,10 @@ fn contract_expectations_for_button_hold() {
         .with_pattern(PatternExpectation::new(
             PatternId::from("ActivationTarget"),
             &ACTIVATION_TARGET_EXPECTATIONS,
+        ))
+        .with_pattern(PatternExpectation::new(
+            PatternId::from("Focusable"),
+            &FOCUSABLE_EXPECTATIONS,
         ));
 
     require_node(button.as_ref(), &expectations).expect("button contract satisfied");
@@ -211,4 +223,51 @@ fn activation_point_aliases_present() {
         .collect();
     assert!(aliases.contains(&"ActivationPoint.X".to_owned()));
     assert!(aliases.contains(&"ActivationPoint.Y".to_owned()));
+}
+
+#[rstest]
+#[serial]
+fn focusable_pattern_switches_focus() {
+    let provider = mock_provider();
+    let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
+    let app = provider.get_nodes(Arc::clone(&desktop)).unwrap().next().unwrap();
+    let mut windows = provider.get_nodes(Arc::clone(&app)).unwrap();
+    let window = windows
+        .find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID)
+        .expect("main window present");
+
+    let button =
+        find_by_runtime_id(window.clone(), factory::BUTTON_RUNTIME_ID).expect("ok button present");
+    let cancel = find_by_runtime_id(window, CANCEL_RUNTIME_ID).expect("cancel button present");
+
+    let focus_attr = button
+        .attribute(Namespace::Control, focusable::IS_FOCUSED)
+        .expect("focus attribute present");
+    assert_eq!(focus_attr.value(), UiValue::from(false));
+
+    let focusable_action =
+        button.pattern::<FocusableAction>().expect("focusable pattern available on ok button");
+    focusable_action.focus().expect("focus action succeeds");
+
+    let focused_value = button
+        .attribute(Namespace::Control, focusable::IS_FOCUSED)
+        .expect("focus attribute after focus")
+        .value();
+    assert_eq!(focused_value, UiValue::from(true));
+
+    let cancel_action =
+        cancel.pattern::<FocusableAction>().expect("focusable pattern available on cancel button");
+    cancel_action.focus().expect("focus action on cancel succeeds");
+
+    let button_focus = button
+        .attribute(Namespace::Control, focusable::IS_FOCUSED)
+        .expect("ok button attribute after cancel focus")
+        .value();
+    let cancel_focus = cancel
+        .attribute(Namespace::Control, focusable::IS_FOCUSED)
+        .expect("cancel attribute after focus")
+        .value();
+
+    assert_eq!(button_focus, UiValue::from(false));
+    assert_eq!(cancel_focus, UiValue::from(true));
 }
