@@ -117,6 +117,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] CLI-Kommando `window`: Aktionen (`--activate`, `--minimize`, `--maximize`, `--restore`, `--close`, `--move x y`, `--resize w h`) sowie `--list` für eine strukturierte Fensterübersicht implementiert; Ausgabe nutzt die neuen Mock-Daten (Dual-View, aktualisierte Bounds).
 - [x] Tests: `platynui-provider-mock` validiert das Pattern (rstest, Lazy-Probing) und CLI-Tests decken Listen- und Aktionspfad ab (`window_actions_apply_sequence`, `window_actions_require_match`).
 - [x] CLI-Befehl `window` an Runtime-Pattern angebunden; Fokuspfad bleibt unabhängig (`focus`).
+- [x] Dokumentiert: Die flache `control:`-Sicht bleibt Default (Abfragen wie `/control:*/descendant-or-self::control:*[...]` erfassen nur echte Kontrollen), aliasierte Anwendungssicht liegt in `app:` / `appitem:`.
 
 ### 14. CLI `pointer`
 - [ ] `PointerDevice`-Trait in `platynui-core` fixieren (Desktop-Koordinaten, Buttons, Scroll).

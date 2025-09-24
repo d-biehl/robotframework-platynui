@@ -242,10 +242,12 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
    - `highlight`: Bounding-Boxen hervorheben; nutzt `HighlightProvider` (Mock, später nativ) und akzeptiert XPath-Ausdrücke, eine optionale Dauer (`--duration-ms`), sowie `--clear`, um bestehende Hervorhebungen zu entfernen oder neu zu positionieren.
   - `screenshot`: Bildschirm-/Bereichsaufnahmen über `ScreenshotProvider` erzeugen, `--bbox` (optional, `x,y,width,height`) und `--output` (Pfad) akzeptieren und die Daten aktuell als PNG ablegen. Ohne Bounding-Box wird automatisch der vollständige Desktop (vereinigt über alle Monitore laut `DesktopInfo`) aufgenommen. Übergebene Bereiche dürfen sich über mehrere Monitore erstrecken; die Runtime reicht die Werte unverändert an den Provider durch.
    - `focus`: XPath-Ausdruck evaluieren, gefundene Knoten nach `RuntimeId` deduplizieren und über `Runtime::focus()` den Fokus setzen. Die Ausgabe listet erfolgreiche Fokuswechsel sowie übersprungene Knoten (fehlendes Pattern oder Pattern-Fehler) getrennt auf.
-   - `window`: Fensterlisten (`--list`) sowie Aktionen auf `WindowSurface` (`--activate`, `--minimize`, `--maximize`, `--restore`, `--close`, `--move x y`, `--resize w h`). Ausgabe fasst Zustände (Bounds, Topmost, AcceptsUserInput) zusammen; basiert aktuell auf dem Mock-Provider (`--features mock-provider`).
-   - `pointer`: Zeigeraktionen (Move/Click/Scroll) über `PointerDevice` ausführen.
-   - `keyboard`: Tastatureingaben (Text, Keycodes) via `KeyboardDevice` simulieren.
-   Weitere Kommandos (z. B. `dump-node`, `watch --script`) folgen nach Stabilisierung der Basisfunktionen.
+- `window`: Fensterlisten (`--list`) sowie Aktionen auf `WindowSurface` (`--activate`, `--minimize`, `--maximize`, `--restore`, `--close`, `--move x y`, `--resize w h`). Ausgabe fasst Zustände (Bounds, Topmost, AcceptsUserInput) zusammen; basiert aktuell auf dem Mock-Provider (`--features mock-provider`).
+- `pointer`: Zeigeraktionen (Move/Click/Scroll) über `PointerDevice` ausführen.
+- `keyboard`: Tastatureingaben (Text, Keycodes) via `KeyboardDevice` simulieren.
+  Weitere Kommandos (z. B. `dump-node`, `watch --script`) folgen nach Stabilisierung der Basisfunktionen.
+
+> **Hinweis zur XPath-Suche:** Alias-Sichten (Anwendungsstruktur) erhalten eigene Präfixe (`app:*`, `appitem:*`). Eine Abfrage wie `/control:*/descendant-or-self::control:*[@IsFocused=true()]` traversiert ausschließlich die flache `control:`-Sicht und liefert damit jeden Knoten höchstens einmal, während `//app:*` gezielt die Anwendungssicht adressiert.
 2. **Inspector (GUI)** – Tree-Ansicht, Property-Panel (`control:*`, `item:*`, `native:*`), XPath-Editor (Autocompletion), Ergebnisliste, Highlighting, Element-Picker, Export/Logging; arbeitet eingebettet oder über `crates/server` (Crate `platynui-server`).
 
 ## 12. Nächste Schritte

@@ -224,6 +224,7 @@ Provider sollten dokumentieren, wenn sie von den vorgeschlagenen Zuordnungen abw
 - **Optionale Attribute:** `SupportsResize`, `SupportsMove`, `AcceptsUserInput` – jeweils `xs:boolean` (Runtime spiegelt `AcceptsUserInput` zusätzlich über die Pattern-Aktion wider).
 - **Runtime-Hinweis:** Das RuntimePattern `WindowSurface` stellt Aktionen (`activate()`, `minimize()`, …) sowie `accepts_user_input()` bereit.
 - **Interaktion mit Fokus:** Top-Level-Fenster deklarieren neben `WindowSurface` auch `Focusable`. `activate()` bzw. `restore()` sollen den Fokus über die Plattform setzen; `minimize()` und `close()` geben ihn wieder frei. Provider pflegen dafür das dynamische `IsFocused`-Attribut und emittieren `NodeUpdated`, wenn sich der Fokusstatus ändert.
+  > Hinweis: Die Control-Sicht liegt im Namespace `control`. Suchausdrücke wie `/control:*/descendant-or-self::control:*[@IsFocused=true()]` traversieren ausschließlich diese Sicht und liefern jeden Knoten höchstens einmal, während `//app:*` gezielt die aliasierte Anwendungssicht adressiert.
 
 #### DialogSurface
 - **Beschreibung:** Spezialisierung für modale Dialoge.
