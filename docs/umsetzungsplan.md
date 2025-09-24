@@ -107,27 +107,28 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Runtime-API `Runtime::focus(&Arc<dyn UiNode>)` greift auf das registrierte `FocusableAction` zu und liefert differenzierte Fehler (`PatternMissing`, `ActionFailed`).
 - [x] CLI-Kommando `focus`: XPath-Auswahl fokusfähiger Knoten, Ausgabe mit Erfolgs-/Skip-Liste, Tests verifizieren Zustandswechsel und Fehlermeldungen.
 
-### 12. CLI `pointer`
+### 12. Runtime-Pattern-Integration (Mock)
+- [x] Mock-UiTreeProvider liefert `FocusableAction`-Instanzen inkl. dynamischem `IsFocused`-Attribut; `WindowSurface` folgt separat.
+- [x] PatternRegistry-/Lookup-Mechanismen über Tests abgesichert (`UiNode::pattern::<T>()`, Runtime `focus()`); verbleibende Szenarien für `WindowSurface` stehen aus.
+- [x] `PatternRegistry::register_lazy` ermöglicht es, Pattern-Probes erst bei Bedarf auszuführen (Mock demonstriert dies für `Focusable`); der Unit-Test `register_lazy_resolves_on_demand` sichert das Caching-Verhalten ab.
+
+### 13. CLI `window` – Fensteraktionen (Mock)
+- [ ] `WindowSurface`-Pattern im Mock vollständig befüllen (`activate`, `minimize`, `maximize`, `restore`, `move`, `resize`, `accepts_user_input`).
+- [ ] CLI-Kommando `window`: Unterstützt Aktionen wie `--activate`, `--minimize`, `--maximize`, `--move x y`, `--list` (Fenster/Mappings).
+- [ ] Tests: Window-CLI-Aufrufe gegen Mock verifizieren (`rstest`).
+- [ ] CLI-Befehl `window` (Mock) an die vorhandenen Pattern-Actions anbinden; Fokuspfad ist umgesetzt (`focus`).
+
+### 14. CLI `pointer`
 - [ ] `PointerDevice`-Trait in `platynui-core` fixieren (Desktop-Koordinaten, Buttons, Scroll).
 - [ ] `platynui-platform-mock`: Simuliert Zeigeraktionen (Move/Click/Scroll) inkl. Logging.
 - [ ] CLI-Kommando `pointer`: Führt Bewegungen und Klicks aus (z. B. `--move x y`, `--click left`).
 - [ ] Tests: Pointer-Aufrufe gegen Mock protokollieren und verifizieren (`rstest`).
 
-### 13. CLI `keyboard`
+### 15. CLI `keyboard`
 - [ ] `KeyboardDevice`-Trait in `platynui-core` fixieren (Keycodes, Texteingabe, Modifiers).
 - [ ] `platynui-platform-mock`: Simuliert Tastatureingaben (Sequenzen, Sondertasten) inkl. Logging.
 - [ ] CLI-Kommando `keyboard`: Sendet Sequenzen (`--text`, `--key ENTER`) an das fokussierte Element.
 - [ ] Tests: Keyboard-Aufrufe gegen Mock prüfen (`rstest`).
-
-### 14. CLI `window` – Fensteraktionen (Mock)
-- [ ] `WindowSurface`-Pattern im Mock vollständig befüllen (`activate`, `minimize`, `maximize`, `restore`, `move`, `resize`, `accepts_user_input`).
-- [ ] CLI-Kommando `window`: Unterstützt Aktionen wie `--activate`, `--minimize`, `--maximize`, `--move x y`, `--list` (Fenster/Mappings).
-- [ ] Tests: Window-CLI-Aufrufe gegen Mock verifizieren (`rstest`).
-
-### 15. Runtime-Pattern-Integration (Mock)
-- [x] Mock-UiTreeProvider liefert `FocusableAction`-Instanzen inkl. dynamischem `IsFocused`-Attribut; `WindowSurface` folgt separat.
-- [x] PatternRegistry-/Lookup-Mechanismen über Tests abgesichert (`UiNode::pattern::<T>()`, Runtime `focus()`); verbleibende Szenarien für `WindowSurface` stehen aus.
-- [ ] CLI-Befehl `window` (Mock) an die vorhandenen Pattern-Actions anbinden; Fokuspfad ist umgesetzt (`focus`).
 
 ### 16. Runtime-Ausbau – Plattformunabhängige Basis
 - [ ] `PlatformRegistry`/`PlatformBundle` implementieren: Plattformmodule registrieren Devices, Runtime bündelt sie je Technologie.

@@ -88,7 +88,7 @@ pub enum ContractIssue {
 pub fn verify_node(node: &dyn UiNode, expectations: &NodeExpectation) -> Vec<ContractIssue> {
     let mut issues = Vec::new();
 
-    let supported: HashSet<PatternId> = node.supported_patterns().iter().cloned().collect();
+    let supported: HashSet<PatternId> = node.supported_patterns().into_iter().collect();
     let attributes = collect_attributes(node);
 
     for pattern in &expectations.patterns {
@@ -325,10 +325,8 @@ mod geometry_tests {
             Box::new(self.attributes.clone().into_iter())
         }
 
-        fn supported_patterns(&self) -> &[PatternId] {
-            static PATTERNS: Lazy<Vec<PatternId>> =
-                Lazy::new(|| vec![PatternId::from("Element"), PatternId::from("ActivationTarget")]);
-            PATTERNS.as_slice()
+        fn supported_patterns(&self) -> Vec<PatternId> {
+            vec![PatternId::from("Element"), PatternId::from("ActivationTarget")]
         }
 
         fn invalidate(&self) {}
@@ -469,7 +467,7 @@ mod expectation_tests {
             self
         }
 
-        fn with_pattern(mut self, pattern: PatternId) -> Self {
+        fn with_pattern(self, pattern: PatternId) -> Self {
             let arc: Arc<dyn UiPattern> = Arc::new(MockPattern(pattern.clone()));
             self.patterns.register_dyn(arc);
             self
@@ -505,7 +503,7 @@ mod expectation_tests {
             Box::new(self.attributes.lock().unwrap().clone().into_iter())
         }
 
-        fn supported_patterns(&self) -> &[PatternId] {
+        fn supported_patterns(&self) -> Vec<PatternId> {
             self.patterns.supported()
         }
 

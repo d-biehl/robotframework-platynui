@@ -150,12 +150,11 @@ impl WatchFilters {
             return false;
         }
 
-        if let Some(filters) = &self.patterns
-            && !filters
-                .iter()
-                .all(|pattern| node.supported_patterns().iter().any(|id| id.as_str() == pattern))
-        {
-            return false;
+        if let Some(filters) = &self.patterns {
+            let patterns = node.supported_patterns();
+            if !filters.iter().all(|pattern| patterns.iter().any(|id| id.as_str() == pattern)) {
+                return false;
+            }
         }
 
         if let Some(filters) = &self.runtime_ids

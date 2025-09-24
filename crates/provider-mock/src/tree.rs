@@ -4,7 +4,8 @@ use platynui_core::provider::ProviderDescriptor;
 use platynui_core::types::{Point, Rect};
 use platynui_core::ui::attribute_names::{activation_target, element, text_content};
 use platynui_core::ui::{
-    FocusableAction, Namespace, PatternId, PatternRegistry, RuntimeId, UiAttribute, UiNode, UiValue,
+    FocusableAction, Namespace, PatternId, PatternRegistry, RuntimeId, UiAttribute, UiNode,
+    UiPattern, UiValue,
 };
 use quick_xml::de::from_str;
 use serde::Deserialize;
@@ -497,28 +498,30 @@ fn instantiate_node(
 ) -> Arc<MockNode> {
     let runtime_id = RuntimeId::from(spec.runtime_id.as_str());
 
-    let mut runtime_patterns = PatternRegistry::new();
+    let runtime_patterns = PatternRegistry::new();
     let mut dynamic_attributes: Vec<Arc<dyn UiAttribute>> = Vec::new();
+    let mut declared_patterns: Vec<PatternId> = Vec::new();
 
     if spec.patterns.iter().any(|pattern| pattern == "Focusable") {
         let action_runtime_id = runtime_id.clone();
-        let action =
-            Arc::new(FocusableAction::new(move || focus::request_focus(action_runtime_id.clone())));
-        runtime_patterns.register(action);
+        runtime_patterns.register_lazy(PatternId::from("Focusable"), move || {
+            let target = action_runtime_id.clone();
+            let pattern: Arc<dyn UiPattern> =
+                Arc::new(FocusableAction::new(move || focus::request_focus(target.clone())));
+            Some(pattern)
+        });
         dynamic_attributes.push(focus::focus_attribute(spec.namespace, runtime_id.clone()));
     }
 
-    let mut supported_patterns: Vec<PatternId> =
-        spec.patterns.iter().map(|p| PatternId::from(p.as_str())).collect();
-
-    for pattern_id in runtime_patterns.supported() {
-        if !supported_patterns.contains(pattern_id) {
-            supported_patterns.push(pattern_id.clone());
+    for pattern in &spec.patterns {
+        if pattern == "Focusable" {
+            continue;
         }
+        declared_patterns.push(PatternId::from(pattern.as_str()));
     }
 
     let pattern_context =
-        NodePatternContext { runtime_patterns, supported_patterns, order_key: spec.order_key };
+        NodePatternContext { runtime_patterns, declared_patterns, order_key: spec.order_key };
 
     let technology = descriptor.technology.as_str();
 

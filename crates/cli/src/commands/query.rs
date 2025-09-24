@@ -84,6 +84,7 @@ pub(crate) fn summarize_query_results(
         .filter_map(|item| match item {
             EvaluationItem::Node(node) => {
                 let namespace = node.namespace();
+                let patterns = node.supported_patterns();
                 if let Some(filters) = namespace_filters
                     && !filters.contains(&namespace)
                 {
@@ -91,12 +92,12 @@ pub(crate) fn summarize_query_results(
                 }
 
                 if let Some(filters) = pattern_filters
-                    && !matches_pattern_filter(node.supported_patterns(), filters)
+                    && !matches_pattern_filter(&patterns, filters)
                 {
                     return None;
                 }
 
-                Some(node_to_query_summary(node))
+                Some(node_to_query_summary(node, patterns))
             }
             EvaluationItem::Attribute(attr) => {
                 if let Some(filters) = namespace_filters
@@ -125,10 +126,9 @@ pub(crate) fn summarize_query_results(
         .collect()
 }
 
-fn node_to_query_summary(node: Arc<dyn UiNode>) -> QueryItemSummary {
+fn node_to_query_summary(node: Arc<dyn UiNode>, patterns: Vec<PatternId>) -> QueryItemSummary {
     let namespace = node.namespace();
-    let supported_patterns =
-        node.supported_patterns().iter().map(|id| id.as_str().to_owned()).collect();
+    let supported_patterns = patterns.into_iter().map(|id| id.as_str().to_owned()).collect();
 
     let mut attributes: Vec<AttributeSummary> = node
         .attributes()

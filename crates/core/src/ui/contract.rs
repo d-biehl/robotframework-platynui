@@ -167,8 +167,12 @@ mod tests {
             Box::new(self.attributes.clone().into_iter())
         }
 
-        fn supported_patterns(&self) -> &[PatternId] {
-            if self.supported.is_empty() { self.patterns.supported() } else { &self.supported }
+        fn supported_patterns(&self) -> Vec<PatternId> {
+            if self.supported.is_empty() {
+                self.patterns.supported()
+            } else {
+                self.supported.clone()
+            }
         }
 
         fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {

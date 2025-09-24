@@ -837,8 +837,8 @@ mod tests {
             Box::new(self.attributes.clone().into_iter())
         }
 
-        fn supported_patterns(&self) -> &[PatternId] {
-            &self.patterns
+        fn supported_patterns(&self) -> Vec<PatternId> {
+            self.patterns.clone()
         }
 
         fn invalidate(&self) {}

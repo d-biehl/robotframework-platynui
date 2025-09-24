@@ -121,8 +121,8 @@ mod tests {
         fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
             Box::new(vec![Arc::new(DummyAttribute) as Arc<dyn UiAttribute>].into_iter())
         }
-        fn supported_patterns(&self) -> &[PatternId] {
-            &[]
+        fn supported_patterns(&self) -> Vec<PatternId> {
+            Vec::new()
         }
         fn invalidate(&self) {}
     }

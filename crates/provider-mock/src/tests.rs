@@ -81,8 +81,8 @@ impl UiNode for DesktopNode {
         Box::new(std::iter::empty())
     }
 
-    fn supported_patterns(&self) -> &[PatternId] {
-        &[]
+    fn supported_patterns(&self) -> Vec<PatternId> {
+        Vec::new()
     }
 
     fn invalidate(&self) {}

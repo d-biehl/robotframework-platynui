@@ -80,8 +80,8 @@ mod tests {
             Box::new(self.attributes.lock().unwrap().clone().into_iter())
         }
 
-        fn supported_patterns(&self) -> &[crate::ui::PatternId] {
-            &[]
+        fn supported_patterns(&self) -> Vec<crate::ui::PatternId> {
+            Vec::new()
         }
 
         fn invalidate(&self) {}

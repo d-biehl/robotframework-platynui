@@ -12,7 +12,7 @@ pub(crate) struct MockNode {
     runtime_id: RuntimeId,
     attributes: Vec<Arc<dyn UiAttribute>>,
     runtime_patterns: PatternRegistry,
-    supported_patterns: Vec<PatternId>,
+    declared_patterns: Vec<PatternId>,
     order_key: Option<u64>,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     children: Mutex<Vec<Arc<MockNode>>>,
@@ -20,7 +20,7 @@ pub(crate) struct MockNode {
 
 pub(crate) struct NodePatternContext {
     pub runtime_patterns: PatternRegistry,
-    pub supported_patterns: Vec<PatternId>,
+    pub declared_patterns: Vec<PatternId>,
     pub order_key: Option<u64>,
 }
 
@@ -44,21 +44,7 @@ impl MockNode {
             attr(namespace, common::TECHNOLOGY, UiValue::from(technology.to_owned())),
         ];
 
-        let NodePatternContext { runtime_patterns, mut supported_patterns, order_key } =
-            pattern_context;
-        if !runtime_patterns.is_empty() {
-            for id in runtime_patterns.supported() {
-                if !supported_patterns.contains(id) {
-                    supported_patterns.push(id.clone());
-                }
-            }
-        }
-
-        attributes.push(attr(
-            namespace,
-            common::SUPPORTED_PATTERNS,
-            supported_patterns_value(&supported_patterns),
-        ));
+        let NodePatternContext { runtime_patterns, declared_patterns, order_key } = pattern_context;
         attributes.append(&mut additional_attributes);
 
         Arc::new(Self {
@@ -68,7 +54,7 @@ impl MockNode {
             runtime_id,
             attributes,
             runtime_patterns,
-            supported_patterns,
+            declared_patterns,
             order_key,
             parent: Mutex::new(None),
             children: Mutex::new(Vec::new()),
@@ -118,11 +104,24 @@ impl UiNode for MockNode {
     }
 
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
-        Box::new(self.attributes.clone().into_iter())
+        let mut attributes = self.attributes.clone();
+        let patterns = self.supported_patterns();
+        attributes.push(attr(
+            self.namespace,
+            common::SUPPORTED_PATTERNS,
+            supported_patterns_value(&patterns),
+        ));
+        Box::new(attributes.into_iter())
     }
 
-    fn supported_patterns(&self) -> &[PatternId] {
-        &self.supported_patterns
+    fn supported_patterns(&self) -> Vec<PatternId> {
+        let mut patterns = self.declared_patterns.clone();
+        for id in self.runtime_patterns.supported() {
+            if !patterns.contains(&id) {
+                patterns.push(id);
+            }
+        }
+        patterns
     }
 
     fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {

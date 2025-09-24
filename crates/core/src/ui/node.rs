@@ -25,7 +25,7 @@ pub trait UiNode: Send + Sync {
         self.attributes().find(|attr| attr.namespace() == namespace && attr.name() == name)
     }
     /// Capability patterns implemented by the node.
-    fn supported_patterns(&self) -> &[PatternId];
+    fn supported_patterns(&self) -> Vec<PatternId>;
     /// Retrieves a pattern instance by identifier. Default implementation
     /// returns `None`; providers override this to surface concrete pattern
     /// objects.
@@ -117,7 +117,7 @@ mod tests {
                     value: UiValue::Rect(Rect::new(0.0, 0.0, 10.0, 5.0)),
                 }) as Arc<dyn UiAttribute>],
                 patterns: {
-                    let mut registry = PatternRegistry::new();
+                    let registry = PatternRegistry::new();
                     registry.register_dyn(pattern);
                     registry
                 },
@@ -172,7 +172,7 @@ mod tests {
             Box::new(self.attributes.clone().into_iter())
         }
 
-        fn supported_patterns(&self) -> &[PatternId] {
+        fn supported_patterns(&self) -> Vec<PatternId> {
             self.patterns.supported()
         }
 
@@ -225,15 +225,17 @@ mod tests {
 
         if register_pattern {
             assert!(pattern.is_some());
-            assert_eq!(node.supported_patterns()[0], ActivatablePattern::static_id());
-            assert_eq!(node.supported_patterns(), node.patterns.supported());
-            for id in node.supported_patterns() {
-                assert!(node.pattern_by_id(id).is_some(), "pattern {id:?} missing instance");
+            let supported = node.supported_patterns();
+            assert_eq!(supported[0], ActivatablePattern::static_id());
+            assert_eq!(supported, node.patterns.supported());
+            for id in supported {
+                assert!(node.pattern_by_id(&id).is_some(), "pattern {id:?} missing instance");
             }
         } else {
             assert!(pattern.is_none());
-            assert!(node.supported_patterns().is_empty());
-            assert_eq!(node.supported_patterns(), node.patterns.supported());
+            let supported = node.supported_patterns();
+            assert!(supported.is_empty());
+            assert_eq!(supported, node.patterns.supported());
         }
     }
 }

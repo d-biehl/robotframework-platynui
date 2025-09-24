@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use super::identifiers::PatternId;
 
@@ -49,8 +49,21 @@ where
 
 #[derive(Default)]
 pub struct PatternRegistry {
+    state: Mutex<PatternRegistryState>,
+}
+
+#[derive(Default)]
+struct PatternRegistryState {
     order: Vec<PatternId>,
-    entries: HashMap<PatternId, Arc<dyn UiPattern>>,
+    entries: HashMap<PatternId, RegistryEntry>,
+}
+
+enum RegistryEntry {
+    Ready(Arc<dyn UiPattern>),
+    Lazy {
+        probe: Arc<dyn Fn() -> Option<Arc<dyn UiPattern>> + Send + Sync>,
+        cached: OnceLock<Option<Arc<dyn UiPattern>>>,
+    },
 }
 
 impl PatternRegistry {
@@ -58,23 +71,44 @@ impl PatternRegistry {
         Self::default()
     }
 
-    pub fn register<P>(&mut self, pattern: Arc<P>)
+    pub fn register<P>(&self, pattern: Arc<P>)
     where
         P: UiPattern + 'static,
     {
         self.register_dyn(pattern as Arc<dyn UiPattern>);
     }
 
-    pub fn register_dyn(&mut self, pattern: Arc<dyn UiPattern>) {
+    pub fn register_dyn(&self, pattern: Arc<dyn UiPattern>) {
+        let mut state = self.state.lock().unwrap();
         let id = pattern.id();
-        if !self.entries.contains_key(&id) {
-            self.order.push(id.clone());
+        if let Some(entry) = state.entries.get_mut(&id) {
+            *entry = RegistryEntry::Ready(Arc::clone(&pattern));
+        } else {
+            state.order.push(id.clone());
+            state.entries.insert(id, RegistryEntry::Ready(pattern));
         }
-        self.entries.insert(id, pattern);
+    }
+
+    pub fn register_lazy<F>(&self, id: PatternId, probe: F)
+    where
+        F: Fn() -> Option<Arc<dyn UiPattern>> + Send + Sync + 'static,
+    {
+        let mut state = self.state.lock().unwrap();
+        let probe_arc: Arc<dyn Fn() -> Option<Arc<dyn UiPattern>> + Send + Sync> = Arc::new(probe);
+        if let Some(entry) = state.entries.get_mut(&id) {
+            *entry = RegistryEntry::Lazy { probe: Arc::clone(&probe_arc), cached: OnceLock::new() };
+        } else {
+            state.order.push(id.clone());
+            state
+                .entries
+                .insert(id, RegistryEntry::Lazy { probe: probe_arc, cached: OnceLock::new() });
+        }
     }
 
     pub fn get(&self, id: &PatternId) -> Option<Arc<dyn UiPattern>> {
-        self.entries.get(id).map(Arc::clone)
+        let mut state = self.state.lock().unwrap();
+        let entry = state.entries.get_mut(id)?;
+        resolve_entry(entry)
     }
 
     pub fn get_typed<T>(&self) -> Option<Arc<T>>
@@ -85,12 +119,41 @@ impl PatternRegistry {
         self.get(&id).and_then(downcast_pattern_arc::<T>)
     }
 
-    pub fn supported(&self) -> &[PatternId] {
-        &self.order
+    pub fn supported(&self) -> Vec<PatternId> {
+        let mut state = self.state.lock().unwrap();
+        let order_snapshot = state.order.clone();
+        let mut supported = Vec::new();
+        for id in order_snapshot {
+            if let Some(entry) = state.entries.get_mut(&id) {
+                if resolve_entry(entry).is_none() {
+                    continue;
+                }
+                supported.push(id);
+            }
+        }
+        supported
     }
 
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        let state = self.state.lock().unwrap();
+        state.entries.is_empty()
+    }
+}
+
+fn resolve_entry(entry: &mut RegistryEntry) -> Option<Arc<dyn UiPattern>> {
+    match entry {
+        RegistryEntry::Ready(pattern) => Some(Arc::clone(pattern)),
+        RegistryEntry::Lazy { probe, cached } => {
+            let value = cached.get_or_init(|| probe.as_ref()());
+            match value {
+                Some(pattern) => {
+                    let cloned = Arc::clone(pattern);
+                    *entry = RegistryEntry::Ready(Arc::clone(pattern));
+                    Some(cloned)
+                }
+                None => None,
+            }
+        }
     }
 }
 
@@ -397,7 +460,7 @@ mod tests {
 
     #[rstest]
     fn registry_registers_and_retrieves_typed_pattern() {
-        let mut registry = PatternRegistry::new();
+        let registry = PatternRegistry::new();
         registry.register(Arc::new(DummyPattern));
 
         let stored = registry.get_typed::<DummyPattern>();
@@ -405,6 +468,45 @@ mod tests {
         let supported = registry.supported();
         assert_eq!(supported.len(), 1);
         assert_eq!(supported[0], DummyPattern::static_id());
+    }
+
+    #[rstest]
+    fn register_lazy_resolves_on_demand() {
+        struct LazyPattern;
+
+        impl UiPattern for LazyPattern {
+            fn id(&self) -> PatternId {
+                Self::static_id()
+            }
+
+            fn static_id() -> PatternId
+            where
+                Self: Sized,
+            {
+                PatternId::from("Lazy")
+            }
+
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+        }
+
+        let registry = PatternRegistry::new();
+        let counter = Arc::new(Mutex::new(0u32));
+        let counter_clone = Arc::clone(&counter);
+        registry.register_lazy(LazyPattern::static_id(), move || {
+            *counter_clone.lock().unwrap() += 1;
+            Some(Arc::new(LazyPattern) as Arc<dyn UiPattern>)
+        });
+
+        // First access resolves the pattern via the probe.
+        let ids = registry.supported();
+        assert_eq!(ids, vec![LazyPattern::static_id()]);
+        assert_eq!(*counter.lock().unwrap(), 1);
+
+        // Subsequent lookups reuse the cached pattern without invoking the probe again.
+        assert!(registry.get(&LazyPattern::static_id()).is_some());
+        assert_eq!(*counter.lock().unwrap(), 1);
     }
 
     #[rstest]
