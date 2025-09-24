@@ -2402,7 +2402,9 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             match it {
                 XdmItem::Atomic(a) => out.push(XdmItem::Atomic(a)),
                 XdmItem::Node(n) => {
-                    out.push(XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(n.string_value())))
+                    for atom in n.typed_value() {
+                        out.push(XdmItem::Atomic(atom));
+                    }
                 }
             }
         }

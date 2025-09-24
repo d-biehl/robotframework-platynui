@@ -7,6 +7,7 @@
 - [ ] `ProviderDescriptor` ist vollständig ausgefüllt (`id`, Anzeigename, `Technology`, `ProviderKind`) und spiegelt die tatsächliche Quelle wider.
 - [ ] `ProviderDescriptor::event_capabilities` beschreibt exakt, welche Ereignisse die Implementierung liefern kann (`None`, `ChangeHint`, `Structure`, `StructureWithProperties`). Wird keine Stufe gesetzt, muss der Provider davon ausgehen, dass die Runtime vor Abfragen Vollabfragen triggert.
 - [ ] Provider geben ihren Baum als `Arc<dyn UiNode>` zurück; Attribute implementieren das `UiAttribute`-Trait und liefern Werte erst bei Bedarf (`UiAttribute::value()` → `UiValue`).
+- [ ] `UiAttribute::value()` nutzt den passenden `UiValue`-Variant: `bool` → `UiValue::Bool`, Ganzzahlen → `UiValue::Integer`, Gleitkomma → `UiValue::Number`, Strings → `UiValue::String`. Komplexe Strukturen (`Rect`, `Point`, `Size`, JSON-Objekte/-Arrays) werden als entsprechende `UiValue`-Varianten geliefert; die Runtime erzeugt daraus typed-first Atomics für XPath (`Bounds.Width` ⇒ `xs:double`, `IsVisible` ⇒ `xs:boolean`).
 - [ ] Steuerelemente erscheinen im `control`-Namespace, Items in Containerstrukturen im `item`-Namespace; andere Namensräume (`app`, `native`) bleiben ergänzend.
 - [ ] Alle Koordinaten (`Bounds`, `ActivationPoint`, `ActivationArea`, Fensterrahmen) werden im Desktop-Koordinatensystem geliefert (linke obere Ecke des Primärmonitors = Ursprung, DPI-/Scaling berücksichtigt).
 - [ ] `RuntimeId` bleibt stabil, solange das zugrunde liegende Element existiert; bei Neuaufbau ändert sich die ID nachvollziehbar.

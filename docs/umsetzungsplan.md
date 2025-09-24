@@ -39,6 +39,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Evaluation-API auf `EvaluationItem` (Node/Attribute/Value) umstellen und Konsumenten/Tests anpassen (Kontext per `Option<Arc<dyn UiNode>>`).
 - [x] Basis-Validator implementieren (`validate_control_or_item`), der aktuell nur doppelte `SupportedPatterns` meldet; weitere Attribut-Prüfungen erfolgen pattern- bzw. provider-spezifisch. `UiAttribute`-Trait + XPath-Wrapper bleiben bestehen.
 - [x] Dokumentwurzel „Desktop“ samt Monitor-Alias-Attributen (Bounds.X usw.) beschreiben und Tests erstellen.
+- [x] XPath-Atomisierung auf `typed_value()` umstellen: `UiValue`-Varianten werden in XDM-Atomics überführt (Booleans, Integer, Double), komplexe Strukturen (`Rect`, `Point`, `Size`) bleiben als JSON-Strings; Regressionstests (`data(//@*:Bounds.Width)`, `data(//@*:IsVisible)`) absichern.
 
 ### 3. Pattern-System
 - [x] Runtime-Pattern-Traits in `platynui-core` anlegen (`FocusablePattern`, `WindowSurfacePattern`) inkl. `PatternError`-Fehlertyp; rein lesende Patterns verbleiben bei Attributen.

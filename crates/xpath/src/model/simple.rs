@@ -61,6 +61,7 @@ use std::sync::{
 };
 
 use crate::model::{NodeKind, QName, XdmNode};
+use crate::xdm::XdmAtomicValue;
 
 type AxisVecIter = std::vec::IntoIter<SimpleNode>;
 
@@ -597,18 +598,21 @@ impl XdmNode for SimpleNode {
     fn name(&self) -> Option<QName> {
         self.0.name.clone()
     }
-    fn string_value(&self) -> String {
+    fn typed_value(&self) -> Vec<XdmAtomicValue> {
         match self.kind() {
             NodeKind::Text
             | NodeKind::Attribute
             | NodeKind::Comment
             | NodeKind::ProcessingInstruction
-            | NodeKind::Namespace => self.0.value.read().unwrap().clone().unwrap_or_default(),
+            | NodeKind::Namespace => {
+                let value = self.0.value.read().unwrap().clone().unwrap_or_default();
+                vec![XdmAtomicValue::UntypedAtomic(value)]
+            }
             NodeKind::Element | NodeKind::Document => {
-                // Memoized
                 if let Some(cached) = self.0.cached_text.read().unwrap().clone() {
-                    return cached;
+                    return vec![XdmAtomicValue::UntypedAtomic(cached)];
                 }
+
                 let mut out = String::new();
                 fn dfs(n: &SimpleNode, out: &mut String) {
                     if n.kind() == NodeKind::Text
@@ -622,7 +626,7 @@ impl XdmNode for SimpleNode {
                 }
                 dfs(self, &mut out);
                 *self.0.cached_text.write().unwrap() = Some(out.clone());
-                out
+                vec![XdmAtomicValue::UntypedAtomic(out)]
             }
         }
     }

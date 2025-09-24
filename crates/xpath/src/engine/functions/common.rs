@@ -88,7 +88,9 @@ pub(super) fn data_default<N: 'static + Send + Sync + crate::model::XdmNode + Cl
             match it {
                 XdmItem::Atomic(a) => out.push(XdmItem::Atomic(a.clone())),
                 XdmItem::Node(n) => {
-                    out.push(XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(n.string_value())))
+                    for atom in n.typed_value() {
+                        out.push(XdmItem::Atomic(atom));
+                    }
                 }
             }
         }
@@ -96,9 +98,7 @@ pub(super) fn data_default<N: 'static + Send + Sync + crate::model::XdmNode + Cl
     } else {
         match require_context_item(ctx)? {
             XdmItem::Atomic(a) => Ok(vec![XdmItem::Atomic(a)]),
-            XdmItem::Node(n) => {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(n.string_value()))])
-            }
+            XdmItem::Node(n) => Ok(n.typed_value().into_iter().map(XdmItem::Atomic).collect()),
         }
     }
 }

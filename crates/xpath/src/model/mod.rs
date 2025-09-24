@@ -1,4 +1,5 @@
 use crate::engine::runtime::{Error, ErrorCode};
+use crate::xdm::XdmAtomicValue;
 
 pub mod simple;
 use core::{cmp::Ordering, marker::PhantomData};
@@ -119,7 +120,11 @@ pub trait XdmNode: Clone + Eq + core::fmt::Debug + Send + Sync + 'static {
 
     fn kind(&self) -> NodeKind;
     fn name(&self) -> Option<QName>;
-    fn string_value(&self) -> String;
+    fn typed_value(&self) -> Vec<XdmAtomicValue>;
+
+    fn string_value(&self) -> String {
+        typed_value_to_string(&self.typed_value())
+    }
     fn base_uri(&self) -> Option<String> {
         None
     }
@@ -140,4 +145,92 @@ pub trait XdmNode: Clone + Eq + core::fmt::Debug + Send + Sync + 'static {
     fn compare_document_order(&self, other: &Self) -> Result<Ordering, Error> {
         try_compare_by_ancestry(self, other)
     }
+}
+
+fn typed_value_to_string(values: &[XdmAtomicValue]) -> String {
+    if values.is_empty() {
+        return String::new();
+    }
+
+    values.iter().map(lexical_cast).collect::<Vec<_>>().join(" ")
+}
+
+fn lexical_cast(value: &XdmAtomicValue) -> String {
+    use XdmAtomicValue::*;
+    match value {
+        Boolean(b) => b.to_string(),
+        String(s) | UntypedAtomic(s) | AnyUri(s) | NormalizedString(s) | Token(s) | Language(s)
+        | Name(s) | NCName(s) | NMTOKEN(s) | Id(s) | IdRef(s) | Entity(s) | Notation(s) => {
+            s.clone()
+        }
+        Integer(i) => i.to_string(),
+        Long(i) => i.to_string(),
+        NonPositiveInteger(i) => i.to_string(),
+        NegativeInteger(i) => i.to_string(),
+        Int(i) => i.to_string(),
+        Short(i) => i.to_string(),
+        Byte(i) => i.to_string(),
+        UnsignedLong(u) => u.to_string(),
+        NonNegativeInteger(u) => u.to_string(),
+        PositiveInteger(u) => u.to_string(),
+        UnsignedInt(u) => u.to_string(),
+        UnsignedShort(u) => u.to_string(),
+        UnsignedByte(u) => u.to_string(),
+        Decimal(d) | Double(d) => trim_float(*d),
+        Float(f) => trim_float(*f as f64),
+        QName { ns_uri, prefix, local } => match (ns_uri, prefix) {
+            (Some(ns), Some(pref)) => format!("{{{}}}{}:{}", ns, pref, local),
+            (Some(ns), None) => format!("{{{}}}{}", ns, local),
+            (None, Some(pref)) => format!("{}:{}", pref, local),
+            (None, None) => local.clone(),
+        },
+        DateTime(dt) => dt.to_rfc3339(),
+        Date { date, tz } => match tz {
+            Some(offset) => format!("{}{}", date, offset),
+            None => date.to_string(),
+        },
+        Time { time, tz } => match tz {
+            Some(offset) => format!("{}{}", time, offset),
+            None => time.to_string(),
+        },
+        YearMonthDuration(months) => format!("P{}M", months),
+        DayTimeDuration(secs) => format!("PT{}S", secs),
+        Base64Binary(data) | HexBinary(data) => data.clone(),
+        GYear { year, tz } => match tz {
+            Some(offset) => format!("{}{}", year, offset),
+            None => year.to_string(),
+        },
+        GYearMonth { year, month, tz } => match tz {
+            Some(offset) => format!("{}-{:02}{}", year, month, offset),
+            None => format!("{}-{:02}", year, month),
+        },
+        GMonth { month, tz } => match tz {
+            Some(offset) => format!("{:02}{}", month, offset),
+            None => format!("{:02}", month),
+        },
+        GMonthDay { month, day, tz } => match tz {
+            Some(offset) => format!("{:02}-{:02}{}", month, day, offset),
+            None => format!("{:02}-{:02}", month, day),
+        },
+        GDay { day, tz } => match tz {
+            Some(offset) => format!("{:02}{}", day, offset),
+            None => format!("{:02}", day),
+        },
+    }
+}
+
+fn trim_float(value: f64) -> String {
+    let mut s = format!("{}", value);
+    if s.contains('e') || s.contains('E') {
+        return s;
+    }
+    if s.contains('.') {
+        while s.ends_with('0') {
+            s.pop();
+        }
+        if s.ends_with('.') {
+            s.pop();
+        }
+    }
+    s
 }

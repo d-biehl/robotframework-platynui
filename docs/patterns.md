@@ -82,36 +82,43 @@ Die folgende Tabelle fasst die aktuell vorgesehenen Attributnamen zusammen und o
 #### Element
 - **Beschreibung:** Grundlegender Vertrag für sichtbare UI-Elemente (gilt für `control:`- und `item:`-Knoten).
 - **Pflichtattribute:**
-  - `Bounds` (Desktop-Koordinaten als `Rect`)
-  - `Name` (sichtbarer Anzeigename)
-  - `IsVisible` (bool)
-  - `IsEnabled` (bool; gibt an, ob das Element Aktionen entgegennimmt)
-- **Optionale Attribute:** `IsOffscreen`, technologie-spezifische Ergänzungen unter `native:*`.
+-  - `Bounds` – Desktop-Koordinaten als `Rect` (JSON-String); Aliaswerte `Bounds.X`, `Bounds.Y`, `Bounds.Width`, `Bounds.Height` werden automatisch als `xs:double` erzeugt.
+-  - `Name` – `xs:string`
+-  - `IsVisible` – `xs:boolean`
+-  - `IsEnabled` – `xs:boolean` (Element nimmt Eingaben an)
+- **Optionale Attribute:** `IsOffscreen` (`xs:boolean`), technologie-spezifische Ergänzungen unter `native:*`.
 - **Hinweis:** Attribute wie `Role`, `Technology`, `RuntimeId`, `SupportedPatterns` gelten für alle `UiNode`s (siehe Grundvertrag) und werden hier nicht erneut aufgeführt. Provider müssen die Element-Pflichtfelder für alle `control:`-/`item:`-Knoten konsistent bereitstellen; Clients entscheiden anhand dieser Werte, welche weiteren ClientPatterns zutreffen.
 - **Contract-Test:** Das Core-Testkit (`platynui_core::ui::contract::testkit`) vergleicht optionale Alias-Werte (`Bounds.X`, `Bounds.Y`, `Bounds.Width`, `Bounds.Height`), sofern vorhanden, mit dem gelieferten `Bounds`-Rechteck.
 
 #### Desktop
 - **Beschreibung:** Beschreibt den Dokumentknoten des UI-Baums. Der Desktop wird als `document-node()` im `control`-Namespace exponiert. XPath-Abfragen beginnen somit mit `.` bzw. `document-node()`, während `/*` die obersten UI-Kinder (z. B. Anwendungen) liefert. Der Desktop gilt nicht als reguläres UI-Element, sondern stellt System- und Monitorinformationen bereit.
-- **Pflichtattribute:** `Bounds`, `DisplayCount`, `Monitors`, `OsName`, `OsVersion`.
+- **Pflichtattribute:**
+  - `Bounds` – Desktop-Koordinaten als `Rect` (JSON-String, Aliaswerte wie oben `xs:double`)
+  - `DisplayCount` – `xs:integer`
+  - `Monitors` – JSON-Array aus Objekten (`Name`, `Bounds` als `Rect`)
+  - `OsName` – `xs:string`
+  - `OsVersion` – `xs:string`
 - **Hinweis:** Weitere Basisattribute entstammen dem allgemeinen UiNode-Vertrag; Ableitungen wie `Bounds.X`/`Bounds.Width` werden automatisch erzeugt. Die Attribute sind über den Dokumentkontext abrufbar (z. B. `./@Bounds.X`).
 
 ### Textbezogene Fähigkeiten (ClientPatterns)
 
 #### TextContent
 - **Beschreibung:** Stellt dar, dass ein Knoten sichtbaren oder zugänglichen Text transportiert.
-- **Pflichtattribute:** `Text` (String).
+- **Pflichtattribute:** `Text` (`xs:string`).
 - **Optionale Attribute:** `Locale`, `IsTruncated`.
 - **Verwendung:** Statischer Text, Buttons, Menüeinträge, Tabellenzellen, TreeView-Items.
 
 #### TextEditable
 - **Beschreibung:** Ergänzt `TextContent` um Informationen zur Bearbeitbarkeit.
-- **Pflichtattribute:** `IsReadOnly` (bool).
+- **Pflichtattribute:** `IsReadOnly` (`xs:boolean`).
 - **Optionale Attribute:** `MaxLength`, `SupportsPasswordMode`.
 - **Abhängigkeit:** erfordert `TextContent`.
 
 #### TextSelection
 - **Beschreibung:** Bietet Zugriff auf Cursor- und Selektionsinformationen.
-- **Pflichtattribute:** `CaretPosition`, `SelectionRanges` (Liste von Offsets).
+- **Pflichtattribute:**
+  - `CaretPosition` – `xs:integer`
+  - `SelectionRanges` – JSON-Array (`[{"Start": int, "End": int}]`) zur Beschreibung mehrerer Bereiche.
 - **Optionale Attribute:** `SelectionAnchor`, `SelectionActive`.
 - **Abhängigkeiten:** Erwartet `TextContent`.
 
@@ -119,19 +126,19 @@ Die folgende Tabelle fasst die aktuell vorgesehenen Attributnamen zusammen und o
 
 #### Focusable
 - **Beschreibung:** Element kann den Eingabefokus aufnehmen.
-- **Pflichtattribute:** `IsFocused`.
+- **Pflichtattribute:** `IsFocused` (`xs:boolean`).
 - **Runtime-Hinweis:** Die tatsächliche Aktion (`focus()`) stellt das RuntimePattern `Focusable` bereit (siehe Abschnitt „RuntimePatterns“).
 
 #### Activatable
 - **Beschreibung:** Element unterstützt einen primären Aktivierungsbefehl. Die Runtime stellt keine direkte Aktion bereit; Clients lösen die Aktivierung z. B. per Tastatur/Maus aus.
-- **Pflichtattribute:** `IsActivationEnabled`.
-- **Optionale Attribute:** `DefaultAccelerator`.
+- **Pflichtattribute:** `IsActivationEnabled` (`xs:boolean`).
+- **Optionale Attribute:** `DefaultAccelerator` (`xs:string`).
 - **Verwendung:** Buttons, Menüeinträge, Hyperlinks, Tree-Items mit Default-Aktion.
 
 #### ActivationTarget
 - **Beschreibung:** Liefert eine standardisierte Zeiger- bzw. Klickposition innerhalb der Elementgrenzen, damit Clients Interaktionen zuverlässig auf die aktive Fläche richten können.
-- **Pflichtattribute:** `ActivationPoint` (absoluter Koordinatenwert im Desktop-Bezugssystem, innerhalb der globalen `Bounds` des Elements). Komponenten stehen zusätzlich als `ActivationPoint.X`/`ActivationPoint.Y` zur Verfügung.
-- **Optionale Attribute:** `ActivationArea` (absolutes Rechteck im Desktop-Koordinatensystem für erweiterte Zielzonen), `ActivationHint` (Kurzbeschreibung des empfohlenen Ziels).
+- **Pflichtattribute:** `ActivationPoint` – `Point` (JSON-String, Desktop-Koordinaten); Aliaswerte `ActivationPoint.X`/`ActivationPoint.Y` werden als `xs:double` erzeugt.
+- **Optionale Attribute:** `ActivationArea` (`Rect` als JSON-String im Desktop-Bezugssystem), `ActivationHint` (`xs:string`).
 - **Verwendung:** Buttons, Checkboxen, Radiobuttons, Listeneinträge, Tree-Items oder andere Steuerelemente mit klar definierter Interaktionsfläche.
 - **Contract-Test:** Alias-Werte (`ActivationPoint.X`, `ActivationPoint.Y`), sofern gesetzt, müssen rechnerisch zum `ActivationPoint` passen; das Core-Testkit meldet Abweichungen.
 
@@ -195,49 +202,56 @@ Provider sollten dokumentieren, wenn sie von den vorgeschlagenen Zuordnungen abw
 
 #### Scrollable
 - **Beschreibung:** Container kann Inhalt scrollen.
-- **Pflichtattribute:** `CanScrollHorizontally`, `CanScrollVertically`, `HorizontalPercent`, `VerticalPercent`, `HorizontalViewSize`, `VerticalViewSize`.
-- **Optionale Attribute:** `ScrollGranularity`.
+- **Pflichtattribute:**
+  - `CanScrollHorizontally`, `CanScrollVertically` – `xs:boolean`
+  - `HorizontalPercent`, `VerticalPercent` – `xs:double` (0–100 oder `NaN` bei nicht scrollbaren Achsen)
+  - `HorizontalViewSize`, `VerticalViewSize` – `xs:double`
+- **Optionale Attribute:** `ScrollGranularity` (`xs:string`, z. B. `Line`, `Page`).
 
 #### ItemContainer
 - **Beschreibung:** Stellt indirekten Zugriff auf Kinder durch Index oder Schlüssel bereit.
-- **Pflichtattribute:** `ItemCount` (optional falls unbekannt), `IsVirtualized` (bool).
-- **Optionale Attribute:** `SupportsContainerSearch`.
+- **Pflichtattribute:**
+  - `ItemCount` (`xs:integer`, darf fehlen oder `-1`, wenn unbekannt)
+  - `IsVirtualized` (`xs:boolean`)
+- **Optionale Attribute:** `SupportsContainerSearch` (`xs:boolean`).
 - **Verwendung:** Tabellen, Listen, virtuelle Kataloge.
 
 ### Fenster & Oberflächen (ClientPatterns)
 
 #### WindowSurface
 - **Beschreibung:** Bindeglied zu den plattformspezifischen Fenster-APIs.
-- **Pflichtattribute:** `IsMinimized`, `IsMaximized`, `IsTopmost`.
-- **Optionale Attribute:** `AcceptsUserInput` (bool; Abbild des Runtime-Status, falls verfügbar).
+- **Pflichtattribute:** `IsMinimized`, `IsMaximized`, `IsTopmost` – jeweils `xs:boolean`.
+- **Optionale Attribute:** `SupportsResize`, `SupportsMove`, `AcceptsUserInput` – jeweils `xs:boolean` (Runtime spiegelt `AcceptsUserInput` zusätzlich über die Pattern-Aktion wider).
 - **Runtime-Hinweis:** Das RuntimePattern `WindowSurface` stellt Aktionen (`activate()`, `minimize()`, …) sowie `accepts_user_input()` bereit.
 
 #### DialogSurface
 - **Beschreibung:** Spezialisierung für modale Dialoge.
-- **Pflichtattribute:** `IsModal`.
-- **Optionale Attribute:** `DefaultResult`.
+- **Pflichtattribute:** `IsModal` (`xs:boolean`).
+- **Optionale Attribute:** `DefaultResult` (`xs:string`).
 - **Abhängigkeiten:** Erwartet `WindowSurface`.
 
 ### Applikationen & Prozesse (ClientPatterns)
 
-#### Application
 - **Beschreibung:** Repräsentiert eine ausführende Anwendung oder einen Prozesskontext, aus dem Fenster und UI-Elemente stammen.
-- **Pflichtattribute:** `ProcessId`, `ProcessName` und/oder `Name`, `ExecutablePath`
-- **Optionale Attribute:** `CommandLine`, `UserName`, `StartTime`, `MainWindowIds` (Liste von `RuntimeId`s der führenden Fenster), `Architecture` (z. B. `x86_64`).
+- **Pflichtattribute:**
+  - `ProcessId` (`xs:integer`)
+  - `ProcessName` bzw. `Name` (`xs:string`)
+  - `ExecutablePath` (`xs:string`)
+- **Optionale Attribute:** `CommandLine` (`xs:string`), `UserName` (`xs:string`), `StartTime` (`xs:dateTime`), `MainWindowIds` (JSON-Array aus `RuntimeId`s), `Architecture` (`xs:string`).
 - **Hinweis:** Application-Knoten sind Einstiegspunkte für XPath-Abfragen über den `app`-Namespace; sie bündeln Metadaten, ersetzen aber keine Prozessverwaltung.
 
 ### Visualisierung & Annotation
 
 #### Highlightable
 - **Beschreibung:** Element kann visuell hervorgehoben werden.
-- **Pflichtattribute:** `SupportsHighlight` (bool).
-- **Optionale Attribute:** `HighlightStyles` (Liste vordefinierter Stile).
+- **Pflichtattribute:** `SupportsHighlight` (`xs:boolean`).
+- **Optionale Attribute:** `HighlightStyles` (JSON-Array vordefinierter Stilkennungen).
 - **Hinweis:** Die Runtime stellt eine eigene Highlight-Funktion bereit; kein Pattern-spezifisches Aktions-API erforderlich.
 - **Runtime-Hinweis:** Das Highlighting nutzt den `HighlightProvider` (`highlight(&[HighlightRequest])`, `clear()`), der Desktop-Koordinaten verarbeitet und optional eine Dauer erhält, nach der der Overlay-Rahmen automatisch verschwindet oder bei neuen Anfragen verschoben wird.
 
 #### Annotatable
 - **Beschreibung:** Element kann Zusatzinformationen tragen (Fehler, Status, Hinweis).
-- **Pflichtattribute:** `Annotations` (Liste strukturierter Datensätze).
+- **Pflichtattribute:** `Annotations` (JSON-Array strukturierter Datensätze, z. B. `{ "Kind": "Error", "Message": "..." }`).
 
 ## RuntimePatterns – Laufzeitaktionen
 

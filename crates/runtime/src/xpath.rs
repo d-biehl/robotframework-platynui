@@ -1,8 +1,9 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use platynui_core::provider::ProviderError;
 use platynui_core::ui::identifiers::RuntimeId;
-use platynui_core::ui::{Namespace as UiNamespace, UiNode, UiValue};
+use platynui_core::ui::{Namespace as UiNamespace, UiAttribute, UiNode, UiValue};
 use platynui_xpath::compiler;
 use platynui_xpath::engine::evaluator;
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilder};
@@ -200,7 +201,7 @@ impl RuntimeXdmNode {
         namespace: UiNamespace,
         name: String,
         value: UiValue,
-        text: String,
+        typed: Vec<XdmAtomicValue>,
     ) -> Self {
         let owner_runtime_id = owner.runtime_id().as_str().to_string();
         RuntimeXdmNode::Attribute(AttributeData {
@@ -209,7 +210,7 @@ impl RuntimeXdmNode {
             namespace,
             name,
             value,
-            text,
+            typed,
         })
     }
 }
@@ -258,15 +259,15 @@ impl std::fmt::Debug for RuntimeXdmNode {
 
 impl XdmNode for RuntimeXdmNode {
     type Children<'a>
-        = std::vec::IntoIter<RuntimeXdmNode>
+        = NodeChildrenIter<'a>
     where
         Self: 'a;
     type Attributes<'a>
-        = std::vec::IntoIter<RuntimeXdmNode>
+        = NodeAttributeIter<'a>
     where
         Self: 'a;
     type Namespaces<'a>
-        = std::vec::IntoIter<RuntimeXdmNode>
+        = std::iter::Empty<RuntimeXdmNode>
     where
         Self: 'a;
 
@@ -286,11 +287,10 @@ impl XdmNode for RuntimeXdmNode {
         }
     }
 
-    fn string_value(&self) -> String {
+    fn typed_value(&self) -> Vec<XdmAtomicValue> {
         match self {
-            RuntimeXdmNode::Document(_) => String::new(),
-            RuntimeXdmNode::Element(_) => String::new(),
-            RuntimeXdmNode::Attribute(attr) => attr.text.clone(),
+            RuntimeXdmNode::Document(_) | RuntimeXdmNode::Element(_) => Vec::new(),
+            RuntimeXdmNode::Attribute(attr) => attr.typed.clone(),
         }
     }
 
@@ -311,34 +311,26 @@ impl XdmNode for RuntimeXdmNode {
 
     fn children(&self) -> Self::Children<'_> {
         match self {
-            RuntimeXdmNode::Document(doc) => {
-                let mut results = Vec::new();
-                for child in doc.root.children() {
-                    results.push(RuntimeXdmNode::from_node(child));
-                }
-                results.into_iter()
-            }
-            RuntimeXdmNode::Element(elem) => {
-                let mut results = Vec::new();
-                for child in elem.node.children() {
-                    results.push(RuntimeXdmNode::from_node(child));
-                }
-                results.into_iter()
-            }
-            RuntimeXdmNode::Attribute(_) => Vec::new().into_iter(),
+            RuntimeXdmNode::Document(doc) => NodeChildrenIter::new(doc.root.children()),
+            RuntimeXdmNode::Element(elem) => NodeChildrenIter::new(elem.node.children()),
+            RuntimeXdmNode::Attribute(_) => NodeChildrenIter::empty(),
         }
     }
 
     fn attributes(&self) -> Self::Attributes<'_> {
         match self {
-            RuntimeXdmNode::Document(doc) => collect_attribute_nodes(&doc.root).into_iter(),
-            RuntimeXdmNode::Element(elem) => collect_attribute_nodes(&elem.node).into_iter(),
-            RuntimeXdmNode::Attribute(_) => Vec::new().into_iter(),
+            RuntimeXdmNode::Document(doc) => {
+                NodeAttributeIter::new(doc.root.clone(), doc.root.attributes())
+            }
+            RuntimeXdmNode::Element(elem) => {
+                NodeAttributeIter::new(elem.node.clone(), elem.node.attributes())
+            }
+            RuntimeXdmNode::Attribute(_) => NodeAttributeIter::empty(),
         }
     }
 
     fn namespaces(&self) -> Self::Namespaces<'_> {
-        Vec::new().into_iter()
+        std::iter::empty()
     }
 
     fn doc_order_key(&self) -> Option<u64> {
@@ -371,7 +363,7 @@ struct AttributeData {
     namespace: UiNamespace,
     name: String,
     value: UiValue,
-    text: String,
+    typed: Vec<XdmAtomicValue>,
 }
 
 impl AttributeData {
@@ -385,38 +377,34 @@ impl AttributeData {
     }
 }
 
-fn collect_attribute_nodes(node: &Arc<dyn UiNode>) -> Vec<RuntimeXdmNode> {
-    let mut nodes = Vec::new();
-
-    for attribute in node.attributes() {
-        let namespace = attribute.namespace();
-        let base_name = attribute.name().to_string();
-        let value = attribute.value();
-
-        if let Some(text) = ui_value_to_string(&value) {
-            nodes.push(RuntimeXdmNode::attribute(
-                Arc::clone(node),
-                namespace,
-                base_name.clone(),
-                value.clone(),
-                text,
-            ));
-        }
-
-        for (derived_name, derived_value) in expand_structured_attribute(&base_name, &value) {
-            if let Some(text) = ui_value_to_string(&derived_value) {
-                nodes.push(RuntimeXdmNode::attribute(
-                    Arc::clone(node),
-                    namespace,
-                    derived_name,
-                    derived_value,
-                    text,
-                ));
-            }
-        }
+fn ui_value_to_atomic_values(value: &UiValue) -> Vec<XdmAtomicValue> {
+    match value {
+        UiValue::Null => Vec::new(),
+        UiValue::Bool(b) => vec![XdmAtomicValue::Boolean(*b)],
+        UiValue::Integer(i) => vec![XdmAtomicValue::Integer(*i)],
+        UiValue::Number(n) => vec![XdmAtomicValue::Double(*n)],
+        UiValue::String(s) => vec![XdmAtomicValue::String(s.clone())],
+        UiValue::Array(items) => serde_json::to_string(items)
+            .ok()
+            .map(|json| vec![XdmAtomicValue::String(json)])
+            .unwrap_or_default(),
+        UiValue::Object(map) => serde_json::to_string(map)
+            .ok()
+            .map(|json| vec![XdmAtomicValue::String(json)])
+            .unwrap_or_default(),
+        UiValue::Point(point) => serde_json::to_string(point)
+            .ok()
+            .map(|json| vec![XdmAtomicValue::String(json)])
+            .unwrap_or_default(),
+        UiValue::Size(size) => serde_json::to_string(size)
+            .ok()
+            .map(|json| vec![XdmAtomicValue::String(json)])
+            .unwrap_or_default(),
+        UiValue::Rect(rect) => serde_json::to_string(rect)
+            .ok()
+            .map(|json| vec![XdmAtomicValue::String(json)])
+            .unwrap_or_default(),
     }
-
-    nodes
 }
 
 fn expand_structured_attribute(base_name: &str, value: &UiValue) -> Vec<(String, UiValue)> {
@@ -441,26 +429,6 @@ fn expand_structured_attribute(base_name: &str, value: &UiValue) -> Vec<(String,
 
 fn component_attribute_name(base: &str, suffix: &str) -> String {
     format!("{}.{}", base, suffix)
-}
-
-fn ui_value_to_string(value: &UiValue) -> Option<String> {
-    match value {
-        UiValue::Null => None,
-        UiValue::Bool(b) => Some(b.to_string()),
-        UiValue::Integer(i) => Some(i.to_string()),
-        UiValue::Number(n) => Some(trim_float(*n)),
-        UiValue::String(s) => Some(s.clone()),
-        UiValue::Array(items) => serde_json::to_string(items).ok(),
-        UiValue::Object(map) => serde_json::to_string(map).ok(),
-        UiValue::Point(p) => serde_json::to_string(p).ok(),
-        UiValue::Size(s) => serde_json::to_string(s).ok(),
-        UiValue::Rect(r) => serde_json::to_string(r).ok(),
-    }
-}
-
-fn trim_float(value: f64) -> String {
-    let s = format!("{}", value);
-    if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s }
 }
 
 fn element_qname(ns: UiNamespace, role: &str) -> QName {
@@ -578,6 +546,103 @@ fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
         )),
         GDay { day, tz } => {
             UiValue::String(format!("{:02}{}", day, tz.map_or("".to_string(), |o| o.to_string())))
+        }
+    }
+}
+
+struct NodeChildrenIter<'a> {
+    inner: Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'a>,
+}
+
+impl<'a> NodeChildrenIter<'a> {
+    fn new(inner: Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'a>) -> Self {
+        Self { inner }
+    }
+
+    fn empty() -> Self {
+        Self { inner: Box::new(std::iter::empty::<Arc<dyn UiNode>>()) }
+    }
+}
+
+impl<'a> Iterator for NodeChildrenIter<'a> {
+    type Item = RuntimeXdmNode;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(RuntimeXdmNode::from_node)
+    }
+}
+
+struct NodeAttributeIter<'a> {
+    owner: Option<Arc<dyn UiNode>>,
+    inner: Option<Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'a>>,
+    queue: VecDeque<RuntimeXdmNode>,
+}
+
+impl<'a> NodeAttributeIter<'a> {
+    fn new(
+        owner: Arc<dyn UiNode>,
+        inner: Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'a>,
+    ) -> Self {
+        Self { owner: Some(owner), inner: Some(inner), queue: VecDeque::new() }
+    }
+
+    fn empty() -> Self {
+        Self { owner: None, inner: None, queue: VecDeque::new() }
+    }
+}
+
+impl<'a> Iterator for NodeAttributeIter<'a> {
+    type Item = RuntimeXdmNode;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(node) = self.queue.pop_front() {
+            return Some(node);
+        }
+
+        let owner = match self.owner.as_ref() {
+            Some(owner) => owner.clone(),
+            None => return None,
+        };
+
+        loop {
+            let inner = match self.inner.as_mut() {
+                Some(inner) => inner,
+                None => {
+                    self.owner = None;
+                    return None;
+                }
+            };
+
+            if let Some(attribute) = inner.next() {
+                let namespace = attribute.namespace();
+                let base_name = attribute.name().to_string();
+                let value = attribute.value();
+                let typed = ui_value_to_atomic_values(&value);
+                if typed.is_empty() {
+                    continue;
+                }
+
+                for (derived_name, derived_value) in expand_structured_attribute(&base_name, &value)
+                {
+                    let derived_typed = ui_value_to_atomic_values(&derived_value);
+                    if derived_typed.is_empty() {
+                        continue;
+                    }
+                    self.queue.push_back(RuntimeXdmNode::attribute(
+                        owner.clone(),
+                        namespace,
+                        derived_name,
+                        derived_value,
+                        derived_typed,
+                    ));
+                }
+
+                return Some(RuntimeXdmNode::attribute(owner, namespace, base_name, value, typed));
+            } else {
+                self.inner = None;
+                self.owner = None;
+                return None;
+            }
         }
     }
 }
@@ -850,6 +915,62 @@ mod tests {
                 assert_eq!(attr.value, UiValue::Number(0.0));
             }
             other => panic!("unexpected attribute result: {:?}", other),
+        }
+    }
+
+    #[rstest]
+    fn bounds_width_data_returns_numbers() {
+        let tree = sample_tree();
+        let attrs =
+            evaluate(None, "//@*:Bounds.Width", EvaluateOptions::new(tree.clone())).unwrap();
+        assert!(!attrs.is_empty());
+        for item in &attrs {
+            match item {
+                EvaluationItem::Attribute(attr) => {
+                    assert!(matches!(attr.value, UiValue::Number(_)));
+                }
+                other => panic!("expected attribute node, got {:?}", other),
+            }
+        }
+        let items =
+            evaluate(None, "data(//@*:Bounds.Width)", EvaluateOptions::new(tree.clone())).unwrap();
+        assert!(!items.is_empty());
+        let mut widths = Vec::new();
+        for item in items {
+            match item {
+                EvaluationItem::Value(UiValue::Number(n)) => widths.push(n),
+                other => panic!("expected numeric UiValue, got {:?}", other),
+            }
+        }
+        assert!(widths.contains(&1920.0));
+        assert!(widths.contains(&800.0));
+    }
+
+    #[rstest]
+    fn boolean_attributes_atomize_to_bools() {
+        let tree = sample_tree();
+        let items =
+            evaluate(None, "data(//@*:IsVisible)", EvaluateOptions::new(tree.clone())).unwrap();
+        assert!(!items.is_empty());
+        for item in items {
+            match item {
+                EvaluationItem::Value(UiValue::Bool(value)) => assert!(value),
+                other => panic!("expected boolean UiValue, got {:?}", other),
+            }
+        }
+    }
+
+    #[rstest]
+    fn bounds_base_attribute_remains_json_string() {
+        let tree = sample_tree();
+        let items = evaluate(None, "data(./@Bounds)", EvaluateOptions::new(tree.clone())).unwrap();
+        assert_eq!(items.len(), 1);
+        match &items[0] {
+            EvaluationItem::Value(UiValue::String(json)) => {
+                assert!(json.contains("\"width\""));
+                assert!(json.contains("\"height\""));
+            }
+            other => panic!("expected serialized bounds string, got {:?}", other),
         }
     }
 

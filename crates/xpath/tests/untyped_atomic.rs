@@ -26,8 +26,8 @@ impl platynui_xpath::model::XdmNode for DummyNode {
     fn kind(&self) -> platynui_xpath::model::NodeKind {
         platynui_xpath::model::NodeKind::Element
     }
-    fn string_value(&self) -> String {
-        self.val.clone()
+    fn typed_value(&self) -> Vec<XdmAtomicValue> {
+        vec![XdmAtomicValue::UntypedAtomic(self.val.clone())]
     }
     fn parent(&self) -> Option<Self> {
         None
