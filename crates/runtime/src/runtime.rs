@@ -15,8 +15,8 @@ use platynui_core::types::Rect;
 use platynui_core::ui::attribute_names;
 use platynui_core::ui::identifiers::TechnologyId;
 use platynui_core::ui::{
-    FocusableAction, FocusablePattern, Namespace, PatternError, PatternId, RuntimeId, UiAttribute,
-    UiNode, UiValue, supported_patterns_value,
+    DESKTOP_RUNTIME_ID, FocusableAction, FocusablePattern, Namespace, PatternError, PatternId,
+    RuntimeId, UiAttribute, UiNode, UiValue, supported_patterns_value,
 };
 use thiserror::Error;
 
@@ -299,6 +299,8 @@ struct DesktopNode {
 
 impl DesktopNode {
     fn new(info: DesktopInfo) -> Arc<Self> {
+        let mut info = info;
+        info.runtime_id = RuntimeId::from(DESKTOP_RUNTIME_ID);
         let namespace = Namespace::Control;
         let mut attributes: Vec<Arc<dyn UiAttribute>> = Vec::new();
         let supported = vec![PatternId::from("Desktop")];

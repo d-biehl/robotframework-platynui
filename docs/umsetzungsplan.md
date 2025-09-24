@@ -120,10 +120,11 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Dokumentiert: Die flache `control:`-Sicht bleibt Default (Abfragen wie `/control:*/descendant-or-self::control:*[...]` erfassen nur echte Kontrollen), aliasierte Anwendungssicht liegt in `app:` / `appitem:`.
 
 ### 14. CLI `pointer`
-- [ ] `PointerDevice`-Trait in `platynui-core` fixieren (Desktop-Koordinaten, Buttons, Scroll).
-- [ ] `platynui-platform-mock`: Simuliert Zeigeraktionen (Move/Click/Scroll) inkl. Logging.
-- [ ] CLI-Kommando `pointer`: Führt Bewegungen und Klicks aus (z. B. `--move x y`, `--click left`).
-- [ ] Tests: Pointer-Aufrufe gegen Mock protokollieren und verifizieren (`rstest`).
+- [ ] `PointerDevice`-Trait in `platynui-core` definieren: elementare Aktionen (`position()`, `move_to(Point)`, `press(PointerButton)`, `release(PointerButton)`, `scroll(ScrollDelta)`), Double-Click-Metadaten (`double_click_time()`, `double_click_size()`), Rückgabewerte/Fehler via `PlatformError`. Alle Koordinaten bleiben `f64` in Desktop-Bezug.
+- [ ] Bewegungs-Engine im Runtime-Layer ergänzen (Schrittgeneratoren linear/Bezier/Overshoot/Jitter, konfigurierbare Delays `after_move_delay`, `press_release_delay`, `multi_click_delay`, `before_next_click_delay`). Einstellungen zentral in `PointerSettings` (Basiswerte wie `double_click_time`, `double_click_size`, Standard-Delays, Scrollschritte) und `PointerProfile` (Bewegungsparameter) bündeln; eine gemeinsame `PointerOptions`-Struktur dient als optionaler Override pro Aufruf (`move_to`, `click`, `drag`, `scroll`). CLI-Optionen können Defaults und Ad-hoc-Optionen setzen.
+- [ ] `platynui-platform-mock`: Pointer-Implementation bereitstellen (Move/Press/Release/Scroll) mit Logging-Hooks (`take_pointer_log`, `reset_pointer_state`) und deterministischen Ergebnissen; Double-Click-Zeit/-Größe über Mock-Konstanten simulieren.
+- [ ] CLI-Kommando `pointer`: Unterbefehle für `move`, `click`, `press`, `release`, `scroll`, optional `--profile`/`--motion <mode>`; Koordinaten-/Button-Parsing, Ausgabe mit Erfolg/Fehlerinformation.
+- [ ] Tests (`rstest`): Motion-Engine (Schrittfolgen, Delay-Konfiguration) im Isolationstest, Mock-Protokolle (Move/Press/Release/Scroll), CLI-Integration (Argumentkombinationen, Fehlerfälle, JSON/Text-Ausgabe). Feature-Gating (`mock-provider`) beibehalten.
 
 ### 15. CLI `keyboard`
 - [ ] `KeyboardDevice`-Trait in `platynui-core` fixieren (Keycodes, Texteingabe, Modifiers).

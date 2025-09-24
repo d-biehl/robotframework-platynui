@@ -2,6 +2,7 @@ use super::identifiers::{PatternId, RuntimeId};
 use super::namespace::Namespace;
 use super::pattern::{UiPattern, downcast_pattern_arc};
 use super::value::UiValue;
+use crate::ui::DESKTOP_RUNTIME_ID;
 use std::sync::{Arc, Weak};
 
 /// Trait representing a UI node surfaced by a provider.
@@ -53,6 +54,91 @@ impl dyn UiNode {
         let pattern = self.pattern_by_id(&id)?;
         downcast_pattern_arc::<T>(pattern)
     }
+}
+
+/// Iterator over ancestor nodes.
+pub struct UiNodeAncestorIter {
+    next: Option<Arc<dyn UiNode>>,
+}
+
+impl Iterator for UiNodeAncestorIter {
+    type Item = Arc<dyn UiNode>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = self.next.take()?;
+        let parent = current.parent().and_then(|weak| weak.upgrade());
+        self.next = parent;
+        Some(current)
+    }
+}
+
+/// Convenience helpers for working with `Arc<dyn UiNode>`.
+pub trait UiNodeExt {
+    /// Returns the parent as `Arc`, if available.
+    fn parent_arc(&self) -> Option<Arc<dyn UiNode>>;
+    /// Iterator over all ancestors, starting with the immediate parent.
+    fn ancestors(&self) -> UiNodeAncestorIter;
+    /// Iterator over the node itself gefolgt von allen Vorfahren.
+    fn ancestors_including_self(&self) -> UiNodeAncestorIter;
+    /// Oberster Vorfahre (oder `self`, wenn kein Parent existiert).
+    fn top_level_or_self(&self) -> Arc<dyn UiNode>;
+    /// First ancestor (inkl. self) that exposes the requested pattern.
+    fn ancestor_pattern<P>(&self) -> Option<Arc<P>>
+    where
+        P: UiPattern + 'static;
+    /// Pattern des Top-Level-Knotens (falls vorhanden).
+    fn top_level_pattern<P>(&self) -> Option<Arc<P>>
+    where
+        P: UiPattern + 'static;
+}
+
+impl UiNodeExt for Arc<dyn UiNode> {
+    fn parent_arc(&self) -> Option<Arc<dyn UiNode>> {
+        self.parent()
+            .and_then(|weak| weak.upgrade())
+            .and_then(|parent| if is_desktop(&parent) { None } else { Some(parent) })
+    }
+
+    fn ancestors(&self) -> UiNodeAncestorIter {
+        UiNodeAncestorIter { next: self.parent_arc() }
+    }
+
+    fn ancestors_including_self(&self) -> UiNodeAncestorIter {
+        UiNodeAncestorIter { next: Some(self.clone()) }
+    }
+
+    fn top_level_or_self(&self) -> Arc<dyn UiNode> {
+        let mut current = self.clone();
+        while let Some(parent) = current.parent_arc() {
+            current = parent;
+        }
+        current
+    }
+
+    fn ancestor_pattern<P>(&self) -> Option<Arc<P>>
+    where
+        P: UiPattern + 'static,
+    {
+        for node in self.ancestors_including_self() {
+            if let Some(pattern) = node.pattern::<P>() {
+                return Some(pattern);
+            }
+        }
+        None
+    }
+
+    fn top_level_pattern<P>(&self) -> Option<Arc<P>>
+    where
+        P: UiPattern + 'static,
+    {
+        self.top_level_or_self().pattern::<P>()
+    }
+}
+
+fn is_desktop(node: &Arc<dyn UiNode>) -> bool {
+    node.parent().is_none()
+        && node.role() == "Desktop"
+        && node.runtime_id().as_str() == DESKTOP_RUNTIME_ID
 }
 
 /// Trait describing a lazily computed attribute of a UI node.
@@ -208,6 +294,252 @@ mod tests {
         let attr = node.attribute(Namespace::Control, "Bounds");
         assert!(attr.is_some());
         assert!(node.attribute(Namespace::Control, "Missing").is_none());
+    }
+
+    #[test]
+    fn ancestor_helpers_resolve_top_level_and_patterns() {
+        struct StubNode {
+            name: &'static str,
+            runtime_id: RuntimeId,
+            pattern_registry: PatternRegistry,
+            parent: Mutex<Option<Weak<dyn UiNode>>>,
+        }
+
+        impl StubNode {
+            fn new(name: &'static str, runtime_id: &'static str) -> Arc<Self> {
+                Arc::new(Self {
+                    name,
+                    runtime_id: RuntimeId::from(runtime_id),
+                    pattern_registry: PatternRegistry::new(),
+                    parent: Mutex::new(None),
+                })
+            }
+
+            fn with_pattern(
+                name: &'static str,
+                runtime_id: &'static str,
+                pattern: Arc<dyn UiPattern>,
+            ) -> Arc<Self> {
+                let registry = {
+                    let r = PatternRegistry::new();
+                    r.register_dyn(pattern);
+                    r
+                };
+                Arc::new(Self {
+                    name,
+                    runtime_id: RuntimeId::from(runtime_id),
+                    pattern_registry: registry,
+                    parent: Mutex::new(None),
+                })
+            }
+
+            fn set_parent(child: &Arc<Self>, parent: &Arc<dyn UiNode>) {
+                *child.parent.lock().unwrap() = Some(Arc::downgrade(parent));
+            }
+        }
+
+        impl UiNode for StubNode {
+            fn namespace(&self) -> Namespace {
+                Namespace::Control
+            }
+
+            fn role(&self) -> &str {
+                self.name
+            }
+
+            fn name(&self) -> &str {
+                self.name
+            }
+
+            fn runtime_id(&self) -> &RuntimeId {
+                &self.runtime_id
+            }
+
+            fn parent(&self) -> Option<Weak<dyn UiNode>> {
+                self.parent.lock().unwrap().clone()
+            }
+
+            fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+                Box::new(std::iter::empty())
+            }
+
+            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+                Box::new(std::iter::empty())
+            }
+
+            fn supported_patterns(&self) -> Vec<PatternId> {
+                self.pattern_registry.supported()
+            }
+
+            fn pattern_by_id(&self, id: &PatternId) -> Option<Arc<dyn UiPattern>> {
+                self.pattern_registry.get(id)
+            }
+
+            fn invalidate(&self) {}
+        }
+
+        struct WindowPattern;
+
+        impl UiPattern for WindowPattern {
+            fn id(&self) -> PatternId {
+                Self::static_id()
+            }
+
+            fn static_id() -> PatternId
+            where
+                Self: Sized,
+            {
+                PatternId::from("WindowSurface")
+            }
+
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
+        }
+
+        let root = StubNode::with_pattern("Window", "root", Arc::new(WindowPattern));
+        let panel = StubNode::new("Panel", "panel");
+        let button = StubNode::new("Button", "button");
+
+        let root_arc: Arc<dyn UiNode> = root.clone();
+        let panel_arc: Arc<dyn UiNode> = panel.clone();
+        let button_arc: Arc<dyn UiNode> = button.clone();
+
+        StubNode::set_parent(&panel, &root_arc);
+        StubNode::set_parent(&button, &panel_arc);
+
+        // parent_arc
+        let parent = button_arc.parent_arc().expect("parent present");
+        assert_eq!(parent.runtime_id(), &RuntimeId::from("panel"));
+
+        // ancestors iterator order: parent, then root
+        let ancestors: Vec<String> =
+            button_arc.ancestors().map(|node| node.runtime_id().to_string()).collect();
+        assert_eq!(ancestors, vec!["panel", "root"]);
+
+        // top level
+        let top = button_arc.top_level_or_self();
+        assert_eq!(top.runtime_id(), &RuntimeId::from("root"));
+
+        // pattern resolution (ancestor incl. self)
+        let pattern =
+            button_arc.ancestor_pattern::<WindowPattern>().expect("window pattern via ancestor");
+        assert_eq!(pattern.id(), WindowPattern::static_id());
+
+        // top-level pattern
+        assert!(button_arc.top_level_pattern::<WindowPattern>().is_some());
+    }
+
+    #[test]
+    fn parent_arc_skips_desktop_node() {
+        struct DesktopStub {
+            runtime_id: RuntimeId,
+        }
+
+        impl DesktopStub {
+            fn new() -> Arc<Self> {
+                Arc::new(Self { runtime_id: RuntimeId::from(DESKTOP_RUNTIME_ID) })
+            }
+        }
+
+        impl UiNode for DesktopStub {
+            fn namespace(&self) -> Namespace {
+                Namespace::Control
+            }
+
+            fn role(&self) -> &str {
+                "Desktop"
+            }
+
+            fn name(&self) -> &str {
+                "Desktop"
+            }
+
+            fn runtime_id(&self) -> &RuntimeId {
+                &self.runtime_id
+            }
+
+            fn parent(&self) -> Option<Weak<dyn UiNode>> {
+                None
+            }
+
+            fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+                Box::new(std::iter::empty())
+            }
+
+            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+                Box::new(std::iter::empty())
+            }
+
+            fn supported_patterns(&self) -> Vec<PatternId> {
+                vec![]
+            }
+
+            fn pattern_by_id(&self, _pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
+                None
+            }
+
+            fn invalidate(&self) {}
+        }
+
+        struct ChildNode {
+            parent: Mutex<Option<Weak<dyn UiNode>>>,
+            runtime_id: RuntimeId,
+        }
+
+        impl ChildNode {
+            fn new(parent: &Arc<dyn UiNode>) -> Arc<Self> {
+                Arc::new(Self {
+                    parent: Mutex::new(Some(Arc::downgrade(parent))),
+                    runtime_id: RuntimeId::from("child"),
+                })
+            }
+        }
+
+        impl UiNode for ChildNode {
+            fn namespace(&self) -> Namespace {
+                Namespace::Control
+            }
+
+            fn role(&self) -> &str {
+                "Button"
+            }
+
+            fn name(&self) -> &str {
+                "Button"
+            }
+
+            fn runtime_id(&self) -> &RuntimeId {
+                &self.runtime_id
+            }
+
+            fn parent(&self) -> Option<Weak<dyn UiNode>> {
+                self.parent.lock().unwrap().clone()
+            }
+
+            fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+                Box::new(std::iter::empty())
+            }
+
+            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+                Box::new(std::iter::empty())
+            }
+
+            fn supported_patterns(&self) -> Vec<PatternId> {
+                vec![]
+            }
+
+            fn pattern_by_id(&self, _pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
+                None
+            }
+
+            fn invalidate(&self) {}
+        }
+
+        let desktop: Arc<dyn UiNode> = DesktopStub::new();
+        let child: Arc<dyn UiNode> = ChildNode::new(&desktop);
+        assert!(child.parent_arc().is_none());
+        assert!(child.ancestors().all(|node| node.runtime_id() != &RuntimeId::from("desktop")));
     }
 
     #[rstest]
