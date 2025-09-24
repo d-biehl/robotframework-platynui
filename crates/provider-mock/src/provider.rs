@@ -1,6 +1,7 @@
 use crate::focus;
 use crate::node::MockNode;
 use crate::tree;
+use crate::window;
 use platynui_core::provider::{
     ProviderDescriptor, ProviderError, ProviderEvent, ProviderEventKind, ProviderEventListener,
     UiTreeProvider,
@@ -21,6 +22,7 @@ pub(crate) struct MockProvider {
 impl MockProvider {
     pub(crate) fn new(descriptor: &'static ProviderDescriptor) -> Self {
         focus::reset();
+        window::reset();
         let (roots, flat_nodes, nodes) = tree::instantiate_nodes(descriptor);
         Self { descriptor, roots, flat_nodes, nodes, listeners: RwLock::new(Vec::new()) }
     }

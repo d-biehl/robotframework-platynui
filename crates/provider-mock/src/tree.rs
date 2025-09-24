@@ -1,8 +1,9 @@
 use crate::focus;
 use crate::node::{MockNode, NodePatternContext, attr};
+use crate::window;
 use platynui_core::provider::ProviderDescriptor;
 use platynui_core::types::{Point, Rect};
-use platynui_core::ui::attribute_names::{activation_target, element, text_content};
+use platynui_core::ui::attribute_names::{activation_target, element, focusable, text_content};
 use platynui_core::ui::{
     FocusableAction, Namespace, PatternId, PatternRegistry, RuntimeId, UiAttribute, UiNode,
     UiPattern, UiValue,
@@ -31,6 +32,18 @@ pub struct AttributeSpec {
 impl AttributeSpec {
     pub fn new(namespace: Namespace, name: impl Into<String>, value: UiValue) -> Self {
         Self { namespace, name: name.into(), value }
+    }
+
+    pub fn namespace(&self) -> Namespace {
+        self.namespace
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn value(&self) -> &UiValue {
+        &self.value
     }
 }
 
@@ -502,22 +515,49 @@ fn instantiate_node(
     let mut dynamic_attributes: Vec<Arc<dyn UiAttribute>> = Vec::new();
     let mut declared_patterns: Vec<PatternId> = Vec::new();
 
-    if spec.patterns.iter().any(|pattern| pattern == "Focusable") {
-        let action_runtime_id = runtime_id.clone();
-        runtime_patterns.register_lazy(PatternId::from("Focusable"), move || {
-            let target = action_runtime_id.clone();
-            let pattern: Arc<dyn UiPattern> =
-                Arc::new(FocusableAction::new(move || focus::request_focus(target.clone())));
-            Some(pattern)
-        });
-        dynamic_attributes.push(focus::focus_attribute(spec.namespace, runtime_id.clone()));
-    }
+    let has_window_surface = spec.patterns.iter().any(|pattern| pattern == "WindowSurface");
+    let has_focusable = spec.patterns.iter().any(|pattern| pattern == "Focusable");
+    let window_config = has_window_surface.then(|| window::derive_config(&spec.attributes));
+
+    let initial_focus = if has_focusable {
+        spec.attributes.iter().any(|attr| {
+            attr.namespace() == Namespace::Control
+                && attr.name() == focusable::IS_FOCUSED
+                && matches!(attr.value(), UiValue::Bool(true))
+        })
+    } else {
+        false
+    };
 
     for pattern in &spec.patterns {
-        if pattern == "Focusable" {
-            continue;
+        match pattern.as_str() {
+            "Focusable" => {
+                let action_runtime_id = runtime_id.clone();
+                runtime_patterns.register_lazy(PatternId::from("Focusable"), move || {
+                    let target = action_runtime_id.clone();
+                    let pattern: Arc<dyn UiPattern> = Arc::new(FocusableAction::new(move || {
+                        focus::request_focus(target.clone())
+                    }));
+                    Some(pattern)
+                });
+                dynamic_attributes.push(focus::focus_attribute(spec.namespace, runtime_id.clone()));
+            }
+            "WindowSurface" => {}
+            other => declared_patterns.push(PatternId::from(other)),
         }
-        declared_patterns.push(PatternId::from(pattern.as_str()));
+    }
+
+    if let Some(config) = window_config {
+        dynamic_attributes.extend(window::register_window(
+            runtime_id.clone(),
+            spec.namespace,
+            config,
+            &runtime_patterns,
+        ));
+    }
+
+    if has_focusable && initial_focus {
+        let _ = focus::request_focus(runtime_id.clone());
     }
 
     let pattern_context =
@@ -528,7 +568,21 @@ fn instantiate_node(
     let mut attributes: Vec<Arc<dyn UiAttribute>> = spec
         .attributes
         .iter()
-        .map(|attr_spec| attr(attr_spec.namespace, attr_spec.name.clone(), attr_spec.value.clone()))
+        .filter(|attr_spec| {
+            if has_window_surface && window::should_filter_attribute(attr_spec.name()) {
+                return false;
+            }
+            if has_focusable
+                && attr_spec.namespace() == Namespace::Control
+                && attr_spec.name() == focusable::IS_FOCUSED
+            {
+                return false;
+            }
+            true
+        })
+        .map(|attr_spec| {
+            attr(attr_spec.namespace(), attr_spec.name().to_owned(), attr_spec.value().clone())
+        })
         .collect();
     attributes.extend(dynamic_attributes);
 

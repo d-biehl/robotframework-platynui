@@ -113,10 +113,10 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] `PatternRegistry::register_lazy` ermöglicht es, Pattern-Probes erst bei Bedarf auszuführen (Mock demonstriert dies für `Focusable`); der Unit-Test `register_lazy_resolves_on_demand` sichert das Caching-Verhalten ab.
 
 ### 13. CLI `window` – Fensteraktionen (Mock)
-- [ ] `WindowSurface`-Pattern im Mock vollständig befüllen (`activate`, `minimize`, `maximize`, `restore`, `move`, `resize`, `accepts_user_input`).
-- [ ] CLI-Kommando `window`: Unterstützt Aktionen wie `--activate`, `--minimize`, `--maximize`, `--move x y`, `--list` (Fenster/Mappings).
-- [ ] Tests: Window-CLI-Aufrufe gegen Mock verifizieren (`rstest`).
-- [ ] CLI-Befehl `window` (Mock) an die vorhandenen Pattern-Actions anbinden; Fokuspfad ist umgesetzt (`focus`).
+- [x] `WindowSurface`-Pattern im Mock vollständig befüllen (`activate`, `minimize`, `maximize`, `restore`, `move_to`, `resize`, `close`, `accepts_user_input`) inkl. dynamischer Attribute (`IsMinimized`, `Bounds.*`, `SupportsMove/Resize`) und `Focusable`-Pattern samt `IsFocused` für Top-Level-Fenster.
+- [x] CLI-Kommando `window`: Aktionen (`--activate`, `--minimize`, `--maximize`, `--restore`, `--close`, `--move x y`, `--resize w h`) sowie `--list` für eine strukturierte Fensterübersicht implementiert; Ausgabe nutzt die neuen Mock-Daten (Dual-View, aktualisierte Bounds).
+- [x] Tests: `platynui-provider-mock` validiert das Pattern (rstest, Lazy-Probing) und CLI-Tests decken Listen- und Aktionspfad ab (`window_actions_apply_sequence`, `window_actions_require_match`).
+- [x] CLI-Befehl `window` an Runtime-Pattern angebunden; Fokuspfad bleibt unabhängig (`focus`).
 
 ### 14. CLI `pointer`
 - [ ] `PointerDevice`-Trait in `platynui-core` fixieren (Desktop-Koordinaten, Buttons, Scroll).

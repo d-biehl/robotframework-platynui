@@ -5,3 +5,4 @@ pub mod list_providers;
 pub mod query;
 pub mod screenshot;
 pub mod watch;
+pub mod window;

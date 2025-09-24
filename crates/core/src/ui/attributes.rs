@@ -115,6 +115,7 @@ pub mod pattern {
         pub const IS_TOPMOST: &str = "IsTopmost";
         pub const SUPPORTS_RESIZE: &str = "SupportsResize";
         pub const SUPPORTS_MOVE: &str = "SupportsMove";
+        pub const ACCEPTS_USER_INPUT: &str = "AcceptsUserInput";
     }
 
     pub mod dialog_surface {

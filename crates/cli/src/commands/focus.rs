@@ -97,8 +97,10 @@ mod tests {
     use platynui_core::ui::attribute_names::focusable;
     use platynui_runtime::Runtime;
     use rstest::rstest;
+    use serial_test::serial;
 
     #[rstest]
+    #[serial]
     fn focus_command_sets_focus() {
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
         let args = FocusArgs { expression: "//control:Button[@Name='OK']".into() };
@@ -128,6 +130,7 @@ mod tests {
     }
 
     #[rstest]
+    #[serial]
     fn focus_command_reports_missing_pattern() {
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
         let args = FocusArgs { expression: "//control:Panel[@Name='Workspace']".into() };
@@ -141,6 +144,7 @@ mod tests {
     }
 
     #[rstest]
+    #[serial]
     fn focus_command_errors_on_empty_result() {
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
         let args = FocusArgs { expression: "//control:Button[@Name='Nonexistent']".into() };

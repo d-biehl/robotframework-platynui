@@ -34,3 +34,4 @@ rstest = "0.26.1"
 platynui-provider-mock = { path = "../provider-mock" }
 platynui-platform-mock = { path = "../platform-mock" }
 tempfile = "3.23.0"
+serial_test = "2.0.0"

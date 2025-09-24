@@ -10,6 +10,7 @@ mod focus;
 mod node;
 mod provider;
 pub mod tree;
+mod window;
 
 pub use events::{emit_event, emit_node_updated, node_by_runtime_id};
 pub use factory::{PROVIDER_ID, PROVIDER_NAME, TECHNOLOGY};

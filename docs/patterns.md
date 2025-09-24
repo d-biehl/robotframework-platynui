@@ -223,6 +223,7 @@ Provider sollten dokumentieren, wenn sie von den vorgeschlagenen Zuordnungen abw
 - **Pflichtattribute:** `IsMinimized`, `IsMaximized`, `IsTopmost` – jeweils `xs:boolean`.
 - **Optionale Attribute:** `SupportsResize`, `SupportsMove`, `AcceptsUserInput` – jeweils `xs:boolean` (Runtime spiegelt `AcceptsUserInput` zusätzlich über die Pattern-Aktion wider).
 - **Runtime-Hinweis:** Das RuntimePattern `WindowSurface` stellt Aktionen (`activate()`, `minimize()`, …) sowie `accepts_user_input()` bereit.
+- **Interaktion mit Fokus:** Top-Level-Fenster deklarieren neben `WindowSurface` auch `Focusable`. `activate()` bzw. `restore()` sollen den Fokus über die Plattform setzen; `minimize()` und `close()` geben ihn wieder frei. Provider pflegen dafür das dynamische `IsFocused`-Attribut und emittieren `NodeUpdated`, wenn sich der Fokusstatus ändert.
 
 #### DialogSurface
 - **Beschreibung:** Spezialisierung für modale Dialoge.

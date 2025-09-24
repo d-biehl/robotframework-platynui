@@ -14,6 +14,7 @@ use commands::{
     query::{self, QueryArgs},
     screenshot::{self, ScreenshotArgs},
     watch::{self, WatchArgs},
+    window::{self, WindowArgs},
 };
 use platynui_runtime::Runtime;
 use util::{CliResult, map_provider_error};
@@ -47,6 +48,8 @@ enum Commands {
     Screenshot(ScreenshotArgs),
     #[command(name = "focus", about = "Set focus on nodes selected by an XPath expression.")]
     Focus(FocusArgs),
+    #[command(name = "window", about = "List or control application windows.")]
+    Window(WindowArgs),
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -92,6 +95,10 @@ fn run() -> CliResult<()> {
             let output = focus::run(&runtime, &args)?;
             println!("{output}");
         }
+        Commands::Window(args) => {
+            let output = window::run(&runtime, &args)?;
+            println!("{output}");
+        }
     }
 
     runtime.shutdown();
@@ -126,6 +133,18 @@ mod tests {
         match cli.command {
             Commands::Focus(args) => {
                 assert_eq!(args.expression, "//control:Button");
+            }
+            _ => panic!("unexpected command"),
+        }
+    }
+
+    #[test]
+    fn clap_parsing_window_list() {
+        let cli = Cli::try_parse_from(["platynui", "window", "--list"]).expect("parse");
+        match cli.command {
+            Commands::Window(args) => {
+                assert!(args.list);
+                assert!(args.expression.is_none());
             }
             _ => panic!("unexpected command"),
         }
