@@ -11,6 +11,7 @@ use commands::{
     focus::{self, FocusArgs},
     highlight::{self, HighlightArgs},
     info, list_providers,
+    pointer::{self, PointerArgs},
     query::{self, QueryArgs},
     screenshot::{self, ScreenshotArgs},
     watch::{self, WatchArgs},
@@ -50,6 +51,8 @@ enum Commands {
     Focus(FocusArgs),
     #[command(name = "window", about = "List or control application windows.")]
     Window(WindowArgs),
+    #[command(name = "pointer", about = "Control the pointer (move, click, scroll, drag).")]
+    Pointer(PointerArgs),
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -99,6 +102,10 @@ fn run() -> CliResult<()> {
             let output = window::run(&runtime, &args)?;
             println!("{output}");
         }
+        Commands::Pointer(args) => {
+            let output = pointer::run(&runtime, &args)?;
+            println!("{output}");
+        }
     }
 
     runtime.shutdown();
@@ -108,6 +115,7 @@ fn run() -> CliResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use platynui_core::types::Point;
 
     #[test]
     fn clap_parsing_defaults_to_text() {
@@ -146,6 +154,20 @@ mod tests {
                 assert!(args.list);
                 assert!(args.expression.is_none());
             }
+            _ => panic!("unexpected command"),
+        }
+    }
+
+    #[test]
+    fn clap_parsing_pointer_move() {
+        let cli = Cli::try_parse_from(["platynui", "pointer", "move", "10,20"]).expect("parse");
+        match cli.command {
+            Commands::Pointer(args) => match args.command {
+                pointer::PointerCommand::Move(move_args) => {
+                    assert_eq!(move_args.point, Point::new(10.0, 20.0));
+                }
+                _ => panic!("unexpected pointer subcommand"),
+            },
             _ => panic!("unexpected command"),
         }
     }

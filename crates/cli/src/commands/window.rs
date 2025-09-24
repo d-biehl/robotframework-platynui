@@ -360,8 +360,10 @@ mod tests {
     use crate::util::{map_provider_error, yes_no};
     use platynui_runtime::Runtime;
     use rstest::rstest;
+    use serial_test::serial;
 
     #[rstest]
+    #[serial]
     fn list_windows_outputs_state() {
         let runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
         let args = WindowArgs {
@@ -382,6 +384,7 @@ mod tests {
     }
 
     #[rstest]
+    #[serial]
     fn window_actions_apply_sequence() {
         let runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
         let args = WindowArgs {
@@ -404,6 +407,7 @@ mod tests {
     }
 
     #[rstest]
+    #[serial]
     fn window_actions_require_match() {
         let runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
         let args = WindowArgs {

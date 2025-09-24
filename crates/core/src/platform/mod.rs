@@ -2,6 +2,7 @@ mod desktop;
 mod error;
 mod highlight;
 mod module;
+mod pointer;
 mod registration;
 mod screenshot;
 
@@ -13,6 +14,11 @@ pub use highlight::{
     HighlightProvider, HighlightRegistration, HighlightRequest, highlight_providers,
 };
 pub use module::PlatformModule;
+pub use pointer::{
+    PointOrigin, PointerAccelerationProfile, PointerButton, PointerDevice, PointerMotionMode,
+    PointerOverrides, PointerProfile, PointerRegistration, PointerSettings, ScrollDelta,
+    pointer_devices,
+};
 pub use registration::{PlatformRegistration, platform_modules};
 pub use screenshot::{
     PixelFormat, Screenshot, ScreenshotProvider, ScreenshotRegistration, ScreenshotRequest,
@@ -29,5 +35,6 @@ macro_rules! register_platform_module {
 }
 
 pub use crate::register_highlight_provider;
+pub use crate::register_pointer_device;
 pub use crate::register_screenshot_provider;
 pub use register_platform_module;

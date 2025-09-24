@@ -1,17 +1,19 @@
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use platynui_core::platform::{
     DesktopInfo, HighlightProvider, HighlightRequest, MonitorInfo, PlatformError,
-    PlatformErrorKind, Screenshot, ScreenshotProvider, ScreenshotRequest, desktop_info_providers,
-    highlight_providers, screenshot_providers,
+    PlatformErrorKind, PointerButton, PointerDevice, PointerOverrides, PointerProfile,
+    PointerSettings, Screenshot, ScreenshotProvider, ScreenshotRequest, ScrollDelta,
+    desktop_info_providers, highlight_providers, pointer_devices, screenshot_providers,
 };
 use platynui_core::provider::{
     ProviderError, ProviderErrorKind, ProviderEvent, ProviderEventKind, ProviderEventListener,
     UiTreeProvider,
 };
-use platynui_core::types::Rect;
+use platynui_core::types::{Point, Rect};
 use platynui_core::ui::attribute_names;
 use platynui_core::ui::identifiers::TechnologyId;
 use platynui_core::ui::{
@@ -23,6 +25,7 @@ use thiserror::Error;
 use crate::provider::ProviderRegistry;
 use crate::provider::event::{ProviderEventDispatcher, ProviderEventSink};
 
+use crate::pointer::{PointerEngine, PointerError};
 use crate::{EvaluateError, EvaluateOptions, EvaluationItem, evaluate};
 
 /// Central orchestrator that owns provider instances and the provider event dispatcher.
@@ -33,6 +36,10 @@ pub struct Runtime {
     desktop: Arc<DesktopNode>,
     highlight: Option<&'static dyn HighlightProvider>,
     screenshot: Option<&'static dyn ScreenshotProvider>,
+    pointer: Option<&'static dyn PointerDevice>,
+    pointer_settings: Mutex<PointerSettings>,
+    pointer_profile: Mutex<PointerProfile>,
+    pointer_sleep: fn(Duration),
 }
 
 struct ProviderRuntimeState {
@@ -128,8 +135,31 @@ impl Runtime {
 
         let highlight = highlight_providers().next();
         let screenshot = screenshot_providers().next();
+        let pointer = pointer_devices().next();
 
-        let runtime = Self { registry, providers, dispatcher, desktop, highlight, screenshot };
+        let mut pointer_settings = PointerSettings::default();
+        if let Some(device) = pointer {
+            if let Ok(Some(time)) = device.double_click_time() {
+                pointer_settings.double_click_time = time;
+            }
+            if let Ok(Some(size)) = device.double_click_size() {
+                pointer_settings.double_click_size = size;
+            }
+        }
+        let pointer_profile = PointerProfile::named_default(&pointer_settings);
+
+        let runtime = Self {
+            registry,
+            providers,
+            dispatcher,
+            desktop,
+            highlight,
+            screenshot,
+            pointer,
+            pointer_settings: Mutex::new(pointer_settings),
+            pointer_profile: Mutex::new(pointer_profile),
+            pointer_sleep: default_pointer_sleep,
+        };
         runtime.refresh_desktop_nodes(true)?;
 
         Ok(runtime)
@@ -231,6 +261,85 @@ impl Runtime {
         }
     }
 
+    pub fn pointer_settings(&self) -> PointerSettings {
+        self.pointer_settings.lock().unwrap().clone()
+    }
+
+    pub fn set_pointer_settings(&self, settings: PointerSettings) {
+        *self.pointer_settings.lock().unwrap() = settings;
+    }
+
+    pub fn pointer_profile(&self) -> PointerProfile {
+        self.pointer_profile.lock().unwrap().clone()
+    }
+
+    pub fn set_pointer_profile(&self, profile: PointerProfile) {
+        *self.pointer_profile.lock().unwrap() = profile;
+    }
+
+    pub fn pointer_move_to(
+        &self,
+        point: Point,
+        overrides: Option<PointerOverrides>,
+    ) -> Result<Point, PointerError> {
+        let engine = self.build_pointer_engine(overrides)?;
+        engine.move_to(point)
+    }
+
+    pub fn pointer_click(
+        &self,
+        point: Point,
+        button: Option<PointerButton>,
+        overrides: Option<PointerOverrides>,
+    ) -> Result<(), PointerError> {
+        let engine = self.build_pointer_engine(overrides)?;
+        engine.click(point, button)
+    }
+
+    pub fn pointer_press(
+        &self,
+        target: Option<Point>,
+        button: Option<PointerButton>,
+        overrides: Option<PointerOverrides>,
+    ) -> Result<(), PointerError> {
+        let engine = self.build_pointer_engine(overrides)?;
+        let button = button.unwrap_or_else(|| engine.default_button());
+        if let Some(point) = target {
+            engine.move_to(point)?;
+        }
+        engine.press(button)
+    }
+
+    pub fn pointer_release(
+        &self,
+        button: Option<PointerButton>,
+        overrides: Option<PointerOverrides>,
+    ) -> Result<(), PointerError> {
+        let engine = self.build_pointer_engine(overrides)?;
+        let button = button.unwrap_or_else(|| engine.default_button());
+        engine.release(button)
+    }
+
+    pub fn pointer_scroll(
+        &self,
+        delta: ScrollDelta,
+        overrides: Option<PointerOverrides>,
+    ) -> Result<(), PointerError> {
+        let engine = self.build_pointer_engine(overrides)?;
+        engine.scroll(delta)
+    }
+
+    pub fn pointer_drag(
+        &self,
+        start: Point,
+        end: Point,
+        button: Option<PointerButton>,
+        overrides: Option<PointerOverrides>,
+    ) -> Result<(), PointerError> {
+        let engine = self.build_pointer_engine(overrides)?;
+        engine.drag(start, end, button)
+    }
+
     /// Registers a new event sink that will receive provider events.
     pub fn register_event_sink(&self, sink: Arc<dyn ProviderEventSink>) {
         self.dispatcher.register(sink);
@@ -269,6 +378,29 @@ impl Runtime {
         self.desktop.replace_children(aggregated);
         Ok(())
     }
+
+    fn build_pointer_engine(
+        &self,
+        overrides: Option<PointerOverrides>,
+    ) -> Result<PointerEngine<'_>, PointerError> {
+        let device = self.pointer_device()?;
+        let settings = self.pointer_settings.lock().unwrap().clone();
+        let profile = self.pointer_profile.lock().unwrap().clone();
+        let overrides = overrides.unwrap_or_default();
+        let sleep_fn: &dyn Fn(Duration) = &self.pointer_sleep;
+        Ok(PointerEngine::new(
+            device,
+            self.desktop.info().bounds,
+            settings,
+            profile,
+            overrides,
+            sleep_fn,
+        ))
+    }
+
+    fn pointer_device(&self) -> Result<&'static dyn PointerDevice, PointerError> {
+        self.pointer.ok_or(PointerError::MissingDevice)
+    }
 }
 
 fn build_desktop_node() -> Result<Arc<DesktopNode>, PlatformError> {
@@ -288,6 +420,13 @@ fn map_desktop_error(err: PlatformError) -> ProviderError {
         ProviderErrorKind::InitializationFailed,
         format!("desktop initialization failed: {err}"),
     )
+}
+
+fn default_pointer_sleep(duration: Duration) {
+    if duration.is_zero() {
+        return;
+    }
+    std::thread::sleep(duration);
 }
 
 struct DesktopNode {
@@ -470,23 +609,29 @@ impl UiAttribute for DesktopAttribute {
 mod tests {
     use super::*;
     use crate::EvaluationItem;
-    use platynui_core::platform::{HighlightRequest, ScreenshotRequest};
+    use platynui_core::platform::{
+        HighlightRequest, PointerButton, PointerOverrides, PointerSettings, ScreenshotRequest,
+        ScrollDelta,
+    };
     use platynui_core::provider::{
         ProviderDescriptor, ProviderEvent, ProviderEventKind, ProviderEventListener, ProviderKind,
         UiTreeProviderFactory, register_provider,
     };
-    use platynui_core::types::Rect;
+    use platynui_core::types::{Point, Rect};
     use platynui_core::ui::attribute_names::focusable;
     use platynui_core::ui::identifiers::TechnologyId;
     use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
     use platynui_platform_mock as _;
     use platynui_platform_mock::{
-        reset_highlight_state, reset_screenshot_state, take_highlight_log, take_screenshot_log,
+        PointerLogEntry, reset_highlight_state, reset_pointer_state, reset_screenshot_state,
+        take_highlight_log, take_pointer_log, take_screenshot_log,
     };
     use platynui_provider_mock as _;
     use rstest::rstest;
+    use serial_test::serial;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, LazyLock, Mutex, Weak};
+    use std::time::Duration;
 
     struct StubAttribute;
     impl UiAttribute for StubAttribute {
@@ -546,6 +691,44 @@ mod tests {
 
     static SHUTDOWN_TRIGGERED: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
     static SUBSCRIPTION_REGISTERED: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
+
+    fn configure_pointer_for_tests(runtime: &Runtime) {
+        let settings = PointerSettings {
+            after_move_delay: Duration::ZERO,
+            after_input_delay: Duration::ZERO,
+            after_click_delay: Duration::ZERO,
+            before_next_click_delay: Duration::ZERO,
+            multi_click_delay: Duration::ZERO,
+            multi_click_threshold: Duration::ZERO,
+            ensure_move_timeout: Duration::from_millis(10),
+            ensure_move_threshold: 1.0,
+            scroll_delay: Duration::ZERO,
+            ..runtime.pointer_settings()
+        };
+        runtime.set_pointer_settings(settings.clone());
+
+        let mut profile = runtime.pointer_profile();
+        profile.after_move_delay = Duration::ZERO;
+        profile.after_input_delay = Duration::ZERO;
+        profile.press_release_delay = Duration::ZERO;
+        profile.after_click_delay = Duration::ZERO;
+        profile.before_next_click_delay = Duration::ZERO;
+        profile.multi_click_delay = Duration::ZERO;
+        profile.ensure_move_position = false;
+        profile.ensure_move_threshold = settings.ensure_move_threshold;
+        profile.ensure_move_timeout = settings.ensure_move_timeout;
+        profile.scroll_delay = Duration::ZERO;
+        runtime.set_pointer_profile(profile);
+    }
+
+    fn zero_overrides() -> PointerOverrides {
+        PointerOverrides::new()
+            .after_move_delay(Duration::ZERO)
+            .after_input_delay(Duration::ZERO)
+            .press_release_delay(Duration::ZERO)
+            .after_click_delay(Duration::ZERO)
+            .scroll_delay(Duration::ZERO)
+    }
 
     struct StubProvider {
         descriptor: &'static ProviderDescriptor,
@@ -775,5 +958,66 @@ mod tests {
         assert_eq!(screenshot.width, 20);
         assert_eq!(screenshot.height, 10);
         assert_eq!(take_screenshot_log().len(), 1);
+    }
+
+    #[rstest]
+    #[serial]
+    fn pointer_move_uses_device_log() {
+        reset_pointer_state();
+        let runtime = Runtime::new().expect("runtime initializes");
+        configure_pointer_for_tests(&runtime);
+
+        runtime
+            .pointer_move_to(Point::new(50.0, 25.0), Some(zero_overrides()))
+            .expect("move succeeds");
+
+        let log = take_pointer_log();
+        assert!(log.iter().any(
+            |event| matches!(event, PointerLogEntry::Move(p) if *p == Point::new(50.0, 25.0))
+        ));
+    }
+
+    #[rstest]
+    #[serial]
+    fn pointer_click_emits_press_and_release() {
+        reset_pointer_state();
+        let runtime = Runtime::new().expect("runtime initializes");
+        configure_pointer_for_tests(&runtime);
+
+        runtime
+            .pointer_click(Point::new(10.0, 10.0), None, Some(zero_overrides()))
+            .expect("click succeeds");
+
+        let log = take_pointer_log();
+        assert!(
+            log.iter().any(|event| matches!(event, PointerLogEntry::Press(PointerButton::Left)))
+        );
+        assert!(
+            log.iter().any(|event| matches!(event, PointerLogEntry::Release(PointerButton::Left)))
+        );
+    }
+
+    #[rstest]
+    #[serial]
+    fn pointer_scroll_chunks_delta() {
+        reset_pointer_state();
+        let runtime = Runtime::new().expect("runtime initializes");
+        configure_pointer_for_tests(&runtime);
+
+        let overrides = zero_overrides().scroll_step(ScrollDelta::new(0.0, -10.0));
+        runtime
+            .pointer_scroll(ScrollDelta::new(0.0, -25.0), Some(overrides))
+            .expect("scroll succeeds");
+
+        let scrolls: Vec<_> = take_pointer_log()
+            .into_iter()
+            .filter_map(|event| match event {
+                PointerLogEntry::Scroll(delta) => Some(delta),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(scrolls.len(), 3);
+        let total: f64 = scrolls.iter().map(|delta| delta.vertical).sum();
+        assert!((total + 25.0).abs() < f64::EPSILON);
     }
 }

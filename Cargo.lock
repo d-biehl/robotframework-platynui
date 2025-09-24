@@ -1156,6 +1156,7 @@ dependencies = [
  "platynui-xpath",
  "rstest",
  "serde_json",
+ "serial_test 2.0.0",
  "thiserror",
 ]
 

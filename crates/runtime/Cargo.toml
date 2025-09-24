@@ -30,3 +30,4 @@ inventory = "0.3.21"
 rstest = "0.26.1"
 platynui-platform-mock = { path = "../platform-mock" }
 platynui-provider-mock = { path = "../provider-mock" }
+serial_test = "2.0.0"
