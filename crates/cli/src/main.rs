@@ -10,7 +10,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use commands::{
     focus::{self, FocusArgs},
     highlight::{self, HighlightArgs},
-    info, list_providers,
+    info,
+    keyboard::{self, KeyboardArgs},
+    list_providers,
     pointer::{self, PointerArgs},
     query::{self, QueryArgs},
     screenshot::{self, ScreenshotArgs},
@@ -53,6 +55,8 @@ enum Commands {
     Window(WindowArgs),
     #[command(name = "pointer", about = "Control the pointer (move, click, scroll, drag).")]
     Pointer(PointerArgs),
+    #[command(name = "keyboard", about = "Send keyboard input sequences.")]
+    Keyboard(KeyboardArgs),
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -104,6 +108,10 @@ fn run() -> CliResult<()> {
         }
         Commands::Pointer(args) => {
             let output = pointer::run(&runtime, &args)?;
+            println!("{output}");
+        }
+        Commands::Keyboard(args) => {
+            let output = keyboard::run(&runtime, &args)?;
             println!("{output}");
         }
     }
@@ -167,6 +175,36 @@ mod tests {
                     assert_eq!(move_args.point, Point::new(10.0, 20.0));
                 }
                 _ => panic!("unexpected pointer subcommand"),
+            },
+            _ => panic!("unexpected command"),
+        }
+    }
+
+    #[test]
+    fn clap_parsing_keyboard_type() {
+        let cli =
+            Cli::try_parse_from(["platynui", "keyboard", "type", "<Ctrl+A>Test"]).expect("parse");
+        match cli.command {
+            Commands::Keyboard(args) => match args.command {
+                keyboard::KeyboardCommand::Type(type_args) => {
+                    assert_eq!(type_args.sequence, "<Ctrl+A>Test")
+                }
+                _ => panic!("unexpected keyboard subcommand"),
+            },
+            _ => panic!("unexpected command"),
+        }
+    }
+
+    #[test]
+    fn clap_parsing_keyboard_press() {
+        let cli =
+            Cli::try_parse_from(["platynui", "keyboard", "press", "<Ctrl+S>"]).expect("parse");
+        match cli.command {
+            Commands::Keyboard(args) => match args.command {
+                keyboard::KeyboardCommand::Press(press_args) => {
+                    assert_eq!(press_args.sequence, "<Ctrl+S>");
+                }
+                _ => panic!("unexpected keyboard subcommand"),
             },
             _ => panic!("unexpected command"),
         }

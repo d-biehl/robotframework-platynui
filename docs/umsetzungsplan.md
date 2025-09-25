@@ -142,11 +142,11 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Dokumentation: Kapitel zur Sequenzsyntax/Runtime-API im Architekturkonzept erweitern.
 
 ### 17. Keyboard – Mock & CLI
-- [ ] `platynui-platform-mock`: Logging-Keyboard mit Mapping für Buchstaben, Sonderzeichen, Modifier; Utilities `take_keyboard_log`, `reset_keyboard_state` ergänzen.
-- [ ] `platynui-provider-mock`: Beispiel-Key-Mapping (`key_to_code`) und Text-Handhabung (z. B. Emojis, IME-Strings) implementieren.
-- [ ] CLI-Kommando `keyboard`: Unterbefehle `type`, `press`, `release`; Optionen `--text`, `--keys`, `--delay-ms`, `--overrides` (Sequenzparser wiederverwenden); farbige Ausgabe analog zu `pointer`.
-- [ ] Tests (`rstest`): Parser-Unit-Tests, Runtime-Tests sowie CLI-Integration gegen den Mock (Fokus-Pflicht, Fehlerformat). Feature-Flag `mock-provider` berücksichtigen.
-- [ ] README/CLI-Hilfe (`--help`) um Keyboard-Beispiele ergänzen.
+- [x] `platynui-platform-mock`: Logging-Keyboard mit Mapping für Buchstaben, Sonderzeichen, Modifier; Utilities `take_keyboard_log`, `reset_keyboard_state` ergänzen.
+- [x] `platynui-provider-mock`: Beispiel-Key-Mapping (`key_to_code`) und Text-Handhabung (z. B. Emojis, IME-Strings) implementieren.
+- [x] CLI-Kommando `keyboard`: Unterbefehle `type`, `press`, `release`; alle nehmen eine komplette Sequenz (z. B. `<Ctrl+A>Hallo`). Bei aktiviertem Mock-Feature schreibt der Plattform-Mock Press/Release-Ereignisse auf stdout; `--delay-ms`/spezifische Override-Flags spiegeln den Pointer-Stil.
+- [x] Tests (`rstest`): Parser-Unit-Tests, Runtime-Tests sowie CLI-Integration gegen den Mock (Fokus-Pflicht, Fehlerformat). Feature-Flag `mock-provider` berücksichtigen.
+- [x] README/CLI-Hilfe (`--help`) um Keyboard-Beispiele ergänzen.
 
 ### 18. Runtime-Ausbau – Plattformunabhängige Basis
 - [ ] `PlatformRegistry`/`PlatformBundle` implementieren: Plattformmodule registrieren Devices, Runtime bündelt sie je Technologie.

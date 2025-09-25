@@ -697,23 +697,22 @@ mod tests {
     use super::*;
     use crate::EvaluationItem;
     use platynui_core::platform::{
-        HighlightRequest, KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent,
-        KeyboardOverrides, PointerButton, PointerOverrides, PointerSettings, ScreenshotRequest,
-        ScrollDelta,
+        HighlightRequest, KeyboardOverrides, PointerButton, PointerOverrides, PointerSettings,
+        ScreenshotRequest, ScrollDelta,
     };
     use platynui_core::provider::{
         ProviderDescriptor, ProviderEvent, ProviderEventKind, ProviderEventListener, ProviderKind,
         UiTreeProviderFactory, register_provider,
     };
-    use platynui_core::register_keyboard_device;
     use platynui_core::types::{Point, Rect};
     use platynui_core::ui::attribute_names::focusable;
     use platynui_core::ui::identifiers::TechnologyId;
     use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
     use platynui_platform_mock as _;
     use platynui_platform_mock::{
-        PointerLogEntry, reset_highlight_state, reset_pointer_state, reset_screenshot_state,
-        take_highlight_log, take_pointer_log, take_screenshot_log,
+        KeyboardLogEntry, PointerLogEntry, reset_highlight_state, reset_keyboard_state,
+        reset_pointer_state, reset_screenshot_state, take_highlight_log, take_keyboard_log,
+        take_pointer_log, take_screenshot_log,
     };
     use platynui_provider_mock as _;
     use rstest::rstest;
@@ -721,54 +720,6 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, LazyLock, Mutex, Weak};
     use std::time::Duration;
-
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    enum KeyboardLogEntry {
-        Press(String),
-        Release(String),
-    }
-
-    struct LoggingKeyboard {
-        log: Mutex<Vec<KeyboardLogEntry>>,
-    }
-
-    impl LoggingKeyboard {
-        const fn new() -> Self {
-            Self { log: Mutex::new(Vec::new()) }
-        }
-    }
-
-    impl KeyboardDevice for LoggingKeyboard {
-        fn key_to_code(&self, name: &str) -> Result<KeyCode, KeyboardError> {
-            Ok(KeyCode::new(name.to_string()))
-        }
-
-        fn send_key_event(&self, event: KeyboardEvent) -> Result<(), KeyboardError> {
-            let name = event
-                .code
-                .downcast_ref::<String>()
-                .cloned()
-                .unwrap_or_else(|| "<unknown>".to_string());
-            let mut log = self.log.lock().unwrap();
-            match event.state {
-                KeyState::Press => log.push(KeyboardLogEntry::Press(name)),
-                KeyState::Release => log.push(KeyboardLogEntry::Release(name)),
-            }
-            Ok(())
-        }
-    }
-
-    static LOGGING_KEYBOARD: LoggingKeyboard = LoggingKeyboard::new();
-
-    register_keyboard_device!(&LOGGING_KEYBOARD);
-
-    fn reset_keyboard_log() {
-        LOGGING_KEYBOARD.log.lock().unwrap().clear();
-    }
-
-    fn take_keyboard_log() -> Vec<KeyboardLogEntry> {
-        LOGGING_KEYBOARD.log.lock().unwrap().drain(..).collect()
-    }
 
     fn configure_keyboard_for_tests(runtime: &Runtime) {
         let mut settings = runtime.keyboard_settings();
@@ -1123,7 +1074,7 @@ mod tests {
     #[rstest]
     #[serial]
     fn keyboard_press_logs_events() {
-        reset_keyboard_log();
+        reset_keyboard_state();
         let mut runtime = Runtime::new().expect("runtime initializes");
         configure_keyboard_for_tests(&runtime);
         let overrides = zero_keyboard_overrides();
@@ -1134,9 +1085,11 @@ mod tests {
         assert_eq!(
             log,
             vec![
-                KeyboardLogEntry::Press("Ctrl".into()),
+                KeyboardLogEntry::StartInput,
+                KeyboardLogEntry::Press("Control".into()),
                 KeyboardLogEntry::Press("Alt".into()),
                 KeyboardLogEntry::Press("T".into()),
+                KeyboardLogEntry::EndInput,
             ]
         );
 
@@ -1149,13 +1102,13 @@ mod tests {
     #[rstest]
     #[serial]
     fn keyboard_release_logs_events() {
-        reset_keyboard_log();
+        reset_keyboard_state();
         let mut runtime = Runtime::new().expect("runtime initializes");
         configure_keyboard_for_tests(&runtime);
         let overrides = zero_keyboard_overrides();
 
         runtime.keyboard_press("<Ctrl+Alt+T>", Some(overrides.clone())).expect("press succeeds");
-        reset_keyboard_log();
+        reset_keyboard_state();
 
         runtime
             .keyboard_release("<Ctrl+Alt+T>", Some(overrides.clone()))
@@ -1165,9 +1118,11 @@ mod tests {
         assert_eq!(
             log,
             vec![
+                KeyboardLogEntry::StartInput,
                 KeyboardLogEntry::Release("T".into()),
                 KeyboardLogEntry::Release("Alt".into()),
-                KeyboardLogEntry::Release("Ctrl".into()),
+                KeyboardLogEntry::Release("Control".into()),
+                KeyboardLogEntry::EndInput,
             ]
         );
 
@@ -1177,7 +1132,7 @@ mod tests {
     #[rstest]
     #[serial]
     fn keyboard_type_emits_press_and_release() {
-        reset_keyboard_log();
+        reset_keyboard_state();
         let mut runtime = Runtime::new().expect("runtime initializes");
         configure_keyboard_for_tests(&runtime);
         let overrides = zero_keyboard_overrides();
@@ -1188,10 +1143,12 @@ mod tests {
         assert_eq!(
             log,
             vec![
+                KeyboardLogEntry::StartInput,
                 KeyboardLogEntry::Press("A".into()),
                 KeyboardLogEntry::Release("A".into()),
                 KeyboardLogEntry::Press("b".into()),
                 KeyboardLogEntry::Release("b".into()),
+                KeyboardLogEntry::EndInput,
             ]
         );
 

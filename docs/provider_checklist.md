@@ -80,6 +80,8 @@
 - [ ] Tests validieren Desktop-Koordinaten und `ActivationTarget`.
 - [ ] Scripted-Mock erlaubt negative Szenarien (fehlende Pflichtattribute, ungültige Koordinaten) für Contract-Tests.
 - [ ] Pointer-Mock protokolliert Bewegungen/Buttons/Scrolls deterministisch (`take_pointer_log`) und stellt reproduzierbare Double-Click-Werte bereit.
+- [ ] Keyboard-Mock protokolliert Press/Release-Ereignisse (`take_keyboard_log`) und erlaubt das Zurücksetzen des Zustands (`reset_keyboard_state`).
+- [ ] Provider-Mock bietet dynamische Textpuffer (`append_text`, `replace_text`, `apply_keyboard_events`), damit Tastatureingaben (inkl. Emojis/IME-Strings) in Tests nachvollzogen werden können.
 
 ## Automatisierte Prüfungen (Ideen)
 - [ ] Integrationstest, der `docs/patterns.md` parst und Pflichtattribute pro Pattern mit Provider-Ausgabe vergleicht.

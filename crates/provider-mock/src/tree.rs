@@ -1,9 +1,10 @@
 use crate::focus;
+use crate::input;
 use crate::node::{MockNode, NodePatternContext, attr};
 use crate::window;
 use platynui_core::provider::ProviderDescriptor;
 use platynui_core::types::{Point, Rect};
-use platynui_core::ui::attribute_names::{activation_target, element, focusable, text_content};
+use platynui_core::ui::attribute_names::{activation_target, element, focusable};
 use platynui_core::ui::{
     FocusableAction, Namespace, PatternId, PatternRegistry, RuntimeId, UiAttribute, UiNode,
     UiPattern, UiValue,
@@ -70,6 +71,7 @@ pub struct NodeSpec {
     children: Vec<NodeSpec>,
     expose_flat: bool,
     order_key: Option<u64>,
+    text: Option<String>,
 }
 
 impl NodeSpec {
@@ -89,6 +91,7 @@ impl NodeSpec {
             children: Vec::new(),
             expose_flat: false,
             order_key: None,
+            text: None,
         }
     }
 
@@ -113,6 +116,11 @@ impl NodeSpec {
         S: Into<String>,
     {
         self.patterns.extend(patterns.into_iter().map(Into::into));
+        self
+    }
+
+    pub fn with_text(mut self, text: impl Into<String>) -> Self {
+        self.text = Some(text.into());
         self
     }
 
@@ -290,11 +298,7 @@ fn build_node(node: XmlNode) -> Result<NodeSpec, MockTreeLoadError> {
     }
 
     if let Some(text) = node.text.as_ref() {
-        spec.attributes.push(AttributeSpec::new(
-            namespace,
-            text_content::TEXT,
-            UiValue::from(text.clone()),
-        ));
+        spec.text = Some(text.clone());
     }
 
     if let Some(point_str) = node.activation_point.as_ref() {
@@ -494,6 +498,7 @@ pub fn reset_mock_tree() {
 }
 
 pub(crate) fn instantiate_nodes(descriptor: &ProviderDescriptor) -> ProviderTree {
+    input::reset_text_buffers();
     let tree = CURRENT_TREE.read().unwrap().clone();
     let (roots, flat_nodes, all_nodes) = tree.instantiate(descriptor);
     let mut map = HashMap::new();
@@ -514,6 +519,10 @@ fn instantiate_node(
     let runtime_patterns = PatternRegistry::new();
     let mut dynamic_attributes: Vec<Arc<dyn UiAttribute>> = Vec::new();
     let mut declared_patterns: Vec<PatternId> = Vec::new();
+
+    if let Some(text) = spec.text.as_ref() {
+        dynamic_attributes.push(input::register_text_attribute(spec.namespace, &runtime_id, text));
+    }
 
     let has_window_surface = spec.patterns.iter().any(|pattern| pattern == "WindowSurface");
     let has_focusable = spec.patterns.iter().any(|pattern| pattern == "Focusable");

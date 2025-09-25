@@ -1109,6 +1109,7 @@ name = "platynui-platform-mock"
 version = "0.1.0"
 dependencies = [
  "inventory",
+ "once_cell",
  "platynui-core",
  "rstest",
 ]

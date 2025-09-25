@@ -7,6 +7,7 @@
 mod events;
 mod factory;
 mod focus;
+mod input;
 mod node;
 mod provider;
 pub mod tree;
@@ -14,6 +15,10 @@ mod window;
 
 pub use events::{emit_event, emit_node_updated, node_by_runtime_id};
 pub use factory::{PROVIDER_ID, PROVIDER_NAME, TECHNOLOGY};
+pub use input::{
+    KeyboardInputEvent, TextInputError, append_text, apply_keyboard_events, replace_text,
+    text_snapshot,
+};
 pub use tree::{
     AttributeSpec, NodeSpec, StaticMockTree, TreeGuard, install_mock_tree, reset_mock_tree,
 };

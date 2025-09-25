@@ -34,8 +34,26 @@ All concept documents are living drafts and evolve alongside the implementation.
 - `crates/server` (`platynui-server`): JSON-RPC façade that exposes the runtime.
 - `crates/platform-*` (`platynui-platform-*`): Platform-level device drivers and window control APIs (Windows, Linux/X11, macOS, mock).
 - `crates/provider-*` (`platynui-provider-*`): UiTreeProvider implementations (UIAutomation, AT-SPI, macOS AX, JSON-RPC, mock).
-- `crates/cli` (`platynui-cli`): Command-line utility for XPath queries, highlighting, and diagnostics.
+- `crates/cli` (`platynui-cli`): Command-line utility for XPath queries, highlighting, keyboard/pointer interactions, and diagnostics.
 - `apps/inspector` (`platynui-inspector`): Planned GUI to explore the UI tree and craft XPath expressions.
+
+### CLI Quick Examples (mock-provider)
+
+```bash
+# Type text and shortcuts via the mock keyboard device
+cargo run -p platynui-cli --features mock-provider -- keyboard type "<Ctrl+A>Hello"
+# Der Mock-Provider protokolliert die Eingaben auf stdout, z. B.:
+# [mock-keyboard] StartInput
+# [mock-keyboard] Press Ctrl
+# …
+# [mock-keyboard] EndInput
+
+# Hold modifiers without releasing them
+cargo run -p platynui-cli --features mock-provider -- keyboard press "<Shift+Ctrl+S>"
+
+# Release a previously pressed chord
+cargo run -p platynui-cli --features mock-provider -- keyboard release "<Shift+Ctrl+S>"
+```
 
 ### Contribution Workflow (At a Glance)
 
