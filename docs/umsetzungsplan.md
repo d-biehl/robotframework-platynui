@@ -128,18 +128,18 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Tests (`rstest`): Motion-Engine ist durch Runtime-Unit-Tests abgedeckt, CLI-Integration (Move/Click/Scroll) läuft gegen den Mock-Provider und nutzt das Feature-Flag `mock-provider`.
 
 ### 15. Keyboard – Trait & Settings
-- [x] `KeyboardDevice`-Trait in `platynui-core` fixieren (`key_to_code`, `send_key_event(KeyCode, KeyState)`, `start_input`/`end_input` nur für tastaturspezifische Vor-/Nachbereitung) inkl. Fehler-Typen (`KeyboardError`, `KeyCodeError`).
+- [x] `KeyboardDevice`-Trait in `platynui-core` fixieren (`key_to_code`, `send_key_event(KeyboardEvent)`, `start_input`/`end_input` nur für tastaturspezifische Vor-/Nachbereitung) inkl. Fehler-Typen (`KeyboardError`, `KeyCodeError`).
 - [x] Provider dokumentieren ihre unterstützten Tastennamen konsistent (`Control`, `Shift`, `Alt`, `Enter`, `Escape`, …) und halten sich an etablierte Plattformbezeichnungen (`Command`, `Option`, `Windows`, `Super`, ...).
-- [x] `KeyboardEvent`-Enum (Varianten `Known`, `RawText`) und Hilfstypen (`KeyState`) implementieren; `start_input()` ist optional und trägt keinen zusätzlichen Phasen-Typ mehr.
+- [x] `KeyboardEvent` als schlankes Struct (Felder `KeyCode`, `KeyState`) implementieren; `start_input()` ist optional und trägt keinen zusätzlichen Phasen-Typ mehr.
 - [x] `KeyboardSettings` + `KeyboardOverrides` (Builder) analog zum Pointer-Stack definieren; Defaults aus Legacy-Werten übernehmen.
-- [x] Dokumentation (Architektur, Plan, Provider-Checkliste) auf finalen Trait-/Event-Vertrag aktualisieren; Runtime stellt `keyboard_settings()`/`set_keyboard_settings()` sowie `keyboard_known_keys()` bereit und hält das erste registrierte `KeyboardDevice` vor.
+- [x] Dokumentation (Architektur, Plan, Provider-Checkliste) auf finalen Trait-/Event-Vertrag aktualisieren; Runtime stellt `keyboard_settings()`/`set_keyboard_settings()` bereit und hält das erste registrierte `KeyboardDevice` vor.
 
 ### 16. Keyboard – Sequenzparser & Runtime-API
-- [ ] Sequenz-Parser (`KeyboardSequence`) in `platynui-runtime` bereitstellen: unterstützt Strings, `<Ctrl+Alt+T>`-Notation, `<<`-Escapes, Iterator-Eingaben und liefert `KeyboardEvent`-Iterationen.
-- [ ] Event-Auflösung: Parser mappt Token gegen `known_keys()`, unbekannte Zeichenfolgen gehen als `KeyboardEvent::RawText` weiter.
-- [ ] Runtime-API (`keyboard_type`, `keyboard_press`, `keyboard_release`) implementieren: Fokus-/Sichtbarkeits-Prüfung via `Focusable`/`WindowSurface`, Lazy-Pattern-Abruf, Cleanup für gedrückte Tasten, Fehlerabbildung (`KeyboardError::UnsupportedKey`, `RuntimeError::PatternMissing`).
-- [ ] Unit-Tests im Runtime-Crate (rstest) für Sequenzaufbereitung, Fehlerpfade, Cleanup-Logik.
-- [ ] Dokumentation: Kapitel zur Sequenzsyntax/Runtime-API im Architekturkonzept erweitern.
+- [x] Sequenz-Parser (`KeyboardSequence`) in `platynui-runtime` bereitstellen: unterstützt Strings, `<Ctrl+Alt+T>`-Notation, Backslash-Escapes (`\<`, `\>`, `\\`, `\xNN`, `\uNNNN`), Iterator-Eingaben und liefert `KeyboardEvent`-Iterationen.
+- [x] Event-Auflösung: Parser mappt Token strikt gegen `key_to_code`; unbekannte Bezeichner führen zu einem Parserfehler (`KeyboardError::UnsupportedKey`).
+- [x] Runtime-API (`keyboard_type`, `keyboard_press`, `keyboard_release`) implementieren: Fokus-/Sichtbarkeits-Prüfung via `Focusable`/`WindowSurface`, Lazy-Pattern-Abruf, Cleanup für gedrückte Tasten, Fehlerabbildung (`KeyboardActionError` kapselt Sequenz- und Providerfehler).
+- [x] Unit-Tests im Runtime-Crate (rstest) für Sequenzaufbereitung, Fehlerpfade, Cleanup-Logik.
+- [x] Dokumentation: Kapitel zur Sequenzsyntax/Runtime-API im Architekturkonzept erweitern.
 
 ### 17. Keyboard – Mock & CLI
 - [ ] `platynui-platform-mock`: Logging-Keyboard mit Mapping für Buchstaben, Sonderzeichen, Modifier; Utilities `take_keyboard_log`, `reset_keyboard_state` ergänzen.

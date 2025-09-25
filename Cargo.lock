@@ -1150,6 +1150,8 @@ name = "platynui-runtime"
 version = "0.1.0"
 dependencies = [
  "inventory",
+ "pest",
+ "pest_derive",
  "platynui-core",
  "platynui-platform-mock",
  "platynui-provider-mock",

@@ -4,11 +4,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use platynui_core::platform::{
-    DesktopInfo, HighlightProvider, HighlightRequest, KeyboardDevice, KeyboardSettings,
-    MonitorInfo, PlatformError, PlatformErrorKind, PointerButton, PointerDevice, PointerOverrides,
-    PointerProfile, PointerSettings, Screenshot, ScreenshotProvider, ScreenshotRequest,
-    ScrollDelta, desktop_info_providers, highlight_providers, keyboard_devices, pointer_devices,
-    screenshot_providers,
+    DesktopInfo, HighlightProvider, HighlightRequest, KeyboardDevice, KeyboardError,
+    KeyboardOverrides, KeyboardSettings, MonitorInfo, PlatformError, PlatformErrorKind,
+    PointerButton, PointerDevice, PointerOverrides, PointerProfile, PointerSettings, Screenshot,
+    ScreenshotProvider, ScreenshotRequest, ScrollDelta, desktop_info_providers,
+    highlight_providers, keyboard_devices, pointer_devices, screenshot_providers,
 };
 use platynui_core::provider::{
     ProviderError, ProviderErrorKind, ProviderEvent, ProviderEventKind, ProviderEventListener,
@@ -26,6 +26,8 @@ use thiserror::Error;
 use crate::provider::ProviderRegistry;
 use crate::provider::event::{ProviderEventDispatcher, ProviderEventSink};
 
+use crate::keyboard::{KeyboardEngine, KeyboardMode, apply_overrides as apply_keyboard_overrides};
+use crate::keyboard_sequence::{KeyboardSequence, KeyboardSequenceError};
 use crate::pointer::{PointerEngine, PointerError};
 use crate::{EvaluateError, EvaluateOptions, EvaluationItem, evaluate};
 
@@ -96,6 +98,20 @@ pub enum FocusError {
         #[source]
         source: PatternError,
     },
+}
+
+#[derive(Debug, Error)]
+pub enum KeyboardActionError {
+    #[error("invalid keyboard sequence: {0}")]
+    Sequence(Box<KeyboardSequenceError>),
+    #[error(transparent)]
+    Keyboard(#[from] KeyboardError),
+}
+
+impl From<KeyboardSequenceError> for KeyboardActionError {
+    fn from(err: KeyboardSequenceError) -> Self {
+        KeyboardActionError::Sequence(Box::new(err))
+    }
 }
 
 struct RuntimeEventListener {
@@ -355,6 +371,51 @@ impl Runtime {
         engine.drag(start, end, button)
     }
 
+    pub fn keyboard_press(
+        &self,
+        sequence: &str,
+        overrides: Option<KeyboardOverrides>,
+    ) -> Result<(), KeyboardActionError> {
+        let device = self.keyboard_device()?;
+        let parsed = KeyboardSequence::parse(sequence)?;
+        let resolved = parsed.resolve(device)?;
+        let overrides = overrides.unwrap_or_default();
+        let settings = apply_keyboard_overrides(&self.keyboard_settings(), &overrides);
+        KeyboardEngine::new(device, settings, &default_keyboard_sleep)?
+            .execute(&resolved, KeyboardMode::Press)?;
+        Ok(())
+    }
+
+    pub fn keyboard_release(
+        &self,
+        sequence: &str,
+        overrides: Option<KeyboardOverrides>,
+    ) -> Result<(), KeyboardActionError> {
+        let device = self.keyboard_device()?;
+        let parsed = KeyboardSequence::parse(sequence)?;
+        let resolved = parsed.resolve(device)?;
+        let overrides = overrides.unwrap_or_default();
+        let settings = apply_keyboard_overrides(&self.keyboard_settings(), &overrides);
+        KeyboardEngine::new(device, settings, &default_keyboard_sleep)?
+            .execute(&resolved, KeyboardMode::Release)?;
+        Ok(())
+    }
+
+    pub fn keyboard_type(
+        &self,
+        sequence: &str,
+        overrides: Option<KeyboardOverrides>,
+    ) -> Result<(), KeyboardActionError> {
+        let device = self.keyboard_device()?;
+        let parsed = KeyboardSequence::parse(sequence)?;
+        let resolved = parsed.resolve(device)?;
+        let overrides = overrides.unwrap_or_default();
+        let settings = apply_keyboard_overrides(&self.keyboard_settings(), &overrides);
+        KeyboardEngine::new(device, settings, &default_keyboard_sleep)?
+            .execute(&resolved, KeyboardMode::Type)?;
+        Ok(())
+    }
+
     /// Registers a new event sink that will receive provider events.
     pub fn register_event_sink(&self, sink: Arc<dyn ProviderEventSink>) {
         self.dispatcher.register(sink);
@@ -416,6 +477,10 @@ impl Runtime {
     fn pointer_device(&self) -> Result<&'static dyn PointerDevice, PointerError> {
         self.pointer.ok_or(PointerError::MissingDevice)
     }
+
+    fn keyboard_device(&self) -> Result<&'static dyn KeyboardDevice, KeyboardError> {
+        self.keyboard.ok_or(KeyboardError::NotReady)
+    }
 }
 
 fn build_desktop_node() -> Result<Arc<DesktopNode>, PlatformError> {
@@ -438,6 +503,13 @@ fn map_desktop_error(err: PlatformError) -> ProviderError {
 }
 
 fn default_pointer_sleep(duration: Duration) {
+    if duration.is_zero() {
+        return;
+    }
+    std::thread::sleep(duration);
+}
+
+fn default_keyboard_sleep(duration: Duration) {
     if duration.is_zero() {
         return;
     }
@@ -625,13 +697,15 @@ mod tests {
     use super::*;
     use crate::EvaluationItem;
     use platynui_core::platform::{
-        HighlightRequest, PointerButton, PointerOverrides, PointerSettings, ScreenshotRequest,
+        HighlightRequest, KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent,
+        KeyboardOverrides, PointerButton, PointerOverrides, PointerSettings, ScreenshotRequest,
         ScrollDelta,
     };
     use platynui_core::provider::{
         ProviderDescriptor, ProviderEvent, ProviderEventKind, ProviderEventListener, ProviderKind,
         UiTreeProviderFactory, register_provider,
     };
+    use platynui_core::register_keyboard_device;
     use platynui_core::types::{Point, Rect};
     use platynui_core::ui::attribute_names::focusable;
     use platynui_core::ui::identifiers::TechnologyId;
@@ -647,6 +721,77 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, LazyLock, Mutex, Weak};
     use std::time::Duration;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum KeyboardLogEntry {
+        Press(String),
+        Release(String),
+    }
+
+    struct LoggingKeyboard {
+        log: Mutex<Vec<KeyboardLogEntry>>,
+    }
+
+    impl LoggingKeyboard {
+        const fn new() -> Self {
+            Self { log: Mutex::new(Vec::new()) }
+        }
+    }
+
+    impl KeyboardDevice for LoggingKeyboard {
+        fn key_to_code(&self, name: &str) -> Result<KeyCode, KeyboardError> {
+            Ok(KeyCode::new(name.to_string()))
+        }
+
+        fn send_key_event(&self, event: KeyboardEvent) -> Result<(), KeyboardError> {
+            let name = event
+                .code
+                .downcast_ref::<String>()
+                .cloned()
+                .unwrap_or_else(|| "<unknown>".to_string());
+            let mut log = self.log.lock().unwrap();
+            match event.state {
+                KeyState::Press => log.push(KeyboardLogEntry::Press(name)),
+                KeyState::Release => log.push(KeyboardLogEntry::Release(name)),
+            }
+            Ok(())
+        }
+    }
+
+    static LOGGING_KEYBOARD: LoggingKeyboard = LoggingKeyboard::new();
+
+    register_keyboard_device!(&LOGGING_KEYBOARD);
+
+    fn reset_keyboard_log() {
+        LOGGING_KEYBOARD.log.lock().unwrap().clear();
+    }
+
+    fn take_keyboard_log() -> Vec<KeyboardLogEntry> {
+        LOGGING_KEYBOARD.log.lock().unwrap().drain(..).collect()
+    }
+
+    fn configure_keyboard_for_tests(runtime: &Runtime) {
+        let mut settings = runtime.keyboard_settings();
+        settings.press_delay = Duration::ZERO;
+        settings.release_delay = Duration::ZERO;
+        settings.between_keys_delay = Duration::ZERO;
+        settings.chord_press_delay = Duration::ZERO;
+        settings.chord_release_delay = Duration::ZERO;
+        settings.after_sequence_delay = Duration::ZERO;
+        settings.after_text_delay = Duration::ZERO;
+        runtime.set_keyboard_settings(settings);
+    }
+
+    fn zero_keyboard_overrides() -> KeyboardOverrides {
+        KeyboardOverrides::new()
+            .press_delay(Duration::ZERO)
+            .release_delay(Duration::ZERO)
+            .between_keys_delay(Duration::ZERO)
+            .chord_press_delay(Duration::ZERO)
+            .chord_release_delay(Duration::ZERO)
+            .after_sequence_delay(Duration::ZERO)
+            .after_text_delay(Duration::ZERO)
+    }
 
     struct StubAttribute;
     impl UiAttribute for StubAttribute {
@@ -973,6 +1118,84 @@ mod tests {
         assert_eq!(screenshot.width, 20);
         assert_eq!(screenshot.height, 10);
         assert_eq!(take_screenshot_log().len(), 1);
+    }
+
+    #[rstest]
+    #[serial]
+    fn keyboard_press_logs_events() {
+        reset_keyboard_log();
+        let mut runtime = Runtime::new().expect("runtime initializes");
+        configure_keyboard_for_tests(&runtime);
+        let overrides = zero_keyboard_overrides();
+
+        runtime.keyboard_press("<Ctrl+Alt+T>", Some(overrides.clone())).expect("press succeeds");
+
+        let log = take_keyboard_log();
+        assert_eq!(
+            log,
+            vec![
+                KeyboardLogEntry::Press("Ctrl".into()),
+                KeyboardLogEntry::Press("Alt".into()),
+                KeyboardLogEntry::Press("T".into()),
+            ]
+        );
+
+        runtime
+            .keyboard_release("<Ctrl+Alt+T>", Some(overrides))
+            .expect("cleanup release succeeds");
+        runtime.shutdown();
+    }
+
+    #[rstest]
+    #[serial]
+    fn keyboard_release_logs_events() {
+        reset_keyboard_log();
+        let mut runtime = Runtime::new().expect("runtime initializes");
+        configure_keyboard_for_tests(&runtime);
+        let overrides = zero_keyboard_overrides();
+
+        runtime.keyboard_press("<Ctrl+Alt+T>", Some(overrides.clone())).expect("press succeeds");
+        reset_keyboard_log();
+
+        runtime
+            .keyboard_release("<Ctrl+Alt+T>", Some(overrides.clone()))
+            .expect("release succeeds");
+
+        let log = take_keyboard_log();
+        assert_eq!(
+            log,
+            vec![
+                KeyboardLogEntry::Release("T".into()),
+                KeyboardLogEntry::Release("Alt".into()),
+                KeyboardLogEntry::Release("Ctrl".into()),
+            ]
+        );
+
+        runtime.shutdown();
+    }
+
+    #[rstest]
+    #[serial]
+    fn keyboard_type_emits_press_and_release() {
+        reset_keyboard_log();
+        let mut runtime = Runtime::new().expect("runtime initializes");
+        configure_keyboard_for_tests(&runtime);
+        let overrides = zero_keyboard_overrides();
+
+        runtime.keyboard_type("Ab", Some(overrides)).expect("type succeeds");
+
+        let log = take_keyboard_log();
+        assert_eq!(
+            log,
+            vec![
+                KeyboardLogEntry::Press("A".into()),
+                KeyboardLogEntry::Release("A".into()),
+                KeyboardLogEntry::Press("b".into()),
+                KeyboardLogEntry::Release("b".into()),
+            ]
+        );
+
+        runtime.shutdown();
     }
 
     #[rstest]

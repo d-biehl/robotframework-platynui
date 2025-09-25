@@ -1,6 +1,5 @@
 use crate::platform::PlatformError;
 use std::any::Any;
-use std::borrow::Cow;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,7 +14,7 @@ impl KeyCode {
     }
 
     pub fn downcast_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
-        (&*self.0).downcast_ref::<T>()
+        self.0.as_ref().downcast_ref::<T>()
     }
 }
 
@@ -40,17 +39,14 @@ pub enum KeyState {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum KeyboardEvent<'a> {
-    Known { code: KeyCode, state: KeyState },
-    RawText { text: Cow<'a, str> },
+pub struct KeyboardEvent {
+    pub code: KeyCode,
+    pub state: KeyState,
 }
 
-impl<'a> KeyboardEvent<'a> {
-    pub fn state(&self) -> Option<KeyState> {
-        match self {
-            KeyboardEvent::Known { state, .. } => Some(*state),
-            KeyboardEvent::RawText { .. } => None,
-        }
+impl KeyboardEvent {
+    pub fn state(&self) -> KeyState {
+        self.state
     }
 }
 
@@ -79,7 +75,6 @@ impl std::error::Error for KeyCodeError {}
 pub enum KeyboardError {
     Platform(PlatformError),
     UnsupportedKey(String),
-    UnsupportedText(String),
     InputInProgress,
     NotReady,
 }
@@ -90,9 +85,6 @@ impl fmt::Display for KeyboardError {
             KeyboardError::Platform(err) => write!(f, "platform error: {err}"),
             KeyboardError::UnsupportedKey(name) => {
                 write!(f, "unsupported key '{name}' for this keyboard provider")
-            }
-            KeyboardError::UnsupportedText(text) => {
-                write!(f, "unsupported text input '{text}' for this keyboard provider")
             }
             KeyboardError::InputInProgress => {
                 write!(f, "a keyboard input sequence is already active")
@@ -218,7 +210,7 @@ pub trait KeyboardDevice: Send + Sync {
         Ok(())
     }
 
-    fn send_key_event(&self, code: KeyCode, state: KeyState) -> Result<(), KeyboardError>;
+    fn send_key_event(&self, event: KeyboardEvent) -> Result<(), KeyboardError>;
 
     fn end_input(&self) -> Result<(), KeyboardError> {
         Ok(())
@@ -270,7 +262,7 @@ mod tests {
             }
         }
 
-        fn send_key_event(&self, _code: KeyCode, _state: KeyState) -> Result<(), KeyboardError> {
+        fn send_key_event(&self, _event: KeyboardEvent) -> Result<(), KeyboardError> {
             self.send_calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
