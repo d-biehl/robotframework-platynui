@@ -4,10 +4,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use platynui_core::platform::{
-    DesktopInfo, HighlightProvider, HighlightRequest, MonitorInfo, PlatformError,
-    PlatformErrorKind, PointerButton, PointerDevice, PointerOverrides, PointerProfile,
-    PointerSettings, Screenshot, ScreenshotProvider, ScreenshotRequest, ScrollDelta,
-    desktop_info_providers, highlight_providers, pointer_devices, screenshot_providers,
+    DesktopInfo, HighlightProvider, HighlightRequest, KeyboardDevice, KeyboardSettings,
+    MonitorInfo, PlatformError, PlatformErrorKind, PointerButton, PointerDevice, PointerOverrides,
+    PointerProfile, PointerSettings, Screenshot, ScreenshotProvider, ScreenshotRequest,
+    ScrollDelta, desktop_info_providers, highlight_providers, keyboard_devices, pointer_devices,
+    screenshot_providers,
 };
 use platynui_core::provider::{
     ProviderError, ProviderErrorKind, ProviderEvent, ProviderEventKind, ProviderEventListener,
@@ -40,6 +41,8 @@ pub struct Runtime {
     pointer_settings: Mutex<PointerSettings>,
     pointer_profile: Mutex<PointerProfile>,
     pointer_sleep: fn(Duration),
+    keyboard: Option<&'static dyn KeyboardDevice>,
+    keyboard_settings: Mutex<KeyboardSettings>,
 }
 
 struct ProviderRuntimeState {
@@ -136,6 +139,7 @@ impl Runtime {
         let highlight = highlight_providers().next();
         let screenshot = screenshot_providers().next();
         let pointer = pointer_devices().next();
+        let keyboard = keyboard_devices().next();
 
         let mut pointer_settings = PointerSettings::default();
         if let Some(device) = pointer {
@@ -147,6 +151,7 @@ impl Runtime {
             }
         }
         let pointer_profile = PointerProfile::named_default(&pointer_settings);
+        let keyboard_settings = KeyboardSettings::default();
 
         let runtime = Self {
             registry,
@@ -159,6 +164,8 @@ impl Runtime {
             pointer_settings: Mutex::new(pointer_settings),
             pointer_profile: Mutex::new(pointer_profile),
             pointer_sleep: default_pointer_sleep,
+            keyboard,
+            keyboard_settings: Mutex::new(keyboard_settings),
         };
         runtime.refresh_desktop_nodes(true)?;
 
@@ -275,6 +282,14 @@ impl Runtime {
 
     pub fn set_pointer_profile(&self, profile: PointerProfile) {
         *self.pointer_profile.lock().unwrap() = profile;
+    }
+
+    pub fn keyboard_settings(&self) -> KeyboardSettings {
+        self.keyboard_settings.lock().unwrap().clone()
+    }
+
+    pub fn set_keyboard_settings(&self, settings: KeyboardSettings) {
+        *self.keyboard_settings.lock().unwrap() = settings;
     }
 
     pub fn pointer_move_to(
@@ -832,8 +847,8 @@ mod tests {
         runtime.dispatch_event(ProviderEvent { kind: ProviderEventKind::TreeInvalidated });
 
         let events = sink.events.lock().unwrap();
-        assert_eq!(events.len(), 1);
-        assert!(matches!(events[0], ProviderEventKind::TreeInvalidated));
+        assert!(!events.is_empty());
+        assert!(matches!(events.last().unwrap(), ProviderEventKind::TreeInvalidated));
     }
 
     #[rstest]

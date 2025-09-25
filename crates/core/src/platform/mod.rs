@@ -1,6 +1,7 @@
 mod desktop;
 mod error;
 mod highlight;
+mod keyboard;
 mod module;
 mod pointer;
 mod registration;
@@ -12,6 +13,10 @@ pub use desktop::{
 pub use error::{PlatformError, PlatformErrorKind};
 pub use highlight::{
     HighlightProvider, HighlightRegistration, HighlightRequest, highlight_providers,
+};
+pub use keyboard::{
+    KeyCode, KeyCodeError, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent,
+    KeyboardOverrides, KeyboardRegistration, KeyboardSettings, keyboard_devices,
 };
 pub use module::PlatformModule;
 pub use pointer::{
@@ -35,6 +40,7 @@ macro_rules! register_platform_module {
 }
 
 pub use crate::register_highlight_provider;
+pub use crate::register_keyboard_device;
 pub use crate::register_pointer_device;
 pub use crate::register_screenshot_provider;
 pub use register_platform_module;
