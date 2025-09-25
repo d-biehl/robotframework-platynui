@@ -269,6 +269,28 @@ mod tests {
     use crate::util::map_provider_error;
     use platynui_runtime::Runtime;
     use rstest::rstest;
+    use std::borrow::Cow;
+
+    fn strip_ansi(input: &str) -> Cow<'_, str> {
+        if !input.contains('\u{1b}') {
+            return Cow::Borrowed(input);
+        }
+
+        let mut result = String::with_capacity(input.len());
+        let mut chars = input.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\u{1b}' {
+                while let Some(next) = chars.next() {
+                    if next == 'm' {
+                        break;
+                    }
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+        Cow::Owned(result)
+    }
 
     #[rstest]
     fn query_text_returns_nodes() {
@@ -280,9 +302,10 @@ mod tests {
             format: OutputFormat::Text,
         };
         let output = run(&runtime, &args).expect("query");
-        assert!(output.contains("Button \""));
-        assert!(!output.contains("control:Button"));
-        assert!(!output.contains("mock://desktop"));
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("Button \""));
+        assert!(!plain.contains("control:Button"));
+        assert!(!plain.contains("mock://desktop"));
         runtime.shutdown();
     }
 
@@ -296,7 +319,8 @@ mod tests {
             format: OutputFormat::Text,
         };
         let output = run(&runtime, &args).expect("query");
-        assert!(output.contains("app:"));
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("app:"));
         runtime.shutdown();
     }
 
@@ -310,10 +334,11 @@ mod tests {
             format: OutputFormat::Text,
         };
         let output = run(&runtime, &args).expect("query");
-        assert!(output.contains("@Name = \""));
-        assert!(output.contains("(Button \""));
-        assert!(!output.contains("@control:Name"));
-        assert!(!output.contains("mock://desktop"));
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("@Name = \""));
+        assert!(plain.contains("(Button \""));
+        assert!(!plain.contains("@control:Name"));
+        assert!(!plain.contains("mock://desktop"));
         runtime.shutdown();
     }
 
