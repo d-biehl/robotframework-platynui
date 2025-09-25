@@ -55,6 +55,13 @@ cargo run -p platynui-cli --features mock-provider -- keyboard press "<Shift+Ctr
 cargo run -p platynui-cli --features mock-provider -- keyboard release "<Shift+Ctrl+S>"
 ```
 
+### Cross-compiling Windows binaries from WSL2
+
+1. Install the necessary toolchain inside WSL2: `rustup target add x86_64-pc-windows-gnu` and `sudo apt install mingw-w64` (use the POSIX flavour if prompted).
+2. Build the desired crate with the Windows target, for example `cargo build --target x86_64-pc-windows-gnu --release`.
+   - Optional: set `CARGO_TARGET_DIR=/mnt/c/...` so the resulting `.exe` lands on the Windows filesystem directly.
+3. Run the produced binary via the Windows host, e.g. `powershell.exe -Command "& 'C:\\path\\to\\binary.exe'"` or `cmd.exe /C C:\path\to\binary.exe`.
+
 ### Contribution Workflow (At a Glance)
 
 - Initialize the Python tooling once via `uv sync --dev` (matching `.python-version`).

@@ -485,13 +485,11 @@ impl Runtime {
 
 fn build_desktop_node() -> Result<Arc<DesktopNode>, PlatformError> {
     let mut providers = desktop_info_providers();
-    let provider = providers.next().ok_or_else(|| {
-        PlatformError::new(
-            PlatformErrorKind::UnsupportedPlatform,
-            "no DesktopInfoProvider registered",
-        )
-    })?;
-    let info = provider.desktop_info()?;
+    let info = if let Some(provider) = providers.next() {
+        provider.desktop_info()?
+    } else {
+        fallback_desktop_info()
+    };
     Ok(DesktopNode::new(info))
 }
 
@@ -500,6 +498,20 @@ fn map_desktop_error(err: PlatformError) -> ProviderError {
         ProviderErrorKind::InitializationFailed,
         format!("desktop initialization failed: {err}"),
     )
+}
+
+fn fallback_desktop_info() -> DesktopInfo {
+    let os_name = std::env::consts::OS;
+    let os_version = std::env::consts::ARCH;
+    DesktopInfo {
+        runtime_id: RuntimeId::from(DESKTOP_RUNTIME_ID),
+        name: format!("Fallback Desktop ({os_name})"),
+        technology: TechnologyId::from("Fallback"),
+        bounds: Rect::new(0.0, 0.0, 1920.0, 1080.0),
+        os_name: os_name.into(),
+        os_version: os_version.into(),
+        monitors: Vec::new(),
+    }
 }
 
 fn default_pointer_sleep(duration: Duration) {

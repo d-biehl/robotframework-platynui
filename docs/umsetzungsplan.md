@@ -148,9 +148,9 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Tests (`rstest`): Parser-Unit-Tests, Runtime-Tests sowie CLI-Integration gegen den Mock (Fokus-Pflicht, Fehlerformat). Feature-Flag `mock-provider` berücksichtigen.
 - [x] README/CLI-Hilfe (`--help`) um Keyboard-Beispiele ergänzen.
 
-### 18. Runtime-Ausbau – Plattformunabhängige Basis
-- [ ] `PlatformRegistry`/`PlatformBundle` implementieren: Plattformmodule registrieren Devices, Runtime bündelt sie je Technologie.
-- [ ] `WindowSurface`-Pattern-Schnittstelle final durchgehen (Methoden klar dokumentieren, keine zusätzlichen Wrapper nötig).
+### 18. Mock-Fallback & Build-Zuordnung
+- [x] `mock-provider`-Feature dokumentieren und sicherstellen, dass es sämtliche produktiven Plattform- und Provider-Crates ausschließt (nur Mock bleibt übrig).
+- [x] Überprüfen, dass reale Plattformmodule ausschließlich über `cfg(target_os = …)` eingebunden werden und niemals parallel aktiv sind.
 
 ### 19. Plattform Windows – Devices & UiTree
 - [ ] `platynui-platform-windows`: Pointer/Keyboard via Win32 & UIAutomation-Hilfen, Screenshot/Highlight (DComposition/GDI).
@@ -170,6 +170,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [ ] Tests: Desktop-Bounds, ActivationPoint, Sichtbarkeits- und Enable-Flags unter X11.
 - [ ] `platynui-provider-atspi`: D-Bus-Integration, Baumaufbau (Application → Window → Control/Item), RuntimeId aus Objektpfad, Fokus-/Sichtbarkeitsflags.
 - [ ] Ergänzende Tests (AT-SPI2) auf Basis des Windows-Testsets inkl. Namespaces `item`/`control`.
+- [ ] Vorausplanen für Wayland: Vermittlungscrate `platynui-platform-linux` entwerfen, das zur Laufzeit anhand der Session-Umgebung (`$XDG_SESSION_TYPE`, heuristische Fallbacks) zwischen `platynui-platform-linux-x11` und `platynui-platform-linux-wayland` vermittelt, sobald letztere Implementierung verfügbar ist.
 
 ### 22. CLI `window` – Linux/X11-Integration
 - [ ] CLI `window` nutzt X11-spezifische Funktionen (EWMH/NetWM) für Fensterlisten, Move/Resize etc.
