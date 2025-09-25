@@ -21,7 +21,8 @@
 - [ ] `SupportedPatterns` enthält nur Patterns, deren Pflichtattribute vollständig gesetzt sind; optionale Felder sind `null` oder fehlen (Namespace entsprechend `control` oder `item`). Erst wenn diese Bedingungen erfüllt sind, darf die Pattern-ID eingetragen werden.
 - [ ] Für RuntimePatterns (Fokus, WindowSurface, Application) stellen Provider konkrete Instanzen bereit (`UiNode::pattern::<T>()` → `Some(Arc<T>)`). Die Einträge in `supported_patterns()` müssen exakt mit den abrufbaren Pattern-Objekten übereinstimmen.
 - [ ] Fenster, die `WindowSurface` melden, sollen zugleich `Focusable` unterstützen (`IsFocused`-Attribut, Fokus-Aktion). `WindowSurface::activate()/restore()` setzen den Fokus, `minimize()/close()` geben ihn frei (inkl. `NodeUpdated`), damit der Zustand mit nativen Foreground-Wechseln übereinstimmt.
-  > Hinweis: Die Control-Sicht ist der Default. XPath wie `/control:*/descendant-or-self::control:*[...]` selektiert ausschließlich die „flache“ Sicht, während `//app:*` die aliasierte Anwendungssicht adressiert. Provider sollten diese Trennung bei zusätzlichen Alias-Knoten respektieren.
+- [ ] Plattform-Module mit `KeyboardDevice` liefern eine konsistente Abbildung: `known_keys()` enthält mindestens die gemeinsamen Standardtasten (`Control`, `Shift`, `Alt`, `Enter`, `Escape`, `Backspace`, `Tab`, `CapsLock`, Funktionstasten `F1`–`F12`, Pfeiltasten, `Home`/`End`, `PageUp`/`PageDown`). Plattform-spezifische Tasten nutzen die jeweiligen OS-Namen (`Command`, `Option`, `Globe` auf macOS; `Windows` auf Windows; `Super` oder `Meta` auf Linux). Identische Tasten müssen den gleichen Namen tragen, damit Sequenzen zwischen Plattformen austauschbar bleiben. Orientiert euch an den nativen Konstanten der Plattform (Win32 `VK_*`, X11 `XK_*`/`XF86XK_*`, macOS `kVK_*`), sodass die Zuordnung nachvollziehbar bleibt.
+- [ ] `send_key_event(KeyboardEvent)` setzt `KnownKeyDescriptor` korrekt um (Modifier in der richtigen Reihenfolge, Press/Release symmetrisch). Für alle übrigen Eingaben verarbeitet das Modul `KeyboardEvent::Raw*` best effort und liefert bei Nicht-Umsetzbarkeit aussagekräftige `KeyboardError`-Varianten. Raw-Events sollten nach Möglichkeit über die nativen Unicode-/Scancode-Mechanismen der Plattform umgesetzt werden (Windows `KEYEVENTF_UNICODE`, X11 `XTestFakeKeyEvent` mit Keysym-Mapping, macOS `CGEventKeyboardSetUnicodeString`). `start_input`/`end_input` dürfen ausschließlich tastaturspezifische Vor- bzw. Nacharbeiten übernehmen (z. B. Layout-/IME-Umschaltung, Pufferleeren), keine Fokusmanipulation oder Fensteraktivierung.
 - [ ] Teure Plattformabfragen dürfen „lazy“ erfolgen: Über `PatternRegistry::register_lazy` kann ein Pattern erst beim ersten Zugriff geprüft werden. Wichtig ist, dass `SupportedPatterns` und `supported_patterns()` das Ergebnis dieser Probe widerspiegeln (bei Nichtverfügbarkeit wird die Pattern-ID entfernt bzw. gar nicht erst veröffentlicht).
 - [ ] `Focusable`-Knoten liefern ein dynamisches `IsFocused`-Attribut (`UiValue::Bool`) und emittieren bei Fokuswechsel `ProviderEventKind::NodeUpdated` für den bisherigen sowie den neuen Fokus, damit Caches/Runtime den Zustand aktualisieren.
 - [ ] Fehler von Runtime-Aktionen (`focus()`, `activate()`, …) werden als `PatternError` mit prägnanter Nachricht zurückgegeben (kein Panic / unwrap innerhalb der Provider-Schicht).
@@ -38,6 +39,9 @@
 - [ ] Baum-Ereignisse (`NodeAdded`, `NodeUpdated`, `NodeRemoved`) getestet; sicherstellen, dass sie nur zur Synchronisation dienen und keine Pattern-spezifischen Nebenwirkungen haben.
 - [ ] `UiNode::invalidate()` räumt alle gecachten Informationen der Node ab (Kind-Iteratoren, Attribute, Pattern-Instanzen). Nach einer Invalidierung muss der nächste Zugriff die Daten frisch aus der nativen API oder dem Provider-Cache laden.
 
+## Highlight-Overlays
+- [ ] Eigenständige Hilfsfenster des Providers (Highlight-Overlay, Inspectoren, Debug-Panels) tauchen nicht im UiTree auf; der Provider filtert alle Fenster des eigenen Prozesses konsequent heraus. Highlight-Rahmen laufen ausschließlich über das `HighlightProvider`-Trait.
+
 ## Windows (`platynui-provider-windows-uia`)
 - [ ] `Bounds` basieren auf `IUIAutomationElement::CurrentBoundingRectangle` und sind in Desktop-Koordinaten umgerechnet.
 - [ ] `ActivationPoint` nutzt `GetClickablePoint()`; fehlende Werte werden über das Elementzentrum ersetzt.
@@ -47,7 +51,6 @@
 - [ ] `WindowSurface::accepts_user_input()` liefert – sofern die Plattform eine zuverlässige Abfrage erlaubt – den aktuellen Eingabestatus (Windows: `WaitForInputIdle`; andere Plattformen dokumentieren die verwendete Heuristik oder geben `None` zurück). Ein optionales Attribut `window:AcceptsUserInput` darf den Wert spiegeln.
 - [ ] `Selectable`/`SelectionProvider` synchronisiert über `SelectionItemPattern`/`SelectionPattern`.
 - [ ] Highlight/Overlay-Pfad (DirectComposition/GDI/XComposite/…) respektiert die gelieferten `Bounds`, unterstützt optionale Dauerangaben und garantiert, dass maximal ein Overlay aktiv ist: Neue Highlight-Anfragen verschieben den bestehenden Rahmen und setzen die Laufzeit zurück, statt zusätzliche Fenster zu erzeugen.
-- [ ] Eigenständige Hilfsfenster des Providers (Highlight-Overlay, Inspectoren, Debug-Panels) tauchen nicht im UiTree auf; der Provider filtert alle Fenster des eigenen Prozesses konsequent heraus.
 
 ## Linux X11 (`platynui-provider-atspi` + `platynui-platform-linux-x11`)
 - [ ] Koordinaten stammen aus `Component::get_extents(ATSPI_COORD_TYPE_SCREEN)`.

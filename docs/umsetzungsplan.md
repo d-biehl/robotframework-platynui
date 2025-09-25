@@ -127,17 +127,32 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] CLI-Kommando `pointer`: Unterbefehle für `move`, `click`, `press`, `release`, `scroll`, `drag`, optional `--motion <mode>` sowie `--origin` (`desktop`, `bounds`, `absolute`) für relative Koordinaten; Koordinaten-/Button-Parsing, Ausgabe mit Erfolg/Fehlerinformation.
 - [x] Tests (`rstest`): Motion-Engine ist durch Runtime-Unit-Tests abgedeckt, CLI-Integration (Move/Click/Scroll) läuft gegen den Mock-Provider und nutzt das Feature-Flag `mock-provider`.
 
-### 15. CLI `keyboard`
-- [ ] `KeyboardDevice`-Trait in `platynui-core` fixieren (Keycodes, Texteingabe, Modifiers).
-- [ ] `platynui-platform-mock`: Simuliert Tastatureingaben (Sequenzen, Sondertasten) inkl. Logging.
-- [ ] CLI-Kommando `keyboard`: Sendet Sequenzen (`--text`, `--key ENTER`) an das fokussierte Element.
-- [ ] Tests: Keyboard-Aufrufe gegen Mock prüfen (`rstest`).
+### 15. Keyboard – Trait & Settings
+- [ ] `KeyboardDevice`-Trait in `platynui-core` fixieren (Known-Key-Liste, `send_key_event`, `start_input`/`end_input` – nur für tastaturspezifische Vor-/Nachbereitung) inkl. Fehler-Typen (`KeyboardError`, `KeyCodeError`).
+- [ ] `KnownKeyDescriptor`-Konventionen definieren: gemeinsamer Kern (`Control`, `Shift`, `Alt`, `Enter`, `Escape`, `Tab`, `Backspace`, `F1`–`F12`, Pfeiltasten, `Home`, `End`, `PageUp`, `PageDown`) nutzt identische Namen über alle Plattformen; OS-spezifische Zusatztasten folgen den offiziellen Bezeichnungen (`Command`, `Option`, `Globe`, `Windows`, `Super`).
+- [ ] `KeyboardEvent`-Enum (Varianten `Known`, `RawText`, `RawNamed`) und Hilfstypen (`InputPhase`, `KeyState`) implementieren.
+- [ ] `KeyboardSettings` + `KeyboardOverrides` (Builder) analog zum Pointer-Stack definieren; Defaults aus Legacy-Werten übernehmen.
+- [ ] Dokumentation (Architektur, Plan, Provider-Checkliste) auf finalen Trait-/Event-Vertrag aktualisieren.
 
-### 16. Runtime-Ausbau – Plattformunabhängige Basis
+### 16. Keyboard – Sequenzparser & Runtime-API
+- [ ] Sequenz-Parser (`KeyboardSequence`) in `platynui-runtime` bereitstellen: unterstützt Strings, `<Ctrl+Alt+T>`-Notation, `<<`-Escapes, Iterator-Eingaben und liefert `KeyboardEvent`-Iterationen.
+- [ ] Event-Auflösung: Parser mappt Token gegen `known_keys()`, unbekannte Namen bzw. Text gehen als `KeyboardEvent::RawNamed`/`RawText` weiter.
+- [ ] Runtime-API (`keyboard_type`, `keyboard_press`, `keyboard_release`) implementieren: Fokus-/Sichtbarkeits-Prüfung via `Focusable`/`WindowSurface`, Lazy-Pattern-Abruf, Cleanup für gedrückte Tasten, Fehlerabbildung (`KeyboardError::UnsupportedKey`, `RuntimeError::PatternMissing`).
+- [ ] Unit-Tests im Runtime-Crate (rstest) für Sequenzaufbereitung, Fehlerpfade, Cleanup-Logik.
+- [ ] Dokumentation: Kapitel zur Sequenzsyntax/Runtime-API im Architekturkonzept erweitern.
+
+### 17. Keyboard – Mock & CLI
+- [ ] `platynui-platform-mock`: Logging-Keyboard mit Mapping für Buchstaben, Sonderzeichen, Modifier; Utilities `take_keyboard_log`, `reset_keyboard_state` ergänzen.
+- [ ] `platynui-provider-mock`: Beispiel-`KnownKeyDescriptor`-Liste und Raw-Handling (z. B. Emojis, Medien-Tasten) implementieren.
+- [ ] CLI-Kommando `keyboard`: Unterbefehle `type`, `press`, `release`; Optionen `--text`, `--keys`, `--delay-ms`, `--overrides` (Sequenzparser wiederverwenden); farbige Ausgabe analog zu `pointer`.
+- [ ] Tests (`rstest`): Parser-Unit-Tests, Runtime-Tests sowie CLI-Integration gegen den Mock (Fokus-Pflicht, Fehlerformat). Feature-Flag `mock-provider` berücksichtigen.
+- [ ] README/CLI-Hilfe (`--help`) um Keyboard-Beispiele ergänzen.
+
+### 18. Runtime-Ausbau – Plattformunabhängige Basis
 - [ ] `PlatformRegistry`/`PlatformBundle` implementieren: Plattformmodule registrieren Devices, Runtime bündelt sie je Technologie.
 - [ ] `WindowSurface`-Pattern-Schnittstelle final durchgehen (Methoden klar dokumentieren, keine zusätzlichen Wrapper nötig).
 
-### 17. Plattform Windows – Devices & UiTree
+### 19. Plattform Windows – Devices & UiTree
 - [ ] `platynui-platform-windows`: Pointer/Keyboard via Win32 & UIAutomation-Hilfen, Screenshot/Highlight (DComposition/GDI).
 - [ ] Fokus-Helper (`focus_control`) mit UIA-Fallbacks und Integration in `Focusable`.
 - [ ] Tests: Desktop-Bounds, ActivationPoint, Sichtbarkeits-/Enabled-Flags unter Windows.
@@ -145,33 +160,33 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [ ] `WindowSurface`-Pattern implementieren: Aktionen (aktivieren/minimieren/maximieren/verschieben) und `accepts_user_input()` via Windows-spezifische APIs (`SetForegroundWindow`, `ShowWindow`, `WaitForInputIdle`).
 - [ ] Gemeinsame Tests (Provider vs. Mock) mit bereitgestelltem UI-Baum & XPath-Abfragen; Dokumentation von Abweichungen der UIA-API.
 
-### 18. CLI `window` – Windows-Integration
+### 20. CLI `window` – Windows-Integration
 - [ ] CLI-Kommandos erweitern, um Windows-spezifische Optionen (z. B. Fensterliste mit Prozessinfos) zu nutzen.
 - [ ] Tests: CLI `window` gegen reale Windows-Fenstersteuerung (soweit automatisierbar) bzw. Mock-Abdeckung.
 
-### 19. Plattform Linux/X11 – Devices & UiTree
+### 21. Plattform Linux/X11 – Devices & UiTree
 - [ ] `platynui-platform-linux-x11`: Pointer/Keyboard via XTest oder äquivalente APIs, Screenshot (XShm), Highlight (XComposite), Fenstersteuerung über EWMH/NetWM.
 - [ ] Fokus-Helper für AT-SPI2 + plattformspezifische Fallbacks.
 - [ ] Tests: Desktop-Bounds, ActivationPoint, Sichtbarkeits- und Enable-Flags unter X11.
 - [ ] `platynui-provider-atspi`: D-Bus-Integration, Baumaufbau (Application → Window → Control/Item), RuntimeId aus Objektpfad, Fokus-/Sichtbarkeitsflags.
 - [ ] Ergänzende Tests (AT-SPI2) auf Basis des Windows-Testsets inkl. Namespaces `item`/`control`.
 
-### 20. CLI `window` – Linux/X11-Integration
+### 22. CLI `window` – Linux/X11-Integration
 - [ ] CLI `window` nutzt X11-spezifische Funktionen (EWMH/NetWM) für Fensterlisten, Move/Resize etc.
 - [ ] Tests: CLI `window` gegen Mock/X11-spezifische Szenarien (soweit automatisierbar).
 
-- ### 21. Werkzeuge
+- ### 23. Werkzeuge
 - [ ] CLI (`crates/platynui-cli`): Erweiterungen für `watch`, `dump-node`, strukturierte Ausgabe (`--json`, `--yaml`), Skript-Integration; ergänzt die MVP-Kommandos (`query`/`highlight`).
 - [ ] Inspector (GUI): Tree-Ansicht mit Namespaces, Property-Panel (Patterns), XPath-Editor, Element-Picker, Highlight; arbeitet wahlweise Embedded oder via JSON-RPC.
 - [ ] Beispiel-Workflows dokumentieren (Readme/Docs): XPath → Highlight, Fokus setzen, Fensterstatus (`accepts_user_input`) ermitteln.
 
-### 22. Qualitätssicherung & Prozesse
+### 24. Qualitätssicherung & Prozesse
 - [ ] CI-Pipeline: `cargo fmt --all`, `cargo clippy --all`, `cargo test --workspace`, `uv run ruff check .`, `uv run mypy src/PlatynUI packages/core/src` (sofern Python-Anteile relevant).
 - [ ] Contract-Tests für Provider & Devices (pattern-spezifische Attribute, Desktop-Koordinaten, RuntimeId-Quellen).
 - [ ] Dokumentation pflegen: Architekturkonzept, Patterns, Provider-Checkliste, Legacy-Analyse; Hinweis auf lebende Dokumente beibehalten.
 - [ ] Release-/Versionierungsstrategie festlegen (SemVer pro Crate? Workspace-Version?).
 
-### 23. Backlog & Explorations
+### 25. Backlog & Explorations
 - Kontextknoten-Resolver: `RuntimeId`-basierte Re-Resolution für Kontextknoten außerhalb des aktuellen Wurzelknotens.
 - JSON-RPC-Provider & Out-of-Process Integration
   - JSON-RPC 2.0 Vertrag dokumentieren (Markdown + JSON-Schema): Mindestumfang `initialize`, `getNodes(parentRuntimeId|null)`, `getAttributes(nodeRuntimeId)`, `getSupportedPatterns(nodeRuntimeId)`, optional `ping`; Events `$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`.
