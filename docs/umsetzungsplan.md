@@ -157,6 +157,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 #### 19.1 Pointer (`platynui-platform-windows`)
 - [x] Bewegungs-/Klick-/Drag-/Scroll-Pipeline auf Basis der Win32-Input-APIs fertigstellen, inklusive Double-Click-Metriken und Fehlerbehandlung (Logging folgt separat).
 - [x] Integration in Runtime-Registry (`pointer_devices`) sicherstellen und PointerOverrides/Profile validieren.
+- [x] Pointer-Gerät nutzt zentral gesetzte Per-Monitor-V2-DPI-Awareness und kommentiert das Verhalten (`SetCursorPos` + Virtual-Screen-Bounds).
 - [ ] Tests: Pointer-Engine gegen Mock/Windows-Gerät (Positionsberechnung, Button Defaults, Scrollrichtungen) und Doku aktualisieren.
 
 #### 19.2 Keyboard (`platynui-platform-windows`)
