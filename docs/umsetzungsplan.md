@@ -124,7 +124,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Bewegungs-Engine im Runtime-Layer ergänzen (Schrittgeneratoren linear/Bezier/Overshoot/Jitter, konfigurierbare Delays `after_move_delay`, `press_release_delay`, `multi_click_delay`, `before_next_click_delay`). Einstellungen zentral in `PointerSettings` (Basiswerte wie `double_click_time`, `double_click_size`, Standard-Delays, Scrollschritte) und `PointerProfile` (Bewegungsparameter) bündeln; `PointerOverrides` dient als einziger Options-Typ pro Aufruf (`move_to`, `click`, `drag`, `scroll`). Die Builder-API (`PointerOverrides::new().origin(...).after_move_delay(...)`) bildet ausschließlich die Abweichungen zu den aktiven Runtime-Defaults ab. CLI-Optionen können Defaults und Ad-hoc-Overrides setzen.
 - [x] `platynui-platform-mock`: Pointer-Implementation bereitstellen (Move/Press/Release/Scroll) mit Logging-Hooks (`take_pointer_log`, `reset_pointer_state`) und deterministischen Ergebnissen; Double-Click-Zeit/-Größe über Mock-Konstanten simulieren.
 - [x] CLI-Vorbereitung: Parser für Koordinaten (`parse_point`), Scroll-Deltas (`parse_scroll_delta`) und Tasten (`parse_pointer_button`) ergänzen.
-- [x] CLI-Kommando `pointer`: Unterbefehle für `move`, `click`, `press`, `release`, `scroll`, `drag`, optional `--motion <mode>` sowie `--origin` (`desktop`, `bounds`, `absolute`) für relative Koordinaten; Koordinaten-/Button-Parsing, Ausgabe mit Erfolg/Fehlerinformation.
+- [x] CLI-Kommando `pointer`: Unterbefehle für `move`, `click`, `press`, `release`, `scroll`, `drag`, `position`, optional `--motion <mode>` sowie `--origin` (`desktop`, `bounds`, `absolute`) für relative Koordinaten; Koordinaten-/Button-Parsing, Ausgabe mit Erfolg/Fehlerinformation.
 - [x] Tests (`rstest`): Motion-Engine ist durch Runtime-Unit-Tests abgedeckt, CLI-Integration (Move/Click/Scroll) läuft gegen den Mock-Provider und nutzt das Feature-Flag `mock-provider`.
 
 ### 15. Keyboard – Trait & Settings
@@ -155,8 +155,8 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 ### 19. Plattform Windows – Devices & UiTree
 
 #### 19.1 Pointer (`platynui-platform-windows`)
-- [ ] Bewegungs-/Klick-/Drag-/Scroll-Pipeline auf Basis der Win32-Input-APIs fertigstellen, inklusive Double-Click-Metriken und Fehler-/Logging-Konzept.
-- [ ] Integration in Runtime-Registry (`pointer_devices`) sicherstellen und PointerOverrides/Profile validieren.
+- [x] Bewegungs-/Klick-/Drag-/Scroll-Pipeline auf Basis der Win32-Input-APIs fertigstellen, inklusive Double-Click-Metriken und Fehlerbehandlung (Logging folgt separat).
+- [x] Integration in Runtime-Registry (`pointer_devices`) sicherstellen und PointerOverrides/Profile validieren.
 - [ ] Tests: Pointer-Engine gegen Mock/Windows-Gerät (Positionsberechnung, Button Defaults, Scrollrichtungen) und Doku aktualisieren.
 
 #### 19.2 Keyboard (`platynui-platform-windows`)
@@ -174,17 +174,22 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [ ] Runtime (`screenshot_providers`) verdrahten, Performance-Parameter dokumentieren.
 - [ ] Tests: Pixel-Vergleich/Cropping, Fehlerfälle (Offscreen, Zugriff verweigert), Update der Architektur-Doku.
 
-#### 19.5 UIAutomation Provider (`platynui-provider-windows-uia`)
+#### 19.5 Desktop Provider (`platynui-platform-windows`)
+- [ ] DesktopInfoProvider für Windows implementieren (Monitor-Auflistung, Bounds, DPI-Skalierung, RuntimeId `platynui:Desktop`).
+- [ ] Desktop-Attribute (OS-Version, Anzeigename, Monitor-Metadaten) gegenüber Mock und Runtime-Vertrag spiegeln.
+- [ ] Tests: DesktopBounds-/Multi-Monitor-Abdeckung, Dokumentation von DPI-/Scaling-Besonderheiten.
+
+#### 19.6 UIAutomation Provider (`platynui-provider-windows-uia`)
 - [ ] COM-Hosting, Session-Lebenszyklus und Baumaufbau (Application → Window → Control/Item) entwickeln.
 - [ ] Rollen-/Namespace-Mapping sowie RuntimeId-Übernahme etablieren; Attribute und Client-/Runtime-Patterns (u. a. `Focusable`, `WindowSurface`) bereitstellen.
 - [ ] Tests: Struktur-/Attribut-Abdeckung, Pattern-Liste, Dokumentation der UIA-Abbildungen.
 
-#### 19.6 Fokus & WindowSurface via UIA
+#### 19.7 Fokus & WindowSurface via UIA
 - [ ] Fokussteuerung (`focus_control`) und WindowSurface-Aktionen (aktivieren/minimieren/maximieren/verschieben) direkt über UIAutomation (`WindowPattern`, `InvokePattern`, `WaitForInputIdle`) kapseln.
 - [ ] Fehler-Mapping in `FocusableAction`/`WindowSurface` konsolidieren, Integrationstests mit Provider-Nodes.
 - [ ] Dokumentation: Ablaufdiagramme, Troubleshooting (Foreground-Locks, UAC), Abgleich mit Provider-Checklist.
 
-#### 19.7 Tests & Mock-Abgleich
+#### 19.8 Tests & Mock-Abgleich
 - [ ] Gemeinsame Tests (Provider vs. Mock) für Bounds, ActivationPoint, Sichtbarkeit/Enabled, Fokuswechsel und WindowSurface-Aktionen etablieren.
 - [ ] Abweichungen der UIA-API dokumentieren und Regression-Playbooks festlegen.
 - [ ] Test-Infrastruktur (z. B. Windows-spezifischer CI-Job) entwerfen oder vorhandene Plattformen anpassen.

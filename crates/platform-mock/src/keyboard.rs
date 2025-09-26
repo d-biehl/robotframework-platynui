@@ -208,9 +208,9 @@ fn resolve_named_key(input: &str) -> Option<KeyCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use once_cell::sync::Lazy;
     use platynui_core::platform::{KeyState, KeyboardEvent, keyboard_devices};
     use rstest::rstest;
-    use once_cell::sync::Lazy;
     use std::sync::Mutex;
 
     // Serialize tests that touch the global MOCK_KEYBOARD state to avoid races.

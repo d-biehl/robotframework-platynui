@@ -22,6 +22,7 @@ pub enum PointerCommand {
     Release(PointerReleaseArgs),
     Scroll(PointerScrollArgs),
     Drag(PointerDragArgs),
+    Position,
 }
 
 #[derive(Args)]
@@ -137,6 +138,7 @@ pub fn run(runtime: &Runtime, args: &PointerArgs) -> CliResult<String> {
         PointerCommand::Release(release_args) => run_release(runtime, release_args),
         PointerCommand::Scroll(scroll_args) => run_scroll(runtime, scroll_args),
         PointerCommand::Drag(drag_args) => run_drag(runtime, drag_args),
+        PointerCommand::Position => run_position(runtime),
     }
 }
 
@@ -197,6 +199,11 @@ fn run_drag(runtime: &Runtime, args: &PointerDragArgs) -> CliResult<String> {
         args.to.y(),
         button = args.button
     ))
+}
+
+fn run_position(runtime: &Runtime) -> CliResult<String> {
+    let point = runtime.pointer_position().map_err(map_pointer_error)?;
+    Ok(format!("Pointer currently at ({:.1}, {:.1}).", point.x(), point.y()))
 }
 
 fn build_overrides(runtime: &Runtime, args: &OverrideArgs) -> CliResult<Option<PointerOverrides>> {
@@ -409,5 +416,18 @@ mod tests {
         let overrides = OverrideArgs::default();
         let result = build_overrides(&runtime, &overrides).expect("overrides");
         assert!(result.is_none());
+    }
+
+    #[rstest]
+    #[serial]
+    fn position_command_reports_current_location() {
+        reset_pointer_state();
+        let runtime = runtime();
+        let target = Point::new(42.0, 84.0);
+        runtime.pointer_move_to(target, None).expect("move pointer");
+
+        let output = super::run_position(&runtime).expect("position");
+        assert!(output.contains("42.0"));
+        assert!(output.contains("84.0"));
     }
 }

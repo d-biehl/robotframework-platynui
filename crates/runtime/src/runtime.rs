@@ -8,7 +8,7 @@ use platynui_core::platform::{
     KeyboardOverrides, KeyboardSettings, MonitorInfo, PlatformError, PlatformErrorKind,
     PointerButton, PointerDevice, PointerOverrides, PointerProfile, PointerSettings, Screenshot,
     ScreenshotProvider, ScreenshotRequest, ScrollDelta, desktop_info_providers,
-    highlight_providers, keyboard_devices, pointer_devices, screenshot_providers,
+    highlight_providers, keyboard_devices, platform_modules, pointer_devices, screenshot_providers,
 };
 use platynui_core::provider::{
     ProviderError, ProviderErrorKind, ProviderEvent, ProviderEventKind, ProviderEventListener,
@@ -138,6 +138,7 @@ impl ProviderEventListener for RuntimeEventListener {
 impl Runtime {
     /// Discovers all registered providers, instantiates them and prepares the event pipeline.
     pub fn new() -> Result<Self, ProviderError> {
+        initialize_platform_modules()?;
         let registry = ProviderRegistry::discover();
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
         let provider_instances = registry.instantiate_all()?;
@@ -298,6 +299,11 @@ impl Runtime {
 
     pub fn set_pointer_profile(&self, profile: PointerProfile) {
         *self.pointer_profile.lock().unwrap() = profile;
+    }
+
+    pub fn pointer_position(&self) -> Result<Point, PointerError> {
+        let device = self.pointer_device()?;
+        Ok(device.position()?)
     }
 
     pub fn keyboard_settings(&self) -> KeyboardSettings {
@@ -498,6 +504,18 @@ fn map_desktop_error(err: PlatformError) -> ProviderError {
         ProviderErrorKind::InitializationFailed,
         format!("desktop initialization failed: {err}"),
     )
+}
+
+fn initialize_platform_modules() -> Result<(), ProviderError> {
+    for module in platform_modules() {
+        module.initialize().map_err(|err| {
+            ProviderError::new(
+                ProviderErrorKind::InitializationFailed,
+                format!("platform module `{}` failed to initialize: {err}", module.name()),
+            )
+        })?;
+    }
+    Ok(())
 }
 
 fn fallback_desktop_info() -> DesktopInfo {

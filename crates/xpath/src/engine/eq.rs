@@ -309,13 +309,11 @@ fn duration_key(a: &XdmAtomicValue) -> Option<DurationKey> {
         YearMonthDuration(m) => {
             Some(DurationKey { kind: DurationKind::YearMonth, months: *m as i64, nanos: 0 })
         }
-        DayTimeDuration(d) => {
-            Some(DurationKey {
-                kind: DurationKind::DayTime,
-                months: 0,
-                nanos: i128::from(*d) * NANOS_PER_SECOND,
-            })
-        }
+        DayTimeDuration(d) => Some(DurationKey {
+            kind: DurationKind::DayTime,
+            months: 0,
+            nanos: i128::from(*d) * NANOS_PER_SECOND,
+        }),
         _ => None,
     }
 }
