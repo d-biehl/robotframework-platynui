@@ -153,12 +153,41 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Überprüfen, dass reale Plattformmodule ausschließlich über `cfg(target_os = …)` eingebunden werden und niemals parallel aktiv sind.
 
 ### 19. Plattform Windows – Devices & UiTree
-- [ ] `platynui-platform-windows`: Pointer/Keyboard via Win32 & UIAutomation-Hilfen, Screenshot/Highlight (DComposition/GDI).
-- [ ] Fokus-Helper (`focus_control`) mit UIA-Fallbacks und Integration in `Focusable`.
-- [ ] Tests: Desktop-Bounds, ActivationPoint, Sichtbarkeits-/Enabled-Flags unter Windows.
-- [ ] `platynui-provider-windows-uia`: UIA-Wrapper (COM-Helfer ggf. in `platynui-platform-windows`), Rollennormalisierung, `RuntimeId`-Weitergabe.
-- [ ] `WindowSurface`-Pattern implementieren: Aktionen (aktivieren/minimieren/maximieren/verschieben) und `accepts_user_input()` via Windows-spezifische APIs (`SetForegroundWindow`, `ShowWindow`, `WaitForInputIdle`).
-- [ ] Gemeinsame Tests (Provider vs. Mock) mit bereitgestelltem UI-Baum & XPath-Abfragen; Dokumentation von Abweichungen der UIA-API.
+
+#### 19.1 Pointer (`platynui-platform-windows`)
+- [ ] Bewegungs-/Klick-/Drag-/Scroll-Pipeline auf Basis der Win32-Input-APIs fertigstellen, inklusive Double-Click-Metriken und Fehler-/Logging-Konzept.
+- [ ] Integration in Runtime-Registry (`pointer_devices`) sicherstellen und PointerOverrides/Profile validieren.
+- [ ] Tests: Pointer-Engine gegen Mock/Windows-Gerät (Positionsberechnung, Button Defaults, Scrollrichtungen) und Doku aktualisieren.
+
+#### 19.2 Keyboard (`platynui-platform-windows`)
+- [ ] Key-Code-Tabellen und Sequenzauflösung (Press/Release/Type) implementieren, Modifier-Chords und Unicode/IME-Fälle abdecken.
+- [ ] Fehlerabbildung (`KeyboardError`) auf UIA/Win32-Codes abstützen und in Runtime integrieren.
+- [ ] Tests: Sequenzparser-Resolver plus Echtgeräte-Logging (Mock-Vergleich), Dokumentation der unterstützten Key-Namen.
+
+#### 19.3 Highlight (`platynui-platform-windows`)
+- [ ] Overlay-Lifecycle (Erstellen/Aktualisieren/Clear) mit Z-Order- und Farbensteuerung implementieren, Ressourcen sauber freigeben.
+- [ ] Runtime-Anbindung (`highlight_providers`) herstellen und Fallback-Verhalten definieren.
+- [ ] Tests: Sichtbare Bounds/Haltbarkeit, Cleanup-Pfade, Dokumentation der Highlight-Optionen.
+
+#### 19.4 Screenshot (`platynui-platform-windows`)
+- [ ] Capture via DComposition/GDI umsetzen, Cropping/Format-Wandlung und Fehlerpfade behandeln.
+- [ ] Runtime (`screenshot_providers`) verdrahten, Performance-Parameter dokumentieren.
+- [ ] Tests: Pixel-Vergleich/Cropping, Fehlerfälle (Offscreen, Zugriff verweigert), Update der Architektur-Doku.
+
+#### 19.5 UIAutomation Provider (`platynui-provider-windows-uia`)
+- [ ] COM-Hosting, Session-Lebenszyklus und Baumaufbau (Application → Window → Control/Item) entwickeln.
+- [ ] Rollen-/Namespace-Mapping sowie RuntimeId-Übernahme etablieren; Attribute und Client-/Runtime-Patterns (u. a. `Focusable`, `WindowSurface`) bereitstellen.
+- [ ] Tests: Struktur-/Attribut-Abdeckung, Pattern-Liste, Dokumentation der UIA-Abbildungen.
+
+#### 19.6 Fokus & WindowSurface via UIA
+- [ ] Fokussteuerung (`focus_control`) und WindowSurface-Aktionen (aktivieren/minimieren/maximieren/verschieben) direkt über UIAutomation (`WindowPattern`, `InvokePattern`, `WaitForInputIdle`) kapseln.
+- [ ] Fehler-Mapping in `FocusableAction`/`WindowSurface` konsolidieren, Integrationstests mit Provider-Nodes.
+- [ ] Dokumentation: Ablaufdiagramme, Troubleshooting (Foreground-Locks, UAC), Abgleich mit Provider-Checklist.
+
+#### 19.7 Tests & Mock-Abgleich
+- [ ] Gemeinsame Tests (Provider vs. Mock) für Bounds, ActivationPoint, Sichtbarkeit/Enabled, Fokuswechsel und WindowSurface-Aktionen etablieren.
+- [ ] Abweichungen der UIA-API dokumentieren und Regression-Playbooks festlegen.
+- [ ] Test-Infrastruktur (z. B. Windows-spezifischer CI-Job) entwerfen oder vorhandene Plattformen anpassen.
 
 ### 20. CLI `window` – Windows-Integration
 - [ ] CLI-Kommandos erweitern, um Windows-spezifische Optionen (z. B. Fensterliste mit Prozessinfos) zu nutzen.
