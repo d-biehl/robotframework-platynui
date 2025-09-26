@@ -39,6 +39,8 @@ use chrono::TimeZone;
 use compact_str::CompactString;
 use core::hash::{Hash, Hasher};
 
+const NANOS_PER_SECOND: i128 = 1_000_000_000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DateTimeKind {
     Date,
@@ -116,8 +118,8 @@ pub struct QNameKey {
 pub struct DurationKey {
     pub kind: DurationKind,
     pub months: i64,
-    // For dayTimeDuration we use whole seconds to match internal storage
-    pub seconds: i128,
+    /// DayTimeDuration values are stored as nanoseconds to align with Date/Time keys.
+    pub nanos: i128,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -161,7 +163,7 @@ impl PartialEq for EqKey {
             (Boolean(a), Boolean(b)) => a == b,
             (DateTime(a), DateTime(b)) => a.kind == b.kind && a.instant_ns == b.instant_ns,
             (Duration(a), Duration(b)) => {
-                a.kind == b.kind && a.months == b.months && a.seconds == b.seconds
+                a.kind == b.kind && a.months == b.months && a.nanos == b.nanos
             }
             (Node(a), Node(b)) => a == b,
             (NaN, NaN) => true,
@@ -201,7 +203,7 @@ impl core::hash::Hash for EqKey {
                 5u8.hash(state);
                 d.kind.hash(state);
                 d.months.hash(state);
-                d.seconds.hash(state);
+                d.nanos.hash(state);
             }
             Node(id) => {
                 6u8.hash(state);
@@ -305,12 +307,14 @@ fn duration_key(a: &XdmAtomicValue) -> Option<DurationKey> {
     use XdmAtomicValue::*;
     match a {
         YearMonthDuration(m) => {
-            Some(DurationKey { kind: DurationKind::YearMonth, months: *m as i64, seconds: 0 })
+            Some(DurationKey { kind: DurationKind::YearMonth, months: *m as i64, nanos: 0 })
         }
         DayTimeDuration(d) => {
-            // Stored as i64 (milliseconds? seconds? – assumed milliseconds?). Treat as milliseconds for now.
-            // TODO(#duration-precision): confirm internal unit; adjust to nanos precisely.
-            Some(DurationKey { kind: DurationKind::DayTime, months: 0, seconds: *d as i128 })
+            Some(DurationKey {
+                kind: DurationKind::DayTime,
+                months: 0,
+                nanos: i128::from(*d) * NANOS_PER_SECOND,
+            })
         }
         _ => None,
     }
@@ -473,5 +477,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(k1, k2, "case-insensitive collation should unify keys");
+    }
+
+    #[test]
+    fn day_time_duration_key_scales_to_nanos() {
+        let key = atomic_eq_key(&XdmAtomicValue::DayTimeDuration(5), None);
+        match key {
+            EqKey::Duration(DurationKey { kind, months, nanos }) => {
+                assert_eq!(kind, DurationKind::DayTime);
+                assert_eq!(months, 0);
+                assert_eq!(nanos, 5 * super::NANOS_PER_SECOND);
+            }
+            other => panic!("expected duration key, got {other:?}"),
+        }
     }
 }

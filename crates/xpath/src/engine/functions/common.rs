@@ -1787,6 +1787,10 @@ pub(crate) fn parse_year_month_duration_months(s: &str) -> Result<i32, ()> {
     Ok(if neg { -total } else { total })
 }
 
+/// Parse an `xs:dayTimeDuration` literal into whole seconds.
+///
+/// Fractional seconds are truncated towards zero to match the current internal
+/// representation (`XdmAtomicValue::DayTimeDuration` stores integral seconds).
 pub(crate) fn parse_day_time_duration_secs(s: &str) -> Result<i64, ()> {
     // Pattern: -?P(\d+D)?(T(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?
     let s = s.trim();
