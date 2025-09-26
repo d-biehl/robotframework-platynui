@@ -34,7 +34,7 @@ docs/
 ├─ umsetzungsplan.md         # Aufgabenplan
 └─ patterns.md               # Pattern-Spezifikation (Entwurf)
 ```
-Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den UiTreeProvider. Beide greifen auf die gemeinsamen Traits im `crates/core` zurück.
+Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den UiTreeProvider. Beide greifen auf die gemeinsamen Traits im `crates/core` zurück. Jede Plattform implementiert `PlatformModule::initialize()`; die Runtime ruft diese Methode beim Start genau einmal auf (z. B. richtet Windows hier Per-Monitor-V2-DPI-Awareness ein), bevor Geräte oder Provider registriert werden.
 
 ### 2.2 Registrierungs- und Erweiterungsmodell
 - `crates/core` definiert aktuell Marker-Traits wie `PlatformModule` und `UiTreeProviderFactory`. Weitere Erweiterungspunkte (`DeviceProviderFactory`) sind vorgesehen, aber noch nicht umgesetzt; solange diese Traits fehlen, dokumentieren wir sie hier ausdrücklich als geplante Ergänzungen. Alle Erweiterungen exportieren sich über ein `inventory`-basiertes Registrierungs-Makro. Die Runtime instanziiert ausschließlich über diese Abstraktionen und kennt keine konkreten Typen.
@@ -280,7 +280,7 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
   - `screenshot`: Bildschirm-/Bereichsaufnahmen über `ScreenshotProvider` erzeugen, `--bbox` (optional, `x,y,width,height`) und `--output` (Pfad) akzeptieren und die Daten aktuell als PNG ablegen. Ohne Bounding-Box wird automatisch der vollständige Desktop (vereinigt über alle Monitore laut `DesktopInfo`) aufgenommen. Übergebene Bereiche dürfen sich über mehrere Monitore erstrecken; die Runtime reicht die Werte unverändert an den Provider durch.
   - `focus`: XPath-Ausdruck evaluieren, und über `Runtime::focus()` den Fokus setzen. Die Ausgabe listet erfolgreiche Fokuswechsel sowie übersprungene Knoten (fehlendes Pattern oder Pattern-Fehler) getrennt auf.
 - `window`: Fensterlisten (`--list`) sowie Aktionen auf `WindowSurface` (`--activate`, `--minimize`, `--maximize`, `--restore`, `--close`, `--move x y`, `--resize w h`). Ausgabe fasst Zustände (Bounds, Topmost, AcceptsUserInput) zusammen; basiert aktuell auf dem Mock-Provider (`--features mock-provider`).
-- `pointer`: Zeigeraktionen (Move/Click/Press/Release/Scroll/Drag) über `PointerDevice` ausführen; unterstützt `--origin`, `--motion` sowie Delay-Overrides und bietet `position`, um die aktuelle Desktop-Koordinate des Cursors auszugeben.
+- `pointer`: Zeigeraktionen (Move/Click/Press/Release/Scroll/Drag) über `PointerDevice` ausführen; unterstützt `--origin`, `--motion` sowie Delay-Overrides und bietet `position`, um die aktuelle Desktop-Koordinate des Cursors auszugeben. Auf Windows setzt die Plattform-Initialisierung die Anwendung vorab auf `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2`, sodass `SetCursorPos` und `GetCursorInfo` hardwarebezogene Koordinaten liefern.
 - `keyboard`: Tastatureingaben über `KeyboardDevice` ausführen; akzeptiert Sequenzen im selben Format wie die Runtime (`"foo<Ctrl+c>bar"`, Escapes über Backslash: `\\<`, `\\>`, `\\`, `\\xNN`, `\\uNNNN`). Die Runtime erwartet, dass der Client das Ziel zuvor fokussiert hat, und sendet press/release entsprechend der Sequenz. Im Mock-Szenario protokolliert der Plattform-Treiber die Press-/Release-Events auf stdout, sodass Tests den Ablauf nachvollziehen können.
   Weitere Kommandos (z. B. `dump-node`, `watch --script`) folgen nach Stabilisierung der Basisfunktionen.
 

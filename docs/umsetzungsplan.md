@@ -174,22 +174,26 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [ ] Runtime (`screenshot_providers`) verdrahten, Performance-Parameter dokumentieren.
 - [ ] Tests: Pixel-Vergleich/Cropping, Fehlerfälle (Offscreen, Zugriff verweigert), Update der Architektur-Doku.
 
-#### 19.5 Desktop Provider (`platynui-platform-windows`)
-- [ ] DesktopInfoProvider für Windows implementieren (Monitor-Auflistung, Bounds, DPI-Skalierung, RuntimeId `platynui:Desktop`).
+#### 19.5 Platform-Initialisierung (`platynui-platform-windows`)
+- [x] `PlatformModule::initialize()` verwenden, um den Prozess einmalig auf `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2` zu setzen, bevor Geräte/Provider registriert werden.
+- [ ] Tests/Doku: Sicherstellen, dass alle Geräte (Pointer, Highlight, Screenshot) die hardwarebezogenen Koordinaten nutzen und dies dokumentieren.
+
+#### 19.6 Desktop Provider (`platynui-platform-windows`)
+- [x] DesktopInfoProvider für Windows implementieren (Monitor-Auflistung, Bounds, RuntimeId `windows://desktop`).
 - [ ] Desktop-Attribute (OS-Version, Anzeigename, Monitor-Metadaten) gegenüber Mock und Runtime-Vertrag spiegeln.
 - [ ] Tests: DesktopBounds-/Multi-Monitor-Abdeckung, Dokumentation von DPI-/Scaling-Besonderheiten.
 
-#### 19.6 UIAutomation Provider (`platynui-provider-windows-uia`)
+#### 19.7 UIAutomation Provider (`platynui-provider-windows-uia`)
 - [ ] COM-Hosting, Session-Lebenszyklus und Baumaufbau (Application → Window → Control/Item) entwickeln.
 - [ ] Rollen-/Namespace-Mapping sowie RuntimeId-Übernahme etablieren; Attribute und Client-/Runtime-Patterns (u. a. `Focusable`, `WindowSurface`) bereitstellen.
 - [ ] Tests: Struktur-/Attribut-Abdeckung, Pattern-Liste, Dokumentation der UIA-Abbildungen.
 
-#### 19.7 Fokus & WindowSurface via UIA
+#### 19.8 Fokus & WindowSurface via UIA
 - [ ] Fokussteuerung (`focus_control`) und WindowSurface-Aktionen (aktivieren/minimieren/maximieren/verschieben) direkt über UIAutomation (`WindowPattern`, `InvokePattern`, `WaitForInputIdle`) kapseln.
 - [ ] Fehler-Mapping in `FocusableAction`/`WindowSurface` konsolidieren, Integrationstests mit Provider-Nodes.
 - [ ] Dokumentation: Ablaufdiagramme, Troubleshooting (Foreground-Locks, UAC), Abgleich mit Provider-Checklist.
 
-#### 19.8 Tests & Mock-Abgleich
+#### 19.9 Tests & Mock-Abgleich
 - [ ] Gemeinsame Tests (Provider vs. Mock) für Bounds, ActivationPoint, Sichtbarkeit/Enabled, Fokuswechsel und WindowSurface-Aktionen etablieren.
 - [ ] Abweichungen der UIA-API dokumentieren und Regression-Playbooks festlegen.
 - [ ] Test-Infrastruktur (z. B. Windows-spezifischer CI-Job) entwerfen oder vorhandene Plattformen anpassen.
