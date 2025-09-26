@@ -210,15 +210,22 @@ mod tests {
     use super::*;
     use platynui_core::platform::{KeyState, KeyboardEvent, keyboard_devices};
     use rstest::rstest;
+    use once_cell::sync::Lazy;
+    use std::sync::Mutex;
+
+    // Serialize tests that touch the global MOCK_KEYBOARD state to avoid races.
+    static TEST_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
     #[rstest]
     fn keyboard_device_registered() {
+        let _guard = TEST_LOCK.lock().unwrap();
         let devices: Vec<_> = keyboard_devices().collect();
         assert!(devices.iter().any(|device| device.key_to_code("Control").is_ok()));
     }
 
     #[rstest]
     fn key_to_code_accepts_named_and_chars() {
+        let _guard = TEST_LOCK.lock().unwrap();
         let device = keyboard_devices().next().expect("keyboard registered");
         let control = device.key_to_code("ctrl").expect("ctrl resolves");
         assert!(control.downcast_ref::<MockKeyCode>().is_some());
@@ -229,6 +236,7 @@ mod tests {
 
     #[rstest]
     fn keyboard_logs_events() {
+        let _guard = TEST_LOCK.lock().unwrap();
         reset_keyboard_state();
         let device = keyboard_devices().next().expect("keyboard registered");
         device.start_input().unwrap();
@@ -260,6 +268,7 @@ mod tests {
 
     #[rstest]
     fn start_input_is_guarded() {
+        let _guard = TEST_LOCK.lock().unwrap();
         reset_keyboard_state();
         let device = keyboard_devices().next().expect("keyboard registered");
         device.start_input().unwrap();
