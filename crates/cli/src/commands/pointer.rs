@@ -351,6 +351,17 @@ mod tests {
 
     #[rstest]
     #[serial]
+    fn move_command_supports_negative_coordinates() {
+        reset_pointer_state();
+        let runtime = runtime();
+        let args =
+            PointerMoveArgs { point: Point::new(-2560.0, 0.0), overrides: OverrideArgs::default() };
+        let output = super::run_move(&runtime, &args).expect("move negative");
+        assert!(output.contains("-2560.0"));
+    }
+
+    #[rstest]
+    #[serial]
     fn click_command_clicks_button() {
         reset_pointer_state();
         let runtime = runtime();

@@ -158,7 +158,8 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Bewegungs-/Klick-/Drag-/Scroll-Pipeline auf Basis der Win32-Input-APIs fertigstellen, inklusive Double-Click-Metriken und Fehlerbehandlung (Logging folgt separat).
 - [x] Integration in Runtime-Registry (`pointer_devices`) sicherstellen und PointerOverrides/Profile validieren.
 - [x] Pointer-Gerät nutzt zentral gesetzte Per-Monitor-V2-DPI-Awareness und kommentiert das Verhalten (`SetCursorPos` + Virtual-Screen-Bounds).
-- [ ] Tests: Pointer-Engine gegen Mock/Windows-Gerät (Positionsberechnung, Button Defaults, Scrollrichtungen) und Doku aktualisieren.
+- [x] Tests (Mock): CLI `pointer move` deckt negative Koordinaten ab; Architektur-/Plan-Doku verlinkt DPI-Awareness.
+- [ ] Tests (Windows): Pointer-Engine gegen reales Gerät (Positionsberechnung, Button Defaults, Scrollrichtungen) und ergänzende Doku.
 
 #### 19.2 Keyboard (`platynui-platform-windows`)
 - [ ] Key-Code-Tabellen und Sequenzauflösung (Press/Release/Type) implementieren, Modifier-Chords und Unicode/IME-Fälle abdecken.
