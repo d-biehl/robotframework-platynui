@@ -5,7 +5,6 @@ requires-python = ">=3.10"
 [manifest]
 members = [
     "platynui-core",
-    "platynui-server",
     "robotframework-platynui",
 ]
 
@@ -76,10 +75,6 @@ wheels = [
 name = "platynui-core"
 version = "0.1.0"
 source = { editable = "packages/core" }
-
-[[package]]
-name = "platynui-server"
-source = { editable = "packages/server" }
 
 [[package]]
 name = "robotframework"
