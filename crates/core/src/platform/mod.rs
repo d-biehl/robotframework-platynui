@@ -21,8 +21,7 @@ pub use keyboard::{
 pub use module::PlatformModule;
 pub use pointer::{
     PointOrigin, PointerAccelerationProfile, PointerButton, PointerDevice, PointerMotionMode,
-    PointerOverrides, PointerProfile, PointerRegistration, PointerSettings, ScrollDelta,
-    pointer_devices,
+    PointerRegistration, ScrollDelta, pointer_devices,
 };
 pub use registration::{PlatformRegistration, platform_modules};
 pub use screenshot::{

@@ -6,9 +6,9 @@ use std::time::Duration;
 use platynui_core::platform::{
     DesktopInfo, HighlightProvider, HighlightRequest, KeyboardDevice, KeyboardError,
     KeyboardOverrides, KeyboardSettings, MonitorInfo, PlatformError, PlatformErrorKind,
-    PointerButton, PointerDevice, PointerOverrides, PointerProfile, PointerSettings, Screenshot,
-    ScreenshotProvider, ScreenshotRequest, ScrollDelta, desktop_info_providers,
-    highlight_providers, keyboard_devices, platform_modules, pointer_devices, screenshot_providers,
+    PointerButton, PointerDevice, Screenshot, ScreenshotProvider, ScreenshotRequest, ScrollDelta,
+    desktop_info_providers, highlight_providers, keyboard_devices, platform_modules,
+    pointer_devices, screenshot_providers,
 };
 use platynui_core::provider::{
     ProviderError, ProviderErrorKind, ProviderEvent, ProviderEventKind, ProviderEventListener,
@@ -29,6 +29,7 @@ use crate::provider::event::{ProviderEventDispatcher, ProviderEventSink};
 use crate::keyboard::{KeyboardEngine, KeyboardMode, apply_overrides as apply_keyboard_overrides};
 use crate::keyboard_sequence::{KeyboardSequence, KeyboardSequenceError};
 use crate::pointer::{PointerEngine, PointerError};
+use crate::pointer::{PointerOverrides, PointerProfile, PointerSettings};
 use crate::{EvaluateError, EvaluateOptions, EvaluationItem, evaluate};
 
 /// Central orchestrator that owns provider instances and the provider event dispatcher.

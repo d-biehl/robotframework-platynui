@@ -1,9 +1,7 @@
 use clap::{Args, Subcommand, ValueEnum};
-use platynui_core::platform::{
-    PointOrigin, PointerButton, PointerMotionMode, PointerOverrides, ScrollDelta,
-};
+use platynui_core::platform::{PointOrigin, PointerButton, PointerMotionMode, ScrollDelta};
 use platynui_core::types::{Point, Rect};
-use platynui_runtime::{PointerError, Runtime};
+use platynui_runtime::{PointerError, PointerOverrides, Runtime};
 use std::time::Duration;
 
 use crate::util::{CliResult, parse_point, parse_pointer_button, parse_scroll_delta};
