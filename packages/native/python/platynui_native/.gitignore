@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+
+# Native extension modules built by maturin/PyO3
+# Keep this package directory free of compiled artifacts.
+*.so
+*.pyd
+*.dylib
+
+# Just in case debug symbols land here on Windows/macOS
+*.pdb
+*.dSYM/

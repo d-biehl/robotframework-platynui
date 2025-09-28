@@ -36,3 +36,6 @@ trash/
 *.bak
 *.swp
 *~
+
+# playground
+playground/

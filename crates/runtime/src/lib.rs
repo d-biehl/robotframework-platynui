@@ -5,6 +5,13 @@ pub mod provider;
 pub mod runtime;
 mod xpath;
 
+#[cfg(feature = "mock-provider")]
+const _: () = {
+    // Ensure inventory registrations of mock platform/provider are linked
+    use platynui_platform_mock as _;
+    use platynui_provider_mock as _;
+};
+
 #[cfg(all(target_os = "windows", not(feature = "mock-provider")))]
 const _: () = {
     use platynui_platform_windows as _;

@@ -1,0 +1,28 @@
+[package]
+name = "platynui_native"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Native Python bindings for PlatynUI (core types + runtime)"
+repository = "https://github.com/imbus/robotframework-PlatynUI"
+
+[lib]
+name = "platynui_native"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+# Enable mock provider for portable local builds
+runtime-mock = ["platynui-runtime/mock-provider"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+once_cell = "1.19"
+
+# Internal crates
+platynui-core = { path = "../../crates/core" }
+platynui-runtime = { package = "platynui-runtime", path = "../../crates/runtime" }
+platynui-xpath = { package = "platynui-xpath", path = "../../crates/xpath" }
+

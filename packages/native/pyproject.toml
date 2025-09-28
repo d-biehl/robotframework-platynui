@@ -1,0 +1,31 @@
+[project]
+name = "platynui-native"
+version = "0.1.0"
+description = "Native Python bindings for PlatynUI (core types + runtime)"
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["robotframework", "platynui", "gui", "automation", "desktop"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Rust",
+  "Operating System :: OS Independent",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.7",
+  "pyright>=1.1",
+  "ruff>=0.2",
+  "pytest>=8.0",
+]
+
+[build-system]
+requires = ["maturin>=1,<2"]
+build-backend = "maturin"
+
+[tool.maturin]
+module-name = "platynui_native._native"
+python-source = "python"
+features = ["pyo3/extension-module", "pyo3/abi3-py310"]
