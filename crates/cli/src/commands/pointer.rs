@@ -18,6 +18,7 @@ pub struct PointerArgs {
 pub enum PointerCommand {
     Move(PointerMoveArgs),
     Click(PointerClickArgs),
+    MultiClick(PointerMultiClickArgs),
     Press(PointerPressArgs),
     Release(PointerReleaseArgs),
     Scroll(PointerScrollArgs),
@@ -39,6 +40,18 @@ pub struct PointerClickArgs {
     pub point: Point,
     #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg)]
     pub button: PointerButton,
+    #[command(flatten)]
+    overrides: OverrideArgs,
+}
+
+#[derive(Args)]
+pub struct PointerMultiClickArgs {
+    #[arg(value_parser = parse_point_arg)]
+    pub point: Point,
+    #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg)]
+    pub button: PointerButton,
+    #[arg(long = "count", default_value_t = 2, value_parser = parse_click_count)]
+    pub count: u32,
     #[command(flatten)]
     overrides: OverrideArgs,
 }
@@ -150,6 +163,7 @@ pub fn run(runtime: &Runtime, args: &PointerArgs) -> CliResult<String> {
     match &args.command {
         PointerCommand::Move(move_args) => run_move(runtime, move_args),
         PointerCommand::Click(click_args) => run_click(runtime, click_args),
+        PointerCommand::MultiClick(multi_click_args) => run_multi_click(runtime, multi_click_args),
         PointerCommand::Press(press_args) => run_press(runtime, press_args),
         PointerCommand::Release(release_args) => run_release(runtime, release_args),
         PointerCommand::Scroll(scroll_args) => run_scroll(runtime, scroll_args),
@@ -172,6 +186,20 @@ fn run_click(runtime: &Runtime, args: &PointerClickArgs) -> CliResult<String> {
         args.point.x(),
         args.point.y(),
         button = args.button
+    ))
+}
+
+fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs) -> CliResult<String> {
+    let overrides = build_overrides(runtime, &args.overrides)?;
+    runtime
+        .pointer_multi_click(args.point, Some(args.button), args.count, overrides)
+        .map_err(map_pointer_error)?;
+    Ok(format!(
+        "Clicked {button:?} {count} times at ({:.1}, {:.1}).",
+        args.point.x(),
+        args.point.y(),
+        button = args.button,
+        count = args.count
     ))
 }
 
@@ -354,6 +382,15 @@ fn parse_pointer_button_arg(value: &str) -> Result<PointerButton, String> {
     parse_pointer_button(value).map_err(|err| err.to_string())
 }
 
+fn parse_click_count(value: &str) -> Result<u32, String> {
+    let count: u32 =
+        value.parse().map_err(|err| format!("invalid click count '{value}': {err}"))?;
+    if count < 2 {
+        return Err("--count must be at least 2".to_owned());
+    }
+    Ok(count)
+}
+
 fn map_pointer_error(err: PointerError) -> Box<dyn std::error::Error> {
     Box::new(err)
 }
@@ -420,6 +457,27 @@ mod tests {
 
     #[rstest]
     #[serial]
+    fn multi_click_command_clicks_multiple_times() {
+        reset_pointer_state();
+        let runtime = runtime();
+        let args = PointerMultiClickArgs {
+            point: Point::new(30.0, 40.0),
+            button: PointerButton::Left,
+            count: 3,
+            overrides: OverrideArgs::default(),
+        };
+        let output = super::run_multi_click(&runtime, &args).expect("multi-click");
+        assert!(output.contains("3 times"));
+        let log = take_pointer_log();
+        let presses = log
+            .iter()
+            .filter(|entry| matches!(entry, PointerLogEntry::Press(PointerButton::Left)))
+            .count();
+        assert_eq!(presses, 3);
+    }
+
+    #[rstest]
+    #[serial]
     fn scroll_command_emits_steps() {
         reset_pointer_state();
         let runtime = runtime();
@@ -464,6 +522,12 @@ mod tests {
         let overrides = OverrideArgs::default();
         let result = build_overrides(&runtime, &overrides).expect("overrides");
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_click_count_requires_minimum() {
+        let err = super::parse_click_count("1").expect_err("count below minimum");
+        assert!(err.contains("at least 2"));
     }
 
     #[rstest]

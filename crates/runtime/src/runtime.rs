@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use platynui_core::platform::{
     DesktopInfo, HighlightProvider, HighlightRequest, KeyboardDevice, KeyboardError,
@@ -28,7 +28,7 @@ use crate::provider::event::{ProviderEventDispatcher, ProviderEventSink};
 
 use crate::keyboard::{KeyboardEngine, KeyboardMode, apply_overrides as apply_keyboard_overrides};
 use crate::keyboard_sequence::{KeyboardSequence, KeyboardSequenceError};
-use crate::pointer::{PointerEngine, PointerError};
+use crate::pointer::{ClickStamp, PointerEngine, PointerError};
 use crate::pointer::{PointerOverrides, PointerProfile, PointerSettings};
 use crate::{EvaluateError, EvaluateOptions, EvaluationItem, evaluate};
 
@@ -44,7 +44,7 @@ pub struct Runtime {
     pointer_settings: Mutex<PointerSettings>,
     pointer_profile: Mutex<PointerProfile>,
     pointer_sleep: fn(Duration),
-    pointer_click_state: Mutex<Option<Instant>>,
+    pointer_click_state: Mutex<Option<ClickStamp>>,
     keyboard: Option<&'static dyn KeyboardDevice>,
     keyboard_settings: Mutex<KeyboardSettings>,
 }
@@ -335,6 +335,18 @@ impl Runtime {
         let engine = self.build_pointer_engine(overrides)?;
         let mut last_click = self.pointer_click_state.lock().unwrap();
         engine.click(point, button, &mut *last_click)
+    }
+
+    pub fn pointer_multi_click(
+        &self,
+        point: Point,
+        button: Option<PointerButton>,
+        clicks: u32,
+        overrides: Option<PointerOverrides>,
+    ) -> Result<(), PointerError> {
+        let engine = self.build_pointer_engine(overrides)?;
+        let mut last_click = self.pointer_click_state.lock().unwrap();
+        engine.multi_click(point, button, clicks, &mut *last_click)
     }
 
     pub fn pointer_press(
@@ -1215,6 +1227,51 @@ mod tests {
         assert!(
             log.iter().any(|event| matches!(event, PointerLogEntry::Release(PointerButton::Left)))
         );
+    }
+
+    #[rstest]
+    #[serial]
+    fn pointer_multi_click_emits_multiple_events() {
+        reset_pointer_state();
+        let runtime = Runtime::new().expect("runtime initializes");
+        configure_pointer_for_tests(&runtime);
+
+        runtime
+            .pointer_multi_click(
+                Point::new(20.0, 20.0),
+                Some(PointerButton::Right),
+                3,
+                Some(zero_overrides()),
+            )
+            .expect("multi-click succeeds");
+
+        let log = take_pointer_log();
+        let presses = log
+            .iter()
+            .filter(|event| matches!(event, PointerLogEntry::Press(PointerButton::Right)))
+            .count();
+        let releases = log
+            .iter()
+            .filter(|event| matches!(event, PointerLogEntry::Release(PointerButton::Right)))
+            .count();
+        assert_eq!(presses, 3);
+        assert_eq!(releases, 3);
+    }
+
+    #[rstest]
+    #[serial]
+    fn pointer_multi_click_rejects_zero() {
+        reset_pointer_state();
+        let runtime = Runtime::new().expect("runtime initializes");
+        configure_pointer_for_tests(&runtime);
+
+        let error = runtime
+            .pointer_multi_click(Point::new(5.0, 5.0), None, 0, Some(zero_overrides()))
+            .unwrap_err();
+        match error {
+            PointerError::InvalidClickCount { provided } => assert_eq!(provided, 0),
+            other => panic!("unexpected error: {other}"),
+        }
     }
 
     #[rstest]

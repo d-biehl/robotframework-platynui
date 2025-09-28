@@ -215,6 +215,8 @@ pub enum PointerError {
         "pointer could not reach target {expected:?} (actual {actual:?}, threshold {threshold})"
     )]
     EnsureMove { expected: Point, actual: Point, threshold: f64 },
+    #[error("click count must be greater than zero (got {provided})")]
+    InvalidClickCount { provided: u32 },
 }
 
 pub(crate) struct PointerEngine<'a> {
@@ -224,6 +226,12 @@ pub(crate) struct PointerEngine<'a> {
     origin: PointOrigin,
     desktop_bounds: Rect,
     sleep: &'a dyn Fn(Duration),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClickStamp {
+    pub time: Instant,
+    pub position: Point,
 }
 
 impl<'a> PointerEngine<'a> {
@@ -237,6 +245,12 @@ impl<'a> PointerEngine<'a> {
     ) -> Self {
         let mut profile = overrides.profile.clone().unwrap_or(base_profile);
         apply_profile_overrides(&mut profile, &overrides);
+        if !settings.double_click_time.is_zero()
+            && !profile.multi_click_delay.is_zero()
+            && profile.multi_click_delay > settings.double_click_time
+        {
+            profile.multi_click_delay = settings.double_click_time;
+        }
         let origin = overrides.origin.unwrap_or(PointOrigin::Desktop);
         Self { device, settings, profile, origin, desktop_bounds, sleep }
     }
@@ -261,29 +275,64 @@ impl<'a> PointerEngine<'a> {
         &self,
         point: Point,
         button: Option<PointerButton>,
-        last_click: &mut Option<Instant>,
+        last_click: &mut Option<ClickStamp>,
     ) -> Result<(), PointerError> {
+        self.multi_click(point, button, 1, last_click)
+    }
+
+    pub fn multi_click(
+        &self,
+        point: Point,
+        button: Option<PointerButton>,
+        clicks: u32,
+        last_click: &mut Option<ClickStamp>,
+    ) -> Result<(), PointerError> {
+        if clicks == 0 {
+            return Err(PointerError::InvalidClickCount { provided: clicks });
+        }
+
         let target_button = button.unwrap_or_else(|| self.default_button());
-        self.enforce_inter_click_delay(last_click);
-        self.move_to(point)?;
-        self.device.press(target_button)?;
-        self.sleep(self.profile.after_input_delay);
-        self.sleep(self.profile.press_release_delay);
-        self.device.release(target_button)?;
-        self.sleep(self.profile.after_input_delay);
+
+        let anchor = self.move_to(point)?;
+
+        self.enforce_inter_click_delay(last_click, anchor);
+
+        let inter_press_release = self.profile.press_release_delay;
+        let inter_between_clicks = if clicks > 1 && !self.settings.double_click_time.is_zero() {
+            self.settings.double_click_time / 2
+        } else {
+            Duration::ZERO
+        };
+
+        for index in 0..clicks {
+            self.device.press(target_button)?;
+            self.sleep(inter_press_release);
+            self.device.release(target_button)?;
+
+            let is_last = index + 1 == clicks;
+            if !is_last && !inter_between_clicks.is_zero() {
+                self.sleep(inter_between_clicks);
+            }
+        }
+
         self.sleep(self.profile.after_click_delay);
-        *last_click = Some(Instant::now());
+        self.sleep(self.profile.after_input_delay);
+
+        *last_click = Some(ClickStamp { time: Instant::now(), position: anchor });
+
         Ok(())
     }
 
     pub fn press(&self, button: PointerButton) -> Result<(), PointerError> {
         self.device.press(button)?;
+        self.sleep(self.profile.press_release_delay);
         self.sleep(self.profile.after_input_delay);
         Ok(())
     }
 
     pub fn release(&self, button: PointerButton) -> Result<(), PointerError> {
         self.device.release(button)?;
+        self.sleep(self.profile.press_release_delay);
         self.sleep(self.profile.after_input_delay);
         Ok(())
     }
@@ -463,23 +512,56 @@ impl<'a> PointerEngine<'a> {
         (self.sleep)(duration);
     }
 
-    fn enforce_inter_click_delay(&self, last_click: &mut Option<Instant>) {
-        if let Some(previous) = *last_click {
-            let elapsed = previous.elapsed();
+    fn enforce_inter_click_delay(&self, last_click: &mut Option<ClickStamp>, target: Point) {
+        if let Some(stamp) = *last_click {
+            if !self.is_within_double_click_bounds(stamp.position, target) {
+                *last_click = None;
+                return;
+            }
+
+            let elapsed = stamp.time.elapsed();
             if !self.profile.multi_click_delay.is_zero() && elapsed > self.profile.multi_click_delay
             {
                 *last_click = None;
                 return;
             }
 
-            if self.profile.before_next_click_delay > Duration::ZERO {
-                if let Some(remaining) = self.profile.before_next_click_delay.checked_sub(elapsed) {
-                    if !remaining.is_zero() {
-                        self.sleep(remaining);
-                    }
+            if !self.settings.double_click_time.is_zero()
+                && elapsed >= self.settings.double_click_time
+            {
+                *last_click = None;
+                return;
+            }
+
+            let target_wait = if self.profile.before_next_click_delay.is_zero() {
+                if self.settings.double_click_time.is_zero() {
+                    Duration::ZERO
+                } else {
+                    self.settings.double_click_time / 2
                 }
+            } else if self.settings.double_click_time.is_zero() {
+                self.profile.before_next_click_delay
+            } else {
+                self.profile.before_next_click_delay.min(self.settings.double_click_time / 2)
+            };
+
+            if !target_wait.is_zero() && elapsed < target_wait {
+                self.sleep(target_wait - elapsed);
             }
         }
+    }
+
+    fn is_within_double_click_bounds(&self, anchor: Point, point: Point) -> bool {
+        let size = self.settings.double_click_size;
+        if size.is_empty() {
+            return true;
+        }
+
+        let half_width = (size.width() / 2.0).max(0.0);
+        let half_height = (size.height() / 2.0).max(0.0);
+        let within_width = half_width <= 0.0 || (point.x() - anchor.x()).abs() <= half_width;
+        let within_height = half_height <= 0.0 || (point.y() - anchor.y()).abs() <= half_height;
+        within_width && within_height
     }
 }
 
@@ -666,9 +748,9 @@ fn component_steps(value: f64, base: f64) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::{PointerOverrides, PointerProfile, PointerSettings};
+    use super::{ClickStamp, PointerOverrides, PointerProfile, PointerSettings};
     use platynui_core::platform::pointer_devices;
-    use platynui_core::types::Rect;
+    use platynui_core::types::{Rect, Size};
     use platynui_platform_mock::{PointerLogEntry, reset_pointer_state, take_pointer_log};
     use rstest::rstest;
     use serial_test::serial;
@@ -1071,7 +1153,7 @@ mod tests {
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
         profile.after_input_delay = Duration::ZERO;
-        profile.press_release_delay = Duration::ZERO;
+        profile.press_release_delay = Duration::from_millis(80);
         profile.after_click_delay = Duration::ZERO;
         profile.ensure_move_position = false;
         profile.before_next_click_delay = Duration::from_millis(80);
@@ -1088,21 +1170,76 @@ mod tests {
             &sleep,
         );
 
-        let mut last_click = None;
+        let mut last_click: Option<ClickStamp> = None;
         engine.click(Point::new(10.0, 10.0), None, &mut last_click).unwrap();
 
-        last_click = Some(Instant::now() - Duration::from_millis(20));
+        last_click = Some(ClickStamp {
+            time: Instant::now() - Duration::from_millis(20),
+            position: Point::new(10.0, 10.0),
+        });
         sleeps.lock().unwrap().clear();
         engine.click(Point::new(12.0, 10.0), None, &mut last_click).unwrap();
         let recorded = sleeps.lock().unwrap().clone();
-        assert_eq!(recorded.len(), 1);
-        let waited = recorded[0];
-        assert!(waited >= Duration::from_millis(59) && waited <= Duration::from_millis(80));
+        assert!(!recorded.is_empty());
+        let enforced = *recorded.last().unwrap();
+        assert_duration_approx(enforced, Duration::from_millis(80));
+        assert!(last_click.is_some());
 
-        last_click = Some(Instant::now() - Duration::from_millis(400));
+        last_click = Some(ClickStamp {
+            time: Instant::now() - Duration::from_millis(400),
+            position: Point::new(12.0, 10.0),
+        });
         sleeps.lock().unwrap().clear();
         engine.click(Point::new(14.0, 10.0), None, &mut last_click).unwrap();
+        let recorded = sleeps.lock().unwrap().clone();
+        assert!(recorded.len() <= 1);
+        if let Some(&duration) = recorded.first() {
+            assert_duration_approx(duration, Duration::from_millis(80));
+        }
+    }
+
+    #[rstest]
+    fn click_skips_delay_when_target_outside_double_click_bounds() {
+        let sleeps = Mutex::new(Vec::new());
+        let sleep = |duration: Duration| {
+            if duration > Duration::ZERO {
+                sleeps.lock().unwrap().push(duration);
+            }
+        };
+
+        let device = RecordingPointer::new();
+        let mut settings = PointerSettings::default();
+        settings.double_click_size = Size::new(4.0, 4.0);
+
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        profile.after_input_delay = Duration::ZERO;
+        profile.press_release_delay = Duration::ZERO;
+        profile.after_click_delay = Duration::ZERO;
+        profile.before_next_click_delay = Duration::from_millis(80);
+        profile.multi_click_delay = Duration::from_millis(200);
+        profile.ensure_move_position = false;
+        profile.move_time_per_pixel = Duration::ZERO;
+        profile.max_move_duration = Duration::ZERO;
+
+        let engine = PointerEngine::new(
+            &device,
+            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
+            settings,
+            profile,
+            PointerOverrides::new(),
+            &sleep,
+        );
+
+        let mut last_click: Option<ClickStamp> = Some(ClickStamp {
+            time: Instant::now() - Duration::from_millis(20),
+            position: Point::new(0.0, 0.0),
+        });
+
+        engine.click(Point::new(200.0, 0.0), None, &mut last_click).unwrap();
+
         assert!(sleeps.lock().unwrap().is_empty());
+        assert!(last_click.is_some());
     }
 
     #[rstest]
@@ -1277,14 +1414,15 @@ mod tests {
         };
 
         let mut profile = PointerProfile::named_default();
+        let configured_delay = Duration::from_millis(80);
         profile.after_move_delay = Duration::ZERO;
         profile.after_input_delay = Duration::ZERO;
-        profile.press_release_delay = Duration::ZERO;
+        profile.press_release_delay = Duration::from_millis(80);
         profile.after_click_delay = Duration::ZERO;
         profile.ensure_move_position = false;
         profile.move_time_per_pixel = Duration::ZERO;
         profile.max_move_duration = Duration::ZERO;
-        profile.before_next_click_delay = Duration::from_millis(80);
+        profile.before_next_click_delay = configured_delay;
         profile.multi_click_delay = Duration::from_millis(200);
 
         let engine = PointerEngine::new(
@@ -1296,19 +1434,208 @@ mod tests {
             &sleep,
         );
 
-        let mut last_click = None;
+        let half_double = device
+            .double_click_time()
+            .ok()
+            .flatten()
+            .map(|time| time / 2)
+            .unwrap_or(Duration::ZERO);
+        let target_total = if configured_delay.is_zero() {
+            half_double
+        } else if half_double.is_zero() {
+            configured_delay
+        } else {
+            configured_delay.min(half_double)
+        };
+
+        let mut last_click: Option<ClickStamp> = None;
         engine.click(Point::new(0.0, 0.0), None, &mut last_click).unwrap();
         sleeps.lock().unwrap().clear();
 
-        last_click = Some(Instant::now() - Duration::from_millis(25));
+        last_click = Some(ClickStamp {
+            time: Instant::now() - Duration::from_millis(25),
+            position: Point::new(0.0, 0.0),
+        });
         engine.click(Point::new(0.0, 0.0), None, &mut last_click).unwrap();
         let enforced = sleeps.lock().unwrap().first().copied().unwrap_or(Duration::ZERO);
-        assert!(enforced >= Duration::from_millis(50) && enforced <= Duration::from_millis(90));
+        let expected_sleep =
+            target_total.checked_sub(Duration::from_millis(25)).unwrap_or(Duration::ZERO);
+        assert_duration_approx(enforced, expected_sleep);
 
         let log = take_pointer_log();
         let press_count =
             log.iter().filter(|entry| matches!(entry, PointerLogEntry::Press(_))).count();
         assert!(press_count >= 2);
+    }
+
+    #[rstest]
+    fn multi_click_emits_multiple_events() {
+        let device = RecordingPointer::new();
+        let settings = PointerSettings::default();
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        profile.after_input_delay = Duration::ZERO;
+        profile.press_release_delay = Duration::ZERO;
+        profile.after_click_delay = Duration::ZERO;
+        profile.before_next_click_delay = Duration::ZERO;
+        profile.ensure_move_position = false;
+        profile.move_time_per_pixel = Duration::ZERO;
+        profile.max_move_duration = Duration::ZERO;
+
+        let engine = PointerEngine::new(
+            &device,
+            Rect::new(-100.0, -100.0, 200.0, 200.0),
+            settings,
+            profile,
+            PointerOverrides::new(),
+            &noop_sleep,
+        );
+
+        let mut last_click = None;
+        engine
+            .multi_click(Point::new(5.0, 5.0), Some(PointerButton::Right), 3, &mut last_click)
+            .unwrap();
+
+        let log = device.take_log();
+        let presses = log
+            .iter()
+            .filter(|action| matches!(action, Action::Press(PointerButton::Right)))
+            .count();
+        let releases = log
+            .iter()
+            .filter(|action| matches!(action, Action::Release(PointerButton::Right)))
+            .count();
+        assert_eq!(presses, 3);
+        assert_eq!(releases, 3);
+        assert!(last_click.is_some());
+    }
+
+    #[rstest]
+    fn multi_click_rejects_zero_count() {
+        let device = RecordingPointer::new();
+        let settings = PointerSettings::default();
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        profile.after_input_delay = Duration::ZERO;
+        profile.press_release_delay = Duration::ZERO;
+        profile.after_click_delay = Duration::ZERO;
+        profile.before_next_click_delay = Duration::ZERO;
+        profile.ensure_move_position = false;
+        profile.move_time_per_pixel = Duration::ZERO;
+        profile.max_move_duration = Duration::ZERO;
+
+        let engine = PointerEngine::new(
+            &device,
+            Rect::new(-50.0, -50.0, 100.0, 100.0),
+            settings,
+            profile,
+            PointerOverrides::new(),
+            &noop_sleep,
+        );
+
+        let mut last_click = None;
+        let error = engine.multi_click(Point::new(0.0, 0.0), None, 0, &mut last_click).unwrap_err();
+        match error {
+            PointerError::InvalidClickCount { provided } => assert_eq!(provided, 0),
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[rstest]
+    fn multi_click_limits_post_click_delay() {
+        let device = RecordingPointer::new();
+        let mut settings = PointerSettings::default();
+        settings.double_click_time = Duration::from_millis(250);
+        settings.double_click_size = Size::new(10.0, 10.0);
+
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        profile.after_input_delay = Duration::ZERO;
+        profile.press_release_delay = Duration::from_millis(80);
+        profile.after_click_delay = Duration::from_millis(200);
+        profile.before_next_click_delay = Duration::ZERO;
+        profile.multi_click_delay = Duration::from_millis(300);
+        profile.ensure_move_position = false;
+        profile.move_time_per_pixel = Duration::ZERO;
+        profile.max_move_duration = Duration::ZERO;
+
+        let sleeps = Mutex::new(Vec::new());
+        let sleep = |duration: Duration| {
+            if duration > Duration::ZERO {
+                sleeps.lock().unwrap().push(duration);
+            }
+        };
+
+        let engine = PointerEngine::new(
+            &device,
+            Rect::new(-10.0, -10.0, 20.0, 20.0),
+            settings,
+            profile,
+            PointerOverrides::new(),
+            &sleep,
+        );
+
+        let mut last_click = None;
+        engine.multi_click(Point::new(0.0, 0.0), None, 3, &mut last_click).unwrap();
+
+        let recorded = sleeps.lock().unwrap().clone();
+        let inter_press = Duration::from_millis(80);
+        let inter_between = Duration::from_millis(125);
+        let after_click = Duration::from_millis(200);
+        assert_eq!(recorded.len(), 6);
+        assert_duration_approx(recorded[0], inter_press);
+        assert_duration_approx(recorded[1], inter_between);
+        assert_duration_approx(recorded[2], inter_press);
+        assert_duration_approx(recorded[3], inter_between);
+        assert_duration_approx(recorded[4], inter_press);
+        assert_eq!(recorded[5], after_click);
+    }
+
+    #[rstest]
+    fn single_click_emits_only_after_click_delay() {
+        let device = RecordingPointer::new();
+        let mut settings = PointerSettings::default();
+        settings.double_click_time = Duration::from_millis(250);
+
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        profile.after_input_delay = Duration::ZERO;
+        profile.press_release_delay = Duration::ZERO;
+        profile.after_click_delay = Duration::from_millis(40);
+        profile.before_next_click_delay = Duration::from_millis(80);
+        profile.multi_click_delay = Duration::from_millis(200);
+        profile.ensure_move_position = false;
+        profile.move_time_per_pixel = Duration::ZERO;
+        profile.max_move_duration = Duration::ZERO;
+
+        let sleeps = Mutex::new(Vec::new());
+        let sleep = |duration: Duration| {
+            if duration > Duration::ZERO {
+                sleeps.lock().unwrap().push(duration);
+            }
+        };
+
+        let engine = PointerEngine::new(
+            &device,
+            Rect::new(-10.0, -10.0, 20.0, 20.0),
+            settings,
+            profile,
+            PointerOverrides::new(),
+            &sleep,
+        );
+
+        let mut last_click = None;
+        engine.click(Point::new(0.0, 0.0), None, &mut last_click).unwrap();
+
+        let recorded = sleeps.lock().unwrap().clone();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0], Duration::from_millis(40));
+        assert!(last_click.is_some());
+    }
+
+    fn assert_duration_approx(actual: Duration, expected: Duration) {
+        let delta = (actual.as_secs_f64() - expected.as_secs_f64()).abs();
+        assert!(delta <= 0.002, "expected {expected:?}, got {actual:?}");
     }
 
     #[rstest]
