@@ -1,5 +1,7 @@
 use clap::{Args, Subcommand, ValueEnum};
-use platynui_core::platform::{PointOrigin, PointerButton, PointerMotionMode, ScrollDelta};
+use platynui_core::platform::{
+    PointOrigin, PointerAccelerationProfile, PointerButton, PointerMotionMode, ScrollDelta,
+};
 use platynui_core::types::{Point, Rect};
 use platynui_runtime::{PointerError, PointerOverrides, Runtime};
 use std::time::Duration;
@@ -96,6 +98,14 @@ enum MotionKind {
     Jitter,
 }
 
+#[derive(Clone, Copy, ValueEnum)]
+enum AccelerationKind {
+    Constant,
+    EaseIn,
+    EaseOut,
+    SmoothStep,
+}
+
 #[derive(Args, Default)]
 struct OverrideArgs {
     #[arg(long = "origin", value_enum, default_value_t = OriginKind::Desktop)]
@@ -130,6 +140,10 @@ struct OverrideArgs {
     move_duration: Option<Duration>,
     #[arg(long = "move-time-per-pixel", value_parser = parse_millis)]
     move_time_per_pixel: Option<Duration>,
+    #[arg(long = "speed-factor")]
+    speed_factor: Option<f64>,
+    #[arg(long = "acceleration", value_enum)]
+    acceleration: Option<AccelerationKind>,
 }
 
 pub fn run(runtime: &Runtime, args: &PointerArgs) -> CliResult<String> {
@@ -246,6 +260,21 @@ fn build_overrides(runtime: &Runtime, args: &OverrideArgs) -> CliResult<Option<P
     }
     if let Some(duration) = args.move_time_per_pixel {
         overrides = overrides.move_time_per_pixel(duration);
+    }
+    if let Some(speed) = args.speed_factor {
+        if speed <= 0.0 {
+            return Err("--speed-factor must be greater than 0".to_owned().into());
+        }
+        overrides = overrides.speed_factor(speed);
+    }
+    if let Some(acceleration) = args.acceleration {
+        let profile = match acceleration {
+            AccelerationKind::Constant => PointerAccelerationProfile::Constant,
+            AccelerationKind::EaseIn => PointerAccelerationProfile::EaseIn,
+            AccelerationKind::EaseOut => PointerAccelerationProfile::EaseOut,
+            AccelerationKind::SmoothStep => PointerAccelerationProfile::SmoothStep,
+        };
+        overrides = overrides.acceleration_profile(profile);
     }
 
     match args.origin {

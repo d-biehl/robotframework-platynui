@@ -115,6 +115,8 @@ pub struct PointerOverrides {
     pub scroll_delay: Option<Duration>,
     pub max_move_duration: Option<Duration>,
     pub move_time_per_pixel: Option<Duration>,
+    pub speed_factor: Option<f64>,
+    pub acceleration_profile: Option<PointerAccelerationProfile>,
 }
 
 impl PointerOverrides {
@@ -191,6 +193,16 @@ impl PointerOverrides {
         self.move_time_per_pixel = Some(duration);
         self
     }
+
+    pub fn speed_factor(mut self, speed: f64) -> Self {
+        self.speed_factor = Some(speed);
+        self
+    }
+
+    pub fn acceleration_profile(mut self, profile: PointerAccelerationProfile) -> Self {
+        self.acceleration_profile = Some(profile);
+        self
+    }
 }
 
 #[derive(Debug, Error)]
@@ -245,8 +257,14 @@ impl<'a> PointerEngine<'a> {
         Ok(target)
     }
 
-    pub fn click(&self, point: Point, button: Option<PointerButton>) -> Result<(), PointerError> {
+    pub fn click(
+        &self,
+        point: Point,
+        button: Option<PointerButton>,
+        last_click: &mut Option<Instant>,
+    ) -> Result<(), PointerError> {
         let target_button = button.unwrap_or_else(|| self.default_button());
+        self.enforce_inter_click_delay(last_click);
         self.move_to(point)?;
         self.device.press(target_button)?;
         self.sleep(self.profile.after_input_delay);
@@ -254,6 +272,7 @@ impl<'a> PointerEngine<'a> {
         self.device.release(target_button)?;
         self.sleep(self.profile.after_input_delay);
         self.sleep(self.profile.after_click_delay);
+        *last_click = Some(Instant::now());
         Ok(())
     }
 
@@ -379,7 +398,8 @@ impl<'a> PointerEngine<'a> {
         let start_time = Instant::now();
         for (index, point) in path.iter().enumerate() {
             self.device.move_to(*point)?;
-            let desired = total_duration.mul_f64((index + 1) as f64 / steps as f64);
+            let fraction = easing_fraction(&self.profile, index, steps);
+            let desired = total_duration.mul_f64(fraction);
             let elapsed = start_time.elapsed();
             if desired > elapsed {
                 self.sleep(desired - elapsed);
@@ -398,7 +418,10 @@ impl<'a> PointerEngine<'a> {
         let base = if per_pixel.is_zero() {
             Duration::ZERO
         } else {
-            Duration::from_secs_f64(per_pixel.as_secs_f64() * distance)
+            let speed =
+                if self.profile.speed_factor > 0.0 { self.profile.speed_factor } else { 1.0 };
+            let adjusted_distance = distance / speed;
+            Duration::from_secs_f64(per_pixel.as_secs_f64() * adjusted_distance)
         };
 
         let max = self.profile.max_move_duration;
@@ -439,6 +462,25 @@ impl<'a> PointerEngine<'a> {
         }
         (self.sleep)(duration);
     }
+
+    fn enforce_inter_click_delay(&self, last_click: &mut Option<Instant>) {
+        if let Some(previous) = *last_click {
+            let elapsed = previous.elapsed();
+            if !self.profile.multi_click_delay.is_zero() && elapsed > self.profile.multi_click_delay
+            {
+                *last_click = None;
+                return;
+            }
+
+            if self.profile.before_next_click_delay > Duration::ZERO {
+                if let Some(remaining) = self.profile.before_next_click_delay.checked_sub(elapsed) {
+                    if !remaining.is_zero() {
+                        self.sleep(remaining);
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn apply_profile_overrides(profile: &mut PointerProfile, overrides: &PointerOverrides) {
@@ -477,6 +519,25 @@ fn apply_profile_overrides(profile: &mut PointerProfile, overrides: &PointerOver
     }
     if let Some(duration) = overrides.move_time_per_pixel {
         profile.move_time_per_pixel = duration;
+    }
+    if let Some(speed) = overrides.speed_factor {
+        profile.speed_factor = speed;
+    }
+    if let Some(acceleration) = overrides.acceleration_profile {
+        profile.acceleration_profile = acceleration;
+    }
+}
+
+fn easing_fraction(profile: &PointerProfile, step_index: usize, steps: usize) -> f64 {
+    if steps == 0 {
+        return 1.0;
+    }
+    let t = ((step_index + 1) as f64 / steps as f64).clamp(0.0, 1.0);
+    match profile.acceleration_profile {
+        PointerAccelerationProfile::Constant => t,
+        PointerAccelerationProfile::EaseIn => t * t,
+        PointerAccelerationProfile::EaseOut => 1.0 - (1.0 - t) * (1.0 - t),
+        PointerAccelerationProfile::SmoothStep => t * t * (3.0 - 2.0 * t),
     }
 }
 
@@ -606,10 +667,14 @@ fn component_steps(value: f64, base: f64) -> usize {
 mod tests {
     use super::*;
     use super::{PointerOverrides, PointerProfile, PointerSettings};
+    use platynui_core::platform::pointer_devices;
     use platynui_core::types::Rect;
+    use platynui_platform_mock::{PointerLogEntry, reset_pointer_state, take_pointer_log};
     use rstest::rstest;
+    use serial_test::serial;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Instant;
 
     #[derive(Clone, Debug, PartialEq)]
     enum Action {
@@ -679,6 +744,7 @@ mod tests {
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
         profile.ensure_move_position = false;
+        profile.acceleration_profile = PointerAccelerationProfile::Constant;
         let engine = PointerEngine::new(
             &device,
             Rect::new(0.0, 0.0, 100.0, 100.0),
@@ -745,6 +811,7 @@ mod tests {
         profile.mode = PointerMotionMode::Linear;
         profile.max_move_duration = Duration::from_millis(120);
         profile.move_time_per_pixel = Duration::from_millis(80);
+        profile.acceleration_profile = PointerAccelerationProfile::Constant;
 
         let sleeps = Mutex::new(Vec::new());
         let sleep = |duration: Duration| {
@@ -797,6 +864,7 @@ mod tests {
         profile.mode = PointerMotionMode::Linear;
         profile.max_move_duration = Duration::ZERO;
         profile.move_time_per_pixel = Duration::from_millis(10);
+        profile.acceleration_profile = PointerAccelerationProfile::Constant;
 
         let total_sleep = Mutex::new(Duration::ZERO);
         let sleep = |duration: Duration| {
@@ -819,6 +887,428 @@ mod tests {
         let long_duration = *total_sleep.lock().unwrap();
 
         assert!(long_duration > short_duration);
+    }
+
+    #[rstest]
+    fn speed_factor_scales_duration() {
+        let total_sleep = Mutex::new(Duration::ZERO);
+        let sleep = |duration: Duration| {
+            if duration > Duration::ZERO {
+                *total_sleep.lock().unwrap() += duration;
+            }
+        };
+
+        let slow_device = RecordingPointer::new();
+        let mut slow_profile = PointerProfile::named_default();
+        slow_profile.after_move_delay = Duration::ZERO;
+        slow_profile.after_input_delay = Duration::ZERO;
+        slow_profile.ensure_move_position = false;
+        slow_profile.mode = PointerMotionMode::Linear;
+        slow_profile.steps_per_pixel = 1.0;
+        slow_profile.max_move_duration = Duration::ZERO;
+        slow_profile.move_time_per_pixel = Duration::from_millis(10);
+        slow_profile.acceleration_profile = PointerAccelerationProfile::Constant;
+
+        let slow_engine = PointerEngine::new(
+            &slow_device,
+            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
+            PointerSettings::default(),
+            slow_profile.clone(),
+            PointerOverrides::new(),
+            &sleep,
+        );
+
+        slow_engine.move_to(Point::new(10.0, 0.0)).unwrap();
+        let slow_duration = *total_sleep.lock().unwrap();
+
+        *total_sleep.lock().unwrap() = Duration::ZERO;
+
+        let fast_device = RecordingPointer::new();
+        let mut fast_profile = slow_profile;
+        fast_profile.speed_factor = 2.0;
+
+        let fast_engine = PointerEngine::new(
+            &fast_device,
+            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
+            PointerSettings::default(),
+            fast_profile,
+            PointerOverrides::new(),
+            &sleep,
+        );
+
+        fast_engine.move_to(Point::new(10.0, 0.0)).unwrap();
+        let fast_duration = *total_sleep.lock().unwrap();
+
+        assert!(fast_duration < slow_duration);
+        let ratio = fast_duration.as_secs_f64() / slow_duration.as_secs_f64();
+        assert!((ratio - 0.5).abs() < 0.05, "ratio {ratio}");
+    }
+
+    #[rstest]
+    fn acceleration_profile_ease_in_increases_step_durations() {
+        let durations = Mutex::new(Vec::new());
+        let sleep = |duration: Duration| {
+            if duration > Duration::ZERO {
+                durations.lock().unwrap().push(duration);
+            }
+        };
+
+        let device = RecordingPointer::new();
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        profile.after_input_delay = Duration::ZERO;
+        profile.ensure_move_position = false;
+        profile.mode = PointerMotionMode::Linear;
+        profile.steps_per_pixel = 1.0;
+        profile.max_move_duration = Duration::from_millis(120);
+        profile.move_time_per_pixel = Duration::ZERO;
+        profile.acceleration_profile = PointerAccelerationProfile::EaseIn;
+        let profile_clone = profile.clone();
+        let engine = PointerEngine::new(
+            &device,
+            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
+            PointerSettings::default(),
+            profile,
+            PointerOverrides::new(),
+            &sleep,
+        );
+
+        engine.move_to(Point::new(4.0, 0.0)).unwrap();
+        let recorded = durations.lock().unwrap().clone();
+        assert_eq!(recorded.len(), 4);
+        let mut previous = Duration::ZERO;
+        let increments: Vec<Duration> = recorded
+            .iter()
+            .map(|&value| {
+                let slice = value.saturating_sub(previous);
+                previous = value;
+                slice
+            })
+            .collect();
+        let total: Duration = increments.iter().copied().fold(Duration::ZERO, |acc, d| acc + d);
+        let total_secs = total.as_secs_f64();
+        assert!(total_secs > 0.0);
+        let mut previous_fraction = 0.0;
+        for (index, actual) in increments.iter().enumerate() {
+            let fraction = super::easing_fraction(&profile_clone, index, recorded.len());
+            let expected_slice = fraction - previous_fraction;
+            previous_fraction = fraction;
+            let actual_slice = actual.as_secs_f64() / total_secs;
+            assert!(
+                (actual_slice - expected_slice).abs() < 0.05,
+                "index {index}, expected {expected_slice}, actual {actual_slice}"
+            );
+        }
+    }
+
+    #[rstest]
+    fn acceleration_profile_ease_out_decreases_step_durations() {
+        let durations = Mutex::new(Vec::new());
+        let sleep = |duration: Duration| {
+            if duration > Duration::ZERO {
+                durations.lock().unwrap().push(duration);
+            }
+        };
+
+        let device = RecordingPointer::new();
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        profile.after_input_delay = Duration::ZERO;
+        profile.ensure_move_position = false;
+        profile.mode = PointerMotionMode::Linear;
+        profile.steps_per_pixel = 1.0;
+        profile.max_move_duration = Duration::from_millis(120);
+        profile.move_time_per_pixel = Duration::ZERO;
+        profile.acceleration_profile = PointerAccelerationProfile::EaseOut;
+        let profile_clone = profile.clone();
+        let engine = PointerEngine::new(
+            &device,
+            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
+            PointerSettings::default(),
+            profile,
+            PointerOverrides::new(),
+            &sleep,
+        );
+
+        engine.move_to(Point::new(4.0, 0.0)).unwrap();
+        let recorded = durations.lock().unwrap().clone();
+        assert_eq!(recorded.len(), 4);
+        let mut previous = Duration::ZERO;
+        let increments: Vec<Duration> = recorded
+            .iter()
+            .map(|&value| {
+                let slice = value.saturating_sub(previous);
+                previous = value;
+                slice
+            })
+            .collect();
+        let total: Duration = increments.iter().copied().fold(Duration::ZERO, |acc, d| acc + d);
+        let total_secs = total.as_secs_f64();
+        assert!(total_secs > 0.0);
+        let mut previous_fraction = 0.0;
+        for (index, actual) in increments.iter().enumerate() {
+            let fraction = super::easing_fraction(&profile_clone, index, recorded.len());
+            let expected_slice = fraction - previous_fraction;
+            previous_fraction = fraction;
+            let actual_slice = actual.as_secs_f64() / total_secs;
+            assert!(
+                (actual_slice - expected_slice).abs() < 0.05,
+                "index {index}, expected {expected_slice}, actual {actual_slice}"
+            );
+        }
+    }
+
+    #[rstest]
+    fn click_respects_before_next_delay() {
+        let sleeps = Mutex::new(Vec::new());
+        let sleep = |duration: Duration| {
+            if duration > Duration::ZERO {
+                sleeps.lock().unwrap().push(duration);
+            }
+        };
+
+        let device = RecordingPointer::new();
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        profile.after_input_delay = Duration::ZERO;
+        profile.press_release_delay = Duration::ZERO;
+        profile.after_click_delay = Duration::ZERO;
+        profile.ensure_move_position = false;
+        profile.before_next_click_delay = Duration::from_millis(80);
+        profile.multi_click_delay = Duration::from_millis(200);
+        profile.move_time_per_pixel = Duration::ZERO;
+        profile.max_move_duration = Duration::ZERO;
+
+        let engine = PointerEngine::new(
+            &device,
+            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
+            PointerSettings::default(),
+            profile,
+            PointerOverrides::new(),
+            &sleep,
+        );
+
+        let mut last_click = None;
+        engine.click(Point::new(10.0, 10.0), None, &mut last_click).unwrap();
+
+        last_click = Some(Instant::now() - Duration::from_millis(20));
+        sleeps.lock().unwrap().clear();
+        engine.click(Point::new(12.0, 10.0), None, &mut last_click).unwrap();
+        let recorded = sleeps.lock().unwrap().clone();
+        assert_eq!(recorded.len(), 1);
+        let waited = recorded[0];
+        assert!(waited >= Duration::from_millis(59) && waited <= Duration::from_millis(80));
+
+        last_click = Some(Instant::now() - Duration::from_millis(400));
+        sleeps.lock().unwrap().clear();
+        engine.click(Point::new(14.0, 10.0), None, &mut last_click).unwrap();
+        assert!(sleeps.lock().unwrap().is_empty());
+    }
+
+    #[rstest]
+    #[serial]
+    fn mock_pointer_speed_factor_scales_duration() {
+        reset_pointer_state();
+        let device = pointer_devices().next().expect("mock pointer registered");
+
+        let slow_sleeps = Mutex::new(Vec::new());
+        let slow_sleep = |duration: Duration| {
+            if duration > Duration::ZERO {
+                slow_sleeps.lock().unwrap().push(duration);
+            }
+        };
+
+        let mut base_profile = PointerProfile::named_default();
+        base_profile.after_move_delay = Duration::ZERO;
+        base_profile.after_input_delay = Duration::ZERO;
+        base_profile.ensure_move_position = false;
+        base_profile.mode = PointerMotionMode::Linear;
+        base_profile.steps_per_pixel = 1.0;
+        base_profile.max_move_duration = Duration::ZERO;
+        base_profile.move_time_per_pixel = Duration::from_millis(10);
+        base_profile.acceleration_profile = PointerAccelerationProfile::Constant;
+
+        let slow_engine = PointerEngine::new(
+            device,
+            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
+            PointerSettings::default(),
+            base_profile.clone(),
+            PointerOverrides::new(),
+            &slow_sleep,
+        );
+
+        slow_engine.move_to(Point::new(20.0, 0.0)).unwrap();
+        let slow_total = slow_sleeps.lock().unwrap().last().copied().unwrap_or(Duration::ZERO);
+        assert!(slow_total > Duration::ZERO);
+
+        reset_pointer_state();
+        let fast_sleeps = Mutex::new(Vec::new());
+        let fast_sleep = |duration: Duration| {
+            if duration > Duration::ZERO {
+                fast_sleeps.lock().unwrap().push(duration);
+            }
+        };
+
+        let mut fast_profile = base_profile;
+        fast_profile.speed_factor = 2.0;
+
+        let fast_engine = PointerEngine::new(
+            device,
+            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
+            PointerSettings::default(),
+            fast_profile,
+            PointerOverrides::new(),
+            &fast_sleep,
+        );
+
+        fast_engine.move_to(Point::new(20.0, 0.0)).unwrap();
+        let fast_total = fast_sleeps.lock().unwrap().last().copied().unwrap_or(Duration::ZERO);
+
+        assert!(fast_total > Duration::ZERO);
+        assert!(fast_total < slow_total);
+        let ratio = fast_total.as_secs_f64() / slow_total.as_secs_f64();
+        assert!(ratio < 0.6 && ratio > 0.3, "unexpected ratio {ratio}");
+    }
+
+    fn mock_sleep_increments(entries: &[Duration]) -> Vec<Duration> {
+        let mut prev = Duration::ZERO;
+        entries
+            .iter()
+            .map(|&value| {
+                let slice = value.saturating_sub(prev);
+                prev = value;
+                slice
+            })
+            .collect()
+    }
+
+    #[rstest]
+    #[serial]
+    fn mock_pointer_acceleration_ease_in_trends_upwards() {
+        reset_pointer_state();
+        let device = pointer_devices().next().expect("mock pointer registered");
+        let sleeps = Mutex::new(Vec::new());
+        let sleep = |duration: Duration| {
+            if duration > Duration::ZERO {
+                sleeps.lock().unwrap().push(duration);
+            }
+        };
+
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        profile.after_input_delay = Duration::ZERO;
+        profile.ensure_move_position = false;
+        profile.mode = PointerMotionMode::Linear;
+        profile.steps_per_pixel = 1.0;
+        profile.max_move_duration = Duration::from_millis(160);
+        profile.move_time_per_pixel = Duration::ZERO;
+        profile.acceleration_profile = PointerAccelerationProfile::EaseIn;
+
+        let engine = PointerEngine::new(
+            device,
+            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
+            PointerSettings::default(),
+            profile,
+            PointerOverrides::new(),
+            &sleep,
+        );
+
+        engine.move_to(Point::new(4.0, 0.0)).unwrap();
+        let increments = mock_sleep_increments(&sleeps.lock().unwrap());
+        assert_eq!(increments.len(), 4);
+        assert!(
+            increments.windows(2).all(|w| w[0] <= w[1] + Duration::from_millis(2)),
+            "{:?}",
+            increments
+        );
+    }
+
+    #[rstest]
+    #[serial]
+    fn mock_pointer_acceleration_ease_out_trends_downwards() {
+        reset_pointer_state();
+        let device = pointer_devices().next().expect("mock pointer registered");
+        let sleeps = Mutex::new(Vec::new());
+        let sleep = |duration: Duration| {
+            if duration > Duration::ZERO {
+                sleeps.lock().unwrap().push(duration);
+            }
+        };
+
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        profile.after_input_delay = Duration::ZERO;
+        profile.ensure_move_position = false;
+        profile.mode = PointerMotionMode::Linear;
+        profile.steps_per_pixel = 1.0;
+        profile.max_move_duration = Duration::from_millis(160);
+        profile.move_time_per_pixel = Duration::ZERO;
+        profile.acceleration_profile = PointerAccelerationProfile::EaseOut;
+
+        let engine = PointerEngine::new(
+            device,
+            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
+            PointerSettings::default(),
+            profile,
+            PointerOverrides::new(),
+            &sleep,
+        );
+
+        engine.move_to(Point::new(4.0, 0.0)).unwrap();
+        let increments = mock_sleep_increments(&sleeps.lock().unwrap());
+        assert_eq!(increments.len(), 4);
+        assert!(
+            increments.windows(2).all(|w| w[0] >= w[1] - Duration::from_millis(2)),
+            "{:?}",
+            increments
+        );
+    }
+
+    #[rstest]
+    #[serial]
+    fn mock_pointer_click_enforces_before_next_delay() {
+        reset_pointer_state();
+        let device = pointer_devices().next().expect("mock pointer registered");
+        let sleeps = Mutex::new(Vec::new());
+        let sleep = |duration: Duration| {
+            if duration > Duration::ZERO {
+                sleeps.lock().unwrap().push(duration);
+            }
+        };
+
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        profile.after_input_delay = Duration::ZERO;
+        profile.press_release_delay = Duration::ZERO;
+        profile.after_click_delay = Duration::ZERO;
+        profile.ensure_move_position = false;
+        profile.move_time_per_pixel = Duration::ZERO;
+        profile.max_move_duration = Duration::ZERO;
+        profile.before_next_click_delay = Duration::from_millis(80);
+        profile.multi_click_delay = Duration::from_millis(200);
+
+        let engine = PointerEngine::new(
+            device,
+            Rect::new(-10.0, -10.0, 20.0, 20.0),
+            PointerSettings::default(),
+            profile,
+            PointerOverrides::new(),
+            &sleep,
+        );
+
+        let mut last_click = None;
+        engine.click(Point::new(0.0, 0.0), None, &mut last_click).unwrap();
+        sleeps.lock().unwrap().clear();
+
+        last_click = Some(Instant::now() - Duration::from_millis(25));
+        engine.click(Point::new(0.0, 0.0), None, &mut last_click).unwrap();
+        let enforced = sleeps.lock().unwrap().first().copied().unwrap_or(Duration::ZERO);
+        assert!(enforced >= Duration::from_millis(50) && enforced <= Duration::from_millis(90));
+
+        let log = take_pointer_log();
+        let press_count =
+            log.iter().filter(|entry| matches!(entry, PointerLogEntry::Press(_))).count();
+        assert!(press_count >= 2);
     }
 
     #[rstest]

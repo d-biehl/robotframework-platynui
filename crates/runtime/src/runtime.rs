@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use platynui_core::platform::{
     DesktopInfo, HighlightProvider, HighlightRequest, KeyboardDevice, KeyboardError,
@@ -44,6 +44,7 @@ pub struct Runtime {
     pointer_settings: Mutex<PointerSettings>,
     pointer_profile: Mutex<PointerProfile>,
     pointer_sleep: fn(Duration),
+    pointer_click_state: Mutex<Option<Instant>>,
     keyboard: Option<&'static dyn KeyboardDevice>,
     keyboard_settings: Mutex<KeyboardSettings>,
 }
@@ -182,6 +183,7 @@ impl Runtime {
             pointer_settings: Mutex::new(pointer_settings),
             pointer_profile: Mutex::new(pointer_profile),
             pointer_sleep: default_pointer_sleep,
+            pointer_click_state: Mutex::new(None),
             keyboard,
             keyboard_settings: Mutex::new(keyboard_settings),
         };
@@ -331,7 +333,8 @@ impl Runtime {
         overrides: Option<PointerOverrides>,
     ) -> Result<(), PointerError> {
         let engine = self.build_pointer_engine(overrides)?;
-        engine.click(point, button)
+        let mut last_click = self.pointer_click_state.lock().unwrap();
+        engine.click(point, button, &mut *last_click)
     }
 
     pub fn pointer_press(
@@ -849,6 +852,8 @@ mod tests {
         profile.ensure_move_threshold = 1.0;
         profile.ensure_move_timeout = Duration::from_millis(10);
         profile.scroll_delay = Duration::ZERO;
+        profile.acceleration_profile =
+            platynui_core::platform::PointerAccelerationProfile::Constant;
         runtime.set_pointer_profile(profile);
     }
 
