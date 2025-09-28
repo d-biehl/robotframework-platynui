@@ -168,7 +168,7 @@ impl Runtime {
                 pointer_settings.double_click_size = size;
             }
         }
-        let pointer_profile = PointerProfile::named_default(&pointer_settings);
+        let pointer_profile = PointerProfile::named_default();
         let keyboard_settings = KeyboardSettings::default();
 
         let runtime = Self {
@@ -727,9 +727,9 @@ impl UiAttribute for DesktopAttribute {
 mod tests {
     use super::*;
     use crate::EvaluationItem;
+    use crate::PointerOverrides;
     use platynui_core::platform::{
-        HighlightRequest, KeyboardOverrides, PointerButton, PointerOverrides, PointerSettings,
-        ScreenshotRequest, ScrollDelta,
+        HighlightRequest, KeyboardOverrides, PointerButton, ScreenshotRequest, ScrollDelta,
     };
     use platynui_core::provider::{
         ProviderDescriptor, ProviderEvent, ProviderEventKind, ProviderEventListener, ProviderKind,
@@ -835,19 +835,8 @@ mod tests {
     static SUBSCRIPTION_REGISTERED: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
 
     fn configure_pointer_for_tests(runtime: &Runtime) {
-        let settings = PointerSettings {
-            after_move_delay: Duration::ZERO,
-            after_input_delay: Duration::ZERO,
-            after_click_delay: Duration::ZERO,
-            before_next_click_delay: Duration::ZERO,
-            multi_click_delay: Duration::ZERO,
-            multi_click_threshold: Duration::ZERO,
-            ensure_move_timeout: Duration::from_millis(10),
-            ensure_move_threshold: 1.0,
-            scroll_delay: Duration::ZERO,
-            ..runtime.pointer_settings()
-        };
-        runtime.set_pointer_settings(settings.clone());
+        let settings = runtime.pointer_settings();
+        runtime.set_pointer_settings(settings);
 
         let mut profile = runtime.pointer_profile();
         profile.after_move_delay = Duration::ZERO;
@@ -857,8 +846,8 @@ mod tests {
         profile.before_next_click_delay = Duration::ZERO;
         profile.multi_click_delay = Duration::ZERO;
         profile.ensure_move_position = false;
-        profile.ensure_move_threshold = settings.ensure_move_threshold;
-        profile.ensure_move_timeout = settings.ensure_move_timeout;
+        profile.ensure_move_threshold = 1.0;
+        profile.ensure_move_timeout = Duration::from_millis(10);
         profile.scroll_delay = Duration::ZERO;
         runtime.set_pointer_profile(profile);
     }

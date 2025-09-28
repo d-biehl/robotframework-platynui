@@ -13,18 +13,6 @@ pub struct PointerSettings {
     pub double_click_time: Duration,
     pub double_click_size: Size,
     pub default_button: PointerButton,
-    pub press_release_delay: Duration,
-    pub after_input_delay: Duration,
-    pub after_click_delay: Duration,
-    pub before_next_click_delay: Duration,
-    pub multi_click_delay: Duration,
-    pub multi_click_threshold: Duration,
-    pub after_move_delay: Duration,
-    pub ensure_move_timeout: Duration,
-    pub ensure_move_threshold: f64,
-    pub scroll_step: ScrollDelta,
-    pub scroll_delay: Duration,
-    pub move_time_per_pixel: Duration,
 }
 
 impl Default for PointerSettings {
@@ -33,18 +21,6 @@ impl Default for PointerSettings {
             double_click_time: Duration::from_millis(500),
             double_click_size: Size::new(4.0, 4.0),
             default_button: PointerButton::Left,
-            press_release_delay: Duration::from_millis(50),
-            after_input_delay: Duration::from_millis(35),
-            after_click_delay: Duration::from_millis(80),
-            before_next_click_delay: Duration::from_millis(120),
-            multi_click_delay: Duration::from_millis(500),
-            multi_click_threshold: Duration::from_millis(900),
-            after_move_delay: Duration::from_millis(40),
-            ensure_move_timeout: Duration::from_millis(250),
-            ensure_move_threshold: 2.0,
-            scroll_step: ScrollDelta::new(0.0, -120.0),
-            scroll_delay: Duration::from_millis(40),
-            move_time_per_pixel: Duration::from_micros(800),
         }
     }
 }
@@ -75,7 +51,7 @@ pub struct PointerProfile {
 }
 
 impl PointerProfile {
-    pub fn named_default(settings: &PointerSettings) -> Self {
+    pub fn named_default() -> Self {
         Self {
             mode: PointerMotionMode::Linear,
             steps_per_pixel: 1.5,
@@ -86,18 +62,18 @@ impl PointerProfile {
             overshoot_settle_steps: 3,
             curve_amplitude: 4.0,
             jitter_amplitude: 1.5,
-            after_move_delay: settings.after_move_delay,
-            after_input_delay: settings.after_input_delay,
-            press_release_delay: settings.press_release_delay,
-            after_click_delay: settings.after_click_delay,
-            before_next_click_delay: settings.before_next_click_delay,
-            multi_click_delay: settings.multi_click_delay,
+            after_move_delay: Duration::from_millis(40),
+            after_input_delay: Duration::from_millis(35),
+            press_release_delay: Duration::from_millis(50),
+            after_click_delay: Duration::from_millis(80),
+            before_next_click_delay: Duration::from_millis(120),
+            multi_click_delay: Duration::from_millis(500),
             ensure_move_position: true,
-            ensure_move_threshold: settings.ensure_move_threshold,
-            ensure_move_timeout: settings.ensure_move_timeout,
-            scroll_step: settings.scroll_step,
-            scroll_delay: settings.scroll_delay,
-            move_time_per_pixel: settings.move_time_per_pixel,
+            ensure_move_threshold: 2.0,
+            ensure_move_timeout: Duration::from_millis(250),
+            scroll_step: ScrollDelta::new(0.0, -120.0),
+            scroll_delay: Duration::from_millis(40),
+            move_time_per_pixel: Duration::from_micros(800),
         }
     }
 
@@ -119,7 +95,7 @@ impl PointerProfile {
 
 impl Default for PointerProfile {
     fn default() -> Self {
-        PointerProfile::named_default(&PointerSettings::default())
+        PointerProfile::named_default()
     }
 }
 
@@ -699,9 +675,8 @@ mod tests {
     #[rstest]
     fn linear_move_generates_steps() {
         let device = RecordingPointer::new();
-        let settings =
-            PointerSettings { after_move_delay: Duration::ZERO, ..PointerSettings::default() };
-        let mut profile = PointerProfile::named_default(&settings);
+        let settings = PointerSettings::default();
+        let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
         profile.ensure_move_position = false;
         let engine = PointerEngine::new(
@@ -721,7 +696,7 @@ mod tests {
     fn bounds_origin_translates_coordinates() {
         let device = RecordingPointer::new();
         let settings = PointerSettings::default();
-        let profile = PointerProfile::named_default(&settings);
+        let profile = PointerProfile::named_default();
         let overrides = PointerOverrides::new()
             .origin(PointOrigin::Bounds(Rect::new(100.0, 200.0, 50.0, 50.0)));
         let engine = PointerEngine::new(
@@ -742,7 +717,7 @@ mod tests {
     fn absolute_origin_translates_coordinates() {
         let device = RecordingPointer::new();
         let settings = PointerSettings::default();
-        let profile = PointerProfile::named_default(&settings);
+        let profile = PointerProfile::named_default();
         let overrides =
             PointerOverrides::new().origin(PointOrigin::Absolute(Point::new(50.0, 75.0)));
         let engine = PointerEngine::new(
@@ -762,9 +737,8 @@ mod tests {
     #[rstest]
     fn motion_respects_max_duration() {
         let device = RecordingPointer::new();
-        let settings =
-            PointerSettings { after_move_delay: Duration::ZERO, ..PointerSettings::default() };
-        let mut profile = PointerProfile::named_default(&settings);
+        let settings = PointerSettings::default();
+        let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
         profile.ensure_move_position = false;
         profile.steps_per_pixel = 1.0;
@@ -804,17 +778,19 @@ mod tests {
             max_move_duration
         };
 
+        let mut previous = Duration::ZERO;
         for duration in recorded {
-            assert!((duration.as_secs_f64() - expected_step.as_secs_f64()).abs() < 1e-3);
+            let step_duration = duration.saturating_sub(previous);
+            assert!((step_duration.as_secs_f64() - expected_step.as_secs_f64()).abs() < 1e-3);
+            previous = duration;
         }
     }
 
     #[rstest]
     fn motion_scales_with_distance() {
         let device = RecordingPointer::new();
-        let settings =
-            PointerSettings { after_move_delay: Duration::ZERO, ..PointerSettings::default() };
-        let mut profile = PointerProfile::named_default(&settings);
+        let settings = PointerSettings::default();
+        let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
         profile.ensure_move_position = false;
         profile.steps_per_pixel = 1.0;
@@ -849,7 +825,7 @@ mod tests {
     fn drag_executes_press_and_release() {
         let device = RecordingPointer::new();
         let settings = PointerSettings::default();
-        let mut profile = PointerProfile::named_default(&settings);
+        let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
         profile.ensure_move_position = false;
         let engine = PointerEngine::new(
