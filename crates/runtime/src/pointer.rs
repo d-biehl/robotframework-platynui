@@ -163,16 +163,67 @@ impl<'a> PointerEngine<'a> {
     }
 
     fn perform_move(&self, start: Point, target: Point) -> Result<(), PointerError> {
+        let distance = distance(start, target);
+        let total_duration = self.desired_move_duration(distance);
+
         if matches!(self.profile.mode, PointerMotionMode::Direct) {
+            let start = Instant::now();
             self.device.move_to(target)?;
+            if !total_duration.is_zero() {
+                let elapsed = start.elapsed();
+                if total_duration > elapsed {
+                    self.sleep(total_duration - elapsed);
+                }
+            }
             return Ok(());
         }
 
         let path = generate_path(start, target, &self.profile);
-        for point in path {
-            self.device.move_to(point)?;
+        if path.is_empty() {
+            return Ok(());
         }
+
+        if total_duration.is_zero() {
+            for point in path {
+                self.device.move_to(point)?;
+            }
+            return Ok(());
+        }
+
+        let steps = path.len();
+        let start_time = Instant::now();
+        for (index, point) in path.iter().enumerate() {
+            self.device.move_to(*point)?;
+            let desired = total_duration.mul_f64((index + 1) as f64 / steps as f64);
+            let elapsed = start_time.elapsed();
+            if desired > elapsed {
+                self.sleep(desired - elapsed);
+            }
+        }
+
         Ok(())
+    }
+
+    fn desired_move_duration(&self, distance: f64) -> Duration {
+        if distance <= f64::EPSILON {
+            return Duration::ZERO;
+        }
+
+        let per_pixel = self.profile.move_time_per_pixel;
+        let base = if per_pixel.is_zero() {
+            Duration::ZERO
+        } else {
+            Duration::from_secs_f64(per_pixel.as_secs_f64() * distance)
+        };
+
+        let max = self.profile.max_move_duration;
+        if max.is_zero() {
+            base
+        } else if base.is_zero() {
+            max
+        } else {
+            base.min(max)
+        }
     }
 
     fn ensure_position(&self, target: Point) -> Result<(), PointerError> {
@@ -235,6 +286,12 @@ fn apply_profile_overrides(profile: &mut PointerProfile, overrides: &PointerOver
     }
     if let Some(delay) = overrides.scroll_delay {
         profile.scroll_delay = delay;
+    }
+    if let Some(duration) = overrides.max_move_duration {
+        profile.max_move_duration = duration;
+    }
+    if let Some(duration) = overrides.move_time_per_pixel {
+        profile.move_time_per_pixel = duration;
     }
 }
 
@@ -491,6 +548,92 @@ mod tests {
         engine.move_to(Point::new(-10.0, 25.0)).unwrap();
         let log = device.take_log();
         assert!(matches!(log.last(), Some(Action::Move(pt)) if *pt == Point::new(40.0, 100.0)));
+    }
+
+    #[rstest]
+    fn motion_respects_max_duration() {
+        let device = RecordingPointer::new();
+        let settings =
+            PointerSettings { after_move_delay: Duration::ZERO, ..PointerSettings::default() };
+        let mut profile = PointerProfile::named_default(&settings);
+        profile.after_move_delay = Duration::ZERO;
+        profile.ensure_move_position = false;
+        profile.steps_per_pixel = 1.0;
+        profile.mode = PointerMotionMode::Linear;
+        profile.max_move_duration = Duration::from_millis(120);
+        profile.move_time_per_pixel = Duration::from_millis(80);
+
+        let sleeps = Mutex::new(Vec::new());
+        let sleep = |duration: Duration| {
+            if duration > Duration::ZERO {
+                sleeps.lock().unwrap().push(duration);
+            }
+        };
+
+        let expected_steps = (distance(Point::new(0.0, 0.0), Point::new(4.0, 0.0))
+            * profile.steps_per_pixel)
+            .ceil() as usize;
+        let max_move_duration = profile.max_move_duration;
+
+        let engine = PointerEngine::new(
+            &device,
+            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
+            settings,
+            profile,
+            PointerOverrides::new(),
+            &sleep,
+        );
+
+        engine.move_to(Point::new(4.0, 0.0)).unwrap();
+        let recorded = sleeps.lock().unwrap().clone();
+        assert!(!recorded.is_empty());
+        assert_eq!(device.moves.load(Ordering::SeqCst), expected_steps);
+
+        let expected_step = if expected_steps > 1 {
+            Duration::from_secs_f64(max_move_duration.as_secs_f64() / expected_steps as f64)
+        } else {
+            max_move_duration
+        };
+
+        for duration in recorded {
+            assert!((duration.as_secs_f64() - expected_step.as_secs_f64()).abs() < 1e-3);
+        }
+    }
+
+    #[rstest]
+    fn motion_scales_with_distance() {
+        let device = RecordingPointer::new();
+        let settings =
+            PointerSettings { after_move_delay: Duration::ZERO, ..PointerSettings::default() };
+        let mut profile = PointerProfile::named_default(&settings);
+        profile.after_move_delay = Duration::ZERO;
+        profile.ensure_move_position = false;
+        profile.steps_per_pixel = 1.0;
+        profile.mode = PointerMotionMode::Linear;
+        profile.max_move_duration = Duration::ZERO;
+        profile.move_time_per_pixel = Duration::from_millis(10);
+
+        let total_sleep = Mutex::new(Duration::ZERO);
+        let sleep = |duration: Duration| {
+            *total_sleep.lock().unwrap() += duration;
+        };
+
+        let engine = PointerEngine::new(
+            &device,
+            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
+            settings,
+            profile,
+            PointerOverrides::new(),
+            &sleep,
+        );
+
+        engine.move_to(Point::new(2.0, 0.0)).unwrap();
+        let short_duration = *total_sleep.lock().unwrap();
+        *total_sleep.lock().unwrap() = Duration::ZERO;
+        engine.move_to(Point::new(6.0, 0.0)).unwrap();
+        let long_duration = *total_sleep.lock().unwrap();
+
+        assert!(long_duration > short_duration);
     }
 
     #[rstest]

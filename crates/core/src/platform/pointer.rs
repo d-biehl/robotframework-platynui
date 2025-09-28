@@ -74,6 +74,7 @@ pub struct PointerSettings {
     pub ensure_move_threshold: f64,
     pub scroll_step: ScrollDelta,
     pub scroll_delay: Duration,
+    pub move_time_per_pixel: Duration,
 }
 
 impl Default for PointerSettings {
@@ -93,6 +94,7 @@ impl Default for PointerSettings {
             ensure_move_threshold: 2.0,
             scroll_step: ScrollDelta::new(0.0, -120.0),
             scroll_delay: Duration::from_millis(40),
+            move_time_per_pixel: Duration::from_micros(800),
         }
     }
 }
@@ -120,6 +122,7 @@ pub struct PointerProfile {
     pub ensure_move_timeout: Duration,
     pub scroll_step: ScrollDelta,
     pub scroll_delay: Duration,
+    pub move_time_per_pixel: Duration,
 }
 
 impl PointerProfile {
@@ -145,6 +148,7 @@ impl PointerProfile {
             ensure_move_timeout: settings.ensure_move_timeout,
             scroll_step: settings.scroll_step,
             scroll_delay: settings.scroll_delay,
+            move_time_per_pixel: settings.move_time_per_pixel,
         }
     }
 
@@ -185,6 +189,8 @@ pub struct PointerOverrides {
     pub ensure_move_timeout: Option<Duration>,
     pub scroll_step: Option<ScrollDelta>,
     pub scroll_delay: Option<Duration>,
+    pub max_move_duration: Option<Duration>,
+    pub move_time_per_pixel: Option<Duration>,
 }
 
 impl PointerOverrides {
@@ -249,6 +255,16 @@ impl PointerOverrides {
 
     pub fn scroll_delay(mut self, delay: Duration) -> Self {
         self.scroll_delay = Some(delay);
+        self
+    }
+
+    pub fn move_duration(mut self, duration: Duration) -> Self {
+        self.max_move_duration = Some(duration);
+        self
+    }
+
+    pub fn move_time_per_pixel(mut self, duration: Duration) -> Self {
+        self.move_time_per_pixel = Some(duration);
         self
     }
 }

@@ -128,6 +128,10 @@ struct OverrideArgs {
     scroll_delay: Option<Duration>,
     #[arg(long = "scroll-step", value_parser = parse_scroll_delta_arg)]
     scroll_step: Option<ScrollDelta>,
+    #[arg(long = "move-duration", value_parser = parse_millis)]
+    move_duration: Option<Duration>,
+    #[arg(long = "move-time-per-pixel", value_parser = parse_millis)]
+    move_time_per_pixel: Option<Duration>,
 }
 
 pub fn run(runtime: &Runtime, args: &PointerArgs) -> CliResult<String> {
@@ -238,6 +242,12 @@ fn build_overrides(runtime: &Runtime, args: &OverrideArgs) -> CliResult<Option<P
     }
     if let Some(step) = args.scroll_step {
         overrides = overrides.scroll_step(step);
+    }
+    if let Some(duration) = args.move_duration {
+        overrides = overrides.move_duration(duration);
+    }
+    if let Some(duration) = args.move_time_per_pixel {
+        overrides = overrides.move_time_per_pixel(duration);
     }
 
     match args.origin {
