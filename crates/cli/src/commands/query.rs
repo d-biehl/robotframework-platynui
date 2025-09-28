@@ -278,15 +278,17 @@ mod tests {
 
         let mut result = String::with_capacity(input.len());
         let mut chars = input.chars();
-        while let Some(ch) = chars.next() {
-            if ch == '\u{1b}' {
-                while let Some(next) = chars.next() {
-                    if next == 'm' {
-                        break;
+        loop {
+            match chars.next() {
+                Some('\u{1b}') => {
+                    for next in chars.by_ref() {
+                        if next == 'm' {
+                            break;
+                        }
                     }
                 }
-            } else {
-                result.push(ch);
+                Some(ch) => result.push(ch),
+                None => break,
             }
         }
         Cow::Owned(result)

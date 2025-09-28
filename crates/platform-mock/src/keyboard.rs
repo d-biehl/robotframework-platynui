@@ -72,10 +72,10 @@ impl KeyboardDevice for MockKeyboardDevice {
         }
 
         let mut chars = name.chars();
-        if let Some(ch) = chars.next() {
-            if chars.next().is_none() {
-                return Ok(KeyCode::new(MockKeyCode::character(ch)));
-            }
+        if let Some(ch) = chars.next()
+            && chars.next().is_none()
+        {
+            return Ok(KeyCode::new(MockKeyCode::character(ch)));
         }
 
         Err(KeyboardError::UnsupportedKey(name.to_owned()))

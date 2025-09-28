@@ -28,7 +28,7 @@ use crate::provider::event::{ProviderEventDispatcher, ProviderEventSink};
 
 use crate::keyboard::{KeyboardEngine, KeyboardMode, apply_overrides as apply_keyboard_overrides};
 use crate::keyboard_sequence::{KeyboardSequence, KeyboardSequenceError};
-use crate::pointer::{ClickStamp, PointerEngine, PointerError};
+use crate::pointer::{PointerEngine, PointerError};
 use crate::pointer::{PointerOverrides, PointerProfile, PointerSettings};
 use crate::{EvaluateError, EvaluateOptions, EvaluationItem, evaluate};
 
@@ -41,10 +41,9 @@ pub struct Runtime {
     highlight: Option<&'static dyn HighlightProvider>,
     screenshot: Option<&'static dyn ScreenshotProvider>,
     pointer: Option<&'static dyn PointerDevice>,
+    pointer_engine: Mutex<Option<PointerEngine<'static>>>,
     pointer_settings: Mutex<PointerSettings>,
     pointer_profile: Mutex<PointerProfile>,
-    pointer_sleep: fn(Duration),
-    pointer_click_state: Mutex<Option<ClickStamp>>,
     keyboard: Option<&'static dyn KeyboardDevice>,
     keyboard_settings: Mutex<KeyboardSettings>,
 }
@@ -171,6 +170,15 @@ impl Runtime {
         }
         let pointer_profile = PointerProfile::named_default();
         let keyboard_settings = KeyboardSettings::default();
+        let pointer_engine = pointer.map(|device| {
+            PointerEngine::new(
+                device,
+                desktop.info().bounds,
+                pointer_settings.clone(),
+                pointer_profile.clone(),
+                &default_pointer_sleep,
+            )
+        });
 
         let runtime = Self {
             registry,
@@ -180,10 +188,9 @@ impl Runtime {
             highlight,
             screenshot,
             pointer,
+            pointer_engine: Mutex::new(pointer_engine),
             pointer_settings: Mutex::new(pointer_settings),
             pointer_profile: Mutex::new(pointer_profile),
-            pointer_sleep: default_pointer_sleep,
-            pointer_click_state: Mutex::new(None),
             keyboard,
             keyboard_settings: Mutex::new(keyboard_settings),
         };
@@ -293,7 +300,12 @@ impl Runtime {
     }
 
     pub fn set_pointer_settings(&self, settings: PointerSettings) {
-        *self.pointer_settings.lock().unwrap() = settings;
+        {
+            *self.pointer_settings.lock().unwrap() = settings.clone();
+        }
+        if let Some(engine) = self.pointer_engine.lock().unwrap().as_mut() {
+            engine.set_settings(settings);
+        }
     }
 
     pub fn pointer_profile(&self) -> PointerProfile {
@@ -301,7 +313,12 @@ impl Runtime {
     }
 
     pub fn set_pointer_profile(&self, profile: PointerProfile) {
-        *self.pointer_profile.lock().unwrap() = profile;
+        {
+            *self.pointer_profile.lock().unwrap() = profile.clone();
+        }
+        if let Some(engine) = self.pointer_engine.lock().unwrap().as_mut() {
+            engine.set_profile(profile);
+        }
     }
 
     pub fn pointer_position(&self) -> Result<Point, PointerError> {
@@ -322,8 +339,12 @@ impl Runtime {
         point: Point,
         overrides: Option<PointerOverrides>,
     ) -> Result<Point, PointerError> {
-        let engine = self.build_pointer_engine(overrides)?;
-        engine.move_to(point)
+        let bounds = self.desktop.info().bounds;
+        let mut guard = self.pointer_engine.lock().unwrap();
+        let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
+        engine.set_desktop_bounds(bounds);
+        let overrides_ref = overrides.as_ref();
+        engine.move_to(point, overrides_ref)
     }
 
     pub fn pointer_click(
@@ -332,9 +353,12 @@ impl Runtime {
         button: Option<PointerButton>,
         overrides: Option<PointerOverrides>,
     ) -> Result<(), PointerError> {
-        let engine = self.build_pointer_engine(overrides)?;
-        let mut last_click = self.pointer_click_state.lock().unwrap();
-        engine.click(point, button, &mut *last_click)
+        let bounds = self.desktop.info().bounds;
+        let mut guard = self.pointer_engine.lock().unwrap();
+        let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
+        engine.set_desktop_bounds(bounds);
+        let overrides_ref = overrides.as_ref();
+        engine.click(point, button, overrides_ref)
     }
 
     pub fn pointer_multi_click(
@@ -344,9 +368,12 @@ impl Runtime {
         clicks: u32,
         overrides: Option<PointerOverrides>,
     ) -> Result<(), PointerError> {
-        let engine = self.build_pointer_engine(overrides)?;
-        let mut last_click = self.pointer_click_state.lock().unwrap();
-        engine.multi_click(point, button, clicks, &mut *last_click)
+        let bounds = self.desktop.info().bounds;
+        let mut guard = self.pointer_engine.lock().unwrap();
+        let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
+        engine.set_desktop_bounds(bounds);
+        let overrides_ref = overrides.as_ref();
+        engine.multi_click(point, button, clicks, overrides_ref)
     }
 
     pub fn pointer_press(
@@ -355,12 +382,16 @@ impl Runtime {
         button: Option<PointerButton>,
         overrides: Option<PointerOverrides>,
     ) -> Result<(), PointerError> {
-        let engine = self.build_pointer_engine(overrides)?;
-        let button = button.unwrap_or_else(|| engine.default_button());
+        let bounds = self.desktop.info().bounds;
+        let mut guard = self.pointer_engine.lock().unwrap();
+        let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
+        engine.set_desktop_bounds(bounds);
+        let overrides_ref = overrides.as_ref();
+        let resolved_button = button.unwrap_or_else(|| engine.default_button());
         if let Some(point) = target {
-            engine.move_to(point)?;
+            engine.move_to(point, overrides_ref)?;
         }
-        engine.press(button)
+        engine.press(resolved_button, overrides_ref)
     }
 
     pub fn pointer_release(
@@ -368,9 +399,13 @@ impl Runtime {
         button: Option<PointerButton>,
         overrides: Option<PointerOverrides>,
     ) -> Result<(), PointerError> {
-        let engine = self.build_pointer_engine(overrides)?;
-        let button = button.unwrap_or_else(|| engine.default_button());
-        engine.release(button)
+        let bounds = self.desktop.info().bounds;
+        let mut guard = self.pointer_engine.lock().unwrap();
+        let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
+        engine.set_desktop_bounds(bounds);
+        let overrides_ref = overrides.as_ref();
+        let resolved_button = button.unwrap_or_else(|| engine.default_button());
+        engine.release(resolved_button, overrides_ref)
     }
 
     pub fn pointer_scroll(
@@ -378,8 +413,12 @@ impl Runtime {
         delta: ScrollDelta,
         overrides: Option<PointerOverrides>,
     ) -> Result<(), PointerError> {
-        let engine = self.build_pointer_engine(overrides)?;
-        engine.scroll(delta)
+        let bounds = self.desktop.info().bounds;
+        let mut guard = self.pointer_engine.lock().unwrap();
+        let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
+        engine.set_desktop_bounds(bounds);
+        let overrides_ref = overrides.as_ref();
+        engine.scroll(delta, overrides_ref)
     }
 
     pub fn pointer_drag(
@@ -389,8 +428,12 @@ impl Runtime {
         button: Option<PointerButton>,
         overrides: Option<PointerOverrides>,
     ) -> Result<(), PointerError> {
-        let engine = self.build_pointer_engine(overrides)?;
-        engine.drag(start, end, button)
+        let bounds = self.desktop.info().bounds;
+        let mut guard = self.pointer_engine.lock().unwrap();
+        let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
+        engine.set_desktop_bounds(bounds);
+        let overrides_ref = overrides.as_ref();
+        engine.drag(start, end, button, overrides_ref)
     }
 
     pub fn keyboard_press(
@@ -475,25 +518,6 @@ impl Runtime {
         }
         self.desktop.replace_children(aggregated);
         Ok(())
-    }
-
-    fn build_pointer_engine(
-        &self,
-        overrides: Option<PointerOverrides>,
-    ) -> Result<PointerEngine<'_>, PointerError> {
-        let device = self.pointer_device()?;
-        let settings = self.pointer_settings.lock().unwrap().clone();
-        let profile = self.pointer_profile.lock().unwrap().clone();
-        let overrides = overrides.unwrap_or_default();
-        let sleep_fn: &dyn Fn(Duration) = &self.pointer_sleep;
-        Ok(PointerEngine::new(
-            device,
-            self.desktop.info().bounds,
-            settings,
-            profile,
-            overrides,
-            sleep_fn,
-        ))
     }
 
     fn pointer_device(&self) -> Result<&'static dyn PointerDevice, PointerError> {

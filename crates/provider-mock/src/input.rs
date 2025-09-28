@@ -169,11 +169,12 @@ fn handle_special_press(buffer: &mut String, name: &str, modifiers: &ModifierSta
             true
         }
         _ => {
-            if name.chars().count() == 1 && !modifiers.non_shift_active() {
-                if let Some(ch) = name.chars().next() {
-                    buffer.push(ch);
-                    return true;
-                }
+            if name.chars().count() == 1
+                && !modifiers.non_shift_active()
+                && let Some(ch) = name.chars().next()
+            {
+                buffer.push(ch);
+                return true;
             }
             false
         }

@@ -70,7 +70,7 @@ fn run_type(runtime: &Runtime, args: &KeyboardTypeArgs) -> CliResult<String> {
         return Err("Bitte eine Tastatursequenz angeben.".into());
     }
     let overrides = build_overrides(&args.overrides);
-    runtime.keyboard_type(&sequence, overrides).map_err(map_keyboard_error)?;
+    runtime.keyboard_type(sequence, overrides).map_err(map_keyboard_error)?;
     Ok(format!("Typed sequence {sequence}."))
 }
 
