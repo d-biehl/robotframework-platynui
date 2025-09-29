@@ -56,12 +56,44 @@ cargo run -p platynui-cli --features mock-provider -- keyboard press "<Shift+Ctr
 cargo run -p platynui-cli --features mock-provider -- keyboard release "<Shift+Ctrl+S>"
 ```
 
-### Cross-compiling Windows binaries from WSL2
+### Windows Cross‑Build (GNU target)
 
-1. Install the necessary toolchain inside WSL2: `rustup target add x86_64-pc-windows-gnu` and `sudo apt install mingw-w64` (use the POSIX flavour if prompted).
-2. Build the desired crate with the Windows target, for example `cargo build --target x86_64-pc-windows-gnu --release`.
-   - Optional: set `CARGO_TARGET_DIR=/mnt/c/...` so the resulting `.exe` lands on the Windows filesystem directly.
-3. Run the produced binary via the Windows host, e.g. `powershell.exe -Command "& 'C:\\path\\to\\binary.exe'"` or `cmd.exe /C C:\path\to\binary.exe`.
+- Prerequisites
+  - Rust target: `rustup target add x86_64-pc-windows-gnu`
+  - MinGW toolchain (choose the POSIX variant if prompted):
+    - Debian/Ubuntu: `sudo apt-get install mingw-w64`
+    - Fedora: `sudo dnf install mingw64-gcc`
+    - Arch: `sudo pacman -S mingw-w64-gcc`
+
+- Build examples
+  - Platform crate: `cargo build -p platynui-platform-windows --target x86_64-pc-windows-gnu`
+  - CLI (debug): `cargo build -p platynui-cli --target x86_64-pc-windows-gnu`
+  - CLI (release): `cargo build -p platynui-cli --target x86_64-pc-windows-gnu --release`
+  - Artifact path: `target/x86_64-pc-windows-gnu/{debug,release}/platynui-cli.exe`
+
+- Tips
+  - Set `CARGO_TARGET_DIR=/mnt/c/...` in WSL so the `.exe` lands on the Windows filesystem.
+  - If linking fails, ensure `x86_64-w64-mingw32-gcc` is in `PATH`.
+  - For native Win32 builds (MSVC), see the next section.
+
+### Windows Native Build (MSVC toolchain)
+
+- Prerequisites (Windows host)
+  - Visual Studio 2022 (or Build Tools) with workload “Desktop development with C++” (MSVC, Windows SDK).
+  - Rust MSVC toolchain: `rustup toolchain install stable-x86_64-pc-windows-msvc` and `rustup default stable-x86_64-pc-windows-msvc`.
+  - Use a “Developer PowerShell/Prompt for VS” so `cl.exe`/`link.exe` are on `PATH`.
+
+- Build
+  - Workspace: `cargo build --release`
+  - CLI only: `cargo build -p platynui-cli --release`
+
+- Run
+  - `target\release\platynui-cli.exe info`
+  - Example: `platynui-cli.exe highlight --rect 200,300,400,250 --duration-ms 1500`
+
+- Troubleshooting
+  - “link.exe not found”: Start the shell via “Developer PowerShell for VS” or install the Build Tools + Windows SDK.
+  - Avoid mixing GNU/MSVC: use only the MSVC toolchain for native builds.
 
 ### Contribution Workflow (At a Glance)
 
