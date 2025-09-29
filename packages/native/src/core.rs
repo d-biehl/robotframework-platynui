@@ -1,7 +1,8 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(clippy::useless_conversion)]
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyAny, PyDict};
+use pyo3::IntoPyObject;
 
 use platynui_core as core_rs;
 
@@ -211,12 +212,12 @@ pub(crate) fn py_namespace_from_inner(ns: core_rs::ui::namespace::Namespace) -> 
 }
 
 #[pyfunction]
-fn all_namespaces(py: Python<'_>) -> PyResult<PyObject> {
-    let list = pyo3::types::PyList::empty_bound(py);
+fn all_namespaces(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let list = pyo3::types::PyList::empty(py);
     for ns in core_rs::ui::all_namespaces() {
         list.append(Py::new(py, PyNamespace { inner: ns })?)?;
     }
-    Ok(list.into_py(py))
+    Ok(list.into_pyobject(py)?.unbind().into_any())
 }
 
 #[pyfunction]
@@ -228,11 +229,11 @@ fn resolve_namespace(prefix: Option<&str>) -> PyNamespace {
 // ---------- attribute_names() ----------
 
 #[pyfunction]
-fn attribute_names(py: Python<'_>) -> PyResult<PyObject> {
-    let m = pyo3::types::PyDict::new_bound(py);
+fn attribute_names(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let m = pyo3::types::PyDict::new(py);
     macro_rules! group {
         ($ident:ident, $name:literal, { $($k:ident),* $(,)? }) => {{
-            let d = PyDict::new_bound(py);
+            let d = PyDict::new(py);
             $( d.set_item(stringify!($k), core_rs::ui::attributes::pattern::$ident::$k)?; )*
             m.set_item($name, d)?;
         }};
@@ -258,7 +259,7 @@ fn attribute_names(py: Python<'_>) -> PyResult<PyObject> {
     group!(application, "application", { PROCESS_ID, PROCESS_NAME, EXECUTABLE_PATH, COMMAND_LINE, USER_NAME, START_TIME, MAIN_WINDOW_IDS, ARCHITECTURE, ACCEPTS_USER_INPUT });
     group!(highlightable, "highlightable", { SUPPORTS_HIGHLIGHT, HIGHLIGHT_STYLES });
     group!(annotatable, "annotatable", { ANNOTATIONS });
-    Ok(m.into_py(py))
+    Ok(m.into_pyobject(py)?.unbind().into_any())
 }
 
 pub fn init_submodule(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {

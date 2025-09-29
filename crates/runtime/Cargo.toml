@@ -20,7 +20,7 @@ mock-provider = [
 [dependencies]
 platynui-core = { path = "../core" }
 platynui-xpath = { path = "../xpath" }
-serde_json = "1.0"
+serde_json = "1.0.145"
 thiserror = "2.0"
 platynui-provider-mock = { path = "../provider-mock", optional = true }
 platynui-platform-mock = { path = "../platform-mock", optional = true }
@@ -44,4 +44,4 @@ inventory = "0.3.21"
 rstest = "0.26.1"
 platynui-platform-mock = { path = "../platform-mock" }
 platynui-provider-mock = { path = "../provider-mock" }
-serial_test = "2.0.0"
+serial_test = "3.2.0"

@@ -36,13 +36,3 @@ pedantic = "warn"
 cargo = "warn"
 nursery = "allow"
 complexity = "warn"
-
-[alias]
-# Formatting
-fmt-all = "fmt --all"
-# Linting (deny warnings)
-lint = "clippy --workspace --all-targets --all-features -- -D warnings"
-# Type-check the entire workspace
-check-all = "check --workspace --all-targets --all-features"
-# Run all tests across the workspace
-test-all = "test --workspace --all-features"

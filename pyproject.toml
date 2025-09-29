@@ -14,12 +14,7 @@ build-backend = "uv_build"
 module-name = "PlatynUI"
 
 [tool.uv.workspace]
-members = [
-    "packages/core",
-]
+members = ["packages/core"]
 
 [dependency-groups]
-dev = [
-    "mypy>=1.17.1",
-    "ruff>=0.12.11",
-]
+dev = ["mypy>=1.17.1", "ruff>=0.12.11"]

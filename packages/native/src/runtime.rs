@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use pyo3::exceptions::{PyException, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyDict, PyList};
+use pyo3::types::{PyAny, PyAnyMethods, PyDict, PyList, PyTuple};
+use pyo3::IntoPyObject;
 
 use platynui_core as core_rs;
 use platynui_runtime as runtime_rs;
@@ -43,7 +44,7 @@ impl PyNode {
 
     /// Returns the attribute value as a Python-native object (None/bool/int/float/str/list/dict/tuples).
     #[pyo3(signature = (name, namespace=None), text_signature = "(self, name, namespace=None)")]
-    fn attribute(&self, name: &str, namespace: Option<&str>, py: Python<'_>) -> PyResult<PyObject> {
+    fn attribute(&self, name: &str, namespace: Option<&str>, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let ns = core_rs::ui::resolve_namespace(namespace);
         match self.inner.attribute(ns, name) {
             Some(attr) => ui_value_to_py(py, &attr.value()),
@@ -61,7 +62,7 @@ impl PyNode {
 
     /// Child nodes as a list.
     fn children(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let out = PyList::empty_bound(py);
+        let out = PyList::empty(py);
         for child in self.inner.children() {
             out.append(Py::new(py, PyNode { inner: child })?)?;
         }
@@ -70,7 +71,7 @@ impl PyNode {
 
     /// All attributes as objects with `namespace`, `name`, and `value`.
     fn attributes(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let out = PyList::empty_bound(py);
+        let out = PyList::empty(py);
         for a in self.inner.attributes() {
             let val = ui_value_to_py(py, &a.value())?;
             out.append(Py::new(
@@ -98,14 +99,14 @@ impl PyNode {
 
     /// Returns a pattern object for known pattern ids or None if unsupported.
     /// Currently supported ids: "Focusable", "WindowSurface".
-    fn pattern_by_id(&self, py: Python<'_>, id: &str) -> Option<PyObject> {
+    fn pattern_by_id(&self, py: Python<'_>, id: &str) -> Option<Py<PyAny>> {
         match id {
             "Focusable" => {
-                Py::new(py, PyFocusable { node: self.inner.clone() }).ok().map(|p| p.into_py(py))
+                Py::new(py, PyFocusable { node: self.inner.clone() }).ok().map(|p| p.into_any())
             }
             "WindowSurface" => Py::new(py, PyWindowSurface { node: self.inner.clone() })
                 .ok()
-                .map(|p| p.into_py(py)),
+                .map(|p| p.into_any()),
             _ => None,
         }
     }
@@ -184,14 +185,14 @@ impl PyWindowSurface {
 pub struct PyAttribute {
     namespace: String,
     name: String,
-    value: PyObject,
+    value: Py<PyAny>,
 }
 
 #[pymethods]
 impl PyAttribute {
     #[new]
     #[pyo3(signature = (namespace, name, value))]
-    fn new(namespace: String, name: String, value: PyObject) -> Self {
+    fn new(namespace: String, name: String, value: Py<PyAny>) -> Self {
         Self { namespace, name, value }
     }
     #[getter]
@@ -203,8 +204,8 @@ impl PyAttribute {
         &self.name
     }
     #[getter]
-    fn value(&self, py: Python<'_>) -> PyObject {
-        self.value.clone_ref(py).into_py(py)
+    fn value(&self, py: Python<'_>) -> Py<PyAny> {
+        self.value.clone_ref(py)
     }
     fn __repr__(&self) -> String {
         format!("Attribute(namespace='{}', name='{}')", self.namespace, self.name)
@@ -215,7 +216,7 @@ impl PyAttribute {
 pub struct PyEvaluatedAttribute {
     namespace: String,
     name: String,
-    value: PyObject,
+    value: Py<PyAny>,
     owner: Option<Py<PyNode>>,
 }
 
@@ -223,7 +224,7 @@ pub struct PyEvaluatedAttribute {
 impl PyEvaluatedAttribute {
     #[new]
     #[pyo3(signature = (namespace, name, value, owner=None))]
-    fn new(namespace: String, name: String, value: PyObject, owner: Option<Py<PyNode>>) -> Self {
+    fn new(namespace: String, name: String, value: Py<PyAny>, owner: Option<Py<PyNode>>) -> Self {
         Self { namespace, name, value, owner }
     }
     #[getter]
@@ -235,8 +236,8 @@ impl PyEvaluatedAttribute {
         &self.name
     }
     #[getter]
-    fn value(&self, py: Python<'_>) -> PyObject {
-        self.value.clone_ref(py).into_py(py)
+    fn value(&self, py: Python<'_>) -> Py<PyAny> {
+        self.value.clone_ref(py)
     }
     fn owner(&self, py: Python<'_>) -> Option<Py<PyNode>> {
         self.owner.as_ref().map(|o| o.clone_ref(py))
@@ -309,7 +310,7 @@ impl PyRuntime {
             None => None,
         };
         let items = self.inner.evaluate(node_arc, xpath).map_err(map_eval_err)?;
-        let out = PyList::empty_bound(py);
+        let out = PyList::empty(py);
         for item in items {
             match item {
                 runtime_rs::EvaluationItem::Node(n) => {
@@ -489,31 +490,31 @@ impl PyRuntime {
 
 // ---------------- Conversions ----------------
 
-fn ui_value_to_py(py: Python<'_>, value: &core_rs::ui::value::UiValue) -> PyResult<PyObject> {
+fn ui_value_to_py(py: Python<'_>, value: &core_rs::ui::value::UiValue) -> PyResult<Py<PyAny>> {
     use core_rs::ui::value::UiValue as V;
     Ok(match value {
         V::Null => py.None(),
-        V::Bool(b) => b.into_py(py),
-        V::Integer(i) => i.into_py(py),
-        V::Number(n) => n.into_py(py),
-        V::String(s) => s.clone().into_py(py),
+        V::Bool(b) => (*b as i32).into_pyobject(py)?.unbind().into_any(),
+        V::Integer(i) => i.into_pyobject(py)?.unbind().into_any(),
+        V::Number(n) => n.into_pyobject(py)?.unbind().into_any(),
+        V::String(s) => s.clone().into_pyobject(py)?.unbind().into_any(),
         V::Array(items) => {
-            let list = PyList::empty_bound(py);
+            let list = PyList::empty(py);
             for it in items {
                 list.append(ui_value_to_py(py, it)?)?;
             }
-            list.into_py(py)
+            list.into_pyobject(py)?.unbind().into_any()
         }
         V::Object(map) => {
-            let dict = PyDict::new_bound(py);
+            let dict = PyDict::new(py);
             for (k, v) in map.iter() {
                 dict.set_item(k, ui_value_to_py(py, v)?)?;
             }
-            dict.into_py(py)
+            dict.into_pyobject(py)?.unbind().into_any()
         }
-        V::Point(p) => Py::new(py, PyPoint::from(*p))?.into_py(py),
-        V::Size(s) => Py::new(py, PySize::from(*s))?.into_py(py),
-        V::Rect(r) => Py::new(py, PyRect::from(*r))?.into_py(py),
+        V::Point(p) => Py::new(py, PyPoint::from(*p))?.into_any(),
+        V::Size(s) => Py::new(py, PySize::from(*s))?.into_any(),
+        V::Rect(r) => Py::new(py, PyRect::from(*r))?.into_any(),
     })
 }
 
@@ -555,9 +556,9 @@ pub fn init_submodule(
     m.add_class::<PyKeyboardOverrides>()?;
     // Create a Python IntEnum for pointer buttons: 1=LEFT, 2=MIDDLE, 3=RIGHT
     {
-        let enum_mod = PyModule::import_bound(py, "enum")?;
+        let enum_mod = PyModule::import(py, "enum")?;
         let int_enum = enum_mod.getattr("IntEnum")?;
-        let dict = PyDict::new_bound(py);
+        let dict = PyDict::new(py);
         dict.set_item("LEFT", 1)?;
         dict.set_item("MIDDLE", 2)?;
         dict.set_item("RIGHT", 3)?;
@@ -566,11 +567,11 @@ pub fn init_submodule(
         m.add("PointerButton", py_enum)?;
     }
     // exceptions
-    m.add("EvaluationError", py.get_type_bound::<EvaluationError>())?;
-    m.add("ProviderError", py.get_type_bound::<ProviderError>())?;
-    m.add("PointerError", py.get_type_bound::<PointerError>())?;
-    m.add("KeyboardError", py.get_type_bound::<KeyboardError>())?;
-    m.add("PatternError", py.get_type_bound::<PatternError>())?;
+    m.add("EvaluationError", py.get_type::<EvaluationError>())?;
+    m.add("ProviderError", py.get_type::<ProviderError>())?;
+    m.add("PointerError", py.get_type::<PointerError>())?;
+    m.add("KeyboardError", py.get_type::<KeyboardError>())?;
+    m.add("PatternError", py.get_type::<PatternError>())?;
     Ok(())
 }
 
@@ -707,12 +708,12 @@ impl PyPointerOverrides {
 
     // ----- getters (read-only properties) -----
     #[getter]
-    fn origin(&self, py: Python<'_>) -> Option<PyObject> {
+    fn origin(&self, py: Python<'_>) -> Option<Py<PyAny>> {
         use core_rs::platform::PointOrigin as O;
         self.inner.origin.as_ref().and_then(|o| match o {
-            O::Desktop => Some("desktop".into_py(py)),
-            O::Absolute(p) => Py::new(py, PyPoint::from(*p)).ok().map(|v| v.into_py(py)),
-            O::Bounds(r) => Py::new(py, PyRect::from(*r)).ok().map(|v| v.into_py(py)),
+            O::Desktop => "desktop".into_pyobject(py).ok().map(|v| v.unbind().into_any()),
+            O::Absolute(p) => Py::new(py, PyPoint::from(*p)).ok().map(|v| v.into_any()),
+            O::Bounds(r) => Py::new(py, PyRect::from(*r)).ok().map(|v| v.into_any()),
         })
     }
     #[getter]
@@ -773,8 +774,10 @@ impl PyPointerOverrides {
         self.inner.ensure_move_timeout.map(|d| d.as_millis() as f64)
     }
     #[getter]
-    fn scroll_step(&self, py: Python<'_>) -> Option<PyObject> {
-        self.inner.scroll_step.map(|d| (d.horizontal, d.vertical).into_py(py))
+    fn scroll_step(&self, py: Python<'_>) -> Option<Py<PyAny>> {
+        self.inner
+            .scroll_step
+            .and_then(|d| PyTuple::new(py, &[d.horizontal, d.vertical]).ok().map(|t| t.unbind().into_any()))
     }
     #[getter]
     fn scroll_delay_ms(&self) -> Option<f64> {
