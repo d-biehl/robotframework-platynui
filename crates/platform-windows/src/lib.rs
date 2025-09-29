@@ -10,6 +10,8 @@ mod desktop;
 mod init;
 #[cfg(target_os = "windows")]
 mod pointer;
+#[cfg(target_os = "windows")]
+mod highlight;
 
 #[cfg(not(target_os = "windows"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

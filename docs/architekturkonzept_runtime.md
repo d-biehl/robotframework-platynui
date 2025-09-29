@@ -181,9 +181,9 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
 ## 6. Geräte- und Interaktionsdienste
 - `DeviceProvider`-Trait + Capability-Typen leben in `crates/core` (Pointer, Keyboard, DesktopInfoProvider, ScreenshotProvider, HighlightProvider); Touch-Unterstützung wird später ergänzt.
   - `HighlightProvider` zeichnet Hervorhebungen über `highlight(&[HighlightRequest])` und entfernt sie via `clear()`.
-    * `HighlightRequest` enthält die Desktop-Koordinaten (`Rect`). Optional kann eine gewünschte Sichtbarkeitsdauer (`Duration`) mitgegeben werden.
-    * Fehlt die Dauer, entscheidet die Plattform über einen sinnvollen Default (z. B. Overlay bleibt sichtbar, bis `clear()` aufgerufen wird).
-    * Es existiert immer nur ein aktives Highlight. Erneute Aufrufe ersetzen das bestehende Overlay: Der Rahmen wandert zur neuen Position, die Dauer beginnt von vorne.
+    * `HighlightRequest` enthält die Desktop-Koordinaten (`Rect`). Optional kann eine gewünschte Sichtbarkeitsdauer (`Duration`) mitgegeben werden. Die Runtime triggert nach der kleinsten angeforderten Dauer ein `clear()` als Fallback.
+    * Plattform (Windows): nicht‑aktivierendes, klick‑durchlässiges Layered‑Window mit rotem Rahmen (3 px) und 1 px Abstand um die Ziel‑BBox. Rahmen werden an Desktop‑Bounds beschnitten; abgeschnittene Seiten erscheinen gestrichelt.
+    * Es existiert immer nur ein aktives Highlight. Erneute Aufrufe ersetzen das bestehende Overlay: Der Rahmen wandert zur neuen Position.
   - `PointerDevice` kapselt elementare Zeigereingaben vollständig in Desktop-Koordinaten (`f64`). Das Trait umfasst mindestens `position() -> Point`, `move_to(Point)`, `press(PointerButton)`, `release(PointerButton)` sowie `scroll(ScrollDelta)`; optional liefern Provider Double-Click-Metadaten (`double_click_time()`, `double_click_size()`), soweit die Plattform sie bereitstellt. Notwendige Umrechnungen in native Koordinatensysteme (Win32-Absolute, X11-Integer, macOS-CGFloat) erfolgen providerseitig.
     * Oberhalb des Traits implementiert die Runtime eine Bewegungs-Engine, die Zielkoordinaten in Schrittfolgen übersetzt (linear, Bezier/Overshoot, zufällige Jitter) und konfigurierbare Verzögerungen (`after_move_delay`, `press_release_delay`, `before_next_click_delay`, `multi_click_delay`) berücksichtigt. CLI-Kommandos greifen standardmäßig auf diese Engine zurück, Provider müssen lediglich die atomaren Operationen zuverlässig bereitstellen.
     * Vor jedem Aufruf klemmt die Runtime Koordinaten anhand der Desktop-Bounds (`DesktopInfo`). Provider dürfen zusätzliche Sicherheitsprüfungen durchführen (z. B. Fokusfenster-Abgleich), liefern aber stets normalisierte `f64`-Koordinaten zurück oder signalisieren Fehler, falls die OS-API das Bewegen verhindert.
@@ -219,7 +219,7 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
       Fehler werden als `KeyboardActionError` gemeldet. Das Enum kapselt Parserfehler (`KeyboardSequenceError`) und Providerfehler (`KeyboardError`), sodass Aufrufer zwischen syntaktischen Problemen und Plattformfehlern unterscheiden können.
   - `ScreenshotProvider` liefert Bildschirmaufnahmen. `ScreenshotRequest` beschreibt optional eine Teilfläche, ansonsten wird der komplette Desktop aufgenommen. Das Resultat (`Screenshot`) enthält Breite, Höhe, Rohdaten (`Vec<u8>`) und das Pixelformat (`PixelFormat::Rgba8` oder `PixelFormat::Bgra8`). Aufrufende Komponenten (Runtime, CLI, Inspector) sind dafür verantwortlich, die Daten in gewünschte Containerformate (PNG, JPEG, …) umzuwandeln.
 - Implementierungen:
-  - `crates/platform-windows` (Crate `platynui-platform-windows`): `SendInput`, Desktop Duplication/BitBlt, Overlays.
+  - `crates/platform-windows` (Crate `platynui-platform-windows`): `SendInput`, Desktop Duplication/BitBlt, Overlays (Highlight: layered, non‑activating, clamped, dashed clipping edges).
   - `crates/platform-linux-x11` (Crate `platynui-platform-linux-x11`): `x11rb` + XTEST, Screenshots via X11 `GetImage`/Pipewire, Overlays.
   - `platynui-platform-linux-wayland` (optional): Wayland-APIs (Virtuelles Keyboard, Screencopy, Portal-Fallbacks).
   - `crates/platform-macos` (Crate `platynui-platform-macos`): `CGEvent`, `CGDisplayCreateImage`, transparente `NSWindow`/CoreAnimation.

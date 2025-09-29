@@ -263,9 +263,21 @@ impl Runtime {
     }
 
     /// Highlights the given regions using the registered highlight provider.
+    /// If any request specifies a duration, the runtime schedules a clear() call
+    /// after the minimum duration as a portability fallback.
     pub fn highlight(&self, requests: &[HighlightRequest]) -> Result<(), PlatformError> {
         match self.highlight {
-            Some(provider) => provider.highlight(requests),
+            Some(provider) => {
+                provider.highlight(requests)?;
+                if let Some(duration) = requests.iter().filter_map(|r| r.duration).min() {
+                    let prov: &'static dyn HighlightProvider = provider;
+                    std::thread::spawn(move || {
+                        std::thread::sleep(duration);
+                        let _ = prov.clear();
+                    });
+                }
+                Ok(())
+            }
             None => Err(PlatformError::new(
                 PlatformErrorKind::UnsupportedPlatform,
                 "no HighlightProvider registered",

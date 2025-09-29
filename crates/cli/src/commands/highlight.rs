@@ -1,27 +1,35 @@
 use crate::util::{CliResult, map_evaluate_error, map_platform_error};
 use clap::Args;
 use platynui_core::platform::HighlightRequest;
+use platynui_core::types::Rect;
 use platynui_core::ui::{Namespace, UiValue};
 use platynui_runtime::{EvaluationItem, Runtime};
 use std::time::Duration;
 
 #[derive(Args, Debug, Clone)]
 pub struct HighlightArgs {
-    #[arg(value_name = "XPATH")]
+    #[arg(value_name = "XPATH", conflicts_with = "rect")]
     pub expression: Option<String>,
     #[arg(
-        long = "duration-ms",
-        value_parser = parse_duration_ms,
-        help = "Duration in milliseconds the highlight stays visible before fading."
+        long = "rect",
+        value_parser = parse_rect_arg,
+        value_name = "X,Y,WIDTH,HEIGHT",
+        help = "Highlight a specific rectangle in desktop coordinates. Conflicts with XPATH."
     )]
-    pub duration_ms: Option<u64>,
+    pub rect: Option<Rect>,
+    #[arg(
+        long = "duration-ms",
+        default_value_t = 1500u64,
+        help = "Duration in milliseconds the highlight stays visible before fading (default: 1500)."
+    )]
+    pub duration_ms: u64,
     #[arg(long = "clear", help = "Clear existing highlights before applying a new one or alone.")]
     pub clear: bool,
 }
 
 pub fn run(runtime: &Runtime, args: &HighlightArgs) -> CliResult<String> {
-    if args.expression.is_none() && !args.clear {
-        return Err("highlight requires an XPath expression unless --clear is set".into());
+    if args.expression.is_none() && args.rect.is_none() && !args.clear {
+        return Err("highlight requires an XPath expression or --rect unless --clear is set".into());
     }
 
     let mut messages = Vec::new();
@@ -31,24 +39,39 @@ pub fn run(runtime: &Runtime, args: &HighlightArgs) -> CliResult<String> {
         messages.push("Cleared existing highlights.".to_owned());
     }
 
-    if let Some(expression) = &args.expression {
-        let highlight = collect_highlight_requests(runtime, expression, args.duration_ms)?;
+    let mut highlighted = 0usize;
+    let mut hold_ms: Option<u64> = None;
+    if let Some(rect) = args.rect {
+        let req = HighlightRequest::new(rect).with_duration(Duration::from_millis(args.duration_ms));
+        runtime.highlight(&[req]).map_err(map_platform_error)?;
+        highlighted = 1;
+        hold_ms = Some(args.duration_ms);
+    } else if let Some(expression) = &args.expression {
+        let highlight = collect_highlight_requests(runtime, expression, Some(args.duration_ms))?;
         if highlight.requests.is_empty() {
             return Err(format!("no highlightable nodes for expression `{expression}`").into());
         }
-
         runtime.highlight(&highlight.requests).map_err(map_platform_error)?;
-
-        let mut message = format!("Highlighted {} node(s).", highlight.requests.len());
+        highlighted = highlight.requests.len();
+        hold_ms = Some(args.duration_ms);
         if !highlight.skipped.is_empty() {
             let skipped = highlight.skipped.join(", ");
-            message.push_str(&format!(" Skipped nodes without Bounds: {skipped}."));
+            messages.push(format!("Skipped nodes without Bounds: {skipped}."));
         }
-        messages.push(message);
     }
 
+    // Keep the process alive so the overlay stays visible until the duration elapses.
+    if let Some(ms) = hold_ms
+        && !cfg!(test) {
+            std::thread::sleep(Duration::from_millis(ms));
+        }
+
     if messages.is_empty() {
-        messages.push("No highlight action executed.".to_owned());
+        if highlighted > 0 {
+            messages.push(format!("Highlighted {} region(s).", highlighted));
+        } else {
+            messages.push("No highlight action executed.".to_owned());
+        }
     }
 
     Ok(messages.join("\n"))
@@ -100,8 +123,19 @@ fn collect_highlight_requests(
     Ok(HighlightComputation { requests, skipped })
 }
 
-fn parse_duration_ms(value: &str) -> Result<u64, String> {
-    value.parse::<u64>().map_err(|_| format!("invalid duration in milliseconds: {value}"))
+fn parse_rect_arg(value: &str) -> Result<Rect, String> {
+    let parts: Vec<_> = value.split(',').collect();
+    if parts.len() != 4 {
+        return Err(format!("expected four comma-separated values, got `{value}`"));
+    }
+    let mut nums = [0f64; 4];
+    for (i, part) in parts.iter().enumerate() {
+        nums[i] = part
+            .trim()
+            .parse::<f64>()
+            .map_err(|_| format!("invalid number in rect `{value}`"))?;
+    }
+    Ok(Rect::new(nums[0], nums[1], nums[2], nums[3]))
 }
 
 #[cfg(test)]
@@ -119,11 +153,7 @@ mod tests {
         reset_highlight_state();
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
 
-        let args = HighlightArgs {
-            expression: Some("//control:Button".into()),
-            duration_ms: Some(500),
-            clear: false,
-        };
+        let args = HighlightArgs { expression: Some("//control:Button".into()), rect: None, duration_ms: 500, clear: false };
 
         let output = run(&runtime, &args).expect("highlight execution");
         assert!(output.contains("Highlighted"));
@@ -141,7 +171,7 @@ mod tests {
         reset_highlight_state();
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
 
-        let args = HighlightArgs { expression: None, duration_ms: None, clear: true };
+        let args = HighlightArgs { expression: None, rect: None, duration_ms: 1500, clear: true };
         let output = run(&runtime, &args).expect("highlight clear");
         assert!(output.contains("Cleared"));
         assert_eq!(highlight_clear_count(), 1);
@@ -154,11 +184,26 @@ mod tests {
     fn highlight_requires_expression_or_clear() {
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
 
-        let err =
-            run(&runtime, &HighlightArgs { expression: None, duration_ms: None, clear: false })
-                .expect_err("missing expression should error");
+        let err = run(&runtime, &HighlightArgs { expression: None, rect: None, duration_ms: 1500, clear: false })
+            .expect_err("missing expression or rect should error");
         assert!(err.to_string().contains("requires"));
 
+        runtime.shutdown();
+    }
+
+    #[rstest]
+    fn highlight_rect_path_uses_default_duration() {
+        reset_highlight_state();
+        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+
+        let args = HighlightArgs { expression: None, rect: Some(Rect::new(10.0, 10.0, 40.0, 20.0)), duration_ms: 1500, clear: false };
+        let output = run(&runtime, &args).expect("highlight rect");
+        assert!(output.contains("Highlighted 1 region"));
+        let log = take_highlight_log();
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0][0].duration, Some(Duration::from_millis(1500)));
+
+        reset_highlight_state();
         runtime.shutdown();
     }
 }

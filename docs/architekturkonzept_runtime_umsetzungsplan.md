@@ -161,9 +161,20 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Tests (Mock): CLI `pointer move` deckt negative Koordinaten ab; Architektur-/Plan-Doku verlinkt DPI-Awareness.
 
 #### 19.2 Highlight (`platynui-platform-windows`)
-- [ ] Overlay-Lifecycle (Erstellen/Aktualisieren/Clear) mit Z-Order- und Farbensteuerung implementieren, Ressourcen sauber freigeben.
-- [ ] Runtime-Anbindung (`highlight_providers`) herstellen und Fallback-Verhalten definieren.
-- [ ] Tests: Sichtbare Bounds/Haltbarkeit, Cleanup-Pfade, Dokumentation der Highlight-Optionen.
+- [x] Overlay-Lifecycle (Erstellen/Aktualisieren/Clear) mit Z-Order- und Farbensteuerung implementieren, Ressourcen sauber freigeben.
+- [x] Runtime-Anbindung (`highlight_providers`) herstellen und Fallback-Verhalten definieren.
+
+Implementierungsstand (2025-09-29)
+- Overlay: Layered-Window (UpdateLayeredWindow) mit `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE`; Anzeige mit `SW_SHOWNOACTIVATE`; `WM_MOUSEACTIVATE → MA_NOACTIVATE` (kein Fokus-/Aktivierungswechsel, klick‑durchlässig, nicht in Alt‑Tab/Taskbar).
+- Darstellung: Roter Rahmen (RGBA 255,0,0,230), 3 px Rahmenstärke, 1 px Abstand um Ziel‑Rects (keine Überdeckung des Inhalts).
+- Clamping: Rahmengeometrie wird gegen Desktop‑Bounds geschnitten; komplett außerhalb → kein Overlay. Abgeschnittene Seiten werden gestrichelt (Muster 6 an/4 aus) gezeichnet; ungeschnittene Seiten bleiben durchgezogen.
+- Dauer/Timeout: Runtime triggert einen `clear()`‑Fallback nach der minimalen angeforderten Dauer (portabel), zusätzlich blockiert die CLI für die Dauer (sichtbare Haltbarkeit in Ein‑Shot‑Szenarien).
+- CLI: `platynui-cli highlight --rect X,Y,WIDTH,HEIGHT [--duration-ms N]` (Default 1500 ms) alternativ zu XPATH; `--clear` zum Entfernen aktiver Highlights; Prozess hält für die angegebene Dauer.
+
+Offen/Nächste Schritte
+- Windows‑Smoke‑Tests (Flags: `WS_EX_NOACTIVATE`, `WM_MOUSEACTIVATE`), Logik‑Tests für Clamping/Dash‑Muster.
+- CI: Windows `cargo check`/Cross‑Check (msvc) einhängen.
+- Optional: CLI‑Optionen für Farbe/Rahmen/Gaps/Dash‑Muster dokumentieren/parametrisieren.
 
 #### 19.3 Screenshot (`platynui-platform-windows`)
 - [ ] Capture via DComposition/GDI umsetzen, Cropping/Format-Wandlung und Fehlerpfade behandeln.
