@@ -795,6 +795,64 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, LazyLock, Mutex, Weak};
     use std::time::Duration;
+    use platynui_core::platform::{PlatformError, PlatformModule};
+    use platynui_core::register_platform_module;
+
+    // --- 19.4: Ensure platform modules initialize before provider creation ----------------------
+    // A tiny test-only platform module toggles a flag in initialize(). A test-only provider
+    // asserts that the flag is set in its factory `create()`. Runtime::new() must call
+    // platform initialization before instantiating providers for this test to pass.
+    static TEST_PLATFORM_INITIALIZED: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
+
+    struct TestInitOrderPlatform;
+    impl PlatformModule for TestInitOrderPlatform {
+        fn name(&self) -> &'static str { "test-init-order-platform" }
+        fn initialize(&self) -> Result<(), PlatformError> {
+            TEST_PLATFORM_INITIALIZED.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+    static TEST_PLATFORM: TestInitOrderPlatform = TestInitOrderPlatform;
+    register_platform_module!(&TEST_PLATFORM);
+
+    struct InitOrderProviderFactory;
+    impl UiTreeProviderFactory for InitOrderProviderFactory {
+        fn descriptor(&self) -> &'static ProviderDescriptor { Self::descriptor_static() }
+        
+        fn create(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+            assert!(TEST_PLATFORM_INITIALIZED.load(Ordering::SeqCst),
+                "platform modules must be initialized before providers are created");
+            struct NoopProvider { desc: &'static ProviderDescriptor }
+            impl UiTreeProvider for NoopProvider {
+                fn descriptor(&self) -> &'static ProviderDescriptor { self.desc }
+                fn get_nodes(&self, _parent: Arc<dyn UiNode>) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
+                    Ok(Box::new(std::iter::empty()))
+                }
+                fn subscribe_events(&self, _listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> { Ok(()) }
+                fn shutdown(&self) {}
+            }
+            Ok(Arc::new(NoopProvider { desc: Self::descriptor_static() }))
+        }
+    }
+
+    impl InitOrderProviderFactory {
+        fn descriptor_static() -> &'static ProviderDescriptor {
+            static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
+                ProviderDescriptor::new(
+                    "runtime-init-order", "Runtime InitOrder", TechnologyId::from("Runtime"), ProviderKind::Native,
+                )
+            });
+            &DESCRIPTOR
+        }
+    }
+    static INIT_ORDER_PROVIDER: InitOrderProviderFactory = InitOrderProviderFactory;
+    register_provider!(&INIT_ORDER_PROVIDER);
+
+    #[test]
+    fn platform_init_happens_before_provider_instantiation() {
+        // The assertions happen inside the provider factory `create()`.
+        let _runtime = Runtime::new().expect("runtime initializes");
+    }
 
     fn configure_keyboard_for_tests(runtime: &Runtime) {
         let mut settings = runtime.keyboard_settings();

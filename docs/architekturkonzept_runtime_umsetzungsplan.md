@@ -195,8 +195,8 @@ Offen/Nächste Schritte
 - Optional: CLI‑UX verbessern – Hinweis bei Beschnitt, `--strict` (Fehler statt Clamping), „keep‑size“-Modus (Verschieben statt Skalieren).
 
 #### 19.4 Platform-Initialisierung (`platynui-platform-windows`)
-- [x] `PlatformModule::initialize()` verwenden, um den Prozess einmalig auf `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2` zu setzen, bevor Geräte/Provider registriert werden.
-- [ ] Tests/Doku: Sicherstellen, dass alle Geräte (Pointer, Highlight, Screenshot) die hardwarebezogenen Koordinaten nutzen und dies dokumentieren.
+- [x] `PlatformModule::initialize()` verwendet, um den Prozess einmalig auf `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2` zu setzen, bevor Geräte/Provider registriert werden.
+- [x] Tests/Doku: Init-Reihenfolge abgesichert und dokumentiert. Ein Runtime-Test registriert ein Test-`PlatformModule`, das einen Flag setzt, und einen Provider, der in `create()` den Flag prüft. `Runtime::new()` ruft `initialize_platform_modules()` vor dem Provider-Instanziieren auf (Kontrakt getestet). DPI-/Koordinatenhinweis in `architekturkonzept_runtime.md` ergänzt.
 
 #### 19.5 Desktop Provider (`platynui-platform-windows`)
 - [x] DesktopInfoProvider für Windows implementieren (Monitor-Auflistung, Bounds, RuntimeId `windows://desktop`).

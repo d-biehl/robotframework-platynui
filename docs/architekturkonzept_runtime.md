@@ -238,6 +238,9 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
 — DPI/Scaling
 - Die Plattforminitialisierung setzt Per‑Monitor‑V2‑DPI‑Awareness (`SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`). Koordinaten in Runtime/CLI beziehen sich auf Desktop‑Pixel (Virtual Screen). GDI‑Capture (BitBlt) und `UpdateLayeredWindow` arbeiten in denselben Gerätepixeln; zusätzliche Skalierungen sind nicht erforderlich.
 
+Init-Reihenfolge (19.4)
+- Die Runtime ruft beim Start zuerst alle registrierten `PlatformModule::initialize()`‑Hooks auf und erst danach die Provider‑Fabriken. Ein Runtime‑Test stellt sicher, dass diese Reihenfolge eingehalten wird (ein Test‑PlatformModule setzt einen Flag, ein Test‑Provider prüft den Flag in `create()`). Damit sind DPI‑Einstellungen aktiv, bevor Geräte/Provider Koordinaten abfragen oder Fenster/Monitore ermitteln.
+
 Hinweise & offene Punkte
 - Ressourcenfreigabe (Windows): HDCs nach `GetDC(HWND(0))` freigeben (`ReleaseDC`); Overlay‑Fenster bei `clear()` ggf. zerstören (Klasse deregistrieren, falls nötig).
 - DPI/Scaling: Verhalten unter Per‑Monitor‑V2 prüfen und dokumentieren.
