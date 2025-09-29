@@ -71,19 +71,19 @@ fn run_type(runtime: &Runtime, args: &KeyboardTypeArgs) -> CliResult<String> {
     }
     let overrides = build_overrides(&args.overrides);
     runtime.keyboard_type(sequence, overrides).map_err(map_keyboard_error)?;
-    Ok(format!("Typed sequence {sequence}."))
+    Ok(String::new())
 }
 
 fn run_press(runtime: &Runtime, args: &KeyboardSequenceArgs) -> CliResult<String> {
     let overrides = build_overrides(&args.overrides);
     runtime.keyboard_press(&args.sequence, overrides).map_err(map_keyboard_error)?;
-    Ok(format!("Pressed sequence {}.", args.sequence))
+    Ok(String::new())
 }
 
 fn run_release(runtime: &Runtime, args: &KeyboardSequenceArgs) -> CliResult<String> {
     let overrides = build_overrides(&args.overrides);
     runtime.keyboard_release(&args.sequence, overrides).map_err(map_keyboard_error)?;
-    Ok(format!("Released sequence {}.", args.sequence))
+    Ok(String::new())
 }
 
 fn build_overrides(args: &KeyboardOverrideArgs) -> Option<KeyboardOverrides> {
@@ -177,7 +177,7 @@ mod tests {
             },
         };
         let output = run_type(&runtime, &args).expect("type");
-        assert_eq!(output, "Typed sequence <Ctrl+A>Hallo.");
+        assert!(output.is_empty());
         let log = entries();
         assert!(presses(&log).contains(&"Control".to_string()));
         assert!(presses(&log).contains(&"A".to_string()));
@@ -197,7 +197,7 @@ mod tests {
             },
         };
         let output = run_press(&runtime, &args).expect("press");
-        assert_eq!(output, "Pressed sequence <Shift+Ctrl+S>.");
+        assert!(output.is_empty());
         let log = entries();
         let names = presses(&log);
         assert!(names.contains(&"Shift".to_string()));
@@ -219,7 +219,7 @@ mod tests {
             overrides: KeyboardOverrideArgs::default(),
         };
         let output = run_release(&runtime, &args).expect("release");
-        assert_eq!(output, "Released sequence <Ctrl+K>.");
+        assert!(output.is_empty());
         let log = entries();
         assert!(
             log.iter()

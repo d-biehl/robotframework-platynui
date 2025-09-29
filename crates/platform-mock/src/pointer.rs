@@ -51,21 +51,28 @@ impl PointerDevice for MockPointerDevice {
         let mut state = self.state.lock().unwrap();
         state.position = (point.x(), point.y());
         state.push(PointerLogEntry::Move(point));
+        println!("mock-pointer: move to ({:.1}, {:.1})", point.x(), point.y());
         Ok(())
     }
 
     fn press(&self, button: PointerButton) -> Result<(), PlatformError> {
         self.state.lock().unwrap().push(PointerLogEntry::Press(button));
+        println!("mock-pointer: press {button:?}");
         Ok(())
     }
 
     fn release(&self, button: PointerButton) -> Result<(), PlatformError> {
         self.state.lock().unwrap().push(PointerLogEntry::Release(button));
+        println!("mock-pointer: release {button:?}");
         Ok(())
     }
 
     fn scroll(&self, delta: ScrollDelta) -> Result<(), PlatformError> {
         self.state.lock().unwrap().push(PointerLogEntry::Scroll(delta));
+        println!(
+            "mock-pointer: scroll (h={:.1}, v={:.1})",
+            delta.horizontal, delta.vertical
+        );
         Ok(())
     }
 

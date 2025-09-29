@@ -88,7 +88,7 @@ impl KeyboardDevice for MockKeyboardDevice {
         }
         state.started = true;
         state.push(KeyboardLogEntry::StartInput);
-        println!("[mock-keyboard] StartInput");
+        println!("mock-keyboard: start");
         Ok(())
     }
 
@@ -103,11 +103,11 @@ impl KeyboardDevice for MockKeyboardDevice {
         let name = mock.display_name();
         match event.state {
             KeyState::Press => {
-                println!("[mock-keyboard] Press {name}");
+                println!("mock-keyboard: press {name}");
                 state.push(KeyboardLogEntry::Press(name));
             }
             KeyState::Release => {
-                println!("[mock-keyboard] Release {name}");
+                println!("mock-keyboard: release {name}");
                 state.push(KeyboardLogEntry::Release(name));
             }
         }
@@ -121,7 +121,7 @@ impl KeyboardDevice for MockKeyboardDevice {
         }
         state.started = false;
         state.push(KeyboardLogEntry::EndInput);
-        println!("[mock-keyboard] EndInput");
+        println!("mock-keyboard: end");
         Ok(())
     }
 }

@@ -44,10 +44,10 @@ All concept documents are living drafts and evolve alongside the implementation.
 # Type text and shortcuts via the mock keyboard device
 cargo run -p platynui-cli --features mock-provider -- keyboard type "<Ctrl+A>Hello"
 # Der Mock-Provider protokolliert die Eingaben auf stdout, z. B.:
-# [mock-keyboard] StartInput
-# [mock-keyboard] Press Ctrl
+# mock-keyboard: start
+# mock-keyboard: press Control
 # …
-# [mock-keyboard] EndInput
+# mock-keyboard: end
 
 # Hold modifiers without releasing them
 cargo run -p platynui-cli --features mock-provider -- keyboard press "<Shift+Ctrl+S>"

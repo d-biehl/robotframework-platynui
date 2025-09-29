@@ -108,11 +108,15 @@ fn run() -> CliResult<()> {
         }
         Commands::Pointer(args) => {
             let output = pointer::run(&runtime, &args)?;
-            println!("{output}");
+            if !output.is_empty() {
+                println!("{output}");
+            }
         }
         Commands::Keyboard(args) => {
             let output = keyboard::run(&runtime, &args)?;
-            println!("{output}");
+            if !output.is_empty() {
+                println!("{output}");
+            }
         }
     }
 

@@ -777,7 +777,7 @@ impl PyPointerOverrides {
     fn scroll_step(&self, py: Python<'_>) -> Option<Py<PyAny>> {
         self.inner
             .scroll_step
-            .and_then(|d| PyTuple::new(py, &[d.horizontal, d.vertical]).ok().map(|t| t.unbind().into_any()))
+            .and_then(|d| PyTuple::new(py, [d.horizontal, d.vertical]).ok().map(|t| t.unbind().into_any()))
     }
     #[getter]
     fn scroll_delay_ms(&self) -> Option<f64> {

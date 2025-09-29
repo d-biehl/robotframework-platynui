@@ -175,18 +175,13 @@ pub fn run(runtime: &Runtime, args: &PointerArgs) -> CliResult<String> {
 fn run_move(runtime: &Runtime, args: &PointerMoveArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
     runtime.pointer_move_to(args.point, overrides).map_err(map_pointer_error)?;
-    Ok(format!("Pointer moved to ({:.1}, {:.1}).", args.point.x(), args.point.y()))
+    Ok(String::new())
 }
 
 fn run_click(runtime: &Runtime, args: &PointerClickArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
     runtime.pointer_click(args.point, Some(args.button), overrides).map_err(map_pointer_error)?;
-    Ok(format!(
-        "Clicked {button:?} at ({:.1}, {:.1}).",
-        args.point.x(),
-        args.point.y(),
-        button = args.button
-    ))
+    Ok(String::new())
 }
 
 fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs) -> CliResult<String> {
@@ -194,40 +189,25 @@ fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs) -> CliResult
     runtime
         .pointer_multi_click(args.point, Some(args.button), args.count, overrides)
         .map_err(map_pointer_error)?;
-    Ok(format!(
-        "Clicked {button:?} {count} times at ({:.1}, {:.1}).",
-        args.point.x(),
-        args.point.y(),
-        button = args.button,
-        count = args.count
-    ))
+    Ok(String::new())
 }
 
 fn run_press(runtime: &Runtime, args: &PointerPressArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
     runtime.pointer_press(args.point, Some(args.button), overrides).map_err(map_pointer_error)?;
-    if let Some(point) = args.point {
-        Ok(format!(
-            "Pressed {button:?} at ({:.1}, {:.1}).",
-            point.x(),
-            point.y(),
-            button = args.button
-        ))
-    } else {
-        Ok(format!("Pressed {button:?}.", button = args.button))
-    }
+    Ok(String::new())
 }
 
 fn run_release(runtime: &Runtime, args: &PointerReleaseArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
     runtime.pointer_release(Some(args.button), overrides).map_err(map_pointer_error)?;
-    Ok(format!("Released {button:?}.", button = args.button))
+    Ok(String::new())
 }
 
 fn run_scroll(runtime: &Runtime, args: &PointerScrollArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
     runtime.pointer_scroll(args.delta, overrides).map_err(map_pointer_error)?;
-    Ok(format!("Scrolled by ({:.1}, {:.1}).", args.delta.horizontal, args.delta.vertical))
+    Ok(String::new())
 }
 
 fn run_drag(runtime: &Runtime, args: &PointerDragArgs) -> CliResult<String> {
@@ -235,14 +215,7 @@ fn run_drag(runtime: &Runtime, args: &PointerDragArgs) -> CliResult<String> {
     runtime
         .pointer_drag(args.from, args.to, Some(args.button), overrides)
         .map_err(map_pointer_error)?;
-    Ok(format!(
-        "Dragged {button:?} from ({:.1}, {:.1}) to ({:.1}, {:.1}).",
-        args.from.x(),
-        args.from.y(),
-        args.to.x(),
-        args.to.y(),
-        button = args.button
-    ))
+    Ok(String::new())
 }
 
 fn run_position(runtime: &Runtime) -> CliResult<String> {
@@ -415,7 +388,7 @@ mod tests {
         let args =
             PointerMoveArgs { point: Point::new(100.0, 150.0), overrides: OverrideArgs::default() };
         let output = super::run_move(&runtime, &args).expect("move");
-        assert!(output.contains("100.0"));
+        assert!(output.is_empty());
         let log = take_pointer_log();
         assert!(
             log.iter()
@@ -431,7 +404,7 @@ mod tests {
         let args =
             PointerMoveArgs { point: Point::new(-2560.0, 0.0), overrides: OverrideArgs::default() };
         let output = super::run_move(&runtime, &args).expect("move negative");
-        assert!(output.contains("-2560.0"));
+        assert!(output.is_empty());
     }
 
     #[rstest]
@@ -445,7 +418,7 @@ mod tests {
             overrides: OverrideArgs::default(),
         };
         let output = super::run_click(&runtime, &args).expect("click");
-        assert!(output.contains("Clicked"));
+        assert!(output.is_empty());
         let log = take_pointer_log();
         assert!(
             log.iter().any(|entry| matches!(entry, PointerLogEntry::Press(PointerButton::Left)))
@@ -467,7 +440,7 @@ mod tests {
             overrides: OverrideArgs::default(),
         };
         let output = super::run_multi_click(&runtime, &args).expect("multi-click");
-        assert!(output.contains("3 times"));
+        assert!(output.is_empty());
         let log = take_pointer_log();
         let presses = log
             .iter()
