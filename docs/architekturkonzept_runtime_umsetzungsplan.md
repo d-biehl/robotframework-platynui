@@ -159,36 +159,36 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Integration in Runtime-Registry (`pointer_devices`) sicherstellen und PointerOverrides/Profile validieren.
 - [x] Pointer-Gerät nutzt zentral gesetzte Per-Monitor-V2-DPI-Awareness und kommentiert das Verhalten (`SetCursorPos` + Virtual-Screen-Bounds).
 - [x] Tests (Mock): CLI `pointer move` deckt negative Koordinaten ab; Architektur-/Plan-Doku verlinkt DPI-Awareness.
-- [ ] Tests (Windows): Pointer-Engine gegen reales Gerät (Positionsberechnung, Button Defaults, Scrollrichtungen) und ergänzende Doku.
 
-#### 19.2 Keyboard (`platynui-platform-windows`)
-- [ ] Key-Code-Tabellen und Sequenzauflösung (Press/Release/Type) implementieren, Modifier-Chords und Unicode/IME-Fälle abdecken.
-- [ ] Fehlerabbildung (`KeyboardError`) auf UIA/Win32-Codes abstützen und in Runtime integrieren.
-- [ ] Tests: Sequenzparser-Resolver plus Echtgeräte-Logging (Mock-Vergleich), Dokumentation der unterstützten Key-Namen.
-
-#### 19.3 Highlight (`platynui-platform-windows`)
+#### 19.2 Highlight (`platynui-platform-windows`)
 - [ ] Overlay-Lifecycle (Erstellen/Aktualisieren/Clear) mit Z-Order- und Farbensteuerung implementieren, Ressourcen sauber freigeben.
 - [ ] Runtime-Anbindung (`highlight_providers`) herstellen und Fallback-Verhalten definieren.
 - [ ] Tests: Sichtbare Bounds/Haltbarkeit, Cleanup-Pfade, Dokumentation der Highlight-Optionen.
 
-#### 19.4 Screenshot (`platynui-platform-windows`)
+#### 19.3 Screenshot (`platynui-platform-windows`)
 - [ ] Capture via DComposition/GDI umsetzen, Cropping/Format-Wandlung und Fehlerpfade behandeln.
 - [ ] Runtime (`screenshot_providers`) verdrahten, Performance-Parameter dokumentieren.
 - [ ] Tests: Pixel-Vergleich/Cropping, Fehlerfälle (Offscreen, Zugriff verweigert), Update der Architektur-Doku.
 
-#### 19.5 Platform-Initialisierung (`platynui-platform-windows`)
+#### 19.4 Platform-Initialisierung (`platynui-platform-windows`)
 - [x] `PlatformModule::initialize()` verwenden, um den Prozess einmalig auf `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2` zu setzen, bevor Geräte/Provider registriert werden.
 - [ ] Tests/Doku: Sicherstellen, dass alle Geräte (Pointer, Highlight, Screenshot) die hardwarebezogenen Koordinaten nutzen und dies dokumentieren.
 
-#### 19.6 Desktop Provider (`platynui-platform-windows`)
+#### 19.5 Desktop Provider (`platynui-platform-windows`)
 - [x] DesktopInfoProvider für Windows implementieren (Monitor-Auflistung, Bounds, RuntimeId `windows://desktop`).
 - [ ] Desktop-Attribute (OS-Version, Anzeigename, Monitor-Metadaten) gegenüber Mock und Runtime-Vertrag spiegeln.
 - [ ] Tests: DesktopBounds-/Multi-Monitor-Abdeckung, Dokumentation von DPI-/Scaling-Besonderheiten.
 
-#### 19.7 UIAutomation Provider (`platynui-provider-windows-uia`)
+#### 19.6 UIAutomation Provider (`platynui-provider-windows-uia`)
 - [ ] COM-Hosting, Session-Lebenszyklus und Baumaufbau (Application → Window → Control/Item) entwickeln.
 - [ ] Rollen-/Namespace-Mapping sowie RuntimeId-Übernahme etablieren; Attribute und Client-/Runtime-Patterns (u. a. `Focusable`, `WindowSurface`) bereitstellen.
 - [ ] Tests: Struktur-/Attribut-Abdeckung, Pattern-Liste, Dokumentation der UIA-Abbildungen.
+
+#### 19.7 Keyboard (`platynui-platform-windows`)
+- [ ] Key-Code-Tabellen und Sequenzauflösung (Press/Release/Type) implementieren, Modifier-Chords und Unicode/IME-Fälle abdecken.
+- [ ] Fehlerabbildung (`KeyboardError`) auf UIA/Win32-Codes abstützen und in Runtime integrieren.
+- [ ] Tests: Sequenzparser-Resolver plus Echtgeräte-Logging (Mock-Vergleich), Dokumentation der unterstützten Key-Namen.
+
 
 #### 19.8 Fokus & WindowSurface via UIA
 - [ ] Fokussteuerung (`focus_control`) und WindowSurface-Aktionen (aktivieren/minimieren/maximieren/verschieben) direkt über UIAutomation (`WindowPattern`, `InvokePattern`, `WaitForInputIdle`) kapseln.
