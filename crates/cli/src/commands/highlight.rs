@@ -14,6 +14,7 @@ pub struct HighlightArgs {
         long = "rect",
         value_parser = parse_rect_arg,
         value_name = "X,Y,WIDTH,HEIGHT",
+        allow_hyphen_values = true,
         help = "Highlight a specific rectangle in desktop coordinates. Conflicts with XPATH."
     )]
     pub rect: Option<Rect>,
@@ -147,9 +148,13 @@ mod tests {
     };
     use platynui_runtime::Runtime;
     use rstest::rstest;
+    use std::sync::{LazyLock, Mutex};
+
+    static TEST_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     #[rstest]
     fn highlight_records_requests() {
+        let _lock = TEST_GUARD.lock().unwrap();
         reset_highlight_state();
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
 
@@ -168,6 +173,7 @@ mod tests {
 
     #[rstest]
     fn highlight_clear_only_triggers_provider_clear() {
+        let _lock = TEST_GUARD.lock().unwrap();
         reset_highlight_state();
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
 
@@ -182,6 +188,7 @@ mod tests {
 
     #[rstest]
     fn highlight_requires_expression_or_clear() {
+        let _lock = TEST_GUARD.lock().unwrap();
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
 
         let err = run(&runtime, &HighlightArgs { expression: None, rect: None, duration_ms: 1500, clear: false })
@@ -193,6 +200,7 @@ mod tests {
 
     #[rstest]
     fn highlight_rect_path_uses_default_duration() {
+        let _lock = TEST_GUARD.lock().unwrap();
         reset_highlight_state();
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
 

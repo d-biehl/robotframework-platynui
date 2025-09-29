@@ -213,4 +213,25 @@ mod tests {
             _ => panic!("unexpected command"),
         }
     }
+
+    #[test]
+    fn clap_parsing_screenshot_rect_allows_negative() {
+        let cli = Cli::try_parse_from([
+            "platynui",
+            "screenshot",
+            "--rect",
+            "-10,-10,200,2000",
+        ])
+        .expect("parse");
+        match cli.command {
+            Commands::Screenshot(args) => {
+                let r = args.rect.expect("rect parsed");
+                assert_eq!(r.x(), -10.0);
+                assert_eq!(r.y(), -10.0);
+                assert_eq!(r.width(), 200.0);
+                assert_eq!(r.height(), 2000.0);
+            }
+            _ => panic!("unexpected command"),
+        }
+    }
 }

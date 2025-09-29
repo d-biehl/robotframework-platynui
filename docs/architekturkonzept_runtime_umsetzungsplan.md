@@ -99,7 +99,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 ### 10. CLI `screenshot`
 - [x] `ScreenshotProvider`-Trait in `platynui-core` festgelegt (`ScreenshotRequest`, `Screenshot`, `PixelFormat`).
 - [x] `platynui-platform-mock`: Liefert deterministischen RGBA-Gradienten und Logging-Helfer (`take_screenshot_log`, `reset_screenshot_state`).
-- [x] CLI-Kommando `screenshot`: Akzeptiert `--bbox` (`x,y,width,height`) und `--output`, speichert PNG-Dateien via `png` 0.18.0.
+- [x] CLI-Kommando `screenshot`: Einheitlich `--rect x,y,width,height` (statt `--bbox`), Zielpfad als Positionsargument (ohne `--output`). Ohne Pfad generieren wir einen Default-Dateinamen mit Zeitstempel und stellen Eindeutigkeit über Suffixe sicher. PNG-Encoding via `png` 0.18.0.
 - [x] Tests: Screenshot-Aufrufe verifizieren Ausgabe, Logging und erzeugte Dateien (Temp-Verzeichnis über `tempfile` 3.23.0).
 
 ### 11. CLI `focus`
@@ -177,9 +177,20 @@ Offen/Nächste Schritte
 - Optional: CLI‑Optionen für Farbe/Rahmen/Gaps/Dash‑Muster dokumentieren/parametrisieren.
 
 #### 19.3 Screenshot (`platynui-platform-windows`)
-- [ ] Capture via DComposition/GDI umsetzen, Cropping/Format-Wandlung und Fehlerpfade behandeln.
-- [ ] Runtime (`screenshot_providers`) verdrahten, Performance-Parameter dokumentieren.
-- [ ] Tests: Pixel-Vergleich/Cropping, Fehlerfälle (Offscreen, Zugriff verweigert), Update der Architektur-Doku.
+- [x] Capture via GDI (BitBlt) umsetzen, Cropping/Format-Wandlung und Fehlerpfade behandeln.
+- [x] Runtime (`screenshot_providers`) verdrahten, Parameter dokumentieren.
+- [x] Architektur-/CLI-Doku aktualisieren.
+
+Implementierungsstand (2025-09-29)
+- Provider: GDI‑basierter Capture-Pfad (`CreateDIBSection` top‑down 32 bpp + `BitBlt` aus Screen‑HDC). Rückgabeformat `BGRA8`.
+- Region: Desktop‑Clamping (Virtual‑Screen‑Bounds). Vollständig außerhalb → Fehler; teilweise außerhalb → gekappte Größe (Beispiel: `--rect -10,-10,200,2000` ergibt 200×1990, wenn Desktop bei (0,0) beginnt).
+- CLI: `platynui-cli screenshot [--rect X,Y,W,H] [FILE]`. Ohne `FILE` wird `screenshot-<epoch_ms>.png` im CWD erzeugt; Existenz → numerische Suffixe. Negative Koordinaten werden korrekt geparst (Clap `allow_hyphen_values`).
+- PNG: CLI konvertiert BGRA→RGBA, schreibt PNG (`png` 0.18.0). 
+
+Offen/Nächste Schritte
+- Ressourcen-Cleanup: DCs vom Screen freigeben (`ReleaseDC`) in allen Codepfaden; Overlay‑Fenster ggf. bei Clear zerstören und Fensterklasse deregistrieren.
+- DPI/Scaling: Verhalten unter Per‑Monitor‑V2 verifizieren und notieren.
+- Optional: CLI‑UX verbessern – Hinweis bei Beschnitt, `--strict` (Fehler statt Clamping), „keep‑size“-Modus (Verschieben statt Skalieren).
 
 #### 19.4 Platform-Initialisierung (`platynui-platform-windows`)
 - [x] `PlatformModule::initialize()` verwenden, um den Prozess einmalig auf `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2` zu setzen, bevor Geräte/Provider registriert werden.

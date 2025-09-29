@@ -28,7 +28,7 @@ pub enum PointerCommand {
 
 #[derive(Args)]
 pub struct PointerMoveArgs {
-    #[arg(value_parser = parse_point_arg)]
+    #[arg(value_parser = parse_point_arg, allow_hyphen_values = true)]
     pub point: Point,
     #[command(flatten)]
     overrides: OverrideArgs,
@@ -36,7 +36,7 @@ pub struct PointerMoveArgs {
 
 #[derive(Args)]
 pub struct PointerClickArgs {
-    #[arg(value_parser = parse_point_arg)]
+    #[arg(value_parser = parse_point_arg, allow_hyphen_values = true)]
     pub point: Point,
     #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg)]
     pub button: PointerButton,
@@ -58,7 +58,7 @@ pub struct PointerMultiClickArgs {
 
 #[derive(Args)]
 pub struct PointerPressArgs {
-    #[arg(long = "point", value_parser = parse_point_arg)]
+    #[arg(long = "point", value_parser = parse_point_arg, allow_hyphen_values = true)]
     pub point: Option<Point>,
     #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg)]
     pub button: PointerButton,
@@ -76,7 +76,7 @@ pub struct PointerReleaseArgs {
 
 #[derive(Args)]
 pub struct PointerScrollArgs {
-    #[arg(value_parser = parse_scroll_delta_arg)]
+    #[arg(value_parser = parse_scroll_delta_arg, allow_hyphen_values = true)]
     pub delta: ScrollDelta,
     #[command(flatten)]
     overrides: OverrideArgs,
@@ -84,9 +84,9 @@ pub struct PointerScrollArgs {
 
 #[derive(Args)]
 pub struct PointerDragArgs {
-    #[arg(long = "from", value_parser = parse_point_arg)]
+    #[arg(long = "from", value_parser = parse_point_arg, allow_hyphen_values = true)]
     pub from: Point,
-    #[arg(long = "to", value_parser = parse_point_arg)]
+    #[arg(long = "to", value_parser = parse_point_arg, allow_hyphen_values = true)]
     pub to: Point,
     #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg)]
     pub button: PointerButton,
@@ -123,9 +123,9 @@ enum AccelerationKind {
 struct OverrideArgs {
     #[arg(long = "origin", value_enum, default_value_t = OriginKind::Desktop)]
     origin: OriginKind,
-    #[arg(long = "bounds")]
+    #[arg(long = "bounds", allow_hyphen_values = true)]
     bounds: Option<String>,
-    #[arg(long = "anchor")]
+    #[arg(long = "anchor", allow_hyphen_values = true)]
     anchor: Option<String>,
     #[arg(long = "motion", value_enum)]
     motion: Option<MotionKind>,
@@ -147,7 +147,7 @@ struct OverrideArgs {
     ensure_move_timeout: Option<Duration>,
     #[arg(long = "scroll-delay", value_parser = parse_millis)]
     scroll_delay: Option<Duration>,
-    #[arg(long = "scroll-step", value_parser = parse_scroll_delta_arg)]
+    #[arg(long = "scroll-step", value_parser = parse_scroll_delta_arg, allow_hyphen_values = true)]
     scroll_step: Option<ScrollDelta>,
     #[arg(long = "move-duration", value_parser = parse_millis)]
     move_duration: Option<Duration>,

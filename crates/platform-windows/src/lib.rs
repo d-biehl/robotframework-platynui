@@ -12,6 +12,8 @@ mod init;
 mod pointer;
 #[cfg(target_os = "windows")]
 mod highlight;
+#[cfg(target_os = "windows")]
+mod screenshot;
 
 #[cfg(not(target_os = "windows"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

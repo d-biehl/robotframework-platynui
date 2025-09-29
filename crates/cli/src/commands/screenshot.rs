@@ -7,37 +7,41 @@ use png::{BitDepth, ColorType, Encoder};
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::env;
 
 #[derive(Args, Debug, Clone)]
 pub struct ScreenshotArgs {
     #[arg(
-        long = "output",
         value_name = "FILE",
-        required = true,
-        help = "Path to the PNG file that will receive the captured screenshot."
-    )]
-    pub output: PathBuf,
+        help = "Destination PNG file (optional). If omitted, a default name is generated in the current directory.")]
+    pub output: Option<PathBuf>,
     #[arg(
-        long = "bbox",
-        value_parser = parse_rect_argument,
+        long = "rect",
+        value_parser = parse_rect_arg,
         value_name = "X,Y,WIDTH,HEIGHT",
-        help = "Restrict capture to the specified bounding box (desktop coordinates)."
+        allow_hyphen_values = true,
+        help = "Capture only the specified rectangle in desktop coordinates."
     )]
-    pub bbox: Option<Rect>,
+    pub rect: Option<Rect>,
 }
 
 pub fn run(runtime: &Runtime, args: &ScreenshotArgs) -> CliResult<String> {
-    let request = match args.bbox {
+    let request = match args.rect {
         Some(rect) => ScreenshotRequest::with_region(rect),
         None => ScreenshotRequest::entire_display(),
     };
 
     let screenshot = runtime.screenshot(&request).map_err(map_platform_error)?;
-    write_png(&args.output, &screenshot)?;
+    let output_path = match &args.output {
+        Some(path) => ensure_unique_path(path),
+        None => default_output_path(),
+    };
+    write_png(&output_path, &screenshot)?;
 
     Ok(format!(
         "Saved screenshot to {} ({}×{} px).",
-        args.output.display(),
+        output_path.display(),
         screenshot.width,
         screenshot.height
     ))
@@ -68,7 +72,7 @@ fn ensure_rgba_bytes(screenshot: &Screenshot) -> Vec<u8> {
     }
 }
 
-fn parse_rect_argument(value: &str) -> Result<Rect, String> {
+fn parse_rect_arg(value: &str) -> Result<Rect, String> {
     let parts: Vec<_> = value.split(',').collect();
     if parts.len() != 4 {
         return Err(format!("expected four comma-separated values, got `{value}`"));
@@ -76,12 +80,46 @@ fn parse_rect_argument(value: &str) -> Result<Rect, String> {
 
     let mut numbers = Vec::with_capacity(4);
     for part in parts {
-        let number: f64 =
-            part.trim().parse().map_err(|_| format!("invalid number in bbox `{value}`"))?;
+        let number: f64 = part
+            .trim()
+            .parse()
+            .map_err(|_| format!("invalid number in rect `{value}`"))?;
         numbers.push(number);
     }
 
     Ok(Rect::new(numbers[0], numbers[1], numbers[2], numbers[3]))
+}
+
+fn default_output_path() -> PathBuf {
+    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    // Timestamp-based default name; collisions highly unlikely. If it exists, we still uniquify below.
+    let ts_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let base = cwd.join(format!("screenshot-{}.png", ts_ms));
+    ensure_unique_path(&base)
+}
+
+fn ensure_unique_path(path: &Path) -> PathBuf {
+    if !path.exists() {
+        return path.to_path_buf();
+    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("screenshot");
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png");
+    for idx in 1..=9999 {
+        let candidate = parent.join(format!("{}-{:03}.{}", stem, idx, ext));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    // Fallback: append random-ish suffix
+    parent.join(format!("{}-{}.{}", stem, ts_fallback(), ext))
+}
+
+fn ts_fallback() -> u128 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -91,19 +129,20 @@ mod tests {
     use platynui_platform_mock::{reset_screenshot_state, take_screenshot_log};
     use platynui_runtime::Runtime;
     use rstest::rstest;
-    use std::fs;
     use tempfile::tempdir;
+    use std::fs;
+    use std::sync::{Mutex, LazyLock};
+
+    static TEST_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     #[rstest]
     fn screenshot_command_writes_png() {
+        let _lock = TEST_GUARD.lock().unwrap();
         reset_screenshot_state();
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("capture.png");
-        let args = ScreenshotArgs {
-            output: path.clone(),
-            bbox: Some(Rect::new(3700.0, 600.0, 400.0, 200.0)),
-        };
+        let args = ScreenshotArgs { output: Some(path.clone()), rect: Some(Rect::new(3700.0, 600.0, 400.0, 200.0)) };
 
         let output = run(&runtime, &args).expect("screenshot run");
         assert!(output.contains("Saved screenshot"));
@@ -120,12 +159,13 @@ mod tests {
     }
 
     #[rstest]
-    fn screenshot_without_bbox_uses_full_desktop() {
+    fn screenshot_without_rect_uses_full_desktop() {
+        let _lock = TEST_GUARD.lock().unwrap();
         reset_screenshot_state();
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("full.png");
-        let args = ScreenshotArgs { output: path.clone(), bbox: None };
+        let args = ScreenshotArgs { output: Some(path.clone()), rect: None };
 
         let output = run(&runtime, &args).expect("screenshot run");
         assert!(output.contains("Saved screenshot"));
@@ -141,8 +181,35 @@ mod tests {
     }
 
     #[test]
-    fn parse_rect_argument_rejects_invalid_input() {
-        let err = parse_rect_argument("a,b,c,d").expect_err("expected parse failure");
-        assert!(err.contains("invalid number"));
+    fn parse_rect_arg_rejects_invalid_input() {
+        let err = parse_rect_arg("a,b,c,d").expect_err("expected parse failure");
+        assert!(err.contains("invalid number in rect"));
+    }
+
+    #[rstest]
+    fn screenshot_generates_default_name() {
+        let _lock = TEST_GUARD.lock().unwrap();
+        reset_screenshot_state();
+        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+
+        let dir = tempdir().expect("tempdir");
+        let old_cwd = env::current_dir().expect("cwd");
+        env::set_current_dir(dir.path()).expect("chdir temp");
+
+        let args = ScreenshotArgs { output: None, rect: Some(Rect::new(0.0, 0.0, 10.0, 10.0)) };
+        let output = run(&runtime, &args).expect("screenshot run");
+        assert!(output.contains("Saved screenshot"));
+
+        // Find a png file in temp dir
+        let entries: Vec<_> = fs::read_dir(dir.path())
+            .expect("list")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|e| e == "png").unwrap_or(false))
+            .collect();
+        assert_eq!(entries.len(), 1);
+
+        env::set_current_dir(old_cwd).expect("restore cwd");
+        runtime.shutdown();
     }
 }
