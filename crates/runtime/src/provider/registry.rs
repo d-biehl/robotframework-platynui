@@ -204,6 +204,13 @@ mod tests {
         SHUTDOWN_TRIGGERED.store(false, Ordering::SeqCst);
         SUBSCRIPTION_FLAG.store(false, Ordering::SeqCst);
 
+        // Ensure platform modules are initialized before any factory `create()`
+        // calls. Some test-only providers (see runtime.rs tests) assert that
+        // initialization happened in their factory. Creating a Runtime here
+        // triggers `initialize_platform_modules()` in a controlled way without
+        // affecting the rest of this test.
+        let _runtime_for_init = crate::Runtime::new().expect("runtime initializes platform modules");
+
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
         let registry = ProviderRegistry::discover();
         let providers = registry.instantiate_all().expect("providers");
