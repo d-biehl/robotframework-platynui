@@ -102,7 +102,7 @@ impl OverlayThread {
             let wc = WNDCLASSW {
                 style: CS_HREDRAW | CS_VREDRAW,
                 lpfnWndProc: Some(wndproc),
-                hInstance: HINSTANCE(0),
+                hInstance: HINSTANCE(std::ptr::null_mut()),
                 lpszClassName: PCWSTR(class_name.as_ptr()),
                 ..Default::default()
             };
@@ -176,11 +176,11 @@ impl Overlay {
                 0,
                 0,
                 0,
-                HWND(0),
                 None,
-                HINSTANCE(0),
                 None,
-            );
+                None,
+                None,
+            ).expect("CreateWindowExW");
             self.hwnd = Some(hwnd);
             hwnd
         }
@@ -221,15 +221,15 @@ impl Overlay {
         let height = union.height().max(1.0).round() as i32;
         unsafe {
             // Acquire screen DC and guard against failures
-            let screen_dc: HDC = GetDC(HWND(0));
-            if screen_dc.0 == 0 {
+            let screen_dc: HDC = GetDC(None);
+            if screen_dc.0.is_null() {
                 return; // Nothing we can do; avoid leaking handles
             }
 
             // Create a compatible memory DC; on failure, release screen DC and return
-            let mem_dc: HDC = CreateCompatibleDC(screen_dc);
-            if mem_dc.0 == 0 {
-                let _ = ReleaseDC(HWND(0), screen_dc);
+            let mem_dc: HDC = CreateCompatibleDC(Some(screen_dc));
+            if mem_dc.0.is_null() {
+                let _ = ReleaseDC(None, screen_dc);
                 return;
             }
 
@@ -237,7 +237,7 @@ impl Overlay {
             let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
             let mut bmi = BITMAPINFO::new(width as i32, height as i32);
             let bitmap: HBITMAP = match CreateDIBSection(
-                mem_dc,
+                Some(mem_dc),
                 &mut bmi.inner,
                 DIB_RGB_COLORS,
                 &mut bits,
@@ -247,12 +247,12 @@ impl Overlay {
                 Ok(bmp) => bmp,
                 Err(_) => {
                     let _ = DeleteDC(mem_dc);
-                    let _ = ReleaseDC(HWND(0), screen_dc);
+                    let _ = ReleaseDC(None, screen_dc);
                     return;
                 }
             };
 
-            let old = SelectObject(mem_dc, bitmap);
+            let old = SelectObject(mem_dc, bitmap.into());
 
             // Fill fully transparent
             let buf_size = (width as usize) * (height as usize) * 4;
@@ -275,10 +275,10 @@ impl Overlay {
             let src = POINT { x: 0, y: 0 };
             let _ = UpdateLayeredWindow(
                 hwnd,
-                screen_dc,
+                Some(screen_dc),
                 Some(&dst),
                 Some(&size),
-                mem_dc,
+                Some(mem_dc),
                 Some(&src),
                 COLORREF(0),
                 Some(&blend),
@@ -288,9 +288,9 @@ impl Overlay {
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
 
             let _ = SelectObject(mem_dc, old);
-            let _ = DeleteObject(bitmap);
+            let _ = DeleteObject(bitmap.into());
             let _ = DeleteDC(mem_dc);
-            let _ = ReleaseDC(HWND(0), screen_dc);
+            let _ = ReleaseDC(None, screen_dc);
         }
     }
 

@@ -10,7 +10,8 @@ use platynui_core::platform::{
 use platynui_core::register_desktop_info_provider;
 use platynui_core::types::Rect;
 use platynui_core::ui::{RuntimeId, TechnologyId};
-use windows::Win32::Foundation::{BOOL, LPARAM, RECT, WIN32_ERROR};
+use windows::Win32::Foundation::{LPARAM, RECT, WIN32_ERROR};
+use windows::core::BOOL;
 use windows::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, MONITORINFO, MONITORINFOEXW,
     EnumDisplayDevicesW, DISPLAY_DEVICEW,
@@ -99,8 +100,8 @@ unsafe fn enumerate_monitors() -> Result<Vec<MonitorInfo>, PlatformError> {
     use windows::Win32::Graphics::Gdi::HDC;
     let mut list: Vec<MonitorInfo> = Vec::new();
     let lparam = LPARAM(&mut list as *mut _ as isize);
-    let ok = unsafe { EnumDisplayMonitors(HDC(0), None, Some(enum_proc), lparam) };
-    if ok == BOOL(0) {
+    let ok = unsafe { EnumDisplayMonitors(None, None, Some(enum_proc), lparam) };
+    if !ok.as_bool() {
         return Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "EnumDisplayMonitors failed"));
     }
     Ok(list)
