@@ -15,7 +15,7 @@ use windows::core::PCWSTR;
 use windows::Win32::Foundation::{COLORREF, HWND, HINSTANCE, POINT, SIZE, WPARAM, LPARAM, LRESULT};
 use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC, SelectObject,
-    BLENDFUNCTION, DIB_RGB_COLORS, AC_SRC_ALPHA, AC_SRC_OVER,
+    BLENDFUNCTION, DIB_RGB_COLORS, AC_SRC_ALPHA, AC_SRC_OVER, HBITMAP, HDC,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DestroyWindow, RegisterClassW, ShowWindow, UpdateLayeredWindow, ULW_ALPHA,
@@ -220,19 +220,37 @@ impl Overlay {
         let width = union.width().max(1.0).round() as i32;
         let height = union.height().max(1.0).round() as i32;
         unsafe {
-            let screen_dc = GetDC(HWND(0));
-            let mem_dc = CreateCompatibleDC(screen_dc);
+            // Acquire screen DC and guard against failures
+            let screen_dc: HDC = GetDC(HWND(0));
+            if screen_dc.0 == 0 {
+                return; // Nothing we can do; avoid leaking handles
+            }
 
+            // Create a compatible memory DC; on failure, release screen DC and return
+            let mem_dc: HDC = CreateCompatibleDC(screen_dc);
+            if mem_dc.0 == 0 {
+                let _ = ReleaseDC(HWND(0), screen_dc);
+                return;
+            }
+
+            // Create a top-down 32bpp DIB section to draw the overlay pixels into
             let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
             let mut bmi = BITMAPINFO::new(width as i32, height as i32);
-            let bitmap = CreateDIBSection(
+            let bitmap: HBITMAP = match CreateDIBSection(
                 mem_dc,
                 &mut bmi.inner,
                 DIB_RGB_COLORS,
                 &mut bits,
                 None,
                 0,
-            ).expect("CreateDIBSection");
+            ) {
+                Ok(bmp) => bmp,
+                Err(_) => {
+                    let _ = DeleteDC(mem_dc);
+                    let _ = ReleaseDC(HWND(0), screen_dc);
+                    return;
+                }
+            };
 
             let old = SelectObject(mem_dc, bitmap);
 

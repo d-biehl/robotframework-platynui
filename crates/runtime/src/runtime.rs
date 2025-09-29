@@ -269,13 +269,6 @@ impl Runtime {
         match self.highlight {
             Some(provider) => {
                 provider.highlight(requests)?;
-                if let Some(duration) = requests.iter().filter_map(|r| r.duration).min() {
-                    let prov: &'static dyn HighlightProvider = provider;
-                    std::thread::spawn(move || {
-                        std::thread::sleep(duration);
-                        let _ = prov.clear();
-                    });
-                }
                 Ok(())
             }
             None => Err(PlatformError::new(
