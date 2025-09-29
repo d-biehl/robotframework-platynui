@@ -27,7 +27,7 @@ Thank you for your interest in PlatynUI! This guide summarizes our current workf
 - Mock-based tests and demos: the mock platform/provider stack is gated behind the `mock-provider` feature. Unit tests pull it in automatically through dev-dependencies, but manual runs (CLI, ad-hoc experiments) need the flag explicitly, e.g. `cargo run --features mock-provider -p platynui-cli -- watch` or `cargo test --features mock-provider -p platynui-cli`.
 
 ## Workflow & Planning
-- `docs/umsetzungsplan.md` is treated as a living plan. After each work batch, tick off completed items, capture new findings, and adjust priorities.
+- `docs/architekturkonzept_runtime_umsetzungsplan.md` is treated as a living plan. After each work batch, tick off completed items, capture new findings, and adjust priorities.
 - Sign every commit with GPG. If the environment cannot access the agent, pause and resolve the issue before proceeding.
 
 ## Documentation

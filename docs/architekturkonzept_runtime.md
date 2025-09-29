@@ -30,9 +30,10 @@ apps/
 └─ inspector                # GUI-Inspector (falls als App ausgelagert) – Crate `platynui-inspector`
 
 docs/
-├─ architekturkonzept_runtime.md # Architekturkonzept (dieses Dokument)
-├─ umsetzungsplan.md         # Aufgabenplan
-└─ patterns.md               # Pattern-Spezifikation (Entwurf)
+├─ architekturkonzept_runtime.md                # Architekturkonzept (dieses Dokument)
+├─ architekturkonzept_runtime_umsetzungsplan.md # Aufgabenplan
+├─ patterns.md                                   # Pattern-Spezifikation (Entwurf)
+└─ provider_checklist.md                         # Provider-Checkliste (Entwurf)
 ```
 Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den UiTreeProvider. Beide greifen auf die gemeinsamen Traits im `crates/core` zurück. Jede Plattform implementiert `PlatformModule::initialize()`; die Runtime ruft diese Methode beim Start genau einmal auf (z. B. richtet Windows hier Per-Monitor-V2-DPI-Awareness ein), bevor Geräte oder Provider registriert werden.
 

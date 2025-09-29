@@ -21,8 +21,9 @@ We aim to provide a Robot Framework-first library.
 ### Documentation
 
 - Architecture & Runtime Concept (German): `docs/architekturkonzept_runtime.md`
-- Implementation Plan (German): `docs/umsetzungsplan.md`
+- Implementation Plan (German): `docs/architekturkonzept_runtime_umsetzungsplan.md`
 - Pattern Catalogue (German – trait capabilities, coordinate rules, mappings): `docs/patterns.md`
+- Provider Checklist (German/EN mix, draft): `docs/provider_checklist.md`
 
 All concept documents are living drafts and evolve alongside the implementation.
 
@@ -69,7 +70,7 @@ cargo run -p platynui-cli --features mock-provider -- keyboard release "<Shift+C
 - Pin dependencies to the latest stable release (`cargo search`, crates.io, or `cargo outdated`).
 - Before committing, run `cargo fmt-all`, `cargo lint`, `cargo check-all`, and `cargo test-all`.
 - Write unit and integration tests with `rstest` (fixtures, `#[case]`, `#[matrix]`).
-- After each work batch, update `docs/umsetzungsplan.md` and tick off completed tasks.
+- After each work batch, update `docs/architekturkonzept_runtime_umsetzungsplan.md` and tick off completed tasks.
 - See `CONTRIBUTING.md` for the full contributor guide.
 
 ### Why PlatynUI?

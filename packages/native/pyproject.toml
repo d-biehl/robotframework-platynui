@@ -14,12 +14,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = [
-  "mypy>=1.7",
-  "pyright>=1.1",
-  "ruff>=0.2",
-  "pytest>=8.0",
-]
+dev = ["pytest>=8.0"]
 
 [build-system]
 requires = ["maturin>=1,<2"]
