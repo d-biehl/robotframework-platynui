@@ -235,6 +235,9 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
   - Darstellung: Roter Rahmen (3 px) mit 1 px Abstand um das Zielrechteck; abgeschnittene Seiten gestrichelt (6 an / 4 aus), andere Seiten durchgezogen.
   - Dauer: Runtime triggert `clear()` nach der kleinsten angeforderten Dauer als Fallback; die CLI wartet lokal für die angegebene Dauer.
 
+— DPI/Scaling
+- Die Plattforminitialisierung setzt Per‑Monitor‑V2‑DPI‑Awareness (`SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`). Koordinaten in Runtime/CLI beziehen sich auf Desktop‑Pixel (Virtual Screen). GDI‑Capture (BitBlt) und `UpdateLayeredWindow` arbeiten in denselben Gerätepixeln; zusätzliche Skalierungen sind nicht erforderlich.
+
 Hinweise & offene Punkte
 - Ressourcenfreigabe (Windows): HDCs nach `GetDC(HWND(0))` freigeben (`ReleaseDC`); Overlay‑Fenster bei `clear()` ggf. zerstören (Klasse deregistrieren, falls nötig).
 - DPI/Scaling: Verhalten unter Per‑Monitor‑V2 prüfen und dokumentieren.

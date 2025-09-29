@@ -14,11 +14,11 @@ use platynui_core::types::Rect;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{COLORREF, HWND, HINSTANCE, POINT, SIZE, WPARAM, LPARAM, LRESULT};
 use windows::Win32::Graphics::Gdi::{
-    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, SelectObject, BLENDFUNCTION,
-    DIB_RGB_COLORS, AC_SRC_ALPHA, AC_SRC_OVER,
+    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC, SelectObject,
+    BLENDFUNCTION, DIB_RGB_COLORS, AC_SRC_ALPHA, AC_SRC_OVER,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, RegisterClassW, ShowWindow, UpdateLayeredWindow, ULW_ALPHA,
+    CreateWindowExW, DestroyWindow, RegisterClassW, ShowWindow, UpdateLayeredWindow, ULW_ALPHA,
     CS_HREDRAW, CS_VREDRAW, SW_HIDE, SW_SHOWNOACTIVATE, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW,
     WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_EX_NOACTIVATE, WS_POPUP,
     WM_MOUSEACTIVATE, MA_NOACTIVATE, DefWindowProcW,
@@ -272,12 +272,16 @@ impl Overlay {
             let _ = SelectObject(mem_dc, old);
             let _ = DeleteObject(bitmap);
             let _ = DeleteDC(mem_dc);
+            let _ = ReleaseDC(HWND(0), screen_dc);
         }
     }
 
     fn clear(&mut self) {
-        if let Some(hwnd) = self.hwnd {
-            unsafe { let _ = ShowWindow(hwnd, SW_HIDE); }
+        if let Some(hwnd) = self.hwnd.take() {
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                let _ = DestroyWindow(hwnd);
+            }
         }
     }
 }

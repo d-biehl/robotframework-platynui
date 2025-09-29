@@ -187,9 +187,11 @@ Implementierungsstand (2025-09-29)
 - CLI: `platynui-cli screenshot [--rect X,Y,W,H] [FILE]`. Ohne `FILE` wird `screenshot-<epoch_ms>.png` im CWD erzeugt; Existenz → numerische Suffixe. Negative Koordinaten werden korrekt geparst (Clap `allow_hyphen_values`).
 - PNG: CLI konvertiert BGRA→RGBA, schreibt PNG (`png` 0.18.0). 
 
+Ergänzungen (2025-09-29 später am Tag)
+- Ressourcen-Cleanup umgesetzt: `ReleaseDC(NULL, screen_dc)` im Screenshot‑Provider (alle Pfade), `ReleaseDC` im Highlight‑Overlay, `DestroyWindow` bei `clear()` (Overlay wird vollständig entsorgt).
+- DPI-Hinweis ergänzt: Per‑Monitor‑V2‑DPI‑Awareness aktiv; Koordinaten = Desktop‑Pixel; GDI/LayeredWindow arbeiten in denselben Gerätepixeln.
+
 Offen/Nächste Schritte
-- Ressourcen-Cleanup: DCs vom Screen freigeben (`ReleaseDC`) in allen Codepfaden; Overlay‑Fenster ggf. bei Clear zerstören und Fensterklasse deregistrieren.
-- DPI/Scaling: Verhalten unter Per‑Monitor‑V2 verifizieren und notieren.
 - Optional: CLI‑UX verbessern – Hinweis bei Beschnitt, `--strict` (Fehler statt Clamping), „keep‑size“-Modus (Verschieben statt Skalieren).
 
 #### 19.4 Platform-Initialisierung (`platynui-platform-windows`)
