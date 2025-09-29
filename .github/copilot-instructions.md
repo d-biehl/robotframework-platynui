@@ -4,11 +4,11 @@
 Trust this file first. Only search the repo when information is missing or demonstrably wrong.
 
 ## 1. Purpose & Summary
-PlatynUI is an experimental cross‑platform UI automation toolkit for Robot Framework. Core logic (data types + XPath 2.0-ish engine) lives in Rust crates; Python provides a Robot Framework library surface and packaging (including a Rust server binary via `maturin`). Project is early stage: expect gaps, evolving APIs, sparse docs.
+PlatynUI is an experimental cross‑platform UI automation toolkit for Robot Framework. Core logic (data types + XPath 2.0-ish engine) lives in Rust crates; Python provides a Robot Framework library surface and packaging (including a Rust native binary via `maturin`). Project is early stage: expect gaps, evolving APIs, sparse docs.
 
 ## 2. Tech & Tooling (Authoritative)
 Languages: Rust 2024 edition (tested rustc/cargo 1.89.0), Python >=3.10 (dev seen 3.13.7), Robot Framework >=7.0.
-Primary tools: `uv` (ALWAYS for Python deps + scripts), `cargo` (Rust build/test), `maturin` (packaging server), `ruff` (lint), `mypy` (optional types).
+Primary tools: `uv` (ALWAYS for Python deps + scripts), `cargo` (Rust build/test), `maturin` (packaging native), `ruff` (lint), `mypy` (optional types).
 Never use `pip install`; always `uv sync` after editing any `pyproject.toml`.
 
 ## 3. Repository Layout (High Value Paths)
@@ -18,7 +18,7 @@ Rust crates:
   - Core types: `crates/platynui-core/src/`
   - XPath engine: `crates/platynui-xpath/src/` (parser/, compiler/, evaluator.rs, runtime.rs, functions.rs, xdm.rs)
   - Playground: `crates/playground/` (experiments, not API source)
-Python packages workspace: `packages/core/` (placeholder), `packages/server/` (Rust binary packaged).
+Python packages workspace: `packages/core/` (placeholder), `packages/native/` (Rust binary packaged).
 Generated / artifacts: `target/` (Rust), `.venv/` (virtual env), `results/` (Robot output if tests added later).
 Tests: Numerous Rust tests under `crates/platynui-xpath/tests` and unit tests inside `platynui-core`. `trash/` contains legacy / staging tests—ignore for new work unless migrating.
 
@@ -47,9 +47,9 @@ Type check (optional when adding hints):
 ```bash
 uv run mypy src
 ```
-Package server wheel (only if distribution explicitly needed):
+Package native wheel (only if distribution explicitly needed):
 ```bash
-uv run maturin build -m packages/server/pyproject.toml --no-sdist
+uv run maturin build -m packages/native/pyproject.toml --no-sdist
 ```
 Robot Framework test run placeholder (only if a `tests/` RF suite appears):
 ```bash
@@ -67,7 +67,7 @@ Rust public API: update inside the specific crate then re-export in its `lib.rs`
 XPath engine changes: modify relevant module in `crates/platynui-xpath/src/`; add focused tests in `crates/platynui-xpath/tests/` mirroring existing naming (e.g., `evaluator_<feature>.rs` or `parser_<aspect>.rs`).
 New Rust crate: place under `crates/` and ensure workspace membership (root `Cargo.toml` already glob-includes; usually no edit required). Build to verify.
 Python keyword additions: extend `src/PlatynUI/__init__.py` or introduce modules imported there; keep names snake_case and return values (avoid print side-effects). If adding a new Python package, list it in `[tool.uv.workspace].members` then `uv sync`.
-Rust ↔ Python boundary changes: confine to `packages/server/`. Don’t mix binding code into core logic crates.
+Rust ↔ Python boundary changes: confine to `packages/native/`. Don’t mix binding code into core logic crates.
 
 ## 7. Style & Conventions
 Rust: Edition 2024. Follow existing naming (snake_case functions, PascalCase types). Keep generics bounds consistent with existing node trait patterns. Use `cargo fix` for trivial warnings (e.g., unused parentheses). Use `serde` for (de)serialization—do NOT add alternate JSON libs.
