@@ -27,16 +27,17 @@ uv run pytest -q packages/native/tests
 API overview
 
 - Module layout
-  - `platynui_native.core`: Point/Size/Rect, Namespace, IDs, attribute_names()
-  - `platynui_native.runtime`: Runtime, Node, pointer/keyboard methods
+  - `platynui_native.core`: `Point`/`Size`/`Rect`, `Namespace`, IDs, `attribute_names()`
+  - `platynui_native.runtime`: `Runtime`, `UiNode`, `UiAttribute`, `EvaluatedAttribute`, pointer/keyboard methods
 
 - Creating a Runtime
   - `rt = runtime.Runtime()`
 
 - Pointer buttons
-  - Accepts: `'left' | 'middle' | 'right'` or integer `n` → `PointerButton.Other(n)`
+  - Accepts: `'left' | 'middle' | 'right'`, `runtime.PointerButton` enum, or `int`.
+  - Mapping: `1 → LEFT`, `2 → MIDDLE`, `3 → RIGHT`, other ints → `Other(n)`.
 
-- Pointer overrides (dict)
+- Pointer overrides (class)
   - Timing (milliseconds unless noted):
     - `after_move_delay_ms`, `after_input_delay_ms`, `press_release_delay_ms`,
       `after_click_delay_ms`, `before_next_click_delay_ms`, `multi_click_delay_ms`,
@@ -47,18 +48,19 @@ API overview
     - `acceleration_profile: 'constant'|'ease_in'|'ease_out'|'smooth_step'`
   - Origin (choose one):
     - `'desktop'`
-    - `(x: float, y: float)` → absolute desktop point
-    - `(x, y, w, h)` → relative to rect (top-left origin)
-    - `{'absolute': (x, y)}` or `{'bounds': (x, y, w, h)}`
+    - `core.Point(x, y)` → absolute desktop point
+    - `core.Rect(x, y, w, h)` → relative to rect (top-left origin)
   - Scrolling:
     - `scroll_step: (h: float, v: float)`; `scroll_delay_ms`
   - Other:
     - `ensure_move_threshold: float`
+  - Properties: all fields are exposed read‑only (e.g. `ov.speed_factor`, `ov.origin`, `ov.after_move_delay_ms`).
 
-- Keyboard overrides (dict, milliseconds)
+- Keyboard overrides (class, milliseconds)
   - `press_delay_ms`, `release_delay_ms`, `between_keys_delay_ms`,
     `chord_press_delay_ms`, `chord_release_delay_ms`,
     `after_sequence_delay_ms`, `after_text_delay_ms`.
+  - Properties: `kov.press_delay_ms`, `kov.between_keys_delay_ms`, etc.
 
 Examples
 
@@ -67,18 +69,17 @@ from platynui_native import core, runtime
 rt = runtime.Runtime()
 
 # Move & click with overrides
-rt.pointer_move_to((100, 200), overrides={
-    'speed_factor': 1.5,
-    'after_move_delay_ms': 15,
-    'origin': 'desktop',
-})
-rt.pointer_click((100, 200), button='left', overrides={'multi_click_delay_ms': 240})
+ov = runtime.PointerOverrides(speed_factor=1.5, after_move_delay_ms=15, origin='desktop')
+rt.pointer_move_to((100, 200), overrides=ov)
+rt.pointer_click(core.Point(100, 200), button=runtime.PointerButton.LEFT,
+                 overrides=runtime.PointerOverrides(multi_click_delay_ms=240))
 
 # Drag with relative origin
-rt.pointer_drag((10, 10), (180, 140), button='left', overrides={'origin': (50, 60, 200, 200)})
+rt.pointer_drag(core.Point(10, 10), core.Point(180, 140), button=runtime.PointerButton.LEFT,
+                overrides=runtime.PointerOverrides(origin=core.Rect(50, 60, 200, 200)))
 
 # Keyboard with custom timings
-rt.keyboard_type("Hello", overrides={'between_keys_delay_ms': 5})
+rt.keyboard_type("Hello", overrides=runtime.KeyboardOverrides(between_keys_delay_ms=5))
 rt.keyboard_press("<Ctrl+C>")
 rt.keyboard_release("<Ctrl+C>")
 ```
@@ -86,6 +87,11 @@ rt.keyboard_release("<Ctrl+C>")
 Notes
 
 - The mock provider feature (`--features runtime-mock`) is intended for local development without platform backends. Some pointer/keyboard calls may raise `PointerError`/`KeyboardError` if the device is not available; structure/typing of arguments is still validated.
+
+- Evaluate results
+  - `Runtime.evaluate()` returns a list of `UiNode`, `EvaluatedAttribute`, or plain values (`UiValue`).
+  - `UiNode.attributes()` returns `list[UiAttribute]` (no owner).
+  - `EvaluatedAttribute` includes an `owner()` reference back to the `UiNode` it belongs to.
 
 Reference
 

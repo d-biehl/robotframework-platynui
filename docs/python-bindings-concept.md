@@ -42,19 +42,17 @@ This document proposes a clean, future‑proof design for Python bindings to Pla
   - `UiValue` is not a separate PyClass; it is converted to native Python types: `None | bool | int | float | str | list | dict | tuple` (for `Point/Rect/Size`).
 
 ### `platynui_native.runtime`
-- `Runtime` PyClass exposing:
-  - `@classmethod new() -> Runtime` (discovers providers, sets up event pipeline; uses platform modules when available).
-  - `evaluate(xpath: str, node: Node | None = None) -> list[EvaluationItem]`.
-  - `focus(node: Node) -> None`.
-  - Pointer ops: `pointer_move_to`, `pointer_click`, `pointer_multi_click`, `pointer_drag`, `pointer_position`.
-  - Keyboard ops: `keyboard_press`, `keyboard_release`, `keyboard_type`.
-  - Highlight/screenshot: `highlight(requests)`, `clear_highlight()`, `screenshot(request) -> bytes | memoryview` (exact shapes tbd; MVP can return Python‑native dicts/bytes).
-  - `shutdown() -> None`.
-- `Node` PyClass wrapping `Arc<dyn UiNode>` with properties:
-  - `runtime_id: str`, `name: str`, `role: str`, `namespace: core.Namespace`.
-  - `attribute(namespace: core.Namespace | str, name: str) -> object` returning Python‑native value.
-- `EvaluationItem` return values are Python‑native:
-  - A `Node` instance, or a dict of shape `{"type": "attr", "owner": Node, "namespace": core.Namespace, "name": str, "value": object}`, or a plain Python value.
+- `Runtime`
+  - `Runtime()` (constructor), `shutdown()`
+  - `evaluate(xpath: str, node: UiNode | None = None) -> list[UiNode | EvaluatedAttribute | UiValue]`
+  - Pointer ops: `pointer_position`, `pointer_move_to`, `pointer_click`, `pointer_multi_click`, `pointer_drag`, `pointer_press`, `pointer_release`, `pointer_scroll`
+  - Keyboard ops: `keyboard_type`, `keyboard_press`, `keyboard_release`
+- `UiNode` (wraps `Arc<dyn UiNode>`)
+  - Properties: `runtime_id`, `name`, `role`, `namespace`
+  - Methods: `attribute(name, namespace=None) -> UiValue`, `parent() -> UiNode | None`, `children() -> list[UiNode]`, `attributes() -> list[UiAttribute]`, `supported_patterns() -> list[str]`, `doc_order_key() -> int | None`, `invalidate()`, `has_pattern(id) -> bool`, `pattern_by_id(id) -> object | None`
+- Attribute classes
+  - `UiAttribute`: `namespace`, `name`, `value` (no owner)
+  - `EvaluatedAttribute`: `namespace`, `name`, `value`, `owner() -> UiNode | None`
 
 ## Type Conversion Strategy
 
@@ -74,9 +72,9 @@ impl From<PointLike<'_>> for platynui_core::types::Point { /* map to core::Point
 - Apply the same pattern for rectangles, sizes, optional overrides, etc. Use `#[pyo3(from_py_with = "...")]` where custom parsing helps.
 
 ### Outbound Values
-- Convert Rust `UiValue` to Python natively:
-  - `Null → None`, `Bool/Integer/Number/String → bool/int/float/str`, `Array/Object → list/dict`, `Point/Size/Rect → tuples`.
-- Expose `Point/Size/Rect` PyClasses for users who prefer rich objects; keep tuple interop for convenience.
+- Convert Rust `UiValue` to Python natively (`UiValue` in Python):
+  - `Null → None`, `Bool/Integer/Number/String → bool/int/float/str`, `Array/Object → list/dict`, `Point/Size/Rect → core.Point/core.Size/core.Rect`.
+- `Point/Size/Rect` sind echte Klassen mit Properties und `to_tuple()` bei Bedarf.
 
 ## Error Mapping
 - Map domain errors to Python exceptions with helpful messages:
@@ -189,7 +187,7 @@ packages/
 
 This concept aims to balance ergonomics, stability, and maintainability: one native wheel, clear submodules, flexible inputs via `FromPyObject`, strong typing with curated .pyi, and a thin optional wrapper layer for API stability and DX.
 
-## Implementation Status (2025‑09‑28)
+## Implementation Status (2025‑09‑29)
 
 The first slice is implemented under `packages/native` and usable for local dev with the mock provider. Highlights below.
 
@@ -208,11 +206,11 @@ The first slice is implemented under `packages/native` and usable for local dev 
 ### `runtime` Submodule (Rust → Python)
 - Exceptions: `EvaluationError`, `ProviderError`, `PointerError`, `KeyboardError`, `PatternError`
 - Runtime lifecycle: `Runtime()` (constructor), `evaluate(xpath, node=None)`, `shutdown()`
-- Node wrapper: properties + navigation and metadata
+- UiNode wrapper: properties + navigation and metadata
   - `runtime_id`, `name`, `role`, `namespace`
   - `attribute(name, namespace=None)` → Python native value
-  - `parent() -> Node|None`, `children() -> list[Node]`
-  - `attributes() -> list[{namespace,name,value}]`
+  - `parent() -> UiNode|None`, `children() -> list[UiNode]`
+  - `attributes() -> list[UiAttribute]` (no owner)
   - `supported_patterns() -> list[str]`, `doc_order_key() -> int|None`, `invalidate()`
   - `has_pattern(id: str) -> bool`
   - `pattern_by_id(id: str) -> object|None` (see Pattern wrappers)
@@ -224,34 +222,24 @@ The first slice is implemented under `packages/native` and usable for local dev 
 
 ### Pointer/Keyboard APIs
 - Pointer
-  - `pointer_position() -> core.Point`
-  - `pointer_move_to(point, overrides=None) -> core.Point`
-  - `pointer_click(point, button=None, overrides=None) -> None`
-  - `pointer_multi_click(point, clicks, button=None, overrides=None) -> None`
-  - `pointer_drag(start, end, button=None, overrides=None) -> None`
-  - `pointer_press(point=None, button=None, overrides=None) -> None`
-  - `pointer_release(button=None, overrides=None) -> None`
-  - `pointer_scroll(delta, overrides=None) -> None` (`delta = (h, v)`)
+  - Buttons: `ButtonLike = int | runtime.PointerButton`; ints `1/2/3` → `LEFT/MIDDLE/RIGHT`, sonst `Other(n)`
+  - Overrides: `PointerOverrides` Klasse (nur Klasse); read‑only Properties für alle Felder
+  - Origin: `'desktop' | core.Point | core.Rect`; Property `origin` liefert `'desktop'`, `core.Point` oder `core.Rect`
+  - Methoden: wie oben
 - Keyboard
-  - `keyboard_type(sequence, overrides=None)`
-  - `keyboard_press(sequence, overrides=None)`
-  - `keyboard_release(sequence, overrides=None)`
+  - Overrides: `KeyboardOverrides` Klasse (nur Klasse); read‑only Properties
 
 ### FromPyObject Ergonomics
-- Points/Rects: `PointLike = tuple | core.Point`, `RectLike = tuple | core.Rect`
+- Points/Rects: `PointLike = core.Point` (keine Tuple‐Kurzform)
 - Scroll delta: `ScrollLike = (float, float)`
 - Buttons: `PointerButtonLike = str('left'|'middle'|'right') | int` (int maps to `Other(n)`)
 - Origins: `OriginInput = 'desktop' | (x,y) | (x,y,w,h) | {'absolute':(x,y)} | {'bounds':(x,y,w,h)}`
-- Pointer overrides: `PointerOverridesInput` consumes dict `{ speed_factor, acceleration_profile, …, origin, scroll_step, *_ms, *_us }` → `PointerOverrides`
-- Keyboard overrides: `KeyboardOverridesInput` consumes dict `{ press_delay_ms, release_delay_ms, … }` → `KeyboardOverrides`
+- Pointer overrides: prefer concrete `runtime.PointerOverrides` class; dicts remain supported for convenience and are parsed via `FromPyObject`.
+- Keyboard overrides: prefer concrete `runtime.KeyboardOverrides` class; dicts remain supported for convenience and are parsed via `FromPyObject`.
 
 ### Typing (.pyi)
-- `platynui_native/__init__.pyi` (re‑exports)
-- `core.pyi`: classes + functions (as designed)
-- `runtime.pyi`:
-  - `Node`, `Runtime`, `PointerOverridesDict`, `KeyboardOverridesDict`, `EvaluatedAttribute`, `NodeAttribute`
-  - Overloads for tuple|core.Point arguments and pointer buttons (Literals)
-  - Pattern wrappers: `Focusable`, `WindowSurface`
+- `core.pyi`: `Point/Size/Rect`, IDs, `Namespace`, helpers
+- `runtime.pyi`: `UiNode`, `UiAttribute`, `EvaluatedAttribute`, `Runtime`, `PointerOverrides`, `KeyboardOverrides`, `PointerButton` enum; kompakte Signaturen mit `PointLike`, `ButtonLike` etc.
 
 ### Tests
 - `packages/native/tests/test_runtime_basic.py`
@@ -265,7 +253,7 @@ The first slice is implemented under `packages/native` and usable for local dev 
 - Usage:
   - `from platynui_native import core, runtime`
   - `rt = runtime.Runtime()`
-  - `items = rt.evaluate("/")` → list of `Node`/values/attribute dicts
+  - `items = rt.evaluate("/")` → list of `UiNode | EvaluatedAttribute | UiValue`
 
 ### Known Limitations / Next Steps
 - Pattern coverage: only `Focusable` and `WindowSurface` are exposed. Extend with additional wrappers (Text*, Toggleable, Selection*, …) as traits stabilize.
