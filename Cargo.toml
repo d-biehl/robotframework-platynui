@@ -2,7 +2,7 @@
 members = [
     "crates/*",
     "apps/*",
-    "packages/native",
+    "packages/native"
 ]
 default-members = ["crates/playground"]
 resolver = "3"

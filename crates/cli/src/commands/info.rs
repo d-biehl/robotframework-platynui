@@ -1,12 +1,12 @@
 use crate::OutputFormat;
-use crate::util::{CliResult, yes_no};
+use crate::util::CliResult;
 use platynui_core::platform::{DesktopInfo, MonitorInfo};
 use platynui_core::types::Rect;
 use platynui_runtime::Runtime;
 use serde::Serialize;
 use std::fmt::Write;
 
-#[derive(Serialize, Debug, PartialEq)]
+#[derive(Serialize, Debug, PartialEq, Clone)]
 struct MonitorSummary {
     id: String,
     name: Option<String>,
@@ -74,24 +74,54 @@ fn render_info_text(desktop: &DesktopSummary) -> String {
     if desktop.monitors.is_empty() {
         let _ = writeln!(&mut output, "Monitors: none");
     } else {
+        // Sort monitors left→right, then top→bottom for readability
+        let mut monitors = desktop.monitors.clone();
+        monitors.sort_by(|a, b| {
+            a.bounds
+                .x()
+                .partial_cmp(&b.bounds.x())
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(
+                    a.bounds
+                        .y()
+                        .partial_cmp(&b.bounds.y())
+                        .unwrap_or(std::cmp::Ordering::Equal),
+                )
+        });
+
         let _ = writeln!(&mut output, "Monitors:");
-        for monitor in &desktop.monitors {
+        for (idx, monitor) in monitors.iter().enumerate() {
             let name = monitor.name.as_deref().unwrap_or("(unnamed)");
-            let scale =
-                monitor.scale_factor.map(|value| format!(", scale={value:.2}")).unwrap_or_default();
+            let primary = if monitor.is_primary { "*" } else { " " };
+            let scale = monitor
+                .scale_factor
+                .map(|v| format!(" @ {:.2}x", v))
+                .unwrap_or_default();
             let _ = writeln!(
                 &mut output,
-                "  - [{}] {} (primary: {}) bounds: {}{}",
-                monitor.id,
+                "  [{}]{} {} [{}] {}×{} at ({}, {}){}",
+                idx + 1,
+                primary,
                 name,
-                yes_no(monitor.is_primary),
-                monitor.bounds,
+                monitor.id,
+                number(monitor.bounds.width()),
+                number(monitor.bounds.height()),
+                number(monitor.bounds.x()),
+                number(monitor.bounds.y()),
                 scale
             );
         }
     }
 
     output.trim_end().to_owned()
+}
+
+fn number(value: f64) -> String {
+    if (value.fract()).abs() < f64::EPSILON {
+        format!("{:.0}", value)
+    } else {
+        format!("{:.2}", value)
+    }
 }
 
 fn render_info_json(summary: &DesktopSummary) -> CliResult<String> {

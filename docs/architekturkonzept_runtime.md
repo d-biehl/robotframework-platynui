@@ -241,6 +241,21 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
 Init-Reihenfolge (19.4)
 - Die Runtime ruft beim Start zuerst alle registrierten `PlatformModule::initialize()`‑Hooks auf und erst danach die Provider‑Fabriken. Ein Runtime‑Test stellt sicher, dass diese Reihenfolge eingehalten wird (ein Test‑PlatformModule setzt einen Flag, ein Test‑Provider prüft den Flag in `create()`). Damit sind DPI‑Einstellungen aktiv, bevor Geräte/Provider Koordinaten abfragen oder Fenster/Monitore ermitteln.
 
+Windows Desktop & Monitore (19.5)
+- Desktop‑Bounds: aus Virtual‑Screen (`SM_*VIRTUALSCREEN`);
+- Monitorliste: `EnumDisplayMonitors` + `GetMonitorInfoW(MONITORINFOEXW)` liefert pro Display `id`/`name` (Device‑Name), `bounds` und `is_primary`.
+- OS‑Version: best‑effort als `<major>.<minor>[.<build>]` (Fallback vorhanden). Genauigkeit ist für die Runtime zweitrangig; wichtig ist die Stabilität der Desktop‑Koordinaten.
+- DPI/Scaling: pro‑Monitor Effektiv‑DPI via `GetDpiForMonitor(MDT_EFFECTIVE_DPI)` → `scale_factor = dpi/96.0`. Die CLI zeigt den Faktor als Suffix `@ <x.xx>x`.
+- Beispielausgabe (CLI `info`, Textformat):
+  ```
+  Monitors:
+    [1]* DELL U2720Q [\\.\\DISPLAY2] 3840×2160 at (0, 0) @ 1.25x
+    [2]  HP Z27      [\\.\\DISPLAY3] 2560×1600 at (3840, 0) @ 1.00x
+    [3]  HP Z27      [\\.\\DISPLAY4] 2560×1600 at (3840, 1600) @ 1.00x
+    [4]  BenQ EW32   [\\.\\DISPLAY1] 3840×2160 at (-3840, 0) @ 1.50x
+  ```
+- Negative Koordinaten entstehen bei Anordnungen mit links/oben liegenden Displays; CLI‑Beispiele funktionieren über die Vereinigungsfläche des Virtual‑Screens.
+
 Hinweise & offene Punkte
 - Ressourcenfreigabe (Windows): HDCs nach `GetDC(HWND(0))` freigeben (`ReleaseDC`); Overlay‑Fenster bei `clear()` ggf. zerstören (Klasse deregistrieren, falls nötig).
 - DPI/Scaling: Verhalten unter Per‑Monitor‑V2 prüfen und dokumentieren.
