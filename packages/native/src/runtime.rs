@@ -1004,32 +1004,8 @@ impl<'py> pyo3::FromPyObject<'py> for OriginInput {
             let ri = r.as_inner();
             return Ok(OriginInput::Bounds((ri.x(), ri.y(), ri.width(), ri.height())));
         }
-        if let Ok(t) = obj.extract::<(f64, f64)>() {
-            return Ok(OriginInput::Absolute(t));
-        }
-        if let Ok(t) = obj.extract::<(f64, f64, f64, f64)>() {
-            return Ok(OriginInput::Bounds(t));
-        }
-        if let Ok(d) = obj.downcast::<PyDict>() {
-            if let Some(v) = dict_get(d, "absolute") {
-                if let Ok(p) = v.extract::<PyRef<PyPoint>>() {
-                    let pi = p.as_inner();
-                    return Ok(OriginInput::Absolute((pi.x(), pi.y())));
-                }
-                let t = v.extract::<(f64, f64)>()?;
-                return Ok(OriginInput::Absolute(t));
-            }
-            if let Some(v) = dict_get(d, "bounds") {
-                if let Ok(r) = v.extract::<PyRef<PyRect>>() {
-                    let ri = r.as_inner();
-                    return Ok(OriginInput::Bounds((ri.x(), ri.y(), ri.width(), ri.height())));
-                }
-                let t = v.extract::<(f64, f64, f64, f64)>()?;
-                return Ok(OriginInput::Bounds(t));
-            }
-        }
         Err(pyo3::exceptions::PyTypeError::new_err(
-            "invalid origin: expected 'desktop', (x,y), (x,y,w,h) or {'absolute':...}/{'bounds':...}",
+            "invalid origin: expected 'desktop', core.Point or core.Rect",
         ))
     }
 }

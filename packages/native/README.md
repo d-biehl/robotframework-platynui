@@ -70,7 +70,7 @@ rt = runtime.Runtime()
 
 # Move & click with overrides
 ov = runtime.PointerOverrides(speed_factor=1.5, after_move_delay_ms=15, origin='desktop')
-rt.pointer_move_to((100, 200), overrides=ov)
+rt.pointer_move_to(core.Point(100, 200), overrides=ov)
 rt.pointer_click(core.Point(100, 200), button=runtime.PointerButton.LEFT,
                  overrides=runtime.PointerOverrides(multi_click_delay_ms=240))
 

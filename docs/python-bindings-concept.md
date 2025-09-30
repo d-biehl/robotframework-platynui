@@ -57,12 +57,11 @@ This document proposes a clean, future‑proof design for Python bindings to Pla
 ## Type Conversion Strategy
 
 ### Flexible Inputs via `FromPyObject`
-- Use `#[derive(FromPyObject)]` to accept ergonomic Python arguments, e.g. tuples or PyClasses:
+- Use `#[derive(FromPyObject)]` to accept ergonomic Python arguments where it improves DX, but keep shapes explicit and consistent with typing stubs:
 
 ```rust
 #[derive(FromPyObject)]
 enum PointLike<'py> {
-    Tuple((f64, f64)),
     Core(PyRef<'py, crate::core::Point>),
 }
 
@@ -73,7 +72,7 @@ impl From<PointLike<'_>> for platynui_core::types::Point { /* map to core::Point
 
 ### Outbound Values
 - Convert Rust `UiValue` to Python natively (`UiValue` in Python):
-  - `Null → None`, `Bool/Integer/Number/String → bool/int/float/str`, `Array/Object → list/dict`, `Point/Size/Rect → core.Point/core.Size/core.Rect`.
+  - `Null → None`, `Bool/Integer/Number/String → bool/int/float/str`, `Array/Object → list/dict`, and complex values as classes: `Point/Size/Rect → core.Point/core.Size/core.Rect`.
 - `Point/Size/Rect` sind echte Klassen mit Properties und `to_tuple()` bei Bedarf.
 
 ## Error Mapping
@@ -231,11 +230,11 @@ The first slice is implemented under `packages/native` and usable for local dev 
   - Overrides: `KeyboardOverrides` Klasse (nur Klasse); read‑only Properties
 
 ### FromPyObject Ergonomics
-- Points/Rects: `PointLike = core.Point` (keine Tuple‐Kurzform)
+- Points/Rects: `PointLike = core.Point` (keine Tuple‑Kurzform)
 - Scroll delta: `ScrollLike = (float, float)`
 - Buttons: `PointerButtonLike = str('left'|'middle'|'right') | int` (int maps to `Other(n)`)
-- Origins: `OriginInput = 'desktop' | (x,y) | (x,y,w,h) | {'absolute':(x,y)} | {'bounds':(x,y,w,h)}`
-- Pointer overrides: prefer concrete `runtime.PointerOverrides` class; dicts remain supported for convenience and are parsed via `FromPyObject`.
+- Origins: `OriginInput = 'desktop' | core.Point | core.Rect` (keine Dict/Tuple‑Formen)
+- Pointer overrides: prefer concrete `runtime.PointerOverrides` class; dicts remain supported for convenience and are parsed via `FromPyObject` (the `origin` key must be `'desktop'`/`core.Point`/`core.Rect`).
 - Keyboard overrides: prefer concrete `runtime.KeyboardOverrides` class; dicts remain supported for convenience and are parsed via `FromPyObject`.
 
 ### Typing (.pyi)
@@ -246,7 +245,7 @@ The first slice is implemented under `packages/native` and usable for local dev 
 - `packages/native/tests/test_runtime_basic.py`
   - `evaluate("/")` returns desktop node; basic pointer/keyboard smoke (skips on missing devices)
 - `packages/native/tests/test_overrides_frompyobject.py`
-  - Validates dict/tuple/str/int inputs convert via `FromPyObject` for pointer/keyboard overrides, origins, buttons
+  - Validates dict/str/int inputs via `FromPyObject` (overrides accepted as dict or class), origins restricted to `'desktop'`/`core.Point`/`core.Rect`, buttons as enum/int
 
 ### Build/Run (local, mock)
 - Install: `uv run maturin develop -m packages/native/Cargo.toml --release --features mock-provider`
