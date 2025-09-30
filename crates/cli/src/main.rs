@@ -19,8 +19,8 @@ use commands::{
     watch::{self, WatchArgs},
     window::{self, WindowArgs},
 };
-use platynui_runtime::Runtime;
 use platynui_link::platynui_link_providers;
+use platynui_runtime::Runtime;
 use util::{CliResult, map_provider_error};
 
 // Link real platform providers in non-test builds so the CLI binary brings the
@@ -221,13 +221,8 @@ mod tests {
 
     #[test]
     fn clap_parsing_screenshot_rect_allows_negative() {
-        let cli = Cli::try_parse_from([
-            "platynui",
-            "screenshot",
-            "--rect",
-            "-10,-10,200,2000",
-        ])
-        .expect("parse");
+        let cli = Cli::try_parse_from(["platynui", "screenshot", "--rect", "-10,-10,200,2000"])
+            .expect("parse");
         match cli.command {
             Commands::Screenshot(args) => {
                 let r = args.rect.expect("rect parsed");

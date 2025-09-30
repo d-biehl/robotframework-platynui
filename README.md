@@ -24,6 +24,7 @@ We aim to provide a Robot Framework-first library.
 - Implementation Plan (German): `docs/architekturkonzept_runtime_umsetzungsplan.md`
 - Pattern Catalogue (German – trait capabilities, coordinate rules, mappings): `docs/patterns.md`
 - Provider Checklist (German/EN mix, draft): `docs/provider_checklist.md`
+- Windows UIA Provider – Design (German, EN summary): `docs/provider_windows_uia_design.md`
 
 All concept documents are living drafts and evolve alongside the implementation.
 

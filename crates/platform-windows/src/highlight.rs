@@ -1,8 +1,8 @@
 #![cfg(target_os = "windows")]
 
 use std::mem::size_of;
-use std::sync::mpsc::{Receiver, Sender};
 use std::sync::OnceLock;
+use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
@@ -11,18 +11,18 @@ use platynui_core::platform::{
 };
 use platynui_core::register_highlight_provider;
 use platynui_core::types::Rect;
-use windows::core::PCWSTR;
-use windows::Win32::Foundation::{COLORREF, HWND, HINSTANCE, POINT, SIZE, WPARAM, LPARAM, LRESULT};
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC, SelectObject,
-    BLENDFUNCTION, DIB_RGB_COLORS, AC_SRC_ALPHA, AC_SRC_OVER, HBITMAP, HDC,
+    AC_SRC_ALPHA, AC_SRC_OVER, BLENDFUNCTION, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS,
+    DeleteDC, DeleteObject, GetDC, HBITMAP, HDC, ReleaseDC, SelectObject,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, RegisterClassW, ShowWindow, UpdateLayeredWindow, ULW_ALPHA,
-    CS_HREDRAW, CS_VREDRAW, SW_HIDE, SW_SHOWNOACTIVATE, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW,
-    WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_EX_NOACTIVATE, WS_POPUP,
-    WM_MOUSEACTIVATE, MA_NOACTIVATE, DefWindowProcW,
+    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, MA_NOACTIVATE,
+    RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, ShowWindow, ULW_ALPHA, UpdateLayeredWindow,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WM_MOUSEACTIVATE, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
+use windows::core::PCWSTR;
 
 // Public registration ----------------------------------------------------------------------------
 
@@ -49,10 +49,7 @@ impl HighlightProvider for WindowsHighlightProvider {
 }
 
 fn min_duration(requests: &[HighlightRequest]) -> Option<Duration> {
-    requests
-        .iter()
-        .filter_map(|r| r.duration)
-        .min()
+    requests.iter().filter_map(|r| r.duration).min()
 }
 
 // Overlay controller -----------------------------------------------------------------------------
@@ -68,18 +65,17 @@ impl OverlayController {
     }
 
     fn show(&self, rects: &[Rect], duration: Option<Duration>) -> Result<(), PlatformError> {
-        self.tx
-            .send(Command::Show { rects: rects.to_vec(), duration })
-            .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight thread stopped"))
+        self.tx.send(Command::Show { rects: rects.to_vec(), duration }).map_err(|_| {
+            PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight thread stopped")
+        })
     }
 
     fn clear(&self) -> Result<(), PlatformError> {
-        self.tx
-            .send(Command::Clear)
-            .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight thread stopped"))
+        self.tx.send(Command::Clear).map_err(|_| {
+            PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight thread stopped")
+        })
     }
 }
-
 
 struct OverlayThread;
 
@@ -96,7 +92,9 @@ impl OverlayThread {
         let class_name: Vec<u16> = "PlatynUI_Highlight\0".encode_utf16().collect();
         unsafe {
             extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
-                if msg == WM_MOUSEACTIVATE { return LRESULT(MA_NOACTIVATE as isize); }
+                if msg == WM_MOUSEACTIVATE {
+                    return LRESULT(MA_NOACTIVATE as isize);
+                }
                 unsafe { DefWindowProcW(hwnd, msg, w, l) }
             }
             let wc = WNDCLASSW {
@@ -180,7 +178,8 @@ impl Overlay {
                 None,
                 None,
                 None,
-            ).expect("CreateWindowExW");
+            )
+            .expect("CreateWindowExW");
             self.hwnd = Some(hwnd);
             hwnd
         }
@@ -197,10 +196,8 @@ impl Overlay {
 
         // Expand each requested rect so the frame is drawn AROUND the target
         // area with a 1px gap instead of covering the target itself.
-        let expanded: Vec<Rect> = rects
-            .iter()
-            .map(|r| expand_rect(r, FRAME_THICKNESS, FRAME_GAP))
-            .collect();
+        let expanded: Vec<Rect> =
+            rects.iter().map(|r| expand_rect(r, FRAME_THICKNESS, FRAME_GAP)).collect();
 
         // Clamp to desktop bounds to avoid drawing off-screen.
         let desktop_bounds = desktop_bounds().unwrap_or_else(|| union_rect(&expanded));
@@ -266,10 +263,24 @@ impl Overlay {
             for (idx, r) in clamped.iter().enumerate() {
                 let expanded = &expanded[idx];
                 let styles = edge_styles(expanded, r);
-                draw_frame(slice, width as usize, height as usize, r, &union, FRAME_THICKNESS, color, styles);
+                draw_frame(
+                    slice,
+                    width as usize,
+                    height as usize,
+                    r,
+                    &union,
+                    FRAME_THICKNESS,
+                    color,
+                    styles,
+                );
             }
 
-            let blend = BLENDFUNCTION { BlendOp: AC_SRC_OVER as u8, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: AC_SRC_ALPHA as u8 };
+            let blend = BLENDFUNCTION {
+                BlendOp: AC_SRC_OVER as u8,
+                BlendFlags: 0,
+                SourceConstantAlpha: 255,
+                AlphaFormat: AC_SRC_ALPHA as u8,
+            };
             let dst = POINT { x: union.x().round() as i32, y: union.y().round() as i32 };
             let size = SIZE { cx: width, cy: height };
             let src = POINT { x: 0, y: 0 };
@@ -320,12 +331,7 @@ fn union_rect(rects: &[Rect]) -> Rect {
 
 fn expand_rect(rect: &Rect, thickness: i32, gap: i32) -> Rect {
     let pad = (thickness + gap) as f64;
-    Rect::new(
-        rect.x() - pad,
-        rect.y() - pad,
-        rect.width() + 2.0 * pad,
-        rect.height() + 2.0 * pad,
-    )
+    Rect::new(rect.x() - pad, rect.y() - pad, rect.width() + 2.0 * pad, rect.height() + 2.0 * pad)
 }
 
 fn intersect_rect(a: &Rect, b: &Rect) -> Option<Rect> {
@@ -344,12 +350,25 @@ fn desktop_bounds() -> Option<Rect> {
 }
 
 #[derive(Clone, Copy)]
-struct Rgba { r: u8, g: u8, b: u8, a: u8 }
+struct Rgba {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum LineStyle { Solid, Dashed }
+enum LineStyle {
+    Solid,
+    Dashed,
+}
 
-struct EdgeStyles { top: LineStyle, right: LineStyle, bottom: LineStyle, left: LineStyle }
+struct EdgeStyles {
+    top: LineStyle,
+    right: LineStyle,
+    bottom: LineStyle,
+    left: LineStyle,
+}
 
 fn edge_styles(expanded: &Rect, clamped: &Rect) -> EdgeStyles {
     let left_clipped = clamped.x() > expanded.x();
@@ -364,7 +383,16 @@ fn edge_styles(expanded: &Rect, clamped: &Rect) -> EdgeStyles {
     }
 }
 
-fn draw_frame(buf: &mut [u8], width: usize, height: usize, rect: &Rect, origin: &Rect, thickness: i32, color: Rgba, styles: EdgeStyles) {
+fn draw_frame(
+    buf: &mut [u8],
+    width: usize,
+    height: usize,
+    rect: &Rect,
+    origin: &Rect,
+    thickness: i32,
+    color: Rgba,
+    styles: EdgeStyles,
+) {
     let x0 = (rect.x() - origin.x()).round() as i32;
     let y0 = (rect.y() - origin.y()).round() as i32;
     let x1 = (x0 as f64 + rect.width().round()) as i32 - 1;
@@ -381,14 +409,30 @@ fn draw_frame(buf: &mut [u8], width: usize, height: usize, rect: &Rect, origin: 
     draw_vline(buf, width, height, x1 - (t - 1), y0, y1, t, color, styles.right);
 }
 
-fn draw_hline(buf: &mut [u8], width: usize, height: usize, x0: i32, x1: i32, y: i32, thickness: i32, color: Rgba, style: LineStyle) {
-    if thickness <= 0 { return; }
+fn draw_hline(
+    buf: &mut [u8],
+    width: usize,
+    height: usize,
+    x0: i32,
+    x1: i32,
+    y: i32,
+    thickness: i32,
+    color: Rgba,
+    style: LineStyle,
+) {
+    if thickness <= 0 {
+        return;
+    }
     let minx = x0.min(x1).max(0);
     let maxx = x0.max(x1).min(width as i32 - 1);
     let starty = y.max(0);
     let endy = (y + thickness - 1).min(height as i32 - 1);
-    if starty > endy || minx > maxx { return; }
-    let dash_on = 6; let dash_off = 4; let cycle = dash_on + dash_off;
+    if starty > endy || minx > maxx {
+        return;
+    }
+    let dash_on = 6;
+    let dash_off = 4;
+    let cycle = dash_on + dash_off;
     for yy in starty..=endy {
         let mut x = minx;
         while x <= maxx {
@@ -405,14 +449,30 @@ fn draw_hline(buf: &mut [u8], width: usize, height: usize, x0: i32, x1: i32, y: 
     }
 }
 
-fn draw_vline(buf: &mut [u8], width: usize, height: usize, x: i32, y0: i32, y1: i32, thickness: i32, color: Rgba, style: LineStyle) {
-    if thickness <= 0 { return; }
+fn draw_vline(
+    buf: &mut [u8],
+    width: usize,
+    height: usize,
+    x: i32,
+    y0: i32,
+    y1: i32,
+    thickness: i32,
+    color: Rgba,
+    style: LineStyle,
+) {
+    if thickness <= 0 {
+        return;
+    }
     let miny = y0.min(y1).max(0);
     let maxy = y0.max(y1).min(height as i32 - 1);
     let startx = x.max(0);
     let endx = (x + thickness - 1).min(width as i32 - 1);
-    if startx > endx || miny > maxy { return; }
-    let dash_on = 6; let dash_off = 4; let cycle = dash_on + dash_off;
+    if startx > endx || miny > maxy {
+        return;
+    }
+    let dash_on = 6;
+    let dash_off = 4;
+    let cycle = dash_on + dash_off;
     for xx in startx..=endx {
         let mut y = miny;
         while y <= maxy {
@@ -449,7 +509,7 @@ struct BITMAPINFO {
 
 impl BITMAPINFO {
     fn new(width: i32, height: i32) -> Self {
-        use windows::Win32::Graphics::Gdi::{BITMAPINFO, BITMAPINFOHEADER, BI_RGB};
+        use windows::Win32::Graphics::Gdi::{BI_RGB, BITMAPINFO, BITMAPINFOHEADER};
         let mut info = BITMAPINFO::default();
         info.bmiHeader = BITMAPINFOHEADER {
             biSize: size_of::<BITMAPINFOHEADER>() as u32,

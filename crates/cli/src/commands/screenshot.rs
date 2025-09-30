@@ -4,17 +4,18 @@ use platynui_core::platform::{PixelFormat, Screenshot, ScreenshotRequest};
 use platynui_core::types::Rect;
 use platynui_runtime::Runtime;
 use png::{BitDepth, ColorType, Encoder};
+use std::env;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::env;
 
 #[derive(Args, Debug, Clone)]
 pub struct ScreenshotArgs {
     #[arg(
         value_name = "FILE",
-        help = "Destination PNG file (optional). If omitted, a default name is generated in the current directory.")]
+        help = "Destination PNG file (optional). If omitted, a default name is generated in the current directory."
+    )]
     pub output: Option<PathBuf>,
     #[arg(
         long = "rect",
@@ -80,10 +81,8 @@ fn parse_rect_arg(value: &str) -> Result<Rect, String> {
 
     let mut numbers = Vec::with_capacity(4);
     for part in parts {
-        let number: f64 = part
-            .trim()
-            .parse()
-            .map_err(|_| format!("invalid number in rect `{value}`"))?;
+        let number: f64 =
+            part.trim().parse().map_err(|_| format!("invalid number in rect `{value}`"))?;
         numbers.push(number);
     }
 
@@ -93,10 +92,7 @@ fn parse_rect_arg(value: &str) -> Result<Rect, String> {
 fn default_output_path() -> PathBuf {
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     // Timestamp-based default name; collisions highly unlikely. If it exists, we still uniquify below.
-    let ts_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
+    let ts_ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
     let base = cwd.join(format!("screenshot-{}.png", ts_ms));
     ensure_unique_path(&base)
 }
@@ -133,9 +129,9 @@ mod tests {
     use platynui_runtime::Runtime;
     use rstest::rstest;
     use serial_test::serial;
-    use tempfile::tempdir;
     use std::fs;
-    use std::sync::{Mutex, LazyLock};
+    use std::sync::{LazyLock, Mutex};
+    use tempfile::tempdir;
 
     static TEST_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
@@ -147,7 +143,10 @@ mod tests {
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("capture.png");
-        let args = ScreenshotArgs { output: Some(path.clone()), rect: Some(Rect::new(3700.0, 600.0, 400.0, 200.0)) };
+        let args = ScreenshotArgs {
+            output: Some(path.clone()),
+            rect: Some(Rect::new(3700.0, 600.0, 400.0, 200.0)),
+        };
 
         let output = run(&runtime, &args).expect("screenshot run");
         assert!(output.contains("Saved screenshot"));

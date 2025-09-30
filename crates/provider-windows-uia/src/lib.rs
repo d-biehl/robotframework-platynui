@@ -1,9 +1,19 @@
-//! UIAutomation based UiTree provider for Windows.
+//! Windows UIAutomation based UiTree provider.
 //!
-//! The provider will translate Microsoft UIA structures into the PlatynUI
-//! normalized tree and expose attributes/patterns as documented in the
-//! architecture concept.
+//! Design decisions and scope are documented in `docs/provider_windows_uia_design.md`.
+//! This module provides a compilable skeleton that wires the provider factory
+//! and exposes lazy iterators for children/attributes. On non‑Windows targets,
+//! the crate builds as a no‑op. On Windows, the implementation will be
+//! incrementally expanded to call into UIAutomation via a dedicated STA actor.
 
-/// Stub type kept until the Windows UIA bridge is available.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct WindowsUiaProviderStub;
+#[cfg(windows)]
+mod provider;
+#[cfg(windows)]
+mod com;
+#[cfg(windows)]
+mod map;
+#[cfg(windows)]
+mod node;
+
+#[cfg(windows)]
+pub use provider::*;

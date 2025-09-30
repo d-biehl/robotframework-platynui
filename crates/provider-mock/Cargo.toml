@@ -14,7 +14,7 @@ license.workspace = true
 platynui-core = { path = "../core" }
 inventory = "0.3.21"
 quick-xml = { version = "0.32", features = ["serialize"] }
-serde = { version = "1.0.226", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
 
 [dev-dependencies]
 rstest = "0.26.1"

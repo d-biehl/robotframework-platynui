@@ -43,7 +43,8 @@ pub fn run(runtime: &Runtime, args: &HighlightArgs) -> CliResult<String> {
     let mut highlighted = 0usize;
     let mut hold_ms: Option<u64> = None;
     if let Some(rect) = args.rect {
-        let req = HighlightRequest::new(rect).with_duration(Duration::from_millis(args.duration_ms));
+        let req =
+            HighlightRequest::new(rect).with_duration(Duration::from_millis(args.duration_ms));
         runtime.highlight(&[req]).map_err(map_platform_error)?;
         highlighted = 1;
         hold_ms = Some(args.duration_ms);
@@ -63,9 +64,10 @@ pub fn run(runtime: &Runtime, args: &HighlightArgs) -> CliResult<String> {
 
     // Keep the process alive so the overlay stays visible until the duration elapses.
     if let Some(ms) = hold_ms
-        && !cfg!(test) {
-            std::thread::sleep(Duration::from_millis(ms));
-        }
+        && !cfg!(test)
+    {
+        std::thread::sleep(Duration::from_millis(ms));
+    }
 
     if messages.is_empty() {
         if highlighted > 0 {
@@ -131,10 +133,8 @@ fn parse_rect_arg(value: &str) -> Result<Rect, String> {
     }
     let mut nums = [0f64; 4];
     for (i, part) in parts.iter().enumerate() {
-        nums[i] = part
-            .trim()
-            .parse::<f64>()
-            .map_err(|_| format!("invalid number in rect `{value}`"))?;
+        nums[i] =
+            part.trim().parse::<f64>().map_err(|_| format!("invalid number in rect `{value}`"))?;
     }
     Ok(Rect::new(nums[0], nums[1], nums[2], nums[3]))
 }
@@ -161,7 +161,12 @@ mod tests {
         reset_highlight_state();
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
 
-        let args = HighlightArgs { expression: Some("//control:Button".into()), rect: None, duration_ms: 500, clear: false };
+        let args = HighlightArgs {
+            expression: Some("//control:Button".into()),
+            rect: None,
+            duration_ms: 500,
+            clear: false,
+        };
 
         let output = run(&runtime, &args).expect("highlight execution");
         assert!(output.contains("Highlighted"));
@@ -194,8 +199,11 @@ mod tests {
         let _lock = TEST_GUARD.lock().unwrap();
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
 
-        let err = run(&runtime, &HighlightArgs { expression: None, rect: None, duration_ms: 1500, clear: false })
-            .expect_err("missing expression or rect should error");
+        let err = run(
+            &runtime,
+            &HighlightArgs { expression: None, rect: None, duration_ms: 1500, clear: false },
+        )
+        .expect_err("missing expression or rect should error");
         assert!(err.to_string().contains("requires"));
 
         runtime.shutdown();
@@ -207,7 +215,12 @@ mod tests {
         reset_highlight_state();
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
 
-        let args = HighlightArgs { expression: None, rect: Some(Rect::new(10.0, 10.0, 40.0, 20.0)), duration_ms: 1500, clear: false };
+        let args = HighlightArgs {
+            expression: None,
+            rect: Some(Rect::new(10.0, 10.0, 40.0, 20.0)),
+            duration_ms: 1500,
+            clear: false,
+        };
         let output = run(&runtime, &args).expect("highlight rect");
         assert!(output.contains("Highlighted 1 region"));
         let log = take_highlight_log();

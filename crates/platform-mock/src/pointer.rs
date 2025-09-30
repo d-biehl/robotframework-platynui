@@ -69,10 +69,7 @@ impl PointerDevice for MockPointerDevice {
 
     fn scroll(&self, delta: ScrollDelta) -> Result<(), PlatformError> {
         self.state.lock().unwrap().push(PointerLogEntry::Scroll(delta));
-        println!(
-            "mock-pointer: scroll (h={:.1}, v={:.1})",
-            delta.horizontal, delta.vertical
-        );
+        println!("mock-pointer: scroll (h={:.1}, v={:.1})", delta.horizontal, delta.vertical);
         Ok(())
     }
 

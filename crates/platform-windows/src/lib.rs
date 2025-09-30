@@ -7,11 +7,11 @@
 #[cfg(target_os = "windows")]
 mod desktop;
 #[cfg(target_os = "windows")]
+mod highlight;
+#[cfg(target_os = "windows")]
 mod init;
 #[cfg(target_os = "windows")]
 mod pointer;
-#[cfg(target_os = "windows")]
-mod highlight;
 #[cfg(target_os = "windows")]
 mod screenshot;
 

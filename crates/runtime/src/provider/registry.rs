@@ -209,7 +209,8 @@ mod tests {
         // initialization happened in their factory. Creating a Runtime here
         // triggers `initialize_platform_modules()` in a controlled way without
         // affecting the rest of this test.
-        let _runtime_for_init = crate::Runtime::new().expect("runtime initializes platform modules");
+        let _runtime_for_init =
+            crate::Runtime::new().expect("runtime initializes platform modules");
 
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
         let registry = ProviderRegistry::discover();

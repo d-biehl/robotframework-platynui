@@ -13,7 +13,11 @@ crate-type = ["cdylib"]
 [features]
 default = []
 # Enable mock provider for portable local builds
-mock-provider = ["platynui-runtime/mock-provider"]
+mock-provider = [
+    "platynui-runtime/mock-provider",
+    "dep:platynui-provider-mock",
+    "dep:platynui-platform-mock",
+]
 
 [dependencies]
 pyo3 = { version = "0.26.0", features = ["extension-module", "abi3-py310"] }

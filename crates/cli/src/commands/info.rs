@@ -81,22 +81,14 @@ fn render_info_text(desktop: &DesktopSummary) -> String {
                 .x()
                 .partial_cmp(&b.bounds.x())
                 .unwrap_or(std::cmp::Ordering::Equal)
-                .then(
-                    a.bounds
-                        .y()
-                        .partial_cmp(&b.bounds.y())
-                        .unwrap_or(std::cmp::Ordering::Equal),
-                )
+                .then(a.bounds.y().partial_cmp(&b.bounds.y()).unwrap_or(std::cmp::Ordering::Equal))
         });
 
         let _ = writeln!(&mut output, "Monitors:");
         for (idx, monitor) in monitors.iter().enumerate() {
             let name = monitor.name.as_deref().unwrap_or("(unnamed)");
             let primary = if monitor.is_primary { "*" } else { " " };
-            let scale = monitor
-                .scale_factor
-                .map(|v| format!(" @ {:.2}x", v))
-                .unwrap_or_default();
+            let scale = monitor.scale_factor.map(|v| format!(" @ {:.2}x", v)).unwrap_or_default();
             let _ = writeln!(
                 &mut output,
                 "  [{}]{} {} [{}] {}×{} at ({}, {}){}",

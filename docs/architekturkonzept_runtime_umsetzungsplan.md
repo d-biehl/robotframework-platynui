@@ -197,9 +197,19 @@ Ergänzungen (2025-09-29 später am Tag)
  - [x] DPI‑Scale pro Monitor: `GetDpiForMonitor(MDT_EFFECTIVE_DPI)` → `scale_factor = dpi/96.0`; CLI `info` zeigt den Faktor als `@ 1.25x`.
 
 #### 19.6 UIAutomation Provider (`platynui-provider-windows-uia`)
-- [ ] COM-Hosting, Session-Lebenszyklus und Baumaufbau (Application → Window → Control/Item) entwickeln.
-- [ ] Rollen-/Namespace-Mapping sowie RuntimeId-Übernahme etablieren; Attribute und Client-/Runtime-Patterns (u. a. `Focusable`, `WindowSurface`) bereitstellen.
-- [ ] Tests: Struktur-/Attribut-Abdeckung, Pattern-Liste, Dokumentation der UIA-Abbildungen.
+- [x] COM-Init (MTA) und Wiederverwendung: `IUIAutomation` + RawView‑`IUIAutomationTreeWalker` als thread‑lokale Singletons.
+- [x] Baumaufbau (Application → Window → Control/Item) via Raw View `TreeWalker` (Parent/FirstChild/NextSibling); kein `FindAll`, keine UIA‑`CacheRequest` (eigenes Caching optional später).
+- [x] Iteratoren statt Vektoren: gemeinsamer `ElementChildrenIter` mit Lazy‑Erstaufruf (`first`‑Flag) und Sibling‑Traversal.
+- [x] Rollen-/Namespace‑Mapping sowie RuntimeId‑Übernahme; Attribute als lazy `UiAttribute.value()`.
+- [x] Patterns (Slice 1): `Focusable` (SetFocus); `WindowSurface` nur bei Verfügbarkeit (`WindowPattern`/`TransformPattern`).
+- [ ] Tests: Struktur-/Attribut‑Abdeckung, Pattern‑Liste, Desktop‑Top‑Level (Windows‑only smoke). Optional: Root‑Geschwister‑Iteration.
+
+Aktuelle Design-Notizen (2025‑09‑30)
+- Keine Actor‑Schicht, kein NodeStore: `UiaNode` wrappt direkt `IUIAutomationElement`.
+- Provider liefert Desktop‑Kinder über denselben Iterator; Root‑Geschwister werden derzeit nicht zusammengeführt (kann ergänzt werden).
+- `invalidate()` in `UiaNode` bewusst No‑Op (Trait‑Signaturen geben Referenzen zurück; Attributwerte bleiben lazy und können unabhängig neu gelesen werden).
+
+Weitere Details siehe: `docs/provider_windows_uia_design.md`.
 
 #### 19.7 Keyboard (`platynui-platform-windows`)
 - [ ] Key-Code-Tabellen und Sequenzauflösung (Press/Release/Type) implementieren, Modifier-Chords und Unicode/IME-Fälle abdecken.

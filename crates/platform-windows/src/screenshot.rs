@@ -1,13 +1,16 @@
 #![cfg(target_os = "windows")]
 
-use platynui_core::platform::{desktop_info_providers, PixelFormat, PlatformError, PlatformErrorKind, Screenshot, ScreenshotProvider, ScreenshotRequest};
+use platynui_core::platform::{
+    PixelFormat, PlatformError, PlatformErrorKind, Screenshot, ScreenshotProvider,
+    ScreenshotRequest, desktop_info_providers,
+};
 use platynui_core::register_screenshot_provider;
 use platynui_core::types::Rect;
 use std::mem::size_of;
 // no HWND import needed with Option<HWND> calls
 use windows::Win32::Graphics::Gdi::{
-    BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC,
-    SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HDC, SRCCOPY,
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CreateCompatibleDC, CreateDIBSection,
+    DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, HBITMAP, HDC, ReleaseDC, SRCCOPY, SelectObject,
 };
 
 static WINDOWS_SCREENSHOT: WindowsScreenshotProvider = WindowsScreenshotProvider;
@@ -19,13 +22,19 @@ pub struct WindowsScreenshotProvider;
 impl ScreenshotProvider for WindowsScreenshotProvider {
     fn capture(&self, request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
         let desktop = desktop_bounds().ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "desktop bounds unavailable")
+            PlatformError::new(
+                PlatformErrorKind::CapabilityUnavailable,
+                "desktop bounds unavailable",
+            )
         })?;
 
         // Determine requested capture region and clamp to desktop
         let requested = request.region.unwrap_or(desktop);
         let region = intersect_rect(&requested, &desktop).ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "capture region outside desktop")
+            PlatformError::new(
+                PlatformErrorKind::CapabilityUnavailable,
+                "capture region outside desktop",
+            )
         })?;
 
         let left = region.x().floor() as i32;
@@ -36,12 +45,18 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
         unsafe {
             let screen_dc: HDC = GetDC(None);
             if screen_dc.0.is_null() {
-                return Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "GetDC(NULL) failed"));
+                return Err(PlatformError::new(
+                    PlatformErrorKind::CapabilityUnavailable,
+                    "GetDC(NULL) failed",
+                ));
             }
             let mem_dc: HDC = CreateCompatibleDC(Some(screen_dc));
             if mem_dc.0.is_null() {
                 let _ = ReleaseDC(None, screen_dc);
-                return Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "CreateCompatibleDC failed"));
+                return Err(PlatformError::new(
+                    PlatformErrorKind::CapabilityUnavailable,
+                    "CreateCompatibleDC failed",
+                ));
             }
 
             let mut info: BITMAPINFO = BITMAPINFO::default();
@@ -60,14 +75,19 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
             };
 
             let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
-            let bitmap: HBITMAP = match CreateDIBSection(Some(mem_dc), &mut info, DIB_RGB_COLORS, &mut bits, None, 0) {
-                Ok(bmp) => bmp,
-                Err(e) => {
-                    let _ = DeleteDC(mem_dc);
-                    let _ = ReleaseDC(None, screen_dc);
-                    return Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, format!("CreateDIBSection failed: {e:?}")));
-                }
-            };
+            let bitmap: HBITMAP =
+                match CreateDIBSection(Some(mem_dc), &mut info, DIB_RGB_COLORS, &mut bits, None, 0)
+                {
+                    Ok(bmp) => bmp,
+                    Err(e) => {
+                        let _ = DeleteDC(mem_dc);
+                        let _ = ReleaseDC(None, screen_dc);
+                        return Err(PlatformError::new(
+                            PlatformErrorKind::CapabilityUnavailable,
+                            format!("CreateDIBSection failed: {e:?}"),
+                        ));
+                    }
+                };
             let old = SelectObject(mem_dc, bitmap.into());
 
             // Copy from screen DC into memory DC
@@ -77,7 +97,10 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
                 let _ = DeleteObject(bitmap.into());
                 let _ = DeleteDC(mem_dc);
                 let _ = ReleaseDC(None, screen_dc);
-                return Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "BitBlt failed"));
+                return Err(PlatformError::new(
+                    PlatformErrorKind::CapabilityUnavailable,
+                    "BitBlt failed",
+                ));
             }
 
             // Copy pixels from DIBSection memory
