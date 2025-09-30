@@ -47,3 +47,5 @@ platynui-provider-macos-ax = { path = "../provider-macos-ax" }
 rstest = "0.26.1"
 tempfile = "3.23.0"
 serial_test = "3.2.0"
+platynui-provider-mock = { path = "../provider-mock"}
+platynui-platform-mock = { path = "../platform-mock"}

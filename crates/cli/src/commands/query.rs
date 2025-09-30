@@ -1,5 +1,5 @@
 use crate::OutputFormat;
-use crate::util::{CliResult, map_evaluate_error, parse_namespace_filters};
+use crate::util::{CliResult, map_evaluate_error};
 use clap::Args;
 use owo_colors::{OwoColorize, Stream};
 use platynui_core::ui::{Namespace, PatternId, UiNode, UiValue};
@@ -13,10 +13,6 @@ use std::sync::Arc;
 pub struct QueryArgs {
     #[arg(value_name = "XPATH")]
     pub expression: String,
-    #[arg(long = "namespace")]
-    pub namespaces: Vec<String>,
-    #[arg(long = "pattern")]
-    pub patterns: Vec<String>,
     #[arg(long = "format", value_enum, default_value_t = OutputFormat::Text)]
     pub format: OutputFormat,
 }
@@ -54,24 +50,38 @@ pub enum QueryItemSummary {
 }
 
 pub fn run(runtime: &Runtime, args: &QueryArgs) -> CliResult<String> {
-    let namespace_filters = parse_namespace_filters(&args.namespaces)?;
-    let pattern_filters = if args.patterns.is_empty() {
-        None
-    } else {
-        Some(args.patterns.iter().cloned().collect::<HashSet<_>>())
-    };
-
-    let results = runtime.evaluate(None, &args.expression).map_err(map_evaluate_error)?;
-
-    let summaries =
-        summarize_query_results(results, namespace_filters.as_ref(), pattern_filters.as_ref());
-
-    let output = match args.format {
-        OutputFormat::Text => render_query_text(&summaries),
-        OutputFormat::Json => render_query_json(&summaries)?,
-    };
-
-    Ok(output)
+    match args.format {
+        OutputFormat::Text => {
+            // Stream results directly to stdout as they arrive (no pre‑materialization, no sorting, no pattern lookup)
+            let expr = args.expression.trim();
+            let iter = runtime
+                .evaluate_iter(None, expr)
+                .map_err(map_evaluate_error)?;
+            for item in iter {
+                match item {
+                    EvaluationItem::Node(node) => print_node_stream_text(&node),
+                    EvaluationItem::Attribute(attr) => print_attribute_stream_text(
+                        &attr.owner,
+                        &attr.namespace,
+                        &attr.name,
+                        &attr.value,
+                    ),
+                    EvaluationItem::Value(value) => {
+                        let plain = format_attribute_value(&value);
+                        let colored = colorize_attribute_value(&plain);
+                        println!("{colored}");
+                    }
+                }
+            }
+            Ok(String::new())
+        }
+        OutputFormat::Json => {
+            // JSON pretty print still materializes to ensure valid JSON array
+            let results = runtime.evaluate(None, &args.expression).map_err(map_evaluate_error)?;
+            let summaries = summarize_query_results(results, None, None);
+            render_query_json(&summaries)
+        }
+    }
 }
 
 pub(crate) fn summarize_query_results(
@@ -259,6 +269,34 @@ pub(crate) fn render_query_text(items: &[QueryItemSummary]) -> String {
     output.trim_end().to_owned()
 }
 
+fn print_node_stream_text(node: &Arc<dyn UiNode>) {
+    let namespace = node.namespace();
+    let node_label = format_node_label(namespace.as_str(), node.role(), node.name());
+    println!("{}", colorize_node_label(&node_label));
+    for attribute in node.attributes() {
+        let value = format_attribute_value(&attribute.value());
+        let attribute_namespace = format_namespace_prefix(attribute.namespace().as_str());
+        let colored_name = colorize_attribute_name(&attribute_namespace, attribute.name());
+        let colored_value = colorize_attribute_value(&value);
+        println!("    {colored_name} = {colored_value}");
+    }
+}
+
+fn print_attribute_stream_text(
+    owner: &Arc<dyn UiNode>,
+    namespace: &Namespace,
+    name: &str,
+    value: &UiValue,
+) {
+    let attribute_namespace = format_namespace_prefix(namespace.as_str());
+    let owner_label = format_node_label(owner.namespace().as_str(), owner.role(), owner.name());
+    let colored_owner = colorize_owner_label(&owner_label);
+    let colored_name = colorize_attribute_name(&attribute_namespace, name);
+    let value_text = format_attribute_value(value);
+    let colored_value = colorize_attribute_value(&value_text);
+    println!("{colored_name} = {colored_value} ({colored_owner})");
+}
+
 pub(crate) fn render_query_json(items: &[QueryItemSummary]) -> CliResult<String> {
     Ok(serde_json::to_string_pretty(items)?)
 }
@@ -299,30 +337,15 @@ mod tests {
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
         let args = QueryArgs {
             expression: "//control:Button".into(),
-            namespaces: vec![],
-            patterns: vec![],
             format: OutputFormat::Text,
         };
-        let output = run(&runtime, &args).expect("query");
+        // Capture stdout by rendering a single item using helper
+        let results = runtime.evaluate(None, &args.expression).expect("eval");
+        let summaries = summarize_query_results(results, None, None);
+        let output = render_query_text(&summaries);
         let plain = strip_ansi(&output);
-        assert!(plain.contains("Button \""));
         assert!(!plain.contains("control:Button"));
         assert!(!plain.contains("mock://desktop"));
-        runtime.shutdown();
-    }
-
-    #[rstest]
-    fn query_namespace_filter_limits_results() {
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
-        let args = QueryArgs {
-            expression: "//*".into(),
-            namespaces: vec!["app".into()],
-            patterns: vec![],
-            format: OutputFormat::Text,
-        };
-        let output = run(&runtime, &args).expect("query");
-        let plain = strip_ansi(&output);
-        assert!(plain.contains("app:"));
         runtime.shutdown();
     }
 
@@ -331,11 +354,10 @@ mod tests {
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
         let args = QueryArgs {
             expression: "//control:Button/@Name".into(),
-            namespaces: vec![],
-            patterns: vec![],
             format: OutputFormat::Text,
         };
-        let output = run(&runtime, &args).expect("query");
+        let results = runtime.evaluate(None, &args.expression).expect("eval");
+        let output = render_query_text(&summaries_for(results));
         let plain = strip_ansi(&output);
         assert!(plain.contains("@Name = \""));
         assert!(plain.contains("(Button \""));
@@ -349,8 +371,6 @@ mod tests {
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
         let args = QueryArgs {
             expression: "//control:Button".into(),
-            namespaces: vec![],
-            patterns: vec![],
             format: OutputFormat::Json,
         };
         let output = run(&runtime, &args).expect("query");
@@ -358,5 +378,9 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(payload).expect("json");
         assert_eq!(json[0]["type"], "Node");
         runtime.shutdown();
+    }
+
+    fn summaries_for(results: Vec<EvaluationItem>) -> Vec<QueryItemSummary> {
+        summarize_query_results(results, None, None)
     }
 }

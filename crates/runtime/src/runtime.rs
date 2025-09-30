@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
+use once_cell::sync::OnceCell;
 use std::time::Duration;
 
 use platynui_core::platform::{
@@ -35,7 +35,7 @@ use crate::{EvaluateError, EvaluateOptions, EvaluationItem, evaluate};
 /// Central orchestrator that owns provider instances and the provider event dispatcher.
 pub struct Runtime {
     registry: ProviderRegistry,
-    providers: Vec<Arc<ProviderRuntimeState>>,
+    providers: Vec<Arc<dyn UiTreeProvider>>,
     dispatcher: Arc<ProviderEventDispatcher>,
     desktop: Arc<DesktopNode>,
     highlight: Option<&'static dyn HighlightProvider>,
@@ -48,46 +48,7 @@ pub struct Runtime {
     keyboard_settings: Mutex<KeyboardSettings>,
 }
 
-struct ProviderRuntimeState {
-    provider: Arc<dyn UiTreeProvider>,
-    requires_full_refresh: bool,
-    snapshot: Mutex<Vec<Arc<dyn UiNode>>>,
-    dirty: AtomicBool,
-}
-
-impl ProviderRuntimeState {
-    fn new(provider: Arc<dyn UiTreeProvider>, requires_full_refresh: bool) -> Self {
-        Self {
-            provider,
-            requires_full_refresh,
-            snapshot: Mutex::new(Vec::new()),
-            dirty: AtomicBool::new(true),
-        }
-    }
-
-    fn provider(&self) -> &Arc<dyn UiTreeProvider> {
-        &self.provider
-    }
-
-    fn mark_dirty(&self) {
-        if !self.requires_full_refresh {
-            self.dirty.store(true, Ordering::SeqCst);
-        }
-    }
-
-    fn take_dirty(&self) -> bool {
-        if self.requires_full_refresh {
-            return true;
-        }
-        self.dirty.swap(false, Ordering::SeqCst)
-    }
-
-    fn reset_dirty(&self) {
-        if !self.requires_full_refresh {
-            self.dirty.store(false, Ordering::SeqCst);
-        }
-    }
-}
+// ProviderRuntimeState removed: DesktopNode streams children on-demand.
 
 #[derive(Debug, Error)]
 pub enum FocusError {
@@ -117,18 +78,17 @@ impl From<KeyboardSequenceError> for KeyboardActionError {
 
 struct RuntimeEventListener {
     dispatcher: Arc<ProviderEventDispatcher>,
-    state: Arc<ProviderRuntimeState>,
+    // no state tracking required; events are forwarded directly
 }
 
 impl RuntimeEventListener {
-    fn new(dispatcher: Arc<ProviderEventDispatcher>, state: Arc<ProviderRuntimeState>) -> Self {
-        Self { dispatcher, state }
+    fn new(dispatcher: Arc<ProviderEventDispatcher>) -> Self {
+        Self { dispatcher }
     }
 }
 
 impl ProviderEventListener for RuntimeEventListener {
     fn on_event(&self, event: ProviderEvent) {
-        self.state.mark_dirty();
         if let ProviderEventKind::NodeUpdated { node } = &event.kind {
             node.invalidate();
         }
@@ -143,16 +103,15 @@ impl Runtime {
         let registry = ProviderRegistry::discover();
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
         let provider_instances = registry.instantiate_all()?;
-        let mut providers = Vec::with_capacity(provider_instances.len());
+        let mut providers: Vec<Arc<dyn UiTreeProvider>> = Vec::with_capacity(provider_instances.len());
         for provider in provider_instances {
-            let requires_full_refresh = provider.descriptor().event_capabilities().is_empty();
-            let state = Arc::new(ProviderRuntimeState::new(provider, requires_full_refresh));
-            let listener = Arc::new(RuntimeEventListener::new(dispatcher.clone(), state.clone()));
-            state.provider().subscribe_events(listener)?;
-            providers.push(state);
+            let listener = Arc::new(RuntimeEventListener::new(dispatcher.clone()));
+            provider.subscribe_events(listener)?;
+            providers.push(provider);
         }
 
-        let desktop = build_desktop_node().map_err(map_desktop_error)?;
+        // Build desktop info first
+        let desktop = build_desktop_info().map_err(map_desktop_error)?;
 
         let highlight = highlight_providers().next();
         let screenshot = screenshot_providers().next();
@@ -173,18 +132,24 @@ impl Runtime {
         let pointer_engine = pointer.map(|device| {
             PointerEngine::new(
                 device,
-                desktop.info().bounds,
+                desktop.bounds,
                 pointer_settings.clone(),
                 pointer_profile.clone(),
                 &default_pointer_sleep,
             )
         });
 
+        let providers_for_desktop: Vec<Arc<dyn UiTreeProvider>> = providers.iter().cloned().collect();
+
         let runtime = Self {
             registry,
             providers,
             dispatcher,
-            desktop,
+            desktop: {
+                let node = DesktopNode::new(desktop, providers_for_desktop);
+                DesktopNode::init_self(&node);
+                node
+            },
             highlight,
             screenshot,
             pointer,
@@ -194,8 +159,6 @@ impl Runtime {
             keyboard,
             keyboard_settings: Mutex::new(keyboard_settings),
         };
-        runtime.refresh_desktop_nodes(true)?;
-
         Ok(runtime)
     }
 
@@ -206,7 +169,7 @@ impl Runtime {
 
     /// Returns the instantiated providers in priority order.
     pub fn providers(&self) -> impl Iterator<Item = &Arc<dyn UiTreeProvider>> {
-        self.providers.iter().map(|state| state.provider())
+        self.providers.iter()
     }
 
     /// Returns providers registered for the given technology identifier.
@@ -214,10 +177,7 @@ impl Runtime {
         &'a self,
         technology: &'a TechnologyId,
     ) -> impl Iterator<Item = &'a Arc<dyn UiTreeProvider>> + 'a {
-        self.providers
-            .iter()
-            .filter(move |state| state.provider().descriptor().technology == *technology)
-            .map(|state| state.provider())
+        self.providers.iter().filter(move |p| p.descriptor().technology == *technology)
     }
 
     /// Access to the shared provider event dispatcher.
@@ -231,13 +191,12 @@ impl Runtime {
         EvaluateOptions::new(self.desktop_node())
     }
 
-    pub fn evaluate(
-        &self,
-        node: Option<Arc<dyn UiNode>>,
-        xpath: &str,
-    ) -> Result<Vec<EvaluationItem>, EvaluateError> {
-        self.refresh_desktop_nodes(false).map_err(EvaluateError::from)?;
+    pub fn evaluate(&self, node: Option<Arc<dyn UiNode>>, xpath: &str) -> Result<Vec<EvaluationItem>, EvaluateError> {
         evaluate(node, xpath, self.evaluate_options())
+    }
+
+    pub fn evaluate_iter(&self, node: Option<Arc<dyn UiNode>>, xpath: &str) -> Result<impl Iterator<Item = crate::xpath::EvaluationItem>, EvaluateError> {
+        crate::xpath::evaluate_iter(node, xpath, self.evaluate_options())
     }
 
     pub fn focus(&self, node: &Arc<dyn UiNode>) -> Result<(), FocusError> {
@@ -499,31 +458,12 @@ impl Runtime {
     /// Invokes shutdown on dispatcher and providers.
     pub fn shutdown(&mut self) {
         self.dispatcher.shutdown();
-        for state in &self.providers {
-            state.provider().shutdown();
+        for provider in &self.providers {
+            provider.shutdown();
         }
     }
 
-    fn refresh_desktop_nodes(&self, force_all: bool) -> Result<(), ProviderError> {
-        for state in &self.providers {
-            if !force_all && !state.take_dirty() {
-                continue;
-            }
-            let parent = self.desktop.as_ui_node();
-            let nodes = state.provider().get_nodes(parent)?.collect::<Vec<_>>();
-            let mut snapshot = state.snapshot.lock().unwrap();
-            *snapshot = nodes;
-            state.reset_dirty();
-        }
-
-        let mut aggregated: Vec<Arc<dyn UiNode>> = Vec::new();
-        for state in &self.providers {
-            let snapshot = state.snapshot.lock().unwrap();
-            aggregated.extend(snapshot.iter().cloned());
-        }
-        self.desktop.replace_children(aggregated);
-        Ok(())
-    }
+    // refresh_desktop_nodes removed: DesktopNode streams children on-demand from providers
 
     fn pointer_device(&self) -> Result<&'static dyn PointerDevice, PointerError> {
         self.pointer.ok_or(PointerError::MissingDevice)
@@ -534,14 +474,10 @@ impl Runtime {
     }
 }
 
-fn build_desktop_node() -> Result<Arc<DesktopNode>, PlatformError> {
+fn build_desktop_info() -> Result<DesktopInfo, PlatformError> {
     let mut providers = desktop_info_providers();
-    let info = if let Some(provider) = providers.next() {
-        provider.desktop_info()?
-    } else {
-        fallback_desktop_info()
-    };
-    Ok(DesktopNode::new(info))
+    let info = if let Some(provider) = providers.next() { provider.desktop_info()? } else { fallback_desktop_info() };
+    Ok(info)
 }
 
 fn map_desktop_error(err: PlatformError) -> ProviderError {
@@ -595,11 +531,12 @@ struct DesktopNode {
     info: DesktopInfo,
     attributes: Vec<Arc<dyn UiAttribute>>,
     supported: Vec<PatternId>,
-    children: Mutex<Vec<Arc<dyn UiNode>>>,
+    providers: Vec<Arc<dyn UiTreeProvider>>,
+    self_weak: OnceCell<Weak<dyn UiNode>>,
 }
 
 impl DesktopNode {
-    fn new(info: DesktopInfo) -> Arc<Self> {
+    fn new(info: DesktopInfo, providers: Vec<Arc<dyn UiTreeProvider>>) -> Arc<Self> {
         let mut info = info;
         info.runtime_id = RuntimeId::from(DESKTOP_RUNTIME_ID);
         let namespace = Namespace::Control;
@@ -663,7 +600,7 @@ impl DesktopNode {
             UiValue::Array(info.monitors.iter().map(monitor_to_value).collect()),
         ));
 
-        Arc::new(Self { info, attributes, supported, children: Mutex::new(Vec::new()) })
+        Arc::new(Self { info, attributes, supported, providers, self_weak: OnceCell::new() })
     }
 
     fn info(&self) -> &DesktopInfo {
@@ -673,10 +610,12 @@ impl DesktopNode {
     fn as_ui_node(self: &Arc<Self>) -> Arc<dyn UiNode> {
         Arc::clone(self) as Arc<dyn UiNode>
     }
-
-    fn replace_children(&self, nodes: Vec<Arc<dyn UiNode>>) {
-        *self.children.lock().unwrap() = nodes;
+    fn init_self(this: &Arc<Self>) {
+        let arc: Arc<dyn UiNode> = this.clone();
+        let _ = this.self_weak.set(Arc::downgrade(&arc));
     }
+
+    // children are provided on-demand from providers; no replacement snapshot
 }
 
 impl UiNode for DesktopNode {
@@ -701,8 +640,37 @@ impl UiNode for DesktopNode {
     }
 
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
-        let snapshot = self.children.lock().unwrap().clone();
-        Box::new(snapshot.into_iter())
+        struct DesktopChildrenIter {
+            providers: Vec<Arc<dyn UiTreeProvider>>,
+            idx: usize,
+            parent: Arc<dyn UiNode>,
+            current: Option<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>>, 
+        }
+        impl Iterator for DesktopChildrenIter {
+            type Item = Arc<dyn UiNode>;
+            fn next(&mut self) -> Option<Self::Item> {
+                loop {
+                    if let Some(it) = self.current.as_mut() {
+                        if let Some(next) = it.next() { return Some(next); }
+                        self.current = None;
+                    }
+                    if self.idx >= self.providers.len() { return None; }
+                    let prov = &self.providers[self.idx];
+                    self.idx += 1;
+                    match prov.get_nodes(Arc::clone(&self.parent)) {
+                        Ok(iter) => { self.current = Some(iter); }
+                        Err(_) => { /* skip provider */ }
+                    }
+                }
+            }
+        }
+        let parent = self
+            .self_weak
+            .get()
+            .and_then(|w| w.upgrade())
+            .expect("desktop self weak set");
+        let providers = self.providers.iter().cloned().collect();
+        Box::new(DesktopChildrenIter { providers, idx: 0, parent, current: None })
     }
 
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {

@@ -1151,6 +1151,7 @@ name = "platynui-runtime"
 version = "0.1.0"
 dependencies = [
  "inventory",
+ "once_cell",
  "pest",
  "pest_derive",
  "platynui-core",

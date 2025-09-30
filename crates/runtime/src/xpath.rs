@@ -8,7 +8,7 @@ use platynui_xpath::compiler;
 use platynui_xpath::engine::evaluator;
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilder};
 use platynui_xpath::model::{NodeKind, QName};
-use platynui_xpath::xdm::{XdmAtomicValue, XdmItem};
+use platynui_xpath::xdm::{XdmAtomicValue};
 use platynui_xpath::{self, XdmNode};
 use thiserror::Error;
 
@@ -109,6 +109,16 @@ pub fn evaluate(
     xpath: &str,
     options: EvaluateOptions,
 ) -> Result<Vec<EvaluationItem>, EvaluateError> {
+    let iter = evaluate_iter(node, xpath, options)?;
+    Ok(iter.collect())
+}
+
+pub fn evaluate_iter(
+    node: Option<Arc<dyn UiNode>>,
+    xpath: &str,
+    options: EvaluateOptions,
+) -> Result<impl Iterator<Item = EvaluationItem>, EvaluateError> {
+    use platynui_xpath::xdm::XdmItem;
     let root = options.desktop();
     let context = if let Some(node_ref) = node.as_ref() {
         if let Some(resolver) = options.node_resolver() {
@@ -137,34 +147,19 @@ pub fn evaluate(
         .build();
 
     let compiled = compiler::compile_with_context(xpath, &static_ctx)?;
-
     let mut dyn_builder = DynamicContextBuilder::new();
     dyn_builder = dyn_builder.with_context_item(RuntimeXdmNode::from_node(context.clone()));
     let dyn_ctx = dyn_builder.build();
 
-    let sequence = evaluator::evaluate(&compiled, &dyn_ctx)?;
-
-    let mut items = Vec::new();
-    for item in sequence {
-        match item {
-            XdmItem::Node(node) => match node {
-                RuntimeXdmNode::Document(doc) => {
-                    items.push(EvaluationItem::Node(doc.root.clone()));
-                }
-                RuntimeXdmNode::Element(element) => {
-                    items.push(EvaluationItem::Node(element.node.clone()));
-                }
-                RuntimeXdmNode::Attribute(attr) => {
-                    items.push(EvaluationItem::Attribute(attr.to_evaluated()));
-                }
-            },
-            XdmItem::Atomic(atom) => {
-                items.push(EvaluationItem::Value(atomic_to_ui_value(&atom)));
-            }
-        }
-    }
-
-    Ok(items)
+    let stream = evaluator::evaluate_stream(&compiled, &dyn_ctx)?;
+    Ok(stream.into_iter().filter_map(|res| match res.ok()? {
+        XdmItem::Node(node) => match node {
+            RuntimeXdmNode::Document(doc) => Some(EvaluationItem::Node(doc.root.clone())),
+            RuntimeXdmNode::Element(elem) => Some(EvaluationItem::Node(elem.node.clone())),
+            RuntimeXdmNode::Attribute(attr) => Some(EvaluationItem::Attribute(attr.to_evaluated())),
+        },
+        XdmItem::Atomic(atom) => Some(EvaluationItem::Value(atomic_to_ui_value(&atom))),
+    }))
 }
 
 #[derive(Clone)]
