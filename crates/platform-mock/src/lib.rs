@@ -20,8 +20,10 @@ mod tests {
     use platynui_core::platform::{HighlightRequest, highlight_providers};
     use platynui_core::types::Rect;
     use rstest::rstest;
+    use serial_test::serial;
 
     #[rstest]
+    #[serial]
     fn highlight_helpers_expose_state() {
         reset_highlight_state();
         let providers: Vec<_> = highlight_providers().collect();

@@ -5,30 +5,16 @@ pub mod provider;
 pub mod runtime;
 mod xpath;
 
+// Optional mock feature: explicitly link mock providers when feature is enabled
 #[cfg(feature = "mock-provider")]
 const _: () = {
-    // Ensure inventory registrations of mock platform/provider are linked
     use platynui_platform_mock as _;
     use platynui_provider_mock as _;
 };
 
-#[cfg(all(target_os = "windows", not(feature = "mock-provider")))]
-const _: () = {
-    use platynui_platform_windows as _;
-    use platynui_provider_windows_uia as _;
-};
-
-#[cfg(all(target_os = "linux", not(feature = "mock-provider")))]
-const _: () = {
-    use platynui_platform_linux_x11 as _;
-    use platynui_provider_atspi as _;
-};
-
-#[cfg(all(target_os = "macos", not(feature = "mock-provider")))]
-const _: () = {
-    use platynui_platform_macos as _;
-    use platynui_provider_macos_ax as _;
-};
+// Runtime no longer auto-links platform providers; application crates should
+// link their desired providers (Windows/Linux/macOS) explicitly. This keeps
+// unit tests simple and predictable.
 
 pub use keyboard_sequence::{KeyboardSequence, KeyboardSequenceError};
 pub use pointer::{PointerError, PointerOverrides, PointerProfile, PointerSettings};

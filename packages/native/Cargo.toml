@@ -13,15 +13,28 @@ crate-type = ["cdylib"]
 [features]
 default = []
 # Enable mock provider for portable local builds
-runtime-mock = ["platynui-runtime/mock-provider"]
+mock-provider = ["platynui-runtime/mock-provider"]
 
 [dependencies]
 pyo3 = { version = "0.26.0", features = ["extension-module", "abi3-py310"] }
 serde = { version = "1.0.226", features = ["derive"] }
 serde_json = "1.0.145"
 once_cell = "1.21.3"
+platynui-link = { path = "../../crates/link" }
 
 # Internal crates
 platynui-core = { path = "../../crates/core" }
 platynui-runtime = { package = "platynui-runtime", path = "../../crates/runtime" }
 platynui-xpath = { package = "platynui-xpath", path = "../../crates/xpath" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+platynui-platform-windows = { path = "../../crates/platform-windows" }
+platynui-provider-windows-uia = { path = "../../crates/provider-windows-uia" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+platynui-platform-linux-x11 = { path = "../../crates/platform-linux-x11" }
+platynui-provider-atspi = { path = "../../crates/provider-atspi" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+platynui-platform-macos = { path = "../../crates/platform-macos" }
+platynui-provider-macos-ax = { path = "../../crates/provider-macos-ax" }

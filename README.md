@@ -37,6 +37,18 @@ All concept documents are living drafts and evolve alongside the implementation.
 - `crates/provider-*` (`platynui-provider-*`): UiTreeProvider implementations (UIAutomation, AT-SPI, macOS AX, JSON-RPC, mock).
 - `crates/cli` (`platynui-cli`): Command-line utility for XPath queries, highlighting, keyboard/pointer interactions, and diagnostics.
 - `apps/inspector` (`platynui-inspector`): Planned GUI to explore the UI tree and craft XPath expressions.
+- `packages/native` (`platynui_native`): Maturin/pyo3-based Python bindings (cdylib). Built and tested separately via Python tooling:
+  - Build/install: `uv run maturin develop --release` (run inside `packages/native/`)
+  - Tests: `uv run pytest`
+  - Note: This crate is intentionally excluded from the Cargo workspace so `cargo test`/`cargo nextest` don’t try to link `-lpython3` during Rust-only test runs.
+
+### Provider Linking (Apps vs. Tests)
+- Runtime uses inventory for registration but does not auto‑link OS providers anymore.
+- Applications link providers explicitly per OS:
+  - CLI: links `platynui-platform-*` and `platynui-provider-*` via `cfg(target_os)` in `crates/cli/Cargo.toml` and `src/main.rs`.
+  - Python extension: links providers per OS in `packages/native/Cargo.toml` and `src/lib.rs`.
+- Unit tests link the mock providers inside their test modules to ensure deterministic inventory registrations:
+  - Example: `const _: () = { use platynui_platform_mock as _; use platynui_provider_mock as _; };`
 
 ### CLI Quick Examples (mock-provider)
 

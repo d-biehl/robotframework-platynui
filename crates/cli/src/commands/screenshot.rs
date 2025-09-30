@@ -126,9 +126,13 @@ fn ts_fallback() -> u128 {
 mod tests {
     use super::*;
     use crate::util::map_provider_error;
+    // Ensure provider/device registrations are linked into the test binary
+    use platynui_link::platynui_link_mock_for_tests;
+    platynui_link_mock_for_tests!();
     use platynui_platform_mock::{reset_screenshot_state, take_screenshot_log};
     use platynui_runtime::Runtime;
     use rstest::rstest;
+    use serial_test::serial;
     use tempfile::tempdir;
     use std::fs;
     use std::sync::{Mutex, LazyLock};
@@ -136,6 +140,7 @@ mod tests {
     static TEST_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     #[rstest]
+    #[serial]
     fn screenshot_command_writes_png() {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_screenshot_state();
@@ -159,6 +164,7 @@ mod tests {
     }
 
     #[rstest]
+    #[serial]
     fn screenshot_without_rect_uses_full_desktop() {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_screenshot_state();
@@ -187,6 +193,7 @@ mod tests {
     }
 
     #[rstest]
+    #[serial]
     fn screenshot_generates_default_name() {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_screenshot_state();

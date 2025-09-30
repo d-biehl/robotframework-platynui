@@ -1,5 +1,5 @@
 [package]
-name = "platynui-platform-mock"
+name = "platynui-link"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true
@@ -10,11 +10,8 @@ repository.workspace = true
 authors.workspace = true
 license.workspace = true
 
-[dependencies]
-platynui-core = { path = "../core" }
-inventory = "0.3.21"
-once_cell = "1.21.3"
+[lib]
+name = "platynui_link"
+path = "src/lib.rs"
 
-[dev-dependencies]
-rstest = "0.26.1"
-serial_test = "3.2.0"
+[dependencies]

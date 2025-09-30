@@ -478,7 +478,7 @@ mod tests {
         let r = union_rect(&[Rect::new(10.0, 10.0, 10.0, 10.0), Rect::new(15.0, 8.0, 5.0, 20.0)]);
         assert_eq!(r.x(), 10.0);
         assert_eq!(r.y(), 8.0);
-        assert_eq!(r.right(), 25.0);
+        assert_eq!(r.right(), 20.0);
         assert_eq!(r.bottom(), 28.0);
     }
 }

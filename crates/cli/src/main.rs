@@ -20,7 +20,12 @@ use commands::{
     window::{self, WindowArgs},
 };
 use platynui_runtime::Runtime;
+use platynui_link::platynui_link_providers;
 use util::{CliResult, map_provider_error};
+
+// Link real platform providers in non-test builds so the CLI binary brings the
+// OS integrations. Tests link the mock providers explicitly in their modules.
+platynui_link_providers!();
 
 #[derive(Parser)]
 #[command(author, version, about = "PlatynUI command line interface", long_about = None)]

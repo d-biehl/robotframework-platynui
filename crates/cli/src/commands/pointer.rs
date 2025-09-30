@@ -370,6 +370,9 @@ fn map_pointer_error(err: PointerError) -> Box<dyn std::error::Error> {
 
 #[cfg(test)]
 mod tests {
+    // Ensure provider/device registrations are linked into the test binary
+    use platynui_link::platynui_link_mock_for_tests;
+    platynui_link_mock_for_tests!();
     use super::*;
     use platynui_platform_mock::{PointerLogEntry, reset_pointer_state, take_pointer_log};
     use platynui_runtime::Runtime;

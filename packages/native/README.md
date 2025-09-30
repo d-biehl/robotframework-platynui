@@ -6,7 +6,7 @@ Native Python bindings for PlatynUI using PyO3 + maturin.
 Quick start (local develop):
 
 - uv sync --dev
-- uv run maturin develop -m packages/native/Cargo.toml --release --features runtime-mock
+- uv run maturin develop -m packages/native/Cargo.toml --release --features mock-provider
 
 Then in Python:
 
@@ -20,7 +20,7 @@ items = rt.evaluate("/control:Desktop", None)
 Run smoke tests (uses mock provider feature):
 
 ```
-uv run maturin develop -m packages/native/Cargo.toml --release --features runtime-mock
+uv run maturin develop -m packages/native/Cargo.toml --release --features mock-provider
 uv run pytest -q packages/native/tests
 ```
 
@@ -86,7 +86,7 @@ rt.keyboard_release("<Ctrl+C>")
 
 Notes
 
-- The mock provider feature (`--features runtime-mock`) is intended for local development without platform backends. Some pointer/keyboard calls may raise `PointerError`/`KeyboardError` if the device is not available; structure/typing of arguments is still validated.
+- The mock provider feature (`--features mock-provider`) is intended for local development without platform backends. Some pointer/keyboard calls may raise `PointerError`/`KeyboardError` if the device is not available; structure/typing of arguments is still validated.
 
 - Evaluate results
   - `Runtime.evaluate()` returns a list of `UiNode`, `EvaluatedAttribute`, or plain values (`UiValue`).
@@ -147,7 +147,7 @@ Pointer And Keyboard Smoke
 3) Run with the mock feature installed:
 
 ```
-uv run maturin develop -m packages/native/Cargo.toml --release --features runtime-mock
+uv run maturin develop -m packages/native/Cargo.toml --release --features mock-provider
 uv run robot examples/robot/quickstart.robot
 
 Troubleshooting

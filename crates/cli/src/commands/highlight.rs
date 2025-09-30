@@ -143,6 +143,9 @@ fn parse_rect_arg(value: &str) -> Result<Rect, String> {
 mod tests {
     use super::*;
     use crate::util::map_provider_error;
+    // Ensure provider/device registrations are linked into the test binary
+    use platynui_link::platynui_link_mock_for_tests;
+    platynui_link_mock_for_tests!();
     use platynui_platform_mock::{
         highlight_clear_count, reset_highlight_state, take_highlight_log,
     };

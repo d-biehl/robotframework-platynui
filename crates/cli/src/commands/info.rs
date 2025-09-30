@@ -132,6 +132,9 @@ fn render_info_json(summary: &DesktopSummary) -> CliResult<String> {
 mod tests {
     use super::*;
     use crate::util::map_provider_error;
+    // Link mock providers so DesktopInfo is stable under tests
+    use platynui_link::platynui_link_mock_for_tests;
+    platynui_link_mock_for_tests!();
     use platynui_runtime::Runtime;
     use rstest::rstest;
 

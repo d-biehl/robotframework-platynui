@@ -1,7 +1,12 @@
 use pyo3::prelude::*;
+use platynui_link::platynui_link_os_providers;
 
 mod core;
 mod runtime;
+
+// Link platform providers into the extension module for non-test builds, so
+// Python users get OS integrations without additional linking crates.
+platynui_link_os_providers!();
 
 /// Internal native module `_native` installed under the `platynui_native` package.
 /// Registers the `core` and `runtime` submodules.

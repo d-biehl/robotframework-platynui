@@ -89,9 +89,9 @@ impl From<PointLike<'_>> for platynui_core::types::Point { /* map to core::Point
 - Re‑evaluate `Send + Sync` safety once invariants are verified; potentially enable `#[pyclass]` without `unsendable` later.
 
 ## Platform Handling & Feature Flags
-- Default dev builds use a mock provider feature for portability:
-  - Wrapper feature `runtime-mock` → enables `platynui-runtime/mock-provider`.
-- Platform providers remain selected via `cfg(target_os)` in `crates/runtime`; release builds without `runtime-mock` will include the real platform modules.
+- Default dev builds can use a mock provider feature for portability:
+  - Wrapper feature `mock-provider` → enables `platynui-runtime/mock-provider`.
+- The native Python package links the real platform/provider crates per OS at build time (via `cfg(target_os)` in `packages/native/Cargo.toml` and `src/lib.rs`). The runtime itself does not auto‑link OS providers anymore; applications (CLI, Python extension) are responsible for pulling in the desired providers.
 
 ## Build, Dev, and Distribution
 
@@ -101,10 +101,11 @@ impl From<PointLike<'_>> for platynui_core::types::Point { /* map to core::Point
 
 ### Developer Workflow
 - One‑time: `uv sync --dev`
-- Local install (editable): `uv run maturin develop -m packages/native --release [--features runtime-mock]`
-- Rust workspace builds/tests remain:
+- Local install (editable): `uv run maturin develop -m packages/native --release [--features mock-provider]`
+- Rust workspace builds/tests remain (the native package is excluded from the Cargo workspace):
   - `cargo build --workspace`
-  - `cargo test -p platynui-xpath`
+  - `cargo test --workspace`
+  - Platform crates are included indirectly by the CLI; unit tests link the mock providers in their test modules.
 - Lint/Typecheck Python:
   - `uv run ruff check .`
   - `uv run mypy src/PlatynUI packages/core/src`
@@ -248,7 +249,7 @@ The first slice is implemented under `packages/native` and usable for local dev 
   - Validates dict/tuple/str/int inputs convert via `FromPyObject` for pointer/keyboard overrides, origins, buttons
 
 ### Build/Run (local, mock)
-- Install: `uv run maturin develop -m packages/native/Cargo.toml --release --features runtime-mock`
+- Install: `uv run maturin develop -m packages/native/Cargo.toml --release --features mock-provider`
 - Tests: `uv run pytest -q packages/native/tests`
 - Usage:
   - `from platynui_native import core, runtime`
