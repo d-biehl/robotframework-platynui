@@ -10,6 +10,7 @@ use std::str::FromStr;
 use pyo3::IntoPyObject;
 
 use platynui_core as core_rs;
+use platynui_core::platform::{HighlightRequest, ScreenshotRequest, PixelFormat};
 use platynui_runtime as runtime_rs;
 
 use crate::core::{PyNamespace, PyPoint, PyRect, PySize, py_namespace_from_inner};
@@ -506,6 +507,44 @@ impl PyRuntime {
         self.inner.focus(&node.inner).map_err(map_focus_err)?;
         Ok(())
     }
+
+    // ---------------- Highlight & Screenshot ----------------
+
+    /// Highlights one or more rectangles for an optional duration (milliseconds).
+    #[pyo3(signature = (rects, duration_ms=None), text_signature = "(self, rects, duration_ms=None)")]
+    fn highlight(&self, rects: Bound<'_, PyList>, duration_ms: Option<f64>) -> PyResult<()> {
+        let mut requests: Vec<HighlightRequest> = Vec::with_capacity(rects.len());
+        for item in rects.iter() {
+            let r: PyRef<PyRect> = item.extract()?;
+            let mut req = HighlightRequest::new(r.as_inner());
+            if let Some(ms) = duration_ms {
+                req = req.with_duration(std::time::Duration::from_millis(ms as u64));
+            }
+            requests.push(req);
+        }
+        self.inner.highlight(&requests).map_err(map_platform_err)?;
+        Ok(())
+    }
+
+    /// Clears an active highlight overlay if available.
+    fn clear_highlight(&self) -> PyResult<()> {
+        self.inner.clear_highlight().map_err(map_platform_err)?;
+        Ok(())
+    }
+
+    /// Captures a screenshot and returns encoded bytes. Supports only 'image/png'.
+    #[pyo3(signature = (rect=None, mime_type=None), text_signature = "(self, rect=None, mime_type=None)")]
+    fn screenshot(&self, py: Python<'_>, rect: Option<PyRef<PyRect>>, mime_type: Option<&str>) -> PyResult<Py<PyAny>> {
+        let effective_mime = mime_type.unwrap_or("image/png");
+        if !effective_mime.eq_ignore_ascii_case("image/png") {
+            return Err(PyTypeError::new_err("unsupported mime_type; only 'image/png' is supported"));
+        }
+        let request = rect.map(|r| ScreenshotRequest::with_region(r.as_inner())).unwrap_or_else(ScreenshotRequest::entire_display);
+        let shot = self.inner.screenshot(&request).map_err(map_platform_err)?;
+        let encoded = encode_png(&shot)?;
+        let pybytes = pyo3::types::PyBytes::new(py, &encoded);
+        Ok(pybytes.into_pyobject(py)?.unbind().into_any())
+    }
 }
 
 // ---------------- Conversions ----------------
@@ -565,6 +604,36 @@ fn desktop_info_to_py(py: Python<'_>, info: &core_rs::platform::DesktopInfo) -> 
     Ok(dict.into_pyobject(py)?.unbind().into_any())
 }
 
+fn to_rgba_bytes(shot: &core_rs::platform::Screenshot) -> Vec<u8> {
+    match shot.format {
+        PixelFormat::Rgba8 => shot.pixels.clone(),
+        PixelFormat::Bgra8 => {
+            let mut converted = shot.pixels.clone();
+            for chunk in converted.chunks_exact_mut(4) {
+                chunk.swap(0, 2);
+            }
+            converted
+        }
+    }
+}
+
+fn encode_png(shot: &core_rs::platform::Screenshot) -> PyResult<Vec<u8>> {
+    use png::{BitDepth, ColorType, Encoder};
+    let mut data = Vec::new();
+    let mut encoder = Encoder::new(&mut data, shot.width, shot.height);
+    encoder.set_color(ColorType::Rgba);
+    encoder.set_depth(BitDepth::Eight);
+    let mut writer = encoder
+        .write_header()
+        .map_err(|e| PyTypeError::new_err(format!("png header error: {e}")))?;
+    let rgba = to_rgba_bytes(shot);
+    writer
+        .write_image_data(&rgba)
+        .map_err(|e| PyTypeError::new_err(format!("png encode error: {e}")))?;
+    drop(writer);
+    Ok(data)
+}
+
 // ---------------- Error mapping ----------------
 
 fn map_provider_err(err: core_rs::provider::ProviderError) -> PyErr {
@@ -582,6 +651,10 @@ fn map_keyboard_err(err: runtime_rs::runtime::KeyboardActionError) -> PyErr {
 
 fn map_focus_err(err: runtime_rs::runtime::FocusError) -> PyErr {
     PatternError::new_err(err.to_string())
+}
+
+fn map_platform_err(err: core_rs::platform::PlatformError) -> PyErr {
+    ProviderError::new_err(err.to_string())
 }
 
 // ---------------- Module init ----------------

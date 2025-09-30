@@ -47,6 +47,9 @@ This document proposes a clean, future‑proof design for Python bindings to Pla
   - `evaluate(xpath: str, node: UiNode | None = None) -> list[UiNode | EvaluatedAttribute | UiValue]`
   - `desktop_node() -> UiNode`, `desktop_info() -> dict`
   - `focus(node: UiNode)`
+  - `highlight(rects: list[core.Rect], duration_ms: float | None = None)`
+  - `clear_highlight()`
+  - `screenshot(rect: core.Rect | None = None, mime_type: str | None = None) -> bytes` — aktuell nur `image/png`
   - Pointer ops: `pointer_position`, `pointer_move_to`, `pointer_click`, `pointer_multi_click`, `pointer_drag`, `pointer_press`, `pointer_release`, `pointer_scroll`
   - Keyboard ops: `keyboard_type`, `keyboard_press`, `keyboard_release`
 - `UiNode` (wraps `Arc<dyn UiNode>`)
