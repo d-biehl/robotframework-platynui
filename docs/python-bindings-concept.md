@@ -51,7 +51,7 @@ This document proposes a clean, future‑proof design for Python bindings to Pla
   - Properties: `runtime_id`, `name`, `role`, `namespace`
   - Methods: `attribute(name, namespace=None) -> UiValue`, `parent() -> UiNode | None`, `children() -> list[UiNode]`, `attributes() -> list[UiAttribute]`, `supported_patterns() -> list[str]`, `doc_order_key() -> int | None`, `invalidate()`, `has_pattern(id) -> bool`, `pattern_by_id(id) -> object | None`
 - Attribute classes
-  - `UiAttribute`: `namespace`, `name`, `value` (no owner)
+- `UiAttribute`: `namespace`, `name`, `value()` (lazy; no owner)
   - `EvaluatedAttribute`: `namespace`, `name`, `value`, `owner() -> UiNode | None`
 
 ## Type Conversion Strategy

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use pyo3::exceptions::{PyException, PyTypeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyAnyMethods, PyDict, PyList, PyTuple};
+use std::str::FromStr;
 use pyo3::IntoPyObject;
 
 use platynui_core as core_rs;
@@ -73,11 +74,9 @@ impl PyNode {
     fn attributes(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let out = PyList::empty(py);
         for a in self.inner.attributes() {
-            let val = ui_value_to_py(py, &a.value())?;
-            out.append(Py::new(
-                py,
-                PyAttribute::new(a.namespace().as_str().to_string(), a.name().to_string(), val),
-            )?)?;
+            let ns = a.namespace().as_str().to_string();
+            let name = a.name().to_string();
+            out.append(Py::new(py, PyAttribute { namespace: ns, name, owner: self.inner.clone() })?)?;
         }
         Ok(out.into())
     }
@@ -185,16 +184,11 @@ impl PyWindowSurface {
 pub struct PyAttribute {
     namespace: String,
     name: String,
-    value: Py<PyAny>,
+    owner: Arc<dyn core_rs::ui::UiNode>,
 }
 
 #[pymethods]
 impl PyAttribute {
-    #[new]
-    #[pyo3(signature = (namespace, name, value))]
-    fn new(namespace: String, name: String, value: Py<PyAny>) -> Self {
-        Self { namespace, name, value }
-    }
     #[getter]
     fn namespace(&self) -> &str {
         &self.namespace
@@ -203,9 +197,15 @@ impl PyAttribute {
     fn name(&self) -> &str {
         &self.name
     }
-    #[getter]
-    fn value(&self, py: Python<'_>) -> Py<PyAny> {
-        self.value.clone_ref(py)
+    /// Lazily resolves the attribute value on demand.
+    /// Returns None if the attribute is no longer available.
+    fn value(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let ns = core_rs::ui::namespace::Namespace::from_str(self.namespace.as_str())
+            .unwrap_or_default();
+        match self.owner.attribute(ns, &self.name) {
+            Some(attr) => ui_value_to_py(py, &attr.value()),
+            None => Ok(py.None()),
+        }
     }
     fn __repr__(&self) -> String {
         format!("Attribute(namespace='{}', name='{}')", self.namespace, self.name)
