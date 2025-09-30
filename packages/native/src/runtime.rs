@@ -486,6 +486,26 @@ impl PyRuntime {
         self.inner.keyboard_release(sequence, ov).map_err(map_keyboard_err)?;
         Ok(())
     }
+
+    // ---------------- Desktop & Focus ----------------
+
+    /// Returns the desktop root node.
+    fn desktop_node(&self, py: Python<'_>) -> PyResult<Py<PyNode>> {
+        let node = self.inner.desktop_node();
+        Py::new(py, PyNode { inner: node })
+    }
+
+    /// Returns desktop metadata (dict) including bounds and monitors.
+    fn desktop_info(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let info = self.inner.desktop_info();
+        desktop_info_to_py(py, info)
+    }
+
+    /// Sets focus to the given node via the Focusable pattern.
+    fn focus(&self, node: PyRef<'_, PyNode>) -> PyResult<()> {
+        self.inner.focus(&node.inner).map_err(map_focus_err)?;
+        Ok(())
+    }
 }
 
 // ---------------- Conversions ----------------
@@ -518,6 +538,33 @@ fn ui_value_to_py(py: Python<'_>, value: &core_rs::ui::value::UiValue) -> PyResu
     })
 }
 
+fn rect_to_py(py: Python<'_>, r: &core_rs::types::Rect) -> PyResult<Py<PyAny>> {
+    Py::new(py, PyRect::from(*r)).map(|p| p.into_any())
+}
+
+fn desktop_info_to_py(py: Python<'_>, info: &core_rs::platform::DesktopInfo) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("runtime_id", info.runtime_id.as_str())?;
+    dict.set_item("name", &info.name)?;
+    dict.set_item("technology", info.technology.as_str())?;
+    dict.set_item("bounds", rect_to_py(py, &info.bounds)?)?;
+    dict.set_item("os_name", &info.os_name)?;
+    dict.set_item("os_version", &info.os_version)?;
+
+    let monitors = PyList::empty(py);
+    for m in &info.monitors {
+        let md = PyDict::new(py);
+        md.set_item("id", &m.id)?;
+        if let Some(name) = &m.name { md.set_item("name", name)?; } else { md.set_item("name", py.None())?; }
+        md.set_item("bounds", rect_to_py(py, &m.bounds)?)?;
+        md.set_item("is_primary", m.is_primary)?;
+        if let Some(scale) = m.scale_factor { md.set_item("scale_factor", scale)?; } else { md.set_item("scale_factor", py.None())?; }
+        monitors.append(md)?;
+    }
+    dict.set_item("monitors", monitors)?;
+    Ok(dict.into_pyobject(py)?.unbind().into_any())
+}
+
 // ---------------- Error mapping ----------------
 
 fn map_provider_err(err: core_rs::provider::ProviderError) -> PyErr {
@@ -531,6 +578,10 @@ fn map_pointer_err(err: runtime_rs::PointerError) -> PyErr {
 }
 fn map_keyboard_err(err: runtime_rs::runtime::KeyboardActionError) -> PyErr {
     KeyboardError::new_err(err.to_string())
+}
+
+fn map_focus_err(err: runtime_rs::runtime::FocusError) -> PyErr {
+    PatternError::new_err(err.to_string())
 }
 
 // ---------------- Module init ----------------
