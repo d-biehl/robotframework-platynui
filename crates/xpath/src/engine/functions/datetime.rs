@@ -1,7 +1,7 @@
 use super::common::{get_datetime, get_time, now_in_effective_tz, parse_xs_date_local};
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
-use chrono::{Datelike, FixedOffset as ChronoFixedOffset, TimeZone, Timelike};
+use chrono::{Datelike, FixedOffset as ChronoFixedOffset, TimeZone, Timelike, Offset};
 
 pub(super) fn date_time_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
@@ -70,7 +70,7 @@ pub(super) fn adjust_date_to_timezone_fn<
             ctx.dyn_ctx
                 .now
                 .map(|n| *n.offset())
-                .unwrap_or_else(|| ChronoFixedOffset::east_opt(0).unwrap())
+                .unwrap_or_else(|| chrono::Utc.fix())
         }))
     } else {
         match &args[1][0] {
@@ -116,7 +116,7 @@ pub(super) fn adjust_time_to_timezone_fn<
             ctx.dyn_ctx
                 .now
                 .map(|n| *n.offset())
-                .unwrap_or_else(|| ChronoFixedOffset::east_opt(0).unwrap())
+                .unwrap_or_else(|| chrono::Utc.fix())
         }))
     } else {
         match &args[1][0] {
@@ -164,7 +164,7 @@ pub(super) fn adjust_datetime_to_timezone_fn<
             ctx.dyn_ctx
                 .now
                 .map(|n| *n.offset())
-                .unwrap_or_else(|| ChronoFixedOffset::east_opt(0).unwrap())
+                .unwrap_or_else(|| chrono::Utc.fix())
         }))
     } else {
         Some(match &args[1][0] {
@@ -198,7 +198,7 @@ pub(super) fn adjust_datetime_to_timezone_fn<
     let naive = dt.naive_utc();
     let res = match tz_opt {
         Some(ofs) => ofs.from_utc_datetime(&naive),
-        None => ChronoFixedOffset::east_opt(0).unwrap().from_utc_datetime(&naive),
+        None => chrono::Utc.fix().from_utc_datetime(&naive),
     };
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::DateTime(res))])
 }

@@ -23,11 +23,11 @@ pub(super) fn codepoint_equal_fn<N: 'static + Send + Sync + crate::model::XdmNod
     if args[0].is_empty() || args[1].is_empty() {
         return Ok(vec![]);
     }
-    let coll = ctx
+    let coll: std::sync::Arc<dyn crate::engine::collation::Collation> = ctx
         .dyn_ctx
         .collations
         .get(crate::engine::collation::CODEPOINT_URI)
-        .expect("codepoint collation registered");
+        .unwrap_or_else(|| std::sync::Arc::new(crate::engine::collation::CodepointCollation));
     let a_item = args[0].first().cloned();
     let b_item = args[1].first().cloned();
     let eq = if let (Some(XdmItem::Atomic(a)), Some(XdmItem::Atomic(b))) = (a_item, b_item) {

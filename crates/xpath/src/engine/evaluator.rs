@@ -17,7 +17,7 @@ use crate::xdm::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use chrono::Duration as ChronoDuration;
-use chrono::{FixedOffset as ChronoFixedOffset, NaiveTime as ChronoNaiveTime, TimeZone};
+use chrono::{FixedOffset as ChronoFixedOffset, NaiveTime as ChronoNaiveTime, TimeZone, Offset};
 use core::cmp::Ordering;
 use core::mem;
 use smallvec::SmallVec;
@@ -113,7 +113,10 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> VmHandle<N> {
         }
         let snapshot = &self.inner.snapshot;
         let mut vm = {
-            let mut guard = self.inner.cache.lock().expect("vm cache poisoned");
+            let mut guard = match self.inner.cache.lock() {
+                Ok(g) => g,
+                Err(e) => e.into_inner(),
+            };
             guard.take()
         }
         .unwrap_or_else(|| Vm::from_snapshot(snapshot));
@@ -122,7 +125,10 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> VmHandle<N> {
 
         vm.reset_to_snapshot(snapshot);
 
-        let mut guard = self.inner.cache.lock().expect("vm cache poisoned");
+        let mut guard = match self.inner.cache.lock() {
+            Ok(g) => g,
+            Err(e) => e.into_inner(),
+        };
         *guard = Some(vm);
 
         result
@@ -952,8 +958,14 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> SetOperationCursor<N> {
         if self.initialized {
             return Ok(());
         }
-        let lhs_cursor = self.lhs.take().unwrap();
-        let rhs_cursor = self.rhs.take().unwrap();
+        let lhs_cursor = self
+            .lhs
+            .take()
+            .ok_or_else(|| Error::from_code(ErrorCode::FOER0000, "set operation: LHS cursor already consumed"))?;
+        let rhs_cursor = self
+            .rhs
+            .take()
+            .ok_or_else(|| Error::from_code(ErrorCode::FOER0000, "set operation: RHS cursor already consumed"))?;
         let lhs_seq = Self::collect_sequence(lhs_cursor)?;
         let rhs_seq = Self::collect_sequence(rhs_cursor)?;
         let is_nodes_only =
@@ -1038,7 +1050,10 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> ForLoopCursor<N> {
             {
                 upper
             } else {
-                let mut cursor = self.seed.take().unwrap();
+                let mut cursor = self
+                    .seed
+                    .take()
+                    .ok_or_else(|| Error::from_code(ErrorCode::FOER0000, "for-loop length seed missing"))?;
                 let mut count = 0usize;
                 while let Some(item) = cursor.next_item() {
                     match item {
@@ -1183,7 +1198,10 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> QuantLoopCursor<N> {
             {
                 upper
             } else {
-                let mut cursor = self.seed.take().unwrap();
+                let mut cursor = self
+                    .seed
+                    .take()
+                    .ok_or_else(|| Error::from_code(ErrorCode::FOER0000, "quant-loop length seed missing"))?;
                 let mut count = 0usize;
                 while let Some(item) = cursor.next_item() {
                     match item {
@@ -1436,7 +1454,12 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                         "expected singleton atomic; node atomization not singleton",
                     ));
                 }
-                tv.into_iter().next().unwrap()
+                tv.into_iter().next().ok_or_else(|| {
+                    Error::from_code(
+                        ErrorCode::FORG0006,
+                        "expected singleton atomic; typed value unexpectedly empty",
+                    )
+                })?
             }
         };
         if c.next_item().is_some() {
@@ -1640,13 +1663,11 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                         use chrono::{Datelike, NaiveDate};
                         let y = date.year();
                         let m = date.month() as i32; // 1-12
+                        // Avoid overflow by saturating arithmetic on months total
                         let total = y
-                            .checked_mul(12)
-                            .unwrap_or(0)
-                            .checked_add(m - 1)
-                            .unwrap_or(0)
-                            .checked_add(delta_months)
-                            .unwrap_or(0);
+                            .saturating_mul(12)
+                            .saturating_add(m - 1)
+                            .saturating_add(delta_months);
                         let ny = total.div_euclid(12);
                         let nm0 = total.rem_euclid(12);
                         let nm = (nm0 + 1) as u32; // 1..=12
@@ -1661,7 +1682,10 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                             _ => 30,
                         } as u32;
                         let day = date.day().min(last_day);
-                        NaiveDate::from_ymd_opt(ny, nm, day).unwrap()
+                        match NaiveDate::from_ymd_opt(ny, nm, day) {
+                            Some(valid) => valid,
+                            None => date, // fallback conservatively to original date
+                        }
                     }
 
                     // Numeric value for a if numeric, else None
@@ -2976,7 +3000,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                         .dyn_ctx
                         .collations
                         .get(crate::engine::collation::CODEPOINT_URI)
-                        .expect("codepoint collation registered");
+                        .unwrap_or_else(|| std::sync::Arc::new(crate::engine::collation::CodepointCollation));
                     coll_arc.as_ref()
                 };
             return Ok(match op {
@@ -3087,10 +3111,18 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         {
             let eff_tz_a = (*ta).unwrap_or_else(|| self.implicit_timezone());
             let eff_tz_b = (*tb).unwrap_or_else(|| self.implicit_timezone());
-            let na = da.and_time(ChronoNaiveTime::from_hms_opt(0, 0, 0).unwrap());
-            let nb = db.and_time(ChronoNaiveTime::from_hms_opt(0, 0, 0).unwrap());
-            let dta = eff_tz_a.from_local_datetime(&na).single().unwrap();
-            let dtb = eff_tz_b.from_local_datetime(&nb).single().unwrap();
+            let midnight = ChronoNaiveTime::from_hms_opt(0, 0, 0)
+                .ok_or_else(|| Error::from_code(ErrorCode::FOAR0001, "invalid time 00:00:00"))?;
+            let na = da.and_time(midnight);
+            let nb = db.and_time(midnight);
+            let dta = eff_tz_a
+                .from_local_datetime(&na)
+                .single()
+                .ok_or_else(|| Error::from_code(ErrorCode::FOAR0001, "ambiguous local datetime"))?;
+            let dtb = eff_tz_b
+                .from_local_datetime(&nb)
+                .single()
+                .ok_or_else(|| Error::from_code(ErrorCode::FOAR0001, "ambiguous local datetime"))?;
             let ord = (dta.timestamp(), dta.timestamp_subsec_nanos())
                 .cmp(&(dtb.timestamp(), dtb.timestamp_subsec_nanos()));
             return Ok(match op {
@@ -3111,11 +3143,18 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         {
             let eff_tz_a = (*tza).unwrap_or_else(|| self.implicit_timezone());
             let eff_tz_b = (*tzb).unwrap_or_else(|| self.implicit_timezone());
-            let base = chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
+            let base = chrono::NaiveDate::from_ymd_opt(2000, 1, 1)
+                .ok_or_else(|| Error::from_code(ErrorCode::FOAR0001, "invalid base date 2000-01-01"))?;
             let na = base.and_time(*ta);
             let nb = base.and_time(*tb);
-            let dta = eff_tz_a.from_local_datetime(&na).single().unwrap();
-            let dtb = eff_tz_b.from_local_datetime(&nb).single().unwrap();
+            let dta = eff_tz_a
+                .from_local_datetime(&na)
+                .single()
+                .ok_or_else(|| Error::from_code(ErrorCode::FOAR0001, "ambiguous local datetime"))?;
+            let dtb = eff_tz_b
+                .from_local_datetime(&nb)
+                .single()
+                .ok_or_else(|| Error::from_code(ErrorCode::FOAR0001, "ambiguous local datetime"))?;
             let ord = (dta.timestamp(), dta.timestamp_subsec_nanos())
                 .cmp(&(dtb.timestamp(), dtb.timestamp_subsec_nanos()));
             return Ok(match op {
@@ -3139,7 +3178,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         if let Some(n) = self.dyn_ctx.now {
             return *n.offset();
         }
-        ChronoFixedOffset::east_opt(0).unwrap()
+        // Zero offset (UTC). `Utc.fix()` yields a FixedOffset(0) without Option handling.
+        chrono::Utc.fix()
     }
 
     fn doc_order_distinct(&self, seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {

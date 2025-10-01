@@ -6,7 +6,7 @@
 //! * Support optional timezone (Z or ±HH:MM) with bounds: HH <= 14, MM < 60
 //! * Support negative years (no year 0) – XML Schema maps year 0 lexical to invalid
 //! * Return rich but simple error classification for mapping to FORG0001
-use chrono::{FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Offset};
 
 #[derive(Debug, Clone, Copy)]
 pub enum TemporalErr {
@@ -61,7 +61,8 @@ fn split_tz(s: &str) -> (&str, Option<&str>) {
 
 fn parse_tz(tz: &str) -> Result<FixedOffset, TemporalErr> {
     if tz == "Z" {
-        return Ok(FixedOffset::east_opt(0).unwrap());
+        // UTC zero offset
+        return Ok(chrono::Utc.fix());
     }
     if tz.len() != 6 {
         return Err(TemporalErr::Lexical);
@@ -113,7 +114,7 @@ pub fn parse_time_lex(s: &str) -> Result<(NaiveTime, Option<FixedOffset>), Tempo
     let h: u32 = comps[0].parse().map_err(|_| TemporalErr::Lexical)?;
     let m: u32 = comps[1].parse().map_err(|_| TemporalErr::Lexical)?;
     let mut sec_iter = comps[2].splitn(2, '.');
-    let s_whole_str = sec_iter.next().unwrap();
+    let s_whole_str = sec_iter.next().ok_or(TemporalErr::Lexical)?;
     if s_whole_str.is_empty() {
         return Err(TemporalErr::Lexical);
     }
@@ -260,8 +261,6 @@ pub fn build_naive_datetime(
     let naive = NaiveDateTime::new(date, time);
     match tz {
         Some(ofs) => chrono::DateTime::from_naive_utc_and_offset(naive - ofs, ofs), // adjust naive local -> UTC naive
-        None => {
-            chrono::DateTime::from_naive_utc_and_offset(naive, FixedOffset::east_opt(0).unwrap())
-        }
+        None => chrono::DateTime::from_naive_utc_and_offset(naive, chrono::Utc.fix()),
     }
 }

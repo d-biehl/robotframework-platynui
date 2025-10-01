@@ -33,7 +33,7 @@ fn compile_inner(expr: &str, static_ctx: &StaticContext) -> Result<ir::CompiledX
     if let Some(instrs) = static_ctx
         .compile_cache
         .lock()
-        .expect("static context compile cache mutex poisoned")
+        .map_err(|_| Error::from_code(ErrorCode::FOER0000, "compile cache lock poisoned"))?
         .get(expr)
         .cloned()
     {
@@ -54,7 +54,7 @@ fn compile_inner(expr: &str, static_ctx: &StaticContext) -> Result<ir::CompiledX
     static_ctx
         .compile_cache
         .lock()
-        .expect("static context compile cache mutex poisoned")
+        .map_err(|_| Error::from_code(ErrorCode::FOER0000, "compile cache lock poisoned"))?
         .put(source.clone(), cache_entry);
 
     Ok(ir::CompiledXPath { instrs, static_ctx: Arc::new(static_ctx.clone()), source })

@@ -377,7 +377,8 @@ impl FancyRegexProvider {
         static REGEX_CACHE: OnceLock<RegexCache> = OnceLock::new();
         let cache = REGEX_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
         let key = (pattern.to_string(), flags.to_string());
-        if let Some(existing) = cache.lock().unwrap().get(&key) {
+        let mut guard = match cache.lock() { Ok(g) => g, Err(e) => e.into_inner() };
+        if let Some(existing) = guard.get(&key) {
             return Ok(existing.clone());
         }
 
@@ -410,7 +411,7 @@ impl FancyRegexProvider {
                 .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
         })?;
         let arc = Arc::new(compiled);
-        cache.lock().unwrap().entry(key).or_insert_with(|| arc.clone());
+        guard.entry(key).or_insert_with(|| arc.clone());
         Ok(arc)
     }
 }
@@ -1742,8 +1743,9 @@ impl Default for StaticContext {
         ns.by_prefix.insert("xml".to_string(), crate::consts::XML_URI.to_string());
         let mut collations: HashSet<String> = HashSet::new();
         collations.insert(CODEPOINT_URI.to_string());
+        // STATIC_CONTEXT_COMPILE_CACHE_CAPACITY is a non-zero constant; be defensive anyway.
         let cache_capacity = NonZeroUsize::new(STATIC_CONTEXT_COMPILE_CACHE_CAPACITY)
-            .expect("static context compile cache capacity must be non-zero");
+            .unwrap_or_else(|| NonZeroUsize::new(1).expect("1 is a valid non-zero size"));
         Self {
             base_uri: None,
             default_function_namespace: Some(crate::consts::FNS.to_string()),

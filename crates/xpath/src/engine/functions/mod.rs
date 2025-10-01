@@ -1325,13 +1325,17 @@ pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNod
 -> Arc<FunctionImplementations<N>> {
     static CACHE: OnceLock<Mutex<HashMap<TypeId, Box<dyn Any + Send + Sync>>>> = OnceLock::new();
     let map = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = map.lock().expect("default function registry cache poisoned");
+    let mut guard = match map.lock() {
+        Ok(g) => g,
+        Err(e) => e.into_inner(),
+    };
     let type_id = TypeId::of::<N>();
     if let Some(existing) = guard.get(&type_id) {
-        let arc = existing
-            .downcast_ref::<Arc<FunctionImplementations<N>>>()
-            .expect("cached registry type mismatch");
-        return arc.clone();
+        if let Some(arc) = existing.downcast_ref::<Arc<FunctionImplementations<N>>>() {
+            return arc.clone();
+        }
+        // Type mismatch in cache entry: drop it and rebuild
+        guard.remove(&type_id);
     }
 
     let mut reg: FunctionImplementations<N> = FunctionImplementations::new();

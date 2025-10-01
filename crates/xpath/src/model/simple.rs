@@ -151,7 +151,7 @@ impl SimpleNode {
 
     pub fn document() -> SimpleNodeBuilder {
         let b = SimpleNodeBuilder::new(NodeKind::Document, None, None);
-        *b.node.0.doc_id.write().unwrap() = Self::next_doc_id();
+        *b.node.0.doc_id.write().unwrap_or_else(|e| e.into_inner()) = Self::next_doc_id();
         b
     }
     pub fn element(name: &str) -> SimpleNodeBuilder {
@@ -221,25 +221,25 @@ impl SimpleNode {
     }
 
     fn set_doc_order(&self, value: u64) {
-        *self.0.doc_order.write().unwrap() = Some(value);
+        *self.0.doc_order.write().unwrap_or_else(|e| e.into_inner()) = Some(value);
     }
 
     pub fn set_doc_id_recursive(&self, doc_id: u64) {
-        *self.0.doc_id.write().unwrap() = doc_id;
+        *self.0.doc_id.write().unwrap_or_else(|e| e.into_inner()) = doc_id;
         {
-            let attrs = self.0.attributes.read().unwrap().clone();
+            let attrs = self.0.attributes.read().unwrap_or_else(|e| e.into_inner()).clone();
             for attr in attrs {
                 attr.set_doc_id_recursive(doc_id);
             }
         }
         {
-            let namespaces = self.0.namespaces.read().unwrap().clone();
+            let namespaces = self.0.namespaces.read().unwrap_or_else(|e| e.into_inner()).clone();
             for ns in namespaces {
                 ns.set_doc_id_recursive(doc_id);
             }
         }
         {
-            let children = self.0.children.read().unwrap().clone();
+            let children = self.0.children.read().unwrap_or_else(|e| e.into_inner()).clone();
             for child in children {
                 child.set_doc_id_recursive(doc_id);
             }
@@ -251,17 +251,17 @@ impl SimpleNode {
         self.set_doc_order(*counter);
 
         if matches!(self.kind(), NodeKind::Element) {
-            let attrs = self.0.attributes.read().unwrap().clone();
+            let attrs = self.0.attributes.read().unwrap_or_else(|e| e.into_inner()).clone();
             for attr in attrs {
                 attr.assign_document_order_with_counter(counter);
             }
-            let namespaces = self.0.namespaces.read().unwrap().clone();
+            let namespaces = self.0.namespaces.read().unwrap_or_else(|e| e.into_inner()).clone();
             for ns in namespaces {
                 ns.assign_document_order_with_counter(counter);
             }
         }
 
-        let children = self.0.children.read().unwrap().clone();
+        let children = self.0.children.read().unwrap_or_else(|e| e.into_inner()).clone();
         for child in children {
             child.assign_document_order_with_counter(counter);
         }
@@ -273,7 +273,7 @@ impl SimpleNode {
     }
 
     fn doc_order(&self) -> Option<u64> {
-        *self.0.doc_order.read().unwrap()
+        *self.0.doc_order.read().unwrap_or_else(|e| e.into_inner())
     }
 }
 
@@ -409,29 +409,29 @@ impl SimpleNodeBuilder {
                 | NodeKind::ProcessingInstruction
                 | NodeKind::Attribute
         ) {
-            *self.node.0.value.write().unwrap() = Some(v.to_string());
+            *self.node.0.value.write().unwrap_or_else(|e| e.into_inner()) = Some(v.to_string());
         }
         self
     }
     pub fn build(self) -> SimpleNode {
         // finalize relationships
         {
-            let mut id = self.node.0.doc_id.write().unwrap();
+            let mut id = self.node.0.doc_id.write().unwrap_or_else(|e| e.into_inner());
             if *id == 0 {
                 *id = SimpleNode::next_doc_id();
             }
         }
         {
-            let mut nss = self.node.0.namespaces.write().unwrap();
+            let mut nss = self.node.0.namespaces.write().unwrap_or_else(|e| e.into_inner());
             for n in &self.pending_ns {
-                *n.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
-                let id = *self.node.0.doc_id.read().unwrap();
+                *n.0.parent.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::downgrade(&self.node.0));
+                let id = *self.node.0.doc_id.read().unwrap_or_else(|e| e.into_inner());
                 n.set_doc_id_recursive(id);
             }
             nss.extend(self.pending_ns);
         }
         {
-            let mut attrs = self.node.0.attributes.write().unwrap();
+            let mut attrs = self.node.0.attributes.write().unwrap_or_else(|e| e.into_inner());
             for a in self.pending_attrs {
                 // Resolve attribute namespace prefix using in-scope namespaces of the element.
                 // Default namespace does not apply to attributes; only prefixed names are resolved.
@@ -446,7 +446,7 @@ impl SimpleNodeBuilder {
                     };
                     if let Some(ns_uri) = uri {
                         // Rebuild attribute node with resolved ns_uri
-                        let val = a.0.value.read().unwrap().clone();
+                        let val = a.0.value.read().unwrap_or_else(|e| e.into_inner()).clone();
                         let rebuilt = SimpleNode::new(
                             NodeKind::Attribute,
                             Some(QName {
@@ -456,26 +456,26 @@ impl SimpleNodeBuilder {
                             }),
                             val,
                         );
-                        *rebuilt.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
-                        let id = *self.node.0.doc_id.read().unwrap();
+                        *rebuilt.0.parent.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::downgrade(&self.node.0));
+                        let id = *self.node.0.doc_id.read().unwrap_or_else(|e| e.into_inner());
                         rebuilt.set_doc_id_recursive(id);
                         attrs.push(rebuilt);
                         pushed = true;
                     }
                 }
                 if !pushed {
-                    *a.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
-                    let id = *self.node.0.doc_id.read().unwrap();
+                    *a.0.parent.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::downgrade(&self.node.0));
+                    let id = *self.node.0.doc_id.read().unwrap_or_else(|e| e.into_inner());
                     a.set_doc_id_recursive(id);
                     attrs.push(a);
                 }
             }
         }
         {
-            let mut ch = self.node.0.children.write().unwrap();
+            let mut ch = self.node.0.children.write().unwrap_or_else(|e| e.into_inner());
             for c in self.pending_children {
-                *c.0.parent.write().unwrap() = Some(Arc::downgrade(&self.node.0));
-                let idc = *self.node.0.doc_id.read().unwrap();
+                *c.0.parent.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::downgrade(&self.node.0));
+                let idc = *self.node.0.doc_id.read().unwrap_or_else(|e| e.into_inner());
                 c.set_doc_id_recursive(idc);
                 ch.push(c);
             }
@@ -491,7 +491,7 @@ impl SimpleNodeBuilder {
                 // Resolve on this element
                 let mut to_replace: Vec<(usize, SimpleNode)> = Vec::new();
                 {
-                    let attrs = node.0.attributes.read().unwrap();
+                    let attrs = node.0.attributes.read().unwrap_or_else(|e| e.into_inner());
                     for (idx, a) in attrs.iter().enumerate() {
                         if let Some(q) = a.name()
                             && let Some(pref) = q.prefix.as_ref()
@@ -504,7 +504,7 @@ impl SimpleNodeBuilder {
                                     node.lookup_namespace_uri(pref)
                                 };
                                 if let Some(ns_uri) = uri {
-                                    let val = a.0.value.read().unwrap().clone();
+                                    let val = a.0.value.read().unwrap_or_else(|e| e.into_inner()).clone();
                                     let rebuilt = SimpleNode::new(
                                         NodeKind::Attribute,
                                         Some(QName {
@@ -514,10 +514,10 @@ impl SimpleNodeBuilder {
                                         }),
                                         val,
                                     );
-                                    *rebuilt.0.parent.write().unwrap() =
+                                    *rebuilt.0.parent.write().unwrap_or_else(|e| e.into_inner()) =
                                         Some(Arc::downgrade(&node.0));
-                                    let id = *node.0.doc_id.read().unwrap();
-                                    *rebuilt.0.doc_id.write().unwrap() = id;
+                                    let id = *node.0.doc_id.read().unwrap_or_else(|e| e.into_inner());
+                                    *rebuilt.0.doc_id.write().unwrap_or_else(|e| e.into_inner()) = id;
                                     to_replace.push((idx, rebuilt));
                                 }
                             }
@@ -525,7 +525,7 @@ impl SimpleNodeBuilder {
                     }
                 }
                 if !to_replace.is_empty() {
-                    let mut attrs_w = node.0.attributes.write().unwrap();
+                    let mut attrs_w = node.0.attributes.write().unwrap_or_else(|e| e.into_inner());
                     for (idx, new_attr) in to_replace {
                         attrs_w[idx] = new_attr;
                     }
@@ -605,18 +605,18 @@ impl XdmNode for SimpleNode {
             | NodeKind::Comment
             | NodeKind::ProcessingInstruction
             | NodeKind::Namespace => {
-                let value = self.0.value.read().unwrap().clone().unwrap_or_default();
+                let value = self.0.value.read().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_default();
                 vec![XdmAtomicValue::UntypedAtomic(value)]
             }
             NodeKind::Element | NodeKind::Document => {
-                if let Some(cached) = self.0.cached_text.read().unwrap().clone() {
+                if let Some(cached) = self.0.cached_text.read().unwrap_or_else(|e| e.into_inner()).clone() {
                     return vec![XdmAtomicValue::UntypedAtomic(cached)];
                 }
 
                 let mut out = String::new();
                 fn dfs(n: &SimpleNode, out: &mut String) {
                     if n.kind() == NodeKind::Text
-                        && let Some(v) = &*n.0.value.read().unwrap()
+                        && let Some(v) = &*n.0.value.read().unwrap_or_else(|e| e.into_inner())
                     {
                         out.push_str(v);
                     }
@@ -625,7 +625,7 @@ impl XdmNode for SimpleNode {
                     }
                 }
                 dfs(self, &mut out);
-                *self.0.cached_text.write().unwrap() = Some(out.clone());
+                *self.0.cached_text.write().unwrap_or_else(|e| e.into_inner()) = Some(out.clone());
                 vec![XdmAtomicValue::UntypedAtomic(out)]
             }
         }
@@ -664,7 +664,7 @@ impl XdmNode for SimpleNode {
         if !seen.contains("xml") {
             let xml = SimpleNode::namespace("xml", crate::consts::XML_URI);
             // set parent to this element for proper ancestry comparisons
-            *xml.0.parent.write().unwrap() = Some(std::sync::Arc::downgrade(&self.0));
+            *xml.0.parent.write().unwrap_or_else(|e| e.into_inner()) = Some(std::sync::Arc::downgrade(&self.0));
             out.push(xml);
         }
         out.into_iter()
@@ -680,8 +680,8 @@ impl XdmNode for SimpleNode {
         &self,
         other: &Self,
     ) -> Result<core::cmp::Ordering, crate::engine::runtime::Error> {
-        let self_doc_id = *self.0.doc_id.read().unwrap();
-        let other_doc_id = *other.0.doc_id.read().unwrap();
+        let self_doc_id = *self.0.doc_id.read().unwrap_or_else(|e| e.into_inner());
+        let other_doc_id = *other.0.doc_id.read().unwrap_or_else(|e| e.into_inner());
         if self_doc_id == other_doc_id
             && let (Some(a), Some(b)) = (self.doc_order(), other.doc_order())
         {

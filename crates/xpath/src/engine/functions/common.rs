@@ -1,6 +1,6 @@
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
-use chrono::{DateTime as ChronoDateTime, FixedOffset as ChronoFixedOffset, NaiveDate, NaiveTime};
+use chrono::{DateTime as ChronoDateTime, FixedOffset as ChronoFixedOffset, NaiveDate, NaiveTime, Offset};
 
 pub(super) fn require_context_item<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
@@ -1496,7 +1496,7 @@ pub(super) fn now_in_effective_tz<N>(ctx: &CallCtx<N>) -> chrono::DateTime<chron
     } else {
         // Use local offset if available; fallback to UTC+00:00
         let utc = chrono::Utc::now();
-        let fixed = chrono::FixedOffset::east_opt(0).unwrap();
+        let fixed = chrono::Utc.fix();
         utc.with_timezone(&fixed)
     };
     if let Some(tz) = ctx.dyn_ctx.timezone_override { base.with_timezone(&tz) } else { base }
