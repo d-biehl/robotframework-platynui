@@ -152,185 +152,420 @@ struct AxisStepCursor<N> {
     axis: AxisIR,
     test: NodeTestIR,
     input_cursor: Box<dyn SequenceCursor<N>>,
-    pending: VecDeque<N>,
+    // Stream of results for the current input node (axis evaluation)
+    current_output: Option<Box<dyn SequenceCursor<N>>>,
 }
 
 impl<N: 'static + Send + Sync + XdmNode + Clone> AxisStepCursor<N> {
     fn new(vm: VmHandle<N>, input: XdmSequenceStream<N>, axis: AxisIR, test: NodeTestIR) -> Self {
-        Self { vm, axis, test, input_cursor: input.cursor(), pending: VecDeque::new() }
+        Self { vm, axis, test, input_cursor: input.cursor(), current_output: None }
     }
 
-    /// Optimized path for child::* patterns
-    fn child_wildcard_fast(&self, _vm: &mut Vm<N>, node: N) -> Result<SmallVec<[N; 16]>, Error> {
-        // Pre-allocate with typical child count - most elements have 1-4 children
-        let mut result = SmallVec::with_capacity(4);
+}
 
-        // For wildcard (*), only collect element children - this is XPath semantics!
-        for child in node.children() {
-            if matches!(child.kind(), NodeKind::Element) {
-                result.push(child);
-            }
-        }
+// A streaming cursor that evaluates a single axis/test against one context node
+struct NodeAxisCursor<N> {
+    vm: VmHandle<N>,
+    axis: AxisIR,
+    test: NodeTestIR,
+    // The context node this axis is applied to
+    node: N,
+    // Internal state machine
+    state: AxisState<N>,
+}
 
-        Ok(result)
+enum AxisState<N> {
+    // Uninitialized; will be set to a more specific variant on first next_item
+    Init,
+    // Emit self once (with test)
+    SelfOnce { emitted: bool },
+    // Iterate a buffered list with index (used for cheap axes)
+    Buffer { buf: SmallVec<[N; 16]>, idx: usize },
+    // Depth-first traversal stack for descendant/descendant-or-self
+    Descend { stack: SmallVec<[N; 16]>, include_self: bool, started: bool },
+    // Parent/ancestor chains
+    Parent { done: bool },
+    Ancestors { current: Option<N>, include_self: bool },
+    // Sibling scans
+    FollowingSibling { buf: SmallVec<[N; 16]>, idx: usize, initialized: bool },
+    PrecedingSibling { buf: SmallVec<[N; 16]>, idx: usize, initialized: bool },
+    // Following/Preceding document order
+    Following { anchor: Option<N>, next: Option<N>, initialized: bool },
+    Preceding {
+        // path from root to context (inclusive)
+        path: SmallVec<[N; 16]>,
+        // index into path where parent=path[depth], child=path[depth+1]
+        depth: usize,
+        // siblings before the path child at current depth (left siblings)
+        sibs: SmallVec<[N; 16]>,
+        sib_idx: usize,
+        // pre-order traversal stack for current sibling subtree
+        subtree_stack: SmallVec<[N; 16]>,
+    },
+    // Namespace axis
+    Namespaces { seen: SmallVec<[DefaultAtom; 8]>, current: Option<N>, buf: SmallVec<[N; 8]>, idx: usize },
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> NodeAxisCursor<N> {
+    fn new(vm: VmHandle<N>, node: N, axis: AxisIR, test: NodeTestIR) -> Self {
+        Self { vm, axis, test, node, state: AxisState::Init }
     }
 
-    /// Optimized path for child::element() patterns
-    fn child_elements_fast(&self, _vm: &mut Vm<N>, node: N) -> Result<SmallVec<[N; 16]>, Error> {
-        // Pre-allocate with typical child count - most elements have 1-4 children
-        let mut result = SmallVec::with_capacity(4);
-
-        // Direct iteration, only collect element children
-        for child in node.children() {
-            if matches!(child.kind(), NodeKind::Element) {
-                result.push(child);
-            }
-        }
-
-        Ok(result)
+    #[inline]
+    fn is_attr_or_namespace(node: &N) -> bool {
+        matches!(node.kind(), NodeKind::Attribute | NodeKind::Namespace)
     }
 
-    /// Optimized path for descendant-or-self::* patterns
-    fn descendant_or_self_fast(
-        &self,
-        _vm: &mut Vm<N>,
-        node: N,
-    ) -> Result<SmallVec<[N; 16]>, Error> {
-        // Pre-allocate for typical document subtree - estimate based on depth and breadth
-        let mut result = SmallVec::with_capacity(16);
-        let mut stack: SmallVec<[N; 16]> = SmallVec::new();
-
-        // Start with the context node itself - for wildcard (*), only if it's an element
-        if matches!(node.kind(), NodeKind::Element) {
-            result.push(node.clone());
-        }
-
-        // Use a stack-based traversal, only collect element descendants
-        stack.push(node);
-
-        while let Some(current) = stack.pop() {
-            // Directly iterate over children without intermediate Vec allocation
-            for child in current.children() {
-                // For wildcard (*), only collect elements - this is XPath semantics!
-                if matches!(child.kind(), NodeKind::Element) {
-                    result.push(child.clone());
-                }
-                // Continue traversal for all children to find element descendants
-                stack.push(child);
-            }
-        }
-
-        Ok(result)
-    }
-
-    /// Optimized path for descendant-or-self::element() patterns
-    fn descendant_or_self_elements_fast(
-        &self,
-        _vm: &mut Vm<N>,
-        node: N,
-    ) -> Result<SmallVec<[N; 16]>, Error> {
-        // Pre-allocate for typical document subtree
-        let mut result = SmallVec::with_capacity(16);
-        let mut stack: SmallVec<[N; 16]> = SmallVec::new();
-
-        // Start with the context node itself
-        if matches!(node.kind(), NodeKind::Element) {
-            result.push(node.clone());
-        }
-
-        // Use a stack-based traversal, only processing element nodes
-        stack.push(node);
-
-        while let Some(current) = stack.pop() {
-            for child in current.children() {
-                if matches!(child.kind(), NodeKind::Element) {
-                    result.push(child.clone());
-                    stack.push(child); // Only add elements to stack for further traversal
-                } else if matches!(child.kind(), NodeKind::Document) {
-                    // Documents can contain elements, so continue traversal
-                    stack.push(child);
+    fn init_state(&mut self) {
+        self.state = match self.axis {
+            AxisIR::SelfAxis => AxisState::SelfOnce { emitted: false },
+            AxisIR::Child => AxisState::Buffer { buf: SmallVec::new(), idx: 0 },
+            AxisIR::Attribute => AxisState::Buffer { buf: SmallVec::new(), idx: 0 },
+            AxisIR::Parent => AxisState::Parent { done: false },
+            AxisIR::Ancestor => AxisState::Ancestors { current: self.node.parent(), include_self: false },
+            AxisIR::AncestorOrSelf => AxisState::Ancestors { current: Some(self.node.clone()), include_self: true },
+            AxisIR::Descendant => AxisState::Descend { stack: SmallVec::new(), include_self: false, started: false },
+            AxisIR::DescendantOrSelf => AxisState::Descend { stack: SmallVec::new(), include_self: true, started: false },
+            AxisIR::FollowingSibling => AxisState::FollowingSibling { buf: SmallVec::new(), idx: 0, initialized: false },
+            AxisIR::PrecedingSibling => AxisState::PrecedingSibling { buf: SmallVec::new(), idx: 0, initialized: false },
+            AxisIR::Following => AxisState::Following { anchor: None, next: None, initialized: false },
+            AxisIR::Preceding => {
+                let path = Self::path_to_root(self.node.clone());
+                AxisState::Preceding {
+                    path,
+                    depth: 0,
+                    sibs: SmallVec::new(),
+                    sib_idx: 0,
+                    subtree_stack: SmallVec::new(),
                 }
             }
-        }
-
-        Ok(result)
+            AxisIR::Namespace => {
+                let cur = if matches!(self.node.kind(), NodeKind::Element) {
+                    Some(self.node.clone())
+                } else {
+                    None
+                };
+                AxisState::Namespaces { seen: SmallVec::new(), current: cur, buf: SmallVec::new(), idx: 0 }
+            },
+        };
     }
 
-    fn evaluate_node(&self, node: N) -> Result<SmallVec<[N; 16]>, Error> {
-        self.vm.with_vm(|vm| {
-            // Fast paths for common axis patterns
-            match (&self.axis, &self.test) {
-                // descendant-or-self optimizations
-                (AxisIR::DescendantOrSelf, NodeTestIR::WildcardAny) => {
-                    return self.descendant_or_self_fast(vm, node);
-                }
-                (
-                    AxisIR::DescendantOrSelf,
-                    NodeTestIR::KindElement { name: None, ty: None, nillable: false },
-                ) => return self.descendant_or_self_elements_fast(vm, node),
-
-                // child axis optimizations
-                (AxisIR::Child, NodeTestIR::WildcardAny) => {
-                    return self.child_wildcard_fast(vm, node);
-                }
-                (
-                    AxisIR::Child,
-                    NodeTestIR::KindElement { name: None, ty: None, nillable: false },
-                ) => return self.child_elements_fast(vm, node),
-
-                _ => {}
-            }
-
-            vm.axis_iter(node.clone(), &self.axis);
-            let filter_child_elements =
-                matches!(self.axis, AxisIR::Child) && matches!(self.test, NodeTestIR::WildcardAny);
+    fn fill_buffer_via_vm(&mut self) -> Result<(), Error> {
+        // One-shot: run the VM's axis iterator and filter
+        let axis = self.axis.clone();
+        let test = self.test.clone();
+        let node = self.node.clone();
+        let (filtered, _) = self.vm.with_vm(|vm| {
+            vm.axis_iter(node.clone(), &axis);
+            let filter_child_elements = matches!(axis, AxisIR::Child)
+                && matches!(test, NodeTestIR::WildcardAny);
             let mut candidates = mem::take(&mut vm.axis_buffer);
-            let mut filtered: SmallVec<[N; 16]> = SmallVec::with_capacity(candidates.len());
-            for candidate in candidates.iter() {
-                let mut pass = vm.node_test(candidate, &self.test);
+            let mut out: SmallVec<[N; 16]> = SmallVec::with_capacity(candidates.len());
+            for cand in candidates.iter() {
+                let mut pass = vm.node_test(cand, &test);
                 if pass && filter_child_elements {
-                    pass = matches!(candidate.kind(), NodeKind::Element);
+                    pass = matches!(cand.kind(), NodeKind::Element);
                 }
                 if pass {
-                    filtered.push(candidate.clone());
+                    out.push(cand.clone());
                 }
             }
             candidates.clear();
             vm.axis_buffer = candidates;
-            Ok(filtered)
+            Ok::<_, Error>((out, ()))
+        })?;
+        self.state = AxisState::Buffer { buf: filtered, idx: 0 };
+        Ok(())
+    }
+
+    fn next_candidate(&mut self) -> Result<Option<N>, Error> {
+        if matches!(self.state, AxisState::Init) {
+            self.init_state();
+        }
+        match &mut self.state {
+            AxisState::SelfOnce { emitted } => {
+                if *emitted { return Ok(None); }
+                *emitted = true;
+                Ok(Some(self.node.clone()))
+            }
+            AxisState::Buffer { buf, idx: _ } => {
+                if buf.is_empty() {
+                    // First entry into this buffer: populate once
+                    self.fill_buffer_via_vm()?;
+                }
+                match &mut self.state {
+                    AxisState::Buffer { buf, idx } => {
+                        if *idx < buf.len() {
+                            let n = buf[*idx].clone();
+                            *idx += 1;
+                            Ok(Some(n))
+                        } else {
+                            Ok(None)
+                        }
+                    }
+                    _ => Ok(None),
+                }
+            }
+            AxisState::Parent { done } => {
+                if *done { return Ok(None); }
+                *done = true;
+                Ok(self.node.parent())
+            }
+            AxisState::Ancestors { current, include_self } => {
+                if let Some(cur) = current.take() {
+                    let emit = cur.clone();
+                    *current = cur.parent();
+                    if !*include_self && emit == self.node { return self.next_candidate(); }
+                    Ok(Some(emit))
+                } else {
+                    Ok(None)
+                }
+            }
+            AxisState::Descend { stack, include_self, started } => {
+                if !*started {
+                    *started = true;
+                    // Always prime the stack with initial children
+                    for c in self.node.children() { if !Self::is_attr_or_namespace(&c) { stack.push(c); } }
+                    if *include_self {
+                        // For descendant-or-self include context node itself first
+                        return Ok(Some(self.node.clone()));
+                    }
+                }
+                if let Some(cur) = stack.pop() {
+                    // Push children for further traversal
+                    for c in cur.children() { if !Self::is_attr_or_namespace(&c) { stack.push(c.clone()); } }
+                    Ok(Some(cur))
+                } else {
+                    Ok(None)
+                }
+            }
+            AxisState::FollowingSibling { buf, idx, initialized } => {
+                if !*initialized {
+                    *initialized = true;
+                    if let Some(parent) = self.node.parent() {
+                        let mut seen = false;
+                        for sib in parent.children() {
+                            if seen {
+                                if !Self::is_attr_or_namespace(&sib) { buf.push(sib); }
+                            } else if sib == self.node { seen = true; }
+                        }
+                    }
+                }
+                if *idx < buf.len() { let n = buf[*idx].clone(); *idx += 1; Ok(Some(n)) } else { Ok(None) }
+            }
+            AxisState::PrecedingSibling { buf, idx, initialized } => {
+                if !*initialized {
+                    *initialized = true;
+                    if let Some(parent) = self.node.parent() {
+                        for sib in parent.children() {
+                            if sib == self.node { break; }
+                            if !Self::is_attr_or_namespace(&sib) { buf.push(sib); }
+                        }
+                    }
+                }
+                if *idx < buf.len() { let n = buf[*idx].clone(); *idx += 1; Ok(Some(n)) } else { Ok(None) }
+            }
+            AxisState::Following { anchor, next, initialized } => {
+                if !*initialized {
+                    *initialized = true;
+                    let start = Self::last_descendant_in_doc(self.node.clone());
+                    *anchor = Some(start.clone());
+                    *next = Self::doc_successor(&start);
+                }
+                if let Some(n) = next.take() {
+                    // compute following successor for subsequent call
+                    if !Self::is_attr_or_namespace(&n) {
+                        *anchor = Some(n.clone());
+                        *next = Self::doc_successor(&n);
+                        return Ok(Some(n));
+                    } else {
+                        // skip attr/ns; continue to next successor
+                        *anchor = Some(n.clone());
+                        *next = Self::doc_successor(&n);
+                        return self.next_candidate();
+                    }
+                }
+                Ok(None)
+            }
+            AxisState::Preceding { path, depth, sibs, sib_idx, subtree_stack } => {
+                // emit subtree nodes if any
+                if let Some(n) = subtree_stack.pop() {
+                    // push children in reverse order to get pre-order traversal
+                    let mut tmp: SmallVec<[N; 16]> = SmallVec::new();
+                    for c in n.children() { if !Self::is_attr_or_namespace(&c) { tmp.push(c); } }
+                    for c in tmp.into_iter().rev() { subtree_stack.push(c); }
+                    return Ok(Some(n));
+                }
+                // move to next sibling subtree if available
+                if *sib_idx < sibs.len() {
+                    let root = sibs[*sib_idx].clone();
+                    *sib_idx += 1;
+                    subtree_stack.push(root);
+                    return self.next_candidate();
+                }
+                // advance to next ancestor level
+                if *depth + 1 < path.len() {
+                    let parent = &path[*depth];
+                    let child = &path[*depth + 1];
+                    sibs.clear();
+                    *sib_idx = 0;
+                    for s in parent.children() {
+                        if s == *child { break; }
+                        if !Self::is_attr_or_namespace(&s) { sibs.push(s); }
+                    }
+                    *depth += 1;
+                    return self.next_candidate();
+                }
+                Ok(None)
+            }
+            AxisState::Namespaces { seen, current, buf, idx } => {
+                // if buffer has items, return them
+                if *idx < buf.len() {
+                    let n = buf[*idx].clone();
+                    *idx += 1;
+                    return Ok(Some(n));
+                }
+                // Refill buffer from current element, then advance to parent
+                while let Some(cur) = current.take() {
+                    if matches!(cur.kind(), NodeKind::Element) {
+                        buf.clear();
+                        *idx = 0;
+                        for ns in cur.namespaces() {
+                            if let Some(q) = ns.name() {
+                                let atom = DefaultAtom::from(q.prefix.unwrap_or_default().as_str());
+                                if !seen.iter().any(|a| a == &atom) {
+                                    seen.push(atom);
+                                    buf.push(ns.clone());
+                                }
+                            }
+                        }
+                        *current = cur.parent();
+                        if !buf.is_empty() {
+                            let n = buf[*idx].clone();
+                            *idx += 1;
+                            return Ok(Some(n));
+                        }
+                        continue;
+                    } else {
+                        *current = cur.parent();
+                        continue;
+                    }
+                }
+                Ok(None)
+            }
+            AxisState::Init => unreachable!(),
+        }
+    }
+
+    fn matches_test(&self, node: &N) -> Result<bool, Error> {
+        // Fast paths for common patterns to skip VM roundtrip
+        match (&self.axis, &self.test) {
+            (AxisIR::Child, NodeTestIR::WildcardAny) => {
+                return Ok(matches!(node.kind(), NodeKind::Element));
+            }
+            (
+                AxisIR::DescendantOrSelf,
+                NodeTestIR::KindElement { name: None, ty: None, nillable: false },
+            ) | (
+                AxisIR::DescendantOrSelf,
+                NodeTestIR::WildcardAny,
+            ) => {
+                // For descendant-or-self element()/"*" we only pass elements
+                return Ok(matches!(node.kind(), NodeKind::Element));
+            }
+            _ => {}
+        }
+        self.vm.with_vm(|vm| Ok(vm.node_test(node, &self.test)))
+    }
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for NodeAxisCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        loop {
+            let cand = match self.next_candidate() {
+                Ok(opt) => opt,
+                Err(err) => return Some(Err(err)),
+            }?;
+            match self.matches_test(&cand) {
+                Ok(true) => return Some(Ok(XdmItem::Node(cand))),
+                Ok(false) => continue,
+                Err(err) => return Some(Err(err)),
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) { (0, None) }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            vm: self.vm.clone(),
+            axis: self.axis.clone(),
+            test: self.test.clone(),
+            node: self.node.clone(),
+            state: AxisState::Init, // fresh cursor
         })
+    }
+}
+
+impl<N: XdmNode + Clone> NodeAxisCursor<N> {
+    fn path_to_root(n: N) -> SmallVec<[N; 16]> {
+        let mut p: SmallVec<[N; 16]> = SmallVec::new();
+        let mut cur: Option<N> = Some(n);
+        while let Some(x) = cur {
+            p.push(x.clone());
+            cur = x.parent();
+        }
+        p.reverse();
+        p
+    }
+
+    fn first_child_in_doc(node: &N) -> Option<N> {
+        node.children().find(|c| !Self::is_attr_or_namespace(c))
+    }
+    fn next_sibling_in_doc(node: &N) -> Option<N> {
+        let parent = node.parent()?;
+        let mut seen = false;
+        for s in parent.children() {
+            if seen && !Self::is_attr_or_namespace(&s) { return Some(s); }
+            if s == *node { seen = true; }
+        }
+        None
+    }
+    fn last_descendant_in_doc(mut node: N) -> N {
+        loop {
+            let mut last: Option<N> = None;
+            for c in node.children() { if !Self::is_attr_or_namespace(&c) { last = Some(c); } }
+            if let Some(n) = last { node = n; } else { return node; }
+        }
+    }
+    fn doc_successor(node: &N) -> Option<N> {
+        if let Some(c) = Self::first_child_in_doc(node) { return Some(c); }
+        let mut cur = node.clone();
+        while let Some(p) = cur.parent() {
+            if let Some(sib) = Self::next_sibling_in_doc(&cur) { return Some(sib); }
+            cur = p;
+        }
+        None
     }
 }
 
 impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for AxisStepCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         loop {
-            if let Some(node) = self.pending.pop_front() {
-                return Some(Ok(XdmItem::Node(node)));
+            if let Some(ref mut current) = self.current_output {
+                if let Some(item) = current.next_item() { return Some(item); }
+                self.current_output = None;
             }
-            match self.input_cursor.next_item()? {
-                Ok(XdmItem::Node(node)) => match self.evaluate_node(node) {
-                    Ok(nodes) => {
-                        if nodes.is_empty() {
-                            continue;
-                        }
-                        self.pending = nodes.into_iter().collect::<VecDeque<_>>();
-                    }
-                    Err(err) => return Some(Err(err)),
-                },
-                Ok(_) => continue,
-                Err(err) => return Some(Err(err)),
-            }
+            // Pull next context item
+            let candidate = match self.input_cursor.next_item()? { Ok(item) => item, Err(err) => return Some(Err(err)) };
+            let node = if let XdmItem::Node(n) = candidate { n } else { continue };
+            // Build streaming axis cursor for this node
+            let cursor = NodeAxisCursor::new(self.vm.clone(), node, self.axis.clone(), self.test.clone());
+            self.current_output = Some(cursor.boxed_clone());
         }
     }
 
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let pending = self.pending.len();
-        let (lower, upper) = self.input_cursor.size_hint();
-        let lower = lower.saturating_add(pending);
-        let upper = upper.and_then(|v| v.checked_add(pending));
-        (lower, upper)
-    }
+    fn size_hint(&self) -> (usize, Option<usize>) { (0, None) }
 
     fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
         Box::new(Self {
@@ -338,7 +573,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for AxisStepC
             axis: self.axis.clone(),
             test: self.test.clone(),
             input_cursor: self.input_cursor.boxed_clone(),
-            pending: self.pending.clone(),
+            current_output: self.current_output.as_ref().map(|c| c.boxed_clone()),
         })
     }
 }
@@ -383,13 +618,13 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> PredicateCursor<N> {
         last: usize,
     ) -> Result<bool, Error> {
         self.vm.with_vm(|vm| {
-            let result = vm.eval_subprogram(
+            let stream = vm.eval_subprogram_stream(
                 &self.predicate,
                 Some(item.clone()),
                 Some(Frame { last, pos }),
                 None,
             )?;
-            Vm::predicate_truth_value(&result, pos, last)
+            vm.predicate_truth_value_stream(stream, pos, last)
         })
     }
 }
@@ -493,22 +728,19 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for PathStepC
             let pos = self.position + 1;
             self.position = pos;
 
-            let seq = match self.vm.with_vm(|vm| {
-                vm.eval_subprogram(
+            let stream = match self.vm.with_vm(|vm| {
+                vm.eval_subprogram_stream(
                     &self.code,
                     Some(candidate.clone()),
                     Some(Frame { last, pos }),
                     None,
                 )
             }) {
-                Ok(seq) => seq,
+                Ok(stream) => stream,
                 Err(err) => return Some(Err(err)),
             };
 
-            if seq.is_empty() {
-                continue;
-            }
-            let stream = XdmSequenceStream::from_vec(seq);
+            // Stream the subprogram output directly; if it happens to be empty, next loop will pull next input item.
             self.current_output = Some(stream.cursor());
         }
     }
@@ -1012,8 +1244,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> QuantLoopCursor<N> {
                     Some((self.var.clone(), binding_stream)),
                 )
             })?;
-            let body_res = body_stream.materialize()?;
-            let truth = Vm::ebv(&body_res)?;
+            // Stream EBV to avoid materialization
+            let truth = self.vm.with_vm(|vm| vm.ebv_stream(body_stream.cursor()))?;
             match self.kind {
                 QuantifierKind::Some => {
                     if truth {
@@ -1185,6 +1417,57 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         Ok(())
     }
 
+    fn singleton_atomic_from_stream(
+        &self,
+        stream: XdmSequenceStream<N>,
+    ) -> Result<XdmAtomicValue, Error> {
+        use crate::xdm::XdmItem;
+        let mut c = stream.cursor();
+        let first = c.next_item().ok_or_else(|| {
+            Error::from_code(ErrorCode::FORG0006, "expected singleton atomic; sequence is empty")
+        })??;
+        let atom = match first {
+            XdmItem::Atomic(a) => a,
+            XdmItem::Node(n) => {
+                let tv = n.typed_value();
+                if tv.len() != 1 {
+                    return Err(Error::from_code(
+                        ErrorCode::FORG0006,
+                        "expected singleton atomic; node atomization not singleton",
+                    ));
+                }
+                tv.into_iter().next().unwrap()
+            }
+        };
+        if c.next_item().is_some() {
+            return Err(Error::from_code(
+                ErrorCode::FORG0006,
+                "expected singleton atomic; sequence has more than one item",
+            ));
+        }
+        Ok(atom)
+    }
+
+    fn first_node_from_stream(&self, stream: XdmSequenceStream<N>) -> Option<N> {
+        use crate::xdm::XdmItem;
+        let mut c = stream.cursor();
+        match c.next_item()? {
+            Ok(XdmItem::Node(n)) => Some(n),
+            _ => None,
+        }
+    }
+
+    fn to_number_stream(&self, stream: XdmSequenceStream<N>) -> Result<f64, Error> {
+        use crate::xdm::XdmItem;
+        let mut c = stream.cursor();
+        match c.next_item() {
+            None => Ok(f64::NAN),
+            Some(Ok(XdmItem::Atomic(a))) => Self::atomic_to_number(&a),
+            Some(Ok(XdmItem::Node(_))) => Ok(f64::NAN),
+            Some(Err(e)) => Err(e),
+        }
+    }
+
     fn apply_predicates_stream(
         &self,
         stream: XdmSequenceStream<N>,
@@ -1316,6 +1599,13 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                     self.push_stream(ordered);
                     ip += 1;
                 }
+                OpCode::DocOrderDistinctOptimistic => {
+                    // Fast path: assume input is already in document order and duplicate-free → no-op
+                    // Still pop and push to keep stack discipline identical to the non-optimistic path.
+                    let stream = self.pop_stream();
+                    self.push_stream(stream);
+                    ip += 1;
+                }
 
                 // Arithmetic / logic
                 OpCode::Add
@@ -1325,24 +1615,12 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 | OpCode::IDiv
                 | OpCode::Mod => {
                     use XdmAtomicValue as V;
-                    // Atomize and enforce singleton operands
-                    let rhs_seq = Self::atomize(self.pop_seq()?);
-                    let lhs_seq = Self::atomize(self.pop_seq()?);
-                    if lhs_seq.len() != 1 || rhs_seq.len() != 1 {
-                        return Err(Error::from_code(
-                            ErrorCode::FORG0006,
-                            "arithmetic operands must be singletons",
-                        ));
-                    }
-                    let (mut a, mut b) = match (&lhs_seq[0], &rhs_seq[0]) {
-                        (XdmItem::Atomic(a), XdmItem::Atomic(b)) => (a.clone(), b.clone()),
-                        _ => {
-                            return Err(Error::from_code(
-                                ErrorCode::XPTY0004,
-                                "arithmetic on non-atomic",
-                            ));
-                        }
-                    };
+                    // Streamed singleton-atomics (with atomization of nodes)
+                    let rhs_stream = self.pop_stream();
+                    let rhs_atom = self.singleton_atomic_from_stream(rhs_stream)?;
+                    let lhs_stream = self.pop_stream();
+                    let lhs_atom = self.singleton_atomic_from_stream(lhs_stream)?;
+                    let (mut a, mut b) = (lhs_atom, rhs_atom);
 
                     // Handle temporal arithmetic and duration ops before numeric normalization
                     // Supported:
@@ -1950,34 +2228,47 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                     ip += 1;
                 }
                 OpCode::And => {
-                    let rhs = self.pop_seq()?;
-                    let lhs = self.pop_seq()?;
-                    let b = Self::ebv(&lhs)? && Self::ebv(&rhs)?;
-                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
-                    ip += 1;
+                    let rhs_stream = self.pop_stream();
+                    let lhs_stream = self.pop_stream();
+                    let lhs_b = self.ebv_stream(lhs_stream.cursor())?;
+                    if !lhs_b {
+                        self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]);
+                        ip += 1;
+                    } else {
+                        let rhs_b = self.ebv_stream(rhs_stream.cursor())?;
+                        self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(rhs_b))]);
+                        ip += 1;
+                    }
                 }
                 OpCode::Or => {
-                    let rhs = self.pop_seq()?;
-                    let lhs = self.pop_seq()?;
-                    let b = Self::ebv(&lhs)? || Self::ebv(&rhs)?;
-                    self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
-                    ip += 1;
+                    let rhs_stream = self.pop_stream();
+                    let lhs_stream = self.pop_stream();
+                    let lhs_b = self.ebv_stream(lhs_stream.cursor())?;
+                    if lhs_b {
+                        self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(true))]);
+                        ip += 1;
+                    } else {
+                        let rhs_b = self.ebv_stream(rhs_stream.cursor())?;
+                        self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(rhs_b))]);
+                        ip += 1;
+                    }
                 }
                 OpCode::Not => {
-                    let v = self.pop_seq()?;
-                    let b = !Self::ebv(&v)?;
+                    let v = self.pop_stream();
+                    let b = !self.ebv_stream(v.cursor())?;
                     self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
                 OpCode::ToEBV => {
-                    let v = self.pop_seq()?;
-                    let b = Self::ebv(&v)?;
+                    let v = self.pop_stream();
+                    let b = self.ebv_stream(v.cursor())?;
                     self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
                 OpCode::Atomize => {
-                    let v = self.pop_seq()?;
-                    self.push_seq(Self::atomize(v));
+                    let v = self.pop_stream();
+                    let cursor = AtomizeCursor::new(v);
+                    self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
                 OpCode::Pop => {
@@ -1985,8 +2276,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                     ip += 1;
                 }
                 OpCode::JumpIfTrue(delta) => {
-                    let v = self.pop_seq()?;
-                    let b = Self::ebv(&v)?;
+                    let v = self.pop_stream();
+                    let b = self.ebv_stream(v.cursor())?;
                     if b {
                         ip += 1 + *delta;
                     } else {
@@ -1994,8 +2285,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                     }
                 }
                 OpCode::JumpIfFalse(delta) => {
-                    let v = self.pop_seq()?;
-                    let b = Self::ebv(&v)?;
+                    let v = self.pop_stream();
+                    let b = self.ebv_stream(v.cursor())?;
                     if !b {
                         ip += 1 + *delta;
                     } else {
@@ -2009,35 +2300,57 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 // Comparisons
                 OpCode::CompareValue(op) => {
                     // Value comparison ( =, !=, lt, etc. with 'value' grammar) expects each side to be a singleton.
-                    // We atomize inside compare_value() exactly once per operand and error with FORG0006
-                    // if cardinality != 1. Avoided adding a separate Atomize opcode here to keep bytecode compact.
-                    let rhs = self.pop_seq()?;
-                    let lhs = self.pop_seq()?;
-                    let b = self.compare_value(&lhs, &rhs, *op)?;
+                    // Streamed singleton atomics (with node atomization) and direct atomic comparison.
+                    let rhs_stream = self.pop_stream();
+                    let rhs_atom = self.singleton_atomic_from_stream(rhs_stream)?;
+                    let lhs_stream = self.pop_stream();
+                    let lhs_atom = self.singleton_atomic_from_stream(lhs_stream)?;
+                    let b = self.compare_atomic(&lhs_atom, &rhs_atom, *op)?;
                     self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
                 OpCode::CompareGeneral(op) => {
-                    // General comparison (any-to-any). We atomize both sequences here once and then iterate pairs.
-                    // Incomparable type pairs (FORG0006 / XPTY0004) are skipped per XPath 2.0 general comparison semantics.
-                    let rhs = Self::atomize(self.pop_seq()?);
-                    let lhs = Self::atomize(self.pop_seq()?);
+                    // Streaming left, cached right atomics; early-exit on first match.
+                    let rhs_stream = self.pop_stream();
+                    let lhs_stream = self.pop_stream();
+
+                    // Build RHS atom cache (atomize nodes inline)
+                    let mut rhs_atoms: Vec<XdmAtomicValue> = Vec::new();
+                    let mut rc = rhs_stream.cursor();
+                    while let Some(item) = rc.next_item() {
+                        match item? {
+                            XdmItem::Atomic(a) => rhs_atoms.push(a),
+                            XdmItem::Node(n) => rhs_atoms.extend(n.typed_value()),
+                        }
+                    }
+
                     let mut any_true = false;
-                    'search: for a in &lhs {
-                        for c in &rhs {
-                            if let (XdmItem::Atomic(la), XdmItem::Atomic(rb)) = (a, c) {
-                                match self.compare_atomic(la, rb, *op) {
-                                    Ok(res) => {
-                                        if res {
-                                            any_true = true;
-                                            break 'search;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        // Treat FORG0006 / XPTY0004 as incomparable → ignore
-                                        match e.code_enum() {
+                    let mut lc = lhs_stream.cursor();
+                    'outer: while let Some(item) = lc.next_item() {
+                        let item = item?;
+                        match item {
+                            XdmItem::Atomic(la) => {
+                                for rb in &rhs_atoms {
+                                    match self.compare_atomic(&la, rb, *op) {
+                                        Ok(res) if res => { any_true = true; break 'outer; }
+                                        Ok(_) => {}
+                                        Err(e) => match e.code_enum() {
                                             ErrorCode::FORG0006 | ErrorCode::XPTY0004 => {}
                                             _ => return Err(e),
+                                        },
+                                    }
+                                }
+                            }
+                            XdmItem::Node(n) => {
+                                for la in n.typed_value() {
+                                    for rb in &rhs_atoms {
+                                        match self.compare_atomic(&la, rb, *op) {
+                                            Ok(res) if res => { any_true = true; break 'outer; }
+                                            Ok(_) => {}
+                                            Err(e) => match e.code_enum() {
+                                                ErrorCode::FORG0006 | ErrorCode::XPTY0004 => {}
+                                                _ => return Err(e),
+                                            },
                                         }
                                     }
                                 }
@@ -2048,10 +2361,12 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                     ip += 1;
                 }
                 OpCode::NodeIs => {
-                    let rhs = self.pop_seq()?;
-                    let lhs = self.pop_seq()?;
-                    let b = match (lhs.first(), rhs.first()) {
-                        (Some(XdmItem::Node(a)), Some(XdmItem::Node(b))) => a == b,
+                    let rhs_stream = self.pop_stream();
+                    let rhs = self.first_node_from_stream(rhs_stream);
+                    let lhs_stream = self.pop_stream();
+                    let lhs = self.first_node_from_stream(lhs_stream);
+                    let b = match (lhs, rhs) {
+                        (Some(a), Some(b)) => a == b,
                         _ => false,
                     };
                     self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
@@ -2059,23 +2374,15 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                 }
                 OpCode::NodeBefore | OpCode::NodeAfter => {
                     let after = matches!(&ops[ip], OpCode::NodeAfter);
-                    let rhs = self.pop_seq()?;
-                    let lhs = self.pop_seq()?;
-                    let b = match (lhs.first(), rhs.first()) {
-                        (Some(XdmItem::Node(a)), Some(XdmItem::Node(b))) => {
-                            match a.compare_document_order(b) {
-                                Ok(ord) => {
-                                    if after {
-                                        ord.is_gt()
-                                    } else {
-                                        ord.is_lt()
-                                    }
-                                }
-                                Err(e) => {
-                                    return Err(e);
-                                }
-                            }
-                        }
+                    let rhs_stream = self.pop_stream();
+                    let rhs = self.first_node_from_stream(rhs_stream);
+                    let lhs_stream = self.pop_stream();
+                    let lhs = self.first_node_from_stream(lhs_stream);
+                    let b = match (lhs, rhs) {
+                        (Some(a), Some(b)) => match a.compare_document_order(&b) {
+                            Ok(ord) => if after { ord.is_gt() } else { ord.is_lt() },
+                            Err(e) => return Err(e),
+                        },
                         _ => false,
                     };
                     self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
@@ -2119,8 +2426,10 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                     ip += 1;
                 }
                 OpCode::RangeTo => {
-                    let end = Self::to_number(&self.pop_seq()?)?;
-                    let start = Self::to_number(&self.pop_seq()?)?;
+                    let end_stream = self.pop_stream();
+                    let end = self.to_number_stream(end_stream)?;
+                    let start_stream = self.pop_stream();
+                    let start = self.to_number_stream(start_stream)?;
                     let a = start as i64;
                     let b = end as i64;
                     if a <= b {
@@ -2171,26 +2480,57 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
 
                 // Types
                 OpCode::Cast(t) => {
-                    let v = self.pop_seq()?;
-                    self.push_seq(self.cast(v, t)?);
+                    let stream = self.pop_stream();
+                    // Enforce singleton/empty semantics without full materialization
+                    let mut c = stream.cursor();
+                    let first = match c.next_item() { Some(it) => it?, None => {
+                        if t.optional { self.push_stream(XdmSequenceStream::empty()); ip += 1; continue; }
+                        else { return Err(Error::from_code(ErrorCode::XPST0003, "empty not allowed")); }
+                    }};
+                    if c.next_item().is_some() { return Err(Error::from_code(ErrorCode::XPTY0004, "cast of multi-item")); }
+                    let val = match first { XdmItem::Atomic(a) => a, XdmItem::Node(n) => XdmAtomicValue::UntypedAtomic(n.string_value()) };
+                    let casted = self.cast_atomic(val, &t.atomic)?;
+                    self.push_stream(XdmSequenceStream::from_item(XdmItem::Atomic(casted)));
                     ip += 1;
                 }
                 OpCode::Castable(t) => {
-                    // Lightweight castability check per XPath 2.0: does NOT raise dynamic errors, returns false instead.
-                    let v = self.pop_seq()?;
-                    let ok = self.is_castable(&v, t);
+                    let stream = self.pop_stream();
+                    let mut c = stream.cursor();
+                    let ok = match c.next_item() {
+                        None => t.optional,
+                        Some(Err(e)) => return Err(e),
+                        Some(Ok(first)) => {
+                            // more than one item → false
+                            if c.next_item().is_some() { false } else {
+                                let val = match first { XdmItem::Atomic(a) => a, XdmItem::Node(n) => XdmAtomicValue::UntypedAtomic(n.string_value()) };
+                                // QName castable requires prefix resolution in static context
+                                if t.atomic.local == "QName" {
+                                    if let XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) = &val {
+                                        if let Some(idx) = s.find(':') {
+                                            let p = &s[..idx];
+                                            if p.is_empty() { false } else if p == "xml" { true } else {
+                                                self.compiled.static_ctx.namespaces.by_prefix.contains_key(p)
+                                            }
+                                        } else { !s.is_empty() }
+                                    } else { false }
+                                } else {
+                                    self.cast_atomic(val, &t.atomic).is_ok()
+                                }
+                            }
+                        }
+                    };
                     self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(ok))]);
                     ip += 1;
                 }
                 OpCode::Treat(t) => {
-                    let v = self.pop_seq()?;
-                    self.assert_treat(&v, t)?;
-                    self.push_seq(v);
+                    let input = self.pop_stream();
+                    let cursor = TreatCursor::new(self.handle(), input, t.clone());
+                    self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
                 OpCode::InstanceOf(t) => {
-                    let v = self.pop_seq()?;
-                    let b = self.instance_of(&v, t)?;
+                    let stream = self.pop_stream();
+                    let b = self.instance_of_stream(stream, t)?;
                     self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
@@ -2287,22 +2627,6 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         Ok(())
     }
 
-    fn eval_subprogram(
-        &mut self,
-        code: &InstrSeq,
-        context_item: Option<XdmItem<N>>,
-        frame: Option<Frame>,
-        extra_var: Option<(ExpandedName, XdmSequence<N>)>,
-    ) -> Result<XdmSequence<N>, Error> {
-        let stream = self.eval_subprogram_stream(
-            code,
-            context_item,
-            frame,
-            extra_var.map(|(n, v)| (n, XdmSequenceStream::from_vec(v))),
-        )?;
-        stream.materialize()
-    }
-
     fn eval_subprogram_stream(
         &mut self,
         code: &InstrSeq,
@@ -2367,33 +2691,108 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         }
     }
 
+    fn ebv_stream(&self, mut cursor: Box<dyn SequenceCursor<N>>) -> Result<bool, Error> {
+        use crate::xdm::XdmItem;
+        use crate::xdm::XdmAtomicValue as V;
+        let mut seen = 0usize;
+        let mut first_atomic: Option<bool> = None;
+        let mut saw_node_only = true;
+
+        while let Some(item) = cursor.next_item() {
+            let item = item?;
+            seen = seen.saturating_add(1);
+            match item {
+                XdmItem::Node(_) => {
+                    // keep scanning to ensure sequence does not contain atomics
+                }
+                XdmItem::Atomic(a) => {
+                    saw_node_only = false;
+                    if seen == 1 {
+                        let ebv = match a {
+                            V::Boolean(b) => b,
+                            V::String(ref s) | V::UntypedAtomic(ref s) => !s.is_empty(),
+                            V::Integer(i) => i != 0,
+                            V::Decimal(d) => d != 0.0,
+                            V::Double(d) => d != 0.0 && !d.is_nan(),
+                            V::Float(f) => f != 0.0 && !f.is_nan(),
+                            _ => {
+                                return Err(Error::from_code(
+                                    ErrorCode::FORG0006,
+                                    "EBV for this atomic type not supported",
+                                ));
+                            }
+                        };
+                        first_atomic = Some(ebv);
+                    } else {
+                        return Err(Error::from_code(
+                            ErrorCode::FORG0006,
+                            "effective boolean value of sequence of length > 1",
+                        ));
+                    }
+                }
+            }
+        }
+
+        if seen == 0 {
+            return Ok(false);
+        }
+        if saw_node_only {
+            return Ok(true);
+        }
+        Ok(first_atomic.unwrap_or(false))
+    }
+
     // XPath 2.0 predicate semantics:
     // - If result is a number: keep node iff number == position()
     // - Else: use EBV of the result
-    fn predicate_truth_value(
-        result: &XdmSequence<N>,
+
+    fn predicate_truth_value_stream(
+        &self,
+        stream: XdmSequenceStream<N>,
         position: usize,
         _last: usize,
     ) -> Result<bool, Error> {
-        if result.len() == 1
-            && let XdmItem::Atomic(a) = &result[0]
-            && let Some(num) = match a {
-                XdmAtomicValue::Integer(i) => Some(*i as f64),
-                XdmAtomicValue::Decimal(d) => Some(*d),
-                XdmAtomicValue::Double(d) => Some(*d),
-                XdmAtomicValue::Float(f) => Some(*f as f64),
-                XdmAtomicValue::UntypedAtomic(s) => s.parse::<f64>().ok(),
-                _ => None,
+        use crate::xdm::XdmAtomicValue as A;
+        let mut c = stream.cursor();
+        let first = match c.next_item() { Some(it) => it?, None => return Ok(false) };
+        match first {
+            XdmItem::Node(_) => {
+                // If we see a second node, EBV=true immediately; if we see an atomic afterward → error.
+                match c.next_item() {
+                    Some(Ok(XdmItem::Node(_))) => Ok(true),
+                    Some(Ok(XdmItem::Atomic(_))) => Err(Error::from_code(
+                        ErrorCode::FORG0006,
+                        "effective boolean value of sequence of length > 1",
+                    )),
+                    Some(Err(e)) => Err(e),
+                    None => Ok(true),
+                }
             }
-        {
-            // Numeric predicate: position match (NaN never matches)
-            if num.is_nan() {
-                return Ok(false);
+            XdmItem::Atomic(a) => {
+                // Peek if there is a second item; if yes → EBV error (length>1 with atomics)
+                if c.next_item().is_some() {
+                    return Err(Error::from_code(
+                        ErrorCode::FORG0006,
+                        "effective boolean value of sequence of length > 1",
+                    ));
+                }
+                // Singleton atomic: try numeric predicate special case first
+                let num_opt = match &a {
+                    A::Integer(i) => Some(*i as f64),
+                    A::Decimal(d) => Some(*d),
+                    A::Double(d) => Some(*d),
+                    A::Float(f) => Some(*f as f64),
+                    A::UntypedAtomic(s) => s.parse::<f64>().ok(),
+                    _ => None,
+                };
+                if let Some(num) = num_opt {
+                    if num.is_nan() { return Ok(false); }
+                    return Ok((num - (position as f64)).abs() < f64::EPSILON);
+                }
+                // Otherwise EBV of singleton atomic
+                Self::ebv(&vec![XdmItem::Atomic(a)])
             }
-            return Ok((num - (position as f64)).abs() < f64::EPSILON);
         }
-        // Fallback to EBV rules
-        Self::ebv(result)
     }
 
     fn atomize(seq: XdmSequence<N>) -> XdmSequence<N> {
@@ -2411,6 +2810,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         out
     }
 
+    #[allow(dead_code)]
     fn to_number(seq: &XdmSequence<N>) -> Result<f64, Error> {
         let aseq = Self::atomize(seq.clone());
         if aseq.is_empty() {
@@ -2442,6 +2842,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         })
     }
 
+    #[allow(dead_code)]
     fn compare_value(
         &self,
         lhs: &XdmSequence<N>,
@@ -2742,8 +3143,53 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     }
 
     fn doc_order_distinct(&self, seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
-        let stream = XdmSequenceStream::from_vec(seq);
-        self.doc_order_distinct_stream(stream).materialize()
+        // Fast path: operate directly on the provided Vec without creating a stream.
+        let mut keyed: SmallVec<[(u64, N); 16]> = SmallVec::new();
+        let mut fallback: SmallVec<[N; 16]> = SmallVec::new();
+        let mut others: Vec<XdmItem<N>> = Vec::new();
+
+        for item in seq {
+            match item {
+                XdmItem::Node(n) => {
+                    if let Some(k) = n.doc_order_key() {
+                        keyed.push((k, n));
+                    } else {
+                        fallback.push(n);
+                    }
+                }
+                other => others.push(other),
+            }
+        }
+
+        // If either keyed or fallback is empty, handle each case efficiently
+        if fallback.is_empty() {
+            if keyed.is_empty() {
+                return Ok(others); // no nodes at all
+            }
+            keyed.sort_by_key(|(k, _)| *k);
+            keyed.dedup_by(|a, b| a.0 == b.0);
+            let mut out = others;
+            out.extend(keyed.into_iter().map(|(_, n)| XdmItem::Node(n)));
+            return Ok(out);
+        }
+        if keyed.is_empty() {
+            // Sort by document order using adapter's comparator
+            fallback.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
+            fallback.dedup();
+            let mut out = others;
+            out.extend(fallback.into_iter().map(XdmItem::Node));
+            return Ok(out);
+        }
+
+        // Merge keyed into fallback, then sort/dedup fallback by document order
+        keyed.sort_by_key(|(k, _)| *k);
+        keyed.dedup_by(|a, b| a.0 == b.0);
+        fallback.extend(keyed.into_iter().map(|(_, n)| n));
+        fallback.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
+        fallback.dedup();
+        let mut out = others;
+        out.extend(fallback.into_iter().map(XdmItem::Node));
+        Ok(out)
     }
 
     // (function name resolution for error messages is handled in FunctionRegistry::resolve)
@@ -3214,6 +3660,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     }
 
     // ===== Type operations (very small subset) =====
+    #[allow(dead_code)]
+    #[allow(dead_code)]
     fn cast(&self, seq: XdmSequence<N>, t: &SingleTypeIR) -> Result<XdmSequence<N>, Error> {
         if seq.len() > 1 {
             return Err(Error::from_code(ErrorCode::XPTY0004, "cast of multi-item"));
@@ -3912,6 +4360,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
             _ => Err(Error::not_implemented("cast target type")),
         }
     }
+    #[allow(dead_code)]
+    #[allow(dead_code)]
     fn is_castable(&self, seq: &XdmSequence<N>, t: &SingleTypeIR) -> bool {
         // Cardinality: empty sequence is castable only if optional
         if seq.is_empty() {
@@ -4062,6 +4512,8 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         let total = days * 86400 + hours * 3600 + mins * 60 + secs;
         Ok(XdmAtomicValue::DayTimeDuration(total))
     }
+    #[allow(dead_code)]
+    #[allow(dead_code)]
     fn assert_treat(&self, seq: &XdmSequence<N>, t: &SeqTypeIR) -> Result<(), Error> {
         // Spec oriented: produce differentiated diagnostics while keeping XPTY0004 as error code.
         use crate::compiler::ir::{OccurrenceIR, SeqTypeIR};
@@ -4116,26 +4568,32 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
         }
         Ok(())
     }
-    fn instance_of(&self, seq: &XdmSequence<N>, t: &SeqTypeIR) -> Result<bool, Error> {
+    #[allow(dead_code)]
+    fn instance_of(&self, _seq: &SeqTypeIR) -> Result<bool, Error> { unreachable!() }
+    fn instance_of_stream(&self, stream: XdmSequenceStream<N>, t: &SeqTypeIR) -> Result<bool, Error> {
         use crate::compiler::ir::{OccurrenceIR, SeqTypeIR};
+        let mut c = stream.cursor();
         match t {
-            SeqTypeIR::EmptySequence => Ok(seq.is_empty()),
+            SeqTypeIR::EmptySequence => Ok(c.next_item().is_none()),
             SeqTypeIR::Typed { item, occ } => {
-                let ok_card = match occ {
-                    OccurrenceIR::One => seq.len() == 1,
-                    OccurrenceIR::ZeroOrOne => seq.len() <= 1,
-                    OccurrenceIR::ZeroOrMore => true,
-                    OccurrenceIR::OneOrMore => !seq.is_empty(),
-                };
-                if !ok_card {
-                    return Ok(false);
-                }
-                for it in seq {
-                    if !self.item_matches_type(it, item)? {
-                        return Ok(false);
+                let mut count = 0usize;
+                while let Some(it) = c.next_item() {
+                    let it = it?;
+                    count = count.saturating_add(1);
+                    if !self.item_matches_type(&it, item)? { return Ok(false); }
+                    match occ {
+                        OccurrenceIR::One | OccurrenceIR::ZeroOrOne => {
+                            if count > 1 { return Ok(false); }
+                        }
+                        _ => {}
                     }
                 }
-                Ok(true)
+                match occ {
+                    OccurrenceIR::One => Ok(count == 1),
+                    OccurrenceIR::ZeroOrOne => Ok(count <= 1),
+                    OccurrenceIR::ZeroOrMore => Ok(true),
+                    OccurrenceIR::OneOrMore => Ok(count >= 1),
+                }
             }
         }
     }
@@ -4376,4 +4834,119 @@ fn encode_hex_upper(bytes: &[u8]) -> String {
         out.push_str(&format!("{:02X}", byte));
     }
     out
+}
+// Cursor that atomizes items lazily
+struct AtomizeCursor<N> {
+    input: Box<dyn SequenceCursor<N>>,
+    pending: VecDeque<XdmAtomicValue>,
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> AtomizeCursor<N> {
+    fn new(stream: XdmSequenceStream<N>) -> Self {
+        Self { input: stream.cursor(), pending: VecDeque::new() }
+    }
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for AtomizeCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        use XdmItem::*;
+        if let Some(atom) = self.pending.pop_front() {
+            return Some(Ok(Atomic(atom)));
+        }
+        loop {
+            let item = self.input.next_item()?;
+            match item {
+                Ok(Atomic(a)) => return Some(Ok(Atomic(a))),
+                Ok(Node(n)) => {
+                    for a in n.typed_value() { self.pending.push_back(a); }
+                    if let Some(atom) = self.pending.pop_front() {
+                        return Some(Ok(Atomic(atom)));
+                    }
+                    continue;
+                }
+                Err(e) => return Some(Err(e)),
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) { (0, None) }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self { input: self.input.boxed_clone(), pending: self.pending.clone() })
+    }
+}
+
+// Cursor that enforces treat as semantics while passing items through
+struct TreatCursor<N> {
+    vm: VmHandle<N>,
+    input: Box<dyn SequenceCursor<N>>,
+    item_type: crate::compiler::ir::ItemTypeIR,
+    min: usize,
+    max: Option<usize>,
+    seen: usize,
+    pending_error: Option<Error>,
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> TreatCursor<N> {
+    fn new(vm: VmHandle<N>, stream: XdmSequenceStream<N>, t: crate::compiler::ir::SeqTypeIR) -> Self {
+        use crate::compiler::ir::{OccurrenceIR, SeqTypeIR};
+        let (min, max, item_type) = match t {
+            SeqTypeIR::EmptySequence => (0, Some(0), crate::compiler::ir::ItemTypeIR::AnyItem),
+            SeqTypeIR::Typed { item, occ } => {
+                let (min, max) = match occ {
+                    OccurrenceIR::One => (1, Some(1)),
+                    OccurrenceIR::ZeroOrOne => (0, Some(1)),
+                    OccurrenceIR::ZeroOrMore => (0, None),
+                    OccurrenceIR::OneOrMore => (1, None),
+                };
+                (min, max, item)
+            }
+        };
+        let pending_error = None;
+        Self { vm, input: stream.cursor(), item_type, min, max, seen: 0, pending_error }
+    }
+}
+
+impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for TreatCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        if let Some(err) = self.pending_error.take() { return Some(Err(err)); }
+        match self.input.next_item() {
+            None => {
+                // End of input: verify min cardinality
+                if self.seen < self.min {
+                    return Some(Err(Error::from_code(
+                        ErrorCode::XPTY0004,
+                        format!("treat as failed: cardinality mismatch (expected min {} got {})", self.min, self.seen),
+                    )));
+                }
+                None
+            }
+            Some(Ok(it)) => {
+                self.seen += 1;
+                if let Some(max) = self.max && self.seen > max {
+                    return Some(Err(Error::from_code(
+                        ErrorCode::XPTY0004,
+                        format!("treat as failed: cardinality mismatch (expected max {} got {})", max, self.seen),
+                    )));
+                }
+                let ok = self.vm.with_vm(|vm| vm.item_matches_type(&it, &self.item_type)).unwrap_or(false);
+                if !ok { return Some(Err(Error::from_code(ErrorCode::XPTY0004, "treat as failed: type mismatch"))); }
+                Some(Ok(it))
+            }
+            Some(Err(e)) => Some(Err(e)),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) { (0, None) }
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            vm: self.vm.clone(),
+            input: self.input.boxed_clone(),
+            item_type: self.item_type.clone(),
+            min: self.min,
+            max: self.max,
+            seen: self.seen,
+            pending_error: self.pending_error.clone(),
+        })
+    }
 }

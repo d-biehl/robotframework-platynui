@@ -65,6 +65,9 @@ struct Compiler<'a> {
     source: &'a str,
     code: Vec<ir::OpCode>,
     lexical_scopes: SmallVec<[SmallVec<[ExpandedName; 4]>; 8]>,
+    // Tracks whether the path just started with RootDescendant. Used for the narrow
+    // `//*` optimization (child::* directly after descendant-or-self::node()).
+    last_was_rootdesc: bool,
 }
 
 type CResult<T> = Result<T, Error>;
@@ -77,6 +80,7 @@ impl<'a> Compiler<'a> {
             source,
             code: Vec::with_capacity(reserve),
             lexical_scopes: SmallVec::new(),
+            last_was_rootdesc: false,
         }
     }
 
@@ -86,6 +90,7 @@ impl<'a> Compiler<'a> {
             source: self.source,
             code: Vec::with_capacity(self.code.capacity()),
             lexical_scopes: self.lexical_scopes.clone(),
+            last_was_rootdesc: self.last_was_rootdesc,
         }
     }
 
@@ -440,6 +445,7 @@ impl<'a> Compiler<'a> {
                 self.load_context_item("root path expression")?;
                 self.emit(ir::OpCode::Pop);
                 self.emit(ir::OpCode::ToRoot);
+                self.last_was_rootdesc = false;
             }
             ast::PathStart::RootDescendant => {
                 self.load_context_item("root descendant path expression")?;
@@ -450,6 +456,8 @@ impl<'a> Compiler<'a> {
                     ir::NodeTestIR::AnyKind,
                     vec![],
                 ));
+                // Mark that the next step directly follows a descendant-or-self::node()
+                self.last_was_rootdesc = true;
             }
             ast::PathStart::Relative => {
                 if let Some(b) = base {
@@ -457,6 +465,7 @@ impl<'a> Compiler<'a> {
                 } else {
                     self.load_context_item("relative path")?;
                 }
+                self.last_was_rootdesc = false;
             }
         }
         self.lower_path_steps(&p.steps)
@@ -469,14 +478,36 @@ impl<'a> Compiler<'a> {
                     let axis_ir = self.map_axis(axis);
                     let test_ir = self.map_node_test_checked(test, &axis_ir)?;
                     let preds = self.lower_predicates(predicates)?;
-                    self.emit(ir::OpCode::AxisStep(axis_ir, test_ir, preds));
-                    self.emit(ir::OpCode::DocOrderDistinct);
+                    let has_preds = !preds.is_empty();
+                    self.emit(ir::OpCode::AxisStep(axis_ir.clone(), test_ir.clone(), preds));
+
+                    // Very narrow, safe fastpath: `//*` (descendant-or-self::node() / child::*)
+                    let is_child_any = matches!(axis_ir, ir::AxisIR::Child)
+                        && matches!(test_ir, ir::NodeTestIR::WildcardAny);
+                    let is_child_named = matches!(axis_ir, ir::AxisIR::Child)
+                        && (matches!(test_ir, ir::NodeTestIR::Name(_))
+                            || matches!(
+                                test_ir,
+                                ir::NodeTestIR::KindElement {
+                                    name: Some(ir::NameOrWildcard::Name(_)),
+                                    ty: None,
+                                    nillable: false,
+                                }
+                            ));
+                    if self.last_was_rootdesc && (is_child_any || is_child_named) && !has_preds {
+                        self.emit(ir::OpCode::DocOrderDistinctOptimistic);
+                    } else {
+                        self.emit(ir::OpCode::DocOrderDistinct);
+                    }
+                    // Only the immediately following step should see last_was_rootdesc
+                    self.last_was_rootdesc = false;
                 }
                 ast::Step::FilterExpr(expr) => {
                     let mut sub = self.fork();
                     sub.lower_expr(expr)?;
                     self.emit(ir::OpCode::PathExprStep(ir::InstrSeq(sub.code)));
                     self.emit(ir::OpCode::DocOrderDistinct);
+                    self.last_was_rootdesc = false;
                 }
             }
         }

@@ -139,7 +139,7 @@ impl Runtime {
             )
         });
 
-        let providers_for_desktop: Vec<Arc<dyn UiTreeProvider>> = providers.iter().cloned().collect();
+        let providers_for_desktop: Vec<Arc<dyn UiTreeProvider>> = providers.to_vec();
 
         let runtime = Self {
             registry,
@@ -669,7 +669,7 @@ impl UiNode for DesktopNode {
             .get()
             .and_then(|w| w.upgrade())
             .expect("desktop self weak set");
-        let providers = self.providers.iter().cloned().collect();
+        let providers = self.providers.to_vec();
         Box::new(DesktopChildrenIter { providers, idx: 0, parent, current: None })
     }
 

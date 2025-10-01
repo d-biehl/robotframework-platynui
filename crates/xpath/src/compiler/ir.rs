@@ -98,6 +98,9 @@ pub enum OpCode {
     ApplyPredicates(Vec<InstrSeq>),
     // Ensure document order and no duplicates for a node sequence
     DocOrderDistinct,
+    // Hint: input is already in document order and duplicate-free (forward axes from a single root).
+    // Evaluator may treat this as a no-op fast path.
+    DocOrderDistinctOptimistic,
 
     // Arithmetic / logic
     Add,
@@ -396,6 +399,7 @@ impl fmt::Display for OpCode {
                 }
             }
             OpCode::DocOrderDistinct => write!(f, "doc-order-distinct"),
+            OpCode::DocOrderDistinctOptimistic => write!(f, "doc-order-distinct[optimistic]"),
 
             // Arithmetic / logic
             OpCode::Add => write!(f, "+"),
