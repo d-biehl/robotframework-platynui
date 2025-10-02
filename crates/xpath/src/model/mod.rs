@@ -104,17 +104,16 @@ impl<N> Iterator for EmptyAxis<N> {
     }
 }
 
-unsafe impl<N: Send> Send for EmptyAxis<N> {}
-unsafe impl<N: Sync> Sync for EmptyAxis<N> {}
+// Single-threaded evaluation: `EmptyAxis` does not need Send/Sync.
 
-pub trait XdmNode: Clone + Eq + core::fmt::Debug + Send + Sync + 'static {
-    type Children<'a>: Iterator<Item = Self> + Send + 'a
+pub trait XdmNode: Clone + Eq + core::fmt::Debug {
+    type Children<'a>: Iterator<Item = Self> + 'a
     where
         Self: 'a;
-    type Attributes<'a>: Iterator<Item = Self> + Send + 'a
+    type Attributes<'a>: Iterator<Item = Self> + 'a
     where
         Self: 'a;
-    type Namespaces<'a>: Iterator<Item = Self> + Send + 'a
+    type Namespaces<'a>: Iterator<Item = Self> + 'a
     where
         Self: 'a;
 

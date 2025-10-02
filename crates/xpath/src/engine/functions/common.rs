@@ -49,7 +49,7 @@ pub(super) fn item_to_string<N: crate::model::XdmNode>(seq: &XdmSequence<N>) -> 
 }
 
 // Default implementation for normalize-space handling both 0- and 1-arity variants
-pub(super) fn normalize_space_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn normalize_space_default<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     arg_opt: Option<&XdmSequence<N>>,
 ) -> Result<XdmSequence<N>, Error> {
@@ -80,7 +80,7 @@ pub(super) fn normalize_space_default<N: 'static + Send + Sync + crate::model::X
 }
 
 // Default implementation for data() 0/1-arity
-pub(super) fn data_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn data_default<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     arg_opt: Option<&XdmSequence<N>>,
 ) -> Result<XdmSequence<N>, Error> {
@@ -595,7 +595,7 @@ pub(super) fn local_name_default<N: crate::model::XdmNode + Clone>(
 // (namespace-uri default helper removed; single spec-compliant implementation is registered above)
 
 // Default implementation for compare($A,$B[,$collation])
-pub(super) fn compare_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn compare_default<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     a: &XdmSequence<N>,
     b: &XdmSequence<N>,
@@ -623,7 +623,7 @@ pub(super) fn compare_default<N: 'static + Send + Sync + crate::model::XdmNode +
 }
 
 // Default implementation for index-of($seq,$search[,$collation])
-pub(super) fn index_of_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn index_of_default<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     seq: &XdmSequence<N>,
     search: &XdmSequence<N>,
@@ -1157,11 +1157,11 @@ pub(super) fn atomic_equal_with_collation(
 // ===== Helpers (Regex) =====
 pub(super) fn get_regex_provider<N>(
     ctx: &CallCtx<N>,
-) -> std::sync::Arc<dyn crate::engine::runtime::RegexProvider> {
+) -> std::rc::Rc<dyn crate::engine::runtime::RegexProvider> {
     if let Some(p) = &ctx.regex {
         p.clone()
     } else {
-        std::sync::Arc::new(crate::engine::runtime::FancyRegexProvider)
+        std::rc::Rc::new(crate::engine::runtime::FancyRegexProvider)
     }
 }
 
@@ -1338,7 +1338,7 @@ pub(super) fn minmax_impl<N: crate::model::XdmNode>(
     }
     // String branch
     // Ensure owned Arc lives while function executes (store optionally)
-    let mut owned_coll: Option<std::sync::Arc<dyn crate::engine::collation::Collation>> = None;
+    let mut owned_coll: Option<std::rc::Rc<dyn crate::engine::collation::Collation>> = None;
     let effective_coll: Option<&dyn crate::engine::collation::Collation> = if let Some(c) = coll {
         Some(c)
     } else {

@@ -3,6 +3,7 @@ use platynui_core::provider::{
 };
 use platynui_core::ui::identifiers::TechnologyId;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -36,13 +37,7 @@ impl ProviderRegistry {
             a.descriptor.id.cmp(b.descriptor.id)
         });
 
-        let mut by_technology: HashMap<String, Vec<usize>> = HashMap::new();
-        for (idx, entry) in entries.iter().enumerate() {
-            by_technology
-                .entry(entry.descriptor.technology.as_str().to_owned())
-                .or_default()
-                .push(idx);
-        }
+        let by_technology = Self::rebuild_by_technology(&entries);
 
         Self { entries, by_technology }
     }
@@ -60,6 +55,50 @@ impl ProviderRegistry {
 
     pub fn instantiate_all(&self) -> Result<Vec<Arc<dyn UiTreeProvider>>, ProviderError> {
         self.entries.iter().map(|entry| entry.instantiate()).collect()
+    }
+
+    pub fn with_factories(factories: &[&'static dyn UiTreeProviderFactory]) -> Self {
+        let mut entries: Vec<ProviderEntry> = factories
+            .iter()
+            .map(|factory| ProviderEntry { descriptor: factory.descriptor(), factory: *factory })
+            .collect();
+        entries.sort_by(|a, b| {
+            let tech_cmp = a.descriptor.technology.as_str().cmp(b.descriptor.technology.as_str());
+            if tech_cmp != std::cmp::Ordering::Equal {
+                return tech_cmp;
+            }
+            a.descriptor.id.cmp(b.descriptor.id)
+        });
+        let by_technology = Self::rebuild_by_technology(&entries);
+        Self { entries, by_technology }
+    }
+
+    /// Returns a new registry that only includes providers with an `id` contained in `ids`.
+    /// Order within a technology is preserved from discovery.
+    pub fn filter_by_ids(&self, ids: &[&str]) -> Self {
+        if ids.is_empty() {
+            // Keep current behavior if no filter specified
+            return Self {
+                entries: self.entries.clone(),
+                by_technology: self.by_technology.clone(),
+            };
+        }
+        let wanted: HashSet<&str> = ids.iter().copied().collect();
+        let entries: Vec<ProviderEntry> =
+            self.entries.iter().filter(|e| wanted.contains(e.descriptor.id)).cloned().collect();
+        let by_technology = Self::rebuild_by_technology(&entries);
+        Self { entries, by_technology }
+    }
+
+    fn rebuild_by_technology(entries: &Vec<ProviderEntry>) -> HashMap<String, Vec<usize>> {
+        let mut by_technology: HashMap<String, Vec<usize>> = HashMap::new();
+        for (idx, entry) in entries.iter().enumerate() {
+            by_technology
+                .entry(entry.descriptor.technology.as_str().to_owned())
+                .or_default()
+                .push(idx);
+        }
+        by_technology
     }
 }
 
@@ -194,8 +233,8 @@ mod tests {
     register_provider!(&DUMMY_FACTORY);
 
     #[rstest]
-    fn registry_discovers_provider() {
-        let registry = ProviderRegistry::discover();
+    fn registry_builds_from_factories() {
+        let registry = ProviderRegistry::with_factories(&[&DUMMY_FACTORY]);
         assert!(registry.entries().any(|entry| entry.descriptor.id == "dummy"));
     }
 
@@ -204,16 +243,8 @@ mod tests {
         SHUTDOWN_TRIGGERED.store(false, Ordering::SeqCst);
         SUBSCRIPTION_FLAG.store(false, Ordering::SeqCst);
 
-        // Ensure platform modules are initialized before any factory `create()`
-        // calls. Some test-only providers (see runtime.rs tests) assert that
-        // initialization happened in their factory. Creating a Runtime here
-        // triggers `initialize_platform_modules()` in a controlled way without
-        // affecting the rest of this test.
-        let _runtime_for_init =
-            crate::Runtime::new().expect("runtime initializes platform modules");
-
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
-        let registry = ProviderRegistry::discover();
+        let registry = ProviderRegistry::with_factories(&[&DUMMY_FACTORY]);
         let providers = registry.instantiate_all().expect("providers");
         assert!(!providers.is_empty());
 

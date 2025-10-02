@@ -18,12 +18,12 @@ pub const WINDOW_RUNTIME_ID: &str = "mock://window/main";
 #[cfg(test)]
 pub const BUTTON_RUNTIME_ID: &str = "mock://button/ok";
 
-pub(crate) static MOCK_PROVIDER_FACTORY: MockProviderFactory = MockProviderFactory;
+pub static MOCK_PROVIDER_FACTORY: MockProviderFactory = MockProviderFactory;
 
-pub(crate) struct MockProviderFactory;
+pub struct MockProviderFactory;
 
 impl MockProviderFactory {
-    pub(crate) fn descriptor_static() -> &'static ProviderDescriptor {
+    pub fn descriptor_static() -> &'static ProviderDescriptor {
         static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
             ProviderDescriptor::new(
                 PROVIDER_ID,

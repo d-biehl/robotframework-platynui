@@ -4,7 +4,7 @@ use super::common::{
 use crate::engine::runtime::{CallCtx, Error};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
 
-pub(super) fn compare_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn compare_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -16,18 +16,18 @@ pub(super) fn compare_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clon
     }
 }
 
-pub(super) fn codepoint_equal_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn codepoint_equal_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
     if args[0].is_empty() || args[1].is_empty() {
         return Ok(vec![]);
     }
-    let coll: std::sync::Arc<dyn crate::engine::collation::Collation> = ctx
+    let coll: std::rc::Rc<dyn crate::engine::collation::Collation> = ctx
         .dyn_ctx
         .collations
         .get(crate::engine::collation::CODEPOINT_URI)
-        .unwrap_or_else(|| std::sync::Arc::new(crate::engine::collation::CodepointCollation));
+        .unwrap_or_else(|| std::rc::Rc::new(crate::engine::collation::CodepointCollation));
     let a_item = args[0].first().cloned();
     let b_item = args[1].first().cloned();
     let eq = if let (Some(XdmItem::Atomic(a)), Some(XdmItem::Atomic(b))) = (a_item, b_item) {
@@ -40,7 +40,7 @@ pub(super) fn codepoint_equal_fn<N: 'static + Send + Sync + crate::model::XdmNod
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(eq))])
 }
 
-pub(super) fn deep_equal_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn deep_equal_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {

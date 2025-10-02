@@ -77,13 +77,16 @@ fn kind_label(kind: ProviderKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::map_provider_error;
-    use platynui_runtime::Runtime;
-    use rstest::rstest;
+    use crate::test_support::runtime_mock_full;
+    use rstest::{fixture, rstest};
+
+    #[fixture]
+    fn runtime() -> platynui_runtime::Runtime {
+        return runtime_mock_full();
+    }
 
     #[rstest]
-    fn summaries_include_mock_provider() {
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+    fn summaries_include_mock_provider(mut runtime: platynui_runtime::Runtime) {
         let summaries = collect_provider_summaries(&runtime);
         runtime.shutdown();
 

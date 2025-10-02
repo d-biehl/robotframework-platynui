@@ -100,6 +100,11 @@ pub fn take_pointer_log() -> Vec<PointerLogEntry> {
     entries
 }
 
+// Expose device reference for explicit injection in tests/integration code.
+pub fn pointer_device() -> &'static dyn PointerDevice {
+    &MOCK_POINTER
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

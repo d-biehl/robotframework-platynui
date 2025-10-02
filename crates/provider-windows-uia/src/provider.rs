@@ -93,7 +93,7 @@ impl UiTreeProvider for WindowsUiaProvider {
 }
 
 // Register the factory with the global inventory when this crate is linked.
-static FACTORY: WindowsUiaFactory = WindowsUiaFactory;
-register_provider!(&FACTORY);
+pub static WINDOWS_UIA_FACTORY: WindowsUiaFactory = WindowsUiaFactory;
+register_provider!(&WINDOWS_UIA_FACTORY);
 
 // (no second specialized impl; Windows path handled above with cfg guards inside)

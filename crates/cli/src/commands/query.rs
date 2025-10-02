@@ -302,9 +302,9 @@ pub(crate) fn render_query_json(items: &[QueryItemSummary]) -> CliResult<String>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::map_provider_error;
+    use crate::test_support::runtime_mock_full;
     use platynui_runtime::Runtime;
-    use rstest::rstest;
+    use rstest::{fixture, rstest};
     use std::borrow::Cow;
 
     fn strip_ansi(input: &str) -> Cow<'_, str> {
@@ -330,9 +330,13 @@ mod tests {
         Cow::Owned(result)
     }
 
+    #[fixture]
+    fn runtime() -> Runtime {
+        return runtime_mock_full();
+    }
+
     #[rstest]
-    fn query_text_returns_nodes() {
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+    fn query_text_returns_nodes(mut runtime: Runtime) {
         let args = QueryArgs { expression: "//control:Button".into(), format: OutputFormat::Text };
         // Capture stdout by rendering a single item using helper
         let results = runtime.evaluate(None, &args.expression).expect("eval");
@@ -345,8 +349,7 @@ mod tests {
     }
 
     #[rstest]
-    fn query_attribute_text_omits_default_namespace() {
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+    fn query_attribute_text_omits_default_namespace(mut runtime: Runtime) {
         let args =
             QueryArgs { expression: "//control:Button/@Name".into(), format: OutputFormat::Text };
         let results = runtime.evaluate(None, &args.expression).expect("eval");
@@ -360,8 +363,7 @@ mod tests {
     }
 
     #[rstest]
-    fn query_json_produces_valid_payload() {
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+    fn query_json_produces_valid_payload(mut runtime: Runtime) {
         let args = QueryArgs { expression: "//control:Button".into(), format: OutputFormat::Json };
         let output = run(&runtime, &args).expect("query");
         let payload = output.trim();

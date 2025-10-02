@@ -142,24 +142,27 @@ fn parse_rect_arg(value: &str) -> Result<Rect, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::map_provider_error;
     // Ensure provider/device registrations are linked into the test binary
-    use platynui_link::platynui_link_mock_for_tests;
-    platynui_link_mock_for_tests!();
+    use crate::test_support::runtime_mock_full;
+    use platynui_platform_mock as _; // link platform-mock inventory
     use platynui_platform_mock::{
         highlight_clear_count, reset_highlight_state, take_highlight_log,
     };
     use platynui_runtime::Runtime;
-    use rstest::rstest;
+    use rstest::{fixture, rstest};
     use std::sync::{LazyLock, Mutex};
 
     static TEST_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
+    #[fixture]
+    fn runtime() -> Runtime {
+        return runtime_mock_full();
+    }
+
     #[rstest]
-    fn highlight_records_requests() {
+    fn highlight_records_requests(mut runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_highlight_state();
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
 
         let args = HighlightArgs {
             expression: Some("//control:Button".into()),
@@ -180,10 +183,9 @@ mod tests {
     }
 
     #[rstest]
-    fn highlight_clear_only_triggers_provider_clear() {
+    fn highlight_clear_only_triggers_provider_clear(mut runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_highlight_state();
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
 
         let args = HighlightArgs { expression: None, rect: None, duration_ms: 1500, clear: true };
         let output = run(&runtime, &args).expect("highlight clear");
@@ -195,9 +197,8 @@ mod tests {
     }
 
     #[rstest]
-    fn highlight_requires_expression_or_clear() {
+    fn highlight_requires_expression_or_clear(mut runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
 
         let err = run(
             &runtime,
@@ -210,10 +211,9 @@ mod tests {
     }
 
     #[rstest]
-    fn highlight_rect_path_uses_default_duration() {
+    fn highlight_rect_path_uses_default_duration(mut runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_highlight_state();
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
 
         let args = HighlightArgs {
             expression: None,

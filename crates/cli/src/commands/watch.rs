@@ -328,7 +328,10 @@ mod tests {
 
     #[rstest]
     fn watch_text_streams_events() {
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+        let mut runtime =
+            Runtime::new_with_factories(&[&platynui_provider_mock::MOCK_PROVIDER_FACTORY])
+                .map_err(map_provider_error)
+                .expect("runtime");
         let args = WatchArgs {
             format: OutputFormat::Text,
             namespaces: vec![],
@@ -352,7 +355,10 @@ mod tests {
 
     #[rstest]
     fn watch_json_produces_serializable_payload() {
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+        let mut runtime =
+            Runtime::new_with_factories(&[&platynui_provider_mock::MOCK_PROVIDER_FACTORY])
+                .map_err(map_provider_error)
+                .expect("runtime");
         let args = WatchArgs {
             format: OutputFormat::Json,
             namespaces: vec![],

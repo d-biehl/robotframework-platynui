@@ -89,7 +89,7 @@ fn variables_and_functions() {
         }),
     );
     let dyn_ctx = DynamicContextBuilder::default()
-        .with_functions(std::sync::Arc::new(reg))
+        .with_functions(std::rc::Rc::new(reg))
         .with_variable(
             ExpandedName { ns_uri: None, local: "x".to_string() },
             vec![I::Atomic(A::Integer(5))],

@@ -10,8 +10,9 @@ use core::fmt;
 use lru::LruCache;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
+use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct VariableBindings<N> {
@@ -102,13 +103,13 @@ pub struct CallCtx<'a, N> {
     pub dyn_ctx: &'a DynamicContext<N>,
     pub static_ctx: &'a StaticContext,
     // Resolved default collation according to resolution order (if available)
-    pub default_collation: Option<Arc<dyn Collation>>,
-    pub regex: Option<Arc<dyn RegexProvider>>,
+    pub default_collation: Option<Rc<dyn Collation>>,
+    pub regex: Option<Rc<dyn RegexProvider>>,
     pub current_context_item: Option<XdmItem<N>>,
 }
 
 pub type FunctionImpl<N> =
-    Arc<dyn Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error> + Send + Sync>;
+    Arc<dyn Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>>;
 
 // Type aliases to keep complex nested types readable
 pub type FunctionOverload<N> = (Arity, Option<Arity>, FunctionImpl<N>);
@@ -140,10 +141,7 @@ impl<N> FunctionImplementations<N> {
     /// This wraps the closure into the required Arc and stores it.
     pub fn register_fn<F>(&mut self, name: ExpandedName, arity: Arity, f: F)
     where
-        F: 'static
-            + Send
-            + Sync
-            + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
+        F: 'static + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
     {
         self.register(name, arity, Arc::new(f));
     }
@@ -151,10 +149,7 @@ impl<N> FunctionImplementations<N> {
     /// Convenience: register a function in a namespace using ns URI and local name.
     pub fn register_ns<F>(&mut self, ns_uri: &str, local: &str, arity: Arity, f: F)
     where
-        F: 'static
-            + Send
-            + Sync
-            + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
+        F: 'static + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
     {
         let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
         self.register_fn(name, arity, f);
@@ -225,10 +220,7 @@ impl<N> FunctionImplementations<N> {
     /// Convenience: register a variadic function in a namespace.
     pub fn register_ns_variadic<F>(&mut self, ns_uri: &str, local: &str, min_arity: Arity, f: F)
     where
-        F: 'static
-            + Send
-            + Sync
-            + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
+        F: 'static + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
     {
         let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
         self.register_variadic(name, min_arity, Arc::new(f));
@@ -237,10 +229,7 @@ impl<N> FunctionImplementations<N> {
     /// Convenience: register a variadic function without a namespace.
     pub fn register_local_variadic<F>(&mut self, local: &str, min_arity: Arity, f: F)
     where
-        F: 'static
-            + Send
-            + Sync
-            + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
+        F: 'static + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
     {
         let name = ExpandedName { ns_uri: None, local: local.to_string() };
         self.register_variadic(name, min_arity, Arc::new(f));
@@ -255,10 +244,7 @@ impl<N> FunctionImplementations<N> {
         max_arity: Option<Arity>,
         f: F,
     ) where
-        F: 'static
-            + Send
-            + Sync
-            + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
+        F: 'static + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
     {
         let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
         self.register_range(name, min_arity, max_arity, Arc::new(f));
@@ -272,10 +258,7 @@ impl<N> FunctionImplementations<N> {
         max_arity: Option<Arity>,
         f: F,
     ) where
-        F: 'static
-            + Send
-            + Sync
-            + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
+        F: 'static + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
     {
         let name = ExpandedName { ns_uri: None, local: local.to_string() };
         self.register_range(name, min_arity, max_arity, Arc::new(f));
@@ -284,10 +267,7 @@ impl<N> FunctionImplementations<N> {
     /// Convenience: register a function without a namespace.
     pub fn register_local<F>(&mut self, local: &str, arity: Arity, f: F)
     where
-        F: 'static
-            + Send
-            + Sync
-            + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
+        F: 'static + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
     {
         let name = ExpandedName { ns_uri: None, local: local.to_string() };
         self.register_fn(name, arity, f);
@@ -344,7 +324,7 @@ impl<N> FunctionImplementations<N> {
 }
 
 // Node-producing resolver for host adapters that can construct N directly
-pub trait NodeResolver<N>: Send + Sync {
+pub trait NodeResolver<N> {
     fn doc_node(&self, _uri: &str) -> Result<Option<N>, Error> {
         Ok(None)
     }
@@ -353,7 +333,7 @@ pub trait NodeResolver<N>: Send + Sync {
     }
 }
 
-pub trait RegexProvider: Send + Sync {
+pub trait RegexProvider {
     fn matches(&self, pattern: &str, flags: &str, text: &str) -> Result<bool, Error>;
     fn replace(
         &self,
@@ -369,20 +349,13 @@ pub trait RegexProvider: Send + Sync {
 pub struct FancyRegexProvider;
 
 impl FancyRegexProvider {
-    fn build_with_flags(pattern: &str, flags: &str) -> Result<Arc<fancy_regex::Regex>, Error> {
-        type RegexCacheKey = (String, String);
-        type RegexCacheMap = HashMap<RegexCacheKey, Arc<fancy_regex::Regex>>;
-        type RegexCache = Mutex<RegexCacheMap>;
-
-        static REGEX_CACHE: OnceLock<RegexCache> = OnceLock::new();
-        let cache = REGEX_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    fn build_with_flags(pattern: &str, flags: &str) -> Result<Rc<fancy_regex::Regex>, Error> {
+        thread_local! {
+            static REGEX_CACHE: std::cell::RefCell<HashMap<(String, String), Rc<fancy_regex::Regex>>> = Default::default();
+        }
         let key = (pattern.to_string(), flags.to_string());
-        let mut guard = match cache.lock() {
-            Ok(g) => g,
-            Err(e) => e.into_inner(),
-        };
-        if let Some(existing) = guard.get(&key) {
-            return Ok(existing.clone());
+        if let Some(found) = REGEX_CACHE.with(|cell| cell.borrow().get(&key).cloned()) {
+            return Ok(found);
         }
 
         let mut builder = fancy_regex::RegexBuilder::new(pattern);
@@ -411,11 +384,11 @@ impl FancyRegexProvider {
         }
         let compiled = builder.build().map_err(|e| {
             Error::from_code(ErrorCode::FORX0002, "invalid regex pattern")
-                .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
+                .with_source(Some(Rc::new(e) as Rc<dyn std::error::Error>))
         })?;
-        let arc = Arc::new(compiled);
-        guard.entry(key).or_insert_with(|| arc.clone());
-        Ok(arc)
+        let rc = Rc::new(compiled);
+        REGEX_CACHE.with(|cell| cell.borrow_mut().insert(key, rc.clone()));
+        Ok(rc)
     }
 }
 
@@ -424,7 +397,7 @@ impl RegexProvider for FancyRegexProvider {
         let re = Self::build_with_flags(pattern, flags)?;
         re.is_match(text).map_err(|e| {
             Error::from_code(ErrorCode::FORX0002, "regex evaluation error")
-                .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
+                .with_source(Some(Rc::new(e) as Rc<dyn std::error::Error>))
         })
     }
     fn replace(
@@ -439,7 +412,7 @@ impl RegexProvider for FancyRegexProvider {
         if let Err(e) = fancy_regex::Expander::default().check(replacement, &re) {
             // Map any template validation errors to FORX0004
             return Err(Error::from_code(ErrorCode::FORX0004, "invalid replacement string")
-                .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>)));
+                .with_source(Some(Rc::new(e) as Rc<dyn std::error::Error>)));
         }
         // Explicitly reject $0 (group zero) as per XPath 2.0 rules.
         {
@@ -521,7 +494,7 @@ impl RegexProvider for FancyRegexProvider {
         for mc in re.captures_iter(text) {
             let cap = mc.map_err(|e| {
                 Error::from_code(ErrorCode::FORX0002, "regex evaluation error")
-                    .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
+                    .with_source(Some(Rc::new(e) as Rc<dyn std::error::Error>))
             })?;
             let m = cap
                 .get(0)
@@ -551,9 +524,7 @@ impl RegexProvider for FancyRegexProvider {
                 Ok(s) => tokens.push(s.to_string()),
                 Err(e) => {
                     return Err(Error::from_code(ErrorCode::FORX0002, "regex evaluation error")
-                        .with_source(Some(
-                            Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>
-                        )));
+                        .with_source(Some(Rc::new(e) as Rc<dyn std::error::Error>)));
                 }
             }
         }
@@ -679,7 +650,7 @@ pub struct Error {
     pub code: ExpandedName,
     pub message: String,
     #[source]
-    pub source: Option<Arc<dyn std::error::Error + Send + Sync>>, // optional chained cause
+    pub source: Option<Rc<dyn std::error::Error>>, // optional chained cause
 }
 
 impl Error {
@@ -721,10 +692,7 @@ impl Error {
     }
 
     /// Compose an error with a source cause.
-    pub fn with_source(
-        mut self,
-        source: impl Into<Option<Arc<dyn std::error::Error + Send + Sync>>>,
-    ) -> Self {
+    pub fn with_source(mut self, source: impl Into<Option<Rc<dyn std::error::Error>>>) -> Self {
         self.source = source.into();
         self
     }
@@ -750,14 +718,14 @@ impl Error {
 impl From<fancy_regex::Error> for Error {
     fn from(e: fancy_regex::Error) -> Self {
         Error::from_code(ErrorCode::FORX0002, "regex error")
-            .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
+            .with_source(Some(Rc::new(e) as Rc<dyn std::error::Error>))
     }
 }
 
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
         Error::from_code(ErrorCode::FODC0005, e.to_string())
-            .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
+            .with_source(Some(Rc::new(e) as Rc<dyn std::error::Error>))
     }
 }
 
@@ -1887,23 +1855,23 @@ pub struct DynamicContext<N> {
     pub context_item: Option<XdmItem<N>>,
     pub variables: VariableBindings<N>,
     pub default_collation: Option<String>,
-    pub functions: Option<Arc<FunctionImplementations<N>>>,
-    pub collations: Arc<CollationRegistry>,
+    pub functions: Option<Rc<FunctionImplementations<N>>>,
+    pub collations: Rc<CollationRegistry>,
     pub node_resolver: Option<Arc<dyn NodeResolver<N>>>,
-    pub regex: Option<Arc<dyn RegexProvider>>,
+    pub regex: Option<Rc<dyn RegexProvider>>,
     pub now: Option<chrono::DateTime<chrono::FixedOffset>>,
     pub timezone_override: Option<chrono::FixedOffset>,
     pub cancel_flag: Option<Arc<AtomicBool>>,
 }
 
-impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default for DynamicContext<N> {
+impl<N: 'static + crate::model::XdmNode + Clone> Default for DynamicContext<N> {
     fn default() -> Self {
         Self {
             context_item: None,
             variables: VariableBindings::default(),
             default_collation: None,
             functions: None,
-            collations: Arc::new(CollationRegistry::default()),
+            collations: Rc::new(CollationRegistry::default()),
             node_resolver: None,
             regex: None,
             now: None,
@@ -1917,15 +1885,13 @@ pub struct DynamicContextBuilder<N> {
     ctx: DynamicContext<N>,
 }
 
-impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> Default
-    for DynamicContextBuilder<N>
-{
+impl<N: 'static + crate::model::XdmNode + Clone> Default for DynamicContextBuilder<N> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBuilder<N> {
+impl<N: 'static + crate::model::XdmNode + Clone> DynamicContextBuilder<N> {
     pub fn new() -> Self {
         Self { ctx: DynamicContext::default() }
     }
@@ -1945,12 +1911,12 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBui
         self
     }
 
-    pub fn with_functions(mut self, reg: Arc<FunctionImplementations<N>>) -> Self {
+    pub fn with_functions(mut self, reg: Rc<FunctionImplementations<N>>) -> Self {
         self.ctx.functions = Some(reg);
         self
     }
 
-    pub fn with_collations(mut self, reg: Arc<CollationRegistry>) -> Self {
+    pub fn with_collations(mut self, reg: Rc<CollationRegistry>) -> Self {
         self.ctx.collations = reg;
         self
     }
@@ -1960,7 +1926,7 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBui
         self
     }
 
-    pub fn with_regex(mut self, provider: Arc<dyn RegexProvider>) -> Self {
+    pub fn with_regex(mut self, provider: Rc<dyn RegexProvider>) -> Self {
         self.ctx.regex = Some(provider);
         self
     }
@@ -1991,8 +1957,8 @@ impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContextBui
     }
 }
 
-impl<N: 'static + Send + Sync + crate::model::XdmNode + Clone> DynamicContext<N> {
-    pub fn provide_functions(&self) -> Arc<FunctionImplementations<N>> {
+impl<N: 'static + crate::model::XdmNode + Clone> DynamicContext<N> {
+    pub fn provide_functions(&self) -> Rc<FunctionImplementations<N>> {
         if let Some(f) = &self.functions {
             f.clone()
         } else {

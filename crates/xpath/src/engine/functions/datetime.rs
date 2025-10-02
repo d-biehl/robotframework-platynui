@@ -56,9 +56,7 @@ pub(super) fn date_time_fn<N: crate::model::XdmNode + Clone>(
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::DateTime(dt))])
 }
 
-pub(super) fn adjust_date_to_timezone_fn<
-    N: 'static + Send + Sync + crate::model::XdmNode + Clone,
->(
+pub(super) fn adjust_date_to_timezone_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -99,9 +97,7 @@ pub(super) fn adjust_date_to_timezone_fn<
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Date { date, tz: tz_opt })])
 }
 
-pub(super) fn adjust_time_to_timezone_fn<
-    N: 'static + Send + Sync + crate::model::XdmNode + Clone,
->(
+pub(super) fn adjust_time_to_timezone_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -144,9 +140,7 @@ pub(super) fn adjust_time_to_timezone_fn<
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Time { time, tz: tz_opt })])
 }
 
-pub(super) fn adjust_datetime_to_timezone_fn<
-    N: 'static + Send + Sync + crate::model::XdmNode + Clone,
->(
+pub(super) fn adjust_datetime_to_timezone_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {

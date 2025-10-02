@@ -67,7 +67,7 @@ pub(super) fn reverse_fn<N: crate::model::XdmNode + Clone>(
     Ok(s)
 }
 
-pub(super) fn subsequence_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn subsequence_fn<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -97,7 +97,7 @@ pub(super) fn distinct_values_fn<N: crate::model::XdmNode + Clone>(
     }
 }
 
-pub(super) fn index_of_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn index_of_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {

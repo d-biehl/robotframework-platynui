@@ -54,6 +54,11 @@ pub fn reset_highlight_state() {
     *MOCK_HIGHLIGHT.clear_calls.lock().expect("highlight clear count poisoned") = 0;
 }
 
+// Expose provider reference for explicit injection in tests/integration code.
+pub fn highlight_provider() -> &'static dyn HighlightProvider {
+    &MOCK_HIGHLIGHT
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

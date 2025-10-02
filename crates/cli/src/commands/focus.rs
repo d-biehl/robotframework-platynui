@@ -92,17 +92,22 @@ fn render_node(node: &Arc<dyn UiNode>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::{map_evaluate_error, map_provider_error};
+    use crate::test_support::runtime_mock_full;
+    use crate::util::map_evaluate_error;
     use platynui_core::ui::UiValue;
     use platynui_core::ui::attribute_names::focusable;
     use platynui_runtime::Runtime;
-    use rstest::rstest;
+    use rstest::{fixture, rstest};
     use serial_test::serial;
+
+    #[fixture]
+    fn runtime() -> Runtime {
+        return runtime_mock_full();
+    }
 
     #[rstest]
     #[serial]
-    fn focus_command_sets_focus() {
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+    fn focus_command_sets_focus(mut runtime: Runtime) {
         let args = FocusArgs { expression: "//control:Button[@Name='OK']".into() };
 
         let output = run(&runtime, &args).expect("focus execution");
@@ -131,8 +136,7 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn focus_command_reports_missing_pattern() {
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+    fn focus_command_reports_missing_pattern(mut runtime: Runtime) {
         let args = FocusArgs { expression: "//control:Panel[@Name='Workspace']".into() };
 
         let output = run(&runtime, &args).expect("focus execution");
@@ -145,8 +149,7 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn focus_command_errors_on_empty_result() {
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+    fn focus_command_errors_on_empty_result(mut runtime: Runtime) {
         let args = FocusArgs { expression: "//control:Button[@Name='Nonexistent']".into() };
 
         let err = run(&runtime, &args).expect_err("no node should error");

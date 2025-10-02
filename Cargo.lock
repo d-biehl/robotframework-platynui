@@ -1114,6 +1114,10 @@ dependencies = [
 [[package]]
 name = "platynui-provider-atspi"
 version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "platynui-core",
+]
 
 [[package]]
 name = "platynui-provider-jsonrpc"
@@ -1122,6 +1126,10 @@ version = "0.1.0"
 [[package]]
 name = "platynui-provider-macos-ax"
 version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "platynui-core",
+]
 
 [[package]]
 name = "platynui-provider-mock"

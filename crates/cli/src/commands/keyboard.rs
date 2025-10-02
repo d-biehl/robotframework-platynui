@@ -142,13 +142,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::runtime_mock_full;
     use platynui_platform_mock::{KeyboardLogEntry, reset_keyboard_state, take_keyboard_log};
     use platynui_runtime::Runtime;
-    use rstest::rstest;
+    use rstest::{fixture, rstest};
     use serial_test::serial;
 
+    #[fixture]
     fn runtime() -> Runtime {
-        Runtime::new().expect("runtime")
+        return runtime_mock_full();
     }
 
     fn entries() -> Vec<KeyboardLogEntry> {

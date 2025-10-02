@@ -6,7 +6,7 @@ use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
 use smallvec::SmallVec;
 use std::collections::{HashMap, hash_map::Entry};
 
-pub(super) fn string_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn string_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -93,7 +93,7 @@ pub(super) fn codepoints_to_string_fn<N: crate::model::XdmNode + Clone>(
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(s))])
 }
 
-pub(super) fn contains_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn contains_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -101,7 +101,7 @@ pub(super) fn contains_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clo
     contains_default(ctx, &args[0], &args[1], uri_opt.as_deref())
 }
 
-pub(super) fn starts_with_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn starts_with_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -109,7 +109,7 @@ pub(super) fn starts_with_fn<N: 'static + Send + Sync + crate::model::XdmNode + 
     starts_with_default(ctx, &args[0], &args[1], uri_opt.as_deref())
 }
 
-pub(super) fn ends_with_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn ends_with_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -117,7 +117,7 @@ pub(super) fn ends_with_fn<N: 'static + Send + Sync + crate::model::XdmNode + Cl
     ends_with_default(ctx, &args[0], &args[1], uri_opt.as_deref())
 }
 
-pub(super) fn substring_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn substring_fn<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -165,7 +165,7 @@ pub(super) fn substring_after_fn<N: crate::model::XdmNode + Clone>(
     }
 }
 
-pub(super) fn normalize_space_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn normalize_space_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -238,7 +238,7 @@ pub(super) fn string_join_fn<N: crate::model::XdmNode + Clone>(
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(parts.join(&sep)))])
 }
 
-fn contains_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+fn contains_default<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     s_seq: &XdmSequence<N>,
     sub_seq: &XdmSequence<N>,
@@ -257,7 +257,7 @@ fn contains_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
 }
 
-fn starts_with_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+fn starts_with_default<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     s_seq: &XdmSequence<N>,
     sub_seq: &XdmSequence<N>,
@@ -276,7 +276,7 @@ fn starts_with_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
 }
 
-fn ends_with_default<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+fn ends_with_default<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     s_seq: &XdmSequence<N>,
     sub_seq: &XdmSequence<N>,

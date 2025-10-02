@@ -21,31 +21,33 @@ use chrono::{FixedOffset as ChronoFixedOffset, NaiveTime as ChronoNaiveTime, Off
 use core::cmp::Ordering;
 use core::mem;
 use smallvec::SmallVec;
+use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
+use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
-use std::sync::{Arc, Mutex};
 use string_cache::DefaultAtom;
 
 /// Evaluate a compiled XPath program against a dynamic context.
-pub fn evaluate<N: 'static + Send + Sync + XdmNode + Clone>(
+pub fn evaluate<N: 'static + XdmNode + Clone>(
     compiled: &CompiledXPath,
     dyn_ctx: &DynamicContext<N>,
 ) -> Result<XdmSequence<N>, Error> {
     evaluate_stream(compiled, dyn_ctx)?.materialize()
 }
 
-pub fn evaluate_stream<N: 'static + Send + Sync + XdmNode + Clone>(
+pub fn evaluate_stream<N: 'static + XdmNode + Clone>(
     compiled: &CompiledXPath,
     dyn_ctx: &DynamicContext<N>,
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let compiled_arc = Arc::new(compiled.clone());
-    let dyn_ctx_arc = Arc::new(dyn_ctx.clone());
+    let compiled_arc = Rc::new(compiled.clone());
+    let dyn_ctx_arc = Rc::new(dyn_ctx.clone());
     let mut vm = Vm::new(compiled_arc, dyn_ctx_arc);
     vm.run(&compiled.instrs)
 }
 
 /// Convenience: compile+evaluate a string using default static context.
-pub fn evaluate_expr<N: 'static + Send + Sync + XdmNode + Clone>(
+pub fn evaluate_expr<N: 'static + XdmNode + Clone>(
     expr: &str,
     dyn_ctx: &DynamicContext<N>,
 ) -> Result<XdmSequence<N>, Error> {
@@ -54,7 +56,7 @@ pub fn evaluate_expr<N: 'static + Send + Sync + XdmNode + Clone>(
 }
 
 /// Convenience: compile+evaluate to a streaming sequence using default static context.
-pub fn evaluate_stream_expr<N: 'static + Send + Sync + XdmNode + Clone>(
+pub fn evaluate_stream_expr<N: 'static + XdmNode + Clone>(
     expr: &str,
     dyn_ctx: &DynamicContext<N>,
 ) -> Result<XdmSequenceStream<N>, Error> {
@@ -63,15 +65,15 @@ pub fn evaluate_stream_expr<N: 'static + Send + Sync + XdmNode + Clone>(
 }
 
 struct Vm<N> {
-    compiled: Arc<CompiledXPath>,
-    dyn_ctx: Arc<DynamicContext<N>>,
+    compiled: Rc<CompiledXPath>,
+    dyn_ctx: Rc<DynamicContext<N>>,
     stack: SmallVec<[XdmSequenceStream<N>; 16]>, // Keep short evaluation stacks inline to avoid heap churn
     local_vars: SmallVec<[(ExpandedName, XdmSequenceStream<N>); 12]>, // Small lexical scopes fit in the inline buffer
     // Frame stack for position()/last() support inside predicates / loops
     frames: SmallVec<[Frame; 12]>, // Mirrors typical nesting depth for predicates/loops
     // Cached default collation for this VM (dynamic overrides static)
-    default_collation: Option<std::sync::Arc<dyn crate::engine::collation::Collation>>,
-    functions: Arc<FunctionImplementations<N>>,
+    default_collation: Option<Rc<dyn crate::engine::collation::Collation>>,
+    functions: Rc<FunctionImplementations<N>>,
     current_context_item: Option<XdmItem<N>>,
     axis_buffer: SmallVec<[N; 32]>, // Shared scratch space for axis traversal results
     cancel_flag: Option<Arc<AtomicBool>>,
@@ -79,29 +81,29 @@ struct Vm<N> {
 }
 
 struct VmSnapshot<N> {
-    compiled: Arc<CompiledXPath>,
-    dyn_ctx: Arc<DynamicContext<N>>,
+    compiled: Rc<CompiledXPath>,
+    dyn_ctx: Rc<DynamicContext<N>>,
     local_vars: SmallVec<[(ExpandedName, XdmSequenceStream<N>); 12]>,
     frames: SmallVec<[Frame; 12]>,
-    default_collation: Option<Arc<dyn crate::engine::collation::Collation>>,
-    functions: Arc<FunctionImplementations<N>>,
+    default_collation: Option<Rc<dyn crate::engine::collation::Collation>>,
+    functions: Rc<FunctionImplementations<N>>,
     current_context_item: Option<XdmItem<N>>,
 }
 
 struct VmHandleInner<N> {
     snapshot: VmSnapshot<N>,
-    cache: Mutex<Option<Vm<N>>>,
+    cache: RefCell<Option<Vm<N>>>,
     cancel_flag: Option<Arc<AtomicBool>>,
 }
 
 #[derive(Clone)]
 struct VmHandle<N> {
-    inner: Arc<VmHandleInner<N>>,
+    inner: Rc<VmHandleInner<N>>,
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> VmHandle<N> {
+impl<N: 'static + XdmNode + Clone> VmHandle<N> {
     fn new(snapshot: VmSnapshot<N>, cancel_flag: Option<Arc<AtomicBool>>) -> Self {
-        Self { inner: Arc::new(VmHandleInner { snapshot, cache: Mutex::new(None), cancel_flag }) }
+        Self { inner: Rc::new(VmHandleInner { snapshot, cache: RefCell::new(None), cancel_flag }) }
     }
 
     fn with_vm<F, R>(&self, f: F) -> Result<R, Error>
@@ -112,24 +114,14 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> VmHandle<N> {
             return Err(Error::from_code(ErrorCode::FOER0000, "evaluation cancelled"));
         }
         let snapshot = &self.inner.snapshot;
-        let mut vm = {
-            let mut guard = match self.inner.cache.lock() {
-                Ok(g) => g,
-                Err(e) => e.into_inner(),
-            };
-            guard.take()
-        }
-        .unwrap_or_else(|| Vm::from_snapshot(snapshot));
+        let mut vm =
+            self.inner.cache.borrow_mut().take().unwrap_or_else(|| Vm::from_snapshot(snapshot));
 
         let result = f(&mut vm);
 
         vm.reset_to_snapshot(snapshot);
 
-        let mut guard = match self.inner.cache.lock() {
-            Ok(g) => g,
-            Err(e) => e.into_inner(),
-        };
-        *guard = Some(vm);
+        *self.inner.cache.borrow_mut() = Some(vm);
 
         result
     }
@@ -142,12 +134,12 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> VmHandle<N> {
 impl<N: XdmNode + Clone> Clone for VmSnapshot<N> {
     fn clone(&self) -> Self {
         Self {
-            compiled: Arc::clone(&self.compiled),
-            dyn_ctx: Arc::clone(&self.dyn_ctx),
+            compiled: Rc::clone(&self.compiled),
+            dyn_ctx: Rc::clone(&self.dyn_ctx),
             local_vars: self.local_vars.clone(),
             frames: self.frames.clone(),
-            default_collation: self.default_collation.as_ref().map(Arc::clone),
-            functions: Arc::clone(&self.functions),
+            default_collation: self.default_collation.as_ref().map(Rc::clone),
+            functions: Rc::clone(&self.functions),
             current_context_item: self.current_context_item.clone(),
         }
     }
@@ -162,7 +154,7 @@ struct AxisStepCursor<N> {
     current_output: Option<Box<dyn SequenceCursor<N>>>,
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> AxisStepCursor<N> {
+impl<N: 'static + XdmNode + Clone> AxisStepCursor<N> {
     fn new(vm: VmHandle<N>, input: XdmSequenceStream<N>, axis: AxisIR, test: NodeTestIR) -> Self {
         Self { vm, axis, test, input_cursor: input.cursor(), current_output: None }
     }
@@ -245,7 +237,7 @@ enum AxisState<N> {
     },
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> NodeAxisCursor<N> {
+impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
     fn new(vm: VmHandle<N>, node: N, axis: AxisIR, test: NodeTestIR) -> Self {
         Self { vm, axis, test, node, state: AxisState::Init }
     }
@@ -605,7 +597,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> NodeAxisCursor<N> {
     }
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for NodeAxisCursor<N> {
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for NodeAxisCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         loop {
             let cand = match self.next_candidate() {
@@ -635,7 +627,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for NodeAxisC
     }
 }
 
-impl<N: XdmNode + Clone> NodeAxisCursor<N> {
+impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
     fn path_to_root(n: N) -> SmallVec<[N; 16]> {
         let mut p: SmallVec<[N; 16]> = SmallVec::new();
         let mut cur: Option<N> = Some(n);
@@ -693,7 +685,7 @@ impl<N: XdmNode + Clone> NodeAxisCursor<N> {
     }
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for AxisStepCursor<N> {
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for AxisStepCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         loop {
             if let Some(ref mut current) = self.current_output {
@@ -740,7 +732,7 @@ struct PredicateCursor<N> {
     needs_last: bool,
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> PredicateCursor<N> {
+impl<N: 'static + XdmNode + Clone> PredicateCursor<N> {
     fn new(vm: VmHandle<N>, predicate: InstrSeq, input: Box<dyn SequenceCursor<N>>) -> Self {
         let seed = Some(input.boxed_clone());
         let needs_last = instr_seq_uses_last(&predicate);
@@ -788,7 +780,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> PredicateCursor<N> {
     }
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for PredicateCursor<N> {
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for PredicateCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         let last = match self.ensure_last() {
             Ok(v) => v,
@@ -883,7 +875,7 @@ struct PathStepCursor<N> {
     needs_last: bool,
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> PathStepCursor<N> {
+impl<N: 'static + XdmNode + Clone> PathStepCursor<N> {
     fn new(vm: VmHandle<N>, input_stream: XdmSequenceStream<N>, code: InstrSeq) -> Self {
         let input = input_stream.cursor();
         let seed = Some(input.boxed_clone());
@@ -919,7 +911,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> PathStepCursor<N> {
     }
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for PathStepCursor<N> {
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for PathStepCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         loop {
             if let Some(ref mut current) = self.current_output {
@@ -990,7 +982,7 @@ struct DocOrderDistinctCursor<N> {
     others: Vec<XdmItem<N>>,
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> DocOrderDistinctCursor<N> {
+impl<N: 'static + XdmNode + Clone> DocOrderDistinctCursor<N> {
     fn new(vm: VmHandle<N>, input: Box<dyn SequenceCursor<N>>) -> Self {
         Self {
             vm,
@@ -1086,7 +1078,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> DocOrderDistinctCursor<N> {
     }
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for DocOrderDistinctCursor<N> {
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for DocOrderDistinctCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         if let Err(err) = self.ensure_buffer() {
             return Some(Err(err));
@@ -1132,7 +1124,7 @@ struct SetOperationCursor<N> {
     initialized: bool,
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> SetOperationCursor<N> {
+impl<N: 'static + XdmNode + Clone> SetOperationCursor<N> {
     fn new(
         vm: VmHandle<N>,
         kind: SetOpKind,
@@ -1197,7 +1189,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> SetOperationCursor<N> {
     }
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for SetOperationCursor<N> {
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for SetOperationCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         if let Err(err) = self.ensure_buffer() {
             return Some(Err(err));
@@ -1238,7 +1230,7 @@ struct ForLoopCursor<N> {
     needs_last: bool,
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> ForLoopCursor<N> {
+impl<N: 'static + XdmNode + Clone> ForLoopCursor<N> {
     fn new(
         vm: VmHandle<N>,
         input_stream: XdmSequenceStream<N>,
@@ -1309,7 +1301,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> ForLoopCursor<N> {
     }
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for ForLoopCursor<N> {
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for ForLoopCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         loop {
             if self.vm.is_cancelled() {
@@ -1390,7 +1382,7 @@ struct QuantLoopCursor<N> {
     needs_last: bool,
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> QuantLoopCursor<N> {
+impl<N: 'static + XdmNode + Clone> QuantLoopCursor<N> {
     fn new(
         vm: VmHandle<N>,
         input_stream: XdmSequenceStream<N>,
@@ -1513,7 +1505,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> QuantLoopCursor<N> {
     }
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for QuantLoopCursor<N> {
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for QuantLoopCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         if self.emitted {
             return None;
@@ -1556,8 +1548,8 @@ struct Frame {
     pos: usize,
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
-    fn new(compiled: Arc<CompiledXPath>, dyn_ctx: Arc<DynamicContext<N>>) -> Self {
+impl<N: 'static + XdmNode + Clone> Vm<N> {
+    fn new(compiled: Rc<CompiledXPath>, dyn_ctx: Rc<DynamicContext<N>>) -> Self {
         // Resolve default collation once per VM (dynamic takes precedence over static)
         let default_collation = {
             let reg = &dyn_ctx.collations;
@@ -1597,12 +1589,12 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
 
     fn snapshot(&self) -> VmSnapshot<N> {
         VmSnapshot {
-            compiled: Arc::clone(&self.compiled),
-            dyn_ctx: Arc::clone(&self.dyn_ctx),
+            compiled: Rc::clone(&self.compiled),
+            dyn_ctx: Rc::clone(&self.dyn_ctx),
             local_vars: self.local_vars.clone(),
             frames: self.frames.clone(),
-            default_collation: self.default_collation.as_ref().map(Arc::clone),
-            functions: Arc::clone(&self.functions),
+            default_collation: self.default_collation.as_ref().map(Rc::clone),
+            functions: Rc::clone(&self.functions),
             current_context_item: self.current_context_item.clone(),
         }
     }
@@ -1613,13 +1605,13 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
 
     fn from_snapshot(snapshot: &VmSnapshot<N>) -> Self {
         Self {
-            compiled: Arc::clone(&snapshot.compiled),
-            dyn_ctx: Arc::clone(&snapshot.dyn_ctx),
+            compiled: Rc::clone(&snapshot.compiled),
+            dyn_ctx: Rc::clone(&snapshot.dyn_ctx),
             stack: SmallVec::new(),
             local_vars: snapshot.local_vars.clone(),
             frames: snapshot.frames.clone(),
-            default_collation: snapshot.default_collation.as_ref().map(Arc::clone),
-            functions: Arc::clone(&snapshot.functions),
+            default_collation: snapshot.default_collation.as_ref().map(Rc::clone),
+            functions: Rc::clone(&snapshot.functions),
             current_context_item: snapshot.current_context_item.clone(),
             axis_buffer: SmallVec::new(),
             cancel_flag: snapshot.dyn_ctx.cancel_flag.clone(),
@@ -1628,12 +1620,12 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
     }
 
     fn reset_to_snapshot(&mut self, snapshot: &VmSnapshot<N>) {
-        self.compiled = Arc::clone(&snapshot.compiled);
-        self.dyn_ctx = Arc::clone(&snapshot.dyn_ctx);
+        self.compiled = Rc::clone(&snapshot.compiled);
+        self.dyn_ctx = Rc::clone(&snapshot.dyn_ctx);
         self.local_vars = snapshot.local_vars.clone();
         self.frames = snapshot.frames.clone();
-        self.default_collation = snapshot.default_collation.as_ref().map(Arc::clone);
-        self.functions = Arc::clone(&snapshot.functions);
+        self.default_collation = snapshot.default_collation.as_ref().map(Rc::clone);
+        self.functions = Rc::clone(&snapshot.functions);
         self.current_context_item = snapshot.current_context_item.clone();
         self.stack.clear();
         self.axis_buffer.clear();
@@ -3249,7 +3241,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> Vm<N> {
                         .collations
                         .get(crate::engine::collation::CODEPOINT_URI)
                         .unwrap_or_else(|| {
-                            std::sync::Arc::new(crate::engine::collation::CodepointCollation)
+                            std::rc::Rc::new(crate::engine::collation::CodepointCollation)
                         });
                     coll_arc.as_ref()
                 };
@@ -5021,13 +5013,13 @@ struct AtomizeCursor<N> {
     pending: VecDeque<XdmAtomicValue>,
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> AtomizeCursor<N> {
+impl<N: 'static + XdmNode + Clone> AtomizeCursor<N> {
     fn new(stream: XdmSequenceStream<N>) -> Self {
         Self { input: stream.cursor(), pending: VecDeque::new() }
     }
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for AtomizeCursor<N> {
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for AtomizeCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         use XdmItem::*;
         if let Some(atom) = self.pending.pop_front() {
@@ -5071,7 +5063,7 @@ struct TreatCursor<N> {
     pending_error: Option<Error>,
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> TreatCursor<N> {
+impl<N: 'static + XdmNode + Clone> TreatCursor<N> {
     fn new(
         vm: VmHandle<N>,
         stream: XdmSequenceStream<N>,
@@ -5095,7 +5087,7 @@ impl<N: 'static + Send + Sync + XdmNode + Clone> TreatCursor<N> {
     }
 }
 
-impl<N: 'static + Send + Sync + XdmNode + Clone> SequenceCursor<N> for TreatCursor<N> {
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for TreatCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         if let Some(err) = self.pending_error.take() {
             return Some(Err(err));

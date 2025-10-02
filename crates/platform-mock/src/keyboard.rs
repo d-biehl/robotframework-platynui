@@ -142,6 +142,11 @@ pub fn take_keyboard_log() -> Vec<KeyboardLogEntry> {
     log
 }
 
+// Expose device reference for explicit injection in tests/integration code.
+pub fn keyboard_device() -> &'static dyn KeyboardDevice {
+    &MOCK_KEYBOARD
+}
+
 struct NamedKey {
     canonical: &'static str,
     aliases: &'static [&'static str],

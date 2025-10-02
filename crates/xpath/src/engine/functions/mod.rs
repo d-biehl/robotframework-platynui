@@ -2,9 +2,8 @@ use crate::engine::runtime::{
     FunctionImplementations, FunctionSignatures, Occurrence, ParamTypeSpec,
 };
 use crate::xdm::ExpandedName;
-use std::any::{Any, TypeId};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::rc::Rc;
+use std::sync::OnceLock;
 
 pub mod boolean;
 pub mod collations;
@@ -27,7 +26,7 @@ pub(crate) use common::{
     parse_year_month_duration_months,
 };
 
-fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
     reg: Option<&mut FunctionImplementations<N>>,
     sigs: Option<&mut FunctionSignatures>,
 ) {
@@ -1321,29 +1320,12 @@ fn register_default_functions<N: 'static + Send + Sync + crate::model::XdmNode +
     reg_ns!(crate::consts::XS, "NOTATION", 1, constructors::xs_notation_fn::<N>);
 }
 
-pub fn default_function_registry<N: 'static + Send + Sync + crate::model::XdmNode + Clone>()
--> Arc<FunctionImplementations<N>> {
-    static CACHE: OnceLock<Mutex<HashMap<TypeId, Box<dyn Any + Send + Sync>>>> = OnceLock::new();
-    let map = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = match map.lock() {
-        Ok(g) => g,
-        Err(e) => e.into_inner(),
-    };
-    let type_id = TypeId::of::<N>();
-    if let Some(existing) = guard.get(&type_id) {
-        if let Some(arc) = existing.downcast_ref::<Arc<FunctionImplementations<N>>>() {
-            return arc.clone();
-        }
-        // Type mismatch in cache entry: drop it and rebuild
-        guard.remove(&type_id);
-    }
-
+pub fn default_function_registry<N: 'static + crate::model::XdmNode + Clone>()
+-> Rc<FunctionImplementations<N>> {
     let mut reg: FunctionImplementations<N> = FunctionImplementations::new();
     ensure_default_signatures();
     register_default_functions(Some(&mut reg), None);
-    let arc = Arc::new(reg);
-    guard.insert(type_id, Box::new(arc.clone()));
-    arc
+    Rc::new(reg)
 }
 
 pub fn default_function_signatures() -> FunctionSignatures {

@@ -57,3 +57,9 @@ constructs `XdmNode` wrappers for the live accessibility objects and populates a
 `DynamicContext` with the current context item (and optional hooks such as a
 `NodeResolver`). XPath results can then be used to drive the UI interaction
 layer.
+
+## Architecture notes
+
+- Single-threaded evaluation: The engine runs strictly single-threaded. Internals prefer `Rc`/`RefCell` over `Arc`/`Mutex` to keep overhead low.
+- Streaming API and 'static: `XdmNode` does not require `'static`. Streaming sequences (`XdmSequenceStream`) intentionally own their cursors and may outlive the immediate evaluation call. Therefore the streaming layer keeps `'static` on cursor types. If we need scope-tied, borrowed nodes, we can introduce lifetimes on cursors/streams in a future refactor.
+- Function registry and collations: The default function registry is created per dynamic context (no global cache). `DynamicContext::functions` is held behind `Rc`. Collation instances remain behind `Arc` as trait objects potentially shared across contexts.

@@ -202,6 +202,11 @@ pub fn reset_screenshot_state() {
     MOCK_SCREENSHOT.log.lock().expect("screenshot log poisoned").clear();
 }
 
+// Expose provider reference for explicit injection in tests/integration code.
+pub fn screenshot_provider() -> &'static dyn ScreenshotProvider {
+    &MOCK_SCREENSHOT
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

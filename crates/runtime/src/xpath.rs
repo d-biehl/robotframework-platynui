@@ -1,6 +1,8 @@
 //
 use platynui_core::ui::PatternId;
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::Arc;
 
 use platynui_core::provider::ProviderError;
 use platynui_core::ui::identifiers::RuntimeId;
@@ -633,13 +635,13 @@ struct ChildStreamState<'a> {
     finished: bool,
 }
 struct NodeChildrenIter<'a> {
-    shared: Arc<Mutex<ChildStreamState<'a>>>,
+    shared: Rc<RefCell<ChildStreamState<'a>>>,
     pos: usize,
 }
 impl<'a> NodeChildrenIter<'a> {
     fn new(inner: Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'a>) -> Self {
         Self {
-            shared: Arc::new(Mutex::new(ChildStreamState {
+            shared: Rc::new(RefCell::new(ChildStreamState {
                 inner,
                 cache: Vec::new(),
                 finished: false,
@@ -654,7 +656,7 @@ impl<'a> NodeChildrenIter<'a> {
 impl<'a> Iterator for NodeChildrenIter<'a> {
     type Item = RuntimeXdmNode;
     fn next(&mut self) -> Option<Self::Item> {
-        let mut st = self.shared.lock().unwrap();
+        let mut st = self.shared.borrow_mut();
         if self.pos < st.cache.len() {
             let it = st.cache[self.pos].clone();
             self.pos += 1;
@@ -681,7 +683,7 @@ struct AttrStreamState<'a> {
     finished: bool,
 }
 struct NodeAttributeIter<'a> {
-    shared: Arc<Mutex<AttrStreamState<'a>>>,
+    shared: Rc<RefCell<AttrStreamState<'a>>>,
     pos: usize,
 }
 impl<'a> NodeAttributeIter<'a> {
@@ -689,15 +691,10 @@ impl<'a> NodeAttributeIter<'a> {
         owner: Arc<dyn UiNode>,
         inner: Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'a>,
     ) -> Self {
-        Self {
-            shared: Arc::new(Mutex::new(AttrStreamState {
-                owner,
-                inner,
-                cache: Vec::new(),
-                finished: false,
-            })),
-            pos: 0,
-        }
+        // Prepare a synthetic Name attribute, but emit it only if the provider
+        // does not expose a Name itself. This avoids duplicates and matches CLI behavior.
+        let state = AttrStreamState { owner, inner, cache: Vec::new(), finished: false };
+        Self { shared: Rc::new(RefCell::new(state)), pos: 0 }
     }
     fn empty() -> Self {
         Self::new(Arc::new(DummyNode), Box::new(std::iter::empty()))
@@ -706,9 +703,22 @@ impl<'a> NodeAttributeIter<'a> {
 impl<'a> Iterator for NodeAttributeIter<'a> {
     type Item = RuntimeXdmNode;
     fn next(&mut self) -> Option<Self::Item> {
-        // lock scope only around mutations; clone owner outside of borrow
+        {
+            let st = self.shared.borrow();
+            // Fast path: cached
+            if self.pos < st.cache.len() {
+                let it = st.cache[self.pos].clone();
+                drop(st);
+                self.pos += 1;
+                return Some(it);
+            }
+            if st.finished {
+                return None;
+            }
+        }
+        // Lock scope only around mutations; clone owner within the borrow scope
         let (owner, maybe_attr, finished_now) = {
-            let mut st = self.shared.lock().unwrap();
+            let mut st = self.shared.borrow_mut();
             let owner = st.owner.clone();
             if self.pos < st.cache.len() {
                 let it = st.cache[self.pos].clone();
@@ -730,16 +740,13 @@ impl<'a> Iterator for NodeAttributeIter<'a> {
             let ns = attr.namespace();
             let base_name = attr.name().to_string();
             let src = attr.clone();
-            let mut st = self.shared.lock().unwrap();
+            let mut st = self.shared.borrow_mut();
             st.cache.push(RuntimeXdmNode::Attribute(AttributeData::new_from_source(
                 owner.clone(),
                 ns,
                 base_name.clone(),
                 src.clone(),
             )));
-            let ns = attr.namespace();
-            let base_name = attr.name().to_string();
-            let src = attr.clone();
             if base_name == "Bounds" {
                 st.cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
                     owner.clone(),
@@ -763,14 +770,13 @@ impl<'a> Iterator for NodeAttributeIter<'a> {
                     RectComp::Width,
                 )));
                 st.cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
-                    owner.clone(),
+                    owner,
                     ns,
                     src,
                     "Bounds",
                     RectComp::Height,
                 )));
-            }
-            if base_name == "ActivationPoint" {
+            } else if base_name == "ActivationPoint" {
                 let src_point = attr.clone();
                 st.cache.push(RuntimeXdmNode::Attribute(AttributeData::new_point_component(
                     owner.clone(),
@@ -794,7 +800,7 @@ impl<'a> Iterator for NodeAttributeIter<'a> {
                 return Some(item);
             }
         } else {
-            let mut st = self.shared.lock().unwrap();
+            let mut st = self.shared.borrow_mut();
             st.finished = true;
         }
         None

@@ -30,7 +30,7 @@ fn topmost_ancestor<N: crate::model::XdmNode + Clone>(mut n: N) -> N {
     n
 }
 
-pub(super) fn id_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn id_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -64,7 +64,7 @@ pub(super) fn id_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     find_elements_with_id(ctx, start_node_opt, &tokens)
 }
 
-fn find_elements_with_id<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+fn find_elements_with_id<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     start_node_opt: Option<XdmItem<N>>,
     tokens: &HashSet<String>,
@@ -105,7 +105,7 @@ fn find_elements_with_id<N: 'static + Send + Sync + crate::model::XdmNode + Clon
     Ok(out)
 }
 
-pub(super) fn element_with_id_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn element_with_id_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -139,7 +139,7 @@ pub(super) fn element_with_id_fn<N: 'static + Send + Sync + crate::model::XdmNod
     find_elements_with_id(ctx, start_node_opt, &tokens)
 }
 
-pub(super) fn idref_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn idref_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {

@@ -2,7 +2,7 @@ use super::common::{matches_default, replace_default, tokenize_default};
 use crate::engine::runtime::{CallCtx, Error};
 use crate::xdm::XdmSequence;
 
-pub(super) fn matches_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn matches_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -14,7 +14,7 @@ pub(super) fn matches_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clon
     }
 }
 
-pub(super) fn replace_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn replace_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -26,7 +26,7 @@ pub(super) fn replace_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clon
     }
 }
 
-pub(super) fn tokenize_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn tokenize_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {

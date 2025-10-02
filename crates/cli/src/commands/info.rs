@@ -123,16 +123,19 @@ fn render_info_json(summary: &DesktopSummary) -> CliResult<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::map_provider_error;
-    // Link mock providers so DesktopInfo is stable under tests
-    use platynui_link::platynui_link_mock_for_tests;
-    platynui_link_mock_for_tests!();
+    // Link platform-mock into the test binary so its desktop info provider is available
+    use crate::test_support::runtime_mock_full;
+    use platynui_platform_mock as _;
     use platynui_runtime::Runtime;
-    use rstest::rstest;
+    use rstest::{fixture, rstest};
+
+    #[fixture]
+    fn runtime() -> Runtime {
+        return runtime_mock_full();
+    }
 
     #[rstest]
-    fn desktop_summary_uses_mock_desktop() {
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+    fn desktop_summary_uses_mock_desktop(mut runtime: Runtime) {
         let summary = DesktopSummary::from_info(runtime.desktop_info());
         runtime.shutdown();
 

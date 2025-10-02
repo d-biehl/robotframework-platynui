@@ -81,7 +81,7 @@ use tracing::trace;
 
 pub type XdmItemResult<N> = Result<XdmItem<N>, Error>;
 
-pub trait SequenceCursor<N>: Send + Sync {
+pub trait SequenceCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>>;
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -96,7 +96,7 @@ pub struct XdmSequenceStream<N> {
     cursor: Arc<dyn SequenceCursor<N>>,
 }
 
-impl<N> XdmSequenceStream<N> {
+impl<N: 'static> XdmSequenceStream<N> {
     pub fn new<C>(cursor: C) -> Self
     where
         C: SequenceCursor<N> + 'static,
@@ -104,13 +104,10 @@ impl<N> XdmSequenceStream<N> {
         Self { cursor: Arc::new(cursor) }
     }
 
-    pub fn empty() -> Self
-    where
-        N: Send + Sync + 'static,
-    {
+    pub fn empty() -> Self {
         struct EmptyCursor<N>(PhantomData<N>);
 
-        impl<N: Send + Sync + 'static> SequenceCursor<N> for EmptyCursor<N> {
+        impl<N: 'static> SequenceCursor<N> for EmptyCursor<N> {
             fn next_item(&mut self) -> Option<XdmItemResult<N>> {
                 None
             }
@@ -129,21 +126,21 @@ impl<N> XdmSequenceStream<N> {
 
     pub fn from_vec(items: Vec<XdmItem<N>>) -> Self
     where
-        N: Clone + Send + Sync + 'static,
+        N: Clone + 'static,
     {
         Self::new(VecCursor::new(items))
     }
 
     pub fn from_item(item: XdmItem<N>) -> Self
     where
-        N: Clone + Send + Sync + 'static,
+        N: Clone + 'static,
     {
         Self::new(SingleItemCursor::new(item))
     }
 
     pub fn from_range_inclusive(start: i64, end: i64) -> Self
     where
-        N: Clone + Send + Sync + 'static,
+        N: Clone + 'static,
     {
         Self::new(RangeCursor::new(start, end))
     }
@@ -158,7 +155,7 @@ impl<N> XdmSequenceStream<N> {
 
     pub fn chain(self, other: XdmSequenceStream<N>) -> Self
     where
-        N: Clone + Send + Sync + 'static,
+        N: Clone + 'static,
     {
         let left = self.cursor.boxed_clone();
         let right = other.cursor.boxed_clone();
@@ -175,10 +172,7 @@ impl<N> XdmSequenceStream<N> {
     }
 }
 
-impl<N> Default for XdmSequenceStream<N>
-where
-    N: Send + Sync + 'static,
-{
+impl<N: 'static> Default for XdmSequenceStream<N> {
     fn default() -> Self {
         Self::empty()
     }
@@ -213,7 +207,7 @@ struct VecCursor<N> {
 
 impl<N> VecCursor<N>
 where
-    N: Clone + Send + Sync + 'static,
+    N: Clone + 'static,
 {
     fn new(items: Vec<XdmItem<N>>) -> Self {
         Self { data: Arc::new(items), index: 0 }
@@ -222,7 +216,7 @@ where
 
 impl<N> SequenceCursor<N> for VecCursor<N>
 where
-    N: Clone + Send + Sync + 'static,
+    N: Clone + 'static,
 {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         let item = self.data.get(self.index)?.clone();
@@ -236,7 +230,7 @@ where
     }
 
     fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
-        Box::new(self.clone())
+        Box::new((*self).clone())
     }
 }
 
@@ -248,7 +242,7 @@ struct SingleItemCursor<N> {
 
 impl<N> SingleItemCursor<N>
 where
-    N: Clone + Send + Sync + 'static,
+    N: Clone + 'static,
 {
     fn new(item: XdmItem<N>) -> Self {
         Self { item: Arc::new(item), consumed: false }
@@ -257,7 +251,7 @@ where
 
 impl<N> SequenceCursor<N> for SingleItemCursor<N>
 where
-    N: Clone + Send + Sync + 'static,
+    N: Clone + 'static,
 {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         if self.consumed {
@@ -273,7 +267,7 @@ where
     }
 
     fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
-        Box::new(self.clone())
+        Box::new((*self).clone())
     }
 }
 
@@ -285,7 +279,7 @@ struct ChainCursor<N> {
 
 impl<N> ChainCursor<N>
 where
-    N: Clone + Send + Sync + 'static,
+    N: Clone + 'static,
 {
     fn new(left: Box<dyn SequenceCursor<N>>, right: Box<dyn SequenceCursor<N>>) -> Self {
         Self { left, right, left_exhausted: false }
@@ -294,7 +288,7 @@ where
 
 impl<N> Clone for ChainCursor<N>
 where
-    N: Clone + Send + Sync + 'static,
+    N: Clone + 'static,
 {
     fn clone(&self) -> Self {
         Self {
@@ -307,7 +301,7 @@ where
 
 impl<N> SequenceCursor<N> for ChainCursor<N>
 where
-    N: Clone + Send + Sync + 'static,
+    N: Clone + 'static,
 {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         if !self.left_exhausted {
@@ -339,7 +333,6 @@ where
     }
 }
 
-#[derive(Clone)]
 struct RangeCursor<N> {
     current: i64,
     end: i64,
@@ -352,10 +345,13 @@ impl<N> RangeCursor<N> {
     }
 }
 
-impl<N> SequenceCursor<N> for RangeCursor<N>
-where
-    N: Clone + Send + Sync + 'static,
-{
+impl<N> Clone for RangeCursor<N> {
+    fn clone(&self) -> Self {
+        Self { current: self.current, end: self.end, _marker: PhantomData }
+    }
+}
+
+impl<N: 'static> SequenceCursor<N> for RangeCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         if self.current > self.end {
             None
@@ -376,7 +372,7 @@ where
     }
 
     fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
-        Box::new(self.clone())
+        Box::new((*self).clone())
     }
 }
 

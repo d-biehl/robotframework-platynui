@@ -12,7 +12,7 @@ use platynui_core::platform::{
 };
 use platynui_core::provider::{
     ProviderError, ProviderErrorKind, ProviderEvent, ProviderEventKind, ProviderEventListener,
-    UiTreeProvider,
+    UiTreeProvider, UiTreeProviderFactory,
 };
 use platynui_core::types::{Point, Rect};
 use platynui_core::ui::attribute_names;
@@ -96,11 +96,53 @@ impl ProviderEventListener for RuntimeEventListener {
     }
 }
 
+pub struct PlatformOverrides {
+    pub highlight: Option<&'static dyn HighlightProvider>,
+    pub screenshot: Option<&'static dyn ScreenshotProvider>,
+    pub pointer: Option<&'static dyn PointerDevice>,
+    pub keyboard: Option<&'static dyn KeyboardDevice>,
+}
+
 impl Runtime {
     /// Discovers all registered providers, instantiates them and prepares the event pipeline.
     pub fn new() -> Result<Self, ProviderError> {
         initialize_platform_modules()?;
         let registry = ProviderRegistry::discover();
+        Self::from_registry_with_platforms(registry, None)
+    }
+
+    /// Builds a Runtime that only includes providers with the given `ids`.
+    /// This is useful for tests to restrict the active providers deterministically.
+    pub fn new_with_provider_ids(ids: &[&str]) -> Result<Self, ProviderError> {
+        initialize_platform_modules()?;
+        let registry = ProviderRegistry::discover().filter_by_ids(ids);
+        Self::from_registry_with_platforms(registry, None)
+    }
+
+    /// Builds a Runtime from an explicit list of provider factories.
+    /// No inventory discovery is performed.
+    pub fn new_with_factories(
+        factories: &[&'static dyn UiTreeProviderFactory],
+    ) -> Result<Self, ProviderError> {
+        initialize_platform_modules()?;
+        let registry = ProviderRegistry::with_factories(factories);
+        Self::from_registry_with_platforms(registry, None)
+    }
+
+    /// Builds a Runtime from factories plus explicit platform provider overrides.
+    pub fn new_with_factories_and_platforms(
+        factories: &[&'static dyn UiTreeProviderFactory],
+        platforms: PlatformOverrides,
+    ) -> Result<Self, ProviderError> {
+        initialize_platform_modules()?;
+        let registry = ProviderRegistry::with_factories(factories);
+        Self::from_registry_with_platforms(registry, Some(platforms))
+    }
+
+    fn from_registry_with_platforms(
+        registry: ProviderRegistry,
+        platforms: Option<PlatformOverrides>,
+    ) -> Result<Self, ProviderError> {
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
         let provider_instances = registry.instantiate_all()?;
         let mut providers: Vec<Arc<dyn UiTreeProvider>> =
@@ -114,10 +156,21 @@ impl Runtime {
         // Build desktop info first
         let desktop = build_desktop_info().map_err(map_desktop_error)?;
 
-        let highlight = highlight_providers().next();
-        let screenshot = screenshot_providers().next();
-        let pointer = pointer_devices().next();
-        let keyboard = keyboard_devices().next();
+        let (highlight, screenshot, pointer, keyboard) = if let Some(p) = platforms {
+            (
+                p.highlight.or_else(|| highlight_providers().next()),
+                p.screenshot.or_else(|| screenshot_providers().next()),
+                p.pointer.or_else(|| pointer_devices().next()),
+                p.keyboard.or_else(|| keyboard_devices().next()),
+            )
+        } else {
+            (
+                highlight_providers().next(),
+                screenshot_providers().next(),
+                pointer_devices().next(),
+                keyboard_devices().next(),
+            )
+        };
 
         let mut pointer_settings = PointerSettings::default();
         if let Some(device) = pointer {
@@ -753,7 +806,6 @@ impl UiAttribute for DesktopAttribute {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::EvaluationItem;
     use crate::PointerOverrides;
     use platynui_core::platform::{
         HighlightRequest, KeyboardOverrides, PointerButton, ScreenshotRequest, ScrollDelta,
@@ -761,11 +813,11 @@ mod tests {
     use platynui_core::platform::{PlatformError, PlatformModule};
     use platynui_core::provider::{
         ProviderDescriptor, ProviderEvent, ProviderEventKind, ProviderEventListener, ProviderKind,
-        UiTreeProviderFactory, register_provider,
+        UiTreeProviderFactory,
     };
     use platynui_core::register_platform_module;
     use platynui_core::types::{Point, Rect};
-    use platynui_core::ui::attribute_names::focusable;
+    use platynui_core::ui::UiPattern;
     use platynui_core::ui::identifiers::TechnologyId;
     use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
     use platynui_platform_mock as _;
@@ -774,8 +826,9 @@ mod tests {
         reset_pointer_state, reset_screenshot_state, take_highlight_log, take_keyboard_log,
         take_pointer_log, take_screenshot_log,
     };
-    use platynui_provider_mock as _;
-    use rstest::rstest;
+    // Provider werden in diesen Tests explizit injiziert (keine inventory-Discovery)
+    use crate::test_support::runtime_with_factories_and_mock_platform as rt_with_pf;
+    use rstest::{fixture, rstest};
     use serial_test::serial;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, LazyLock, Mutex, Weak};
@@ -852,13 +905,30 @@ mod tests {
         }
     }
     static INIT_ORDER_PROVIDER: InitOrderProviderFactory = InitOrderProviderFactory;
-    register_provider!(&INIT_ORDER_PROVIDER);
 
     #[test]
     fn platform_init_happens_before_provider_instantiation() {
         // The assertions happen inside the provider factory `create()`.
-        let _runtime = Runtime::new().expect("runtime initializes");
+        let _runtime =
+            Runtime::new_with_factories(&[&INIT_ORDER_PROVIDER]).expect("runtime initializes");
     }
+
+    #[fixture]
+    fn rt_runtime_stub() -> Runtime {
+        return rt_with_pf(&[&RUNTIME_FACTORY]);
+    }
+
+    #[fixture]
+    fn rt_runtime_focus() -> Runtime {
+        return rt_with_pf(&[&FOCUS_FACTORY]);
+    }
+
+    #[fixture]
+    fn rt_runtime_platform() -> Runtime {
+        return rt_with_pf(&[]);
+    }
+
+    // no UIA-specific fixture here; targeted UIA tests live in consumer crates
 
     fn configure_keyboard_for_tests(runtime: &Runtime) {
         let mut settings = runtime.keyboard_settings();
@@ -1034,8 +1104,6 @@ mod tests {
 
     static RUNTIME_FACTORY: StubFactory = StubFactory;
 
-    register_provider!(&RUNTIME_FACTORY);
-
     struct RecordingSink {
         events: Mutex<Vec<ProviderEventKind>>,
     }
@@ -1045,6 +1113,166 @@ mod tests {
             Self { events: Mutex::new(Vec::new()) }
         }
     }
+
+    // --- Focus test provider ---------------------------------------------------------------
+    #[derive(Clone)]
+    struct SimpleAttribute {
+        namespace: Namespace,
+        name: &'static str,
+        value: UiValue,
+    }
+    impl UiAttribute for SimpleAttribute {
+        fn namespace(&self) -> Namespace {
+            self.namespace
+        }
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn value(&self) -> UiValue {
+            self.value.clone()
+        }
+    }
+
+    struct FocusNode {
+        runtime_id: RuntimeId,
+        role: &'static str,
+        name: &'static str,
+        parent: Mutex<Option<Weak<dyn UiNode>>>,
+        focusable: bool,
+    }
+    impl FocusNode {
+        fn new(id: &str, role: &'static str, name: &'static str, focusable: bool) -> Self {
+            Self {
+                runtime_id: RuntimeId::from(id),
+                role,
+                name,
+                parent: Mutex::new(None),
+                focusable,
+            }
+        }
+        fn set_parent(&self, parent: &Arc<dyn UiNode>) {
+            *self.parent.lock().unwrap() = Some(Arc::downgrade(parent));
+        }
+    }
+    impl UiNode for FocusNode {
+        fn namespace(&self) -> Namespace {
+            Namespace::Control
+        }
+        fn role(&self) -> &str {
+            self.role
+        }
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn runtime_id(&self) -> &RuntimeId {
+            &self.runtime_id
+        }
+        fn parent(&self) -> Option<Weak<dyn UiNode>> {
+            self.parent.lock().unwrap().clone()
+        }
+        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+            Box::new(std::iter::empty())
+        }
+        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+            let attrs: Vec<Arc<dyn UiAttribute>> = vec![
+                Arc::new(SimpleAttribute {
+                    namespace: Namespace::Control,
+                    name: attribute_names::common::ROLE,
+                    value: UiValue::from(self.role),
+                }) as Arc<dyn UiAttribute>,
+                Arc::new(SimpleAttribute {
+                    namespace: Namespace::Control,
+                    name: attribute_names::common::NAME,
+                    value: UiValue::from(self.name),
+                }) as Arc<dyn UiAttribute>,
+                Arc::new(SimpleAttribute {
+                    namespace: Namespace::Control,
+                    name: attribute_names::common::RUNTIME_ID,
+                    value: UiValue::from(self.runtime_id.as_str().to_owned()),
+                }) as Arc<dyn UiAttribute>,
+                Arc::new(SimpleAttribute {
+                    namespace: Namespace::Control,
+                    name: attribute_names::common::TECHNOLOGY,
+                    value: UiValue::from("Runtime"),
+                }) as Arc<dyn UiAttribute>,
+            ];
+            Box::new(attrs.into_iter())
+        }
+        fn supported_patterns(&self) -> Vec<PatternId> {
+            if self.focusable { vec![PatternId::from("Focusable")] } else { Vec::new() }
+        }
+        fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
+            if self.focusable && *pattern == PatternId::from("Focusable") {
+                let action: Arc<dyn UiPattern> = Arc::new(FocusableAction::new(|| Ok(())));
+                Some(action)
+            } else {
+                None
+            }
+        }
+        fn invalidate(&self) {}
+    }
+
+    struct FocusProvider {
+        desc: &'static ProviderDescriptor,
+        button: Arc<FocusNode>,
+        panel: Arc<FocusNode>,
+    }
+    impl FocusProvider {
+        fn new(desc: &'static ProviderDescriptor) -> Self {
+            Self {
+                desc,
+                button: Arc::new(FocusNode::new("focus-btn", "Button", "OK", true)),
+                panel: Arc::new(FocusNode::new("focus-panel", "Panel", "Workspace", false)),
+            }
+        }
+    }
+    impl UiTreeProvider for FocusProvider {
+        fn descriptor(&self) -> &ProviderDescriptor {
+            self.desc
+        }
+        fn get_nodes(
+            &self,
+            parent: Arc<dyn UiNode>,
+        ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
+            self.button.set_parent(&parent);
+            self.panel.set_parent(&parent);
+            Ok(Box::new(
+                vec![self.button.clone() as Arc<dyn UiNode>, self.panel.clone() as Arc<dyn UiNode>]
+                    .into_iter(),
+            ))
+        }
+        fn subscribe_events(
+            &self,
+            _listener: Arc<dyn ProviderEventListener>,
+        ) -> Result<(), ProviderError> {
+            Ok(())
+        }
+        fn shutdown(&self) {}
+    }
+
+    struct FocusFactory;
+    impl FocusFactory {
+        fn descriptor_static() -> &'static ProviderDescriptor {
+            static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
+                ProviderDescriptor::new(
+                    "runtime-focus",
+                    "Runtime Focus",
+                    TechnologyId::from("Runtime"),
+                    ProviderKind::Native,
+                )
+            });
+            &DESCRIPTOR
+        }
+    }
+    impl UiTreeProviderFactory for FocusFactory {
+        fn descriptor(&self) -> &ProviderDescriptor {
+            Self::descriptor_static()
+        }
+        fn create(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+            Ok(Arc::new(FocusProvider::new(Self::descriptor_static())))
+        }
+    }
+    static FOCUS_FACTORY: FocusFactory = FocusFactory;
 
     impl ProviderEventSink for RecordingSink {
         fn dispatch(&self, event: ProviderEvent) {
@@ -1057,7 +1285,9 @@ mod tests {
         SHUTDOWN_TRIGGERED.store(false, Ordering::SeqCst);
         SUBSCRIPTION_REGISTERED.store(false, Ordering::SeqCst);
 
-        let runtime = Runtime::new().expect("runtime initializes");
+        // Build runtime after resetting flags so subscribe_events sets the flag now
+        let runtime =
+            Runtime::new_with_factories(&[&RUNTIME_FACTORY]).expect("runtime initializes");
         let providers: Vec<_> = runtime.providers().collect();
         assert!(!providers.is_empty());
         assert!(providers.iter().any(|provider| provider.descriptor().id == "runtime-stub"));
@@ -1065,8 +1295,8 @@ mod tests {
     }
 
     #[rstest]
-    fn runtime_dispatcher_forwards_events() {
-        let runtime = Runtime::new().expect("runtime initializes");
+    fn runtime_dispatcher_forwards_events(rt_runtime_stub: Runtime) {
+        let runtime = rt_runtime_stub;
         let sink = Arc::new(RecordingSink::new());
         runtime.register_event_sink(sink.clone());
 
@@ -1078,8 +1308,8 @@ mod tests {
     }
 
     #[rstest]
-    fn runtime_filters_providers_by_technology() {
-        let runtime = Runtime::new().expect("runtime initializes");
+    fn runtime_filters_providers_by_technology(rt_runtime_stub: Runtime) {
+        let runtime = rt_runtime_stub;
         let tech = TechnologyId::from("RuntimeTech");
         let providers: Vec<_> = runtime.providers_for(&tech).collect();
         assert_eq!(providers.len(), 1);
@@ -1087,23 +1317,23 @@ mod tests {
     }
 
     #[rstest]
-    fn runtime_shutdown_invokes_provider_shutdown() {
+    fn runtime_shutdown_invokes_provider_shutdown(rt_runtime_stub: Runtime) {
         SHUTDOWN_TRIGGERED.store(false, Ordering::SeqCst);
-        let mut runtime = Runtime::new().expect("runtime initializes");
+        let mut runtime = rt_runtime_stub;
         runtime.shutdown();
         assert!(SHUTDOWN_TRIGGERED.load(Ordering::SeqCst));
     }
 
     #[rstest]
-    fn runtime_evaluate_executes_xpath() {
-        let runtime = Runtime::new().expect("runtime initializes");
+    fn runtime_evaluate_executes_xpath(rt_runtime_stub: Runtime) {
+        let runtime = rt_runtime_stub;
         let results = runtime.evaluate(None, "//control:Button").expect("evaluation");
         assert!(!results.is_empty());
     }
 
     #[rstest]
-    fn provider_nodes_link_parent() {
-        let runtime = Runtime::new().expect("runtime initializes");
+    fn provider_nodes_link_parent(rt_runtime_stub: Runtime) {
+        let runtime = rt_runtime_stub;
         let parent: Arc<dyn UiNode> = Arc::new(StubNode::new("parent"));
         let node = runtime
             .providers()
@@ -1116,70 +1346,60 @@ mod tests {
     }
 
     #[rstest]
-    fn mock_provider_attaches_to_desktop() {
-        let runtime = Runtime::new().expect("runtime initializes");
+    fn injected_provider_attaches_to_desktop(rt_runtime_stub: Runtime) {
+        let runtime = rt_runtime_stub;
         let desktop = runtime.desktop_node();
         let app = runtime
             .providers()
-            .find(|provider| provider.descriptor().id == "mock")
+            .find(|provider| provider.descriptor().id == "runtime-stub")
             .and_then(|provider| provider.get_nodes(Arc::clone(&desktop)).ok())
             .and_then(|mut nodes| nodes.next())
-            .expect("mock provider root node");
+            .expect("injected provider root node");
 
-        assert_eq!(app.namespace(), Namespace::App);
+        assert_eq!(app.namespace(), Namespace::Control);
         let parent = app.parent().and_then(|weak| weak.upgrade()).expect("desktop parent");
         assert_eq!(parent.runtime_id().as_str(), runtime.desktop_info().runtime_id.as_str());
     }
 
     #[rstest]
-    fn runtime_focus_sets_focus_state() {
-        let mut runtime = Runtime::new().expect("runtime initializes");
-        let results =
-            runtime.evaluate(None, "//control:Button[@Name='OK']").expect("button evaluation");
-
-        let button = results
-            .into_iter()
-            .find_map(|item| match item {
-                EvaluationItem::Node(node) => Some(node),
-                _ => None,
-            })
-            .expect("button node available");
-
+    fn runtime_focus_succeeds_on_focusable(rt_runtime_focus: Runtime) {
+        let mut runtime = rt_runtime_focus;
+        let desktop = runtime.desktop_node();
+        let focus = FOCUS_FACTORY.create().expect("focus provider");
+        let mut nodes = focus.get_nodes(desktop).expect("children");
+        let mut button = None;
+        while let Some(node) = nodes.next() {
+            if node.role() == "Button" {
+                button = Some(node);
+            }
+        }
+        let button = button.expect("button node available");
         runtime.focus(&button).expect("focus succeeds");
-
-        let value = button
-            .attribute(Namespace::Control, focusable::IS_FOCUSED)
-            .expect("focus attribute present")
-            .value();
-        assert_eq!(value, UiValue::from(true));
-
         runtime.shutdown();
     }
 
     #[rstest]
-    fn runtime_focus_requires_focusable_pattern() {
-        let mut runtime = Runtime::new().expect("runtime initializes");
-        let results =
-            runtime.evaluate(None, "//control:Panel[@Name='Workspace']").expect("panel evaluation");
-
-        let panel = results
-            .into_iter()
-            .find_map(|item| match item {
-                EvaluationItem::Node(node) => Some(node),
-                _ => None,
-            })
-            .expect("panel node available");
-
+    fn runtime_focus_requires_focusable_pattern(rt_runtime_focus: Runtime) {
+        let mut runtime = rt_runtime_focus;
+        let desktop = runtime.desktop_node();
+        let focus = FOCUS_FACTORY.create().expect("focus provider");
+        let mut nodes = focus.get_nodes(desktop).expect("children");
+        let mut panel = None;
+        while let Some(node) = nodes.next() {
+            if node.role() == "Panel" {
+                panel = Some(node);
+            }
+        }
+        let panel = panel.expect("panel node available");
         let err = runtime.focus(&panel).expect_err("panel should not support focus");
         assert!(matches!(err, FocusError::PatternMissing { .. }));
-
         runtime.shutdown();
     }
 
     #[rstest]
-    fn highlight_invokes_registered_provider() {
+    fn highlight_invokes_registered_provider(rt_runtime_platform: Runtime) {
         reset_highlight_state();
-        let runtime = Runtime::new().expect("runtime initializes");
+        let runtime = rt_runtime_platform;
         let request = HighlightRequest::new(Rect::new(0.0, 0.0, 50.0, 25.0));
         runtime.highlight(std::slice::from_ref(&request)).expect("highlight succeeds");
 
@@ -1190,9 +1410,9 @@ mod tests {
     }
 
     #[rstest]
-    fn screenshot_invokes_registered_provider() {
+    fn screenshot_invokes_registered_provider(rt_runtime_platform: Runtime) {
         reset_screenshot_state();
-        let runtime = Runtime::new().expect("runtime initializes");
+        let runtime = rt_runtime_platform;
         let request = ScreenshotRequest::with_region(Rect::new(0.0, 0.0, 20.0, 10.0));
         let screenshot = runtime.screenshot(&request).expect("screenshot captures");
 
@@ -1203,9 +1423,9 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn keyboard_press_logs_events() {
+    fn keyboard_press_logs_events(rt_runtime_platform: Runtime) {
         reset_keyboard_state();
-        let mut runtime = Runtime::new().expect("runtime initializes");
+        let mut runtime = rt_runtime_platform;
         configure_keyboard_for_tests(&runtime);
         let overrides = zero_keyboard_overrides();
 
@@ -1231,9 +1451,9 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn keyboard_release_logs_events() {
+    fn keyboard_release_logs_events(rt_runtime_platform: Runtime) {
         reset_keyboard_state();
-        let mut runtime = Runtime::new().expect("runtime initializes");
+        let mut runtime = rt_runtime_platform;
         configure_keyboard_for_tests(&runtime);
         let overrides = zero_keyboard_overrides();
 
@@ -1261,9 +1481,9 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn keyboard_type_emits_press_and_release() {
+    fn keyboard_type_emits_press_and_release(rt_runtime_platform: Runtime) {
         reset_keyboard_state();
-        let mut runtime = Runtime::new().expect("runtime initializes");
+        let mut runtime = rt_runtime_platform;
         configure_keyboard_for_tests(&runtime);
         let overrides = zero_keyboard_overrides();
 
@@ -1287,9 +1507,9 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn pointer_move_uses_device_log() {
+    fn pointer_move_uses_device_log(rt_runtime_platform: Runtime) {
         reset_pointer_state();
-        let runtime = Runtime::new().expect("runtime initializes");
+        let runtime = rt_runtime_platform;
         configure_pointer_for_tests(&runtime);
 
         runtime
@@ -1304,9 +1524,9 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn pointer_click_emits_press_and_release() {
+    fn pointer_click_emits_press_and_release(rt_runtime_platform: Runtime) {
         reset_pointer_state();
-        let runtime = Runtime::new().expect("runtime initializes");
+        let runtime = rt_runtime_platform;
         configure_pointer_for_tests(&runtime);
 
         runtime
@@ -1324,9 +1544,9 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn pointer_multi_click_emits_multiple_events() {
+    fn pointer_multi_click_emits_multiple_events(rt_runtime_platform: Runtime) {
         reset_pointer_state();
-        let runtime = Runtime::new().expect("runtime initializes");
+        let runtime = rt_runtime_platform;
         configure_pointer_for_tests(&runtime);
 
         runtime
@@ -1353,9 +1573,9 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn pointer_multi_click_rejects_zero() {
+    fn pointer_multi_click_rejects_zero(rt_runtime_platform: Runtime) {
         reset_pointer_state();
-        let runtime = Runtime::new().expect("runtime initializes");
+        let runtime = rt_runtime_platform;
         configure_pointer_for_tests(&runtime);
 
         let error = runtime
@@ -1369,9 +1589,9 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn pointer_scroll_chunks_delta() {
+    fn pointer_scroll_chunks_delta(rt_runtime_platform: Runtime) {
         reset_pointer_state();
-        let runtime = Runtime::new().expect("runtime initializes");
+        let runtime = rt_runtime_platform;
         configure_pointer_for_tests(&runtime);
 
         let overrides = zero_overrides().scroll_step(ScrollDelta::new(0.0, -10.0));

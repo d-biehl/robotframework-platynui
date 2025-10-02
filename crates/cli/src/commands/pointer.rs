@@ -370,17 +370,17 @@ fn map_pointer_error(err: PointerError) -> Box<dyn std::error::Error> {
 
 #[cfg(test)]
 mod tests {
-    // Ensure provider/device registrations are linked into the test binary
-    use platynui_link::platynui_link_mock_for_tests;
-    platynui_link_mock_for_tests!();
     use super::*;
+    use crate::test_support::runtime_mock_full;
+    use platynui_platform_mock as _; // link platform-mock inventory
     use platynui_platform_mock::{PointerLogEntry, reset_pointer_state, take_pointer_log};
     use platynui_runtime::Runtime;
-    use rstest::rstest;
+    use rstest::{fixture, rstest};
     use serial_test::serial;
 
+    #[fixture]
     fn runtime() -> Runtime {
-        Runtime::new().expect("runtime")
+        return runtime_mock_full();
     }
 
     #[rstest]

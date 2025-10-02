@@ -5,7 +5,7 @@ use super::common::{
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
 
-pub(super) fn number_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn number_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -16,28 +16,28 @@ pub(super) fn number_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone
     }
 }
 
-pub(super) fn abs_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn abs_fn<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
     Ok(num_unary(args, |n| n.abs()))
 }
 
-pub(super) fn floor_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn floor_fn<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
     Ok(num_unary(args, |n| n.floor()))
 }
 
-pub(super) fn ceiling_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn ceiling_fn<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
     Ok(num_unary(args, |n| n.ceil()))
 }
 
-pub(super) fn round_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn round_fn<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -48,7 +48,7 @@ pub(super) fn round_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>
     }
 }
 
-pub(super) fn round_half_to_even_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn round_half_to_even_fn<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -59,7 +59,7 @@ pub(super) fn round_half_to_even_fn<N: 'static + Send + Sync + crate::model::Xdm
     }
 }
 
-pub(super) fn sum_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn sum_fn<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -70,7 +70,7 @@ pub(super) fn sum_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     }
 }
 
-pub(super) fn avg_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn avg_fn<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -226,7 +226,7 @@ pub(super) fn avg_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     Ok(vec![XdmItem::Atomic(out)])
 }
 
-pub(super) fn min_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn min_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
@@ -243,7 +243,7 @@ pub(super) fn min_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
     }
 }
 
-pub(super) fn max_fn<N: 'static + Send + Sync + crate::model::XdmNode + Clone>(
+pub(super) fn max_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {

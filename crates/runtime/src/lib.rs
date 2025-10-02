@@ -3,6 +3,8 @@ mod keyboard_sequence;
 mod pointer;
 pub mod provider;
 pub mod runtime;
+#[cfg(test)]
+pub mod test_support;
 mod xpath;
 
 // Optional mock feature: explicitly link mock providers when feature is enabled

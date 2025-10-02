@@ -49,6 +49,21 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
 - `crates/server` (Crate `platynui-server`) exponiert optional eine JSON-RPC-2.0-Schnittstelle (Language-Server-ähnlich) für Remote-Clients.
 - Build-Targets und `cfg`-Attribute legen fest, welche Plattform-/Providerkombinationen in einem Artefakt enthalten sind.
 
+### 2.4 Tests: Provider-Injektion & Fixtures
+English summary: Tests construct the Runtime explicitly via `Runtime::new_with_factories_and_platforms(...)` and inject mock platform devices. This avoids global inventory discovery and keeps tests deterministic. We provide small `rstest` fixtures per scenario (mock, UIA on Windows, etc.).
+
+- Konstruktoren für Tests:
+  - `Runtime::new_with_factories(factories)`: baut eine Runtime ausschließlich aus den übergebenen Provider-Factories (keine Inventory-Suche).
+  - `Runtime::new_with_factories_and_platforms(factories, PlatformOverrides)`: wie oben, zusätzlich mit expliziten Plattform-Overrides (`HighlightProvider`, `ScreenshotProvider`, `PointerDevice`, `KeyboardDevice`).
+- Zentrale Testhilfe (`crates/runtime/src/test_support.rs`):
+  - `runtime_with_factories_and_mock_platform(&[&FACTORY, ...]) -> Runtime` injiziert immer die Mock-Geräte und nimmt die Provider-Factories entgegen.
+- `rstest`-Fixtures im `platynui-runtime`-Crate:
+  - `#[fixture] fn rt_runtime_platform() -> Runtime { return rt_with_pf(&[]); }` – nur Mock-Geräte (ohne Provider), für reine Plattformtests.
+  - `#[fixture] fn rt_runtime_stub() -> Runtime { return rt_with_pf(&[&RUNTIME_FACTORY]); }` – Laufzeit-Stub-Provider.
+  - `#[fixture] fn rt_runtime_focus() -> Runtime { return rt_with_pf(&[&FOCUS_FACTORY]); }` – Fokus-spezifischer Stub.
+  - Plattform-/Provider-spezifische Fixtures (z. B. UIA auf Windows) werden bei Bedarf in konsumierenden Crates (CLI, Integrationstests) definiert, nicht in `platynui-runtime`.
+  - Motivation: Keine stillen Nebenwirkungen durch Inventory, kürzere und stabilere Tests, klarer Arrange-Block in den Tests (Fixture-Namen einheitlich: `rt_runtime_*`).
+
 ## 3. Datenmodell & Namespaces
 ### 3.1 Knoten- & Attributmodell
 - **`UiNode`-Trait:** Provider stellen ihren UI-Baum als `Arc<dyn UiNode>` bereit. Das Trait kapselt ausschließlich Strukturinformationen, alles weitere erfolgt über Attribute bzw. Patterns:

@@ -357,15 +357,20 @@ impl WindowActions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::{map_provider_error, yes_no};
+    use crate::test_support::runtime_mock_full;
+    use crate::util::yes_no;
     use platynui_runtime::Runtime;
-    use rstest::rstest;
+    use rstest::{fixture, rstest};
     use serial_test::serial;
+
+    #[fixture]
+    fn runtime() -> Runtime {
+        return runtime_mock_full();
+    }
 
     #[rstest]
     #[serial]
-    fn list_windows_outputs_state() {
-        let runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+    fn list_windows_outputs_state(runtime: Runtime) {
         let args = WindowArgs {
             expression: None,
             list: true,
@@ -385,8 +390,7 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn window_actions_apply_sequence() {
-        let runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+    fn window_actions_apply_sequence(runtime: Runtime) {
         let args = WindowArgs {
             expression: Some("//control:Window[@Name='Operations Console']".into()),
             list: false,
@@ -408,8 +412,7 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn window_actions_require_match() {
-        let runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+    fn window_actions_require_match(runtime: Runtime) {
         let args = WindowArgs {
             expression: Some("//control:Window[@Name='Nonexistent']".into()),
             list: false,

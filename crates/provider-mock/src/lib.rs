@@ -5,7 +5,7 @@
 //! synthetic events, or query the current state without touching native APIs.
 
 mod events;
-mod factory;
+pub mod factory;
 mod focus;
 mod input;
 mod node;
@@ -14,7 +14,9 @@ pub mod tree;
 mod window;
 
 pub use events::{emit_event, emit_node_updated, node_by_runtime_id};
-pub use factory::{PROVIDER_ID, PROVIDER_NAME, TECHNOLOGY};
+pub use factory::{
+    MOCK_PROVIDER_FACTORY, MockProviderFactory, PROVIDER_ID, PROVIDER_NAME, TECHNOLOGY,
+};
 pub use input::{
     KeyboardInputEvent, TextInputError, append_text, apply_keyboard_events, replace_text,
     text_snapshot,
@@ -30,7 +32,6 @@ pub use factory::{APP_RUNTIME_ID, BUTTON_RUNTIME_ID, WINDOW_RUNTIME_ID};
 mod tests;
 
 // Register the provider factory with the global inventory so the runtime can use it.
-use factory::MOCK_PROVIDER_FACTORY;
 use platynui_core::register_provider;
 
-register_provider!(&MOCK_PROVIDER_FACTORY);
+register_provider!(&factory::MOCK_PROVIDER_FACTORY);

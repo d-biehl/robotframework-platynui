@@ -1,4 +1,6 @@
 mod commands;
+#[cfg(test)]
+mod test_support;
 mod util;
 
 #[cfg(any(test, feature = "mock-provider"))]

@@ -1,8 +1,8 @@
 use crate::engine::runtime::{DynamicContext, Error, ErrorCode};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::rc::Rc;
 
-pub trait Collation: Send + Sync {
+pub trait Collation {
     fn uri(&self) -> &str;
     fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering;
     fn key(&self, s: &str) -> String {
@@ -17,8 +17,8 @@ pub use crate::consts::SIMPLE_CASE_URI;
 
 #[derive(Clone)]
 pub enum CollationKind {
-    Codepoint(Arc<dyn Collation>),
-    Other(Arc<dyn Collation>),
+    Codepoint(Rc<dyn Collation>),
+    Other(Rc<dyn Collation>),
 }
 
 impl CollationKind {
@@ -32,7 +32,7 @@ impl CollationKind {
 
 pub fn resolve_collation<N>(
     dyn_ctx: &DynamicContext<N>,
-    default_collation: Option<&Arc<dyn Collation>>,
+    default_collation: Option<&Rc<dyn Collation>>,
     uri: Option<&str>,
 ) -> Result<CollationKind, Error> {
     let arc = if let Some(u) = uri {
@@ -48,7 +48,7 @@ pub fn resolve_collation<N>(
         c.clone()
     } else {
         // Fallback to codepoint collation; registry should contain it, but don't panic if not.
-        dyn_ctx.collations.get(CODEPOINT_URI).unwrap_or_else(|| Arc::new(CodepointCollation))
+        dyn_ctx.collations.get(CODEPOINT_URI).unwrap_or_else(|| Rc::new(CodepointCollation))
     };
     if arc.uri() == CODEPOINT_URI {
         Ok(CollationKind::Codepoint(arc))
@@ -120,18 +120,18 @@ impl Collation for SimpleCaseAccentCollation {
 
 /// Registry of available collations, keyed by their URI
 pub struct CollationRegistry {
-    by_uri: HashMap<String, Arc<dyn Collation>>,
+    by_uri: HashMap<String, Rc<dyn Collation>>,
 }
 
 impl Default for CollationRegistry {
     fn default() -> Self {
         let mut reg = Self { by_uri: HashMap::new() };
-        let def: Arc<dyn Collation> = Arc::new(CodepointCollation);
+        let def: Rc<dyn Collation> = Rc::new(CodepointCollation);
         reg.by_uri.insert(def.uri().to_string(), def);
         // Built-in simple collations
-        reg.by_uri.insert(SIMPLE_CASE_URI.to_string(), Arc::new(SimpleCaseCollation));
-        reg.by_uri.insert(SIMPLE_ACCENT_URI.to_string(), Arc::new(SimpleAccentCollation));
-        reg.by_uri.insert(SIMPLE_CASE_ACCENT_URI.to_string(), Arc::new(SimpleCaseAccentCollation));
+        reg.by_uri.insert(SIMPLE_CASE_URI.to_string(), Rc::new(SimpleCaseCollation));
+        reg.by_uri.insert(SIMPLE_ACCENT_URI.to_string(), Rc::new(SimpleAccentCollation));
+        reg.by_uri.insert(SIMPLE_CASE_ACCENT_URI.to_string(), Rc::new(SimpleCaseAccentCollation));
         reg
     }
 }
@@ -140,10 +140,10 @@ impl CollationRegistry {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn get(&self, uri: &str) -> Option<Arc<dyn Collation>> {
+    pub fn get(&self, uri: &str) -> Option<Rc<dyn Collation>> {
         self.by_uri.get(uri).cloned()
     }
-    pub fn insert(&mut self, collation: Arc<dyn Collation>) {
+    pub fn insert(&mut self, collation: Rc<dyn Collation>) {
         self.by_uri.insert(collation.uri().to_string(), collation);
     }
 }

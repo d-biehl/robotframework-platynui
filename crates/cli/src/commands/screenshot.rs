@@ -121,13 +121,11 @@ fn ts_fallback() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::map_provider_error;
-    // Ensure provider/device registrations are linked into the test binary
-    use platynui_link::platynui_link_mock_for_tests;
-    platynui_link_mock_for_tests!();
+    use crate::test_support::runtime_mock_full;
+    use platynui_platform_mock as _; // link platform-mock inventory
     use platynui_platform_mock::{reset_screenshot_state, take_screenshot_log};
     use platynui_runtime::Runtime;
-    use rstest::rstest;
+    use rstest::{fixture, rstest};
     use serial_test::serial;
     use std::fs;
     use std::sync::{LazyLock, Mutex};
@@ -135,12 +133,17 @@ mod tests {
 
     static TEST_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
+    #[fixture]
+    fn runtime() -> Runtime {
+        return runtime_mock_full();
+    }
+
     #[rstest]
     #[serial]
-    fn screenshot_command_writes_png() {
+    fn screenshot_command_writes_png(mut runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_screenshot_state();
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+        // runtime is already mutable from fixture
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("capture.png");
         let args = ScreenshotArgs {
@@ -164,10 +167,10 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn screenshot_without_rect_uses_full_desktop() {
+    fn screenshot_without_rect_uses_full_desktop(mut runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_screenshot_state();
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+        // runtime is already mutable from fixture
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("full.png");
         let args = ScreenshotArgs { output: Some(path.clone()), rect: None };
@@ -193,10 +196,10 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn screenshot_generates_default_name() {
+    fn screenshot_generates_default_name(mut runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_screenshot_state();
-        let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
+        // runtime is already mutable from fixture
 
         let dir = tempdir().expect("tempdir");
         let old_cwd = env::current_dir().expect("cwd");
