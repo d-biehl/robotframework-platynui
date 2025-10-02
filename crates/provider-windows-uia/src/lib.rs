@@ -7,13 +7,13 @@
 //! incrementally expanded to call into UIAutomation via a dedicated STA actor.
 
 #[cfg(windows)]
-mod provider;
-#[cfg(windows)]
 mod com;
 #[cfg(windows)]
 mod map;
 #[cfg(windows)]
 mod node;
+#[cfg(windows)]
+mod provider;
 
 #[cfg(windows)]
 pub use provider::*;

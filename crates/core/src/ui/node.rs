@@ -21,6 +21,7 @@ pub trait UiNode: Send + Sync {
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_>;
     /// Alle Attribute dieses Knotens; Iterator darf Werte lazy erzeugen.
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_>;
+
     /// Returns a matching attribute for the given namespace/name pair.
     fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>> {
         self.attributes().find(|attr| attr.namespace() == namespace && attr.name() == name)

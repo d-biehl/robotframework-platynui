@@ -1,8 +1,8 @@
 #![cfg(target_os = "windows")]
-use platynui_core::types::Rect;
-use windows::Win32::UI::Accessibility::*;
-use windows::Win32::Foundation::POINT;
 use platynui_core::types::Point as UiPoint;
+use platynui_core::types::Rect;
+use windows::Win32::Foundation::POINT;
+use windows::Win32::UI::Accessibility::*;
 
 /// Maps UIA ControlType IDs to PlatynUI role names.
 /// Namespace wird an anderer Stelle bestimmt (IsControlElement/IsContentElement),
@@ -86,18 +86,6 @@ pub fn get_clickable_point(elem: &IUIAutomationElement) -> Result<UiPoint, Strin
     }
 }
 
-pub fn get_activation_point(elem: &IUIAutomationElement) -> Result<UiPoint, String> {
-    match get_clickable_point(elem) {
-        Ok(p) => Ok(p),
-        Err(_) => {
-            let r = get_bounding_rect(elem)?;
-            let cx = r.x() + r.width() / 2.0;
-            let cy = r.y() + r.height() / 2.0;
-            Ok(UiPoint::new(cx, cy))
-        }
-    }
-}
-
 pub fn format_runtime_id(elem: &IUIAutomationElement) -> Result<String, String> {
     use windows::Win32::System::Ole::{
         SafeArrayAccessData, SafeArrayGetLBound, SafeArrayGetUBound, SafeArrayUnaccessData,
@@ -127,12 +115,4 @@ pub fn get_is_offscreen(elem: &IUIAutomationElement) -> Result<bool, String> {
     unsafe { elem.CurrentIsOffscreen().map(|b| b.as_bool()).map_err(|e| e.to_string()) }
 }
 
-pub fn get_is_visible(elem: &IUIAutomationElement) -> Result<bool, String> {
-    // Heuristik: Sichtbar wenn nicht Offscreen und Bounds Fläche > 0.
-    let off = get_is_offscreen(elem).unwrap_or(false);
-    if off {
-        return Ok(false);
-    }
-    let r = get_bounding_rect(elem).unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
-    Ok(r.width() > 0.0 && r.height() > 0.0)
-}
+// get_activation_point and is_visible moved into attribute-level caching logic.

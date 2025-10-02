@@ -13,7 +13,7 @@ fn is_ncname_ascii(s: &str) -> bool {
         Some(_) => return false,
         None => return false,
     }
-    
+
     for ch in chars {
         match ch {
             'A'..='Z' | 'a'..='z' | '_' | '0'..='9' | '-' | '.' => {}

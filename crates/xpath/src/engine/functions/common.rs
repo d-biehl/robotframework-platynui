@@ -1,6 +1,8 @@
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
-use chrono::{DateTime as ChronoDateTime, FixedOffset as ChronoFixedOffset, NaiveDate, NaiveTime, Offset};
+use chrono::{
+    DateTime as ChronoDateTime, FixedOffset as ChronoFixedOffset, NaiveDate, NaiveTime, Offset,
+};
 
 pub(super) fn require_context_item<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,

@@ -54,9 +54,7 @@ pub fn run(runtime: &Runtime, args: &QueryArgs) -> CliResult<String> {
         OutputFormat::Text => {
             // Stream results directly to stdout as they arrive (no pre‑materialization, no sorting, no pattern lookup)
             let expr = args.expression.trim();
-            let iter = runtime
-                .evaluate_iter(None, expr)
-                .map_err(map_evaluate_error)?;
+            let iter = runtime.evaluate_iter(None, expr).map_err(map_evaluate_error)?;
             for item in iter {
                 match item {
                     EvaluationItem::Node(node) => print_node_stream_text(&node),
@@ -335,10 +333,7 @@ mod tests {
     #[rstest]
     fn query_text_returns_nodes() {
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
-        let args = QueryArgs {
-            expression: "//control:Button".into(),
-            format: OutputFormat::Text,
-        };
+        let args = QueryArgs { expression: "//control:Button".into(), format: OutputFormat::Text };
         // Capture stdout by rendering a single item using helper
         let results = runtime.evaluate(None, &args.expression).expect("eval");
         let summaries = summarize_query_results(results, None, None);
@@ -352,10 +347,8 @@ mod tests {
     #[rstest]
     fn query_attribute_text_omits_default_namespace() {
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
-        let args = QueryArgs {
-            expression: "//control:Button/@Name".into(),
-            format: OutputFormat::Text,
-        };
+        let args =
+            QueryArgs { expression: "//control:Button/@Name".into(), format: OutputFormat::Text };
         let results = runtime.evaluate(None, &args.expression).expect("eval");
         let output = render_query_text(&summaries_for(results));
         let plain = strip_ansi(&output);
@@ -369,10 +362,7 @@ mod tests {
     #[rstest]
     fn query_json_produces_valid_payload() {
         let mut runtime = Runtime::new().map_err(map_provider_error).expect("runtime");
-        let args = QueryArgs {
-            expression: "//control:Button".into(),
-            format: OutputFormat::Json,
-        };
+        let args = QueryArgs { expression: "//control:Button".into(), format: OutputFormat::Json };
         let output = run(&runtime, &args).expect("query");
         let payload = output.trim();
         let json: serde_json::Value = serde_json::from_str(payload).expect("json");

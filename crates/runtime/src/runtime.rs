@@ -1,6 +1,6 @@
+use once_cell::sync::OnceCell;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, Weak};
-use once_cell::sync::OnceCell;
 use std::time::Duration;
 
 use platynui_core::platform::{
@@ -103,7 +103,8 @@ impl Runtime {
         let registry = ProviderRegistry::discover();
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
         let provider_instances = registry.instantiate_all()?;
-        let mut providers: Vec<Arc<dyn UiTreeProvider>> = Vec::with_capacity(provider_instances.len());
+        let mut providers: Vec<Arc<dyn UiTreeProvider>> =
+            Vec::with_capacity(provider_instances.len());
         for provider in provider_instances {
             let listener = Arc::new(RuntimeEventListener::new(dispatcher.clone()));
             provider.subscribe_events(listener)?;
@@ -191,11 +192,19 @@ impl Runtime {
         EvaluateOptions::new(self.desktop_node())
     }
 
-    pub fn evaluate(&self, node: Option<Arc<dyn UiNode>>, xpath: &str) -> Result<Vec<EvaluationItem>, EvaluateError> {
+    pub fn evaluate(
+        &self,
+        node: Option<Arc<dyn UiNode>>,
+        xpath: &str,
+    ) -> Result<Vec<EvaluationItem>, EvaluateError> {
         evaluate(node, xpath, self.evaluate_options())
     }
 
-    pub fn evaluate_iter(&self, node: Option<Arc<dyn UiNode>>, xpath: &str) -> Result<impl Iterator<Item = crate::xpath::EvaluationItem>, EvaluateError> {
+    pub fn evaluate_iter(
+        &self,
+        node: Option<Arc<dyn UiNode>>,
+        xpath: &str,
+    ) -> Result<impl Iterator<Item = crate::xpath::EvaluationItem>, EvaluateError> {
         crate::xpath::evaluate_iter(node, xpath, self.evaluate_options())
     }
 
@@ -476,7 +485,11 @@ impl Runtime {
 
 fn build_desktop_info() -> Result<DesktopInfo, PlatformError> {
     let mut providers = desktop_info_providers();
-    let info = if let Some(provider) = providers.next() { provider.desktop_info()? } else { fallback_desktop_info() };
+    let info = if let Some(provider) = providers.next() {
+        provider.desktop_info()?
+    } else {
+        fallback_desktop_info()
+    };
     Ok(info)
 }
 
@@ -644,31 +657,33 @@ impl UiNode for DesktopNode {
             providers: Vec<Arc<dyn UiTreeProvider>>,
             idx: usize,
             parent: Arc<dyn UiNode>,
-            current: Option<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>>, 
+            current: Option<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>>,
         }
         impl Iterator for DesktopChildrenIter {
             type Item = Arc<dyn UiNode>;
             fn next(&mut self) -> Option<Self::Item> {
                 loop {
                     if let Some(it) = self.current.as_mut() {
-                        if let Some(next) = it.next() { return Some(next); }
+                        if let Some(next) = it.next() {
+                            return Some(next);
+                        }
                         self.current = None;
                     }
-                    if self.idx >= self.providers.len() { return None; }
+                    if self.idx >= self.providers.len() {
+                        return None;
+                    }
                     let prov = &self.providers[self.idx];
                     self.idx += 1;
                     match prov.get_nodes(Arc::clone(&self.parent)) {
-                        Ok(iter) => { self.current = Some(iter); }
+                        Ok(iter) => {
+                            self.current = Some(iter);
+                        }
                         Err(_) => { /* skip provider */ }
                     }
                 }
             }
         }
-        let parent = self
-            .self_weak
-            .get()
-            .and_then(|w| w.upgrade())
-            .expect("desktop self weak set");
+        let parent = self.self_weak.get().and_then(|w| w.upgrade()).expect("desktop self weak set");
         let providers = self.providers.to_vec();
         Box::new(DesktopChildrenIter { providers, idx: 0, parent, current: None })
     }

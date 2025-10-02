@@ -1,5 +1,6 @@
-use std::collections::VecDeque;
-use std::sync::Arc;
+//
+use platynui_core::ui::PatternId;
+use std::sync::{Arc, Mutex};
 
 use platynui_core::provider::ProviderError;
 use platynui_core::ui::identifiers::RuntimeId;
@@ -8,7 +9,7 @@ use platynui_xpath::compiler;
 use platynui_xpath::engine::evaluator;
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilder};
 use platynui_xpath::model::{NodeKind, QName};
-use platynui_xpath::xdm::{XdmAtomicValue};
+use platynui_xpath::xdm::XdmAtomicValue;
 use platynui_xpath::{self, XdmNode};
 use thiserror::Error;
 
@@ -190,24 +191,6 @@ impl RuntimeXdmNode {
             RuntimeXdmNode::element(node)
         }
     }
-
-    fn attribute(
-        owner: Arc<dyn UiNode>,
-        namespace: UiNamespace,
-        name: String,
-        value: UiValue,
-        typed: Vec<XdmAtomicValue>,
-    ) -> Self {
-        let owner_runtime_id = owner.runtime_id().as_str().to_string();
-        RuntimeXdmNode::Attribute(AttributeData {
-            owner,
-            owner_runtime_id,
-            namespace,
-            name,
-            value,
-            typed,
-        })
-    }
 }
 
 impl PartialEq for RuntimeXdmNode {
@@ -285,7 +268,7 @@ impl XdmNode for RuntimeXdmNode {
     fn typed_value(&self) -> Vec<XdmAtomicValue> {
         match self {
             RuntimeXdmNode::Document(_) | RuntimeXdmNode::Element(_) => Vec::new(),
-            RuntimeXdmNode::Attribute(attr) => attr.typed.clone(),
+            RuntimeXdmNode::Attribute(attr) => attr.typed().clone(),
         }
     }
 
@@ -357,17 +340,136 @@ struct AttributeData {
     owner_runtime_id: String,
     namespace: UiNamespace,
     name: String,
-    value: UiValue,
-    typed: Vec<XdmAtomicValue>,
+    // Lazy value provider (either direct source or derived component)
+    value_kind: ValueKind,
+    value_cell: once_cell::sync::OnceCell<UiValue>,
+    typed_cell: once_cell::sync::OnceCell<Vec<XdmAtomicValue>>,
+}
+
+// no StaticUiAttribute needed; attributes are sourced from provider or derived lazily
+
+#[derive(Clone)]
+enum ValueKind {
+    Source(Arc<dyn UiAttribute>),
+    RectComp { base: Arc<dyn UiAttribute>, comp: RectComp },
+    PointComp { base: Arc<dyn UiAttribute>, comp: PointComp },
+}
+
+#[derive(Clone)]
+enum RectComp {
+    X,
+    Y,
+    Width,
+    Height,
+}
+#[derive(Clone)]
+enum PointComp {
+    X,
+    Y,
 }
 
 impl AttributeData {
+    fn new_from_source(
+        owner: Arc<dyn UiNode>,
+        namespace: UiNamespace,
+        name: String,
+        source: Arc<dyn UiAttribute>,
+    ) -> Self {
+        let owner_runtime_id = owner.runtime_id().as_str().to_owned();
+        Self {
+            owner,
+            owner_runtime_id,
+            namespace,
+            name,
+            value_kind: ValueKind::Source(source),
+            value_cell: once_cell::sync::OnceCell::new(),
+            typed_cell: once_cell::sync::OnceCell::new(),
+        }
+    }
+    fn new_rect_component(
+        owner: Arc<dyn UiNode>,
+        namespace: UiNamespace,
+        base: Arc<dyn UiAttribute>,
+        base_name: &str,
+        comp: RectComp,
+    ) -> Self {
+        let name = component_attribute_name(
+            base_name,
+            match comp {
+                RectComp::X => "X",
+                RectComp::Y => "Y",
+                RectComp::Width => "Width",
+                RectComp::Height => "Height",
+            },
+        );
+        let owner_runtime_id = owner.runtime_id().as_str().to_owned();
+        Self {
+            owner,
+            owner_runtime_id,
+            namespace,
+            name,
+            value_kind: ValueKind::RectComp { base, comp },
+            value_cell: once_cell::sync::OnceCell::new(),
+            typed_cell: once_cell::sync::OnceCell::new(),
+        }
+    }
+    fn new_point_component(
+        owner: Arc<dyn UiNode>,
+        namespace: UiNamespace,
+        base: Arc<dyn UiAttribute>,
+        base_name: &str,
+        comp: PointComp,
+    ) -> Self {
+        let name = component_attribute_name(
+            base_name,
+            match comp {
+                PointComp::X => "X",
+                PointComp::Y => "Y",
+            },
+        );
+        let owner_runtime_id = owner.runtime_id().as_str().to_owned();
+        Self {
+            owner,
+            owner_runtime_id,
+            namespace,
+            name,
+            value_kind: ValueKind::PointComp { base, comp },
+            value_cell: once_cell::sync::OnceCell::new(),
+            typed_cell: once_cell::sync::OnceCell::new(),
+        }
+    }
+    fn value(&self) -> UiValue {
+        self.value_cell
+            .get_or_init(|| match &self.value_kind {
+                ValueKind::Source(src) => src.value(),
+                ValueKind::RectComp { base, comp } => match base.value() {
+                    UiValue::Rect(r) => match comp {
+                        RectComp::X => UiValue::from(r.x()),
+                        RectComp::Y => UiValue::from(r.y()),
+                        RectComp::Width => UiValue::from(r.width()),
+                        RectComp::Height => UiValue::from(r.height()),
+                    },
+                    _ => UiValue::Null,
+                },
+                ValueKind::PointComp { base, comp } => match base.value() {
+                    UiValue::Point(p) => match comp {
+                        PointComp::X => UiValue::from(p.x()),
+                        PointComp::Y => UiValue::from(p.y()),
+                    },
+                    _ => UiValue::Null,
+                },
+            })
+            .clone()
+    }
+    fn typed(&self) -> &Vec<XdmAtomicValue> {
+        self.typed_cell.get_or_init(|| ui_value_to_atomic_values(&self.value()))
+    }
     fn to_evaluated(&self) -> EvaluatedAttribute {
         EvaluatedAttribute {
             owner: self.owner.clone(),
             namespace: self.namespace,
             name: self.name.clone(),
-            value: self.value.clone(),
+            value: self.value(),
         }
     }
 }
@@ -399,26 +501,6 @@ fn ui_value_to_atomic_values(value: &UiValue) -> Vec<XdmAtomicValue> {
             .ok()
             .map(|json| vec![XdmAtomicValue::String(json)])
             .unwrap_or_default(),
-    }
-}
-
-fn expand_structured_attribute(base_name: &str, value: &UiValue) -> Vec<(String, UiValue)> {
-    match value {
-        UiValue::Rect(rect) => vec![
-            (component_attribute_name(base_name, "X"), UiValue::from(rect.x())),
-            (component_attribute_name(base_name, "Y"), UiValue::from(rect.y())),
-            (component_attribute_name(base_name, "Width"), UiValue::from(rect.width())),
-            (component_attribute_name(base_name, "Height"), UiValue::from(rect.height())),
-        ],
-        UiValue::Point(point) => vec![
-            (component_attribute_name(base_name, "X"), UiValue::from(point.x())),
-            (component_attribute_name(base_name, "Y"), UiValue::from(point.y())),
-        ],
-        UiValue::Size(size) => vec![
-            (component_attribute_name(base_name, "Width"), UiValue::from(size.width())),
-            (component_attribute_name(base_name, "Height"), UiValue::from(size.height())),
-        ],
-        _ => Vec::new(),
     }
 }
 
@@ -545,101 +627,208 @@ fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
     }
 }
 
-struct NodeChildrenIter<'a> {
+struct ChildStreamState<'a> {
     inner: Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'a>,
+    cache: Vec<RuntimeXdmNode>,
+    finished: bool,
 }
-
+struct NodeChildrenIter<'a> {
+    shared: Arc<Mutex<ChildStreamState<'a>>>,
+    pos: usize,
+}
 impl<'a> NodeChildrenIter<'a> {
     fn new(inner: Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'a>) -> Self {
-        Self { inner }
+        Self {
+            shared: Arc::new(Mutex::new(ChildStreamState {
+                inner,
+                cache: Vec::new(),
+                finished: false,
+            })),
+            pos: 0,
+        }
     }
-
     fn empty() -> Self {
-        Self { inner: Box::new(std::iter::empty::<Arc<dyn UiNode>>()) }
+        Self::new(Box::new(std::iter::empty()))
     }
 }
-
 impl<'a> Iterator for NodeChildrenIter<'a> {
     type Item = RuntimeXdmNode;
-
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(RuntimeXdmNode::from_node)
+        let mut st = self.shared.lock().unwrap();
+        if self.pos < st.cache.len() {
+            let it = st.cache[self.pos].clone();
+            self.pos += 1;
+            return Some(it);
+        }
+        if !st.finished {
+            if let Some(owner) = st.inner.next() {
+                let node = RuntimeXdmNode::from_node(owner);
+                st.cache.push(node.clone());
+                self.pos += 1;
+                return Some(node);
+            } else {
+                st.finished = true;
+            }
+        }
+        None
     }
 }
 
-struct NodeAttributeIter<'a> {
-    owner: Option<Arc<dyn UiNode>>,
-    inner: Option<Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'a>>,
-    queue: VecDeque<RuntimeXdmNode>,
+struct AttrStreamState<'a> {
+    owner: Arc<dyn UiNode>,
+    inner: Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'a>,
+    cache: Vec<RuntimeXdmNode>,
+    finished: bool,
 }
-
+struct NodeAttributeIter<'a> {
+    shared: Arc<Mutex<AttrStreamState<'a>>>,
+    pos: usize,
+}
 impl<'a> NodeAttributeIter<'a> {
     fn new(
         owner: Arc<dyn UiNode>,
         inner: Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'a>,
     ) -> Self {
-        Self { owner: Some(owner), inner: Some(inner), queue: VecDeque::new() }
+        Self {
+            shared: Arc::new(Mutex::new(AttrStreamState {
+                owner,
+                inner,
+                cache: Vec::new(),
+                finished: false,
+            })),
+            pos: 0,
+        }
     }
-
     fn empty() -> Self {
-        Self { owner: None, inner: None, queue: VecDeque::new() }
+        Self::new(Arc::new(DummyNode), Box::new(std::iter::empty()))
+    }
+}
+impl<'a> Iterator for NodeAttributeIter<'a> {
+    type Item = RuntimeXdmNode;
+    fn next(&mut self) -> Option<Self::Item> {
+        // lock scope only around mutations; clone owner outside of borrow
+        let (owner, maybe_attr, finished_now) = {
+            let mut st = self.shared.lock().unwrap();
+            let owner = st.owner.clone();
+            if self.pos < st.cache.len() {
+                let it = st.cache[self.pos].clone();
+                drop(st);
+                self.pos += 1;
+                return Some(it);
+            }
+            if !st.finished {
+                let next = st.inner.next();
+                (owner, next, false)
+            } else {
+                (owner, None, true)
+            }
+        };
+        if finished_now {
+            return None;
+        }
+        if let Some(attr) = maybe_attr {
+            let ns = attr.namespace();
+            let base_name = attr.name().to_string();
+            let src = attr.clone();
+            let mut st = self.shared.lock().unwrap();
+            st.cache.push(RuntimeXdmNode::Attribute(AttributeData::new_from_source(
+                owner.clone(),
+                ns,
+                base_name.clone(),
+                src.clone(),
+            )));
+            let ns = attr.namespace();
+            let base_name = attr.name().to_string();
+            let src = attr.clone();
+            if base_name == "Bounds" {
+                st.cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
+                    owner.clone(),
+                    ns,
+                    src.clone(),
+                    "Bounds",
+                    RectComp::X,
+                )));
+                st.cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
+                    owner.clone(),
+                    ns,
+                    src.clone(),
+                    "Bounds",
+                    RectComp::Y,
+                )));
+                st.cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
+                    owner.clone(),
+                    ns,
+                    src.clone(),
+                    "Bounds",
+                    RectComp::Width,
+                )));
+                st.cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
+                    owner.clone(),
+                    ns,
+                    src,
+                    "Bounds",
+                    RectComp::Height,
+                )));
+            }
+            if base_name == "ActivationPoint" {
+                let src_point = attr.clone();
+                st.cache.push(RuntimeXdmNode::Attribute(AttributeData::new_point_component(
+                    owner.clone(),
+                    ns,
+                    src_point.clone(),
+                    "ActivationPoint",
+                    PointComp::X,
+                )));
+                st.cache.push(RuntimeXdmNode::Attribute(AttributeData::new_point_component(
+                    owner,
+                    ns,
+                    src_point,
+                    "ActivationPoint",
+                    PointComp::Y,
+                )));
+            }
+            let it = st.cache.get(self.pos).cloned();
+            drop(st);
+            if let Some(item) = it {
+                self.pos += 1;
+                return Some(item);
+            }
+        } else {
+            let mut st = self.shared.lock().unwrap();
+            st.finished = true;
+        }
+        None
     }
 }
 
-impl<'a> Iterator for NodeAttributeIter<'a> {
-    type Item = RuntimeXdmNode;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(node) = self.queue.pop_front() {
-            return Some(node);
-        }
-
-        let owner = match self.owner.as_ref() {
-            Some(owner) => owner.clone(),
-            None => return None,
-        };
-
-        loop {
-            let inner = match self.inner.as_mut() {
-                Some(inner) => inner,
-                None => {
-                    self.owner = None;
-                    return None;
-                }
-            };
-
-            if let Some(attribute) = inner.next() {
-                let namespace = attribute.namespace();
-                let base_name = attribute.name().to_string();
-                let value = attribute.value();
-                let typed = ui_value_to_atomic_values(&value);
-                if typed.is_empty() {
-                    continue;
-                }
-
-                for (derived_name, derived_value) in expand_structured_attribute(&base_name, &value)
-                {
-                    let derived_typed = ui_value_to_atomic_values(&derived_value);
-                    if derived_typed.is_empty() {
-                        continue;
-                    }
-                    self.queue.push_back(RuntimeXdmNode::attribute(
-                        owner.clone(),
-                        namespace,
-                        derived_name,
-                        derived_value,
-                        derived_typed,
-                    ));
-                }
-
-                return Some(RuntimeXdmNode::attribute(owner, namespace, base_name, value, typed));
-            } else {
-                self.inner = None;
-                self.owner = None;
-                return None;
-            }
-        }
+struct DummyNode;
+impl UiNode for DummyNode {
+    fn namespace(&self) -> UiNamespace {
+        UiNamespace::Control
     }
+    fn role(&self) -> &str {
+        ""
+    }
+    fn name(&self) -> &str {
+        ""
+    }
+    fn runtime_id(&self) -> &RuntimeId {
+        static RID: once_cell::sync::OnceCell<RuntimeId> = once_cell::sync::OnceCell::new();
+        RID.get_or_init(|| RuntimeId::from("dummy"))
+    }
+    fn parent(&self) -> Option<std::sync::Weak<dyn UiNode>> {
+        None
+    }
+    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+        Box::new(std::iter::empty())
+    }
+    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+        Box::new(std::iter::empty())
+    }
+    fn supported_patterns(&self) -> Vec<PatternId> {
+        Vec::new()
+    }
+    fn invalidate(&self) {}
 }
 
 #[cfg(test)]

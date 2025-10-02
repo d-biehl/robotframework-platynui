@@ -377,7 +377,10 @@ impl FancyRegexProvider {
         static REGEX_CACHE: OnceLock<RegexCache> = OnceLock::new();
         let cache = REGEX_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
         let key = (pattern.to_string(), flags.to_string());
-        let mut guard = match cache.lock() { Ok(g) => g, Err(e) => e.into_inner() };
+        let mut guard = match cache.lock() {
+            Ok(g) => g,
+            Err(e) => e.into_inner(),
+        };
         if let Some(existing) = guard.get(&key) {
             return Ok(existing.clone());
         }

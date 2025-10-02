@@ -48,10 +48,7 @@ pub fn resolve_collation<N>(
         c.clone()
     } else {
         // Fallback to codepoint collation; registry should contain it, but don't panic if not.
-        dyn_ctx
-            .collations
-            .get(CODEPOINT_URI)
-            .unwrap_or_else(|| Arc::new(CodepointCollation))
+        dyn_ctx.collations.get(CODEPOINT_URI).unwrap_or_else(|| Arc::new(CodepointCollation))
     };
     if arc.uri() == CODEPOINT_URI {
         Ok(CollationKind::Codepoint(arc))

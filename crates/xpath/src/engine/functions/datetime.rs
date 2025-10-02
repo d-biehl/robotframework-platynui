@@ -1,7 +1,7 @@
 use super::common::{get_datetime, get_time, now_in_effective_tz, parse_xs_date_local};
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
-use chrono::{Datelike, FixedOffset as ChronoFixedOffset, TimeZone, Timelike, Offset};
+use chrono::{Datelike, FixedOffset as ChronoFixedOffset, Offset, TimeZone, Timelike};
 
 pub(super) fn date_time_fn<N: crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
@@ -67,10 +67,7 @@ pub(super) fn adjust_date_to_timezone_fn<
     }
     let tz_opt = if args.len() == 1 || args[1].is_empty() {
         Some(ctx.dyn_ctx.timezone_override.unwrap_or_else(|| {
-            ctx.dyn_ctx
-                .now
-                .map(|n| *n.offset())
-                .unwrap_or_else(|| chrono::Utc.fix())
+            ctx.dyn_ctx.now.map(|n| *n.offset()).unwrap_or_else(|| chrono::Utc.fix())
         }))
     } else {
         match &args[1][0] {
@@ -113,10 +110,7 @@ pub(super) fn adjust_time_to_timezone_fn<
     }
     let tz_opt = if args.len() == 1 || args[1].is_empty() {
         Some(ctx.dyn_ctx.timezone_override.unwrap_or_else(|| {
-            ctx.dyn_ctx
-                .now
-                .map(|n| *n.offset())
-                .unwrap_or_else(|| chrono::Utc.fix())
+            ctx.dyn_ctx.now.map(|n| *n.offset()).unwrap_or_else(|| chrono::Utc.fix())
         }))
     } else {
         match &args[1][0] {
@@ -161,10 +155,7 @@ pub(super) fn adjust_datetime_to_timezone_fn<
     }
     let tz_opt = if args.len() == 1 || args[1].is_empty() {
         Some(ctx.dyn_ctx.timezone_override.unwrap_or_else(|| {
-            ctx.dyn_ctx
-                .now
-                .map(|n| *n.offset())
-                .unwrap_or_else(|| chrono::Utc.fix())
+            ctx.dyn_ctx.now.map(|n| *n.offset()).unwrap_or_else(|| chrono::Utc.fix())
         }))
     } else {
         Some(match &args[1][0] {

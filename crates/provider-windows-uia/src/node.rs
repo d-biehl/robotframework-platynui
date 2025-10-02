@@ -1,15 +1,13 @@
-//! Windows UIAutomation node wrapper and iterators.
+//! Windows UIAutomation node wrapper and iterators (no provider-side caching).
 //!
-//! Highlights
-//! - `UiaNode` wraps `IUIAutomationElement` directly (kein NodeStore).
-//! - UiNode‑Basics (namespace/role/name/runtime_id) sind lazy und werden beim ersten Zugriff
-//!   aus UIA gelesen (ControlType→Mapping, CurrentName, GetRuntimeId→uia://...).
-//! - `ElementChildrenIter` ist ein gemeinsamer RawView‑Iterator (lazy FirstChild in `next()`).
-//! - Patterns: `Focusable` immer; `WindowSurface` nur wenn Window/Transform‑Pattern verfügbar sind.
-//! - `invalidate()` ist bewusst No‑Op; Attribute werden separat lazy ermittelt.
+//! Philosophy
+//! - UiaNode should reflect the current UIA state. Heavy caching is left to the
+//!   Runtime/XPath adapter (RuntimeXdmNode). We keep only identity fields that
+//!   require references (`name()`/`runtime_id()`) in small OnceCells.
+
 use std::sync::{Arc, Mutex, Weak};
 
-use platynui_core::types::Rect;
+use platynui_core::types::{Point as UiPoint, Rect};
 use platynui_core::ui::pattern::{FocusableAction, PatternError, UiPattern, WindowSurfaceActions};
 use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
 
@@ -17,8 +15,7 @@ pub struct UiaNode {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     self_weak: once_cell::sync::OnceCell<Weak<dyn UiNode>>,
-    ns_cell: once_cell::sync::OnceCell<Namespace>,
-    role_cell: once_cell::sync::OnceCell<String>,
+    // Minimal identity caches required by trait return types
     name_cell: once_cell::sync::OnceCell<String>,
     rid_cell: once_cell::sync::OnceCell<RuntimeId>,
 }
@@ -31,8 +28,6 @@ impl UiaNode {
             elem,
             parent: Mutex::new(None),
             self_weak: once_cell::sync::OnceCell::new(),
-            ns_cell: once_cell::sync::OnceCell::new(),
-            role_cell: once_cell::sync::OnceCell::new(),
             name_cell: once_cell::sync::OnceCell::new(),
             rid_cell: once_cell::sync::OnceCell::new(),
         })
@@ -51,53 +46,30 @@ impl UiaNode {
 
 impl UiNode for UiaNode {
     fn namespace(&self) -> Namespace {
-        *self.ns_cell.get_or_init(|| {
-            // Prefer UIA's control/content flags over ControlType mapping.
-            // Many control elements are also content elements; `Control` wins.
-            unsafe {
-                let is_control = self
-                    .elem
-                    .CurrentIsControlElement()
-                    .map(|b| b.as_bool())
-                    .unwrap_or(true);
-                if is_control {
-                    return Namespace::Control;
-                }
-                let is_content = self
-                    .elem
-                    .CurrentIsContentElement()
-                    .map(|b| b.as_bool())
-                    .unwrap_or(false);
-                if is_content {
-                    Namespace::Item
-                } else {
-                    // Fallback to Control if neither flag is set.
-                    Namespace::Control
-                }
+        unsafe {
+            let is_control =
+                self.elem.CurrentIsControlElement().map(|b| b.as_bool()).unwrap_or(true);
+            if is_control {
+                return Namespace::Control;
             }
-        })
+            let is_content =
+                self.elem.CurrentIsContentElement().map(|b| b.as_bool()).unwrap_or(false);
+            if is_content { Namespace::Item } else { Namespace::Control }
+        }
     }
     fn role(&self) -> &str {
-        self.role_cell
-            .get_or_init(|| {
-                let ct = crate::map::get_control_type(&self.elem).unwrap_or(0);
-                let role = crate::map::control_type_to_role(ct);
-                role.to_string()
-            })
-            .as_str()
+        let ct = crate::map::get_control_type(&self.elem).unwrap_or(0);
+        crate::map::control_type_to_role(ct)
     }
     fn name(&self) -> &str {
-        self.name_cell
-            .get_or_init(|| crate::map::get_name(&self.elem).unwrap_or_default())
-            .as_str()
+        self.name_cell.get_or_init(|| crate::map::get_name(&self.elem).unwrap_or_default()).as_str()
     }
     fn runtime_id(&self) -> &RuntimeId {
-        self
-            .rid_cell
-            .get_or_init(|| {
-                let s = crate::map::format_runtime_id(&self.elem).unwrap_or_else(|_| "uia://temp".into());
-                RuntimeId::from(s)
-            })
+        self.rid_cell.get_or_init(|| {
+            let s =
+                crate::map::format_runtime_id(&self.elem).unwrap_or_else(|_| "uia://temp".into());
+            RuntimeId::from(s)
+        })
     }
     fn parent(&self) -> Option<Weak<dyn UiNode>> {
         self.parent.lock().unwrap().clone()
@@ -109,19 +81,19 @@ impl UiNode for UiaNode {
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
         Box::new(AttrsIter::new(self))
     }
+
     fn supported_patterns(&self) -> Vec<PatternId> {
         use windows::Win32::UI::Accessibility::*;
         let mut out = vec![FocusableAction::static_id()];
-        // Advertise WindowSurface only if UIA reports Window/Transform availability.
-        #[allow(unsafe_op_in_unsafe_fn)]
-        unsafe {
+        let (has_window, has_transform) = unsafe {
             let has_window =
                 self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)).is_ok();
             let has_transform =
                 self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)).is_ok();
-            if has_window || has_transform {
-                out.push(WindowSurfaceActions::static_id());
-            }
+            (has_window, has_transform)
+        };
+        if has_window || has_transform {
+            out.push(WindowSurfaceActions::static_id());
         }
         out
     }
@@ -155,27 +127,37 @@ impl UiNode for UiaNode {
             unsafe impl Sync for ElemSend {}
             impl ElemSend {
                 unsafe fn window_set_state(&self, state: WindowVisualState) -> Result<(), String> {
-                    let unk = unsafe { self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)) }
-                        .map_err(|e| e.to_string())?;
+                    let unk = unsafe {
+                        self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
+                    }
+                    .map_err(|e| e.to_string())?;
                     let pat: IUIAutomationWindowPattern = unk.cast().map_err(|e| e.to_string())?;
                     unsafe { pat.SetWindowVisualState(state) }.map_err(|e| e.to_string())
                 }
                 unsafe fn window_close(&self) -> Result<(), String> {
-                    let unk = unsafe { self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)) }
-                        .map_err(|e| e.to_string())?;
+                    let unk = unsafe {
+                        self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
+                    }
+                    .map_err(|e| e.to_string())?;
                     let pat: IUIAutomationWindowPattern = unk.cast().map_err(|e| e.to_string())?;
                     unsafe { pat.Close() }.map_err(|e| e.to_string())
                 }
                 unsafe fn transform_move(&self, x: f64, y: f64) -> Result<(), String> {
-                    let unk = unsafe { self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)) }
-                        .map_err(|e| e.to_string())?;
-                    let pat: IUIAutomationTransformPattern = unk.cast().map_err(|e| e.to_string())?;
+                    let unk = unsafe {
+                        self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
+                    }
+                    .map_err(|e| e.to_string())?;
+                    let pat: IUIAutomationTransformPattern =
+                        unk.cast().map_err(|e| e.to_string())?;
                     unsafe { pat.Move(x, y) }.map_err(|e| e.to_string())
                 }
                 unsafe fn transform_resize(&self, w: f64, h: f64) -> Result<(), String> {
-                    let unk = unsafe { self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)) }
-                        .map_err(|e| e.to_string())?;
-                    let pat: IUIAutomationTransformPattern = unk.cast().map_err(|e| e.to_string())?;
+                    let unk = unsafe {
+                        self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
+                    }
+                    .map_err(|e| e.to_string())?;
+                    let pat: IUIAutomationTransformPattern =
+                        unk.cast().map_err(|e| e.to_string())?;
                     unsafe { pat.Resize(w, h) }.map_err(|e| e.to_string())
                 }
             }
@@ -221,8 +203,10 @@ pub(crate) struct ElementChildrenIter {
     parent: Arc<dyn UiNode>,
 }
 impl ElementChildrenIter {
-    pub fn new(parent_elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
-               parent_node: Arc<dyn UiNode>) -> Self {
+    pub fn new(
+        parent_elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+        parent_node: Arc<dyn UiNode>,
+    ) -> Self {
         let walker = crate::com::raw_walker().expect("walker");
         Self { walker, parent_elem, current: None, first: true, parent: parent_node }
     }
@@ -234,6 +218,9 @@ impl Iterator for ElementChildrenIter {
         if self.first {
             self.first = false;
             self.current = unsafe { self.walker.GetFirstChildElement(&self.parent_elem).ok() };
+            if self.current.is_none() {
+                return None;
+            }
         } else if let Some(ref elem) = self.current {
             let cur = elem.clone();
             self.current = unsafe { self.walker.GetNextSiblingElement(&cur).ok() };
@@ -259,9 +246,9 @@ impl UiAttribute for RoleAttr {
         "Role"
     }
     fn value(&self) -> UiValue {
-        let ct = crate::map::get_control_type(&self.elem).unwrap_or(0);
-        let role = crate::map::control_type_to_role(ct);
-        UiValue::from(role)
+        UiValue::from(crate::map::control_type_to_role(
+            crate::map::get_control_type(&self.elem).unwrap_or(0),
+        ))
     }
 }
 unsafe impl Send for RoleAttr {}
@@ -360,9 +347,20 @@ struct ActivationPointAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
 }
 impl UiAttribute for ActivationPointAttr {
-    fn namespace(&self) -> Namespace { Namespace::Control }
-    fn name(&self) -> &str { "ActivationPoint" }
-    fn value(&self) -> UiValue { UiValue::from(crate::map::get_activation_point(&self.elem).unwrap_or(platynui_core::types::Point::new(0.0, 0.0))) }
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        "ActivationPoint"
+    }
+    fn value(&self) -> UiValue {
+        let p = crate::map::get_clickable_point(&self.elem).ok().unwrap_or_else(|| {
+            let r =
+                crate::map::get_bounding_rect(&self.elem).unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+            UiPoint::new(r.x() + r.width() / 2.0, r.y() + r.height() / 2.0)
+        });
+        UiValue::from(p)
+    }
 }
 unsafe impl Send for ActivationPointAttr {}
 unsafe impl Sync for ActivationPointAttr {}
@@ -378,7 +376,9 @@ impl UiAttribute for IsVisibleAttr {
         "IsVisible"
     }
     fn value(&self) -> UiValue {
-        UiValue::from(crate::map::get_is_visible(&self.elem).unwrap_or(false))
+        let off = crate::map::get_is_offscreen(&self.elem).unwrap_or(false);
+        let r = crate::map::get_bounding_rect(&self.elem).unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+        UiValue::from(!off && r.width() > 0.0 && r.height() > 0.0)
     }
 }
 unsafe impl Send for IsVisibleAttr {}

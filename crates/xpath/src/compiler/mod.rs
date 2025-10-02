@@ -481,11 +481,16 @@ impl<'a> Compiler<'a> {
                     let has_preds = !preds.is_empty();
                     self.emit(ir::OpCode::AxisStep(axis_ir.clone(), test_ir.clone(), preds));
 
-                    // Very narrow, safe fastpath: `//*` (descendant-or-self::node() / child::*)
-                    let is_child_any = matches!(axis_ir, ir::AxisIR::Child)
-                        && matches!(test_ir, ir::NodeTestIR::WildcardAny);
-                    let is_child_named = matches!(axis_ir, ir::AxisIR::Child)
-                        && (matches!(test_ir, ir::NodeTestIR::Name(_))
+                    // Hint handling for the classic pattern `//*` after a RootDescendant start:
+                    // We want both steps to avoid buffering: (1) descendant-or-self::node() and (2) child::*
+                    let pending_rootdesc = self.last_was_rootdesc;
+                    let is_desc_self_any = matches!(axis_ir, ir::AxisIR::DescendantOrSelf)
+                        && matches!(test_ir, ir::NodeTestIR::AnyKind)
+                        && !has_preds
+                        && pending_rootdesc;
+                    let is_child_forward = matches!(axis_ir, ir::AxisIR::Child)
+                        && (matches!(test_ir, ir::NodeTestIR::WildcardAny)
+                            || matches!(test_ir, ir::NodeTestIR::Name(_))
                             || matches!(
                                 test_ir,
                                 ir::NodeTestIR::KindElement {
@@ -493,14 +498,21 @@ impl<'a> Compiler<'a> {
                                     ty: None,
                                     nillable: false,
                                 }
-                            ));
-                    if self.last_was_rootdesc && (is_child_any || is_child_named) && !has_preds {
+                            ))
+                        && pending_rootdesc;
+
+                    if is_desc_self_any || is_child_forward {
                         self.emit(ir::OpCode::DocOrderDistinctOptimistic);
                     } else {
                         self.emit(ir::OpCode::DocOrderDistinct);
                     }
-                    // Only the immediately following step should see last_was_rootdesc
-                    self.last_was_rootdesc = false;
+                    // Consume the RootDescendant hint after the first step following it
+                    if pending_rootdesc {
+                        // Keep it set only if current step was the descendant-or-self; the next step (child) should still see it.
+                        self.last_was_rootdesc = matches!(axis_ir, ir::AxisIR::DescendantOrSelf);
+                    } else {
+                        self.last_was_rootdesc = false;
+                    }
                 }
                 ast::Step::FilterExpr(expr) => {
                     let mut sub = self.fork();
