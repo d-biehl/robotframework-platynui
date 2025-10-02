@@ -107,7 +107,7 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn focus_command_sets_focus(mut runtime: Runtime) {
+    fn focus_command_sets_focus(runtime: Runtime) {
         let args = FocusArgs { expression: "//control:Button[@Name='OK']".into() };
 
         let output = run(&runtime, &args).expect("focus execution");
@@ -131,12 +131,11 @@ mod tests {
             focused.attribute(Namespace::Control, focusable::IS_FOCUSED).expect("focus attribute");
         assert_eq!(attr.value(), UiValue::from(true));
 
-        runtime.shutdown();
     }
 
     #[rstest]
     #[serial]
-    fn focus_command_reports_missing_pattern(mut runtime: Runtime) {
+    fn focus_command_reports_missing_pattern(runtime: Runtime) {
         let args = FocusArgs { expression: "//control:Panel[@Name='Workspace']".into() };
 
         let output = run(&runtime, &args).expect("focus execution");
@@ -144,17 +143,17 @@ mod tests {
         assert!(output.contains("mock://panel/workspace"));
         assert!(output.contains("Focused 0 node"));
 
-        runtime.shutdown();
+        // no explicit shutdown needed in tests
     }
 
     #[rstest]
     #[serial]
-    fn focus_command_errors_on_empty_result(mut runtime: Runtime) {
+    fn focus_command_errors_on_empty_result(runtime: Runtime) {
         let args = FocusArgs { expression: "//control:Button[@Name='Nonexistent']".into() };
 
         let err = run(&runtime, &args).expect_err("no node should error");
         assert!(err.to_string().contains("did not match any nodes"));
 
-        runtime.shutdown();
+        // no explicit shutdown needed in tests
     }
 }

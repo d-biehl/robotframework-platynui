@@ -140,7 +140,7 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn screenshot_command_writes_png(mut runtime: Runtime) {
+    fn screenshot_command_writes_png(runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_screenshot_state();
         // runtime is already mutable from fixture
@@ -162,12 +162,11 @@ mod tests {
         assert_eq!(log[0].width, 400);
         assert_eq!(log[0].height, 200);
 
-        runtime.shutdown();
     }
 
     #[rstest]
     #[serial]
-    fn screenshot_without_rect_uses_full_desktop(mut runtime: Runtime) {
+    fn screenshot_without_rect_uses_full_desktop(runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_screenshot_state();
         // runtime is already mutable from fixture
@@ -185,7 +184,6 @@ mod tests {
         assert_eq!(log[0].width, 7920);
         assert_eq!(log[0].height, 3840);
 
-        runtime.shutdown();
     }
 
     #[test]
@@ -196,7 +194,7 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn screenshot_generates_default_name(mut runtime: Runtime) {
+    fn screenshot_generates_default_name(runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_screenshot_state();
         // runtime is already mutable from fixture
@@ -219,6 +217,5 @@ mod tests {
         assert_eq!(entries.len(), 1);
 
         env::set_current_dir(old_cwd).expect("restore cwd");
-        runtime.shutdown();
     }
 }

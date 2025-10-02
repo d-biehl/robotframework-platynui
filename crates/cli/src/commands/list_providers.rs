@@ -86,9 +86,8 @@ mod tests {
     }
 
     #[rstest]
-    fn summaries_include_mock_provider(mut runtime: platynui_runtime::Runtime) {
+    fn summaries_include_mock_provider(runtime: platynui_runtime::Runtime) {
         let summaries = collect_provider_summaries(&runtime);
-        runtime.shutdown();
 
         assert!(summaries.iter().any(|summary| summary.id == "mock"));
     }

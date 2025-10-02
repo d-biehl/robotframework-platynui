@@ -135,9 +135,8 @@ mod tests {
     }
 
     #[rstest]
-    fn desktop_summary_uses_mock_desktop(mut runtime: Runtime) {
+    fn desktop_summary_uses_mock_desktop(runtime: Runtime) {
         let summary = DesktopSummary::from_info(runtime.desktop_info());
-        runtime.shutdown();
 
         assert_eq!(summary.name, "Mock Desktop");
         assert_eq!(summary.display_count, 3);

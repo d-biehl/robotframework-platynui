@@ -52,6 +52,22 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
 ### 2.4 Tests: Provider-Injektion & Fixtures
 English summary: Tests construct the Runtime explicitly via `Runtime::new_with_factories_and_platforms(...)` and inject mock platform devices. This avoids global inventory discovery and keeps tests deterministic. We provide small `rstest` fixtures per scenario (mock, UIA on Windows, etc.).
 
+### 2.4 XPath‑Auswertung (Streaming & Normalisierung)
+
+Die XPath‑Engine arbeitet grundsätzlich streaming, d. h. Teilergebnisse werden sofort weitergereicht und Prädikate früh ausgewertet. Die (laut XPath 2.0) vorgeschriebene Normalisierung „Dokumentreihenfolge + Duplikate entfernen“ ist explizit in zwei IR‑Operationen aufgeteilt:
+
+- `EnsureDistinct`: entfernt Duplikate, bewahrt die Reihenfolge; als Cursor implementiert und damit vollständig streaming.
+- `EnsureOrder`: stellt die Dokumentreihenfolge her. Der Cursor reicht monotone Eingaben direkt durch, repariert einfache Inversionen lokal und fällt nur bei echter Unordnung auf Puffern+Sortieren zurück.
+
+Emissionsregeln im Compiler (konservativ, spezifikationskonform):
+
+- Forward‑Achsen `child`, `self`, `attribute`, `namespace`: keine Normalisierung.
+- Forward‑Achsen `descendant`, `descendant-or-self`, `following`, `following-sibling`: `EnsureDistinct`.
+- Reverse‑Achsen `parent`, `ancestor*`, `preceding*`: `EnsureDistinct` + `EnsureOrder`.
+- Beliebige Teilausdrücke (`PathExprStep`) und Vereinigungs-/Schnitt-/Differenzmengen werden vor dem nächsten Schritt normalisiert.
+
+Zur Duplikatvermeidung an der Quelle minimieren wir Kontexte vor bestimmten Achsen (z. B. `descendant*`, `following*`) konservativ: überlappende Kontexte werden entfernt, ohne unsortierte Eingaben fälschlich zu verwerfen. Dadurch entfällt in vielen Fällen die Notwendigkeit nachträglicher Normalisierung und erste Ergebnisse erscheinen sofort.
+
 - Konstruktoren für Tests:
   - `Runtime::new_with_factories(factories)`: baut eine Runtime ausschließlich aus den übergebenen Provider-Factories (keine Inventory-Suche).
   - `Runtime::new_with_factories_and_platforms(factories, PlatformOverrides)`: wie oben, zusätzlich mit expliziten Plattform-Overrides (`HighlightProvider`, `ScreenshotProvider`, `PointerDevice`, `KeyboardDevice`).

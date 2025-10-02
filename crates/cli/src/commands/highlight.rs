@@ -160,7 +160,7 @@ mod tests {
     }
 
     #[rstest]
-    fn highlight_records_requests(mut runtime: Runtime) {
+    fn highlight_records_requests(runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_highlight_state();
 
@@ -179,11 +179,10 @@ mod tests {
         assert_eq!(log[0][0].duration, Some(Duration::from_millis(500)));
 
         reset_highlight_state();
-        runtime.shutdown();
     }
 
     #[rstest]
-    fn highlight_clear_only_triggers_provider_clear(mut runtime: Runtime) {
+    fn highlight_clear_only_triggers_provider_clear(runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_highlight_state();
 
@@ -193,11 +192,10 @@ mod tests {
         assert_eq!(highlight_clear_count(), 1);
 
         reset_highlight_state();
-        runtime.shutdown();
     }
 
     #[rstest]
-    fn highlight_requires_expression_or_clear(mut runtime: Runtime) {
+    fn highlight_requires_expression_or_clear(runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
 
         let err = run(
@@ -207,11 +205,10 @@ mod tests {
         .expect_err("missing expression or rect should error");
         assert!(err.to_string().contains("requires"));
 
-        runtime.shutdown();
     }
 
     #[rstest]
-    fn highlight_rect_path_uses_default_duration(mut runtime: Runtime) {
+    fn highlight_rect_path_uses_default_duration(runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_highlight_state();
 
@@ -228,6 +225,5 @@ mod tests {
         assert_eq!(log[0][0].duration, Some(Duration::from_millis(1500)));
 
         reset_highlight_state();
-        runtime.shutdown();
     }
 }

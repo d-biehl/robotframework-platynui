@@ -216,6 +216,37 @@ fn benchmark_set_ops(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_time_to_first_item(c: &mut Criterion) {
+    let document = build_large_axis_document();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
+    let queries = vec![
+        ("desc-all", "//*"),
+        ("desc-attrs", "//@*"),
+        ("desc-item-type-a", "//item[@type='a']"),
+        ("section-beta", "//section[@name='beta']"),
+    ];
+    let compiled: Vec<_> = queries
+        .into_iter()
+        .map(|(n, q)| (n, compile(q).expect("compile")))
+        .collect();
+
+    let mut group = c.benchmark_group("streaming/time_to_first_item");
+    group.sample_size(12);
+    group.measurement_time(Duration::from_secs(6));
+    group.warm_up_time(Duration::from_secs(2));
+    for (name, program) in &compiled {
+        group.bench_with_input(BenchmarkId::from_parameter(name), program, |b, prog| {
+            b.iter(|| {
+                let stream = platynui_xpath::evaluate_stream::<SimpleNode>(prog, &ctx).expect("eval");
+                let mut cursor = stream.cursor();
+                if let Some(item) = cursor.next_item() {
+                    black_box(item.expect("first item"));
+                }
+            });
+        });
+    }
+    group.finish();
+}
 criterion_group!(
     benches,
     benchmark_parser,
@@ -223,7 +254,8 @@ criterion_group!(
     benchmark_evaluator,
     benchmark_axes_following_preceding,
     benchmark_predicate_heavy,
-    benchmark_set_ops
+    benchmark_set_ops,
+    benchmark_time_to_first_item
 );
 criterion_main!(benches);
 fn prepare_set_queries() -> Result<Vec<(String, platynui_xpath::compiler::ir::CompiledXPath)>, Error>

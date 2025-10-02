@@ -51,7 +51,7 @@ This note summarizes how the crate lines up with the W3C *XPath 2.0* recommendat
 
 | Concern | Implementation | Notes |
 | --- | --- | --- |
-| Document order & distinct nodes | `DocOrderDistinct` normalises node sequences after each step (`crates/platynui-xpath/src/compiler/mod.rs:374-414`, `crates/platynui-xpath/src/engine/evaluator.rs:1768-1801`). |
+| Document order & distinct nodes | Explicit `EnsureOrder` and `EnsureDistinct` normalise node sequences only where required; forward axes stream without normalisation. |
 | Predicate focus | Predicates are compiled as nested instruction sequences; the VM installs a `Frame` so `position()`/`last()` behave per spec (`crates/platynui-xpath/src/compiler/mod.rs:364-373`, `crates/platynui-xpath/src/engine/evaluator.rs:140-210`). |
 | Axis evaluation | `axis_iter` covers every axis defined in XPath 2.0, including namespace handling and exclusions for `preceding`/`following` (`crates/platynui-xpath/src/engine/evaluator.rs:1802-1976`). |
 | Namespace wildcards | Compiler resolves namespace prefixes via the static context when lowering wildcard node tests (`crates/platynui-xpath/src/compiler/mod.rs:440-458`). |

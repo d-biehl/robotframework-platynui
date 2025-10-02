@@ -65,9 +65,7 @@ struct Compiler<'a> {
     source: &'a str,
     code: Vec<ir::OpCode>,
     lexical_scopes: SmallVec<[SmallVec<[ExpandedName; 4]>; 8]>,
-    // Tracks whether the path just started with RootDescendant. Used for the narrow
-    // `//*` optimization (child::* directly after descendant-or-self::node()).
-    last_was_rootdesc: bool,
+    // (no streaming hint flags; keep compiler simple and correct)
 }
 
 type CResult<T> = Result<T, Error>;
@@ -80,7 +78,6 @@ impl<'a> Compiler<'a> {
             source,
             code: Vec::with_capacity(reserve),
             lexical_scopes: SmallVec::new(),
-            last_was_rootdesc: false,
         }
     }
 
@@ -90,7 +87,6 @@ impl<'a> Compiler<'a> {
             source: self.source,
             code: Vec::with_capacity(self.code.capacity()),
             lexical_scopes: self.lexical_scopes.clone(),
-            last_was_rootdesc: self.last_was_rootdesc,
         }
     }
 
@@ -445,7 +441,6 @@ impl<'a> Compiler<'a> {
                 self.load_context_item("root path expression")?;
                 self.emit(ir::OpCode::Pop);
                 self.emit(ir::OpCode::ToRoot);
-                self.last_was_rootdesc = false;
             }
             ast::PathStart::RootDescendant => {
                 self.load_context_item("root descendant path expression")?;
@@ -456,8 +451,6 @@ impl<'a> Compiler<'a> {
                     ir::NodeTestIR::AnyKind,
                     vec![],
                 ));
-                // Mark that the next step directly follows a descendant-or-self::node()
-                self.last_was_rootdesc = true;
             }
             ast::PathStart::Relative => {
                 if let Some(b) = base {
@@ -465,7 +458,6 @@ impl<'a> Compiler<'a> {
                 } else {
                     self.load_context_item("relative path")?;
                 }
-                self.last_was_rootdesc = false;
             }
         }
         self.lower_path_steps(&p.steps)
@@ -478,53 +470,44 @@ impl<'a> Compiler<'a> {
                     let axis_ir = self.map_axis(axis);
                     let test_ir = self.map_node_test_checked(test, &axis_ir)?;
                     let preds = self.lower_predicates(predicates)?;
-                    let has_preds = !preds.is_empty();
                     self.emit(ir::OpCode::AxisStep(axis_ir.clone(), test_ir.clone(), preds));
-
-                    // Hint handling for the classic pattern `//*` after a RootDescendant start:
-                    // We want both steps to avoid buffering: (1) descendant-or-self::node() and (2) child::*
-                    let pending_rootdesc = self.last_was_rootdesc;
-                    let is_desc_self_any = matches!(axis_ir, ir::AxisIR::DescendantOrSelf)
-                        && matches!(test_ir, ir::NodeTestIR::AnyKind)
-                        && !has_preds
-                        && pending_rootdesc;
-                    let is_child_forward = matches!(axis_ir, ir::AxisIR::Child)
-                        && (matches!(test_ir, ir::NodeTestIR::WildcardAny)
-                            || matches!(test_ir, ir::NodeTestIR::Name(_))
-                            || matches!(
-                                test_ir,
-                                ir::NodeTestIR::KindElement {
-                                    name: Some(ir::NameOrWildcard::Name(_)),
-                                    ty: None,
-                                    nillable: false,
-                                }
-                            ))
-                        && pending_rootdesc;
-
-                    if is_desc_self_any || is_child_forward {
-                        self.emit(ir::OpCode::DocOrderDistinctOptimistic);
-                    } else {
-                        self.emit(ir::OpCode::DocOrderDistinct);
-                    }
-                    // Consume the RootDescendant hint after the first step following it
-                    if pending_rootdesc {
-                        // Keep it set only if current step was the descendant-or-self; the next step (child) should still see it.
-                        self.last_was_rootdesc = matches!(axis_ir, ir::AxisIR::DescendantOrSelf);
-                    } else {
-                        self.last_was_rootdesc = false;
+                    // Emit doc-order/distinct only where required by axis semantics.
+                    // For child/attribute/self the concatenation over a doc-ordered, distinct
+                    // input remains doc-ordered and duplicate-free.
+                    match axis_ir {
+                        // Forward axes that do not introduce duplicates and preserve order
+                        ir::AxisIR::Child | ir::AxisIR::SelfAxis => {}
+                        // Forward axes that may introduce duplicates but keep order
+                        ir::AxisIR::Descendant
+                        | ir::AxisIR::DescendantOrSelf
+                        | ir::AxisIR::Following
+                        | ir::AxisIR::FollowingSibling => self.emit(ir::OpCode::EnsureDistinct),
+                        ir::AxisIR::Attribute | ir::AxisIR::Namespace => { /* no normalization needed */ }
+                        // Reverse axes need both: order and distinct
+                        ir::AxisIR::Parent
+                        | ir::AxisIR::Ancestor
+                        | ir::AxisIR::AncestorOrSelf
+                        | ir::AxisIR::Preceding
+                        | ir::AxisIR::PrecedingSibling => {
+                            self.emit(ir::OpCode::EnsureDistinct);
+                            self.emit(ir::OpCode::EnsureOrder);
+                        }
                     }
                 }
                 ast::Step::FilterExpr(expr) => {
                     let mut sub = self.fork();
                     sub.lower_expr(expr)?;
                     self.emit(ir::OpCode::PathExprStep(ir::InstrSeq(sub.code)));
-                    self.emit(ir::OpCode::DocOrderDistinct);
-                    self.last_was_rootdesc = false;
+                    // General expression → normalize fully for next axis
+                    self.emit(ir::OpCode::EnsureDistinct);
+                    self.emit(ir::OpCode::EnsureOrder);
                 }
             }
         }
         Ok(())
     }
+
+    // no special optimistic streaming hints; evaluator handles streaming per axis
 
     fn map_axis(&self, a: &ast::Axis) -> ir::AxisIR {
         use ast::Axis::*;

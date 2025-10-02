@@ -156,7 +156,18 @@ struct AxisStepCursor<N> {
 
 impl<N: 'static + XdmNode + Clone> AxisStepCursor<N> {
     fn new(vm: VmHandle<N>, input: XdmSequenceStream<N>, axis: AxisIR, test: NodeTestIR) -> Self {
-        Self { vm, axis, test, input_cursor: input.cursor(), current_output: None }
+            // For descendant/descendant-or-self, minimize overlapping contexts to avoid duplicates
+        let base_cursor = input.cursor();
+        let input_cursor: Box<dyn SequenceCursor<N>> = match axis {
+            AxisIR::Descendant | AxisIR::DescendantOrSelf =>
+                Box::new(ContextMinCursor::new(base_cursor)),
+            AxisIR::Following => Box::new(ContextMinFollowingCursor::new(base_cursor)),
+            AxisIR::FollowingSibling => {
+                Box::new(ContextMinFollowingSiblingCursor::new(base_cursor))
+            }
+            _ => base_cursor,
+        };
+        Self { vm, axis, test, input_cursor, current_output: None }
     }
 }
 
@@ -178,10 +189,16 @@ enum AxisState<N> {
     SelfOnce {
         emitted: bool,
     },
-    // Iterate a buffered list with index (used for cheap axes)
-    Buffer {
-        buf: SmallVec<[N; 16]>,
+    // Stream child:: axis without pre-buffering
+    ChildIter {
+        current: Option<N>,
+        initialized: bool,
+    },
+    // attribute:: axis with per-parent snapshot (attributes are few; avoids unstable equality/iterators)
+    AttributeBuf {
+        buf: SmallVec<[N; 8]>,
         idx: usize,
+        initialized: bool,
     },
     // Depth-first traversal for descendant/descendant-or-self using document-order successors.
     // `last` holds the last emitted node in pre-order; the next candidate is its doc_successor.
@@ -200,15 +217,13 @@ enum AxisState<N> {
         current: Option<N>,
         include_self: bool,
     },
-    // Sibling scans
-    FollowingSibling {
-        buf: SmallVec<[N; 16]>,
-        idx: usize,
+    // Sibling scans (streaming)
+    FollowingSiblingIter {
+        current: Option<N>,
         initialized: bool,
     },
-    PrecedingSibling {
-        buf: SmallVec<[N; 16]>,
-        idx: usize,
+    PrecedingSiblingIter {
+        current: Option<N>,
         initialized: bool,
     },
     // Following/Preceding document order
@@ -250,8 +265,9 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
     fn init_state(&mut self) {
         self.state = match self.axis {
             AxisIR::SelfAxis => AxisState::SelfOnce { emitted: false },
-            AxisIR::Child => AxisState::Buffer { buf: SmallVec::new(), idx: 0 },
-            AxisIR::Attribute => AxisState::Buffer { buf: SmallVec::new(), idx: 0 },
+            // Stream children lazily to avoid building large buffers
+            AxisIR::Child => AxisState::ChildIter { current: None, initialized: false },
+            AxisIR::Attribute => AxisState::AttributeBuf { buf: SmallVec::new(), idx: 0, initialized: false },
             AxisIR::Parent => AxisState::Parent { done: false },
             AxisIR::Ancestor => {
                 AxisState::Ancestors { current: self.node.parent(), include_self: false }
@@ -271,12 +287,10 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                 include_self: true,
                 started: false,
             },
-            AxisIR::FollowingSibling => {
-                AxisState::FollowingSibling { buf: SmallVec::new(), idx: 0, initialized: false }
-            }
-            AxisIR::PrecedingSibling => {
-                AxisState::PrecedingSibling { buf: SmallVec::new(), idx: 0, initialized: false }
-            }
+            AxisIR::FollowingSibling =>
+                AxisState::FollowingSiblingIter { current: None, initialized: false },
+            AxisIR::PrecedingSibling =>
+                AxisState::PrecedingSiblingIter { current: None, initialized: false },
             AxisIR::Following => {
                 AxisState::Following { anchor: None, next: None, initialized: false }
             }
@@ -306,34 +320,6 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
         };
     }
 
-    fn fill_buffer_via_vm(&mut self) -> Result<(), Error> {
-        // One-shot: run the VM's axis iterator and filter
-        let axis = self.axis.clone();
-        let test = self.test.clone();
-        let node = self.node.clone();
-        let (filtered, _) = self.vm.with_vm(|vm| {
-            vm.axis_iter(node.clone(), &axis);
-            let filter_child_elements =
-                matches!(axis, AxisIR::Child) && matches!(test, NodeTestIR::WildcardAny);
-            let mut candidates = mem::take(&mut vm.axis_buffer);
-            let mut out: SmallVec<[N; 16]> = SmallVec::with_capacity(candidates.len());
-            for cand in candidates.iter() {
-                let mut pass = vm.node_test(cand, &test);
-                if pass && filter_child_elements {
-                    pass = matches!(cand.kind(), NodeKind::Element);
-                }
-                if pass {
-                    out.push(cand.clone());
-                }
-            }
-            candidates.clear();
-            vm.axis_buffer = candidates;
-            Ok::<_, Error>((out, ()))
-        })?;
-        self.state = AxisState::Buffer { buf: filtered, idx: 0 };
-        Ok(())
-    }
-
     fn next_candidate(&mut self) -> Result<Option<N>, Error> {
         if matches!(self.state, AxisState::Init) {
             self.init_state();
@@ -346,24 +332,31 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                 *emitted = true;
                 Ok(Some(self.node.clone()))
             }
-            AxisState::Buffer { buf, idx: _ } => {
-                if buf.is_empty() {
-                    // First entry into this buffer: populate once
-                    self.fill_buffer_via_vm()?;
+            AxisState::ChildIter { current, initialized } => {
+                if !*initialized {
+                    *current = Self::first_child_in_doc(&self.node);
+                    *initialized = true;
+                } else if let Some(cur) = current.clone() {
+                    *current = Self::next_sibling_in_doc(&cur);
                 }
-                match &mut self.state {
-                    AxisState::Buffer { buf, idx } => {
-                        if *idx < buf.len() {
-                            let n = buf[*idx].clone();
-                            *idx += 1;
-                            Ok(Some(n))
-                        } else {
-                            Ok(None)
-                        }
-                    }
-                    _ => Ok(None),
+                Ok(current.clone())
+            }
+            AxisState::AttributeBuf { buf, idx, initialized } => {
+                if !*initialized {
+                    buf.clear();
+                    *idx = 0;
+                    for a in self.node.attributes() { buf.push(a); }
+                    *initialized = true;
+                }
+                if *idx < buf.len() {
+                    let n = buf[*idx].clone();
+                    *idx += 1;
+                    Ok(Some(n))
+                } else {
+                    Ok(None)
                 }
             }
+            // no generic buffer state anymore
             AxisState::Parent { done } => {
                 if *done {
                     return Ok(None);
@@ -429,51 +422,23 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                     Ok(None)
                 }
             }
-            AxisState::FollowingSibling { buf, idx, initialized } => {
+            AxisState::FollowingSiblingIter { current, initialized } => {
                 if !*initialized {
+                    *current = Self::next_sibling_in_doc(&self.node);
                     *initialized = true;
-                    if let Some(parent) = self.node.parent() {
-                        let mut seen = false;
-                        for sib in parent.children() {
-                            if seen {
-                                if !Self::is_attr_or_namespace(&sib) {
-                                    buf.push(sib);
-                                }
-                            } else if sib == self.node {
-                                seen = true;
-                            }
-                        }
-                    }
+                } else if let Some(cur) = current.clone() {
+                    *current = Self::next_sibling_in_doc(&cur);
                 }
-                if *idx < buf.len() {
-                    let n = buf[*idx].clone();
-                    *idx += 1;
-                    Ok(Some(n))
-                } else {
-                    Ok(None)
-                }
+                Ok(current.clone())
             }
-            AxisState::PrecedingSibling { buf, idx, initialized } => {
+            AxisState::PrecedingSiblingIter { current, initialized } => {
                 if !*initialized {
+                    *current = Self::prev_sibling_in_doc(&self.node);
                     *initialized = true;
-                    if let Some(parent) = self.node.parent() {
-                        for sib in parent.children() {
-                            if sib == self.node {
-                                break;
-                            }
-                            if !Self::is_attr_or_namespace(&sib) {
-                                buf.push(sib);
-                            }
-                        }
-                    }
+                } else if let Some(cur) = current.clone() {
+                    *current = Self::prev_sibling_in_doc(&cur);
                 }
-                if *idx < buf.len() {
-                    let n = buf[*idx].clone();
-                    *idx += 1;
-                    Ok(Some(n))
-                } else {
-                    Ok(None)
-                }
+                Ok(current.clone())
             }
             AxisState::Following { anchor, next, initialized } => {
                 if !*initialized {
@@ -597,6 +562,176 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
     }
 }
 
+// Filters an input of items to drop context nodes that are descendants of the last kept node.
+// Assumes (typisch im Compiler) doc-ordered input; otherwise correctness bleibt erhalten,
+// aber ggf. weniger Duplikate werden im Vorfeld entfernt (EnsureDistinct fängt Reste ab).
+struct ContextMinCursor<N> {
+    inner: Box<dyn SequenceCursor<N>>,
+    last_kept: Option<N>,
+}
+
+impl<N> ContextMinCursor<N> {
+    fn new(inner: Box<dyn SequenceCursor<N>>) -> Self { Self { inner, last_kept: None } }
+}
+
+impl<N: XdmNode + Clone + 'static> ContextMinCursor<N> {
+    fn is_descendant_of(node: &N, ancestor: &N) -> bool {
+        let mut cur = node.parent();
+        let mut guard = 0usize;
+        while let Some(p) = cur {
+            if &p == ancestor {
+                return true;
+            }
+            let next = p.parent();
+            // Cycle guards: parent() returns self or path too deep
+            if next.as_ref().is_some_and(|q| q == &p) {
+                break;
+            }
+            cur = next;
+            guard = guard.saturating_add(1);
+            if guard > 1_000_000 {
+                break;
+            }
+        }
+        false
+    }
+}
+
+impl<N: XdmNode + Clone + 'static> SequenceCursor<N> for ContextMinCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        loop {
+            let item = self.inner.next_item()?;
+            match item {
+                Ok(XdmItem::Node(n)) => {
+                    if let Some(last) = &self.last_kept
+                        && Self::is_descendant_of(&n, last)
+                    {
+                        continue; // skip overlapping context
+                    }
+                    self.last_kept = Some(n.clone());
+                    return Some(Ok(XdmItem::Node(n)));
+                }
+                other => return Some(other),
+            }
+        }
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self { inner: self.inner.boxed_clone(), last_kept: self.last_kept.clone() })
+    }
+}
+
+// Minimize contexts for following:: by keeping only the earliest context per root.
+struct ContextMinFollowingCursor<N> {
+    inner: Box<dyn SequenceCursor<N>>,
+    anchors: SmallVec<[(N, N); 4]>, // (root, earliest_anchor)
+}
+
+impl<N> ContextMinFollowingCursor<N> {
+    fn new(inner: Box<dyn SequenceCursor<N>>) -> Self { Self { inner, anchors: SmallVec::new() } }
+}
+
+impl<N: XdmNode + Clone + 'static> ContextMinFollowingCursor<N> {
+    fn root_of(n: &N) -> N {
+        let mut cur = n.clone();
+        while let Some(p) = cur.parent() {
+            cur = p;
+        }
+        cur
+    }
+}
+
+impl<N: XdmNode + Clone + 'static> SequenceCursor<N> for ContextMinFollowingCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        loop {
+            let item = self.inner.next_item()?;
+            match item {
+                Ok(XdmItem::Node(n)) => {
+                    let root = Self::root_of(&n);
+                    if let Some((_, earliest)) = self.anchors.iter().find(|(r, _)| *r == root) {
+                        // if candidate is after earliest (or equal), its following:: is subset → drop
+                        if n == *earliest { continue; }
+                        // We lack total order here without compare; conservatively drop only if n is after earliest.
+                        // Determine by checking if earliest is ancestor of n or comes before n.
+                        // Use document order comparator via Eq-based path: walk up to compare ancestry
+                        // Fallback: treat as after if earliest is not after n.
+                        // Simpler and safe: if n is a descendant of earliest, then n is after earliest.
+                        let mut cur = Some(n.clone());
+                        let mut is_desc = false;
+                        let mut guard = 0usize;
+                        while let Some(p) = cur {
+                            if p == *earliest { is_desc = true; break; }
+                            let next = p.parent();
+                            if next.as_ref().is_some_and(|q| q == &p) { break; }
+                            cur = next;
+                            guard = guard.saturating_add(1);
+                            if guard > 1_000_000 { break; }
+                        }
+                        if is_desc { continue; }
+                        // Otherwise keep it (could be before due to unsorted input)
+                    } else {
+                        self.anchors.push((root, n.clone()));
+                        return Some(Ok(XdmItem::Node(n)));
+                    }
+                    // For existing root: only keep if not after earliest
+                    return Some(Ok(XdmItem::Node(n)));
+                }
+                other => return Some(other),
+            }
+        }
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self { inner: self.inner.boxed_clone(), anchors: self.anchors.clone() })
+    }
+}
+
+// Minimize contexts for following-sibling:: by keeping only the leftmost sibling per parent.
+struct ContextMinFollowingSiblingCursor<N> {
+    inner: Box<dyn SequenceCursor<N>>,
+    leftmost: SmallVec<[(N, N); 8]>, // (parent, leftmost_child_seen)
+}
+
+impl<N> ContextMinFollowingSiblingCursor<N> {
+    fn new(inner: Box<dyn SequenceCursor<N>>) -> Self { Self { inner, leftmost: SmallVec::new() } }
+}
+
+impl<N: XdmNode + Clone + 'static> SequenceCursor<N> for ContextMinFollowingSiblingCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        'outer: loop {
+            let item = self.inner.next_item()?;
+            match item {
+                Ok(XdmItem::Node(n)) => {
+                    if let Some(parent) = n.parent() {
+                        if let Some((_, left)) = self.leftmost.iter().find(|(p, _)| *p == parent) {
+                            // If `n` is after `left` among siblings → redundant
+                            let mut seen_left = false;
+                            for s in parent.children() {
+                                if s == *left { seen_left = true; continue; }
+                            if seen_left && s == n { // n is after left → drop
+                                continue 'outer;
+                            }
+                            }
+                            // If we got here, either n is before left (unsorted) → keep
+                            return Some(Ok(XdmItem::Node(n)));
+                        } else {
+                            self.leftmost.push((parent, n.clone()));
+                            return Some(Ok(XdmItem::Node(n)));
+                        }
+                    }
+                    // No parent? Not a normal element; just pass through
+                    return Some(Ok(XdmItem::Node(n)));
+                }
+                other => return Some(other),
+            }
+        }
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self { inner: self.inner.boxed_clone(), leftmost: self.leftmost.clone() })
+    }
+}
+
 impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for NodeAxisCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         loop {
@@ -655,6 +790,7 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
         }
         None
     }
+    // no attribute helpers needed with AttributeBuf
     fn last_descendant_in_doc(mut node: N) -> N {
         loop {
             let mut last: Option<N> = None;
@@ -682,6 +818,19 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             cur = p;
         }
         None
+    }
+    fn prev_sibling_in_doc(node: &N) -> Option<N> {
+        let parent = node.parent()?;
+        let mut prev: Option<N> = None;
+        for s in parent.children() {
+            if s == *node {
+                break;
+            }
+            if !Self::is_attr_or_namespace(&s) {
+                prev = Some(s);
+            }
+        }
+        prev
     }
 }
 
@@ -972,141 +1121,6 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for PathStepCursor<N> {
     }
 }
 
-struct DocOrderDistinctCursor<N> {
-    vm: VmHandle<N>,
-    input: Option<Box<dyn SequenceCursor<N>>>,
-    buffer: VecDeque<XdmItem<N>>,
-    initialized: bool,
-    keyed: SmallVec<[(u64, N); 16]>,
-    fallback: SmallVec<[N; 16]>,
-    others: Vec<XdmItem<N>>,
-}
-
-impl<N: 'static + XdmNode + Clone> DocOrderDistinctCursor<N> {
-    fn new(vm: VmHandle<N>, input: Box<dyn SequenceCursor<N>>) -> Self {
-        Self {
-            vm,
-            input: Some(input),
-            buffer: VecDeque::new(),
-            initialized: false,
-            keyed: SmallVec::new(),
-            fallback: SmallVec::new(),
-            others: Vec::with_capacity(32),
-        }
-    }
-
-    fn ensure_buffer(&mut self) -> Result<(), Error> {
-        if self.initialized {
-            return Ok(());
-        }
-        let mut cursor = match self.input.take() {
-            Some(c) => c,
-            None => return Ok(()),
-        };
-
-        let mut keyed = mem::take(&mut self.keyed);
-        let mut fallback = mem::take(&mut self.fallback);
-        let mut others = mem::take(&mut self.others);
-        keyed.clear();
-        fallback.clear();
-        others.clear();
-        self.buffer.clear();
-
-        while let Some(item) = cursor.next_item() {
-            match item {
-                Ok(XdmItem::Node(n)) => {
-                    if let Some(key) = n.doc_order_key() {
-                        keyed.push((key, n));
-                    } else {
-                        fallback.push(n);
-                    }
-                }
-                Ok(other) => others.push(other),
-                Err(err) => return Err(err),
-            }
-        }
-
-        if keyed.is_empty() && fallback.is_empty() {
-            self.buffer.extend(others.drain(..));
-            self.initialized = true;
-            self.keyed = keyed;
-            self.fallback = fallback;
-            self.others = others;
-            return Ok(());
-        }
-
-        if fallback.is_empty() {
-            keyed.sort_by_key(|(k, _)| *k);
-            keyed.dedup_by(|a, b| a.0 == b.0);
-            self.buffer.extend(others.drain(..));
-            self.buffer.extend(keyed.drain(..).map(|(_, n)| XdmItem::Node(n)));
-            self.initialized = true;
-            self.keyed = keyed;
-            self.fallback = fallback;
-            self.others = others;
-            return Ok(());
-        }
-
-        if keyed.is_empty() {
-            fallback.sort_by(|a, b| self.compare_nodes(a, b));
-            fallback.dedup();
-            self.buffer.extend(others.drain(..));
-            self.buffer.extend(fallback.drain(..).map(XdmItem::Node));
-            self.initialized = true;
-            self.keyed = keyed;
-            self.fallback = fallback;
-            self.others = others;
-            return Ok(());
-        }
-
-        keyed.sort_by_key(|(k, _)| *k);
-        keyed.dedup_by(|a, b| a.0 == b.0);
-        fallback.extend(keyed.drain(..).map(|(_, n)| n));
-        fallback.sort_by(|a, b| self.compare_nodes(a, b));
-        fallback.dedup();
-        self.buffer.extend(others.drain(..));
-        self.buffer.extend(fallback.drain(..).map(XdmItem::Node));
-        self.initialized = true;
-        self.keyed = keyed;
-        self.fallback = fallback;
-        self.others = others;
-        Ok(())
-    }
-
-    fn compare_nodes(&self, a: &N, b: &N) -> Ordering {
-        self.vm.with_vm(|vm| vm.node_compare(a, b)).unwrap_or(Ordering::Equal)
-    }
-}
-
-impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for DocOrderDistinctCursor<N> {
-    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
-        if let Err(err) = self.ensure_buffer() {
-            return Some(Err(err));
-        }
-        self.buffer.pop_front().map(Ok)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.initialized {
-            let len = self.buffer.len();
-            (len, Some(len))
-        } else {
-            (0, None)
-        }
-    }
-
-    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
-        Box::new(Self {
-            vm: self.vm.clone(),
-            input: self.input.as_ref().map(|c| c.boxed_clone()),
-            buffer: self.buffer.clone(),
-            initialized: self.initialized,
-            keyed: self.keyed.clone(),
-            fallback: self.fallback.clone(),
-            others: self.others.clone(),
-        })
-    }
-}
 
 #[derive(Clone, Copy, Debug)]
 enum SetOpKind {
@@ -1727,10 +1741,6 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         })
     }
 
-    fn doc_order_distinct_stream(&self, stream: XdmSequenceStream<N>) -> XdmSequenceStream<N> {
-        let cursor = DocOrderDistinctCursor::new(self.handle(), stream.cursor());
-        XdmSequenceStream::new(cursor)
-    }
 
     fn set_operation_stream(
         &self,
@@ -1837,17 +1847,16 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     self.push_stream(filtered);
                     ip += 1;
                 }
-                OpCode::DocOrderDistinct => {
+                OpCode::EnsureDistinct => {
                     let stream = self.pop_stream();
-                    let ordered = self.doc_order_distinct_stream(stream);
-                    self.push_stream(ordered);
+                    let cursor = DistinctCursor::new(self.handle(), stream.cursor());
+                    self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
-                OpCode::DocOrderDistinctOptimistic => {
-                    // Fast path: assume input is already in document order and duplicate-free → no-op
-                    // Still pop and push to keep stack discipline identical to the non-optimistic path.
+                OpCode::EnsureOrder => {
                     let stream = self.pop_stream();
-                    self.push_stream(stream);
+                    let cursor = EnsureOrderCursor::new(self.handle(), stream.cursor());
+                    self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
 
@@ -3475,237 +3484,51 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         Ok(out)
     }
 
+    fn doc_order_only(&self, seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
+        use crate::xdm::XdmItem;
+        let mut keyed: SmallVec<[(u64, N); 16]> = SmallVec::new();
+        let mut fallback: SmallVec<[N; 16]> = SmallVec::new();
+        let mut others: Vec<XdmItem<N>> = Vec::new();
+
+        for item in seq {
+            match item {
+                XdmItem::Node(n) => {
+                    if let Some(k) = n.doc_order_key() {
+                        keyed.push((k, n));
+                    } else {
+                        fallback.push(n);
+                    }
+                }
+                other => others.push(other),
+            }
+        }
+
+        if fallback.is_empty() {
+            keyed.sort_by_key(|(k, _)| *k);
+            let mut out = others;
+            out.extend(keyed.into_iter().map(|(_, n)| XdmItem::Node(n)));
+            return Ok(out);
+        }
+        if keyed.is_empty() {
+            fallback.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
+            let mut out = others;
+            out.extend(fallback.into_iter().map(XdmItem::Node));
+            return Ok(out);
+        }
+
+        keyed.sort_by_key(|(k, _)| *k);
+        fallback.extend(keyed.into_iter().map(|(_, n)| n));
+        fallback.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
+        let mut out = others;
+        out.extend(fallback.into_iter().map(XdmItem::Node));
+        Ok(out)
+    }
+
     // (function name resolution for error messages is handled in FunctionRegistry::resolve)
 
     // (default_collation cached in Vm::new)
 
     // ===== Axis & NodeTest helpers =====
-    fn axis_iter(&mut self, node: N, axis: &AxisIR) {
-        self.axis_buffer.clear();
-        match axis {
-            AxisIR::SelfAxis => self.axis_buffer.push(node),
-            AxisIR::Child => {
-                // Direct iteration without intermediate Vec allocation
-                for child in node.children() {
-                    if !Self::is_attr_or_namespace(&child) {
-                        self.axis_buffer.push(child);
-                    }
-                }
-            }
-            AxisIR::Attribute => {
-                // Direct iteration for attributes too
-                for attr in node.attributes() {
-                    self.axis_buffer.push(attr);
-                }
-            }
-            AxisIR::Parent => {
-                if let Some(parent) = node.parent() {
-                    self.axis_buffer.push(parent);
-                }
-            }
-            AxisIR::Ancestor => self.push_ancestors(node, false),
-            AxisIR::AncestorOrSelf => self.push_ancestors(node, true),
-            AxisIR::Descendant => self.push_descendants(node, false),
-            AxisIR::DescendantOrSelf => self.push_descendants(node, true),
-            AxisIR::FollowingSibling => self.push_siblings(node, false),
-            AxisIR::PrecedingSibling => self.push_siblings(node, true),
-            AxisIR::Following => self.push_following(node),
-            AxisIR::Namespace => self.push_namespaces(node),
-            AxisIR::Preceding => self.push_preceding(node),
-        }
-    }
-    fn push_ancestors(&mut self, node: N, include_self: bool) {
-        if include_self {
-            self.axis_buffer.push(node.clone());
-        }
-        let mut current = node.parent();
-        while let Some(parent) = current {
-            self.axis_buffer.push(parent.clone());
-            current = parent.parent();
-        }
-    }
-    fn push_descendants(&mut self, node: N, include_self: bool) {
-        if include_self {
-            self.axis_buffer.push(node.clone());
-        }
-        let mut stack: SmallVec<[N; 16]> = SmallVec::new(); // Use SmallVec for better cache locality
-
-        // Collect children efficiently without intermediate allocation
-        for child in node.children() {
-            if !Self::is_attr_or_namespace(&child) {
-                stack.push(child);
-            }
-        }
-
-        while let Some(cur) = stack.pop() {
-            self.axis_buffer.push(cur.clone());
-            // Process children directly without allocation
-            for child in cur.children() {
-                if !Self::is_attr_or_namespace(&child) {
-                    stack.push(child);
-                }
-            }
-        }
-    }
-    fn push_siblings(&mut self, node: N, preceding: bool) {
-        if let Some(parent) = node.parent() {
-            if preceding {
-                for sib in parent.children() {
-                    if sib == node {
-                        break;
-                    }
-                    if !Self::is_attr_or_namespace(&sib) {
-                        self.axis_buffer.push(sib);
-                    }
-                }
-            } else {
-                let mut seen = false;
-                for sib in parent.children() {
-                    if seen {
-                        if !Self::is_attr_or_namespace(&sib) {
-                            self.axis_buffer.push(sib);
-                        }
-                    } else if sib == node {
-                        seen = true;
-                    }
-                }
-            }
-        }
-    }
-    fn push_following(&mut self, node: N) {
-        let mut anchor = Self::last_descendant_in_doc(node);
-        let mut cursor = self.doc_successor(&anchor);
-        while let Some(next) = cursor {
-            if !Self::is_attr_or_namespace(&next) {
-                self.axis_buffer.push(next.clone());
-            }
-            anchor = next;
-            cursor = self.doc_successor(&anchor);
-        }
-    }
-    fn push_namespaces(&mut self, node: N) {
-        use crate::model::NodeKind;
-        if !matches!(node.kind(), NodeKind::Element) {
-            return;
-        }
-        let mut seen = SmallVec::<[DefaultAtom; 8]>::new();
-        let mut cur: Option<N> = Some(node);
-        while let Some(n) = cur {
-            if matches!(n.kind(), NodeKind::Element) {
-                for ns in n.namespaces() {
-                    if let Some(qn) = ns.name() {
-                        let atom = DefaultAtom::from(qn.prefix.unwrap_or_default().as_str());
-                        if !seen.iter().any(|existing| existing == &atom) {
-                            seen.push(atom);
-                            self.axis_buffer.push(ns.clone());
-                        }
-                    }
-                }
-            }
-            cur = n.parent();
-        }
-    }
-    fn push_preceding(&mut self, node: N) {
-        let mut cursor = self.doc_predecessor(&node);
-        while let Some(prev) = cursor {
-            let prev_cursor = self.doc_predecessor(&prev);
-            if !Self::is_attr_or_namespace(&prev) && !self.is_ancestor_of(&prev, &node) {
-                self.axis_buffer.push(prev.clone());
-            }
-            cursor = prev_cursor;
-        }
-        self.axis_buffer.reverse();
-    }
-    fn doc_successor(&self, node: &N) -> Option<N> {
-        if let Some(child) = Self::first_child_in_doc(node) {
-            return Some(child);
-        }
-        let mut current = node.clone();
-        while let Some(parent) = current.parent() {
-            if let Some(sib) = Self::next_sibling_in_doc(&current) {
-                return Some(sib);
-            }
-            current = parent;
-        }
-        None
-    }
-    fn doc_predecessor(&self, node: &N) -> Option<N> {
-        if let Some(prev) = Self::prev_sibling_in_doc(node) {
-            return Some(Self::last_descendant_in_doc(prev));
-        }
-        let mut current = node.clone();
-        while let Some(parent) = current.parent() {
-            if !Self::is_attr_or_namespace(&parent) {
-                return Some(parent);
-            }
-            if let Some(prev) = Self::prev_sibling_in_doc(&parent) {
-                return Some(Self::last_descendant_in_doc(prev));
-            }
-            current = parent;
-        }
-        None
-    }
-    fn first_child_in_doc(node: &N) -> Option<N> {
-        node.children().find(|child| !Self::is_attr_or_namespace(child))
-    }
-    fn next_sibling_in_doc(node: &N) -> Option<N> {
-        let parent = node.parent()?;
-        let mut found = false;
-        for sib in parent.children() {
-            if found && !Self::is_attr_or_namespace(&sib) {
-                return Some(sib);
-            }
-            if sib == *node {
-                found = true;
-            }
-        }
-        None
-    }
-    fn prev_sibling_in_doc(node: &N) -> Option<N> {
-        let parent = node.parent()?;
-        let mut prev: Option<N> = None;
-        for sib in parent.children() {
-            if sib == *node {
-                break;
-            }
-            if !Self::is_attr_or_namespace(&sib) {
-                prev = Some(sib);
-            }
-        }
-        prev
-    }
-    fn last_descendant_in_doc(node: N) -> N {
-        let mut current = node;
-        loop {
-            let mut last_child: Option<N> = None;
-            for child in current.children() {
-                if !Self::is_attr_or_namespace(&child) {
-                    last_child = Some(child);
-                }
-            }
-            if let Some(child) = last_child {
-                current = child;
-            } else {
-                return current;
-            }
-        }
-    }
-    fn is_attr_or_namespace(node: &N) -> bool {
-        matches!(node.kind(), NodeKind::Attribute | NodeKind::Namespace)
-    }
-    fn is_descendant_of(&self, node: &N, ancestor: &N) -> bool {
-        let mut current = node.parent();
-        while let Some(parent) = current {
-            if parent == *ancestor {
-                return true;
-            }
-            current = parent.parent();
-        }
-        false
-    }
-    fn is_ancestor_of(&self, node: &N, descendant: &N) -> bool {
-        self.is_descendant_of(descendant, node)
-    }
 
     #[inline]
     fn matches_interned_name(
@@ -4881,6 +4704,182 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             // Unknown atomic type name -> no match
             _ => false,
         }
+    }
+}
+
+struct DistinctCursor<N> {
+    vm: VmHandle<N>,
+    input: Option<Box<dyn SequenceCursor<N>>>,
+    // streaming state
+    seen_keys: HashSet<u64>,
+    seen_fallback: SmallVec<[N; 16]>,
+}
+
+impl<N: 'static + XdmNode + Clone> DistinctCursor<N> {
+    fn new(vm: VmHandle<N>, input: Box<dyn SequenceCursor<N>>) -> Self {
+        Self { vm, input: Some(input), seen_keys: HashSet::new(), seen_fallback: SmallVec::new() }
+    }
+}
+
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for DistinctCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        use crate::xdm::XdmItem;
+        let cursor = self.input.as_mut()?;
+        loop {
+            let item = cursor.next_item()?;
+            match item {
+                Ok(XdmItem::Node(n)) => {
+                    if let Some(k) = n.doc_order_key() {
+                        if self.seen_keys.insert(k) {
+                            return Some(Ok(XdmItem::Node(n)));
+                        }
+                    } else if !self.seen_fallback.iter().any(|m| m == &n) {
+                        self.seen_fallback.push(n.clone());
+                        return Some(Ok(XdmItem::Node(n)));
+                    }
+                }
+                Ok(other) => return Some(Ok(other)),
+                Err(e) => return Some(Err(e)),
+            }
+        }
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            vm: self.vm.clone(),
+            input: self.input.as_ref().map(|c| c.boxed_clone()),
+            seen_keys: self.seen_keys.clone(),
+            seen_fallback: self.seen_fallback.clone(),
+        })
+    }
+}
+
+// EnsureOrderCursor: streams if input is already in document order; otherwise falls back
+// to buffering and sorting the remaining items. Implements a one-item lookahead to avoid
+// emitting an out-of-order item before detecting disorder.
+struct EnsureOrderCursor<N> {
+    vm: VmHandle<N>,
+    input: Box<dyn SequenceCursor<N>>,
+    pending: Option<XdmItem<N>>, // last unconfirmed item
+    last_key: Option<u64>,
+    last_node: Option<N>,
+    // fallback buffer once disorder is detected
+    buffer: VecDeque<XdmItem<N>>,
+    in_fallback: bool,
+}
+
+impl<N: 'static + XdmNode + Clone> EnsureOrderCursor<N> {
+    fn new(vm: VmHandle<N>, input: Box<dyn SequenceCursor<N>>) -> Self {
+        Self { vm, input, pending: None, last_key: None, last_node: None, buffer: VecDeque::new(), in_fallback: false }
+    }
+
+    fn cmp_doc_order(&self, a: &N, b: &N) -> Ordering {
+        self.vm.with_vm(|vm| vm.node_compare(a, b)).unwrap_or(Ordering::Equal)
+    }
+
+    fn switch_to_fallback(&mut self, first: XdmItem<N>, second: XdmItem<N>) -> Result<(), Error> {
+        // Collect remaining, then order nodes only via doc_order_only
+        let mut seq: Vec<XdmItem<N>> = vec![first, second];
+        while let Some(item) = self.input.next_item() {
+            seq.push(item?);
+        }
+        let ordered = self.vm.with_vm(|vm| vm.doc_order_only(seq))?;
+        self.buffer = VecDeque::from(ordered);
+        self.in_fallback = true;
+        Ok(())
+    }
+}
+
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for EnsureOrderCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        use crate::xdm::XdmItem;
+        if self.in_fallback {
+            return self.buffer.pop_front().map(Ok);
+        }
+
+        loop {
+            let next = match self.input.next_item() {
+                Some(Ok(it)) => it,
+                Some(Err(e)) => return Some(Err(e)),
+                None => {
+                    // No more input; flush pending
+                    if let Some(item) = self.pending.take() {
+                        return Some(Ok(item));
+                    }
+                    return None;
+                }
+            };
+
+            match (&self.pending, &next) {
+                (None, _) => {
+                    // prime the window, but do not emit yet
+                    self.pending = Some(next.clone());
+                    if let XdmItem::Node(n) = &next {
+                        self.last_key = n.doc_order_key();
+                        self.last_node = Some(n.clone());
+                    }
+                    continue;
+                }
+                (Some(XdmItem::Node(_prev_n)), XdmItem::Node(cur_n)) => {
+                    // Check monotonicity
+                    let ok = if let (Some(pk), Some(ck)) = (self.last_key, cur_n.doc_order_key()) {
+                        ck >= pk
+                    } else if let Some(pn) = &self.last_node {
+                        self.cmp_doc_order(pn, cur_n) != Ordering::Greater
+                    } else {
+                        true
+                    };
+
+                    if ok {
+                        // emit previous, shift window
+                        let to_emit = self.pending.replace(next.clone()).unwrap();
+                        self.last_key = cur_n.doc_order_key();
+                        self.last_node = Some(cur_n.clone());
+                        return Some(Ok(to_emit));
+                    } else {
+                        // Try local adjacent-swap repair (single inversion): emit `cur` first if it
+                        // still maintains global monotonicity relative to the last emitted item.
+                        let can_swap = self
+                            .last_node
+                            .as_ref()
+                            .map(|ln| self.cmp_doc_order(ln, cur_n) != Ordering::Greater)
+                            .unwrap_or(true);
+                        if can_swap {
+                            // Emit current (`next`) immediately; keep `pending` (prev) for next round.
+                            self.last_key = cur_n.doc_order_key();
+                            self.last_node = Some(cur_n.clone());
+                            return Some(Ok(next));
+                        } else {
+                            // disorder beyond simple adjacent inversion → fallback
+                            let first = self.pending.take().unwrap();
+                            if let Err(e) = self.switch_to_fallback(first, next) {
+                                return Some(Err(e));
+                            }
+                            return self.buffer.pop_front().map(Ok);
+                        }
+                    }
+                }
+                (Some(_prev), _) => {
+                    // Non-node items: emit previous, shift window
+                    let to_emit = self.pending.replace(next).unwrap();
+                    self.last_key = None;
+                    self.last_node = None;
+                    return Some(Ok(to_emit));
+                }
+            }
+        }
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            vm: self.vm.clone(),
+            input: self.input.boxed_clone(),
+            pending: self.pending.clone(),
+            last_key: self.last_key,
+            last_node: self.last_node.clone(),
+            buffer: self.buffer.clone(),
+            in_fallback: self.in_fallback,
+        })
     }
 }
 

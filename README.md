@@ -32,6 +32,10 @@ All concept documents are living drafts and evolve alongside the implementation.
 
 - `crates/core`: Shared datatypes (UiNode, attribute keys, pattern primitives).
 - `crates/xpath`: XPath evaluator and parser helpers tailored for PlatynUI.
+  - Streaming by default. Node‑sequence normalisation is split into two explicit ops in the IR:
+    - EnsureDistinct (streaming): removes duplicate nodes while preserving order.
+    - EnsureOrder (mostly streaming): passes through if the stream is already in document order and only buffers when true disorder is detected.
+  - Forward axes (child, self, attribute, namespace) do not emit normalisation; descendant*/following* only require EnsureDistinct. Reverse axes (ancestor/preceding*) require both.
 - `crates/runtime` (`platynui-runtime`): Orchestrates providers, devices, and the XPath pipeline.
 - `crates/server` (`platynui-server`): JSON-RPC façade that exposes the runtime.
 - `crates/platform-*` (`platynui-platform-*`): Platform-level device drivers and window control APIs (Windows, Linux/X11, macOS, mock).

@@ -346,7 +346,6 @@ mod tests {
             platynui_provider_mock::emit_node_updated("mock://button/ok");
         })
         .expect("watch");
-        runtime.shutdown();
 
         let output = String::from_utf8(buffer.into_inner()).expect("utf8");
         assert!(output.contains("NodeUpdated"));
@@ -373,7 +372,6 @@ mod tests {
             platynui_provider_mock::emit_node_updated("mock://button/ok");
         })
         .expect("watch");
-        runtime.shutdown();
 
         let line = String::from_utf8(buffer.into_inner()).expect("utf8");
         let value: serde_json::Value = serde_json::from_str(line.trim()).expect("json");

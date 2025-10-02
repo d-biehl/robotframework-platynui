@@ -336,7 +336,7 @@ mod tests {
     }
 
     #[rstest]
-    fn query_text_returns_nodes(mut runtime: Runtime) {
+    fn query_text_returns_nodes(runtime: Runtime) {
         let args = QueryArgs { expression: "//control:Button".into(), format: OutputFormat::Text };
         // Capture stdout by rendering a single item using helper
         let results = runtime.evaluate(None, &args.expression).expect("eval");
@@ -345,11 +345,10 @@ mod tests {
         let plain = strip_ansi(&output);
         assert!(!plain.contains("control:Button"));
         assert!(!plain.contains("mock://desktop"));
-        runtime.shutdown();
     }
 
     #[rstest]
-    fn query_attribute_text_omits_default_namespace(mut runtime: Runtime) {
+    fn query_attribute_text_omits_default_namespace(runtime: Runtime) {
         let args =
             QueryArgs { expression: "//control:Button/@Name".into(), format: OutputFormat::Text };
         let results = runtime.evaluate(None, &args.expression).expect("eval");
@@ -359,17 +358,15 @@ mod tests {
         assert!(plain.contains("(Button \""));
         assert!(!plain.contains("@control:Name"));
         assert!(!plain.contains("mock://desktop"));
-        runtime.shutdown();
     }
 
     #[rstest]
-    fn query_json_produces_valid_payload(mut runtime: Runtime) {
+    fn query_json_produces_valid_payload(runtime: Runtime) {
         let args = QueryArgs { expression: "//control:Button".into(), format: OutputFormat::Json };
         let output = run(&runtime, &args).expect("query");
         let payload = output.trim();
         let json: serde_json::Value = serde_json::from_str(payload).expect("json");
         assert_eq!(json[0]["type"], "Node");
-        runtime.shutdown();
     }
 
     fn summaries_for(results: Vec<EvaluationItem>) -> Vec<QueryItemSummary> {

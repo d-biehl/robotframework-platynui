@@ -930,6 +930,27 @@ mod tests {
 
     // no UIA-specific fixture here; targeted UIA tests live in consumer crates
 
+    #[rstest]
+    fn query_windows_streams_and_completes(rt_runtime_stub: Runtime) {
+        // Broad window query should return promptly and complete without hanging
+        let res = rt_runtime_stub
+            .evaluate(None, "//control:Window")
+            .expect("evaluate windows");
+        // sanity: len() is callable and non-negative by type; pull all to ensure completion
+        // Pull all items to ensure completion
+        for _ in res {}
+    }
+
+    #[rstest]
+    fn query_window_by_name_streams_and_completes(rt_runtime_stub: Runtime) {
+        // Narrow query with attribute predicate must stream and complete
+        let res = rt_runtime_stub
+            .evaluate(None, "//control:Window[@Name='Operations Console']")
+            .expect("evaluate windows by name");
+        // It's fine if mock doesn't match; ensure evaluation completes
+        for _ in res {}
+    }
+
     fn configure_keyboard_for_tests(runtime: &Runtime) {
         let mut settings = runtime.keyboard_settings();
         settings.press_delay = Duration::ZERO;
@@ -1366,12 +1387,10 @@ mod tests {
         let mut runtime = rt_runtime_focus;
         let desktop = runtime.desktop_node();
         let focus = FOCUS_FACTORY.create().expect("focus provider");
-        let mut nodes = focus.get_nodes(desktop).expect("children");
+        let nodes = focus.get_nodes(desktop).expect("children");
         let mut button = None;
-        while let Some(node) = nodes.next() {
-            if node.role() == "Button" {
-                button = Some(node);
-            }
+        for node in nodes {
+            if node.role() == "Button" { button = Some(node); }
         }
         let button = button.expect("button node available");
         runtime.focus(&button).expect("focus succeeds");
@@ -1383,12 +1402,10 @@ mod tests {
         let mut runtime = rt_runtime_focus;
         let desktop = runtime.desktop_node();
         let focus = FOCUS_FACTORY.create().expect("focus provider");
-        let mut nodes = focus.get_nodes(desktop).expect("children");
+        let nodes = focus.get_nodes(desktop).expect("children");
         let mut panel = None;
-        while let Some(node) = nodes.next() {
-            if node.role() == "Panel" {
-                panel = Some(node);
-            }
+        for node in nodes {
+            if node.role() == "Panel" { panel = Some(node); }
         }
         let panel = panel.expect("panel node available");
         let err = runtime.focus(&panel).expect_err("panel should not support focus");

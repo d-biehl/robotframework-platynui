@@ -96,11 +96,11 @@ pub enum OpCode {
     PathExprStep(InstrSeq),
     // Apply n predicates to TOS sequence; each predicate is a separate InstrSeq.
     ApplyPredicates(Vec<InstrSeq>),
-    // Ensure document order and no duplicates for a node sequence
-    DocOrderDistinct,
-    // Hint: input is already in document order and duplicate-free (forward axes from a single root).
-    // Evaluator may treat this as a no-op fast path.
-    DocOrderDistinctOptimistic,
+    // Normalize a node sequence: split into explicit passes
+    // Ensure nodes are in document order (may materialize)
+    EnsureOrder,
+    // Remove duplicate nodes while preserving order (should be streaming on doc-ordered input)
+    EnsureDistinct,
 
     // Arithmetic / logic
     Add,
@@ -398,8 +398,8 @@ impl fmt::Display for OpCode {
                     write!(f, "apply-predicates(n={})", seq.len())
                 }
             }
-            OpCode::DocOrderDistinct => write!(f, "doc-order-distinct"),
-            OpCode::DocOrderDistinctOptimistic => write!(f, "doc-order-distinct[optimistic]"),
+            OpCode::EnsureOrder => write!(f, "ensure-order"),
+            OpCode::EnsureDistinct => write!(f, "ensure-distinct"),
 
             // Arithmetic / logic
             OpCode::Add => write!(f, "+"),

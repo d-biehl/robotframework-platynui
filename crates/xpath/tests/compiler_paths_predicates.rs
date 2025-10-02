@@ -15,7 +15,7 @@ fn path_steps_and_predicates() {
     assert!(is.0.iter().any(
         |op| matches!(op, OpCode::AxisStep(_, NodeTestIR::Name(_), preds) if !preds.is_empty())
     ));
-    assert!(is.0.iter().any(|op| matches!(op, OpCode::DocOrderDistinct)));
+    assert!(is.0.iter().any(|op| matches!(op, OpCode::EnsureDistinct | OpCode::EnsureOrder)));
 }
 
 #[rstest]
@@ -208,7 +208,8 @@ fn path_ir_sequence_complex() {
         }
         other => panic!("unexpected first step: {:?}", other),
     }
-    assert!(matches!(ops.get(idx + 1), Some(OpCode::DocOrderDistinct)));
+    // Descendant step requires at least distinctness
+    assert!(matches!(ops.get(idx + 1), Some(OpCode::EnsureDistinct)));
     match ops.get(idx + 2) {
         Some(OpCode::AxisStep(AxisIR::Attribute, NodeTestIR::Name(name), preds))
             if name.original.local == "class" =>
@@ -217,7 +218,10 @@ fn path_ir_sequence_complex() {
         }
         other => panic!("unexpected second step: {:?}", other),
     }
-    assert!(matches!(ops.get(idx + 3), Some(OpCode::DocOrderDistinct)));
+    // Attribute axis does not need normalization (each attribute belongs to exactly one element)
+    assert!(
+        !matches!(ops.get(idx + 3), Some(OpCode::EnsureOrder | OpCode::EnsureDistinct))
+    );
 }
 
 #[rstest]

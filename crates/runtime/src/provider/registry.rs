@@ -90,7 +90,7 @@ impl ProviderRegistry {
         Self { entries, by_technology }
     }
 
-    fn rebuild_by_technology(entries: &Vec<ProviderEntry>) -> HashMap<String, Vec<usize>> {
+    fn rebuild_by_technology(entries: &[ProviderEntry]) -> HashMap<String, Vec<usize>> {
         let mut by_technology: HashMap<String, Vec<usize>> = HashMap::new();
         for (idx, entry) in entries.iter().enumerate() {
             by_technology
