@@ -1,4 +1,3 @@
-#![cfg(target_os = "windows")]
 
 use platynui_core::platform::{
     PixelFormat, PlatformError, PlatformErrorKind, Screenshot, ScreenshotProvider,
