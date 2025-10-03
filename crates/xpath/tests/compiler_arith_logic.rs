@@ -6,12 +6,12 @@ fn ir(src: &str) -> InstrSeq {
 }
 
 #[rstest]
-#[case("1+2", OpCode::Add)]
-#[case("1-2", OpCode::Sub)]
-#[case("2*3", OpCode::Mul)]
-#[case("4 div 2", OpCode::Div)]
-#[case("5 idiv 2", OpCode::IDiv)]
-#[case("5 mod 2", OpCode::Mod)]
+#[case("@x + @y", OpCode::Add)]
+#[case("@x - @y", OpCode::Sub)]
+#[case("@x * @y", OpCode::Mul)]
+#[case("@x div @y", OpCode::Div)]
+#[case("@x idiv @y", OpCode::IDiv)]
+#[case("@x mod @y", OpCode::Mod)]
 fn arithmetic_ops(#[case] src: &str, #[case] tail: OpCode) {
     let is = ir(src);
     assert!(

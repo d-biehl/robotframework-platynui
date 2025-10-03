@@ -49,6 +49,10 @@ harness = false
 name = "evaluate_first_benchmarks"
 harness = false
 
+[[bench]]
+name = "benchmark_constant_folding"
+harness = false
+
 [[example]]
 name = "platynui_xpath_repl"
 path = "examples/repl.rs"

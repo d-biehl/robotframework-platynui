@@ -40,7 +40,8 @@ fn sequence_make_seq(ctx: StaticContext) {
 fn unary_plus_minus(ctx: StaticContext) {
     let plus = ir("+2", &ctx);
     assert!(matches!(plus.0.last(), Some(OpCode::PushAtomic(XdmAtomicValue::Integer(2)))));
+
+    // With constant folding, -2 is folded to PushAtomic(-2) instead of 0 - 2
     let minus = ir("-2", &ctx);
-    assert!(minus.0.iter().any(|op| matches!(op, OpCode::PushAtomic(XdmAtomicValue::Integer(0)))));
-    assert!(matches!(minus.0.last(), Some(OpCode::Sub)));
+    assert!(matches!(minus.0.last(), Some(OpCode::PushAtomic(XdmAtomicValue::Integer(-2)))));
 }
