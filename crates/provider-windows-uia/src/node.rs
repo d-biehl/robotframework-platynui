@@ -419,6 +419,8 @@ struct AttrsIter<'a> {
     idx: u8,
     node: &'a UiaNode,
     has_window_surface: bool,
+    native_cache: Option<Vec<Arc<dyn UiAttribute>>>,
+    native_pos: usize,
 }
 impl<'a> AttrsIter<'a> {
     fn new(node: &'a UiaNode) -> Self {
@@ -434,7 +436,7 @@ impl<'a> AttrsIter<'a> {
                 .is_ok();
             has_window || has_transform
         };
-        Self { idx: 0, node, has_window_surface }
+        Self { idx: 0, node, has_window_surface, native_cache: None, native_pos: 0 }
     }
 }
 impl<'a> Iterator for AttrsIter<'a> {
@@ -482,9 +484,28 @@ impl<'a> Iterator for AttrsIter<'a> {
                 }
                 13 => {
                     if self.has_window_surface {
-                        Some(Arc::new(SupportsResizeAttr { elem }) as Arc<dyn UiAttribute>)
+                        Some(Arc::new(SupportsResizeAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
+                    }
+                }
+                // Native property attributes (dynamic): build once, then stream
+                14 => {
+                    if self.native_cache.is_none() {
+                        let pairs = crate::map::collect_native_properties(&elem);
+                        let attrs: Vec<Arc<dyn UiAttribute>> = pairs
+                            .into_iter()
+                            .map(|(name, value)| Arc::new(NativePropAttr { name, value }) as Arc<dyn UiAttribute>)
+                            .collect();
+                        self.native_cache = Some(attrs);
+                        self.native_pos = 0;
+                    }
+                    match self.native_cache.as_ref().and_then(|v| v.get(self.native_pos)).cloned() {
+                        Some(attr) => {
+                            self.native_pos += 1;
+                            Some(attr)
+                        }
+                        None => None,
                     }
                 }
                 _ => None,
@@ -493,7 +514,23 @@ impl<'a> Iterator for AttrsIter<'a> {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 13 {
+                    if self.idx > 14 && self.native_cache.is_some() {
+                        // Continue streaming native cache until exhausted
+                        if let Some(list) = self.native_cache.as_ref() {
+                            if self.native_pos < list.len() {
+                                // compensate index bump and yield next from cache
+                                self.idx -= 1;
+                                let attr = list[self.native_pos].clone();
+                                self.native_pos += 1;
+                                return Some(attr);
+                            }
+                        }
+                    }
+                    if self.idx > 14 && self.native_cache.is_none() {
+                        // No native props at all
+                        return None;
+                    }
+                    if self.idx > 14 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false) {
                         return None;
                     }
                     continue;
@@ -523,6 +560,13 @@ impl UiAttribute for IsFocusedAttr {
 }
 unsafe impl Send for IsFocusedAttr {}
 unsafe impl Sync for IsFocusedAttr {}
+
+struct NativePropAttr { name: String, value: UiValue }
+impl UiAttribute for NativePropAttr {
+    fn namespace(&self) -> Namespace { Namespace::Native }
+    fn name(&self) -> &str { &self.name }
+    fn value(&self) -> UiValue { self.value.clone() }
+}
 
 struct IsMinimizedAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,

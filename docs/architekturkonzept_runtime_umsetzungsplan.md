@@ -205,14 +205,14 @@ Ergänzungen (2025-09-29 später am Tag)
 - [x] Patterns (Slice 1): `Focusable` (SetFocus); `WindowSurface` nur bei Verfügbarkeit (`WindowPattern`/`TransformPattern`).
 - [ ] Gruppierte Sicht (Application → Window): Synthetische `app:Application`‑Knoten erzeugen und Top‑Level‑Fenster per `CurrentProcessId` gruppieren; stabile RuntimeId (z. B. `uia-app://<pid>`) und sinnvoller `doc_order_key` definieren.
 - [ ] Application‑Attribute befüllen: `application::PROCESS_ID`, `PROCESS_NAME`, `EXECUTABLE_PATH`, `COMMAND_LINE`, optional `MAIN_WINDOW_IDS`, `ARCHITECTURE`. Kinder der Application sind die zugehörigen `control:Window`‑Knoten.
-- [ ] WindowSurface‑Status/Capabilities als Attribute bereitstellen: `window_surface::IS_MINIMIZED`, `IS_MAXIMIZED`, `IS_TOPMOST`, `SUPPORTS_MOVE`, `SUPPORTS_RESIZE` (über `WindowPattern`/`TransformPattern`).
-- [ ] `WindowSurface.accepts_user_input()` implementieren (Heuristik: `IsEnabled && !IsOffscreen`; perspektivisch `WaitForInputIdle`). Optional gleichnamiges Attribut bereitstellen.
-- [ ] Native UIA‑Properties: Unterstützung und Werte ermitteln
-  - [ ] Unterstützte Properties je Element ermitteln über `IUIAutomationElement::GetSupportedProperties()`; IDs in Liste bereitstellen (z. B. `native:UIA.SupportedPropertyIds`), optional Programmatic Names via `IUIAutomation::GetPropertyProgrammaticName()` (z. B. `native:UIA.SupportedPropertyNames`).
-  - [ ] Werte abrufen über `IUIAutomationElement::GetCurrentPropertyValueEx(propertyId, ignoreDefaultValue)`; Rückgabewerte konvertieren (VARIANT → `UiValue`).
-  - [ ] Sentinels korrekt behandeln: `ReservedNotSupportedValue` → „nicht unterstützt“ (weglassen oder `Null`); `ReservedMixedAttributeValue` → „gemischt“ (eigene Kennzeichnung oder Liste `native:UIA.MixedPropertyIds`).
-  - [ ] Exponierung als Attribute im Namespace `native:`: Für jedes unterstützte Property ein `UiAttribute` mit Programmatic Name (z. B. `native:ClassName`), damit XPath/Programmzugriff möglich ist (z. B. `//control:Button[@native:ClassName="abc"]`). Ergänzend optional ein aggregiertes Objekt (z. B. `native:UIA.Properties`) mit `{ name → UiValue }` für Debugging.
-  - [ ] Typumsetzung definieren: `VT_BOOL`→Bool, `VT_I4/VT_UI4`→Integer, `VT_R8/VT_R4`→Number, `BSTR`→String, `SAFEARRAY`→Array, `IUnknown`‑Sentinels wie oben; unbekannte Typen serialisieren oder auslassen.
+- [x] WindowSurface‑Status/Capabilities als Attribute bereitstellen: `window_surface::IS_MINIMIZED`, `IS_MAXIMIZED`, `IS_TOPMOST`, `SUPPORTS_MOVE`, `SUPPORTS_RESIZE` (über `WindowPattern`/`TransformPattern`).
+- [x] `WindowSurface.accepts_user_input()` implementieren (Heuristik: `IsEnabled && !IsOffscreen`; perspektivisch `WaitForInputIdle`). Optional gleichnamiges Attribut bereitstellen.
+- [x] Native UIA‑Properties: Unterstützung und Werte ermitteln
+  - [x] Properties ermitteln über Programmatic‑Name‑Katalog (IDs im typischen UIA‑Bereich via `IUIAutomation::GetPropertyProgrammaticName()`); nur Werte übernehmen, die per `GetCurrentPropertyValueEx(propertyId, true)` einen sinnvollen Wert liefern (Sentinels/Empty filtern).
+  - [x] Werte abrufen über `IUIAutomationElement::GetCurrentPropertyValueEx(propertyId, /*ignoreDefault*/ true)`; Rückgabewerte konvertieren (VARIANT → `UiValue`).
+  - [x] Sentinels korrekt behandeln: `ReservedNotSupportedValue` → „nicht unterstützt“ (gefiltert); `ReservedMixedAttributeValue` → „gemischt“ (gefiltert).
+  - [x] Exponierung als Attribute im Namespace `native:`: Für jedes unterstützte Property ein `UiAttribute` mit Programmatic Name (z. B. `native:ClassName`). Optionales Aggregatobjekt kann später ergänzt werden.
+  - [x] Typumsetzung definiert: `VT_BOOL`→Bool, `VT_I2/VT_UI2/VT_I4/VT_UI4/VT_I8/VT_UI8`→Integer, `VT_R8/VT_R4/VT_DECIMAL/VT_DATE`→Number, `BSTR`→String, `SAFEARRAY(1D)`→Array (inkl. obiger Elementtypen), `IUnknown`‑Sentinels wie oben; unbekannte Typen auslassen.
 - [ ] Tests: Struktur-/Attribut‑Abdeckung, Pattern‑Liste, Desktop‑Top‑Level (Windows‑only smoke). Optional: Root‑Geschwister‑Iteration.
 
 Aktuelle Design-Notizen (2025‑09‑30)

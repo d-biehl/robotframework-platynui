@@ -66,12 +66,11 @@ UiNode‑Basics (lazy)
 - Alle Werte werden erst in `UiAttribute.value()` zur Laufzeit ermittelt (kein Proaktiv‑Fetch).
 
 ### Native UIA‑Properties (Namespace `native:`)
-- Ziel: Alle vom `IUIAutomationElement` unterstützten UIA‑Properties können direkt als Attribute im Namespace `native` abgefragt werden, z. B. per XPath: `//control:Button[@native:ClassName="abc"]`.
-- Unterstützung ermitteln: `IUIAutomationElement::GetSupportedProperties()` liefert Property‑IDs; Programmatic Names via `IUIAutomation::GetPropertyProgrammaticName()` werden als Attributnamen verwendet (z. B. `native:ClassName`).
-- Werte lesen: `IUIAutomationElement::GetCurrentPropertyValueEx(propertyId, ignoreDefaultValue)`; Rückgabewert (VARIANT) wird in `UiValue` gemappt:
-  - `VT_BOOL`→Bool, `VT_I4/VT_UI4`→Integer, `VT_R8/VT_R4`→Number, `BSTR`→String, `SAFEARRAY`→Array; nicht unterstützte oder unbekannte Typen werden sinnvoll serialisiert oder ausgelassen.
-  - Sentinels: `ReservedNotSupportedValue` kennzeichnet „nicht unterstützt“ (Attribut wird weggelassen oder als `Null` geliefert); `ReservedMixedAttributeValue` kennzeichnet gemischte Werte (Attribut kann z. B. entfallen oder über ein separates `native:UIA.MixedPropertyIds` markiert werden).
-- Exponierung: Für jedes unterstützte Property wird ein `UiAttribute` im Namespace `Native` mit dem Programmatic Name bereitgestellt. Zusätzlich kann ein aggregiertes Objekt (z. B. `native:UIA.Properties`) für Debugging bereitgestellt werden.
+- Ziel: Alle vom `IUIAutomationElement` effektiv unterstützten UIA‑Properties können direkt als Attribute im Namespace `native` abgefragt werden (z. B. `//control:Button[@native:ClassName="abc"]`).
+- Unterstützung ermitteln: Die COM‑API stellt keine direkte Liste „unterstützter Properties“ bereit. Stattdessen wird der Programmatic‑Name‑Katalog über `IUIAutomation::GetPropertyProgrammaticName(propertyId)` im üblichen UIA‑ID‑Bereich aufgebaut. Für jede ID wird der aktuelle Wert via `IUIAutomationElement::GetCurrentPropertyValueEx(propertyId, /*ignoreDefault*/ true)` gelesen.
+- Typumsetzung: Rückgabewert (VARIANT) wird in `UiValue` gemappt: `VT_BOOL`→Bool, `VT_I4/VT_UI4`→Integer, `VT_I8/VT_UI8`→Integer, `VT_R8/VT_R4`→Number, `BSTR`→String, `SAFEARRAY`→Array. Unbekannte Typen werden ausgelassen.
+- Sentinels: `UiaGetReservedNotSupportedValue` kennzeichnet „nicht unterstützt”; `UiaGetReservedMixedAttributeValue` kennzeichnet gemischte Werte. Beide werden erkannt (VT_UNKNOWN/punkVal‑Vergleich) und gefiltert.
+- Exponierung: Für jedes vorhandene Property wird ein `UiAttribute` im Namespace `Native` mit Programmatic Name bereitgestellt. Optional kann ein aggregiertes Objekt (z. B. `native:UIA.Properties`) für Debugging ergänzt werden.
 - Lazy‑Evaluation: Property‑Werte werden erst bei Zugriff auf `value()` gelesen, um Traversal schlank zu halten.
 
 ## Patterns (Slice 1)
