@@ -226,6 +226,6 @@ mod tests {
         let args =
             KeyboardTypeArgs { sequence: "   ".into(), overrides: KeyboardOverrideArgs::default() };
         let err = run_type(&runtime, &args).expect_err("empty sequence");
-        assert!(err.to_string().contains("Tastatursequenz"));
+        assert!(err.to_string().contains("keyboard sequence"));
     }
 }
