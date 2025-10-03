@@ -264,7 +264,7 @@ fn build_overrides(runtime: &Runtime, args: &OverrideArgs) -> CliResult<Option<P
     }
     if let Some(speed) = args.speed_factor {
         if speed <= 0.0 {
-            return Err("--speed-factor must be greater than 0".to_owned().into());
+            anyhow::bail!("--speed-factor must be greater than 0");
         }
         overrides = overrides.speed_factor(speed);
     }
@@ -281,19 +281,19 @@ fn build_overrides(runtime: &Runtime, args: &OverrideArgs) -> CliResult<Option<P
     match args.origin {
         OriginKind::Desktop => {}
         OriginKind::Bounds => {
-            let rect = args
+            let rect_s = args
                 .bounds
                 .as_deref()
-                .ok_or_else(|| "--bounds must be provided when --origin bounds".to_owned())
-                .and_then(parse_rect)?;
+                .ok_or_else(|| anyhow::anyhow!("--bounds must be provided when --origin bounds"))?;
+            let rect = parse_rect(rect_s).map_err(|e| anyhow::anyhow!(e))?;
             overrides.origin = Some(PointOrigin::Bounds(rect));
         }
         OriginKind::Absolute => {
-            let anchor = args
+            let anchor_s = args
                 .anchor
                 .as_deref()
-                .ok_or_else(|| "--anchor must be provided when --origin absolute".to_owned())
-                .and_then(parse_point_arg)?;
+                .ok_or_else(|| anyhow::anyhow!("--anchor must be provided when --origin absolute"))?;
+            let anchor = parse_point_arg(anchor_s).map_err(|e| anyhow::anyhow!(e))?;
             overrides.origin = Some(PointOrigin::Absolute(anchor));
         }
     }
@@ -358,15 +358,11 @@ fn parse_pointer_button_arg(value: &str) -> Result<PointerButton, String> {
 fn parse_click_count(value: &str) -> Result<u32, String> {
     let count: u32 =
         value.parse().map_err(|err| format!("invalid click count '{value}': {err}"))?;
-    if count < 2 {
-        return Err("--count must be at least 2".to_owned());
-    }
+    if count < 2 { return Err("--count must be at least 2".to_owned()); }
     Ok(count)
 }
 
-fn map_pointer_error(err: PointerError) -> Box<dyn std::error::Error> {
-    Box::new(err)
-}
+fn map_pointer_error(err: PointerError) -> anyhow::Error { anyhow::Error::new(err) }
 
 #[cfg(test)]
 mod tests {

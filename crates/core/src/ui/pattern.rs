@@ -3,8 +3,9 @@ use crate::types::{Point, Rect, Size};
 use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::error::Error;
+// std::error::Error is provided by the thiserror derive for PatternError
 use std::fmt::{Display, Formatter};
+use thiserror::Error as ThisError;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::identifiers::PatternId;
@@ -386,7 +387,7 @@ impl WindowSurfacePattern for WindowSurfaceActions {
 
 /// Fehlerobjekt für Runtime-Aktionen, die aus einem Pattern heraus ausgelöst
 /// werden.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, ThisError)]
 pub struct PatternError {
     message: Cow<'static, str>,
 }
@@ -407,7 +408,7 @@ impl Display for PatternError {
     }
 }
 
-impl Error for PatternError {}
+// Error provided by thiserror derive via Display impl above.
 
 /// Pattern für Fokuswechsel – löst über die Runtime einen Fokuswechsel aus.
 pub trait FocusablePattern: UiPattern {

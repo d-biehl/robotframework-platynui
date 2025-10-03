@@ -37,7 +37,7 @@ pub fn run(runtime: &Runtime, args: &FocusArgs) -> CliResult<String> {
     }
 
     if focused.is_empty() && missing.is_empty() && failed.is_empty() {
-        return Err(format!("expression `{}` did not match any nodes", args.expression).into());
+        anyhow::bail!("expression `{}` did not match any nodes", args.expression);
     }
 
     let mut lines = Vec::new();

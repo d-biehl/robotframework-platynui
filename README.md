@@ -26,6 +26,15 @@ We aim to provide a Robot Framework-first library.
 - Provider Checklist (German/EN mix, draft): `docs/provider_checklist.md`
 - Windows UIA Provider – Design (German, EN summary): `docs/provider_windows_uia_design.md`
 
+### Error Handling
+
+- Libraries (core/runtime/xpath/providers/platforms) use typed errors via `thiserror`.
+  - `platynui-core` exposes `ProviderError`, `PlatformError`, and `PatternError` as public error types.
+  - `platynui-xpath` uses a typed `Error` (Send + Sync) and attaches sources where available.
+  - Provider crates should define provider‑specific errors for external APIs; e.g. the Windows UIA provider uses `UiaError` and maps it to `ProviderError` at the boundary.
+- CLI (`platynui-cli`) aggregates with `anyhow`, returning `anyhow::Result<T>` and adding human‑readable context where helpful.
+- Guidance: new library code introduces typed error enums with clear variants; binaries convert to `anyhow::Error` close to the user interface and provide actionable messages.
+
 All concept documents are living drafts and evolve alongside the implementation.
 
 ### Workspace Layout

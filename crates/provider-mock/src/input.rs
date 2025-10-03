@@ -2,7 +2,8 @@ use crate::events;
 use platynui_core::ui::attribute_names::text_content;
 use platynui_core::ui::{Namespace, RuntimeId, UiAttribute, UiValue};
 use std::collections::HashMap;
-use std::fmt;
+// no additional std imports required
+use thiserror::Error;
 use std::sync::{Arc, LazyLock, RwLock};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -11,22 +12,11 @@ pub enum KeyboardInputEvent {
     Release(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TextInputError {
+    #[error("no text buffer registered for runtime id '{0}'")]
     MissingTextBuffer(String),
 }
-
-impl fmt::Display for TextInputError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TextInputError::MissingTextBuffer(id) => {
-                write!(f, "kein Textpuffer für Laufzeit-ID '{id}' registriert")
-            }
-        }
-    }
-}
-
-impl std::error::Error for TextInputError {}
 
 struct TextAttribute {
     namespace: Namespace,

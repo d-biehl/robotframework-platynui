@@ -1305,7 +1305,10 @@ mod tests {
 
         match result {
             Err(EvaluateError::Provider(err)) => {
-                assert_eq!(err.kind, ProviderErrorKind::TreeUnavailable);
+                match err {
+                    ProviderError::TreeUnavailable { .. } => {}
+                    other => panic!("unexpected provider error: {other}"),
+                }
             }
             other => panic!("unexpected result: {:?}", other),
         }

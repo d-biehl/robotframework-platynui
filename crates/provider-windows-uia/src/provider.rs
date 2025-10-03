@@ -78,13 +78,13 @@ impl UiTreeProvider for WindowsUiaProvider {
         &self,
         parent: Arc<dyn UiNode>,
     ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
-        let uia = crate::com::uia()
-            .map_err(|e| ProviderError::new(ProviderErrorKind::CommunicationFailure, e))?;
+        let uia = crate::com::uia().map_err(|e| {
+            ProviderError::new(ProviderErrorKind::CommunicationFailure, e.to_string())
+        })?;
 
         let root = unsafe {
-            uia.GetRootElement().map_err(|e| {
-                ProviderError::new(ProviderErrorKind::CommunicationFailure, e.to_string())
-            })?
+            uia.GetRootElement()
+                .map_err(|e| ProviderError::new(ProviderErrorKind::CommunicationFailure, e.to_string()))?
         };
 
         let it = crate::node::ElementChildrenIter::new(root, parent);

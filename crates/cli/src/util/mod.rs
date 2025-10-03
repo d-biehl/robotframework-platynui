@@ -4,22 +4,16 @@ use platynui_core::types::Point;
 use platynui_core::ui::Namespace;
 use platynui_runtime::EvaluateError;
 use std::collections::HashSet;
-use std::error::Error;
+use anyhow::{anyhow, bail};
 use std::str::FromStr;
 
-pub type CliResult<T> = Result<T, Box<dyn Error>>;
+pub type CliResult<T> = anyhow::Result<T>;
 
-pub fn map_provider_error(err: ProviderError) -> Box<dyn Error> {
-    Box::new(err)
-}
+pub fn map_provider_error(err: ProviderError) -> anyhow::Error { anyhow::Error::new(err) }
 
-pub fn map_evaluate_error(err: EvaluateError) -> Box<dyn Error> {
-    Box::new(err)
-}
+pub fn map_evaluate_error(err: EvaluateError) -> anyhow::Error { anyhow::Error::new(err) }
 
-pub fn map_platform_error(err: PlatformError) -> Box<dyn Error> {
-    Box::new(err)
-}
+pub fn map_platform_error(err: PlatformError) -> anyhow::Error { anyhow::Error::new(err) }
 
 pub fn parse_namespace_filters(values: &[String]) -> CliResult<Option<HashSet<Namespace>>> {
     if values.is_empty() {
@@ -28,8 +22,8 @@ pub fn parse_namespace_filters(values: &[String]) -> CliResult<Option<HashSet<Na
 
     let mut filters = HashSet::new();
     for value in values {
-        let namespace =
-            Namespace::from_str(value).map_err(|_| format!("unknown namespace prefix: {value}"))?;
+        let namespace = Namespace::from_str(value)
+            .map_err(|_| anyhow!("unknown namespace prefix: {value}"))?;
         filters.insert(namespace);
     }
     Ok(Some(filters))
@@ -43,18 +37,18 @@ pub fn parse_point(value: &str) -> CliResult<Point> {
     let mut parts = value.split(',');
     let x = parts
         .next()
-        .ok_or_else(|| format!("expected point 'x,y', got '{value}'"))?
+        .ok_or_else(|| anyhow!("expected point 'x,y', got '{value}'"))?
         .trim()
         .parse::<f64>()
-        .map_err(|err| format!("invalid x component '{value}': {err}"))?;
+        .map_err(|err| anyhow!("invalid x component '{value}': {err}"))?;
     let y = parts
         .next()
-        .ok_or_else(|| format!("expected point 'x,y', got '{value}'"))?
+        .ok_or_else(|| anyhow!("expected point 'x,y', got '{value}'"))?
         .trim()
         .parse::<f64>()
-        .map_err(|err| format!("invalid y component '{value}': {err}"))?;
+        .map_err(|err| anyhow!("invalid y component '{value}': {err}"))?;
     if parts.next().is_some() {
-        return Err(format!("expected point 'x,y', got '{value}'").into());
+        bail!("expected point 'x,y', got '{value}'");
     }
     Ok(Point::new(x, y))
 }
@@ -71,8 +65,9 @@ pub fn parse_pointer_button(value: &str) -> CliResult<PointerButton> {
         "right" | "secondary" => PointerButton::Right,
         "middle" | "wheel" => PointerButton::Middle,
         other => {
-            let code =
-                other.parse::<u16>().map_err(|_| format!("unknown pointer button '{value}'"))?;
+            let code = other
+                .parse::<u16>()
+                .map_err(|_| anyhow!("unknown pointer button '{value}'"))?;
             PointerButton::Other(code)
         }
     };

@@ -384,7 +384,7 @@ impl FancyRegexProvider {
         }
         let compiled = builder.build().map_err(|e| {
             Error::from_code(ErrorCode::FORX0002, "invalid regex pattern")
-                .with_source(Some(Rc::new(e) as Rc<dyn std::error::Error>))
+                .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
         })?;
         let rc = Rc::new(compiled);
         REGEX_CACHE.with(|cell| cell.borrow_mut().insert(key, rc.clone()));
@@ -397,7 +397,7 @@ impl RegexProvider for FancyRegexProvider {
         let re = Self::build_with_flags(pattern, flags)?;
         re.is_match(text).map_err(|e| {
             Error::from_code(ErrorCode::FORX0002, "regex evaluation error")
-                .with_source(Some(Rc::new(e) as Rc<dyn std::error::Error>))
+                .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
         })
     }
     fn replace(
@@ -412,7 +412,7 @@ impl RegexProvider for FancyRegexProvider {
         if let Err(e) = fancy_regex::Expander::default().check(replacement, &re) {
             // Map any template validation errors to FORX0004
             return Err(Error::from_code(ErrorCode::FORX0004, "invalid replacement string")
-                .with_source(Some(Rc::new(e) as Rc<dyn std::error::Error>)));
+                .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>)));
         }
         // Explicitly reject $0 (group zero) as per XPath 2.0 rules.
         {
@@ -494,7 +494,7 @@ impl RegexProvider for FancyRegexProvider {
         for mc in re.captures_iter(text) {
             let cap = mc.map_err(|e| {
                 Error::from_code(ErrorCode::FORX0002, "regex evaluation error")
-                    .with_source(Some(Rc::new(e) as Rc<dyn std::error::Error>))
+                    .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
             })?;
             let m = cap
                 .get(0)
@@ -524,7 +524,7 @@ impl RegexProvider for FancyRegexProvider {
                 Ok(s) => tokens.push(s.to_string()),
                 Err(e) => {
                     return Err(Error::from_code(ErrorCode::FORX0002, "regex evaluation error")
-                        .with_source(Some(Rc::new(e) as Rc<dyn std::error::Error>)));
+                        .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>)));
                 }
             }
         }
@@ -650,7 +650,7 @@ pub struct Error {
     pub code: ExpandedName,
     pub message: String,
     #[source]
-    pub source: Option<Rc<dyn std::error::Error>>, // optional chained cause
+    pub source: Option<Arc<dyn std::error::Error + Send + Sync>>, // optional chained cause
 }
 
 impl Error {
@@ -692,7 +692,10 @@ impl Error {
     }
 
     /// Compose an error with a source cause.
-    pub fn with_source(mut self, source: impl Into<Option<Rc<dyn std::error::Error>>>) -> Self {
+    pub fn with_source(
+        mut self,
+        source: impl Into<Option<Arc<dyn std::error::Error + Send + Sync>>>,
+    ) -> Self {
         self.source = source.into();
         self
     }
@@ -718,14 +721,14 @@ impl Error {
 impl From<fancy_regex::Error> for Error {
     fn from(e: fancy_regex::Error) -> Self {
         Error::from_code(ErrorCode::FORX0002, "regex error")
-            .with_source(Some(Rc::new(e) as Rc<dyn std::error::Error>))
+            .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
     }
 }
 
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
         Error::from_code(ErrorCode::FODC0005, e.to_string())
-            .with_source(Some(Rc::new(e) as Rc<dyn std::error::Error>))
+            .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
     }
 }
 

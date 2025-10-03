@@ -30,7 +30,7 @@ pub struct HighlightArgs {
 
 pub fn run(runtime: &Runtime, args: &HighlightArgs) -> CliResult<String> {
     if args.expression.is_none() && args.rect.is_none() && !args.clear {
-        return Err("highlight requires an XPath expression or --rect unless --clear is set".into());
+        anyhow::bail!("highlight requires an XPath expression or --rect unless --clear is set");
     }
 
     let mut messages = Vec::new();
@@ -51,7 +51,7 @@ pub fn run(runtime: &Runtime, args: &HighlightArgs) -> CliResult<String> {
     } else if let Some(expression) = &args.expression {
         let highlight = collect_highlight_requests(runtime, expression, Some(args.duration_ms))?;
         if highlight.requests.is_empty() {
-            return Err(format!("no highlightable nodes for expression `{expression}`").into());
+            anyhow::bail!("no highlightable nodes for expression `{expression}`");
         }
         runtime.highlight(&highlight.requests).map_err(map_platform_error)?;
         highlighted = highlight.requests.len();

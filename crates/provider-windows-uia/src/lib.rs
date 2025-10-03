@@ -6,6 +6,7 @@
 //! the crate builds as a no‑op. On Windows, the implementation will be
 //! incrementally expanded to call into UIAutomation via a dedicated STA actor.
 
+pub mod error;
 #[cfg(windows)]
 mod com;
 #[cfg(windows)]

@@ -30,7 +30,7 @@ pub fn ensure_com_mta() {
     });
 }
 
-pub fn uia() -> Result<IUIAutomation, String> {
+pub fn uia() -> Result<IUIAutomation, crate::error::UiaError> {
     ensure_com_mta();
     UIA_SINGLETON.with(|cell| {
         if let Some(existing) = cell.borrow().as_ref() {
@@ -38,21 +38,23 @@ pub fn uia() -> Result<IUIAutomation, String> {
         }
         let created: IUIAutomation = unsafe {
             CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-                .map_err(|e| e.to_string())?
+                .map_err(|e| crate::error::UiaError::api("CoCreateInstance(CUIAutomation)", e))?
         };
         *cell.borrow_mut() = Some(created.clone());
         Ok(created)
     })
 }
 
-pub fn raw_walker() -> Result<IUIAutomationTreeWalker, String> {
+pub fn raw_walker() -> Result<IUIAutomationTreeWalker, crate::error::UiaError> {
     let uia = uia()?;
     RAW_WALKER.with(|cell| {
         if let Some(existing) = cell.borrow().as_ref() {
             return Ok(existing.clone());
         }
-        let walker: IUIAutomationTreeWalker =
-            unsafe { uia.RawViewWalker().map_err(|e| e.to_string())? };
+        let walker: IUIAutomationTreeWalker = unsafe {
+            uia.RawViewWalker()
+                .map_err(|e| crate::error::UiaError::api("IUIAutomation::RawViewWalker", e))?
+        };
         *cell.borrow_mut() = Some(walker.clone());
         Ok(walker)
     })

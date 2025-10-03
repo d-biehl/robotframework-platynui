@@ -54,15 +54,23 @@ pub fn control_type_to_role(control_type: i32) -> &'static str {
     }
 }
 
-pub fn get_name(elem: &IUIAutomationElement) -> Result<String, String> {
-    unsafe { elem.CurrentName().map(|b| b.to_string()).map_err(|e| e.to_string()) }
+pub fn get_name(elem: &IUIAutomationElement) -> Result<String, crate::error::UiaError> {
+    unsafe {
+        elem.CurrentName()
+            .map(|b| b.to_string())
+            .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::CurrentName", e))
+    }
 }
 
-pub fn get_control_type(elem: &IUIAutomationElement) -> Result<i32, String> {
-    unsafe { elem.CurrentControlType().map(|v| v.0).map_err(|e| e.to_string()) }
+pub fn get_control_type(elem: &IUIAutomationElement) -> Result<i32, crate::error::UiaError> {
+    unsafe {
+        elem.CurrentControlType()
+            .map(|v| v.0)
+            .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::CurrentControlType", e))
+    }
 }
 
-pub fn get_bounding_rect(elem: &IUIAutomationElement) -> Result<Rect, String> {
+pub fn get_bounding_rect(elem: &IUIAutomationElement) -> Result<Rect, crate::error::UiaError> {
     unsafe {
         let r = elem.CurrentBoundingRectangle().map_err(|e| e.to_string())?;
         // Treat it as Foundation::RECT with integer fields
@@ -74,26 +82,30 @@ pub fn get_bounding_rect(elem: &IUIAutomationElement) -> Result<Rect, String> {
     }
 }
 
-pub fn get_clickable_point(elem: &IUIAutomationElement) -> Result<UiPoint, String> {
+pub fn get_clickable_point(
+    elem: &IUIAutomationElement,
+) -> Result<UiPoint, crate::error::UiaError> {
     unsafe {
         // UIA returns a POINT in desktop coordinates; call may fail with UIA_E_NOCLICKABLEPOINT
         let mut pt = POINT { x: 0, y: 0 };
         // Some windows-rs bindings expose GetClickablePoint(&mut x, &mut y) or &mut POINT; try POINT
         // The generated method signature accepts *mut POINT internally; windows handles marshalling.
         elem.GetClickablePoint(&mut pt)
-            .map_err(|e| e.to_string())
+            .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::GetClickablePoint", e))
             .map(|_| UiPoint::new(pt.x as f64, pt.y as f64))
     }
 }
 
-pub fn format_runtime_id(elem: &IUIAutomationElement) -> Result<String, String> {
+pub fn format_runtime_id(elem: &IUIAutomationElement) -> Result<String, crate::error::UiaError> {
     use windows::Win32::System::Ole::{
         SafeArrayAccessData, SafeArrayGetLBound, SafeArrayGetUBound, SafeArrayUnaccessData,
     };
     unsafe {
-        let psa = elem.GetRuntimeId().map_err(|e| e.to_string())?;
+        let psa = elem
+            .GetRuntimeId()
+            .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::GetRuntimeId", e))?;
         if psa.is_null() {
-            return Err("runtime id null".into());
+            return Err(crate::error::UiaError::Null("GetRuntimeId"));
         }
         let lb = SafeArrayGetLBound(psa, 1).map_err(|e| e.to_string())?;
         let ub = SafeArrayGetUBound(psa, 1).map_err(|e| e.to_string())?;
@@ -107,12 +119,20 @@ pub fn format_runtime_id(elem: &IUIAutomationElement) -> Result<String, String> 
     }
 }
 
-pub fn get_is_enabled(elem: &IUIAutomationElement) -> Result<bool, String> {
-    unsafe { elem.CurrentIsEnabled().map(|b| b.as_bool()).map_err(|e| e.to_string()) }
+pub fn get_is_enabled(elem: &IUIAutomationElement) -> Result<bool, crate::error::UiaError> {
+    unsafe {
+        elem.CurrentIsEnabled()
+            .map(|b| b.as_bool())
+            .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::CurrentIsEnabled", e))
+    }
 }
 
-pub fn get_is_offscreen(elem: &IUIAutomationElement) -> Result<bool, String> {
-    unsafe { elem.CurrentIsOffscreen().map(|b| b.as_bool()).map_err(|e| e.to_string()) }
+pub fn get_is_offscreen(elem: &IUIAutomationElement) -> Result<bool, crate::error::UiaError> {
+    unsafe {
+        elem.CurrentIsOffscreen()
+            .map(|b| b.as_bool())
+            .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::CurrentIsOffscreen", e))
+    }
 }
 
 // get_activation_point and is_visible moved into attribute-level caching logic.

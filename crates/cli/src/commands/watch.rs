@@ -1,6 +1,7 @@
 use crate::OutputFormat;
 use crate::commands::query::{QueryItemSummary, render_query_text, summarize_query_results};
 use crate::util::{CliResult, map_evaluate_error, parse_namespace_filters};
+use anyhow::anyhow;
 use clap::Args;
 use platynui_core::provider::{ProviderEvent, ProviderEventKind};
 use platynui_core::ui::identifiers::RuntimeId;
@@ -79,8 +80,9 @@ where
     let mut processed = 0usize;
 
     while processed < limit {
-        let event =
-            receiver.recv().map_err(|err| format!("failed to receive provider event: {err}"))?;
+        let event = receiver
+            .recv()
+            .map_err(|err| anyhow!("failed to receive provider event: {err}"))?;
 
         if !filters.matches(&event.kind) {
             continue;
@@ -102,12 +104,12 @@ where
             OutputFormat::Text => {
                 let text = render_watch_text(&summary, query_results.as_deref());
                 writeln!(writer, "{}", text)
-                    .map_err(|err| format!("failed to write output: {err}"))?;
+                    .map_err(|err| anyhow!("failed to write output: {err}"))?;
             }
             OutputFormat::Json => {
                 let json = render_watch_json(&summary, query_results.as_deref())?;
                 writeln!(writer, "{}", json)
-                    .map_err(|err| format!("failed to write output: {err}"))?;
+                    .map_err(|err| anyhow!("failed to write output: {err}"))?;
             }
         }
 

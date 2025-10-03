@@ -8,6 +8,7 @@ English summary
 - Patterns for slice 1: `Focusable` via `SetFocus()`, `WindowSurface` via `WindowPattern`/`TransformPattern` (activate/minimize/maximize/restore/close/move/resize). `accepts_user_input` uses a simple heuristic.
 - Attributes are resolved lazily on demand: Role (from ControlType), Name, RuntimeId (encoded), Bounds, IsEnabled, IsOffscreen, ActivationPoint.
 - Parents are always proper `UiNode` references: provider attaches the given parent in `get_nodes(...)`, and children set `self` as parent when created.
+- Error handling: internal UIA calls use a typed `UiaError` (thiserror). Provider boundaries map `UiaError` to `ProviderError` variants; no `Result<_, String>`.
 
 ---
 
@@ -78,7 +79,8 @@ Codeaufteilung
 - `provider.rs`: Factory + `get_nodes(...)` für Desktop‑Kinder via `ElementChildrenIter` (Root‑Element → erster Desktop → dessen Kinder). Keine ControlView/FindAll.
 
 ## Fehlerabbildung & Shutdown
-- Provider‑Fehler werden als `ProviderError` gemeldet; Pattern‑Aufrufe als `PatternError`.
+- Interne UIA‑Aufrufe: typisierter `UiaError` (thiserror), u. a. `Api { context, message }`, `ComInit`, `Null`.
+- Provider‑Boundary: Abbildung auf `ProviderError`‑Varianten (z. B. `CommunicationFailure { context }`). Pattern‑Aufrufe melden `PatternError` mit klaren Meldungen.
 - Shutdown: Actor beendet, UIA‑Objekte freigegeben, `CoUninitialize` gerufen.
 
 ## Akzeptanzkriterien (Slice 1)

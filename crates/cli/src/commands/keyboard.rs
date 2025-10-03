@@ -67,22 +67,22 @@ pub fn run(runtime: &Runtime, args: &KeyboardArgs) -> CliResult<String> {
 fn run_type(runtime: &Runtime, args: &KeyboardTypeArgs) -> CliResult<String> {
     let sequence = args.sequence.trim();
     if sequence.is_empty() {
-        return Err("Bitte eine Tastatursequenz angeben.".into());
+        anyhow::bail!("Please provide a keyboard sequence.");
     }
     let overrides = build_overrides(&args.overrides);
-    runtime.keyboard_type(sequence, overrides).map_err(map_keyboard_error)?;
+    runtime.keyboard_type(sequence, overrides)?;
     Ok(String::new())
 }
 
 fn run_press(runtime: &Runtime, args: &KeyboardSequenceArgs) -> CliResult<String> {
     let overrides = build_overrides(&args.overrides);
-    runtime.keyboard_press(&args.sequence, overrides).map_err(map_keyboard_error)?;
+    runtime.keyboard_press(&args.sequence, overrides)?;
     Ok(String::new())
 }
 
 fn run_release(runtime: &Runtime, args: &KeyboardSequenceArgs) -> CliResult<String> {
     let overrides = build_overrides(&args.overrides);
-    runtime.keyboard_release(&args.sequence, overrides).map_err(map_keyboard_error)?;
+    runtime.keyboard_release(&args.sequence, overrides)?;
     Ok(String::new())
 }
 
@@ -129,15 +129,10 @@ fn parse_millis(value: &str) -> Result<Duration, String> {
     value
         .parse::<u64>()
         .map(Duration::from_millis)
-        .map_err(|err| format!("ungültige Millisekunden '{value}': {err}"))
+        .map_err(|err| format!("invalid milliseconds '{value}': {err}"))
 }
 
-fn map_keyboard_error<E>(err: E) -> Box<dyn std::error::Error>
-where
-    E: std::error::Error + 'static,
-{
-    Box::new(err)
-}
+// Legacy helper no longer used (anyhow handles conversions directly).
 
 #[cfg(test)]
 mod tests {

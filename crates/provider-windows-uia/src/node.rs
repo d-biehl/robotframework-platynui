@@ -109,13 +109,15 @@ impl UiNode for UiaNode {
             unsafe impl Send for ElemSend {}
             unsafe impl Sync for ElemSend {}
             impl ElemSend {
-                unsafe fn set_focus(&self) -> Result<(), String> {
-                    unsafe { self.elem.SetFocus() }.map_err(|e| e.to_string())
+                unsafe fn set_focus(&self) -> Result<(), crate::error::UiaError> {
+                    unsafe { self.elem.SetFocus() }
+                        .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::SetFocus", e))
                 }
             }
             let es = ElemSend { elem: self.elem.clone() };
-            let action =
-                FocusableAction::new(move || unsafe { es.set_focus().map_err(PatternError::new) });
+            let action = FocusableAction::new(move || unsafe {
+                es.set_focus().map_err(|e| PatternError::new(e.to_string()))
+            });
             return Some(Arc::new(action) as Arc<dyn UiPattern>);
         }
         if pid == WindowSurfaceActions::static_id().as_str() {
@@ -126,39 +128,52 @@ impl UiNode for UiaNode {
             unsafe impl Send for ElemSend {}
             unsafe impl Sync for ElemSend {}
             impl ElemSend {
-                unsafe fn window_set_state(&self, state: WindowVisualState) -> Result<(), String> {
+                unsafe fn window_set_state(
+                    &self,
+                    state: WindowVisualState,
+                ) -> Result<(), crate::error::UiaError> {
                     let unk = unsafe {
                         self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
                     }
-                    .map_err(|e| e.to_string())?;
-                    let pat: IUIAutomationWindowPattern = unk.cast().map_err(|e| e.to_string())?;
-                    unsafe { pat.SetWindowVisualState(state) }.map_err(|e| e.to_string())
+                    .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::GetCurrentPattern(Window)", e))?;
+                    let pat: IUIAutomationWindowPattern =
+                        unk.cast().map_err(|e| crate::error::UiaError::api("IUnknown::cast(WindowPattern)", e))?;
+                    unsafe { pat.SetWindowVisualState(state) }
+                        .map_err(|e| crate::error::UiaError::api("IUIAutomationWindowPattern::SetWindowVisualState", e))
                 }
-                unsafe fn window_close(&self) -> Result<(), String> {
+                unsafe fn window_close(&self) -> Result<(), crate::error::UiaError> {
                     let unk = unsafe {
                         self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
                     }
-                    .map_err(|e| e.to_string())?;
-                    let pat: IUIAutomationWindowPattern = unk.cast().map_err(|e| e.to_string())?;
-                    unsafe { pat.Close() }.map_err(|e| e.to_string())
+                    .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::GetCurrentPattern(Window)", e))?;
+                    let pat: IUIAutomationWindowPattern =
+                        unk.cast().map_err(|e| crate::error::UiaError::api("IUnknown::cast(WindowPattern)", e))?;
+                    unsafe { pat.Close() }
+                        .map_err(|e| crate::error::UiaError::api("IUIAutomationWindowPattern::Close", e))
                 }
-                unsafe fn transform_move(&self, x: f64, y: f64) -> Result<(), String> {
+                unsafe fn transform_move(&self, x: f64, y: f64) -> Result<(), crate::error::UiaError> {
                     let unk = unsafe {
                         self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
                     }
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::GetCurrentPattern(Transform)", e))?;
                     let pat: IUIAutomationTransformPattern =
-                        unk.cast().map_err(|e| e.to_string())?;
-                    unsafe { pat.Move(x, y) }.map_err(|e| e.to_string())
+                        unk.cast().map_err(|e| crate::error::UiaError::api("IUnknown::cast(TransformPattern)", e))?;
+                    unsafe { pat.Move(x, y) }
+                        .map_err(|e| crate::error::UiaError::api("IUIAutomationTransformPattern::Move", e))
                 }
-                unsafe fn transform_resize(&self, w: f64, h: f64) -> Result<(), String> {
+                unsafe fn transform_resize(
+                    &self,
+                    w: f64,
+                    h: f64,
+                ) -> Result<(), crate::error::UiaError> {
                     let unk = unsafe {
                         self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
                     }
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::GetCurrentPattern(Transform)", e))?;
                     let pat: IUIAutomationTransformPattern =
-                        unk.cast().map_err(|e| e.to_string())?;
-                    unsafe { pat.Resize(w, h) }.map_err(|e| e.to_string())
+                        unk.cast().map_err(|e| crate::error::UiaError::api("IUnknown::cast(TransformPattern)", e))?;
+                    unsafe { pat.Resize(w, h) }
+                        .map_err(|e| crate::error::UiaError::api("IUIAutomationTransformPattern::Resize", e))
                 }
             }
             let e1 = ElemSend { elem: self.elem.clone() };
@@ -170,23 +185,33 @@ impl UiNode for UiaNode {
             let e_resize = e1.clone();
             let actions = WindowSurfaceActions::new()
                 .with_activate(move || unsafe {
-                    e1.window_set_state(WindowVisualState_Normal).map_err(PatternError::new)
+                    e1.window_set_state(WindowVisualState_Normal)
+                        .map_err(|e| PatternError::new(e.to_string()))
                 })
                 .with_minimize(move || unsafe {
-                    e2.window_set_state(WindowVisualState_Minimized).map_err(PatternError::new)
+                    e2.window_set_state(WindowVisualState_Minimized)
+                        .map_err(|e| PatternError::new(e.to_string()))
                 })
                 .with_maximize(move || unsafe {
-                    e3.window_set_state(WindowVisualState_Maximized).map_err(PatternError::new)
+                    e3.window_set_state(WindowVisualState_Maximized)
+                        .map_err(|e| PatternError::new(e.to_string()))
                 })
                 .with_restore(move || unsafe {
-                    e4.window_set_state(WindowVisualState_Normal).map_err(PatternError::new)
+                    e4.window_set_state(WindowVisualState_Normal)
+                        .map_err(|e| PatternError::new(e.to_string()))
                 })
-                .with_close(move || unsafe { e5.window_close().map_err(PatternError::new) })
+                .with_close(move || unsafe {
+                    e5.window_close().map_err(|e| PatternError::new(e.to_string()))
+                })
                 .with_move_to(move |p| unsafe {
-                    e_move.transform_move(p.x(), p.y()).map_err(PatternError::new)
+                    e_move
+                        .transform_move(p.x(), p.y())
+                        .map_err(|e| PatternError::new(e.to_string()))
                 })
                 .with_resize(move |s| unsafe {
-                    e_resize.transform_resize(s.width(), s.height()).map_err(PatternError::new)
+                    e_resize
+                        .transform_resize(s.width(), s.height())
+                        .map_err(|e| PatternError::new(e.to_string()))
                 });
             return Some(Arc::new(actions) as Arc<dyn UiPattern>);
         }

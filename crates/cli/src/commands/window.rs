@@ -1,4 +1,5 @@
 use crate::util::{CliResult, map_evaluate_error, yes_no};
+use anyhow::bail;
 use clap::Args;
 use owo_colors::{OwoColorize, Stream};
 use platynui_core::types::{Point, Rect, Size};
@@ -60,9 +61,7 @@ pub fn run(runtime: &Runtime, args: &WindowArgs) -> CliResult<String> {
     }
 
     let actions = WindowActions::from_args(args)?;
-    if actions.is_empty() {
-        return Err("no window action specified".into());
-    }
+    if actions.is_empty() { bail!("no window action specified"); }
 
     let expression = args.expression.as_deref().unwrap_or(DEFAULT_WINDOW_QUERY);
 
@@ -163,7 +162,7 @@ fn execute_actions(
     }
 
     if applied.is_empty() && missing_pattern.is_empty() && failed.is_empty() {
-        return Err(format!("expression `{expression}` did not match any windows").into());
+        anyhow::bail!("expression `{expression}` did not match any windows");
     }
 
     let mut lines = Vec::new();

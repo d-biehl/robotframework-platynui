@@ -211,7 +211,7 @@ impl StaticMockTree {
 impl Default for StaticMockTree {
     fn default() -> Self {
         const XML: &str = include_str!("../assets/mock_tree.xml");
-        Self::from_xml(XML).expect("embedded mock_tree.xml konnte nicht geparst werden")
+        Self::from_xml(XML).expect("embedded mock_tree.xml could not be parsed")
     }
 }
 
@@ -432,15 +432,15 @@ pub enum MockTreeLoadError {
 impl fmt::Display for MockTreeLoadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MockTreeLoadError::Xml(err) => write!(f, "XML-Parsing fehlgeschlagen: {err}"),
+            MockTreeLoadError::Xml(err) => write!(f, "XML parsing failed: {err}"),
             MockTreeLoadError::UnknownNamespace(ns) => {
-                write!(f, "unbekannter Namespace '{ns}' im Mock-Baum")
+                write!(f, "unknown namespace '{ns}' in mock tree")
             }
             MockTreeLoadError::InvalidRect(value) => {
-                write!(f, "ungültiges Bounds-Format '{value}' (erwartet x,y,width,height)")
+                write!(f, "invalid bounds format '{value}' (expected x,y,width,height)")
             }
             MockTreeLoadError::InvalidPoint(value) => {
-                write!(f, "ungültiges Point-Format '{value}' (erwartet x,y)")
+                write!(f, "invalid point format '{value}' (expected x,y)")
             }
         }
     }
