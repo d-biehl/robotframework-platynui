@@ -10,6 +10,11 @@ use std::sync::{Arc, Mutex, Weak};
 use platynui_core::types::{Point as UiPoint, Rect};
 use platynui_core::ui::pattern::{FocusableAction, PatternError, UiPattern, WindowSurfaceActions};
 use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
+use windows::Win32::UI::Accessibility::{
+    IUIAutomationTransformPattern, IUIAutomationWindowPattern, WindowVisualState_Maximized,
+    WindowVisualState_Minimized,
+};
+use windows::core::Interface;
 
 pub struct UiaNode {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -177,6 +182,12 @@ impl UiNode for UiaNode {
             let e5 = e1.clone();
             let e_move = e1.clone();
             let e_resize = e1.clone();
+            let accepts_now = {
+                // Compute a best-effort static snapshot for accepts_user_input (lazy recomputation can be added later)
+                let enabled = crate::map::get_is_enabled(&self.elem).unwrap_or(false);
+                let off = crate::map::get_is_offscreen(&self.elem).unwrap_or(false);
+                enabled && !off
+            };
             let actions = WindowSurfaceActions::new()
                 .with_activate(move || unsafe {
                     e1.window_set_state(WindowVisualState_Normal)
@@ -206,7 +217,8 @@ impl UiNode for UiaNode {
                     e_resize
                         .transform_resize(s.width(), s.height())
                         .map_err(|e| PatternError::new(e.to_string()))
-                });
+                })
+                .with_accepts_user_input(move || Ok(Some(accepts_now)));
             return Some(Arc::new(actions) as Arc<dyn UiPattern>);
         }
         None
@@ -406,29 +418,264 @@ unsafe impl Sync for IsVisibleAttr {}
 struct AttrsIter<'a> {
     idx: u8,
     node: &'a UiaNode,
+    has_window_surface: bool,
 }
 impl<'a> AttrsIter<'a> {
     fn new(node: &'a UiaNode) -> Self {
-        Self { idx: 0, node }
+        use windows::Win32::UI::Accessibility::*;
+        let has_window_surface = unsafe {
+            let has_window = node
+                .elem
+                .GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
+                .is_ok();
+            let has_transform = node
+                .elem
+                .GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
+                .is_ok();
+            has_window || has_transform
+        };
+        Self { idx: 0, node, has_window_surface }
     }
 }
 impl<'a> Iterator for AttrsIter<'a> {
     type Item = Arc<dyn UiAttribute>;
     fn next(&mut self) -> Option<Self::Item> {
-        let elem = self.node.elem.clone();
-        let item = match self.idx {
-            0 => Some(Arc::new(RoleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-            1 => Some(Arc::new(NameAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-            2 => Some(Arc::new(RuntimeIdAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-            3 => Some(Arc::new(BoundsAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-            4 => Some(Arc::new(ActivationPointAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-            5 => Some(Arc::new(IsEnabledAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-            6 => Some(Arc::new(IsOffscreenAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-            7 => Some(Arc::new(IsVisibleAttr { elem }) as Arc<dyn UiAttribute>),
-            _ => None,
-        };
-        self.idx = self.idx.saturating_add(1);
-        item
+        loop {
+            let elem = self.node.elem.clone();
+            let item = match self.idx {
+                0 => Some(Arc::new(RoleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                1 => Some(Arc::new(NameAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                2 => Some(Arc::new(RuntimeIdAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                3 => Some(Arc::new(BoundsAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                4 => Some(Arc::new(ActivationPointAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                5 => Some(Arc::new(IsEnabledAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                6 => Some(Arc::new(IsOffscreenAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                7 => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                8 => Some(Arc::new(IsFocusedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                9 => {
+                    if self.has_window_surface {
+                        Some(Arc::new(IsMinimizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                10 => {
+                    if self.has_window_surface {
+                        Some(Arc::new(IsMaximizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                11 => {
+                    if self.has_window_surface {
+                        Some(Arc::new(IsTopmostAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                12 => {
+                    if self.has_window_surface {
+                        Some(Arc::new(SupportsMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                13 => {
+                    if self.has_window_surface {
+                        Some(Arc::new(SupportsResizeAttr { elem }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            self.idx = self.idx.saturating_add(1);
+            match item {
+                Some(attr) => return Some(attr),
+                None => {
+                    if self.idx > 13 {
+                        return None;
+                    }
+                    continue;
+                }
+            }
+        }
     }
 }
 unsafe impl<'a> Send for AttrsIter<'a> {}
+
+struct IsFocusedAttr {
+    elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+}
+impl UiAttribute for IsFocusedAttr {
+    fn namespace(&self) -> Namespace { Namespace::Control }
+    fn name(&self) -> &str { "IsFocused" }
+    fn value(&self) -> UiValue {
+        let result = (|| -> Result<bool, crate::error::UiaError> {
+            let v = crate::error::uia_api(
+                "IUIAutomationElement::CurrentHasKeyboardFocus",
+                unsafe { self.elem.CurrentHasKeyboardFocus() },
+            )?;
+            Ok(v.as_bool())
+        })();
+        UiValue::from(result.unwrap_or(false))
+    }
+}
+unsafe impl Send for IsFocusedAttr {}
+unsafe impl Sync for IsFocusedAttr {}
+
+struct IsMinimizedAttr {
+    elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+}
+impl UiAttribute for IsMinimizedAttr {
+    fn namespace(&self) -> Namespace { Namespace::Control }
+    fn name(&self) -> &str { "IsMinimized" }
+    fn value(&self) -> UiValue {
+        // Default false on errors/missing pattern
+        let result = (|| -> Result<bool, crate::error::UiaError> {
+            let unk = crate::error::uia_api(
+                "IUIAutomationElement::GetCurrentPattern(Window)",
+                unsafe {
+                    self.elem
+                        .GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                            windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
+                        ))
+                },
+            )?;
+            let pat: IUIAutomationWindowPattern =
+                crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
+            let state = crate::error::uia_api(
+                "IUIAutomationWindowPattern::CurrentWindowVisualState",
+                unsafe { pat.CurrentWindowVisualState() },
+            )?;
+            Ok(state == WindowVisualState_Minimized)
+        })();
+        UiValue::from(result.unwrap_or(false))
+    }
+}
+unsafe impl Send for IsMinimizedAttr {}
+unsafe impl Sync for IsMinimizedAttr {}
+
+struct IsMaximizedAttr {
+    elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+}
+impl UiAttribute for IsMaximizedAttr {
+    fn namespace(&self) -> Namespace { Namespace::Control }
+    fn name(&self) -> &str { "IsMaximized" }
+    fn value(&self) -> UiValue {
+        let result = (|| -> Result<bool, crate::error::UiaError> {
+            let unk = crate::error::uia_api(
+                "IUIAutomationElement::GetCurrentPattern(Window)",
+                unsafe {
+                    self.elem
+                        .GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                            windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
+                        ))
+                },
+            )?;
+            let pat: IUIAutomationWindowPattern =
+                crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
+            let state = crate::error::uia_api(
+                "IUIAutomationWindowPattern::CurrentWindowVisualState",
+                unsafe { pat.CurrentWindowVisualState() },
+            )?;
+            Ok(state == WindowVisualState_Maximized)
+        })();
+        UiValue::from(result.unwrap_or(false))
+    }
+}
+unsafe impl Send for IsMaximizedAttr {}
+unsafe impl Sync for IsMaximizedAttr {}
+
+struct IsTopmostAttr {
+    elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+}
+impl UiAttribute for IsTopmostAttr {
+    fn namespace(&self) -> Namespace { Namespace::Control }
+    fn name(&self) -> &str { "IsTopmost" }
+    fn value(&self) -> UiValue {
+        let result = (|| -> Result<bool, crate::error::UiaError> {
+            let unk = crate::error::uia_api(
+                "IUIAutomationElement::GetCurrentPattern(Window)",
+                unsafe {
+                    self.elem
+                        .GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                            windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
+                        ))
+                },
+            )?;
+            let pat: IUIAutomationWindowPattern =
+                crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
+            let v = crate::error::uia_api(
+                "IUIAutomationWindowPattern::CurrentIsTopmost",
+                unsafe { pat.CurrentIsTopmost() },
+            )?;
+            Ok(v.as_bool())
+        })();
+        UiValue::from(result.unwrap_or(false))
+    }
+}
+unsafe impl Send for IsTopmostAttr {}
+unsafe impl Sync for IsTopmostAttr {}
+
+struct SupportsMoveAttr {
+    elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+}
+impl UiAttribute for SupportsMoveAttr {
+    fn namespace(&self) -> Namespace { Namespace::Control }
+    fn name(&self) -> &str { "SupportsMove" }
+    fn value(&self) -> UiValue {
+        let result = (|| -> Result<bool, crate::error::UiaError> {
+            let unk = crate::error::uia_api(
+                "IUIAutomationElement::GetCurrentPattern(Transform)",
+                unsafe {
+                    self.elem
+                        .GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                            windows::Win32::UI::Accessibility::UIA_TransformPatternId.0,
+                        ))
+                },
+            )?;
+            let pat: IUIAutomationTransformPattern =
+                crate::error::uia_api("IUnknown::cast(TransformPattern)", unk.cast())?;
+            let v = crate::error::uia_api(
+                "IUIAutomationTransformPattern::CurrentCanMove",
+                unsafe { pat.CurrentCanMove() },
+            )?;
+            Ok(v.as_bool())
+        })();
+        UiValue::from(result.unwrap_or(false))
+    }
+}
+unsafe impl Send for SupportsMoveAttr {}
+unsafe impl Sync for SupportsMoveAttr {}
+
+struct SupportsResizeAttr {
+    elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+}
+impl UiAttribute for SupportsResizeAttr {
+    fn namespace(&self) -> Namespace { Namespace::Control }
+    fn name(&self) -> &str { "SupportsResize" }
+    fn value(&self) -> UiValue {
+        let result = (|| -> Result<bool, crate::error::UiaError> {
+            let unk = crate::error::uia_api(
+                "IUIAutomationElement::GetCurrentPattern(Transform)",
+                unsafe {
+                    self.elem
+                        .GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                            windows::Win32::UI::Accessibility::UIA_TransformPatternId.0,
+                        ))
+                },
+            )?;
+            let pat: IUIAutomationTransformPattern =
+                crate::error::uia_api("IUnknown::cast(TransformPattern)", unk.cast())?;
+            let v = crate::error::uia_api(
+                "IUIAutomationTransformPattern::CurrentCanResize",
+                unsafe { pat.CurrentCanResize() },
+            )?;
+            Ok(v.as_bool())
+        })();
+        UiValue::from(result.unwrap_or(false))
+    }
+}
+unsafe impl Send for SupportsResizeAttr {}
+unsafe impl Sync for SupportsResizeAttr {}
