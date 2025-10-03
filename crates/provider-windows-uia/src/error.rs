@@ -18,3 +18,7 @@ impl UiaError {
     }
 }
 
+/// Helper to map `windows` API errors into `UiaError` with a static context string.
+pub fn uia_api<T>(context: &'static str, result: windows::core::Result<T>) -> Result<T, UiaError> {
+    result.map_err(|e| UiaError::api(context, e))
+}

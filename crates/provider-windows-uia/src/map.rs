@@ -56,23 +56,24 @@ pub fn control_type_to_role(control_type: i32) -> &'static str {
 
 pub fn get_name(elem: &IUIAutomationElement) -> Result<String, crate::error::UiaError> {
     unsafe {
-        elem.CurrentName()
+        crate::error::uia_api("IUIAutomationElement::CurrentName", elem.CurrentName())
             .map(|b| b.to_string())
-            .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::CurrentName", e))
     }
 }
 
 pub fn get_control_type(elem: &IUIAutomationElement) -> Result<i32, crate::error::UiaError> {
     unsafe {
-        elem.CurrentControlType()
+        crate::error::uia_api("IUIAutomationElement::CurrentControlType", elem.CurrentControlType())
             .map(|v| v.0)
-            .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::CurrentControlType", e))
     }
 }
 
 pub fn get_bounding_rect(elem: &IUIAutomationElement) -> Result<Rect, crate::error::UiaError> {
     unsafe {
-        let r = elem.CurrentBoundingRectangle().map_err(|e| e.to_string())?;
+        let r = crate::error::uia_api(
+            "IUIAutomationElement::CurrentBoundingRectangle",
+            elem.CurrentBoundingRectangle(),
+        )?;
         // Treat it as Foundation::RECT with integer fields
         let left = (r.left) as f64;
         let top = (r.top) as f64;
@@ -88,10 +89,7 @@ pub fn get_clickable_point(
     unsafe {
         // UIA returns a POINT in desktop coordinates; call may fail with UIA_E_NOCLICKABLEPOINT
         let mut pt = POINT { x: 0, y: 0 };
-        // Some windows-rs bindings expose GetClickablePoint(&mut x, &mut y) or &mut POINT; try POINT
-        // The generated method signature accepts *mut POINT internally; windows handles marshalling.
-        elem.GetClickablePoint(&mut pt)
-            .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::GetClickablePoint", e))
+        crate::error::uia_api("IUIAutomationElement::GetClickablePoint", elem.GetClickablePoint(&mut pt))
             .map(|_| UiPoint::new(pt.x as f64, pt.y as f64))
     }
 }
@@ -101,37 +99,33 @@ pub fn format_runtime_id(elem: &IUIAutomationElement) -> Result<String, crate::e
         SafeArrayAccessData, SafeArrayGetLBound, SafeArrayGetUBound, SafeArrayUnaccessData,
     };
     unsafe {
-        let psa = elem
-            .GetRuntimeId()
-            .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::GetRuntimeId", e))?;
+        let psa = crate::error::uia_api("IUIAutomationElement::GetRuntimeId", elem.GetRuntimeId())?;
         if psa.is_null() {
             return Err(crate::error::UiaError::Null("GetRuntimeId"));
         }
-        let lb = SafeArrayGetLBound(psa, 1).map_err(|e| e.to_string())?;
-        let ub = SafeArrayGetUBound(psa, 1).map_err(|e| e.to_string())?;
+        let lb = crate::error::uia_api("SafeArrayGetLBound", SafeArrayGetLBound(psa, 1))?;
+        let ub = crate::error::uia_api("SafeArrayGetUBound", SafeArrayGetUBound(psa, 1))?;
         let count = (ub - lb + 1) as usize;
         let mut data: *mut i32 = std::ptr::null_mut();
-        SafeArrayAccessData(psa, &mut data as *mut _ as *mut _).map_err(|e| e.to_string())?;
+        crate::error::uia_api("SafeArrayAccessData", SafeArrayAccessData(psa, &mut data as *mut _ as *mut _))?;
         let slice = std::slice::from_raw_parts(data, count);
         let body = slice.iter().map(|v| format!("{:x}", v)).collect::<Vec<_>>().join(".");
-        SafeArrayUnaccessData(psa).map_err(|e| e.to_string())?;
+        crate::error::uia_api("SafeArrayUnaccessData", SafeArrayUnaccessData(psa))?;
         Ok(format!("uia://{}", body))
     }
 }
 
 pub fn get_is_enabled(elem: &IUIAutomationElement) -> Result<bool, crate::error::UiaError> {
     unsafe {
-        elem.CurrentIsEnabled()
+        crate::error::uia_api("IUIAutomationElement::CurrentIsEnabled", elem.CurrentIsEnabled())
             .map(|b| b.as_bool())
-            .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::CurrentIsEnabled", e))
     }
 }
 
 pub fn get_is_offscreen(elem: &IUIAutomationElement) -> Result<bool, crate::error::UiaError> {
     unsafe {
-        elem.CurrentIsOffscreen()
+        crate::error::uia_api("IUIAutomationElement::CurrentIsOffscreen", elem.CurrentIsOffscreen())
             .map(|b| b.as_bool())
-            .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::CurrentIsOffscreen", e))
     }
 }
 

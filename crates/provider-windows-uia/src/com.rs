@@ -8,9 +8,7 @@
 //! same MTA thread when used from iterator code.
 
 use std::cell::{Cell, RefCell};
-use windows::Win32::System::Com::{
-    CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
-};
+use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx};
 use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation, IUIAutomationTreeWalker};
 
 thread_local! {
@@ -37,8 +35,10 @@ pub fn uia() -> Result<IUIAutomation, crate::error::UiaError> {
             return Ok(existing.clone());
         }
         let created: IUIAutomation = unsafe {
-            CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-                .map_err(|e| crate::error::UiaError::api("CoCreateInstance(CUIAutomation)", e))?
+            crate::error::uia_api(
+                "CoCreateInstance(CUIAutomation)",
+                CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER),
+            )?
         };
         *cell.borrow_mut() = Some(created.clone());
         Ok(created)
@@ -52,8 +52,7 @@ pub fn raw_walker() -> Result<IUIAutomationTreeWalker, crate::error::UiaError> {
             return Ok(existing.clone());
         }
         let walker: IUIAutomationTreeWalker = unsafe {
-            uia.RawViewWalker()
-                .map_err(|e| crate::error::UiaError::api("IUIAutomation::RawViewWalker", e))?
+            crate::error::uia_api("IUIAutomation::RawViewWalker", uia.RawViewWalker())?
         };
         *cell.borrow_mut() = Some(walker.clone());
         Ok(walker)

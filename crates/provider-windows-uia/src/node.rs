@@ -110,8 +110,10 @@ impl UiNode for UiaNode {
             unsafe impl Sync for ElemSend {}
             impl ElemSend {
                 unsafe fn set_focus(&self) -> Result<(), crate::error::UiaError> {
-                    unsafe { self.elem.SetFocus() }
-                        .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::SetFocus", e))
+                    crate::error::uia_api(
+                        "IUIAutomationElement::SetFocus",
+                        unsafe { self.elem.SetFocus() },
+                    )
                 }
             }
             let es = ElemSend { elem: self.elem.clone() };
@@ -128,52 +130,44 @@ impl UiNode for UiaNode {
             unsafe impl Send for ElemSend {}
             unsafe impl Sync for ElemSend {}
             impl ElemSend {
-                unsafe fn window_set_state(
-                    &self,
-                    state: WindowVisualState,
-                ) -> Result<(), crate::error::UiaError> {
-                    let unk = unsafe {
-                        self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
-                    }
-                    .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::GetCurrentPattern(Window)", e))?;
+                unsafe fn window_set_state(&self, state: WindowVisualState) -> Result<(), crate::error::UiaError> {
+                    let unk = crate::error::uia_api(
+                        "IUIAutomationElement::GetCurrentPattern(Window)",
+                        unsafe { self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)) },
+                    )?;
                     let pat: IUIAutomationWindowPattern =
-                        unk.cast().map_err(|e| crate::error::UiaError::api("IUnknown::cast(WindowPattern)", e))?;
-                    unsafe { pat.SetWindowVisualState(state) }
-                        .map_err(|e| crate::error::UiaError::api("IUIAutomationWindowPattern::SetWindowVisualState", e))
+                        crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
+                    crate::error::uia_api(
+                        "IUIAutomationWindowPattern::SetWindowVisualState",
+                        unsafe { pat.SetWindowVisualState(state) },
+                    )
                 }
                 unsafe fn window_close(&self) -> Result<(), crate::error::UiaError> {
-                    let unk = unsafe {
-                        self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
-                    }
-                    .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::GetCurrentPattern(Window)", e))?;
+                    let unk = crate::error::uia_api(
+                        "IUIAutomationElement::GetCurrentPattern(Window)",
+                        unsafe { self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)) },
+                    )?;
                     let pat: IUIAutomationWindowPattern =
-                        unk.cast().map_err(|e| crate::error::UiaError::api("IUnknown::cast(WindowPattern)", e))?;
-                    unsafe { pat.Close() }
-                        .map_err(|e| crate::error::UiaError::api("IUIAutomationWindowPattern::Close", e))
+                        crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
+                    crate::error::uia_api("IUIAutomationWindowPattern::Close", unsafe { pat.Close() })
                 }
                 unsafe fn transform_move(&self, x: f64, y: f64) -> Result<(), crate::error::UiaError> {
-                    let unk = unsafe {
-                        self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
-                    }
-                    .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::GetCurrentPattern(Transform)", e))?;
+                    let unk = crate::error::uia_api(
+                        "IUIAutomationElement::GetCurrentPattern(Transform)",
+                        unsafe { self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)) },
+                    )?;
                     let pat: IUIAutomationTransformPattern =
-                        unk.cast().map_err(|e| crate::error::UiaError::api("IUnknown::cast(TransformPattern)", e))?;
-                    unsafe { pat.Move(x, y) }
-                        .map_err(|e| crate::error::UiaError::api("IUIAutomationTransformPattern::Move", e))
+                        crate::error::uia_api("IUnknown::cast(TransformPattern)", unk.cast())?;
+                    crate::error::uia_api("IUIAutomationTransformPattern::Move", unsafe { pat.Move(x, y) })
                 }
-                unsafe fn transform_resize(
-                    &self,
-                    w: f64,
-                    h: f64,
-                ) -> Result<(), crate::error::UiaError> {
-                    let unk = unsafe {
-                        self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
-                    }
-                    .map_err(|e| crate::error::UiaError::api("IUIAutomationElement::GetCurrentPattern(Transform)", e))?;
+                unsafe fn transform_resize(&self, w: f64, h: f64) -> Result<(), crate::error::UiaError> {
+                    let unk = crate::error::uia_api(
+                        "IUIAutomationElement::GetCurrentPattern(Transform)",
+                        unsafe { self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)) },
+                    )?;
                     let pat: IUIAutomationTransformPattern =
-                        unk.cast().map_err(|e| crate::error::UiaError::api("IUnknown::cast(TransformPattern)", e))?;
-                    unsafe { pat.Resize(w, h) }
-                        .map_err(|e| crate::error::UiaError::api("IUIAutomationTransformPattern::Resize", e))
+                        crate::error::uia_api("IUnknown::cast(TransformPattern)", unk.cast())?;
+                    crate::error::uia_api("IUIAutomationTransformPattern::Resize", unsafe { pat.Resize(w, h) })
                 }
             }
             let e1 = ElemSend { elem: self.elem.clone() };

@@ -5,7 +5,7 @@
 //! and exposes lazy iterators for children/attributes. On non‑Windows targets,
 //! the crate builds as a no‑op. On Windows, the implementation will be
 //! incrementally expanded to call into UIAutomation via a dedicated STA actor.
-
+#[cfg(windows)]
 pub mod error;
 #[cfg(windows)]
 mod com;
