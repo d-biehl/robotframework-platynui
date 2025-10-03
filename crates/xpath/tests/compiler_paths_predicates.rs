@@ -253,6 +253,23 @@ fn path_ir_multiple_steps_with_predicates() {
 }
 
 #[rstest]
+fn union_compiles_distinct_operands() {
+    let is = ir("//control:Window | //control:Button");
+    use OpCode::*;
+    // Count name tests for Window and Button separately
+    let mut has_window = false;
+    let mut has_button = false;
+    for op in &is.0 {
+        if let AxisStep(_, NodeTestIR::Name(q), _) = op {
+            if q.original.local == "Window" { has_window = true; }
+            if q.original.local == "Button" { has_button = true; }
+        }
+    }
+    assert!(has_window, "union must contain Window operand");
+    assert!(has_button, "union must contain Button operand");
+}
+
+#[rstest]
 fn axis_multiple_predicates() {
     let is = ir(".//a[@id][@class]");
     let mut seen_two = false;

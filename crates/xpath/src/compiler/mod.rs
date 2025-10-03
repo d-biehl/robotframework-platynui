@@ -342,13 +342,20 @@ impl<'a> Compiler<'a> {
             }
             E::SetOp { left, op, right } => {
                 self.lower_expr(left)?;
-                self.lower_expr(right)?;
+                // Lower right in an isolated compiler fork to avoid state bleed
+                let mut right_comp = self.fork();
+                right_comp.lower_expr(right)?;
+                let right_code = right_comp.code;
+                self.code.extend(right_code);
                 use ast::SetOp::*;
-                self.emit(match op {
-                    Union => ir::OpCode::Union,
-                    Intersect => ir::OpCode::Intersect,
-                    Except => ir::OpCode::Except,
-                });
+                match op {
+                    Union => {
+                        // Emit dedicated Union opcode (evaluator handles doc-order + distinct for nodes)
+                        self.emit(ir::OpCode::Union);
+                    }
+                    Intersect => self.emit(ir::OpCode::Intersect),
+                    Except => self.emit(ir::OpCode::Except),
+                }
                 Ok(())
             }
         }

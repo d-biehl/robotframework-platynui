@@ -517,14 +517,27 @@ fn build_multiplicative_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 
 fn build_union_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // intersect_except_expr (union_op intersect_except_expr)*
+    let mut it = pair.into_inner();
+    let first = it
+        .next()
+        .ok_or_else(|| ParseAstError::new("union_expr missing lhs"))?;
     let mut exprs: SmallVec<[ast::Expr; 2]> = SmallVec::new();
+    exprs.push(build_intersect_except_like(first)?);
     let mut ops: SmallVec<[ast::SetOp; 2]> = SmallVec::new();
-    for p in pair.into_inner() {
+    while let Some(p) = it.next() {
         match p.as_rule() {
-            Rule::intersect_except_expr => exprs.push(build_intersect_except_like(p)?),
-            // union_op is a wrapper; keywords may also appear directly
-            Rule::union_op => ops.push(ast::SetOp::Union),
-            Rule::K_UNION => ops.push(ast::SetOp::Union),
+            // Some pest versions flatten the alternation, yielding OP_PIPE directly instead of union_op
+            Rule::union_op | Rule::K_UNION | Rule::OP_PIPE => {
+                ops.push(ast::SetOp::Union);
+                let rhs = it
+                    .next()
+                    .ok_or_else(|| ParseAstError::new("union_expr missing rhs"))?;
+                exprs.push(build_intersect_except_like(rhs)?);
+            }
+            Rule::intersect_except_expr => {
+                // Defensive: some pest versions may flatten as expr, union_op, expr; handle extra expr
+                exprs.push(build_intersect_except_like(p)?);
+            }
             _ => {}
         }
     }
@@ -533,12 +546,15 @@ fn build_union_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 
 fn build_intersect_except_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // instanceof_expr (intersect_except_op instanceof_expr)*
+    let mut it = pair.into_inner();
+    let first = it
+        .next()
+        .ok_or_else(|| ParseAstError::new("intersect_except_expr missing lhs"))?;
     let mut exprs: SmallVec<[ast::Expr; 2]> = SmallVec::new();
+    exprs.push(build_instanceof_like(first)?);
     let mut ops: SmallVec<[ast::SetOp; 2]> = SmallVec::new();
-    for p in pair.into_inner() {
+    while let Some(p) = it.next() {
         match p.as_rule() {
-            Rule::instanceof_expr => exprs.push(build_instanceof_like(p)?),
-            // intersect_except_op is a wrapper; keywords may also appear directly
             Rule::intersect_except_op => {
                 let token = p
                     .into_inner()
@@ -550,9 +566,29 @@ fn build_intersect_except_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
                     _ => return Err(ParseAstError::new("unknown set op")),
                 };
                 ops.push(op);
+                let rhs = it
+                    .next()
+                    .ok_or_else(|| ParseAstError::new("intersect_except_expr missing rhs"))?;
+                exprs.push(build_instanceof_like(rhs)?);
             }
-            Rule::K_INTERSECT => ops.push(ast::SetOp::Intersect),
-            Rule::K_EXCEPT => ops.push(ast::SetOp::Except),
+            Rule::K_INTERSECT => {
+                ops.push(ast::SetOp::Intersect);
+                let rhs = it
+                    .next()
+                    .ok_or_else(|| ParseAstError::new("intersect missing rhs"))?;
+                exprs.push(build_instanceof_like(rhs)?);
+            }
+            Rule::K_EXCEPT => {
+                ops.push(ast::SetOp::Except);
+                let rhs = it
+                    .next()
+                    .ok_or_else(|| ParseAstError::new("except missing rhs"))?;
+                exprs.push(build_instanceof_like(rhs)?);
+            }
+            Rule::instanceof_expr => {
+                // Defensive
+                exprs.push(build_instanceof_like(p)?);
+            }
             _ => {}
         }
     }

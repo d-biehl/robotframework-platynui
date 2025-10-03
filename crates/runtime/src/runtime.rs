@@ -951,6 +951,76 @@ mod tests {
         for _ in res {}
     }
 
+    use crate::test_support::rt_runtime_mock;
+
+    #[rstest]
+    fn union_windows_or_buttons_returns_both(rt_runtime_mock: Runtime) {
+        // The mock tree contains 1 Window and 2 Buttons
+        let res = rt_runtime_mock
+            .evaluate(None, "//control:Window | //control:Button")
+            .expect("evaluate union");
+        let mut count = 0usize;
+        let mut names = Vec::new();
+        for item in res {
+            if let EvaluationItem::Node(node) = item {
+                count += 1;
+                names.push(node.name().to_string());
+            }
+        }
+        assert!(count >= 3, "expected at least 3 nodes (1 window + 2 buttons), got {}", count);
+        assert!(names.iter().any(|n| n == "Operations Console"));
+        assert!(names.iter().any(|n| n == "OK"));
+        assert!(names.iter().any(|n| n == "Cancel"));
+    }
+
+    #[rstest]
+    fn intersect_windows_and_buttons_is_empty(rt_runtime_mock: Runtime) {
+        let res = rt_runtime_mock
+            .evaluate(None, "//control:Window intersect //control:Button")
+            .expect("evaluate intersect");
+        let mut count = 0usize;
+        for _ in res { count += 1; }
+        assert_eq!(count, 0, "Windows and Buttons should be disjoint");
+    }
+
+    #[rstest]
+    fn except_windows_minus_buttons_equals_windows(rt_runtime_mock: Runtime) {
+
+        // Count all windows
+        let windows = rt_runtime_mock
+            .evaluate(None, "//control:Window")
+            .expect("evaluate windows");
+        let mut windows_count = 0usize;
+        for _ in windows { windows_count += 1; }
+
+        // Subtract buttons from windows (disjoint sets) — result should equal windows
+        let diff = rt_runtime_mock
+            .evaluate(None, "//control:Window except //control:Button")
+            .expect("evaluate except");
+        let mut diff_count = 0usize;
+        for _ in diff { diff_count += 1; }
+
+        assert_eq!(diff_count, windows_count);
+    }
+
+    #[rstest]
+    fn intersect_buttons_with_self_is_identity(rt_runtime_mock: Runtime) {
+
+        let buttons = rt_runtime_mock
+            .evaluate(None, "//control:Button")
+            .expect("evaluate buttons");
+        let mut buttons_count = 0usize;
+        for _ in buttons { buttons_count += 1; }
+
+        let inter = rt_runtime_mock
+            .evaluate(None, "//control:Button intersect //control:Button")
+            .expect("evaluate intersect self");
+        let mut inter_count = 0usize;
+        for _ in inter { inter_count += 1; }
+
+        assert_eq!(inter_count, buttons_count);
+    }
+
     fn configure_keyboard_for_tests(runtime: &Runtime) {
         let mut settings = runtime.keyboard_settings();
         settings.press_delay = Duration::ZERO;

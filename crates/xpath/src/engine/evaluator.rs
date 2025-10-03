@@ -1122,115 +1122,8 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for PathStepCursor<N> {
 }
 
 
-#[derive(Clone, Copy, Debug)]
-enum SetOpKind {
-    Union,
-    Intersect,
-    Except,
-}
+// (set operations handled via dedicated opcodes; no SetOpKind needed)
 
-struct SetOperationCursor<N> {
-    vm: VmHandle<N>,
-    lhs: Option<Box<dyn SequenceCursor<N>>>,
-    rhs: Option<Box<dyn SequenceCursor<N>>>,
-    kind: SetOpKind,
-    buffer: VecDeque<XdmItem<N>>,
-    initialized: bool,
-}
-
-impl<N: 'static + XdmNode + Clone> SetOperationCursor<N> {
-    fn new(
-        vm: VmHandle<N>,
-        kind: SetOpKind,
-        lhs: Box<dyn SequenceCursor<N>>,
-        rhs: Box<dyn SequenceCursor<N>>,
-    ) -> Self {
-        Self {
-            vm,
-            lhs: Some(lhs),
-            rhs: Some(rhs),
-            kind,
-            buffer: VecDeque::new(),
-            initialized: false,
-        }
-    }
-
-    fn collect_sequence(mut cursor: Box<dyn SequenceCursor<N>>) -> Result<XdmSequence<N>, Error> {
-        let (lower, upper) = cursor.size_hint();
-        let mut seq = match upper {
-            Some(exact) => Vec::with_capacity(exact),
-            None => Vec::with_capacity(lower.max(4)),
-        };
-
-        while let Some(item) = cursor.next_item() {
-            if seq.len() == seq.capacity() {
-                let grow = seq.len().max(16);
-                seq.reserve(grow);
-            }
-            seq.push(item?);
-        }
-        Ok(seq)
-    }
-
-    fn ensure_buffer(&mut self) -> Result<(), Error> {
-        if self.initialized {
-            return Ok(());
-        }
-        let lhs_cursor = self.lhs.take().ok_or_else(|| {
-            Error::from_code(ErrorCode::FOER0000, "set operation: LHS cursor already consumed")
-        })?;
-        let rhs_cursor = self.rhs.take().ok_or_else(|| {
-            Error::from_code(ErrorCode::FOER0000, "set operation: RHS cursor already consumed")
-        })?;
-        let lhs_seq = Self::collect_sequence(lhs_cursor)?;
-        let rhs_seq = Self::collect_sequence(rhs_cursor)?;
-        let is_nodes_only =
-            |seq: &XdmSequence<N>| seq.iter().all(|it| matches!(it, XdmItem::Node(_)));
-        if !is_nodes_only(&lhs_seq) || !is_nodes_only(&rhs_seq) {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "set operators require node sequences",
-            ));
-        }
-        let result = self.vm.with_vm(|vm| match self.kind {
-            SetOpKind::Union => vm.set_union(lhs_seq, rhs_seq),
-            SetOpKind::Intersect => vm.set_intersect(lhs_seq, rhs_seq),
-            SetOpKind::Except => vm.set_except(lhs_seq, rhs_seq),
-        })?;
-        self.buffer = VecDeque::from(result);
-        self.initialized = true;
-        Ok(())
-    }
-}
-
-impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for SetOperationCursor<N> {
-    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
-        if let Err(err) = self.ensure_buffer() {
-            return Some(Err(err));
-        }
-        self.buffer.pop_front().map(Ok)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.initialized {
-            let len = self.buffer.len();
-            (len, Some(len))
-        } else {
-            (0, None)
-        }
-    }
-
-    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
-        Box::new(Self {
-            vm: self.vm.clone(),
-            lhs: self.lhs.as_ref().map(|c| c.boxed_clone()),
-            rhs: self.rhs.as_ref().map(|c| c.boxed_clone()),
-            kind: self.kind,
-            buffer: self.buffer.clone(),
-            initialized: self.initialized,
-        })
-    }
-}
 
 struct ForLoopCursor<N> {
     vm: VmHandle<N>,
@@ -1742,15 +1635,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
     }
 
 
-    fn set_operation_stream(
-        &self,
-        lhs: XdmSequenceStream<N>,
-        rhs: XdmSequenceStream<N>,
-        kind: SetOpKind,
-    ) -> XdmSequenceStream<N> {
-        let cursor = SetOperationCursor::new(self.handle(), kind, lhs.cursor(), rhs.cursor());
-        XdmSequenceStream::new(cursor)
-    }
+    // removed set_operation_stream; set ops materialize both operands for correctness
 
     fn execute(&mut self, code: &InstrSeq) -> Result<(), Error> {
         let mut ip: usize = 0;
@@ -2676,17 +2561,24 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     self.push_stream(lhs.chain(rhs));
                     ip += 1;
                 }
-                OpCode::Union | OpCode::Intersect | OpCode::Except => {
-                    let rhs_stream = self.pop_stream();
-                    let lhs_stream = self.pop_stream();
-                    let kind = match &ops[ip] {
-                        OpCode::Union => SetOpKind::Union,
-                        OpCode::Intersect => SetOpKind::Intersect,
-                        OpCode::Except => SetOpKind::Except,
+                OpCode::Union => {
+                    // Materialize both operands explicitly to avoid cursor aliasing issues, then apply union.
+                    let rhs = self.pop_seq()?;
+                    let lhs = self.pop_seq()?;
+                    let out = self.set_union(lhs, rhs)?;
+                    self.push_seq(out);
+                    ip += 1;
+                }
+                OpCode::Intersect | OpCode::Except => {
+                    // Materialize both operands explicitly, then compute set op on nodes
+                    let rhs = self.pop_seq()?;
+                    let lhs = self.pop_seq()?;
+                    let out = match &ops[ip] {
+                        OpCode::Intersect => self.set_intersect(lhs, rhs)?,
+                        OpCode::Except => self.set_except(lhs, rhs)?,
                         _ => unreachable!(),
                     };
-                    let result = self.set_operation_stream(lhs_stream, rhs_stream, kind);
-                    self.push_stream(result);
+                    self.push_seq(out);
                     ip += 1;
                 }
                 OpCode::RangeTo => {
@@ -3459,6 +3351,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 return Ok(others); // no nodes at all
             }
             keyed.sort_by_key(|(k, _)| *k);
+            // Deduplicate by key (fast path when keys are unique).
             keyed.dedup_by(|a, b| a.0 == b.0);
             let mut out = others;
             out.extend(keyed.into_iter().map(|(_, n)| XdmItem::Node(n)));
@@ -3676,10 +3569,25 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
 
     // ===== Set operations (nodes-only; results in document order with duplicates removed) =====
     fn set_union(&mut self, a: XdmSequence<N>, b: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
-        let mut combined: XdmSequence<N> = Vec::with_capacity(a.len() + b.len());
-        combined.extend(a);
-        combined.extend(b);
-        self.doc_order_distinct(combined)
+        // Union per XPath 2.0: nodes only, result in document order with duplicates removed
+        // Strategy: concatenate, sort by document order, then deduplicate by node identity.
+        let mut nodes: Vec<N> = Vec::with_capacity(a.len() + b.len());
+        for it in a.into_iter().chain(b.into_iter()) {
+            match it {
+                XdmItem::Node(n) => nodes.push(n),
+                _ => {
+                    return Err(Error::from_code(
+                        ErrorCode::XPTY0004,
+                        "union operator requires node sequences",
+                    ))
+                }
+            }
+        }
+        // Sort by document order using adapter comparator and keys when available
+        nodes.sort_by(|x, y| self.node_compare(x, y).unwrap_or(Ordering::Equal));
+        // Deduplicate by node identity (Eq)
+        nodes.dedup();
+        Ok(nodes.into_iter().map(XdmItem::Node).collect())
     }
     fn set_intersect(
         &mut self,
