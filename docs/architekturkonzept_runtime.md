@@ -49,8 +49,10 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
 - `crates/server` (Crate `platynui-server`) exponiert optional eine JSON-RPC-2.0-Schnittstelle (Language-Server-ähnlich) für Remote-Clients.
 - Build-Targets und `cfg`-Attribute legen fest, welche Plattform-/Providerkombinationen in einem Artefakt enthalten sind.
 
-### 2.4 Tests: Provider-Injektion & Fixtures
+### 2.4 Tests: Provider‑Injektion & Fixtures
 English summary: Tests construct the Runtime explicitly via `Runtime::new_with_factories_and_platforms(...)` and inject mock platform devices. This avoids global inventory discovery and keeps tests deterministic. We provide small `rstest` fixtures per scenario (mock, UIA on Windows, etc.).
+
+Lifecycle note (Drop): The Runtime calls `shutdown()` automatically in its `Drop` implementation. Explicit `shutdown()` remains available and is idempotent; calling it more than once (including via `Drop`) has no side effects. Providers must implement `UiTreeProvider::shutdown()` to release resources; the Runtime guarantees to invoke it during shutdown.
 
 ### 2.4 XPath‑Auswertung (Streaming & Normalisierung)
 

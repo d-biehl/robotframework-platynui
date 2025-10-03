@@ -43,7 +43,7 @@ This document proposes a clean, future‑proof design for Python bindings to Pla
 
 ### `platynui_native.runtime`
 - `Runtime`
-  - `Runtime()` (constructor), `shutdown()`
+  - `Runtime()` (constructor), `shutdown()` (optional; Runtime calls `shutdown()` on drop)
   - `evaluate(xpath: str, node: UiNode | None = None) -> list[UiNode | EvaluatedAttribute | UiValue]`
   - `desktop_node() -> UiNode`, `desktop_info() -> dict`
   - `focus(node: UiNode)`
@@ -210,7 +210,7 @@ The first slice is implemented under `packages/native` and usable for local dev 
 
 ### `runtime` Submodule (Rust → Python)
 - Exceptions: `EvaluationError`, `ProviderError`, `PointerError`, `KeyboardError`, `PatternError`
-- Runtime lifecycle: `Runtime()` (constructor), `evaluate(xpath, node=None)`, `shutdown()`
+- Runtime lifecycle: `Runtime()` (constructor), `evaluate(xpath, node=None)`, `shutdown()` (optional; called by `__del__`/drop semantics)
 - UiNode wrapper: properties + navigation and metadata
   - `runtime_id`, `name`, `role`, `namespace`
   - `attribute(name, namespace=None)` → Python native value

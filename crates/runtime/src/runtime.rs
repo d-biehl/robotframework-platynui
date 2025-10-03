@@ -1,6 +1,6 @@
 use once_cell::sync::OnceCell;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak, atomic::{AtomicBool, Ordering}};
 use std::time::Duration;
 
 use platynui_core::platform::{
@@ -46,6 +46,7 @@ pub struct Runtime {
     pointer_profile: Mutex<PointerProfile>,
     keyboard: Option<&'static dyn KeyboardDevice>,
     keyboard_settings: Mutex<KeyboardSettings>,
+    is_shutdown: AtomicBool,
 }
 
 // ProviderRuntimeState removed: DesktopNode streams children on-demand.
@@ -212,6 +213,7 @@ impl Runtime {
             pointer_profile: Mutex::new(pointer_profile),
             keyboard,
             keyboard_settings: Mutex::new(keyboard_settings),
+            is_shutdown: AtomicBool::new(false),
         };
         Ok(runtime)
     }
@@ -519,6 +521,9 @@ impl Runtime {
 
     /// Invokes shutdown on dispatcher and providers.
     pub fn shutdown(&mut self) {
+        if self.is_shutdown.swap(true, Ordering::AcqRel) {
+            return; // already shut down
+        }
         self.dispatcher.shutdown();
         for provider in &self.providers {
             provider.shutdown();
@@ -533,6 +538,13 @@ impl Runtime {
 
     fn keyboard_device(&self) -> Result<&'static dyn KeyboardDevice, KeyboardError> {
         self.keyboard.ok_or(KeyboardError::NotReady)
+    }
+}
+
+impl Drop for Runtime {
+    fn drop(&mut self) {
+        // Ensure providers and dispatcher are shut down exactly once.
+        self.shutdown();
     }
 }
 
@@ -833,6 +845,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, LazyLock, Mutex, Weak};
     use std::time::Duration;
+    use std::sync::atomic::AtomicUsize;
 
     // --- 19.4: Ensure platform modules initialize before provider creation ----------------------
     // A tiny test-only platform module toggles a flag in initialize(). A test-only provider
@@ -1412,6 +1425,68 @@ mod tests {
         let mut runtime = rt_runtime_stub;
         runtime.shutdown();
         assert!(SHUTDOWN_TRIGGERED.load(Ordering::SeqCst));
+    }
+
+    // --- Drop lifecycle tests ---------------------------------------------------------------
+    static DROP_COUNT: LazyLock<AtomicUsize> = LazyLock::new(|| AtomicUsize::new(0));
+
+    struct DropCounterProvider {
+        desc: &'static ProviderDescriptor,
+    }
+    impl UiTreeProvider for DropCounterProvider {
+        fn descriptor(&self) -> &ProviderDescriptor { self.desc }
+        fn get_nodes(
+            &self,
+            _parent: Arc<dyn UiNode>,
+        ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
+            Ok(Box::new(std::iter::empty()))
+        }
+        fn subscribe_events(
+            &self,
+            _listener: Arc<dyn ProviderEventListener>,
+        ) -> Result<(), ProviderError> { Ok(()) }
+        fn shutdown(&self) { DROP_COUNT.fetch_add(1, Ordering::SeqCst); }
+    }
+    struct DropCounterFactory;
+    impl DropCounterFactory {
+        fn descriptor_static() -> &'static ProviderDescriptor {
+            static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
+                ProviderDescriptor::new(
+                    "runtime-drop-counter",
+                    "Runtime Drop Counter",
+                    TechnologyId::from("Runtime"),
+                    ProviderKind::Native,
+                )
+            });
+            &DESCRIPTOR
+        }
+    }
+    impl UiTreeProviderFactory for DropCounterFactory {
+        fn descriptor(&self) -> &ProviderDescriptor { Self::descriptor_static() }
+        fn create(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+            Ok(Arc::new(DropCounterProvider { desc: Self::descriptor_static() }))
+        }
+    }
+    static DROP_COUNTER_FACTORY: DropCounterFactory = DropCounterFactory;
+
+    #[test]
+    fn runtime_drop_triggers_shutdown_once() {
+        DROP_COUNT.store(0, Ordering::SeqCst);
+        {
+            let _rt = Runtime::new_with_factories(&[&DROP_COUNTER_FACTORY]).expect("runtime");
+        } // drop here
+        assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn runtime_shutdown_then_drop_is_idempotent() {
+        DROP_COUNT.store(0, Ordering::SeqCst);
+        {
+            let mut rt = Runtime::new_with_factories(&[&DROP_COUNTER_FACTORY]).expect("runtime");
+            rt.shutdown();
+            assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 1, "shutdown should be called once");
+        } // drop should not call shutdown again
+        assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 1, "drop must be idempotent after shutdown");
     }
 
     #[rstest]
