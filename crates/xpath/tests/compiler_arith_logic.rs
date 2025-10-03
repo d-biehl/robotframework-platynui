@@ -21,10 +21,20 @@ fn arithmetic_ops(#[case] src: &str, #[case] tail: OpCode) {
 
 #[rstest]
 fn logical_and_or() {
+    // After short-circuit implementation, And/Or generate jump-based code
+    // Pattern: LHS JumpIfTrue/False(...) RHS ToEBV Jump(...) PushAtomic(bool)
+
     let or_ir = ir("true() or false()");
-    assert!(matches!(or_ir.0.last(), Some(OpCode::Or)));
+    // Should contain JumpIfTrue for short-circuit
+    assert!(or_ir.0.iter().any(|op| matches!(op, OpCode::JumpIfTrue(_))));
+    // Should push true if LHS is true (short-circuit)
+    assert!(or_ir.0.iter().any(|op| matches!(op, OpCode::PushAtomic(_))));
+
     let and_ir = ir("true() and false()");
-    assert!(matches!(and_ir.0.last(), Some(OpCode::And)));
+    // Should contain JumpIfFalse for short-circuit
+    assert!(and_ir.0.iter().any(|op| matches!(op, OpCode::JumpIfFalse(_))));
+    // Should push false if LHS is false (short-circuit)
+    assert!(and_ir.0.iter().any(|op| matches!(op, OpCode::PushAtomic(_))));
 }
 
 #[rstest]

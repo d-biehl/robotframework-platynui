@@ -5,6 +5,7 @@ use crate::xdm::{ExpandedName, XdmAtomicValue};
 use smallvec::SmallVec;
 
 pub mod ir;
+pub mod optimizer;
 
 use std::sync::{Arc, OnceLock};
 use string_cache::DefaultAtom;
@@ -47,7 +48,7 @@ fn compile_inner(expr: &str, static_ctx: &StaticContext) -> Result<ir::CompiledX
     let ast = parse(expr)?;
     let mut c = Compiler::new(static_ctx, expr);
     c.lower_expr(&ast)?;
-    let instrs = ir::InstrSeq(c.code);
+    let instrs = optimizer::optimize(ir::InstrSeq(c.code));
     let source = expr.to_string();
     let cache_entry = Arc::new(instrs.clone());
 
@@ -196,19 +197,87 @@ impl<'a> Compiler<'a> {
                 Ok(())
             }
             E::Binary { left, op, right } => {
-                self.lower_expr(left)?;
-                self.lower_expr(right)?;
                 use ast::BinaryOp::*;
-                self.emit(match op {
-                    Add => ir::OpCode::Add,
-                    Sub => ir::OpCode::Sub,
-                    Mul => ir::OpCode::Mul,
-                    Div => ir::OpCode::Div,
-                    IDiv => ir::OpCode::IDiv,
-                    Mod => ir::OpCode::Mod,
-                    And => ir::OpCode::And,
-                    Or => ir::OpCode::Or,
-                });
+
+                // Special handling for And/Or to enable short-circuit evaluation
+                match op {
+                    And => {
+                        // Pattern for And with short-circuit:
+                        // 1. Evaluate LHS
+                        // 2. JumpIfFalse to skip RHS → if false, we need to push false
+                        // 3. Evaluate RHS (LHS was true, result = EBV(RHS))
+                        //
+                        // Code: LHS JumpIfFalse(skip) Pop RHS ToEBV Jump(end) skip: Pop PushFalse end:
+
+                        self.lower_expr(left)?;  // Stack: [LHS]
+
+                        let jump_if_false_pos = self.code.len();
+                        self.emit(ir::OpCode::JumpIfFalse(0));  // Pops LHS, jumps if false
+
+                        // LHS was true, evaluate RHS
+                        self.lower_expr(right)?;  // Stack: [RHS]
+                        self.emit(ir::OpCode::ToEBV);  // Convert RHS to boolean
+
+                        let jump_to_end_pos = self.code.len();
+                        self.emit(ir::OpCode::Jump(0));  // Jump over the false-push
+
+                        // If we jumped here, LHS was false
+                        let false_label = self.code.len();
+                        self.emit(ir::OpCode::PushAtomic(XdmAtomicValue::Boolean(false)));
+
+                        let end_label = self.code.len();
+
+                        // Patch jumps
+                        let jump_if_false_offset = false_label - jump_if_false_pos - 1;
+                        self.code[jump_if_false_pos] = ir::OpCode::JumpIfFalse(jump_if_false_offset);
+
+                        let jump_to_end_offset = end_label - jump_to_end_pos - 1;
+                        self.code[jump_to_end_pos] = ir::OpCode::Jump(jump_to_end_offset);
+                    }
+                    Or => {
+                        // Pattern for Or with short-circuit:
+                        // LHS JumpIfTrue(skip) Pop RHS ToEBV Jump(end) skip: Pop PushTrue end:
+
+                        self.lower_expr(left)?;  // Stack: [LHS]
+
+                        let jump_if_true_pos = self.code.len();
+                        self.emit(ir::OpCode::JumpIfTrue(0));  // Pops LHS, jumps if true
+
+                        // LHS was false, evaluate RHS
+                        self.lower_expr(right)?;  // Stack: [RHS]
+                        self.emit(ir::OpCode::ToEBV);  // Convert RHS to boolean
+
+                        let jump_to_end_pos = self.code.len();
+                        self.emit(ir::OpCode::Jump(0));  // Jump over the true-push
+
+                        // If we jumped here, LHS was true
+                        let true_label = self.code.len();
+                        self.emit(ir::OpCode::PushAtomic(XdmAtomicValue::Boolean(true)));
+
+                        let end_label = self.code.len();
+
+                        // Patch jumps
+                        let jump_if_true_offset = true_label - jump_if_true_pos - 1;
+                        self.code[jump_if_true_pos] = ir::OpCode::JumpIfTrue(jump_if_true_offset);
+
+                        let jump_to_end_offset = end_label - jump_to_end_pos - 1;
+                        self.code[jump_to_end_pos] = ir::OpCode::Jump(jump_to_end_offset);
+                    }
+                    _ => {
+                        // All other binary ops: evaluate both sides first
+                        self.lower_expr(left)?;
+                        self.lower_expr(right)?;
+                        self.emit(match op {
+                            Add => ir::OpCode::Add,
+                            Sub => ir::OpCode::Sub,
+                            Mul => ir::OpCode::Mul,
+                            Div => ir::OpCode::Div,
+                            IDiv => ir::OpCode::IDiv,
+                            Mod => ir::OpCode::Mod,
+                            And | Or => unreachable!("Handled above"),
+                        });
+                    }
+                }
                 Ok(())
             }
             E::GeneralComparison { left, op, right } => {

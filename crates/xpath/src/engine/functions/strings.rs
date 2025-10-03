@@ -3,7 +3,7 @@ use super::common::{
 };
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
-use smallvec::SmallVec;
+use itertools::Itertools;
 use std::collections::{HashMap, hash_map::Entry};
 
 pub(super) fn string_fn<N: 'static + crate::model::XdmNode + Clone>(
@@ -228,14 +228,18 @@ pub(super) fn string_join_fn<N: crate::model::XdmNode + Clone>(
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
     let sep = item_to_string(&args[1]);
-    let mut parts: SmallVec<[String; 8]> = SmallVec::new(); // Most joins have few parts
-    for it in &args[0] {
-        match it {
-            XdmItem::Atomic(a) => parts.push(as_string(a)),
-            XdmItem::Node(n) => parts.push(n.string_value()),
-        }
-    }
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(parts.join(&sep)))])
+
+    // Optimization: Use itertools::join to avoid collecting into a Vec
+    // This streams the string conversion and joining in one pass
+    let joined = args[0]
+        .iter()
+        .map(|it| match it {
+            XdmItem::Atomic(a) => as_string(a),
+            XdmItem::Node(n) => n.string_value(),
+        })
+        .join(&sep);
+
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(joined))])
 }
 
 fn contains_default<N: 'static + crate::model::XdmNode + Clone>(

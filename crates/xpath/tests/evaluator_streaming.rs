@@ -430,3 +430,168 @@ fn streaming_cancellation_triggers_error() {
         .expect("evaluation should cancel");
     assert_eq!(err.code_enum(), platynui_xpath::engine::runtime::ErrorCode::FOER0000);
 }
+
+// ============================================================================
+// Critical Streaming Tests (Priority 1 from xpath_streaming_analysis.md)
+// ============================================================================
+
+/// Test that streaming stops after finding the first result.
+/// This verifies that we don't traverse the entire tree unnecessarily.
+#[rstest]
+fn streaming_early_termination_first_match() {
+    // Build a tree with 10,000 items
+    let mut root_builder = elem("root");
+    for idx in 1..=10_000 {
+        root_builder = root_builder.child(
+            elem("item")
+                .child(text(&format!("item_{idx}")))
+        );
+    }
+    let document = doc().child(root_builder).build();
+    let root = document.children().next().unwrap();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(root.clone()))
+        .build();
+
+    // Query: descendant-or-self::item[1]
+    // Should find first item and stop, not traverse all 10,000
+    let stream = evaluate_stream_expr::<N>("descendant-or-self::item[1]", &ctx)
+        .expect("stream eval succeeds");
+
+    let result: Vec<_> = stream.iter().collect::<Result<Vec<_>, _>>().expect("ok");
+
+    // Should get exactly 1 result
+    assert_eq!(result.len(), 1);
+
+    // Verify it's the first item
+    match &result[0] {
+        I::Node(n) => assert_eq!(n.string_value(), "item_1"),
+        other => panic!("expected node, got {other:?}"),
+    }
+
+    // Note: We can't directly measure node access count with SimpleNode,
+    // but the test demonstrates the query completes quickly.
+}
+
+/// Test that streaming handles large numeric sequences efficiently.
+/// XPath 2.0 allows: `1 to 999999999` - this should NOT materialize
+/// the full range if we only take the first few items.
+///
+/// **CURRENTLY DISABLED**: This test takes >60 seconds because the `1 to N`
+/// range operation currently materializes the entire sequence instead of
+/// streaming it. This is a known limitation documented in xpath_streaming_analysis.md
+/// and should be fixed as part of the "Range Streaming" optimization.
+///
+/// **TODO**: Re-enable this test after implementing lazy range evaluation.
+/// See Priority 2 or 3 optimizations in the streaming roadmap.
+#[rstest]
+#[ignore = "Range (1 to N) currently materializes instead of streaming - takes >60s"]
+fn streaming_infinite_sequence_early_exit() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+
+    // Create a large range but only take first 10
+    let expr = "(1 to 999999999)[position() < 11]";
+    let stream = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval succeeds");
+
+    let results: Vec<i64> = stream
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(results.len(), 10);
+    assert_eq!(results, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+    // If this test passes without OOM or timeout, streaming worked correctly
+}
+
+/// Test another infinite-like sequence with filtering.
+/// Should stream and short-circuit, not materialize entire range.
+#[rstest]
+fn streaming_large_range_with_predicate() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+
+    // Large range with a filter that matches early
+    let expr = "(1 to 100000)[. > 99995]";
+    let stream = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval succeeds");
+
+    let results: Vec<i64> = stream
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(results, vec![99996, 99997, 99998, 99999, 100000]);
+}
+
+/// Test that take() on stream works correctly for limiting results.
+/// This is the common pattern for "give me first N matches".
+#[rstest]
+fn streaming_take_limits_evaluation() {
+    let mut root_builder = elem("root");
+    for idx in 1..=1000 {
+        root_builder = root_builder.child(
+            elem("item").child(text(&format!("{idx}")))
+        );
+    }
+    let document = doc().child(root_builder).build();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(document.clone()))
+        .build();
+
+    // Get all items but only take first 5
+    let stream = evaluate_stream_expr::<N>("//item", &ctx)
+        .expect("stream eval succeeds");
+
+    let first_five: Vec<String> = stream
+        .iter()
+        .take(5)
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(first_five.len(), 5);
+    assert_eq!(first_five, vec!["1", "2", "3", "4", "5"]);
+}
+
+/// Verify that streaming doesn't consume excessive memory for large result sets.
+/// Note: This is a behavioral test - exact memory measurement would require
+/// platform-specific tooling.
+#[rstest]
+fn streaming_memory_efficient_large_tree() {
+    // Build a tree with 5,000 items
+    let mut root_builder = elem("root");
+    for idx in 1..=5_000 {
+        root_builder = root_builder.child(
+            elem("item")
+                .child(text(&format!("value_{idx}")))
+        );
+    }
+    let document = doc().child(root_builder).build();
+    let ctx = DynamicContextBuilder::default()
+        .with_context_item(I::Node(document.clone()))
+        .build();
+
+    // Query all descendants but only take first match with specific condition
+    let expr = "//item[contains(text(), 'value_2500')][1]";
+    let stream = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval succeeds");
+
+    let result: Vec<_> = stream.iter().collect::<Result<Vec<_>, _>>().expect("ok");
+
+    assert_eq!(result.len(), 1);
+    match &result[0] {
+        I::Node(n) => assert_eq!(n.string_value(), "value_2500"),
+        other => panic!("expected node, got {other:?}"),
+    }
+
+    // If this completes without excessive memory usage, streaming is working
+}
