@@ -65,6 +65,15 @@ UiNode‑Basics (lazy)
 - ActivationPoint: Mitte der Bounds (später optional `GetClickablePoint`).
 - Alle Werte werden erst in `UiAttribute.value()` zur Laufzeit ermittelt (kein Proaktiv‑Fetch).
 
+### Native UIA‑Properties (Namespace `native:`)
+- Ziel: Alle vom `IUIAutomationElement` unterstützten UIA‑Properties können direkt als Attribute im Namespace `native` abgefragt werden, z. B. per XPath: `//control:Button[@native:ClassName="abc"]`.
+- Unterstützung ermitteln: `IUIAutomationElement::GetSupportedProperties()` liefert Property‑IDs; Programmatic Names via `IUIAutomation::GetPropertyProgrammaticName()` werden als Attributnamen verwendet (z. B. `native:ClassName`).
+- Werte lesen: `IUIAutomationElement::GetCurrentPropertyValueEx(propertyId, ignoreDefaultValue)`; Rückgabewert (VARIANT) wird in `UiValue` gemappt:
+  - `VT_BOOL`→Bool, `VT_I4/VT_UI4`→Integer, `VT_R8/VT_R4`→Number, `BSTR`→String, `SAFEARRAY`→Array; nicht unterstützte oder unbekannte Typen werden sinnvoll serialisiert oder ausgelassen.
+  - Sentinels: `ReservedNotSupportedValue` kennzeichnet „nicht unterstützt“ (Attribut wird weggelassen oder als `Null` geliefert); `ReservedMixedAttributeValue` kennzeichnet gemischte Werte (Attribut kann z. B. entfallen oder über ein separates `native:UIA.MixedPropertyIds` markiert werden).
+- Exponierung: Für jedes unterstützte Property wird ein `UiAttribute` im Namespace `Native` mit dem Programmatic Name bereitgestellt. Zusätzlich kann ein aggregiertes Objekt (z. B. `native:UIA.Properties`) für Debugging bereitgestellt werden.
+- Lazy‑Evaluation: Property‑Werte werden erst bei Zugriff auf `value()` gelesen, um Traversal schlank zu halten.
+
 ## Patterns (Slice 1)
 - Focusable: `element.SetFocus()`; Fehler werden als `PatternError` gemeldet.
 - WindowSurface:
