@@ -125,10 +125,6 @@ pub(crate) fn should_filter_attribute(name: &str) -> bool {
     matches!(
         name,
         n if n == element::BOUNDS
-            || n == "Bounds.X"
-            || n == "Bounds.Y"
-            || n == "Bounds.Width"
-            || n == "Bounds.Height"
             || n == window_surface::IS_MINIMIZED
             || n == window_surface::IS_MAXIMIZED
             || n == window_surface::IS_TOPMOST
@@ -157,20 +153,6 @@ pub(crate) fn register_window(
             runtime_id.clone(),
             element::BOUNDS,
             WindowAttributeKind::Bounds,
-        ),
-        window_attribute(namespace, runtime_id.clone(), "Bounds.X", WindowAttributeKind::BoundsX),
-        window_attribute(namespace, runtime_id.clone(), "Bounds.Y", WindowAttributeKind::BoundsY),
-        window_attribute(
-            namespace,
-            runtime_id.clone(),
-            "Bounds.Width",
-            WindowAttributeKind::BoundsWidth,
-        ),
-        window_attribute(
-            namespace,
-            runtime_id.clone(),
-            "Bounds.Height",
-            WindowAttributeKind::BoundsHeight,
         ),
         window_attribute(
             namespace,
@@ -350,10 +332,6 @@ struct WindowAttribute {
 
 enum WindowAttributeKind {
     Bounds,
-    BoundsX,
-    BoundsY,
-    BoundsWidth,
-    BoundsHeight,
     IsMinimized,
     IsMaximized,
     IsTopmost,
@@ -376,18 +354,6 @@ impl UiAttribute for WindowAttribute {
         match self.kind {
             WindowAttributeKind::Bounds => {
                 state.map(|s| UiValue::from(s.bounds)).unwrap_or(UiValue::Rect(Rect::default()))
-            }
-            WindowAttributeKind::BoundsX => {
-                state.map(|s| UiValue::from(s.bounds.x())).unwrap_or(UiValue::from(0.0))
-            }
-            WindowAttributeKind::BoundsY => {
-                state.map(|s| UiValue::from(s.bounds.y())).unwrap_or(UiValue::from(0.0))
-            }
-            WindowAttributeKind::BoundsWidth => {
-                state.map(|s| UiValue::from(s.bounds.width())).unwrap_or(UiValue::from(0.0))
-            }
-            WindowAttributeKind::BoundsHeight => {
-                state.map(|s| UiValue::from(s.bounds.height())).unwrap_or(UiValue::from(0.0))
             }
             WindowAttributeKind::IsMinimized => {
                 state.map(|s| UiValue::from(s.is_minimized)).unwrap_or(UiValue::from(false))

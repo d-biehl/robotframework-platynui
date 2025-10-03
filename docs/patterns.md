@@ -32,7 +32,7 @@ Wir unterscheiden drei Typen von UiNode-Namespace-Knoten:
 - `RuntimeId` bleibt während der gesamten Lebensdauer eines Elements stabil; wird ein Element zerstört und neu erzeugt, darf sich die ID ändern.
 - `Technology` kennzeichnet die Quelle (`UIAutomation`, `AT-SPI`, `AX`, `JSONRPC`, …) und hilft bei Debugging sowie gemischten Provider-Szenarien.
 - `Name` liefert den zugänglichen Anzeigenamen. Falls die Plattform keinen Namen anbietet, entscheidet der Provider über einen sinnvollen Fallback (z. B. Beschriftung aus Unterelementen) und dokumentiert das Verhalten.
-> **Hinweis:** Alias-Attribute (`Bounds.X`, `ActivationPoint.X`, …) müssen immer mit den zugrunde liegenden `Rect`-/`Point`-Werten übereinstimmen. Das Contract-Testkit meldet fehlende oder inkonsistente Alias-Einträge.
+> Hinweis: Alias-Attribute (`Bounds.X`, `ActivationPoint.X`, …) werden von der Runtime/XPath‑Ebene automatisch aus den Basiswerten (`Bounds` als `Rect`, `ActivationPoint` als `Point`) abgeleitet. Provider sollen diese Aliase nicht eigenständig liefern. Das Contract‑Testkit verlangt keine Alias‑Attribute und prüft sie nicht mehr.
 
 ### Spezifika für `app:`-Knoten
 - `app:`-Knoten repräsentieren Anwendungen oder Prozesse. Sie erfüllen zusätzlich das ClientPattern `Application` (siehe unten) und stellen ihre Metadaten ausschließlich über `app:*`-Attribute bereit.
@@ -82,23 +82,23 @@ Die folgende Tabelle fasst die aktuell vorgesehenen Attributnamen zusammen und o
 #### Element
 - **Beschreibung:** Grundlegender Vertrag für sichtbare UI-Elemente (gilt für `control:`- und `item:`-Knoten).
 - **Pflichtattribute:**
--  - `Bounds` – Desktop-Koordinaten als `Rect` (JSON-String); Aliaswerte `Bounds.X`, `Bounds.Y`, `Bounds.Width`, `Bounds.Height` werden automatisch als `xs:double` erzeugt.
+-  - `Bounds` – Desktop-Koordinaten als `Rect` (JSON-String). Aliaswerte `Bounds.X`, `Bounds.Y`, `Bounds.Width`, `Bounds.Height` werden zur Abfragefreundlichkeit automatisch von der Runtime/XPath‑Ebene als `xs:double` erzeugt (Provider liefern diese nicht).
 -  - `Name` – `xs:string`
 -  - `IsVisible` – `xs:boolean`
 -  - `IsEnabled` – `xs:boolean` (Element nimmt Eingaben an)
 - **Optionale Attribute:** `IsOffscreen` (`xs:boolean`), technologie-spezifische Ergänzungen unter `native:*`.
 - **Hinweis:** Attribute wie `Role`, `Technology`, `RuntimeId`, `SupportedPatterns` gelten für alle `UiNode`s (siehe Grundvertrag) und werden hier nicht erneut aufgeführt. Provider müssen die Element-Pflichtfelder für alle `control:`-/`item:`-Knoten konsistent bereitstellen; Clients entscheiden anhand dieser Werte, welche weiteren ClientPatterns zutreffen.
-- **Contract-Test:** Das Core-Testkit (`platynui_core::ui::contract::testkit`) vergleicht optionale Alias-Werte (`Bounds.X`, `Bounds.Y`, `Bounds.Width`, `Bounds.Height`), sofern vorhanden, mit dem gelieferten `Bounds`-Rechteck.
+- Hinweis zum Contract: Das Core‑Testkit (`platynui_core::ui::contract::testkit`) verlangt keine Alias‑Attribute; abgeleitete Werte entstehen in der Runtime/XPath‑Ebene.
 
 #### Desktop
 - **Beschreibung:** Beschreibt den Dokumentknoten des UI-Baums. Der Desktop wird als `document-node()` im `control`-Namespace exponiert. XPath-Abfragen beginnen somit mit `.` bzw. `document-node()`, während `/*` die obersten UI-Kinder (z. B. Anwendungen) liefert. Der Desktop gilt nicht als reguläres UI-Element, sondern stellt System- und Monitorinformationen bereit.
 - **Pflichtattribute:**
-  - `Bounds` – Desktop-Koordinaten als `Rect` (JSON-String, Aliaswerte wie oben `xs:double`)
+  - `Bounds` – Desktop-Koordinaten als `Rect` (JSON-String; Aliase wie oben werden zur Laufzeit erzeugt)
   - `DisplayCount` – `xs:integer`
   - `Monitors` – JSON-Array aus Objekten (`Name`, `Bounds` als `Rect`)
   - `OsName` – `xs:string`
   - `OsVersion` – `xs:string`
-- **Hinweis:** Weitere Basisattribute entstammen dem allgemeinen UiNode-Vertrag; Ableitungen wie `Bounds.X`/`Bounds.Width` werden automatisch erzeugt. Die Attribute sind über den Dokumentkontext abrufbar (z. B. `./@Bounds.X`).
+- Hinweis: Weitere Basisattribute entstammen dem allgemeinen UiNode‑Vertrag; Ableitungen wie `Bounds.X`/`Bounds.Width` werden automatisch (Runtime/XPath) erzeugt und sind über den Dokumentkontext abrufbar (z. B. `./@Bounds.X`).
 
 ### Textbezogene Fähigkeiten (ClientPatterns)
 
@@ -137,10 +137,10 @@ Die folgende Tabelle fasst die aktuell vorgesehenen Attributnamen zusammen und o
 
 #### ActivationTarget
 - **Beschreibung:** Liefert eine standardisierte Zeiger- bzw. Klickposition innerhalb der Elementgrenzen, damit Clients Interaktionen zuverlässig auf die aktive Fläche richten können.
-- **Pflichtattribute:** `ActivationPoint` – `Point` (JSON-String, Desktop-Koordinaten); Aliaswerte `ActivationPoint.X`/`ActivationPoint.Y` werden als `xs:double` erzeugt.
+- **Pflichtattribute:** `ActivationPoint` – `Point` (JSON‑String, Desktop‑Koordinaten). Aliaswerte `ActivationPoint.X`/`ActivationPoint.Y` werden zur Abfragefreundlichkeit von der Runtime/XPath‑Ebene als `xs:double` erzeugt.
 - **Optionale Attribute:** `ActivationArea` (`Rect` als JSON-String im Desktop-Bezugssystem), `ActivationHint` (`xs:string`).
 - **Verwendung:** Buttons, Checkboxen, Radiobuttons, Listeneinträge, Tree-Items oder andere Steuerelemente mit klar definierter Interaktionsfläche.
-- **Contract-Test:** Alias-Werte (`ActivationPoint.X`, `ActivationPoint.Y`), sofern gesetzt, müssen rechnerisch zum `ActivationPoint` passen; das Core-Testkit meldet Abweichungen.
+- Hinweis zum Contract: Das Core‑Testkit verlangt keine Alias‑Attribute für `ActivationPoint`; Abgleiche finden nicht mehr auf Provider‑Ebene statt.
 
 ### Mapping-Hinweise (informativ)
 

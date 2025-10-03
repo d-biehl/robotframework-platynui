@@ -114,26 +114,11 @@ pub fn verify_node(node: &dyn UiNode, expectations: &NodeExpectation) -> Vec<Con
                         name: attr.name.to_owned(),
                     });
                 }
-                Some(value) => {
-                    if attr.name == crate::ui::attribute_names::element::BOUNDS {
-                        check_bounds_aliases(
-                            &mut issues,
-                            pattern.id.clone(),
-                            attr.namespace,
-                            value,
-                            &attributes,
-                        );
-                    }
-                    if attr.name == crate::ui::attribute_names::activation_target::ACTIVATION_POINT
-                    {
-                        check_activation_point_aliases(
-                            &mut issues,
-                            pattern.id.clone(),
-                            attr.namespace,
-                            value,
-                            &attributes,
-                        );
-                    }
+                Some(_) => {
+                    // Note: Derived geometry aliases (Bounds.X/Y/Width/Height, ActivationPoint.X/Y)
+                    // are produced by the Runtime/XPath layer and are no longer part of the
+                    // provider contract. Providers should expose only the base attributes such as
+                    // Bounds (Rect) and ActivationPoint (Point).
                 }
                 _ => {}
             }
@@ -161,77 +146,7 @@ fn collect_attributes(node: &dyn UiNode) -> HashMap<(Namespace, String), UiValue
     map
 }
 
-fn check_bounds_aliases(
-    issues: &mut Vec<ContractIssue>,
-    pattern: PatternId,
-    namespace: Namespace,
-    value: &UiValue,
-    attributes: &HashMap<(Namespace, String), UiValue>,
-) {
-    if let UiValue::Rect(rect) = value {
-        let expected = [
-            ("Bounds.X", UiValue::from(rect.left())),
-            ("Bounds.Y", UiValue::from(rect.top())),
-            ("Bounds.Width", UiValue::from(rect.width())),
-            ("Bounds.Height", UiValue::from(rect.height())),
-        ];
-        for (alias, expected_value) in expected {
-            let key = (namespace, alias.to_owned());
-            match attributes.get(&key) {
-                Some(actual) if actual != &expected_value => {
-                    issues.push(ContractIssue::GeometryAliasMismatch {
-                        pattern: pattern.clone(),
-                        namespace,
-                        alias: alias.to_owned(),
-                        expected: expected_value.clone(),
-                        actual: actual.clone(),
-                    });
-                }
-                None => issues.push(ContractIssue::MissingGeometryAlias {
-                    pattern: pattern.clone(),
-                    namespace,
-                    alias: alias.to_owned(),
-                }),
-                _ => {}
-            }
-        }
-    }
-}
-
-fn check_activation_point_aliases(
-    issues: &mut Vec<ContractIssue>,
-    pattern: PatternId,
-    namespace: Namespace,
-    value: &UiValue,
-    attributes: &HashMap<(Namespace, String), UiValue>,
-) {
-    if let UiValue::Point(point) = value {
-        let expected = [
-            ("ActivationPoint.X", UiValue::from(point.x())),
-            ("ActivationPoint.Y", UiValue::from(point.y())),
-        ];
-        for (alias, expected_value) in expected {
-            let key = (namespace, alias.to_owned());
-            match attributes.get(&key) {
-                Some(actual) if actual != &expected_value => {
-                    issues.push(ContractIssue::GeometryAliasMismatch {
-                        pattern: pattern.clone(),
-                        namespace,
-                        alias: alias.to_owned(),
-                        expected: expected_value.clone(),
-                        actual: actual.clone(),
-                    });
-                }
-                None => issues.push(ContractIssue::MissingGeometryAlias {
-                    pattern: pattern.clone(),
-                    namespace,
-                    alias: alias.to_owned(),
-                }),
-                _ => {}
-            }
-        }
-    }
-}
+// Removed: geometry alias checks. Aliases are resolved by the Runtime/XPath layer.
 
 #[cfg(test)]
 mod geometry_tests {
@@ -333,22 +248,18 @@ mod geometry_tests {
     }
 
     #[test]
-    fn reports_missing_geometry_alias() {
+    fn does_not_require_geometry_aliases_anymore() {
         let node = AttrNode::new(vec![StaticAttribute::new(
             Namespace::Control,
             crate::ui::attribute_names::element::BOUNDS,
             UiValue::Rect(Rect::new(0.0, 0.0, 100.0, 50.0)),
         ) as Arc<dyn UiAttribute>]);
-
         let issues = verify_node(&node, &sample_expectation());
-        assert!(issues.into_iter().any(|issue| matches!(
-            issue,
-            ContractIssue::MissingGeometryAlias { alias, .. } if alias == "Bounds.X"
-        )));
+        assert!(issues.is_empty(), "no alias issues expected: {issues:?}");
     }
 
     #[test]
-    fn reports_geometry_alias_mismatch() {
+    fn does_not_compare_alias_values_anymore() {
         let node = AttrNode::new(vec![
             StaticAttribute::new(
                 Namespace::Control,
@@ -357,32 +268,23 @@ mod geometry_tests {
             ),
             StaticAttribute::new(Namespace::Control, "Bounds.X", UiValue::from(1.0)),
         ]);
-
         let issues = verify_node(&node, &sample_expectation());
-        assert!(issues.into_iter().any(|issue| matches!(
-            issue,
-            ContractIssue::GeometryAliasMismatch { alias, .. } if alias == "Bounds.X"
-        )));
+        assert!(issues.is_empty(), "no alias mismatch expected: {issues:?}");
     }
 
     #[test]
-    fn checks_activation_point_aliases() {
+    fn activation_point_aliases_not_required() {
         let expectation = NodeExpectation::default().with_pattern(PatternExpectation::new(
             PatternId::from("ActivationTarget"),
             &ACTIVATION_EXPECTATIONS,
         ));
-
         let node = AttrNode::new(vec![StaticAttribute::new(
             Namespace::Control,
             crate::ui::attribute_names::activation_target::ACTIVATION_POINT,
             UiValue::Point(Point::new(10.0, 10.0)),
         )]);
-
         let issues = verify_node(&node, &expectation);
-        assert!(issues.into_iter().any(|issue| matches!(
-            issue,
-            ContractIssue::MissingGeometryAlias { alias, .. } if alias == "ActivationPoint.X"
-        )));
+        assert!(issues.is_empty(), "no alias issues expected: {issues:?}");
     }
 }
 

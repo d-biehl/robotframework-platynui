@@ -38,16 +38,16 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Namespace-Registry (`control`, `item`, `app`, `native`) und Hilfsfunktionen implementieren.
 - [x] Evaluation-API auf `EvaluationItem` (Node/Attribute/Value) umstellen und Konsumenten/Tests anpassen (Kontext per `Option<Arc<dyn UiNode>>`).
 - [x] Basis-Validator implementieren (`validate_control_or_item`), der aktuell nur doppelte `SupportedPatterns` meldet; weitere Attribut-Prüfungen erfolgen pattern- bzw. provider-spezifisch. `UiAttribute`-Trait + XPath-Wrapper bleiben bestehen.
-- [x] Dokumentwurzel „Desktop“ samt Monitor-Alias-Attributen (Bounds.X usw.) beschreiben und Tests erstellen.
+- [x] Dokumentwurzel „Desktop“ beschreiben (Monitore, Bounds als `Rect`); Alias‑Attribute wie `Bounds.X` werden nicht providerseitig geliefert, sondern zur Abfragefreundlichkeit in der Runtime/XPath‑Ebene abgeleitet. Tests entsprechend anpassen.
 - [x] XPath-Atomisierung auf `typed_value()` umstellen: `UiValue`-Varianten werden in XDM-Atomics überführt (Booleans, Integer, Double), komplexe Strukturen (`Rect`, `Point`, `Size`) bleiben als JSON-Strings; Regressionstests (`data(//@*:Bounds.Width)`, `data(//@*:IsVisible)`) absichern.
 
 ### 3. Pattern-System
 - [x] Runtime-Pattern-Traits in `platynui-core` anlegen (`FocusablePattern`, `WindowSurfacePattern`) inkl. `PatternError`-Fehlertyp; rein lesende Patterns verbleiben bei Attributen.
 - [x] Runtime-Aktionsschnittstellen der Patterns (z. B. `FocusablePattern::focus()`, `WindowSurfacePattern::maximize()`) präzisieren und Beispiel-Implementierungen samt Tests dokumentieren; nur diese Pattern dürfen Laufzeitaktionen anbieten. (Umgesetzt via `FocusableAction`, `WindowSurfaceActions` + rstest-Coverage.)
 - [x] Leitfaden für `SupportedPatterns`-Verwendung (Dokumentation erledigt; providerseitige Tests folgen in den konkreten Provider-Szenarien), damit Pattern-Kombinationen nachvollziehbar bleiben.
-- [x] Provider-facing Contract-Tests: Core-Testkit (`platynui_core::ui::contract::testkit`) meldet fehlende/abweichende Alias-Werte (`Bounds.*`, `ActivationPoint.*`) und stellt Hilfen für Pattern-Erwartungen bereit.
+- [x] Provider-facing Contract-Tests: Core-Testkit (`platynui_core::ui::contract::testkit`) prüft Basisattribute (z. B. `Bounds`, `ActivationPoint`) und Pattern‑Pflichten. Alias‑Attribute (`Bounds.*`, `ActivationPoint.*`) sind kein Provider‑Contract mehr, da sie von der Runtime/XPath‑Ebene abgeleitet werden.
 - [x] Mapping-Hilfen zwischen Patterns und Technologie-spezifischen APIs (UIA-ControlType, AT-SPI Rollen, AX Attribute) ergänzt. `docs/patterns.md` enthält eine Orientierungstabelle; Provider dokumentieren Abweichungen individuell.
-- [x] Patterns-Dokument (`docs/patterns.md`) aktualisiert: Alias-Hinweise, Rollenkatalog und Mapping-Tabelle für UIA/AT-SPI/AX ergänzt; bleibt ein lebendes Dokument für weitere Erweiterungen.
+- [x] Patterns-Dokument (`docs/patterns.md`) aktualisiert: Klarstellung, dass Alias‑Attribute (z. B. `Bounds.X`) von Runtime/XPath erzeugt werden; Rollenkatalog und Mapping‑Tabelle für UIA/AT‑SPI/AX ergänzt; bleibt ein lebendes Dokument für weitere Erweiterungen.
 
 ### 4. Provider-Infrastruktur (Core)
 - [x] Traits `UiTreeProvider`, `UiTreeProviderFactory` plus Basistypen (`ProviderDescriptor`, `ProviderEvent`, Fehler) definiert; Lifecycle-Erweiterungen (Events weiterreichen, Shutdown) folgen beim Runtime-Wiring.

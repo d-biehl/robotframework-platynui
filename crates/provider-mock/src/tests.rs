@@ -51,16 +51,13 @@ fn attr_bool(node: &Arc<dyn UiNode>, namespace: Namespace, name: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn attr_number(node: &Arc<dyn UiNode>, namespace: Namespace, name: &str) -> f64 {
+fn attr_rect(node: &Arc<dyn UiNode>, namespace: Namespace, name: &str) -> Option<platynui_core::types::Rect> {
     node.attribute(namespace, name)
         .map(|attr| attr.value())
         .and_then(|value| match value {
-            UiValue::Number(v) => Some(v),
-            UiValue::Integer(v) => Some(v as f64),
-            UiValue::Rect(rect) if name == element::BOUNDS => Some(rect.width()),
+            UiValue::Rect(r) => Some(r),
             _ => None,
         })
-        .unwrap_or(0.0)
 }
 
 fn find_by_runtime_id(node: Arc<dyn UiNode>, target: &str) -> Option<Arc<dyn UiNode>> {
@@ -203,7 +200,7 @@ fn contract_expectations_for_button_hold() {
 
 #[rstest]
 #[serial]
-fn rect_aliases_present() {
+fn rect_aliases_absent_and_base_present() {
     let provider = mock_provider();
     let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
     let app = provider.get_nodes(Arc::clone(&desktop)).unwrap().next().unwrap();
@@ -212,13 +209,15 @@ fn rect_aliases_present() {
         .find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID)
         .expect("main window present");
 
-    let mut alias_names =
-        window.attributes().map(|attr| attr.name().to_owned()).collect::<Vec<_>>();
-    alias_names.sort();
-    assert!(alias_names.contains(&"Bounds.X".to_owned()));
-    assert!(alias_names.contains(&"Bounds.Y".to_owned()));
-    assert!(alias_names.contains(&"Bounds.Width".to_owned()));
-    assert!(alias_names.contains(&"Bounds.Height".to_owned()));
+    let mut names = window.attributes().map(|attr| attr.name().to_owned()).collect::<Vec<_>>();
+    names.sort();
+    // Abgeleitete Aliase sollten vom Provider NICHT mehr geliefert werden.
+    assert!(!names.contains(&"Bounds.X".to_owned()));
+    assert!(!names.contains(&"Bounds.Y".to_owned()));
+    assert!(!names.contains(&"Bounds.Width".to_owned()));
+    assert!(!names.contains(&"Bounds.Height".to_owned()));
+    // Basis-Attribut bleibt vorhanden.
+    assert!(names.contains(&element::BOUNDS.to_owned()));
 }
 
 #[rstest]
@@ -285,12 +284,14 @@ fn window_surface_actions_update_state() {
     assert!(attr_bool(&window, Namespace::Control, window_surface::IS_MAXIMIZED));
 
     pattern.move_to(Point::new(240.0, 260.0)).expect("move succeeds");
-    assert_eq!(attr_number(&window, Namespace::Control, "Bounds.X"), 240.0);
-    assert_eq!(attr_number(&window, Namespace::Control, "Bounds.Y"), 260.0);
+    let r = attr_rect(&window, Namespace::Control, element::BOUNDS).expect("bounds present");
+    assert_eq!(r.x(), 240.0);
+    assert_eq!(r.y(), 260.0);
 
     pattern.resize(Size::new(820.0, 610.0)).expect("resize succeeds");
-    assert_eq!(attr_number(&window, Namespace::Control, "Bounds.Width"), 820.0);
-    assert_eq!(attr_number(&window, Namespace::Control, "Bounds.Height"), 610.0);
+    let r = attr_rect(&window, Namespace::Control, element::BOUNDS).expect("bounds present");
+    assert_eq!(r.width(), 820.0);
+    assert_eq!(r.height(), 610.0);
 
     pattern.close().expect("close succeeds");
     assert!(!attr_bool(&window, Namespace::Control, focusable::IS_FOCUSED));
@@ -298,7 +299,7 @@ fn window_surface_actions_update_state() {
 
 #[rstest]
 #[serial]
-fn activation_point_aliases_present() {
+fn activation_point_aliases_absent_and_value_ok() {
     let provider = mock_provider();
     let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
     let app = provider.get_nodes(Arc::clone(&desktop)).unwrap().next().unwrap();
@@ -317,13 +318,17 @@ fn activation_point_aliases_present() {
 
     assert!(matches!(activation_point, UiValue::Point(Point { .. })));
 
-    let aliases: Vec<_> = button
-        .attributes()
-        .filter(|attr| attr.name().starts_with("ActivationPoint."))
-        .map(|attr| attr.name().to_owned())
-        .collect();
-    assert!(aliases.contains(&"ActivationPoint.X".to_owned()));
-    assert!(aliases.contains(&"ActivationPoint.Y".to_owned()));
+    // Der Provider liefert die Aliase nicht mehr, nur den Basiswert
+    let has_alias = button.attributes().any(|attr| attr.name().starts_with("ActivationPoint."));
+    assert!(!has_alias);
+    // Basiswert entspricht den im XML gesetzten Koordinaten (OK-Button: 200,636)
+    match activation_point {
+        UiValue::Point(p) => {
+            assert_eq!(p.x(), 200.0);
+            assert_eq!(p.y(), 636.0);
+        }
+        other => panic!("expected ActivationPoint as Point, got {:?}", other),
+    }
 }
 
 #[rstest]

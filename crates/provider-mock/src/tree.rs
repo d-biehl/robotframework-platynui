@@ -393,9 +393,6 @@ fn push_bounds_attributes(
 ) {
     push_visibility_attributes(spec, namespace, visible, enabled);
     spec.attributes.push(AttributeSpec::new(namespace, element::BOUNDS, UiValue::Rect(rect)));
-    for attr in rect_alias_attributes(namespace, "Bounds", rect) {
-        spec.attributes.push(attr);
-    }
 }
 
 fn push_visibility_attributes(
@@ -422,25 +419,6 @@ fn push_activation_point_attributes(spec: &mut NodeSpec, namespace: Namespace, p
         activation_target::ACTIVATION_POINT,
         UiValue::Point(point),
     ));
-    spec.attributes.push(AttributeSpec::new(
-        namespace,
-        "ActivationPoint.X",
-        UiValue::from(point.x()),
-    ));
-    spec.attributes.push(AttributeSpec::new(
-        namespace,
-        "ActivationPoint.Y",
-        UiValue::from(point.y()),
-    ));
-}
-
-fn rect_alias_attributes(namespace: Namespace, base: &str, rect: Rect) -> [AttributeSpec; 4] {
-    [
-        AttributeSpec::new(namespace, format!("{base}.X"), UiValue::from(rect.x())),
-        AttributeSpec::new(namespace, format!("{base}.Y"), UiValue::from(rect.y())),
-        AttributeSpec::new(namespace, format!("{base}.Width"), UiValue::from(rect.width())),
-        AttributeSpec::new(namespace, format!("{base}.Height"), UiValue::from(rect.height())),
-    ]
 }
 
 #[derive(Debug)]

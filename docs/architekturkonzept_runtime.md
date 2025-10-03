@@ -149,7 +149,7 @@ Zur Duplikatvermeidung an der Quelle minimieren wir Kontexte vor bestimmten Achs
 - **Lazy-Erkennung:** `PatternRegistry::register_lazy` erlaubt es, teure Plattform-Checks (z. B. `GetCurrentPattern` unter UIAutomation) erst beim ersten Zugriff auszuführen. Die Registry cached das Ergebnis und ergänzt `supported_patterns()` sowie das `SupportedPatterns`-Attribut automatisch nur dann, wenn die Probe erfolgreich war. Der Mock-Provider demonstriert dieses Verhalten am `Focusable`-Pattern.
 - **Lazy Modell:** Die Runtime fordert Attribute/Kinder immer on-demand an. Provider können intern cachen, aber die Schnittstelle zwingt keine Vorab-Materialisierung.
 - **Vertragsprüfung:** `platynui-core` stellt mit `validate_control_or_item(node)` einen Hilfsprüfer bereit, der lediglich prüft, ob `SupportedPatterns` keine Duplikate enthält. Weitere Attribut- oder Pattern-Prüfungen verbleiben bei Provider- oder Pattern-spezifischen Tests.
-- **`UiValue`:** Typisiert (String, Bool, Integer, Float, strukturierte Werte wie `Rect`, `Point`, `Size`). Für strukturierte Werte erzeugt der XPath-Wrapper zusätzliche Alias-Attribute (`Bounds.X`, `Bounds.Width`, `ActivationPoint.Y`), damit Abfragen simpel bleiben.
+- **`UiValue`:** Typisiert (String, Bool, Integer, Float, strukturierte Werte wie `Rect`, `Point`, `Size`). Für strukturierte Werte erzeugt die Runtime/XPath‑Ebene zusätzliche Alias‑Attribute (`Bounds.X`, `Bounds.Width`, `ActivationPoint.Y`), damit Abfragen simpel bleiben. Provider sollen diese Aliase nicht selbst liefern.
 - **Namespaces:**
   - `control` (Standard) – Steuerelemente.
   - `item` – Elemente innerhalb von Containern (ListItem, TreeItem, TabItem).
