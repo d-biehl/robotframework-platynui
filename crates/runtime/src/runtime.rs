@@ -936,7 +936,6 @@ mod tests {
         let res = rt_runtime_stub
             .evaluate(None, "//control:Window")
             .expect("evaluate windows");
-        // sanity: len() is callable and non-negative by type; pull all to ensure completion
         // Pull all items to ensure completion
         for _ in res {}
     }

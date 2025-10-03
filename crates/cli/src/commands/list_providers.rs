@@ -77,13 +77,8 @@ fn kind_label(kind: ProviderKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::runtime_mock_full;
-    use rstest::{fixture, rstest};
-
-    #[fixture]
-    fn runtime() -> platynui_runtime::Runtime {
-        return runtime_mock_full();
-    }
+    use crate::test_support::runtime;
+    use rstest::rstest;
 
     #[rstest]
     fn summaries_include_mock_provider(runtime: platynui_runtime::Runtime) {

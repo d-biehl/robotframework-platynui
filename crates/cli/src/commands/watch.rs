@@ -318,20 +318,20 @@ impl ProviderEventSink for ChannelSink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::map_provider_error;
     use platynui_runtime::Runtime;
-    use rstest::rstest;
+    use rstest::{rstest, fixture};
     use std::io::Cursor;
 
     #[cfg(any(test, feature = "mock-provider"))]
     use platynui_provider_mock;
 
+    #[fixture]
+    fn runtime() -> Runtime {
+        return crate::test_support::runtime();
+    }
+
     #[rstest]
-    fn watch_text_streams_events() {
-        let mut runtime =
-            Runtime::new_with_factories(&[&platynui_provider_mock::MOCK_PROVIDER_FACTORY])
-                .map_err(map_provider_error)
-                .expect("runtime");
+    fn watch_text_streams_events(mut runtime: Runtime) {
         let args = WatchArgs {
             format: OutputFormat::Text,
             namespaces: vec![],
@@ -353,11 +353,7 @@ mod tests {
     }
 
     #[rstest]
-    fn watch_json_produces_serializable_payload() {
-        let mut runtime =
-            Runtime::new_with_factories(&[&platynui_provider_mock::MOCK_PROVIDER_FACTORY])
-                .map_err(map_provider_error)
-                .expect("runtime");
+    fn watch_json_produces_serializable_payload(mut runtime: Runtime) {
         let args = WatchArgs {
             format: OutputFormat::Json,
             namespaces: vec![],

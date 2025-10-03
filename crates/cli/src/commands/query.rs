@@ -302,9 +302,9 @@ pub(crate) fn render_query_json(items: &[QueryItemSummary]) -> CliResult<String>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::runtime_mock_full;
+    use crate::test_support::runtime;
     use platynui_runtime::Runtime;
-    use rstest::{fixture, rstest};
+    use rstest::rstest;
     use std::borrow::Cow;
 
     fn strip_ansi(input: &str) -> Cow<'_, str> {
@@ -330,10 +330,6 @@ mod tests {
         Cow::Owned(result)
     }
 
-    #[fixture]
-    fn runtime() -> Runtime {
-        return runtime_mock_full();
-    }
 
     #[rstest]
     fn query_text_returns_nodes(runtime: Runtime) {

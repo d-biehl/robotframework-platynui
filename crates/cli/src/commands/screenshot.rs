@@ -121,11 +121,11 @@ fn ts_fallback() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::runtime_mock_full;
+    use crate::test_support::runtime;
     use platynui_platform_mock as _; // link platform-mock inventory
     use platynui_platform_mock::{reset_screenshot_state, take_screenshot_log};
     use platynui_runtime::Runtime;
-    use rstest::{fixture, rstest};
+    use rstest::rstest;
     use serial_test::serial;
     use std::fs;
     use std::sync::{LazyLock, Mutex};
@@ -133,10 +133,6 @@ mod tests {
 
     static TEST_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-    #[fixture]
-    fn runtime() -> Runtime {
-        return runtime_mock_full();
-    }
 
     #[rstest]
     #[serial]

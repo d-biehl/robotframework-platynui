@@ -92,18 +92,14 @@ fn render_node(node: &Arc<dyn UiNode>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::runtime_mock_full;
+    use crate::test_support::runtime;
     use crate::util::map_evaluate_error;
     use platynui_core::ui::UiValue;
     use platynui_core::ui::attribute_names::focusable;
     use platynui_runtime::Runtime;
-    use rstest::{fixture, rstest};
+    use rstest::rstest;
     use serial_test::serial;
 
-    #[fixture]
-    fn runtime() -> Runtime {
-        return runtime_mock_full();
-    }
 
     #[rstest]
     #[serial]
@@ -143,7 +139,7 @@ mod tests {
         assert!(output.contains("mock://panel/workspace"));
         assert!(output.contains("Focused 0 node"));
 
-        // no explicit shutdown needed in tests
+        
     }
 
     #[rstest]
@@ -154,6 +150,6 @@ mod tests {
         let err = run(&runtime, &args).expect_err("no node should error");
         assert!(err.to_string().contains("did not match any nodes"));
 
-        // no explicit shutdown needed in tests
+        
     }
 }

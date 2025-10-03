@@ -142,22 +142,18 @@ fn parse_rect_arg(value: &str) -> Result<Rect, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // Ensure provider/device registrations are linked into the test binary
-    use crate::test_support::runtime_mock_full;
+    // Link platform-mock inventory for highlight provider
+    use crate::test_support::runtime;
     use platynui_platform_mock as _; // link platform-mock inventory
     use platynui_platform_mock::{
         highlight_clear_count, reset_highlight_state, take_highlight_log,
     };
     use platynui_runtime::Runtime;
-    use rstest::{fixture, rstest};
+    use rstest::rstest;
     use std::sync::{LazyLock, Mutex};
 
     static TEST_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-    #[fixture]
-    fn runtime() -> Runtime {
-        return runtime_mock_full();
-    }
 
     #[rstest]
     fn highlight_records_requests(runtime: Runtime) {
