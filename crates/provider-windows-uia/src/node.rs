@@ -15,6 +15,7 @@ use windows::Win32::UI::Accessibility::{
     WindowVisualState_Minimized,
 };
 use windows::core::Interface;
+use windows::Win32::Foundation::CloseHandle;
 
 pub struct UiaNode {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -415,6 +416,21 @@ impl UiAttribute for IsVisibleAttr {
 unsafe impl Send for IsVisibleAttr {}
 unsafe impl Sync for IsVisibleAttr {}
 
+struct AcceptsUserInputAttr {
+    elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+}
+impl UiAttribute for AcceptsUserInputAttr {
+    fn namespace(&self) -> Namespace { Namespace::Control }
+    fn name(&self) -> &str { "AcceptsUserInput" }
+    fn value(&self) -> UiValue {
+        let enabled = crate::map::get_is_enabled(&self.elem).unwrap_or(false);
+        let off = crate::map::get_is_offscreen(&self.elem).unwrap_or(false);
+        UiValue::from(enabled && !off)
+    }
+}
+unsafe impl Send for AcceptsUserInputAttr {}
+unsafe impl Sync for AcceptsUserInputAttr {}
+
 struct AttrsIter<'a> {
     idx: u8,
     node: &'a UiaNode,
@@ -489,8 +505,15 @@ impl<'a> Iterator for AttrsIter<'a> {
                         None
                     }
                 }
-                // Native property attributes (dynamic): build once, then stream
                 14 => {
+                    if self.has_window_surface {
+                        Some(Arc::new(AcceptsUserInputAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                // Native property attributes (dynamic): build once, then stream
+                15 => {
                     if self.native_cache.is_none() {
                         let pairs = crate::map::collect_native_properties(&elem);
                         let attrs: Vec<Arc<dyn UiAttribute>> = pairs
@@ -514,7 +537,7 @@ impl<'a> Iterator for AttrsIter<'a> {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 14 && self.native_cache.is_some() {
+                    if self.idx > 15 && self.native_cache.is_some() {
                         // Continue streaming native cache until exhausted
                         if let Some(list) = self.native_cache.as_ref() {
                             if self.native_pos < list.len() {
@@ -526,11 +549,11 @@ impl<'a> Iterator for AttrsIter<'a> {
                             }
                         }
                     }
-                    if self.idx > 14 && self.native_cache.is_none() {
+                    if self.idx > 15 && self.native_cache.is_none() {
                         // No native props at all
                         return None;
                     }
-                    if self.idx > 14 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false) {
+                    if self.idx > 15 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false) {
                         return None;
                     }
                     continue;
@@ -567,6 +590,148 @@ impl UiAttribute for NativePropAttr {
     fn name(&self) -> &str { &self.name }
     fn value(&self) -> UiValue { self.value.clone() }
 }
+
+// ---------------------------------------------------------------------------
+// Application attribute types and iterator (module-level, lazy values)
+
+struct AppRuntimeIdAttr { rid: String }
+impl UiAttribute for AppRuntimeIdAttr {
+    fn namespace(&self) -> Namespace { Namespace::App }
+    fn name(&self) -> &str { platynui_core::ui::attribute_names::common::RUNTIME_ID }
+    fn value(&self) -> UiValue { UiValue::from(self.rid.clone()) }
+}
+
+struct AppProcessIdAttr { pid: i32 }
+impl UiAttribute for AppProcessIdAttr {
+    fn namespace(&self) -> Namespace { Namespace::App }
+    fn name(&self) -> &str { platynui_core::ui::attribute_names::application::PROCESS_ID }
+    fn value(&self) -> UiValue { UiValue::from(self.pid as i64) }
+}
+
+struct AppNameAttr { pid: i32 }
+impl UiAttribute for AppNameAttr {
+    fn namespace(&self) -> Namespace { Namespace::App }
+    fn name(&self) -> &str { platynui_core::ui::attribute_names::application::NAME }
+    fn value(&self) -> UiValue {
+        if let Some(handle) = crate::map::open_process_query(self.pid) {
+            if let Some(path) = crate::map::query_executable_path(handle) {
+                let _ = unsafe { CloseHandle(handle) };
+                if let Some(stem) = std::path::Path::new(&path).file_stem() {
+                    return UiValue::from(stem.to_string_lossy().to_string());
+                }
+            } else {
+                let _ = unsafe { CloseHandle(handle) };
+            }
+        }
+        UiValue::from("")
+    }
+}
+
+struct AppExecutablePathAttr { pid: i32 }
+impl UiAttribute for AppExecutablePathAttr {
+    fn namespace(&self) -> Namespace { Namespace::App }
+    fn name(&self) -> &str { platynui_core::ui::attribute_names::application::EXECUTABLE_PATH }
+    fn value(&self) -> UiValue {
+        if let Some(h) = crate::map::open_process_query(self.pid) {
+            let out = crate::map::query_executable_path(h).map(UiValue::from).unwrap_or(UiValue::from(""));
+            unsafe { let _ = CloseHandle(h); }
+            return out;
+        }
+        UiValue::from("")
+    }
+}
+
+struct AppCommandLineAttr { pid: i32 }
+impl UiAttribute for AppCommandLineAttr {
+    fn namespace(&self) -> Namespace { Namespace::App }
+    fn name(&self) -> &str { platynui_core::ui::attribute_names::application::COMMAND_LINE }
+    fn value(&self) -> UiValue {
+        if let Some(h) = crate::map::open_process_query(self.pid) {
+            let out = crate::map::query_process_command_line(h)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null);
+            unsafe { let _ = CloseHandle(h); }
+            return out;
+        }
+        UiValue::Null
+    }
+}
+
+struct AppUserNameAttr { pid: i32 }
+impl UiAttribute for AppUserNameAttr {
+    fn namespace(&self) -> Namespace { Namespace::App }
+    fn name(&self) -> &str { platynui_core::ui::attribute_names::application::USER_NAME }
+    fn value(&self) -> UiValue {
+        if let Some(h) = crate::map::open_process_query(self.pid) {
+            let out = crate::map::query_process_username(h).map(UiValue::from).unwrap_or(UiValue::from(""));
+            unsafe { let _ = CloseHandle(h); }
+            return out;
+        }
+        UiValue::from("")
+    }
+}
+
+struct AppStartTimeAttr { pid: i32 }
+impl UiAttribute for AppStartTimeAttr {
+    fn namespace(&self) -> Namespace { Namespace::App }
+    fn name(&self) -> &str { platynui_core::ui::attribute_names::application::START_TIME }
+    fn value(&self) -> UiValue {
+        if let Some(h) = crate::map::open_process_query(self.pid) {
+            let out = crate::map::query_process_start_time_iso8601(h).map(UiValue::from).unwrap_or(UiValue::from(""));
+            unsafe { let _ = CloseHandle(h); }
+            return out;
+        }
+        UiValue::from("")
+    }
+}
+
+struct AppArchitectureAttr { pid: i32 }
+impl UiAttribute for AppArchitectureAttr {
+    fn namespace(&self) -> Namespace { Namespace::App }
+    fn name(&self) -> &str { platynui_core::ui::attribute_names::application::ARCHITECTURE }
+    fn value(&self) -> UiValue {
+        if let Some(h) = crate::map::open_process_query(self.pid) {
+            if let Some(path) = crate::map::query_executable_path(h) {
+                if let Some(a) = crate::map::process_architecture_from_path(&path) {
+                    unsafe { let _ = CloseHandle(h); }
+                    return UiValue::from(a);
+                }
+            }
+            let out = crate::map::process_architecture(h).map(UiValue::from).unwrap_or(UiValue::from("unknown"));
+            unsafe { let _ = CloseHandle(h); }
+            return out;
+        }
+        UiValue::from("unknown")
+    }
+}
+
+struct AppAttrsIter {
+    pid: i32,
+    rid: String,
+    idx: u8,
+}
+impl AppAttrsIter {
+    fn new(pid: i32, rid: &str) -> Self { Self { pid, rid: rid.to_owned(), idx: 0 } }
+}
+impl Iterator for AppAttrsIter {
+    type Item = Arc<dyn UiAttribute>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let item = match self.idx {
+            0 => Some(Arc::new(AppRuntimeIdAttr { rid: self.rid.clone() }) as Arc<dyn UiAttribute>),
+            1 => Some(Arc::new(AppProcessIdAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            2 => Some(Arc::new(AppNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            3 => Some(Arc::new(AppExecutablePathAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            4 => Some(Arc::new(AppCommandLineAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            5 => Some(Arc::new(AppUserNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            6 => Some(Arc::new(AppStartTimeAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            7 => Some(Arc::new(AppArchitectureAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            _ => None,
+        };
+        self.idx = self.idx.saturating_add(1);
+        item
+    }
+}
+unsafe impl Send for AppAttrsIter {}
 
 struct IsMinimizedAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -723,3 +888,100 @@ impl UiAttribute for SupportsResizeAttr {
 }
 unsafe impl Send for SupportsResizeAttr {}
 unsafe impl Sync for SupportsResizeAttr {}
+
+// ---------------------------------------------------------------------------
+// Synthetic Application node for grouped view (Application -> Window)
+
+pub struct ApplicationNode {
+    pid: i32,
+    root: windows::Win32::UI::Accessibility::IUIAutomationElement,
+    parent: Mutex<Option<Weak<dyn UiNode>>>,
+    self_weak: once_cell::sync::OnceCell<Weak<dyn UiNode>>,
+    rid_cell: once_cell::sync::OnceCell<RuntimeId>,
+    name_cell: once_cell::sync::OnceCell<String>,
+}
+unsafe impl Send for ApplicationNode {}
+unsafe impl Sync for ApplicationNode {}
+
+impl ApplicationNode {
+    pub fn new(pid: i32, root: windows::Win32::UI::Accessibility::IUIAutomationElement, parent: &Arc<dyn UiNode>) -> Arc<Self> {
+        let node = Arc::new(Self {
+            pid,
+            root,
+            parent: Mutex::new(Some(Arc::downgrade(parent))),
+            self_weak: once_cell::sync::OnceCell::new(),
+            rid_cell: once_cell::sync::OnceCell::new(),
+            name_cell: once_cell::sync::OnceCell::new(),
+        });
+        let arc: Arc<dyn UiNode> = node.clone();
+        let _ = node.self_weak.set(Arc::downgrade(&arc));
+        node
+    }
+}
+
+impl UiNode for ApplicationNode {
+    fn namespace(&self) -> Namespace { Namespace::App }
+    fn role(&self) -> &str { "Application" }
+    fn name(&self) -> &str {
+        self.name_cell.get_or_init(|| {
+            // Derive process name from executable path (file name)
+            if let Some(handle) = crate::map::open_process_query(self.pid) {
+                if let Some(path) = crate::map::query_executable_path(handle) {
+                    let _ = unsafe { CloseHandle(handle) };
+                    if let Some(stem) = std::path::Path::new(&path).file_stem() { return stem.to_string_lossy().to_string(); }
+                } else {
+                    let _ = unsafe { CloseHandle(handle) };
+                }
+            }
+            String::new()
+        }).as_str()
+    }
+    fn runtime_id(&self) -> &RuntimeId {
+        self.rid_cell.get_or_init(|| RuntimeId::from(format!("uia-app://{}", self.pid)))
+    }
+    fn parent(&self) -> Option<Weak<dyn UiNode>> { self.parent.lock().unwrap().clone() }
+    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+        struct AppWindowsIter {
+            // Hold no COM interfaces directly to keep the iterator Send; fetch walker on demand
+            root: windows::Win32::UI::Accessibility::IUIAutomationElement,
+            current: Option<windows::Win32::UI::Accessibility::IUIAutomationElement>,
+            first: bool,
+            parent: Arc<dyn UiNode>,
+            pid: i32,
+        }
+        impl Iterator for AppWindowsIter {
+            type Item = Arc<dyn UiNode>;
+            fn next(&mut self) -> Option<Self::Item> {
+                let walker = crate::com::raw_walker().ok()?;
+                loop {
+                    if self.first {
+                        self.first = false;
+                        self.current = unsafe { walker.GetFirstChildElement(&self.root).ok() };
+                        if self.current.is_none() { return None; }
+                    } else if let Some(ref elem) = self.current {
+                        let cur = elem.clone();
+                        self.current = unsafe { walker.GetNextSiblingElement(&cur).ok() };
+                        if self.current.is_none() { return None; }
+                    }
+                    let elem = self.current.as_ref()?.clone();
+                    let pid = crate::map::get_process_id(&elem).unwrap_or(-1);
+                    if pid == self.pid {
+                        let node = UiaNode::from_elem(elem);
+                        node.set_parent(&self.parent);
+                        UiaNode::init_self(&node);
+                        return Some(node as Arc<dyn UiNode>);
+                    }
+                }
+            }
+        }
+        unsafe impl Send for AppWindowsIter {}
+        let parent = self.self_weak.get().and_then(|w| w.upgrade()).expect("app self weak set");
+        Box::new(AppWindowsIter { root: self.root.clone(), current: None, first: true, parent, pid: self.pid })
+    }
+    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+        Box::new(AppAttrsIter::new(self.pid, self.runtime_id().as_str()))
+    }
+    fn supported_patterns(&self) -> Vec<PatternId> { Vec::new() }
+    fn invalidate(&self) {}
+    fn doc_order_key(&self) -> Option<u64> { Some(self.pid as u64) }
+}

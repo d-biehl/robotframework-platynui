@@ -1,20 +1,38 @@
 #![cfg(target_os = "windows")]
+use once_cell::sync::OnceCell;
 use platynui_core::types::Point as UiPoint;
 use platynui_core::types::Rect;
-use windows::Win32::Foundation::POINT;
-use windows::Win32::UI::Accessibility::*;
 use platynui_core::ui::UiValue;
-use once_cell::sync::OnceCell;
-use windows::core::Interface;
-use windows::Win32::System::Variant::{VARIANT, VariantClear};
+use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Foundation::POINT;
+use windows::Win32::Foundation::{DECIMAL, FILETIME, VARIANT_BOOL};
+use windows::Win32::Security::{
+    GetTokenInformation, LookupAccountSidW, SID_NAME_USE, TOKEN_QUERY, TOKEN_USER, TokenUser,
+};
 use windows::Win32::System::Ole::VarR8FromDec;
-use windows::Win32::System::Ole::{SafeArrayGetDim, SafeArrayGetElement, SafeArrayGetLBound, SafeArrayGetUBound};
-use windows::Win32::Foundation::{DECIMAL, VARIANT_BOOL};
-use windows::core::BSTR;
+use windows::Win32::System::Ole::{
+    SafeArrayGetDim, SafeArrayGetElement, SafeArrayGetLBound, SafeArrayGetUBound,
+};
+use windows::Win32::System::SystemInformation::{
+    GetNativeSystemInfo, PROCESSOR_ARCHITECTURE, PROCESSOR_ARCHITECTURE_AMD64,
+    PROCESSOR_ARCHITECTURE_ARM64, PROCESSOR_ARCHITECTURE_INTEL, SYSTEM_INFO,
+};
+use windows::Win32::System::Threading::{GetProcessTimes, OpenProcessToken};
+use windows::Win32::System::Threading::{
+    OpenProcess, PROCESS_ACCESS_RIGHTS, PROCESS_QUERY_INFORMATION,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ, QueryFullProcessImageNameW,
+};
+use windows::Win32::System::Time::FileTimeToSystemTime;
+use windows::Win32::System::Variant::{VARIANT, VariantClear};
 use windows::Win32::System::Variant::{
-    VT_ARRAY, VT_BSTR, VT_BYREF, VT_DATE, VT_DECIMAL, VT_EMPTY, VT_BOOL, VT_I2, VT_I4, VT_I8,
+    VT_ARRAY, VT_BOOL, VT_BSTR, VT_BYREF, VT_DATE, VT_DECIMAL, VT_EMPTY, VT_I2, VT_I4, VT_I8,
     VT_R4, VT_R8, VT_TYPEMASK, VT_UI2, VT_UI4, VT_UI8, VT_UNKNOWN,
 };
+use windows::Win32::UI::Accessibility::*;
+use windows::core::BSTR;
+use windows::core::Interface;
+use windows::core::PWSTR;
 
 // Use VARENUM constants from the windows crate instead of redefining magic numbers
 
@@ -97,14 +115,15 @@ pub fn get_bounding_rect(elem: &IUIAutomationElement) -> Result<Rect, crate::err
     }
 }
 
-pub fn get_clickable_point(
-    elem: &IUIAutomationElement,
-) -> Result<UiPoint, crate::error::UiaError> {
+pub fn get_clickable_point(elem: &IUIAutomationElement) -> Result<UiPoint, crate::error::UiaError> {
     unsafe {
         // UIA returns a POINT in desktop coordinates; call may fail with UIA_E_NOCLICKABLEPOINT
         let mut pt = POINT { x: 0, y: 0 };
-        crate::error::uia_api("IUIAutomationElement::GetClickablePoint", elem.GetClickablePoint(&mut pt))
-            .map(|_| UiPoint::new(pt.x as f64, pt.y as f64))
+        crate::error::uia_api(
+            "IUIAutomationElement::GetClickablePoint",
+            elem.GetClickablePoint(&mut pt),
+        )
+        .map(|_| UiPoint::new(pt.x as f64, pt.y as f64))
     }
 }
 
@@ -121,7 +140,10 @@ pub fn format_runtime_id(elem: &IUIAutomationElement) -> Result<String, crate::e
         let ub = crate::error::uia_api("SafeArrayGetUBound", SafeArrayGetUBound(psa, 1))?;
         let count = (ub - lb + 1) as usize;
         let mut data: *mut i32 = std::ptr::null_mut();
-        crate::error::uia_api("SafeArrayAccessData", SafeArrayAccessData(psa, &mut data as *mut _ as *mut _))?;
+        crate::error::uia_api(
+            "SafeArrayAccessData",
+            SafeArrayAccessData(psa, &mut data as *mut _ as *mut _),
+        )?;
         let slice = std::slice::from_raw_parts(data, count);
         let body = slice.iter().map(|v| format!("{:x}", v)).collect::<Vec<_>>().join(".");
         crate::error::uia_api("SafeArrayUnaccessData", SafeArrayUnaccessData(psa))?;
@@ -141,6 +163,239 @@ pub fn get_is_offscreen(elem: &IUIAutomationElement) -> Result<bool, crate::erro
         crate::error::uia_api("IUIAutomationElement::CurrentIsOffscreen", elem.CurrentIsOffscreen())
             .map(|b| b.as_bool())
     }
+}
+
+pub fn get_process_id(elem: &IUIAutomationElement) -> Result<i32, crate::error::UiaError> {
+    unsafe {
+        crate::error::uia_api("IUIAutomationElement::CurrentProcessId", elem.CurrentProcessId())
+    }
+}
+
+pub fn open_process_query(pid: i32) -> Option<HANDLE> {
+    unsafe {
+        // Prefer broader rights to allow module queries (base module name), then fall back.
+        let full = PROCESS_ACCESS_RIGHTS(PROCESS_QUERY_INFORMATION.0 | PROCESS_VM_READ.0);
+        OpenProcess(full, false, pid as u32).ok().or_else(|| {
+            OpenProcess(
+                PROCESS_ACCESS_RIGHTS(PROCESS_QUERY_LIMITED_INFORMATION.0),
+                false,
+                pid as u32,
+            )
+            .ok()
+        })
+    }
+}
+
+pub fn query_executable_path(handle: HANDLE) -> Option<String> {
+    let mut cap: u32 = 512;
+    for _ in 0..3 {
+        let mut buf: Vec<u16> = vec![0u16; cap as usize];
+        let mut size = cap;
+        if unsafe {
+            QueryFullProcessImageNameW(
+                handle,
+                windows::Win32::System::Threading::PROCESS_NAME_FORMAT(0),
+                PWSTR(buf.as_mut_ptr()),
+                &mut size,
+            )
+        }
+        .is_ok()
+        {
+            let slice = &buf[..size as usize];
+            return String::from_utf16(slice).ok();
+        }
+        cap *= 2;
+    }
+    None
+}
+
+/// Best-effort command line retrieval for a process. Currently not implemented
+/// due to complexity of PEB inspection and WMI dependency. Returns None.
+pub fn query_process_command_line(handle: HANDLE) -> Option<String> {
+    // Use NtQueryInformationProcess(ProcessCommandLineInformation) from ntdll to query
+    // the command line UNICODE_STRING. Requires PROCESS_QUERY_INFORMATION | PROCESS_VM_READ.
+    unsafe {
+        use windows::Wdk::System::Threading::{NtQueryInformationProcess, ProcessCommandLineInformation};
+        use windows::Win32::Foundation::{NTSTATUS, STATUS_INFO_LENGTH_MISMATCH, STATUS_SUCCESS};
+
+        let mut cap: u32 = 4096; // start with 4 KB, grow as needed
+        for _ in 0..4 {
+            let mut buf: Vec<u8> = vec![0u8; cap as usize];
+            let mut ret_len: u32 = 0;
+            let status: NTSTATUS = NtQueryInformationProcess(
+                handle,
+                ProcessCommandLineInformation,
+                buf.as_mut_ptr() as *mut _,
+                cap,
+                &mut ret_len as *mut u32,
+            );
+            if status == STATUS_SUCCESS {
+                // Interpret start of buffer as UNICODE_STRING
+                #[repr(C)]
+                struct UnicodeString {
+                    length: u16,
+                    max_length: u16,
+                    buffer: *const u16,
+                }
+                let us_ptr = buf.as_ptr() as *const UnicodeString;
+                if us_ptr.is_null() {
+                    return None;
+                }
+                let us = &*us_ptr;
+                let len_bytes = us.length as usize;
+                if len_bytes == 0 || us.buffer.is_null() {
+                    return None;
+                }
+                let len_chars = len_bytes / 2;
+                let slice = std::slice::from_raw_parts(us.buffer, len_chars);
+                let s = String::from_utf16_lossy(slice);
+                return Some(s);
+            }
+            if status == STATUS_INFO_LENGTH_MISMATCH || ret_len > cap {
+                cap = ret_len.max(cap.saturating_mul(2));
+                continue;
+            }
+            // Other status codes: give up
+            return None;
+        }
+        None
+    }
+}
+// No argv-splitting; callers consume the raw command line string only.
+
+pub fn query_process_username(handle: HANDLE) -> Option<String> {
+    unsafe {
+        let mut token = HANDLE::default();
+        if OpenProcessToken(handle, TOKEN_QUERY, &mut token).is_err() {
+            return None;
+        }
+        // Query size first
+        let mut needed: u32 = 0;
+        let _ = GetTokenInformation(token, TokenUser, None, 0, &mut needed);
+        if needed == 0 {
+            let _ = CloseHandle(token);
+            return None;
+        }
+        let mut buf = vec![0u8; needed as usize];
+        if GetTokenInformation(
+            token,
+            TokenUser,
+            Some(buf.as_mut_ptr() as *mut _),
+            needed,
+            &mut needed,
+        )
+        .is_err()
+        {
+            let _ = CloseHandle(token);
+            return None;
+        }
+        let tu: &TOKEN_USER = &*(buf.as_ptr() as *const TOKEN_USER);
+        let sid = tu.User.Sid;
+        // Lookup account name
+        let mut name_len: u32 = 0;
+        let mut domain_len: u32 = 0;
+        let mut use_: SID_NAME_USE = SID_NAME_USE(0);
+        // First call with None to query required buffer sizes
+        let _ = LookupAccountSidW(None, sid, None, &mut name_len, None, &mut domain_len, &mut use_);
+        if name_len == 0 {
+            let _ = CloseHandle(token);
+            return None;
+        }
+        let mut name_buf: Vec<u16> = vec![0u16; name_len as usize];
+        let mut domain_buf: Vec<u16> =
+            if domain_len > 0 { vec![0u16; domain_len as usize] } else { Vec::new() };
+        if LookupAccountSidW(
+            None,
+            sid,
+            Some(PWSTR(name_buf.as_mut_ptr())),
+            &mut name_len,
+            if domain_len > 0 { Some(PWSTR(domain_buf.as_mut_ptr())) } else { None },
+            &mut domain_len,
+            &mut use_,
+        )
+        .is_err()
+        {
+            let _ = CloseHandle(token);
+            return None;
+        }
+        let name = String::from_utf16_lossy(&name_buf[..(name_len as usize)]);
+        let domain = if domain_len > 0 {
+            String::from_utf16_lossy(&domain_buf[..(domain_len as usize)])
+        } else {
+            String::new()
+        };
+        let _ = CloseHandle(token);
+        if !domain.is_empty() { Some(format!("{}\\{}", domain, name)) } else { Some(name) }
+    }
+}
+
+pub fn query_process_start_time_iso8601(handle: HANDLE) -> Option<String> {
+    unsafe {
+        let mut creation: FILETIME = FILETIME::default();
+        let mut exit: FILETIME = FILETIME::default();
+        let mut kernel: FILETIME = FILETIME::default();
+        let mut user: FILETIME = FILETIME::default();
+        if GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user).is_err() {
+            return None;
+        }
+        // Convert to SYSTEMTIME in UTC
+        let mut st = windows::Win32::Foundation::SYSTEMTIME::default();
+        if FileTimeToSystemTime(&creation, &mut st).is_err() {
+            return None;
+        }
+        // Format as ISO 8601 UTC without timezone conversion
+        let s = format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+            st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds
+        );
+        Some(s)
+    }
+}
+
+pub fn process_architecture(_handle: HANDLE) -> Option<String> {
+    // Fallback: report native system architecture
+    let mut info: SYSTEM_INFO = SYSTEM_INFO::default();
+    unsafe { GetNativeSystemInfo(&mut info) };
+    let a: PROCESSOR_ARCHITECTURE = unsafe { info.Anonymous.Anonymous.wProcessorArchitecture };
+    let sys_arch = match a {
+        x if x == PROCESSOR_ARCHITECTURE_AMD64 => "x64",
+        x if x == PROCESSOR_ARCHITECTURE_ARM64 => "arm64",
+        x if x == PROCESSOR_ARCHITECTURE_INTEL => "x86",
+        _ => "unknown",
+    };
+    Some(sys_arch.to_string())
+}
+
+pub fn process_architecture_from_path(path: &str) -> Option<String> {
+    use std::fs::File;
+    use std::io::Read;
+    let mut f = File::open(path).ok()?;
+    let mut header = vec![0u8; 4096];
+    let n = f.read(&mut header).ok()?;
+    let data = &header[..n];
+    // DOS header check
+    if data.len() < 0x40 {
+        return None;
+    }
+    if &data[0..2] != b"MZ" {
+        return None;
+    }
+    let e_lfanew = u32::from_le_bytes([data[0x3C], data[0x3D], data[0x3E], data[0x3F]]) as usize;
+    if data.len() < e_lfanew + 4 + 20 {
+        return None;
+    }
+    if &data[e_lfanew..e_lfanew + 4] != b"PE\0\0" {
+        return None;
+    }
+    // COFF header starts after signature; Machine is WORD at offset 0
+    let machine = u16::from_le_bytes([data[e_lfanew + 4], data[e_lfanew + 5]]);
+    let arch = match machine {
+        0x8664 => "x64",
+        0x014c => "x86",
+        0xAA64 | 0x1C0 => "arm64", // AA64 = ARM64, 0x1C0 = ARM (fallback to arm64/arm)
+        _ => "unknown",
+    };
+    Some(arch.to_string())
 }
 
 // get_activation_point and is_visible moved into attribute-level caching logic.
@@ -212,7 +467,9 @@ pub fn collect_native_properties(elem: &IUIAutomationElement) -> Vec<(String, Ui
                 }
             }
             if skip {
-                unsafe { let _ = VariantClear(&mut var); }
+                unsafe {
+                    let _ = VariantClear(&mut var);
+                }
                 continue;
             }
         }
@@ -220,7 +477,9 @@ pub fn collect_native_properties(elem: &IUIAutomationElement) -> Vec<(String, Ui
         if let Some(value) = unsafe { variant_to_ui_value(&var) } {
             out.push((name.clone(), value));
         }
-        unsafe { let _ = VariantClear(&mut var); }
+        unsafe {
+            let _ = VariantClear(&mut var);
+        }
     }
     out
 }
@@ -240,7 +499,9 @@ unsafe fn variant_to_ui_value(variant: &VARIANT) -> Option<UiValue> {
         }
         // Only support 1D arrays for now
         let dim = unsafe { SafeArrayGetDim(psa) };
-        if dim != 1 { return None; }
+        if dim != 1 {
+            return None;
+        }
         let lb = unsafe { SafeArrayGetLBound(psa, 1) }.ok()?;
         let ub = unsafe { SafeArrayGetUBound(psa, 1) }.ok()?;
         let mut items: Vec<UiValue> = Vec::new();
@@ -248,73 +509,169 @@ unsafe fn variant_to_ui_value(variant: &VARIANT) -> Option<UiValue> {
             match base {
                 x if x == VT_BSTR.0 as u16 => {
                     let mut b: BSTR = BSTR::new();
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut b as *mut _ as *mut _) }.is_ok() {
+                    if unsafe {
+                        SafeArrayGetElement(
+                            psa,
+                            &i as *const _ as *const i32,
+                            &mut b as *mut _ as *mut _,
+                        )
+                    }
+                    .is_ok()
+                    {
                         items.push(UiValue::from(b.to_string()));
                     }
                 }
                 x if x == VT_BOOL.0 as u16 => {
                     let mut v: VARIANT_BOOL = VARIANT_BOOL(0);
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }.is_ok() {
+                    if unsafe {
+                        SafeArrayGetElement(
+                            psa,
+                            &i as *const _ as *const i32,
+                            &mut v as *mut _ as *mut _,
+                        )
+                    }
+                    .is_ok()
+                    {
                         items.push(UiValue::from(v.as_bool()));
                     }
                 }
                 x if x == VT_I2.0 as u16 => {
                     let mut v: i16 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }.is_ok() {
+                    if unsafe {
+                        SafeArrayGetElement(
+                            psa,
+                            &i as *const _ as *const i32,
+                            &mut v as *mut _ as *mut _,
+                        )
+                    }
+                    .is_ok()
+                    {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_UI2.0 as u16 => {
                     let mut v: u16 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }.is_ok() {
+                    if unsafe {
+                        SafeArrayGetElement(
+                            psa,
+                            &i as *const _ as *const i32,
+                            &mut v as *mut _ as *mut _,
+                        )
+                    }
+                    .is_ok()
+                    {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_I4.0 as u16 => {
                     let mut v: i32 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }.is_ok() {
+                    if unsafe {
+                        SafeArrayGetElement(
+                            psa,
+                            &i as *const _ as *const i32,
+                            &mut v as *mut _ as *mut _,
+                        )
+                    }
+                    .is_ok()
+                    {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_UI4.0 as u16 => {
                     let mut v: u32 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }.is_ok() {
+                    if unsafe {
+                        SafeArrayGetElement(
+                            psa,
+                            &i as *const _ as *const i32,
+                            &mut v as *mut _ as *mut _,
+                        )
+                    }
+                    .is_ok()
+                    {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_I8.0 as u16 => {
                     let mut v: i64 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }.is_ok() {
+                    if unsafe {
+                        SafeArrayGetElement(
+                            psa,
+                            &i as *const _ as *const i32,
+                            &mut v as *mut _ as *mut _,
+                        )
+                    }
+                    .is_ok()
+                    {
                         items.push(UiValue::from(v));
                     }
                 }
                 x if x == VT_UI8.0 as u16 => {
                     let mut v: u64 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }.is_ok() {
+                    if unsafe {
+                        SafeArrayGetElement(
+                            psa,
+                            &i as *const _ as *const i32,
+                            &mut v as *mut _ as *mut _,
+                        )
+                    }
+                    .is_ok()
+                    {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_R4.0 as u16 => {
                     let mut v: f32 = 0.0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }.is_ok() {
+                    if unsafe {
+                        SafeArrayGetElement(
+                            psa,
+                            &i as *const _ as *const i32,
+                            &mut v as *mut _ as *mut _,
+                        )
+                    }
+                    .is_ok()
+                    {
                         items.push(UiValue::from(v as f64));
                     }
                 }
                 x if x == VT_R8.0 as u16 => {
                     let mut v: f64 = 0.0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }.is_ok() {
+                    if unsafe {
+                        SafeArrayGetElement(
+                            psa,
+                            &i as *const _ as *const i32,
+                            &mut v as *mut _ as *mut _,
+                        )
+                    }
+                    .is_ok()
+                    {
                         items.push(UiValue::from(v));
                     }
                 }
                 x if x == VT_DATE.0 as u16 => {
                     let mut v: f64 = 0.0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }.is_ok() {
+                    if unsafe {
+                        SafeArrayGetElement(
+                            psa,
+                            &i as *const _ as *const i32,
+                            &mut v as *mut _ as *mut _,
+                        )
+                    }
+                    .is_ok()
+                    {
                         items.push(UiValue::from(v));
                     }
                 }
                 x if x == VT_DECIMAL.0 as u16 => {
                     let mut d: DECIMAL = unsafe { std::mem::zeroed() };
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut d as *mut _ as *mut _) }.is_ok() {
+                    if unsafe {
+                        SafeArrayGetElement(
+                            psa,
+                            &i as *const _ as *const i32,
+                            &mut d as *mut _ as *mut _,
+                        )
+                    }
+                    .is_ok()
+                    {
                         if let Ok(v) = unsafe { VarR8FromDec(&d) } {
                             items.push(UiValue::from(v));
                         } else {

@@ -203,8 +203,8 @@ Ergänzungen (2025-09-29 später am Tag)
 - [x] Iteratoren statt Vektoren: gemeinsamer `ElementChildrenIter` mit Lazy‑Erstaufruf (`first`‑Flag) und Sibling‑Traversal.
 - [x] Rollen-/Namespace‑Mapping sowie RuntimeId‑Übernahme; Attribute als lazy `UiAttribute.value()`.
 - [x] Patterns (Slice 1): `Focusable` (SetFocus); `WindowSurface` nur bei Verfügbarkeit (`WindowPattern`/`TransformPattern`).
-- [ ] Gruppierte Sicht (Application → Window): Synthetische `app:Application`‑Knoten erzeugen und Top‑Level‑Fenster per `CurrentProcessId` gruppieren; stabile RuntimeId (z. B. `uia-app://<pid>`) und sinnvoller `doc_order_key` definieren.
-- [ ] Application‑Attribute befüllen: `application::PROCESS_ID`, `PROCESS_NAME`, `EXECUTABLE_PATH`, `COMMAND_LINE`, optional `MAIN_WINDOW_IDS`, `ARCHITECTURE`. Kinder der Application sind die zugehörigen `control:Window`‑Knoten.
+- [x] Gruppierte Sicht (Application → Window): Synthetische `app:Application`‑Knoten erzeugen und Top‑Level‑Elemente per `CurrentProcessId` gruppieren; stabile RuntimeId (`uia-app://<pid>`) und sinnvoller `doc_order_key` definiert.
+ - [x] Application‑Attribute befüllt: `application::PROCESS_ID`, `NAME` (ohne Dateierweiterung; aus `EXECUTABLE_PATH` abgeleitet), `EXECUTABLE_PATH`, `COMMAND_LINE` (Roh‑String), `USER_NAME` (DOMAIN\User), `START_TIME` (ISO‑8601), `ARCHITECTURE`. Kinder der Application sind die zugehörigen `control:`‑Top‑Level‑Knoten.
 - [x] WindowSurface‑Status/Capabilities als Attribute bereitstellen: `window_surface::IS_MINIMIZED`, `IS_MAXIMIZED`, `IS_TOPMOST`, `SUPPORTS_MOVE`, `SUPPORTS_RESIZE` (über `WindowPattern`/`TransformPattern`).
 - [x] `WindowSurface.accepts_user_input()` implementieren (Heuristik: `IsEnabled && !IsOffscreen`; perspektivisch `WaitForInputIdle`). Optional gleichnamiges Attribut bereitstellen.
 - [x] Native UIA‑Properties: Unterstützung und Werte ermitteln
@@ -213,6 +213,13 @@ Ergänzungen (2025-09-29 später am Tag)
   - [x] Sentinels korrekt behandeln: `ReservedNotSupportedValue` → „nicht unterstützt“ (gefiltert); `ReservedMixedAttributeValue` → „gemischt“ (gefiltert).
   - [x] Exponierung als Attribute im Namespace `native:`: Für jedes unterstützte Property ein `UiAttribute` mit Programmatic Name (z. B. `native:ClassName`). Optionales Aggregatobjekt kann später ergänzt werden.
   - [x] Typumsetzung definiert: `VT_BOOL`→Bool, `VT_I2/VT_UI2/VT_I4/VT_UI4/VT_I8/VT_UI8`→Integer, `VT_R8/VT_R4/VT_DECIMAL/VT_DATE`→Number, `BSTR`→String, `SAFEARRAY(1D)`→Array (inkl. obiger Elementtypen), `IUnknown`‑Sentinels wie oben; unbekannte Typen auslassen.
+  - [x] Details: `VT_DECIMAL` wird via `VarR8FromDec` nach `f64` konvertiert; SAFEARRAY‑Elemente analog je Elementtyp abgebildet; UIA‑Sentinels (`ReservedNotSupportedValue`, `ReservedMixedAttributeValue`) werden gefiltert; VARENUM‑Konstanten aus dem `windows`‑Crate anstelle magischer Zahlen verwendet; Werteabruf über `GetCurrentPropertyValueEx(id, /*ignoreDefault*/ true)`.
+
+Aktualisierungen/Status (2025‑10‑05)
+- [x] App‑Knoten streamt Attribute per Iterator (lazy); zusätzliche `app:RuntimeId` als Attribut verfügbar.
+- [x] `app:Name` leitet sich aus dem Prozess‑Image (Dateiname ohne `.exe`) ab — nicht mehr PSAPI/K32 BaseModuleName.
+- [x] Root‑Streaming: Erst `control:`‑Desktop‑Kinder (eigenen Prozess ausfiltern, PIDs sammeln), anschließend pro gesehener PID genau ein `app:Application` in stabiler Reihenfolge.
+- [ ] Tests: Windows‑Smoke für Iterator‑Reihenfolge (Elements → Apps), Eigener‑PID‑Filter, App‑Attribute, Native‑Properties.
 - [ ] Tests: Struktur-/Attribut‑Abdeckung, Pattern‑Liste, Desktop‑Top‑Level (Windows‑only smoke). Optional: Root‑Geschwister‑Iteration.
 
 Aktuelle Design-Notizen (2025‑09‑30)
