@@ -4,7 +4,8 @@ use crate::compiler::ir::{
 };
 use crate::engine::functions::parse_qname_lexical;
 use crate::engine::runtime::{
-    CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations, ParamTypeSpec,
+    CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations, ItemTypeSpec,
+    Occurrence, ParamTypeSpec,
 };
 // fast_names_equal inlined: equality on interned atoms is direct O(1) comparison
 use crate::model::{NodeKind, XdmNode};
@@ -2987,61 +2988,109 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 // Functions
                 OpCode::CallByName(name, argc) => {
                     let argc = *argc;
-                    let mut args: Vec<XdmSequence<N>> = Vec::with_capacity(argc);
-                    for _ in 0..argc {
-                        args.push(self.pop_seq()?);
-                    }
-                    args.reverse();
                     let en = name; // lookup will resolve default namespace when needed
-                    let def_ns = self.compiled.static_ctx.default_function_namespace.as_deref();
-                    if let Some(specs) = self
-                        .compiled
-                        .static_ctx
-                        .function_signatures
-                        .param_types_for_call(en, argc, def_ns)
-                    {
-                        self.apply_function_conversions(&mut args, specs)?;
+                    let def_ns = self.compiled.static_ctx.default_function_namespace.clone();
+                    let def_ns_ref = def_ns.as_deref();
+
+                    // Check if stream-based implementation exists (peek only, clone Arc for later use)
+                    let stream_fn_opt = self.functions.resolve_stream(en, argc, def_ns_ref).cloned();
+
+                    // Prefer stream-based implementation for zero-copy streaming
+                    if let Some(stream_fn) = stream_fn_opt {
+                        // Stream path: pop arguments as streams (no materialization)
+                        let mut args_stream: Vec<XdmSequenceStream<N>> = Vec::with_capacity(argc);
+                        for _ in 0..argc {
+                            args_stream.push(self.pop_stream());
+                        }
+                        args_stream.reverse();
+
+                        // Apply type conversions/validation to streams (materializes if needed)
+                        if let Some(specs) = self
+                            .compiled
+                            .static_ctx
+                            .function_signatures
+                            .param_types_for_call(en, argc, def_ns_ref)
+                        {
+                            self.apply_stream_conversions(&mut args_stream, specs)?;
+                        }
+
+                        // Build call context after popping args (borrow checker)
+                        let default_collation = self.default_collation.clone();
+                        let call_ctx = CallCtx {
+                            dyn_ctx: self.dyn_ctx.as_ref(),
+                            static_ctx: &self.compiled.static_ctx,
+                            default_collation,
+                            regex: self.dyn_ctx.regex.clone(),
+                            current_context_item: self.current_context_item.clone(),
+                        };
+
+                        // Call stream function and push result directly
+                        let result = (stream_fn)(&call_ctx, &args_stream)?;
+                        self.push_stream(result);
+                    } else {
+                        // Fallback: Vec-based materialized path for legacy functions
+                        let mut args: Vec<XdmSequence<N>> = Vec::with_capacity(argc);
+                        for _ in 0..argc {
+                            args.push(self.pop_seq()?);
+                        }
+                        args.reverse();
+
+                        // Apply type conversions (atomization etc.)
+                        if let Some(specs) = self
+                            .compiled
+                            .static_ctx
+                            .function_signatures
+                            .param_types_for_call(en, argc, def_ns_ref)
+                        {
+                            self.apply_function_conversions(&mut args, specs)?;
+                        }
+
+                        // Resolve Vec-based function
+                        let f = match self.functions.resolve(en, argc, def_ns_ref) {
+                            Ok(f) => f,
+                            Err(crate::engine::runtime::ResolveError::Unknown(resolved)) => {
+                                return Err(Error::from_code(
+                                    ErrorCode::XPST0017,
+                                    format!("unknown function: {{{:?}}}#{argc}", resolved),
+                                ));
+                            }
+                            Err(crate::engine::runtime::ResolveError::WrongArity {
+                                name: resolved,
+                                ..
+                            }) => {
+                                // Humanize the provided argument count for a clearer diagnostic
+                                let arg_phrase = match argc {
+                                    0 => "no arguments".to_string(),
+                                    1 => "one argument".to_string(),
+                                    2 => "two arguments".to_string(),
+                                    3 => "three arguments".to_string(),
+                                    n => format!("{n} arguments"),
+                                };
+                                return Err(Error::from_code(
+                                    ErrorCode::XPST0017,
+                                    format!(
+                                        "function {}() cannot be called with {}",
+                                        resolved.local, arg_phrase
+                                    ),
+                                ));
+                            }
+                        };
+
+                        // Build call context
+                        let default_collation = self.default_collation.clone();
+                        let call_ctx = CallCtx {
+                            dyn_ctx: self.dyn_ctx.as_ref(),
+                            static_ctx: &self.compiled.static_ctx,
+                            default_collation,
+                            regex: self.dyn_ctx.regex.clone(),
+                            current_context_item: self.current_context_item.clone(),
+                        };
+
+                        // Call Vec-based function and materialize result to stream for stack
+                        let result_vec = (f)(&call_ctx, &args)?;
+                        self.push_seq(result_vec);
                     }
-                    let f = match self.functions.resolve(en, argc, def_ns) {
-                        Ok(f) => f,
-                        Err(crate::engine::runtime::ResolveError::Unknown(resolved)) => {
-                            return Err(Error::from_code(
-                                ErrorCode::XPST0017,
-                                format!("unknown function: {{{:?}}}#{argc}", resolved),
-                            ));
-                        }
-                        Err(crate::engine::runtime::ResolveError::WrongArity {
-                            name: resolved,
-                            ..
-                        }) => {
-                            // Humanize the provided argument count for a clearer diagnostic
-                            let arg_phrase = match argc {
-                                0 => "no arguments".to_string(),
-                                1 => "one argument".to_string(),
-                                2 => "two arguments".to_string(),
-                                3 => "three arguments".to_string(),
-                                n => format!("{n} arguments"),
-                            };
-                            return Err(Error::from_code(
-                                ErrorCode::XPST0017,
-                                format!(
-                                    "function {}() cannot be called with {}",
-                                    resolved.local, arg_phrase
-                                ),
-                            ));
-                        }
-                    };
-                    // Use cached default collation for this VM
-                    let default_collation = self.default_collation.clone();
-                    let call_ctx = CallCtx {
-                        dyn_ctx: self.dyn_ctx.as_ref(),
-                        static_ctx: &self.compiled.static_ctx,
-                        default_collation,
-                        regex: self.dyn_ctx.regex.clone(),
-                        current_context_item: self.current_context_item.clone(),
-                    };
-                    let result = (f)(&call_ctx, &args)?;
-                    self.push_seq(result);
+
                     ip += 1;
                 }
 
@@ -3071,6 +3120,48 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 let converted =
                     spec.apply_to_sequence(mem::take(arg), &self.compiled.static_ctx)?;
                 *arg = converted;
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_stream_conversions(
+        &self,
+        args: &mut [XdmSequenceStream<N>],
+        specs: &[ParamTypeSpec],
+    ) -> Result<(), Error> {
+        for (idx, spec) in specs.iter().enumerate() {
+            if let Some(arg_stream) = args.get_mut(idx) {
+                // Determine if conversion is needed based on spec
+                let needs_conversion = !matches!(
+                    spec.item,
+                    ItemTypeSpec::AnyItem
+                ) || !matches!(
+                    spec.occurrence,
+                    Occurrence::ZeroOrMore
+                );
+
+                if needs_conversion {
+                    // Materialize stream for type conversion
+                    let materialized: XdmSequence<N> = arg_stream.iter()
+                        .collect::<Result<Vec<_>, _>>()?;
+
+                    // Apply atomization if required
+                    let atomized = if spec.requires_atomization()
+                        && materialized.iter().any(|item| matches!(item, XdmItem::Node(_)))
+                    {
+                        Self::atomize(materialized)
+                    } else {
+                        materialized
+                    };
+
+                    // Apply type conversion/validation
+                    let converted = spec.apply_to_sequence(atomized, &self.compiled.static_ctx)?;
+
+                    // Convert back to stream
+                    *arg_stream = XdmSequenceStream::from_vec(converted);
+                }
+                // else: pass through unchanged (zero-copy for AnyItem ZeroOrMore)
             }
         }
         Ok(())

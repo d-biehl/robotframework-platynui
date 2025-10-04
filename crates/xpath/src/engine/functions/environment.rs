@@ -1,13 +1,14 @@
 use super::common::{item_to_string, require_context_item};
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
-use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
+use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
 use unicode_normalization::UnicodeNormalization;
 use url::Url;
 
-pub(super) fn default_collation_fn<N: crate::model::XdmNode + Clone>(
+/// Stream-based default-collation() implementation.
+pub(super) fn default_collation_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
-    _args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
+    _args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
     let uri = if let Some(c) = &ctx.default_collation {
         c.uri().to_string()
     } else if let Some(s) = &ctx.static_ctx.default_collation {
@@ -15,33 +16,42 @@ pub(super) fn default_collation_fn<N: crate::model::XdmNode + Clone>(
     } else {
         crate::engine::collation::CODEPOINT_URI.to_string()
     };
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(uri))])
+    let result = vec![XdmItem::Atomic(XdmAtomicValue::String(uri))];
+    Ok(XdmSequenceStream::from_vec(result))
 }
 
-pub(super) fn static_base_uri_fn<N: crate::model::XdmNode + Clone>(
+/// Stream-based static-base-uri() implementation.
+pub(super) fn static_base_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
-    _args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    if let Some(b) = &ctx.static_ctx.base_uri {
-        Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(b.clone()))])
+    _args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let result = if let Some(b) = &ctx.static_ctx.base_uri {
+        vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(b.clone()))]
     } else {
-        Ok(vec![])
-    }
+        vec![]
+    };
+    Ok(XdmSequenceStream::from_vec(result))
 }
 
-pub(super) fn root_fn<N: crate::model::XdmNode + Clone>(
+/// Stream-based root() implementation.
+///
+/// Handles both 0-arity (uses context item) and 1-arity versions.
+pub(super) fn root_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
     let item_opt = if args.is_empty() {
         Some(require_context_item(ctx)?)
-    } else if args[0].is_empty() {
-        None
     } else {
-        Some(args[0][0].clone())
+        let seq: XdmSequence<N> = args[0].materialize()?;
+        if seq.is_empty() {
+            None
+        } else {
+            Some(seq[0].clone())
+        }
     };
     let Some(item) = item_opt else {
-        return Ok(vec![]);
+        return Ok(XdmSequenceStream::from_vec(vec![]));
     };
     match item {
         XdmItem::Node(n) => {
@@ -51,7 +61,7 @@ pub(super) fn root_fn<N: crate::model::XdmNode + Clone>(
                 cur = pp.clone();
                 p = cur.parent();
             }
-            Ok(vec![XdmItem::Node(cur)])
+            Ok(XdmSequenceStream::from_vec(vec![XdmItem::Node(cur)]))
         }
         _ => Err(Error::from_code(ErrorCode::XPTY0004, "root() expects node()")),
     }
@@ -175,20 +185,21 @@ pub(super) fn lang_fn<N: crate::model::XdmNode + Clone>(
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(result))])
 }
 
-pub(super) fn encode_for_uri_fn<N: crate::model::XdmNode + Clone>(
+pub(super) fn encode_for_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    if args[0].len() > 1 {
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq: XdmSequence<N> = args[0].materialize()?;
+    if seq.len() > 1 {
         return Err(Error::from_code(
             ErrorCode::FORG0006,
             "encode-for-uri expects at most one string argument",
         ));
     }
-    if args[0].is_empty() {
-        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]);
+    if seq.is_empty() {
+        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]));
     }
-    let s = item_to_string(&args[0]);
+    let s = item_to_string(&seq);
     fn is_unreserved(ch: char) -> bool {
         ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '~')
     }
@@ -204,22 +215,24 @@ pub(super) fn encode_for_uri_fn<N: crate::model::XdmNode + Clone>(
             }
         }
     }
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
+    let result = vec![XdmItem::Atomic(XdmAtomicValue::String(out))];
+    Ok(XdmSequenceStream::from_vec(result))
 }
 
-pub(super) fn nilled_fn<N: crate::model::XdmNode + Clone>(
+pub(super) fn nilled_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    if args[0].is_empty() {
-        return Ok(vec![]);
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq: XdmSequence<N> = args[0].materialize()?;
+    if seq.is_empty() {
+        return Ok(XdmSequenceStream::from_vec(vec![]));
     }
-    let item = &args[0][0];
+    let item = &seq[0];
     let XdmItem::Node(n) = item else {
-        return Ok(vec![]);
+        return Ok(XdmSequenceStream::from_vec(vec![]));
     };
     if !matches!(n.kind(), crate::model::NodeKind::Element) {
-        return Ok(vec![]);
+        return Ok(XdmSequenceStream::from_vec(vec![]));
     }
     let mut is_nilled = false;
     for a in n.attributes() {
@@ -236,14 +249,16 @@ pub(super) fn nilled_fn<N: crate::model::XdmNode + Clone>(
             }
         }
     }
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(is_nilled))])
+    let result = vec![XdmItem::Atomic(XdmAtomicValue::Boolean(is_nilled))];
+    Ok(XdmSequenceStream::from_vec(result))
 }
 
-pub(super) fn iri_to_uri_fn<N: crate::model::XdmNode + Clone>(
+pub(super) fn iri_to_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    let s = item_to_string(&args[0]);
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq: XdmSequence<N> = args[0].materialize()?;
+    let s = item_to_string(&seq);
     let mut out = String::new();
     for ch in s.chars() {
         if ch.is_ascii() && ch != ' ' {
@@ -256,23 +271,25 @@ pub(super) fn iri_to_uri_fn<N: crate::model::XdmNode + Clone>(
             }
         }
     }
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
+    let result = vec![XdmItem::Atomic(XdmAtomicValue::String(out))];
+    Ok(XdmSequenceStream::from_vec(result))
 }
 
-pub(super) fn escape_html_uri_fn<N: crate::model::XdmNode + Clone>(
+pub(super) fn escape_html_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    if args[0].len() > 1 {
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq: XdmSequence<N> = args[0].materialize()?;
+    if seq.len() > 1 {
         return Err(Error::from_code(
             ErrorCode::FORG0006,
             "escape-html-uri expects at most one string argument",
         ));
     }
-    if args[0].is_empty() {
-        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]);
+    if seq.is_empty() {
+        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]));
     }
-    let s = item_to_string(&args[0]);
+    let s = item_to_string(&seq);
     let mut out = String::new();
     for ch in s.chars() {
         if ch.is_ascii() && (ch as u32) >= 32 && (ch as u32) <= 126 && ch != ' ' {
@@ -285,7 +302,8 @@ pub(super) fn escape_html_uri_fn<N: crate::model::XdmNode + Clone>(
             }
         }
     }
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
+    let result = vec![XdmItem::Atomic(XdmAtomicValue::String(out))];
+    Ok(XdmSequenceStream::from_vec(result))
 }
 
 pub(super) fn resolve_uri_fn<N: crate::model::XdmNode + Clone>(
@@ -377,36 +395,39 @@ pub(super) fn normalize_unicode_fn<N: crate::model::XdmNode + Clone>(
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
 }
 
-pub(super) fn doc_available_fn<N: crate::model::XdmNode + Clone>(
+pub(super) fn doc_available_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    if args[0].is_empty() {
-        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]);
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq: XdmSequence<N> = args[0].materialize()?;
+    if seq.is_empty() {
+        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]));
     }
-    let uri = item_to_string(&args[0]);
-    if let Some(nr) = &ctx.dyn_ctx.node_resolver {
+    let uri = item_to_string(&seq);
+    let result = if let Some(nr) = &ctx.dyn_ctx.node_resolver {
         match nr.doc_node(&uri) {
-            Ok(Some(_)) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(true))]),
-            Ok(None) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]),
-            Err(_e) => Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]),
+            Ok(Some(_)) => vec![XdmItem::Atomic(XdmAtomicValue::Boolean(true))],
+            Ok(None) => vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))],
+            Err(_e) => vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))],
         }
     } else {
-        Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))])
-    }
+        vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]
+    };
+    Ok(XdmSequenceStream::from_vec(result))
 }
 
-pub(super) fn doc_fn<N: crate::model::XdmNode + Clone>(
+pub(super) fn doc_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    if args[0].is_empty() {
-        return Ok(vec![]);
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq: XdmSequence<N> = args[0].materialize()?;
+    if seq.is_empty() {
+        return Ok(XdmSequenceStream::from_vec(vec![]));
     }
-    let uri = item_to_string(&args[0]);
+    let uri = item_to_string(&seq);
     if let Some(nr) = &ctx.dyn_ctx.node_resolver {
         match nr.doc_node(&uri) {
-            Ok(Some(n)) => return Ok(vec![XdmItem::Node(n)]),
+            Ok(Some(n)) => return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Node(n)])),
             Ok(None) => {
                 return Err(Error::from_code(ErrorCode::FODC0005, "document not available"));
             }

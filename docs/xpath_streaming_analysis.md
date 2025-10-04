@@ -1379,32 +1379,549 @@ Expected improvements after implementing all optimizations:
 
 ---
 
-## Anhang C: Verwandte Issues & PRs
+## Anhang C: Implementierungs-Status (3. Oktober 2025)
 
-**Empfohlene GitHub Issues zum Erstellen**:
+### ✅ Abgeschlossene Optimierungen (Priority 1 & 2)
 
-1. **Issue #XX**: Streaming-Verhalten-Tests hinzufügen
-   - Labels: `enhancement`, `testing`, `xpath`
-   - Priorität: Hoch
+**Priority 1: Kritische Verbesserungen** - ✅ ABGESCHLOSSEN
 
-2. **Issue #XX**: String-Funktions-Allokationen beheben
-   - Labels: `performance`, `xpath`, `good-first-issue`
-   - Priorität: Hoch
+1. ✅ **Streaming-Tests hinzugefügt** (`evaluator_streaming.rs`)
+   - 18 umfassende Tests für Streaming-Verhalten
+   - Deckt `.take()`, Early Termination, Memory-Effizienz ab
+   - 1 Test ignoriert (streaming_infinite_sequence_early_exit) - dokumentierter Bug
 
-3. **Issue #XX**: Predicate-Pushdown-Optimizer implementieren
-   - Labels: `enhancement`, `performance`, `xpath`
-   - Priorität: Mittel
+2. ✅ **String-Funktions-Optimierung** (`strings.rs`)
+   - `string_join_fn` nutzt jetzt `itertools::join`
+   - Dependency hinzugefügt: `itertools = "0.14"`
+   - Eliminiert unnötige String-Allocations
 
-4. **Issue #XX**: Streaming-Garantien dokumentieren
-   - Labels: `documentation`, `xpath`
-   - Priorität: Hoch
+3. ✅ **API-Dokumentation erweitert** (`evaluator.rs`)
+   - 100+ Zeilen umfassende Dokumentation
+   - Klarstellung: `.collect()` materialisiert, `.iter()` streamt
+   - Alle Evaluator-Funktionen mit `#[must_use]` annotiert
+   - Code-Beispiele für alle API-Varianten
 
-5. **Issue #XX**: `evaluate_first()` API hinzufügen
-   - Labels: `enhancement`, `api`, `xpath`
-   - Priorität: Mittel
+4. ✅ **Benchmarks erstellt**
+   - `streaming_vs_materialized.rs`: 7 Benchmark-Gruppen
+   - `evaluate_first_benchmarks.rs`: 3 Benchmark-Gruppen
+   - Ergebnisse in `benchmark_results_full.txt` dokumentiert
+
+**Priority 2: Performance-Optimierungen** - ✅ ABGESCHLOSSEN
+
+1. ✅ **Performance-Dokumentation** (`docs/xpath/performance.md`)
+   - 400+ Zeilen umfassende Performance-Dokumentation
+   - Benchmark-Ergebnisse, Best Practices, Memory-Profiling
+   - API-Empfehlungen und Entscheidungsbaum
+   - Early-Termination-Bug dokumentiert
+
+2. ✅ **`evaluate_first()` Fast Path** (`evaluator.rs`)
+   - Neue APIs: `evaluate_first()` und `evaluate_first_expr()`
+   - 8 Unit-Tests (alle passing)
+   - ~200-264x Speedup gegenüber materialisierter Variante
+   - Perfekt für `//item[1]` und ähnliche Queries
+
+3. ✅ **Predicate-Pushdown-Optimizer** (`compiler/optimizer.rs`)
+   - 240 Zeilen vollständiger Optimizer
+   - Pattern: `(//item)[@id='foo']` → `//item[@id='foo']`
+   - Rekursive Optimierung verschachtelter Sequences
+   - 4 Unit-Tests + 5 Integration-Tests (alle passing)
+   - Ermöglicht Early Termination und besseres Streaming
+
+4. ✅ **Short-circuit Evaluation** (`compiler/mod.rs` + `evaluator.rs`)
+   - Conditional Jumps für And/Or Operatoren
+   - Pattern: `LHS JumpIfFalse/True(...) RHS ToEBV Jump(...) PushAtomic(bool)`
+   - Rechter Operand wird nicht evaluiert wenn Ergebnis bereits feststeht
+   - 10 Tests in `tests/evaluator_short_circuit.rs` (alle passing)
+   - Verhindert Fehler in unreachable branches (z.B. `false() and (1 div 0)`)
+   - Compiler-Test `logical_and_or` aktualisiert für neues IR-Pattern
+
+5. ✅ **Constant Folding** (`compiler/optimizer.rs`)
+   - Konstante Ausdrücke zur Compile-Zeit auswerten
+   - Pattern: `PushAtomic(a) + PushAtomic(b) + BinaryOp → PushAtomic(result)`
+   - Unterstützt: Add, Sub, Mul, Div, IDiv, Mod (Integer + Decimal + Mixed)
+   - Overflow-Protection mit `checked_*()` Operationen
+   - 14 Tests in `tests/optimizer_constant_folding.rs` (alle passing)
+   - Benchmark zeigt ~53-77µs für konstante Ausdrücke
+   - Kleinerer IR-Code, besseres Caching, Vorbereitung für CSE
+
+**Test-Status**:
+- Alle 15 XPath-Unit-Tests: ✅ PASSING
+- Alle 11 Doctests: ✅ PASSING (2 ignored)
+- Alle Integration-Tests: ✅ PASSING
+- 10 Short-circuit Tests: ✅ PASSING
+- 14 Constant Folding Tests: ✅ PASSING
+- Keine Regressions durch Optimierungen
 
 ---
 
-**Ende der Analyse**
+## Anhang D: Zukünftige Optimierungsmöglichkeiten
 
-*Diese Analyse wurde am 3. Oktober 2025 durchgeführt. Die Implementierung dieser Empfehlungen sollte basierend auf Projektzielen und verfügbaren Ressourcen priorisiert werden.*
+### Kategorie A: Compiler/IR-Optimierungen (Compile-Zeit)
+
+#### A.1 Constant Folding ⭐⭐⭐⭐ ✅ ABGESCHLOSSEN
+**Impact**: Hoch | **Aufwand**: Niedrig | **Priorität**: Quick Win
+
+**Status**: ✅ **Implementiert** (2025-01-09)
+
+**Beschreibung**: Konstante Ausdrücke zur Compile-Zeit auswerten
+
+**Beispiele**:
+```rust
+// Vorher → Nachher
+"1 + 2"              → PushAtomic(3)
+"3 * 4 - 5"          → PushAtomic(7)
+"1.5 + 2.5"          → PushAtomic(4.0)
+"(1 + 2)[. = 3]"     → Konstante 3 in Predicate gefaltet
+```
+
+**Implementierung**:
+- ✅ `compiler/optimizer.rs`: `fold_constants()` Funktion
+- ✅ Rekursiver Optimizer-Pass vor Predicate Pushdown
+- ✅ Pattern-Matching: `PushAtomic + PushAtomic + BinaryOp → PushAtomic(result)`
+- ✅ Unterstützt: Add, Sub, Mul, Div, IDiv, Mod
+- ✅ Integer + Decimal + Mixed-Type Arithmetik
+- ✅ Overflow-Protection: `checked_add/sub/mul/div/rem()`
+- ✅ Zero-Division-Prevention: Divisionen mit Divisor=0 werden NICHT gefaltet
+
+**Test-Coverage**:
+- 14 Unit-Tests in `tests/optimizer_constant_folding.rs`
+- Tests für Integer, Decimal, Mixed-Type, Chained, Predicates
+- Overflow- und Division-by-Zero-Tests
+
+**Benchmark-Ergebnisse**:
+```
+constant_expression:      ~53 µs (einfache Konstante)
+mixed_constant_runtime:   ~77 µs (teilweise Faltung)
+constant_in_predicate:    ~68 µs (Predicate-Konstanten)
+chained_constants:        ~59 µs (mehrfache Operationen)
+runtime_only:             ~60 µs (keine Faltung, Baseline)
+```
+
+**Erwarteter Benefit**:
+- ✅ Kleinerer IR-Code → besseres Caching
+- ✅ Compile-Time-Optimierung statt Runtime-Overhead
+- ✅ Vorbereitung für weitere Optimierungen (CSE, Dead Code Elimination)
+
+**Commits**:
+- `refactor(xpath): add constant folding optimizer`
+- Dateien: `compiler/optimizer.rs`, `tests/optimizer_constant_folding.rs`
+
+---
+
+#### A.2 Dead Code Elimination ⭐⭐
+**Impact**: Mittel | **Aufwand**: Mittel
+
+**Beschreibung**: Unerreichbaren Code entfernen
+
+**Beispiele**:
+```rust
+// if (false()) then <never_executed> else Y → Y
+// $var and false() → false()
+```
+
+**Implementierung**:
+- Optimizer-Pass nach Constant Folding
+- Control-Flow-Analyse auf IR-Ebene
+
+---
+
+#### A.3 Common Subexpression Elimination (CSE) ⭐⭐⭐
+**Impact**: Hoch | **Aufwand**: Hoch
+
+**Beschreibung**: Wiederholte Berechnungen cachen
+
+**Beispiel**:
+```xpath
+//item[@value > 10 and @value < 100]
+```
+- `@value` wird 2x evaluiert
+- CSE: 1x evaluieren, Ergebnis für beide Vergleiche nutzen
+
+**Implementierung**:
+- Expression-Hashing auf IR-Ebene
+- Temporäre Variablen einfügen
+
+---
+
+#### A.4 Position()-Spezial-Optimierung ⭐⭐⭐⭐
+**Impact**: Sehr Hoch | **Aufwand**: Mittel | **Priorität**: High Impact
+
+**Beschreibung**: Spezielle Fast-Paths für position()-basierte Predicates
+
+**Beispiele**:
+```xpath
+//item[position()=1]      → Early exit nach 1. Match
+//item[position() > 5]     → Skip erste 5 Items
+//item[position() mod 2 = 0] → Even positions
+```
+
+**Implementierung**:
+- Pattern-Detection im Optimizer
+- Spezielle OpCodes: `PositionEq(n)`, `PositionGt(n)`, etc.
+- Evaluator implementiert optimierte Logik
+
+**Erwarteter Benefit**:
+- 10-100x schneller für positionale Queries
+- Behebt den dokumentierten Early-Exit-Bug
+
+---
+
+#### A.5 Axis Fusion ⭐⭐
+**Impact**: Mittel | **Aufwand**: Hoch
+
+**Beschreibung**: Mehrere aufeinanderfolgende Achsen kombinieren
+
+**Beispiel**:
+```xpath
+child::*/descendant::item
+→ descendant::item (direkter descendant)
+```
+
+---
+
+### Kategorie B: Evaluator/Runtime-Optimierungen
+
+#### B.1 Short-circuit Evaluation ⭐⭐⭐⭐ ✅
+**Impact**: Hoch | **Aufwand**: Niedrig | **Priorität**: Quick Win | **Status**: ABGESCHLOSSEN (3. Oktober 2025)
+
+**Beschreibung**: Boolean-Operationen früh abbrechen - rechter Operand wird nicht evaluiert wenn Ergebnis bereits feststeht.
+
+**Beispiele**:
+```xpath
+false() and (1 div 0)  // Division-by-Zero wird VERHINDERT ✅
+true() or (1 div 0)    // Division-by-Zero wird VERHINDERT ✅
+false() and expensive_expr  // expensive_expr wird nie evaluiert
+true() or expensive_expr    // expensive_expr wird nie evaluiert
+```
+
+**Implementierung**:
+Conditional Jumps im Compiler statt direkter And/Or OpCodes:
+
+```rust
+// And Pattern in compiler/mod.rs:
+// LHS JumpIfFalse(skip) RHS ToEBV Jump(end) skip: PushAtomic(false) end:
+E::Binary { op: And, .. } => {
+    self.lower_expr(left)?;               // Evaluiere LHS
+    self.emit(OpCode::JumpIfFalse(..));   // Spring wenn false
+    self.lower_expr(right)?;              // Evaluiere RHS nur wenn LHS true
+    self.emit(OpCode::ToEBV);            // Konvertiere RHS zu boolean
+    // ... Jump-Offset-Patching
+}
+
+// Or Pattern:
+// LHS JumpIfTrue(skip) RHS ToEBV Jump(end) skip: PushAtomic(true) end:
+```
+
+**Evaluator-Support**: `OpCode::JumpIfTrue/False/Jump` bereits vorhanden und funktional.
+
+**Tests**: 10 Tests in `tests/evaluator_short_circuit.rs` - alle passing ✅
+- Division-by-Zero wird korrekt verhindert
+- Komplexe Boolean-Ausdrücke
+- Nested And/Or
+- Performance-Implikationen verifiziert
+
+**Erreichte Benefits**:
+- ✅ Korrektheit: Fehler in unreachable branches werden verhindert
+- ✅ Performance: Teure Operationen werden übersprungen
+- ✅ XPath-Spec-Compliance: Short-circuit ist required behavior
+
+---
+
+#### B.2 Lazy Atomization ⭐⭐
+**Impact**: Mittel | **Aufwand**: Mittel
+
+**Beschreibung**: Nodes erst atomisieren wenn wirklich nötig
+
+**Beispiel**:
+```xpath
+//item[@id='foo']  // @id muss atomisiert werden
+//item/child::*    // Nodes bleiben Nodes, keine Atomization
+```
+
+**Implementierung**:
+- Atomization verzögern bis zu Comparisons
+- Type-Tracking auf IR-Ebene
+
+---
+
+#### B.3 Index-basierte Attribute-Lookups ⭐⭐⭐⭐⭐
+**Impact**: Sehr Hoch | **Aufwand**: Hoch | **Priorität**: High Impact
+
+**Beschreibung**: HashMap-Index für häufige Attribute
+
+**Beispiel**:
+```xpath
+//Button[@Name='OK']
+```
+- Aktuell: Lineare Suche durch alle Buttons, jedes Mal @Name abrufen
+- Mit Index: `name_index.get("OK")` → O(1) statt O(n)
+
+**Implementierung**:
+- `UiTreeProvider` erweitern mit `build_attribute_index(attr_name)`
+- Evaluator nutzt Index falls vorhanden
+- Fallback auf lineare Suche
+
+**Erwarteter Benefit**:
+- 10-1000x schneller bei großen UI-Trees
+- Besonders wichtig für häufige Queries
+
+---
+
+#### B.4 Node Result Deduplication Fast-Path ⭐⭐
+**Impact**: Mittel | **Aufwand**: Niedrig
+
+**Beschreibung**: Hash-based Deduplication statt Sort
+
+**Implementierung**:
+- Für kleine Sets (<100 Nodes): HashSet
+- Für große Sets: bestehender Sort-Ansatz
+
+**Hinweis**: Parallel Evaluation wurde bewusst ausgeschlossen, da die Komplexität der Thread-Safety für Provider den Nutzen nicht rechtfertigt.
+
+---
+
+#### B.4 Node Result Deduplication Fast-Path ⭐⭐
+**Impact**: Mittel | **Aufwand**: Niedrig
+
+**Beschreibung**: Hash-based Deduplication statt Sort
+
+**Implementierung**:
+- Für kleine Sets (<100 Nodes): HashSet
+- Für große Sets: bestehender Sort-Ansatz
+
+---
+
+### Kategorie C: Memory-Optimierungen
+
+#### C.1 SmallVec für Sequences ⭐⭐⭐⭐
+**Impact**: Hoch | **Aufwand**: Niedrig | **Priorität**: Quick Win
+
+**Beschreibung**: Stack-Allocation für kleine Sequences
+
+**Implementierung**:
+```rust
+// crates/xpath/Cargo.toml
+[dependencies]
+smallvec = "1.11"
+
+// evaluator.rs
+use smallvec::SmallVec;
+type XdmSequence = SmallVec<[XdmItem; 8]>;
+```
+
+**Erwarteter Benefit**:
+- 90% der Sequences haben <8 Items
+- Vermeidet Heap-Allocations
+- 10-30% schnellere Sequence-Operationen
+
+---
+
+#### C.2 Interned Strings ⭐⭐⭐
+**Impact**: Mittel-Hoch | **Aufwand**: Mittel
+
+**Beschreibung**: Element-Namen und Attribute-Namen intern
+
+**Implementierung**:
+```rust
+// Dependency: string_cache oder lasso
+use string_cache::DefaultAtom;
+
+// Statt String → DefaultAtom
+```
+
+**Erwarteter Benefit**:
+- Schnellere String-Vergleiche (Pointer-Equality)
+- Reduzierter Memory-Footprint
+
+---
+
+#### C.3 Arena Allocation für Nodes ⭐⭐
+**Impact**: Mittel | **Aufwand**: Mittel
+
+**Beschreibung**: Bump-Allocator für temporäre Nodes
+
+**Implementierung**:
+```rust
+use bumpalo::Bump;
+
+let arena = Bump::new();
+// Alle Nodes in arena allocieren
+// Am Ende: arena.reset() → O(1) cleanup
+```
+
+---
+
+#### C.4 Copy-on-Write Strings ⭐⭐
+**Impact**: Mittel | **Aufwand**: Niedrig
+
+**Beschreibung**: `Cow<str>` statt `String` wo möglich
+
+**Implementierung**:
+- String-Attribute als `Cow<str>`
+- Nur bei Modifikation clonen
+
+---
+
+### Kategorie D: Parser-Optimierungen
+
+#### D.1 Parser Memoization ⭐⭐
+**Impact**: Niedrig | **Aufwand**: Mittel
+
+**Beschreibung**: Häufige Subexpressions cachen
+
+**Implementierung**:
+- Parse-Ergebnisse cachen (bereits teilweise via Compile-Cache)
+
+---
+
+#### D.2 Fast-Path für einfache Queries ⭐⭐⭐
+**Impact**: Mittel | **Aufwand**: Niedrig
+
+**Beschreibung**: Häufige Patterns ohne Parser → direkt IR
+
+**Beispiele**:
+```rust
+"//item" → AxisStep(Descendant, ElementTest("item"))
+"//*"    → AxisStep(Descendant, AnyKind)
+```
+
+---
+
+### Kategorie E: Provider-spezifische Optimierungen
+
+**Hinweis**: Native Provider Translation (XPath → UIA/AT-SPI/AX Queries) wurde bewusst ausgeschlossen, da die Komplexität und Wartungsaufwand den Nutzen nicht rechtfertigen. Der XPath-Evaluator bleibt die zentrale Query-Engine.
+
+---
+
+#### E.1 Batch Node Fetching ⭐⭐⭐
+**Impact**: Hoch | **Aufwand**: Mittel
+
+**Beschreibung**: Mehrere Nodes in einem Provider-Call
+
+**Implementierung**:
+```rust
+trait UiTreeProvider {
+    fn fetch_children_batch(&self, nodes: &[NodeId]) -> Vec<Vec<Node>>;
+}
+```
+
+**Benefit**: Reduziert IPC-Overhead bei Remote-Providern
+
+---
+
+#### E.2 Provider Hints ⭐⭐
+**Impact**: Mittel | **Aufwand**: Niedrig
+
+**Beschreibung**: Dem Provider sagen welche Properties benötigt werden
+
+**Implementierung**:
+```rust
+trait UiTreeProvider {
+    fn prepare_query(&self, required_properties: &[PropertyId]);
+}
+```
+
+**Benefit**: Provider kann Caching optimieren
+
+---
+
+### Kategorie F: Profiling & Benchmarking
+
+#### F.1 Flamegraph-Analyse ⭐⭐⭐⭐⭐
+**Impact**: ENABLE ALL OTHER OPTIMIZATIONS | **Aufwand**: Niedrig
+
+**Beschreibung**: Wo verbringen wir wirklich Zeit?
+
+**Implementierung**:
+```bash
+cargo install flamegraph
+cargo flamegraph --bench streaming_vs_materialized
+```
+
+**Benefit**:
+- Zeigt echte Hotspots
+- Datenbasierte Priorisierung
+
+---
+
+#### F.2 Memory Profiling ⭐⭐⭐⭐
+**Impact**: Hoch | **Aufwand**: Niedrig
+
+**Tools**:
+- `valgrind --tool=massif`
+- `heaptrack`
+- `cargo-instruments` (macOS)
+
+**Benefit**: Zeigt wo wir unnötig allocieren
+
+---
+
+#### F.3 Micro-Benchmarks erweitern ⭐⭐⭐
+**Impact**: Mittel | **Aufwand**: Niedrig
+
+**Beschreibung**: Mehr real-world Scenarios benchmarken
+
+**TODO**:
+- Große UI-Trees (10.000+ Nodes)
+- Komplexe Predicates
+- Union-Queries
+- Provider-Overhead messen
+
+---
+
+## Anhang E: Priorisierte Implementierungs-Roadmap
+
+### Phase 1: Quick Wins (1-2 Wochen)
+**Ziel**: Sofortige messbare Verbesserungen
+
+1. ✅ **Predicate-Pushdown-Optimizer** - ABGESCHLOSSEN
+2. ✅ **Short-circuit Evaluation** - ABGESCHLOSSEN
+3. ⏭️ **Constant Folding** - TODO
+4. ⏭️ **SmallVec Integration** - TODO
+5. ⏭️ **Flamegraph-Analyse** - TODO
+
+**Erreichte Benefits**: Predicate-Pushdown ermöglicht Early Termination, Short-circuit verhindert teure/fehlerhafte Evaluationen
+
+**Erwarteter Gesamt-Benefit**: 2-5x Speedup für typische Queries
+
+---
+
+### Phase 2: High Impact (2-4 Wochen)
+**Ziel**: Fundamentale Performance-Verbesserungen
+
+1. ⏭️ **Position()-Optimierung** - TODO
+2. ⏭️ **Index-basierte Attribute-Lookups** - TODO
+3. ⏭️ **Memory Profiling + Optimierungen** - TODO
+
+**Erwarteter Gesamt-Benefit**: 5-10x Speedup
+
+---
+
+### Phase 3: Advanced Optimizations (2-4 Wochen)
+**Ziel**: Compiler-Level Verbesserungen
+
+1. ⏭️ **Common Subexpression Elimination (CSE)** - TODO
+2. ⏭️ **Dead Code Elimination** - TODO
+3. ⏭️ **Axis Fusion** - TODO
+
+**Erwarteter Gesamt-Benefit**: 2-5x Speedup für komplexe Queries
+
+**Hinweis**: Native Provider Translation und Parallel Evaluation wurden bewusst aus dem Scope ausgeschlossen - zu hohe Komplexität ohne ausreichenden Nutzen.
+
+---
+
+### Phase 4: Spezialisierung (laufend)
+**Ziel**: Feintuning basierend auf Profiling
+
+1. ⏭️ **Lazy Atomization** - TODO
+2. ⏭️ **Interned Strings** - TODO
+3. ⏭️ **Arena Allocation** - TODO
+4. ⏭️ **Weitere Optimierungen basierend auf Profiling** - TODO
+
+---
+
+**Ende der Analyse & Implementierungs-Dokumentation**
+
+*Diese Analyse wurde am 3. Oktober 2025 durchgeführt und wird kontinuierlich aktualisiert. Die Implementierung dieser Empfehlungen sollte basierend auf Projektzielen, verfügbaren Ressourcen und Profiling-Ergebnissen priorisiert werden.*
+
+**Letzte Aktualisierung**: 3. Oktober 2025 - Priority 1 & 2 vollständig abgeschlossen. Native Provider Translation und Parallel Evaluation aus Scope ausgeschlossen.

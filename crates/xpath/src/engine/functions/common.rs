@@ -303,6 +303,7 @@ pub(super) fn round_half_to_even_default<N: crate::model::XdmNode>(
 }
 
 // Default implementation for subsequence($seq,$start[,$len])
+#[allow(dead_code)]
 pub(super) fn subsequence_default<N: crate::model::XdmNode + Clone>(
     seq: &XdmSequence<N>,
     start_raw: f64,

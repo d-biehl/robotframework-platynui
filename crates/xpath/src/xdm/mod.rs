@@ -72,7 +72,14 @@ pub enum XdmAtomicValue {
     Notation(String),
 }
 
+/// XPath Data Model sequence type (standard Vec-based).
 pub type XdmSequence<N> = Vec<XdmItem<N>>;
+
+use smallvec::SmallVec;
+
+/// Small sequence optimization for hot paths.
+/// Most XPath results are small (<8 items), so we use stack allocation to avoid heap overhead.
+pub type XdmSmallSeq<N> = SmallVec<[XdmItem<N>; 8]>;
 
 use crate::engine::runtime::Error;
 use std::marker::PhantomData;

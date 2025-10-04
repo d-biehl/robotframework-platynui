@@ -3,80 +3,99 @@ use super::common::{
     round_default, round_half_to_even_default, sum_default,
 };
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
-use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
+use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
 
-pub(super) fn number_fn<N: 'static + crate::model::XdmNode + Clone>(
+/// Stream-based number() implementation.
+///
+/// Handles both 0-arity (uses context item) and 1-arity versions.
+pub(super) fn number_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    match args.len() {
-        0 => number_default(ctx, None),
-        1 => number_default(ctx, Some(&args[0])),
-        _ => unreachable!("registry guarantees arity in range"),
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let result = if args.is_empty() {
+        number_default(ctx, None)?
+    } else {
+        let seq = args[0].materialize()?;
+        number_default(ctx, Some(&seq))?
+    };
+    Ok(XdmSequenceStream::from_vec(result))
+}/// Stream-based abs() implementation.
+pub(super) fn abs_stream<N: 'static + crate::model::XdmNode + Clone>(
+    _ctx: &CallCtx<N>,
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq = args[0].materialize()?;
+    let result = num_unary(&[seq], |n| n.abs());
+    Ok(XdmSequenceStream::from_vec(result))
+}
+
+/// Stream-based floor() implementation.
+pub(super) fn floor_stream<N: 'static + crate::model::XdmNode + Clone>(
+    _ctx: &CallCtx<N>,
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq = args[0].materialize()?;
+    let result = num_unary(&[seq], |n| n.floor());
+    Ok(XdmSequenceStream::from_vec(result))
+}
+
+/// Stream-based ceiling() implementation.
+pub(super) fn ceiling_stream<N: 'static + crate::model::XdmNode + Clone>(
+    _ctx: &CallCtx<N>,
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq = args[0].materialize()?;
+    let result = num_unary(&[seq], |n| n.ceil());
+    Ok(XdmSequenceStream::from_vec(result))
+}
+
+/// Stream-based round() implementation.
+///
+/// Handles both 1-arity and 2-arity versions.
+pub(super) fn round_stream<N: 'static + crate::model::XdmNode + Clone>(
+    _ctx: &CallCtx<N>,
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq0 = args[0].materialize()?;
+    let result = if args.len() == 1 {
+        round_default(&seq0, None)?
+    } else {
+        let seq1 = args[1].materialize()?;
+        round_default(&seq0, Some(&seq1))?
+    };
+    Ok(XdmSequenceStream::from_vec(result))
+}
+
+/// Stream-based round-half-to-even() implementation.
+///
+/// Handles both 1-arity and 2-arity versions.
+pub(super) fn round_half_to_even_stream<N: 'static + crate::model::XdmNode + Clone>(
+    _ctx: &CallCtx<N>,
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq0 = args[0].materialize()?;
+    let result = if args.len() == 1 {
+        round_half_to_even_default(&seq0, None)?
+    } else {
+        let seq1 = args[1].materialize()?;
+        round_half_to_even_default(&seq0, Some(&seq1))?
+    };
+    Ok(XdmSequenceStream::from_vec(result))
+}
+
+/// Stream-based avg() implementation.
+///
+/// Materializes input and performs average calculation.
+pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
+    _ctx: &CallCtx<N>,
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq = args[0].materialize()?;
+
+    if seq.is_empty() {
+        return Ok(XdmSequenceStream::empty());
     }
-}
 
-pub(super) fn abs_fn<N: 'static + crate::model::XdmNode + Clone>(
-    _ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    Ok(num_unary(args, |n| n.abs()))
-}
-
-pub(super) fn floor_fn<N: 'static + crate::model::XdmNode + Clone>(
-    _ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    Ok(num_unary(args, |n| n.floor()))
-}
-
-pub(super) fn ceiling_fn<N: 'static + crate::model::XdmNode + Clone>(
-    _ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    Ok(num_unary(args, |n| n.ceil()))
-}
-
-pub(super) fn round_fn<N: 'static + crate::model::XdmNode + Clone>(
-    _ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    match args.len() {
-        1 => round_default(&args[0], None),
-        2 => round_default(&args[0], Some(&args[1])),
-        _ => unreachable!("registry guarantees arity in range"),
-    }
-}
-
-pub(super) fn round_half_to_even_fn<N: 'static + crate::model::XdmNode + Clone>(
-    _ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    match args.len() {
-        1 => round_half_to_even_default(&args[0], None),
-        2 => round_half_to_even_default(&args[0], Some(&args[1])),
-        _ => unreachable!("registry guarantees arity in range"),
-    }
-}
-
-pub(super) fn sum_fn<N: 'static + crate::model::XdmNode + Clone>(
-    _ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    match args.len() {
-        1 => sum_default(&args[0], None),
-        2 => sum_default(&args[0], Some(&args[1])),
-        _ => unreachable!("registry guarantees arity in range"),
-    }
-}
-
-pub(super) fn avg_fn<N: 'static + crate::model::XdmNode + Clone>(
-    _ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    if args[0].is_empty() {
-        return Ok(vec![]);
-    }
     enum AvgState {
         Numeric,
         YearMonth,
@@ -90,7 +109,8 @@ pub(super) fn avg_fn<N: 'static + crate::model::XdmNode + Clone>(
     let mut ym_total: i64 = 0;
     let mut dt_total: i128 = 0;
     let mut count: i64 = 0;
-    for it in &args[0] {
+
+    for it in &seq {
         let XdmItem::Atomic(a) = it else {
             return Err(Error::from_code(ErrorCode::XPTY0004, "avg on non-atomic item"));
         };
@@ -138,7 +158,7 @@ pub(super) fn avg_fn<N: 'static + crate::model::XdmNode + Clone>(
             _ => {
                 if let Some((nk, num)) = classify_numeric(a)? {
                     if nk == NumericKind::Double && num.is_nan() {
-                        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
+                        return Ok(XdmSequenceStream::from_item(XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))));
                     }
                     state = match state {
                         None => Some(AvgState::Numeric),
@@ -181,9 +201,11 @@ pub(super) fn avg_fn<N: 'static + crate::model::XdmNode + Clone>(
         }
         count += 1;
     }
+
     if count == 0 {
-        return Ok(vec![]);
+        return Ok(XdmSequenceStream::empty());
     }
+
     let out = match state.unwrap_or(AvgState::Numeric) {
         AvgState::Numeric => {
             let total = if use_int_acc && matches!(kind, NumericKind::Integer) {
@@ -223,39 +245,86 @@ pub(super) fn avg_fn<N: 'static + crate::model::XdmNode + Clone>(
             XdmAtomicValue::DayTimeDuration(secs)
         }
     };
-    Ok(vec![XdmItem::Atomic(out)])
+
+    Ok(XdmSequenceStream::from_item(XdmItem::Atomic(out)))
 }
 
-pub(super) fn min_fn<N: 'static + crate::model::XdmNode + Clone>(
-    ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    if args.len() == 1 {
-        minmax_impl(ctx, &args[0], None, true)
+//---- Stream-based aggregate functions ----
+
+/// Stream-based sum() implementation.
+///
+/// Materializes the input stream and delegates to existing sum_default().
+/// Performance: O(n) iteration with accumulation logic.
+pub(super) fn sum_stream<N: 'static + crate::model::XdmNode + Clone>(
+    _ctx: &CallCtx<N>,
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq = args[0].materialize()?;
+
+    let result = if args.len() == 1 {
+        sum_default(&seq, None)?
     } else {
-        let uri = super::common::item_to_string(&args[1]);
+        let zero_seq = args[1].materialize()?;
+        sum_default(&seq, Some(&zero_seq))?
+    };
+
+    Ok(XdmSequenceStream::from_vec(result))
+}
+
+/// Stream-based min() implementation.
+///
+/// Materializes input and delegates to minmax_impl() with is_min=true.
+pub(super) fn min_stream<N: 'static + crate::model::XdmNode + Clone>(
+    ctx: &CallCtx<N>,
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq: XdmSequence<N> = args[0].materialize()?;
+
+    if seq.is_empty() {
+        return Ok(XdmSequenceStream::empty());
+    }
+
+    let result = if args.len() == 1 {
+        minmax_impl(ctx, &seq, None, true)?
+    } else {
+        let collation_seq: XdmSequence<N> = args[1].materialize()?;
+        let uri = super::common::item_to_string(&collation_seq);
         let k = crate::engine::collation::resolve_collation(
             ctx.dyn_ctx,
             ctx.default_collation.as_ref(),
             Some(&uri),
         )?;
-        minmax_impl(ctx, &args[0], Some(k.as_trait()), true)
-    }
+        minmax_impl(ctx, &seq, Some(k.as_trait()), true)?
+    };
+
+    Ok(XdmSequenceStream::from_vec(result))
 }
 
-pub(super) fn max_fn<N: 'static + crate::model::XdmNode + Clone>(
+/// Stream-based max() implementation.
+///
+/// Materializes input and delegates to minmax_impl() with is_min=false.
+pub(super) fn max_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    if args.len() == 1 {
-        minmax_impl(ctx, &args[0], None, false)
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq: XdmSequence<N> = args[0].materialize()?;
+
+    if seq.is_empty() {
+        return Ok(XdmSequenceStream::empty());
+    }
+
+    let result = if args.len() == 1 {
+        minmax_impl(ctx, &seq, None, false)?
     } else {
-        let uri = super::common::item_to_string(&args[1]);
+        let collation_seq: XdmSequence<N> = args[1].materialize()?;
+        let uri = super::common::item_to_string(&collation_seq);
         let k = crate::engine::collation::resolve_collation(
             ctx.dyn_ctx,
             ctx.default_collation.as_ref(),
             Some(&uri),
         )?;
-        minmax_impl(ctx, &args[0], Some(k.as_trait()), false)
-    }
+        minmax_impl(ctx, &seq, Some(k.as_trait()), false)?
+    };
+
+    Ok(XdmSequenceStream::from_vec(result))
 }

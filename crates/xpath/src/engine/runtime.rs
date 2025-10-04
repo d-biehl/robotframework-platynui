@@ -5,7 +5,7 @@ use crate::engine::functions::{
     parse_year_month_duration_months,
 };
 use crate::model::{NodeKind, XdmNode};
-use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence};
+use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
 use core::fmt;
 use lru::LruCache;
 use std::collections::{HashMap, HashSet};
@@ -111,19 +111,34 @@ pub struct CallCtx<'a, N> {
 pub type FunctionImpl<N> =
     Arc<dyn Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>>;
 
+/// Stream-based function implementation (new API for zero-copy streaming).
+///
+/// Functions using this signature work directly with lazy `XdmSequenceStream<N>`
+/// arguments and return streaming results. This avoids materializing intermediate
+/// sequences into `Vec`, enabling better performance for large result sets and
+/// early termination scenarios.
+///
+/// Prefer implementing this over `FunctionImpl` for new functions. The evaluator
+/// will automatically convert between Vec-based and Stream-based calls as needed.
+pub type FunctionStreamImpl<N> =
+    Arc<dyn Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>>;
+
 // Type aliases to keep complex nested types readable
 pub type FunctionOverload<N> = (Arity, Option<Arity>, FunctionImpl<N>);
 pub type FunctionOverloads<N> = Vec<FunctionOverload<N>>;
+pub type FunctionStreamOverload<N> = (Arity, Option<Arity>, FunctionStreamImpl<N>);
+pub type FunctionStreamOverloads<N> = Vec<FunctionStreamOverload<N>>;
 
 pub(crate) const STATIC_CONTEXT_COMPILE_CACHE_CAPACITY: usize = 20;
 
 pub struct FunctionImplementations<N> {
     fns: HashMap<ExpandedName, FunctionOverloads<N>>,
+    stream_fns: HashMap<ExpandedName, FunctionStreamOverloads<N>>,
 }
 
 impl<N> Default for FunctionImplementations<N> {
     fn default() -> Self {
-        Self { fns: HashMap::new() }
+        Self { fns: HashMap::new(), stream_fns: HashMap::new() }
     }
 }
 
@@ -320,6 +335,124 @@ impl<N> FunctionImplementations<N> {
         }
         // No registration under effective name at all
         Err(ResolveError::Unknown(effective.clone()))
+    }
+
+    // ========================================================================
+    // Stream-based function registration API (new, preferred for performance)
+    // ========================================================================
+
+    /// Register a stream-based function with exact arity.
+    ///
+    /// Stream functions work with `XdmSequenceStream` arguments and return values,
+    /// avoiding materialization overhead. The evaluator will automatically materialize
+    /// when calling from Vec-based contexts.
+    pub fn register_stream(
+        &mut self,
+        name: ExpandedName,
+        arity: Arity,
+        func: FunctionStreamImpl<N>,
+    ) {
+        self.register_stream_range(name, arity, Some(arity), func);
+    }
+
+    /// Register a stream-based function with arity range.
+    pub fn register_stream_range(
+        &mut self,
+        name: ExpandedName,
+        min_arity: Arity,
+        max_arity: Option<Arity>,
+        func: FunctionStreamImpl<N>,
+    ) {
+        use std::collections::hash_map::Entry;
+        match self.stream_fns.entry(name) {
+            Entry::Vacant(e) => {
+                let mut v: FunctionStreamOverloads<N> = vec![(min_arity, max_arity, func)];
+                v.sort_by(|a, b| {
+                    let min_ord = b.0.cmp(&a.0);
+                    if min_ord != core::cmp::Ordering::Equal {
+                        return min_ord;
+                    }
+                    match (&a.1, &b.1) {
+                        (Some(amax), Some(bmax)) => amax.cmp(bmax),
+                        (Some(_), None) => core::cmp::Ordering::Less,
+                        (None, Some(_)) => core::cmp::Ordering::Greater,
+                        (None, None) => core::cmp::Ordering::Equal,
+                    }
+                });
+                e.insert(v);
+            }
+            Entry::Occupied(mut e) => {
+                e.get_mut().push((min_arity, max_arity, func));
+                e.get_mut().sort_by(|a, b| {
+                    let min_ord = b.0.cmp(&a.0);
+                    if min_ord != core::cmp::Ordering::Equal {
+                        return min_ord;
+                    }
+                    match (&a.1, &b.1) {
+                        (Some(amax), Some(bmax)) => amax.cmp(bmax),
+                        (Some(_), None) => core::cmp::Ordering::Less,
+                        (None, Some(_)) => core::cmp::Ordering::Greater,
+                        (None, None) => core::cmp::Ordering::Equal,
+                    }
+                });
+            }
+        }
+    }
+
+    /// Convenience: register a stream function with closure.
+    pub fn register_stream_fn<F>(&mut self, name: ExpandedName, arity: Arity, f: F)
+    where
+        F: 'static
+            + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
+    {
+        self.register_stream(name, arity, Arc::new(f));
+    }
+
+    /// Convenience: register a stream function in a namespace.
+    pub fn register_stream_ns<F>(&mut self, ns_uri: &str, local: &str, arity: Arity, f: F)
+    where
+        F: 'static
+            + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
+    {
+        let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
+        self.register_stream_fn(name, arity, f);
+    }
+
+    /// Resolve a stream-based function by name/arity.
+    ///
+    /// Returns `Some` if a stream implementation exists for this function,
+    /// `None` otherwise. The caller should fall back to `resolve()` for
+    /// Vec-based implementations.
+    pub fn resolve_stream(
+        &self,
+        name: &ExpandedName,
+        arity: Arity,
+        default_ns: Option<&str>,
+    ) -> Option<&FunctionStreamImpl<N>> {
+        let effective_buf: Option<ExpandedName> = if name.ns_uri.is_none() {
+            default_ns
+                .map(|ns| ExpandedName { ns_uri: Some(ns.to_string()), local: name.local.clone() })
+        } else {
+            None
+        };
+        let effective: &ExpandedName = effective_buf.as_ref().unwrap_or(name);
+
+        // Try exact match on original name first (for no-namespace functions)
+        if let Some(cands) = self.stream_fns.get(name)
+            && let Some((_, _, f)) = cands
+                .iter()
+                .find(|(min, max, _)| *min == arity && matches!(max, Some(m) if *m == arity))
+        {
+            return Some(f);
+        }
+
+        // Try effective name with range matching
+        self.stream_fns.get(effective).and_then(|cands| {
+            cands
+                .iter()
+                .find(|(min, max, _)| arity >= *min && max.is_none_or(|m| arity <= m))
+                .map(|(_, _, f)| f)
+        })
     }
 }
 

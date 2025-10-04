@@ -2,7 +2,6 @@
 ///
 /// These tests verify that the predicate pushdown optimizer works correctly
 /// in end-to-end scenarios with the complete compilation and evaluation pipeline.
-
 use platynui_xpath::simple_node::{attr, doc, elem, text};
 use platynui_xpath::xdm::XdmItem;
 use platynui_xpath::{evaluate_expr, evaluate_stream_expr, DynamicContextBuilder, XdmNode};

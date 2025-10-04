@@ -2,7 +2,6 @@
 ///
 /// This module implements optimization passes that transform the IR after initial
 /// compilation to improve execution performance while maintaining semantic correctness.
-
 use crate::xdm::XdmAtomicValue;
 
 #[cfg(test)]
@@ -239,11 +238,11 @@ fn fold_constants(instrs: &mut Vec<OpCode>) {
             )
         );
 
-        if can_fold {
-            if let (OpCode::PushAtomic(a), OpCode::PushAtomic(b)) =
+        if can_fold
+            && let (OpCode::PushAtomic(a), OpCode::PushAtomic(b)) =
                 (&instrs[i], &instrs[i + 1])
-            {
-                let result = match (&instrs[i + 2], a, b) {
+        {
+            let result = match (&instrs[i + 2], a, b) {
                     // Integer arithmetic - use checked operations to prevent overflow
                     (OpCode::Add, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y)) => {
                         x.checked_add(*y).map(XdmAtomicValue::Integer)
@@ -316,7 +315,6 @@ fn fold_constants(instrs: &mut Vec<OpCode>) {
                     // Don't increment i - check if we can fold more at this position
                     continue;
                 }
-            }
         }
 
         i += 1;
