@@ -1,39 +1,58 @@
 use super::common::{matches_default, replace_default, tokenize_default};
 use crate::engine::runtime::{CallCtx, Error};
-use crate::xdm::XdmSequence;
+use crate::xdm::XdmSequenceStream;
 
-pub(super) fn matches_fn<N: 'static + crate::model::XdmNode + Clone>(
+
+
+
+
+
+
+pub(super) fn matches_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    if args.len() == 2 {
-        matches_default(ctx, &args[0], &args[1], None)
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq0 = args[0].materialize()?;
+    let seq1 = args[1].materialize()?;
+    let flags_opt = if args.len() == 3 {
+        let seq2 = args[2].materialize()?;
+        Some(super::common::item_to_string(&seq2))
     } else {
-        let flags = super::common::item_to_string(&args[2]);
-        matches_default(ctx, &args[0], &args[1], Some(&flags))
-    }
+        None
+    };
+    let result = matches_default(ctx, &seq0, &seq1, flags_opt.as_deref())?;
+    Ok(XdmSequenceStream::from_vec(result))
 }
 
-pub(super) fn replace_fn<N: 'static + crate::model::XdmNode + Clone>(
+pub(super) fn replace_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    if args.len() == 3 {
-        replace_default(ctx, &args[0], &args[1], &args[2], None)
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq0 = args[0].materialize()?;
+    let seq1 = args[1].materialize()?;
+    let seq2 = args[2].materialize()?;
+    let flags_opt = if args.len() == 4 {
+        let seq3 = args[3].materialize()?;
+        Some(super::common::item_to_string(&seq3))
     } else {
-        let flags = super::common::item_to_string(&args[3]);
-        replace_default(ctx, &args[0], &args[1], &args[2], Some(&flags))
-    }
+        None
+    };
+    let result = replace_default(ctx, &seq0, &seq1, &seq2, flags_opt.as_deref())?;
+    Ok(XdmSequenceStream::from_vec(result))
 }
 
-pub(super) fn tokenize_fn<N: 'static + crate::model::XdmNode + Clone>(
+pub(super) fn tokenize_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    if args.len() == 2 {
-        tokenize_default(ctx, &args[0], &args[1], None)
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq0 = args[0].materialize()?;
+    let seq1 = args[1].materialize()?;
+    let flags_opt = if args.len() == 3 {
+        let seq2 = args[2].materialize()?;
+        Some(super::common::item_to_string(&seq2))
     } else {
-        let flags = super::common::item_to_string(&args[2]);
-        tokenize_default(ctx, &args[0], &args[1], Some(&flags))
-    }
+        None
+    };
+    let result = tokenize_default(ctx, &seq0, &seq1, flags_opt.as_deref())?;
+    Ok(XdmSequenceStream::from_vec(result))
 }

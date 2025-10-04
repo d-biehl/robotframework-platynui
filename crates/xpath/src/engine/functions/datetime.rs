@@ -100,6 +100,21 @@ pub(super) fn adjust_date_to_timezone_fn<N: 'static + crate::model::XdmNode + Cl
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Date { date, tz: tz_opt })])
 }
 
+pub(super) fn adjust_date_to_timezone_stream<N: 'static + crate::model::XdmNode + Clone>(
+    ctx: &CallCtx<N>,
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq0 = args[0].materialize()?;
+    let seq1 = if args.len() >= 2 {
+        args[1].materialize()?
+    } else {
+        vec![]
+    };
+    let materialized_args = vec![seq0, seq1];
+    let result = adjust_date_to_timezone_fn(ctx, &materialized_args)?;
+    Ok(XdmSequenceStream::from_vec(result))
+}
+
 pub(super) fn adjust_time_to_timezone_fn<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
@@ -141,6 +156,21 @@ pub(super) fn adjust_time_to_timezone_fn<N: 'static + crate::model::XdmNode + Cl
         }
     };
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Time { time, tz: tz_opt })])
+}
+
+pub(super) fn adjust_time_to_timezone_stream<N: 'static + crate::model::XdmNode + Clone>(
+    ctx: &CallCtx<N>,
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq0 = args[0].materialize()?;
+    let seq1 = if args.len() >= 2 {
+        args[1].materialize()?
+    } else {
+        vec![]
+    };
+    let materialized_args = vec![seq0, seq1];
+    let result = adjust_time_to_timezone_fn(ctx, &materialized_args)?;
+    Ok(XdmSequenceStream::from_vec(result))
 }
 
 pub(super) fn adjust_datetime_to_timezone_fn<N: 'static + crate::model::XdmNode + Clone>(
@@ -189,6 +219,21 @@ pub(super) fn adjust_datetime_to_timezone_fn<N: 'static + crate::model::XdmNode 
         None => chrono::Utc.fix().from_utc_datetime(&naive),
     };
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::DateTime(res))])
+}
+
+pub(super) fn adjust_datetime_to_timezone_stream<N: 'static + crate::model::XdmNode + Clone>(
+    ctx: &CallCtx<N>,
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq0 = args[0].materialize()?;
+    let seq1 = if args.len() >= 2 {
+        args[1].materialize()?
+    } else {
+        vec![]
+    };
+    let materialized_args = vec![seq0, seq1];
+    let result = adjust_datetime_to_timezone_fn(ctx, &materialized_args)?;
+    Ok(XdmSequenceStream::from_vec(result))
 }
 
 /// Stream-based current-dateTime() implementation.

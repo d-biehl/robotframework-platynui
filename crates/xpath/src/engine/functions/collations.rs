@@ -2,18 +2,24 @@ use super::common::{
     atomic_equal_with_collation, compare_default, deep_equal_default, item_to_string,
 };
 use crate::engine::runtime::{CallCtx, Error};
-use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
+use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequenceStream};
 
-pub(super) fn compare_fn<N: 'static + crate::model::XdmNode + Clone>(
+
+
+pub(super) fn compare_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    if args.len() == 2 {
-        compare_default(ctx, &args[0], &args[1], None)
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq0 = args[0].materialize()?;
+    let seq1 = args[1].materialize()?;
+    let uri_opt = if args.len() == 3 {
+        let seq2 = args[2].materialize()?;
+        Some(item_to_string(&seq2))
     } else {
-        let uri = item_to_string(&args[2]);
-        compare_default(ctx, &args[0], &args[1], Some(&uri))
-    }
+        None
+    };
+    let result = compare_default(ctx, &seq0, &seq1, uri_opt.as_deref())?;
+    Ok(XdmSequenceStream::from_vec(result))
 }
 
 pub(super) fn codepoint_equal_stream<N: 'static + crate::model::XdmNode + Clone>(
@@ -43,14 +49,20 @@ pub(super) fn codepoint_equal_stream<N: 'static + crate::model::XdmNode + Clone>
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-pub(super) fn deep_equal_fn<N: 'static + crate::model::XdmNode + Clone>(
+
+
+pub(super) fn deep_equal_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    if args.len() == 2 {
-        deep_equal_default(ctx, &args[0], &args[1], None)
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let seq0 = args[0].materialize()?;
+    let seq1 = args[1].materialize()?;
+    let uri_opt = if args.len() == 3 {
+        let seq2 = args[2].materialize()?;
+        Some(item_to_string(&seq2))
     } else {
-        let uri = item_to_string(&args[2]);
-        deep_equal_default(ctx, &args[0], &args[1], Some(&uri))
-    }
+        None
+    };
+    let result = deep_equal_default(ctx, &seq0, &seq1, uri_opt.as_deref())?;
+    Ok(XdmSequenceStream::from_vec(result))
 }

@@ -418,6 +418,83 @@ impl<N> FunctionImplementations<N> {
         self.register_stream_fn(name, arity, f);
     }
 
+    /// Register a variadic stream function by ExpandedName with a minimum arity.
+    /// The function will be selected for any call with argc >= min_arity.
+    pub fn register_stream_variadic(
+        &mut self,
+        name: ExpandedName,
+        min_arity: Arity,
+        func: FunctionStreamImpl<N>,
+    ) {
+        self.register_stream_range(name, min_arity, None, func);
+    }
+
+    /// Convenience: register a variadic stream function in a namespace.
+    pub fn register_stream_ns_variadic<F>(
+        &mut self,
+        ns_uri: &str,
+        local: &str,
+        min_arity: Arity,
+        f: F,
+    ) where
+        F: 'static
+            + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
+    {
+        let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
+        self.register_stream_variadic(name, min_arity, Arc::new(f));
+    }
+
+    /// Convenience: register a variadic stream function without a namespace.
+    pub fn register_stream_local_variadic<F>(&mut self, local: &str, min_arity: Arity, f: F)
+    where
+        F: 'static
+            + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
+    {
+        let name = ExpandedName { ns_uri: None, local: local.to_string() };
+        self.register_stream_variadic(name, min_arity, Arc::new(f));
+    }
+
+    /// Convenience: register a stream function in a namespace with an arity range.
+    pub fn register_stream_ns_range<F>(
+        &mut self,
+        ns_uri: &str,
+        local: &str,
+        min_arity: Arity,
+        max_arity: Option<Arity>,
+        f: F,
+    ) where
+        F: 'static
+            + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
+    {
+        let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
+        self.register_stream_range(name, min_arity, max_arity, Arc::new(f));
+    }
+
+    /// Convenience: register a stream function without a namespace with an arity range.
+    pub fn register_stream_local_range<F>(
+        &mut self,
+        local: &str,
+        min_arity: Arity,
+        max_arity: Option<Arity>,
+        f: F,
+    ) where
+        F: 'static
+            + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
+    {
+        let name = ExpandedName { ns_uri: None, local: local.to_string() };
+        self.register_stream_range(name, min_arity, max_arity, Arc::new(f));
+    }
+
+    /// Convenience: register a stream function without a namespace.
+    pub fn register_stream_local<F>(&mut self, local: &str, arity: Arity, f: F)
+    where
+        F: 'static
+            + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
+    {
+        let name = ExpandedName { ns_uri: None, local: local.to_string() };
+        self.register_stream_fn(name, arity, f);
+    }
+
     /// Resolve a stream-based function by name/arity.
     ///
     /// Returns `Some` if a stream implementation exists for this function,

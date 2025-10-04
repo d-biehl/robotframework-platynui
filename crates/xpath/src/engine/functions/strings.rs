@@ -44,15 +44,18 @@ pub(super) fn untyped_atomic_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-pub(super) fn concat_fn<N: crate::model::XdmNode + Clone>(
+
+
+pub(super) fn concat_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
     let mut out = String::new();
-    for a in args {
-        out.push_str(&item_to_string(a));
+    for stream in args {
+        let seq = stream.materialize()?;
+        out.push_str(&item_to_string(&seq));
     }
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(out))])
+    Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::String(out))]))
 }
 
 /// Stream-based string-to-codepoints() implementation.

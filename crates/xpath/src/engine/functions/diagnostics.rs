@@ -1,12 +1,18 @@
 use super::common::error_default;
 use crate::engine::runtime::{CallCtx, Error};
-use crate::xdm::{XdmSequence, XdmSequenceStream};
+use crate::xdm::XdmSequenceStream;
 
-pub(super) fn error_fn<N: crate::model::XdmNode + Clone>(
+
+
+pub(super) fn error_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
-    error_default(args)
+    args: &[XdmSequenceStream<N>],
+) -> Result<XdmSequenceStream<N>, Error> {
+    let materialized_args: Result<Vec<_>, _> = args.iter()
+        .map(|stream| stream.materialize())
+        .collect();
+    error_default(&materialized_args?)?;
+    unreachable!("error_default always returns Err")
 }
 
 pub(super) fn trace_stream<N: 'static + crate::model::XdmNode + Clone>(
