@@ -5,7 +5,6 @@ use owo_colors::{OwoColorize, Stream};
 use platynui_core::ui::{Namespace, PatternId, UiNode, UiValue};
 use platynui_runtime::{EvaluationItem, Runtime};
 use serde::Serialize;
-use std::collections::HashSet;
 use std::fmt::Write;
 use std::sync::Arc;
 
@@ -76,7 +75,7 @@ pub fn run(runtime: &Runtime, args: &QueryArgs) -> CliResult<String> {
         OutputFormat::Json => {
             // JSON pretty print still materializes to ensure valid JSON array
             let results = runtime.evaluate(None, &args.expression).map_err(map_evaluate_error)?;
-            let summaries = summarize_query_results(results, None, None);
+            let summaries = summarize_query_results(results);
             render_query_json(&summaries)
         }
     }
@@ -84,36 +83,15 @@ pub fn run(runtime: &Runtime, args: &QueryArgs) -> CliResult<String> {
 
 pub(crate) fn summarize_query_results(
     results: Vec<EvaluationItem>,
-    namespace_filters: Option<&HashSet<Namespace>>,
-    pattern_filters: Option<&HashSet<String>>,
 ) -> Vec<QueryItemSummary> {
     results
         .into_iter()
         .filter_map(|item| match item {
             EvaluationItem::Node(node) => {
-                let namespace = node.namespace();
                 let patterns = node.supported_patterns();
-                if let Some(filters) = namespace_filters
-                    && !filters.contains(&namespace)
-                {
-                    return None;
-                }
-
-                if let Some(filters) = pattern_filters
-                    && !matches_pattern_filter(&patterns, filters)
-                {
-                    return None;
-                }
-
                 Some(node_to_query_summary(node, patterns))
             }
             EvaluationItem::Attribute(attr) => {
-                if let Some(filters) = namespace_filters
-                    && !filters.contains(&attr.namespace)
-                {
-                    return None;
-                }
-
                 Some(QueryItemSummary::Attribute {
                     owner_runtime_id: attr.owner.runtime_id().as_str().to_owned(),
                     owner_namespace: attr.owner.namespace().as_str().to_owned(),
@@ -125,9 +103,6 @@ pub(crate) fn summarize_query_results(
                 })
             }
             EvaluationItem::Value(value) => {
-                if namespace_filters.is_some() {
-                    return None;
-                }
                 Some(QueryItemSummary::Value { value })
             }
         })
@@ -161,9 +136,6 @@ fn node_to_query_summary(node: Arc<dyn UiNode>, patterns: Vec<PatternId>) -> Que
     }
 }
 
-fn matches_pattern_filter(patterns: &[PatternId], filters: &HashSet<String>) -> bool {
-    filters.iter().all(|pattern| patterns.iter().any(|id| id.as_str() == pattern))
-}
 
 fn format_attribute_value(value: &UiValue) -> String {
     match value {
@@ -336,7 +308,7 @@ mod tests {
         let args = QueryArgs { expression: "//control:Button".into(), format: OutputFormat::Text };
         // Capture stdout by rendering a single item using helper
         let results = runtime.evaluate(None, &args.expression).expect("eval");
-        let summaries = summarize_query_results(results, None, None);
+        let summaries = summarize_query_results(results);
         let output = render_query_text(&summaries);
         let plain = strip_ansi(&output);
         assert!(!plain.contains("control:Button"));
@@ -366,6 +338,6 @@ mod tests {
     }
 
     fn summaries_for(results: Vec<EvaluationItem>) -> Vec<QueryItemSummary> {
-        summarize_query_results(results, None, None)
+        summarize_query_results(results)
     }
 }

@@ -1,15 +1,13 @@
 use crate::OutputFormat;
 use crate::commands::query::{QueryItemSummary, render_query_text, summarize_query_results};
-use crate::util::{CliResult, map_evaluate_error, parse_namespace_filters};
+use crate::util::{CliResult, map_evaluate_error};
 use anyhow::anyhow;
 use clap::Args;
 use platynui_core::provider::{ProviderEvent, ProviderEventKind};
-use platynui_core::ui::identifiers::RuntimeId;
-use platynui_core::ui::{Namespace, UiNode};
+use platynui_core::ui::UiNode;
 use platynui_runtime::Runtime;
 use platynui_runtime::provider::event::ProviderEventSink;
 use serde::Serialize;
-use std::collections::HashSet;
 use std::io::{self, Write as IoWrite};
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -18,12 +16,6 @@ use std::sync::mpsc;
 pub struct WatchArgs {
     #[arg(long = "format", value_enum, default_value_t = OutputFormat::Text)]
     pub format: OutputFormat,
-    #[arg(long = "namespace")]
-    pub namespaces: Vec<String>,
-    #[arg(long = "pattern")]
-    pub patterns: Vec<String>,
-    #[arg(long = "runtime-id")]
-    pub runtime_ids: Vec<String>,
     #[arg(long = "expression")]
     pub expression: Option<String>,
     #[arg(long = "limit")]
@@ -53,19 +45,6 @@ where
     W: IoWrite,
     F: FnOnce(),
 {
-    let namespace_filters = parse_namespace_filters(&args.namespaces)?;
-    let pattern_filters = if args.patterns.is_empty() {
-        None
-    } else {
-        Some(args.patterns.iter().cloned().collect::<HashSet<_>>())
-    };
-    let runtime_filters = if args.runtime_ids.is_empty() {
-        None
-    } else {
-        Some(args.runtime_ids.iter().cloned().collect::<HashSet<_>>())
-    };
-
-    let filters = WatchFilters::new(namespace_filters, pattern_filters, runtime_filters);
     let (sender, receiver) = mpsc::channel::<ProviderEvent>();
     let sink = Arc::new(ChannelSink::new(sender));
     runtime.register_event_sink(sink);
@@ -84,18 +63,10 @@ where
             .recv()
             .map_err(|err| anyhow!("failed to receive provider event: {err}"))?;
 
-        if !filters.matches(&event.kind) {
-            continue;
-        }
-
         let summary = watch_event_summary(&event);
         let query_results = if let Some(expr) = expression {
             let results = runtime.evaluate(None, expr).map_err(map_evaluate_error)?;
-            Some(summarize_query_results(
-                results,
-                filters.namespace_filters(),
-                filters.pattern_filters(),
-            ))
+            Some(summarize_query_results(results))
         } else {
             None
         };
@@ -119,75 +90,6 @@ where
     Ok(())
 }
 
-struct WatchFilters {
-    namespaces: Option<HashSet<Namespace>>,
-    patterns: Option<HashSet<String>>,
-    runtime_ids: Option<HashSet<String>>,
-}
-
-impl WatchFilters {
-    fn new(
-        namespaces: Option<HashSet<Namespace>>,
-        patterns: Option<HashSet<String>>,
-        runtime_ids: Option<HashSet<String>>,
-    ) -> Self {
-        Self { namespaces, patterns, runtime_ids }
-    }
-
-    fn matches(&self, kind: &ProviderEventKind) -> bool {
-        match kind {
-            ProviderEventKind::TreeInvalidated => true,
-            ProviderEventKind::NodeAdded { node, parent } => {
-                self.matches_node(node, parent.as_ref())
-            }
-            ProviderEventKind::NodeUpdated { node } => self.matches_node(node, None),
-            ProviderEventKind::NodeRemoved { runtime_id } => self.matches_runtime(runtime_id),
-        }
-    }
-
-    fn matches_node(&self, node: &Arc<dyn UiNode>, parent_runtime: Option<&RuntimeId>) -> bool {
-        if let Some(filters) = &self.namespaces
-            && !filters.contains(&node.namespace())
-        {
-            return false;
-        }
-
-        if let Some(filters) = &self.patterns {
-            let patterns = node.supported_patterns();
-            if !filters.iter().all(|pattern| patterns.iter().any(|id| id.as_str() == pattern)) {
-                return false;
-            }
-        }
-
-        if let Some(filters) = &self.runtime_ids
-            && !filters.contains(node.runtime_id().as_str())
-            && !parent_runtime.map(|p| filters.contains(p.as_str())).unwrap_or(false)
-        {
-            return false;
-        }
-
-        true
-    }
-
-    fn matches_runtime(&self, runtime_id: &RuntimeId) -> bool {
-        if self.namespaces.is_some() || self.patterns.is_some() {
-            return false;
-        }
-
-        match &self.runtime_ids {
-            Some(filters) => filters.contains(runtime_id.as_str()),
-            None => true,
-        }
-    }
-
-    fn namespace_filters(&self) -> Option<&HashSet<Namespace>> {
-        self.namespaces.as_ref()
-    }
-
-    fn pattern_filters(&self) -> Option<&HashSet<String>> {
-        self.patterns.as_ref()
-    }
-}
 
 #[derive(Debug, Clone, Serialize)]
 struct WatchEventSummary {
@@ -336,9 +238,6 @@ mod tests {
     fn watch_text_streams_events(mut runtime: Runtime) {
         let args = WatchArgs {
             format: OutputFormat::Text,
-            namespaces: vec![],
-            patterns: vec![],
-            runtime_ids: vec![],
             expression: None,
             limit: Some(1),
         };
@@ -358,9 +257,6 @@ mod tests {
     fn watch_json_produces_serializable_payload(mut runtime: Runtime) {
         let args = WatchArgs {
             format: OutputFormat::Json,
-            namespaces: vec![],
-            patterns: vec![],
-            runtime_ids: vec![],
             expression: Some("//control:Button".into()),
             limit: Some(1),
         };

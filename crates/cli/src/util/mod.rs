@@ -1,11 +1,8 @@
 use platynui_core::platform::{PlatformError, PointerButton, ScrollDelta};
 use platynui_core::provider::ProviderError;
 use platynui_core::types::Point;
-use platynui_core::ui::Namespace;
 use platynui_runtime::EvaluateError;
-use std::collections::HashSet;
 use anyhow::{anyhow, bail};
-use std::str::FromStr;
 
 pub type CliResult<T> = anyhow::Result<T>;
 
@@ -15,19 +12,6 @@ pub fn map_evaluate_error(err: EvaluateError) -> anyhow::Error { anyhow::Error::
 
 pub fn map_platform_error(err: PlatformError) -> anyhow::Error { anyhow::Error::new(err) }
 
-pub fn parse_namespace_filters(values: &[String]) -> CliResult<Option<HashSet<Namespace>>> {
-    if values.is_empty() {
-        return Ok(None);
-    }
-
-    let mut filters = HashSet::new();
-    for value in values {
-        let namespace = Namespace::from_str(value)
-            .map_err(|_| anyhow!("unknown namespace prefix: {value}"))?;
-        filters.insert(namespace);
-    }
-    Ok(Some(filters))
-}
 
 pub fn yes_no(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
