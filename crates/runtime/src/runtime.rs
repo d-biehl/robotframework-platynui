@@ -66,6 +66,7 @@ pub enum FocusError {
     },
 }
 
+
 #[derive(Debug, Error)]
 pub enum KeyboardActionError {
     #[error("invalid keyboard sequence: {0}")]
@@ -264,6 +265,17 @@ impl Runtime {
         xpath: &str,
     ) -> Result<impl Iterator<Item = crate::xpath::EvaluationItem>, EvaluateError> {
         crate::xpath::evaluate_iter(node, xpath, self.evaluate_options())
+    }
+
+    /// Evaluate an XPath and return the first resulting item, if any.
+    /// The stream is not fully consumed and no uniqueness is enforced.
+    pub fn evaluate_single(
+        &self,
+        node: Option<Arc<dyn UiNode>>,
+        xpath: &str,
+    ) -> Result<Option<EvaluationItem>, EvaluateError> {
+        let mut iter = self.evaluate_iter(node, xpath)?;
+        Ok(iter.next())
     }
 
     pub fn focus(&self, node: &Arc<dyn UiNode>) -> Result<(), FocusError> {
