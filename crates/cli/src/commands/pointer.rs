@@ -3,10 +3,13 @@ use platynui_core::platform::{
     PointOrigin, PointerAccelerationProfile, PointerButton, PointerMotionMode, ScrollDelta,
 };
 use platynui_core::types::{Point, Rect};
-use platynui_runtime::{PointerError, PointerOverrides, Runtime};
+use platynui_core::ui::attribute_names::{activation_target, element};
+use platynui_core::ui::{Namespace, UiNode, UiValue};
+use platynui_runtime::{EvaluationItem, PointerError, PointerOverrides, Runtime};
+use std::sync::Arc;
 use std::time::Duration;
 
-use crate::util::{CliResult, parse_point, parse_pointer_button, parse_scroll_delta};
+use crate::util::{CliResult, map_evaluate_error, parse_point, parse_pointer_button, parse_scroll_delta};
 
 #[derive(Args)]
 pub struct PointerArgs {
@@ -27,68 +30,101 @@ pub enum PointerCommand {
 }
 
 #[derive(Args)]
+#[command(about = "Move the pointer to a point or XPath-selected element.")]
 pub struct PointerMoveArgs {
-    #[arg(value_parser = parse_point_arg, allow_hyphen_values = true)]
-    pub point: Point,
-    #[command(flatten)]
-    overrides: OverrideArgs,
-}
-
-#[derive(Args)]
-pub struct PointerClickArgs {
-    #[arg(value_parser = parse_point_arg, allow_hyphen_values = true)]
-    pub point: Point,
-    #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg)]
-    pub button: PointerButton,
-    #[command(flatten)]
-    overrides: OverrideArgs,
-}
-
-#[derive(Args)]
-pub struct PointerMultiClickArgs {
-    #[arg(value_parser = parse_point_arg)]
-    pub point: Point,
-    #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg)]
-    pub button: PointerButton,
-    #[arg(long = "count", default_value_t = 2, value_parser = parse_click_count)]
-    pub count: u32,
-    #[command(flatten)]
-    overrides: OverrideArgs,
-}
-
-#[derive(Args)]
-pub struct PointerPressArgs {
-    #[arg(long = "point", value_parser = parse_point_arg, allow_hyphen_values = true)]
+    #[arg(value_name = "XPATH", help = "XPath selecting a node (preferred). Uses @ActivationPoint if available, otherwise the center of @Bounds.")]
+    pub expression: Option<String>,
+    #[arg(long = "point", value_parser = parse_point_arg, allow_hyphen_values = true, help = "Target point as 'x,y' (used if no XPATH is provided).")]
     pub point: Option<Point>,
-    #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg)]
-    pub button: PointerButton,
     #[command(flatten)]
     overrides: OverrideArgs,
 }
 
 #[derive(Args)]
+#[command(about = "Click at a point or on an XPath-selected element.")]
+pub struct PointerClickArgs {
+    #[arg(value_name = "XPATH", help = "XPath selecting a node (preferred). Uses @ActivationPoint if available, otherwise the center of @Bounds.")]
+    pub expression: Option<String>,
+    #[arg(long = "point", value_parser = parse_point_arg, allow_hyphen_values = true, help = "Target point as 'x,y' (used if no XPATH is provided).")]
+    pub point: Option<Point>,
+    #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg, help = "Mouse button (left/right/middle or numeric code).")]
+    pub button: PointerButton,
+    #[arg(long = "no-move", help = "Perform the click without moving the pointer.")]
+    pub no_move: bool,
+    #[command(flatten)]
+    overrides: OverrideArgs,
+}
+
+#[derive(Args)]
+#[command(about = "Perform multiple clicks at a point or on an XPath-selected element.")]
+pub struct PointerMultiClickArgs {
+    #[arg(value_name = "XPATH", help = "XPath selecting a node (preferred). Uses @ActivationPoint if available, otherwise the center of @Bounds.")]
+    pub expression: Option<String>,
+    #[arg(long = "point", value_parser = parse_point_arg, help = "Target point as 'x,y' (used if no XPATH is provided).")]
+    pub point: Option<Point>,
+    #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg, help = "Mouse button (left/right/middle or numeric code).")]
+    pub button: PointerButton,
+    #[arg(long = "count", default_value_t = 2, value_parser = parse_click_count, help = "Number of clicks (>=2).")]
+    pub count: u32,
+    #[arg(long = "no-move", help = "Perform the clicks without moving the pointer.")]
+    pub no_move: bool,
+    #[command(flatten)]
+    overrides: OverrideArgs,
+}
+
+#[derive(Args)]
+#[command(about = "Press a mouse button at a point or XPath-selected element.")]
+pub struct PointerPressArgs {
+    #[arg(value_name = "XPATH", help = "XPath selecting a node (preferred). Uses @ActivationPoint if available, otherwise the center of @Bounds.")]
+    pub expression: Option<String>,
+    #[arg(long = "point", value_parser = parse_point_arg, allow_hyphen_values = true, help = "Optional target point 'x,y'.")]
+    pub point: Option<Point>,
+    #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg, help = "Mouse button (left/right/middle or numeric code).")]
+    pub button: PointerButton,
+    #[arg(long = "no-move", help = "Perform the press without moving the pointer.")]
+    pub no_move: bool,
+    #[command(flatten)]
+    overrides: OverrideArgs,
+}
+
+#[derive(Args)]
+#[command(about = "Release a mouse button at the current or XPath-selected location.")]
 pub struct PointerReleaseArgs {
-    #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg)]
+    #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg, help = "Mouse button (left/right/middle or numeric code).")]
     pub button: PointerButton,
+    #[arg(value_name = "XPATH", help = "XPath selecting a node to move to before release (unless --no-move).")]
+    pub expression: Option<String>,
+    #[arg(long = "no-move", help = "Perform the release without moving the pointer.")]
+    pub no_move: bool,
     #[command(flatten)]
     overrides: OverrideArgs,
 }
 
 #[derive(Args)]
+#[command(about = "Scroll, optionally targeting an element via XPath.")]
 pub struct PointerScrollArgs {
-    #[arg(value_parser = parse_scroll_delta_arg, allow_hyphen_values = true)]
+    #[arg(value_parser = parse_scroll_delta_arg, allow_hyphen_values = true, help = "Scroll delta as 'x,y'.")]
     pub delta: ScrollDelta,
+    #[arg(long = "expr", value_name = "XPATH", help = "Optional XPath selecting a node to move to before scrolling (unless --no-move).")]
+    pub expr: Option<String>,
+    #[arg(long = "no-move", help = "Perform the scroll without moving the pointer.")]
+    pub no_move: bool,
     #[command(flatten)]
     overrides: OverrideArgs,
 }
 
 #[derive(Args)]
+#[command(about = "Drag from one point/element to another.")]
 pub struct PointerDragArgs {
-    #[arg(long = "from", value_parser = parse_point_arg, allow_hyphen_values = true)]
+    #[arg(long = "from", value_parser = parse_point_arg, allow_hyphen_values = true, help = "Start point 'x,y' (or use --from-expr).")]
     pub from: Point,
-    #[arg(long = "to", value_parser = parse_point_arg, allow_hyphen_values = true)]
+    #[arg(long = "to", value_parser = parse_point_arg, allow_hyphen_values = true, help = "End point 'x,y' (or use --to-expr).")]
     pub to: Point,
-    #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg)]
+    #[arg(long = "from-expr", value_name = "XPATH", help = "XPath selecting the start node.")] 
+    pub from_expr: Option<String>,
+    #[arg(long = "to-expr", value_name = "XPATH", help = "XPath selecting the end node.")] 
+    pub to_expr: Option<String>,
+    #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg, help = "Mouse button (left/right/middle or numeric code).")]
     pub button: PointerButton,
     #[command(flatten)]
     overrides: OverrideArgs,
@@ -174,47 +210,96 @@ pub fn run(runtime: &Runtime, args: &PointerArgs) -> CliResult<String> {
 
 fn run_move(runtime: &Runtime, args: &PointerMoveArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
-    runtime.pointer_move_to(args.point, overrides).map_err(map_pointer_error)?;
+    let target = match (&args.expression, &args.point) {
+        (Some(expr), _) => resolve_point_from_expr(runtime, expr)?,
+        (None, Some(p)) => *p,
+        (None, None) => anyhow::bail!("either --expr or a point must be provided"),
+    };
+    runtime.pointer_move_to(target, overrides).map_err(map_pointer_error)?;
     Ok(String::new())
 }
 
 fn run_click(runtime: &Runtime, args: &PointerClickArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
-    runtime.pointer_click(args.point, Some(args.button), overrides).map_err(map_pointer_error)?;
+    if args.no_move {
+        // Do not move: perform press+release at current location
+        runtime.pointer_press(None, Some(args.button), overrides.clone()).map_err(map_pointer_error)?;
+        runtime.pointer_release(Some(args.button), overrides).map_err(map_pointer_error)?;
+    } else {
+        let target = match (&args.expression, &args.point) {
+            (Some(expr), _) => resolve_point_from_expr(runtime, expr)?,
+            (None, Some(p)) => *p,
+            (None, None) => anyhow::bail!("either --expr or a point must be provided"),
+        };
+        runtime.pointer_click(target, Some(args.button), overrides).map_err(map_pointer_error)?;
+    }
     Ok(String::new())
 }
 
 fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
-    runtime
-        .pointer_multi_click(args.point, Some(args.button), args.count, overrides)
-        .map_err(map_pointer_error)?;
+    if args.no_move {
+        for _ in 0..args.count {
+            runtime.pointer_press(None, Some(args.button), overrides.clone()).map_err(map_pointer_error)?;
+            runtime.pointer_release(Some(args.button), overrides.clone()).map_err(map_pointer_error)?;
+        }
+    } else {
+        let target = match (&args.expression, &args.point) {
+            (Some(expr), _) => resolve_point_from_expr(runtime, expr)?,
+            (None, Some(p)) => *p,
+            (None, None) => anyhow::bail!("either --expr or a point must be provided"),
+        };
+        runtime
+            .pointer_multi_click(target, Some(args.button), args.count, overrides)
+            .map_err(map_pointer_error)?;
+    }
     Ok(String::new())
 }
 
 fn run_press(runtime: &Runtime, args: &PointerPressArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
-    runtime.pointer_press(args.point, Some(args.button), overrides).map_err(map_pointer_error)?;
+    let target = if args.no_move {
+        None
+    } else if let Some(expr) = &args.expression {
+        Some(resolve_point_from_expr(runtime, expr)?)
+    } else {
+        args.point
+    };
+    runtime.pointer_press(target, Some(args.button), overrides).map_err(map_pointer_error)?;
     Ok(String::new())
 }
 
 fn run_release(runtime: &Runtime, args: &PointerReleaseArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
+    if !args.no_move {
+        if let Some(expr) = &args.expression {
+            let target = resolve_point_from_expr(runtime, expr)?;
+            let _ = runtime.pointer_move_to(target, overrides.clone()).map_err(map_pointer_error)?;
+        }
+    }
     runtime.pointer_release(Some(args.button), overrides).map_err(map_pointer_error)?;
     Ok(String::new())
 }
 
 fn run_scroll(runtime: &Runtime, args: &PointerScrollArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
+    if !args.no_move {
+        if let Some(expr) = &args.expr {
+            let target = resolve_point_from_expr(runtime, expr)?;
+            let _ = runtime.pointer_move_to(target, overrides.clone()).map_err(map_pointer_error)?;
+        }
+    }
     runtime.pointer_scroll(args.delta, overrides).map_err(map_pointer_error)?;
     Ok(String::new())
 }
 
 fn run_drag(runtime: &Runtime, args: &PointerDragArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
-    runtime
-        .pointer_drag(args.from, args.to, Some(args.button), overrides)
-        .map_err(map_pointer_error)?;
+    let mut start = args.from;
+    let mut end = args.to;
+    if let Some(expr) = &args.from_expr { start = resolve_point_from_expr(runtime, expr)?; }
+    if let Some(expr) = &args.to_expr { end = resolve_point_from_expr(runtime, expr)?; }
+    runtime.pointer_drag(start, end, Some(args.button), overrides).map_err(map_pointer_error)?;
     Ok(String::new())
 }
 
@@ -364,6 +449,31 @@ fn parse_click_count(value: &str) -> Result<u32, String> {
 
 fn map_pointer_error(err: PointerError) -> anyhow::Error { anyhow::Error::new(err) }
 
+fn resolve_point_from_expr(runtime: &Runtime, expr: &str) -> CliResult<Point> {
+    let item = runtime
+        .evaluate_single(None, expr)
+        .map_err(map_evaluate_error)?
+        .ok_or_else(|| anyhow::anyhow!("expression `{expr}` did not match any items"))?;
+    let node = match item {
+        EvaluationItem::Node(node) => node,
+        _ => anyhow::bail!("expression `{expr}` must select a node"),
+    };
+    activation_point_or_bounds_center(&node)
+        .ok_or_else(|| anyhow::anyhow!("expression `{expr}` did not yield a usable ActivationPoint/Bounds"))
+}
+
+fn activation_point_or_bounds_center(node: &Arc<dyn UiNode>) -> Option<Point> {
+    if let Some(attr) = node.attribute(Namespace::Control, activation_target::ACTIVATION_POINT) {
+        if let UiValue::Point(p) = attr.value() { return Some(p); }
+    }
+    if let Some(attr) = node.attribute(Namespace::Control, element::BOUNDS) {
+        if let UiValue::Rect(r) = attr.value() {
+            return Some(Point::new(r.x() + r.width() / 2.0, r.y() + r.height() / 2.0));
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,14 +489,13 @@ mod tests {
     fn move_command_moves_pointer() {
         reset_pointer_state();
         let runtime = runtime();
-        let args =
-            PointerMoveArgs { point: Point::new(100.0, 150.0), overrides: OverrideArgs::default() };
+        let args = PointerMoveArgs { expression: None, point: Some(Point::new(100.0, 150.0)), overrides: OverrideArgs::default() };
         let output = super::run_move(&runtime, &args).expect("move");
         assert!(output.is_empty());
         let log = take_pointer_log();
         assert!(
             log.iter()
-                .any(|entry| matches!(entry, PointerLogEntry::Move(point) if *point == args.point))
+                .any(|entry| matches!(entry, PointerLogEntry::Move(point) if *point == args.point.unwrap()))
         );
     }
 
@@ -395,8 +504,7 @@ mod tests {
     fn move_command_supports_negative_coordinates() {
         reset_pointer_state();
         let runtime = runtime();
-        let args =
-            PointerMoveArgs { point: Point::new(-2560.0, 0.0), overrides: OverrideArgs::default() };
+        let args = PointerMoveArgs { expression: None, point: Some(Point::new(-2560.0, 0.0)), overrides: OverrideArgs::default() };
         let output = super::run_move(&runtime, &args).expect("move negative");
         assert!(output.is_empty());
     }
@@ -406,11 +514,7 @@ mod tests {
     fn click_command_clicks_button() {
         reset_pointer_state();
         let runtime = runtime();
-        let args = PointerClickArgs {
-            point: Point::new(50.0, 60.0),
-            button: PointerButton::Left,
-            overrides: OverrideArgs::default(),
-        };
+        let args = PointerClickArgs { expression: None, point: Some(Point::new(50.0, 60.0)), button: PointerButton::Left, no_move: false, overrides: OverrideArgs::default() };
         let output = super::run_click(&runtime, &args).expect("click");
         assert!(output.is_empty());
         let log = take_pointer_log();
@@ -427,12 +531,7 @@ mod tests {
     fn multi_click_command_clicks_multiple_times() {
         reset_pointer_state();
         let runtime = runtime();
-        let args = PointerMultiClickArgs {
-            point: Point::new(30.0, 40.0),
-            button: PointerButton::Left,
-            count: 3,
-            overrides: OverrideArgs::default(),
-        };
+        let args = PointerMultiClickArgs { expression: None, point: Some(Point::new(30.0, 40.0)), button: PointerButton::Left, count: 3, no_move: false, overrides: OverrideArgs::default() };
         let output = super::run_multi_click(&runtime, &args).expect("multi-click");
         assert!(output.is_empty());
         let log = take_pointer_log();
@@ -450,6 +549,8 @@ mod tests {
         let runtime = runtime();
         let args = PointerScrollArgs {
             delta: ScrollDelta::new(0.0, -30.0),
+            expr: None,
+            no_move: false,
             overrides: OverrideArgs {
                 scroll_step: Some(ScrollDelta::new(0.0, -10.0)),
                 ..Default::default()
