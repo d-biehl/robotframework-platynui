@@ -95,10 +95,10 @@ mod tests {
         fn parent(&self) -> Option<Weak<dyn UiNode>> {
             None
         }
-        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
             Box::new(Vec::<Arc<dyn UiNode>>::new().into_iter())
         }
-        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
             Box::new(vec![Arc::new(StubAttribute) as Arc<dyn UiAttribute>].into_iter())
         }
         fn supported_patterns(&self) -> Vec<PatternId> {

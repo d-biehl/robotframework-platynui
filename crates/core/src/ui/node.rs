@@ -18,9 +18,9 @@ pub trait UiNode: Send + Sync {
     /// Weak reference to the parent node, if available.
     fn parent(&self) -> Option<Weak<dyn UiNode>>;
     /// Child nodes. Providers können Iteratoren über vorbereitetes oder lazily erzeugtes Material liefern.
-    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_>;
+    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static>;
     /// Alle Attribute dieses Knotens; Iterator darf Werte lazy erzeugen.
-    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_>;
+    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static>;
 
     /// Returns a matching attribute for the given namespace/name pair.
     fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>> {
@@ -250,12 +250,12 @@ mod tests {
             None
         }
 
-        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
             let snapshot = self.children.lock().unwrap().clone();
             Box::new(snapshot.into_iter())
         }
 
-        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
             Box::new(self.attributes.clone().into_iter())
         }
 
@@ -360,11 +360,11 @@ mod tests {
                 self.parent.lock().unwrap().clone()
             }
 
-            fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+            fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
                 Box::new(std::iter::empty())
             }
 
-            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
                 Box::new(std::iter::empty())
             }
 
@@ -464,11 +464,11 @@ mod tests {
                 None
             }
 
-            fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+            fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
                 Box::new(std::iter::empty())
             }
 
-            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
                 Box::new(std::iter::empty())
             }
 
@@ -518,11 +518,11 @@ mod tests {
                 self.parent.lock().unwrap().clone()
             }
 
-            fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+            fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
                 Box::new(std::iter::empty())
             }
 
-            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
                 Box::new(std::iter::empty())
             }
 

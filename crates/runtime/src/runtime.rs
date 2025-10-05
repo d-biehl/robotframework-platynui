@@ -1,6 +1,9 @@
 use once_cell::sync::OnceCell;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, Weak, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    Arc, Mutex, Weak,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Duration;
 
 use platynui_core::platform::{
@@ -717,7 +720,7 @@ impl UiNode for DesktopNode {
         None
     }
 
-    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
         struct DesktopChildrenIter {
             providers: Vec<Arc<dyn UiTreeProvider>>,
             idx: usize,
@@ -753,7 +756,7 @@ impl UiNode for DesktopNode {
         Box::new(DesktopChildrenIter { providers, idx: 0, parent, current: None })
     }
 
-    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         Box::new(self.attributes.clone().into_iter())
     }
 
@@ -842,10 +845,10 @@ mod tests {
     use crate::test_support::runtime_with_factories_and_mock_platform as rt_with_pf;
     use rstest::{fixture, rstest};
     use serial_test::serial;
+    use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, LazyLock, Mutex, Weak};
     use std::time::Duration;
-    use std::sync::atomic::AtomicUsize;
 
     // --- 19.4: Ensure platform modules initialize before provider creation ----------------------
     // A tiny test-only platform module toggles a flag in initialize(). A test-only provider
@@ -946,9 +949,7 @@ mod tests {
     #[rstest]
     fn query_windows_streams_and_completes(rt_runtime_stub: Runtime) {
         // Broad window query should return promptly and complete without hanging
-        let res = rt_runtime_stub
-            .evaluate(None, "//control:Window")
-            .expect("evaluate windows");
+        let res = rt_runtime_stub.evaluate(None, "//control:Window").expect("evaluate windows");
         // Pull all items to ensure completion
         for _ in res {}
     }
@@ -991,44 +992,48 @@ mod tests {
             .evaluate(None, "//control:Window intersect //control:Button")
             .expect("evaluate intersect");
         let mut count = 0usize;
-        for _ in res { count += 1; }
+        for _ in res {
+            count += 1;
+        }
         assert_eq!(count, 0, "Windows and Buttons should be disjoint");
     }
 
     #[rstest]
     fn except_windows_minus_buttons_equals_windows(rt_runtime_mock: Runtime) {
-
         // Count all windows
-        let windows = rt_runtime_mock
-            .evaluate(None, "//control:Window")
-            .expect("evaluate windows");
+        let windows = rt_runtime_mock.evaluate(None, "//control:Window").expect("evaluate windows");
         let mut windows_count = 0usize;
-        for _ in windows { windows_count += 1; }
+        for _ in windows {
+            windows_count += 1;
+        }
 
         // Subtract buttons from windows (disjoint sets) — result should equal windows
         let diff = rt_runtime_mock
             .evaluate(None, "//control:Window except //control:Button")
             .expect("evaluate except");
         let mut diff_count = 0usize;
-        for _ in diff { diff_count += 1; }
+        for _ in diff {
+            diff_count += 1;
+        }
 
         assert_eq!(diff_count, windows_count);
     }
 
     #[rstest]
     fn intersect_buttons_with_self_is_identity(rt_runtime_mock: Runtime) {
-
-        let buttons = rt_runtime_mock
-            .evaluate(None, "//control:Button")
-            .expect("evaluate buttons");
+        let buttons = rt_runtime_mock.evaluate(None, "//control:Button").expect("evaluate buttons");
         let mut buttons_count = 0usize;
-        for _ in buttons { buttons_count += 1; }
+        for _ in buttons {
+            buttons_count += 1;
+        }
 
         let inter = rt_runtime_mock
             .evaluate(None, "//control:Button intersect //control:Button")
             .expect("evaluate intersect self");
         let mut inter_count = 0usize;
-        for _ in inter { inter_count += 1; }
+        for _ in inter {
+            inter_count += 1;
+        }
 
         assert_eq!(inter_count, buttons_count);
     }
@@ -1100,10 +1105,10 @@ mod tests {
         fn parent(&self) -> Option<Weak<dyn UiNode>> {
             self.parent.lock().unwrap().clone()
         }
-        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
             Box::new(Vec::<Arc<dyn UiNode>>::new().into_iter())
         }
-        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
             Box::new(vec![Arc::new(StubAttribute) as Arc<dyn UiAttribute>].into_iter())
         }
         fn supported_patterns(&self) -> Vec<PatternId> {
@@ -1273,10 +1278,10 @@ mod tests {
         fn parent(&self) -> Option<Weak<dyn UiNode>> {
             self.parent.lock().unwrap().clone()
         }
-        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
             Box::new(std::iter::empty())
         }
-        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
             let attrs: Vec<Arc<dyn UiAttribute>> = vec![
                 Arc::new(SimpleAttribute {
                     namespace: Namespace::Control,
@@ -1434,7 +1439,9 @@ mod tests {
         desc: &'static ProviderDescriptor,
     }
     impl UiTreeProvider for DropCounterProvider {
-        fn descriptor(&self) -> &ProviderDescriptor { self.desc }
+        fn descriptor(&self) -> &ProviderDescriptor {
+            self.desc
+        }
         fn get_nodes(
             &self,
             _parent: Arc<dyn UiNode>,
@@ -1444,8 +1451,12 @@ mod tests {
         fn subscribe_events(
             &self,
             _listener: Arc<dyn ProviderEventListener>,
-        ) -> Result<(), ProviderError> { Ok(()) }
-        fn shutdown(&self) { DROP_COUNT.fetch_add(1, Ordering::SeqCst); }
+        ) -> Result<(), ProviderError> {
+            Ok(())
+        }
+        fn shutdown(&self) {
+            DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+        }
     }
     struct DropCounterFactory;
     impl DropCounterFactory {
@@ -1462,7 +1473,9 @@ mod tests {
         }
     }
     impl UiTreeProviderFactory for DropCounterFactory {
-        fn descriptor(&self) -> &ProviderDescriptor { Self::descriptor_static() }
+        fn descriptor(&self) -> &ProviderDescriptor {
+            Self::descriptor_static()
+        }
         fn create(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
             Ok(Arc::new(DropCounterProvider { desc: Self::descriptor_static() }))
         }
@@ -1534,7 +1547,9 @@ mod tests {
         let nodes = focus.get_nodes(desktop).expect("children");
         let mut button = None;
         for node in nodes {
-            if node.role() == "Button" { button = Some(node); }
+            if node.role() == "Button" {
+                button = Some(node);
+            }
         }
         let button = button.expect("button node available");
         runtime.focus(&button).expect("focus succeeds");
@@ -1549,7 +1564,9 @@ mod tests {
         let nodes = focus.get_nodes(desktop).expect("children");
         let mut panel = None;
         for node in nodes {
-            if node.role() == "Panel" { panel = Some(node); }
+            if node.role() == "Panel" {
+                panel = Some(node);
+            }
         }
         let panel = panel.expect("panel node available");
         let err = runtime.focus(&panel).expect_err("panel should not support focus");

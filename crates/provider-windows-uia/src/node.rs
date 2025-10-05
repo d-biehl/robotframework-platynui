@@ -80,12 +80,12 @@ impl UiNode for UiaNode {
     fn parent(&self) -> Option<Weak<dyn UiNode>> {
         self.parent.lock().unwrap().clone()
     }
-    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
         let parent_arc = self.as_ui_node();
         Box::new(ElementChildrenIter::new(self.elem.clone(), parent_arc))
     }
-    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
-        Box::new(AttrsIter::new(self))
+    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+        Box::new(AttrsIter::new(self.elem.clone()))
     }
 
     fn supported_patterns(&self) -> Vec<PatternId> {
@@ -431,35 +431,33 @@ impl UiAttribute for AcceptsUserInputAttr {
 unsafe impl Send for AcceptsUserInputAttr {}
 unsafe impl Sync for AcceptsUserInputAttr {}
 
-struct AttrsIter<'a> {
+struct AttrsIter {
     idx: u8,
-    node: &'a UiaNode,
+    elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
     has_window_surface: bool,
     native_cache: Option<Vec<Arc<dyn UiAttribute>>>,
     native_pos: usize,
 }
-impl<'a> AttrsIter<'a> {
-    fn new(node: &'a UiaNode) -> Self {
+impl AttrsIter {
+    fn new(elem: windows::Win32::UI::Accessibility::IUIAutomationElement) -> Self {
         use windows::Win32::UI::Accessibility::*;
         let has_window_surface = unsafe {
-            let has_window = node
-                .elem
+            let has_window = elem
                 .GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
                 .is_ok();
-            let has_transform = node
-                .elem
+            let has_transform = elem
                 .GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
                 .is_ok();
             has_window || has_transform
         };
-        Self { idx: 0, node, has_window_surface, native_cache: None, native_pos: 0 }
+        Self { idx: 0, elem, has_window_surface, native_cache: None, native_pos: 0 }
     }
 }
-impl<'a> Iterator for AttrsIter<'a> {
+impl Iterator for AttrsIter {
     type Item = Arc<dyn UiAttribute>;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let elem = self.node.elem.clone();
+            let elem = self.elem.clone();
             let item = match self.idx {
                 0 => Some(Arc::new(RoleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 1 => Some(Arc::new(NameAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
@@ -562,7 +560,7 @@ impl<'a> Iterator for AttrsIter<'a> {
         }
     }
 }
-unsafe impl<'a> Send for AttrsIter<'a> {}
+unsafe impl Send for AttrsIter {}
 
 struct IsFocusedAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -940,7 +938,7 @@ impl UiNode for ApplicationNode {
         self.rid_cell.get_or_init(|| RuntimeId::from(format!("uia-app://{}", self.pid)))
     }
     fn parent(&self) -> Option<Weak<dyn UiNode>> { self.parent.lock().unwrap().clone() }
-    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
         struct AppWindowsIter {
             // Hold no COM interfaces directly to keep the iterator Send; fetch walker on demand
             root: windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -978,7 +976,7 @@ impl UiNode for ApplicationNode {
         let parent = self.self_weak.get().and_then(|w| w.upgrade()).expect("app self weak set");
         Box::new(AppWindowsIter { root: self.root.clone(), current: None, first: true, parent, pid: self.pid })
     }
-    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         Box::new(AppAttrsIter::new(self.pid, self.runtime_id().as_str()))
     }
     fn supported_patterns(&self) -> Vec<PatternId> { Vec::new() }

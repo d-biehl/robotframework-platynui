@@ -98,12 +98,12 @@ impl UiNode for MockNode {
         self.parent.lock().unwrap().clone()
     }
 
-    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_> {
+    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
         let snapshot = self.children.lock().unwrap().clone();
         Box::new(snapshot.into_iter().map(|child| -> Arc<dyn UiNode> { child }))
     }
 
-    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_> {
+    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         let mut attributes = self.attributes.clone();
         let patterns = self.supported_patterns();
         attributes.push(attr(
