@@ -3,7 +3,6 @@ use clap::Args;
 use owo_colors::{OwoColorize, Stream};
 use platynui_core::ui::{Namespace, UiNode};
 use platynui_runtime::{EvaluationItem, FocusError, Runtime};
-use std::collections::HashSet;
 use std::sync::Arc;
 
 #[derive(Args, Debug, Clone)]
@@ -13,51 +12,28 @@ pub struct FocusArgs {
 }
 
 pub fn run(runtime: &Runtime, args: &FocusArgs) -> CliResult<String> {
-    let results = runtime.evaluate(None, &args.expression).map_err(map_evaluate_error)?;
-
-    let mut seen = HashSet::<String>::new();
-    let mut focused = Vec::new();
-    let mut missing = Vec::new();
-    let mut failed = Vec::new();
-
-    for item in results {
-        let EvaluationItem::Node(node) = item else { continue };
-        let runtime_id = node.runtime_id().as_str().to_owned();
-        if !seen.insert(runtime_id.clone()) {
-            continue;
-        }
-
-        match runtime.focus(&node) {
-            Ok(()) => focused.push(render_node(&node)),
-            Err(FocusError::PatternMissing { .. }) => missing.push(render_node(&node)),
-            Err(FocusError::ActionFailed { source, .. }) => {
-                failed.push((render_node(&node), source.message().to_owned()));
-            }
-        }
-    }
-
-    if focused.is_empty() && missing.is_empty() && failed.is_empty() {
+    let item = runtime
+        .evaluate_single(None, &args.expression)
+        .map_err(map_evaluate_error)?;
+    let Some(EvaluationItem::Node(node)) = item else {
         anyhow::bail!("expression `{}` did not match any nodes", args.expression);
-    }
+    };
 
     let mut lines = Vec::new();
-
-    if !focused.is_empty() {
-        lines.push(format!("Focused {} node(s):", focused.len()));
-        lines.extend(focused.iter().map(|entry| format!("- {entry}")));
-    } else {
-        lines.push("Focused 0 node(s).".to_owned());
-    }
-
-    if !missing.is_empty() {
-        lines.push("Skipped (missing Focusable pattern):".to_owned());
-        lines.extend(missing.iter().map(|entry| format!("- {entry}")));
-    }
-
-    if !failed.is_empty() {
-        lines.push("Failed to focus:".to_owned());
-        for (entry, reason) in failed {
-            lines.push(format!("- {entry}: {reason}"));
+    match runtime.focus(&node) {
+        Ok(()) => {
+            lines.push("Focused 1 node(s):".to_owned());
+            lines.push(format!("- {}", render_node(&node)));
+        }
+        Err(FocusError::PatternMissing { .. }) => {
+            lines.push("Focused 0 node(s).".to_owned());
+            lines.push("Skipped (missing Focusable pattern):".to_owned());
+            lines.push(format!("- {}", render_node(&node)));
+        }
+        Err(FocusError::ActionFailed { source, .. }) => {
+            lines.push("Focused 0 node(s).".to_owned());
+            lines.push("Failed to focus:".to_owned());
+            lines.push(format!("- {}: {}", render_node(&node), source.message()));
         }
     }
 
