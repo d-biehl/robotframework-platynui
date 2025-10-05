@@ -108,37 +108,28 @@ pub struct CallCtx<'a, N> {
     pub current_context_item: Option<XdmItem<N>>,
 }
 
-pub type FunctionImpl<N> =
-    Arc<dyn Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>>;
-
-/// Stream-based function implementation (new API for zero-copy streaming).
+/// Stream-based function implementation for zero-copy streaming.
 ///
 /// Functions using this signature work directly with lazy `XdmSequenceStream<N>`
 /// arguments and return streaming results. This avoids materializing intermediate
 /// sequences into `Vec`, enabling better performance for large result sets and
 /// early termination scenarios.
-///
-/// Prefer implementing this over `FunctionImpl` for new functions. The evaluator
-/// will automatically convert between Vec-based and Stream-based calls as needed.
 pub type FunctionStreamImpl<N> =
     Arc<dyn Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>>;
 
 // Type aliases to keep complex nested types readable
-pub type FunctionOverload<N> = (Arity, Option<Arity>, FunctionImpl<N>);
-pub type FunctionOverloads<N> = Vec<FunctionOverload<N>>;
 pub type FunctionStreamOverload<N> = (Arity, Option<Arity>, FunctionStreamImpl<N>);
 pub type FunctionStreamOverloads<N> = Vec<FunctionStreamOverload<N>>;
 
 pub(crate) const STATIC_CONTEXT_COMPILE_CACHE_CAPACITY: usize = 20;
 
 pub struct FunctionImplementations<N> {
-    fns: HashMap<ExpandedName, FunctionOverloads<N>>,
     stream_fns: HashMap<ExpandedName, FunctionStreamOverloads<N>>,
 }
 
 impl<N> Default for FunctionImplementations<N> {
     fn default() -> Self {
-        Self { fns: HashMap::new(), stream_fns: HashMap::new() }
+        Self { stream_fns: HashMap::new() }
     }
 }
 
@@ -147,205 +138,7 @@ impl<N> FunctionImplementations<N> {
         Self::default()
     }
 
-    pub fn register(&mut self, name: ExpandedName, arity: Arity, func: FunctionImpl<N>) {
-        // Exact arity becomes a bounded range [arity, arity]
-        self.register_range(name, arity, Some(arity), func);
-    }
-
-    /// Convenience: register a function by ExpandedName with a plain closure.
-    /// This wraps the closure into the required Arc and stores it.
-    pub fn register_fn<F>(&mut self, name: ExpandedName, arity: Arity, f: F)
-    where
-        F: 'static + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
-    {
-        self.register(name, arity, Arc::new(f));
-    }
-
-    /// Convenience: register a function in a namespace using ns URI and local name.
-    pub fn register_ns<F>(&mut self, ns_uri: &str, local: &str, arity: Arity, f: F)
-    where
-        F: 'static + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
-    {
-        let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
-        self.register_fn(name, arity, f);
-    }
-
-    /// Register a function by ExpandedName with an arity range.
-    /// If `max_arity` is None, the function is variadic starting at `min_arity`.
-    /// Overlapping ranges are allowed; the resolver will pick the most specific
-    /// (highest min, then smallest max) that matches the requested arity.
-    pub fn register_range(
-        &mut self,
-        name: ExpandedName,
-        min_arity: Arity,
-        max_arity: Option<Arity>,
-        func: FunctionImpl<N>,
-    ) {
-        use std::collections::hash_map::Entry;
-        match self.fns.entry(name) {
-            Entry::Vacant(e) => {
-                let mut v: FunctionOverloads<N> = vec![(min_arity, max_arity, func)];
-                // ensure deterministic order even for single insert
-                v.sort_by(|a, b| {
-                    let min_ord = b.0.cmp(&a.0);
-                    if min_ord != core::cmp::Ordering::Equal {
-                        return min_ord;
-                    }
-                    match (&a.1, &b.1) {
-                        (Some(amax), Some(bmax)) => amax.cmp(bmax),
-                        (Some(_), None) => core::cmp::Ordering::Less,
-                        (None, Some(_)) => core::cmp::Ordering::Greater,
-                        (None, None) => core::cmp::Ordering::Equal,
-                    }
-                });
-                e.insert(v);
-            }
-            Entry::Occupied(mut e) => {
-                e.get_mut().push((min_arity, max_arity, func));
-                // Keep deterministic order so the most specific wins if overlapping:
-                // - higher min first
-                // - for equal mins, smaller max first (None treated as infinity, thus last)
-                e.get_mut().sort_by(|a, b| {
-                    let min_ord = b.0.cmp(&a.0);
-                    if min_ord != core::cmp::Ordering::Equal {
-                        return min_ord;
-                    }
-                    match (&a.1, &b.1) {
-                        (Some(amax), Some(bmax)) => amax.cmp(bmax),
-                        (Some(_), None) => core::cmp::Ordering::Less,
-                        (None, Some(_)) => core::cmp::Ordering::Greater,
-                        (None, None) => core::cmp::Ordering::Equal,
-                    }
-                });
-            }
-        }
-    }
-
-    /// Register a variadic function by ExpandedName with a minimum arity.
-    /// The function will be selected for any call with argc >= min_arity.
-    pub fn register_variadic(
-        &mut self,
-        name: ExpandedName,
-        min_arity: Arity,
-        func: FunctionImpl<N>,
-    ) {
-        self.register_range(name, min_arity, None, func);
-    }
-
-    /// Convenience: register a variadic function in a namespace.
-    pub fn register_ns_variadic<F>(&mut self, ns_uri: &str, local: &str, min_arity: Arity, f: F)
-    where
-        F: 'static + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
-    {
-        let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
-        self.register_variadic(name, min_arity, Arc::new(f));
-    }
-
-    /// Convenience: register a variadic function without a namespace.
-    pub fn register_local_variadic<F>(&mut self, local: &str, min_arity: Arity, f: F)
-    where
-        F: 'static + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
-    {
-        let name = ExpandedName { ns_uri: None, local: local.to_string() };
-        self.register_variadic(name, min_arity, Arc::new(f));
-    }
-
-    /// Convenience: register a function in a namespace with an arity range.
-    pub fn register_ns_range<F>(
-        &mut self,
-        ns_uri: &str,
-        local: &str,
-        min_arity: Arity,
-        max_arity: Option<Arity>,
-        f: F,
-    ) where
-        F: 'static + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
-    {
-        let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
-        self.register_range(name, min_arity, max_arity, Arc::new(f));
-    }
-
-    /// Convenience: register a function without a namespace with an arity range.
-    pub fn register_local_range<F>(
-        &mut self,
-        local: &str,
-        min_arity: Arity,
-        max_arity: Option<Arity>,
-        f: F,
-    ) where
-        F: 'static + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
-    {
-        let name = ExpandedName { ns_uri: None, local: local.to_string() };
-        self.register_range(name, min_arity, max_arity, Arc::new(f));
-    }
-
-    /// Convenience: register a function without a namespace.
-    pub fn register_local<F>(&mut self, local: &str, arity: Arity, f: F)
-    where
-        F: 'static + Fn(&CallCtx<N>, &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error>,
-    {
-        let name = ExpandedName { ns_uri: None, local: local.to_string() };
-        self.register_fn(name, arity, f);
-    }
-
-    /// Resolve a function by name/arity with optional default function namespace fallback.
-    /// On success returns the function implementation; otherwise returns a typed
-    /// error describing whether the function is unknown or known with different arities.
-    pub fn resolve(
-        &self,
-        name: &ExpandedName,
-        arity: Arity,
-        default_ns: Option<&str>,
-    ) -> Result<&FunctionImpl<N>, ResolveError> {
-        // Determine the effective name reference for search/diagnostics.
-        // Only allocate when default function namespace needs to be applied.
-        let effective_buf: Option<ExpandedName> = if name.ns_uri.is_none() {
-            default_ns
-                .map(|ns| ExpandedName { ns_uri: Some(ns.to_string()), local: name.local.clone() })
-        } else {
-            None
-        };
-        let effective: &ExpandedName = effective_buf.as_ref().unwrap_or(name);
-        // Attempt an exact-arity match on the provided name (useful for locally-registered,
-        // no-namespace functions) before applying default NS.
-        if let Some(cands) = self.fns.get(name)
-            && let Some((_, _, f)) = cands
-                .iter()
-                .find(|(min, max, _)| *min == arity && matches!(max, Some(m) if *m == arity))
-        {
-            return Ok(f);
-        }
-        // Single map access for both range resolution and diagnostics
-        if let Some(cands) = self.fns.get(effective) {
-            if let Some((_, _, f)) =
-                cands.iter().find(|(min, max, _)| arity >= *min && max.is_none_or(|m| arity <= m))
-            {
-                return Ok(f);
-            }
-            // Known function name but wrong arity: collect bounded arities for message
-            let mut arities: Vec<Arity> = vec![];
-            for (min, max, _) in cands.iter() {
-                if let Some(m) = max {
-                    arities.extend(*min..=*m);
-                }
-            }
-            arities.sort_unstable();
-            arities.dedup();
-            return Err(ResolveError::WrongArity { name: effective.clone(), available: arities });
-        }
-        // No registration under effective name at all
-        Err(ResolveError::Unknown(effective.clone()))
-    }
-
-    // ========================================================================
-    // Stream-based function registration API (new, preferred for performance)
-    // ========================================================================
-
     /// Register a stream-based function with exact arity.
-    ///
-    /// Stream functions work with `XdmSequenceStream` arguments and return values,
-    /// avoiding materialization overhead. The evaluator will automatically materialize
-    /// when calling from Vec-based contexts.
     pub fn register_stream(
         &mut self,
         name: ExpandedName,

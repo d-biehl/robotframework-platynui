@@ -4,7 +4,7 @@ use platynui_xpath::engine::runtime::{
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::{
     ExpandedName, compile_with_context, evaluate, evaluate_expr, xdm::XdmAtomicValue as A,
-    xdm::XdmItem as I,
+    xdm::XdmItem as I, xdm::XdmSequenceStream, XdmSequence,
 };
 use rstest::rstest;
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -77,16 +77,21 @@ fn variables_and_functions() {
     // Add a custom function in default functions namespace
     let mut reg: FunctionImplementations<N> = FunctionImplementations::new();
     let ns = Some("http://www.w3.org/2005/xpath-functions".to_string());
-    reg.register(
+    reg.register_stream(
         ExpandedName { ns_uri: ns.clone(), local: "twice".to_string() },
         1,
-        std::sync::Arc::new(|_ctx: &CallCtx<N>, args: &[Vec<I<N>>]| -> Result<Vec<I<N>>, Error> {
-            let v = match &args[0][0] {
-                I::Atomic(A::Integer(i)) => *i,
-                _ => 0,
-            };
-            Ok(vec![I::Atomic(A::Integer(v * 2))])
-        }),
+        std::sync::Arc::new(
+            |_ctx: &CallCtx<N>,
+             args: &[XdmSequenceStream<N>]|
+             -> Result<XdmSequenceStream<N>, Error> {
+                let first_arg: XdmSequence<N> = args[0].iter().collect::<Result<Vec<_>, _>>()?;
+                let v = match &first_arg[0] {
+                    I::Atomic(A::Integer(i)) => i,
+                    _ => &0,
+                };
+                Ok(XdmSequenceStream::from_vec(vec![I::Atomic(A::Integer(v * 2))]))
+            },
+        ),
     );
     let dyn_ctx = DynamicContextBuilder::default()
         .with_functions(std::rc::Rc::new(reg))

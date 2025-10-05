@@ -20,7 +20,6 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use chrono::Duration as ChronoDuration;
 use chrono::{FixedOffset as ChronoFixedOffset, NaiveTime as ChronoNaiveTime, Offset, TimeZone};
 use core::cmp::Ordering;
-use core::mem;
 use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
@@ -3028,67 +3027,11 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         let result = (stream_fn)(&call_ctx, &args_stream)?;
                         self.push_stream(result);
                     } else {
-                        // Fallback: Vec-based materialized path for legacy functions
-                        let mut args: Vec<XdmSequence<N>> = Vec::with_capacity(argc);
-                        for _ in 0..argc {
-                            args.push(self.pop_seq()?);
-                        }
-                        args.reverse();
-
-                        // Apply type conversions (atomization etc.)
-                        if let Some(specs) = self
-                            .compiled
-                            .static_ctx
-                            .function_signatures
-                            .param_types_for_call(en, argc, def_ns_ref)
-                        {
-                            self.apply_function_conversions(&mut args, specs)?;
-                        }
-
-                        // Resolve Vec-based function
-                        let f = match self.functions.resolve(en, argc, def_ns_ref) {
-                            Ok(f) => f,
-                            Err(crate::engine::runtime::ResolveError::Unknown(resolved)) => {
-                                return Err(Error::from_code(
-                                    ErrorCode::XPST0017,
-                                    format!("unknown function: {{{:?}}}#{argc}", resolved),
-                                ));
-                            }
-                            Err(crate::engine::runtime::ResolveError::WrongArity {
-                                name: resolved,
-                                ..
-                            }) => {
-                                // Humanize the provided argument count for a clearer diagnostic
-                                let arg_phrase = match argc {
-                                    0 => "no arguments".to_string(),
-                                    1 => "one argument".to_string(),
-                                    2 => "two arguments".to_string(),
-                                    3 => "three arguments".to_string(),
-                                    n => format!("{n} arguments"),
-                                };
-                                return Err(Error::from_code(
-                                    ErrorCode::XPST0017,
-                                    format!(
-                                        "function {}() cannot be called with {}",
-                                        resolved.local, arg_phrase
-                                    ),
-                                ));
-                            }
-                        };
-
-                        // Build call context
-                        let default_collation = self.default_collation.clone();
-                        let call_ctx = CallCtx {
-                            dyn_ctx: self.dyn_ctx.as_ref(),
-                            static_ctx: &self.compiled.static_ctx,
-                            default_collation,
-                            regex: self.dyn_ctx.regex.clone(),
-                            current_context_item: self.current_context_item.clone(),
-                        };
-
-                        // Call Vec-based function and materialize result to stream for stack
-                        let result_vec = (f)(&call_ctx, &args)?;
-                        self.push_seq(result_vec);
+                        // No stream implementation found - error
+                        return Err(Error::from_code(
+                            ErrorCode::XPST0017,
+                            format!("unknown function: {{{:?}}}#{argc}", en),
+                        ));
                     }
 
                     ip += 1;
@@ -3099,27 +3042,6 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     // Interpret legacy raise codes; prefer enum when possible.
                     return Err(Error::new_qname(Error::parse_code(code), "raised by program"));
                 }
-            }
-        }
-        Ok(())
-    }
-
-    fn apply_function_conversions(
-        &self,
-        args: &mut [XdmSequence<N>],
-        specs: &[ParamTypeSpec],
-    ) -> Result<(), Error> {
-        for (idx, spec) in specs.iter().enumerate() {
-            if let Some(arg) = args.get_mut(idx) {
-                if spec.requires_atomization()
-                    && arg.iter().any(|item| matches!(item, XdmItem::Node(_)))
-                {
-                    let taken = mem::take(arg);
-                    *arg = Self::atomize(taken);
-                }
-                let converted =
-                    spec.apply_to_sequence(mem::take(arg), &self.compiled.static_ctx)?;
-                *arg = converted;
             }
         }
         Ok(())
