@@ -11,7 +11,10 @@ use platynui_core::types::{Point as UiPoint, Rect};
 use platynui_core::ui::pattern::{FocusableAction, PatternError, UiPattern, WindowSurfaceActions};
 use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
 use windows::Win32::UI::Accessibility::{
-    IUIAutomationTransformPattern, IUIAutomationWindowPattern, WindowVisualState_Maximized,
+    IUIAutomationTransformPattern,
+    IUIAutomationWindowPattern,
+    IUIAutomationVirtualizedItemPattern,
+    WindowVisualState_Maximized,
     WindowVisualState_Minimized,
 };
 use windows::core::Interface;
@@ -39,14 +42,36 @@ impl UiaNode {
         })
     }
     pub fn set_parent(&self, parent: &Arc<dyn UiNode>) {
-        *self.parent.lock().unwrap() = Some(Arc::downgrade(parent));
+        if let Ok(mut guard) = self.parent.lock() {
+            *guard = Some(Arc::downgrade(parent));
+        }
     }
     pub fn init_self(this: &Arc<Self>) {
         let arc: Arc<dyn UiNode> = this.clone();
         let _ = this.self_weak.set(Arc::downgrade(&arc));
     }
-    fn as_ui_node(&self) -> Arc<dyn UiNode> {
-        self.self_weak.get().and_then(|w| w.upgrade()).expect("self weak set")
+    fn as_ui_node(&self) -> Option<Arc<dyn UiNode>> {
+        self.self_weak.get().and_then(|w| w.upgrade())
+    }
+
+    /// Best-effort realization for virtualized items.
+    /// If the element supports `VirtualizedItem` pattern, call `Realize()`.
+    /// Errors are ignored to keep traversal non-panicking.
+    fn try_realize(&self) {
+        let unk = unsafe {
+            self.elem
+                .GetCurrentPattern(
+                    windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                        windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
+                    ),
+                )
+                .ok()
+        };
+        if let Some(unk) = unk {
+            if let Ok(pat) = unk.cast::<IUIAutomationVirtualizedItemPattern>() {
+                let _ = unsafe { pat.Realize() };
+            }
+        }
     }
 }
 
@@ -78,11 +103,18 @@ impl UiNode for UiaNode {
         })
     }
     fn parent(&self) -> Option<Weak<dyn UiNode>> {
-        self.parent.lock().unwrap().clone()
+        match self.parent.lock() {
+            Ok(g) => g.clone(),
+            Err(_) => None,
+        }
     }
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
-        let parent_arc = self.as_ui_node();
-        Box::new(ElementChildrenIter::new(self.elem.clone(), parent_arc))
+        // Ensure a virtualized item is realized before enumerating its children.
+        self.try_realize();
+        match self.as_ui_node() {
+            Some(parent_arc) => Box::new(ElementChildrenIter::new(self.elem.clone(), Some(parent_arc))),
+            None => Box::new(std::iter::empty::<Arc<dyn UiNode>>()),
+        }
     }
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         Box::new(AttrsIter::new(self.elem.clone()))
@@ -124,6 +156,17 @@ impl UiNode for UiaNode {
             }
             let es = ElemSend { elem: self.elem.clone() };
             let action = FocusableAction::new(move || unsafe {
+                // If the element is virtualized, try to realize before focusing.
+                if let Ok(unk) = es
+                    .elem
+                    .GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                        windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
+                    ))
+                {
+                    if let Ok(vpat) = unk.cast::<IUIAutomationVirtualizedItemPattern>() {
+                        let _ = vpat.Realize();
+                    }
+                }
                 es.set_focus().map_err(|e| PatternError::new(e.to_string()))
             });
             return Some(Arc::new(action) as Arc<dyn UiPattern>);
@@ -228,18 +271,18 @@ impl UiNode for UiaNode {
 }
 
 pub(crate) struct ElementChildrenIter {
-    walker: windows::Win32::UI::Accessibility::IUIAutomationTreeWalker,
+    walker: Option<windows::Win32::UI::Accessibility::IUIAutomationTreeWalker>,
     parent_elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
     current: Option<windows::Win32::UI::Accessibility::IUIAutomationElement>,
     first: bool,
-    parent: Arc<dyn UiNode>,
+    parent: Option<Arc<dyn UiNode>>,
 }
 impl ElementChildrenIter {
     pub fn new(
         parent_elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
-        parent_node: Arc<dyn UiNode>,
+        parent_node: Option<Arc<dyn UiNode>>,
     ) -> Self {
-        let walker = crate::com::raw_walker().expect("walker");
+        let walker = crate::com::raw_walker().ok();
         Self { walker, parent_elem, current: None, first: true, parent: parent_node }
     }
 }
@@ -247,21 +290,35 @@ unsafe impl Send for ElementChildrenIter {}
 impl Iterator for ElementChildrenIter {
     type Item = Arc<dyn UiNode>;
     fn next(&mut self) -> Option<Self::Item> {
+        // If no walker could be created, yield no children.
+        let Some(walker) = &self.walker else { return None };
         if self.first {
             self.first = false;
-            self.current = unsafe { self.walker.GetFirstChildElement(&self.parent_elem).ok() };
+            self.current = unsafe { walker.GetFirstChildElement(&self.parent_elem).ok() };
             if self.current.is_none() {
                 return None;
             }
         } else if let Some(ref elem) = self.current {
             let cur = elem.clone();
-            self.current = unsafe { self.walker.GetNextSiblingElement(&cur).ok() };
+            self.current = unsafe { walker.GetNextSiblingElement(&cur).ok() };
         } else {
             return None;
         }
         let elem = self.current.as_ref()?.clone();
+        // Best-effort: if the child is virtualized, realize it before wrapping.
+        unsafe {
+            if let Ok(unk) = elem.GetCurrentPattern(
+                windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                    windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
+                ),
+            ) {
+                if let Ok(vpat) = unk.cast::<IUIAutomationVirtualizedItemPattern>() {
+                    let _ = vpat.Realize();
+                }
+            }
+        }
         let node = UiaNode::from_elem(elem);
-        node.set_parent(&self.parent);
+        if let Some(ref parent) = self.parent { node.set_parent(parent); }
         UiaNode::init_self(&node);
         Some(node as Arc<dyn UiNode>)
     }
@@ -937,14 +994,19 @@ impl UiNode for ApplicationNode {
     fn runtime_id(&self) -> &RuntimeId {
         self.rid_cell.get_or_init(|| RuntimeId::from(format!("uia-app://{}", self.pid)))
     }
-    fn parent(&self) -> Option<Weak<dyn UiNode>> { self.parent.lock().unwrap().clone() }
+    fn parent(&self) -> Option<Weak<dyn UiNode>> {
+        match self.parent.lock() {
+            Ok(g) => g.clone(),
+            Err(_) => None,
+        }
+    }
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
         struct AppWindowsIter {
             // Hold no COM interfaces directly to keep the iterator Send; fetch walker on demand
             root: windows::Win32::UI::Accessibility::IUIAutomationElement,
             current: Option<windows::Win32::UI::Accessibility::IUIAutomationElement>,
             first: bool,
-            parent: Arc<dyn UiNode>,
+            parent: Option<Arc<dyn UiNode>>,
             pid: i32,
         }
         impl Iterator for AppWindowsIter {
@@ -965,7 +1027,7 @@ impl UiNode for ApplicationNode {
                     let pid = crate::map::get_process_id(&elem).unwrap_or(-1);
                     if pid == self.pid {
                         let node = UiaNode::from_elem(elem);
-                        node.set_parent(&self.parent);
+                        if let Some(ref parent) = self.parent { node.set_parent(parent); }
                         UiaNode::init_self(&node);
                         return Some(node as Arc<dyn UiNode>);
                     }
@@ -973,7 +1035,7 @@ impl UiNode for ApplicationNode {
             }
         }
         unsafe impl Send for AppWindowsIter {}
-        let parent = self.self_weak.get().and_then(|w| w.upgrade()).expect("app self weak set");
+        let parent = self.self_weak.get().and_then(|w| w.upgrade());
         Box::new(AppWindowsIter { root: self.root.clone(), current: None, first: true, parent, pid: self.pid })
     }
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
