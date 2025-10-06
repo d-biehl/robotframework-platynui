@@ -8,6 +8,7 @@ This workspace blends Rust crates and Python packages for the Robot Framework-fa
   - `crates/xpath` → crate `platynui-xpath` (XPath evaluator, parser helpers, benches/tests)
   - `crates/runtime` → crate `platynui-runtime` (provider/device orchestration, XPath pipeline, focus/window actions)
   - `crates/server` → crate `platynui-server` (JSON-RPC façade; currently a stub)
+  - `crates/link` → crate `platynui-link` (dynamic linking utilities for platform providers)
   - `crates/platform-{windows,linux-x11,macos,mock}` → crates `platynui-platform-*` (OS device bundles, highlight/screenshot, desktop info)
   - `crates/provider-{windows-uia,atspi,macos-ax,jsonrpc,mock}` → crates `platynui-provider-*` (UiTreeProvider implementations)
   - `crates/cli` → crate `platynui-cli` (CLI for queries, highlight, keyboard/pointer, diagnostics)
@@ -16,7 +17,6 @@ This workspace blends Rust crates and Python packages for the Robot Framework-fa
 
 - Python/Robot workspace (`uv`):
   - `src/PlatynUI` → Robot Framework library entry (keywords module scaffold)
-  - `packages/core` → Python packaging scaffold for higher-level integration
   - `packages/native` → Maturin-based native Python package `platynui_native._native` (bindings to core/runtime)
 
 Generated artefacts such as `target/`, `.venv/`, `.vscode/`, build caches, and wheel artifacts should not be committed.
