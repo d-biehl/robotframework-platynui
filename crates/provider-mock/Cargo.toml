@@ -1,5 +1,6 @@
 [package]
 name = "platynui-provider-mock"
+description = "Mock UI tree provider for PlatynUI testing and development"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true

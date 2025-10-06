@@ -1,5 +1,6 @@
 [package]
 name = "platynui-provider-atspi"
+description = "AT-SPI accessibility provider for PlatynUI on Linux"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true

@@ -1,5 +1,6 @@
 [package]
 name = "platynui-cli"
+description = "Command-line interface for PlatynUI automation toolkit"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true

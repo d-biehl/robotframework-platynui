@@ -1,5 +1,6 @@
 [package]
 name = "platynui-provider-jsonrpc"
+description = "JSON-RPC remote provider for PlatynUI cross-platform automation"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true

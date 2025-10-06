@@ -1,5 +1,6 @@
 [package]
 name = "platynui-platform-macos"
+description = "macOS platform backend for PlatynUI"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true

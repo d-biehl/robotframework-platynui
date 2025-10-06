@@ -1,5 +1,6 @@
 [package]
 name = "platynui-provider-windows-uia"
+description = "Windows UI Automation provider for PlatynUI"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true

@@ -1,5 +1,6 @@
 [package]
 name = "platynui-platform-mock"
+description = "Mock platform backend for PlatynUI testing and development"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true

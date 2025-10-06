@@ -1,5 +1,6 @@
 [package]
 name = "platynui-xpath"
+description = "XPath 2.0-style evaluator and parser for PlatynUI UI automation"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true

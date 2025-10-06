@@ -1,5 +1,6 @@
 [package]
 name = "platynui-runtime"
+description = "Runtime orchestration and XPath pipeline for PlatynUI"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true

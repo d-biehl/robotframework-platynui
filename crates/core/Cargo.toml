@@ -1,5 +1,6 @@
 [package]
 name = "platynui-core"
+description = "Core types and traits for PlatynUI"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true

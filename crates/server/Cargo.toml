@@ -1,5 +1,6 @@
 [package]
 name = "platynui-server"
+description = "JSON-RPC server facade for PlatynUI remote automation"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true
