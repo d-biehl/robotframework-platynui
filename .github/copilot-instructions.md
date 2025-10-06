@@ -7,7 +7,7 @@ Trust this file first. Only search the repo when information is missing or demon
 PlatynUI is an experimental cross‑platform UI automation toolkit for Robot Framework. Core logic (data types + XPath 2.0-ish engine) lives in Rust crates; Python provides a Robot Framework library surface and packaging (including a Rust native binary via `maturin`). Project is early stage: expect gaps, evolving APIs, sparse docs.
 
 ## 2. Tech & Tooling (Authoritative)
-Languages: Rust 2024 edition (tested rustc/cargo 1.89.0), Python >=3.10 (dev seen 3.13.7), Robot Framework >=7.0.
+Languages: Rust 2024 edition (tested rustc/cargo 1.90.0), Python >=3.10 (dev seen 3.13.7), Robot Framework >=7.0.
 Primary tools: `uv` (ALWAYS for Python deps + scripts), `cargo` (Rust build/test), `maturin` (packaging native), `ruff` (lint), `mypy` (optional types).
 Never use `pip install`; always `uv sync` after editing any `pyproject.toml`.
 

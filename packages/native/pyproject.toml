@@ -1,17 +1,35 @@
 [project]
-name = "platynui-native"
+name = "robotframework-PlatynUI-native"
 version = "0.1.0"
 description = "Native Python bindings for PlatynUI (core types + runtime)"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }
+]
+maintainers = [
+    { name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }
+]
 keywords = ["robotframework", "platynui", "gui", "automation", "desktop"]
 classifiers = [
-  "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Rust",
-  "Operating System :: OS Independent",
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+    "Framework :: Robot Framework",
+    "Framework :: Robot Framework :: Library",
 ]
+dependencies = ["robotframework-PlatynUI-native>=0.1.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]

@@ -1,9 +1,32 @@
 [project]
 name = "robotframework-PlatynUI"
 version = "0.1.0"
-description = "Add your description here"
+description = "Cross-platform UI automation toolkit for Robot Framework with XPath-based element selection"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }
+]
+maintainers = [
+    { name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }
+]
+keywords = ["robotframework", "automation", "testing", "ui", "xpath", "cross-platform"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+    "Framework :: Robot Framework",
+    "Framework :: Robot Framework :: Library",
+]
 dependencies = ["robotframework>=7.0.0"]
 
 [build-system]
@@ -13,8 +36,11 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "PlatynUI"
 
+[tool.uv.sources]
+robotframework-platynui-native = { workspace = true }
+
 [tool.uv.workspace]
-members = ["packages/core"]
+members = ["packages/*"]
 
 [dependency-groups]
 dev = ["mypy>=1.17.1", "ruff>=0.12.11"]

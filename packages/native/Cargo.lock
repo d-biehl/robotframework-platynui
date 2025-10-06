@@ -186,6 +186,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "either"
+version = "1.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -281,7 +287,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.1",
+ "windows-core",
 ]
 
 [[package]]
@@ -413,6 +419,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc61209c082fbeb19919bee74b176221b27223e27b65d781eb91af24eb1fb46e"
 dependencies = [
  "rustversion",
+]
+
+[[package]]
+name = "itertools"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+dependencies = [
+ "either",
 ]
 
 [[package]]
@@ -611,6 +626,7 @@ dependencies = [
  "once_cell",
  "serde",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -641,16 +657,24 @@ dependencies = [
  "inventory",
  "once_cell",
  "platynui-core",
- "windows 0.62.1",
+ "windows",
 ]
 
 [[package]]
 name = "platynui-provider-atspi"
 version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "platynui-core",
+]
 
 [[package]]
 name = "platynui-provider-macos-ax"
 version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "platynui-core",
+]
 
 [[package]]
 name = "platynui-provider-mock"
@@ -660,6 +684,7 @@ dependencies = [
  "platynui-core",
  "quick-xml",
  "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -670,13 +695,14 @@ dependencies = [
  "once_cell",
  "platynui-core",
  "thiserror",
- "windows 0.57.0",
+ "windows",
 ]
 
 [[package]]
 name = "platynui-runtime"
 version = "0.1.0"
 dependencies = [
+ "once_cell",
  "pest",
  "pest_derive",
  "platynui-core",
@@ -695,6 +721,7 @@ dependencies = [
  "chrono",
  "compact_str",
  "fancy-regex",
+ "itertools",
  "lru",
  "pest",
  "pest_derive",
@@ -715,9 +742,11 @@ dependencies = [
  "platynui-link",
  "platynui-platform-linux-x11",
  "platynui-platform-macos",
+ "platynui-platform-mock",
  "platynui-platform-windows",
  "platynui-provider-atspi",
  "platynui-provider-macos-ax",
+ "platynui-provider-mock",
  "platynui-provider-windows-uia",
  "platynui-runtime",
  "platynui-xpath",
@@ -1207,22 +1236,12 @@ dependencies = [
 
 [[package]]
 name = "windows"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12342cb4d8e3b046f3d80effd474a7a02447231330ef77d71daa6fbc40681143"
-dependencies = [
- "windows-core 0.57.0",
- "windows-targets",
-]
-
-[[package]]
-name = "windows"
 version = "0.62.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49e6c4a1f363c8210c6f77ba24f645c61c6fb941eccf013da691f7e09515b8ac"
 dependencies = [
  "windows-collections",
- "windows-core 0.62.1",
+ "windows-core",
  "windows-future",
  "windows-numerics",
 ]
@@ -1233,19 +1252,7 @@ version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "123e712f464a8a60ce1a13f4c446d2d43ab06464cb5842ff68f5c71b6fb7852e"
 dependencies = [
- "windows-core 0.62.1",
-]
-
-[[package]]
-name = "windows-core"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2ed2439a290666cd67ecce2b0ffaad89c2a56b976b736e6ece670297897832d"
-dependencies = [
- "windows-implement 0.57.0",
- "windows-interface 0.57.0",
- "windows-result 0.1.2",
- "windows-targets",
+ "windows-core",
 ]
 
 [[package]]
@@ -1254,10 +1261,10 @@ version = "0.62.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6844ee5416b285084d3d3fffd743b925a6c9385455f64f6d4fa3031c4c2749a9"
 dependencies = [
- "windows-implement 0.60.1",
- "windows-interface 0.59.2",
+ "windows-implement",
+ "windows-interface",
  "windows-link",
- "windows-result 0.4.0",
+ "windows-result",
  "windows-strings",
 ]
 
@@ -1267,20 +1274,9 @@ version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68f3db6b24b120200d649cd4811b4947188ed3a8d2626f7075146c5d178a9a4a"
 dependencies = [
- "windows-core 0.62.1",
+ "windows-core",
  "windows-link",
  "windows-threading",
-]
-
-[[package]]
-name = "windows-implement"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9107ddc059d5b6fbfbffdfa7a7fe3e22a226def0b2608f72e9d552763d3e1ad7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -1288,17 +1284,6 @@ name = "windows-implement"
 version = "0.60.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edb307e42a74fb6de9bf3a02d9712678b22399c87e6fa869d6dfcd8c1b7754e0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "windows-interface"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29bee4b38ea3cde66011baa44dba677c432a78593e202392d1e9070cf2a7fca7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1328,17 +1313,8 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ce3498fe0aba81e62e477408383196b4b0363db5e0c27646f932676283b43d8"
 dependencies = [
- "windows-core 0.62.1",
+ "windows-core",
  "windows-link",
-]
-
-[[package]]
-name = "windows-result"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e383302e8ec8515204254685643de10811af0ed97ea37210dc26fb0032647f8"
-dependencies = [
- "windows-targets",
 ]
 
 [[package]]
