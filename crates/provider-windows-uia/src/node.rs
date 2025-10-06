@@ -18,7 +18,52 @@ use windows::Win32::UI::Accessibility::{
     WindowVisualState_Minimized,
 };
 use windows::core::Interface;
-use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, WAIT_TIMEOUT};
+use windows::Win32::System::Threading::{OpenProcess, WaitForInputIdle, PROCESS_QUERY_INFORMATION};
+
+/// Thread-safe checker for WaitForInputIdle using process ID
+#[derive(Clone)]
+struct WaitForInputIdleChecker {
+    pid: i32,
+}
+
+impl WaitForInputIdleChecker {
+    fn new(pid: i32) -> Self {
+        Self { pid }
+    }
+
+    fn check_input_idle(&self) -> Result<Option<bool>, PatternError> {
+        if self.pid <= 0 {
+            return Ok(Some(false)); // Invalid process ID
+        }
+
+        // Open process handle with query rights
+        let process_handle = match unsafe {
+            OpenProcess(PROCESS_QUERY_INFORMATION, false, self.pid as u32)
+        } {
+            Ok(handle) => handle,
+            Err(_) => {
+                // Process might not be accessible or doesn't exist anymore
+                return Ok(Some(false));
+            }
+        };
+
+        // Call WaitForInputIdle with a short timeout (100ms)
+        let result = unsafe { WaitForInputIdle(process_handle, 100) };
+        unsafe { let _ = CloseHandle(process_handle); };
+
+        if result == WAIT_OBJECT_0.0 {
+            Ok(Some(true))
+        } else if result == WAIT_TIMEOUT.0 {
+            Ok(Some(false))
+        } else {
+            Ok(Some(false))
+        }
+    }
+}
+
+unsafe impl Send for WaitForInputIdleChecker {}
+unsafe impl Sync for WaitForInputIdleChecker {}
 
 pub struct UiaNode {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -226,11 +271,24 @@ impl UiNode for UiaNode {
             let e5 = e1.clone();
             let e_move = e1.clone();
             let e_resize = e1.clone();
-            let accepts_now = {
-                // Compute a best-effort static snapshot for accepts_user_input (lazy recomputation can be added later)
-                let enabled = crate::map::get_is_enabled(&self.elem).unwrap_or(false);
-                let off = crate::map::get_is_offscreen(&self.elem).unwrap_or(false);
-                enabled && !off
+
+            // Get process ID for WaitForInputIdle checking
+            let pid = crate::map::get_process_id(&self.elem).unwrap_or(-1);
+            let input_checker = WaitForInputIdleChecker::new(pid);
+
+            let check_input_idle = move || -> Result<Option<bool>, PatternError> {
+                // Use WaitForInputIdle to check if process is ready for input
+                let idle_result = input_checker.check_input_idle()?;
+
+                // If process is not idle, return false immediately
+                if Some(false) == idle_result {
+                    return Ok(Some(false));
+                }
+
+                // Process is idle or check failed - combine with basic enabled/visible check
+                // Note: We can't access UIA element here due to thread safety, so we return
+                // None to indicate that the check should be performed dynamically when needed
+                Ok(None)
             };
             let actions = WindowSurfaceActions::new()
                 .with_activate(move || unsafe {
@@ -262,7 +320,7 @@ impl UiNode for UiaNode {
                         .transform_resize(s.width(), s.height())
                         .map_err(|e| PatternError::new(e.to_string()))
                 })
-                .with_accepts_user_input(move || Ok(Some(accepts_now)));
+                .with_accepts_user_input(check_input_idle);
             return Some(Arc::new(actions) as Arc<dyn UiPattern>);
         }
         None
@@ -480,6 +538,19 @@ impl UiAttribute for AcceptsUserInputAttr {
     fn namespace(&self) -> Namespace { Namespace::Control }
     fn name(&self) -> &str { "AcceptsUserInput" }
     fn value(&self) -> UiValue {
+        // Get process ID for WaitForInputIdle checking
+        let pid = crate::map::get_process_id(&self.elem).unwrap_or(-1);
+
+        // First check if the process is ready for input using WaitForInputIdle
+        let input_checker = WaitForInputIdleChecker::new(pid);
+        if let Ok(Some(idle_ready)) = input_checker.check_input_idle() {
+            if !idle_ready {
+                // Process is not ready for input (busy or error)
+                return UiValue::from(false);
+            }
+        }
+
+        // Process is idle or check failed - fall back to basic enabled/visible check
         let enabled = crate::map::get_is_enabled(&self.elem).unwrap_or(false);
         let off = crate::map::get_is_offscreen(&self.elem).unwrap_or(false);
         UiValue::from(enabled && !off)

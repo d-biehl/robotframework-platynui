@@ -76,7 +76,7 @@ fn streaming_exists_short_circuits() {
     let elapsed = start.elapsed();
 
     match &result.unwrap() {
-        XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => assert_eq!(*b, true),
+        XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => assert!(*b),
         _ => panic!("Expected boolean"),
     }
 
