@@ -153,6 +153,16 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] `mock-provider`-Feature dokumentieren und sicherstellen, dass es sämtliche produktiven Plattform- und Provider-Crates ausschließt (nur Mock bleibt übrig).
 - [x] Überprüfen, dass reale Plattformmodule ausschließlich über `cfg(target_os = …)` eingebunden werden und niemals parallel aktiv sind.
 
+### 18a. ScrollIntoView Runtime-Aktion – Design & Mock-Implementation
+- [ ] **Runtime-Aktion definieren**: `scroll_into_view(node: &Arc<dyn UiNode>)` als Runtime-Funktion für **alle Elemente**. Versucht das gesamte Element sichtbar zu machen; bei großen Elementen wird der Bereich um den ActivationPoint priorisiert.
+- [ ] **ScrollIntoViewPattern**: Provider implementieren `ScrollIntoViewPattern` für jedes Element, nicht nur für scrollbare. Fallback-Verhalten bei fehlenden scrollbaren Containern (No-Op).
+- [ ] **Dynamische Container-Erkennung**: Runtime traversiert zur Laufzeit die Ancestor-Kette und findet scrollbare Container mit `Scrollable`-Pattern.
+- [ ] **Runtime-Implementierung**: Fokussierte Scroll-Logik die scrollbare Container zur Laufzeit identifiziert und Element in sichtbaren Bereich scrollt.
+- [ ] **Mock-Implementation**: `platynui-provider-mock` erweitern um scrollbare Container-Hierarchien und Runtime-Logging für `scroll_into_view()`-Aufrufe. Implementierung für alle Elemente mit intelligenter Scroll-Strategie (ganzes Element vs. ActivationPoint-Bereich).
+- [ ] **CLI-Integration**: Optionaler `--scroll-into-view`-Flag für `pointer click` Kommando sowie separates `scroll-into-view` Subkommando.
+- [ ] **Tests**: Umfassende Tests für Runtime-Container-Suche, Options-Parsing, Mock-Logging und CLI-Integration (rstest, Feature-Flag `mock-provider`).
+- [ ] **Dokumentation vervollständigen**: Technologie-Mapping und Implementierungsdetails für verschiedene Plattformen dokumentieren.
+
 ### 19. Plattform Windows – Devices & UiTree
 
 #### 19.1 Pointer (`platynui-platform-windows`)
@@ -236,9 +246,19 @@ Weitere Details siehe: `docs/provider_windows_uia_design.md`.
 
 
 #### 19.8 Fokus & WindowSurface via UIA
-- [ ] Fokussteuerung (`focus_control`) und WindowSurface-Aktionen (aktivieren/minimieren/maximieren/verschieben) direkt über UIAutomation (`WindowPattern`, `InvokePattern`, `WaitForInputIdle`) kapseln.
-- [ ] Fehler-Mapping in `FocusableAction`/`WindowSurface` konsolidieren, Integrationstests mit Provider-Nodes.
+- [x] Fokussteuerung (`SetFocus`) und WindowSurface-Aktionen (aktivieren/minimieren/maximieren/verschieben) direkt über UIAutomation (`WindowPattern`, `TransformPattern`) implementiert.
+- [x] Fehler-Mapping in `FocusableAction`/`WindowSurface` umgesetzt, Basic-Pattern-Integration funktional.
+- [x] **WaitForInputIdle-Integration**: `WaitForInputIdle()` Win32 API in `accepts_user_input()` implementiert - prüft, ob Prozess bereit für Input ist (100ms Timeout). Kombiniert mit `IsEnabled` und `!IsOffscreen` für robuste Interaktionsbereitschaft.
+- [ ] **Erweiterte Fehlerbehandlung**: Robuste Behandlung von Foreground-Locks, UAC-Dialogen, nicht-responsive Anwendungen.
+- [ ] Integrationstests mit Provider-Nodes für verschiedene Anwendungstypen (WPF, WinForms, Win32, UWP).
 - [ ] Dokumentation: Ablaufdiagramme, Troubleshooting (Foreground-Locks, UAC), Abgleich mit Provider-Checklist.
+
+#### 19.9 ScrollIntoView Runtime-Aktion via UIA
+- [ ] `scroll_into_view()` Runtime-Implementierung für UIA: `ScrollIntoViewPattern` für alle Elemente. Nutzt `ScrollItemPattern::ScrollIntoView()` und `VirtualizedItemPattern::Realize()` mit intelligenter Scroll-Strategie (ganzes Element vs. ActivationPoint-Fokus).
+- [ ] Dynamische Container-Suche: Implementierung der Ancestor-Traversierung mit TreeWalker zur Laufzeit-Identifikation von scrollbaren Parent-Elementen mit `Scrollable`-Pattern.
+- [ ] Fehlerbehandlung: UIA-spezifische Fehlerzustände (Element nicht realisierbar, Scroll nicht verfügbar, etc.) auf Runtime-Errors abbilden.
+- [ ] Integration in bestehende CLI-Pointer-Logik: Automatisches ScrollIntoView vor Click-Aktionen als Option.
+- [ ] Tests: UIA-Provider mit ScrollItemPattern/VirtualizedItemPattern, Koordination mit Windows-eigenen Scrollable Controls.
 
 #### 19.9 Tests & Mock-Abgleich
 - [ ] Gemeinsame Tests (Provider vs. Mock) für Bounds, ActivationPoint, Sichtbarkeit/Enabled, Fokuswechsel und WindowSurface-Aktionen etablieren.

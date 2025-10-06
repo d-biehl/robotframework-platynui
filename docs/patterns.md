@@ -264,6 +264,29 @@ Provider sollten dokumentieren, wenn sie von den vorgeschlagenen Zuordnungen abw
 
 Alle Methoden liefern `Result<_, PatternError>`; Fehler bleiben damit transparent für Clients. Provider registrieren RuntimePatterns im `PatternRegistry`, während ClientPatterns ausschließlich über Attribute beschrieben werden.
 
+### Elementare Runtime-Aktionen
+
+Zusätzlich zu den pattern-spezifischen Aktionen bietet die Runtime grundlegende Aktionen für **`control:` und `item:` Elemente**:
+
+| Aktion | Signatur | Beschreibung |
+| --- | --- | --- |
+| `scroll_into_view` | `scroll_into_view(node: &Arc<dyn UiNode>)` | Scrollt ein Element in den sichtbaren Bereich seines scrollbaren Containers. Versucht das gesamte Element sichtbar zu machen; bei großen Elementen wird der Bereich um den ActivationPoint priorisiert. |
+
+#### ScrollIntoView-Implementierung
+- **Zweck:** `control:` und `item:` Elemente können in den sichtbaren Bereich ihres scrollbaren Containers gescrollt werden.
+- **Scope:** Fokussiert ausschließlich auf Scroll-Aktionen. Keine automatische Fenster-Aktivierung, Tab-Wechsel oder Container-Erweiterung.
+- **Provider-Verantwortung:** UiTreeProvider implementieren `ScrollIntoViewPattern` für **jedes Element** (nicht nur scrollbare). Die Implementierung ist provider-spezifisch:
+  1. **Container-Identifikation:** Provider ermitteln die zuständigen scrollbaren Ancestors (per TreeWalker, parent traversal, etc.)
+  2. **Scroll-Fähigkeit prüfen:** Provider checken ob scrollbare Container das Element sichtbar machen können
+  3. **Scroll-Strategie:** Versuche das **gesamte Element** sichtbar zu machen. Wenn das nicht möglich ist (Element größer als Viewport), dann priorisiere den Bereich um den **ActivationPoint**
+  4. **Scroll-Koordination:** Provider koordinieren das Scrolling über plattformspezifische APIs (ScrollItemPattern, scroll_to_point, etc.)
+  5. **Fallback-Verhalten:** Wenn kein scrollbarer Container gefunden wird, sollte die Methode erfolgreich zurückkehren (No-Op)
+- **Runtime-Integration:** Runtime ruft `node.pattern::<ScrollIntoViewPattern>()?.scroll_into_view()` auf, analog zu `FocusablePattern::focus()`.
+- **Technologie-Mapping:**
+  - **Windows UIA:** `ScrollItemPattern::ScrollIntoView()`, `VirtualizedItemPattern::Realize()`
+  - **AT-SPI2:** `Component::scroll_to_point()`, `Action::do_action("scroll")`
+  - **macOS AX:** `AXScrollToVisible`
+
 ### Geräteinteraktion (Idee)
 Diese Patterns sind Diskussionsstoff, da sie eng mit Device-Providern verknüpft sind und `ActivationTarget` ergänzen könnten:
 - **PointerTarget:** Liefert detaillierte Hit-Test-Informationen und ggf. dynamische Koordinaten für Zeigegeräte.
@@ -306,7 +329,7 @@ Diese Patterns sind Diskussionsstoff, da sie eng mit Device-Providern verknüpft
 - **Tabellenzelle:** `TextContent` + optional `Selectable` + optional `StatefulValue`.
 - **Fenster:** `WindowSurface` + optional `Focusable` + `Highlightable`.
 
-Diese Beispiele zeigen, dass Kontrollelemente keine eigenen Patterns brauchen: ihre Fähigkeiten ergeben sich aus der Kombination der entsprechenden Traits.
+Diese Beispiele zeigen, dass Kontrollelemente keine eigenen Patterns brauchen: ihre Fähigkeiten ergeben sich aus der Kombination der entsprechenden Traits. Die `scroll_into_view()` Runtime-Aktion ist für **`control:` und `item:` Elemente** verfügbar und verbessert die Zuverlässigkeit von Automatisierungsaktionen durch gezieltes Scrollen in den sichtbaren Bereich.
 
 ## Offene Fragen
 - Welche Patterns sind für den ersten MVP notwendig, welche können nachgelagert folgen?
