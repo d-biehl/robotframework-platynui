@@ -3,7 +3,7 @@ use platynui_core::platform::{
     PointOrigin, PointerAccelerationProfile, PointerButton, PointerMotionMode, ScrollDelta,
 };
 use platynui_core::types::{Point, Rect};
-use platynui_core::ui::attribute_names::{activation_target, element};
+use platynui_core::ui::attribute_names::{activation_target, element, common};
 use platynui_core::ui::{Namespace, UiNode, UiValue};
 use platynui_runtime::{EvaluationItem, PointerError, PointerOverrides, Runtime};
 use std::sync::Arc;
@@ -210,97 +210,163 @@ pub fn run(runtime: &Runtime, args: &PointerArgs) -> CliResult<String> {
 
 fn run_move(runtime: &Runtime, args: &PointerMoveArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
-    let target = match (&args.expression, &args.point) {
-        (Some(expr), _) => resolve_point_from_expr(runtime, expr)?,
-        (None, Some(p)) => *p,
+    let (target, element_info) = match (&args.expression, &args.point) {
+        (Some(expr), _) => {
+            let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+            (point, Some(format_element_info(&node)))
+        },
+        (None, Some(p)) => (*p, None),
         (None, None) => anyhow::bail!("either --expr or a point must be provided"),
     };
     runtime.pointer_move_to(target, overrides).map_err(map_pointer_error)?;
-    Ok(String::new())
+    if let Some(info) = element_info {
+        Ok(format!("Moved pointer to element: {}", info))
+    } else {
+        Ok(String::new())
+    }
 }
 
 fn run_click(runtime: &Runtime, args: &PointerClickArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
-    if args.no_move {
+    let element_info = if args.no_move {
         // Do not move: perform press+release at current location
         runtime.pointer_press(None, Some(args.button), overrides.clone()).map_err(map_pointer_error)?;
         runtime.pointer_release(Some(args.button), overrides).map_err(map_pointer_error)?;
+        None
     } else {
-        let target = match (&args.expression, &args.point) {
-            (Some(expr), _) => resolve_point_from_expr(runtime, expr)?,
-            (None, Some(p)) => *p,
+        let (target, info) = match (&args.expression, &args.point) {
+            (Some(expr), _) => {
+                let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+                (point, Some(format_element_info(&node)))
+            },
+            (None, Some(p)) => (*p, None),
             (None, None) => anyhow::bail!("either --expr or a point must be provided"),
         };
         runtime.pointer_click(target, Some(args.button), overrides).map_err(map_pointer_error)?;
+        info
+    };
+    if let Some(info) = element_info {
+        Ok(format!("Clicked on element: {}", info))
+    } else {
+        Ok(String::new())
     }
-    Ok(String::new())
 }
 
 fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
-    if args.no_move {
+    let element_info = if args.no_move {
         for _ in 0..args.count {
             runtime.pointer_press(None, Some(args.button), overrides.clone()).map_err(map_pointer_error)?;
             runtime.pointer_release(Some(args.button), overrides.clone()).map_err(map_pointer_error)?;
         }
+        None
     } else {
-        let target = match (&args.expression, &args.point) {
-            (Some(expr), _) => resolve_point_from_expr(runtime, expr)?,
-            (None, Some(p)) => *p,
+        let (target, info) = match (&args.expression, &args.point) {
+            (Some(expr), _) => {
+                let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+                (point, Some(format_element_info(&node)))
+            },
+            (None, Some(p)) => (*p, None),
             (None, None) => anyhow::bail!("either --expr or a point must be provided"),
         };
         runtime
             .pointer_multi_click(target, Some(args.button), args.count, overrides)
             .map_err(map_pointer_error)?;
+        info
+    };
+    if let Some(info) = element_info {
+        Ok(format!("Multi-clicked {} times on element: {}", args.count, info))
+    } else {
+        Ok(String::new())
     }
-    Ok(String::new())
 }
 
 fn run_press(runtime: &Runtime, args: &PointerPressArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
-    let target = if args.no_move {
-        None
+    let (target, element_info) = if args.no_move {
+        (None, None)
     } else if let Some(expr) = &args.expression {
-        Some(resolve_point_from_expr(runtime, expr)?)
+        let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+        (Some(point), Some(format_element_info(&node)))
     } else {
-        args.point
+        (args.point, None)
     };
     runtime.pointer_press(target, Some(args.button), overrides).map_err(map_pointer_error)?;
-    Ok(String::new())
+    if let Some(info) = element_info {
+        Ok(format!("Pressed mouse button on element: {}", info))
+    } else {
+        Ok(String::new())
+    }
 }
 
 fn run_release(runtime: &Runtime, args: &PointerReleaseArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
-    if !args.no_move {
+    let element_info = if !args.no_move {
         if let Some(expr) = &args.expression {
-            let target = resolve_point_from_expr(runtime, expr)?;
+            let (target, node) = resolve_point_and_node_from_expr(runtime, expr)?;
             let _ = runtime.pointer_move_to(target, overrides.clone()).map_err(map_pointer_error)?;
+            Some(format_element_info(&node))
+        } else {
+            None
         }
-    }
+    } else {
+        None
+    };
     runtime.pointer_release(Some(args.button), overrides).map_err(map_pointer_error)?;
-    Ok(String::new())
+    if let Some(info) = element_info {
+        Ok(format!("Released mouse button on element: {}", info))
+    } else {
+        Ok(String::new())
+    }
 }
 
 fn run_scroll(runtime: &Runtime, args: &PointerScrollArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
-    if !args.no_move {
+    let element_info = if !args.no_move {
         if let Some(expr) = &args.expr {
-            let target = resolve_point_from_expr(runtime, expr)?;
+            let (target, node) = resolve_point_and_node_from_expr(runtime, expr)?;
             let _ = runtime.pointer_move_to(target, overrides.clone()).map_err(map_pointer_error)?;
+            Some(format_element_info(&node))
+        } else {
+            None
         }
-    }
+    } else {
+        None
+    };
     runtime.pointer_scroll(args.delta, overrides).map_err(map_pointer_error)?;
-    Ok(String::new())
+    if let Some(info) = element_info {
+        Ok(format!("Scrolled on element: {}", info))
+    } else {
+        Ok(String::new())
+    }
 }
 
 fn run_drag(runtime: &Runtime, args: &PointerDragArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
     let mut start = args.from;
     let mut end = args.to;
-    if let Some(expr) = &args.from_expr { start = resolve_point_from_expr(runtime, expr)?; }
-    if let Some(expr) = &args.to_expr { end = resolve_point_from_expr(runtime, expr)?; }
+    let mut from_info = None;
+    let mut to_info = None;
+    
+    if let Some(expr) = &args.from_expr { 
+        let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+        start = point;
+        from_info = Some(format_element_info(&node));
+    }
+    if let Some(expr) = &args.to_expr { 
+        let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+        end = point;
+        to_info = Some(format_element_info(&node));
+    }
+    
     runtime.pointer_drag(start, end, Some(args.button), overrides).map_err(map_pointer_error)?;
-    Ok(String::new())
+    
+    match (from_info, to_info) {
+        (Some(from), Some(to)) => Ok(format!("Dragged from element: {} to element: {}", from, to)),
+        (Some(from), None) => Ok(format!("Dragged from element: {} to point ({:.1}, {:.1})", from, end.x(), end.y())),
+        (None, Some(to)) => Ok(format!("Dragged from point ({:.1}, {:.1}) to element: {}", start.x(), start.y(), to)),
+        (None, None) => Ok(String::new()),
+    }
 }
 
 fn run_position(runtime: &Runtime) -> CliResult<String> {
@@ -449,7 +515,28 @@ fn parse_click_count(value: &str) -> Result<u32, String> {
 
 fn map_pointer_error(err: PointerError) -> anyhow::Error { anyhow::Error::new(err) }
 
-fn resolve_point_from_expr(runtime: &Runtime, expr: &str) -> CliResult<Point> {
+fn format_element_info(node: &Arc<dyn UiNode>) -> String {
+    let role = node.role();
+    let name = node.name();
+    let runtime_id = node.runtime_id().as_str();
+    
+    // Try to get additional info from attributes if available
+    let technology = node
+        .attribute(Namespace::Control, common::TECHNOLOGY)
+        .and_then(|attr| match attr.value() {
+            UiValue::String(s) => Some(s),
+            _ => None,
+        });
+    
+    let mut info = format!("{}[\"{}\"]", role, name);
+    if let Some(tech) = technology {
+        info.push_str(&format!(" ({})", tech));
+    }
+    info.push_str(&format!(", id: {}", runtime_id));
+    info
+}
+
+fn resolve_point_and_node_from_expr(runtime: &Runtime, expr: &str) -> CliResult<(Point, Arc<dyn UiNode>)> {
     let item = runtime
         .evaluate_single(None, expr)
         .map_err(map_evaluate_error)?
@@ -458,8 +545,9 @@ fn resolve_point_from_expr(runtime: &Runtime, expr: &str) -> CliResult<Point> {
         EvaluationItem::Node(node) => node,
         _ => anyhow::bail!("expression `{expr}` must select a node"),
     };
-    activation_point_or_bounds_center(&node)
-        .ok_or_else(|| anyhow::anyhow!("expression `{expr}` did not yield a usable ActivationPoint/Bounds"))
+    let point = activation_point_or_bounds_center(&node)
+        .ok_or_else(|| anyhow::anyhow!("expression `{expr}` did not yield a usable ActivationPoint/Bounds"))?;
+    Ok((point, node))
 }
 
 fn activation_point_or_bounds_center(node: &Arc<dyn UiNode>) -> Option<Point> {
