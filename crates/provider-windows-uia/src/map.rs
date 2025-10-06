@@ -106,24 +106,30 @@ pub fn get_bounding_rect(elem: &IUIAutomationElement) -> Result<Rect, crate::err
             "IUIAutomationElement::CurrentBoundingRectangle",
             elem.CurrentBoundingRectangle(),
         )?;
-        // Treat it as Foundation::RECT with integer fields
-        let left = (r.left) as f64;
-        let top = (r.top) as f64;
+
+        let left = r.left as f64;
+        let top = r.top as f64;
         let width = (r.right - r.left).max(0) as f64;
         let height = (r.bottom - r.top).max(0) as f64;
         Ok(Rect::new(left, top, width, height))
     }
 }
-
 pub fn get_clickable_point(elem: &IUIAutomationElement) -> Result<UiPoint, crate::error::UiaError> {
     unsafe {
-        // UIA returns a POINT in desktop coordinates; call may fail with UIA_E_NOCLICKABLEPOINT
+        // UIA returns a POINT in desktop coordinates and a BOOL as return value indicating success
         let mut pt = POINT { x: 0, y: 0 };
-        crate::error::uia_api(
+
+        let got_clickable = crate::error::uia_api(
             "IUIAutomationElement::GetClickablePoint",
             elem.GetClickablePoint(&mut pt),
-        )
-        .map(|_| UiPoint::new(pt.x as f64, pt.y as f64))
+        )?;
+
+        // Check if a clickable point was actually found
+        if got_clickable.as_bool() {
+            Ok(UiPoint::new(pt.x as f64, pt.y as f64))
+        } else {
+            Err(crate::error::UiaError::NoClickablePoint)
+        }
     }
 }
 
@@ -215,7 +221,9 @@ pub fn query_process_command_line(handle: HANDLE) -> Option<String> {
     // Use NtQueryInformationProcess(ProcessCommandLineInformation) from ntdll to query
     // the command line UNICODE_STRING. Requires PROCESS_QUERY_INFORMATION | PROCESS_VM_READ.
     unsafe {
-        use windows::Wdk::System::Threading::{NtQueryInformationProcess, ProcessCommandLineInformation};
+        use windows::Wdk::System::Threading::{
+            NtQueryInformationProcess, ProcessCommandLineInformation,
+        };
         use windows::Win32::Foundation::{NTSTATUS, STATUS_INFO_LENGTH_MISMATCH, STATUS_SUCCESS};
 
         let mut cap: u32 = 4096; // start with 4 KB, grow as needed

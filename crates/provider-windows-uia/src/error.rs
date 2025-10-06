@@ -10,6 +10,9 @@ pub enum UiaError {
 
     #[error("unexpected null from UIAutomation: {0}")]
     Null(&'static str),
+
+    #[error("no clickable point available for element")]
+    NoClickablePoint,
 }
 
 impl UiaError {

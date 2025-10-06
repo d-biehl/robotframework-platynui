@@ -120,9 +120,9 @@ pub struct PointerDragArgs {
     pub from: Point,
     #[arg(long = "to", value_parser = parse_point_arg, allow_hyphen_values = true, help = "End point 'x,y' (or use --to-expr).")]
     pub to: Point,
-    #[arg(long = "from-expr", value_name = "XPATH", help = "XPath selecting the start node.")] 
+    #[arg(long = "from-expr", value_name = "XPATH", help = "XPath selecting the start node.")]
     pub from_expr: Option<String>,
-    #[arg(long = "to-expr", value_name = "XPATH", help = "XPath selecting the end node.")] 
+    #[arg(long = "to-expr", value_name = "XPATH", help = "XPath selecting the end node.")]
     pub to_expr: Option<String>,
     #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg, help = "Mouse button (left/right/middle or numeric code).")]
     pub button: PointerButton,
@@ -347,20 +347,20 @@ fn run_drag(runtime: &Runtime, args: &PointerDragArgs) -> CliResult<String> {
     let mut end = args.to;
     let mut from_info = None;
     let mut to_info = None;
-    
-    if let Some(expr) = &args.from_expr { 
+
+    if let Some(expr) = &args.from_expr {
         let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
         start = point;
         from_info = Some(format_element_info(&node));
     }
-    if let Some(expr) = &args.to_expr { 
+    if let Some(expr) = &args.to_expr {
         let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
         end = point;
         to_info = Some(format_element_info(&node));
     }
-    
+
     runtime.pointer_drag(start, end, Some(args.button), overrides).map_err(map_pointer_error)?;
-    
+
     match (from_info, to_info) {
         (Some(from), Some(to)) => Ok(format!("Dragged from element: {} to element: {}", from, to)),
         (Some(from), None) => Ok(format!("Dragged from element: {} to point ({:.1}, {:.1})", from, end.x(), end.y())),
@@ -519,7 +519,7 @@ fn format_element_info(node: &Arc<dyn UiNode>) -> String {
     let role = node.role();
     let name = node.name();
     let runtime_id = node.runtime_id().as_str();
-    
+
     // Try to get additional info from attributes if available
     let technology = node
         .attribute(Namespace::Control, common::TECHNOLOGY)
@@ -527,7 +527,7 @@ fn format_element_info(node: &Arc<dyn UiNode>) -> String {
             UiValue::String(s) => Some(s),
             _ => None,
         });
-    
+
     let mut info = format!("{}[\"{}\"]", role, name);
     if let Some(tech) = technology {
         info.push_str(&format!(" ({})", tech));
