@@ -804,12 +804,54 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             (AxisIR::Child, NodeTestIR::WildcardAny) => {
                 return Ok(matches!(node.kind(), NodeKind::Element));
             }
+            (AxisIR::Attribute, NodeTestIR::WildcardAny) => {
+                return Ok(matches!(node.kind(), NodeKind::Attribute));
+            }
+            (AxisIR::Namespace, NodeTestIR::WildcardAny) => {
+                return Ok(matches!(node.kind(), NodeKind::Namespace));
+            }
             (
                 AxisIR::DescendantOrSelf,
                 NodeTestIR::KindElement { name: None, ty: None, nillable: false },
             )
             | (AxisIR::DescendantOrSelf, NodeTestIR::WildcardAny) => {
                 // For descendant-or-self element()/"*" we only pass elements
+                return Ok(matches!(node.kind(), NodeKind::Element));
+            }
+            (AxisIR::SelfAxis, NodeTestIR::WildcardAny) => {
+                // self::* should only match elements (not document nodes)
+                return Ok(matches!(node.kind(), NodeKind::Element));
+            }
+            (AxisIR::Ancestor, NodeTestIR::WildcardAny) => {
+                // ancestor::* should only match elements (not document nodes)
+                return Ok(matches!(node.kind(), NodeKind::Element));
+            }
+            (AxisIR::AncestorOrSelf, NodeTestIR::WildcardAny) => {
+                // ancestor-or-self::* should only match elements (not document nodes)
+                return Ok(matches!(node.kind(), NodeKind::Element));
+            }
+            (AxisIR::Descendant, NodeTestIR::WildcardAny) => {
+                // descendant::* should only match elements (not document nodes)
+                return Ok(matches!(node.kind(), NodeKind::Element));
+            }
+            (AxisIR::Following, NodeTestIR::WildcardAny) => {
+                // following::* should only match elements (not document nodes)
+                return Ok(matches!(node.kind(), NodeKind::Element));
+            }
+            (AxisIR::Preceding, NodeTestIR::WildcardAny) => {
+                // preceding::* should only match elements (not document nodes)
+                return Ok(matches!(node.kind(), NodeKind::Element));
+            }
+            (AxisIR::FollowingSibling, NodeTestIR::WildcardAny) => {
+                // following-sibling::* should only match elements (not document nodes)
+                return Ok(matches!(node.kind(), NodeKind::Element));
+            }
+            (AxisIR::PrecedingSibling, NodeTestIR::WildcardAny) => {
+                // preceding-sibling::* should only match elements (not document nodes)
+                return Ok(matches!(node.kind(), NodeKind::Element));
+            }
+            (AxisIR::Parent, NodeTestIR::WildcardAny) => {
+                // parent::* should only match elements (not document nodes)
                 return Ok(matches!(node.kind(), NodeKind::Element));
             }
             _ => {}
