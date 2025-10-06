@@ -551,14 +551,12 @@ fn resolve_point_and_node_from_expr(runtime: &Runtime, expr: &str) -> CliResult<
 }
 
 fn activation_point_or_bounds_center(node: &Arc<dyn UiNode>) -> Option<Point> {
-    if let Some(attr) = node.attribute(Namespace::Control, activation_target::ACTIVATION_POINT) {
-        if let UiValue::Point(p) = attr.value() { return Some(p); }
-    }
-    if let Some(attr) = node.attribute(Namespace::Control, element::BOUNDS) {
-        if let UiValue::Rect(r) = attr.value() {
+    if let Some(attr) = node.attribute(Namespace::Control, activation_target::ACTIVATION_POINT)
+        && let UiValue::Point(p) = attr.value() { return Some(p); }
+    if let Some(attr) = node.attribute(Namespace::Control, element::BOUNDS)
+        && let UiValue::Rect(r) = attr.value() {
             return Some(Point::new(r.x() + r.width() / 2.0, r.y() + r.height() / 2.0));
         }
-    }
     None
 }
 

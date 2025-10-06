@@ -86,13 +86,13 @@ pub(crate) fn summarize_query_results(
 ) -> Vec<QueryItemSummary> {
     results
         .into_iter()
-        .filter_map(|item| match item {
+        .map(|item| match item {
             EvaluationItem::Node(node) => {
                 let patterns = node.supported_patterns();
-                Some(node_to_query_summary(node, patterns))
+                node_to_query_summary(node, patterns)
             }
             EvaluationItem::Attribute(attr) => {
-                Some(QueryItemSummary::Attribute {
+                QueryItemSummary::Attribute {
                     owner_runtime_id: attr.owner.runtime_id().as_str().to_owned(),
                     owner_namespace: attr.owner.namespace().as_str().to_owned(),
                     owner_role: attr.owner.role().to_owned(),
@@ -100,10 +100,10 @@ pub(crate) fn summarize_query_results(
                     namespace: attr.namespace.as_str().to_owned(),
                     name: attr.name.clone(),
                     value: attr.value.clone(),
-                })
+                }
             }
             EvaluationItem::Value(value) => {
-                Some(QueryItemSummary::Value { value })
+                QueryItemSummary::Value { value }
             }
         })
         .collect()

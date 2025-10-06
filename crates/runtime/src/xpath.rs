@@ -21,6 +21,12 @@ const ITEM_NS_URI: &str = "urn:platynui:item";
 const APP_NS_URI: &str = "urn:platynui:app";
 const NATIVE_NS_URI: &str = "urn:platynui:native";
 
+// Type aliases for complex iterator types to satisfy clippy::type_complexity
+type NodeIterator = Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>;
+type AttributeIterator = Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send>;
+type NodeIteratorCell = Rc<RefCell<Option<NodeIterator>>>;
+type AttributeIteratorCell = Rc<RefCell<Option<AttributeIterator>>>;
+
 /// Resolves nodes by runtime identifier on demand (e.g. after provider reloads).
 pub trait NodeResolver: Send + Sync {
     fn resolve(&self, runtime_id: &RuntimeId) -> Result<Option<Arc<dyn UiNode>>, ProviderError>;
@@ -373,10 +379,10 @@ struct DocumentData {
     root: Arc<dyn UiNode>,
     runtime_id: RuntimeId,
     // Persistent inner iterators + caches
-    children_inner: Rc<RefCell<Option<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>>>>,
+    children_inner: NodeIteratorCell,
     children_cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
     children_finished: Rc<Cell<bool>>,
-    attrs_inner: Rc<RefCell<Option<Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send>>>>,
+    attrs_inner: AttributeIteratorCell,
     attrs_cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
     attrs_finished: Rc<Cell<bool>>,
 }
@@ -403,10 +409,10 @@ struct ElementData {
     namespace: UiNamespace,
     role: String,
     order_key: Option<u64>,
-    children_inner: Rc<RefCell<Option<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>>>>,
+    children_inner: NodeIteratorCell,
     children_cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
     children_finished: Rc<Cell<bool>>,
-    attrs_inner: Rc<RefCell<Option<Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send>>>>,
+    attrs_inner: AttributeIteratorCell,
     attrs_cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
     attrs_finished: Rc<Cell<bool>>,
     parent_cache: Rc<RefCell<Option<Option<RuntimeXdmNode>>>>,
@@ -731,7 +737,7 @@ fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
 }
 
 struct NodeChildrenIter<'a> {
-    inner: Rc<RefCell<Option<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>>>>,
+    inner: NodeIteratorCell,
     cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
     finished: Rc<Cell<bool>>,
     pos: usize,
@@ -740,7 +746,7 @@ struct NodeChildrenIter<'a> {
 }
 impl<'a> NodeChildrenIter<'a> {
     fn from_shared(
-        inner: Rc<RefCell<Option<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>>>>,
+        inner: NodeIteratorCell,
         cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
         finished: Rc<Cell<bool>>,
     ) -> Self {
@@ -805,7 +811,7 @@ impl<'a> Iterator for NodeChildrenIter<'a> {
 
 struct NodeAttributeIter<'a> {
     owner: Arc<dyn UiNode>,
-    inner: Rc<RefCell<Option<Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send>>>>,
+    inner: AttributeIteratorCell,
     cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
     finished: Rc<Cell<bool>>,
     pos: usize,
@@ -814,7 +820,7 @@ struct NodeAttributeIter<'a> {
 impl<'a> NodeAttributeIter<'a> {
     fn from_shared(
         owner: Arc<dyn UiNode>,
-        inner: Rc<RefCell<Option<Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send>>>>,
+        inner: AttributeIteratorCell,
         cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
         finished: Rc<Cell<bool>>,
     ) -> Self {
@@ -919,10 +925,10 @@ impl<'a> Iterator for NodeAttributeIter<'a> {
                 }
                 // Fallback: inconsistent state — mark finished
                 self.finished.set(true);
-                return None;
+                None
         } else {
             self.finished.set(true);
-            return None;
+            None
         }
     }
 }
