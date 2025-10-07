@@ -4,7 +4,7 @@
 
 ## Gemeinsame Prüfschritte
 - [ ] Modul registriert sich über das vorgesehene `inventory`-Makro (`register_platform_module!`, `register_provider!`) und exportiert exakt eine Factory-Implementierung je Rolle (Plattform, Device, Provider).
-- [ ] Produktive Implementierungen müssen unter ihrem Zielbetriebssystem (`cfg(target_os = …)`) kompiliert werden. Ist das Feature `mock-provider` aktiv, dürfen ausschließlich die Mock-Module registriert werden; reale Plattform- und Provider-Crates werden dann vollständig ausgeschlossen.
+- [ ] Produktive Implementierungen müssen unter ihrem Zielbetriebssystem (`cfg(target_os = …)`) kompiliert werden und registrieren sich automatisch via `register_provider!`. Mock-Provider (`platynui-provider-mock`, `platynui-platform-mock`) registrieren sich **nicht** automatisch – sie sind ausschließlich über explizite Factory-Handles verfügbar (in Rust: `MOCK_PROVIDER_FACTORY.create()`, in Python: `Runtime.new_with_providers([MOCK_PROVIDER])`).
 - [ ] Für Linux-spezifische Implementierungen ist perspektivisch ein Vermittlungscrate (`platynui-platform-linux`) vorgesehen, das je Session zwischen X11 und Wayland vermittelt. Stellt sicher, dass `platynui-platform-linux-x11` und `platynui-platform-linux-wayland` kompatible Schnittstellen anbieten, um dort eingebunden zu werden.
 - [ ] `ProviderDescriptor` ist vollständig ausgefüllt (`id`, Anzeigename, `Technology`, `ProviderKind`) und spiegelt die tatsächliche Quelle wider.
 - [ ] `ProviderDescriptor::event_capabilities` beschreibt exakt, welche Ereignisse die Implementierung liefern kann (`None`, `ChangeHint`, `Structure`, `StructureWithProperties`). Wird keine Stufe gesetzt, muss der Provider davon ausgehen, dass die Runtime vor Abfragen Vollabfragen triggert.

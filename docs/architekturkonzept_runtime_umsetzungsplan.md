@@ -62,7 +62,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 ### 5. CLI `list-providers` – Mock-Basis schaffen
 - [x] Minimalen Laufweg „Runtime + platynui-platform-mock + platynui-provider-mock“ herstellen (Provider-Registry initialisieren, Mock-Provider instanziieren).
 - [x] `platynui-platform-mock`: Grundgerüst mit Stub-Geräten & Logging, liefert zumindest Technologie-/Versionsinformationen.
-- [x] `platynui-provider-mock`: Registriert sich mit eindeutiger `ProviderDescriptor`, stellt einfache Baumdaten bereit.
+- [x] `platynui-provider-mock`: Wird über Factory-Handle bereitgestellt (keine Auto-Registrierung), stellt einfache Baumdaten bereit.
 - [x] CLI-Kommando `list-providers`: Gibt registrierte Provider/Technologien aus (Name, Version, Aktiv-Status), unterstützt Text und JSON.
 - [x] Tests: Provider-Registry + CLI-Output gegen Mock-Setup; `rstest` verwenden.
 

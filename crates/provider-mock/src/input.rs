@@ -288,7 +288,7 @@ mod tests {
     #[serial]
     fn replace_and_append_text_updates_attribute() {
         reset_mock_tree();
-        let _provider = provider::instantiate_registered_provider();
+        let _provider = provider::instantiate_test_provider();
 
         replace_text(STATUS_ID, "Hallo").expect("replace succeeds");
         append_text(STATUS_ID, " Welt").expect("append succeeds");
@@ -301,7 +301,7 @@ mod tests {
     #[serial]
     fn keyboard_events_append_characters() {
         reset_mock_tree();
-        let _provider = provider::instantiate_registered_provider();
+        let _provider = provider::instantiate_test_provider();
 
         replace_text(STATUS_ID, "").expect("clear succeeds");
         let events = [
@@ -321,7 +321,7 @@ mod tests {
     #[serial]
     fn keyboard_events_honor_backspace_and_modifiers() {
         reset_mock_tree();
-        let _provider = provider::instantiate_registered_provider();
+        let _provider = provider::instantiate_test_provider();
 
         replace_text(STATUS_ID, "Ready").expect("reset text");
         let events = [

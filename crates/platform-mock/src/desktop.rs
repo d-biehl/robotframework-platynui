@@ -1,18 +1,15 @@
 use platynui_core::platform::{
     DesktopInfo, DesktopInfoProvider, MonitorInfo, PlatformError, PlatformModule,
 };
-use platynui_core::register_desktop_info_provider;
-use platynui_core::register_platform_module;
 use platynui_core::types::Rect;
 use platynui_core::ui::{RuntimeId, TechnologyId};
 
-pub(crate) static MOCK_PLATFORM: MockPlatform = MockPlatform;
+pub static MOCK_PLATFORM: MockPlatform = MockPlatform;
 
-register_platform_module!(&MOCK_PLATFORM);
-register_desktop_info_provider!(&MOCK_PLATFORM);
+// Mock platform does NOT auto-register - only available via explicit handles
 
 #[derive(Debug)]
-pub(crate) struct MockPlatform;
+pub struct MockPlatform;
 
 impl MockPlatform {
     pub(crate) const NAME: &'static str = "Mock Platform";
@@ -70,9 +67,9 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    fn mock_platform_is_registered() {
+    fn mock_platform_not_auto_registered() {
         let names: Vec<_> = platform_modules().map(|module| module.name()).collect();
-        assert!(names.contains(&MockPlatform::NAME));
+        assert!(!names.contains(&MockPlatform::NAME), "Mock platform should not be auto-registered");
     }
 
     #[rstest]
@@ -81,11 +78,15 @@ mod tests {
     }
 
     #[rstest]
-    fn desktop_info_provider_is_registered() {
+    fn desktop_info_provider_not_auto_registered() {
         let infos: Vec<_> =
             desktop_info_providers().filter_map(|provider| provider.desktop_info().ok()).collect();
-        assert!(!infos.is_empty());
-        let info = &infos[0];
+        // Mock provider should NOT be in the registry
+        let mock_in_registry = infos.iter().any(|info| info.os_name == "MockOS");
+        assert!(!mock_in_registry, "Mock desktop info provider should not be auto-registered");
+
+        // Use direct reference for testing the provider itself
+        let info = MOCK_PLATFORM.desktop_info().unwrap();
         assert_eq!(info.os_name, "MockOS");
         assert_eq!(info.display_count(), 3);
         assert_eq!(info.bounds, Rect::new(-2160.0, -840.0, 7920.0, 3840.0));

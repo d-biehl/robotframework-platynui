@@ -6,6 +6,8 @@ use platynui_core::provider::{
     ProviderDescriptor, ProviderError, ProviderEvent, ProviderEventKind, ProviderEventListener,
     UiTreeProvider,
 };
+#[cfg(test)]
+use platynui_core::provider::UiTreeProviderFactory;
 use platynui_core::ui::Namespace;
 use platynui_core::ui::UiNode;
 use std::collections::HashMap;
@@ -91,11 +93,8 @@ impl UiTreeProvider for MockProvider {
 }
 
 #[cfg(test)]
-pub(crate) fn instantiate_registered_provider() -> Arc<dyn UiTreeProvider> {
+pub(crate) fn instantiate_test_provider() -> Arc<dyn UiTreeProvider> {
     crate::tree::reset_mock_tree();
-    platynui_core::provider::provider_factories()
-        .find(|factory| factory.descriptor().id == crate::factory::PROVIDER_ID)
-        .expect("mock provider registered")
-        .create()
-        .expect("mock provider instantiation")
+    // Mock provider is no longer auto-registered; use factory directly for tests
+    crate::factory::MOCK_PROVIDER_FACTORY.create().expect("mock provider instantiation")
 }

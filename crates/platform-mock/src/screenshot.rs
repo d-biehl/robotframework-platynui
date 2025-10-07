@@ -3,16 +3,15 @@ use platynui_core::platform::{
     DesktopInfoProvider, PixelFormat, PlatformError, Screenshot, ScreenshotProvider,
     ScreenshotRequest,
 };
-use platynui_core::register_screenshot_provider;
 use platynui_core::types::Rect;
 use std::sync::Mutex;
 
-static MOCK_SCREENSHOT: MockScreenshot = MockScreenshot::new();
+pub static MOCK_SCREENSHOT: MockScreenshot = MockScreenshot::new();
 
-register_screenshot_provider!(&MOCK_SCREENSHOT);
+// Mock screenshot provider does NOT auto-register - only available via explicit handles
 
 #[derive(Debug)]
-struct MockScreenshot {
+pub struct MockScreenshot {
     log: Mutex<Vec<ScreenshotLogEntry>>,
 }
 
@@ -203,9 +202,7 @@ pub fn reset_screenshot_state() {
 }
 
 // Expose provider reference for explicit injection in tests/integration code.
-pub fn screenshot_provider() -> &'static dyn ScreenshotProvider {
-    &MOCK_SCREENSHOT
-}
+// Test helpers for exposing internal state
 
 #[cfg(test)]
 mod tests {
@@ -215,12 +212,16 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    fn screenshot_provider_is_registered() {
+    fn screenshot_provider_not_auto_registered() {
         reset_screenshot_state();
         let providers: Vec<_> = screenshot_providers().collect();
-        assert!(!providers.is_empty());
+        // Mock provider should NOT be in the registry
+        // On most test systems this will be empty, or contain OS providers
+        let mock_in_registry = providers.iter().any(|p| std::ptr::eq(*p, &MOCK_SCREENSHOT as &dyn ScreenshotProvider));
+        assert!(!mock_in_registry, "Mock screenshot provider should not be auto-registered");
 
-        let provider = providers[0];
+        // Use direct reference for testing the provider itself
+        let provider = &MOCK_SCREENSHOT;
 
         let full = provider.capture(&ScreenshotRequest::entire_display()).unwrap();
         assert_eq!(full.width, 7920);
@@ -312,7 +313,8 @@ mod tests {
     #[rstest]
     fn screenshot_region_can_span_monitors() {
         reset_screenshot_state();
-        let provider = screenshot_providers().next().expect("mock provider");
+        // Use direct reference to mock provider
+        let provider = &MOCK_SCREENSHOT;
 
         let region = Rect::new(3700.0, 600.0, 400.0, 200.0);
         let shot = provider

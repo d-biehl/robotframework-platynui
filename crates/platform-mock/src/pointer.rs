@@ -1,5 +1,5 @@
 use platynui_core::platform::{
-    PlatformError, PointerButton, PointerDevice, ScrollDelta, register_pointer_device,
+    PlatformError, PointerButton, PointerDevice, ScrollDelta,
 };
 use platynui_core::types::{Point, Size};
 use std::sync::Mutex;
@@ -32,7 +32,7 @@ impl PointerState {
     }
 }
 
-struct MockPointerDevice {
+pub struct MockPointerDevice {
     state: Mutex<PointerState>,
 }
 
@@ -82,9 +82,9 @@ impl PointerDevice for MockPointerDevice {
     }
 }
 
-static MOCK_POINTER: MockPointerDevice = MockPointerDevice::new();
+pub static MOCK_POINTER: MockPointerDevice = MockPointerDevice::new();
 
-register_pointer_device!(&MOCK_POINTER);
+// Mock pointer device does NOT auto-register - only available via explicit handles
 
 /// Clears the recorded pointer log and resets the cursor position to the origin.
 pub fn reset_pointer_state() {
@@ -101,9 +101,7 @@ pub fn take_pointer_log() -> Vec<PointerLogEntry> {
 }
 
 // Expose device reference for explicit injection in tests/integration code.
-pub fn pointer_device() -> &'static dyn PointerDevice {
-    &MOCK_POINTER
-}
+// Test helpers for exposing internal state
 
 #[cfg(test)]
 mod tests {
@@ -111,15 +109,18 @@ mod tests {
     use platynui_core::platform::pointer_devices;
 
     #[test]
-    fn pointer_registration_available() {
+    fn pointer_not_auto_registered() {
         let providers: Vec<_> = pointer_devices().collect();
-        assert!(providers.iter().any(|device| device.position().is_ok()));
+        // Mock pointer should NOT be in the registry
+        let mock_in_registry = providers.iter().any(|device| std::ptr::eq(*device, &MOCK_POINTER as &dyn PointerDevice));
+        assert!(!mock_in_registry, "Mock pointer should not be auto-registered");
     }
 
     #[test]
     fn pointer_log_records_events() {
         reset_pointer_state();
-        let device = pointer_devices().next().expect("mock pointer registered");
+        // Use direct reference to mock pointer
+        let device = &MOCK_POINTER;
 
         device.move_to(Point::new(10.0, 20.0)).unwrap();
         device.press(PointerButton::Left).unwrap();

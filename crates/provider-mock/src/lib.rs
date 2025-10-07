@@ -31,7 +31,6 @@ pub use factory::{APP_RUNTIME_ID, BUTTON_RUNTIME_ID, WINDOW_RUNTIME_ID};
 #[cfg(test)]
 mod tests;
 
-// Register the provider factory with the global inventory so the runtime can use it.
-use platynui_core::register_provider;
-
-register_provider!(&factory::MOCK_PROVIDER_FACTORY);
+// Mock providers are NOT auto-registered.
+// They are ONLY available via Python handles (Runtime.new_with_providers([MOCK_PROVIDER])).
+// This ensures Runtime() uses only OS providers by default.

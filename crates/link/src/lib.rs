@@ -32,6 +32,9 @@ macro_rules! platynui_link_os_providers {
 /// Links either mock providers (when the `mock-provider` feature is enabled on
 /// the calling crate) or the real OS providers otherwise. Linking happens only
 /// in non-test builds; unit tests should use `platynui_link_mock_for_tests!()`.
+///
+/// NOTE: Mock providers linked via this macro are NOT registered in the inventory.
+/// They are available only through explicit factory usage.
 #[macro_export]
 macro_rules! platynui_link_providers {
     () => {
@@ -47,8 +50,8 @@ macro_rules! platynui_link_providers {
 }
 
 /// Links the mock platform + provider into the current test module/binary.
-/// Intended to be called at the top of test modules to ensure inventory
-/// registrations are present regardless of app-level linking.
+/// Intended to be called at the top of test modules to ensure mock providers
+/// are available, though NOT registered in the inventory.
 #[macro_export]
 macro_rules! platynui_link_mock_for_tests {
     () => {

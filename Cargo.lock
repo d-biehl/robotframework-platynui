@@ -1126,6 +1126,7 @@ dependencies = [
 name = "platynui-provider-atspi"
 version = "0.1.0"
 dependencies = [
+ "inventory",
  "once_cell",
  "platynui-core",
 ]
@@ -1138,6 +1139,7 @@ version = "0.1.0"
 name = "platynui-provider-macos-ax"
 version = "0.1.0"
 dependencies = [
+ "inventory",
  "once_cell",
  "platynui-core",
 ]

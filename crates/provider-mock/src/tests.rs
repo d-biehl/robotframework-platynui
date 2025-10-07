@@ -36,7 +36,7 @@ const CANCEL_RUNTIME_ID: &str = "mock://button/cancel";
 
 fn mock_provider() -> Arc<dyn UiTreeProvider> {
     reset_mock_tree();
-    provider::instantiate_registered_provider()
+    provider::instantiate_test_provider()
 }
 
 fn attr_bool(node: &Arc<dyn UiNode>, namespace: Namespace, name: &str) -> bool {
@@ -112,9 +112,11 @@ impl UiNode for DesktopNode {
 }
 
 #[rstest]
-fn provider_registration_present() {
+fn provider_not_auto_registered() {
+    // Mock providers should NOT be auto-registered; they're only available via explicit handles
     let ids: Vec<_> = provider_factories().map(|factory| factory.descriptor().id).collect();
-    assert!(ids.contains(&factory::PROVIDER_ID));
+    assert!(!ids.contains(&factory::PROVIDER_ID),
+        "Mock provider should not be auto-registered, found in: {:?}", ids);
 }
 
 #[rstest]

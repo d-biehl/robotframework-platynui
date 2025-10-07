@@ -47,6 +47,7 @@ Generated artefacts such as `target/`, `.venv/`, `.vscode/`, build caches, and w
 ## Testing Guidelines
 - Rust: Place integration tests under `tests/` in each crate (e.g., `crates/xpath/tests`); use `rstest` for fixtures and parameterization. Name files `test_<feature>.rs`. Extend coverage when changing parsers/evaluators or runtime APIs.
 - CLI: Keep parsing and command behavior covered (see `crates/cli/src/main.rs` tests). Use the `mock-provider` feature to exercise input stacks deterministically.
+- Mock Providers: Do NOT auto-register in inventory. Use factory directly in Rust tests (`MOCK_PROVIDER_FACTORY.create()`) or explicit handles in Python (`Runtime.new_with_providers([MOCK_PROVIDER])`).
 - Python: `packages/native/tests` uses `pytest`. For Robot Framework, start acceptance-style suites near `src/PlatynUI` and document temporary run steps in PRs until a formal runner lands.
 
 ## Commit & Pull Request Guidelines

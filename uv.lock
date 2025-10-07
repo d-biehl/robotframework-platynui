@@ -166,6 +166,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "pytest" },
     { name = "ruff" },
 ]
 
@@ -175,6 +176,7 @@ requires-dist = [{ name = "robotframework", specifier = ">=7.0.0" }]
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.17.1" },
+    { name = "pytest", specifier = ">=8.4.2" },
     { name = "ruff", specifier = ">=0.12.11" },
 ]
 

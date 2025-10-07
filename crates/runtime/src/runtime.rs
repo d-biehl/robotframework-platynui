@@ -7,11 +7,11 @@ use std::sync::{
 use std::time::Duration;
 
 use platynui_core::platform::{
-    DesktopInfo, HighlightProvider, HighlightRequest, KeyboardDevice, KeyboardError,
-    KeyboardOverrides, KeyboardSettings, MonitorInfo, PlatformError, PlatformErrorKind,
-    PointerButton, PointerDevice, Screenshot, ScreenshotProvider, ScreenshotRequest, ScrollDelta,
-    desktop_info_providers, highlight_providers, keyboard_devices, platform_modules,
-    pointer_devices, screenshot_providers,
+    DesktopInfo, DesktopInfoProvider, HighlightProvider, HighlightRequest, KeyboardDevice,
+    KeyboardError, KeyboardOverrides, KeyboardSettings, MonitorInfo, PlatformError,
+    PlatformErrorKind, PointerButton, PointerDevice, Screenshot, ScreenshotProvider,
+    ScreenshotRequest, ScrollDelta, desktop_info_providers, highlight_providers, keyboard_devices,
+    platform_modules, pointer_devices, screenshot_providers,
 };
 use platynui_core::provider::{
     ProviderError, ProviderErrorKind, ProviderEvent, ProviderEventKind, ProviderEventListener,
@@ -102,6 +102,7 @@ impl ProviderEventListener for RuntimeEventListener {
 }
 
 pub struct PlatformOverrides {
+    pub desktop_info: Option<&'static dyn DesktopInfoProvider>,
     pub highlight: Option<&'static dyn HighlightProvider>,
     pub screenshot: Option<&'static dyn ScreenshotProvider>,
     pub pointer: Option<&'static dyn PointerDevice>,
@@ -159,7 +160,15 @@ impl Runtime {
         }
 
         // Build desktop info first
-        let desktop = build_desktop_info().map_err(map_desktop_error)?;
+        let desktop = if let Some(p) = &platforms {
+            if let Some(provider) = p.desktop_info {
+                provider.desktop_info().map_err(map_desktop_error)?
+            } else {
+                build_desktop_info().map_err(map_desktop_error)?
+            }
+        } else {
+            build_desktop_info().map_err(map_desktop_error)?
+        };
 
         let (highlight, screenshot, pointer, keyboard) = if let Some(p) = platforms {
             (

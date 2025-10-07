@@ -67,3 +67,6 @@ impl UiTreeProvider for MacOsAxProvider {
 }
 
 pub static MACOS_AX_FACTORY: MacOsAxFactory = MacOsAxFactory;
+
+// Auto-register the macOS AX provider when linked
+platynui_core::register_provider!(&MACOS_AX_FACTORY);

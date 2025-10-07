@@ -67,3 +67,6 @@ impl UiTreeProvider for AtspiProvider {
 }
 
 pub static ATSPI_FACTORY: AtspiFactory = AtspiFactory;
+
+// Auto-register the AT-SPI provider when linked
+platynui_core::register_provider!(&ATSPI_FACTORY);

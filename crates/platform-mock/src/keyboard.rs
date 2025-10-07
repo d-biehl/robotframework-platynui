@@ -12,6 +12,7 @@ pub enum KeyboardLogEntry {
     Release(String),
 }
 
+#[derive(Debug)]
 struct KeyboardState {
     started: bool,
     log: Vec<KeyboardLogEntry>,
@@ -55,7 +56,8 @@ impl MockKeyCode {
     }
 }
 
-struct MockKeyboardDevice {
+#[derive(Debug)]
+pub struct MockKeyboardDevice {
     state: Mutex<KeyboardState>,
 }
 
@@ -126,7 +128,7 @@ impl KeyboardDevice for MockKeyboardDevice {
     }
 }
 
-static MOCK_KEYBOARD: MockKeyboardDevice = MockKeyboardDevice::new();
+pub static MOCK_KEYBOARD: MockKeyboardDevice = MockKeyboardDevice::new();
 
 register_keyboard_device!(&MOCK_KEYBOARD);
 
@@ -143,9 +145,7 @@ pub fn take_keyboard_log() -> Vec<KeyboardLogEntry> {
 }
 
 // Expose device reference for explicit injection in tests/integration code.
-pub fn keyboard_device() -> &'static dyn KeyboardDevice {
-    &MOCK_KEYBOARD
-}
+// Test helpers for exposing internal state
 
 struct NamedKey {
     canonical: &'static str,
@@ -222,10 +222,15 @@ mod tests {
     static TEST_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
     #[rstest]
-    fn keyboard_device_registered() {
+    fn keyboard_device_not_auto_registered() {
         let _guard = TEST_LOCK.lock().unwrap();
+        // Mock keyboard should NOT auto-register
         let devices: Vec<_> = keyboard_devices().collect();
-        assert!(devices.iter().any(|device| device.key_to_code("Control").is_ok()));
+        // Should only contain OS-specific devices, not mock
+        assert!(!devices.iter().any(|device|
+            device.key_to_code("Control").is_ok() &&
+            device.key_to_code("MockSpecificKey").is_ok()
+        ), "Mock keyboard should not be auto-registered");
     }
 
     #[rstest]

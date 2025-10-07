@@ -57,12 +57,14 @@ All concept documents are living drafts and evolve alongside the implementation.
   - Note: This crate is intentionally excluded from the Cargo workspace so `cargo test`/`cargo nextest` don’t try to link `-lpython3` during Rust-only test runs.
 
 ### Provider Linking (Apps vs. Tests)
-- Runtime uses inventory for registration but does not auto‑link OS providers anymore.
-- Applications link providers explicitly per OS:
+- **OS Providers (auto-register)**: AT-SPI, Windows UIA, and macOS AX providers automatically register in the inventory when linked. The Runtime discovers them via `Runtime::new()`.
+- **Mock Providers (explicit-only)**: Mock providers do NOT auto-register. They're only available via direct factory access:
+  - In Rust tests: Use factory directly (e.g., `MOCK_PROVIDER_FACTORY.create()`)
+  - In Python: Use explicit handles with `Runtime.new_with_providers([MOCK_PROVIDER])`
+  - **See `packages/native/README.md`** for complete Python mock provider examples (including `MOCK_PLATFORM` for desktop info, `MOCK_POINTER_DEVICE`, etc.)
+- Applications link providers per OS:
   - CLI: links `platynui-platform-*` and `platynui-provider-*` via `cfg(target_os)` in `crates/cli/Cargo.toml` and `src/main.rs`.
   - Python extension: links providers per OS in `packages/native/Cargo.toml` and `src/lib.rs`.
-- Unit tests link the mock providers inside their test modules to ensure deterministic inventory registrations:
-  - Example: `const _: () = { use platynui_platform_mock as _; use platynui_provider_mock as _; };`
 
 ### CLI Quick Examples (mock-provider)
 

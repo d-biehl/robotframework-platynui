@@ -1,11 +1,11 @@
 use crate::Runtime;
 use crate::runtime::PlatformOverrides;
 use platynui_core::platform::{
-    HighlightProvider, KeyboardDevice, PointerDevice, ScreenshotProvider,
+    DesktopInfoProvider, HighlightProvider, KeyboardDevice, PointerDevice, ScreenshotProvider,
 };
 use platynui_core::provider::UiTreeProviderFactory;
 use platynui_platform_mock::{
-    highlight_provider, keyboard_device, pointer_device, screenshot_provider,
+    MOCK_HIGHLIGHT, MOCK_KEYBOARD, MOCK_PLATFORM, MOCK_POINTER, MOCK_SCREENSHOT,
 };
 use rstest::fixture;
 
@@ -23,10 +23,11 @@ pub fn runtime_with_factories_and_mock_platform(
     Runtime::new_with_factories_and_platforms(
         factories,
         PlatformOverrides {
-            highlight: Some(highlight_provider() as &'static dyn HighlightProvider),
-            screenshot: Some(screenshot_provider() as &'static dyn ScreenshotProvider),
-            pointer: Some(pointer_device() as &'static dyn PointerDevice),
-            keyboard: Some(keyboard_device() as &'static dyn KeyboardDevice),
+            desktop_info: Some(&MOCK_PLATFORM as &'static dyn DesktopInfoProvider),
+            highlight: Some(&MOCK_HIGHLIGHT as &'static dyn HighlightProvider),
+            screenshot: Some(&MOCK_SCREENSHOT as &'static dyn ScreenshotProvider),
+            pointer: Some(&MOCK_POINTER as &'static dyn PointerDevice),
+            keyboard: Some(&MOCK_KEYBOARD as &'static dyn KeyboardDevice),
         },
     )
     .expect("runtime")

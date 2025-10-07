@@ -866,9 +866,8 @@ fn component_steps(value: f64, base: f64) -> usize {
 mod tests {
     use super::*;
     use super::{ClickStamp, PointerOverrides, PointerProfile, PointerSettings};
-    use platynui_core::platform::pointer_devices;
     use platynui_core::types::{Rect, Size};
-    use platynui_platform_mock::{PointerLogEntry, reset_pointer_state, take_pointer_log};
+    use platynui_platform_mock::{PointerLogEntry, MOCK_POINTER, reset_pointer_state, take_pointer_log};
     use rstest::rstest;
     use serial_test::serial;
     use std::sync::Mutex;
@@ -1355,7 +1354,7 @@ mod tests {
     #[serial]
     fn mock_pointer_speed_factor_scales_duration() {
         reset_pointer_state();
-        let device = pointer_devices().next().expect("mock pointer registered");
+        let device = &MOCK_POINTER;
 
         let slow_sleeps = Mutex::new(Vec::new());
         let slow_sleep = |duration: Duration| {
@@ -1430,7 +1429,7 @@ mod tests {
     #[serial]
     fn mock_pointer_acceleration_ease_in_trends_upwards() {
         reset_pointer_state();
-        let device = pointer_devices().next().expect("mock pointer registered");
+        let device = &MOCK_POINTER;
         let sleeps = Mutex::new(Vec::new());
         let sleep = |duration: Duration| {
             if duration > Duration::ZERO {
@@ -1470,7 +1469,7 @@ mod tests {
     #[serial]
     fn mock_pointer_acceleration_ease_out_trends_downwards() {
         reset_pointer_state();
-        let device = pointer_devices().next().expect("mock pointer registered");
+        let device = &MOCK_POINTER;
         let sleeps = Mutex::new(Vec::new());
         let sleep = |duration: Duration| {
             if duration > Duration::ZERO {
@@ -1510,7 +1509,7 @@ mod tests {
     #[serial]
     fn mock_pointer_click_enforces_before_next_delay() {
         reset_pointer_state();
-        let device = pointer_devices().next().expect("mock pointer registered");
+        let device = &MOCK_POINTER;
         let sleeps = Mutex::new(Vec::new());
         let sleep = |duration: Duration| {
             if duration > Duration::ZERO {

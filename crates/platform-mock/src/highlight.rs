@@ -2,12 +2,12 @@ use platynui_core::platform::{HighlightProvider, HighlightRequest, PlatformError
 use platynui_core::register_highlight_provider;
 use std::sync::Mutex;
 
-static MOCK_HIGHLIGHT: MockHighlight = MockHighlight::new();
+pub static MOCK_HIGHLIGHT: MockHighlight = MockHighlight::new();
 
 register_highlight_provider!(&MOCK_HIGHLIGHT);
 
 #[derive(Debug)]
-struct MockHighlight {
+pub struct MockHighlight {
     log: Mutex<Vec<Vec<HighlightRequest>>>,
     clear_calls: Mutex<usize>,
 }
@@ -55,9 +55,7 @@ pub fn reset_highlight_state() {
 }
 
 // Expose provider reference for explicit injection in tests/integration code.
-pub fn highlight_provider() -> &'static dyn HighlightProvider {
-    &MOCK_HIGHLIGHT
-}
+// Test helpers for exposing internal state
 
 #[cfg(test)]
 mod tests {
@@ -69,18 +67,21 @@ mod tests {
 
     #[rstest]
     #[serial]
-    fn highlight_provider_is_registered() {
+    fn highlight_provider_not_auto_registered() {
         reset_highlight_state();
         let providers: Vec<_> = highlight_providers().collect();
-        assert!(!providers.is_empty());
+        // Mock provider should NOT be in the registry
+        let mock_in_registry = providers.iter().any(|p| std::ptr::eq(*p, &MOCK_HIGHLIGHT as &dyn HighlightProvider));
+        assert!(!mock_in_registry, "Mock highlight provider should not be auto-registered");
 
+        // Use direct reference for testing the provider itself
         let request = HighlightRequest::new(Rect::new(0.0, 0.0, 100.0, 50.0));
-        providers[0].highlight(&[request]).unwrap();
+        MOCK_HIGHLIGHT.highlight(&[request]).unwrap();
         let log = take_highlight_log();
         assert_eq!(log.len(), 1);
         assert_eq!(log[0][0].bounds, Rect::new(0.0, 0.0, 100.0, 50.0));
 
-        providers[0].clear().unwrap();
+        MOCK_HIGHLIGHT.clear().unwrap();
         assert_eq!(highlight_clear_count(), 1);
     }
 }
