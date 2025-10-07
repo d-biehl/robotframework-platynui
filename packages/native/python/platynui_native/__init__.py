@@ -1,35 +1,47 @@
-"""platynui_native root package.
+"""platynui_native package.
 
-This package exposes two Rust-backed submodules:
-- platynui_native.core     (types, namespaces, attribute names)
-- platynui_native.runtime  (Runtime orchestration, nodes)
-
-Both submodules are implemented inside the native extension `platynui_native._native`.
-To support `from platynui_native.runtime import Runtime` we alias the extension
-submodules into this package's module namespace.
+This package provides Python bindings for PlatynUI's native Rust implementation.
+All types and functions are directly exported from the native extension module.
 """
 
-from . import _native as _ext
-import sys as _sys
+# Re-export everything from the native extension
+from ._native import *  # noqa: F401, F403
 
-# Bind convenient attributes
-core = _ext.core
-runtime = _ext.runtime
-
-# Improve module identity in tracebacks/introspection
-try:
-    core.__name__ = __name__ + ".core"
-    runtime.__name__ = __name__ + ".runtime"
-except Exception:
-    pass
-
-# Register module aliases so `platynui_native.runtime` and `.core` are importable
-_sys.modules[__name__ + ".core"] = core
-_sys.modules[__name__ + ".runtime"] = runtime
-
-# Note: TypedDicts for typing are declared in .pyi. At runtime, the
-# native module exposes a concrete `Attribute` class for isinstance checks.
-
-__all__ = ("core", "runtime")
-
-# EvaluatedAttribute is a real class in the native module.
+# Explicit __all__ for better IDE support (will be populated by stub file)
+__all__ = [  # noqa: F405
+    # Core types
+    "Point",
+    "Size",
+    "Rect",
+    "PatternId",
+    "RuntimeId",
+    "TechnologyId",
+    "Namespace",
+    # Runtime
+    "Runtime",
+    "UiNode",
+    "NodeChildrenIterator",
+    "NodeAttributesIterator",
+    "EvaluationIterator",
+    "UiAttribute",
+    "EvaluatedAttribute",
+    "Focusable",
+    "WindowSurface",
+    "PlatformOverrides",
+    # Overrides
+    "PointerOverrides",
+    "KeyboardOverrides",
+    "PointerButton",
+    # Exceptions
+    "EvaluationError",
+    "ProviderError",
+    "PointerError",
+    "KeyboardError",
+    "PatternError",
+    # Mock providers (always available)
+    "MOCK_PROVIDER",
+    "MOCK_HIGHLIGHT_PROVIDER",
+    "MOCK_SCREENSHOT_PROVIDER",
+    "MOCK_POINTER_DEVICE",
+    "MOCK_KEYBOARD_DEVICE",
+]

@@ -1,10 +1,15 @@
-from platynui_native import runtime, core
+from platynui_native import (
+    Runtime,
+    UiNode,
+    PatternError,
+)
+
 
 
 def test_desktop_node_and_info():
-    rt = runtime.Runtime()
+    rt = Runtime()
     node = rt.desktop_node()
-    assert isinstance(node, runtime.UiNode)
+    assert isinstance(node, UiNode)
     assert node.role == "Desktop"
     info = rt.desktop_info()
     assert isinstance(info, dict)
@@ -13,14 +18,14 @@ def test_desktop_node_and_info():
 
 
 def test_focus_via_runtime_or_skip():
-    rt = runtime.Runtime()
+    rt = Runtime()
     # Try to find a focusable mock button; skip if none available
     items = rt.evaluate("//control:Button[@Name='OK']")
-    target = next((x for x in items if isinstance(x, runtime.UiNode)), None)
+    target = next((x for x in items if isinstance(x, UiNode)), None)
     if target is None:
         return
     try:
         rt.focus(target)
-    except runtime.PatternError:
+    except PatternError:
         # On platforms without Focusable, we accept a PatternError
         pass

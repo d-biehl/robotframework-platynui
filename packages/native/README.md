@@ -152,9 +152,70 @@ uv run robot examples/robot/quickstart.robot
 
 Troubleshooting
 
-- Ensure the mock feature is actually linked:
-  - We added explicit linkage of the mock crates in `crates/runtime/src/lib.rs` behind `feature = "mock-provider"` so that inventory registrations are pulled in at link‑time.
-  - If you still see "no PointerDevice registered": the mock platform may not expose a pointer on your OS; keyboard and provider mocks should still exercise conversions and XPath.
+## Mock Providers and Platform Devices
+
+Mock providers do NOT auto-register in the inventory system. They are explicitly exposed as Python handles for testing:
+
+### Available Mock Components
+
+- **`MOCK_PROVIDER`** - Mock UI tree provider (provides a test UI tree)
+- **`MOCK_PLATFORM`** - Mock desktop info provider (provides MockOS desktop with 3 monitors)
+- **`MOCK_HIGHLIGHT_PROVIDER`** - Mock highlight provider
+- **`MOCK_SCREENSHOT_PROVIDER`** - Mock screenshot provider
+- **`MOCK_POINTER_DEVICE`** - Mock pointer/mouse device
+- **`MOCK_KEYBOARD_DEVICE`** - Mock keyboard device
+
+### Usage Examples
+
+**Basic Runtime with Mock Provider:**
+```python
+from platynui_native import Runtime, MOCK_PROVIDER
+
+rt = Runtime.new_with_providers([MOCK_PROVIDER])
+# Uses OS platform devices (may fail if not available)
+```
+
+**Full Mock Runtime (for testing):**
+```python
+from platynui_native import (
+    Runtime, PlatformOverrides,
+    MOCK_PROVIDER, MOCK_PLATFORM,
+    MOCK_POINTER_DEVICE, MOCK_KEYBOARD_DEVICE,
+    MOCK_SCREENSHOT_PROVIDER, MOCK_HIGHLIGHT_PROVIDER
+)
+
+# Configure platform overrides
+overrides = PlatformOverrides()
+overrides.desktop_info = MOCK_PLATFORM
+overrides.pointer = MOCK_POINTER_DEVICE
+overrides.keyboard = MOCK_KEYBOARD_DEVICE
+overrides.screenshot = MOCK_SCREENSHOT_PROVIDER
+overrides.highlight = MOCK_HIGHLIGHT_PROVIDER
+
+# Create runtime with all mock components
+rt = Runtime.new_with_providers_and_platforms([MOCK_PROVIDER], overrides)
+
+# Now all operations work without real OS providers
+info = rt.desktop_info()
+print(info["os_name"])  # Output: "MockOS"
+```
+
+### Build Requirements
+
+The `mock-provider` feature links the mock crates, making the handles available:
+
+```bash
+uv run maturin develop -m packages/native/Cargo.toml --features mock-provider
+```
+
+### Common Issues
+
+- **"no PointerDevice registered"**: Pass `MOCK_POINTER_DEVICE` in `PlatformOverrides`
+- **"no KeyboardDevice registered"**: Pass `MOCK_KEYBOARD_DEVICE` in `PlatformOverrides`
+- **Want mock desktop info**: Pass `MOCK_PLATFORM` in `overrides.desktop_info`
+
+## Other Issues
+
 - If `maturin` complains about the manifest path, always pass `-m packages/native/Cargo.toml` for mixed projects.
 - If your shell shows a VIRTUAL_ENV mismatch, prefer `uv run --active ...` to target the active environment explicitly.
 ```

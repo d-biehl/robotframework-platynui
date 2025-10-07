@@ -12,12 +12,6 @@ crate-type = ["cdylib"]
 
 [features]
 default = []
-# Enable mock provider for portable local builds
-mock-provider = [
-    "platynui-runtime/mock-provider",
-    "dep:platynui-provider-mock",
-    "dep:platynui-platform-mock",
-]
 
 [dependencies]
 pyo3 = { version = "0.26.0", features = ["extension-module", "abi3-py310"] }
@@ -27,8 +21,9 @@ once_cell = "1.21.3"
 platynui-link = { path = "../../crates/link" }
 png = "0.18.0"
 
-platynui-provider-mock = { path = "../../crates/provider-mock", optional = true }
-platynui-platform-mock = { path = "../../crates/platform-mock", optional = true }
+# Mock providers are always available for Python testing
+platynui-provider-mock = { path = "../../crates/provider-mock" }
+platynui-platform-mock = { path = "../../crates/platform-mock" }
 
 # Internal crates
 platynui-core = { path = "../../crates/core" }

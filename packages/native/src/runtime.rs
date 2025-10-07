@@ -12,6 +12,7 @@ use pyo3::IntoPyObject;
 use platynui_core as core_rs;
 use platynui_core::platform::{HighlightRequest, ScreenshotRequest, PixelFormat};
 use platynui_runtime as runtime_rs;
+use platynui_runtime::runtime::PlatformOverrides;
 
 use crate::core::{PyNamespace, PyPoint, PyRect, PySize, py_namespace_from_inner};
 use platynui_core::ui::FocusablePattern as _;
@@ -20,7 +21,7 @@ use pyo3::prelude::PyRef;
 
 // ---------------- Node wrapper ----------------
 
-#[pyclass(name = "UiNode", module = "platynui_native.runtime", unsendable)]
+#[pyclass(name = "UiNode", module = "platynui_native", unsendable)]
 pub struct PyNode {
     pub(crate) inner: Arc<dyn core_rs::ui::UiNode>,
 }
@@ -62,24 +63,17 @@ impl PyNode {
             .and_then(|arc| Py::new(py, PyNode { inner: arc }).ok())
     }
 
-    /// Child nodes as a list.
-    fn children(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let out = PyList::empty(py);
-        for child in self.inner.children() {
-            out.append(Py::new(py, PyNode { inner: child })?)?;
-        }
-        Ok(out.into())
+    /// Child nodes as an iterator.
+    fn children(&self, py: Python<'_>) -> PyResult<Py<PyNodeChildrenIterator>> {
+        let iter = self.inner.children();
+        Py::new(py, PyNodeChildrenIterator { iter: Some(iter) })
     }
 
-    /// All attributes as objects with `namespace`, `name`, and `value`.
-    fn attributes(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let out = PyList::empty(py);
-        for a in self.inner.attributes() {
-            let ns = a.namespace().as_str().to_string();
-            let name = a.name().to_string();
-            out.append(Py::new(py, PyAttribute { namespace: ns, name, owner: self.inner.clone() })?)?;
-        }
-        Ok(out.into())
+    /// All attributes as an iterator of objects with `namespace`, `name`, and `value`.
+    fn attributes(&self, py: Python<'_>) -> PyResult<Py<PyNodeAttributesIterator>> {
+        let iter = self.inner.attributes();
+        let owner = self.inner.clone();
+        Py::new(py, PyNodeAttributesIterator { iter: Some(iter), owner })
     }
 
     /// Pattern identifiers supported by this node.
@@ -117,9 +111,108 @@ impl PyNode {
     }
 }
 
+// ---------------- Iterator for UiNode children ----------------
+
+#[pyclass(name = "NodeChildrenIterator", module = "platynui_native", unsendable)]
+pub struct PyNodeChildrenIterator {
+    iter: Option<Box<dyn Iterator<Item = Arc<dyn core_rs::ui::UiNode>> + Send + 'static>>,
+}
+
+#[pymethods]
+impl PyNodeChildrenIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<Py<PyNode>>> {
+        if let Some(ref mut iter) = slf.iter {
+            if let Some(child) = iter.next() {
+                return Ok(Some(Py::new(py, PyNode { inner: child })?));
+            }
+        }
+        slf.iter = None;
+        Ok(None)
+    }
+}
+
+// ---------------- Iterator for UiNode attributes ----------------
+
+#[pyclass(name = "NodeAttributesIterator", module = "platynui_native", unsendable)]
+pub struct PyNodeAttributesIterator {
+    iter: Option<Box<dyn Iterator<Item = Arc<dyn core_rs::ui::UiAttribute>> + Send + 'static>>,
+    owner: Arc<dyn core_rs::ui::UiNode>,
+}
+
+#[pymethods]
+impl PyNodeAttributesIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<Py<PyAttribute>>> {
+        if let Some(ref mut iter) = slf.iter {
+            if let Some(attr) = iter.next() {
+                let ns = attr.namespace().as_str().to_string();
+                let name = attr.name().to_string();
+                return Ok(Some(Py::new(
+                    py,
+                    PyAttribute {
+                        namespace: ns,
+                        name,
+                        owner: slf.owner.clone(),
+                    },
+                )?));
+            }
+        }
+        slf.iter = None;
+        Ok(None)
+    }
+}
+
+// ---------------- Iterator for Runtime evaluation results ----------------
+
+#[pyclass(name = "EvaluationIterator", module = "platynui_native", unsendable)]
+pub struct PyEvaluationIterator {
+    iter: Option<Box<dyn Iterator<Item = runtime_rs::EvaluationItem>>>,
+}
+
+#[pymethods]
+impl PyEvaluationIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+        if let Some(ref mut iter) = slf.iter {
+            if let Some(item) = iter.next() {
+                let result = match item {
+                    runtime_rs::EvaluationItem::Node(n) => {
+                        let py_node = PyNode { inner: n };
+                        Py::new(py, py_node)?.into_any()
+                    }
+                    runtime_rs::EvaluationItem::Attribute(a) => {
+                        let ns = a.namespace.as_str().to_string();
+                        let name = a.name.clone();
+                        let value = ui_value_to_py(py, &a.value)?;
+                        let owner = Py::new(py, PyNode { inner: a.owner.clone() })?;
+                        Py::new(
+                            py,
+                            PyEvaluatedAttribute::new(ns, name, value, Some(owner)),
+                        )?.into_any()
+                    }
+                    runtime_rs::EvaluationItem::Value(v) => ui_value_to_py(py, &v)?,
+                };
+                return Ok(Some(result));
+            }
+        }
+        slf.iter = None;
+        Ok(None)
+    }
+}
+
 // ---------------- Pattern wrappers ----------------
 
-#[pyclass(module = "platynui_native.runtime", name = "Focusable")]
+#[pyclass(module = "platynui_native", name = "Focusable")]
 pub struct PyFocusable {
     node: Arc<dyn core_rs::ui::UiNode>,
 }
@@ -138,7 +231,7 @@ impl PyFocusable {
     }
 }
 
-#[pyclass(module = "platynui_native.runtime", name = "WindowSurface")]
+#[pyclass(module = "platynui_native", name = "WindowSurface")]
 pub struct PyWindowSurface {
     node: Arc<dyn core_rs::ui::UiNode>,
 }
@@ -181,7 +274,7 @@ impl PyWindowSurface {
 
 // ---------------- UiAttribute wrapper ----------------
 
-#[pyclass(module = "platynui_native.runtime", name = "UiAttribute", subclass)]
+#[pyclass(module = "platynui_native", name = "UiAttribute", subclass)]
 pub struct PyAttribute {
     namespace: String,
     name: String,
@@ -213,7 +306,7 @@ impl PyAttribute {
     }
 }
 
-#[pyclass(module = "platynui_native.runtime", name = "EvaluatedAttribute")]
+#[pyclass(module = "platynui_native", name = "EvaluatedAttribute")]
 pub struct PyEvaluatedAttribute {
     namespace: String,
     name: String,
@@ -276,9 +369,108 @@ impl PyWindowSurface {
 
 // ---------------- Runtime wrapper ----------------
 
-#[pyclass(name = "Runtime", module = "platynui_native.runtime", unsendable)]
+// ---------------- Platform Overrides ----------------
+
+/// Platform provider overrides for custom Runtime configurations.
+#[pyclass(name = "PlatformOverrides", module = "platynui_native")]
+pub struct PyPlatformOverrides {
+    #[pyo3(get, set)]
+    pub desktop_info: Option<usize>,
+    #[pyo3(get, set)]
+    pub highlight: Option<usize>,
+    #[pyo3(get, set)]
+    pub screenshot: Option<usize>,
+    #[pyo3(get, set)]
+    pub pointer: Option<usize>,
+    #[pyo3(get, set)]
+    pub keyboard: Option<usize>,
+}
+
+#[pymethods]
+impl PyPlatformOverrides {
+    #[new]
+    fn new() -> Self {
+        Self { desktop_info: None, highlight: None, screenshot: None, pointer: None, keyboard: None }
+    }
+}
+
+// Internal registry for platform providers (using usize as opaque handles)
+static DESKTOP_INFO_PROVIDERS: once_cell::sync::Lazy<std::sync::Mutex<Vec<&'static dyn platynui_core::platform::DesktopInfoProvider>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
+static HIGHLIGHT_PROVIDERS: once_cell::sync::Lazy<std::sync::Mutex<Vec<&'static dyn platynui_core::platform::HighlightProvider>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
+static SCREENSHOT_PROVIDERS: once_cell::sync::Lazy<std::sync::Mutex<Vec<&'static dyn platynui_core::platform::ScreenshotProvider>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
+static POINTER_DEVICES: once_cell::sync::Lazy<std::sync::Mutex<Vec<&'static dyn platynui_core::platform::PointerDevice>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
+static KEYBOARD_DEVICES: once_cell::sync::Lazy<std::sync::Mutex<Vec<&'static dyn platynui_core::platform::KeyboardDevice>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
+
+fn register_highlight_provider(provider: &'static dyn platynui_core::platform::HighlightProvider) -> usize {
+    let mut providers = HIGHLIGHT_PROVIDERS.lock().unwrap();
+    providers.push(provider);
+    providers.len() - 1
+}
+
+fn register_screenshot_provider(provider: &'static dyn platynui_core::platform::ScreenshotProvider) -> usize {
+    let mut providers = SCREENSHOT_PROVIDERS.lock().unwrap();
+    providers.push(provider);
+    providers.len() - 1
+}
+
+fn register_pointer_device(device: &'static dyn platynui_core::platform::PointerDevice) -> usize {
+    let mut devices = POINTER_DEVICES.lock().unwrap();
+    devices.push(device);
+    devices.len() - 1
+}
+
+fn register_keyboard_device(device: &'static dyn platynui_core::platform::KeyboardDevice) -> usize {
+    let mut devices = KEYBOARD_DEVICES.lock().unwrap();
+    devices.push(device);
+    devices.len() - 1
+}
+
+fn register_desktop_info_provider(provider: &'static dyn platynui_core::platform::DesktopInfoProvider) -> usize {
+    let mut providers = DESKTOP_INFO_PROVIDERS.lock().unwrap();
+    providers.push(provider);
+    providers.len() - 1
+}
+
+fn get_platform_overrides(py_overrides: &PyPlatformOverrides) -> PlatformOverrides {
+    PlatformOverrides {
+        desktop_info: py_overrides.desktop_info.and_then(|idx| {
+            DESKTOP_INFO_PROVIDERS.lock().unwrap().get(idx).copied()
+        }),
+        highlight: py_overrides.highlight.and_then(|idx| {
+            HIGHLIGHT_PROVIDERS.lock().unwrap().get(idx).copied()
+        }),
+        screenshot: py_overrides.screenshot.and_then(|idx| {
+            SCREENSHOT_PROVIDERS.lock().unwrap().get(idx).copied()
+        }),
+        pointer: py_overrides.pointer.and_then(|idx| {
+            POINTER_DEVICES.lock().unwrap().get(idx).copied()
+        }),
+        keyboard: py_overrides.keyboard.and_then(|idx| {
+            KEYBOARD_DEVICES.lock().unwrap().get(idx).copied()
+        }),
+    }
+}
+
+// ---------------- Runtime ----------------
+
+#[pyclass(name = "Runtime", module = "platynui_native", unsendable)]
 pub struct PyRuntime {
     inner: runtime_rs::Runtime,
+}
+
+// Internal registry for provider factories (using usize as opaque handles)
+static PROVIDER_FACTORIES: once_cell::sync::Lazy<std::sync::Mutex<Vec<&'static dyn platynui_core::provider::UiTreeProviderFactory>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
+
+fn register_provider_factory(factory: &'static dyn platynui_core::provider::UiTreeProviderFactory) -> usize {
+    let mut factories = PROVIDER_FACTORIES.lock().unwrap();
+    factories.push(factory);
+    factories.len() - 1
 }
 
 #[pymethods]
@@ -286,6 +478,41 @@ impl PyRuntime {
     #[new]
     fn new() -> PyResult<Self> {
         runtime_rs::Runtime::new().map(|inner| Self { inner }).map_err(map_provider_err)
+    }
+
+    /// Create a Runtime with specific provider factories (by handle).
+    #[staticmethod]
+    fn new_with_providers(provider_handles: Vec<usize>) -> PyResult<Self> {
+        let factories_lock = PROVIDER_FACTORIES.lock().unwrap();
+        let factories: Vec<&'static dyn platynui_core::provider::UiTreeProviderFactory> =
+            provider_handles.iter()
+                .filter_map(|&idx| factories_lock.get(idx).copied())
+                .collect();
+        drop(factories_lock);
+
+        runtime_rs::Runtime::new_with_factories(&factories)
+            .map(|inner| Self { inner })
+            .map_err(map_provider_err)
+    }
+
+    /// Create a Runtime with specific providers and platform overrides.
+    #[staticmethod]
+    fn new_with_providers_and_platforms(
+        provider_handles: Vec<usize>,
+        platforms: &PyPlatformOverrides,
+    ) -> PyResult<Self> {
+        let factories_lock = PROVIDER_FACTORIES.lock().unwrap();
+        let factories: Vec<&'static dyn platynui_core::provider::UiTreeProviderFactory> =
+            provider_handles.iter()
+                .filter_map(|&idx| factories_lock.get(idx).copied())
+                .collect();
+        drop(factories_lock);
+
+        let platform_overrides = get_platform_overrides(platforms);
+
+        runtime_rs::Runtime::new_with_factories_and_platforms(&factories, platform_overrides)
+            .map(|inner| Self { inner })
+            .map_err(map_provider_err)
     }
 
     /// Evaluates an XPath expression; returns a list of Python-native items:
@@ -334,8 +561,90 @@ impl PyRuntime {
         Ok(out.into())
     }
 
+    /// Evaluates an XPath expression and returns the first result, or None if no results.
+    #[pyo3(signature = (xpath, node=None), text_signature = "(xpath: str, node: UiNode | None = None)")]
+    fn evaluate_single(
+        &self,
+        py: Python<'_>,
+        xpath: &str,
+        node: Option<Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let node_arc = match node {
+            Some(obj) => match obj.extract::<PyRef<PyNode>>() {
+                Ok(cellref) => Some(cellref.inner.clone()),
+                Err(_) => {
+                    return Err(PyTypeError::new_err(
+                        "node must be platynui_native.runtime.UiNode",
+                    ));
+                }
+            },
+            None => None,
+        };
+
+        let item = self.inner.evaluate_single(node_arc, xpath).map_err(map_eval_err)?;
+
+        match item {
+            Some(runtime_rs::EvaluationItem::Node(n)) => {
+                let py_node = PyNode { inner: n };
+                Ok(Py::new(py, py_node)?.into_any())
+            }
+            Some(runtime_rs::EvaluationItem::Attribute(a)) => {
+                let ns = a.namespace.as_str().to_string();
+                let name = a.name.clone();
+                let value = ui_value_to_py(py, &a.value)?;
+                let owner = Py::new(py, PyNode { inner: a.owner.clone() })?;
+                Ok(Py::new(
+                    py,
+                    PyEvaluatedAttribute::new(ns, name, value, Some(owner)),
+                )?.into_any())
+            }
+            Some(runtime_rs::EvaluationItem::Value(v)) => ui_value_to_py(py, &v),
+            None => Ok(py.None()),
+        }
+    }
+
     fn shutdown(&mut self) {
         self.inner.shutdown();
+    }
+
+    /// Evaluates an XPath expression and returns an iterator over results.
+    #[pyo3(signature = (xpath, node=None), text_signature = "(xpath: str, node: UiNode | None = None)")]
+    fn evaluate_iter(
+        &self,
+        py: Python<'_>,
+        xpath: &str,
+        node: Option<Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyEvaluationIterator>> {
+        let node_arc = match node {
+            Some(obj) => match obj.extract::<PyRef<PyNode>>() {
+                Ok(cellref) => Some(cellref.inner.clone()),
+                Err(_) => {
+                    return Err(PyTypeError::new_err(
+                        "node must be platynui_native.runtime.UiNode",
+                    ));
+                }
+            },
+            None => None,
+        };
+
+        let iter = self.inner.evaluate_iter(node_arc, xpath).map_err(map_eval_err)?;
+        let items: Vec<_> = iter.collect();
+        Py::new(py, PyEvaluationIterator { iter: Some(Box::new(items.into_iter())) })
+    }
+
+    /// Returns a list of active provider information dictionaries.
+    fn providers(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
+        let list = PyList::empty(py);
+        for provider in self.inner.providers() {
+            let desc = provider.descriptor();
+            let dict = PyDict::new(py);
+            dict.set_item("id", desc.id)?;
+            dict.set_item("display_name", desc.display_name)?;
+            dict.set_item("technology", desc.technology.as_str())?;
+            dict.set_item("kind", format!("{:?}", desc.kind))?;
+            list.append(dict)?;
+        }
+        Ok(list.into())
     }
 
     // ---------------- Pointer minimal API ----------------
@@ -667,15 +976,19 @@ pyo3::create_exception!(runtime, PointerError, PyException);
 pyo3::create_exception!(runtime, KeyboardError, PyException);
 pyo3::create_exception!(runtime, PatternError, PyException);
 
-pub fn init_submodule(
+/// Register all runtime types and functions directly into the module (no submodule).
+pub fn register_types(
     py: Python<'_>,
     m: &Bound<'_, PyModule>,
-    _core: &Bound<'_, PyModule>,
 ) -> PyResult<()> {
     m.add_class::<PyRuntime>()?;
     m.add_class::<PyNode>()?;
+    m.add_class::<PyNodeChildrenIterator>()?;
+    m.add_class::<PyNodeAttributesIterator>()?;
+    m.add_class::<PyEvaluationIterator>()?;
     m.add_class::<PyAttribute>()?;
     m.add_class::<PyEvaluatedAttribute>()?;
+    m.add_class::<PyPlatformOverrides>()?;
     m.add_class::<PyPointerOverrides>()?;
     m.add_class::<PyKeyboardOverrides>()?;
     // Create a Python IntEnum for pointer buttons: 1=LEFT, 2=MIDDLE, 3=RIGHT
@@ -696,6 +1009,46 @@ pub fn init_submodule(
     m.add("PointerError", py.get_type::<PointerError>())?;
     m.add("KeyboardError", py.get_type::<KeyboardError>())?;
     m.add("PatternError", py.get_type::<PatternError>())?;
+
+    // Register mock providers (always available)
+    register_mock_providers(m)?;
+
+    Ok(())
+}
+
+// Mock provider registration (constants always available in Python)
+fn register_mock_providers(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    use platynui_provider_mock::MOCK_PROVIDER_FACTORY;
+    use platynui_platform_mock::{
+        MOCK_HIGHLIGHT, MOCK_KEYBOARD, MOCK_PLATFORM, MOCK_POINTER, MOCK_SCREENSHOT,
+    };
+
+    // NOTE: We do NOT register the mock provider in the Rust inventory here.
+    // Mock providers register themselves only when:
+    // 1. Used via Runtime.new_with_providers([MOCK_PROVIDER])
+    // 2. Application uses platynui_link with mock-provider feature
+    // This ensures Runtime() uses only OS providers by default.
+
+    // Register the mock provider factory for Python handle-based access
+    let mock_provider_handle = register_provider_factory(&MOCK_PROVIDER_FACTORY);
+    m.add("MOCK_PROVIDER", mock_provider_handle)?;
+
+    // Register mock platform providers
+    let mock_platform_handle = register_desktop_info_provider(&MOCK_PLATFORM);
+    m.add("MOCK_PLATFORM", mock_platform_handle)?;
+
+    let mock_highlight_handle = register_highlight_provider(&MOCK_HIGHLIGHT);
+    m.add("MOCK_HIGHLIGHT_PROVIDER", mock_highlight_handle)?;
+
+    let mock_screenshot_handle = register_screenshot_provider(&MOCK_SCREENSHOT);
+    m.add("MOCK_SCREENSHOT_PROVIDER", mock_screenshot_handle)?;
+
+    let mock_pointer_handle = register_pointer_device(&MOCK_POINTER);
+    m.add("MOCK_POINTER_DEVICE", mock_pointer_handle)?;
+
+    let mock_keyboard_handle = register_keyboard_device(&MOCK_KEYBOARD);
+    m.add("MOCK_KEYBOARD_DEVICE", mock_keyboard_handle)?;
+
     Ok(())
 }
 
@@ -763,7 +1116,7 @@ pub enum ScrollLike {
 
 // ---------------- Concrete overrides classes (Python-visible) ----------------
 
-#[pyclass(module = "platynui_native.runtime", name = "PointerOverrides")]
+#[pyclass(module = "platynui_native", name = "PointerOverrides")]
 pub struct PyPointerOverrides {
     pub(crate) inner: runtime_rs::PointerOverrides,
 }
@@ -909,7 +1262,7 @@ impl PyPointerOverrides {
     }
 }
 
-#[pyclass(module = "platynui_native.runtime", name = "KeyboardOverrides")]
+#[pyclass(module = "platynui_native", name = "KeyboardOverrides")]
 pub struct PyKeyboardOverrides {
     pub(crate) inner: core_rs::platform::KeyboardOverrides,
 }

@@ -664,6 +664,7 @@ dependencies = [
 name = "platynui-provider-atspi"
 version = "0.1.0"
 dependencies = [
+ "inventory",
  "once_cell",
  "platynui-core",
 ]
@@ -672,6 +673,7 @@ dependencies = [
 name = "platynui-provider-macos-ax"
 version = "0.1.0"
 dependencies = [
+ "inventory",
  "once_cell",
  "platynui-core",
 ]
@@ -706,8 +708,6 @@ dependencies = [
  "pest",
  "pest_derive",
  "platynui-core",
- "platynui-platform-mock",
- "platynui-provider-mock",
  "platynui-xpath",
  "serde_json",
  "thiserror",

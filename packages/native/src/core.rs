@@ -6,7 +6,7 @@ use platynui_core as core_rs;
 
 // ---------- Point ----------
 
-#[pyclass(name = "Point", module = "platynui_native.core")]
+#[pyclass(name = "Point", module = "platynui_native")]
 #[derive(Clone)]
 pub struct PyPoint {
     inner: core_rs::types::Point,
@@ -29,10 +29,29 @@ impl PyPoint {
     fn to_tuple(&self) -> (f64, f64) {
         (self.inner.x(), self.inner.y())
     }
+
+    fn with_x(&self, x: f64) -> Self {
+        Self { inner: self.inner.with_x(x) }
+    }
+    fn with_y(&self, y: f64) -> Self {
+        Self { inner: self.inner.with_y(y) }
+    }
+    fn translate(&self, dx: f64, dy: f64) -> Self {
+        Self { inner: self.inner.translate(dx, dy) }
+    }
+    fn is_finite(&self) -> bool {
+        self.inner.is_finite()
+    }
+
+    fn __add__(&self, other: &PyPoint) -> Self {
+        Self { inner: self.inner + other.inner }
+    }
+    fn __sub__(&self, other: &PyPoint) -> Self {
+        Self { inner: self.inner - other.inner }
+    }
     fn __repr__(&self) -> String {
         format!("Point({}, {})", self.inner.x(), self.inner.y())
     }
-    // richcmp intentionally omitted for now; default identity semantics are fine for MVP
 }
 
 impl From<core_rs::types::Point> for PyPoint {
@@ -43,7 +62,7 @@ impl From<core_rs::types::Point> for PyPoint {
 
 // ---------- Size ----------
 
-#[pyclass(name = "Size", module = "platynui_native.core")]
+#[pyclass(name = "Size", module = "platynui_native")]
 #[derive(Clone)]
 pub struct PySize {
     inner: core_rs::types::Size,
@@ -66,6 +85,29 @@ impl PySize {
     fn to_tuple(&self) -> (f64, f64) {
         (self.inner.width(), self.inner.height())
     }
+
+    fn area(&self) -> f64 {
+        self.inner.area()
+    }
+    fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+    fn is_finite(&self) -> bool {
+        self.inner.is_finite()
+    }
+
+    fn __add__(&self, other: &PySize) -> Self {
+        Self { inner: self.inner + other.inner }
+    }
+    fn __sub__(&self, other: &PySize) -> Self {
+        Self { inner: self.inner - other.inner }
+    }
+    fn __mul__(&self, scalar: f64) -> Self {
+        Self { inner: self.inner * scalar }
+    }
+    fn __truediv__(&self, scalar: f64) -> Self {
+        Self { inner: self.inner / scalar }
+    }
     fn __repr__(&self) -> String {
         format!("Size({}, {})", self.inner.width(), self.inner.height())
     }
@@ -79,7 +121,7 @@ impl From<core_rs::types::Size> for PySize {
 
 // ---------- Rect ----------
 
-#[pyclass(name = "Rect", module = "platynui_native.core")]
+#[pyclass(name = "Rect", module = "platynui_native")]
 #[derive(Clone)]
 pub struct PyRect {
     inner: core_rs::types::Rect,
@@ -110,6 +152,61 @@ impl PyRect {
     fn to_tuple(&self) -> (f64, f64, f64, f64) {
         (self.inner.x(), self.inner.y(), self.inner.width(), self.inner.height())
     }
+
+    fn left(&self) -> f64 {
+        self.inner.left()
+    }
+    fn top(&self) -> f64 {
+        self.inner.top()
+    }
+    fn right(&self) -> f64 {
+        self.inner.right()
+    }
+    fn bottom(&self) -> f64 {
+        self.inner.bottom()
+    }
+    fn center(&self) -> PyPoint {
+        PyPoint { inner: self.inner.center() }
+    }
+    fn size(&self) -> PySize {
+        PySize { inner: self.inner.size() }
+    }
+    fn position(&self) -> PyPoint {
+        PyPoint { inner: self.inner.position() }
+    }
+
+    fn contains(&self, point: &PyPoint) -> bool {
+        self.inner.contains(point.inner)
+    }
+    fn intersects(&self, other: &PyRect) -> bool {
+        self.inner.intersects(&other.inner)
+    }
+    fn intersection(&self, other: &PyRect) -> Option<PyRect> {
+        self.inner.intersection(&other.inner).map(|r| PyRect { inner: r })
+    }
+    fn union(&self, other: &PyRect) -> PyRect {
+        PyRect { inner: self.inner.union(&other.inner) }
+    }
+
+    fn translate(&self, dx: f64, dy: f64) -> PyRect {
+        PyRect { inner: self.inner.translate(dx, dy) }
+    }
+    fn inflate(&self, dw: f64, dh: f64) -> PyRect {
+        PyRect { inner: self.inner.inflate(dw, dh) }
+    }
+    fn deflate(&self, dw: f64, dh: f64) -> PyRect {
+        PyRect { inner: self.inner.deflate(dw, dh) }
+    }
+    fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    fn __add__(&self, point: &PyPoint) -> PyRect {
+        PyRect { inner: self.inner + point.inner }
+    }
+    fn __sub__(&self, point: &PyPoint) -> PyRect {
+        PyRect { inner: self.inner - point.inner }
+    }
     fn __repr__(&self) -> String {
         format!(
             "Rect({}, {}, {}, {})",
@@ -131,7 +228,7 @@ impl From<core_rs::types::Rect> for PyRect {
 
 macro_rules! define_id {
     ($name:ident, $rust:ty) => {
-        #[pyclass(module = "platynui_native.core", frozen)]
+        #[pyclass(module = "platynui_native", frozen)]
         #[derive(Clone)]
         pub struct $name {
             inner: $rust,
@@ -209,7 +306,8 @@ pub(crate) fn py_namespace_from_inner(ns: core_rs::ui::namespace::Namespace) -> 
     PyNamespace { inner: ns }
 }
 
-pub fn init_submodule(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+/// Register all core types directly into the module (no submodule).
+pub fn register_types(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPoint>()?;
     m.add_class::<PySize>()?;
     m.add_class::<PyRect>()?;
