@@ -2,101 +2,90 @@
 """Test that UiNode.children() and UiNode.attributes() return iterators."""
 
 from platynui_native import (
-    Runtime,
     UiNode,
     NodeChildrenIterator,
     NodeAttributesIterator,
+    Runtime,
 )
 
 
-def get_desktop_node():
+def get_desktop_node(rt_mock_platform: Runtime) -> UiNode:
     """Helper to get desktop node."""
-    rt = Runtime()
-    items = rt.evaluate("/")
+    items = rt_mock_platform.evaluate("/")
     node = next((it for it in items if isinstance(it, UiNode)), None)
     assert node is not None, "Expected at least one UiNode result"
     return node
 
 
-def test_children_returns_iterator():
+def test_children_returns_iterator(rt_mock_platform: Runtime) -> None:
     """Verify that children() returns an iterator, not a list."""
-    desktop = get_desktop_node()
+    desktop = get_desktop_node(rt_mock_platform)
 
     children_result = desktop.children()
-    print(f"children() returned: {type(children_result).__name__}")
     assert isinstance(children_result, NodeChildrenIterator), (
         f"Expected NodeChildrenIterator, got {type(children_result)}"
     )
 
     # Should be iterable
-    children_list = list(children_result)
-    print(f"  Iterated over {len(children_list)} children")
+    first_list = list(children_result)
+    assert isinstance(first_list, list)
 
     # Can use in for loop
     count = 0
-    for child in get_desktop_node().children():
+    for child in get_desktop_node(rt_mock_platform).children():
         count += 1
-        print(f"    Child {count}: {child.name} ({child.role})")
-
-    print(f"  Total children in for-loop: {count}")
-    print("  ✅ children() returns iterator!\n")
+        assert isinstance(child, UiNode)
+    assert count >= 1
 
 
-def test_attributes_returns_iterator():
+
+def test_attributes_returns_iterator(rt_mock_platform: Runtime) -> None:
     """Verify that attributes() returns an iterator, not a list."""
-    desktop = get_desktop_node()
+    desktop = get_desktop_node(rt_mock_platform)
 
     attrs_result = desktop.attributes()
-    print(f"attributes() returned: {type(attrs_result).__name__}")
     assert isinstance(attrs_result, NodeAttributesIterator), (
         f"Expected NodeAttributesIterator, got {type(attrs_result)}"
     )
 
     # Should be iterable
-    attrs_list = list(attrs_result)
-    print(f"  Iterated over {len(attrs_list)} attributes")
+    first_attrs = list(attrs_result)
+    assert isinstance(first_attrs, list)
 
     # Can use in for loop
     count = 0
-    for attr in get_desktop_node().attributes():
+    for attr in get_desktop_node(rt_mock_platform).attributes():
         count += 1
-        if count <= 5:  # Only print first 5
-            print(f"    Attr {count}: {attr.namespace}:{attr.name}")
-
-    print(f"  Total attributes in for-loop: {count}")
-    print("  ✅ attributes() returns iterator!\n")
+        # Minimal shape check
+        assert hasattr(attr, "namespace") and hasattr(attr, "name")
+    assert count >= 1
 
 
-def test_iterator_exhaustion():
+
+def test_iterator_exhaustion(rt_mock_platform: Runtime) -> None:
     """Verify that iterators can only be consumed once."""
-    desktop = get_desktop_node()
+    desktop = get_desktop_node(rt_mock_platform)
 
     children_iter = desktop.children()
 
     # First iteration
     first_list = list(children_iter)
-    print(f"First iteration: {len(first_list)} children")
+    assert len(first_list) >= 1
 
     # Second iteration on same iterator (should be empty)
     second_list = list(children_iter)
-    print(f"Second iteration on same iterator: {len(second_list)} children")
     assert len(second_list) == 0, "Iterator should be exhausted after first iteration"
 
     # Get fresh iterator
-    fresh_list = list(get_desktop_node().children())
-    print(f"Fresh iterator: {len(fresh_list)} children")
+    fresh_list = list(get_desktop_node(rt_mock_platform).children())
     assert len(fresh_list) == len(first_list), "Fresh iterator should have same count"
 
-    print("  ✅ Iterators properly exhaust!\n")
 
-
-def test_lazy_evaluation():
+def test_lazy_evaluation(rt_mock_platform: Runtime) -> None:
     """Demonstrate that iterators don't materialize all items upfront."""
-    desktop = get_desktop_node()
+    desktop = get_desktop_node(rt_mock_platform)
 
-    print("Testing lazy evaluation:")
     children_iter = desktop.children()
-    print(f"  Created iterator: {type(children_iter).__name__}")
 
     # Take only first 3 children
     first_three = []
@@ -105,23 +94,10 @@ def test_lazy_evaluation():
             break
         first_three.append(child)
 
-    print(f"  Took first {len(first_three)} children without iterating all")
-    for i, child in enumerate(first_three):
-        print(f"    {i + 1}. {child.name} ({child.role})")
-
-    print("  ✅ Iterator supports lazy evaluation!\n")
+    assert 0 < len(first_three) <= 3
+    for node in first_three:
+        assert isinstance(node, UiNode)
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Testing Iterator Implementation for UiNode")
-    print("=" * 60 + "\n")
-
-    test_children_returns_iterator()
-    test_attributes_returns_iterator()
-    test_iterator_exhaustion()
-    test_lazy_evaluation()
-
-    print("=" * 60)
-    print("🎉 All iterator tests passed!")
-    print("=" * 60)
+    pass

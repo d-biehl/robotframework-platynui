@@ -40,6 +40,7 @@ __all__ = [  # noqa: F405
     "PatternError",
     # Mock providers (always available)
     "MOCK_PROVIDER",
+    "MOCK_PLATFORM",
     "MOCK_HIGHLIGHT_PROVIDER",
     "MOCK_SCREENSHOT_PROVIDER",
     "MOCK_POINTER_DEVICE",

@@ -1,43 +1,30 @@
 #!/usr/bin/env python3
 """Test new Runtime methods: evaluate_single() and providers()."""
 
-from platynui_native import Runtime, UiNode
+from platynui_native import UiNode, Runtime
 
 
-def test_evaluate_single():
+def test_evaluate_single(rt_mock_platform: Runtime) -> None:
     """Test that evaluate_single returns only the first result."""
-    rt = Runtime()
 
     # Test with XPath that returns nodes
-    result = rt.evaluate_single("/")
-    print(f"evaluate_single('/') returned: {type(result).__name__}")
+    result = rt_mock_platform.evaluate_single("/")
 
     if isinstance(result, UiNode):
-        print(f"  Single node: {result.name} ({result.role})")
         assert result.role == "Desktop"
-    else:
-        print(f"  Result: {result}")
 
     # Test with no results
-    no_result = rt.evaluate_single("//NonExistentElement")
-    print(f"\nevaluate_single('//NonExistentElement') returned: {no_result}")
+    no_result = rt_mock_platform.evaluate_single("//NonExistentElement")
     assert no_result is None
 
-    print("  ✅ evaluate_single() works correctly!\n")
 
 
-def test_providers():
+def test_providers(rt_mock_platform: Runtime) -> None:
     """Test that providers() returns provider information."""
-    rt = Runtime()
+    providers = rt_mock_platform.providers()
 
-    providers = rt.providers()
-    print(f"providers() returned {len(providers)} provider(s):")
-
-    for i, provider in enumerate(providers, 1):
-        print(f"  {i}. {provider['display_name']}")
-        print(f"     ID: {provider['id']}")
-        print(f"     Technology: {provider['technology']}")
-        print(f"     Kind: {provider['kind']}")
+    for _ in enumerate(providers, 1):
+        pass
 
     # Verify structure
     assert isinstance(providers, list)
@@ -47,16 +34,12 @@ def test_providers():
         assert "technology" in providers[0]
         assert "kind" in providers[0]
 
-    print("\n  ✅ providers() works correctly!\n")
 
 
-def test_evaluate_iter():
+def test_evaluate_iter(rt_mock_platform: Runtime) -> None:
     """Test that evaluate_iter returns an iterator."""
-    rt = Runtime()
-
     # Test with XPath that returns nodes
-    result_iter = rt.evaluate_iter("/")
-    print(f"evaluate_iter('/') returned: {type(result_iter).__name__}")
+    result_iter = rt_mock_platform.evaluate_iter("/")
 
     # Check that it's an iterator
     assert hasattr(result_iter, "__iter__")
@@ -64,34 +47,21 @@ def test_evaluate_iter():
 
     # Consume the iterator
     results = list(result_iter)
-    print(f"  Iterator yielded {len(results)} result(s)")
 
     if results:
         first = results[0]
-        print(f"  First result: {type(first).__name__}")
         if isinstance(first, UiNode):
-            print(f"    Node: {first.name} ({first.role})")
             assert first.role == "Desktop"
 
     # Test with no results
-    empty_iter = rt.evaluate_iter("//NonExistentElement")
+    empty_iter = rt_mock_platform.evaluate_iter("//NonExistentElement")
     empty_results = list(empty_iter)
-    print(
-        f"\nevaluate_iter('//NonExistentElement') yielded {len(empty_results)} result(s)"
-    )
     assert len(empty_results) == 0
 
-    print("\n  ✅ evaluate_iter() works correctly!\n")
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Testing New Runtime Methods")
-    print("=" * 60 + "\n")
+    # Execute via pytest to ensure fixtures are applied
+    import sys
 
-    test_evaluate_single()
-    test_providers()
-
-    print("=" * 60)
-    print("🎉 All new Runtime methods work!")
-    print("=" * 60)
+    sys.exit("Please run this module with pytest.")

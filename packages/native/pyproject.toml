@@ -45,3 +45,4 @@ cache-keys = [
     { file = "rust/Cargo.toml" },
     { file = "**/*.rs" },
 ]
+# config-settings = { build-args = '--profile=dev' }
