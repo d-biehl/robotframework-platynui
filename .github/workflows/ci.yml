@@ -62,17 +62,19 @@ jobs:
       - name: Rust clippy (deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: build runtime with maturin (via uv)
-        run: uv run maturin develop -m packages/native/pyproject.toml --release
-
       - name: sync Python environment (uv)
         run: uv sync --dev --all-packages
 
+      - name: build runtime with maturin (via uv)
+        run: uv run maturin develop -m packages/native/Cargo.toml --uv
       - name: Python lint (ruff)
         run: uv run ruff check
 
       - name: Python type check (mypy) [optional]
-        run: uv run mypy src || true
+        run: uv run mypy .
+
+      - name: Python tests (pytest)
+        run: uv run pytest -v --tb=short --maxfail=5
 
   build-wheels:
     name: Build Python wheels (tags)
