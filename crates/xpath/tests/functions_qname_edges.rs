@@ -1,7 +1,5 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
-use platynui_xpath::{
-    engine::evaluator::evaluate_expr, model::XdmNode, xdm::XdmAtomicValue as A, xdm::XdmItem as I,
-};
+use platynui_xpath::{engine::evaluator::evaluate_expr, model::XdmNode, xdm::XdmAtomicValue as A, xdm::XdmItem as I};
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -14,11 +12,7 @@ fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
 fn expect_err(expr: &str, frag: &str) {
     let c = ctx();
     let err = evaluate_expr::<N>(expr, &c).unwrap_err();
-    assert!(
-        err.code_qname().unwrap().local.contains(frag),
-        "expected fragment {frag} in {:?}",
-        err.code_qname()
-    );
+    assert!(err.code_qname().unwrap().local.contains(frag), "expected fragment {frag} in {:?}", err.code_qname());
 }
 
 #[rstest]
@@ -96,13 +90,11 @@ fn qname_roundtrip_basic() {
     let seq = evaluate_expr::<N>("(QName('urn:rt','rt:local'), QName('', 'local'))", &c).unwrap();
     assert_eq!(seq.len(), 2);
     // First: check accessors yield same pieces
-    let ns_rt =
-        evaluate_expr::<N>("namespace-uri-from-QName(QName('urn:rt','rt:local'))", &c).unwrap();
+    let ns_rt = evaluate_expr::<N>("namespace-uri-from-QName(QName('urn:rt','rt:local'))", &c).unwrap();
     assert_eq!(ns_rt, vec![I::Atomic(A::AnyUri("urn:rt".into()))]);
     let pref_rt = evaluate_expr::<N>("prefix-from-QName(QName('urn:rt','rt:local'))", &c).unwrap();
     assert_eq!(pref_rt, vec![I::Atomic(A::NCName("rt".into()))]);
-    let loc_rt =
-        evaluate_expr::<N>("local-name-from-QName(QName('urn:rt','rt:local'))", &c).unwrap();
+    let loc_rt = evaluate_expr::<N>("local-name-from-QName(QName('urn:rt','rt:local'))", &c).unwrap();
     assert_eq!(loc_rt, vec![I::Atomic(A::NCName("local".into()))]);
     // Second: no namespace
     let ns_empty = evaluate_expr::<N>("namespace-uri-from-QName(QName('', 'local'))", &c).unwrap();

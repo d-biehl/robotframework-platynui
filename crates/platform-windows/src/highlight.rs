@@ -11,14 +11,13 @@ use platynui_core::register_highlight_provider;
 use platynui_core::types::Rect;
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    AC_SRC_ALPHA, AC_SRC_OVER, BLENDFUNCTION, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS,
-    DeleteDC, DeleteObject, GetDC, HBITMAP, HDC, ReleaseDC, SelectObject,
+    AC_SRC_ALPHA, AC_SRC_OVER, BLENDFUNCTION, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC,
+    DeleteObject, GetDC, HBITMAP, HDC, ReleaseDC, SelectObject,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, MA_NOACTIVATE,
-    RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, ShowWindow, ULW_ALPHA, UpdateLayeredWindow,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WM_MOUSEACTIVATE, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, MA_NOACTIVATE, RegisterClassW, SW_HIDE,
+    SW_SHOWNOACTIVATE, ShowWindow, ULW_ALPHA, UpdateLayeredWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_MOUSEACTIVATE,
+    WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::PCWSTR;
 
@@ -63,15 +62,15 @@ impl OverlayController {
     }
 
     fn show(&self, rects: &[Rect], duration: Option<Duration>) -> Result<(), PlatformError> {
-        self.tx.send(Command::Show { rects: rects.to_vec(), duration }).map_err(|_| {
-            PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight thread stopped")
-        })
+        self.tx
+            .send(Command::Show { rects: rects.to_vec(), duration })
+            .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight thread stopped"))
     }
 
     fn clear(&self) -> Result<(), PlatformError> {
-        self.tx.send(Command::Clear).map_err(|_| {
-            PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight thread stopped")
-        })
+        self.tx
+            .send(Command::Clear)
+            .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight thread stopped"))
     }
 }
 
@@ -159,11 +158,7 @@ impl Overlay {
             let class_name: Vec<u16> = "PlatynUI_Highlight\0".encode_utf16().collect();
             let hwnd = CreateWindowExW(
                 WINDOW_EX_STYLE(
-                    WS_EX_LAYERED.0
-                        | WS_EX_TRANSPARENT.0
-                        | WS_EX_TOOLWINDOW.0
-                        | WS_EX_TOPMOST.0
-                        | WS_EX_NOACTIVATE.0,
+                    WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0 | WS_EX_TOOLWINDOW.0 | WS_EX_TOPMOST.0 | WS_EX_NOACTIVATE.0,
                 ),
                 PCWSTR(class_name.as_ptr()),
                 PCWSTR(class_name.as_ptr()),
@@ -194,8 +189,7 @@ impl Overlay {
 
         // Expand each requested rect so the frame is drawn AROUND the target
         // area with a 1px gap instead of covering the target itself.
-        let expanded: Vec<Rect> =
-            rects.iter().map(|r| expand_rect(r, FRAME_THICKNESS, FRAME_GAP)).collect();
+        let expanded: Vec<Rect> = rects.iter().map(|r| expand_rect(r, FRAME_THICKNESS, FRAME_GAP)).collect();
 
         // Clamp to desktop bounds to avoid drawing off-screen.
         let desktop_bounds = desktop_bounds().unwrap_or_else(|| union_rect(&expanded));
@@ -231,21 +225,15 @@ impl Overlay {
             // Create a top-down 32bpp DIB section to draw the overlay pixels into
             let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
             let mut bmi = BITMAPINFO::new(width as i32, height as i32);
-            let bitmap: HBITMAP = match CreateDIBSection(
-                Some(mem_dc),
-                &mut bmi.inner,
-                DIB_RGB_COLORS,
-                &mut bits,
-                None,
-                0,
-            ) {
-                Ok(bmp) => bmp,
-                Err(_) => {
-                    let _ = DeleteDC(mem_dc);
-                    let _ = ReleaseDC(None, screen_dc);
-                    return;
-                }
-            };
+            let bitmap: HBITMAP =
+                match CreateDIBSection(Some(mem_dc), &mut bmi.inner, DIB_RGB_COLORS, &mut bits, None, 0) {
+                    Ok(bmp) => bmp,
+                    Err(_) => {
+                        let _ = DeleteDC(mem_dc);
+                        let _ = ReleaseDC(None, screen_dc);
+                        return;
+                    }
+                };
 
             let old = SelectObject(mem_dc, bitmap.into());
 
@@ -261,16 +249,7 @@ impl Overlay {
             for (idx, r) in clamped.iter().enumerate() {
                 let expanded = &expanded[idx];
                 let styles = edge_styles(expanded, r);
-                draw_frame(
-                    slice,
-                    width as usize,
-                    height as usize,
-                    r,
-                    &union,
-                    FRAME_THICKNESS,
-                    color,
-                    styles,
-                );
+                draw_frame(slice, width as usize, height as usize, r, &union, FRAME_THICKNESS, color, styles);
             }
 
             let blend = BLENDFUNCTION {

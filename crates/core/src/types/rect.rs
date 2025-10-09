@@ -53,10 +53,7 @@ impl Rect {
 
     pub fn contains(&self, p: Point) -> bool {
         // Inclusive left/top, exclusive right/bottom: [x, x+width) × [y, y+height)
-        p.x() >= self.x
-            && p.x() < self.x + self.width
-            && p.y() >= self.y
-            && p.y() < self.y + self.height
+        p.x() >= self.x && p.x() < self.x + self.width && p.y() >= self.y && p.y() < self.y + self.height
     }
 
     pub fn intersects(&self, other: &Rect) -> bool {

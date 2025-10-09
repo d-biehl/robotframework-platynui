@@ -11,11 +11,7 @@ fn ctx() -> DynamicContext<platynui_xpath::model::simple::SimpleNode> {
 
 fn double(expr: &str) -> f64 {
     let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::Double(d))) = seq.first() {
-        *d
-    } else {
-        panic!("expected double")
-    }
+    if let Some(XdmItem::Atomic(XdmAtomicValue::Double(d))) = seq.first() { *d } else { panic!("expected double") }
 }
 
 #[rstest]

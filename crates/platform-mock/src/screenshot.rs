@@ -1,7 +1,6 @@
 use crate::desktop::MOCK_PLATFORM;
 use platynui_core::platform::{
-    DesktopInfoProvider, PixelFormat, PlatformError, Screenshot, ScreenshotProvider,
-    ScreenshotRequest,
+    DesktopInfoProvider, PixelFormat, PlatformError, Screenshot, ScreenshotProvider, ScreenshotRequest,
 };
 use platynui_core::types::Rect;
 use std::sync::Mutex;
@@ -42,8 +41,7 @@ impl ScreenshotProvider for MockScreenshot {
         };
         let width = region.width().max(1.0).round() as u32;
         let height = region.height().max(1.0).round() as u32;
-        let mut pixels =
-            vec![0u8; (width * height * PixelFormat::Rgba8.bytes_per_pixel() as u32) as usize];
+        let mut pixels = vec![0u8; (width * height * PixelFormat::Rgba8.bytes_per_pixel() as u32) as usize];
         let pitch = width as usize * 4;
 
         for chunk in pixels.chunks_exact_mut(4) {
@@ -61,14 +59,7 @@ impl ScreenshotProvider for MockScreenshot {
                     &intersection,
                     monitor_color(&monitor.id),
                 );
-                draw_label(
-                    &mut pixels,
-                    width as usize,
-                    height as usize,
-                    pitch,
-                    &region,
-                    &monitor.bounds,
-                );
+                draw_label(&mut pixels, width as usize, height as usize, pitch, &region, &monitor.bounds);
             }
         }
 
@@ -151,8 +142,7 @@ fn draw_label(
                     }
                     let row_offset = buf_y as usize * pitch;
                     for sx in 0..scale {
-                        let abs_x = start_x_abs
-                            + (((index * (GLYPH_W + GLYPH_SPACING) + col) * scale + sx) as f64);
+                        let abs_x = start_x_abs + (((index * (GLYPH_W + GLYPH_SPACING) + col) * scale + sx) as f64);
                         let buf_x = (abs_x - region.x()).round() as isize;
                         if buf_x < 0 || buf_x >= buffer_width as isize {
                             continue;
@@ -217,8 +207,7 @@ mod tests {
         let providers: Vec<_> = screenshot_providers().collect();
         // Mock provider should NOT be in the registry
         // On most test systems this will be empty, or contain OS providers
-        let mock_in_registry =
-            providers.iter().any(|p| std::ptr::eq(*p, &MOCK_SCREENSHOT as &dyn ScreenshotProvider));
+        let mock_in_registry = providers.iter().any(|p| std::ptr::eq(*p, &MOCK_SCREENSHOT as &dyn ScreenshotProvider));
         assert!(!mock_in_registry, "Mock screenshot provider should not be auto-registered");
 
         // Use direct reference for testing the provider itself
@@ -239,31 +228,22 @@ mod tests {
         let pixels = &full.pixels;
         let pitch = full.width as usize * 4;
 
-        let center_bounds = monitors
-            .iter()
-            .find(|m| m.id == "mock-monitor-center")
-            .map(|m| m.bounds)
-            .expect("center bounds");
+        let center_bounds =
+            monitors.iter().find(|m| m.id == "mock-monitor-center").map(|m| m.bounds).expect("center bounds");
         let expected_center = monitor_color("mock-monitor-center");
         let center_idx = ((center_bounds.y() + 100.0 - desktop_bounds.y()).round() as usize)
             .clamp(0, full.height as usize - 1)
             * pitch
-            + ((center_bounds.x() + 100.0 - desktop_bounds.x()).round() as usize)
-                .clamp(0, full.width as usize - 1)
-                * 4;
+            + ((center_bounds.x() + 100.0 - desktop_bounds.x()).round() as usize).clamp(0, full.width as usize - 1) * 4;
         assert_eq!(&pixels[center_idx..center_idx + 3], &expected_center);
 
-        let portrait_bounds = monitors
-            .iter()
-            .find(|m| m.id == "mock-monitor-left")
-            .map(|m| m.bounds)
-            .expect("portrait bounds");
+        let portrait_bounds =
+            monitors.iter().find(|m| m.id == "mock-monitor-left").map(|m| m.bounds).expect("portrait bounds");
         let expected_portrait = monitor_color("mock-monitor-left");
         let portrait_idx = ((portrait_bounds.y() + 100.0 - desktop_bounds.y()).round() as usize)
             .clamp(0, full.height as usize - 1)
             * pitch
-            + ((portrait_bounds.x() + 100.0 - desktop_bounds.x()).round() as usize)
-                .clamp(0, full.width as usize - 1)
+            + ((portrait_bounds.x() + 100.0 - desktop_bounds.x()).round() as usize).clamp(0, full.width as usize - 1)
                 * 4;
         assert_eq!(&pixels[portrait_idx..portrait_idx + 3], &expected_portrait);
 
@@ -278,24 +258,17 @@ mod tests {
         let scale = max_scale_x.min(max_scale_y).max(1);
         let text_pixel_width = total_cols * scale;
         let text_pixel_height = GLYPH_H * scale;
-        let start_x_abs =
-            center_bounds.x() + (center_bounds.width() - text_pixel_width as f64) / 2.0;
-        let start_y_abs =
-            center_bounds.y() + (center_bounds.height() - text_pixel_height as f64) / 2.0;
+        let start_x_abs = center_bounds.x() + (center_bounds.width() - text_pixel_width as f64) / 2.0;
+        let start_y_abs = center_bounds.y() + (center_bounds.height() - text_pixel_height as f64) / 2.0;
 
         let sample_abs_x = start_x_abs + (scale as f64 * 0.5);
         let sample_abs_y = start_y_abs + (scale as f64 * 0.5);
-        let sample_idx = ((sample_abs_y - desktop_bounds.y()).round() as usize)
-            .clamp(0, full.height as usize - 1)
+        let sample_idx = ((sample_abs_y - desktop_bounds.y()).round() as usize).clamp(0, full.height as usize - 1)
             * pitch
-            + ((sample_abs_x - desktop_bounds.x()).round() as usize)
-                .clamp(0, full.width as usize - 1)
-                * 4;
+            + ((sample_abs_x - desktop_bounds.x()).round() as usize).clamp(0, full.width as usize - 1) * 4;
         assert_eq!(&pixels[sample_idx..sample_idx + 3], &[0xFF, 0xFF, 0xFF]);
 
-        let black_idx = ((-400.0 - desktop_bounds.y()).round() as usize)
-            .clamp(0, full.height as usize - 1)
-            * pitch
+        let black_idx = ((-400.0 - desktop_bounds.y()).round() as usize).clamp(0, full.height as usize - 1) * pitch
             + ((100.0 - desktop_bounds.x()).round() as usize).clamp(0, full.width as usize - 1) * 4;
         assert_eq!(&pixels[black_idx..black_idx + 3], &[0, 0, 0]);
         assert_eq!(pixels[black_idx + 3], 0xFF);
@@ -318,9 +291,7 @@ mod tests {
         let provider = &MOCK_SCREENSHOT;
 
         let region = Rect::new(3700.0, 600.0, 400.0, 200.0);
-        let shot = provider
-            .capture(&ScreenshotRequest::with_region(region))
-            .expect("cross-monitor capture");
+        let shot = provider.capture(&ScreenshotRequest::with_region(region)).expect("cross-monitor capture");
 
         assert_eq!(shot.width, 400);
         assert_eq!(shot.height, 200);

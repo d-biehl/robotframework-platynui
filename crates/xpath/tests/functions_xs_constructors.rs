@@ -1,8 +1,7 @@
 use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
 use platynui_xpath::runtime::ErrorCode;
 use platynui_xpath::{
-    engine::evaluator::evaluate_expr, model::simple::SimpleNode, xdm::XdmAtomicValue as A,
-    xdm::XdmItem as I,
+    engine::evaluator::evaluate_expr, model::simple::SimpleNode, xdm::XdmAtomicValue as A, xdm::XdmItem as I,
 };
 use rstest::rstest;
 
@@ -24,9 +23,7 @@ fn xs_string_basic_and_empty() {
 #[rstest]
 fn xs_string_on_node_atomizes() {
     // Context item is a text node with value "Hello"
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(SimpleNode::text("Hello")))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(SimpleNode::text("Hello"))).build();
     let out = evaluate_expr::<N>("xs:string(.)", &ctx).unwrap();
     assert_eq!(out, vec![I::Atomic(A::String("Hello".into()))]);
 }
@@ -52,11 +49,7 @@ fn xs_boolean_lexical_forms_and_empty() {
 #[rstest]
 fn xs_boolean_invalid_raises_forg0001() {
     let err = evaluate_expr::<N>("xs:boolean('yes')", &empty_ctx()).expect_err("expected error");
-    assert!(
-        err.code_enum() == ErrorCode::FORG0001,
-        "unexpected error code: {:?}",
-        err.code_qname()
-    );
+    assert!(err.code_enum() == ErrorCode::FORG0001, "unexpected error code: {:?}", err.code_qname());
 }
 
 #[rstest]
@@ -77,8 +70,7 @@ fn xs_integer_valid_and_empty() {
 
 #[rstest]
 fn xs_integer_on_node_atomizes() {
-    let ctx =
-        DynamicContextBuilder::default().with_context_item(I::Node(SimpleNode::text("7"))).build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(SimpleNode::text("7"))).build();
     let out = evaluate_expr::<N>("xs:integer(.)", &ctx).unwrap();
     assert_eq!(out, vec![I::Atomic(A::Integer(7))]);
 }
@@ -86,19 +78,9 @@ fn xs_integer_on_node_atomizes() {
 #[rstest]
 fn xs_integer_invalid_raises_forg0001() {
     // Fractional numeric literal → FOCA0001 (fractional part) per updated constructor logic.
-    let err_frac =
-        evaluate_expr::<N>("xs:integer('3.14')", &empty_ctx()).expect_err("expected error");
-    assert!(
-        err_frac.code_enum() == ErrorCode::FOCA0001,
-        "3.14 expected FOCA0001, got {:?}",
-        err_frac.code_qname()
-    );
+    let err_frac = evaluate_expr::<N>("xs:integer('3.14')", &empty_ctx()).expect_err("expected error");
+    assert!(err_frac.code_enum() == ErrorCode::FOCA0001, "3.14 expected FOCA0001, got {:?}", err_frac.code_qname());
     // Non-numeric lexical → FORG0001
-    let err_lex =
-        evaluate_expr::<N>("xs:integer('abc')", &empty_ctx()).expect_err("expected error");
-    assert!(
-        err_lex.code_enum() == ErrorCode::FORG0001,
-        "abc expected FORG0001, got {:?}",
-        err_lex.code_qname()
-    );
+    let err_lex = evaluate_expr::<N>("xs:integer('abc')", &empty_ctx()).expect_err("expected error");
+    assert!(err_lex.code_enum() == ErrorCode::FORG0001, "abc expected FORG0001, got {:?}", err_lex.code_qname());
 }

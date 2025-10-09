@@ -170,9 +170,7 @@ fn min_rejects_non_string_collation() {
 
 #[rstest]
 fn max_accepts_string_collation() {
-    let result = eval_expression(
-        "max(('a','b'), 'http://www.w3.org/2005/xpath-functions/collation/codepoint')",
-    );
+    let result = eval_expression("max(('a','b'), 'http://www.w3.org/2005/xpath-functions/collation/codepoint')");
     assert_eq!(result.len(), 1);
     match &result[0] {
         I::Atomic(A::String(s)) => assert_eq!(s, "b"),
@@ -430,10 +428,7 @@ fn rounding_precision_rejects_string(#[case] expr: &str) {
 #[rstest]
 #[case("round(2.75, ())", "round(2.75)")]
 #[case("round-half-to-even(2.05, ())", "round-half-to-even(2.05)")]
-fn rounding_precision_empty_sequence_defaults_to_zero(
-    #[case] with_precision: &str,
-    #[case] baseline: &str,
-) {
+fn rounding_precision_empty_sequence_defaults_to_zero(#[case] with_precision: &str, #[case] baseline: &str) {
     let with_precision_result = eval_expression(with_precision);
     let baseline_result = eval_expression(baseline);
     assert_eq!(with_precision_result, baseline_result);
@@ -548,8 +543,7 @@ fn error_rejects_non_string_description() {
 #[test]
 fn resolve_uri_allows_anyuri_arguments() {
     let compiled =
-        compile("resolve-uri(xs:anyURI('docs/page'), xs:anyURI('http://example.com/base/'))")
-            .expect("compile");
+        compile("resolve-uri(xs:anyURI('docs/page'), xs:anyURI('http://example.com/base/'))").expect("compile");
     let ctx = make_context(&build_doc());
     let result = evaluate::<SimpleNode>(&compiled, &ctx).expect("eval");
     assert_eq!(result.len(), 1);
@@ -621,8 +615,7 @@ fn adjust_date_to_timezone_rejects_non_duration() {
 
 #[test]
 fn namespace_uri_from_qname_converts_untyped_atomic() {
-    let compiled =
-        compile("namespace-uri-from-QName(xs:untypedAtomic('xml:lang'))").expect("compile");
+    let compiled = compile("namespace-uri-from-QName(xs:untypedAtomic('xml:lang'))").expect("compile");
     let ctx = make_context(&build_doc());
     let result = evaluate::<SimpleNode>(&compiled, &ctx).expect("eval");
     assert_eq!(result.len(), 1);
@@ -636,8 +629,7 @@ fn namespace_uri_from_qname_converts_untyped_atomic() {
 
 #[test]
 fn namespace_uri_from_qname_reports_unknown_prefix() {
-    let compiled =
-        compile("namespace-uri-from-QName(xs:untypedAtomic('u:item'))").expect("compile");
+    let compiled = compile("namespace-uri-from-QName(xs:untypedAtomic('u:item'))").expect("compile");
     let ctx = make_context(&build_doc());
     let err = evaluate::<SimpleNode>(&compiled, &ctx).expect_err("expected error");
     assert_eq!(err.code.local, "FONS0004");

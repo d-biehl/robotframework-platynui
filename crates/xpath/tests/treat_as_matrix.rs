@@ -14,12 +14,7 @@ fn run(expr: &str) -> Result<Vec<I<N>>, platynui_xpath::engine::runtime::Error> 
 fn expect_err(expr: &str, frag: &str) {
     let e = run(expr).unwrap_err();
     assert_eq!(e.code_enum(), ErrorCode::XPTY0004);
-    assert!(
-        e.message.contains(frag),
-        "expected fragment {frag} in '{}'; got '{}'",
-        expr,
-        e.message
-    );
+    assert!(e.message.contains(frag), "expected fragment {frag} in '{}'; got '{}'", expr, e.message);
 }
 
 #[rstest]

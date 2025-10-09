@@ -1,7 +1,5 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
-use platynui_xpath::{
-    engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A, xdm::XdmItem as I,
-};
+use platynui_xpath::{engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A, xdm::XdmItem as I};
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -25,27 +23,15 @@ fn eval_bool(expr: &str) -> bool {
 #[case("(1, 'a') = (true(), 2)", false)] // boolean vs numeric incomparable; no successful pair
 #[case("(1,2) = (3,4)", false)]
 #[case("(1,2,3) = (5,4,3)", true)]
-#[case(
-    "(xs:date('2024-01-01Z'), xs:date('2024-01-02Z')) = (xs:date('2023-12-31Z'), xs:date('2024-01-02Z'))",
-    true
-)]
+#[case("(xs:date('2024-01-01Z'), xs:date('2024-01-02Z')) = (xs:date('2023-12-31Z'), xs:date('2024-01-02Z'))", true)]
 #[case("(xs:date('2024-01-01Z'), xs:date('2024-01-02Z')) = (xs:date('2024-01-03Z'))", false)]
 #[case("(xs:time('12:00:00Z'), xs:time('18:00:00Z')) = (xs:time('18:00:00Z'))", true)]
 #[case("(xs:time('12:00:00Z')) = (xs:time('18:00:00Z'))", false)]
-#[case(
-    "(xs:dayTimeDuration('PT1H'), xs:dayTimeDuration('PT2H')) = (xs:dayTimeDuration('PT2H'))",
-    true
-)]
+#[case("(xs:dayTimeDuration('PT1H'), xs:dayTimeDuration('PT2H')) = (xs:dayTimeDuration('PT2H'))", true)]
 #[case("(xs:dayTimeDuration('PT1H')) = (xs:dayTimeDuration('PT2H'))", false)]
-#[case(
-    "(xs:yearMonthDuration('P1Y'), xs:yearMonthDuration('P2Y')) = (xs:yearMonthDuration('P2Y'))",
-    true
-)]
+#[case("(xs:yearMonthDuration('P1Y'), xs:yearMonthDuration('P2Y')) = (xs:yearMonthDuration('P2Y'))", true)]
 #[case("(xs:yearMonthDuration('P1Y')) = (xs:yearMonthDuration('P2Y'))", false)]
-#[case(
-    "(xs:yearMonthDuration('P1Y'), xs:dayTimeDuration('PT1H')) = (xs:yearMonthDuration('P1Y'))",
-    true
-)]
+#[case("(xs:yearMonthDuration('P1Y'), xs:dayTimeDuration('PT1H')) = (xs:yearMonthDuration('P1Y'))", true)]
 // durations of different subtypes are incomparable for =; per spec, yearMonthDuration vs dayTimeDuration are not comparable => true only if same subtype match; left has P1Y; right P1Y; comparable so true.
 #[case("(xs:yearMonthDuration('P1Y')) = (xs:dayTimeDuration('PT1H'))", false)]
 fn general_eq_matrix(#[case] expr: &str, #[case] expect: bool) {
@@ -73,15 +59,9 @@ fn general_ne_matrix(#[case] expr: &str, #[case] expect: bool) {
 #[case("(xs:date('2024-01-03Z')) < (xs:date('2024-01-02Z'))", false)]
 #[case("(xs:time('12:00:00Z'), xs:time('18:00:00Z')) < (xs:time('13:00:00Z'))", true)]
 #[case("(xs:time('18:00:00Z')) < (xs:time('13:00:00Z'))", false)]
-#[case(
-    "(xs:dayTimeDuration('PT1H'), xs:dayTimeDuration('PT3H')) < (xs:dayTimeDuration('PT2H'))",
-    true
-)]
+#[case("(xs:dayTimeDuration('PT1H'), xs:dayTimeDuration('PT3H')) < (xs:dayTimeDuration('PT2H'))", true)]
 #[case("(xs:dayTimeDuration('PT3H')) < (xs:dayTimeDuration('PT2H'))", false)]
-#[case(
-    "(xs:yearMonthDuration('P1Y'), xs:yearMonthDuration('P3Y')) < (xs:yearMonthDuration('P2Y'))",
-    true
-)]
+#[case("(xs:yearMonthDuration('P1Y'), xs:yearMonthDuration('P3Y')) < (xs:yearMonthDuration('P2Y'))", true)]
 #[case("(xs:yearMonthDuration('P3Y')) < (xs:yearMonthDuration('P2Y'))", false)]
 fn general_lt_matrix(#[case] expr: &str, #[case] expect: bool) {
     assert_eq!(eval_bool(expr), expect);

@@ -2,8 +2,8 @@ use std::f64::consts::PI;
 use std::time::{Duration, Instant};
 
 use platynui_core::platform::{
-    PlatformError, PointOrigin, PointerAccelerationProfile, PointerButton, PointerDevice,
-    PointerMotionMode, ScrollDelta,
+    PlatformError, PointOrigin, PointerAccelerationProfile, PointerButton, PointerDevice, PointerMotionMode,
+    ScrollDelta,
 };
 use platynui_core::types::{Point, Rect, Size};
 use thiserror::Error;
@@ -211,9 +211,7 @@ pub enum PointerError {
     MissingDevice,
     #[error("pointer action failed: {0}")]
     Platform(#[from] PlatformError),
-    #[error(
-        "pointer could not reach target {expected:?} (actual {actual:?}, threshold {threshold})"
-    )]
+    #[error("pointer could not reach target {expected:?} (actual {actual:?}, threshold {threshold})")]
     EnsureMove { expected: Point, actual: Point, threshold: f64 },
     #[error("click count must be greater than zero (got {provided})")]
     InvalidClickCount { provided: u32 },
@@ -268,10 +266,7 @@ impl<'a> PointerEngine<'a> {
         self.settings.default_button
     }
 
-    fn effective_profile<'b>(
-        &'b self,
-        overrides: Option<&'b PointerOverrides>,
-    ) -> EffectiveProfile<'b> {
+    fn effective_profile<'b>(&'b self, overrides: Option<&'b PointerOverrides>) -> EffectiveProfile<'b> {
         let profile = overrides.and_then(|o| o.profile.as_ref()).unwrap_or(&self.profile);
         EffectiveProfile::new(profile, overrides, &self.settings)
     }
@@ -280,11 +275,7 @@ impl<'a> PointerEngine<'a> {
         overrides.and_then(|o| o.origin.clone()).unwrap_or(PointOrigin::Desktop)
     }
 
-    pub fn move_to(
-        &mut self,
-        point: Point,
-        overrides: Option<&PointerOverrides>,
-    ) -> Result<Point, PointerError> {
+    pub fn move_to(&mut self, point: Point, overrides: Option<&PointerOverrides>) -> Result<Point, PointerError> {
         let effective = self.effective_profile(overrides);
         let origin = self.resolve_origin(overrides);
         let target = self.resolve_point(point, &origin);
@@ -320,13 +311,7 @@ impl<'a> PointerEngine<'a> {
 
         let target_button = button.unwrap_or(self.settings.default_button);
         let anchor = self.move_to(point, overrides)?;
-        let (
-            press_release_delay,
-            after_click_delay,
-            after_input_delay,
-            multi_click_delay,
-            before_next_click_delay,
-        ) = {
+        let (press_release_delay, after_click_delay, after_input_delay, multi_click_delay, before_next_click_delay) = {
             let effective = self.effective_profile(overrides);
             (
                 effective.press_release_delay(),
@@ -337,12 +322,7 @@ impl<'a> PointerEngine<'a> {
             )
         };
 
-        self.enforce_inter_click_delay(
-            multi_click_delay,
-            before_next_click_delay,
-            after_click_delay,
-            anchor,
-        );
+        self.enforce_inter_click_delay(multi_click_delay, before_next_click_delay, after_click_delay, anchor);
 
         let inter_between_clicks = if clicks > 1 && !self.settings.double_click_time.is_zero() {
             self.settings.double_click_time / 2
@@ -369,11 +349,7 @@ impl<'a> PointerEngine<'a> {
         Ok(())
     }
 
-    pub fn press(
-        &mut self,
-        button: PointerButton,
-        overrides: Option<&PointerOverrides>,
-    ) -> Result<(), PointerError> {
+    pub fn press(&mut self, button: PointerButton, overrides: Option<&PointerOverrides>) -> Result<(), PointerError> {
         let effective = self.effective_profile(overrides);
         self.device.press(button)?;
         self.sleep(effective.press_release_delay());
@@ -381,11 +357,7 @@ impl<'a> PointerEngine<'a> {
         Ok(())
     }
 
-    pub fn release(
-        &mut self,
-        button: PointerButton,
-        overrides: Option<&PointerOverrides>,
-    ) -> Result<(), PointerError> {
+    pub fn release(&mut self, button: PointerButton, overrides: Option<&PointerOverrides>) -> Result<(), PointerError> {
         let effective = self.effective_profile(overrides);
         self.device.release(button)?;
         self.sleep(effective.press_release_delay());
@@ -393,11 +365,7 @@ impl<'a> PointerEngine<'a> {
         Ok(())
     }
 
-    pub fn scroll(
-        &mut self,
-        delta: ScrollDelta,
-        overrides: Option<&PointerOverrides>,
-    ) -> Result<(), PointerError> {
+    pub fn scroll(&mut self, delta: ScrollDelta, overrides: Option<&PointerOverrides>) -> Result<(), PointerError> {
         if delta.horizontal == 0.0 && delta.vertical == 0.0 {
             return Ok(());
         }
@@ -461,9 +429,7 @@ impl<'a> PointerEngine<'a> {
         match origin {
             PointOrigin::Desktop => point,
             PointOrigin::Bounds(rect) => Point::new(rect.x() + point.x(), rect.y() + point.y()),
-            PointOrigin::Absolute(anchor) => {
-                Point::new(anchor.x() + point.x(), anchor.y() + point.y())
-            }
+            PointOrigin::Absolute(anchor) => Point::new(anchor.x() + point.x(), anchor.y() + point.y()),
         }
     }
 
@@ -477,12 +443,7 @@ impl<'a> PointerEngine<'a> {
         Point::new(x, y)
     }
 
-    fn perform_move(
-        &self,
-        start: Point,
-        target: Point,
-        effective: &EffectiveProfile,
-    ) -> Result<(), PointerError> {
+    fn perform_move(&self, start: Point, target: Point, effective: &EffectiveProfile) -> Result<(), PointerError> {
         let profile = effective.profile();
         let distance = distance(start, target);
         let total_duration = self.desired_move_duration(distance, effective);
@@ -550,11 +511,7 @@ impl<'a> PointerEngine<'a> {
         }
     }
 
-    fn ensure_position(
-        &self,
-        target: Point,
-        effective: &EffectiveProfile,
-    ) -> Result<(), PointerError> {
+    fn ensure_position(&self, target: Point, effective: &EffectiveProfile) -> Result<(), PointerError> {
         let threshold = effective.ensure_move_threshold();
         if threshold <= 0.0 {
             return Ok(());
@@ -649,9 +606,7 @@ impl<'a> EffectiveProfile<'a> {
     }
 
     fn press_release_delay(&self) -> Duration {
-        self.overrides
-            .and_then(|o| o.press_release_delay)
-            .unwrap_or(self.profile.press_release_delay)
+        self.overrides.and_then(|o| o.press_release_delay).unwrap_or(self.profile.press_release_delay)
     }
 
     fn after_click_delay(&self) -> Duration {
@@ -659,16 +614,11 @@ impl<'a> EffectiveProfile<'a> {
     }
 
     fn before_next_click_delay(&self) -> Duration {
-        self.overrides
-            .and_then(|o| o.before_next_click_delay)
-            .unwrap_or(self.profile.before_next_click_delay)
+        self.overrides.and_then(|o| o.before_next_click_delay).unwrap_or(self.profile.before_next_click_delay)
     }
 
     fn multi_click_delay(&self) -> Duration {
-        let mut delay = self
-            .overrides
-            .and_then(|o| o.multi_click_delay)
-            .unwrap_or(self.profile.multi_click_delay);
+        let mut delay = self.overrides.and_then(|o| o.multi_click_delay).unwrap_or(self.profile.multi_click_delay);
         if !self.settings.double_click_time.is_zero() && !delay.is_zero() {
             delay = delay.min(self.settings.double_click_time);
         }
@@ -680,15 +630,11 @@ impl<'a> EffectiveProfile<'a> {
     }
 
     fn ensure_move_threshold(&self) -> f64 {
-        self.overrides
-            .and_then(|o| o.ensure_move_threshold)
-            .unwrap_or(self.profile.ensure_move_threshold)
+        self.overrides.and_then(|o| o.ensure_move_threshold).unwrap_or(self.profile.ensure_move_threshold)
     }
 
     fn ensure_move_timeout(&self) -> Duration {
-        self.overrides
-            .and_then(|o| o.ensure_move_timeout)
-            .unwrap_or(self.profile.ensure_move_timeout)
+        self.overrides.and_then(|o| o.ensure_move_timeout).unwrap_or(self.profile.ensure_move_timeout)
     }
 
     fn max_move_duration(&self) -> Duration {
@@ -696,9 +642,7 @@ impl<'a> EffectiveProfile<'a> {
     }
 
     fn move_time_per_pixel(&self) -> Duration {
-        self.overrides
-            .and_then(|o| o.move_time_per_pixel)
-            .unwrap_or(self.profile.move_time_per_pixel)
+        self.overrides.and_then(|o| o.move_time_per_pixel).unwrap_or(self.profile.move_time_per_pixel)
     }
 
     fn speed_factor(&self) -> f64 {
@@ -706,9 +650,7 @@ impl<'a> EffectiveProfile<'a> {
     }
 
     fn acceleration_profile(&self) -> PointerAccelerationProfile {
-        self.overrides
-            .and_then(|o| o.acceleration_profile)
-            .unwrap_or(self.profile.acceleration_profile)
+        self.overrides.and_then(|o| o.acceleration_profile).unwrap_or(self.profile.acceleration_profile)
     }
 
     fn scroll_step(&self) -> ScrollDelta {
@@ -733,16 +675,10 @@ fn generate_path(start: Point, target: Point, profile: &PointerProfile) -> Vec<P
     }
 
     match profile.mode {
-        PointerMotionMode::Linear | PointerMotionMode::Direct => {
-            generate_linear_path(start, target, steps)
-        }
-        PointerMotionMode::Bezier => {
-            generate_bezier_path(start, target, steps, profile.curve_amplitude)
-        }
+        PointerMotionMode::Linear | PointerMotionMode::Direct => generate_linear_path(start, target, steps),
+        PointerMotionMode::Bezier => generate_bezier_path(start, target, steps, profile.curve_amplitude),
         PointerMotionMode::Overshoot => generate_overshoot_path(start, target, steps, profile),
-        PointerMotionMode::Jitter => {
-            generate_jitter_path(start, target, steps, profile.jitter_amplitude)
-        }
+        PointerMotionMode::Jitter => generate_jitter_path(start, target, steps, profile.jitter_amplitude),
     }
 }
 
@@ -768,30 +704,19 @@ fn generate_bezier_path(start: Point, target: Point, steps: usize, amplitude: f6
     for index in 1..=steps {
         let t = index as f64 / steps as f64;
         let one_minus_t = 1.0 - t;
-        let x = one_minus_t * one_minus_t * start.x()
-            + 2.0 * one_minus_t * t * control.x()
-            + t * t * target.x();
-        let y = one_minus_t * one_minus_t * start.y()
-            + 2.0 * one_minus_t * t * control.y()
-            + t * t * target.y();
+        let x = one_minus_t * one_minus_t * start.x() + 2.0 * one_minus_t * t * control.x() + t * t * target.x();
+        let y = one_minus_t * one_minus_t * start.y() + 2.0 * one_minus_t * t * control.y() + t * t * target.y();
         path.push(Point::new(x, y));
     }
     path
 }
 
-fn generate_overshoot_path(
-    start: Point,
-    target: Point,
-    steps: usize,
-    profile: &PointerProfile,
-) -> Vec<Point> {
+fn generate_overshoot_path(start: Point, target: Point, steps: usize, profile: &PointerProfile) -> Vec<Point> {
     let distance = distance(start, target);
     let direction = direction_vector(start, target);
     let overshoot_dist = distance * profile.overshoot_ratio;
-    let overshoot_point = Point::new(
-        target.x() + direction.0 * overshoot_dist,
-        target.y() + direction.1 * overshoot_dist,
-    );
+    let overshoot_point =
+        Point::new(target.x() + direction.0 * overshoot_dist, target.y() + direction.1 * overshoot_dist);
 
     let mut path = generate_linear_path(start, overshoot_point, steps);
     let settle_steps = profile.overshoot_settle_steps.max(1) as usize;
@@ -815,11 +740,7 @@ fn generate_jitter_path(start: Point, target: Point, steps: usize, amplitude: f6
     path
 }
 
-fn easing_fraction(
-    acceleration: PointerAccelerationProfile,
-    step_index: usize,
-    steps: usize,
-) -> f64 {
+fn easing_fraction(acceleration: PointerAccelerationProfile, step_index: usize, steps: usize) -> f64 {
     if steps == 0 {
         return 1.0;
     }
@@ -867,9 +788,7 @@ mod tests {
     use super::*;
     use super::{ClickStamp, PointerOverrides, PointerProfile, PointerSettings};
     use platynui_core::types::{Rect, Size};
-    use platynui_platform_mock::{
-        MOCK_POINTER, PointerLogEntry, reset_pointer_state, take_pointer_log,
-    };
+    use platynui_platform_mock::{MOCK_POINTER, PointerLogEntry, reset_pointer_state, take_pointer_log};
     use rstest::rstest;
     use serial_test::serial;
     use std::sync::Mutex;
@@ -892,11 +811,7 @@ mod tests {
 
     impl RecordingPointer {
         fn new() -> Self {
-            Self {
-                moves: AtomicUsize::new(0),
-                position: Mutex::new(Point::new(0.0, 0.0)),
-                log: Mutex::new(Vec::new()),
-            }
+            Self { moves: AtomicUsize::new(0), position: Mutex::new(Point::new(0.0, 0.0)), log: Mutex::new(Vec::new()) }
         }
 
         fn take_log(&self) -> Vec<Action> {
@@ -945,13 +860,7 @@ mod tests {
         profile.after_move_delay = Duration::ZERO;
         profile.ensure_move_position = false;
         profile.acceleration_profile = PointerAccelerationProfile::Constant;
-        let mut engine = PointerEngine::new(
-            &device,
-            Rect::new(0.0, 0.0, 100.0, 100.0),
-            settings,
-            profile,
-            &noop_sleep,
-        );
+        let mut engine = PointerEngine::new(&device, Rect::new(0.0, 0.0, 100.0, 100.0), settings, profile, &noop_sleep);
 
         engine.move_to(Point::new(10.0, 0.0), None).unwrap();
         assert!(device.moves.load(Ordering::SeqCst) >= 1);
@@ -962,15 +871,8 @@ mod tests {
         let device = RecordingPointer::new();
         let settings = PointerSettings::default();
         let profile = PointerProfile::named_default();
-        let overrides = PointerOverrides::new()
-            .origin(PointOrigin::Bounds(Rect::new(100.0, 200.0, 50.0, 50.0)));
-        let mut engine = PointerEngine::new(
-            &device,
-            Rect::new(0.0, 0.0, 500.0, 500.0),
-            settings,
-            profile,
-            &noop_sleep,
-        );
+        let overrides = PointerOverrides::new().origin(PointOrigin::Bounds(Rect::new(100.0, 200.0, 50.0, 50.0)));
+        let mut engine = PointerEngine::new(&device, Rect::new(0.0, 0.0, 500.0, 500.0), settings, profile, &noop_sleep);
 
         engine.move_to(Point::new(5.0, 10.0), Some(&overrides)).unwrap();
         let log = device.take_log();
@@ -982,15 +884,8 @@ mod tests {
         let device = RecordingPointer::new();
         let settings = PointerSettings::default();
         let profile = PointerProfile::named_default();
-        let overrides =
-            PointerOverrides::new().origin(PointOrigin::Absolute(Point::new(50.0, 75.0)));
-        let mut engine = PointerEngine::new(
-            &device,
-            Rect::new(0.0, 0.0, 500.0, 500.0),
-            settings,
-            profile,
-            &noop_sleep,
-        );
+        let overrides = PointerOverrides::new().origin(PointOrigin::Absolute(Point::new(50.0, 75.0)));
+        let mut engine = PointerEngine::new(&device, Rect::new(0.0, 0.0, 500.0, 500.0), settings, profile, &noop_sleep);
 
         engine.move_to(Point::new(-10.0, 25.0), Some(&overrides)).unwrap();
         let log = device.take_log();
@@ -1017,18 +912,12 @@ mod tests {
             }
         };
 
-        let expected_steps = (distance(Point::new(0.0, 0.0), Point::new(4.0, 0.0))
-            * profile.steps_per_pixel)
-            .ceil() as usize;
+        let expected_steps =
+            (distance(Point::new(0.0, 0.0), Point::new(4.0, 0.0)) * profile.steps_per_pixel).ceil() as usize;
         let max_move_duration = profile.max_move_duration;
 
-        let mut engine = PointerEngine::new(
-            &device,
-            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
-            settings,
-            profile,
-            &sleep,
-        );
+        let mut engine =
+            PointerEngine::new(&device, Rect::new(-4000.0, -2000.0, 8000.0, 4000.0), settings, profile, &sleep);
 
         engine.move_to(Point::new(4.0, 0.0), None).unwrap();
         let recorded = sleeps.lock().unwrap().clone();
@@ -1067,13 +956,8 @@ mod tests {
             *total_sleep.lock().unwrap() += duration;
         };
 
-        let mut engine = PointerEngine::new(
-            &device,
-            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
-            settings,
-            profile,
-            &sleep,
-        );
+        let mut engine =
+            PointerEngine::new(&device, Rect::new(-4000.0, -2000.0, 8000.0, 4000.0), settings, profile, &sleep);
 
         engine.move_to(Point::new(2.0, 0.0), None).unwrap();
         let short_duration = *total_sleep.lock().unwrap();
@@ -1182,8 +1066,7 @@ mod tests {
         assert!(total_secs > 0.0);
         let mut previous_fraction = 0.0;
         for (index, actual) in increments.iter().enumerate() {
-            let fraction =
-                super::easing_fraction(profile_clone.acceleration_profile, index, recorded.len());
+            let fraction = super::easing_fraction(profile_clone.acceleration_profile, index, recorded.len());
             let expected_slice = fraction - previous_fraction;
             previous_fraction = fraction;
             let actual_slice = actual.as_secs_f64() / total_secs;
@@ -1239,8 +1122,7 @@ mod tests {
         assert!(total_secs > 0.0);
         let mut previous_fraction = 0.0;
         for (index, actual) in increments.iter().enumerate() {
-            let fraction =
-                super::easing_fraction(profile_clone.acceleration_profile, index, recorded.len());
+            let fraction = super::easing_fraction(profile_clone.acceleration_profile, index, recorded.len());
             let expected_slice = fraction - previous_fraction;
             previous_fraction = fraction;
             let actual_slice = actual.as_secs_f64() / total_secs;
@@ -1282,10 +1164,8 @@ mod tests {
 
         engine.click(Point::new(10.0, 10.0), None, None).unwrap();
 
-        engine.last_click = Some(ClickStamp {
-            time: Instant::now() - Duration::from_millis(20),
-            position: Point::new(10.0, 10.0),
-        });
+        engine.last_click =
+            Some(ClickStamp { time: Instant::now() - Duration::from_millis(20), position: Point::new(10.0, 10.0) });
         sleeps.lock().unwrap().clear();
         engine.click(Point::new(12.0, 10.0), None, None).unwrap();
         let recorded = sleeps.lock().unwrap().clone();
@@ -1294,10 +1174,8 @@ mod tests {
         assert_duration_approx(enforced, Duration::from_millis(80));
         assert!(engine.last_click.is_some());
 
-        engine.last_click = Some(ClickStamp {
-            time: Instant::now() - Duration::from_millis(400),
-            position: Point::new(12.0, 10.0),
-        });
+        engine.last_click =
+            Some(ClickStamp { time: Instant::now() - Duration::from_millis(400), position: Point::new(12.0, 10.0) });
         sleeps.lock().unwrap().clear();
         engine.click(Point::new(14.0, 10.0), None, None).unwrap();
         let recorded = sleeps.lock().unwrap().clone();
@@ -1317,10 +1195,7 @@ mod tests {
         };
 
         let device = RecordingPointer::new();
-        let settings = PointerSettings {
-            double_click_size: Size::new(4.0, 4.0),
-            ..PointerSettings::default()
-        };
+        let settings = PointerSettings { double_click_size: Size::new(4.0, 4.0), ..PointerSettings::default() };
 
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
@@ -1333,18 +1208,11 @@ mod tests {
         profile.move_time_per_pixel = Duration::ZERO;
         profile.max_move_duration = Duration::ZERO;
 
-        let mut engine = PointerEngine::new(
-            &device,
-            Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
-            settings,
-            profile,
-            &sleep,
-        );
+        let mut engine =
+            PointerEngine::new(&device, Rect::new(-4000.0, -2000.0, 8000.0, 4000.0), settings, profile, &sleep);
 
-        engine.last_click = Some(ClickStamp {
-            time: Instant::now() - Duration::from_millis(20),
-            position: Point::new(0.0, 0.0),
-        });
+        engine.last_click =
+            Some(ClickStamp { time: Instant::now() - Duration::from_millis(20), position: Point::new(0.0, 0.0) });
 
         engine.click(Point::new(200.0, 0.0), None, None).unwrap();
 
@@ -1460,11 +1328,7 @@ mod tests {
         engine.move_to(Point::new(4.0, 0.0), None).unwrap();
         let increments = mock_sleep_increments(&sleeps.lock().unwrap());
         assert_eq!(increments.len(), 4);
-        assert!(
-            increments.windows(2).all(|w| w[0] <= w[1] + Duration::from_millis(2)),
-            "{:?}",
-            increments
-        );
+        assert!(increments.windows(2).all(|w| w[0] <= w[1] + Duration::from_millis(2)), "{:?}", increments);
     }
 
     #[rstest]
@@ -1500,11 +1364,7 @@ mod tests {
         engine.move_to(Point::new(4.0, 0.0), None).unwrap();
         let increments = mock_sleep_increments(&sleeps.lock().unwrap());
         assert_eq!(increments.len(), 4);
-        assert!(
-            increments.windows(2).all(|w| w[0] >= w[1] - Duration::from_millis(2)),
-            "{:?}",
-            increments
-        );
+        assert!(increments.windows(2).all(|w| w[0] >= w[1] - Duration::from_millis(2)), "{:?}", increments);
     }
 
     #[rstest]
@@ -1539,12 +1399,7 @@ mod tests {
             &sleep,
         );
 
-        let half_double = device
-            .double_click_time()
-            .ok()
-            .flatten()
-            .map(|time| time / 2)
-            .unwrap_or(Duration::ZERO);
+        let half_double = device.double_click_time().ok().flatten().map(|time| time / 2).unwrap_or(Duration::ZERO);
         let target_total = if configured_delay.is_zero() {
             half_double
         } else if half_double.is_zero() {
@@ -1556,19 +1411,15 @@ mod tests {
         engine.click(Point::new(0.0, 0.0), None, None).unwrap();
         sleeps.lock().unwrap().clear();
 
-        engine.last_click = Some(ClickStamp {
-            time: Instant::now() - Duration::from_millis(25),
-            position: Point::new(0.0, 0.0),
-        });
+        engine.last_click =
+            Some(ClickStamp { time: Instant::now() - Duration::from_millis(25), position: Point::new(0.0, 0.0) });
         engine.click(Point::new(0.0, 0.0), None, None).unwrap();
         let enforced = sleeps.lock().unwrap().first().copied().unwrap_or(Duration::ZERO);
-        let expected_sleep =
-            target_total.checked_sub(Duration::from_millis(25)).unwrap_or(Duration::ZERO);
+        let expected_sleep = target_total.checked_sub(Duration::from_millis(25)).unwrap_or(Duration::ZERO);
         assert_duration_approx(enforced, expected_sleep);
 
         let log = take_pointer_log();
-        let press_count =
-            log.iter().filter(|entry| matches!(entry, PointerLogEntry::Press(_))).count();
+        let press_count = log.iter().filter(|entry| matches!(entry, PointerLogEntry::Press(_))).count();
         assert!(press_count >= 2);
     }
 
@@ -1586,25 +1437,14 @@ mod tests {
         profile.move_time_per_pixel = Duration::ZERO;
         profile.max_move_duration = Duration::ZERO;
 
-        let mut engine = PointerEngine::new(
-            &device,
-            Rect::new(-100.0, -100.0, 200.0, 200.0),
-            settings,
-            profile,
-            &noop_sleep,
-        );
+        let mut engine =
+            PointerEngine::new(&device, Rect::new(-100.0, -100.0, 200.0, 200.0), settings, profile, &noop_sleep);
 
         engine.multi_click(Point::new(5.0, 5.0), Some(PointerButton::Right), 3, None).unwrap();
 
         let log = device.take_log();
-        let presses = log
-            .iter()
-            .filter(|action| matches!(action, Action::Press(PointerButton::Right)))
-            .count();
-        let releases = log
-            .iter()
-            .filter(|action| matches!(action, Action::Release(PointerButton::Right)))
-            .count();
+        let presses = log.iter().filter(|action| matches!(action, Action::Press(PointerButton::Right))).count();
+        let releases = log.iter().filter(|action| matches!(action, Action::Release(PointerButton::Right))).count();
         assert_eq!(presses, 3);
         assert_eq!(releases, 3);
         assert!(engine.last_click.is_some());
@@ -1624,13 +1464,8 @@ mod tests {
         profile.move_time_per_pixel = Duration::ZERO;
         profile.max_move_duration = Duration::ZERO;
 
-        let mut engine = PointerEngine::new(
-            &device,
-            Rect::new(-50.0, -50.0, 100.0, 100.0),
-            settings,
-            profile,
-            &noop_sleep,
-        );
+        let mut engine =
+            PointerEngine::new(&device, Rect::new(-50.0, -50.0, 100.0, 100.0), settings, profile, &noop_sleep);
 
         let error = engine.multi_click(Point::new(0.0, 0.0), None, 0, None).unwrap_err();
         match error {
@@ -1666,13 +1501,7 @@ mod tests {
             }
         };
 
-        let mut engine = PointerEngine::new(
-            &device,
-            Rect::new(-10.0, -10.0, 20.0, 20.0),
-            settings,
-            profile,
-            &sleep,
-        );
+        let mut engine = PointerEngine::new(&device, Rect::new(-10.0, -10.0, 20.0, 20.0), settings, profile, &sleep);
 
         engine.multi_click(Point::new(0.0, 0.0), None, 3, None).unwrap();
 
@@ -1692,10 +1521,7 @@ mod tests {
     #[rstest]
     fn single_click_emits_only_after_click_delay() {
         let device = RecordingPointer::new();
-        let settings = PointerSettings {
-            double_click_time: Duration::from_millis(250),
-            ..PointerSettings::default()
-        };
+        let settings = PointerSettings { double_click_time: Duration::from_millis(250), ..PointerSettings::default() };
 
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
@@ -1715,13 +1541,7 @@ mod tests {
             }
         };
 
-        let mut engine = PointerEngine::new(
-            &device,
-            Rect::new(-10.0, -10.0, 20.0, 20.0),
-            settings,
-            profile,
-            &sleep,
-        );
+        let mut engine = PointerEngine::new(&device, Rect::new(-10.0, -10.0, 20.0, 20.0), settings, profile, &sleep);
 
         engine.click(Point::new(0.0, 0.0), None, None).unwrap();
 
@@ -1743,17 +1563,9 @@ mod tests {
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
         profile.ensure_move_position = false;
-        let mut engine = PointerEngine::new(
-            &device,
-            Rect::new(0.0, 0.0, 300.0, 300.0),
-            settings,
-            profile,
-            &noop_sleep,
-        );
+        let mut engine = PointerEngine::new(&device, Rect::new(0.0, 0.0, 300.0, 300.0), settings, profile, &noop_sleep);
 
-        engine
-            .drag(Point::new(10.0, 10.0), Point::new(20.0, 20.0), Some(PointerButton::Right), None)
-            .unwrap();
+        engine.drag(Point::new(10.0, 10.0), Point::new(20.0, 20.0), Some(PointerButton::Right), None).unwrap();
 
         let log = device.take_log();
         assert!(log.iter().any(|action| matches!(action, Action::Press(PointerButton::Right))));

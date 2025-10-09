@@ -85,8 +85,7 @@ fn string_operations_bench(c: &mut Criterion) {
     group.warm_up_time(Duration::from_secs(2));
 
     group.bench_function("concat_multiple", |b| {
-        let compiled =
-            compile("concat(//text[1], //text[2], //text[3], //text[4], //text[5])").unwrap();
+        let compiled = compile("concat(//text[1], //text[2], //text[3], //text[4], //text[5])").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result);
@@ -138,8 +137,7 @@ fn node_operations_bench(c: &mut Criterion) {
     });
 
     group.bench_function("deep_descendants", |b| {
-        let compiled =
-            compile("for $a in //*[@level='1'] return count($a/descendant-or-self::*)").unwrap();
+        let compiled = compile("for $a in //*[@level='1'] return count($a/descendant-or-self::*)").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result);
@@ -199,10 +197,8 @@ fn numeric_operations_bench(c: &mut Criterion) {
     });
 
     c.bench_function("numeric/conditional_calculations", |b| {
-        let compiled = compile(
-            "sum(for $n in //number return if ($n/@value mod 2 = 0) then $n/@value else 0)",
-        )
-        .unwrap();
+        let compiled =
+            compile("sum(for $n in //number return if ($n/@value mod 2 = 0) then $n/@value else 0)").unwrap();
         b.iter(|| {
             let result = evaluate::<SimpleNode>(&compiled, &ctx).unwrap();
             black_box(result);
@@ -215,8 +211,7 @@ fn build_string_heavy_document() -> SimpleNode {
     let mut root_builder = elem("root");
 
     for i in 0..500 {
-        let text_content =
-            format!("Text content number {} with some specific keywords and patterns that end", i);
+        let text_content = format!("Text content number {} with some specific keywords and patterns that end", i);
         let node = elem("text").attr(attr("id", &format!("text-{}", i))).child(text(&text_content));
         root_builder = root_builder.child(node);
     }
@@ -247,20 +242,13 @@ fn build_deep_document(max_depth: usize, children_per_level: usize) -> SimpleNod
                 .attr(attr("level", &level.to_string()))
                 .attr(attr("type", if i % 2 == 0 { "even" } else { "odd" }));
 
-            child = add_children_recursive(
-                child,
-                level + 1,
-                max_depth,
-                children_per_level,
-                node_counter,
-            );
+            child = add_children_recursive(child, level + 1, max_depth, children_per_level, node_counter);
             parent = parent.child(child);
         }
         parent
     }
 
-    root_builder =
-        add_children_recursive(root_builder, 0, max_depth, children_per_level, &mut node_counter);
+    root_builder = add_children_recursive(root_builder, 0, max_depth, children_per_level, &mut node_counter);
     simple_doc().child(root_builder).build()
 }
 
@@ -268,8 +256,7 @@ fn build_numeric_document() -> SimpleNode {
     let mut root_builder = elem("root");
 
     for section_id in 0..50 {
-        let mut section_builder =
-            elem("section").attr(attr("id", &format!("section-{}", section_id)));
+        let mut section_builder = elem("section").attr(attr("id", &format!("section-{}", section_id)));
 
         for num_id in 0..50 {
             let value = (section_id * 50 + num_id) as f64 * 1.5 + 10.0;
@@ -289,8 +276,7 @@ fn build_wide_document(num_sections: usize, items_per_section: usize) -> SimpleN
     let mut root_builder = elem("root");
 
     for section_id in 0..num_sections {
-        let mut section_builder =
-            elem("section").attr(attr("id", &format!("section-{}", section_id)));
+        let mut section_builder = elem("section").attr(attr("id", &format!("section-{}", section_id)));
 
         for item_id in 0..items_per_section {
             let item = elem("item")

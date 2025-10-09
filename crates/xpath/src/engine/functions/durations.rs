@@ -17,10 +17,7 @@ pub(super) fn years_from_duration_stream<N: 'static + crate::model::XdmNode + Cl
             vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))]
         }
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "years-from-duration expects xs:duration",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "years-from-duration expects xs:duration"));
         }
     };
     Ok(XdmSequenceStream::from_vec(result))
@@ -42,10 +39,7 @@ pub(super) fn months_from_duration_stream<N: 'static + crate::model::XdmNode + C
             vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))]
         }
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "months-from-duration expects xs:duration",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "months-from-duration expects xs:duration"));
         }
     };
     Ok(XdmSequenceStream::from_vec(result))
@@ -67,10 +61,7 @@ pub(super) fn days_from_duration_stream<N: 'static + crate::model::XdmNode + Clo
             vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))]
         }
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "days-from-duration expects xs:duration",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "days-from-duration expects xs:duration"));
         }
     };
     Ok(XdmSequenceStream::from_vec(result))
@@ -93,10 +84,7 @@ pub(super) fn hours_from_duration_stream<N: 'static + crate::model::XdmNode + Cl
             vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))]
         }
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "hours-from-duration expects xs:duration",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "hours-from-duration expects xs:duration"));
         }
     };
     Ok(XdmSequenceStream::from_vec(result))
@@ -119,10 +107,7 @@ pub(super) fn minutes_from_duration_stream<N: 'static + crate::model::XdmNode + 
             vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))]
         }
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "minutes-from-duration expects xs:duration",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "minutes-from-duration expects xs:duration"));
         }
     };
     Ok(XdmSequenceStream::from_vec(result))
@@ -145,10 +130,7 @@ pub(super) fn seconds_from_duration_stream<N: 'static + crate::model::XdmNode + 
             vec![XdmItem::Atomic(XdmAtomicValue::Decimal(0.0))]
         }
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "seconds-from-duration expects xs:duration",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "seconds-from-duration expects xs:duration"));
         }
     };
     Ok(XdmSequenceStream::from_vec(result))

@@ -162,9 +162,7 @@ impl PartialEq for EqKey {
             (QName(a), QName(b)) => a.ns == b.ns && a.local == b.local,
             (Boolean(a), Boolean(b)) => a == b,
             (DateTime(a), DateTime(b)) => a.kind == b.kind && a.instant_ns == b.instant_ns,
-            (Duration(a), Duration(b)) => {
-                a.kind == b.kind && a.months == b.months && a.nanos == b.nanos
-            }
+            (Duration(a), Duration(b)) => a.kind == b.kind && a.months == b.months && a.nanos == b.nanos,
             (Node(a), Node(b)) => a == b,
             (NaN, NaN) => true,
             (Other(a), Other(b)) => a.type_tag == b.type_tag && a.bytes == b.bytes,
@@ -306,14 +304,10 @@ fn safe_nanos(dt: &chrono::DateTime<chrono::FixedOffset>) -> i128 {
 fn duration_key(a: &XdmAtomicValue) -> Option<DurationKey> {
     use XdmAtomicValue::*;
     match a {
-        YearMonthDuration(m) => {
-            Some(DurationKey { kind: DurationKind::YearMonth, months: *m as i64, nanos: 0 })
+        YearMonthDuration(m) => Some(DurationKey { kind: DurationKind::YearMonth, months: *m as i64, nanos: 0 }),
+        DayTimeDuration(d) => {
+            Some(DurationKey { kind: DurationKind::DayTime, months: 0, nanos: i128::from(*d) * NANOS_PER_SECOND })
         }
-        DayTimeDuration(d) => Some(DurationKey {
-            kind: DurationKind::DayTime,
-            months: 0,
-            nanos: i128::from(*d) * NANOS_PER_SECOND,
-        }),
         _ => None,
     }
 }
@@ -359,10 +353,7 @@ fn numeric_key(a: &XdmAtomicValue) -> Option<NumericKey> {
 }
 
 /// Build EqKey for an item, using an optional collation for string values.
-pub fn build_eq_key<N: XdmNode>(
-    item: &XdmItem<N>,
-    coll: Option<&dyn Collation>,
-) -> Result<EqKey, Error> {
+pub fn build_eq_key<N: XdmNode>(item: &XdmItem<N>, coll: Option<&dyn Collation>) -> Result<EqKey, Error> {
     use XdmItem::*;
     Ok(match item {
         Node(n) => EqKey::Node(ptr_as_u64(n)),
@@ -383,10 +374,9 @@ fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
             let key = if let Some(c) = coll { c.key(s) } else { s.clone() };
             EqKey::String(StringKey { key: key.into(), original: s.clone().into() })
         }
-        QName { ns_uri, local, .. } => EqKey::QName(QNameKey {
-            ns: ns_uri.as_ref().map(|s| s.clone().into()),
-            local: local.clone().into(),
-        }),
+        QName { ns_uri, local, .. } => {
+            EqKey::QName(QNameKey { ns: ns_uri.as_ref().map(|s| s.clone().into()), local: local.clone().into() })
+        }
         DateTime(_) | Date { .. } | Time { .. } => {
             if let Some((kind, ns)) = date_time_instant_ns(a) {
                 EqKey::DateTime(DateTimeKey { kind, instant_ns: ns })
@@ -401,12 +391,10 @@ fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
                 EqKey::Other(OtherKey { type_tag: 2, bytes: format!("{:?}", a).into_bytes() })
             }
         }
-        Base64Binary(b) | HexBinary(b) => {
-            EqKey::Other(OtherKey { type_tag: 10, bytes: b.as_bytes().to_vec() })
-        }
+        Base64Binary(b) | HexBinary(b) => EqKey::Other(OtherKey { type_tag: 10, bytes: b.as_bytes().to_vec() }),
         // g* and string derived types collapse to their string value (spec: value space maps)
-        NormalizedString(s) | Token(s) | Language(s) | Name(s) | NCName(s) | NMTOKEN(s) | Id(s)
-        | IdRef(s) | Entity(s) | Notation(s) => {
+        NormalizedString(s) | Token(s) | Language(s) | Name(s) | NCName(s) | NMTOKEN(s) | Id(s) | IdRef(s)
+        | Entity(s) | Notation(s) => {
             let key = if let Some(c) = coll { c.key(s) } else { s.clone() };
             EqKey::String(StringKey { key: key.into(), original: s.clone().into() })
         }

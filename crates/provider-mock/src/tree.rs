@@ -6,8 +6,7 @@ use platynui_core::provider::ProviderDescriptor;
 use platynui_core::types::{Point, Rect};
 use platynui_core::ui::attribute_names::{activation_target, element, focusable};
 use platynui_core::ui::{
-    FocusableAction, Namespace, PatternId, PatternRegistry, RuntimeId, UiAttribute, UiNode,
-    UiPattern, UiValue,
+    FocusableAction, Namespace, PatternId, PatternRegistry, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue,
 };
 use quick_xml::de::from_str;
 use serde::Deserialize;
@@ -18,8 +17,7 @@ use std::sync::{Arc, LazyLock, RwLock};
 type NodeList = Vec<Arc<MockNode>>;
 pub(crate) type ProviderTree = (NodeList, NodeList, HashMap<String, Arc<MockNode>>);
 
-static CURRENT_TREE: LazyLock<RwLock<StaticMockTree>> =
-    LazyLock::new(|| RwLock::new(StaticMockTree::default()));
+static CURRENT_TREE: LazyLock<RwLock<StaticMockTree>> = LazyLock::new(|| RwLock::new(StaticMockTree::default()));
 
 type InstantiatedTree = (NodeList, NodeList, NodeList);
 
@@ -194,16 +192,10 @@ impl StaticMockTree {
 
     fn instantiate(&self, descriptor: &ProviderDescriptor) -> InstantiatedTree {
         let mut all = Vec::new();
-        let roots: NodeList = self
-            .roots
-            .iter()
-            .map(|spec| instantiate_node(spec, descriptor, None, &mut all))
-            .collect();
-        let flat: NodeList = self
-            .flat_specs
-            .iter()
-            .map(|spec| instantiate_node(spec, descriptor, None, &mut all))
-            .collect();
+        let roots: NodeList =
+            self.roots.iter().map(|spec| instantiate_node(spec, descriptor, None, &mut all)).collect();
+        let flat: NodeList =
+            self.flat_specs.iter().map(|spec| instantiate_node(spec, descriptor, None, &mut all)).collect();
         (roots, flat, all)
     }
 }
@@ -280,8 +272,7 @@ struct XmlPatternList {
 
 fn build_node(node: XmlNode) -> Result<NodeSpec, MockTreeLoadError> {
     let namespace = parse_namespace(&node.namespace)?;
-    let mut spec =
-        NodeSpec::new(namespace, node.role.clone(), node.name.clone(), node.runtime_id.clone());
+    let mut spec = NodeSpec::new(namespace, node.role.clone(), node.name.clone(), node.runtime_id.clone());
 
     if let Some(patterns) = parse_patterns(node.patterns.as_ref()) {
         spec.patterns.extend(patterns);
@@ -311,11 +302,7 @@ fn build_node(node: XmlNode) -> Result<NodeSpec, MockTreeLoadError> {
             Some(ns) => parse_namespace(&ns)?,
             None => namespace,
         };
-        spec.attributes.push(AttributeSpec::new(
-            attr_namespace,
-            attr.name,
-            parse_attribute_value(&attr.value),
-        ));
+        spec.attributes.push(AttributeSpec::new(attr_namespace, attr.name, parse_attribute_value(&attr.value)));
     }
 
     spec.expose_flat = node.expose_flat.unwrap_or(false);
@@ -384,41 +371,18 @@ fn parse_patterns(list: Option<&XmlPatternList>) -> Option<Vec<String>> {
     if entries.is_empty() { None } else { Some(entries) }
 }
 
-fn push_bounds_attributes(
-    spec: &mut NodeSpec,
-    namespace: Namespace,
-    rect: Rect,
-    visible: bool,
-    enabled: bool,
-) {
+fn push_bounds_attributes(spec: &mut NodeSpec, namespace: Namespace, rect: Rect, visible: bool, enabled: bool) {
     push_visibility_attributes(spec, namespace, visible, enabled);
     spec.attributes.push(AttributeSpec::new(namespace, element::BOUNDS, UiValue::Rect(rect)));
 }
 
-fn push_visibility_attributes(
-    spec: &mut NodeSpec,
-    namespace: Namespace,
-    visible: bool,
-    enabled: bool,
-) {
-    spec.attributes.push(AttributeSpec::new(
-        namespace,
-        element::IS_VISIBLE,
-        UiValue::from(visible),
-    ));
-    spec.attributes.push(AttributeSpec::new(
-        namespace,
-        element::IS_ENABLED,
-        UiValue::from(enabled),
-    ));
+fn push_visibility_attributes(spec: &mut NodeSpec, namespace: Namespace, visible: bool, enabled: bool) {
+    spec.attributes.push(AttributeSpec::new(namespace, element::IS_VISIBLE, UiValue::from(visible)));
+    spec.attributes.push(AttributeSpec::new(namespace, element::IS_ENABLED, UiValue::from(enabled)));
 }
 
 fn push_activation_point_attributes(spec: &mut NodeSpec, namespace: Namespace, point: Point) {
-    spec.attributes.push(AttributeSpec::new(
-        namespace,
-        activation_target::ACTIVATION_POINT,
-        UiValue::Point(point),
-    ));
+    spec.attributes.push(AttributeSpec::new(namespace, activation_target::ACTIVATION_POINT, UiValue::Point(point)));
 }
 
 #[derive(Debug)]
@@ -522,9 +486,8 @@ fn instantiate_node(
                 let action_runtime_id = runtime_id.clone();
                 runtime_patterns.register_lazy(PatternId::from("Focusable"), move || {
                     let target = action_runtime_id.clone();
-                    let pattern: Arc<dyn UiPattern> = Arc::new(FocusableAction::new(move || {
-                        focus::request_focus(target.clone())
-                    }));
+                    let pattern: Arc<dyn UiPattern> =
+                        Arc::new(FocusableAction::new(move || focus::request_focus(target.clone())));
                     Some(pattern)
                 });
                 dynamic_attributes.push(focus::focus_attribute(spec.namespace, runtime_id.clone()));
@@ -547,8 +510,7 @@ fn instantiate_node(
         let _ = focus::request_focus(runtime_id.clone());
     }
 
-    let pattern_context =
-        NodePatternContext { runtime_patterns, declared_patterns, order_key: spec.order_key };
+    let pattern_context = NodePatternContext { runtime_patterns, declared_patterns, order_key: spec.order_key };
 
     let technology = descriptor.technology.as_str();
 
@@ -559,17 +521,13 @@ fn instantiate_node(
             if has_window_surface && window::should_filter_attribute(attr_spec.name()) {
                 return false;
             }
-            if has_focusable
-                && attr_spec.namespace() == Namespace::Control
-                && attr_spec.name() == focusable::IS_FOCUSED
+            if has_focusable && attr_spec.namespace() == Namespace::Control && attr_spec.name() == focusable::IS_FOCUSED
             {
                 return false;
             }
             true
         })
-        .map(|attr_spec| {
-            attr(attr_spec.namespace(), attr_spec.name().to_owned(), attr_spec.value().clone())
-        })
+        .map(|attr_spec| attr(attr_spec.namespace(), attr_spec.name().to_owned(), attr_spec.value().clone()))
         .collect();
     attributes.extend(dynamic_attributes);
 

@@ -21,10 +21,9 @@ fn document_context() -> DynamicContext<N> {
 fn complex_nested_context() -> DynamicContext<N> {
     let d = doc()
         .child(
-            elem("Application").attr(attr("app:Name", "olk")).child(
-                elem("Window")
-                    .child(elem("Panel").child(elem("Control").attr(attr("Name", "Daniel User")))),
-            ),
+            elem("Application")
+                .attr(attr("app:Name", "olk"))
+                .child(elem("Window").child(elem("Panel").child(elem("Control").attr(attr("Name", "Daniel User"))))),
         )
         .build();
 
@@ -51,11 +50,7 @@ fn wildcard_should_not_match_document_node(document_context: DynamicContext<N>) 
     assert_eq!(result.len(), 1, "Expected exactly 1 element from wildcard");
 
     let self_result = evaluate_expr::<N>("self::*", &ctx).unwrap();
-    assert!(
-        self_result.is_empty(),
-        "self::* from document node should be empty, but got {} items",
-        self_result.len()
-    );
+    assert!(self_result.is_empty(), "self::* from document node should be empty, but got {} items", self_result.len());
 
     let desc_result = evaluate_expr::<N>("descendant-or-self::*", &ctx).unwrap();
     for item in &desc_result {

@@ -179,8 +179,7 @@ mod tests {
 
     #[test]
     fn clap_parsing_pointer_move() {
-        let cli = Cli::try_parse_from(["platynui", "pointer", "move", "--point", "10,20"])
-            .expect("parse");
+        let cli = Cli::try_parse_from(["platynui", "pointer", "move", "--point", "10,20"]).expect("parse");
         match cli.command {
             Commands::Pointer(args) => match args.command {
                 pointer::PointerCommand::Move(move_args) => {
@@ -195,8 +194,7 @@ mod tests {
 
     #[test]
     fn clap_parsing_keyboard_type() {
-        let cli =
-            Cli::try_parse_from(["platynui", "keyboard", "type", "<Ctrl+A>Test"]).expect("parse");
+        let cli = Cli::try_parse_from(["platynui", "keyboard", "type", "<Ctrl+A>Test"]).expect("parse");
         match cli.command {
             Commands::Keyboard(args) => match args.command {
                 keyboard::KeyboardCommand::Type(type_args) => {
@@ -210,8 +208,7 @@ mod tests {
 
     #[test]
     fn clap_parsing_keyboard_press() {
-        let cli =
-            Cli::try_parse_from(["platynui", "keyboard", "press", "<Ctrl+S>"]).expect("parse");
+        let cli = Cli::try_parse_from(["platynui", "keyboard", "press", "<Ctrl+S>"]).expect("parse");
         match cli.command {
             Commands::Keyboard(args) => match args.command {
                 keyboard::KeyboardCommand::Press(press_args) => {
@@ -225,8 +222,7 @@ mod tests {
 
     #[test]
     fn clap_parsing_screenshot_rect_allows_negative() {
-        let cli = Cli::try_parse_from(["platynui", "screenshot", "--rect", "-10,-10,200,2000"])
-            .expect("parse");
+        let cli = Cli::try_parse_from(["platynui", "screenshot", "--rect", "-10,-10,200,2000"]).expect("parse");
         match cli.command {
             Commands::Screenshot(args) => {
                 let r = args.rect.expect("rect parsed");

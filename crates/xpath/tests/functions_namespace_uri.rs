@@ -15,12 +15,7 @@ fn namespace_uri_on_elements_and_attributes() {
     use platynui_xpath::model::simple::{attr, doc, elem, ns};
     // <p:root xmlns:p="urn:one" id="x" p:aid="y"/>
     let d = doc()
-        .child(
-            elem("p:root")
-                .namespace(ns("p", "urn:one"))
-                .attr(attr("id", "x"))
-                .attr(attr("p:aid", "y")),
-        )
+        .child(elem("p:root").namespace(ns("p", "urn:one")).attr(attr("id", "x")).attr(attr("p:aid", "y")))
         .build();
     let ctx = DynamicContextBuilder::<N>::default().with_context_item(d.clone()).build();
 

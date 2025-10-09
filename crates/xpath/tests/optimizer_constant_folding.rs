@@ -91,10 +91,7 @@ fn test_no_folding_with_variables() {
     // Attributes like @value + 2 should NOT be folded (runtime value)
     let ir = get_ir("//@value + 2");
     // Should have Add operation (not folded)
-    assert!(
-        ir.0.iter().any(|op| matches!(op, OpCode::Add)),
-        "Should not fold attribute references"
-    );
+    assert!(ir.0.iter().any(|op| matches!(op, OpCode::Add)), "Should not fold attribute references");
 }
 
 #[test]
@@ -111,8 +108,7 @@ fn test_constant_folding_in_predicates() {
     let ir = get_ir("(1, 2, 3)[. = 1 + 2]");
 
     // The folded constant 3 should appear somewhere in the IR
-    let has_folded =
-        ir.0.iter().any(|op| matches!(op, OpCode::PushAtomic(XdmAtomicValue::Integer(3))));
+    let has_folded = ir.0.iter().any(|op| matches!(op, OpCode::PushAtomic(XdmAtomicValue::Integer(3))));
 
     assert!(has_folded, "Should contain folded constant 3 from predicate, got IR: {:?}", ir.0);
 }
@@ -123,8 +119,5 @@ fn test_constant_folding_division_by_zero_preserved() {
     // The folder checks for zero divisor
     let ir = get_ir("1 div 0");
     // Should still have Div operation (not folded)
-    assert!(
-        ir.0.iter().any(|op| matches!(op, OpCode::Div)),
-        "Division by zero should not be folded"
-    );
+    assert!(ir.0.iter().any(|op| matches!(op, OpCode::Div)), "Division by zero should not be folded");
 }

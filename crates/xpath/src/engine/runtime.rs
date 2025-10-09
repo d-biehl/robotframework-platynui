@@ -1,8 +1,7 @@
 use crate::compiler::ir;
 use crate::engine::collation::{CODEPOINT_URI, Collation, CollationRegistry};
 use crate::engine::functions::{
-    parse_day_time_duration_secs, parse_duration_lexical, parse_qname_lexical,
-    parse_year_month_duration_months,
+    parse_day_time_duration_secs, parse_duration_lexical, parse_qname_lexical, parse_year_month_duration_months,
 };
 use crate::model::{NodeKind, XdmNode};
 use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
@@ -139,12 +138,7 @@ impl<N> FunctionImplementations<N> {
     }
 
     /// Register a stream-based function with exact arity.
-    pub fn register_stream(
-        &mut self,
-        name: ExpandedName,
-        arity: Arity,
-        func: FunctionStreamImpl<N>,
-    ) {
+    pub fn register_stream(&mut self, name: ExpandedName, arity: Arity, func: FunctionStreamImpl<N>) {
         self.register_stream_range(name, arity, Some(arity), func);
     }
 
@@ -195,8 +189,7 @@ impl<N> FunctionImplementations<N> {
     /// Convenience: register a stream function with closure.
     pub fn register_stream_fn<F>(&mut self, name: ExpandedName, arity: Arity, f: F)
     where
-        F: 'static
-            + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
+        F: 'static + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
     {
         self.register_stream(name, arity, Arc::new(f));
     }
@@ -204,8 +197,7 @@ impl<N> FunctionImplementations<N> {
     /// Convenience: register a stream function in a namespace.
     pub fn register_stream_ns<F>(&mut self, ns_uri: &str, local: &str, arity: Arity, f: F)
     where
-        F: 'static
-            + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
+        F: 'static + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
     {
         let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
         self.register_stream_fn(name, arity, f);
@@ -213,25 +205,14 @@ impl<N> FunctionImplementations<N> {
 
     /// Register a variadic stream function by ExpandedName with a minimum arity.
     /// The function will be selected for any call with argc >= min_arity.
-    pub fn register_stream_variadic(
-        &mut self,
-        name: ExpandedName,
-        min_arity: Arity,
-        func: FunctionStreamImpl<N>,
-    ) {
+    pub fn register_stream_variadic(&mut self, name: ExpandedName, min_arity: Arity, func: FunctionStreamImpl<N>) {
         self.register_stream_range(name, min_arity, None, func);
     }
 
     /// Convenience: register a variadic stream function in a namespace.
-    pub fn register_stream_ns_variadic<F>(
-        &mut self,
-        ns_uri: &str,
-        local: &str,
-        min_arity: Arity,
-        f: F,
-    ) where
-        F: 'static
-            + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
+    pub fn register_stream_ns_variadic<F>(&mut self, ns_uri: &str, local: &str, min_arity: Arity, f: F)
+    where
+        F: 'static + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
     {
         let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
         self.register_stream_variadic(name, min_arity, Arc::new(f));
@@ -240,8 +221,7 @@ impl<N> FunctionImplementations<N> {
     /// Convenience: register a variadic stream function without a namespace.
     pub fn register_stream_local_variadic<F>(&mut self, local: &str, min_arity: Arity, f: F)
     where
-        F: 'static
-            + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
+        F: 'static + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
     {
         let name = ExpandedName { ns_uri: None, local: local.to_string() };
         self.register_stream_variadic(name, min_arity, Arc::new(f));
@@ -256,23 +236,16 @@ impl<N> FunctionImplementations<N> {
         max_arity: Option<Arity>,
         f: F,
     ) where
-        F: 'static
-            + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
+        F: 'static + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
     {
         let name = ExpandedName { ns_uri: Some(ns_uri.to_string()), local: local.to_string() };
         self.register_stream_range(name, min_arity, max_arity, Arc::new(f));
     }
 
     /// Convenience: register a stream function without a namespace with an arity range.
-    pub fn register_stream_local_range<F>(
-        &mut self,
-        local: &str,
-        min_arity: Arity,
-        max_arity: Option<Arity>,
-        f: F,
-    ) where
-        F: 'static
-            + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
+    pub fn register_stream_local_range<F>(&mut self, local: &str, min_arity: Arity, max_arity: Option<Arity>, f: F)
+    where
+        F: 'static + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
     {
         let name = ExpandedName { ns_uri: None, local: local.to_string() };
         self.register_stream_range(name, min_arity, max_arity, Arc::new(f));
@@ -281,8 +254,7 @@ impl<N> FunctionImplementations<N> {
     /// Convenience: register a stream function without a namespace.
     pub fn register_stream_local<F>(&mut self, local: &str, arity: Arity, f: F)
     where
-        F: 'static
-            + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
+        F: 'static + Fn(&CallCtx<N>, &[XdmSequenceStream<N>]) -> Result<XdmSequenceStream<N>, Error>,
     {
         let name = ExpandedName { ns_uri: None, local: local.to_string() };
         self.register_stream_fn(name, arity, f);
@@ -300,8 +272,7 @@ impl<N> FunctionImplementations<N> {
         default_ns: Option<&str>,
     ) -> Option<&FunctionStreamImpl<N>> {
         let effective_buf: Option<ExpandedName> = if name.ns_uri.is_none() {
-            default_ns
-                .map(|ns| ExpandedName { ns_uri: Some(ns.to_string()), local: name.local.clone() })
+            default_ns.map(|ns| ExpandedName { ns_uri: Some(ns.to_string()), local: name.local.clone() })
         } else {
             None
         };
@@ -309,19 +280,15 @@ impl<N> FunctionImplementations<N> {
 
         // Try exact match on original name first (for no-namespace functions)
         if let Some(cands) = self.stream_fns.get(name)
-            && let Some((_, _, f)) = cands
-                .iter()
-                .find(|(min, max, _)| *min == arity && matches!(max, Some(m) if *m == arity))
+            && let Some((_, _, f)) =
+                cands.iter().find(|(min, max, _)| *min == arity && matches!(max, Some(m) if *m == arity))
         {
             return Some(f);
         }
 
         // Try effective name with range matching
         self.stream_fns.get(effective).and_then(|cands| {
-            cands
-                .iter()
-                .find(|(min, max, _)| arity >= *min && max.is_none_or(|m| arity <= m))
-                .map(|(_, _, f)| f)
+            cands.iter().find(|(min, max, _)| arity >= *min && max.is_none_or(|m| arity <= m)).map(|(_, _, f)| f)
         })
     }
 }
@@ -338,13 +305,7 @@ pub trait NodeResolver<N> {
 
 pub trait RegexProvider {
     fn matches(&self, pattern: &str, flags: &str, text: &str) -> Result<bool, Error>;
-    fn replace(
-        &self,
-        pattern: &str,
-        flags: &str,
-        text: &str,
-        replacement: &str,
-    ) -> Result<String, Error>;
+    fn replace(&self, pattern: &str, flags: &str, text: &str, replacement: &str) -> Result<String, Error>;
     fn tokenize(&self, pattern: &str, flags: &str, text: &str) -> Result<Vec<String>, Error>;
 }
 
@@ -378,10 +339,7 @@ impl FancyRegexProvider {
                 }
                 _ => {
                     // validate_regex_flags should have rejected already, but keep a guard
-                    return Err(Error::from_code(
-                        ErrorCode::FORX0001,
-                        format!("unsupported regex flag: {}", ch),
-                    ));
+                    return Err(Error::from_code(ErrorCode::FORX0001, format!("unsupported regex flag: {}", ch)));
                 }
             }
         }
@@ -403,13 +361,7 @@ impl RegexProvider for FancyRegexProvider {
                 .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
         })
     }
-    fn replace(
-        &self,
-        pattern: &str,
-        flags: &str,
-        text: &str,
-        replacement: &str,
-    ) -> Result<String, Error> {
+    fn replace(&self, pattern: &str, flags: &str, text: &str, replacement: &str) -> Result<String, Error> {
         let re = Self::build_with_flags(pattern, flags)?;
         // Pre-validate replacement template using fancy_regex::Expander and enforce that $0 is invalid.
         if let Err(e) = fancy_regex::Expander::default().check(replacement, &re) {
@@ -425,10 +377,7 @@ impl RegexProvider for FancyRegexProvider {
                 if bytes[i] == b'$' {
                     if i + 1 >= bytes.len() {
                         // dangling $ at end of replacement
-                        return Err(Error::from_code(
-                            ErrorCode::FORX0004,
-                            "dangling $ at end of replacement",
-                        ));
+                        return Err(Error::from_code(ErrorCode::FORX0004, "dangling $ at end of replacement"));
                     }
                     match bytes[i + 1] {
                         b'$' => {
@@ -444,17 +393,11 @@ impl RegexProvider for FancyRegexProvider {
                             }
                             if j >= bytes.len() {
                                 // unmatched '{' -> let Expander::check have caught this; keep FORX0004
-                                return Err(Error::from_code(
-                                    ErrorCode::FORX0004,
-                                    "invalid replacement string",
-                                ));
+                                return Err(Error::from_code(ErrorCode::FORX0004, "invalid replacement string"));
                             }
                             let name = &replacement[(i + 2)..j];
                             if name == "0" {
-                                return Err(Error::from_code(
-                                    ErrorCode::FORX0004,
-                                    "invalid group $0",
-                                ));
+                                return Err(Error::from_code(ErrorCode::FORX0004, "invalid group $0"));
                             }
                             i = j + 1;
                             continue;
@@ -465,10 +408,7 @@ impl RegexProvider for FancyRegexProvider {
                                 // "$0" (followed by non-digit or end) denotes group 0 which is invalid in XPath
                                 // If there are more digits, this is "$0<d>" which is not a valid number in our syntax
                                 // but Expander::check would have rejected invalid groups already; conservatively error here.
-                                return Err(Error::from_code(
-                                    ErrorCode::FORX0004,
-                                    "invalid group $0",
-                                ));
+                                return Err(Error::from_code(ErrorCode::FORX0004, "invalid group $0"));
                             }
                             // advance past the digits (Expander will handle actual expansion later)
                             let mut j = i + 2;
@@ -480,10 +420,7 @@ impl RegexProvider for FancyRegexProvider {
                         }
                         _ => {
                             // Unsupported $-escape
-                            return Err(Error::from_code(
-                                ErrorCode::FORX0004,
-                                "invalid $-escape in replacement",
-                            ));
+                            return Err(Error::from_code(ErrorCode::FORX0004, "invalid $-escape in replacement"));
                         }
                     }
                 }
@@ -499,9 +436,7 @@ impl RegexProvider for FancyRegexProvider {
                 Error::from_code(ErrorCode::FORX0002, "regex evaluation error")
                     .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
             })?;
-            let m = cap
-                .get(0)
-                .ok_or_else(|| Error::from_code(ErrorCode::FORX0002, "no overall match"))?;
+            let m = cap.get(0).ok_or_else(|| Error::from_code(ErrorCode::FORX0002, "no overall match"))?;
             // Append text before match
             out.push_str(&text[last..m.start()]);
             // Append expanded replacement using fancy-regex Expander
@@ -509,10 +444,7 @@ impl RegexProvider for FancyRegexProvider {
             last = m.end();
             if m.start() == m.end() {
                 // zero-length match – per XPath 2.0 fn:replace this is an error (FORX0003)
-                return Err(Error::from_code(
-                    ErrorCode::FORX0003,
-                    "pattern matches zero-length in replace",
-                ));
+                return Err(Error::from_code(ErrorCode::FORX0003, "pattern matches zero-length in replace"));
             }
         }
         out.push_str(&text[last..]);
@@ -527,9 +459,7 @@ impl RegexProvider for FancyRegexProvider {
                 Ok(s) => tokens.push(s.to_string()),
                 Err(e) => {
                     return Err(Error::from_code(ErrorCode::FORX0002, "regex evaluation error")
-                        .with_source(Some(
-                            Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>
-                        )));
+                        .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>)));
                 }
             }
         }
@@ -697,10 +627,7 @@ impl Error {
     }
 
     /// Compose an error with a source cause.
-    pub fn with_source(
-        mut self,
-        source: impl Into<Option<Arc<dyn std::error::Error + Send + Sync>>>,
-    ) -> Self {
+    pub fn with_source(mut self, source: impl Into<Option<Arc<dyn std::error::Error + Send + Sync>>>) -> Self {
         self.source = source.into();
         self
     }
@@ -711,9 +638,7 @@ impl Error {
         if let Some(rest) = s.strip_prefix("err:") {
             return ExpandedName { ns_uri: Some(ERR_NS.to_string()), local: rest.to_string() };
         }
-        if let Some(body) =
-            s.strip_prefix('Q').and_then(|t| t.strip_prefix('{')).and_then(|t| t.split_once('}'))
-        {
+        if let Some(body) = s.strip_prefix('Q').and_then(|t| t.strip_prefix('{')).and_then(|t| t.split_once('}')) {
             let (ns, local) = body;
             return ExpandedName { ns_uri: Some(ns.to_string()), local: local.to_string() };
         }
@@ -946,9 +871,7 @@ impl ParamTypeSpec {
             ItemTypeSpec::AnyItem => Ok(seq),
             ItemTypeSpec::Node => ensure_node_sequence(seq),
             ItemTypeSpec::Element => ensure_element_sequence(seq),
-            ItemTypeSpec::AnyAtomic | ItemTypeSpec::UntypedPromotable => {
-                ensure_atomic_sequence(seq)
-            }
+            ItemTypeSpec::AnyAtomic | ItemTypeSpec::UntypedPromotable => ensure_atomic_sequence(seq),
             ItemTypeSpec::Numeric => convert_numeric_sequence(seq),
             ItemTypeSpec::NumericOrDuration => convert_numeric_or_duration_sequence(seq),
             ItemTypeSpec::Integer => convert_integer_sequence(seq),
@@ -973,18 +896,12 @@ impl ParamTypeSpec {
         match self.occurrence {
             Occurrence::ExactlyOne => {
                 if len != 1 {
-                    return Err(Error::from_code(
-                        ErrorCode::XPTY0004,
-                        "function argument must be a singleton",
-                    ));
+                    return Err(Error::from_code(ErrorCode::XPTY0004, "function argument must be a singleton"));
                 }
             }
             Occurrence::ZeroOrOne => {
                 if len > 1 {
-                    return Err(Error::from_code(
-                        ErrorCode::XPTY0004,
-                        "function argument allows at most one item",
-                    ));
+                    return Err(Error::from_code(ErrorCode::XPTY0004, "function argument allows at most one item"));
                 }
             }
             Occurrence::ZeroOrMore => {}
@@ -1007,10 +924,7 @@ fn ensure_atomic_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSequence<N>, Erro
         match item {
             XdmItem::Atomic(a) => out.push(XdmItem::Atomic(a)),
             XdmItem::Node(_) => {
-                return Err(Error::from_code(
-                    ErrorCode::XPTY0004,
-                    "function argument must be atomic",
-                ));
+                return Err(Error::from_code(ErrorCode::XPTY0004, "function argument must be atomic"));
             }
         }
     }
@@ -1034,17 +948,11 @@ where
         match item {
             XdmItem::Node(n) => {
                 if !matches!(n.kind(), NodeKind::Element) {
-                    return Err(Error::from_code(
-                        ErrorCode::XPTY0004,
-                        "function argument must be element()",
-                    ));
+                    return Err(Error::from_code(ErrorCode::XPTY0004, "function argument must be element()"));
                 }
             }
             XdmItem::Atomic(_) => {
-                return Err(Error::from_code(
-                    ErrorCode::XPTY0004,
-                    "function argument must be element()",
-                ));
+                return Err(Error::from_code(ErrorCode::XPTY0004, "function argument must be element()"));
             }
         }
     }
@@ -1095,10 +1003,7 @@ fn convert_integer_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
             if v <= i64::MAX as u64 {
                 V::Integer(v as i64)
             } else {
-                return Err(Error::from_code(
-                    ErrorCode::FOCA0001,
-                    "integer argument exceeds supported range",
-                ));
+                return Err(Error::from_code(ErrorCode::FOCA0001, "integer argument exceeds supported range"));
             }
         }
         V::UnsignedInt(v) => V::Integer(v as i64),
@@ -1107,15 +1012,13 @@ fn convert_integer_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
         V::NonPositiveInteger(v) => V::Integer(v),
         V::NegativeInteger(v) => V::Integer(v),
         V::NonNegativeInteger(v) => {
-            let val = i64::try_from(v).map_err(|_| {
-                Error::from_code(ErrorCode::FOCA0001, "integer argument exceeds supported range")
-            })?;
+            let val = i64::try_from(v)
+                .map_err(|_| Error::from_code(ErrorCode::FOCA0001, "integer argument exceeds supported range"))?;
             V::Integer(val)
         }
         V::PositiveInteger(v) => {
-            let val = i64::try_from(v).map_err(|_| {
-                Error::from_code(ErrorCode::FOCA0001, "integer argument exceeds supported range")
-            })?;
+            let val = i64::try_from(v)
+                .map_err(|_| Error::from_code(ErrorCode::FOCA0001, "integer argument exceeds supported range"))?;
             V::Integer(val)
         }
         V::Decimal(d) => {
@@ -1123,63 +1026,39 @@ fn convert_integer_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
                 if d >= (i64::MIN as f64) && d <= (i64::MAX as f64) {
                     V::Integer(d as i64)
                 } else {
-                    return Err(Error::from_code(
-                        ErrorCode::FOCA0001,
-                        "decimal value out of xs:integer range",
-                    ));
+                    return Err(Error::from_code(ErrorCode::FOCA0001, "decimal value out of xs:integer range"));
                 }
             } else {
-                return Err(Error::from_code(
-                    ErrorCode::FOCA0001,
-                    "precision argument must be an integer",
-                ));
+                return Err(Error::from_code(ErrorCode::FOCA0001, "precision argument must be an integer"));
             }
         }
         V::Double(d) => {
             if d.is_nan() || d.is_infinite() {
-                return Err(Error::from_code(
-                    ErrorCode::FOCA0001,
-                    "cannot cast NaN or INF to xs:integer",
-                ));
+                return Err(Error::from_code(ErrorCode::FOCA0001, "cannot cast NaN or INF to xs:integer"));
             }
             if d.fract() == 0.0 {
                 if d >= (i64::MIN as f64) && d <= (i64::MAX as f64) {
                     V::Integer(d as i64)
                 } else {
-                    return Err(Error::from_code(
-                        ErrorCode::FOCA0001,
-                        "double value out of xs:integer range",
-                    ));
+                    return Err(Error::from_code(ErrorCode::FOCA0001, "double value out of xs:integer range"));
                 }
             } else {
-                return Err(Error::from_code(
-                    ErrorCode::FOCA0001,
-                    "precision argument must be integral",
-                ));
+                return Err(Error::from_code(ErrorCode::FOCA0001, "precision argument must be integral"));
             }
         }
         V::Float(f) => {
             if f.is_nan() || f.is_infinite() {
-                return Err(Error::from_code(
-                    ErrorCode::FOCA0001,
-                    "cannot cast NaN or INF to xs:integer",
-                ));
+                return Err(Error::from_code(ErrorCode::FOCA0001, "cannot cast NaN or INF to xs:integer"));
             }
             if f.fract() == 0.0 {
                 let value = f as f64;
                 if value >= (i64::MIN as f64) && value <= (i64::MAX as f64) {
                     V::Integer(value as i64)
                 } else {
-                    return Err(Error::from_code(
-                        ErrorCode::FOCA0001,
-                        "float value out of xs:integer range",
-                    ));
+                    return Err(Error::from_code(ErrorCode::FOCA0001, "float value out of xs:integer range"));
                 }
             } else {
-                return Err(Error::from_code(
-                    ErrorCode::FOCA0001,
-                    "precision argument must be integral",
-                ));
+                return Err(Error::from_code(ErrorCode::FOCA0001, "precision argument must be integral"));
             }
         }
         V::UntypedAtomic(s) => {
@@ -1190,10 +1069,7 @@ fn convert_integer_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
             V::Integer(parsed)
         }
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "function argument must be xs:integer",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "function argument must be xs:integer"));
         }
     })
 }
@@ -1244,10 +1120,7 @@ fn convert_string_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
         | V::IdRef(s)
         | V::Entity(s)
         | V::Notation(s) => Ok(V::String(s)),
-        _ => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "function argument must be castable to xs:string",
-        )),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "function argument must be castable to xs:string")),
     }
 }
 
@@ -1261,10 +1134,7 @@ fn convert_boolean_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
                 "true" | "1" => V::Boolean(true),
                 "false" | "0" => V::Boolean(false),
                 _ => {
-                    return Err(Error::from_code(
-                        ErrorCode::FORG0001,
-                        "invalid lexical form for xs:boolean",
-                    ));
+                    return Err(Error::from_code(ErrorCode::FORG0001, "invalid lexical form for xs:boolean"));
                 }
             }
         }
@@ -1285,10 +1155,7 @@ fn convert_boolean_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
         V::NonNegativeInteger(i) => V::Boolean(i != 0),
         V::PositiveInteger(i) => V::Boolean(i != 0),
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "function argument cannot be cast to xs:boolean",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "function argument cannot be cast to xs:boolean"));
         }
     })
 }
@@ -1319,10 +1186,7 @@ fn convert_double_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:double"))?;
             Ok(V::Double(parsed))
         }
-        _ => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "function argument cannot be cast to xs:double",
-        )),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "function argument cannot be cast to xs:double")),
     }
 }
 
@@ -1352,10 +1216,7 @@ fn convert_decimal_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:decimal"))?;
             Ok(V::Decimal(parsed))
         }
-        _ => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "function argument cannot be cast to xs:decimal",
-        )),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "function argument cannot be cast to xs:decimal")),
     }
 }
 
@@ -1385,10 +1246,7 @@ fn convert_float_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:float"))?;
             Ok(V::Float(parsed))
         }
-        _ => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "function argument cannot be cast to xs:float",
-        )),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "function argument cannot be cast to xs:float")),
     }
 }
 
@@ -1398,10 +1256,7 @@ fn convert_any_uri_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
         V::AnyUri(_) => a,
         V::String(s) | V::UntypedAtomic(s) => V::AnyUri(s),
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "function argument cannot be cast to xs:anyURI",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "function argument cannot be cast to xs:anyURI"));
         }
     })
 }
@@ -1442,29 +1297,20 @@ fn convert_day_time_duration_sequence<N>(seq: XdmSequence<N>) -> Result<XdmSeque
     convert_atomic_sequence_with(seq, convert_day_time_duration_atomic)
 }
 
-fn convert_qname_sequence<N>(
-    seq: XdmSequence<N>,
-    static_ctx: &StaticContext,
-) -> Result<XdmSequence<N>, Error> {
+fn convert_qname_sequence<N>(seq: XdmSequence<N>, static_ctx: &StaticContext) -> Result<XdmSequence<N>, Error> {
     let mut out = Vec::with_capacity(seq.len());
     for item in seq {
         match item {
             XdmItem::Atomic(a) => out.push(XdmItem::Atomic(convert_qname_atomic(a, static_ctx)?)),
             XdmItem::Node(_) => {
-                return Err(Error::from_code(
-                    ErrorCode::XPTY0004,
-                    "function argument must be atomic",
-                ));
+                return Err(Error::from_code(ErrorCode::XPTY0004, "function argument must be atomic"));
             }
         }
     }
     Ok(out)
 }
 
-fn convert_atomic_sequence_with<N, F>(
-    seq: XdmSequence<N>,
-    mut f: F,
-) -> Result<XdmSequence<N>, Error>
+fn convert_atomic_sequence_with<N, F>(seq: XdmSequence<N>, mut f: F) -> Result<XdmSequence<N>, Error>
 where
     F: FnMut(XdmAtomicValue) -> Result<XdmAtomicValue, Error>,
 {
@@ -1473,10 +1319,7 @@ where
         match item {
             XdmItem::Atomic(a) => out.push(XdmItem::Atomic(f(a)?)),
             XdmItem::Node(_) => {
-                return Err(Error::from_code(
-                    ErrorCode::XPTY0004,
-                    "function argument must be atomic",
-                ));
+                return Err(Error::from_code(ErrorCode::XPTY0004, "function argument must be atomic"));
             }
         }
     }
@@ -1489,10 +1332,7 @@ fn convert_duration_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
         V::YearMonthDuration(_) | V::DayTimeDuration(_) => a,
         V::UntypedAtomic(s) | V::String(s) => duration_from_string(&s)?,
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "function argument cannot be cast to xs:duration",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "function argument cannot be cast to xs:duration"));
         }
     })
 }
@@ -1502,16 +1342,12 @@ fn convert_year_month_duration_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValu
     Ok(match a {
         V::YearMonthDuration(_) => a,
         V::UntypedAtomic(s) | V::String(s) => {
-            let months = parse_year_month_duration_months(&s).map_err(|_| {
-                Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:yearMonthDuration")
-            })?;
+            let months = parse_year_month_duration_months(&s)
+                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:yearMonthDuration"))?;
             V::YearMonthDuration(months)
         }
         V::DayTimeDuration(_) => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "function argument is not xs:yearMonthDuration",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "function argument is not xs:yearMonthDuration"));
         }
         _ => {
             return Err(Error::from_code(
@@ -1527,16 +1363,12 @@ fn convert_day_time_duration_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue,
     Ok(match a {
         V::DayTimeDuration(_) => a,
         V::UntypedAtomic(s) | V::String(s) => {
-            let secs = parse_day_time_duration_secs(&s).map_err(|_| {
-                Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:dayTimeDuration")
-            })?;
+            let secs = parse_day_time_duration_secs(&s)
+                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:dayTimeDuration"))?;
             V::DayTimeDuration(secs)
         }
         V::YearMonthDuration(_) => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "function argument is not xs:dayTimeDuration",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "function argument is not xs:dayTimeDuration"));
         }
         _ => {
             return Err(Error::from_code(
@@ -1557,10 +1389,7 @@ fn convert_date_time_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> 
             let dt = crate::util::temporal::build_naive_datetime(date, time, tz);
             Ok(V::DateTime(dt))
         }
-        _ => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "function argument cannot be cast to xs:dateTime",
-        )),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "function argument cannot be cast to xs:dateTime")),
     }
 }
 
@@ -1573,10 +1402,7 @@ fn convert_date_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:date"))?;
             Ok(V::Date { date, tz })
         }
-        _ => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "function argument cannot be cast to xs:date",
-        )),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "function argument cannot be cast to xs:date")),
     }
 }
 
@@ -1589,10 +1415,7 @@ fn convert_time_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:time"))?;
             Ok(V::Time { time, tz })
         }
-        _ => Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "function argument cannot be cast to xs:time",
-        )),
+        _ => Err(Error::from_code(ErrorCode::XPTY0004, "function argument cannot be cast to xs:time")),
     }
 }
 
@@ -1607,10 +1430,7 @@ fn duration_from_string(s: &str) -> Result<XdmAtomicValue, Error> {
     }
 }
 
-fn convert_qname_atomic(
-    a: XdmAtomicValue,
-    static_ctx: &StaticContext,
-) -> Result<XdmAtomicValue, Error> {
+fn convert_qname_atomic(a: XdmAtomicValue, static_ctx: &StaticContext) -> Result<XdmAtomicValue, Error> {
     use XdmAtomicValue as V;
     Ok(match a {
         V::QName { .. } => a,
@@ -1620,19 +1440,19 @@ fn convert_qname_atomic(
             let ns_uri = match prefix_opt.as_deref() {
                 None => None,
                 Some("xml") => Some(crate::consts::XML_URI.to_string()),
-                Some(prefix) => {
-                    Some(static_ctx.namespaces.by_prefix.get(prefix).cloned().ok_or_else(|| {
-                        Error::from_code(ErrorCode::FONS0004, "unknown namespace prefix")
-                    })?)
-                }
+                Some(prefix) => Some(
+                    static_ctx
+                        .namespaces
+                        .by_prefix
+                        .get(prefix)
+                        .cloned()
+                        .ok_or_else(|| Error::from_code(ErrorCode::FONS0004, "unknown namespace prefix"))?,
+                ),
             };
             V::QName { ns_uri, prefix: prefix_opt, local }
         }
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "function argument cannot be cast to xs:QName",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "function argument cannot be cast to xs:QName"));
         }
     })
 }
@@ -1656,11 +1476,7 @@ impl FunctionSignatures {
     }
 
     pub fn register_ns(&mut self, ns: &str, local: &str, min: usize, max: Option<usize>) {
-        self.register(
-            ExpandedName { ns_uri: Some(ns.to_string()), local: local.to_string() },
-            min,
-            max,
-        );
+        self.register(ExpandedName { ns_uri: Some(ns.to_string()), local: local.to_string() }, min, max);
     }
 
     pub fn register_local(&mut self, local: &str, min: usize, max: Option<usize>) {
@@ -1672,10 +1488,7 @@ impl FunctionSignatures {
     }
 
     pub fn supports(&self, name: &ExpandedName, arity: usize) -> bool {
-        self.entries
-            .get(name)
-            .map(|ranges| ranges.iter().any(|r| r.contains(arity)))
-            .unwrap_or(false)
+        self.entries.get(name).map(|ranges| ranges.iter().any(|r| r.contains(arity))).unwrap_or(false)
     }
 
     pub fn param_types_for_call(
@@ -1817,23 +1630,12 @@ impl StaticContextBuilder {
         self
     }
 
-    pub fn with_function_signature(
-        mut self,
-        name: ExpandedName,
-        min: usize,
-        max: Option<usize>,
-    ) -> Self {
+    pub fn with_function_signature(mut self, name: ExpandedName, min: usize, max: Option<usize>) -> Self {
         self.ctx.function_signatures.register(name, min, max);
         self
     }
 
-    pub fn with_function_signature_ns(
-        mut self,
-        ns: &str,
-        local: &str,
-        min: usize,
-        max: Option<usize>,
-    ) -> Self {
+    pub fn with_function_signature_ns(mut self, ns: &str, local: &str, min: usize, max: Option<usize>) -> Self {
         self.ctx.function_signatures.register_ns(ns, local, min, max);
         self
     }

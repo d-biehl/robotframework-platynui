@@ -11,11 +11,7 @@ fn ctx() -> DynamicContext<platynui_xpath::model::simple::SimpleNode> {
 
 fn string(expr: &str) -> String {
     let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::String(s))) = seq.first() {
-        s.clone()
-    } else {
-        String::new()
-    }
+    if let Some(XdmItem::Atomic(XdmAtomicValue::String(s))) = seq.first() { s.clone() } else { String::new() }
 }
 
 fn seq_ints(expr: &str) -> Vec<i64> {

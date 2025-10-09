@@ -8,13 +8,8 @@ fn ir(src: &str) -> InstrSeq {
 #[rstest]
 fn path_steps_and_predicates() {
     let is = ir(".//a[@id]");
-    assert!(is.0.iter().any(|op| matches!(
-        op,
-        OpCode::AxisStep(AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _)
-    )));
-    assert!(is.0.iter().any(
-        |op| matches!(op, OpCode::AxisStep(_, NodeTestIR::Name(_), preds) if !preds.is_empty())
-    ));
+    assert!(is.0.iter().any(|op| matches!(op, OpCode::AxisStep(AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _))));
+    assert!(is.0.iter().any(|op| matches!(op, OpCode::AxisStep(_, NodeTestIR::Name(_), preds) if !preds.is_empty())));
     assert!(is.0.iter().any(|op| matches!(op, OpCode::EnsureDistinct | OpCode::EnsureOrder)));
 }
 
@@ -62,20 +57,14 @@ fn filter_step_in_path_emits_map_opcode() {
 #[rstest]
 fn path_from() {
     let is = ir("(.)/self::node()");
-    assert!(
-        is.0.iter()
-            .any(|op| matches!(op, OpCode::AxisStep(AxisIR::SelfAxis, NodeTestIR::AnyKind, _)))
-    );
+    assert!(is.0.iter().any(|op| matches!(op, OpCode::AxisStep(AxisIR::SelfAxis, NodeTestIR::AnyKind, _))));
 }
 
 #[rstest]
 fn root_descendant() {
     let is = ir("//a");
     assert!(is.0.iter().any(|op| matches!(op, OpCode::ToRoot)));
-    assert!(is.0.iter().any(|op| matches!(
-        op,
-        OpCode::AxisStep(AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _)
-    )));
+    assert!(is.0.iter().any(|op| matches!(op, OpCode::AxisStep(AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _))));
 }
 
 #[rstest]
@@ -105,10 +94,7 @@ fn kind_tests() {
         ("self::text()", NodeTestIR::KindText),
         ("self::comment()", NodeTestIR::KindComment),
         ("self::processing-instruction()", NodeTestIR::KindProcessingInstruction(None)),
-        (
-            "self::processing-instruction('t')",
-            NodeTestIR::KindProcessingInstruction(Some("t".into())),
-        ),
+        ("self::processing-instruction('t')", NodeTestIR::KindProcessingInstruction(Some("t".into()))),
         (
             "self::document-node(element(*))",
             NodeTestIR::KindDocument(Some(Box::new(NodeTestIR::KindElement {
@@ -117,14 +103,8 @@ fn kind_tests() {
                 nillable: false,
             }))),
         ),
-        (
-            "self::element(*)",
-            NodeTestIR::KindElement { name: Some(NameOrWildcard::Any), ty: None, nillable: false },
-        ),
-        (
-            "self::attribute(*)",
-            NodeTestIR::KindAttribute { name: Some(NameOrWildcard::Any), ty: None },
-        ),
+        ("self::element(*)", NodeTestIR::KindElement { name: Some(NameOrWildcard::Any), ty: None, nillable: false }),
+        ("self::attribute(*)", NodeTestIR::KindAttribute { name: Some(NameOrWildcard::Any), ty: None }),
     ] {
         let is = ir(src);
         assert!(is.0.iter().any(|op| match op {
@@ -132,10 +112,7 @@ fn kind_tests() {
                 (NodeTestIR::AnyKind, NodeTestIR::AnyKind) => true,
                 (NodeTestIR::KindText, NodeTestIR::KindText) => true,
                 (NodeTestIR::KindComment, NodeTestIR::KindComment) => true,
-                (
-                    NodeTestIR::KindProcessingInstruction(a),
-                    NodeTestIR::KindProcessingInstruction(b),
-                ) => a == b,
+                (NodeTestIR::KindProcessingInstruction(a), NodeTestIR::KindProcessingInstruction(b)) => a == b,
                 (NodeTestIR::KindDocument(a), NodeTestIR::KindDocument(b)) => {
                     match (a, b) {
                         (Some(ai), Some(bi)) => **ai == **bi,
@@ -147,10 +124,8 @@ fn kind_tests() {
                     NodeTestIR::KindElement { name: an, ty: at, nillable: anil },
                     NodeTestIR::KindElement { name: bn, ty: bt, nillable: bnil },
                 ) => an == bn && at == bt && anil == bnil,
-                (
-                    NodeTestIR::KindAttribute { name: an, ty: at },
-                    NodeTestIR::KindAttribute { name: bn, ty: bt },
-                ) => an == bn && at == bt,
+                (NodeTestIR::KindAttribute { name: an, ty: at }, NodeTestIR::KindAttribute { name: bn, ty: bt }) =>
+                    an == bn && at == bt,
                 _ => false,
             },
             _ => false,
@@ -201,9 +176,7 @@ fn path_ir_sequence_complex() {
     assert!(matches!(ops.get(idx), Some(OpCode::ToRoot)));
     idx += 1;
     match ops.get(idx) {
-        Some(OpCode::AxisStep(AxisIR::Descendant, NodeTestIR::Name(name), preds))
-            if name.original.local == "a" =>
-        {
+        Some(OpCode::AxisStep(AxisIR::Descendant, NodeTestIR::Name(name), preds)) if name.original.local == "a" => {
             assert_eq!(preds.len(), 1);
         }
         other => panic!("unexpected first step: {:?}", other),
@@ -211,9 +184,7 @@ fn path_ir_sequence_complex() {
     // Descendant step requires at least distinctness
     assert!(matches!(ops.get(idx + 1), Some(OpCode::EnsureDistinct)));
     match ops.get(idx + 2) {
-        Some(OpCode::AxisStep(AxisIR::Attribute, NodeTestIR::Name(name), preds))
-            if name.original.local == "class" =>
-        {
+        Some(OpCode::AxisStep(AxisIR::Attribute, NodeTestIR::Name(name), preds)) if name.original.local == "class" => {
             assert!(preds.is_empty());
         }
         other => panic!("unexpected second step: {:?}", other),
@@ -292,9 +263,7 @@ fn filter_step_preserves_doc_order_for_descendant_insertion() {
     let mut saw_filter = false;
     for op in &is.0 {
         match op {
-            OpCode::AxisStep(AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _) => {
-                saw_descendant = true
-            }
+            OpCode::AxisStep(AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _) => saw_descendant = true,
             OpCode::PathExprStep(_) => saw_filter = true,
             _ => {}
         }

@@ -17,10 +17,7 @@ pub trait UiTreeProvider: Send + Sync {
     /// Registers a listener for provider-originated events. The default
     /// implementation tut nichts, sodass Provider ohne Event-Unterstützung
     /// diesen Aufruf ignorieren können.
-    fn subscribe_events(
-        &self,
-        _listener: Arc<dyn ProviderEventListener>,
-    ) -> Result<(), ProviderError> {
+    fn subscribe_events(&self, _listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> {
         Ok(())
     }
 

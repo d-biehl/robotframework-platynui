@@ -3,8 +3,8 @@ use platynui_xpath::engine::runtime::{
 };
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::{
-    ExpandedName, XdmSequence, compile_with_context, evaluate, evaluate_expr,
-    xdm::XdmAtomicValue as A, xdm::XdmItem as I, xdm::XdmSequenceStream,
+    ExpandedName, XdmSequence, compile_with_context, evaluate, evaluate_expr, xdm::XdmAtomicValue as A,
+    xdm::XdmItem as I, xdm::XdmSequenceStream,
 };
 use rstest::rstest;
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -23,9 +23,8 @@ fn build_large_axis_document() -> N {
         for item_idx in 0..AXIS_ITEMS_PER_SECTION {
             let item_id = format!("item-{section_idx}-{item_idx}");
             let text_content = format!("Section {section_idx} Item {item_idx}");
-            let mut item_builder = elem("item")
-                .attr(attr("id", &item_id))
-                .attr(attr("type", if item_idx % 2 == 0 { "a" } else { "b" }));
+            let mut item_builder =
+                elem("item").attr(attr("id", &item_id)).attr(attr("type", if item_idx % 2 == 0 { "a" } else { "b" }));
             if item_idx % 25 == 0 {
                 item_builder = item_builder.attr(attr("featured", "true"));
             }
@@ -81,9 +80,7 @@ fn variables_and_functions() {
         ExpandedName { ns_uri: ns.clone(), local: "twice".to_string() },
         1,
         std::sync::Arc::new(
-            |_ctx: &CallCtx<N>,
-             args: &[XdmSequenceStream<N>]|
-             -> Result<XdmSequenceStream<N>, Error> {
+            |_ctx: &CallCtx<N>, args: &[XdmSequenceStream<N>]| -> Result<XdmSequenceStream<N>, Error> {
                 let first_arg: XdmSequence<N> = args[0].iter().collect::<Result<Vec<_>, _>>()?;
                 let v = match &first_arg[0] {
                     I::Atomic(A::Integer(i)) => i,
@@ -95,18 +92,11 @@ fn variables_and_functions() {
     );
     let dyn_ctx = DynamicContextBuilder::default()
         .with_functions(std::rc::Rc::new(reg))
-        .with_variable(
-            ExpandedName { ns_uri: None, local: "x".to_string() },
-            vec![I::Atomic(A::Integer(5))],
-        )
+        .with_variable(ExpandedName { ns_uri: None, local: "x".to_string() }, vec![I::Atomic(A::Integer(5))])
         .build();
     let static_ctx = StaticContextBuilder::new()
         .with_variable(ExpandedName::new(None, "x"))
-        .with_function_signature(
-            ExpandedName { ns_uri: ns, local: "twice".to_string() },
-            1,
-            Some(1),
-        )
+        .with_function_signature(ExpandedName { ns_uri: ns, local: "twice".to_string() }, 1, Some(1))
         .build();
     let compiled = compile_with_context("twice($x)", &static_ctx).unwrap();
     let out = evaluate::<N>(&compiled, &dyn_ctx).unwrap();
@@ -144,11 +134,9 @@ fn predicate_heavy_sum_matches_manual() {
     let dyn_ctx = DynamicContextBuilder::default().with_context_item(I::Node(document)).build();
     let (expected_sum, expected_count) = manual_predicate_heavy_metrics();
 
-    let count_global = evaluate_expr::<N>(
-        "count(//item[following-sibling::item[@type='b']][position() mod 7 = 0])",
-        &dyn_ctx,
-    )
-    .expect("count must succeed");
+    let count_global =
+        evaluate_expr::<N>("count(//item[following-sibling::item[@type='b']][position() mod 7 = 0])", &dyn_ctx)
+            .expect("count must succeed");
     assert_eq!(count_global, vec![I::Atomic(A::Integer(expected_count))]);
 
     let sum_global = evaluate_expr::<N>(

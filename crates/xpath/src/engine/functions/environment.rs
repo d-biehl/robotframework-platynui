@@ -151,10 +151,7 @@ pub(super) fn lang_fn<N: crate::model::XdmNode + Clone>(
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "fn:lang expects at most one string argument",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "fn:lang expects at most one string argument"));
     }
     if args[0].is_empty() {
         return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]);
@@ -164,20 +161,14 @@ pub(super) fn lang_fn<N: crate::model::XdmNode + Clone>(
         require_context_item(ctx)?
     } else {
         if args[1].len() != 1 {
-            return Err(Error::from_code(
-                ErrorCode::FORG0006,
-                "fn:lang requires exactly one node in second argument",
-            ));
+            return Err(Error::from_code(ErrorCode::FORG0006, "fn:lang requires exactly one node in second argument"));
         }
         args[1][0].clone()
     };
     let mut n = match target_item {
         XdmItem::Node(node) => node,
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "fn:lang requires node() as second argument",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "fn:lang requires node() as second argument"));
         }
     };
     let mut lang_val: Option<String> = None;
@@ -185,8 +176,7 @@ pub(super) fn lang_fn<N: crate::model::XdmNode + Clone>(
         for a in n.attributes() {
             if let Some(q) = a.name() {
                 let is_xml_lang = q.local == "lang"
-                    && (q.prefix.as_deref() == Some("xml")
-                        || q.ns_uri.as_deref() == Some(crate::consts::XML_URI));
+                    && (q.prefix.as_deref() == Some("xml") || q.ns_uri.as_deref() == Some(crate::consts::XML_URI));
                 if is_xml_lang {
                     lang_val = Some(a.string_value());
                     break;
@@ -228,15 +218,10 @@ pub(super) fn encode_for_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
     if seq.len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "encode-for-uri expects at most one string argument",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "encode-for-uri expects at most one string argument"));
     }
     if seq.is_empty() {
-        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::String(
-            String::new(),
-        ))]));
+        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]));
     }
     let s = item_to_string(&seq);
     fn is_unreserved(ch: char) -> bool {
@@ -277,8 +262,7 @@ pub(super) fn nilled_stream<N: 'static + crate::model::XdmNode + Clone>(
     for a in n.attributes() {
         if let Some(q) = a.name() {
             let is_xsi_nil = q.local == "nil"
-                && (q.prefix.as_deref() == Some("xsi")
-                    || q.ns_uri.as_deref() == Some(crate::consts::XSI));
+                && (q.prefix.as_deref() == Some("xsi") || q.ns_uri.as_deref() == Some(crate::consts::XSI));
             if is_xsi_nil {
                 let v = a.string_value().trim().to_ascii_lowercase();
                 if v == "true" || v == "1" {
@@ -320,15 +304,10 @@ pub(super) fn escape_html_uri_stream<N: 'static + crate::model::XdmNode + Clone>
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
     if seq.len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "escape-html-uri expects at most one string argument",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "escape-html-uri expects at most one string argument"));
     }
     if seq.is_empty() {
-        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::String(
-            String::new(),
-        ))]));
+        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]));
     }
     let s = item_to_string(&seq);
     let mut out = String::new();
@@ -352,16 +331,10 @@ pub(super) fn resolve_uri_fn<N: crate::model::XdmNode + Clone>(
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "resolve-uri expects at most one URI argument",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "resolve-uri expects at most one URI argument"));
     }
     if args.len() == 2 && args[1].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "resolve-uri expects at most one base URI argument",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "resolve-uri expects at most one base URI argument"));
     }
     if args[0].is_empty() {
         return Ok(vec![]);
@@ -372,21 +345,13 @@ pub(super) fn resolve_uri_fn<N: crate::model::XdmNode + Clone>(
         return Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(abs_str))]);
     }
     let base_candidate = if args.len() == 2 {
-        if args[1].is_empty() {
-            ctx.static_ctx.base_uri.clone()
-        } else {
-            Some(item_to_string(&args[1]))
-        }
+        if args[1].is_empty() { ctx.static_ctx.base_uri.clone() } else { Some(item_to_string(&args[1])) }
     } else {
         ctx.static_ctx.base_uri.clone()
     };
-    let base_str = base_candidate
-        .ok_or_else(|| Error::from_code(ErrorCode::FONS0005, "base-uri is undefined"))?;
-    let base_url = Url::parse(&base_str)
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid base URI"))?;
-    let joined = base_url
-        .join(&rel)
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid relative URI"))?;
+    let base_str = base_candidate.ok_or_else(|| Error::from_code(ErrorCode::FONS0005, "base-uri is undefined"))?;
+    let base_url = Url::parse(&base_str).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid base URI"))?;
+    let joined = base_url.join(&rel).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid relative URI"))?;
     let joined_str: String = joined.into();
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(joined_str))])
 }
@@ -407,27 +372,17 @@ pub(super) fn normalize_unicode_fn<N: crate::model::XdmNode + Clone>(
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
     if args[0].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "normalize-unicode expects at most one string argument",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "normalize-unicode expects at most one string argument"));
     }
     if args.len() == 2 && args[1].len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "normalize-unicode expects at most one form argument",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "normalize-unicode expects at most one form argument"));
     }
     if args[0].is_empty() {
         return Ok(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]);
     }
     let s = item_to_string(&args[0]);
     let form = if args.len() == 2 {
-        if args[1].is_empty() {
-            String::new()
-        } else {
-            item_to_string(&args[1]).trim().to_uppercase()
-        }
+        if args[1].is_empty() { String::new() } else { item_to_string(&args[1]).trim().to_uppercase() }
     } else {
         "NFC".to_string()
     };
@@ -464,9 +419,7 @@ pub(super) fn doc_available_stream<N: 'static + crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
     if seq.is_empty() {
-        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(
-            false,
-        ))]));
+        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]));
     }
     let uri = item_to_string(&seq);
     let result = if let Some(nr) = &ctx.dyn_ctx.node_resolver {
@@ -509,16 +462,10 @@ pub(super) fn collection_fn<N: crate::model::XdmNode + Clone>(
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
     if args.len() > 1 {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "collection() accepts at most one argument",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "collection() accepts at most one argument"));
     }
     if args.first().is_some_and(|seq| seq.len() > 1) {
-        return Err(Error::from_code(
-            ErrorCode::FORG0006,
-            "collection() argument must be a single string",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0006, "collection() argument must be a single string"));
     }
     let uri_opt = if args.is_empty() || args.first().is_some_and(|seq| seq.is_empty()) {
         None

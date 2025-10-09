@@ -6,9 +6,7 @@
 //! AXUIElement-backed implementation will be added incrementally.
 
 use once_cell::sync::Lazy;
-use platynui_core::provider::{
-    ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory,
-};
+use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::sync::Arc;
 
@@ -21,12 +19,7 @@ pub struct MacOsAxFactory;
 impl UiTreeProviderFactory for MacOsAxFactory {
     fn descriptor(&self) -> &ProviderDescriptor {
         static DESCRIPTOR: Lazy<ProviderDescriptor> = Lazy::new(|| {
-            ProviderDescriptor::new(
-                PROVIDER_ID,
-                PROVIDER_NAME,
-                TechnologyId::from("AX"),
-                ProviderKind::Native,
-            )
+            ProviderDescriptor::new(PROVIDER_ID, PROVIDER_NAME, TechnologyId::from("AX"), ProviderKind::Native)
         });
         &DESCRIPTOR
     }
@@ -43,12 +36,7 @@ struct MacOsAxProvider {
 impl MacOsAxProvider {
     fn new() -> Self {
         static DESCRIPTOR: Lazy<ProviderDescriptor> = Lazy::new(|| {
-            ProviderDescriptor::new(
-                PROVIDER_ID,
-                PROVIDER_NAME,
-                TechnologyId::from("AX"),
-                ProviderKind::Native,
-            )
+            ProviderDescriptor::new(PROVIDER_ID, PROVIDER_NAME, TechnologyId::from("AX"), ProviderKind::Native)
         });
         Self { descriptor: &DESCRIPTOR }
     }

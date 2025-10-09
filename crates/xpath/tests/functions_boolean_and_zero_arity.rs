@@ -12,8 +12,7 @@ fn ctx_with_text(
     DynamicContextBuilder::default().with_context_item(root).build()
 }
 
-fn ctx_without_item()
--> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
+fn ctx_without_item() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::default().build()
 }
 
@@ -29,23 +28,17 @@ fn ctx_with_element() -> (
 #[rstest]
 fn boolean_ebv() {
     let c = ctx_with_text("");
-    let out =
-        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("boolean(())", &c).unwrap();
+    let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("boolean(())", &c).unwrap();
     assert_eq!(out.len(), 1);
     // EBV of empty is false
-    if let platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(b)) =
-        &out[0]
-    {
+    if let platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(b)) = &out[0] {
         assert!(!b);
     } else {
         panic!("bool");
     }
 
-    let out2 =
-        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("boolean((1))", &c).unwrap();
-    if let platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(b)) =
-        &out2[0]
-    {
+    let out2 = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("boolean((1))", &c).unwrap();
+    if let platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(b)) = &out2[0] {
         assert!(*b);
     } else {
         panic!("bool");
@@ -57,9 +50,7 @@ fn string_zero_arity_uses_context() {
     let c = ctx_with_text("Hello");
     let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("string()", &c).unwrap();
     let s = match &out[0] {
-        platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(s)) => {
-            s.clone()
-        }
+        platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(s)) => s.clone(),
         _ => panic!("str"),
     };
     assert_eq!(s, "Hello");
@@ -68,12 +59,9 @@ fn string_zero_arity_uses_context() {
 #[rstest]
 fn normalize_space_zero_arity() {
     let c = ctx_with_text("  A  B   C  ");
-    let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("normalize-space()", &c)
-        .unwrap();
+    let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("normalize-space()", &c).unwrap();
     let s = match &out[0] {
-        platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(s)) => {
-            s.clone()
-        }
+        platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(s)) => s.clone(),
         _ => panic!("str"),
     };
     assert_eq!(s, "A B C");
@@ -102,9 +90,7 @@ fn data_zero_arity_uses_context() {
     let c = ctx_with_text("42");
     let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("data()", &c).unwrap();
     match &out[0] {
-        platynui_xpath::xdm::XdmItem::Atomic(
-            platynui_xpath::xdm::XdmAtomicValue::UntypedAtomic(s),
-        ) => {
+        platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::UntypedAtomic(s)) => {
             assert_eq!(s, "42")
         }
         _ => panic!("expected untypedAtomic"),
@@ -126,8 +112,7 @@ fn number_zero_arity_uses_context() {
 #[rstest]
 fn string_length_zero_arity_uses_context() {
     let c = ctx_with_text("Hello");
-    let out =
-        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("string-length()", &c).unwrap();
+    let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("string-length()", &c).unwrap();
     match &out[0] {
         platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(len)) => {
             assert_eq!(*len, 5)
@@ -147,8 +132,7 @@ fn name_local_namespace_zero_arity() {
         _ => panic!("expected string"),
     }
 
-    let local =
-        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("local-name()", &ctx).unwrap();
+    let local = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("local-name()", &ctx).unwrap();
     match &local[0] {
         platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(s)) => {
             assert_eq!(s, "root")
@@ -156,8 +140,7 @@ fn name_local_namespace_zero_arity() {
         _ => panic!("expected string"),
     }
 
-    let ns = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("namespace-uri()", &ctx)
-        .unwrap();
+    let ns = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("namespace-uri()", &ctx).unwrap();
     match &ns[0] {
         platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::AnyUri(uri)) => {
             assert_eq!(uri, "urn:one")
@@ -171,11 +154,9 @@ fn name_local_namespace_zero_arity() {
         _ => panic!("expected node"),
     }
 
-    let base =
-        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("base-uri()", &ctx).unwrap();
+    let base = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("base-uri()", &ctx).unwrap();
     assert!(base.is_empty());
 
-    let doc_uri =
-        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("document-uri()", &ctx).unwrap();
+    let doc_uri = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("document-uri()", &ctx).unwrap();
     assert!(doc_uri.is_empty());
 }

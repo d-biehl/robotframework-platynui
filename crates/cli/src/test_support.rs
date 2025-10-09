@@ -1,6 +1,4 @@
-use platynui_platform_mock::{
-    MOCK_HIGHLIGHT, MOCK_KEYBOARD, MOCK_PLATFORM, MOCK_POINTER, MOCK_SCREENSHOT,
-};
+use platynui_platform_mock::{MOCK_HIGHLIGHT, MOCK_KEYBOARD, MOCK_PLATFORM, MOCK_POINTER, MOCK_SCREENSHOT};
 use platynui_provider_mock::MOCK_PROVIDER_FACTORY;
 use platynui_runtime::{Runtime, runtime::PlatformOverrides};
 use rstest::fixture;

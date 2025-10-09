@@ -10,11 +10,7 @@ fn ctx() -> DynamicContext<platynui_xpath::model::simple::SimpleNode> {
 
 fn bool_val(expr: &str) -> bool {
     let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.first() {
-        *b
-    } else {
-        panic!("expected boolean")
-    }
+    if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.first() { *b } else { panic!("expected boolean") }
 }
 
 #[rstest]

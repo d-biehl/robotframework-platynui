@@ -27,15 +27,13 @@ fn union_nodes() {
 
 #[rstest]
 fn intersect_nodes() {
-    let out =
-        evaluate_expr::<N>("(child::a, child::b) intersect (child::b, child::c)", &ctx()).unwrap();
+    let out = evaluate_expr::<N>("(child::a, child::b) intersect (child::b, child::c)", &ctx()).unwrap();
     assert_eq!(out.len(), 1);
 }
 
 #[rstest]
 fn except_nodes() {
-    let out =
-        evaluate_expr::<N>("(child::a, child::b, child::c) except (child::b)", &ctx()).unwrap();
+    let out = evaluate_expr::<N>("(child::a, child::b, child::c) except (child::b)", &ctx()).unwrap();
     assert_eq!(out.len(), 2);
 }
 

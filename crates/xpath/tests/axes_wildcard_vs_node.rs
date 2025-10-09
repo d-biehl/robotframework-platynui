@@ -47,8 +47,7 @@ fn wildcard_child_vs_node_axis_differences() {
     assert!(count_text >= 4, "should include text nodes: pre, one, two, post");
 
     // Sanity: //* should not include text nodes
-    let has_text_in_star = elements.iter().any(
-        |i| matches!(i, I::Node(n) if matches!(n.kind(), platynui_xpath::model::NodeKind::Text)),
-    );
+    let has_text_in_star =
+        elements.iter().any(|i| matches!(i, I::Node(n) if matches!(n.kind(), platynui_xpath::model::NodeKind::Text)));
     assert!(!has_text_in_star, "//* must not include text nodes");
 }

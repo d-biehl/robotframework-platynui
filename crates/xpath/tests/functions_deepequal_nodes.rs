@@ -2,8 +2,7 @@ use platynui_xpath::xdm::{XdmAtomicValue as A, XdmItem as I};
 use platynui_xpath::{evaluator::evaluate_expr, runtime::DynamicContextBuilder};
 use rstest::rstest;
 
-fn ctx()
--> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 

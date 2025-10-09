@@ -30,8 +30,7 @@ fn concat_multiple_strings() {
 #[test]
 fn concat_mixed_types() {
     let ctx = DynamicContextBuilder::default().build();
-    let result =
-        evaluate_expr::<SimpleNode>("concat('Count: ', 42, ', Total: ', 100)", &ctx).unwrap();
+    let result = evaluate_expr::<SimpleNode>("concat('Count: ', 42, ', Total: ', 100)", &ctx).unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::String(s)) => assert_eq!(s, "Count: 42, Total: 100"),
@@ -53,8 +52,7 @@ fn concat_empty_strings() {
 #[test]
 fn concat_unicode() {
     let ctx = DynamicContextBuilder::default().build();
-    let result =
-        evaluate_expr::<SimpleNode>("concat('Hällö', ' ', 'Wörld', '! 🌍')", &ctx).unwrap();
+    let result = evaluate_expr::<SimpleNode>("concat('Hällö', ' ', 'Wörld', '! 🌍')", &ctx).unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::String(s)) => assert_eq!(s, "Hällö Wörld! 🌍"),
@@ -89,9 +87,7 @@ fn string_join_single_item() {
 #[test]
 fn string_join_multiple_items() {
     let ctx = DynamicContextBuilder::default().build();
-    let result =
-        evaluate_expr::<SimpleNode>("string-join(('apple', 'banana', 'cherry'), ', ')", &ctx)
-            .unwrap();
+    let result = evaluate_expr::<SimpleNode>("string-join(('apple', 'banana', 'cherry'), ', ')", &ctx).unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::String(s)) => assert_eq!(s, "apple, banana, cherry"),
@@ -114,9 +110,7 @@ fn string_join_empty_separator() {
 fn string_join_newline_separator() {
     let ctx = DynamicContextBuilder::default().build();
     // Note: Character reference &#10; is preserved literally in XPath string
-    let result =
-        evaluate_expr::<SimpleNode>("string-join(('line1', 'line2', 'line3'), '&#10;')", &ctx)
-            .unwrap();
+    let result = evaluate_expr::<SimpleNode>("string-join(('line1', 'line2', 'line3'), '&#10;')", &ctx).unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::String(s)) => assert_eq!(s, "line1&#10;line2&#10;line3"),
@@ -149,8 +143,7 @@ fn string_join_large_sequence() {
 #[test]
 fn string_join_unicode() {
     let ctx = DynamicContextBuilder::default().build();
-    let result =
-        evaluate_expr::<SimpleNode>("string-join(('🍎', '🍌', '🍒'), ' | ')", &ctx).unwrap();
+    let result = evaluate_expr::<SimpleNode>("string-join(('🍎', '🍌', '🍒'), ' | ')", &ctx).unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::String(s)) => assert_eq!(s, "🍎 | 🍌 | 🍒"),
@@ -163,9 +156,7 @@ fn string_join_unicode() {
 #[test]
 fn combined_concat_string_join() {
     let ctx = DynamicContextBuilder::default().build();
-    let result =
-        evaluate_expr::<SimpleNode>("concat('List: ', string-join(('a', 'b', 'c'), ', '))", &ctx)
-            .unwrap();
+    let result = evaluate_expr::<SimpleNode>("concat('List: ', string-join(('a', 'b', 'c'), ', '))", &ctx).unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::String(s)) => assert_eq!(s, "List: a, b, c"),
@@ -176,11 +167,9 @@ fn combined_concat_string_join() {
 #[test]
 fn combined_nested_string_join() {
     let ctx = DynamicContextBuilder::default().build();
-    let result = evaluate_expr::<SimpleNode>(
-        "string-join((concat('Hello', ' ', 'World'), 'Rust', 'XPath'), ' - ')",
-        &ctx,
-    )
-    .unwrap();
+    let result =
+        evaluate_expr::<SimpleNode>("string-join((concat('Hello', ' ', 'World'), 'Rust', 'XPath'), ' - ')", &ctx)
+            .unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::String(s)) => assert_eq!(s, "Hello World - Rust - XPath"),
@@ -191,9 +180,7 @@ fn combined_nested_string_join() {
 #[test]
 fn combined_count_concat() {
     let ctx = DynamicContextBuilder::default().build();
-    let result =
-        evaluate_expr::<SimpleNode>("concat('Total items: ', count((1, 2, 3, 4, 5)))", &ctx)
-            .unwrap();
+    let result = evaluate_expr::<SimpleNode>("concat('Total items: ', count((1, 2, 3, 4, 5)))", &ctx).unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::String(s)) => assert_eq!(s, "Total items: 5"),

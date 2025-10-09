@@ -1,9 +1,7 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::model::simple::{elem, ns};
 use platynui_xpath::runtime::ErrorCode;
-use platynui_xpath::{
-    engine::evaluator::evaluate_expr, model::XdmNode, xdm::XdmAtomicValue as A, xdm::XdmItem as I,
-};
+use platynui_xpath::{engine::evaluator::evaluate_expr, model::XdmNode, xdm::XdmAtomicValue as A, xdm::XdmItem as I};
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -19,11 +17,7 @@ fn qname_construction_and_from_parts() {
     let q = evaluate_expr::<N>("QName('urn:x','p:l')", &c).unwrap();
     assert_eq!(
         q,
-        vec![I::Atomic(A::QName {
-            ns_uri: Some("urn:x".into()),
-            prefix: Some("p".into()),
-            local: "l".into()
-        })]
+        vec![I::Atomic(A::QName { ns_uri: Some("urn:x".into()), prefix: Some("p".into()), local: "l".into() })]
     );
     // empty namespace
     let q2 = evaluate_expr::<N>("QName('', 'local')", &c).unwrap();
@@ -33,20 +27,14 @@ fn qname_construction_and_from_parts() {
 #[rstest]
 fn resolve_qname_and_in_scope() {
     // <root xmlns:p="urn:one"><p:c/></root>
-    let doc = platynui_xpath::simple_doc()
-        .child(elem("root").namespace(ns("p", "urn:one")).child(elem("c")))
-        .build();
+    let doc = platynui_xpath::simple_doc().child(elem("root").namespace(ns("p", "urn:one")).child(elem("c"))).build();
     let root = doc.children().next().unwrap();
     let ctx = DynamicContextBuilder::new().with_context_item(root.clone()).build();
     // resolve-QName with element
     let r = evaluate_expr::<N>("resolve-QName('p:l', .)", &ctx).unwrap();
     assert_eq!(
         r,
-        vec![I::Atomic(A::QName {
-            ns_uri: Some("urn:one".into()),
-            prefix: Some("p".into()),
-            local: "l".into()
-        })]
+        vec![I::Atomic(A::QName { ns_uri: Some("urn:one".into()), prefix: Some("p".into()), local: "l".into() })]
     );
     // unknown prefix errors
     let err = evaluate_expr::<N>("resolve-QName('zzz:l', .)", &ctx).unwrap_err();
@@ -56,10 +44,8 @@ fn resolve_qname_and_in_scope() {
     assert_eq!(u, vec![I::Atomic(A::AnyUri("urn:one".into()))]);
     // in-scope-prefixes includes xml
     let v = evaluate_expr::<N>("in-scope-prefixes(.)", &ctx).unwrap();
-    let mut prefixes: Vec<String> = v
-        .iter()
-        .filter_map(|i| if let I::Atomic(A::NCName(s)) = i { Some(s.clone()) } else { None })
-        .collect();
+    let mut prefixes: Vec<String> =
+        v.iter().filter_map(|i| if let I::Atomic(A::NCName(s)) = i { Some(s.clone()) } else { None }).collect();
     prefixes.sort();
     assert!(prefixes.contains(&"p".to_string()));
     assert!(prefixes.contains(&"xml".to_string()));

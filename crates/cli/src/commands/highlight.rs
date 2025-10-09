@@ -43,8 +43,7 @@ pub fn run(runtime: &Runtime, args: &HighlightArgs) -> CliResult<String> {
     let mut highlighted = 0usize;
     let mut hold_ms: Option<u64> = None;
     if let Some(rect) = args.rect {
-        let req =
-            HighlightRequest::new(rect).with_duration(Duration::from_millis(args.duration_ms));
+        let req = HighlightRequest::new(rect).with_duration(Duration::from_millis(args.duration_ms));
         runtime.highlight(&[req]).map_err(map_platform_error)?;
         highlighted = 1;
         hold_ms = Some(args.duration_ms);
@@ -133,8 +132,7 @@ fn parse_rect_arg(value: &str) -> Result<Rect, String> {
     }
     let mut nums = [0f64; 4];
     for (i, part) in parts.iter().enumerate() {
-        nums[i] =
-            part.trim().parse::<f64>().map_err(|_| format!("invalid number in rect `{value}`"))?;
+        nums[i] = part.trim().parse::<f64>().map_err(|_| format!("invalid number in rect `{value}`"))?;
     }
     Ok(Rect::new(nums[0], nums[1], nums[2], nums[3]))
 }
@@ -145,9 +143,7 @@ mod tests {
     // Link platform-mock inventory for highlight provider
     use crate::test_support::runtime;
     use platynui_platform_mock as _; // link platform-mock inventory
-    use platynui_platform_mock::{
-        highlight_clear_count, reset_highlight_state, take_highlight_log,
-    };
+    use platynui_platform_mock::{highlight_clear_count, reset_highlight_state, take_highlight_log};
     use platynui_runtime::Runtime;
     use rstest::rstest;
     use std::sync::{LazyLock, Mutex};
@@ -159,12 +155,8 @@ mod tests {
         let _lock = TEST_GUARD.lock().unwrap();
         reset_highlight_state();
 
-        let args = HighlightArgs {
-            expression: Some("//control:Button".into()),
-            rect: None,
-            duration_ms: 500,
-            clear: false,
-        };
+        let args =
+            HighlightArgs { expression: Some("//control:Button".into()), rect: None, duration_ms: 500, clear: false };
 
         let output = run(&runtime, &args).expect("highlight execution");
         assert!(output.contains("Highlighted"));
@@ -193,11 +185,8 @@ mod tests {
     fn highlight_requires_expression_or_clear(runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
 
-        let err = run(
-            &runtime,
-            &HighlightArgs { expression: None, rect: None, duration_ms: 1500, clear: false },
-        )
-        .expect_err("missing expression or rect should error");
+        let err = run(&runtime, &HighlightArgs { expression: None, rect: None, duration_ms: 1500, clear: false })
+            .expect_err("missing expression or rect should error");
         assert!(err.to_string().contains("requires"));
     }
 

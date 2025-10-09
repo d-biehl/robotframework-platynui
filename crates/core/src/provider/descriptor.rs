@@ -12,25 +12,11 @@ pub struct ProviderDescriptor {
 }
 
 impl ProviderDescriptor {
-    pub fn new(
-        id: &'static str,
-        display_name: &'static str,
-        technology: TechnologyId,
-        kind: ProviderKind,
-    ) -> Self {
-        Self {
-            id,
-            display_name,
-            technology,
-            kind,
-            event_capabilities: ProviderEventCapabilities::NONE,
-        }
+    pub fn new(id: &'static str, display_name: &'static str, technology: TechnologyId, kind: ProviderKind) -> Self {
+        Self { id, display_name, technology, kind, event_capabilities: ProviderEventCapabilities::NONE }
     }
 
-    pub const fn with_event_capabilities(
-        mut self,
-        capabilities: ProviderEventCapabilities,
-    ) -> Self {
+    pub const fn with_event_capabilities(mut self, capabilities: ProviderEventCapabilities) -> Self {
         self.event_capabilities = capabilities;
         self
     }

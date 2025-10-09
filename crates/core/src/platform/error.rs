@@ -40,15 +40,9 @@ impl PlatformError {
     /// Back-compat constructor without message.
     pub fn simple(kind: PlatformErrorKind) -> Self {
         match kind {
-            PlatformErrorKind::InitializationFailed => {
-                Self::InitializationFailed { context: Context(None) }
-            }
-            PlatformErrorKind::CapabilityUnavailable => {
-                Self::CapabilityUnavailable { context: Context(None) }
-            }
-            PlatformErrorKind::UnsupportedPlatform => {
-                Self::UnsupportedPlatform { context: Context(None) }
-            }
+            PlatformErrorKind::InitializationFailed => Self::InitializationFailed { context: Context(None) },
+            PlatformErrorKind::CapabilityUnavailable => Self::CapabilityUnavailable { context: Context(None) },
+            PlatformErrorKind::UnsupportedPlatform => Self::UnsupportedPlatform { context: Context(None) },
         }
     }
 }

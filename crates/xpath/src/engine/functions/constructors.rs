@@ -1,12 +1,10 @@
 use super::common::{
-    collapse_whitespace, int_subtype_i64, is_valid_language, item_to_string,
-    parse_day_time_duration_secs, parse_duration_lexical, parse_qname_lexical,
-    parse_year_month_duration_months, replace_whitespace, str_name_like, uint_subtype_u128,
+    collapse_whitespace, int_subtype_i64, is_valid_language, item_to_string, parse_day_time_duration_secs,
+    parse_duration_lexical, parse_qname_lexical, parse_year_month_duration_months, replace_whitespace, str_name_like,
+    uint_subtype_u128,
 };
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
-use crate::util::temporal::{
-    parse_g_day, parse_g_month, parse_g_month_day, parse_g_year, parse_g_year_month,
-};
+use crate::util::temporal::{parse_g_day, parse_g_month, parse_g_month_day, parse_g_year, parse_g_year_month};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
 use base64::Engine as _;
 
@@ -98,8 +96,7 @@ pub(super) fn xs_integer_stream<N: 'static + crate::model::XdmNode + Clone>(
     {
         return Err(Error::from_code(ErrorCode::FOCA0001, "fractional part in integer cast"));
     }
-    let i: i64 =
-        s_trim.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:integer"))?;
+    let i: i64 = s_trim.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:integer"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::Integer(i))];
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -116,14 +113,10 @@ pub(super) fn xs_decimal_stream<N: 'static + crate::model::XdmNode + Clone>(
         return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&seq).trim().to_string();
-    if s.eq_ignore_ascii_case("nan")
-        || s.eq_ignore_ascii_case("inf")
-        || s.eq_ignore_ascii_case("-inf")
-    {
+    if s.eq_ignore_ascii_case("nan") || s.eq_ignore_ascii_case("inf") || s.eq_ignore_ascii_case("-inf") {
         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"));
     }
-    let v: f64 =
-        s.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?;
+    let v: f64 = s.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::Decimal(v))];
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -200,8 +193,8 @@ pub(super) fn xs_qname_stream<N: 'static + crate::model::XdmNode + Clone>(
         return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&seq);
-    let (prefix_opt, local) = parse_qname_lexical(&s)
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:QName"))?;
+    let (prefix_opt, local) =
+        parse_qname_lexical(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:QName"))?;
     let ns_uri = match prefix_opt.as_deref() {
         None => None,
         Some("xml") => Some(crate::consts::XML_URI.to_string()),
@@ -331,10 +324,7 @@ pub(super) fn xs_duration_stream<N: 'static + crate::model::XdmNode + Clone>(
         (Some(m), None) => XdmAtomicValue::YearMonthDuration(m),
         (None, Some(sec)) => XdmAtomicValue::DayTimeDuration(sec),
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::NYI0000,
-                "mixed duration components are not supported",
-            ));
+            return Err(Error::from_code(ErrorCode::NYI0000, "mixed duration components are not supported"));
         }
     };
     let result = vec![XdmItem::Atomic(value)];
@@ -371,8 +361,7 @@ pub(super) fn xs_g_year_stream<N: 'static + crate::model::XdmNode + Clone>(
         return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&seq);
-    let (year, tz) =
-        parse_g_year(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYear"))?;
+    let (year, tz) = parse_g_year(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYear"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::GYear { year, tz })];
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -389,8 +378,8 @@ pub(super) fn xs_g_year_month_stream<N: 'static + crate::model::XdmNode + Clone>
         return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&seq);
-    let (year, month, tz) = parse_g_year_month(&s)
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYearMonth"))?;
+    let (year, month, tz) =
+        parse_g_year_month(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYearMonth"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::GYearMonth { year, month, tz })];
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -407,8 +396,7 @@ pub(super) fn xs_g_month_stream<N: 'static + crate::model::XdmNode + Clone>(
         return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&seq);
-    let (month, tz) = parse_g_month(&s)
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonth"))?;
+    let (month, tz) = parse_g_month(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonth"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::GMonth { month, tz })];
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -425,8 +413,8 @@ pub(super) fn xs_g_month_day_stream<N: 'static + crate::model::XdmNode + Clone>(
         return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&seq);
-    let (month, day, tz) = parse_g_month_day(&s)
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonthDay"))?;
+    let (month, day, tz) =
+        parse_g_month_day(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonthDay"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::GMonthDay { month, day, tz })];
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -443,8 +431,7 @@ pub(super) fn xs_g_day_stream<N: 'static + crate::model::XdmNode + Clone>(
         return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
     }
     let s = item_to_string(&seq);
-    let (day, tz) =
-        parse_g_day(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gDay"))?;
+    let (day, tz) = parse_g_day(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gDay"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::GDay { day, tz })];
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -481,9 +468,7 @@ pub(super) fn xs_int_stream<N: 'static + crate::model::XdmNode + Clone>(
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = int_subtype_i64(&[seq], i32::MIN as i64, i32::MAX as i64, |v| {
-        XdmAtomicValue::Int(v as i32)
-    })?;
+    let result = int_subtype_i64(&[seq], i32::MIN as i64, i32::MAX as i64, |v| XdmAtomicValue::Int(v as i32))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -492,9 +477,7 @@ pub(super) fn xs_short_stream<N: 'static + crate::model::XdmNode + Clone>(
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = int_subtype_i64(&[seq], i16::MIN as i64, i16::MAX as i64, |v| {
-        XdmAtomicValue::Short(v as i16)
-    })?;
+    let result = int_subtype_i64(&[seq], i16::MIN as i64, i16::MAX as i64, |v| XdmAtomicValue::Short(v as i16))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -503,8 +486,7 @@ pub(super) fn xs_byte_stream<N: 'static + crate::model::XdmNode + Clone>(
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result =
-        int_subtype_i64(&[seq], i8::MIN as i64, i8::MAX as i64, |v| XdmAtomicValue::Byte(v as i8))?;
+    let result = int_subtype_i64(&[seq], i8::MIN as i64, i8::MAX as i64, |v| XdmAtomicValue::Byte(v as i8))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -513,8 +495,7 @@ pub(super) fn xs_unsigned_long_stream<N: 'static + crate::model::XdmNode + Clone
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result =
-        uint_subtype_u128(&[seq], 0, u64::MAX as u128, |v| XdmAtomicValue::UnsignedLong(v as u64))?;
+    let result = uint_subtype_u128(&[seq], 0, u64::MAX as u128, |v| XdmAtomicValue::UnsignedLong(v as u64))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -523,8 +504,7 @@ pub(super) fn xs_unsigned_int_stream<N: 'static + crate::model::XdmNode + Clone>
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result =
-        uint_subtype_u128(&[seq], 0, u32::MAX as u128, |v| XdmAtomicValue::UnsignedInt(v as u32))?;
+    let result = uint_subtype_u128(&[seq], 0, u32::MAX as u128, |v| XdmAtomicValue::UnsignedInt(v as u32))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -533,9 +513,7 @@ pub(super) fn xs_unsigned_short_stream<N: 'static + crate::model::XdmNode + Clon
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 0, u16::MAX as u128, |v| {
-        XdmAtomicValue::UnsignedShort(v as u16)
-    })?;
+    let result = uint_subtype_u128(&[seq], 0, u16::MAX as u128, |v| XdmAtomicValue::UnsignedShort(v as u16))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -544,8 +522,7 @@ pub(super) fn xs_unsigned_byte_stream<N: 'static + crate::model::XdmNode + Clone
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result =
-        uint_subtype_u128(&[seq], 0, u8::MAX as u128, |v| XdmAtomicValue::UnsignedByte(v as u8))?;
+    let result = uint_subtype_u128(&[seq], 0, u8::MAX as u128, |v| XdmAtomicValue::UnsignedByte(v as u8))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -572,9 +549,7 @@ pub(super) fn xs_non_negative_integer_stream<N: 'static + crate::model::XdmNode 
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 0, u64::MAX as u128, |v| {
-        XdmAtomicValue::NonNegativeInteger(v as u64)
-    })?;
+    let result = uint_subtype_u128(&[seq], 0, u64::MAX as u128, |v| XdmAtomicValue::NonNegativeInteger(v as u64))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -583,9 +558,7 @@ pub(super) fn xs_positive_integer_stream<N: 'static + crate::model::XdmNode + Cl
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 1, u64::MAX as u128, |v| {
-        XdmAtomicValue::PositiveInteger(v as u64)
-    })?;
+    let result = uint_subtype_u128(&[seq], 1, u64::MAX as u128, |v| XdmAtomicValue::PositiveInteger(v as u64))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 

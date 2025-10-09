@@ -8,8 +8,7 @@ type N = platynui_xpath::model::simple::SimpleNode;
 #[rstest]
 fn processing_instruction_target_filter() {
     // <root><?go data?></root>
-    let root =
-        elem("root").child(platynui_xpath::model::simple::SimpleNode::pi("go", "data")).build();
+    let root = elem("root").child(platynui_xpath::model::simple::SimpleNode::pi("go", "data")).build();
     let ctx = DynamicContextBuilder::default().with_context_item(root.clone()).build();
     let seq = evaluate_expr::<N>("child::processing-instruction('go')", &ctx).unwrap();
     assert_eq!(seq.len(), 1);

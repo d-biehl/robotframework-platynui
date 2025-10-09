@@ -15,19 +15,15 @@ fn create_large_html_document() -> SimpleNode {
 
     // Create many nested divs with common element names for interning
     for i in 0..100 {
-        let mut section_builder = elem("section")
-            .attr(attr("class", &format!("section-{}", i)))
-            .attr(attr("id", &format!("section-{}", i)));
+        let mut section_builder =
+            elem("section").attr(attr("class", &format!("section-{}", i))).attr(attr("id", &format!("section-{}", i)));
 
         for j in 0..20 {
-            let mut div_builder =
-                elem("div").attr(attr("class", "content")).attr(attr("data-index", &j.to_string()));
+            let mut div_builder = elem("div").attr(attr("class", "content")).attr(attr("data-index", &j.to_string()));
 
-            let p_builder =
-                elem("p").child(text(&format!("Content paragraph {} in section {}", j, i)));
+            let p_builder = elem("p").child(text(&format!("Content paragraph {} in section {}", j, i)));
 
-            let span_builder =
-                elem("span").attr(attr("class", "highlight")).child(text("highlighted text"));
+            let span_builder = elem("span").attr(attr("class", "highlight")).child(text("highlighted text"));
 
             div_builder = div_builder.child(p_builder).child(span_builder);
             section_builder = section_builder.child(div_builder);
@@ -42,9 +38,7 @@ fn create_large_html_document() -> SimpleNode {
 
 fn benchmark_string_operations(c: &mut Criterion) {
     let document = create_large_html_document();
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(I::Node(document.clone())).build();
 
     let mut group = c.benchmark_group("string_interning");
 
@@ -76,9 +70,7 @@ fn benchmark_string_operations(c: &mut Criterion) {
 
 fn benchmark_name_comparisons(c: &mut Criterion) {
     let document = create_large_html_document();
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(I::Node(document.clone())).build();
 
     let mut group = c.benchmark_group("name_comparison");
 
@@ -86,18 +78,14 @@ fn benchmark_name_comparisons(c: &mut Criterion) {
     let frequent_patterns = vec!["//div", "//span", "//p", "//section", "//*[@class]", "//*[@id]"];
 
     for pattern in frequent_patterns {
-        group.bench_with_input(
-            BenchmarkId::new("frequent_names", pattern),
-            &pattern,
-            |b, xpath_str| {
-                let compiled = compile(xpath_str).unwrap();
+        group.bench_with_input(BenchmarkId::new("frequent_names", pattern), &pattern, |b, xpath_str| {
+            let compiled = compile(xpath_str).unwrap();
 
-                b.iter(|| {
-                    let result = evaluate(&compiled, black_box(&ctx)).unwrap();
-                    black_box(result.len())
-                });
-            },
-        );
+            b.iter(|| {
+                let result = evaluate(&compiled, black_box(&ctx)).unwrap();
+                black_box(result.len())
+            });
+        });
     }
 
     group.finish();
@@ -105,9 +93,7 @@ fn benchmark_name_comparisons(c: &mut Criterion) {
 
 fn benchmark_cache_statistics(c: &mut Criterion) {
     let document = create_large_html_document();
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(I::Node(document.clone())).build();
 
     // Run some operations to populate cache
     let warmup_patterns = vec!["//div", "//span", "//p", "//section", "//*[@class]"];
@@ -124,10 +110,5 @@ fn benchmark_cache_statistics(c: &mut Criterion) {
     });
 }
 
-criterion_group!(
-    benches,
-    benchmark_string_operations,
-    benchmark_name_comparisons,
-    benchmark_cache_statistics
-);
+criterion_group!(benches, benchmark_string_operations, benchmark_name_comparisons, benchmark_cache_statistics);
 criterion_main!(benches);

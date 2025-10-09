@@ -40,12 +40,7 @@ pub fn run(runtime: &Runtime, args: &ScreenshotArgs) -> CliResult<String> {
     };
     write_png(&output_path, &screenshot)?;
 
-    Ok(format!(
-        "Saved screenshot to {} ({}×{} px).",
-        output_path.display(),
-        screenshot.width,
-        screenshot.height
-    ))
+    Ok(format!("Saved screenshot to {} ({}×{} px).", output_path.display(), screenshot.width, screenshot.height))
 }
 
 fn write_png(path: &Path, screenshot: &Screenshot) -> CliResult<()> {
@@ -81,8 +76,7 @@ fn parse_rect_arg(value: &str) -> Result<Rect, String> {
 
     let mut numbers = Vec::with_capacity(4);
     for part in parts {
-        let number: f64 =
-            part.trim().parse().map_err(|_| format!("invalid number in rect `{value}`"))?;
+        let number: f64 = part.trim().parse().map_err(|_| format!("invalid number in rect `{value}`"))?;
         numbers.push(number);
     }
 
@@ -141,10 +135,7 @@ mod tests {
         // runtime is already mutable from fixture
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("capture.png");
-        let args = ScreenshotArgs {
-            output: Some(path.clone()),
-            rect: Some(Rect::new(3700.0, 600.0, 400.0, 200.0)),
-        };
+        let args = ScreenshotArgs { output: Some(path.clone()), rect: Some(Rect::new(3700.0, 600.0, 400.0, 200.0)) };
 
         let output = run(&runtime, &args).expect("screenshot run");
         assert!(output.contains("Saved screenshot"));

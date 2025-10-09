@@ -88,8 +88,7 @@ fn streaming_iter_is_repeatable_and_matches_eager() {
 #[rstest]
 fn streaming_atomic_sequence_behaves_like_eager() {
     let ctx = DynamicContextBuilder::<N>::default().build();
-    let stream =
-        evaluate_stream_expr::<N>("(1, 2, 3)[. >= 2]", &ctx).expect("stream eval succeeds");
+    let stream = evaluate_stream_expr::<N>("(1, 2, 3)[. >= 2]", &ctx).expect("stream eval succeeds");
     let via_stream: Vec<_> = stream
         .iter()
         .map(|res| match res.expect("ok item") {
@@ -122,8 +121,7 @@ fn streaming_predicate_last_on_nodes() {
     let root = document.children().next().unwrap();
     let ctx = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
 
-    let stream =
-        evaluate_stream_expr::<N>("child::item[position() = last()]", &ctx).expect("stream eval");
+    let stream = evaluate_stream_expr::<N>("child::item[position() = last()]", &ctx).expect("stream eval");
     let values: Vec<_> = stream
         .iter()
         .map(|res| match res.expect("ok") {
@@ -425,9 +423,8 @@ fn streaming_cancellation_triggers_error() {
         .with_cancel_flag(cancel_flag)
         .build();
 
-    let err = evaluate_stream_expr::<N>("for $x in /root/item return $x", &ctx)
-        .err()
-        .expect("evaluation should cancel");
+    let err =
+        evaluate_stream_expr::<N>("for $x in /root/item return $x", &ctx).err().expect("evaluation should cancel");
     assert_eq!(err.code_enum(), platynui_xpath::engine::runtime::ErrorCode::FOER0000);
 }
 
@@ -450,8 +447,7 @@ fn streaming_early_termination_first_match() {
 
     // Query: descendant-or-self::item[1]
     // Should find first item and stop, not traverse all 10,000
-    let stream = evaluate_stream_expr::<N>("descendant-or-self::item[1]", &ctx)
-        .expect("stream eval succeeds");
+    let stream = evaluate_stream_expr::<N>("descendant-or-self::item[1]", &ctx).expect("stream eval succeeds");
 
     let result: Vec<_> = stream.iter().collect::<Result<Vec<_>, _>>().expect("ok");
 

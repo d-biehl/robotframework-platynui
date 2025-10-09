@@ -10,12 +10,10 @@ mod linux {
         protocol::{wl_registry::WlRegistry, wl_seat::WlSeat},
     };
     use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
-        zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1,
-        zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1,
+        zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1, zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1,
     };
     use wayland_protocols_wlr::virtual_pointer::v1::client::{
-        zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1,
-        zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1,
+        zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1, zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1,
     };
 
     #[derive(Default)]
@@ -119,19 +117,14 @@ mod linux {
     pub fn run() -> Result<()> {
         // Connect to Wayland and initialise the registry helper
         let conn = Connection::connect_to_env().context("Wayland connect failed")?;
-        let (globals, mut queue) =
-            registry_queue_init::<AppState>(&conn).context("registry init failed")?;
+        let (globals, mut queue) = registry_queue_init::<AppState>(&conn).context("registry init failed")?;
         let mut state = AppState;
         queue.roundtrip(&mut state).context("initial registry roundtrip failed")?;
         let qh = queue.handle();
 
         // Enumerate seats; at least one seat is required for the feature checks
         let global_snapshot = globals.contents().clone_list();
-        let seat_globals = global_snapshot
-            .iter()
-            .filter(|g| g.interface == "wl_seat")
-            .cloned()
-            .collect::<Vec<_>>();
+        let seat_globals = global_snapshot.iter().filter(|g| g.interface == "wl_seat").cloned().collect::<Vec<_>>();
 
         let seats: Vec<WlSeat> = seat_globals
             .iter()
@@ -142,14 +135,8 @@ mod linux {
             .collect();
 
         // Discover manager globals and remember their advertised version
-        let vk_mgr_global = global_snapshot
-            .iter()
-            .find(|g| g.interface == "zwp_virtual_keyboard_manager_v1")
-            .cloned();
-        let vp_mgr_global = global_snapshot
-            .iter()
-            .find(|g| g.interface == "zwlr_virtual_pointer_manager_v1")
-            .cloned();
+        let vk_mgr_global = global_snapshot.iter().find(|g| g.interface == "zwp_virtual_keyboard_manager_v1").cloned();
+        let vp_mgr_global = global_snapshot.iter().find(|g| g.interface == "zwlr_virtual_pointer_manager_v1").cloned();
 
         // Try to create one object per capability if a seat is available
         let mut vk_cap = Capability::default();
@@ -157,9 +144,7 @@ mod linux {
             vk_cap.present = true;
             vk_cap.version = Some(g.version);
             let version = g.version.min(ZwpVirtualKeyboardManagerV1::interface().version);
-            if let Ok(vk_mgr) =
-                globals.bind::<ZwpVirtualKeyboardManagerV1, _, _>(&qh, 1..=version, ())
-            {
+            if let Ok(vk_mgr) = globals.bind::<ZwpVirtualKeyboardManagerV1, _, _>(&qh, 1..=version, ()) {
                 let _vk = vk_mgr.create_virtual_keyboard(seat, &qh, ());
                 queue.roundtrip(&mut state).context("virtual keyboard roundtrip failed")?;
                 vk_cap.creatable = true;
@@ -171,9 +156,7 @@ mod linux {
             vp_cap.present = true;
             vp_cap.version = Some(g.version);
             let version = g.version.min(ZwlrVirtualPointerManagerV1::interface().version);
-            if let Ok(vp_mgr) =
-                globals.bind::<ZwlrVirtualPointerManagerV1, _, _>(&qh, 1..=version, ())
-            {
+            if let Ok(vp_mgr) = globals.bind::<ZwlrVirtualPointerManagerV1, _, _>(&qh, 1..=version, ()) {
                 let _vp = vp_mgr.create_virtual_pointer(Some(seat), &qh, ());
                 queue.roundtrip(&mut state).context("virtual pointer roundtrip failed")?;
                 vp_cap.creatable = true;

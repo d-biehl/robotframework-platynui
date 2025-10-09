@@ -1,6 +1,4 @@
-use super::common::{
-    atomic_equal_with_collation, compare_default, deep_equal_default, item_to_string,
-};
+use super::common::{atomic_equal_with_collation, compare_default, deep_equal_default, item_to_string};
 use crate::engine::runtime::{CallCtx, Error};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequenceStream};
 

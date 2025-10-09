@@ -71,8 +71,7 @@ mod tests {
         reset_highlight_state();
         let providers: Vec<_> = highlight_providers().collect();
         // Mock provider should NOT be in the registry
-        let mock_in_registry =
-            providers.iter().any(|p| std::ptr::eq(*p, &MOCK_HIGHLIGHT as &dyn HighlightProvider));
+        let mock_in_registry = providers.iter().any(|p| std::ptr::eq(*p, &MOCK_HIGHLIGHT as &dyn HighlightProvider));
         assert!(!mock_in_registry, "Mock highlight provider should not be auto-registered");
 
         // Use direct reference for testing the provider itself

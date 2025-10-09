@@ -9,9 +9,8 @@ type N = platynui_xpath::model::simple::SimpleNode;
 
 fn build_tree() -> N {
     // <root><s1/><s2/><s3/><s4/></root>
-    let doc_node = doc()
-        .child(elem("root").child(elem("s1")).child(elem("s2")).child(elem("s3")).child(elem("s4")))
-        .build();
+    let doc_node =
+        doc().child(elem("root").child(elem("s1")).child(elem("s2")).child(elem("s3")).child(elem("s4"))).build();
     doc_node.children().next().unwrap()
 }
 

@@ -9,11 +9,9 @@ struct TestNodeResolver;
 impl NodeResolver<N> for TestNodeResolver {
     fn doc_node(&self, uri: &str) -> Result<Option<N>, platynui_xpath::engine::runtime::Error> {
         Ok(match uri {
-            "urn:ok" => Some(
-                platynui_xpath::model::simple::doc()
-                    .child(platynui_xpath::model::simple::elem("root"))
-                    .build(),
-            ),
+            "urn:ok" => {
+                Some(platynui_xpath::model::simple::doc().child(platynui_xpath::model::simple::elem("root")).build())
+            }
             _ => None,
         })
     }

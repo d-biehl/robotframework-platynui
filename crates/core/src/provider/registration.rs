@@ -14,9 +14,7 @@ pub fn provider_factories() -> impl Iterator<Item = &'static dyn UiTreeProviderF
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::{
-        ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, register_provider,
-    };
+    use crate::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, register_provider};
     use crate::ui::{Namespace, RuntimeId, UiAttribute, UiNode, UiValue};
     use rstest::rstest;
     use std::sync::{Arc, Mutex, Weak};
@@ -123,15 +121,14 @@ mod tests {
 
     impl UiTreeProviderFactory for DummyFactory {
         fn descriptor(&self) -> &ProviderDescriptor {
-            static DESCRIPTOR: once_cell::sync::Lazy<ProviderDescriptor> =
-                once_cell::sync::Lazy::new(|| {
-                    ProviderDescriptor::new(
-                        "dummy-factory",
-                        "Dummy Factory",
-                        crate::ui::TechnologyId::from("Dummy"),
-                        ProviderKind::Native,
-                    )
-                });
+            static DESCRIPTOR: once_cell::sync::Lazy<ProviderDescriptor> = once_cell::sync::Lazy::new(|| {
+                ProviderDescriptor::new(
+                    "dummy-factory",
+                    "Dummy Factory",
+                    crate::ui::TechnologyId::from("Dummy"),
+                    ProviderKind::Native,
+                )
+            });
             &DESCRIPTOR
         }
 

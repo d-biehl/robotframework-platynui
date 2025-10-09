@@ -168,11 +168,7 @@ mod tests {
         }
 
         fn supported_patterns(&self) -> Vec<PatternId> {
-            if self.supported.is_empty() {
-                self.patterns.supported()
-            } else {
-                self.supported.clone()
-            }
+            if self.supported.is_empty() { self.patterns.supported() } else { self.supported.clone() }
         }
 
         fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
@@ -209,8 +205,7 @@ mod tests {
 
     #[rstest]
     fn validates_successfully_for_complete_node() {
-        let node =
-            MockNode::new(Namespace::Control).with_required_attributes().with_focusable_pattern();
+        let node = MockNode::new(Namespace::Control).with_required_attributes().with_focusable_pattern();
         assert!(validate_control_or_item(&node).is_ok());
     }
 

@@ -79,18 +79,24 @@ fn types_cast_treat_instance() {
 #[rstest]
 fn types_occurrences() {
     let t_opt = ir("1 treat as xs:integer?");
-    assert!(t_opt.0.iter().any(|op| matches!(
-        op,
-        OpCode::Treat(SeqTypeIR::Typed { item: _, occ: OccurrenceIR::ZeroOrOne })
-    )));
+    assert!(
+        t_opt
+            .0
+            .iter()
+            .any(|op| matches!(op, OpCode::Treat(SeqTypeIR::Typed { item: _, occ: OccurrenceIR::ZeroOrOne })))
+    );
     let t_plus = ir("1 treat as xs:integer+");
-    assert!(t_plus.0.iter().any(|op| matches!(
-        op,
-        OpCode::Treat(SeqTypeIR::Typed { item: _, occ: OccurrenceIR::OneOrMore })
-    )));
+    assert!(
+        t_plus
+            .0
+            .iter()
+            .any(|op| matches!(op, OpCode::Treat(SeqTypeIR::Typed { item: _, occ: OccurrenceIR::OneOrMore })))
+    );
     let t_star = ir("1 treat as xs:integer*");
-    assert!(t_star.0.iter().any(|op| matches!(
-        op,
-        OpCode::Treat(SeqTypeIR::Typed { item: _, occ: OccurrenceIR::ZeroOrMore })
-    )));
+    assert!(
+        t_star
+            .0
+            .iter()
+            .any(|op| matches!(op, OpCode::Treat(SeqTypeIR::Typed { item: _, occ: OccurrenceIR::ZeroOrMore })))
+    );
 }

@@ -5,8 +5,7 @@ use platynui_xpath::{
 };
 use rstest::rstest;
 
-fn ctx()
--> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 
@@ -59,9 +58,10 @@ fn instance_of_anyuri_true() {
 #[rstest]
 fn treat_as_mismatch_reports() {
     // treat-as on wrong type must error with XPTY0004
-    let err = platynui_xpath::engine::evaluator::evaluate_expr::<
-        platynui_xpath::model::simple::SimpleNode,
-    >("('a') treat as xs:integer", &ctx())
+    let err = platynui_xpath::engine::evaluator::evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(
+        "('a') treat as xs:integer",
+        &ctx(),
+    )
     .unwrap_err();
     assert!(format!("{}", err).contains("XPTY0004"));
 }

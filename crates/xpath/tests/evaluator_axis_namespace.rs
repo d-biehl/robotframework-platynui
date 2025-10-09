@@ -1,7 +1,5 @@
 use platynui_xpath::compiler::compile_with_context;
-use platynui_xpath::engine::runtime::{
-    DynamicContext, DynamicContextBuilder, StaticContextBuilder,
-};
+use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder, StaticContextBuilder};
 use platynui_xpath::{
     XdmNode, evaluate, evaluate_expr,
     simple_node::{doc, elem, ns},
@@ -181,9 +179,7 @@ fn namespace_axis_wildcard_returns_all(ctx: DynamicContext<N>) {
 
 #[rstest]
 fn attribute_default_namespace_not_applied(ctx: DynamicContext<N>) {
-    let static_ctx = StaticContextBuilder::new()
-        .with_namespace("xml", "http://www.w3.org/XML/1998/namespace")
-        .build();
+    let static_ctx = StaticContextBuilder::new().with_namespace("xml", "http://www.w3.org/XML/1998/namespace").build();
     let compiled_pref = compile_with_context("attribute::xml:id", &static_ctx).unwrap();
     let seq_pref = evaluate(&compiled_pref, &ctx).unwrap();
     assert_eq!(seq_pref.len(), 0);

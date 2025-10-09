@@ -2,9 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::mem::size_of;
 
-use platynui_core::platform::{
-    DesktopInfo, DesktopInfoProvider, MonitorInfo, PlatformError, PlatformErrorKind,
-};
+use platynui_core::platform::{DesktopInfo, DesktopInfoProvider, MonitorInfo, PlatformError, PlatformErrorKind};
 use platynui_core::register_desktop_info_provider;
 use platynui_core::types::Rect;
 use platynui_core::ui::{RuntimeId, TechnologyId};
@@ -16,8 +14,7 @@ use windows::Win32::Devices::Display::{
 };
 use windows::Win32::Foundation::{LPARAM, RECT, WIN32_ERROR};
 use windows::Win32::Graphics::Gdi::{
-    DISPLAY_DEVICEW, EnumDisplayDevicesW, EnumDisplayMonitors, GetMonitorInfoW, MONITORINFO,
-    MONITORINFOEXW,
+    DISPLAY_DEVICEW, EnumDisplayDevicesW, EnumDisplayMonitors, GetMonitorInfoW, MONITORINFO, MONITORINFOEXW,
 };
 use windows::Win32::System::SystemInformation::GetVersion;
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
@@ -71,26 +68,16 @@ unsafe fn enumerate_monitors() -> Result<Vec<MonitorInfo>, PlatformError> {
         unsafe {
             let list = &mut *(lparam.0 as *mut Vec<MonitorInfo>);
             let mut infoex: MONITORINFOEXW = MONITORINFOEXW {
-                monitorInfo: MONITORINFO {
-                    cbSize: size_of::<MONITORINFO>() as u32,
-                    ..Default::default()
-                },
+                monitorInfo: MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() },
                 szDevice: [0u16; 32],
             };
             // Windows expects cbSize for MONITORINFO; using MONITORINFOEXW requires setting to its size
             infoex.monitorInfo.cbSize = size_of::<MONITORINFOEXW>() as u32;
-            if GetMonitorInfoW(hmonitor, &mut infoex as *mut MONITORINFOEXW as *mut MONITORINFO)
-                == BOOL(0)
-            {
+            if GetMonitorInfoW(hmonitor, &mut infoex as *mut MONITORINFOEXW as *mut MONITORINFO) == BOOL(0) {
                 return BOOL(1);
             }
             let r = infoex.monitorInfo.rcMonitor;
-            let bounds = Rect::new(
-                r.left as f64,
-                r.top as f64,
-                (r.right - r.left) as f64,
-                (r.bottom - r.top) as f64,
-            );
+            let bounds = Rect::new(r.left as f64, r.top as f64, (r.right - r.left) as f64, (r.bottom - r.top) as f64);
             let is_primary = (infoex.monitorInfo.dwFlags & 1) != 0; // MONITORINFOF_PRIMARY = 0x00000001
             let id = trim_wstr(&infoex.szDevice);
             let friendly_dc = FRIENDLY_NAMES.get_or_init(build_friendly_name_map).get(&id).cloned();
@@ -102,9 +89,7 @@ unsafe fn enumerate_monitors() -> Result<Vec<MonitorInfo>, PlatformError> {
             // Try to determine per-monitor scale factor via effective DPI
             let mut dpix: u32 = 0;
             let mut dpiy: u32 = 0;
-            if GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &mut dpix, &mut dpiy).is_ok()
-                && dpix > 0
-            {
+            if GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &mut dpix, &mut dpiy).is_ok() && dpix > 0 {
                 monitor.scale_factor = Some(dpix as f64 / 96.0);
             }
             list.push(monitor);
@@ -117,10 +102,7 @@ unsafe fn enumerate_monitors() -> Result<Vec<MonitorInfo>, PlatformError> {
     let lparam = LPARAM(&mut list as *mut _ as isize);
     let ok = unsafe { EnumDisplayMonitors(None, None, Some(enum_proc), lparam) };
     if !ok.as_bool() {
-        return Err(PlatformError::new(
-            PlatformErrorKind::CapabilityUnavailable,
-            "EnumDisplayMonitors failed",
-        ));
+        return Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "EnumDisplayMonitors failed"));
     }
     Ok(list)
 }
@@ -134,9 +116,7 @@ unsafe fn monitor_friendly_name(infoex: &MONITORINFOEXW) -> Option<String> {
     // Try to resolve a human-friendly monitor name via EnumDisplayDevicesW
     let mut dd: DISPLAY_DEVICEW = DISPLAY_DEVICEW::default();
     dd.cb = size_of::<DISPLAY_DEVICEW>() as u32;
-    let ok = unsafe {
-        EnumDisplayDevicesW(windows::core::PCWSTR(infoex.szDevice.as_ptr()), 0, &mut dd, 0)
-    };
+    let ok = unsafe { EnumDisplayDevicesW(windows::core::PCWSTR(infoex.szDevice.as_ptr()), 0, &mut dd, 0) };
     if ok.as_bool() {
         let s = trim_wstr(&dd.DeviceString);
         if !s.trim().is_empty() {
@@ -146,8 +126,7 @@ unsafe fn monitor_friendly_name(infoex: &MONITORINFOEXW) -> Option<String> {
     None
 }
 
-static FRIENDLY_NAMES: once_cell::sync::OnceCell<HashMap<String, String>> =
-    once_cell::sync::OnceCell::new();
+static FRIENDLY_NAMES: once_cell::sync::OnceCell<HashMap<String, String>> = once_cell::sync::OnceCell::new();
 
 fn build_friendly_name_map() -> HashMap<String, String> {
     // Map from "\\\.\DISPLAYn" → "Friendly Monitor Name"
@@ -155,9 +134,7 @@ fn build_friendly_name_map() -> HashMap<String, String> {
     unsafe {
         let mut path_count: u32 = 0;
         let mut mode_count: u32 = 0;
-        if GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut path_count, &mut mode_count)
-            != WIN32_ERROR(0)
-        {
+        if GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut path_count, &mut mode_count) != WIN32_ERROR(0) {
             return map;
         }
         let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); path_count as usize];
@@ -176,8 +153,7 @@ fn build_friendly_name_map() -> HashMap<String, String> {
         let paths = &paths[..path_count as usize];
         for p in paths {
             // Source device name (\\.\DISPLAYn)
-            let mut src: DISPLAYCONFIG_SOURCE_DEVICE_NAME =
-                DISPLAYCONFIG_SOURCE_DEVICE_NAME::default();
+            let mut src: DISPLAYCONFIG_SOURCE_DEVICE_NAME = DISPLAYCONFIG_SOURCE_DEVICE_NAME::default();
             src.header = DISPLAYCONFIG_DEVICE_INFO_HEADER {
                 r#type: DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
                 size: size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>() as u32,
@@ -190,8 +166,7 @@ fn build_friendly_name_map() -> HashMap<String, String> {
             let gdi_name = trim_wstr(&src.viewGdiDeviceName);
 
             // Target friendly name
-            let mut tgt: DISPLAYCONFIG_TARGET_DEVICE_NAME =
-                DISPLAYCONFIG_TARGET_DEVICE_NAME::default();
+            let mut tgt: DISPLAYCONFIG_TARGET_DEVICE_NAME = DISPLAYCONFIG_TARGET_DEVICE_NAME::default();
             tgt.header = DISPLAYCONFIG_DEVICE_INFO_HEADER {
                 r#type: DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
                 size: size_of::<DISPLAYCONFIG_TARGET_DEVICE_NAME>() as u32,
@@ -246,10 +221,7 @@ mod tests {
     #[test]
     fn windows_desktop_info_smoke() {
         let info = WINDOWS_DESKTOP_PROVIDER.desktop_info().expect("desktop info");
-        assert!(
-            info.bounds.width() > 0.0 && info.bounds.height() > 0.0,
-            "desktop bounds must be positive"
-        );
+        assert!(info.bounds.width() > 0.0 && info.bounds.height() > 0.0, "desktop bounds must be positive");
 
         let count = info.display_count();
         if count > 0 {
@@ -277,10 +249,7 @@ mod tests {
             assert!(within, "union({union}) must be within desktop bounds {}", info.bounds);
 
             // Names/IDs should not be empty (friendly name may still be generic depending on system).
-            assert!(
-                info.monitors.iter().all(|m| !m.id.trim().is_empty()),
-                "device ids must be non-empty"
-            );
+            assert!(info.monitors.iter().all(|m| !m.id.trim().is_empty()), "device ids must be non-empty");
             assert!(
                 info.monitors.iter().all(|m| m.name.as_deref().unwrap_or("").trim().len() >= 1),
                 "monitor names should be present"

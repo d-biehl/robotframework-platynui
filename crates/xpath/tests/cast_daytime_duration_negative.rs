@@ -14,10 +14,7 @@ use rstest::rstest;
 #[rstest]
 fn cast_day_time_duration_bare_pt_invalid() {
     let ctx = DynamicContextBuilder::default().build();
-    let err = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(
-        "'PT' cast as xs:dayTimeDuration",
-        &ctx,
-    )
-    .expect_err("expected lexical error for bare PT");
+    let err = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("'PT' cast as xs:dayTimeDuration", &ctx)
+        .expect_err("expected lexical error for bare PT");
     assert_eq!(err.code_enum(), ErrorCode::FORG0001);
 }

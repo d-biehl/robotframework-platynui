@@ -12,9 +12,7 @@ fn eval(expr: &str) -> Vec<XdmItem<platynui_xpath::model::simple::SimpleNode>> {
 }
 
 #[rstest]
-fn fractional_second_equality_and_ordering(
-    #[values("2024-01-01T00:00:00", "2024-12-31T23:59:59")] base: &str,
-) {
+fn fractional_second_equality_and_ordering(#[values("2024-01-01T00:00:00", "2024-12-31T23:59:59")] base: &str) {
     let lt_expr = format!("xs:dateTime('{base}.123Z') lt xs:dateTime('{base}.124Z')");
     let r = eval(&lt_expr);
     assert!(matches!(&r[0], XdmItem::Atomic(XdmAtomicValue::Boolean(true))));
@@ -34,35 +32,24 @@ fn timezone_normalization_equality(#[values("2024-06-01", "2024-02-29")] day: &s
 #[rstest]
 fn timezone_boundaries_plus14_minus14() {
     // +14:00 boundary: 2024-01-01T00:00:00+14:00 == 2023-12-31T10:00:00Z
-    let r1 =
-        eval("xs:dateTime('2024-01-01T00:00:00+14:00') eq xs:dateTime('2023-12-31T10:00:00Z')");
+    let r1 = eval("xs:dateTime('2024-01-01T00:00:00+14:00') eq xs:dateTime('2023-12-31T10:00:00Z')");
     assert!(matches!(&r1[0], XdmItem::Atomic(XdmAtomicValue::Boolean(true))));
     // -14:00 boundary: 2024-01-01T00:00:00-14:00 == 2024-01-01T14:00:00Z
-    let r2 =
-        eval("xs:dateTime('2024-01-01T00:00:00-14:00') eq xs:dateTime('2024-01-01T14:00:00Z')");
+    let r2 = eval("xs:dateTime('2024-01-01T00:00:00-14:00') eq xs:dateTime('2024-01-01T14:00:00Z')");
     assert!(matches!(&r2[0], XdmItem::Atomic(XdmAtomicValue::Boolean(true))));
 }
 
 #[rstest]
 #[case("P1D", "2024-06-10T00:00:00Z", "2024-06-09T00:00:00Z")]
 #[case("P2D", "2024-06-10T00:00:00Z", "2024-06-08T00:00:00Z")]
-fn negative_duration_addition_and_subtraction(
-    #[case] dur: &str,
-    #[case] start: &str,
-    #[case] expected: &str,
-) {
-    let expr = format!(
-        "(xs:dateTime('{start}') - xs:dayTimeDuration('{dur}')) eq xs:dateTime('{expected}')"
-    );
+fn negative_duration_addition_and_subtraction(#[case] dur: &str, #[case] start: &str, #[case] expected: &str) {
+    let expr = format!("(xs:dateTime('{start}') - xs:dayTimeDuration('{dur}')) eq xs:dateTime('{expected}')");
     let r = eval(&expr);
     assert!(matches!(&r[0], XdmItem::Atomic(XdmAtomicValue::Boolean(true))));
 }
 
 #[rstest]
-fn duration_arithmetic_mixed_year_month_and_day_time(
-    #[values("P6M")] a: &str,
-    #[values("P3M")] b: &str,
-) {
+fn duration_arithmetic_mixed_year_month_and_day_time(#[values("P6M")] a: &str, #[values("P3M")] b: &str) {
     let expr = format!("xs:yearMonthDuration('{a}') div xs:yearMonthDuration('{b}')");
     let r = eval(&expr);
     match &r[0] {

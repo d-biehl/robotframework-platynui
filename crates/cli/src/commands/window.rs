@@ -13,11 +13,7 @@ const DEFAULT_WINDOW_QUERY: &str = "//control:Window";
 
 #[derive(Args, Debug, Clone)]
 pub struct WindowArgs {
-    #[arg(
-        value_name = "XPATH",
-        help = "XPath expression selecting windows.",
-        required_unless_present = "list"
-    )]
+    #[arg(value_name = "XPATH", help = "XPath expression selecting windows.", required_unless_present = "list")]
     pub expression: Option<String>,
 
     #[arg(
@@ -124,11 +120,7 @@ fn list_windows(runtime: &Runtime, args: &WindowArgs) -> CliResult<String> {
     Ok(lines.join("\n"))
 }
 
-fn execute_actions(
-    runtime: &Runtime,
-    expression: &str,
-    actions: &WindowActions,
-) -> CliResult<String> {
+fn execute_actions(runtime: &Runtime, expression: &str, actions: &WindowActions) -> CliResult<String> {
     let results = runtime.evaluate(None, expression).map_err(map_evaluate_error)?;
     let mut seen = HashSet::<String>::new();
 
@@ -150,11 +142,7 @@ fn execute_actions(
 
         match apply_actions(&node, &pattern, actions) {
             Ok(descriptions) => {
-                let summary = if descriptions.is_empty() {
-                    "no changes".to_owned()
-                } else {
-                    descriptions.join(", ")
-                };
+                let summary = if descriptions.is_empty() { "no changes".to_owned() } else { descriptions.join(", ") };
                 applied.push(format!("- {}: {summary}", render_window_header(&node)));
             }
             Err(err) => {
@@ -216,19 +204,11 @@ fn apply_actions(
     }
     if let Some(point) = actions.move_to {
         pattern.move_to(point)?;
-        descriptions.push(format!(
-            "moved to ({}, {})",
-            format_number(point.x()),
-            format_number(point.y())
-        ));
+        descriptions.push(format!("moved to ({}, {})", format_number(point.x()), format_number(point.y())));
     }
     if let Some(size) = actions.resize {
         pattern.resize(size)?;
-        descriptions.push(format!(
-            "resized to {}×{}",
-            format_number(size.width()),
-            format_number(size.height())
-        ));
+        descriptions.push(format!("resized to {}×{}", format_number(size.width()), format_number(size.height())));
     }
 
     if let Some(state) = window_state(node) {
@@ -246,11 +226,7 @@ fn apply_actions(
 
 fn render_window_header(node: &Arc<dyn UiNode>) -> String {
     let namespace = node.namespace().as_str();
-    let prefix = if namespace == Namespace::Control.as_str() {
-        String::new()
-    } else {
-        format!("{namespace}:")
-    };
+    let prefix = if namespace == Namespace::Control.as_str() { String::new() } else { format!("{namespace}:") };
 
     let role = node.role();
     let name = node.name();
@@ -261,24 +237,16 @@ fn render_window_header(node: &Arc<dyn UiNode>) -> String {
         format!("{prefix}{role} {quoted}")
     };
 
-    label
-        .if_supports_color(Stream::Stdout, |text| text.bold().fg_rgb::<255, 184, 79>().to_string())
-        .to_string()
+    label.if_supports_color(Stream::Stdout, |text| text.bold().fg_rgb::<255, 184, 79>().to_string()).to_string()
 }
 
 fn format_number(value: f64) -> String {
-    if (value.fract()).abs() < f64::EPSILON {
-        format!("{:.0}", value)
-    } else {
-        format!("{:.2}", value)
-    }
+    if (value.fract()).abs() < f64::EPSILON { format!("{:.0}", value) } else { format!("{:.2}", value) }
 }
 
 fn window_state(node: &Arc<dyn UiNode>) -> Option<WindowStatus> {
-    let bounds = node
-        .attribute(Namespace::Control, element::BOUNDS)
-        .map(|attr| attr.value())
-        .and_then(|value| match value {
+    let bounds =
+        node.attribute(Namespace::Control, element::BOUNDS).map(|attr| attr.value()).and_then(|value| match value {
             UiValue::Rect(rect) => Some(rect),
             _ => None,
         })?;

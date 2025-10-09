@@ -176,8 +176,7 @@ fn subsequence_large_sequence() {
 #[test]
 fn combined_exactly_one_subsequence() {
     let ctx = DynamicContextBuilder::default().build();
-    let result =
-        evaluate_expr::<SimpleNode>("exactly-one(subsequence((1, 2, 3), 2, 1))", &ctx).unwrap();
+    let result = evaluate_expr::<SimpleNode>("exactly-one(subsequence((1, 2, 3), 2, 1))", &ctx).unwrap();
 
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::Integer(val)) => assert_eq!(*val, 2),
@@ -188,9 +187,7 @@ fn combined_exactly_one_subsequence() {
 #[test]
 fn combined_count_one_or_more_subsequence() {
     let ctx = DynamicContextBuilder::default().build();
-    let result =
-        evaluate_expr::<SimpleNode>("count(one-or-more(subsequence(1 to 100, 50, 10)))", &ctx)
-            .unwrap();
+    let result = evaluate_expr::<SimpleNode>("count(one-or-more(subsequence(1 to 100, 50, 10)))", &ctx).unwrap();
 
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::Integer(count)) => assert_eq!(*count, 10),
@@ -201,7 +198,6 @@ fn combined_count_one_or_more_subsequence() {
 #[test]
 fn combined_zero_or_one_empty_subsequence() {
     let ctx = DynamicContextBuilder::default().build();
-    let result =
-        evaluate_expr::<SimpleNode>("zero-or-one(subsequence((1, 2, 3), 10))", &ctx).unwrap();
+    let result = evaluate_expr::<SimpleNode>("zero-or-one(subsequence((1, 2, 3), 10))", &ctx).unwrap();
     assert_eq!(result.len(), 0);
 }

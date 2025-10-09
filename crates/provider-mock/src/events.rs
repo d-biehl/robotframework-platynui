@@ -3,8 +3,7 @@ use platynui_core::provider::ProviderEventKind;
 use platynui_core::ui::UiNode;
 use std::sync::{Arc, LazyLock, RwLock, Weak};
 
-static ACTIVE_PROVIDERS: LazyLock<RwLock<Vec<Weak<MockProvider>>>> =
-    LazyLock::new(|| RwLock::new(Vec::new()));
+static ACTIVE_PROVIDERS: LazyLock<RwLock<Vec<Weak<MockProvider>>>> = LazyLock::new(|| RwLock::new(Vec::new()));
 
 pub(crate) fn register_active_instance(provider: &Arc<MockProvider>) {
     let weak = Arc::downgrade(provider);

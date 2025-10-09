@@ -8,9 +8,7 @@ use std::hint::black_box;
 
 fn benchmark_constant_folding(c: &mut Criterion) {
     let doc = simple_doc().child(elem("root")).build();
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(I::Node(doc.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(I::Node(doc.clone())).build();
 
     let mut group = c.benchmark_group("constant_folding");
 

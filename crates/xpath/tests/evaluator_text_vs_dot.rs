@@ -38,9 +38,7 @@ fn text_function_vs_dot_string_value_equivalence() {
                     elem("foo:singers")
                         .child(elem("foo:singer").attr(mkattr("id", "4")).child(text("Tom Waits")))
                         .child(elem("foo:singer").attr(mkattr("id", "5")).child(text("B.B. King")))
-                        .child(
-                            elem("foo:singer").attr(mkattr("id", "6")).child(text("Ray Charles")),
-                        ),
+                        .child(elem("foo:singer").attr(mkattr("id", "6")).child(text("Ray Charles"))),
                 ),
         )
         .build();

@@ -1,12 +1,8 @@
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
-use chrono::{
-    DateTime as ChronoDateTime, FixedOffset as ChronoFixedOffset, NaiveDate, NaiveTime, Offset,
-};
+use chrono::{DateTime as ChronoDateTime, FixedOffset as ChronoFixedOffset, NaiveDate, NaiveTime, Offset};
 
-pub(super) fn require_context_item<N: crate::model::XdmNode + Clone>(
-    ctx: &CallCtx<N>,
-) -> Result<XdmItem<N>, Error> {
+pub(super) fn require_context_item<N: crate::model::XdmNode + Clone>(ctx: &CallCtx<N>) -> Result<XdmItem<N>, Error> {
     if let Some(item) = ctx.current_context_item.clone() {
         Ok(item)
     } else {
@@ -28,10 +24,9 @@ pub(super) fn ebv<N>(seq: &XdmSequence<N>) -> Result<bool, Error> {
             XdmItem::Atomic(XdmAtomicValue::Double(d)) => Ok(*d != 0.0 && !d.is_nan()),
             XdmItem::Atomic(XdmAtomicValue::Float(f)) => Ok(*f != 0.0 && !f.is_nan()),
             XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => Ok(!s.is_empty()),
-            XdmItem::Atomic(_) => Err(Error::from_code(
-                ErrorCode::FORG0006,
-                "EBV for this atomic type not supported yet",
-            )),
+            XdmItem::Atomic(_) => {
+                Err(Error::from_code(ErrorCode::FORG0006, "EBV for this atomic type not supported yet"))
+            }
             XdmItem::Node(_) => Ok(true),
         },
         _ => Err(Error::from_code(ErrorCode::FORG0006, "EBV of sequence with more than one item")),
@@ -110,8 +105,7 @@ pub(super) fn number_default<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     arg_opt: Option<&XdmSequence<N>>,
 ) -> Result<XdmSequence<N>, Error> {
-    let seq: XdmSequence<N> =
-        if let Some(s) = arg_opt { s.clone() } else { vec![require_context_item(ctx)?] };
+    let seq: XdmSequence<N> = if let Some(s) = arg_opt { s.clone() } else { vec![require_context_item(ctx)?] };
     let n = to_number(&seq).unwrap_or(f64::NAN);
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(n))])
 }
@@ -258,10 +252,7 @@ pub(super) fn round_default<N: crate::model::XdmNode>(
                 None => 0,
                 Some(XdmItem::Atomic(XdmAtomicValue::Integer(v))) => *v,
                 _ => {
-                    return Err(Error::from_code(
-                        ErrorCode::XPTY0004,
-                        "precision must be xs:integer",
-                    ));
+                    return Err(Error::from_code(ErrorCode::XPTY0004, "precision must be xs:integer"));
                 }
             };
             let r = round_with_precision(n, precision);
@@ -290,10 +281,7 @@ pub(super) fn round_half_to_even_default<N: crate::model::XdmNode>(
                 None => 0,
                 Some(XdmItem::Atomic(XdmAtomicValue::Integer(v))) => *v,
                 _ => {
-                    return Err(Error::from_code(
-                        ErrorCode::XPTY0004,
-                        "precision must be xs:integer",
-                    ));
+                    return Err(Error::from_code(ErrorCode::XPTY0004, "precision must be xs:integer"));
                 }
             };
             let r = round_half_to_even_with_precision(n, precision);
@@ -412,10 +400,7 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
                 return Ok(vec![]);
             }
             if z.len() != 1 {
-                return Err(Error::from_code(
-                    ErrorCode::FORG0006,
-                    "sum($seq,$zero) expects a single item for $zero",
-                ));
+                return Err(Error::from_code(ErrorCode::FORG0006, "sum($seq,$zero) expects a single item for $zero"));
             }
             return Ok(z.clone());
         }
@@ -437,9 +422,9 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
                 state = match state {
                     SumState::None => SumState::YearMonth { total: *months as i64 },
                     SumState::YearMonth { total } => SumState::YearMonth {
-                        total: total.checked_add(*months as i64).ok_or_else(|| {
-                            Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow")
-                        })?,
+                        total: total
+                            .checked_add(*months as i64)
+                            .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow"))?,
                     },
                     _ => return Err(Error::from_code(ErrorCode::XPTY0004, "mixed types in sum")),
                 };
@@ -448,9 +433,9 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
                 state = match state {
                     SumState::None => SumState::DayTime { total: *secs as i128 },
                     SumState::DayTime { total } => SumState::DayTime {
-                        total: total.checked_add(*secs as i128).ok_or_else(|| {
-                            Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow")
-                        })?,
+                        total: total
+                            .checked_add(*secs as i128)
+                            .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow"))?,
                     },
                     _ => return Err(Error::from_code(ErrorCode::XPTY0004, "mixed types in sum")),
                 };
@@ -464,11 +449,7 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
                         SumState::None => SumState::Numeric {
                             kind: nk,
                             use_int: matches!(nk, NumericKind::Integer),
-                            int_acc: if matches!(nk, NumericKind::Integer) {
-                                a_as_i128(a).unwrap_or(0)
-                            } else {
-                                0
-                            },
+                            int_acc: if matches!(nk, NumericKind::Integer) { a_as_i128(a).unwrap_or(0) } else { 0 },
                             dec_acc: if matches!(nk, NumericKind::Integer) {
                                 a_as_i128(a).unwrap_or(0) as f64
                             } else {
@@ -496,17 +477,11 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
                             SumState::Numeric { kind, use_int, int_acc, dec_acc }
                         }
                         _ => {
-                            return Err(Error::from_code(
-                                ErrorCode::XPTY0004,
-                                "mixed types in sum",
-                            ));
+                            return Err(Error::from_code(ErrorCode::XPTY0004, "mixed types in sum"));
                         }
                     };
                 } else {
-                    return Err(Error::from_code(
-                        ErrorCode::XPTY0004,
-                        "sum requires numeric or duration values",
-                    ));
+                    return Err(Error::from_code(ErrorCode::XPTY0004, "sum requires numeric or duration values"));
                 }
             }
         }
@@ -526,15 +501,13 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
             }
         }
         SumState::YearMonth { total } => {
-            let months: i32 = total
-                .try_into()
-                .map_err(|_| Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow"))?;
+            let months: i32 =
+                total.try_into().map_err(|_| Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow"))?;
             XdmAtomicValue::YearMonthDuration(months)
         }
         SumState::DayTime { total } => {
-            let secs: i64 = total
-                .try_into()
-                .map_err(|_| Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow"))?;
+            let secs: i64 =
+                total.try_into().map_err(|_| Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow"))?;
             XdmAtomicValue::DayTimeDuration(secs)
         }
     };
@@ -608,11 +581,7 @@ pub(super) fn compare_default<N: 'static + crate::model::XdmNode + Clone>(
     let sa = item_to_string(a);
     let sb = item_to_string(b);
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
-    let k = crate::engine::collation::resolve_collation(
-        ctx.dyn_ctx,
-        ctx.default_collation.as_ref(),
-        uri_opt,
-    )?;
+    let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
     let ord = c.compare(&sa, &sb);
     let v = match ord {
@@ -633,11 +602,7 @@ pub(super) fn index_of_default<N: 'static + crate::model::XdmNode + Clone>(
     use crate::engine::eq::{EqKey, build_eq_key};
     let mut out: XdmSequence<N> = Vec::new();
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
-    let coll_kind = crate::engine::collation::resolve_collation(
-        ctx.dyn_ctx,
-        ctx.default_collation.as_ref(),
-        uri_opt,
-    )?;
+    let coll_kind = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let coll: Option<&dyn crate::engine::collation::Collation> = Some(coll_kind.as_trait());
     let needle_opt = search.first();
     // Precompute key for atomic needle; if NaN early return empty.
@@ -658,10 +623,7 @@ pub(super) fn index_of_default<N: 'static + crate::model::XdmNode + Clone>(
         let eq = match (it, needle_opt) {
             (XdmItem::Atomic(a), Some(XdmItem::Atomic(_))) => {
                 if let Some(ref nk) = needle_key {
-                    match build_eq_key::<crate::model::simple::SimpleNode>(
-                        &XdmItem::Atomic(a.clone()),
-                        coll,
-                    ) {
+                    match build_eq_key::<crate::model::simple::SimpleNode>(&XdmItem::Atomic(a.clone()), coll) {
                         Ok(k) => k == *nk,
                         Err(_) => false,
                     }
@@ -696,9 +658,7 @@ pub(super) fn index_of_default<N: 'static + crate::model::XdmNode + Clone>(
 }
 
 // Unified handler for fn:error() 0-3 arities
-pub(super) fn error_default<N: crate::model::XdmNode>(
-    args: &[XdmSequence<N>],
-) -> Result<XdmSequence<N>, Error> {
+pub(super) fn error_default<N: crate::model::XdmNode>(args: &[XdmSequence<N>]) -> Result<XdmSequence<N>, Error> {
     match args.len() {
         0 => Err(Error::from_code(ErrorCode::FOER0000, "fn:error()")),
         1 => {
@@ -803,21 +763,15 @@ pub(super) fn as_string(a: &XdmAtomicValue) -> String {
         XdmAtomicValue::GYear { year, tz } => {
             format!("{:04}{}", year, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default())
         }
-        XdmAtomicValue::GYearMonth { year, month, tz } => format!(
-            "{:04}-{:02}{}",
-            year,
-            month,
-            tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()
-        ),
+        XdmAtomicValue::GYearMonth { year, month, tz } => {
+            format!("{:04}-{:02}{}", year, month, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default())
+        }
         XdmAtomicValue::GMonth { month, tz } => {
             format!("--{:02}{}", month, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default())
         }
-        XdmAtomicValue::GMonthDay { month, day, tz } => format!(
-            "--{:02}-{:02}{}",
-            month,
-            day,
-            tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()
-        ),
+        XdmAtomicValue::GMonthDay { month, day, tz } => {
+            format!("--{:02}-{:02}{}", month, day, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default())
+        }
         XdmAtomicValue::GDay { day, tz } => {
             format!("---{:02}{}", day, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default())
         }
@@ -833,10 +787,9 @@ pub(super) fn to_number<N: crate::model::XdmNode>(seq: &XdmSequence<N>) -> Resul
     }
     match &seq[0] {
         XdmItem::Atomic(a) => to_number_atomic(a),
-        XdmItem::Node(n) => n
-            .string_value()
-            .parse::<f64>()
-            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid number")),
+        XdmItem::Node(n) => {
+            n.string_value().parse::<f64>().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid number"))
+        }
     }
 }
 
@@ -858,15 +811,11 @@ pub(super) fn to_number_atomic(a: &XdmAtomicValue) -> Result<f64, Error> {
         XdmAtomicValue::Double(d) => Ok(*d),
         XdmAtomicValue::Float(f) => Ok(*f as f64),
         XdmAtomicValue::Decimal(d) => Ok(*d),
-        XdmAtomicValue::UntypedAtomic(s)
-        | XdmAtomicValue::String(s)
-        | XdmAtomicValue::AnyUri(s) => {
+        XdmAtomicValue::UntypedAtomic(s) | XdmAtomicValue::String(s) | XdmAtomicValue::AnyUri(s) => {
             s.parse::<f64>().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid number"))
         }
         XdmAtomicValue::Boolean(b) => Ok(if *b { 1.0 } else { 0.0 }),
-        XdmAtomicValue::QName { .. } => {
-            Err(Error::from_code(ErrorCode::XPTY0004, "cannot cast QName to number"))
-        }
+        XdmAtomicValue::QName { .. } => Err(Error::from_code(ErrorCode::XPTY0004, "cannot cast QName to number")),
         XdmAtomicValue::DateTime(_)
         | XdmAtomicValue::Date { .. }
         | XdmAtomicValue::Time { .. }
@@ -888,16 +837,11 @@ pub(super) fn to_number_atomic(a: &XdmAtomicValue) -> Result<f64, Error> {
         | XdmAtomicValue::Id(_)
         | XdmAtomicValue::IdRef(_)
         | XdmAtomicValue::Entity(_)
-        | XdmAtomicValue::Notation(_) => {
-            Err(Error::from_code(ErrorCode::XPTY0004, "cannot cast value to number"))
-        }
+        | XdmAtomicValue::Notation(_) => Err(Error::from_code(ErrorCode::XPTY0004, "cannot cast value to number")),
     }
 }
 
-pub(super) fn num_unary<N: crate::model::XdmNode>(
-    args: &[XdmSequence<N>],
-    f: impl Fn(f64) -> f64,
-) -> XdmSequence<N> {
+pub(super) fn num_unary<N: crate::model::XdmNode>(args: &[XdmSequence<N>], f: impl Fn(f64) -> f64) -> XdmSequence<N> {
     let n = to_number(&args[0]).unwrap_or(f64::NAN);
     vec![XdmItem::Atomic(XdmAtomicValue::Double(f(n)))]
 }
@@ -987,9 +931,7 @@ pub fn deep_equal_with_collation<N: crate::model::XdmNode>(
     }
     for (ia, ib) in a.iter().zip(b.iter()) {
         let eq = match (ia, ib) {
-            (XdmItem::Atomic(aa), XdmItem::Atomic(bb)) => {
-                atomic_equal_with_collation(aa, bb, coll)?
-            }
+            (XdmItem::Atomic(aa), XdmItem::Atomic(bb)) => atomic_equal_with_collation(aa, bb, coll)?,
             (XdmItem::Node(na), XdmItem::Node(nb)) => node_deep_equal(na, nb, coll)?,
             _ => false,
         };
@@ -1116,10 +1058,7 @@ pub(super) fn distinct_values_impl<N: crate::model::XdmNode>(
     for it in seq {
         match it {
             XdmItem::Node(_) => {
-                return Err(Error::from_code(
-                    ErrorCode::XPTY0004,
-                    "distinct-values on non-atomic item",
-                ));
+                return Err(Error::from_code(ErrorCode::XPTY0004, "distinct-values on non-atomic item"));
             }
             XdmItem::Atomic(a) => {
                 let tmp: XdmItem<N> = XdmItem::Atomic(a.clone());
@@ -1156,22 +1095,11 @@ pub(super) fn atomic_equal_with_collation(
 }
 
 // ===== Helpers (Regex) =====
-pub(super) fn get_regex_provider<N>(
-    ctx: &CallCtx<N>,
-) -> std::rc::Rc<dyn crate::engine::runtime::RegexProvider> {
-    if let Some(p) = &ctx.regex {
-        p.clone()
-    } else {
-        std::rc::Rc::new(crate::engine::runtime::FancyRegexProvider)
-    }
+pub(super) fn get_regex_provider<N>(ctx: &CallCtx<N>) -> std::rc::Rc<dyn crate::engine::runtime::RegexProvider> {
+    if let Some(p) = &ctx.regex { p.clone() } else { std::rc::Rc::new(crate::engine::runtime::FancyRegexProvider) }
 }
 
-pub(super) fn regex_matches<N>(
-    ctx: &CallCtx<N>,
-    input: &str,
-    pattern: &str,
-    flags: &str,
-) -> Result<bool, Error> {
+pub(super) fn regex_matches<N>(ctx: &CallCtx<N>, input: &str, pattern: &str, flags: &str) -> Result<bool, Error> {
     let provider = get_regex_provider(ctx);
     let normalized = validate_regex_flags(flags)?;
     reject_backref_in_char_class(pattern)?;
@@ -1244,10 +1172,7 @@ pub(super) fn reject_backref_in_char_class(pattern: &str) -> Result<(), Error> {
                     i += 2;
                     continue;
                 }
-                if bytes[i] == b'$'
-                    && i + 1 < bytes.len()
-                    && (bytes[i + 1] as char).is_ascii_digit()
-                {
+                if bytes[i] == b'$' && i + 1 < bytes.len() && (bytes[i + 1] as char).is_ascii_digit() {
                     return Err(Error::from_code(
                         crate::engine::runtime::ErrorCode::FORX0002,
                         "backreference not allowed in character class",
@@ -1343,11 +1268,7 @@ pub(super) fn minmax_impl<N: crate::model::XdmNode>(
     let effective_coll: Option<&dyn crate::engine::collation::Collation> = if let Some(c) = coll {
         Some(c)
     } else {
-        let k = crate::engine::collation::resolve_collation(
-            ctx.dyn_ctx,
-            ctx.default_collation.as_ref(),
-            None,
-        )?;
+        let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), None)?;
         match k {
             crate::engine::collation::CollationKind::Codepoint(a)
             | crate::engine::collation::CollationKind::Other(a) => {
@@ -1372,9 +1293,7 @@ pub(super) fn minmax_impl<N: crate::model::XdmNode>(
             };
             let k = c.key(&s);
             let ord = k.cmp(&best_key);
-            if (is_min && ord == core::cmp::Ordering::Less)
-                || (!is_min && ord == core::cmp::Ordering::Greater)
-            {
+            if (is_min && ord == core::cmp::Ordering::Less) || (!is_min && ord == core::cmp::Ordering::Greater) {
                 best_key = k;
                 best_orig = s;
             }
@@ -1453,11 +1372,7 @@ pub(super) fn classify_numeric(a: &XdmAtomicValue) -> Result<Option<(NumericKind
         Double(d) => Some((NumericKind::Double, *d)),
         UntypedAtomic(s) => {
             // Attempt numeric cast; if fails treat as non-numeric (caller will error)
-            if let Ok(parsed) = s.parse::<f64>() {
-                Some((NumericKind::Double, parsed))
-            } else {
-                None
-            }
+            if let Ok(parsed) = s.parse::<f64>() { Some((NumericKind::Double, parsed)) } else { None }
         }
         String(_) | AnyUri(_) => None,
         Boolean(b) => Some((NumericKind::Integer, if *b { 1.0 } else { 0.0 })),
@@ -1526,8 +1441,7 @@ pub(super) fn get_datetime<N: crate::model::XdmNode>(
     }
     match &seq[0] {
         XdmItem::Atomic(XdmAtomicValue::DateTime(dt)) => Ok(Some(*dt)),
-        XdmItem::Atomic(XdmAtomicValue::String(s))
-        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+        XdmItem::Atomic(XdmAtomicValue::String(s)) | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
             ChronoDateTime::parse_from_rfc3339(s)
                 .map(Some)
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:dateTime"))
@@ -1547,8 +1461,7 @@ pub(super) fn get_time<N: crate::model::XdmNode>(
     }
     match &seq[0] {
         XdmItem::Atomic(XdmAtomicValue::Time { time, tz }) => Ok(Some((*time, *tz))),
-        XdmItem::Atomic(XdmAtomicValue::String(s))
-        | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+        XdmItem::Atomic(XdmAtomicValue::String(s)) | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
             crate::util::temporal::parse_time_lex(s)
                 .map(Some)
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:time"))
@@ -1676,9 +1589,7 @@ pub(super) fn collapse_whitespace(s: &str) -> String {
 }
 
 pub(super) fn replace_whitespace(s: &str) -> String {
-    s.chars()
-        .map(|c| if matches!(c, '\u{0009}' | '\u{000A}' | '\u{000D}') { ' ' } else { c })
-        .collect()
+    s.chars().map(|c| if matches!(c, '\u{0009}' | '\u{000A}' | '\u{000D}') { ' ' } else { c }).collect()
 }
 
 pub(crate) fn parse_qname_lexical(s: &str) -> Result<(Option<String>, String), ()> {
@@ -1848,8 +1759,7 @@ pub(crate) fn parse_day_time_duration_secs(s: &str) -> Result<i64, ()> {
         // seconds (allow fractional)
         if !cur.is_empty() {
             let mut i = 0;
-            while i < cur.len() && (cur.as_bytes()[i].is_ascii_digit() || cur.as_bytes()[i] == b'.')
-            {
+            while i < cur.len() && (cur.as_bytes()[i].is_ascii_digit() || cur.as_bytes()[i] == b'.') {
                 i += 1;
             }
             if i > 0 && cur[i..].starts_with('S') {
@@ -1911,8 +1821,7 @@ pub(super) fn uint_subtype_u128<N: crate::model::XdmNode>(
     if s.starts_with('-') {
         return Err(Error::from_code(ErrorCode::FORG0001, "negative not allowed"));
     }
-    let v: u128 =
-        s.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid unsigned integer"))?;
+    let v: u128 = s.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid unsigned integer"))?;
     if v < min || v > max {
         return Err(Error::from_code(ErrorCode::FORG0001, "out of range"));
     }
@@ -1940,12 +1849,7 @@ pub(super) fn str_name_like<N: crate::model::XdmNode>(
                 return Err(Error::from_code(ErrorCode::FORG0001, "invalid Name"));
             }
             for ch in chars {
-                if !(ch.is_ascii_alphanumeric()
-                    || ch == '_'
-                    || ch == '-'
-                    || ch == '.'
-                    || (allow_colon && ch == ':'))
-                {
+                if !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '.' || (allow_colon && ch == ':')) {
                     return Err(Error::from_code(ErrorCode::FORG0001, "invalid Name"));
                 }
             }

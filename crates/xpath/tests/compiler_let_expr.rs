@@ -9,7 +9,12 @@ fn ir(src: &str) -> InstrSeq {
 #[rstest]
 fn let_binding_emits_opcodes() {
     let instrs = ir("let $x := 1 return $x");
-    assert!(instrs.0.iter().any(|op| matches!(op, OpCode::LetStartByName(ExpandedName { ns_uri: None, local }) if local == "x")));
+    assert!(
+        instrs
+            .0
+            .iter()
+            .any(|op| matches!(op, OpCode::LetStartByName(ExpandedName { ns_uri: None, local }) if local == "x"))
+    );
     assert_eq!(instrs.0.iter().filter(|op| matches!(op, OpCode::LetEnd)).count(), 1);
 }
 

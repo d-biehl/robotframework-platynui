@@ -51,10 +51,9 @@ pub(super) fn exactly_one_stream<N: 'static + crate::model::XdmNode + Clone>(
 
     match (first, second) {
         (Some(Ok(item)), None) => Ok(XdmSequenceStream::from_item(item)),
-        (None, _) | (Some(Ok(_)), Some(_)) => Err(Error::from_code(
-            ErrorCode::FORG0005,
-            "exactly-one requires a sequence of length 1",
-        )),
+        (None, _) | (Some(Ok(_)), Some(_)) => {
+            Err(Error::from_code(ErrorCode::FORG0005, "exactly-one requires a sequence of length 1"))
+        }
         (Some(Err(e)), _) => Err(e),
     }
 }
@@ -69,10 +68,7 @@ pub(super) fn one_or_more_stream<N: 'static + crate::model::XdmNode + Clone>(
     // Check if stream has at least one item without consuming entire stream
     let mut iter = args[0].iter();
     if iter.next().is_none() {
-        return Err(Error::from_code(
-            ErrorCode::FORG0004,
-            "one-or-more requires at least one item",
-        ));
+        return Err(Error::from_code(ErrorCode::FORG0004, "one-or-more requires at least one item"));
     }
     // Return original stream (validation passed)
     Ok(args[0].clone())
@@ -92,9 +88,7 @@ pub(super) fn zero_or_one_stream<N: 'static + crate::model::XdmNode + Clone>(
     match (first, second) {
         (None, _) => Ok(XdmSequenceStream::empty()),
         (Some(Ok(item)), None) => Ok(XdmSequenceStream::from_item(item)),
-        (Some(Ok(_)), Some(_)) => {
-            Err(Error::from_code(ErrorCode::FORG0004, "zero-or-one requires at most one item"))
-        }
+        (Some(Ok(_)), Some(_)) => Err(Error::from_code(ErrorCode::FORG0004, "zero-or-one requires at most one item")),
         (Some(Err(e)), _) => Err(e),
     }
 }
@@ -146,8 +140,7 @@ pub(super) fn subsequence_stream<N: 'static + crate::model::XdmNode + Clone>(
     }
 
     let start_rounded = crate::engine::functions::common::round_half_to_even_f64(start_raw);
-    let from_index =
-        if start_rounded <= 1.0 { 0 } else { (start_rounded as isize - 1).max(0) as usize };
+    let from_index = if start_rounded <= 1.0 { 0 } else { (start_rounded as isize - 1).max(0) as usize };
 
     if let Some(len_raw) = len_raw_opt {
         let len_rounded = crate::engine::functions::common::round_half_to_even_f64(len_raw);
@@ -249,11 +242,7 @@ pub(super) fn distinct_values_stream<N: 'static + crate::model::XdmNode + Clone>
     } else {
         let uri_items: Vec<XdmItem<N>> = args[1].iter().collect::<Result<Vec<_>, _>>()?;
         let uri = super::common::item_to_string(&uri_items);
-        let k = crate::engine::collation::resolve_collation(
-            ctx.dyn_ctx,
-            ctx.default_collation.as_ref(),
-            Some(&uri),
-        )?;
+        let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), Some(&uri))?;
         let result = super::common::distinct_values_impl(ctx, &seq, Some(k.as_trait()))?;
         Ok(XdmSequenceStream::from_vec(result))
     }

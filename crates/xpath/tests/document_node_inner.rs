@@ -37,15 +37,13 @@ fn document_node_with_element_inner_yields_document_node(ctx_doc_root: DynamicCo
 // Aspect: static error for text() inner
 #[rstest]
 fn document_node_with_text_inner_is_static_error(ctx_doc_root: DynamicContext<N>) {
-    let err = evaluate_expr::<N>("self::document-node(text())", &ctx_doc_root)
-        .expect_err("expected static error");
+    let err = evaluate_expr::<N>("self::document-node(text())", &ctx_doc_root).expect_err("expected static error");
     assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }
 
 // Aspect: static error for comment() inner
 #[rstest]
 fn document_node_with_comment_inner_is_static_error(ctx_doc_root: DynamicContext<N>) {
-    let err = evaluate_expr::<N>("self::document-node(comment())", &ctx_doc_root)
-        .expect_err("expected static error");
+    let err = evaluate_expr::<N>("self::document-node(comment())", &ctx_doc_root).expect_err("expected static error");
     assert_eq!(err.code_enum(), ErrorCode::XPST0003);
 }

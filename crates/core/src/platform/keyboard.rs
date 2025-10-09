@@ -274,9 +274,8 @@ mod tests {
 
     #[rstest]
     fn keyboard_overrides_builder_sets_values() {
-        let overrides = KeyboardOverrides::new()
-            .press_delay(Duration::from_millis(10))
-            .after_text_delay(Duration::from_millis(5));
+        let overrides =
+            KeyboardOverrides::new().press_delay(Duration::from_millis(10)).after_text_delay(Duration::from_millis(5));
         assert_eq!(overrides.press_delay, Some(Duration::from_millis(10)));
         assert_eq!(overrides.after_text_delay, Some(Duration::from_millis(5)));
         assert!(!overrides.is_empty());
@@ -296,10 +295,7 @@ mod tests {
 
     #[rstest]
     fn keyboard_error_converts_platform() {
-        let err = KeyboardError::from(PlatformError::new(
-            PlatformErrorKind::InitializationFailed,
-            "test",
-        ));
+        let err = KeyboardError::from(PlatformError::new(PlatformErrorKind::InitializationFailed, "test"));
         assert!(matches!(err, KeyboardError::Platform(_)));
     }
 }

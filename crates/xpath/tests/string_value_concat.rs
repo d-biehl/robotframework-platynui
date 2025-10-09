@@ -12,11 +12,7 @@ fn ctx_with(root: N) -> DynamicContext<N> {
 // Fixture: context for <root><e>foo<em/>bar</e></root>, with context item set to <root>
 #[fixture]
 fn ctx_split_text_root() -> DynamicContext<N> {
-    let d = doc()
-        .child(
-            elem("root").child(elem("e").child(text("foo")).child(elem("em")).child(text("bar"))),
-        )
-        .build();
+    let d = doc().child(elem("root").child(elem("e").child(text("foo")).child(elem("em")).child(text("bar")))).build();
     let root = d.children().next().expect("document has a root element");
     ctx_with(root)
 }
@@ -25,11 +21,7 @@ fn ctx_split_text_root() -> DynamicContext<N> {
 #[rstest]
 #[case("child::e[. = 'foobar']", 1)]
 #[case("child::e[text() = 'foobar']", 0)]
-fn string_value_concat_cases(
-    ctx_split_text_root: DynamicContext<N>,
-    #[case] expr: &str,
-    #[case] expected_len: usize,
-) {
+fn string_value_concat_cases(ctx_split_text_root: DynamicContext<N>, #[case] expr: &str, #[case] expected_len: usize) {
     let out = evaluate_expr::<N>(expr, &ctx_split_text_root).unwrap();
     assert_eq!(out.len(), expected_len);
 }

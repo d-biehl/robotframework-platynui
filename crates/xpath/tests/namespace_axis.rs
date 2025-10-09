@@ -12,12 +12,7 @@ fn ctx_with(root: N) -> DynamicContext<N> {
 fn namespace_axis_includes_declared_and_xml() {
     // <root xmlns:p="urn:one" xmlns:q="urn:two"><child/></root>
     let d = doc()
-        .child(
-            elem("root")
-                .namespace(ns("p", "urn:one"))
-                .namespace(ns("q", "urn:two"))
-                .child(elem("child")),
-        )
+        .child(elem("root").namespace(ns("p", "urn:one")).namespace(ns("q", "urn:two")).child(elem("child")))
         .build();
     let root = d.children().next().unwrap();
     let ctx = ctx_with(root.clone());

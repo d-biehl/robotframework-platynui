@@ -1,20 +1,15 @@
 use crate::compiler::ir::{
-    AxisIR, ComparisonOp, CompiledXPath, InstrSeq, NameOrWildcard, NodeTestIR, OpCode,
-    QuantifierKind, SeqTypeIR,
+    AxisIR, ComparisonOp, CompiledXPath, InstrSeq, NameOrWildcard, NodeTestIR, OpCode, QuantifierKind, SeqTypeIR,
 };
 use crate::engine::functions::parse_qname_lexical;
 use crate::engine::runtime::{
-    CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations, ItemTypeSpec, Occurrence,
-    ParamTypeSpec,
+    CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations, ItemTypeSpec, Occurrence, ParamTypeSpec,
 };
 // fast_names_equal inlined: equality on interned atoms is direct O(1) comparison
 use crate::model::{NodeKind, XdmNode};
-use crate::util::temporal::{
-    parse_g_day, parse_g_month, parse_g_month_day, parse_g_year, parse_g_year_month,
-};
+use crate::util::temporal::{parse_g_day, parse_g_month, parse_g_month_day, parse_g_year, parse_g_year_month};
 use crate::xdm::{
-    ExpandedName, SequenceCursor, XdmAtomicValue, XdmItem, XdmItemResult, XdmSequence,
-    XdmSequenceStream,
+    ExpandedName, SequenceCursor, XdmAtomicValue, XdmItem, XdmItemResult, XdmSequence, XdmSequenceStream,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use chrono::Duration as ChronoDuration;
@@ -367,8 +362,7 @@ impl<N: 'static + XdmNode + Clone> VmHandle<N> {
             return Err(Error::from_code(ErrorCode::FOER0000, "evaluation cancelled"));
         }
         let snapshot = &self.inner.snapshot;
-        let mut vm =
-            self.inner.cache.borrow_mut().take().unwrap_or_else(|| Vm::from_snapshot(snapshot));
+        let mut vm = self.inner.cache.borrow_mut().take().unwrap_or_else(|| Vm::from_snapshot(snapshot));
 
         let result = f(&mut vm);
 
@@ -412,13 +406,9 @@ impl<N: 'static + XdmNode + Clone> AxisStepCursor<N> {
         // For descendant/descendant-or-self, minimize overlapping contexts to avoid duplicates
         let base_cursor = input.cursor();
         let input_cursor: Box<dyn SequenceCursor<N>> = match axis {
-            AxisIR::Descendant | AxisIR::DescendantOrSelf => {
-                Box::new(ContextMinCursor::new(base_cursor))
-            }
+            AxisIR::Descendant | AxisIR::DescendantOrSelf => Box::new(ContextMinCursor::new(base_cursor)),
             AxisIR::Following => Box::new(ContextMinFollowingCursor::new(base_cursor)),
-            AxisIR::FollowingSibling => {
-                Box::new(ContextMinFollowingSiblingCursor::new(base_cursor))
-            }
+            AxisIR::FollowingSibling => Box::new(ContextMinFollowingSiblingCursor::new(base_cursor)),
             _ => base_cursor,
         };
         Self { vm, axis, test, input_cursor, current_output: None }
@@ -521,12 +511,8 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             AxisIR::Attribute => AxisState::AttributeIter { current: None, initialized: false },
             // replaced later by AttributeQueue in init_state refactor
             AxisIR::Parent => AxisState::Parent { done: false },
-            AxisIR::Ancestor => {
-                AxisState::Ancestors { current: self.node.parent(), include_self: false }
-            }
-            AxisIR::AncestorOrSelf => {
-                AxisState::Ancestors { current: Some(self.node.clone()), include_self: true }
-            }
+            AxisIR::Ancestor => AxisState::Ancestors { current: self.node.parent(), include_self: false },
+            AxisIR::AncestorOrSelf => AxisState::Ancestors { current: Some(self.node.clone()), include_self: true },
             AxisIR::Descendant => AxisState::Descend {
                 anchor: self.node.clone(),
                 last: None,
@@ -541,31 +527,16 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                 started: false,
                 after: None,
             },
-            AxisIR::FollowingSibling => {
-                AxisState::FollowingSiblingIter { current: None, initialized: false }
-            }
-            AxisIR::PrecedingSibling => {
-                AxisState::PrecedingSiblingIter { current: None, initialized: false }
-            }
-            AxisIR::Following => {
-                AxisState::Following { anchor: None, next: None, initialized: false }
-            }
+            AxisIR::FollowingSibling => AxisState::FollowingSiblingIter { current: None, initialized: false },
+            AxisIR::PrecedingSibling => AxisState::PrecedingSiblingIter { current: None, initialized: false },
+            AxisIR::Following => AxisState::Following { anchor: None, next: None, initialized: false },
             AxisIR::Preceding => {
                 let path = Self::path_to_root(self.node.clone());
                 AxisState::Preceding { path, current: None, initialized: false }
             }
             AxisIR::Namespace => {
-                let cur = if matches!(self.node.kind(), NodeKind::Element) {
-                    Some(self.node.clone())
-                } else {
-                    None
-                };
-                AxisState::Namespaces {
-                    seen: SmallVec::new(),
-                    current: cur,
-                    buf: SmallVec::new(),
-                    idx: 0,
-                }
+                let cur = if matches!(self.node.kind(), NodeKind::Element) { Some(self.node.clone()) } else { None };
+                AxisState::Namespaces { seen: SmallVec::new(), current: cur, buf: SmallVec::new(), idx: 0 }
             }
         };
     }
@@ -617,10 +588,7 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                     let single = matches!(
                         &self.test,
                         NodeTestIR::Name(_)
-                            | NodeTestIR::KindAttribute {
-                                name: Some(NameOrWildcard::Name(_)),
-                                ty: None
-                            }
+                            | NodeTestIR::KindAttribute { name: Some(NameOrWildcard::Name(_)), ty: None }
                     );
                     if single {
                         // No further matches possible for exact QName
@@ -689,9 +657,10 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                 if let Some(prev) = last.take() {
                     if let Some(succ) = Self::doc_successor(&prev) {
                         if let Some(a) = after.as_ref()
-                            && &succ == a {
-                                return Ok(None);
-                            }
+                            && &succ == a
+                        {
+                            return Ok(None);
+                        }
                         *last = Some(succ.clone());
                         return Ok(Some(succ));
                     }
@@ -1237,8 +1206,7 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                 };
                 Some(matches_local && matches_ns)
             }
-            NT::KindAttribute { name: Some(_), ty: Some(_) }
-            | NT::KindAttribute { name: None, ty: Some(_) } => None,
+            NT::KindAttribute { name: Some(_), ty: Some(_) } | NT::KindAttribute { name: None, ty: Some(_) } => None,
             NT::Name(q) => {
                 let n = attr.name()?;
                 let matches_local = n.local == q.original.local;
@@ -1278,8 +1246,7 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for AxisStepCursor<N> {
             };
             let node = if let XdmItem::Node(n) = candidate { n } else { continue };
             // Build streaming axis cursor for this node (no extra clone)
-            let cursor =
-                NodeAxisCursor::new(self.vm.clone(), node, self.axis.clone(), self.test.clone());
+            let cursor = NodeAxisCursor::new(self.vm.clone(), node, self.axis.clone(), self.test.clone());
             self.current_output = Some(Box::new(cursor));
         }
     }
@@ -1327,8 +1294,7 @@ impl<N: 'static + XdmNode + Clone> PredicateCursor<N> {
             self.last_cache = Some(0);
             return Ok(0);
         }
-        let mut cursor =
-            if let Some(seed) = self.seed.take() { seed } else { self.input.boxed_clone() };
+        let mut cursor = if let Some(seed) = self.seed.take() { seed } else { self.input.boxed_clone() };
         let mut count = 0usize;
         while let Some(item) = cursor.next_item() {
             match item {
@@ -1341,12 +1307,7 @@ impl<N: 'static + XdmNode + Clone> PredicateCursor<N> {
         Ok(total)
     }
 
-    fn evaluate_predicate(
-        &self,
-        item: &XdmItem<N>,
-        pos: usize,
-        last: usize,
-    ) -> Result<bool, Error> {
+    fn evaluate_predicate(&self, item: &XdmItem<N>, pos: usize, last: usize) -> Result<bool, Error> {
         // Fast path evaluation for simple positional predicates
         match self.fast_kind {
             PredicateFastKind::First => return Ok(pos == 1),
@@ -1355,12 +1316,8 @@ impl<N: 'static + XdmNode + Clone> PredicateCursor<N> {
             PredicateFastKind::None => {}
         }
         self.vm.with_vm(|vm| {
-            let stream = vm.eval_subprogram_stream(
-                &self.predicate,
-                Some(item.clone()),
-                Some(Frame { last, pos }),
-                None,
-            )?;
+            let stream =
+                vm.eval_subprogram_stream(&self.predicate, Some(item.clone()), Some(Frame { last, pos }), None)?;
             vm.predicate_truth_value_stream(stream, pos, last)
         })
     }
@@ -1428,9 +1385,10 @@ fn classify_predicate_fast(code: &InstrSeq) -> PredicateFastKind {
     // Pattern: [K]  -> single PushAtomic numeric literal
     if code.0.len() == 1
         && let PushAtomic(ref av) = code.0[0]
-            && let Some(k) = atomic_to_usize(av) {
-                return if k == 1 { PredicateFastKind::First } else { PredicateFastKind::Exact(k) };
-            }
+        && let Some(k) = atomic_to_usize(av)
+    {
+        return if k == 1 { PredicateFastKind::First } else { PredicateFastKind::Exact(k) };
+    }
     // Patterns: position() (=|<=) K   (CompareValue / CompareGeneral)
     if code.0.len() <= 3 {
         let mut saw_position = false;
@@ -1452,25 +1410,20 @@ fn classify_predicate_fast(code: &InstrSeq) -> PredicateFastKind {
                 _ => {}
             }
         }
-        if saw_position
-            && let Some(k) = number {
-                if let Some(c) = cmp {
-                    match c {
-                        ComparisonOp::Eq => {
-                            return if k == 1 {
-                                PredicateFastKind::First
-                            } else {
-                                PredicateFastKind::Exact(k)
-                            };
-                        }
-                        ComparisonOp::Le => return PredicateFastKind::PositionLe(k),
-                        _ => {}
+        if saw_position && let Some(k) = number {
+            if let Some(c) = cmp {
+                match c {
+                    ComparisonOp::Eq => {
+                        return if k == 1 { PredicateFastKind::First } else { PredicateFastKind::Exact(k) };
                     }
-                } else if k == 1 {
-                    // Degenerate form
-                    return PredicateFastKind::First;
+                    ComparisonOp::Le => return PredicateFastKind::PositionLe(k),
+                    _ => {}
                 }
+            } else if k == 1 {
+                // Degenerate form
+                return PredicateFastKind::First;
             }
+        }
     }
     PredicateFastKind::None
 }
@@ -1547,24 +1500,14 @@ impl<N: 'static + XdmNode + Clone> PathStepCursor<N> {
         let input = input_stream.cursor();
         let seed = Some(input.boxed_clone());
         let needs_last = instr_seq_uses_last(&code);
-        Self {
-            vm,
-            code,
-            input,
-            seed,
-            input_len: None,
-            position: 0,
-            current_output: None,
-            needs_last,
-        }
+        Self { vm, code, input, seed, input_len: None, position: 0, current_output: None, needs_last }
     }
 
     fn ensure_input_len(&mut self) -> Result<usize, Error> {
         if let Some(len) = self.input_len {
             return Ok(len);
         }
-        let mut cursor =
-            if let Some(seed) = self.seed.take() { seed } else { self.input.boxed_clone() };
+        let mut cursor = if let Some(seed) = self.seed.take() { seed } else { self.input.boxed_clone() };
         let mut count = 0usize;
         while let Some(item) = cursor.next_item() {
             match item {
@@ -1605,12 +1548,7 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for PathStepCursor<N> {
             self.position = pos;
 
             let stream = match self.vm.with_vm(|vm| {
-                vm.eval_subprogram_stream(
-                    &self.code,
-                    Some(candidate.clone()),
-                    Some(Frame { last, pos }),
-                    None,
-                )
+                vm.eval_subprogram_stream(&self.code, Some(candidate.clone()), Some(Frame { last, pos }), None)
             }) {
                 Ok(stream) => stream,
                 Err(err) => return Some(Err(err)),
@@ -1654,26 +1592,11 @@ struct ForLoopCursor<N> {
 }
 
 impl<N: 'static + XdmNode + Clone> ForLoopCursor<N> {
-    fn new(
-        vm: VmHandle<N>,
-        input_stream: XdmSequenceStream<N>,
-        var: ExpandedName,
-        body: InstrSeq,
-    ) -> Self {
+    fn new(vm: VmHandle<N>, input_stream: XdmSequenceStream<N>, var: ExpandedName, body: InstrSeq) -> Self {
         let input = input_stream.cursor();
         let seed = Some(input.boxed_clone());
         let needs_last = instr_seq_uses_last(&body);
-        Self {
-            vm,
-            var,
-            body,
-            input,
-            seed,
-            input_len: None,
-            position: 0,
-            current_output: None,
-            needs_last,
-        }
+        Self { vm, var, body, input, seed, input_len: None, position: 0, current_output: None, needs_last }
     }
 
     fn ensure_input_len(&mut self) -> Result<usize, Error> {
@@ -1687,9 +1610,10 @@ impl<N: 'static + XdmNode + Clone> ForLoopCursor<N> {
             {
                 upper
             } else {
-                let mut cursor = self.seed.take().ok_or_else(|| {
-                    Error::from_code(ErrorCode::FOER0000, "for-loop length seed missing")
-                })?;
+                let mut cursor = self
+                    .seed
+                    .take()
+                    .ok_or_else(|| Error::from_code(ErrorCode::FOER0000, "for-loop length seed missing"))?;
                 let mut count = 0usize;
                 while let Some(item) = cursor.next_item() {
                     match item {
@@ -1842,9 +1766,10 @@ impl<N: 'static + XdmNode + Clone> QuantLoopCursor<N> {
             {
                 upper
             } else {
-                let mut cursor = self.seed.take().ok_or_else(|| {
-                    Error::from_code(ErrorCode::FOER0000, "quant-loop length seed missing")
-                })?;
+                let mut cursor = self
+                    .seed
+                    .take()
+                    .ok_or_else(|| Error::from_code(ErrorCode::FOER0000, "quant-loop length seed missing"))?;
                 let mut count = 0usize;
                 while let Some(item) = cursor.next_item() {
                     match item {
@@ -2077,15 +2002,12 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         Ok(())
     }
 
-    fn singleton_atomic_from_stream(
-        &self,
-        stream: XdmSequenceStream<N>,
-    ) -> Result<XdmAtomicValue, Error> {
+    fn singleton_atomic_from_stream(&self, stream: XdmSequenceStream<N>) -> Result<XdmAtomicValue, Error> {
         use crate::xdm::XdmItem;
         let mut c = stream.cursor();
-        let first = c.next_item().ok_or_else(|| {
-            Error::from_code(ErrorCode::FORG0006, "expected singleton atomic; sequence is empty")
-        })??;
+        let first = c
+            .next_item()
+            .ok_or_else(|| Error::from_code(ErrorCode::FORG0006, "expected singleton atomic; sequence is empty"))??;
         let atom = match first {
             XdmItem::Atomic(a) => a,
             XdmItem::Node(n) => {
@@ -2097,10 +2019,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     ));
                 }
                 tv.into_iter().next().ok_or_else(|| {
-                    Error::from_code(
-                        ErrorCode::FORG0006,
-                        "expected singleton atomic; typed value unexpectedly empty",
-                    )
+                    Error::from_code(ErrorCode::FORG0006, "expected singleton atomic; typed value unexpectedly empty")
                 })?
             }
         };
@@ -2133,11 +2052,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
     }
 
-    fn apply_predicates_stream(
-        &self,
-        stream: XdmSequenceStream<N>,
-        predicates: &[InstrSeq],
-    ) -> XdmSequenceStream<N> {
+    fn apply_predicates_stream(&self, stream: XdmSequenceStream<N>, predicates: &[InstrSeq]) -> XdmSequenceStream<N> {
         if predicates.is_empty() {
             return stream;
         }
@@ -2222,12 +2137,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 // Steps / filters
                 OpCode::AxisStep(axis, test, pred_ir) => {
                     let input_stream = self.pop_stream();
-                    let axis_cursor = AxisStepCursor::new(
-                        self.handle(),
-                        input_stream,
-                        axis.clone(),
-                        test.clone(),
-                    );
+                    let axis_cursor = AxisStepCursor::new(self.handle(), input_stream, axis.clone(), test.clone());
                     let axis_stream = XdmSequenceStream::new(axis_cursor);
                     let filtered_stream = self.apply_predicates_stream(axis_stream, pred_ir);
                     self.push_stream(filtered_stream);
@@ -2259,12 +2169,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 }
 
                 // Arithmetic / logic
-                OpCode::Add
-                | OpCode::Sub
-                | OpCode::Mul
-                | OpCode::Div
-                | OpCode::IDiv
-                | OpCode::Mod => {
+                OpCode::Add | OpCode::Sub | OpCode::Mul | OpCode::Div | OpCode::IDiv | OpCode::Mod => {
                     use XdmAtomicValue as V;
                     // Streamed singleton-atomics (with atomization of nodes)
                     let rhs_stream = self.pop_stream();
@@ -2284,16 +2189,12 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     // - dayTimeDuration div dayTimeDuration -> double
                     let op = &ops[ip];
                     // Helper: add months to NaiveDate saturating day to end of month
-                    fn add_months_saturating(
-                        date: chrono::NaiveDate,
-                        delta_months: i32,
-                    ) -> chrono::NaiveDate {
+                    fn add_months_saturating(date: chrono::NaiveDate, delta_months: i32) -> chrono::NaiveDate {
                         use chrono::{Datelike, NaiveDate};
                         let y = date.year();
                         let m = date.month() as i32; // 1-12
                         // Avoid overflow by saturating arithmetic on months total
-                        let total =
-                            y.saturating_mul(12).saturating_add(m - 1).saturating_add(delta_months);
+                        let total = y.saturating_mul(12).saturating_add(m - 1).saturating_add(delta_months);
                         let ny = total.div_euclid(12);
                         let nm0 = total.rem_euclid(12);
                         let nm = (nm0 + 1) as u32; // 1..=12
@@ -2343,19 +2244,13 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 }
                                 (V::Date { date, tz }, V::YearMonthDuration(months)) => {
                                     let nd = add_months_saturating(*date, *months);
-                                    self.push_seq(vec![XdmItem::Atomic(V::Date {
-                                        date: nd,
-                                        tz: *tz,
-                                    })]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Date { date: nd, tz: *tz })]);
                                     ip += 1;
                                     true
                                 }
                                 (V::YearMonthDuration(months), V::Date { date, tz }) => {
                                     let nd = add_months_saturating(*date, *months);
-                                    self.push_seq(vec![XdmItem::Atomic(V::Date {
-                                        date: nd,
-                                        tz: *tz,
-                                    })]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Date { date: nd, tz: *tz })]);
                                     ip += 1;
                                     true
                                 }
@@ -2369,10 +2264,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                         .from_local_datetime(&naive_with_time)
                                         .single()
                                         .unwrap_or_else(|| {
-                                            chrono::DateTime::from_naive_utc_and_offset(
-                                                naive_with_time,
-                                                *dt.offset(),
-                                            )
+                                            chrono::DateTime::from_naive_utc_and_offset(naive_with_time, *dt.offset())
                                         });
                                     self.push_seq(vec![XdmItem::Atomic(V::DateTime(ndt))]);
                                     ip += 1;
@@ -2387,26 +2279,19 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                         .from_local_datetime(&naive_with_time)
                                         .single()
                                         .unwrap_or_else(|| {
-                                            chrono::DateTime::from_naive_utc_and_offset(
-                                                naive_with_time,
-                                                *dt.offset(),
-                                            )
+                                            chrono::DateTime::from_naive_utc_and_offset(naive_with_time, *dt.offset())
                                         });
                                     self.push_seq(vec![XdmItem::Atomic(V::DateTime(ndt))]);
                                     ip += 1;
                                     true
                                 }
                                 (V::YearMonthDuration(a_m), V::YearMonthDuration(b_m)) => {
-                                    self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(
-                                        *a_m + *b_m,
-                                    ))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(*a_m + *b_m))]);
                                     ip += 1;
                                     true
                                 }
                                 (V::DayTimeDuration(a_s), V::DayTimeDuration(b_s)) => {
-                                    self.push_seq(vec![XdmItem::Atomic(V::DayTimeDuration(
-                                        *a_s + *b_s,
-                                    ))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::DayTimeDuration(*a_s + *b_s))]);
                                     ip += 1;
                                     true
                                 }
@@ -2430,15 +2315,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 let date_part = dt.naive_utc().date();
                                 let nd = add_months_saturating(date_part, -*months);
                                 let naive_with_time = nd.and_time(dt.time());
-                                let ndt = dt
-                                    .offset()
-                                    .from_local_datetime(&naive_with_time)
-                                    .single()
-                                    .unwrap_or_else(|| {
-                                        chrono::DateTime::from_naive_utc_and_offset(
-                                            naive_with_time,
-                                            *dt.offset(),
-                                        )
+                                let ndt =
+                                    dt.offset().from_local_datetime(&naive_with_time).single().unwrap_or_else(|| {
+                                        chrono::DateTime::from_naive_utc_and_offset(naive_with_time, *dt.offset())
                                     });
                                 self.push_seq(vec![XdmItem::Atomic(V::DateTime(ndt))]);
                                 ip += 1;
@@ -2451,16 +2330,12 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 true
                             }
                             (V::YearMonthDuration(a_m), V::YearMonthDuration(b_m)) => {
-                                self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(
-                                    *a_m - *b_m,
-                                ))]);
+                                self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(*a_m - *b_m))]);
                                 ip += 1;
                                 true
                             }
                             (V::DayTimeDuration(a_s), V::DayTimeDuration(b_s)) => {
-                                self.push_seq(vec![XdmItem::Atomic(V::DayTimeDuration(
-                                    *a_s - *b_s,
-                                ))]);
+                                self.push_seq(vec![XdmItem::Atomic(V::DayTimeDuration(*a_s - *b_s))]);
                                 ip += 1;
                                 true
                             }
@@ -2482,9 +2357,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 (V::YearMonthDuration(months), _) => {
                                     if let Some(n) = classify_numeric(&b) {
                                         let v = (*months as f64 * n).trunc() as i32;
-                                        self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(
-                                            v,
-                                        ))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(v))]);
                                         ip += 1;
                                         true
                                     } else {
@@ -2504,9 +2377,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 (_, V::YearMonthDuration(months)) => {
                                     if let Some(n) = classify_numeric(&a) {
                                         let v = (*months as f64 * n).trunc() as i32;
-                                        self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(
-                                            v,
-                                        ))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(v))]);
                                         ip += 1;
                                         true
                                     } else {
@@ -2519,10 +2390,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         OpCode::Div => match (&a, &b) {
                             (V::YearMonthDuration(a_m), V::YearMonthDuration(b_m)) => {
                                 if *b_m == 0 {
-                                    return Err(Error::from_code(
-                                        ErrorCode::FOAR0001,
-                                        "divide by zero",
-                                    ));
+                                    return Err(Error::from_code(ErrorCode::FOAR0001, "divide by zero"));
                                 }
                                 let v = *a_m as f64 / *b_m as f64;
                                 self.push_seq(vec![XdmItem::Atomic(V::Double(v))]);
@@ -2531,10 +2399,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             }
                             (V::DayTimeDuration(a_s), V::DayTimeDuration(b_s)) => {
                                 if *b_s == 0 {
-                                    return Err(Error::from_code(
-                                        ErrorCode::FOAR0001,
-                                        "divide by zero",
-                                    ));
+                                    return Err(Error::from_code(ErrorCode::FOAR0001, "divide by zero"));
                                 }
                                 let v = *a_s as f64 / *b_s as f64;
                                 self.push_seq(vec![XdmItem::Atomic(V::Double(v))]);
@@ -2544,10 +2409,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             (V::YearMonthDuration(months), _) => {
                                 if let Some(n) = classify_numeric(&b) {
                                     if n == 0.0 {
-                                        return Err(Error::from_code(
-                                            ErrorCode::FOAR0001,
-                                            "divide by zero",
-                                        ));
+                                        return Err(Error::from_code(ErrorCode::FOAR0001, "divide by zero"));
                                     }
                                     let v = (*months as f64 / n).trunc() as i32;
                                     self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(v))]);
@@ -2560,10 +2422,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             (V::DayTimeDuration(secs), _) => {
                                 if let Some(n) = classify_numeric(&b) {
                                     if n == 0.0 {
-                                        return Err(Error::from_code(
-                                            ErrorCode::FOAR0001,
-                                            "divide by zero",
-                                        ));
+                                        return Err(Error::from_code(ErrorCode::FOAR0001, "divide by zero"));
                                     }
                                     let v = (*secs as f64 / n).trunc() as i64;
                                     self.push_seq(vec![XdmItem::Atomic(V::DayTimeDuration(v))]);
@@ -2646,10 +2505,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     let (ka, kb) = match (classify(&a), classify(&b)) {
                         (Some(x), Some(y)) => (x, y),
                         _ => {
-                            return Err(Error::from_code(
-                                ErrorCode::XPTY0004,
-                                "non-numeric operand",
-                            ));
+                            return Err(Error::from_code(ErrorCode::XPTY0004, "non-numeric operand"));
                         }
                     };
                     let (ua, ub) = unify_numeric(ka, kb);
@@ -2676,21 +2532,15 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             OpCode::Add => {
                                 if let Some(sum) = ai.checked_add(bi) {
                                     if sum >= i64::MIN as i128 && sum <= i64::MAX as i128 {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(
-                                            sum as i64,
-                                        ))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(sum as i64))]);
                                     } else {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(
-                                            sum as f64,
-                                        ))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(sum as f64))]);
                                     }
                                     ip += 1;
                                     pushed = true;
                                 } else {
                                     // i128 overflow (extremely rare) → promote to decimal
-                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(
-                                        (ai as f64) + (bi as f64),
-                                    ))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal((ai as f64) + (bi as f64)))]);
                                     ip += 1;
                                     pushed = true;
                                 }
@@ -2698,20 +2548,14 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             OpCode::Sub => {
                                 if let Some(diff) = ai.checked_sub(bi) {
                                     if diff >= i64::MIN as i128 && diff <= i64::MAX as i128 {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(
-                                            diff as i64,
-                                        ))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(diff as i64))]);
                                     } else {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(
-                                            diff as f64,
-                                        ))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(diff as f64))]);
                                     }
                                     ip += 1;
                                     pushed = true;
                                 } else {
-                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(
-                                        (ai as f64) - (bi as f64),
-                                    ))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal((ai as f64) - (bi as f64)))]);
                                     ip += 1;
                                     pushed = true;
                                 }
@@ -2719,30 +2563,21 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             OpCode::Mul => {
                                 if let Some(prod) = ai.checked_mul(bi) {
                                     if prod >= i64::MIN as i128 && prod <= i64::MAX as i128 {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(
-                                            prod as i64,
-                                        ))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(prod as i64))]);
                                     } else {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(
-                                            prod as f64,
-                                        ))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(prod as f64))]);
                                     }
                                     ip += 1;
                                     pushed = true;
                                 } else {
-                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(
-                                        (ai as f64) * (bi as f64),
-                                    ))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal((ai as f64) * (bi as f64)))]);
                                     ip += 1;
                                     pushed = true;
                                 }
                             }
                             OpCode::IDiv => {
                                 if bi == 0 {
-                                    return Err(Error::from_code(
-                                        ErrorCode::FOAR0001,
-                                        "idiv by zero",
-                                    ));
+                                    return Err(Error::from_code(ErrorCode::FOAR0001, "idiv by zero"));
                                 }
                                 // floor division semantics
                                 let q_trunc = ai / bi; // trunc toward 0
@@ -2750,9 +2585,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 let needs_adjust = (r != 0) && ((ai ^ bi) < 0);
                                 let q_floor = if needs_adjust { q_trunc - 1 } else { q_trunc };
                                 if q_floor >= i64::MIN as i128 && q_floor <= i64::MAX as i128 {
-                                    self.push_seq(vec![XdmItem::Atomic(V::Integer(
-                                        q_floor as i64,
-                                    ))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Integer(q_floor as i64))]);
                                 } else {
                                     // xs:integer result cannot be represented by our i64 storage → FOAR0002
                                     return Err(Error::from_code(
@@ -2765,10 +2598,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             }
                             OpCode::Mod => {
                                 if bi == 0 {
-                                    return Err(Error::from_code(
-                                        ErrorCode::FOAR0001,
-                                        "mod by zero",
-                                    ));
+                                    return Err(Error::from_code(ErrorCode::FOAR0001, "mod by zero"));
                                 }
                                 // XPath mod defined as a - b*floor(a/b); for integers we can mirror via arithmetic
                                 let q_trunc = ai / bi;
@@ -2804,10 +2634,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                     NumKind::Double(_) | NumKind::Float(_) => av_f64 / bv_f64,
                                     // Decimal / Integer division by zero is an error per XPath 2.0
                                     _ => {
-                                        return Err(Error::from_code(
-                                            ErrorCode::FOAR0001,
-                                            "divide by zero",
-                                        ));
+                                        return Err(Error::from_code(ErrorCode::FOAR0001, "divide by zero"));
                                     }
                                 }
                             } else {
@@ -3120,29 +2947,19 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 }
                 OpCode::LetEnd => {
                     if self.local_vars.pop().is_none() {
-                        return Err(Error::from_code(
-                            ErrorCode::FOER0000,
-                            "imbalanced let scope during evaluation",
-                        ));
+                        return Err(Error::from_code(ErrorCode::FOER0000, "imbalanced let scope during evaluation"));
                     }
                     ip += 1;
                 }
                 OpCode::ForLoop { var, body } => {
                     let input_stream = self.pop_stream();
-                    let cursor =
-                        ForLoopCursor::new(self.handle(), input_stream, var.clone(), body.clone());
+                    let cursor = ForLoopCursor::new(self.handle(), input_stream, var.clone(), body.clone());
                     self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
                 OpCode::QuantLoop { kind, var, body } => {
                     let input_stream = self.pop_stream();
-                    let cursor = QuantLoopCursor::new(
-                        self.handle(),
-                        input_stream,
-                        *kind,
-                        var.clone(),
-                        body.clone(),
-                    );
+                    let cursor = QuantLoopCursor::new(self.handle(), input_stream, *kind, var.clone(), body.clone());
                     self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
@@ -3160,10 +2977,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 ip += 1;
                                 continue;
                             } else {
-                                return Err(Error::from_code(
-                                    ErrorCode::XPST0003,
-                                    "empty not allowed",
-                                ));
+                                return Err(Error::from_code(ErrorCode::XPST0003, "empty not allowed"));
                             }
                         }
                     };
@@ -3191,15 +3005,11 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             } else {
                                 let val = match first {
                                     XdmItem::Atomic(a) => a,
-                                    XdmItem::Node(n) => {
-                                        XdmAtomicValue::UntypedAtomic(n.string_value())
-                                    }
+                                    XdmItem::Node(n) => XdmAtomicValue::UntypedAtomic(n.string_value()),
                                 };
                                 // QName castable requires prefix resolution in static context
                                 if t.atomic.local == "QName" {
-                                    if let XdmAtomicValue::String(s)
-                                    | XdmAtomicValue::UntypedAtomic(s) = &val
-                                    {
+                                    if let XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) = &val {
                                         if let Some(idx) = s.find(':') {
                                             let p = &s[..idx];
                                             if p.is_empty() {
@@ -3207,11 +3017,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                             } else if p == "xml" {
                                                 true
                                             } else {
-                                                self.compiled
-                                                    .static_ctx
-                                                    .namespaces
-                                                    .by_prefix
-                                                    .contains_key(p)
+                                                self.compiled.static_ctx.namespaces.by_prefix.contains_key(p)
                                             }
                                         } else {
                                             !s.is_empty()
@@ -3249,8 +3055,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     let def_ns_ref = def_ns.as_deref();
 
                     // Check if stream-based implementation exists (peek only, clone Arc for later use)
-                    let stream_fn_opt =
-                        self.functions.resolve_stream(en, argc, def_ns_ref).cloned();
+                    let stream_fn_opt = self.functions.resolve_stream(en, argc, def_ns_ref).cloned();
 
                     // Prefer stream-based implementation for zero-copy streaming
                     if let Some(stream_fn) = stream_fn_opt {
@@ -3262,11 +3067,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         args_stream.reverse();
 
                         // Apply type conversions/validation to streams (materializes if needed)
-                        if let Some(specs) = self
-                            .compiled
-                            .static_ctx
-                            .function_signatures
-                            .param_types_for_call(en, argc, def_ns_ref)
+                        if let Some(specs) =
+                            self.compiled.static_ctx.function_signatures.param_types_for_call(en, argc, def_ns_ref)
                         {
                             self.apply_stream_conversions(&mut args_stream, specs)?;
                         }
@@ -3313,13 +3115,12 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         for (idx, spec) in specs.iter().enumerate() {
             if let Some(arg_stream) = args.get_mut(idx) {
                 // Determine if conversion is needed based on spec
-                let needs_conversion = !matches!(spec.item, ItemTypeSpec::AnyItem)
-                    || !matches!(spec.occurrence, Occurrence::ZeroOrMore);
+                let needs_conversion =
+                    !matches!(spec.item, ItemTypeSpec::AnyItem) || !matches!(spec.occurrence, Occurrence::ZeroOrMore);
 
                 if needs_conversion {
                     // Materialize stream for type conversion
-                    let materialized: XdmSequence<N> =
-                        arg_stream.iter().collect::<Result<Vec<_>, _>>()?;
+                    let materialized: XdmSequence<N> = arg_stream.iter().collect::<Result<Vec<_>, _>>()?;
 
                     // Apply atomization if required
                     let atomized = if spec.requires_atomization()
@@ -3388,19 +3189,13 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmItem::Atomic(XdmAtomicValue::Float(f)) => Ok(*f != 0.0 && !f.is_nan()),
                 XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => Ok(!s.is_empty()),
                 XdmItem::Node(_) => Ok(true),
-                _ => Err(Error::from_code(
-                    ErrorCode::FORG0006,
-                    "EBV for this atomic type not supported",
-                )),
+                _ => Err(Error::from_code(ErrorCode::FORG0006, "EBV for this atomic type not supported")),
             },
             _ => {
                 if seq.iter().all(|item| matches!(item, XdmItem::Node(_))) {
                     Ok(true)
                 } else {
-                    Err(Error::from_code(
-                        ErrorCode::FORG0006,
-                        "effective boolean value of sequence of length > 1",
-                    ))
+                    Err(Error::from_code(ErrorCode::FORG0006, "effective boolean value of sequence of length > 1"))
                 }
             }
         }
@@ -3478,10 +3273,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 // If we see a second node, EBV=true immediately; if we see an atomic afterward → error.
                 match c.next_item() {
                     Some(Ok(XdmItem::Node(_))) => Ok(true),
-                    Some(Ok(XdmItem::Atomic(_))) => Err(Error::from_code(
-                        ErrorCode::FORG0006,
-                        "effective boolean value of sequence of length > 1",
-                    )),
+                    Some(Ok(XdmItem::Atomic(_))) => {
+                        Err(Error::from_code(ErrorCode::FORG0006, "effective boolean value of sequence of length > 1"))
+                    }
                     Some(Err(e)) => Err(e),
                     None => Ok(true),
                 }
@@ -3543,19 +3337,12 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     0.0
                 }
             }
-            XdmAtomicValue::UntypedAtomic(s) | XdmAtomicValue::String(s) => {
-                s.parse::<f64>().unwrap_or(f64::NAN)
-            }
+            XdmAtomicValue::UntypedAtomic(s) | XdmAtomicValue::String(s) => s.parse::<f64>().unwrap_or(f64::NAN),
             _ => f64::NAN,
         })
     }
 
-    fn compare_atomic(
-        &self,
-        a: &XdmAtomicValue,
-        b: &XdmAtomicValue,
-        op: ComparisonOp,
-    ) -> Result<bool, Error> {
+    fn compare_atomic(&self, a: &XdmAtomicValue, b: &XdmAtomicValue, op: ComparisonOp) -> Result<bool, Error> {
         use ComparisonOp::*;
         // XPath 2.0 value comparison promotions (refined numeric path):
         // 1. untypedAtomic normalization (string or attempt numeric if other numeric)
@@ -3612,23 +3399,19 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         // Normalize untypedAtomic per context: if the counterpart is numeric attempt numeric cast (error on failure),
         // else treat both sides' untyped as string. untyped vs untyped -> both strings.
         let (a_norm, b_norm) = match (a, b) {
-            (V::UntypedAtomic(sa), V::UntypedAtomic(sb)) => {
-                (V::String(sa.clone()), V::String(sb.clone()))
-            }
+            (V::UntypedAtomic(sa), V::UntypedAtomic(sb)) => (V::String(sa.clone()), V::String(sb.clone())),
             (V::UntypedAtomic(s), other)
                 if matches!(other, V::Integer(_) | V::Decimal(_) | V::Double(_) | V::Float(_)) =>
             {
-                let num = s.parse::<f64>().map_err(|_| {
-                    Error::from_code(ErrorCode::FORG0001, "invalid numeric literal")
-                })?;
+                let num =
+                    s.parse::<f64>().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid numeric literal"))?;
                 (V::Double(num), other.clone())
             }
             (other, V::UntypedAtomic(s))
                 if matches!(other, V::Integer(_) | V::Decimal(_) | V::Double(_) | V::Float(_)) =>
             {
-                let num = s.parse::<f64>().map_err(|_| {
-                    Error::from_code(ErrorCode::FORG0001, "invalid numeric literal")
-                })?;
+                let num =
+                    s.parse::<f64>().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid numeric literal"))?;
                 (other.clone(), V::Double(num))
             }
             (V::UntypedAtomic(s), other) => (V::String(s.clone()), other.clone()),
@@ -3648,26 +3431,21 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
 
         // If both (after normalization) are strings and not numeric context
-        if matches!((&a_norm, &b_norm), (V::String(_), V::String(_)))
-            && matches!(op, Lt | Le | Gt | Ge | Eq | Ne)
-        {
+        if matches!((&a_norm, &b_norm), (V::String(_), V::String(_))) && matches!(op, Lt | Le | Gt | Ge | Eq | Ne) {
             let ls = if let V::String(s) = &a_norm { s } else { unreachable!() };
             let rs = if let V::String(s) = &b_norm { s } else { unreachable!() };
             // Collation-aware: use default collation (fallback to codepoint)
             let coll_arc;
-            let coll: &dyn crate::engine::collation::Collation =
-                if let Some(c) = &self.default_collation {
-                    c.as_ref()
-                } else {
-                    coll_arc = self
-                        .dyn_ctx
-                        .collations
-                        .get(crate::engine::collation::CODEPOINT_URI)
-                        .unwrap_or_else(|| {
-                            std::rc::Rc::new(crate::engine::collation::CodepointCollation)
-                        });
-                    coll_arc.as_ref()
-                };
+            let coll: &dyn crate::engine::collation::Collation = if let Some(c) = &self.default_collation {
+                c.as_ref()
+            } else {
+                coll_arc = self
+                    .dyn_ctx
+                    .collations
+                    .get(crate::engine::collation::CODEPOINT_URI)
+                    .unwrap_or_else(|| std::rc::Rc::new(crate::engine::collation::CodepointCollation));
+                coll_arc.as_ref()
+            };
             return Ok(match op {
                 Eq => coll.key(ls) == coll.key(rs),
                 Ne => coll.key(ls) != coll.key(rs),
@@ -3743,9 +3521,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
 
         // duration comparisons (same family only)
-        if let (XdmAtomicValue::YearMonthDuration(ma), XdmAtomicValue::YearMonthDuration(mb)) =
-            (a, b)
-        {
+        if let (XdmAtomicValue::YearMonthDuration(ma), XdmAtomicValue::YearMonthDuration(mb)) = (a, b) {
             let ord = ma.cmp(mb);
             return Ok(match op {
                 Eq => ord == core::cmp::Ordering::Equal,
@@ -3769,11 +3545,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
 
         // date comparisons: normalize to midnight in effective timezone
-        if let (
-            XdmAtomicValue::Date { date: da, tz: ta },
-            XdmAtomicValue::Date { date: db, tz: tb },
-        ) = (a, b)
-        {
+        if let (XdmAtomicValue::Date { date: da, tz: ta }, XdmAtomicValue::Date { date: db, tz: tb }) = (a, b) {
             let eff_tz_a = (*ta).unwrap_or_else(|| self.implicit_timezone());
             let eff_tz_b = (*tb).unwrap_or_else(|| self.implicit_timezone());
             let midnight = ChronoNaiveTime::from_hms_opt(0, 0, 0)
@@ -3788,8 +3560,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 .from_local_datetime(&nb)
                 .single()
                 .ok_or_else(|| Error::from_code(ErrorCode::FOAR0001, "ambiguous local datetime"))?;
-            let ord = (dta.timestamp(), dta.timestamp_subsec_nanos())
-                .cmp(&(dtb.timestamp(), dtb.timestamp_subsec_nanos()));
+            let ord =
+                (dta.timestamp(), dta.timestamp_subsec_nanos()).cmp(&(dtb.timestamp(), dtb.timestamp_subsec_nanos()));
             return Ok(match op {
                 Eq => ord == core::cmp::Ordering::Equal,
                 Ne => ord != core::cmp::Ordering::Equal,
@@ -3801,16 +3573,11 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
 
         // time comparisons: anchor to a fixed date and compare instants in effective timezone
-        if let (
-            XdmAtomicValue::Time { time: ta, tz: tza },
-            XdmAtomicValue::Time { time: tb, tz: tzb },
-        ) = (a, b)
-        {
+        if let (XdmAtomicValue::Time { time: ta, tz: tza }, XdmAtomicValue::Time { time: tb, tz: tzb }) = (a, b) {
             let eff_tz_a = (*tza).unwrap_or_else(|| self.implicit_timezone());
             let eff_tz_b = (*tzb).unwrap_or_else(|| self.implicit_timezone());
-            let base = chrono::NaiveDate::from_ymd_opt(2000, 1, 1).ok_or_else(|| {
-                Error::from_code(ErrorCode::FOAR0001, "invalid base date 2000-01-01")
-            })?;
+            let base = chrono::NaiveDate::from_ymd_opt(2000, 1, 1)
+                .ok_or_else(|| Error::from_code(ErrorCode::FOAR0001, "invalid base date 2000-01-01"))?;
             let na = base.and_time(*ta);
             let nb = base.and_time(*tb);
             let dta = eff_tz_a
@@ -3821,8 +3588,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 .from_local_datetime(&nb)
                 .single()
                 .ok_or_else(|| Error::from_code(ErrorCode::FOAR0001, "ambiguous local datetime"))?;
-            let ord = (dta.timestamp(), dta.timestamp_subsec_nanos())
-                .cmp(&(dtb.timestamp(), dtb.timestamp_subsec_nanos()));
+            let ord =
+                (dta.timestamp(), dta.timestamp_subsec_nanos()).cmp(&(dtb.timestamp(), dtb.timestamp_subsec_nanos()));
             return Ok(match op {
                 Eq => ord == core::cmp::Ordering::Equal,
                 Ne => ord != core::cmp::Ordering::Equal,
@@ -3897,11 +3664,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
     // ===== Axis & NodeTest helpers =====
 
     #[inline]
-    fn matches_interned_name(
-        &self,
-        node: &N,
-        expected: &crate::compiler::ir::InternedQName,
-    ) -> bool {
+    fn matches_interned_name(&self, node: &N, expected: &crate::compiler::ir::InternedQName) -> bool {
         let node_name = match node.name() {
             Some(n) => n,
             None => return false,
@@ -3949,10 +3712,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         Some(DefaultAtom::from(uri.as_str()))
                     } else if let Some(pref) = &n.prefix {
                         self.resolve_prefix_namespace(node, pref)
-                    } else if matches!(
-                        node.kind(),
-                        crate::model::NodeKind::Element | crate::model::NodeKind::Namespace
-                    ) {
+                    } else if matches!(node.kind(), crate::model::NodeKind::Element | crate::model::NodeKind::Namespace)
+                    {
                         self.resolve_prefix_namespace(node, "")
                     } else {
                         None
@@ -4044,11 +3805,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
     // non-stream set_union removed (replaced by set_union_stream).
 
     /// Stream variant of union: consumes streams, collects nodes, then sorts/dedups.
-    fn set_union_stream(
-        &mut self,
-        a: XdmSequenceStream<N>,
-        b: XdmSequenceStream<N>,
-    ) -> Result<XdmSequence<N>, Error> {
+    fn set_union_stream(&mut self, a: XdmSequenceStream<N>, b: XdmSequenceStream<N>) -> Result<XdmSequence<N>, Error> {
         // Pre-size using a conservative guess (streams may not expose exact len)
         let mut nodes: Vec<N> = Vec::new();
 
@@ -4059,10 +3816,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 match item? {
                     XdmItem::Node(n) => nodes.push(n),
                     _ => {
-                        return Err(Error::from_code(
-                            ErrorCode::XPTY0004,
-                            "union operator requires node sequences",
-                        ));
+                        return Err(Error::from_code(ErrorCode::XPTY0004, "union operator requires node sequences"));
                     }
                 }
             }
@@ -4100,8 +3854,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 rhs_fallback.push(node);
             }
         }
-        let mut out: Vec<N> =
-            Vec::with_capacity(lhs.len().min(rhs_keys.len() + rhs_fallback.len()));
+        let mut out: Vec<N> = Vec::with_capacity(lhs.len().min(rhs_keys.len() + rhs_fallback.len()));
         for node in lhs {
             if let Some(k) = node.doc_order_key() {
                 if rhs_keys.contains(&k) {
@@ -4119,11 +3872,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
     // non-stream set_except removed (replaced by set_except_stream).
 
     /// Stream variant of except: consumes streams, sorts/dedups, then computes difference.
-    fn set_except_stream(
-        &mut self,
-        a: XdmSequenceStream<N>,
-        b: XdmSequenceStream<N>,
-    ) -> Result<XdmSequence<N>, Error> {
+    fn set_except_stream(&mut self, a: XdmSequenceStream<N>, b: XdmSequenceStream<N>) -> Result<XdmSequence<N>, Error> {
         let a_nodes = self.collect_nodes_from_stream(a)?;
         let lhs = self.sorted_distinct_nodes_vec(a_nodes)?;
         let b_nodes = self.collect_nodes_from_stream(b)?;
@@ -4196,10 +3945,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             match item? {
                 XdmItem::Node(n) => nodes.push(n),
                 _ => {
-                    return Err(Error::from_code(
-                        ErrorCode::XPTY0004,
-                        "set operation requires node sequences",
-                    ));
+                    return Err(Error::from_code(ErrorCode::XPTY0004, "set operation requires node sequences"));
                 }
             }
         }
@@ -4216,14 +3962,11 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
     fn parse_integer_string(&self, text: &str, target: &str) -> Result<i128, Error> {
         let trimmed = text.trim();
         if trimmed.is_empty() {
-            return Err(Error::from_code(
-                ErrorCode::FORG0001,
-                format!("cannot cast to {target}: empty string"),
-            ));
+            return Err(Error::from_code(ErrorCode::FORG0001, format!("cannot cast to {target}: empty string")));
         }
-        trimmed.parse::<i128>().map_err(|_| {
-            Error::from_code(ErrorCode::FORG0001, format!("invalid lexical for {target}"))
-        })
+        trimmed
+            .parse::<i128>()
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, format!("invalid lexical for {target}")))
     }
 
     fn float_to_integer(&self, value: f64, target: &str) -> Result<i128, Error> {
@@ -4231,10 +3974,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             return Err(Error::from_code(ErrorCode::FOCA0001, format!("{target} overflow")));
         }
         if value.fract() != 0.0 {
-            return Err(Error::from_code(
-                ErrorCode::FOCA0001,
-                format!("non-integer value for {target}"),
-            ));
+            return Err(Error::from_code(ErrorCode::FOCA0001, format!("non-integer value for {target}")));
         }
         if value < i128::MIN as f64 || value > i128::MAX as f64 {
             return Err(Error::from_code(ErrorCode::FOCA0001, format!("{target} overflow")));
@@ -4282,10 +4022,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             other => {
                 let signed = self.integer_from_atomic(other, target)?;
                 if signed < 0 {
-                    Err(Error::from_code(
-                        ErrorCode::FORG0001,
-                        format!("negative value not allowed for {target}"),
-                    ))
+                    Err(Error::from_code(ErrorCode::FORG0001, format!("negative value not allowed for {target}")))
                 } else {
                     Ok(signed as u128)
                 }
@@ -4293,13 +4030,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
     }
 
-    fn ensure_range_i128(
-        &self,
-        value: i128,
-        min: i128,
-        max: i128,
-        target: &str,
-    ) -> Result<i128, Error> {
+    fn ensure_range_i128(&self, value: i128, min: i128, max: i128, target: &str) -> Result<i128, Error> {
         if value < min || value > max {
             Err(Error::from_code(ErrorCode::FORG0001, format!("value out of range for {target}")))
         } else {
@@ -4307,13 +4038,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
     }
 
-    fn ensure_range_u128(
-        &self,
-        value: u128,
-        min: u128,
-        max: u128,
-        target: &str,
-    ) -> Result<u128, Error> {
+    fn ensure_range_u128(&self, value: u128, min: u128, max: u128, target: &str) -> Result<u128, Error> {
         if value < min || value > max {
             Err(Error::from_code(ErrorCode::FORG0001, format!("value out of range for {target}")))
         } else {
@@ -4322,15 +4047,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
     }
 
     fn require_string_like(&self, atom: &XdmAtomicValue, target: &str) -> Result<String, Error> {
-        string_like_value(atom).ok_or_else(|| {
-            Error::from_code(ErrorCode::FORG0001, format!("cannot cast to {target}"))
-        })
+        string_like_value(atom).ok_or_else(|| Error::from_code(ErrorCode::FORG0001, format!("cannot cast to {target}")))
     }
-    fn cast_atomic(
-        &self,
-        a: XdmAtomicValue,
-        target: &ExpandedName,
-    ) -> Result<XdmAtomicValue, Error> {
+    fn cast_atomic(&self, a: XdmAtomicValue, target: &ExpandedName) -> Result<XdmAtomicValue, Error> {
         let local = target.local.as_str();
         match local {
             "anyAtomicType" => Ok(a),
@@ -4354,10 +4073,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         "true" | "1" => true,
                         "false" | "0" => false,
                         _ => {
-                            return Err(Error::from_code(
-                                ErrorCode::FORG0001,
-                                "invalid boolean lexical form",
-                            ));
+                            return Err(Error::from_code(ErrorCode::FORG0001, "invalid boolean lexical form"));
                         }
                     };
                     Ok(XdmAtomicValue::Boolean(b))
@@ -4367,12 +4083,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::Integer(v) => Ok(XdmAtomicValue::Integer(v)),
                 other => {
                     let value = self.integer_from_atomic(&other, "xs:integer")?;
-                    let bounded = self.ensure_range_i128(
-                        value,
-                        i64::MIN as i128,
-                        i64::MAX as i128,
-                        "xs:integer",
-                    )?;
+                    let bounded = self.ensure_range_i128(value, i64::MIN as i128, i64::MAX as i128, "xs:integer")?;
                     Ok(XdmAtomicValue::Integer(bounded as i64))
                 }
             },
@@ -4415,9 +4126,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     {
                         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"));
                     }
-                    let value: f64 = trimmed
-                        .parse()
-                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?;
+                    let value: f64 =
+                        trimmed.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?;
                     Ok(XdmAtomicValue::Decimal(value))
                 }
             },
@@ -4445,9 +4155,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         "NaN" | "nan" => f64::NAN,
                         "INF" | "inf" => f64::INFINITY,
                         "-INF" | "-inf" => f64::NEG_INFINITY,
-                        _ => trimmed.parse().map_err(|_| {
-                            Error::from_code(ErrorCode::FORG0001, "invalid xs:double")
-                        })?,
+                        _ => trimmed.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:double"))?,
                     };
                     Ok(XdmAtomicValue::Double(value))
                 }
@@ -4476,9 +4184,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         "NaN" | "nan" => f32::NAN,
                         "INF" | "inf" => f32::INFINITY,
                         "-INF" | "-inf" => f32::NEG_INFINITY,
-                        _ => trimmed.parse().map_err(|_| {
-                            Error::from_code(ErrorCode::FORG0001, "invalid xs:float")
-                        })?,
+                        _ => trimmed.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:float"))?,
                     };
                     Ok(XdmAtomicValue::Float(value))
                 }
@@ -4487,12 +4193,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::Long(v) => Ok(XdmAtomicValue::Long(v)),
                 other => {
                     let value = self.integer_from_atomic(&other, "xs:long")?;
-                    let bounded = self.ensure_range_i128(
-                        value,
-                        i64::MIN as i128,
-                        i64::MAX as i128,
-                        "xs:long",
-                    )?;
+                    let bounded = self.ensure_range_i128(value, i64::MIN as i128, i64::MAX as i128, "xs:long")?;
                     Ok(XdmAtomicValue::Long(bounded as i64))
                 }
             },
@@ -4500,12 +4201,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::Int(v) => Ok(XdmAtomicValue::Int(v)),
                 other => {
                     let value = self.integer_from_atomic(&other, "xs:int")?;
-                    let bounded = self.ensure_range_i128(
-                        value,
-                        i32::MIN as i128,
-                        i32::MAX as i128,
-                        "xs:int",
-                    )?;
+                    let bounded = self.ensure_range_i128(value, i32::MIN as i128, i32::MAX as i128, "xs:int")?;
                     Ok(XdmAtomicValue::Int(bounded as i32))
                 }
             },
@@ -4513,12 +4209,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::Short(v) => Ok(XdmAtomicValue::Short(v)),
                 other => {
                     let value = self.integer_from_atomic(&other, "xs:short")?;
-                    let bounded = self.ensure_range_i128(
-                        value,
-                        i16::MIN as i128,
-                        i16::MAX as i128,
-                        "xs:short",
-                    )?;
+                    let bounded = self.ensure_range_i128(value, i16::MIN as i128, i16::MAX as i128, "xs:short")?;
                     Ok(XdmAtomicValue::Short(bounded as i16))
                 }
             },
@@ -4526,8 +4217,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::Byte(v) => Ok(XdmAtomicValue::Byte(v)),
                 other => {
                     let value = self.integer_from_atomic(&other, "xs:byte")?;
-                    let bounded =
-                        self.ensure_range_i128(value, i8::MIN as i128, i8::MAX as i128, "xs:byte")?;
+                    let bounded = self.ensure_range_i128(value, i8::MIN as i128, i8::MAX as i128, "xs:byte")?;
                     Ok(XdmAtomicValue::Byte(bounded as i8))
                 }
             },
@@ -4535,8 +4225,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::UnsignedLong(v) => Ok(XdmAtomicValue::UnsignedLong(v)),
                 other => {
                     let value = self.unsigned_from_atomic(&other, "xs:unsignedLong")?;
-                    let bounded =
-                        self.ensure_range_u128(value, 0, u64::MAX as u128, "xs:unsignedLong")?;
+                    let bounded = self.ensure_range_u128(value, 0, u64::MAX as u128, "xs:unsignedLong")?;
                     Ok(XdmAtomicValue::UnsignedLong(bounded as u64))
                 }
             },
@@ -4544,8 +4233,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::UnsignedInt(v) => Ok(XdmAtomicValue::UnsignedInt(v)),
                 other => {
                     let value = self.unsigned_from_atomic(&other, "xs:unsignedInt")?;
-                    let bounded =
-                        self.ensure_range_u128(value, 0, u32::MAX as u128, "xs:unsignedInt")?;
+                    let bounded = self.ensure_range_u128(value, 0, u32::MAX as u128, "xs:unsignedInt")?;
                     Ok(XdmAtomicValue::UnsignedInt(bounded as u32))
                 }
             },
@@ -4553,8 +4241,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::UnsignedShort(v) => Ok(XdmAtomicValue::UnsignedShort(v)),
                 other => {
                     let value = self.unsigned_from_atomic(&other, "xs:unsignedShort")?;
-                    let bounded =
-                        self.ensure_range_u128(value, 0, u16::MAX as u128, "xs:unsignedShort")?;
+                    let bounded = self.ensure_range_u128(value, 0, u16::MAX as u128, "xs:unsignedShort")?;
                     Ok(XdmAtomicValue::UnsignedShort(bounded as u16))
                 }
             },
@@ -4562,8 +4249,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::UnsignedByte(v) => Ok(XdmAtomicValue::UnsignedByte(v)),
                 other => {
                     let value = self.unsigned_from_atomic(&other, "xs:unsignedByte")?;
-                    let bounded =
-                        self.ensure_range_u128(value, 0, u8::MAX as u128, "xs:unsignedByte")?;
+                    let bounded = self.ensure_range_u128(value, 0, u8::MAX as u128, "xs:unsignedByte")?;
                     Ok(XdmAtomicValue::UnsignedByte(bounded as u8))
                 }
             },
@@ -4577,12 +4263,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             "value must be <= 0 for xs:nonPositiveInteger",
                         ));
                     }
-                    let bounded = self.ensure_range_i128(
-                        value,
-                        i64::MIN as i128,
-                        0,
-                        "xs:nonPositiveInteger",
-                    )?;
+                    let bounded = self.ensure_range_i128(value, i64::MIN as i128, 0, "xs:nonPositiveInteger")?;
                     Ok(XdmAtomicValue::NonPositiveInteger(bounded as i64))
                 }
             },
@@ -4591,13 +4272,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 other => {
                     let value = self.integer_from_atomic(&other, "xs:negativeInteger")?;
                     if value >= 0 {
-                        return Err(Error::from_code(
-                            ErrorCode::FORG0001,
-                            "value must be < 0 for xs:negativeInteger",
-                        ));
+                        return Err(Error::from_code(ErrorCode::FORG0001, "value must be < 0 for xs:negativeInteger"));
                     }
-                    let bounded =
-                        self.ensure_range_i128(value, i64::MIN as i128, -1, "xs:negativeInteger")?;
+                    let bounded = self.ensure_range_i128(value, i64::MIN as i128, -1, "xs:negativeInteger")?;
                     Ok(XdmAtomicValue::NegativeInteger(bounded as i64))
                 }
             },
@@ -4605,12 +4282,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::NonNegativeInteger(v) => Ok(XdmAtomicValue::NonNegativeInteger(v)),
                 other => {
                     let value = self.unsigned_from_atomic(&other, "xs:nonNegativeInteger")?;
-                    let bounded = self.ensure_range_u128(
-                        value,
-                        0,
-                        u64::MAX as u128,
-                        "xs:nonNegativeInteger",
-                    )?;
+                    let bounded = self.ensure_range_u128(value, 0, u64::MAX as u128, "xs:nonNegativeInteger")?;
                     Ok(XdmAtomicValue::NonNegativeInteger(bounded as u64))
                 }
             },
@@ -4619,13 +4291,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 other => {
                     let value = self.unsigned_from_atomic(&other, "xs:positiveInteger")?;
                     if value == 0 {
-                        return Err(Error::from_code(
-                            ErrorCode::FORG0001,
-                            "value must be > 0 for xs:positiveInteger",
-                        ));
+                        return Err(Error::from_code(ErrorCode::FORG0001, "value must be > 0 for xs:positiveInteger"));
                     }
-                    let bounded =
-                        self.ensure_range_u128(value, 1, u64::MAX as u128, "xs:positiveInteger")?;
+                    let bounded = self.ensure_range_u128(value, 1, u64::MAX as u128, "xs:positiveInteger")?;
                     Ok(XdmAtomicValue::PositiveInteger(bounded as u64))
                 }
             },
@@ -4637,14 +4305,11 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 }
             },
             "QName" => match a {
-                XdmAtomicValue::QName { ns_uri, prefix, local } => {
-                    Ok(XdmAtomicValue::QName { ns_uri, prefix, local })
-                }
+                XdmAtomicValue::QName { ns_uri, prefix, local } => Ok(XdmAtomicValue::QName { ns_uri, prefix, local }),
                 other => {
                     let text = self.require_string_like(&other, "xs:QName")?;
-                    let (prefix, local) = parse_qname_lexical(&text).map_err(|_| {
-                        Error::from_code(ErrorCode::FORG0001, "invalid QName lexical")
-                    })?;
+                    let (prefix, local) = parse_qname_lexical(&text)
+                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"))?;
                     Ok(XdmAtomicValue::QName { ns_uri: None, prefix, local })
                 }
             },
@@ -4661,9 +4326,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             "base64Binary" => match a {
                 XdmAtomicValue::Base64Binary(v) => Ok(XdmAtomicValue::Base64Binary(v)),
                 XdmAtomicValue::HexBinary(hex) => {
-                    let bytes = decode_hex(&hex).ok_or_else(|| {
-                        Error::from_code(ErrorCode::FORG0001, "invalid xs:hexBinary")
-                    })?;
+                    let bytes = decode_hex(&hex)
+                        .ok_or_else(|| Error::from_code(ErrorCode::FORG0001, "invalid xs:hexBinary"))?;
                     let encoded = BASE64_STANDARD.encode(bytes);
                     Ok(XdmAtomicValue::Base64Binary(encoded))
                 }
@@ -4671,10 +4335,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     let text = self.require_string_like(&other, "xs:base64Binary")?;
                     let normalized: String = text.chars().filter(|c| !c.is_whitespace()).collect();
                     if BASE64_STANDARD.decode(normalized.as_bytes()).is_err() {
-                        return Err(Error::from_code(
-                            ErrorCode::FORG0001,
-                            "invalid xs:base64Binary",
-                        ));
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:base64Binary"));
                     }
                     Ok(XdmAtomicValue::Base64Binary(normalized))
                 }
@@ -4682,9 +4343,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             "hexBinary" => match a {
                 XdmAtomicValue::HexBinary(v) => Ok(XdmAtomicValue::HexBinary(v)),
                 XdmAtomicValue::Base64Binary(b64) => {
-                    let bytes = BASE64_STANDARD.decode(b64.as_bytes()).map_err(|_| {
-                        Error::from_code(ErrorCode::FORG0001, "invalid xs:base64Binary")
-                    })?;
+                    let bytes = BASE64_STANDARD
+                        .decode(b64.as_bytes())
+                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:base64Binary"))?;
                     let encoded = encode_hex_upper(&bytes);
                     Ok(XdmAtomicValue::HexBinary(encoded))
                 }
@@ -4824,38 +4485,33 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::YearMonthDuration(m) => Ok(XdmAtomicValue::YearMonthDuration(m)),
                 other => {
                     let text = self.require_string_like(&other, "xs:yearMonthDuration")?;
-                    self.parse_year_month_duration(&text).map_err(|_| {
-                        Error::from_code(ErrorCode::FORG0001, "invalid yearMonthDuration")
-                    })
+                    self.parse_year_month_duration(&text)
+                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid yearMonthDuration"))
                 }
             },
             "dayTimeDuration" => match a {
                 XdmAtomicValue::DayTimeDuration(m) => Ok(XdmAtomicValue::DayTimeDuration(m)),
                 other => {
                     let text = self.require_string_like(&other, "xs:dayTimeDuration")?;
-                    self.parse_day_time_duration(&text).map_err(|_| {
-                        Error::from_code(ErrorCode::FORG0001, "invalid dayTimeDuration")
-                    })
+                    self.parse_day_time_duration(&text)
+                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid dayTimeDuration"))
                 }
             },
             "gYear" => match a {
                 XdmAtomicValue::GYear { year, tz } => Ok(XdmAtomicValue::GYear { year, tz }),
                 other => {
                     let text = self.require_string_like(&other, "xs:gYear")?;
-                    let (year, tz) = parse_g_year(&text)
-                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYear"))?;
+                    let (year, tz) =
+                        parse_g_year(&text).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYear"))?;
                     Ok(XdmAtomicValue::GYear { year, tz })
                 }
             },
             "gYearMonth" => match a {
-                XdmAtomicValue::GYearMonth { year, month, tz } => {
-                    Ok(XdmAtomicValue::GYearMonth { year, month, tz })
-                }
+                XdmAtomicValue::GYearMonth { year, month, tz } => Ok(XdmAtomicValue::GYearMonth { year, month, tz }),
                 other => {
                     let text = self.require_string_like(&other, "xs:gYearMonth")?;
-                    let (year, month, tz) = parse_g_year_month(&text).map_err(|_| {
-                        Error::from_code(ErrorCode::FORG0001, "invalid xs:gYearMonth")
-                    })?;
+                    let (year, month, tz) = parse_g_year_month(&text)
+                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYearMonth"))?;
                     Ok(XdmAtomicValue::GYearMonth { year, month, tz })
                 }
             },
@@ -4863,20 +4519,17 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::GMonth { month, tz } => Ok(XdmAtomicValue::GMonth { month, tz }),
                 other => {
                     let text = self.require_string_like(&other, "xs:gMonth")?;
-                    let (month, tz) = parse_g_month(&text)
-                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonth"))?;
+                    let (month, tz) =
+                        parse_g_month(&text).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonth"))?;
                     Ok(XdmAtomicValue::GMonth { month, tz })
                 }
             },
             "gMonthDay" => match a {
-                XdmAtomicValue::GMonthDay { month, day, tz } => {
-                    Ok(XdmAtomicValue::GMonthDay { month, day, tz })
-                }
+                XdmAtomicValue::GMonthDay { month, day, tz } => Ok(XdmAtomicValue::GMonthDay { month, day, tz }),
                 other => {
                     let text = self.require_string_like(&other, "xs:gMonthDay")?;
-                    let (month, day, tz) = parse_g_month_day(&text).map_err(|_| {
-                        Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonthDay")
-                    })?;
+                    let (month, day, tz) = parse_g_month_day(&text)
+                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonthDay"))?;
                     Ok(XdmAtomicValue::GMonthDay { month, day, tz })
                 }
             },
@@ -4884,8 +4537,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::GDay { day, tz } => Ok(XdmAtomicValue::GDay { day, tz }),
                 other => {
                     let text = self.require_string_like(&other, "xs:gDay")?;
-                    let (day, tz) = parse_g_day(&text)
-                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gDay"))?;
+                    let (day, tz) =
+                        parse_g_day(&text).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gDay"))?;
                     Ok(XdmAtomicValue::GDay { day, tz })
                 }
             },
@@ -4905,10 +4558,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         let (t, tz) = crate::util::temporal::parse_time_lex(s)?;
         Ok(XdmAtomicValue::Time { time: t, tz })
     }
-    fn parse_date_time(
-        &self,
-        s: &str,
-    ) -> Result<XdmAtomicValue, crate::util::temporal::TemporalErr> {
+    fn parse_date_time(&self, s: &str) -> Result<XdmAtomicValue, crate::util::temporal::TemporalErr> {
         let (d, t, tz) = crate::util::temporal::parse_date_time_lex(s)?;
         let dt = crate::util::temporal::build_naive_datetime(d, t, tz);
         Ok(XdmAtomicValue::DateTime(dt))
@@ -5004,11 +4654,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         Ok(XdmAtomicValue::DayTimeDuration(total))
     }
 
-    fn instance_of_stream(
-        &self,
-        stream: XdmSequenceStream<N>,
-        t: &SeqTypeIR,
-    ) -> Result<bool, Error> {
+    fn instance_of_stream(&self, stream: XdmSequenceStream<N>, t: &SeqTypeIR) -> Result<bool, Error> {
         use crate::compiler::ir::{OccurrenceIR, SeqTypeIR};
         let mut c = stream.cursor();
         match t {
@@ -5039,11 +4685,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             }
         }
     }
-    fn item_matches_type(
-        &self,
-        item: &XdmItem<N>,
-        t: &crate::compiler::ir::ItemTypeIR,
-    ) -> Result<bool, Error> {
+    fn item_matches_type(&self, item: &XdmItem<N>, t: &crate::compiler::ir::ItemTypeIR) -> Result<bool, Error> {
         use crate::compiler::ir::ItemTypeIR;
         use XdmItem::*;
         match (item, t) {
@@ -5217,15 +4859,7 @@ struct EnsureOrderCursor<N> {
 
 impl<N: 'static + XdmNode + Clone> EnsureOrderCursor<N> {
     fn new(vm: VmHandle<N>, input: Box<dyn SequenceCursor<N>>) -> Self {
-        Self {
-            vm,
-            input,
-            pending: None,
-            last_key: None,
-            last_node: None,
-            buffer: VecDeque::new(),
-            in_fallback: false,
-        }
+        Self { vm, input, pending: None, last_key: None, last_node: None, buffer: VecDeque::new(), in_fallback: false }
     }
 
     fn cmp_doc_order(&self, a: &N, b: &N) -> Ordering {
@@ -5518,11 +5152,7 @@ struct TreatCursor<N> {
 }
 
 impl<N: 'static + XdmNode + Clone> TreatCursor<N> {
-    fn new(
-        vm: VmHandle<N>,
-        stream: XdmSequenceStream<N>,
-        t: crate::compiler::ir::SeqTypeIR,
-    ) -> Self {
+    fn new(vm: VmHandle<N>, stream: XdmSequenceStream<N>, t: crate::compiler::ir::SeqTypeIR) -> Self {
         use crate::compiler::ir::{OccurrenceIR, SeqTypeIR};
         let (min, max, item_type) = match t {
             SeqTypeIR::EmptySequence => (0, Some(0), crate::compiler::ir::ItemTypeIR::AnyItem),
@@ -5552,10 +5182,7 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for TreatCursor<N> {
                 if self.seen < self.min {
                     return Some(Err(Error::from_code(
                         ErrorCode::XPTY0004,
-                        format!(
-                            "treat as failed: cardinality mismatch (expected min {} got {})",
-                            self.min, self.seen
-                        ),
+                        format!("treat as failed: cardinality mismatch (expected min {} got {})", self.min, self.seen),
                     )));
                 }
                 None
@@ -5567,21 +5194,12 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for TreatCursor<N> {
                 {
                     return Some(Err(Error::from_code(
                         ErrorCode::XPTY0004,
-                        format!(
-                            "treat as failed: cardinality mismatch (expected max {} got {})",
-                            max, self.seen
-                        ),
+                        format!("treat as failed: cardinality mismatch (expected max {} got {})", max, self.seen),
                     )));
                 }
-                let ok = self
-                    .vm
-                    .with_vm(|vm| vm.item_matches_type(&it, &self.item_type))
-                    .unwrap_or(false);
+                let ok = self.vm.with_vm(|vm| vm.item_matches_type(&it, &self.item_type)).unwrap_or(false);
                 if !ok {
-                    return Some(Err(Error::from_code(
-                        ErrorCode::XPTY0004,
-                        "treat as failed: type mismatch",
-                    )));
+                    return Some(Err(Error::from_code(ErrorCode::XPTY0004, "treat as failed: type mismatch")));
                 }
                 Some(Ok(it))
             }

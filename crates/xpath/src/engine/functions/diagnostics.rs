@@ -6,8 +6,7 @@ pub(super) fn error_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let materialized_args: Result<Vec<_>, _> =
-        args.iter().map(|stream| stream.materialize()).collect();
+    let materialized_args: Result<Vec<_>, _> = args.iter().map(|stream| stream.materialize()).collect();
     error_default(&materialized_args?)?;
     unreachable!("error_default always returns Err")
 }

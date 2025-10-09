@@ -109,11 +109,7 @@ fn render_info_text(desktop: &DesktopSummary) -> String {
 }
 
 fn number(value: f64) -> String {
-    if (value.fract()).abs() < f64::EPSILON {
-        format!("{:.0}", value)
-    } else {
-        format!("{:.2}", value)
-    }
+    if (value.fract()).abs() < f64::EPSILON { format!("{:.0}", value) } else { format!("{:.2}", value) }
 }
 
 fn render_info_json(summary: &DesktopSummary) -> CliResult<String> {

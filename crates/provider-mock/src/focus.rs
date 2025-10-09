@@ -11,10 +11,7 @@ pub(crate) fn reset() {
 
 pub(crate) fn request_focus(runtime_id: RuntimeId) -> Result<(), PatternError> {
     let node = events::node_by_runtime_id(runtime_id.as_str());
-    let window_runtime = node
-        .as_ref()
-        .and_then(|node| resolve_window(node))
-        .map(|window| window.runtime_id().clone());
+    let window_runtime = node.as_ref().and_then(|node| resolve_window(node)).map(|window| window.runtime_id().clone());
 
     let mut guard = FOCUSED_NODE.write().expect("focus state lock poisoned");
     if guard.as_ref().is_some_and(|current| current == &runtime_id) {

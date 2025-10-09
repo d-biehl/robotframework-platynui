@@ -238,8 +238,7 @@ fn max_with_nan() {
 #[test]
 fn combined_sum_avg() {
     let ctx = DynamicContextBuilder::default().build();
-    let result =
-        evaluate_expr::<SimpleNode>("let $sum := sum(1 to 10) return avg(1 to 10)", &ctx).unwrap();
+    let result = evaluate_expr::<SimpleNode>("let $sum := sum(1 to 10) return avg(1 to 10)", &ctx).unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => assert!((d - 5.5).abs() < 0.001),
@@ -261,11 +260,9 @@ fn combined_min_max() {
 #[test]
 fn combined_large_sequence() {
     let ctx = DynamicContextBuilder::default().build();
-    let result = evaluate_expr::<SimpleNode>(
-        "count((sum(1 to 100), avg(1 to 100), min(1 to 100), max(1 to 100)))",
-        &ctx,
-    )
-    .unwrap();
+    let result =
+        evaluate_expr::<SimpleNode>("count((sum(1 to 100), avg(1 to 100), min(1 to 100), max(1 to 100)))", &ctx)
+            .unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::Integer(n)) => assert_eq!(*n, 4),

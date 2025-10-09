@@ -298,11 +298,7 @@ where
     N: Clone + 'static,
 {
     fn clone(&self) -> Self {
-        Self {
-            left: self.left.boxed_clone(),
-            right: self.right.boxed_clone(),
-            left_exhausted: self.left_exhausted,
-        }
+        Self { left: self.left.boxed_clone(), right: self.right.boxed_clone(), left_exhausted: self.left_exhausted }
     }
 }
 
@@ -616,17 +612,13 @@ impl<'a, N: XdmNode> fmt::Display for PrettyNodeItem<'a, N> {
                     write!(f, "document(children={})", ch)
                 }
                 NodeKind::Element => {
-                    let name = n
-                        .name()
-                        .map(|q| qname_to_string(&q))
-                        .unwrap_or_else(|| "<unnamed>".to_string());
+                    let name = n.name().map(|q| qname_to_string(&q)).unwrap_or_else(|| "<unnamed>".to_string());
                     let attrs = n.attributes().count();
                     let ch = n.children().count();
                     write!(f, "<{} attrs={} children={}>", name, attrs, ch)
                 }
                 NodeKind::Attribute => {
-                    let name =
-                        n.name().map(|q| qname_to_string(&q)).unwrap_or_else(|| "?".to_string());
+                    let name = n.name().map(|q| qname_to_string(&q)).unwrap_or_else(|| "?".to_string());
                     let val = clip(&n.string_value());
                     write!(f, "@{}=\"{}\"", name, val)
                 }
@@ -641,11 +633,7 @@ impl<'a, N: XdmNode> fmt::Display for PrettyNodeItem<'a, N> {
                 NodeKind::ProcessingInstruction => {
                     let target = n.name().map(|q| q.local).unwrap_or_else(|| "".to_string());
                     let data = clip(&n.string_value());
-                    if target.is_empty() {
-                        write!(f, "<?{}?>", data)
-                    } else {
-                        write!(f, "<?{} {}?>", target, data)
-                    }
+                    if target.is_empty() { write!(f, "<?{}?>", data) } else { write!(f, "<?{} {}?>", target, data) }
                 }
                 NodeKind::Namespace => {
                     let prefix = n.name().and_then(|q| q.prefix).unwrap_or_default();

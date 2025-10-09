@@ -40,8 +40,7 @@ fn streaming_subsequence_from_range() {
     let dyn_ctx = DynamicContextBuilder::<N>::default().build();
 
     // subsequence should stream without materializing full range
-    let compiled =
-        compile_with_context("subsequence(1 to 999999999, 500, 10)", &static_ctx).unwrap();
+    let compiled = compile_with_context("subsequence(1 to 999999999, 500, 10)", &static_ctx).unwrap();
     let results = evaluate_stream(&compiled, &dyn_ctx).unwrap().materialize().unwrap();
 
     assert_eq!(results.len(), 10);

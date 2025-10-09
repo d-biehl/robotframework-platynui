@@ -180,8 +180,7 @@ fn remove_from_empty_sequence() {
 #[test]
 fn combined_insert_remove() {
     let ctx = DynamicContextBuilder::default().build();
-    let result =
-        evaluate_expr::<SimpleNode>("remove(insert-before((1, 3), 2, (2)), 4)", &ctx).unwrap();
+    let result = evaluate_expr::<SimpleNode>("remove(insert-before((1, 3), 2, (2)), 4)", &ctx).unwrap();
 
     // insert-before gives (1, 2, 3), remove position 4 (out of bounds) → (1, 2, 3)
     assert_eq!(result.len(), 3);
@@ -190,9 +189,7 @@ fn combined_insert_remove() {
 #[test]
 fn combined_remove_insert() {
     let ctx = DynamicContextBuilder::default().build();
-    let result =
-        evaluate_expr::<SimpleNode>("insert-before(remove((1, 2, 3, 4), 2), 2, (2))", &ctx)
-            .unwrap();
+    let result = evaluate_expr::<SimpleNode>("insert-before(remove((1, 2, 3, 4), 2), 2, (2))", &ctx).unwrap();
 
     // remove gives (1, 3, 4), insert-before at pos 2 → (1, 2, 3, 4)
     assert_eq!(result.len(), 4);
@@ -201,8 +198,7 @@ fn combined_remove_insert() {
 #[test]
 fn combined_count_insert_before() {
     let ctx = DynamicContextBuilder::default().build();
-    let result =
-        evaluate_expr::<SimpleNode>("count(insert-before(1 to 100, 50, (999)))", &ctx).unwrap();
+    let result = evaluate_expr::<SimpleNode>("count(insert-before(1 to 100, 50, (999)))", &ctx).unwrap();
 
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::Integer(count)) => assert_eq!(*count, 101),

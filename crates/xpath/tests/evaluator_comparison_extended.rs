@@ -27,10 +27,7 @@ fn eval_bool(expr: &str) -> bool {
 #[case("(xs:date('2024-01-01Z')) > (xs:date('2024-01-02Z'))", false)]
 #[case("(xs:time('18:00:00Z')) > (xs:time('17:59:59Z'))", true)]
 #[case("(xs:time('12:00:00Z')) > (xs:time('18:00:00Z'))", false)]
-#[case(
-    "(xs:dayTimeDuration('PT3H'), xs:dayTimeDuration('PT1H')) > (xs:dayTimeDuration('PT2H'))",
-    true
-)]
+#[case("(xs:dayTimeDuration('PT3H'), xs:dayTimeDuration('PT1H')) > (xs:dayTimeDuration('PT2H'))", true)]
 #[case("(xs:yearMonthDuration('P3Y')) > (xs:yearMonthDuration('P5Y'))", false)]
 fn general_gt_matrix(#[case] expr: &str, #[case] expect: bool) {
     assert_eq!(eval_bool(expr), expect, "expr={expr}");
@@ -109,10 +106,5 @@ fn value_ge(#[case] expr: &str, #[case] expect: bool) {
 #[case("false() ge false()")]
 fn boolean_relational_errors(#[case] expr: &str) {
     let err = evaluate_expr::<N>(expr, &ctx()).expect_err("expected error");
-    assert_eq!(
-        err.code_enum(),
-        ErrorCode::XPTY0004,
-        "expected XPTY0004, got {:?}",
-        err.code_qname()
-    );
+    assert_eq!(err.code_enum(), ErrorCode::XPTY0004, "expected XPTY0004, got {:?}", err.code_qname());
 }

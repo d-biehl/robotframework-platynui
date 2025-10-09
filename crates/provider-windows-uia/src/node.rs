@@ -35,14 +35,13 @@ impl WaitForInputIdleChecker {
         }
 
         // Open process handle with query rights
-        let process_handle =
-            match unsafe { OpenProcess(PROCESS_QUERY_INFORMATION, false, self.pid as u32) } {
-                Ok(handle) => handle,
-                Err(_) => {
-                    // Process might not be accessible or doesn't exist anymore
-                    return Ok(Some(false));
-                }
-            };
+        let process_handle = match unsafe { OpenProcess(PROCESS_QUERY_INFORMATION, false, self.pid as u32) } {
+            Ok(handle) => handle,
+            Err(_) => {
+                // Process might not be accessible or doesn't exist anymore
+                return Ok(Some(false));
+            }
+        };
 
         // Call WaitForInputIdle with a short timeout (100ms)
         let result = unsafe { WaitForInputIdle(process_handle, 100) };
@@ -119,13 +118,11 @@ impl UiaNode {
 impl UiNode for UiaNode {
     fn namespace(&self) -> Namespace {
         unsafe {
-            let is_control =
-                self.elem.CurrentIsControlElement().map(|b| b.as_bool()).unwrap_or(true);
+            let is_control = self.elem.CurrentIsControlElement().map(|b| b.as_bool()).unwrap_or(true);
             if is_control {
                 return Namespace::Control;
             }
-            let is_content =
-                self.elem.CurrentIsContentElement().map(|b| b.as_bool()).unwrap_or(false);
+            let is_content = self.elem.CurrentIsContentElement().map(|b| b.as_bool()).unwrap_or(false);
             if is_content { Namespace::Item } else { Namespace::Control }
         }
     }
@@ -138,8 +135,7 @@ impl UiNode for UiaNode {
     }
     fn runtime_id(&self) -> &RuntimeId {
         self.rid_cell.get_or_init(|| {
-            let s =
-                crate::map::format_runtime_id(&self.elem).unwrap_or_else(|_| "uia://temp".into());
+            let s = crate::map::format_runtime_id(&self.elem).unwrap_or_else(|_| "uia://temp".into());
             RuntimeId::from(s)
         })
     }
@@ -153,9 +149,7 @@ impl UiNode for UiaNode {
         // Ensure a virtualized item is realized before enumerating its children.
         self.try_realize();
         match self.as_ui_node() {
-            Some(parent_arc) => {
-                Box::new(ElementChildrenIter::new(self.elem.clone(), Some(parent_arc)))
-            }
+            Some(parent_arc) => Box::new(ElementChildrenIter::new(self.elem.clone(), Some(parent_arc))),
             None => Box::new(std::iter::empty::<Arc<dyn UiNode>>()),
         }
     }
@@ -167,10 +161,8 @@ impl UiNode for UiaNode {
         use windows::Win32::UI::Accessibility::*;
         let mut out = vec![FocusableAction::static_id()];
         let (has_window, has_transform) = unsafe {
-            let has_window =
-                self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)).is_ok();
-            let has_transform =
-                self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)).is_ok();
+            let has_window = self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)).is_ok();
+            let has_transform = self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)).is_ok();
             (has_window, has_transform)
         };
         if has_window || has_transform {
@@ -191,19 +183,15 @@ impl UiNode for UiaNode {
             unsafe impl Sync for ElemSend {}
             impl ElemSend {
                 unsafe fn set_focus(&self) -> Result<(), crate::error::UiaError> {
-                    crate::error::uia_api("IUIAutomationElement::SetFocus", unsafe {
-                        self.elem.SetFocus()
-                    })
+                    crate::error::uia_api("IUIAutomationElement::SetFocus", unsafe { self.elem.SetFocus() })
                 }
             }
             let es = ElemSend { elem: self.elem.clone() };
             let action = FocusableAction::new(move || unsafe {
                 // If the element is virtualized, try to realize before focusing.
-                if let Ok(unk) =
-                    es.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                        windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
-                    ))
-                {
+                if let Ok(unk) = es.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                    windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
+                )) {
                     if let Ok(vpat) = unk.cast::<IUIAutomationVirtualizedItemPattern>() {
                         let _ = vpat.Realize();
                     }
@@ -220,69 +208,39 @@ impl UiNode for UiaNode {
             unsafe impl Send for ElemSend {}
             unsafe impl Sync for ElemSend {}
             impl ElemSend {
-                unsafe fn window_set_state(
-                    &self,
-                    state: WindowVisualState,
-                ) -> Result<(), crate::error::UiaError> {
-                    let unk = crate::error::uia_api(
-                        "IUIAutomationElement::GetCurrentPattern(Window)",
-                        unsafe {
-                            self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
-                        },
-                    )?;
+                unsafe fn window_set_state(&self, state: WindowVisualState) -> Result<(), crate::error::UiaError> {
+                    let unk = crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Window)", unsafe {
+                        self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
+                    })?;
                     let pat: IUIAutomationWindowPattern =
                         crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
-                    crate::error::uia_api(
-                        "IUIAutomationWindowPattern::SetWindowVisualState",
-                        unsafe { pat.SetWindowVisualState(state) },
-                    )
+                    crate::error::uia_api("IUIAutomationWindowPattern::SetWindowVisualState", unsafe {
+                        pat.SetWindowVisualState(state)
+                    })
                 }
                 unsafe fn window_close(&self) -> Result<(), crate::error::UiaError> {
-                    let unk = crate::error::uia_api(
-                        "IUIAutomationElement::GetCurrentPattern(Window)",
-                        unsafe {
-                            self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
-                        },
-                    )?;
+                    let unk = crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Window)", unsafe {
+                        self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
+                    })?;
                     let pat: IUIAutomationWindowPattern =
                         crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
-                    crate::error::uia_api("IUIAutomationWindowPattern::Close", unsafe {
-                        pat.Close()
-                    })
+                    crate::error::uia_api("IUIAutomationWindowPattern::Close", unsafe { pat.Close() })
                 }
-                unsafe fn transform_move(
-                    &self,
-                    x: f64,
-                    y: f64,
-                ) -> Result<(), crate::error::UiaError> {
-                    let unk = crate::error::uia_api(
-                        "IUIAutomationElement::GetCurrentPattern(Transform)",
-                        unsafe {
-                            self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
-                        },
-                    )?;
+                unsafe fn transform_move(&self, x: f64, y: f64) -> Result<(), crate::error::UiaError> {
+                    let unk = crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Transform)", unsafe {
+                        self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
+                    })?;
                     let pat: IUIAutomationTransformPattern =
                         crate::error::uia_api("IUnknown::cast(TransformPattern)", unk.cast())?;
-                    crate::error::uia_api("IUIAutomationTransformPattern::Move", unsafe {
-                        pat.Move(x, y)
-                    })
+                    crate::error::uia_api("IUIAutomationTransformPattern::Move", unsafe { pat.Move(x, y) })
                 }
-                unsafe fn transform_resize(
-                    &self,
-                    w: f64,
-                    h: f64,
-                ) -> Result<(), crate::error::UiaError> {
-                    let unk = crate::error::uia_api(
-                        "IUIAutomationElement::GetCurrentPattern(Transform)",
-                        unsafe {
-                            self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
-                        },
-                    )?;
+                unsafe fn transform_resize(&self, w: f64, h: f64) -> Result<(), crate::error::UiaError> {
+                    let unk = crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Transform)", unsafe {
+                        self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
+                    })?;
                     let pat: IUIAutomationTransformPattern =
                         crate::error::uia_api("IUnknown::cast(TransformPattern)", unk.cast())?;
-                    crate::error::uia_api("IUIAutomationTransformPattern::Resize", unsafe {
-                        pat.Resize(w, h)
-                    })
+                    crate::error::uia_api("IUIAutomationTransformPattern::Resize", unsafe { pat.Resize(w, h) })
                 }
             }
             let e1 = ElemSend { elem: self.elem.clone() };
@@ -313,33 +271,23 @@ impl UiNode for UiaNode {
             };
             let actions = WindowSurfaceActions::new()
                 .with_activate(move || unsafe {
-                    e1.window_set_state(WindowVisualState_Normal)
-                        .map_err(|e| PatternError::new(e.to_string()))
+                    e1.window_set_state(WindowVisualState_Normal).map_err(|e| PatternError::new(e.to_string()))
                 })
                 .with_minimize(move || unsafe {
-                    e2.window_set_state(WindowVisualState_Minimized)
-                        .map_err(|e| PatternError::new(e.to_string()))
+                    e2.window_set_state(WindowVisualState_Minimized).map_err(|e| PatternError::new(e.to_string()))
                 })
                 .with_maximize(move || unsafe {
-                    e3.window_set_state(WindowVisualState_Maximized)
-                        .map_err(|e| PatternError::new(e.to_string()))
+                    e3.window_set_state(WindowVisualState_Maximized).map_err(|e| PatternError::new(e.to_string()))
                 })
                 .with_restore(move || unsafe {
-                    e4.window_set_state(WindowVisualState_Normal)
-                        .map_err(|e| PatternError::new(e.to_string()))
+                    e4.window_set_state(WindowVisualState_Normal).map_err(|e| PatternError::new(e.to_string()))
                 })
-                .with_close(move || unsafe {
-                    e5.window_close().map_err(|e| PatternError::new(e.to_string()))
-                })
+                .with_close(move || unsafe { e5.window_close().map_err(|e| PatternError::new(e.to_string())) })
                 .with_move_to(move |p| unsafe {
-                    e_move
-                        .transform_move(p.x(), p.y())
-                        .map_err(|e| PatternError::new(e.to_string()))
+                    e_move.transform_move(p.x(), p.y()).map_err(|e| PatternError::new(e.to_string()))
                 })
                 .with_resize(move |s| unsafe {
-                    e_resize
-                        .transform_resize(s.width(), s.height())
-                        .map_err(|e| PatternError::new(e.to_string()))
+                    e_resize.transform_resize(s.width(), s.height()).map_err(|e| PatternError::new(e.to_string()))
                 })
                 .with_accepts_user_input(check_input_idle);
             return Some(Arc::new(actions) as Arc<dyn UiPattern>);
@@ -386,11 +334,9 @@ impl Iterator for ElementChildrenIter {
         let elem = self.current.as_ref()?.clone();
         // Best-effort: if the child is virtualized, realize it before wrapping.
         unsafe {
-            if let Ok(unk) =
-                elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                    windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
-                ))
-            {
+            if let Ok(unk) = elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
+            )) {
                 if let Ok(vpat) = unk.cast::<IUIAutomationVirtualizedItemPattern>() {
                     let _ = vpat.Realize();
                 }
@@ -416,9 +362,7 @@ impl UiAttribute for RoleAttr {
         "Role"
     }
     fn value(&self) -> UiValue {
-        UiValue::from(crate::map::control_type_to_role(
-            crate::map::get_control_type(&self.elem).unwrap_or(0),
-        ))
+        UiValue::from(crate::map::control_type_to_role(crate::map::get_control_type(&self.elem).unwrap_or(0)))
     }
 }
 unsafe impl Send for RoleAttr {}
@@ -452,9 +396,7 @@ impl UiAttribute for RuntimeIdAttr {
         "RuntimeId"
     }
     fn value(&self) -> UiValue {
-        UiValue::from(
-            crate::map::format_runtime_id(&self.elem).unwrap_or_else(|_| "uia://temp".into()),
-        )
+        UiValue::from(crate::map::format_runtime_id(&self.elem).unwrap_or_else(|_| "uia://temp".into()))
     }
 }
 unsafe impl Send for RuntimeIdAttr {}
@@ -471,9 +413,7 @@ impl UiAttribute for BoundsAttr {
         "Bounds"
     }
     fn value(&self) -> UiValue {
-        UiValue::from(
-            crate::map::get_bounding_rect(&self.elem).unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0)),
-        )
+        UiValue::from(crate::map::get_bounding_rect(&self.elem).unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0)))
     }
 }
 unsafe impl Send for BoundsAttr {}
@@ -525,8 +465,7 @@ impl UiAttribute for ActivationPointAttr {
     }
     fn value(&self) -> UiValue {
         let p = crate::map::get_clickable_point(&self.elem).ok().unwrap_or_else(|| {
-            let r =
-                crate::map::get_bounding_rect(&self.elem).unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+            let r = crate::map::get_bounding_rect(&self.elem).unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
             UiPoint::new(r.x() + r.width() / 2.0, r.y() + r.height() / 2.0)
         });
         UiValue::from(p)
@@ -598,8 +537,7 @@ impl AttrsIter {
         use windows::Win32::UI::Accessibility::*;
         let has_window_surface = unsafe {
             let has_window = elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)).is_ok();
-            let has_transform =
-                elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)).is_ok();
+            let has_transform = elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)).is_ok();
             has_window || has_transform
         };
         Self { idx: 0, elem, has_window_surface, native_cache: None, native_pos: 0 }
@@ -615,26 +553,21 @@ impl Iterator for AttrsIter {
                 1 => Some(Arc::new(NameAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 2 => Some(Arc::new(RuntimeIdAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 3 => Some(Arc::new(BoundsAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                4 => {
-                    Some(Arc::new(ActivationPointAttr { elem: elem.clone() })
-                        as Arc<dyn UiAttribute>)
-                }
+                4 => Some(Arc::new(ActivationPointAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 5 => Some(Arc::new(IsEnabledAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 6 => Some(Arc::new(IsOffscreenAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 7 => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 8 => Some(Arc::new(IsFocusedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 9 => {
                     if self.has_window_surface {
-                        Some(Arc::new(IsMinimizedAttr { elem: elem.clone() })
-                            as Arc<dyn UiAttribute>)
+                        Some(Arc::new(IsMinimizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
                 10 => {
                     if self.has_window_surface {
-                        Some(Arc::new(IsMaximizedAttr { elem: elem.clone() })
-                            as Arc<dyn UiAttribute>)
+                        Some(Arc::new(IsMaximizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
@@ -648,24 +581,21 @@ impl Iterator for AttrsIter {
                 }
                 12 => {
                     if self.has_window_surface {
-                        Some(Arc::new(SupportsMoveAttr { elem: elem.clone() })
-                            as Arc<dyn UiAttribute>)
+                        Some(Arc::new(SupportsMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
                 13 => {
                     if self.has_window_surface {
-                        Some(Arc::new(SupportsResizeAttr { elem: elem.clone() })
-                            as Arc<dyn UiAttribute>)
+                        Some(Arc::new(SupportsResizeAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
                 14 => {
                     if self.has_window_surface {
-                        Some(Arc::new(AcceptsUserInputAttr { elem: elem.clone() })
-                            as Arc<dyn UiAttribute>)
+                        Some(Arc::new(AcceptsUserInputAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
@@ -676,9 +606,7 @@ impl Iterator for AttrsIter {
                         let pairs = crate::map::collect_native_properties(&elem);
                         let attrs: Vec<Arc<dyn UiAttribute>> = pairs
                             .into_iter()
-                            .map(|(name, value)| {
-                                Arc::new(NativePropAttr { name, value }) as Arc<dyn UiAttribute>
-                            })
+                            .map(|(name, value)| Arc::new(NativePropAttr { name, value }) as Arc<dyn UiAttribute>)
                             .collect();
                         self.native_cache = Some(attrs);
                         self.native_pos = 0;
@@ -713,12 +641,7 @@ impl Iterator for AttrsIter {
                         // No native props at all
                         return None;
                     }
-                    if self.idx > 15
-                        && self
-                            .native_cache
-                            .as_ref()
-                            .map(|v| self.native_pos >= v.len())
-                            .unwrap_or(false)
+                    if self.idx > 15 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false)
                     {
                         return None;
                     }
@@ -742,10 +665,9 @@ impl UiAttribute for IsFocusedAttr {
     }
     fn value(&self) -> UiValue {
         let result = (|| -> Result<bool, crate::error::UiaError> {
-            let v =
-                crate::error::uia_api("IUIAutomationElement::CurrentHasKeyboardFocus", unsafe {
-                    self.elem.CurrentHasKeyboardFocus()
-                })?;
+            let v = crate::error::uia_api("IUIAutomationElement::CurrentHasKeyboardFocus", unsafe {
+                self.elem.CurrentHasKeyboardFocus()
+            })?;
             Ok(v.as_bool())
         })();
         UiValue::from(result.unwrap_or(false))
@@ -840,9 +762,7 @@ impl UiAttribute for AppExecutablePathAttr {
     }
     fn value(&self) -> UiValue {
         if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_executable_path(h)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::from(""));
+            let out = crate::map::query_executable_path(h).map(UiValue::from).unwrap_or(UiValue::from(""));
             unsafe {
                 let _ = CloseHandle(h);
             }
@@ -864,9 +784,7 @@ impl UiAttribute for AppCommandLineAttr {
     }
     fn value(&self) -> UiValue {
         if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_process_command_line(h)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null);
+            let out = crate::map::query_process_command_line(h).map(UiValue::from).unwrap_or(UiValue::Null);
             unsafe {
                 let _ = CloseHandle(h);
             }
@@ -888,9 +806,7 @@ impl UiAttribute for AppUserNameAttr {
     }
     fn value(&self) -> UiValue {
         if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_process_username(h)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::from(""));
+            let out = crate::map::query_process_username(h).map(UiValue::from).unwrap_or(UiValue::from(""));
             unsafe {
                 let _ = CloseHandle(h);
             }
@@ -912,9 +828,7 @@ impl UiAttribute for AppStartTimeAttr {
     }
     fn value(&self) -> UiValue {
         if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_process_start_time_iso8601(h)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::from(""));
+            let out = crate::map::query_process_start_time_iso8601(h).map(UiValue::from).unwrap_or(UiValue::from(""));
             unsafe {
                 let _ = CloseHandle(h);
             }
@@ -944,9 +858,7 @@ impl UiAttribute for AppArchitectureAttr {
                     return UiValue::from(a);
                 }
             }
-            let out = crate::map::process_architecture(h)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::from("unknown"));
+            let out = crate::map::process_architecture(h).map(UiValue::from).unwrap_or(UiValue::from("unknown"));
             unsafe {
                 let _ = CloseHandle(h);
             }
@@ -999,18 +911,15 @@ impl UiAttribute for IsMinimizedAttr {
     fn value(&self) -> UiValue {
         // Default false on errors/missing pattern
         let result = (|| -> Result<bool, crate::error::UiaError> {
-            let unk =
-                crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Window)", unsafe {
-                    self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                        windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
-                    ))
-                })?;
-            let pat: IUIAutomationWindowPattern =
-                crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
-            let state = crate::error::uia_api(
-                "IUIAutomationWindowPattern::CurrentWindowVisualState",
-                unsafe { pat.CurrentWindowVisualState() },
-            )?;
+            let unk = crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Window)", unsafe {
+                self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                    windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
+                ))
+            })?;
+            let pat: IUIAutomationWindowPattern = crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
+            let state = crate::error::uia_api("IUIAutomationWindowPattern::CurrentWindowVisualState", unsafe {
+                pat.CurrentWindowVisualState()
+            })?;
             Ok(state == WindowVisualState_Minimized)
         })();
         UiValue::from(result.unwrap_or(false))
@@ -1031,18 +940,15 @@ impl UiAttribute for IsMaximizedAttr {
     }
     fn value(&self) -> UiValue {
         let result = (|| -> Result<bool, crate::error::UiaError> {
-            let unk =
-                crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Window)", unsafe {
-                    self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                        windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
-                    ))
-                })?;
-            let pat: IUIAutomationWindowPattern =
-                crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
-            let state = crate::error::uia_api(
-                "IUIAutomationWindowPattern::CurrentWindowVisualState",
-                unsafe { pat.CurrentWindowVisualState() },
-            )?;
+            let unk = crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Window)", unsafe {
+                self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                    windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
+                ))
+            })?;
+            let pat: IUIAutomationWindowPattern = crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
+            let state = crate::error::uia_api("IUIAutomationWindowPattern::CurrentWindowVisualState", unsafe {
+                pat.CurrentWindowVisualState()
+            })?;
             Ok(state == WindowVisualState_Maximized)
         })();
         UiValue::from(result.unwrap_or(false))
@@ -1063,18 +969,15 @@ impl UiAttribute for IsTopmostAttr {
     }
     fn value(&self) -> UiValue {
         let result = (|| -> Result<bool, crate::error::UiaError> {
-            let unk =
-                crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Window)", unsafe {
-                    self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                        windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
-                    ))
-                })?;
-            let pat: IUIAutomationWindowPattern =
-                crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
-            let v =
-                crate::error::uia_api("IUIAutomationWindowPattern::CurrentIsTopmost", unsafe {
-                    pat.CurrentIsTopmost()
-                })?;
+            let unk = crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Window)", unsafe {
+                self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                    windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
+                ))
+            })?;
+            let pat: IUIAutomationWindowPattern = crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
+            let v = crate::error::uia_api("IUIAutomationWindowPattern::CurrentIsTopmost", unsafe {
+                pat.CurrentIsTopmost()
+            })?;
             Ok(v.as_bool())
         })();
         UiValue::from(result.unwrap_or(false))
@@ -1095,20 +998,16 @@ impl UiAttribute for SupportsMoveAttr {
     }
     fn value(&self) -> UiValue {
         let result = (|| -> Result<bool, crate::error::UiaError> {
-            let unk = crate::error::uia_api(
-                "IUIAutomationElement::GetCurrentPattern(Transform)",
-                unsafe {
-                    self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                        windows::Win32::UI::Accessibility::UIA_TransformPatternId.0,
-                    ))
-                },
-            )?;
+            let unk = crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Transform)", unsafe {
+                self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                    windows::Win32::UI::Accessibility::UIA_TransformPatternId.0,
+                ))
+            })?;
             let pat: IUIAutomationTransformPattern =
                 crate::error::uia_api("IUnknown::cast(TransformPattern)", unk.cast())?;
-            let v =
-                crate::error::uia_api("IUIAutomationTransformPattern::CurrentCanMove", unsafe {
-                    pat.CurrentCanMove()
-                })?;
+            let v = crate::error::uia_api("IUIAutomationTransformPattern::CurrentCanMove", unsafe {
+                pat.CurrentCanMove()
+            })?;
             Ok(v.as_bool())
         })();
         UiValue::from(result.unwrap_or(false))
@@ -1129,20 +1028,16 @@ impl UiAttribute for SupportsResizeAttr {
     }
     fn value(&self) -> UiValue {
         let result = (|| -> Result<bool, crate::error::UiaError> {
-            let unk = crate::error::uia_api(
-                "IUIAutomationElement::GetCurrentPattern(Transform)",
-                unsafe {
-                    self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                        windows::Win32::UI::Accessibility::UIA_TransformPatternId.0,
-                    ))
-                },
-            )?;
+            let unk = crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Transform)", unsafe {
+                self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                    windows::Win32::UI::Accessibility::UIA_TransformPatternId.0,
+                ))
+            })?;
             let pat: IUIAutomationTransformPattern =
                 crate::error::uia_api("IUnknown::cast(TransformPattern)", unk.cast())?;
-            let v =
-                crate::error::uia_api("IUIAutomationTransformPattern::CurrentCanResize", unsafe {
-                    pat.CurrentCanResize()
-                })?;
+            let v = crate::error::uia_api("IUIAutomationTransformPattern::CurrentCanResize", unsafe {
+                pat.CurrentCanResize()
+            })?;
             Ok(v.as_bool())
         })();
         UiValue::from(result.unwrap_or(false))
@@ -1261,13 +1156,7 @@ impl UiNode for ApplicationNode {
         }
         unsafe impl Send for AppWindowsIter {}
         let parent = self.self_weak.get().and_then(|w| w.upgrade());
-        Box::new(AppWindowsIter {
-            root: self.root.clone(),
-            current: None,
-            first: true,
-            parent,
-            pid: self.pid,
-        })
+        Box::new(AppWindowsIter { root: self.root.clone(), current: None, first: true, parent, pid: self.pid })
     }
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         Box::new(AppAttrsIter::new(self.pid, self.runtime_id().as_str()))

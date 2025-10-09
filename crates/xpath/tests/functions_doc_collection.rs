@@ -14,10 +14,7 @@ impl NodeResolver<N> for TestNodeResolver {
             _ => None,
         })
     }
-    fn collection_nodes(
-        &self,
-        uri: Option<&str>,
-    ) -> Result<Vec<N>, platynui_xpath::engine::runtime::Error> {
+    fn collection_nodes(&self, uri: Option<&str>) -> Result<Vec<N>, platynui_xpath::engine::runtime::Error> {
         let mut v = Vec::new();
         if uri == Some("urn:col") || uri.is_none() {
             v.push(sdoc().child(elem("a")).build());

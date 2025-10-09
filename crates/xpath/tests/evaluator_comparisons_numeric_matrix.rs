@@ -12,11 +12,7 @@ fn ctx() -> C {
 
 fn bool_of(expr: &str) -> bool {
     let seq = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap();
-    if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.first() {
-        *b
-    } else {
-        panic!("expected boolean")
-    }
+    if let Some(XdmItem::Atomic(XdmAtomicValue::Boolean(b))) = seq.first() { *b } else { panic!("expected boolean") }
 }
 
 fn assert_xpath_true(expr: &str) {

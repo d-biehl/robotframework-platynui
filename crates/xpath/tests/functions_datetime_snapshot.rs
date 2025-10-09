@@ -1,21 +1,11 @@
 use chrono::{FixedOffset, TimeZone};
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
-use platynui_xpath::{
-    engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A, xdm::XdmItem as I,
-};
+use platynui_xpath::{engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A, xdm::XdmItem as I};
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
 
-fn dt(
-    y: i32,
-    mo: u32,
-    d: u32,
-    h: u32,
-    mi: u32,
-    s: u32,
-    offset_min: i32,
-) -> chrono::DateTime<FixedOffset> {
+fn dt(y: i32, mo: u32, d: u32, h: u32, mi: u32, s: u32, offset_min: i32) -> chrono::DateTime<FixedOffset> {
     let tz = FixedOffset::east_opt(offset_min * 60).unwrap();
     tz.with_ymd_and_hms(y, mo, d, h, mi, s).unwrap()
 }

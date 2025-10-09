@@ -114,11 +114,7 @@ mod tests {
     #[test]
     fn registration_exposes_provider() {
         let providers: Vec<_> = screenshot_providers().collect();
-        assert!(
-            providers
-                .iter()
-                .any(|provider| { provider.capture(&ScreenshotRequest::entire_display()).is_ok() })
-        );
+        assert!(providers.iter().any(|provider| { provider.capture(&ScreenshotRequest::entire_display()).is_ok() }));
     }
 
     #[test]

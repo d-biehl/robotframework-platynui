@@ -22,10 +22,7 @@ pub fn compile(expr: &str) -> Result<ir::CompiledXPath, Error> {
 }
 
 /// Compile with an explicitly provided StaticContext
-pub fn compile_with_context(
-    expr: &str,
-    static_ctx: &StaticContext,
-) -> Result<ir::CompiledXPath, Error> {
+pub fn compile_with_context(expr: &str, static_ctx: &StaticContext) -> Result<ir::CompiledXPath, Error> {
     compile_inner(expr, static_ctx)
 }
 
@@ -74,12 +71,7 @@ type CResult<T> = Result<T, Error>;
 impl<'a> Compiler<'a> {
     fn new(static_ctx: &'a StaticContext, source: &'a str) -> Self {
         let reserve = std::cmp::max(32, source.len() / 2);
-        Self {
-            static_ctx,
-            source,
-            code: Vec::with_capacity(reserve),
-            lexical_scopes: SmallVec::new(),
-        }
+        Self { static_ctx, source, code: Vec::with_capacity(reserve), lexical_scopes: SmallVec::new() }
     }
 
     fn fork(&self) -> Self {
@@ -166,11 +158,7 @@ impl<'a> Compiler<'a> {
                 let param_specs = self
                     .static_ctx
                     .function_signatures
-                    .param_types_for_call(
-                        &en,
-                        args.len(),
-                        self.static_ctx.default_function_namespace.as_deref(),
-                    )
+                    .param_types_for_call(&en, args.len(), self.static_ctx.default_function_namespace.as_deref())
                     .map(|kinds| kinds.to_vec());
                 for (idx, a) in args.iter().enumerate() {
                     self.lower_expr(a)?;
@@ -229,8 +217,7 @@ impl<'a> Compiler<'a> {
 
                         // Patch jumps
                         let jump_if_false_offset = false_label - jump_if_false_pos - 1;
-                        self.code[jump_if_false_pos] =
-                            ir::OpCode::JumpIfFalse(jump_if_false_offset);
+                        self.code[jump_if_false_pos] = ir::OpCode::JumpIfFalse(jump_if_false_offset);
 
                         let jump_to_end_offset = end_label - jump_to_end_pos - 1;
                         self.code[jump_to_end_pos] = ir::OpCode::Jump(jump_to_end_offset);
@@ -457,17 +444,13 @@ impl<'a> Compiler<'a> {
         Ok(v)
     }
 
-    fn lower_for_chain(
-        &mut self,
-        bindings: &[ast::ForBinding],
-        return_expr: &ast::Expr,
-    ) -> CResult<()> {
+    fn lower_for_chain(&mut self, bindings: &[ast::ForBinding], return_expr: &ast::Expr) -> CResult<()> {
         if bindings.is_empty() {
             return self.lower_expr(return_expr);
         }
-        let (first, rest) = bindings.split_first().ok_or_else(|| {
-            Error::from_code(ErrorCode::XPST0003, "for expression requires binding")
-        })?;
+        let (first, rest) = bindings
+            .split_first()
+            .ok_or_else(|| Error::from_code(ErrorCode::XPST0003, "for expression requires binding"))?;
 
         self.lower_expr(&first.in_expr)?;
         let var = self.to_expanded(&first.var);
@@ -493,9 +476,9 @@ impl<'a> Compiler<'a> {
         if bindings.is_empty() {
             return Ok(());
         }
-        let (first, rest) = bindings.split_first().ok_or_else(|| {
-            Error::from_code(ErrorCode::XPST0003, "quantified expression requires binding")
-        })?;
+        let (first, rest) = bindings
+            .split_first()
+            .ok_or_else(|| Error::from_code(ErrorCode::XPST0003, "quantified expression requires binding"))?;
 
         self.lower_expr(&first.in_expr)?;
         let var = self.to_expanded(&first.var);
@@ -523,11 +506,7 @@ impl<'a> Compiler<'a> {
                 self.load_context_item("root descendant path expression")?;
                 self.emit(ir::OpCode::Pop);
                 self.emit(ir::OpCode::ToRoot);
-                self.emit(ir::OpCode::AxisStep(
-                    ir::AxisIR::DescendantOrSelf,
-                    ir::NodeTestIR::AnyKind,
-                    vec![],
-                ));
+                self.emit(ir::OpCode::AxisStep(ir::AxisIR::DescendantOrSelf, ir::NodeTestIR::AnyKind, vec![]));
             }
             ast::PathStart::Relative => {
                 if let Some(b) = base {
@@ -559,8 +538,7 @@ impl<'a> Compiler<'a> {
                         | ir::AxisIR::DescendantOrSelf
                         | ir::AxisIR::Following
                         | ir::AxisIR::FollowingSibling => self.emit(ir::OpCode::EnsureDistinct),
-                        ir::AxisIR::Attribute | ir::AxisIR::Namespace => { /* no normalization needed */
-                        }
+                        ir::AxisIR::Attribute | ir::AxisIR::Namespace => { /* no normalization needed */ }
                         // Reverse axes need both: order and distinct
                         ir::AxisIR::Parent
                         | ir::AxisIR::Ancestor
@@ -611,11 +589,7 @@ impl<'a> Compiler<'a> {
             && self.static_ctx.default_element_namespace.is_some()
     }
 
-    fn map_node_test_checked(
-        &self,
-        t: &ast::NodeTest,
-        axis: &ir::AxisIR,
-    ) -> CResult<ir::NodeTestIR> {
+    fn map_node_test_checked(&self, t: &ast::NodeTest, axis: &ir::AxisIR) -> CResult<ir::NodeTestIR> {
         Ok(match t {
             ast::NodeTest::Name(nt) => match nt {
                 ast::NameTest::QName(q) => {
@@ -632,13 +606,8 @@ impl<'a> Compiler<'a> {
                 ast::NameTest::Wildcard(w) => match w {
                     ast::WildcardName::Any => ir::NodeTestIR::WildcardAny,
                     ast::WildcardName::NsWildcard(prefix) => {
-                        let uri = self
-                            .static_ctx
-                            .namespaces
-                            .by_prefix
-                            .get(prefix)
-                            .cloned()
-                            .unwrap_or_else(|| prefix.clone());
+                        let uri =
+                            self.static_ctx.namespaces.by_prefix.get(prefix).cloned().unwrap_or_else(|| prefix.clone());
                         ir::NodeTestIR::NsWildcard(DefaultAtom::from(uri.as_str()))
                     }
                     ast::WildcardName::LocalWildcard(loc) => {
@@ -686,9 +655,7 @@ impl<'a> Compiler<'a> {
         use ast::KindTest as K;
         match k {
             K::AnyKind => ir::NodeTestIR::AnyKind,
-            K::Document(inner) => ir::NodeTestIR::KindDocument(
-                inner.as_ref().map(|b| Box::new(self.map_kind_test(b))),
-            ),
+            K::Document(inner) => ir::NodeTestIR::KindDocument(inner.as_ref().map(|b| Box::new(self.map_kind_test(b)))),
             K::Text => ir::NodeTestIR::KindText,
             K::Comment => ir::NodeTestIR::KindComment,
             K::ProcessingInstruction(opt) => ir::NodeTestIR::KindProcessingInstruction(opt.clone()),
@@ -708,9 +675,7 @@ impl<'a> Compiler<'a> {
                 }),
                 ty: ty.as_ref().map(|t| {
                     let mut expanded = self.to_expanded(&t.0);
-                    if expanded.ns_uri.is_none()
-                        && self.static_ctx.default_element_namespace.is_some()
-                    {
+                    if expanded.ns_uri.is_none() && self.static_ctx.default_element_namespace.is_some() {
                         expanded.ns_uri = self.static_ctx.default_element_namespace.clone();
                     }
                     expanded
@@ -720,9 +685,9 @@ impl<'a> Compiler<'a> {
             K::Attribute { name, ty } => ir::NodeTestIR::KindAttribute {
                 name: name.as_ref().map(|n| match n {
                     ast::AttributeNameOrWildcard::Any => ir::NameOrWildcard::Any,
-                    ast::AttributeNameOrWildcard::Name(q) => ir::NameOrWildcard::Name(
-                        ir::InternedQName::from_expanded(self.to_expanded(q)),
-                    ),
+                    ast::AttributeNameOrWildcard::Name(q) => {
+                        ir::NameOrWildcard::Name(ir::InternedQName::from_expanded(self.to_expanded(q)))
+                    }
                 }),
                 ty: ty.as_ref().map(|t| self.to_expanded(&t.0)),
             },
@@ -755,9 +720,7 @@ impl<'a> Compiler<'a> {
         use ast::SequenceType::*;
         Ok(match t {
             EmptySequence => ir::SeqTypeIR::EmptySequence,
-            Typed { item, occ } => {
-                ir::SeqTypeIR::Typed { item: self.lower_item_type(item)?, occ: self.lower_occ(occ) }
-            }
+            Typed { item, occ } => ir::SeqTypeIR::Typed { item: self.lower_item_type(item)?, occ: self.lower_occ(occ) },
         })
     }
     fn lower_item_type(&self, t: &ast::ItemType) -> CResult<ir::ItemTypeIR> {
@@ -829,11 +792,8 @@ impl<'a> Compiler<'a> {
                     3 => "three arguments".to_string(),
                     n => format!("{n} arguments"),
                 };
-                let friendly = if cand.ns_uri.as_ref() == default_fn_ns {
-                    cand.local.clone()
-                } else {
-                    cand.to_string()
-                };
+                let friendly =
+                    if cand.ns_uri.as_ref() == default_fn_ns { cand.local.clone() } else { cand.to_string() };
                 return Err(Error::from_code(
                     ErrorCode::XPST0017,
                     format!("function {}() cannot be called with {}", friendly, arg_phrase),
@@ -842,10 +802,7 @@ impl<'a> Compiler<'a> {
         }
 
         let display = candidates.last().cloned().unwrap_or(expanded);
-        Err(Error::from_code(
-            ErrorCode::XPST0017,
-            format!("unknown function: {}#{}", display, arity),
-        ))
+        Err(Error::from_code(ErrorCode::XPST0017, format!("unknown function: {}#{}", display, arity)))
     }
 
     fn patch_jump(code: &mut [ir::OpCode], pos: usize) {
@@ -864,9 +821,7 @@ impl<'a> Compiler<'a> {
 #[cfg(test)]
 mod tests {
     use super::compile_with_context;
-    use crate::engine::runtime::{
-        STATIC_CONTEXT_COMPILE_CACHE_CAPACITY, StaticContext, StaticContextBuilder,
-    };
+    use crate::engine::runtime::{STATIC_CONTEXT_COMPILE_CACHE_CAPACITY, StaticContext, StaticContextBuilder};
     use std::sync::Arc;
 
     #[test]
@@ -900,8 +855,7 @@ mod tests {
     fn cache_separates_entries_by_static_context() {
         let expr = "string(1)";
         let default_ctx = StaticContext::default();
-        let custom_ctx =
-            StaticContextBuilder::new().with_namespace("p", "http://example.com/custom").build();
+        let custom_ctx = StaticContextBuilder::new().with_namespace("p", "http://example.com/custom").build();
 
         compile_with_context(expr, &default_ctx).expect("default context compile succeeds");
         compile_with_context(expr, &custom_ctx).expect("custom context compile succeeds");

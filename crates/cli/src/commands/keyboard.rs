@@ -126,10 +126,7 @@ fn build_overrides(args: &KeyboardOverrideArgs) -> Option<KeyboardOverrides> {
 }
 
 fn parse_millis(value: &str) -> Result<Duration, String> {
-    value
-        .parse::<u64>()
-        .map(Duration::from_millis)
-        .map_err(|err| format!("invalid milliseconds '{value}': {err}"))
+    value.parse::<u64>().map(Duration::from_millis).map_err(|err| format!("invalid milliseconds '{value}': {err}"))
 }
 
 // Legacy helper no longer used (anyhow handles conversions directly).
@@ -162,10 +159,7 @@ mod tests {
         let runtime = runtime();
         let args = KeyboardTypeArgs {
             sequence: "<Ctrl+A>Hallo".into(),
-            overrides: KeyboardOverrideArgs {
-                uniform_delay: Some(Duration::ZERO),
-                ..Default::default()
-            },
+            overrides: KeyboardOverrideArgs { uniform_delay: Some(Duration::ZERO), ..Default::default() },
         };
         let output = run_type(&runtime, &args).expect("type");
         assert!(output.is_empty());
@@ -182,10 +176,7 @@ mod tests {
         let runtime = runtime();
         let args = KeyboardSequenceArgs {
             sequence: "<Shift+Ctrl+S>".into(),
-            overrides: KeyboardOverrideArgs {
-                press_delay: Some(Duration::ZERO),
-                ..Default::default()
-            },
+            overrides: KeyboardOverrideArgs { press_delay: Some(Duration::ZERO), ..Default::default() },
         };
         let output = run_press(&runtime, &args).expect("press");
         assert!(output.is_empty());
@@ -205,25 +196,18 @@ mod tests {
         runtime.keyboard_press("<Ctrl+K>", None).expect("press for release test");
         let _ = entries();
 
-        let args = KeyboardSequenceArgs {
-            sequence: "<Ctrl+K>".into(),
-            overrides: KeyboardOverrideArgs::default(),
-        };
+        let args = KeyboardSequenceArgs { sequence: "<Ctrl+K>".into(), overrides: KeyboardOverrideArgs::default() };
         let output = run_release(&runtime, &args).expect("release");
         assert!(output.is_empty());
         let log = entries();
-        assert!(
-            log.iter()
-                .any(|entry| matches!(entry, KeyboardLogEntry::Release(name) if name == "Control"))
-        );
+        assert!(log.iter().any(|entry| matches!(entry, KeyboardLogEntry::Release(name) if name == "Control")));
     }
 
     #[rstest]
     fn empty_sequence_is_rejected() {
         reset_keyboard_state();
         let runtime = runtime();
-        let args =
-            KeyboardTypeArgs { sequence: "   ".into(), overrides: KeyboardOverrideArgs::default() };
+        let args = KeyboardTypeArgs { sequence: "   ".into(), overrides: KeyboardOverrideArgs::default() };
         let err = run_type(&runtime, &args).expect_err("empty sequence");
         assert!(err.to_string().contains("keyboard sequence"));
     }

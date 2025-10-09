@@ -9,16 +9,8 @@ fn wrap(a: XdmAtomicValue) -> Vec<XdmItem<platynui_xpath::model::simple::SimpleN
 
 #[rstest]
 fn deepequal_qname_prefix_ignored() {
-    let a = XdmAtomicValue::QName {
-        ns_uri: Some("urn:x".into()),
-        prefix: Some("p1".into()),
-        local: "n".into(),
-    };
-    let b = XdmAtomicValue::QName {
-        ns_uri: Some("urn:x".into()),
-        prefix: Some("p2".into()),
-        local: "n".into(),
-    };
+    let a = XdmAtomicValue::QName { ns_uri: Some("urn:x".into()), prefix: Some("p1".into()), local: "n".into() };
+    let b = XdmAtomicValue::QName { ns_uri: Some("urn:x".into()), prefix: Some("p2".into()), local: "n".into() };
     assert!(deep_equal_with_collation(&wrap(a), &wrap(b), None).unwrap());
 }
 

@@ -32,9 +32,7 @@ fn benchmark_first_item(c: &mut Criterion) {
 
     for size in sizes {
         let doc = build_tree(size / 100, 100);
-        let ctx = DynamicContextBuilder::<SimpleNode>::default()
-            .with_context_item(I::Node(doc.clone()))
-            .build();
+        let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(I::Node(doc.clone())).build();
         let compiled = compile("//item").unwrap();
 
         // Materialized: collect all, then take first
@@ -72,9 +70,7 @@ fn benchmark_existence_check(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     let doc = build_tree(100, 100); // 10,000 items
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(I::Node(doc.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(I::Node(doc.clone())).build();
 
     // Query for rare item (only 1% match)
     let query = "//item[@selected='true']";
@@ -109,9 +105,7 @@ fn benchmark_first_match_with_predicate(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     let doc = build_tree(100, 100); // 10,000 items
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(I::Node(doc.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(I::Node(doc.clone())).build();
 
     // Match is at position 500 (5% through tree)
     let query = "//item[@id='item-5-0']";
@@ -133,10 +127,5 @@ fn benchmark_first_match_with_predicate(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    benchmark_first_item,
-    benchmark_existence_check,
-    benchmark_first_match_with_predicate,
-);
+criterion_group!(benches, benchmark_first_item, benchmark_existence_check, benchmark_first_match_with_predicate,);
 criterion_main!(benches);

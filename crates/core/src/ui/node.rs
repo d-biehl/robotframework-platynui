@@ -137,9 +137,7 @@ impl UiNodeExt for Arc<dyn UiNode> {
 }
 
 fn is_desktop(node: &Arc<dyn UiNode>) -> bool {
-    node.parent().is_none()
-        && node.role() == "Desktop"
-        && node.runtime_id().as_str() == DESKTOP_RUNTIME_ID
+    node.parent().is_none() && node.role() == "Desktop" && node.runtime_id().as_str() == DESKTOP_RUNTIME_ID
 }
 
 /// Trait describing a lazily computed attribute of a UI node.
@@ -316,11 +314,7 @@ mod tests {
                 })
             }
 
-            fn with_pattern(
-                name: &'static str,
-                runtime_id: &'static str,
-                pattern: Arc<dyn UiPattern>,
-            ) -> Arc<Self> {
+            fn with_pattern(name: &'static str, runtime_id: &'static str, pattern: Arc<dyn UiPattern>) -> Arc<Self> {
                 let registry = {
                     let r = PatternRegistry::new();
                     r.register_dyn(pattern);
@@ -364,9 +358,7 @@ mod tests {
                 Box::new(std::iter::empty())
             }
 
-            fn attributes(
-                &self,
-            ) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
                 Box::new(std::iter::empty())
             }
 
@@ -416,8 +408,7 @@ mod tests {
         assert_eq!(parent.runtime_id(), &RuntimeId::from("panel"));
 
         // ancestors iterator order: parent, then root
-        let ancestors: Vec<String> =
-            button_arc.ancestors().map(|node| node.runtime_id().to_string()).collect();
+        let ancestors: Vec<String> = button_arc.ancestors().map(|node| node.runtime_id().to_string()).collect();
         assert_eq!(ancestors, vec!["panel", "root"]);
 
         // top level
@@ -425,8 +416,7 @@ mod tests {
         assert_eq!(top.runtime_id(), &RuntimeId::from("root"));
 
         // pattern resolution (ancestor incl. self)
-        let pattern =
-            button_arc.ancestor_pattern::<WindowPattern>().expect("window pattern via ancestor");
+        let pattern = button_arc.ancestor_pattern::<WindowPattern>().expect("window pattern via ancestor");
         assert_eq!(pattern.id(), WindowPattern::static_id());
 
         // top-level pattern
@@ -470,9 +460,7 @@ mod tests {
                 Box::new(std::iter::empty())
             }
 
-            fn attributes(
-                &self,
-            ) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
                 Box::new(std::iter::empty())
             }
 
@@ -526,9 +514,7 @@ mod tests {
                 Box::new(std::iter::empty())
             }
 
-            fn attributes(
-                &self,
-            ) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
                 Box::new(std::iter::empty())
             }
 

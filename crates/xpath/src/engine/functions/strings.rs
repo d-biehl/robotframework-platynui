@@ -1,6 +1,4 @@
-use super::common::{
-    as_string, item_to_string, normalize_space_default, substring_default, to_number,
-};
+use super::common::{as_string, item_to_string, normalize_space_default, substring_default, to_number};
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
 use itertools::Itertools;
@@ -97,10 +95,7 @@ pub(super) fn codepoints_to_string_stream<N: 'static + crate::model::XdmNode + C
                 }
             }
             _ => {
-                return Err(Error::from_code(
-                    ErrorCode::XPTY0004,
-                    "codepoints-to-string expects xs:integer*",
-                ));
+                return Err(Error::from_code(ErrorCode::XPTY0004, "codepoints-to-string expects xs:integer*"));
             }
         }
     }
@@ -329,11 +324,7 @@ fn contains_default<N: 'static + crate::model::XdmNode + Clone>(
     let s = item_to_string(s_seq);
     let sub = item_to_string(sub_seq);
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
-    let k = crate::engine::collation::resolve_collation(
-        ctx.dyn_ctx,
-        ctx.default_collation.as_ref(),
-        uri_opt,
-    )?;
+    let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
     let b = c.key(&s).contains(&c.key(&sub));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
@@ -348,11 +339,7 @@ fn starts_with_default<N: 'static + crate::model::XdmNode + Clone>(
     let s = item_to_string(s_seq);
     let sub = item_to_string(sub_seq);
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
-    let k = crate::engine::collation::resolve_collation(
-        ctx.dyn_ctx,
-        ctx.default_collation.as_ref(),
-        uri_opt,
-    )?;
+    let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
     let b = c.key(&s).starts_with(&c.key(&sub));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
@@ -367,11 +354,7 @@ fn ends_with_default<N: 'static + crate::model::XdmNode + Clone>(
     let s = item_to_string(s_seq);
     let sub = item_to_string(sub_seq);
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
-    let k = crate::engine::collation::resolve_collation(
-        ctx.dyn_ctx,
-        ctx.default_collation.as_ref(),
-        uri_opt,
-    )?;
+    let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
     let b = c.key(&s).ends_with(&c.key(&sub));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])

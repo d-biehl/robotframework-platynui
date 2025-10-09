@@ -512,8 +512,7 @@ impl fmt::Display for CompiledXPath {
             {
                 use smallvec::SmallVec;
                 // Namespace prefix sets are usually tiny (handful); keep inline.
-                let mut keys: SmallVec<[&String; 8]> =
-                    self.static_ctx.namespaces.by_prefix.keys().collect();
+                let mut keys: SmallVec<[&String; 8]> = self.static_ctx.namespaces.by_prefix.keys().collect();
                 keys.sort();
                 let mut parts: SmallVec<[&str; 8]> = SmallVec::with_capacity(keys.len());
                 for k in &keys {

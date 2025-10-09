@@ -46,15 +46,9 @@ impl ProviderError {
 
     pub fn simple(kind: ProviderErrorKind) -> Self {
         match kind {
-            ProviderErrorKind::InitializationFailed => {
-                Self::InitializationFailed { context: Context(None) }
-            }
-            ProviderErrorKind::UnsupportedOperation => {
-                Self::UnsupportedOperation { context: Context(None) }
-            }
-            ProviderErrorKind::CommunicationFailure => {
-                Self::CommunicationFailure { context: Context(None) }
-            }
+            ProviderErrorKind::InitializationFailed => Self::InitializationFailed { context: Context(None) },
+            ProviderErrorKind::UnsupportedOperation => Self::UnsupportedOperation { context: Context(None) },
+            ProviderErrorKind::CommunicationFailure => Self::CommunicationFailure { context: Context(None) },
             ProviderErrorKind::InvalidArgument => Self::InvalidArgument { context: Context(None) },
             ProviderErrorKind::TreeUnavailable => Self::TreeUnavailable { context: Context(None) },
         }

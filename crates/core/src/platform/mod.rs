@@ -7,26 +7,21 @@ mod pointer;
 mod registration;
 mod screenshot;
 
-pub use desktop::{
-    DesktopInfo, DesktopInfoProvider, DesktopInfoRegistration, MonitorInfo, desktop_info_providers,
-};
+pub use desktop::{DesktopInfo, DesktopInfoProvider, DesktopInfoRegistration, MonitorInfo, desktop_info_providers};
 pub use error::{PlatformError, PlatformErrorKind};
-pub use highlight::{
-    HighlightProvider, HighlightRegistration, HighlightRequest, highlight_providers,
-};
+pub use highlight::{HighlightProvider, HighlightRegistration, HighlightRequest, highlight_providers};
 pub use keyboard::{
-    KeyCode, KeyCodeError, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent,
-    KeyboardOverrides, KeyboardRegistration, KeyboardSettings, keyboard_devices,
+    KeyCode, KeyCodeError, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, KeyboardOverrides,
+    KeyboardRegistration, KeyboardSettings, keyboard_devices,
 };
 pub use module::PlatformModule;
 pub use pointer::{
-    PointOrigin, PointerAccelerationProfile, PointerButton, PointerDevice, PointerMotionMode,
-    PointerRegistration, ScrollDelta, pointer_devices,
+    PointOrigin, PointerAccelerationProfile, PointerButton, PointerDevice, PointerMotionMode, PointerRegistration,
+    ScrollDelta, pointer_devices,
 };
 pub use registration::{PlatformRegistration, platform_modules};
 pub use screenshot::{
-    PixelFormat, Screenshot, ScreenshotProvider, ScreenshotRegistration, ScreenshotRequest,
-    screenshot_providers,
+    PixelFormat, Screenshot, ScreenshotProvider, ScreenshotRegistration, ScreenshotRequest, screenshot_providers,
 };
 
 #[macro_export]

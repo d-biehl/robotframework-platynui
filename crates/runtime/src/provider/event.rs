@@ -130,9 +130,7 @@ mod tests {
         dispatcher.register(sink.clone());
 
         let node = Arc::new(StubNode::new());
-        dispatcher.dispatch(ProviderEvent {
-            kind: ProviderEventKind::NodeUpdated { node: node.clone() },
-        });
+        dispatcher.dispatch(ProviderEvent { kind: ProviderEventKind::NodeUpdated { node: node.clone() } });
 
         let events = sink.events.lock().unwrap();
         assert_eq!(events.len(), 1);

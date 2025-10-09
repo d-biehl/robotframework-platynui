@@ -67,10 +67,7 @@ impl KeyboardSequence {
         &self.segments
     }
 
-    pub fn resolve(
-        &self,
-        device: &dyn KeyboardDevice,
-    ) -> Result<ResolvedKeyboardSequence, KeyboardError> {
+    pub fn resolve(&self, device: &dyn KeyboardDevice) -> Result<ResolvedKeyboardSequence, KeyboardError> {
         let mut resolved = Vec::with_capacity(self.segments.len());
         for segment in &self.segments {
             match segment {
@@ -185,11 +182,7 @@ fn parse_shortcut(pair: Pair<Rule>) -> Result<SequenceSegment, KeyboardSequenceE
             groups.push(keys);
         }
     }
-    if groups.is_empty() {
-        Err(KeyboardSequenceError::EmptyKey)
-    } else {
-        Ok(SequenceSegment::Shortcut(groups))
-    }
+    if groups.is_empty() { Err(KeyboardSequenceError::EmptyKey) } else { Ok(SequenceSegment::Shortcut(groups)) }
 }
 
 fn decode_escapes(source: &str) -> Result<String, KeyboardSequenceError> {
@@ -203,12 +196,8 @@ fn decode_escapes(source: &str) -> Result<String, KeyboardSequenceError> {
         let next = chars.next().ok_or(KeyboardSequenceError::DanglingEscape)?;
         match next {
             'x' => {
-                let hi = chars
-                    .next()
-                    .ok_or(KeyboardSequenceError::InvalidHexEscape { literal: String::from("") })?;
-                let lo = chars
-                    .next()
-                    .ok_or(KeyboardSequenceError::InvalidHexEscape { literal: hi.to_string() })?;
+                let hi = chars.next().ok_or(KeyboardSequenceError::InvalidHexEscape { literal: String::from("") })?;
+                let lo = chars.next().ok_or(KeyboardSequenceError::InvalidHexEscape { literal: hi.to_string() })?;
                 let literal = format!("{hi}{lo}");
                 let value = u8::from_str_radix(&literal, 16)
                     .map_err(|_| KeyboardSequenceError::InvalidHexEscape { literal })?;
@@ -217,17 +206,15 @@ fn decode_escapes(source: &str) -> Result<String, KeyboardSequenceError> {
             'u' => {
                 let mut digits = String::new();
                 for _ in 0..4 {
-                    let digit = chars.next().ok_or_else(|| {
-                        KeyboardSequenceError::InvalidUnicodeEscape { literal: digits.clone() }
-                    })?;
+                    let digit = chars
+                        .next()
+                        .ok_or_else(|| KeyboardSequenceError::InvalidUnicodeEscape { literal: digits.clone() })?;
                     digits.push(digit);
                 }
-                let value = u16::from_str_radix(&digits, 16).map_err(|_| {
-                    KeyboardSequenceError::InvalidUnicodeEscape { literal: digits.clone() }
-                })?;
-                let ch = char::from_u32(value as u32).ok_or_else(|| {
-                    KeyboardSequenceError::InvalidUnicodeEscape { literal: digits.clone() }
-                })?;
+                let value = u16::from_str_radix(&digits, 16)
+                    .map_err(|_| KeyboardSequenceError::InvalidUnicodeEscape { literal: digits.clone() })?;
+                let ch = char::from_u32(value as u32)
+                    .ok_or_else(|| KeyboardSequenceError::InvalidUnicodeEscape { literal: digits.clone() })?;
                 result.push(ch);
             }
             '<' => result.push('<'),
@@ -242,8 +229,7 @@ fn decode_escapes(source: &str) -> Result<String, KeyboardSequenceError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        KeyboardSequence, KeyboardSequenceError, KeyboardSequenceParser, ResolvedSegment, Rule,
-        SequenceSegment,
+        KeyboardSequence, KeyboardSequenceError, KeyboardSequenceParser, ResolvedSegment, Rule, SequenceSegment,
     };
     use pest::Parser;
     use platynui_core::platform::{KeyCode, KeyboardDevice, KeyboardError, KeyboardEvent};
@@ -270,10 +256,7 @@ mod tests {
         match &sequence.segments()[0] {
             SequenceSegment::Shortcut(groups) => {
                 assert_eq!(groups.len(), 2);
-                assert_eq!(
-                    groups[0],
-                    vec![String::from("Ctrl"), String::from("Alt"), String::from("T"),]
-                );
+                assert_eq!(groups[0], vec![String::from("Ctrl"), String::from("Alt"), String::from("T"),]);
                 assert_eq!(groups[1], vec![String::from("Ctrl"), String::from("C")]);
             }
             other => panic!("unexpected segment {other:?}"),
@@ -288,12 +271,7 @@ mod tests {
             SequenceSegment::Shortcut(groups) => {
                 assert_eq!(
                     groups[0],
-                    vec![
-                        String::from("Ctrl"),
-                        String::from("<"),
-                        String::from("A"),
-                        String::from("B"),
-                    ]
+                    vec![String::from("Ctrl"), String::from("<"), String::from("A"), String::from("B"),]
                 );
             }
             _ => panic!("expected shortcut segment"),

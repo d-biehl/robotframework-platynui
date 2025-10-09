@@ -10,8 +10,7 @@ fn eval_expression_strs(expr: &str, ctx: &DynamicContext<SimpleNode>) -> Vec<Str
         .iter()
         .map(|item| match item {
             XdmItem::Atomic(XdmAtomicValue::Integer(n)) => n.to_string(),
-            XdmItem::Atomic(XdmAtomicValue::Decimal(d))
-            | XdmItem::Atomic(XdmAtomicValue::Double(d)) => {
+            XdmItem::Atomic(XdmAtomicValue::Decimal(d)) | XdmItem::Atomic(XdmAtomicValue::Double(d)) => {
                 if d.is_nan() {
                     "NaN".to_string()
                 } else if d.fract() == 0.0 {

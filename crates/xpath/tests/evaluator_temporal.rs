@@ -1,7 +1,5 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
-use platynui_xpath::{
-    engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as V, xdm::XdmItem as I,
-};
+use platynui_xpath::{engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as V, xdm::XdmItem as I};
 use rstest::rstest;
 
 fn eval(expr: &str) -> Vec<I<platynui_xpath::model::simple::SimpleNode>> {
@@ -11,8 +9,7 @@ fn eval(expr: &str) -> Vec<I<platynui_xpath::model::simple::SimpleNode>> {
 
 #[rstest]
 fn datetime_eq_across_timezones() {
-    let out =
-        eval("xs:dateTime('2020-01-01T10:00:00+01:00') eq xs:dateTime('2020-01-01T09:00:00Z')");
+    let out = eval("xs:dateTime('2020-01-01T10:00:00+01:00') eq xs:dateTime('2020-01-01T09:00:00Z')");
     assert!(matches!(&out[0], I::Atomic(V::Boolean(true))));
 }
 

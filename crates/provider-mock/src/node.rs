@@ -1,7 +1,6 @@
 use platynui_core::ui::attribute_names::common;
 use platynui_core::ui::{
-    Namespace, PatternId, PatternRegistry, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue,
-    supported_patterns_value,
+    Namespace, PatternId, PatternRegistry, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue, supported_patterns_value,
 };
 use std::sync::{Arc, Mutex, Weak};
 
@@ -106,11 +105,7 @@ impl UiNode for MockNode {
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         let mut attributes = self.attributes.clone();
         let patterns = self.supported_patterns();
-        attributes.push(attr(
-            self.namespace,
-            common::SUPPORTED_PATTERNS,
-            supported_patterns_value(&patterns),
-        ));
+        attributes.push(attr(self.namespace, common::SUPPORTED_PATTERNS, supported_patterns_value(&patterns)));
         Box::new(attributes.into_iter())
     }
 
@@ -156,10 +151,6 @@ impl UiAttribute for StaticAttribute {
     }
 }
 
-pub(crate) fn attr(
-    namespace: Namespace,
-    name: impl Into<String>,
-    value: UiValue,
-) -> Arc<dyn UiAttribute> {
+pub(crate) fn attr(namespace: Namespace, name: impl Into<String>, value: UiValue) -> Arc<dyn UiAttribute> {
     Arc::new(StaticAttribute { namespace, name: name.into(), value })
 }

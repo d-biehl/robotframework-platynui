@@ -1,8 +1,6 @@
 use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
 use platynui_xpath::runtime::ErrorCode;
-use platynui_xpath::{
-    engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A, xdm::XdmItem as I,
-};
+use platynui_xpath::{engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A, xdm::XdmItem as I};
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -44,10 +42,7 @@ fn xs_anyuri_and_qname() {
         })]
     );
     let qunp = evaluate_expr::<N>("xs:QName('local')", &ctx).unwrap();
-    assert_eq!(
-        qunp,
-        vec![I::Atomic(A::QName { ns_uri: None, prefix: None, local: "local".into() })]
-    );
+    assert_eq!(qunp, vec![I::Atomic(A::QName { ns_uri: None, prefix: None, local: "local".into() })]);
 }
 
 #[rstest]

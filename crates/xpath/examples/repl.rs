@@ -72,9 +72,7 @@ fn main() {
     println!("Enter XPath expressions to evaluate. Type :exit or :quit to leave.\n");
 
     let stdin = io::stdin();
-    let base_ctx = DynamicContextBuilder::default()
-        .with_context_item(XdmItem::Node(context_node.clone()))
-        .build();
+    let base_ctx = DynamicContextBuilder::default().with_context_item(XdmItem::Node(context_node.clone())).build();
 
     let mut prompt = "xpath> ";
     let mut lines: Vec<String> = Vec::new();
@@ -152,9 +150,7 @@ fn main() {
                 prompt = "xpath> ";
             }
             Err(err) => {
-                if err.code_enum() == ErrorCode::XPST0003
-                    && expression_needs_more_input(&expression)
-                {
+                if err.code_enum() == ErrorCode::XPST0003 && expression_needs_more_input(&expression) {
                     prompt = "....> ";
                     continue;
                 }

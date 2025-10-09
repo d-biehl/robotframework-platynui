@@ -40,11 +40,7 @@ pub fn run(runtime: &Runtime, args: &FocusArgs) -> CliResult<String> {
 
 fn render_node(node: &Arc<dyn UiNode>) -> String {
     let namespace = node.namespace().as_str();
-    let prefix = if namespace == Namespace::Control.as_str() {
-        String::new()
-    } else {
-        format!("{namespace}:")
-    };
+    let prefix = if namespace == Namespace::Control.as_str() { String::new() } else { format!("{namespace}:") };
 
     let role = node.role();
     let name = node.name();
@@ -56,9 +52,8 @@ fn render_node(node: &Arc<dyn UiNode>) -> String {
         format!("{prefix}{role} {quoted_name}")
     };
 
-    let colored_label = label
-        .if_supports_color(Stream::Stdout, |text| text.bold().fg_rgb::<79, 166, 255>().to_string())
-        .to_string();
+    let colored_label =
+        label.if_supports_color(Stream::Stdout, |text| text.bold().fg_rgb::<79, 166, 255>().to_string()).to_string();
 
     format!("{colored_label} ({})", node.runtime_id().as_str())
 }
@@ -83,10 +78,8 @@ mod tests {
         assert!(output.contains("Focused 1 node"));
         assert!(output.contains("mock://button/ok"));
 
-        let results = runtime
-            .evaluate(None, "//control:Button[@Name='OK']")
-            .map_err(map_evaluate_error)
-            .expect("evaluation");
+        let results =
+            runtime.evaluate(None, "//control:Button[@Name='OK']").map_err(map_evaluate_error).expect("evaluation");
 
         let focused = results
             .into_iter()
@@ -96,8 +89,7 @@ mod tests {
             })
             .expect("button node present");
 
-        let attr =
-            focused.attribute(Namespace::Control, focusable::IS_FOCUSED).expect("focus attribute");
+        let attr = focused.attribute(Namespace::Control, focusable::IS_FOCUSED).expect("focus attribute");
         assert_eq!(attr.value(), UiValue::from(true));
     }
 

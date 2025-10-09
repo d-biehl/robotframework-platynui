@@ -1,6 +1,6 @@
 use super::common::{
-    NumericKind, a_as_i128, classify_numeric, minmax_impl, num_unary, number_default,
-    round_default, round_half_to_even_default, sum_default,
+    NumericKind, a_as_i128, classify_numeric, minmax_impl, num_unary, number_default, round_default,
+    round_half_to_even_default, sum_default,
 };
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
@@ -123,16 +123,13 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
                         Some(AvgState::YearMonth)
                     }
                     Some(AvgState::YearMonth) => {
-                        ym_total = ym_total.checked_add(*months as i64).ok_or_else(|| {
-                            Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow")
-                        })?;
+                        ym_total = ym_total
+                            .checked_add(*months as i64)
+                            .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow"))?;
                         Some(AvgState::YearMonth)
                     }
                     _ => {
-                        return Err(Error::from_code(
-                            ErrorCode::XPTY0004,
-                            "avg requires values of a single type",
-                        ));
+                        return Err(Error::from_code(ErrorCode::XPTY0004, "avg requires values of a single type"));
                     }
                 };
             }
@@ -143,34 +140,26 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
                         Some(AvgState::DayTime)
                     }
                     Some(AvgState::DayTime) => {
-                        dt_total = dt_total.checked_add(*secs as i128).ok_or_else(|| {
-                            Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow")
-                        })?;
+                        dt_total = dt_total
+                            .checked_add(*secs as i128)
+                            .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow"))?;
                         Some(AvgState::DayTime)
                     }
                     _ => {
-                        return Err(Error::from_code(
-                            ErrorCode::XPTY0004,
-                            "avg requires values of a single type",
-                        ));
+                        return Err(Error::from_code(ErrorCode::XPTY0004, "avg requires values of a single type"));
                     }
                 };
             }
             _ => {
                 if let Some((nk, num)) = classify_numeric(a)? {
                     if nk == NumericKind::Double && num.is_nan() {
-                        return Ok(XdmSequenceStream::from_item(XdmItem::Atomic(
-                            XdmAtomicValue::Double(f64::NAN),
-                        )));
+                        return Ok(XdmSequenceStream::from_item(XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))));
                     }
                     state = match state {
                         None => Some(AvgState::Numeric),
                         Some(AvgState::Numeric) => Some(AvgState::Numeric),
                         _ => {
-                            return Err(Error::from_code(
-                                ErrorCode::XPTY0004,
-                                "avg requires values of a single type",
-                            ));
+                            return Err(Error::from_code(ErrorCode::XPTY0004, "avg requires values of a single type"));
                         }
                     };
                     kind = kind.promote(nk);
@@ -195,10 +184,7 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
                         }
                     }
                 } else {
-                    return Err(Error::from_code(
-                        ErrorCode::XPTY0004,
-                        "avg requires numeric or duration values",
-                    ));
+                    return Err(Error::from_code(ErrorCode::XPTY0004, "avg requires numeric or duration values"));
                 }
             }
         }
@@ -211,11 +197,7 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
 
     let out = match state.unwrap_or(AvgState::Numeric) {
         AvgState::Numeric => {
-            let total = if use_int_acc && matches!(kind, NumericKind::Integer) {
-                int_acc as f64
-            } else {
-                dec_acc
-            };
+            let total = if use_int_acc && matches!(kind, NumericKind::Integer) { int_acc as f64 } else { dec_acc };
             let mean = total / (count as f64);
             match kind {
                 NumericKind::Integer | NumericKind::Decimal => XdmAtomicValue::Decimal(mean),
@@ -225,10 +207,7 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
         }
         AvgState::YearMonth => {
             if ym_total % count != 0 {
-                return Err(Error::from_code(
-                    ErrorCode::FOAR0002,
-                    "average yearMonthDuration is not integral months",
-                ));
+                return Err(Error::from_code(ErrorCode::FOAR0002, "average yearMonthDuration is not integral months"));
             }
             let months: i32 = (ym_total / count)
                 .try_into()
@@ -237,10 +216,7 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
         }
         AvgState::DayTime => {
             if dt_total % (count as i128) != 0 {
-                return Err(Error::from_code(
-                    ErrorCode::FOAR0002,
-                    "average dayTimeDuration has fractional seconds",
-                ));
+                return Err(Error::from_code(ErrorCode::FOAR0002, "average dayTimeDuration has fractional seconds"));
             }
             let secs: i64 = (dt_total / (count as i128))
                 .try_into()
@@ -292,11 +268,7 @@ pub(super) fn min_stream<N: 'static + crate::model::XdmNode + Clone>(
     } else {
         let collation_seq: XdmSequence<N> = args[1].materialize()?;
         let uri = super::common::item_to_string(&collation_seq);
-        let k = crate::engine::collation::resolve_collation(
-            ctx.dyn_ctx,
-            ctx.default_collation.as_ref(),
-            Some(&uri),
-        )?;
+        let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), Some(&uri))?;
         minmax_impl(ctx, &seq, Some(k.as_trait()), true)?
     };
 
@@ -321,11 +293,7 @@ pub(super) fn max_stream<N: 'static + crate::model::XdmNode + Clone>(
     } else {
         let collation_seq: XdmSequence<N> = args[1].materialize()?;
         let uri = super::common::item_to_string(&collation_seq);
-        let k = crate::engine::collation::resolve_collation(
-            ctx.dyn_ctx,
-            ctx.default_collation.as_ref(),
-            Some(&uri),
-        )?;
+        let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), Some(&uri))?;
         minmax_impl(ctx, &seq, Some(k.as_trait()), false)?
     };
 

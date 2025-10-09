@@ -75,8 +75,8 @@ pub(crate) struct Inner {
     namespaces: RwLock<Vec<SimpleNode>>, // namespace nodes
     children: RwLock<Vec<SimpleNode>>,
     cached_text: RwLock<Option<String>>, // memoized string value for element/document
-    doc_id: RwLock<u64>, // creation order of document root; inherited by descendants
-    doc_order: RwLock<Option<u64>>, // pre-order position within document
+    doc_id: RwLock<u64>,                 // creation order of document root; inherited by descendants
+    doc_order: RwLock<Option<u64>>,      // pre-order position within document
 }
 
 /// A simple Arc-backed node implementation.
@@ -119,9 +119,7 @@ impl fmt::Debug for SimpleNode {
         ) {
             ds.field("value", &value);
         }
-        ds.field("attrs", &attr_count)
-            .field("namespaces", &ns_count)
-            .field("children", &child_count);
+        ds.field("attrs", &attr_count).field("namespaces", &ns_count).field("children", &child_count);
         if matches!(kind, NodeKind::Element | NodeKind::Document) {
             ds.field("cached_text", &cached);
         }
@@ -173,11 +171,7 @@ impl SimpleNode {
         } else {
             (None, name.to_string(), None)
         };
-        SimpleNode::new(
-            NodeKind::Attribute,
-            Some(QName { prefix, local, ns_uri }),
-            Some(value.to_string()),
-        )
+        SimpleNode::new(NodeKind::Attribute, Some(QName { prefix, local, ns_uri }), Some(value.to_string()))
     }
     pub fn text(value: &str) -> SimpleNode {
         SimpleNode::new(NodeKind::Text, None, Some(value.to_string()))
@@ -195,11 +189,7 @@ impl SimpleNode {
     pub fn namespace(prefix: &str, uri: &str) -> SimpleNode {
         SimpleNode::new(
             NodeKind::Namespace,
-            Some(QName {
-                prefix: Some(prefix.to_string()),
-                local: prefix.to_string(),
-                ns_uri: Some(uri.to_string()),
-            }),
+            Some(QName { prefix: Some(prefix.to_string()), local: prefix.to_string(), ns_uri: Some(uri.to_string()) }),
             Some(uri.to_string()),
         )
     }
@@ -300,17 +290,13 @@ impl fmt::Display for SimpleNode {
                 write!(f, "document(children={})", ch)
             }
             NodeKind::Element => {
-                let name = self
-                    .name()
-                    .map(|q| qname_to_string(&q))
-                    .unwrap_or_else(|| "<unnamed>".to_string());
+                let name = self.name().map(|q| qname_to_string(&q)).unwrap_or_else(|| "<unnamed>".to_string());
                 let attrs = self.attributes().count();
                 let ch = self.children().count();
                 write!(f, "<{} attrs={} children={}>", name, attrs, ch)
             }
             NodeKind::Attribute => {
-                let name =
-                    self.name().map(|q| qname_to_string(&q)).unwrap_or_else(|| "?".to_string());
+                let name = self.name().map(|q| qname_to_string(&q)).unwrap_or_else(|| "?".to_string());
                 let val = clip(&self.string_value());
                 write!(f, "@{}=\"{}\"", name, val)
             }
@@ -325,11 +311,7 @@ impl fmt::Display for SimpleNode {
             NodeKind::ProcessingInstruction => {
                 let target = self.name().map(|q| q.local).unwrap_or_default();
                 let data = clip(&self.string_value());
-                if target.is_empty() {
-                    write!(f, "<?{}?>", data)
-                } else {
-                    write!(f, "<?{} {}?>", target, data)
-                }
+                if target.is_empty() { write!(f, "<?{}?>", data) } else { write!(f, "<?{} {}?>", target, data) }
             }
             NodeKind::Namespace => {
                 let prefix = self.name().and_then(|q| q.prefix).unwrap_or_default();
@@ -404,10 +386,7 @@ impl SimpleNodeBuilder {
     pub fn value(self, v: &str) -> Self {
         if matches!(
             self.node.kind(),
-            NodeKind::Text
-                | NodeKind::Comment
-                | NodeKind::ProcessingInstruction
-                | NodeKind::Attribute
+            NodeKind::Text | NodeKind::Comment | NodeKind::ProcessingInstruction | NodeKind::Attribute
         ) {
             *self.node.0.value.write().unwrap_or_else(|e| e.into_inner()) = Some(v.to_string());
         }
@@ -424,8 +403,7 @@ impl SimpleNodeBuilder {
         {
             let mut nss = self.node.0.namespaces.write().unwrap_or_else(|e| e.into_inner());
             for n in &self.pending_ns {
-                *n.0.parent.write().unwrap_or_else(|e| e.into_inner()) =
-                    Some(Arc::downgrade(&self.node.0));
+                *n.0.parent.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::downgrade(&self.node.0));
                 let id = *self.node.0.doc_id.read().unwrap_or_else(|e| e.into_inner());
                 n.set_doc_id_recursive(id);
             }
@@ -450,11 +428,7 @@ impl SimpleNodeBuilder {
                         let val = a.0.value.read().unwrap_or_else(|e| e.into_inner()).clone();
                         let rebuilt = SimpleNode::new(
                             NodeKind::Attribute,
-                            Some(QName {
-                                prefix: Some(pref.clone()),
-                                local: qn.local.clone(),
-                                ns_uri: Some(ns_uri),
-                            }),
+                            Some(QName { prefix: Some(pref.clone()), local: qn.local.clone(), ns_uri: Some(ns_uri) }),
                             val,
                         );
                         *rebuilt.0.parent.write().unwrap_or_else(|e| e.into_inner()) =
@@ -466,8 +440,7 @@ impl SimpleNodeBuilder {
                     }
                 }
                 if !pushed {
-                    *a.0.parent.write().unwrap_or_else(|e| e.into_inner()) =
-                        Some(Arc::downgrade(&self.node.0));
+                    *a.0.parent.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::downgrade(&self.node.0));
                     let id = *self.node.0.doc_id.read().unwrap_or_else(|e| e.into_inner());
                     a.set_doc_id_recursive(id);
                     attrs.push(a);
@@ -477,8 +450,7 @@ impl SimpleNodeBuilder {
         {
             let mut ch = self.node.0.children.write().unwrap_or_else(|e| e.into_inner());
             for c in self.pending_children {
-                *c.0.parent.write().unwrap_or_else(|e| e.into_inner()) =
-                    Some(Arc::downgrade(&self.node.0));
+                *c.0.parent.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::downgrade(&self.node.0));
                 let idc = *self.node.0.doc_id.read().unwrap_or_else(|e| e.into_inner());
                 c.set_doc_id_recursive(idc);
                 ch.push(c);
@@ -508,8 +480,7 @@ impl SimpleNodeBuilder {
                                     node.lookup_namespace_uri(pref)
                                 };
                                 if let Some(ns_uri) = uri {
-                                    let val =
-                                        a.0.value.read().unwrap_or_else(|e| e.into_inner()).clone();
+                                    let val = a.0.value.read().unwrap_or_else(|e| e.into_inner()).clone();
                                     let rebuilt = SimpleNode::new(
                                         NodeKind::Attribute,
                                         Some(QName {
@@ -521,10 +492,8 @@ impl SimpleNodeBuilder {
                                     );
                                     *rebuilt.0.parent.write().unwrap_or_else(|e| e.into_inner()) =
                                         Some(Arc::downgrade(&node.0));
-                                    let id =
-                                        *node.0.doc_id.read().unwrap_or_else(|e| e.into_inner());
-                                    *rebuilt.0.doc_id.write().unwrap_or_else(|e| e.into_inner()) =
-                                        id;
+                                    let id = *node.0.doc_id.read().unwrap_or_else(|e| e.into_inner());
+                                    *rebuilt.0.doc_id.write().unwrap_or_else(|e| e.into_inner()) = id;
                                     to_replace.push((idx, rebuilt));
                                 }
                             }
@@ -612,19 +581,11 @@ impl XdmNode for SimpleNode {
             | NodeKind::Comment
             | NodeKind::ProcessingInstruction
             | NodeKind::Namespace => {
-                let value = self
-                    .0
-                    .value
-                    .read()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clone()
-                    .unwrap_or_default();
+                let value = self.0.value.read().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_default();
                 vec![XdmAtomicValue::UntypedAtomic(value)]
             }
             NodeKind::Element | NodeKind::Document => {
-                if let Some(cached) =
-                    self.0.cached_text.read().unwrap_or_else(|e| e.into_inner()).clone()
-                {
+                if let Some(cached) = self.0.cached_text.read().unwrap_or_else(|e| e.into_inner()).clone() {
                     return vec![XdmAtomicValue::UntypedAtomic(cached)];
                 }
 
@@ -679,8 +640,7 @@ impl XdmNode for SimpleNode {
         if !seen.contains("xml") {
             let xml = SimpleNode::namespace("xml", crate::consts::XML_URI);
             // set parent to this element for proper ancestry comparisons
-            *xml.0.parent.write().unwrap_or_else(|e| e.into_inner()) =
-                Some(std::sync::Arc::downgrade(&self.0));
+            *xml.0.parent.write().unwrap_or_else(|e| e.into_inner()) = Some(std::sync::Arc::downgrade(&self.0));
             out.push(xml);
         }
         out.into_iter()
@@ -692,10 +652,7 @@ impl XdmNode for SimpleNode {
         Some((doc_id << 32) | (ord & 0xFFFF_FFFF))
     }
 
-    fn compare_document_order(
-        &self,
-        other: &Self,
-    ) -> Result<core::cmp::Ordering, crate::engine::runtime::Error> {
+    fn compare_document_order(&self, other: &Self) -> Result<core::cmp::Ordering, crate::engine::runtime::Error> {
         let self_doc_id = *self.0.doc_id.read().unwrap_or_else(|e| e.into_inner());
         let other_doc_id = *other.0.doc_id.read().unwrap_or_else(|e| e.into_inner());
         if self_doc_id == other_doc_id

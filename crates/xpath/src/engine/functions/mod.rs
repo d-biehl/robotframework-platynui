@@ -1,6 +1,4 @@
-use crate::engine::runtime::{
-    FunctionImplementations, FunctionSignatures, Occurrence, ParamTypeSpec,
-};
+use crate::engine::runtime::{FunctionImplementations, FunctionSignatures, Occurrence, ParamTypeSpec};
 use crate::xdm::ExpandedName;
 use std::rc::Rc;
 use std::sync::OnceLock;
@@ -22,8 +20,7 @@ pub mod strings;
 
 pub use common::deep_equal_with_collation;
 pub(crate) use common::{
-    parse_day_time_duration_secs, parse_duration_lexical, parse_qname_lexical,
-    parse_year_month_duration_months,
+    parse_day_time_duration_secs, parse_duration_lexical, parse_qname_lexical, parse_year_month_duration_months,
 };
 
 fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
@@ -45,8 +42,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         ($ns:expr, $local:expr, $arity:expr, $func:expr, $param_specs:expr $(,)?) => {{
             if let Some(s) = sigs.as_mut() {
                 s.register_ns($ns, $local, $arity, Some($arity));
-                let name =
-                    ExpandedName { ns_uri: Some($ns.to_string()), local: $local.to_string() };
+                let name = ExpandedName { ns_uri: Some($ns.to_string()), local: $local.to_string() };
                 s.set_param_types(name, $arity, $param_specs);
             }
             if let Some(r) = reg.as_mut() {
@@ -100,13 +96,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         strings::string_stream::<N>,
         vec![ParamTypeSpec::any_atomic(Occurrence::ZeroOrOne)]
     );
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "string-length",
-        0,
-        strings::string_length_stream::<N>,
-        vec![]
-    );
+    reg_ns_stream!(crate::consts::FNS, "string-length", 0, strings::string_length_stream::<N>, vec![]);
     reg_ns_stream!(
         crate::consts::FNS,
         "string-length",
@@ -147,10 +137,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "contains",
         2,
         strings::contains_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::string(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -168,10 +155,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "starts-with",
         2,
         strings::starts_with_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::string(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -189,10 +173,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "ends-with",
         2,
         strings::ends_with_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::string(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -210,10 +191,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "substring",
         2,
         strings::substring_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::double(Occurrence::ExactlyOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::double(Occurrence::ExactlyOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -231,28 +209,16 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "substring-before",
         2,
         strings::substring_before_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::string(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
         "substring-after",
         2,
         strings::substring_after_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::string(Occurrence::ZeroOrOne),]
     );
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "normalize-space",
-        0,
-        strings::normalize_space_stream::<N>,
-        vec![]
-    );
+    reg_ns_stream!(crate::consts::FNS, "normalize-space", 0, strings::normalize_space_stream::<N>, vec![]);
     reg_ns_stream!(
         crate::consts::FNS,
         "normalize-space",
@@ -291,10 +257,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "string-join",
         2,
         strings::string_join_stream::<N>,
-        vec![
-            ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore),
-            ParamTypeSpec::string(Occurrence::ExactlyOne),
-        ]
+        vec![ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore), ParamTypeSpec::string(Occurrence::ExactlyOne),]
     );
 
     // ===== Node name functions =====
@@ -328,20 +291,14 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "QName",
         2,
         qnames::qname_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::string(Occurrence::ExactlyOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::string(Occurrence::ExactlyOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
         "resolve-QName",
         2,
         qnames::resolve_qname_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::element(Occurrence::ExactlyOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::element(Occurrence::ExactlyOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -369,10 +326,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "namespace-uri-for-prefix",
         2,
         qnames::namespace_uri_for_prefix_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::element(Occurrence::ExactlyOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::element(Occurrence::ExactlyOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -381,13 +335,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         qnames::in_scope_prefixes_stream::<N>,
         vec![ParamTypeSpec::element(Occurrence::ExactlyOne)]
     );
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "namespace-uri",
-        0,
-        qnames::namespace_uri_stream::<N>,
-        vec![]
-    );
+    reg_ns_stream!(crate::consts::FNS, "namespace-uri", 0, qnames::namespace_uri_stream::<N>, vec![]);
     reg_ns_stream!(
         crate::consts::FNS,
         "namespace-uri",
@@ -430,10 +378,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "round",
         2,
         numeric::round_stream::<N>,
-        vec![
-            ParamTypeSpec::numeric(Occurrence::ZeroOrOne),
-            ParamTypeSpec::integer(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::numeric(Occurrence::ZeroOrOne), ParamTypeSpec::integer(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -447,10 +392,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "round-half-to-even",
         2,
         numeric::round_half_to_even_stream::<N>,
-        vec![
-            ParamTypeSpec::numeric(Occurrence::ZeroOrOne),
-            ParamTypeSpec::integer(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::numeric(Occurrence::ZeroOrOne), ParamTypeSpec::integer(Occurrence::ZeroOrOne),]
     );
     // Stream-based sum() with optional zero value
     reg_ns_stream!(
@@ -536,10 +478,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "subsequence",
         2,
         sequences::subsequence_stream::<N>,
-        vec![
-            ParamTypeSpec::any_item(Occurrence::ZeroOrMore),
-            ParamTypeSpec::double(Occurrence::ExactlyOne),
-        ]
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore), ParamTypeSpec::double(Occurrence::ExactlyOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -565,10 +504,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "distinct-values",
         2,
         sequences::distinct_values_stream::<N>,
-        vec![
-            ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore),
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore), ParamTypeSpec::string(Occurrence::ZeroOrOne),]
     );
     // Stream version of index-of
     reg_ns_stream!(
@@ -576,10 +512,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "index-of",
         2,
         sequences::index_of_stream::<N>,
-        vec![
-            ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore),
-            ParamTypeSpec::any_atomic(Occurrence::ExactlyOne),
-        ]
+        vec![ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore), ParamTypeSpec::any_atomic(Occurrence::ExactlyOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -608,10 +541,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "remove",
         2,
         sequences::remove_stream::<N>,
-        vec![
-            ParamTypeSpec::any_item(Occurrence::ZeroOrMore),
-            ParamTypeSpec::integer(Occurrence::ExactlyOne),
-        ]
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore), ParamTypeSpec::integer(Occurrence::ExactlyOne),]
     );
     // Stream-based min() with optional collation
     reg_ns_stream!(
@@ -626,10 +556,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "min",
         2,
         numeric::min_stream::<N>,
-        vec![
-            ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore),
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore), ParamTypeSpec::string(Occurrence::ZeroOrOne),]
     );
     // Stream-based max() with optional collation
     reg_ns_stream!(
@@ -644,10 +571,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "max",
         2,
         numeric::max_stream::<N>,
-        vec![
-            ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore),
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::any_atomic(Occurrence::ZeroOrMore), ParamTypeSpec::string(Occurrence::ZeroOrOne),]
     );
 
     // ===== Collation-related functions =====
@@ -656,10 +580,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "compare",
         2,
         collations::compare_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::string(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -677,20 +598,14 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "codepoint-equal",
         2,
         collations::codepoint_equal_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::string(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
         "deep-equal",
         2,
         collations::deep_equal_stream::<N>,
-        vec![
-            ParamTypeSpec::any_item(Occurrence::ZeroOrMore),
-            ParamTypeSpec::any_item(Occurrence::ZeroOrMore),
-        ]
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore), ParamTypeSpec::any_item(Occurrence::ZeroOrMore),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -710,10 +625,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "matches",
         2,
         regex::matches_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::string(Occurrence::ExactlyOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::string(Occurrence::ExactlyOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -754,10 +666,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "tokenize",
         2,
         regex::tokenize_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::string(Occurrence::ExactlyOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::string(Occurrence::ExactlyOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -785,10 +694,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "error",
         2,
         diagnostics::error_stream::<N>,
-        vec![
-            ParamTypeSpec::qname(Occurrence::ExactlyOne),
-            ParamTypeSpec::string(Occurrence::ExactlyOne),
-        ]
+        vec![ParamTypeSpec::qname(Occurrence::ExactlyOne), ParamTypeSpec::string(Occurrence::ExactlyOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -806,27 +712,12 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "trace",
         2,
         diagnostics::trace_stream::<N>,
-        vec![
-            ParamTypeSpec::any_item(Occurrence::ZeroOrMore),
-            ParamTypeSpec::string(Occurrence::ExactlyOne),
-        ]
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrMore), ParamTypeSpec::string(Occurrence::ExactlyOne),]
     );
 
     // ===== Environment / Document / URI helpers =====
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "default-collation",
-        0,
-        environment::default_collation_stream::<N>,
-        vec![]
-    );
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "static-base-uri",
-        0,
-        environment::static_base_uri_stream::<N>,
-        vec![]
-    );
+    reg_ns_stream!(crate::consts::FNS, "default-collation", 0, environment::default_collation_stream::<N>, vec![]);
+    reg_ns_stream!(crate::consts::FNS, "static-base-uri", 0, environment::static_base_uri_stream::<N>, vec![]);
     reg_ns_stream!(crate::consts::FNS, "root", 0, environment::root_stream::<N>, vec![]);
     reg_ns_stream!(
         crate::consts::FNS,
@@ -843,13 +734,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         environment::base_uri_stream::<N>,
         vec![ParamTypeSpec::node(Occurrence::ZeroOrOne)]
     );
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "document-uri",
-        0,
-        environment::document_uri_stream::<N>,
-        vec![]
-    );
+    reg_ns_stream!(crate::consts::FNS, "document-uri", 0, environment::document_uri_stream::<N>, vec![]);
     reg_ns_stream!(
         crate::consts::FNS,
         "document-uri",
@@ -869,10 +754,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "lang",
         2,
         environment::lang_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::node(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::node(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -914,10 +796,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "resolve-uri",
         2,
         environment::resolve_uri_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::string(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -931,10 +810,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "normalize-unicode",
         2,
         environment::normalize_unicode_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-            ParamTypeSpec::string(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrOne), ParamTypeSpec::string(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -950,13 +826,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         environment::doc_stream::<N>,
         vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
     );
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "collection",
-        0,
-        environment::collection_stream::<N>,
-        vec![]
-    );
+    reg_ns_stream!(crate::consts::FNS, "collection", 0, environment::collection_stream::<N>, vec![]);
     reg_ns_stream!(
         crate::consts::FNS,
         "collection",
@@ -978,10 +848,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "id",
         2,
         ids::id_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrMore),
-            ParamTypeSpec::node(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrMore), ParamTypeSpec::node(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -995,10 +862,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "element-with-id",
         2,
         ids::element_with_id_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrMore),
-            ParamTypeSpec::node(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrMore), ParamTypeSpec::node(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -1012,10 +876,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "idref",
         2,
         ids::idref_stream::<N>,
-        vec![
-            ParamTypeSpec::string(Occurrence::ZeroOrMore),
-            ParamTypeSpec::node(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::string(Occurrence::ZeroOrMore), ParamTypeSpec::node(Occurrence::ZeroOrOne),]
     );
 
     // ===== Regex replacements already handled =====
@@ -1042,10 +903,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "dateTime",
         2,
         datetime::date_time_stream::<N>,
-        vec![
-            ParamTypeSpec::date(Occurrence::ZeroOrOne),
-            ParamTypeSpec::time(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::date(Occurrence::ZeroOrOne), ParamTypeSpec::time(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -1059,10 +917,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "adjust-date-to-timezone",
         2,
         datetime::adjust_date_to_timezone_stream::<N>,
-        vec![
-            ParamTypeSpec::date(Occurrence::ZeroOrOne),
-            ParamTypeSpec::day_time_duration(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::date(Occurrence::ZeroOrOne), ParamTypeSpec::day_time_duration(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -1076,10 +931,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "adjust-time-to-timezone",
         2,
         datetime::adjust_time_to_timezone_stream::<N>,
-        vec![
-            ParamTypeSpec::time(Occurrence::ZeroOrOne),
-            ParamTypeSpec::day_time_duration(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::time(Occurrence::ZeroOrOne), ParamTypeSpec::day_time_duration(Occurrence::ZeroOrOne),]
     );
     reg_ns_stream!(
         crate::consts::FNS,
@@ -1093,39 +945,12 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         "adjust-dateTime-to-timezone",
         2,
         datetime::adjust_datetime_to_timezone_stream::<N>,
-        vec![
-            ParamTypeSpec::date_time(Occurrence::ZeroOrOne),
-            ParamTypeSpec::day_time_duration(Occurrence::ZeroOrOne),
-        ]
+        vec![ParamTypeSpec::date_time(Occurrence::ZeroOrOne), ParamTypeSpec::day_time_duration(Occurrence::ZeroOrOne),]
     );
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "current-dateTime",
-        0,
-        datetime::current_datetime_stream::<N>,
-        vec![]
-    );
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "current-date",
-        0,
-        datetime::current_date_stream::<N>,
-        vec![]
-    );
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "current-time",
-        0,
-        datetime::current_time_stream::<N>,
-        vec![]
-    );
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "implicit-timezone",
-        0,
-        datetime::implicit_timezone_stream::<N>,
-        vec![]
-    );
+    reg_ns_stream!(crate::consts::FNS, "current-dateTime", 0, datetime::current_datetime_stream::<N>, vec![]);
+    reg_ns_stream!(crate::consts::FNS, "current-date", 0, datetime::current_date_stream::<N>, vec![]);
+    reg_ns_stream!(crate::consts::FNS, "current-time", 0, datetime::current_time_stream::<N>, vec![]);
+    reg_ns_stream!(crate::consts::FNS, "implicit-timezone", 0, datetime::implicit_timezone_stream::<N>, vec![]);
     reg_ns_stream!(
         crate::consts::FNS,
         "year-from-dateTime",
@@ -1587,8 +1412,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
     );
 }
 
-pub fn default_function_registry<N: 'static + crate::model::XdmNode + Clone>()
--> Rc<FunctionImplementations<N>> {
+pub fn default_function_registry<N: 'static + crate::model::XdmNode + Clone>() -> Rc<FunctionImplementations<N>> {
     let mut reg: FunctionImplementations<N> = FunctionImplementations::new();
     ensure_default_signatures();
     register_default_functions(Some(&mut reg), None);

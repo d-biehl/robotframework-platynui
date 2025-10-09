@@ -12,10 +12,8 @@ use platynui_xpath::{NodeKind, XdmNode};
 #[test]
 fn default_context_contains_builtin_function() {
     let ctx = StaticContext::default();
-    let name = ExpandedName {
-        ns_uri: StaticContext::default().default_function_namespace.clone(),
-        local: "true".to_string(),
-    };
+    let name =
+        ExpandedName { ns_uri: StaticContext::default().default_function_namespace.clone(), local: "true".to_string() };
     assert!(ctx.function_signatures.supports(&name, 0));
 }
 
@@ -50,10 +48,8 @@ fn builder_can_add_collation() {
 
 #[test]
 fn builder_can_clear_context_item_type() {
-    let ctx = StaticContextBuilder::new()
-        .with_context_item_type(SeqTypeIR::EmptySequence)
-        .clear_context_item_type()
-        .build();
+    let ctx =
+        StaticContextBuilder::new().with_context_item_type(SeqTypeIR::EmptySequence).clear_context_item_type().build();
     assert!(ctx.context_item_type.is_none());
 }
 
@@ -81,16 +77,11 @@ fn context_item_type_empty_sequence_rejects_root_descendant_path() {
 #[test]
 fn context_item_type_allows_node_usage() {
     let ctx = StaticContextBuilder::new()
-        .with_context_item_type(SeqTypeIR::Typed {
-            item: ItemTypeIR::AnyNode,
-            occ: OccurrenceIR::One,
-        })
+        .with_context_item_type(SeqTypeIR::Typed { item: ItemTypeIR::AnyNode, occ: OccurrenceIR::One })
         .build();
     let compiled = compile_with_context(".", &ctx).expect("compile context item");
     let doc = simple_doc().child(elem("root").child(text("v"))).build();
-    let dyn_ctx = DynamicContextBuilder::<SimpleNode>::new()
-        .with_context_item(XdmItem::Node(doc.clone()))
-        .build();
+    let dyn_ctx = DynamicContextBuilder::<SimpleNode>::new().with_context_item(XdmItem::Node(doc.clone())).build();
     let result = evaluate(&compiled, &dyn_ctx).expect("evaluate");
     assert_eq!(result.len(), 1);
     assert!(matches!(&result[0], XdmItem::Node(n) if n == &doc));
@@ -109,8 +100,7 @@ fn context_item_type_rejects_mismatched_runtime_item() {
         .build();
     let compiled = compile_with_context(".", &ctx).expect("compile context item");
     let doc = simple_doc().child(elem("root")).build();
-    let dyn_ctx =
-        DynamicContextBuilder::<SimpleNode>::new().with_context_item(XdmItem::Node(doc)).build();
+    let dyn_ctx = DynamicContextBuilder::<SimpleNode>::new().with_context_item(XdmItem::Node(doc)).build();
     let err = evaluate(&compiled, &dyn_ctx).expect_err("expected runtime type error");
     assert_eq!(err.code_enum(), ErrorCode::XPTY0004);
 }
@@ -119,20 +109,14 @@ fn context_item_type_rejects_mismatched_runtime_item() {
 fn context_item_type_element_allows_attribute_access() {
     let ctx = StaticContextBuilder::new()
         .with_context_item_type(SeqTypeIR::Typed {
-            item: ItemTypeIR::Kind(NodeTestIR::KindElement {
-                name: None,
-                ty: None,
-                nillable: false,
-            }),
+            item: ItemTypeIR::Kind(NodeTestIR::KindElement { name: None, ty: None, nillable: false }),
             occ: OccurrenceIR::One,
         })
         .build();
     let compiled = compile_with_context("@class", &ctx).expect("compile attribute access");
     let doc = simple_doc().child(elem("root").attr(attr("class", "foo"))).build();
     let element = doc.children().next().expect("element child");
-    let dyn_ctx = DynamicContextBuilder::<SimpleNode>::new()
-        .with_context_item(XdmItem::Node(element))
-        .build();
+    let dyn_ctx = DynamicContextBuilder::<SimpleNode>::new().with_context_item(XdmItem::Node(element)).build();
     let result = evaluate(&compiled, &dyn_ctx).expect("evaluate attribute");
     assert_eq!(result.len(), 1);
     assert!(matches!(&result[0], XdmItem::Node(n) if matches!(n.kind(), NodeKind::Attribute)));
@@ -142,19 +126,13 @@ fn context_item_type_element_allows_attribute_access() {
 fn context_item_type_element_rejects_atomic_runtime_item() {
     let ctx = StaticContextBuilder::new()
         .with_context_item_type(SeqTypeIR::Typed {
-            item: ItemTypeIR::Kind(NodeTestIR::KindElement {
-                name: None,
-                ty: None,
-                nillable: false,
-            }),
+            item: ItemTypeIR::Kind(NodeTestIR::KindElement { name: None, ty: None, nillable: false }),
             occ: OccurrenceIR::One,
         })
         .build();
     let compiled = compile_with_context(".//child", &ctx).expect("compile descendant path");
     let dyn_ctx = DynamicContextBuilder::<SimpleNode>::new()
-        .with_context_item(XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String(
-            "text".to_string(),
-        )))
+        .with_context_item(XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::String("text".to_string())))
         .build();
     let err = evaluate(&compiled, &dyn_ctx).expect_err("expected type error");
     assert_eq!(err.code_enum(), ErrorCode::XPTY0004);

@@ -44,8 +44,7 @@ fn index_of_reports_all_equal_positions_after_truncation(ctx: DynamicContext<N>)
 
 #[rstest]
 fn duration_division_returns_double(ctx: DynamicContext<N>) {
-    let r = evaluate_expr::<N>("xs:dayTimeDuration('PT20S') div xs:dayTimeDuration('PT5S')", &ctx)
-        .unwrap();
+    let r = evaluate_expr::<N>("xs:dayTimeDuration('PT20S') div xs:dayTimeDuration('PT5S')", &ctx).unwrap();
     match &r[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Double(d)) => {
             assert!((*d - 4.0).abs() < 1e-12)
@@ -57,11 +56,7 @@ fn duration_division_returns_double(ctx: DynamicContext<N>) {
 #[rstest]
 fn duration_multiply_truncates_fractional_result(ctx: DynamicContext<N>) {
     // 3 * 2.5 = 7.5 -> truncates to 7 seconds
-    let r = evaluate_expr::<N>(
-        "(xs:dayTimeDuration('PT3S') * 2.5) eq xs:dayTimeDuration('PT7S')",
-        &ctx,
-    )
-    .unwrap();
+    let r = evaluate_expr::<N>("(xs:dayTimeDuration('PT3S') * 2.5) eq xs:dayTimeDuration('PT7S')", &ctx).unwrap();
     match &r[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(b)) => assert!(*b),
         _ => panic!("expected boolean"),

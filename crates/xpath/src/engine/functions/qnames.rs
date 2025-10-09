@@ -57,13 +57,9 @@ pub(super) fn qname_stream<N: 'static + crate::model::XdmNode + Clone>(
         None
     } else {
         match &seq0[0] {
-            XdmItem::Atomic(XdmAtomicValue::String(s))
-            | XdmItem::Atomic(XdmAtomicValue::AnyUri(s)) => Some(s.clone()),
+            XdmItem::Atomic(XdmAtomicValue::String(s)) | XdmItem::Atomic(XdmAtomicValue::AnyUri(s)) => Some(s.clone()),
             _ => {
-                return Err(Error::from_code(
-                    ErrorCode::FORG0001,
-                    "QName namespace must be a string or anyURI",
-                ));
+                return Err(Error::from_code(ErrorCode::FORG0001, "QName namespace must be a string or anyURI"));
             }
         }
     };
@@ -76,8 +72,8 @@ pub(super) fn qname_stream<N: 'static + crate::model::XdmNode + Clone>(
             return Err(Error::from_code(ErrorCode::FORG0001, "QName lexical must be string"));
         }
     };
-    let (prefix_opt, local) = parse_qname_lexical(&qn_lex)
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"))?;
+    let (prefix_opt, local) =
+        parse_qname_lexical(&qn_lex).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"))?;
     let ns_uri = ns_opt.and_then(|s| if s.is_empty() { None } else { Some(s) });
     let result = vec![XdmItem::Atomic(XdmAtomicValue::QName { ns_uri, prefix: prefix_opt, local })];
     Ok(XdmSequenceStream::from_vec(result))
@@ -130,8 +126,8 @@ pub(super) fn resolve_qname_stream<N: 'static + crate::model::XdmNode + Clone>(
     if !matches!(enode.kind(), crate::model::NodeKind::Element) {
         return Err(Error::from_code(ErrorCode::XPTY0004, "resolve-QName requires element()"));
     }
-    let (prefix_opt, local) = parse_qname_lexical(&s)
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"))?;
+    let (prefix_opt, local) =
+        parse_qname_lexical(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"))?;
     let ns_uri = match &prefix_opt {
         None => None,
         Some(p) => inscope_for(enode).get(p).cloned(),
@@ -153,16 +149,9 @@ pub(super) fn namespace_uri_from_qname_stream<N: 'static + crate::model::XdmNode
         return Ok(XdmSequenceStream::from_vec(vec![]));
     }
     let result = if let XdmItem::Atomic(XdmAtomicValue::QName { ns_uri, .. }) = &seq[0] {
-        if let Some(uri) = ns_uri {
-            vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri.clone()))]
-        } else {
-            vec![]
-        }
+        if let Some(uri) = ns_uri { vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri.clone()))] } else { vec![] }
     } else {
-        return Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "namespace-uri-from-QName expects xs:QName",
-        ));
+        return Err(Error::from_code(ErrorCode::XPTY0004, "namespace-uri-from-QName expects xs:QName"));
     };
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -179,10 +168,7 @@ pub(super) fn local_name_from_qname_stream<N: 'static + crate::model::XdmNode + 
     let result = if let XdmItem::Atomic(XdmAtomicValue::QName { local, .. }) = &seq[0] {
         vec![XdmItem::Atomic(XdmAtomicValue::NCName(local.clone()))]
     } else {
-        return Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "local-name-from-QName expects xs:QName",
-        ));
+        return Err(Error::from_code(ErrorCode::XPTY0004, "local-name-from-QName expects xs:QName"));
     };
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -197,11 +183,7 @@ pub(super) fn prefix_from_qname_stream<N: 'static + crate::model::XdmNode + Clon
         return Ok(XdmSequenceStream::from_vec(vec![]));
     }
     let result = if let XdmItem::Atomic(XdmAtomicValue::QName { prefix, .. }) = &seq[0] {
-        if let Some(p) = prefix {
-            vec![XdmItem::Atomic(XdmAtomicValue::NCName(p.clone()))]
-        } else {
-            vec![]
-        }
+        if let Some(p) = prefix { vec![XdmItem::Atomic(XdmAtomicValue::NCName(p.clone()))] } else { vec![] }
     } else {
         return Err(Error::from_code(ErrorCode::XPTY0004, "prefix-from-QName expects xs:QName"));
     };
@@ -226,27 +208,18 @@ pub(super) fn namespace_uri_for_prefix_stream<N: 'static + crate::model::XdmNode
     let enode = match &seq1[0] {
         XdmItem::Node(n) => n.clone(),
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "namespace-uri-for-prefix requires element()",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "namespace-uri-for-prefix requires element()"));
         }
     };
     if !matches!(enode.kind(), crate::model::NodeKind::Element) {
-        return Err(Error::from_code(
-            ErrorCode::XPTY0004,
-            "namespace-uri-for-prefix requires element()",
-        ));
+        return Err(Error::from_code(ErrorCode::XPTY0004, "namespace-uri-for-prefix requires element()"));
     }
     if p.is_empty() {
         return Ok(XdmSequenceStream::from_vec(vec![]));
     }
     let map = inscope_for(enode);
-    let result = if let Some(uri) = map.get(&p) {
-        vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri.clone()))]
-    } else {
-        vec![]
-    };
+    let result =
+        if let Some(uri) = map.get(&p) { vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(uri.clone()))] } else { vec![] };
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -259,10 +232,7 @@ pub(super) fn in_scope_prefixes_stream<N: 'static + crate::model::XdmNode + Clon
     let enode = match &seq[0] {
         XdmItem::Node(n) => n.clone(),
         _ => {
-            return Err(Error::from_code(
-                ErrorCode::XPTY0004,
-                "in-scope-prefixes requires element()",
-            ));
+            return Err(Error::from_code(ErrorCode::XPTY0004, "in-scope-prefixes requires element()"));
         }
     };
     if !matches!(enode.kind(), crate::model::NodeKind::Element) {

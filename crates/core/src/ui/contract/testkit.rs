@@ -129,10 +129,7 @@ pub fn verify_node(node: &dyn UiNode, expectations: &NodeExpectation) -> Vec<Con
 }
 
 /// Prüft einen Knoten und liefert beim ersten Fehler eine detaillierte Liste.
-pub fn require_node(
-    node: &dyn UiNode,
-    expectations: &NodeExpectation,
-) -> Result<(), Vec<ContractIssue>> {
+pub fn require_node(node: &dyn UiNode, expectations: &NodeExpectation) -> Result<(), Vec<ContractIssue>> {
     let issues = verify_node(node, expectations);
     if issues.is_empty() { Ok(()) } else { Err(issues) }
 }
@@ -156,10 +153,8 @@ mod geometry_tests {
     use once_cell::sync::Lazy;
     use std::sync::Arc;
 
-    const ELEMENT_EXPECTATIONS: [AttributeExpectation; 1] = [AttributeExpectation::required(
-        Namespace::Control,
-        crate::ui::attribute_names::element::BOUNDS,
-    )];
+    const ELEMENT_EXPECTATIONS: [AttributeExpectation; 1] =
+        [AttributeExpectation::required(Namespace::Control, crate::ui::attribute_names::element::BOUNDS)];
 
     const ACTIVATION_EXPECTATIONS: [AttributeExpectation; 1] = [AttributeExpectation::required(
         Namespace::Control,
@@ -193,10 +188,8 @@ mod geometry_tests {
     }
 
     fn sample_expectation() -> NodeExpectation {
-        NodeExpectation::default().with_pattern(PatternExpectation::new(
-            PatternId::from("Element"),
-            &ELEMENT_EXPECTATIONS,
-        ))
+        NodeExpectation::default()
+            .with_pattern(PatternExpectation::new(PatternId::from("Element"), &ELEMENT_EXPECTATIONS))
     }
 
     struct AttrNode {
@@ -274,10 +267,8 @@ mod geometry_tests {
 
     #[test]
     fn activation_point_aliases_not_required() {
-        let expectation = NodeExpectation::default().with_pattern(PatternExpectation::new(
-            PatternId::from("ActivationTarget"),
-            &ACTIVATION_EXPECTATIONS,
-        ));
+        let expectation = NodeExpectation::default()
+            .with_pattern(PatternExpectation::new(PatternId::from("ActivationTarget"), &ACTIVATION_EXPECTATIONS));
         let node = AttrNode::new(vec![StaticAttribute::new(
             Namespace::Control,
             crate::ui::attribute_names::activation_target::ACTIVATION_POINT,
@@ -417,11 +408,9 @@ mod expectation_tests {
     }
 
     fn build_expectation() -> NodeExpectation {
-        let text_pattern =
-            PatternExpectation::new(PatternId::from("TextContent"), TEXT_CONTENT_ATTRS);
+        let text_pattern = PatternExpectation::new(PatternId::from("TextContent"), TEXT_CONTENT_ATTRS);
         let element_pattern = PatternExpectation::new(PatternId::from("Element"), ELEMENT_ATTRS);
-        let activatable_pattern =
-            PatternExpectation::new(PatternId::from("Activatable"), ACTIVATABLE_ATTRS);
+        let activatable_pattern = PatternExpectation::new(PatternId::from("Activatable"), ACTIVATABLE_ATTRS);
 
         NodeExpectation::default()
             .with_pattern(text_pattern)
@@ -456,16 +445,8 @@ mod expectation_tests {
                 name: element::BOUNDS,
                 value: UiValue::Rect(Rect::new(0.0, 0.0, 10.0, 5.0)),
             }),
-            Arc::new(StaticAttribute {
-                namespace: Namespace::Control,
-                name: "Bounds.X",
-                value: UiValue::from(0.0),
-            }),
-            Arc::new(StaticAttribute {
-                namespace: Namespace::Control,
-                name: "Bounds.Y",
-                value: UiValue::from(0.0),
-            }),
+            Arc::new(StaticAttribute { namespace: Namespace::Control, name: "Bounds.X", value: UiValue::from(0.0) }),
+            Arc::new(StaticAttribute { namespace: Namespace::Control, name: "Bounds.Y", value: UiValue::from(0.0) }),
             Arc::new(StaticAttribute {
                 namespace: Namespace::Control,
                 name: "Bounds.Width",
@@ -511,7 +492,9 @@ mod expectation_tests {
         let expectations = build_expectation();
 
         let result = verify_node(&node, &expectations);
-        assert!(result.iter().any(|issue| matches!(issue, ContractIssue::MissingPattern { pattern } if pattern.as_str() == "TextContent")));
+        assert!(result.iter().any(
+            |issue| matches!(issue, ContractIssue::MissingPattern { pattern } if pattern.as_str() == "TextContent")
+        ));
     }
 
     #[rstest]

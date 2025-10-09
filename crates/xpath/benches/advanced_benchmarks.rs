@@ -32,8 +32,7 @@ fn benchmark_string_operations(c: &mut Criterion) {
         let compiled = compile(query).expect("compile failure");
         group.bench_function(name, |b| {
             b.iter(|| {
-                let result =
-                    evaluate::<SimpleNode>(&compiled, black_box(&ctx)).expect("eval failure");
+                let result = evaluate::<SimpleNode>(&compiled, black_box(&ctx)).expect("eval failure");
                 black_box(result);
             });
         });
@@ -64,8 +63,7 @@ fn benchmark_node_operations(c: &mut Criterion) {
         let compiled = compile(query).expect("compile failure");
         group.bench_function(name, |b| {
             b.iter(|| {
-                let result =
-                    evaluate::<SimpleNode>(&compiled, black_box(&ctx)).expect("eval failure");
+                let result = evaluate::<SimpleNode>(&compiled, black_box(&ctx)).expect("eval failure");
                 black_box(result.len());
             });
         });
@@ -83,14 +81,8 @@ fn benchmark_numeric_operations(c: &mut Criterion) {
         ("complex_avg", "avg(for $n in //number return $n/@value * 2 + 1)"),
         ("min_max", "max(//number/@value) - min(//number/@value)"),
         ("arithmetic_sequence", "sum(for $i in 1 to 1000 return $i * $i)"),
-        (
-            "conditional_sum",
-            "sum(for $n in //number return if ($n/@value mod 2 = 0) then $n/@value else 0)",
-        ),
-        (
-            "nested_calculations",
-            "sum(for $s in //section return count($s/number) * avg($s/number/@value))",
-        ),
+        ("conditional_sum", "sum(for $n in //number return if ($n/@value mod 2 = 0) then $n/@value else 0)"),
+        ("nested_calculations", "sum(for $s in //section return count($s/number) * avg($s/number/@value))"),
         ("floor_ceiling", "sum(for $n in //number return floor($n/@value) + ceiling($n/@value))"),
     ];
 
@@ -103,8 +95,7 @@ fn benchmark_numeric_operations(c: &mut Criterion) {
         let compiled = compile(query).expect("compile failure");
         group.bench_function(name, |b| {
             b.iter(|| {
-                let result =
-                    evaluate::<SimpleNode>(&compiled, black_box(&ctx)).expect("eval failure");
+                let result = evaluate::<SimpleNode>(&compiled, black_box(&ctx)).expect("eval failure");
                 black_box(result);
             });
         });
@@ -121,22 +112,13 @@ fn benchmark_complex_predicates(c: &mut Criterion) {
         ("nested_position", "//item[position() > 5][position() < 10][position() mod 2 = 0]"),
         ("multiple_attributes", "//item[@type='special'][@category='important'][@status='active']"),
         ("existential_quantifier", "//section[some $item in item satisfies $item/@value > 100]"),
-        (
-            "universal_quantifier",
-            "//section[every $item in item satisfies $item/@status = 'active']",
-        ),
+        ("universal_quantifier", "//section[every $item in item satisfies $item/@status = 'active']"),
         (
             "complex_filter_chain",
             "//item[parent::section[@type='main']][following-sibling::item[@type='related']][position() <= 20]",
         ),
-        (
-            "deep_nested_predicate",
-            "//item[ancestor::section[descendant::summary[contains(., 'important')]]]",
-        ),
-        (
-            "conditional_predicate",
-            "//item[if (@type='conditional') then @value > 50 else @value > 100]",
-        ),
+        ("deep_nested_predicate", "//item[ancestor::section[descendant::summary[contains(., 'important')]]]"),
+        ("conditional_predicate", "//item[if (@type='conditional') then @value > 50 else @value > 100]"),
     ];
 
     let mut group = c.benchmark_group("complex_predicates");
@@ -147,8 +129,7 @@ fn benchmark_complex_predicates(c: &mut Criterion) {
         let compiled = compile(query).expect("compile failure");
         group.bench_function(name, |b| {
             b.iter(|| {
-                let result =
-                    evaluate::<SimpleNode>(&compiled, black_box(&ctx)).expect("eval failure");
+                let result = evaluate::<SimpleNode>(&compiled, black_box(&ctx)).expect("eval failure");
                 black_box(result.len());
             });
         });
@@ -166,10 +147,7 @@ fn benchmark_memory_patterns(c: &mut Criterion) {
         ("collect_attributes", "//item/@id"),
         ("text_collection", "//item/text()"),
         ("descendant_explosion", "//section/descendant-or-self::*"),
-        (
-            "multiple_axis_large",
-            "(//item/following-sibling::item | //item/preceding-sibling::item)",
-        ),
+        ("multiple_axis_large", "(//item/following-sibling::item | //item/preceding-sibling::item)"),
         ("for_loop_memory", "for $i in //item return $i/@id"),
         ("sequence_construction", "for $s in //section return $s/item"),
     ];
@@ -183,8 +161,7 @@ fn benchmark_memory_patterns(c: &mut Criterion) {
         let compiled = compile(query).expect("compile failure");
         group.bench_function(name, |b| {
             b.iter(|| {
-                let result =
-                    evaluate::<SimpleNode>(&compiled, black_box(&ctx)).expect("eval failure");
+                let result = evaluate::<SimpleNode>(&compiled, black_box(&ctx)).expect("eval failure");
                 black_box(result.len());
             });
         });
@@ -197,8 +174,7 @@ fn build_string_heavy_document() -> SimpleNode {
     let mut root_builder = elem("root");
 
     for i in 0..1000 {
-        let text_content =
-            format!("Text content number {} with some specific keywords and patterns that end", i);
+        let text_content = format!("Text content number {} with some specific keywords and patterns that end", i);
         let node = elem("text").attr(attr("id", &format!("text-{}", i))).child(text(&text_content));
         root_builder = root_builder.child(node);
     }
@@ -230,20 +206,13 @@ fn build_deep_document(max_depth: usize, children_per_level: usize) -> SimpleNod
                 .attr(attr("level", &level.to_string()))
                 .attr(attr("type", if i % 2 == 0 { "even" } else { "odd" }));
 
-            child = add_children_recursive(
-                child,
-                level + 1,
-                max_depth,
-                children_per_level,
-                node_counter,
-            );
+            child = add_children_recursive(child, level + 1, max_depth, children_per_level, node_counter);
             parent = parent.child(child);
         }
         parent
     }
 
-    root_builder =
-        add_children_recursive(root_builder, 0, max_depth, children_per_level, &mut node_counter);
+    root_builder = add_children_recursive(root_builder, 0, max_depth, children_per_level, &mut node_counter);
     simple_doc().child(root_builder).build()
 }
 
@@ -252,8 +221,7 @@ fn build_numeric_document() -> SimpleNode {
     let mut root_builder = elem("root");
 
     for section_id in 0..100 {
-        let mut section_builder =
-            elem("section").attr(attr("id", &format!("section-{}", section_id)));
+        let mut section_builder = elem("section").attr(attr("id", &format!("section-{}", section_id)));
 
         for num_id in 0..50 {
             let value = (section_id * 50 + num_id) as f64 * 1.5 + 10.0;
@@ -321,8 +289,7 @@ fn build_wide_document(num_sections: usize, items_per_section: usize) -> SimpleN
     let mut root_builder = elem("root");
 
     for section_id in 0..num_sections {
-        let mut section_builder =
-            elem("section").attr(attr("id", &format!("section-{}", section_id)));
+        let mut section_builder = elem("section").attr(attr("id", &format!("section-{}", section_id)));
 
         for item_id in 0..items_per_section {
             let item = elem("item")

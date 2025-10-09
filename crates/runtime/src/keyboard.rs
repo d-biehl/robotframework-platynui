@@ -1,8 +1,7 @@
 use std::time::Duration;
 
 use platynui_core::platform::{
-    KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, KeyboardOverrides,
-    KeyboardSettings,
+    KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, KeyboardOverrides, KeyboardSettings,
 };
 
 use crate::keyboard_sequence::{ResolvedKeyboardSequence, ResolvedSegment};
@@ -31,11 +30,7 @@ impl<'a> KeyboardEngine<'a> {
         Ok(Self { device, settings, sleep, pressed: Vec::new(), started: true })
     }
 
-    pub fn execute(
-        mut self,
-        sequence: &ResolvedKeyboardSequence,
-        mode: KeyboardMode,
-    ) -> Result<(), KeyboardError> {
+    pub fn execute(mut self, sequence: &ResolvedKeyboardSequence, mode: KeyboardMode) -> Result<(), KeyboardError> {
         let mut result = match mode {
             KeyboardMode::Press => self.press_sequence(sequence),
             KeyboardMode::Release => self.release_sequence(sequence),
@@ -94,10 +89,7 @@ impl<'a> KeyboardEngine<'a> {
         Ok(())
     }
 
-    fn release_sequence(
-        &mut self,
-        sequence: &ResolvedKeyboardSequence,
-    ) -> Result<(), KeyboardError> {
+    fn release_sequence(&mut self, sequence: &ResolvedKeyboardSequence) -> Result<(), KeyboardError> {
         for (segment_index, segment) in sequence.segments().iter().enumerate() {
             match segment {
                 ResolvedSegment::Text(codes) => {
@@ -184,8 +176,7 @@ impl<'a> KeyboardEngine<'a> {
     }
 
     fn release_code(&mut self, code: &KeyCode) -> Result<(), KeyboardError> {
-        self.device
-            .send_key_event(KeyboardEvent { code: code.clone(), state: KeyState::Release })?;
+        self.device.send_key_event(KeyboardEvent { code: code.clone(), state: KeyState::Release })?;
         if let Some(pos) = self.pressed.iter().rposition(|stored| stored == code) {
             self.pressed.remove(pos);
         }
@@ -195,8 +186,7 @@ impl<'a> KeyboardEngine<'a> {
 
     fn release_all_pressed(&mut self) -> Result<(), KeyboardError> {
         while let Some(code) = self.pressed.pop() {
-            self.device
-                .send_key_event(KeyboardEvent { code: code.clone(), state: KeyState::Release })?;
+            self.device.send_key_event(KeyboardEvent { code: code.clone(), state: KeyState::Release })?;
             self.sleep(self.settings.release_delay);
         }
         Ok(())

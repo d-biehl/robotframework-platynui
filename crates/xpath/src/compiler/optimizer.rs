@@ -93,21 +93,15 @@ fn push_down_predicates(instrs: &mut Vec<OpCode>) {
     while i + 1 < instrs.len() {
         // Look for pattern: AxisStep followed by ApplyPredicates
         let should_merge = if i + 1 < instrs.len() {
-            matches!(
-                (&instrs[i], &instrs[i + 1]),
-                (OpCode::AxisStep(_, _, _), OpCode::ApplyPredicates(_))
-            )
+            matches!((&instrs[i], &instrs[i + 1]), (OpCode::AxisStep(_, _, _), OpCode::ApplyPredicates(_)))
         } else {
             false
         };
 
         if should_merge {
             // Extract predicates from ApplyPredicates
-            let new_preds = if let OpCode::ApplyPredicates(preds) = &instrs[i + 1] {
-                preds.clone()
-            } else {
-                unreachable!()
-            };
+            let new_preds =
+                if let OpCode::ApplyPredicates(preds) = &instrs[i + 1] { preds.clone() } else { unreachable!() };
 
             // Check if we can safely push down
             let (axis, test, existing_preds) = if let OpCode::AxisStep(a, t, p) = &instrs[i] {
@@ -233,9 +227,7 @@ fn fold_constants(instrs: &mut Vec<OpCode>) {
             )
         );
 
-        if can_fold
-            && let (OpCode::PushAtomic(a), OpCode::PushAtomic(b)) = (&instrs[i], &instrs[i + 1])
-        {
+        if can_fold && let (OpCode::PushAtomic(a), OpCode::PushAtomic(b)) = (&instrs[i], &instrs[i + 1]) {
             let result = match (&instrs[i + 2], a, b) {
                 // Integer arithmetic - use checked operations to prevent overflow
                 (OpCode::Add, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y)) => {
@@ -247,14 +239,10 @@ fn fold_constants(instrs: &mut Vec<OpCode>) {
                 (OpCode::Mul, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y)) => {
                     x.checked_mul(*y).map(XdmAtomicValue::Integer)
                 }
-                (OpCode::IDiv, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y))
-                    if *y != 0 =>
-                {
+                (OpCode::IDiv, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y)) if *y != 0 => {
                     x.checked_div(*y).map(XdmAtomicValue::Integer)
                 }
-                (OpCode::Mod, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y))
-                    if *y != 0 =>
-                {
+                (OpCode::Mod, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y)) if *y != 0 => {
                     x.checked_rem(*y).map(XdmAtomicValue::Integer)
                 }
 
@@ -324,9 +312,7 @@ mod tests {
     fn test_simple_predicate_pushdown() {
         let mut instrs = vec![
             OpCode::AxisStep(AxisIR::Descendant, NodeTestIR::AnyKind, vec![]),
-            OpCode::ApplyPredicates(vec![InstrSeq(vec![OpCode::PushAtomic(
-                XdmAtomicValue::Boolean(true),
-            )])]),
+            OpCode::ApplyPredicates(vec![InstrSeq(vec![OpCode::PushAtomic(XdmAtomicValue::Boolean(true))])]),
         ];
 
         push_down_predicates(&mut instrs);
@@ -367,9 +353,7 @@ mod tests {
     fn test_no_pushdown_without_axis_step() {
         let mut instrs = vec![
             OpCode::LoadContextItem,
-            OpCode::ApplyPredicates(vec![InstrSeq(vec![OpCode::PushAtomic(
-                XdmAtomicValue::Boolean(true),
-            )])]),
+            OpCode::ApplyPredicates(vec![InstrSeq(vec![OpCode::PushAtomic(XdmAtomicValue::Boolean(true))])]),
         ];
 
         let original_len = instrs.len();
@@ -387,9 +371,7 @@ mod tests {
             vec![InstrSeq(vec![
                 // Nested axis step with predicate to push
                 OpCode::AxisStep(AxisIR::Child, NodeTestIR::AnyKind, vec![]),
-                OpCode::ApplyPredicates(vec![InstrSeq(vec![OpCode::PushAtomic(
-                    XdmAtomicValue::Boolean(true),
-                )])]),
+                OpCode::ApplyPredicates(vec![InstrSeq(vec![OpCode::PushAtomic(XdmAtomicValue::Boolean(true))])]),
             ])],
         )];
 

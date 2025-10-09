@@ -36,8 +36,7 @@ fn register_and_use_custom_prefix_in_qname_constructor() {
 fn resolve_qname_uses_static_namespace() {
     let static_ctx = StaticContextBuilder::new().with_namespace("p", "urn:ns").build();
     let ctx = dyn_ctx();
-    let compiled =
-        compile_with_context("namespace-uri-from-QName(xs:QName('p:thing'))", &static_ctx).unwrap();
+    let compiled = compile_with_context("namespace-uri-from-QName(xs:QName('p:thing'))", &static_ctx).unwrap();
     let seq = evaluate(&compiled, &ctx).unwrap();
     let uri = match &seq[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::AnyUri(s)) => s,
@@ -50,9 +49,7 @@ fn resolve_qname_uses_static_namespace() {
 fn implicit_xml_binding_present_and_not_overridden() {
     let static_ctx = StaticContextBuilder::new().with_namespace("xml", "urn:override").build();
     let ctx = dyn_ctx();
-    let compiled =
-        compile_with_context("namespace-uri-from-QName(xs:QName('xml:lang'))", &static_ctx)
-            .unwrap();
+    let compiled = compile_with_context("namespace-uri-from-QName(xs:QName('xml:lang'))", &static_ctx).unwrap();
     let seq = evaluate(&compiled, &ctx).unwrap();
     let uri = match &seq[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::AnyUri(s)) => s,
@@ -76,11 +73,8 @@ fn resolve_qname_uses_element_inscope_not_static() {
     // According to spec, resolve-QName should use the element's in-scope namespaces (not static context).
     let static_ctx = StaticContextBuilder::new().with_namespace("a", "urn:static").build();
     // Build document/root with namespace declaration a -> urn:elem and a child element
-    let document = doc()
-        .child(
-            elem("root").namespace(ns("a", "urn:elem")).child(elem("child").child(text("content"))),
-        )
-        .build();
+    let document =
+        doc().child(elem("root").namespace(ns("a", "urn:elem")).child(elem("child").child(text("content")))).build();
     let dyn_ctx = DynamicContextBuilder::default().with_context_item(document.clone()).build();
     // Expression: resolve-QName('a:child', root/child) then namespace-uri-from-QName
     let expr = "namespace-uri-from-QName(resolve-QName('a:child', /root/child))";

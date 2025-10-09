@@ -14,8 +14,7 @@ pub use identifiers::{PatternId, RuntimeId, TechnologyId};
 pub use namespace::{Namespace, all_namespaces, resolve_namespace};
 pub use node::{UiAttribute, UiNode, UiNodeAncestorIter, UiNodeExt};
 pub use pattern::{
-    FocusableAction, FocusablePattern, PatternError, PatternRegistry, UiPattern,
-    WindowSurfaceActions, WindowSurfacePattern, downcast_pattern_arc, downcast_pattern_ref,
-    supported_patterns_value,
+    FocusableAction, FocusablePattern, PatternError, PatternRegistry, UiPattern, WindowSurfaceActions,
+    WindowSurfacePattern, downcast_pattern_arc, downcast_pattern_ref, supported_patterns_value,
 };
 pub use value::UiValue;

@@ -7,9 +7,7 @@ fn eval_bool(expr: &str) -> bool {
     let ctx: DynamicContext<SimpleNode> = DynamicContext::default();
     let seq = evaluate_expr(expr, &ctx).expect("eval");
     match seq.first() {
-        Some(platynui_xpath::xdm::XdmItem::Atomic(
-            platynui_xpath::xdm::XdmAtomicValue::Boolean(b),
-        )) => *b,
+        Some(platynui_xpath::xdm::XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Boolean(b))) => *b,
         _ => false,
     }
 }

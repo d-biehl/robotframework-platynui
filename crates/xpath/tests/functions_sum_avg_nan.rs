@@ -5,8 +5,7 @@ use platynui_xpath::{
 };
 use rstest::rstest;
 
-fn ctx()
--> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 

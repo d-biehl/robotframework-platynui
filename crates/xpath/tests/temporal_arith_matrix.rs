@@ -1,6 +1,4 @@
-use platynui_xpath::{
-    evaluate_expr, runtime::DynamicContextBuilder, xdm::XdmAtomicValue as A, xdm::XdmItem as I,
-};
+use platynui_xpath::{evaluate_expr, runtime::DynamicContextBuilder, xdm::XdmAtomicValue as A, xdm::XdmItem as I};
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -20,11 +18,7 @@ fn eval_bool(expr: &str) -> bool {
 fn expect_err(expr: &str, frag: &str) {
     let c = ctx();
     let err = evaluate_expr::<N>(expr, &c).unwrap_err();
-    assert!(
-        err.code_qname().unwrap().local.contains(frag),
-        "expected fragment {frag} in {:?}",
-        err.code_qname()
-    );
+    assert!(err.code_qname().unwrap().local.contains(frag), "expected fragment {frag} in {:?}", err.code_qname());
 }
 
 // 1. Month-end rollovers (leap & non-leap year)
@@ -38,28 +32,20 @@ fn month_end_rollover(#[case] expr: &str) {
 // 2. Leap-year subtraction (back to Feb 29)
 #[rstest]
 fn leap_year_subtraction() {
-    assert!(eval_bool(
-        "xs:date('2024-03-01') - xs:yearMonthDuration('P1M') = xs:date('2024-02-01')"
-    ));
+    assert!(eval_bool("xs:date('2024-03-01') - xs:yearMonthDuration('P1M') = xs:date('2024-02-01')"));
 }
 
 // 3. dateTime + yearMonthDuration month-end handling
 #[rstest]
-#[case(
-    "xs:dateTime('2024-01-31T10:00:00Z') + xs:yearMonthDuration('P1M') = xs:dateTime('2024-02-29T10:00:00Z')"
-)]
+#[case("xs:dateTime('2024-01-31T10:00:00Z') + xs:yearMonthDuration('P1M') = xs:dateTime('2024-02-29T10:00:00Z')")]
 fn datetime_month_end(#[case] expr: &str) {
     assert!(eval_bool(expr));
 }
 
 // 4. dateTime +/- dayTimeDuration crossing day boundary
 #[rstest]
-#[case(
-    "xs:dateTime('2024-06-01T23:30:00Z') + xs:dayTimeDuration('PT3600S') = xs:dateTime('2024-06-02T00:30:00Z')"
-)]
-#[case(
-    "xs:dateTime('2024-06-02T00:30:00Z') - xs:dayTimeDuration('PT3600S') = xs:dateTime('2024-06-01T23:30:00Z')"
-)]
+#[case("xs:dateTime('2024-06-01T23:30:00Z') + xs:dayTimeDuration('PT3600S') = xs:dateTime('2024-06-02T00:30:00Z')")]
+#[case("xs:dateTime('2024-06-02T00:30:00Z') - xs:dayTimeDuration('PT3600S') = xs:dateTime('2024-06-01T23:30:00Z')")]
 fn datetime_cross_day(#[case] expr: &str) {
     assert!(eval_bool(expr));
 }
@@ -84,12 +70,8 @@ fn negative_zero_duration_normalization() {
 
 // 8. date - date ordering sign correctness
 #[rstest]
-#[case(
-    "(xs:dateTime('2024-06-02T00:00:00Z') - xs:dateTime('2024-06-01T00:00:00Z')) = xs:dayTimeDuration('PT86400S')"
-)]
-#[case(
-    "(xs:dateTime('2024-06-01T00:00:00Z') - xs:dateTime('2024-06-02T00:00:00Z')) = xs:dayTimeDuration('-PT86400S')"
-)]
+#[case("(xs:dateTime('2024-06-02T00:00:00Z') - xs:dateTime('2024-06-01T00:00:00Z')) = xs:dayTimeDuration('PT86400S')")]
+#[case("(xs:dateTime('2024-06-01T00:00:00Z') - xs:dateTime('2024-06-02T00:00:00Z')) = xs:dayTimeDuration('-PT86400S')")]
 fn datetime_difference_sign(#[case] expr: &str) {
     assert!(eval_bool(expr));
 }

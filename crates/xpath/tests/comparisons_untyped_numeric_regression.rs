@@ -1,7 +1,5 @@
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
-use platynui_xpath::{
-    engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A, xdm::XdmItem as I,
-};
+use platynui_xpath::{engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A, xdm::XdmItem as I};
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;

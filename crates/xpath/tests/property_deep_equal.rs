@@ -30,13 +30,10 @@ fn eval_distinct_values(
     use platynui_xpath::engine::evaluator::evaluate;
     use platynui_xpath::engine::runtime::{DynamicContext, StaticContextBuilder};
     use platynui_xpath::xdm::ExpandedName;
-    let mut ctx: DynamicContext<platynui_xpath::model::simple::SimpleNode> =
-        DynamicContext::default();
+    let mut ctx: DynamicContext<platynui_xpath::model::simple::SimpleNode> = DynamicContext::default();
     ctx.variables.insert(ExpandedName::new(None, "s"), seq.to_vec());
-    let static_ctx =
-        StaticContextBuilder::new().with_variable(ExpandedName::new(None, "s")).build();
-    let compiled =
-        compile_with_context("distinct-values($s)", &static_ctx).expect("compile distinct-values");
+    let static_ctx = StaticContextBuilder::new().with_variable(ExpandedName::new(None, "s")).build();
+    let compiled = compile_with_context("distinct-values($s)", &static_ctx).expect("compile distinct-values");
     evaluate(&compiled, &ctx).expect("evaluation distinct-values").into_iter().collect()
 }
 
@@ -45,11 +42,7 @@ fn distinct_values_idempotent() {
     use XdmAtomicValue as A;
     let cases: Vec<Vec<XdmItem<platynui_xpath::model::simple::SimpleNode>>> = vec![
         vec![],
-        vec![
-            XdmItem::Atomic(A::Integer(1)),
-            XdmItem::Atomic(A::Integer(1)),
-            XdmItem::Atomic(A::Integer(2)),
-        ],
+        vec![XdmItem::Atomic(A::Integer(1)), XdmItem::Atomic(A::Integer(1)), XdmItem::Atomic(A::Integer(2))],
         vec![
             XdmItem::Atomic(A::String("a".into())),
             XdmItem::Atomic(A::String("A".into())),

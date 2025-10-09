@@ -3,20 +3,17 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use platynui_core::platform::{
-    PlatformError, PlatformErrorKind, PointerButton, PointerDevice, ScrollDelta,
-    register_pointer_device,
+    PlatformError, PlatformErrorKind, PointerButton, PointerDevice, ScrollDelta, register_pointer_device,
 };
 use platynui_core::types::{Point, Size};
 use windows::Win32::Foundation::GetLastError;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetDoubleClickTime, INPUT, INPUT_0, INPUT_MOUSE, MOUSE_EVENT_FLAGS, MOUSEEVENTF_HWHEEL,
-    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
-    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEEVENTF_XDOWN,
-    MOUSEEVENTF_XUP, MOUSEINPUT, SendInput,
+    GetDoubleClickTime, INPUT, INPUT_0, INPUT_MOUSE, MOUSE_EVENT_FLAGS, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN,
+    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+    MOUSEEVENTF_WHEEL, MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT, SendInput,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CURSORINFO, GetCursorInfo, GetSystemMetrics, SM_CXDOUBLECLK, SM_CYDOUBLECLK, SetCursorPos,
-    XBUTTON1, XBUTTON2,
+    CURSORINFO, GetCursorInfo, GetSystemMetrics, SM_CXDOUBLECLK, SM_CYDOUBLECLK, SetCursorPos, XBUTTON1, XBUTTON2,
 };
 use windows::core::Error;
 
@@ -60,11 +57,7 @@ impl PointerDevice for WindowsPointerDevice {
 
     fn double_click_time(&self) -> Result<Option<Duration>, PlatformError> {
         let value = unsafe { GetDoubleClickTime() };
-        if value == 0 {
-            Err(last_error("GetDoubleClickTime"))
-        } else {
-            Ok(Some(Duration::from_millis(value as u64)))
-        }
+        if value == 0 { Err(last_error("GetDoubleClickTime")) } else { Ok(Some(Duration::from_millis(value as u64))) }
     }
 
     fn double_click_size(&self) -> Result<Option<Size>, PlatformError> {
@@ -78,17 +71,10 @@ impl PointerDevice for WindowsPointerDevice {
     }
 }
 
-fn send_mouse_input(
-    flags: MOUSE_EVENT_FLAGS,
-    data: u32,
-    dx: i32,
-    dy: i32,
-) -> Result<(), PlatformError> {
+fn send_mouse_input(flags: MOUSE_EVENT_FLAGS, data: u32, dx: i32, dy: i32) -> Result<(), PlatformError> {
     let input = INPUT {
         r#type: INPUT_MOUSE,
-        Anonymous: INPUT_0 {
-            mi: MOUSEINPUT { dx, dy, mouseData: data, dwFlags: flags, time: 0, dwExtraInfo: 0 },
-        },
+        Anonymous: INPUT_0 { mi: MOUSEINPUT { dx, dy, mouseData: data, dwFlags: flags, time: 0, dwExtraInfo: 0 } },
     };
 
     let sent = unsafe { SendInput(&[input], size_of::<INPUT>() as i32) };
@@ -130,17 +116,11 @@ fn scroll_data(delta: f64) -> u32 {
 
 fn last_error(context: &str) -> PlatformError {
     let code = unsafe { GetLastError() };
-    PlatformError::new(
-        PlatformErrorKind::CapabilityUnavailable,
-        format!("{context} failed: {code:?}"),
-    )
+    PlatformError::new(PlatformErrorKind::CapabilityUnavailable, format!("{context} failed: {code:?}"))
 }
 
 fn win_error(context: &str, err: Error) -> PlatformError {
-    PlatformError::new(
-        PlatformErrorKind::CapabilityUnavailable,
-        format!("{context} failed: {err:?}"),
-    )
+    PlatformError::new(PlatformErrorKind::CapabilityUnavailable, format!("{context} failed: {err:?}"))
 }
 
 static DEVICE: OnceLock<WindowsPointerDevice> = OnceLock::new();

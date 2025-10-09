@@ -13,11 +13,7 @@ fn build_tree() -> N {
         .child(
             elem("root")
                 .attr(attr("id", "r"))
-                .child(
-                    elem("a")
-                        .child(elem("b").child(text("one")))
-                        .child(elem("b").child(text("two"))),
-                )
+                .child(elem("a").child(elem("b").child(text("one"))).child(elem("b").child(text("two"))))
                 .child(elem("c").child(elem("d").child(text("three")))),
         )
         .build();

@@ -1,35 +1,24 @@
 use chrono::{Datelike, Timelike};
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::runtime::ErrorCode;
-use platynui_xpath::{
-    engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A, xdm::XdmItem as I,
-};
+use platynui_xpath::{engine::evaluator::evaluate_expr, xdm::XdmAtomicValue as A, xdm::XdmItem as I};
 use rstest::rstest;
 
-fn ctx()
--> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
+fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::default().build()
 }
 
 fn expect_err(expr: &str) {
     let c = ctx();
     let err = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &c).unwrap_err();
-    assert!(
-        err.code_enum() == ErrorCode::FORG0001,
-        "expected FORG0001 got {:?} for {}",
-        err.code_qname(),
-        expr
-    );
+    assert!(err.code_enum() == ErrorCode::FORG0001, "expected FORG0001 got {:?} for {}", err.code_qname(), expr);
 }
 
 #[rstest]
 fn time_fraction_truncation() {
     let c = ctx();
-    let r = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(
-        "xs:time('10:11:12.123456789123+02:30')",
-        &c,
-    )
-    .unwrap();
+    let r = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("xs:time('10:11:12.123456789123+02:30')", &c)
+        .unwrap();
     if let I::Atomic(A::Time { time, tz }) = &r[0] {
         assert_eq!(time.nanosecond(), 123_456_789);
         assert!(tz.is_some());
@@ -56,9 +45,7 @@ fn time_invalid_tz_hours() {
 #[rstest]
 fn date_negative_year() {
     let c = ctx();
-    let r =
-        evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("xs:date('-0010-05-01Z')", &c)
-            .unwrap();
+    let r = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("xs:date('-0010-05-01Z')", &c).unwrap();
     if let I::Atomic(A::Date { date, .. }) = &r[0] {
         assert_eq!(date.year(), -10);
     } else {

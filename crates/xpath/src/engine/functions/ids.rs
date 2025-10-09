@@ -52,10 +52,7 @@ pub(super) fn id_fn<N: 'static + crate::model::XdmNode + Clone>(
     }
     let start_node_opt = if args.len() == 2 {
         if args[1].len() > 1 {
-            return Err(Error::from_code(
-                ErrorCode::FORG0006,
-                "fn:id second argument must be at most one node",
-            ));
+            return Err(Error::from_code(ErrorCode::FORG0006, "fn:id second argument must be at most one node"));
         }
         if args[1].is_empty() { None } else { Some(args[1][0].clone()) }
     } else {
@@ -85,8 +82,7 @@ fn find_elements_with_id<N: 'static + crate::model::XdmNode + Clone>(
             for a in node.attributes() {
                 if let Some(q) = a.name() {
                     let is_xml_id = q.local == "id"
-                        && (q.prefix.as_deref() == Some("xml")
-                            || q.ns_uri.as_deref() == Some(crate::consts::XML_URI));
+                        && (q.prefix.as_deref() == Some("xml") || q.ns_uri.as_deref() == Some(crate::consts::XML_URI));
                     let is_plain_id = q.local == "id" && q.prefix.is_none() && q.ns_uri.is_none();
                     if is_xml_id || is_plain_id {
                         let v = a.string_value();
@@ -180,10 +176,7 @@ pub(super) fn idref_fn<N: 'static + crate::model::XdmNode + Clone>(
     }
     let start_node_opt = if args.len() == 2 {
         if args[1].len() > 1 {
-            return Err(Error::from_code(
-                ErrorCode::FORG0006,
-                "fn:idref second argument must be at most one node",
-            ));
+            return Err(Error::from_code(ErrorCode::FORG0006, "fn:idref second argument must be at most one node"));
         }
         if args[1].is_empty() { None } else { Some(args[1][0].clone()) }
     } else {
@@ -204,8 +197,7 @@ pub(super) fn idref_fn<N: 'static + crate::model::XdmNode + Clone>(
             for a in node.attributes() {
                 if let Some(q) = a.name() {
                     let is_xml_id = q.local == "id"
-                        && (q.prefix.as_deref() == Some("xml")
-                            || q.ns_uri.as_deref() == Some(crate::consts::XML_URI));
+                        && (q.prefix.as_deref() == Some("xml") || q.ns_uri.as_deref() == Some(crate::consts::XML_URI));
                     let is_plain_id = q.local == "id" && q.prefix.is_none() && q.ns_uri.is_none();
                     if is_xml_id || is_plain_id {
                         continue;

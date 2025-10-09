@@ -1,8 +1,6 @@
 use platynui_xpath::model::simple::{attr, elem, ns, text};
 use platynui_xpath::xdm::{XdmAtomicValue, XdmItem};
-use platynui_xpath::{
-    engine::evaluator::evaluate_expr, model::XdmNode, runtime::DynamicContextBuilder,
-};
+use platynui_xpath::{engine::evaluator::evaluate_expr, model::XdmNode, runtime::DynamicContextBuilder};
 use rstest::rstest;
 
 type N = platynui_xpath::model::simple::SimpleNode;
@@ -71,8 +69,7 @@ fn empty_and_unnamed_nodes() {
 
     // Text node has no name
     let root = elem("r").child(text("t")).build();
-    let ctx =
-        DynamicContextBuilder::new().with_context_item(root.children().next().unwrap()).build();
+    let ctx = DynamicContextBuilder::new().with_context_item(root.children().next().unwrap()).build();
     assert!(eval_string(&ctx, "name(.)").is_empty());
     assert!(eval_string(&ctx, "local-name(.)").is_empty());
     assert_empty(&ctx, "namespace-uri(.)");
@@ -81,9 +78,8 @@ fn empty_and_unnamed_nodes() {
 #[rstest]
 fn prefixed_and_namespace_nodes() {
     // Create element with namespace node and prefixed child
-    let doc = platynui_xpath::simple_doc()
-        .child(elem("root").namespace(ns("p", "urn:one")).child(elem("child")))
-        .build();
+    let doc =
+        platynui_xpath::simple_doc().child(elem("root").namespace(ns("p", "urn:one")).child(elem("child"))).build();
     let root = doc.children().next().unwrap();
     let ctx = DynamicContextBuilder::new().with_context_item(root.clone()).build();
 

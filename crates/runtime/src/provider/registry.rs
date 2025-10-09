@@ -25,9 +25,8 @@ pub struct ProviderRegistry {
 
 impl ProviderRegistry {
     pub fn discover() -> Self {
-        let mut entries: Vec<ProviderEntry> = provider_factories()
-            .map(|factory| ProviderEntry { descriptor: factory.descriptor(), factory })
-            .collect();
+        let mut entries: Vec<ProviderEntry> =
+            provider_factories().map(|factory| ProviderEntry { descriptor: factory.descriptor(), factory }).collect();
 
         entries.sort_by(|a, b| {
             let tech_cmp = a.descriptor.technology.as_str().cmp(b.descriptor.technology.as_str());
@@ -78,10 +77,7 @@ impl ProviderRegistry {
     pub fn filter_by_ids(&self, ids: &[&str]) -> Self {
         if ids.is_empty() {
             // Keep current behavior if no filter specified
-            return Self {
-                entries: self.entries.clone(),
-                by_technology: self.by_technology.clone(),
-            };
+            return Self { entries: self.entries.clone(), by_technology: self.by_technology.clone() };
         }
         let wanted: HashSet<&str> = ids.iter().copied().collect();
         let entries: Vec<ProviderEntry> =
@@ -93,10 +89,7 @@ impl ProviderRegistry {
     fn rebuild_by_technology(entries: &[ProviderEntry]) -> HashMap<String, Vec<usize>> {
         let mut by_technology: HashMap<String, Vec<usize>> = HashMap::new();
         for (idx, entry) in entries.iter().enumerate() {
-            by_technology
-                .entry(entry.descriptor.technology.as_str().to_owned())
-                .or_default()
-                .push(idx);
+            by_technology.entry(entry.descriptor.technology.as_str().to_owned()).or_default().push(idx);
         }
         by_technology
     }
@@ -189,10 +182,7 @@ mod tests {
         ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
             Ok(Box::new(std::iter::once(self.node.clone())))
         }
-        fn subscribe_events(
-            &self,
-            listener: Arc<dyn ProviderEventListener>,
-        ) -> Result<(), ProviderError> {
+        fn subscribe_events(&self, listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> {
             listener.on_event(ProviderEvent { kind: ProviderEventKind::TreeInvalidated });
             SUBSCRIPTION_FLAG.store(true, Ordering::SeqCst);
             Ok(())
@@ -207,12 +197,7 @@ mod tests {
     impl DummyFactory {
         fn descriptor_static() -> &'static ProviderDescriptor {
             static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
-                ProviderDescriptor::new(
-                    "dummy",
-                    "Dummy",
-                    TechnologyId::from("DummyTech"),
-                    ProviderKind::Native,
-                )
+                ProviderDescriptor::new("dummy", "Dummy", TechnologyId::from("DummyTech"), ProviderKind::Native)
             });
             &DESCRIPTOR
         }

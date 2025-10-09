@@ -158,10 +158,8 @@ fn lexical_cast(value: &XdmAtomicValue) -> String {
     use XdmAtomicValue::*;
     match value {
         Boolean(b) => b.to_string(),
-        String(s) | UntypedAtomic(s) | AnyUri(s) | NormalizedString(s) | Token(s) | Language(s)
-        | Name(s) | NCName(s) | NMTOKEN(s) | Id(s) | IdRef(s) | Entity(s) | Notation(s) => {
-            s.clone()
-        }
+        String(s) | UntypedAtomic(s) | AnyUri(s) | NormalizedString(s) | Token(s) | Language(s) | Name(s)
+        | NCName(s) | NMTOKEN(s) | Id(s) | IdRef(s) | Entity(s) | Notation(s) => s.clone(),
         Integer(i) => i.to_string(),
         Long(i) => i.to_string(),
         NonPositiveInteger(i) => i.to_string(),

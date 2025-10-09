@@ -4,8 +4,7 @@ use crate::tree::AttributeSpec;
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{element, window_surface};
 use platynui_core::ui::{
-    Namespace, PatternError, PatternRegistry, RuntimeId, UiAttribute, UiPattern, UiValue,
-    WindowSurfaceActions,
+    Namespace, PatternError, PatternRegistry, RuntimeId, UiAttribute, UiPattern, UiValue, WindowSurfaceActions,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, RwLock};
@@ -62,16 +61,11 @@ impl From<WindowConfig> for WindowState {
 
 impl WindowState {
     fn accepts_user_input(&self) -> Option<bool> {
-        if let Some(value) = self.accepts_user_input {
-            Some(value)
-        } else {
-            Some(!self.is_minimized)
-        }
+        if let Some(value) = self.accepts_user_input { Some(value) } else { Some(!self.is_minimized) }
     }
 }
 
-static WINDOW_STATES: LazyLock<RwLock<HashMap<RuntimeId, WindowState>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
+static WINDOW_STATES: LazyLock<RwLock<HashMap<RuntimeId, WindowState>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
 
 pub(crate) fn reset() {
     WINDOW_STATES.write().unwrap().clear();
@@ -148,30 +142,10 @@ pub(crate) fn register_window(
     });
 
     vec![
-        window_attribute(
-            namespace,
-            runtime_id.clone(),
-            element::BOUNDS,
-            WindowAttributeKind::Bounds,
-        ),
-        window_attribute(
-            namespace,
-            runtime_id.clone(),
-            window_surface::IS_MINIMIZED,
-            WindowAttributeKind::IsMinimized,
-        ),
-        window_attribute(
-            namespace,
-            runtime_id.clone(),
-            window_surface::IS_MAXIMIZED,
-            WindowAttributeKind::IsMaximized,
-        ),
-        window_attribute(
-            namespace,
-            runtime_id.clone(),
-            window_surface::IS_TOPMOST,
-            WindowAttributeKind::IsTopmost,
-        ),
+        window_attribute(namespace, runtime_id.clone(), element::BOUNDS, WindowAttributeKind::Bounds),
+        window_attribute(namespace, runtime_id.clone(), window_surface::IS_MINIMIZED, WindowAttributeKind::IsMinimized),
+        window_attribute(namespace, runtime_id.clone(), window_surface::IS_MAXIMIZED, WindowAttributeKind::IsMaximized),
+        window_attribute(namespace, runtime_id.clone(), window_surface::IS_TOPMOST, WindowAttributeKind::IsTopmost),
         window_attribute(
             namespace,
             runtime_id.clone(),
@@ -238,9 +212,7 @@ where
     F: FnOnce(&mut WindowState) -> Result<(), PatternError>,
 {
     let mut guard = WINDOW_STATES.write().unwrap();
-    let state = guard
-        .get_mut(runtime_id)
-        .ok_or_else(|| PatternError::new("window is no longer available"))?;
+    let state = guard.get_mut(runtime_id).ok_or_else(|| PatternError::new("window is no longer available"))?;
     mutator(state)?;
     drop(guard);
     events::emit_node_updated(runtime_id.as_str());
@@ -370,10 +342,9 @@ impl UiAttribute for WindowAttribute {
             WindowAttributeKind::SupportsResize => {
                 state.map(|s| UiValue::from(s.supports_resize)).unwrap_or(UiValue::from(false))
             }
-            WindowAttributeKind::AcceptsUserInput => state
-                .and_then(|s| s.accepts_user_input())
-                .map(UiValue::from)
-                .unwrap_or(UiValue::from(false)),
+            WindowAttributeKind::AcceptsUserInput => {
+                state.and_then(|s| s.accepts_user_input()).map(UiValue::from).unwrap_or(UiValue::from(false))
+            }
         }
     }
 }

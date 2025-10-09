@@ -54,8 +54,7 @@ pub fn parse_pointer_button(value: &str) -> CliResult<PointerButton> {
         "right" | "secondary" => PointerButton::Right,
         "middle" | "wheel" => PointerButton::Middle,
         other => {
-            let code =
-                other.parse::<u16>().map_err(|_| anyhow!("unknown pointer button '{value}'"))?;
+            let code = other.parse::<u16>().map_err(|_| anyhow!("unknown pointer button '{value}'"))?;
             PointerButton::Other(code)
         }
     };

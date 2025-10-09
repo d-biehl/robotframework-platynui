@@ -24,11 +24,9 @@ pub enum ProviderEventKind {
 impl Debug for ProviderEventKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ProviderEventKind::NodeAdded { parent, node } => f
-                .debug_struct("NodeAdded")
-                .field("parent", parent)
-                .field("runtime_id", &node.runtime_id())
-                .finish(),
+            ProviderEventKind::NodeAdded { parent, node } => {
+                f.debug_struct("NodeAdded").field("parent", parent).field("runtime_id", &node.runtime_id()).finish()
+            }
             ProviderEventKind::NodeUpdated { node } => {
                 f.debug_struct("NodeUpdated").field("runtime_id", &node.runtime_id()).finish()
             }

@@ -1,8 +1,7 @@
 use crate::events;
 use crate::provider::MockProvider;
 use platynui_core::provider::{
-    ProviderDescriptor, ProviderError, ProviderEventCapabilities, ProviderKind, UiTreeProvider,
-    UiTreeProviderFactory,
+    ProviderDescriptor, ProviderError, ProviderEventCapabilities, ProviderKind, UiTreeProvider, UiTreeProviderFactory,
 };
 use platynui_core::ui::identifiers::TechnologyId;
 use std::sync::{Arc, LazyLock};
@@ -25,13 +24,8 @@ pub struct MockProviderFactory;
 impl MockProviderFactory {
     pub fn descriptor_static() -> &'static ProviderDescriptor {
         static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
-            ProviderDescriptor::new(
-                PROVIDER_ID,
-                PROVIDER_NAME,
-                TechnologyId::from(TECHNOLOGY),
-                ProviderKind::Native,
-            )
-            .with_event_capabilities(ProviderEventCapabilities::STRUCTURE_WITH_PROPERTIES)
+            ProviderDescriptor::new(PROVIDER_ID, PROVIDER_NAME, TechnologyId::from(TECHNOLOGY), ProviderKind::Native)
+                .with_event_capabilities(ProviderEventCapabilities::STRUCTURE_WITH_PROPERTIES)
         });
         &DESCRIPTOR
     }

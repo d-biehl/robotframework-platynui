@@ -57,12 +57,9 @@ pub fn run(runtime: &Runtime, args: &QueryArgs) -> CliResult<String> {
             for item in iter {
                 match item {
                     EvaluationItem::Node(node) => print_node_stream_text(&node),
-                    EvaluationItem::Attribute(attr) => print_attribute_stream_text(
-                        &attr.owner,
-                        &attr.namespace,
-                        &attr.name,
-                        &attr.value,
-                    ),
+                    EvaluationItem::Attribute(attr) => {
+                        print_attribute_stream_text(&attr.owner, &attr.namespace, &attr.name, &attr.value)
+                    }
                     EvaluationItem::Value(value) => {
                         let plain = format_attribute_value(&value);
                         let colored = colorize_attribute_value(&plain);
@@ -116,8 +113,7 @@ fn node_to_query_summary(node: Arc<dyn UiNode>, patterns: Vec<PatternId>) -> Que
         })
         .collect();
     attributes.sort_by(|lhs, rhs| {
-        (lhs.namespace.as_str(), lhs.name.as_str())
-            .cmp(&(rhs.namespace.as_str(), rhs.name.as_str()))
+        (lhs.namespace.as_str(), lhs.name.as_str()).cmp(&(rhs.namespace.as_str(), rhs.name.as_str()))
     });
 
     QueryItemSummary::Node {
@@ -136,8 +132,9 @@ fn format_attribute_value(value: &UiValue) -> String {
         UiValue::Bool(b) => b.to_string(),
         UiValue::Integer(i) => i.to_string(),
         UiValue::Number(n) => format!("{n}"),
-        UiValue::String(text) => serde_json::to_string(text)
-            .unwrap_or_else(|_| format!("\"{}\"", text.replace('"', "\\\""))),
+        UiValue::String(text) => {
+            serde_json::to_string(text).unwrap_or_else(|_| format!("\"{}\"", text.replace('"', "\\\"")))
+        }
         _ => serde_json::to_string(value).unwrap_or_else(|_| String::from("<value>")),
     }
 }
@@ -152,22 +149,16 @@ fn format_node_label(namespace: &str, role: &str, name: &str) -> String {
 }
 
 fn colorize_node_label(label: &str) -> String {
-    label
-        .if_supports_color(Stream::Stdout, |text| text.bold().fg_rgb::<79, 166, 255>().to_string())
-        .to_string()
+    label.if_supports_color(Stream::Stdout, |text| text.bold().fg_rgb::<79, 166, 255>().to_string()).to_string()
 }
 
 fn colorize_attribute_name(namespace_prefix: &str, name: &str) -> String {
     let rendered = format!("@{namespace_prefix}{name}");
-    rendered
-        .if_supports_color(Stream::Stdout, |text| text.bold().fg_rgb::<241, 149, 255>().to_string())
-        .to_string()
+    rendered.if_supports_color(Stream::Stdout, |text| text.bold().fg_rgb::<241, 149, 255>().to_string()).to_string()
 }
 
 fn colorize_attribute_value(value: &str) -> String {
-    value
-        .if_supports_color(Stream::Stdout, |text| text.fg_rgb::<136, 192, 74>().to_string())
-        .to_string()
+    value.if_supports_color(Stream::Stdout, |text| text.fg_rgb::<136, 192, 74>().to_string()).to_string()
 }
 
 fn colorize_owner_label(label: &str) -> String {
@@ -178,23 +169,14 @@ pub(crate) fn render_query_text(items: &[QueryItemSummary]) -> String {
     let mut output = String::new();
     for item in items {
         match item {
-            QueryItemSummary::Node {
-                runtime_id: _,
-                namespace,
-                role,
-                name,
-                supported_patterns: _,
-                attributes,
-            } => {
-                let node_label =
-                    format_node_label(namespace.as_str(), role.as_str(), name.as_str());
+            QueryItemSummary::Node { runtime_id: _, namespace, role, name, supported_patterns: _, attributes } => {
+                let node_label = format_node_label(namespace.as_str(), role.as_str(), name.as_str());
                 let colored_node_label = colorize_node_label(&node_label);
                 let _ = writeln!(&mut output, "{colored_node_label}");
                 for attribute in attributes {
                     let value = format_attribute_value(&attribute.value);
                     let attribute_namespace = format_namespace_prefix(attribute.namespace.as_str());
-                    let colored_name =
-                        colorize_attribute_name(&attribute_namespace, &attribute.name);
+                    let colored_name = colorize_attribute_name(&attribute_namespace, &attribute.name);
                     let colored_value = colorize_attribute_value(&value);
                     let _ = writeln!(&mut output, "    {colored_name} = {colored_value}",);
                 }
@@ -209,17 +191,12 @@ pub(crate) fn render_query_text(items: &[QueryItemSummary]) -> String {
                 value,
             } => {
                 let attribute_namespace = format_namespace_prefix(namespace.as_str());
-                let owner_label = format_node_label(
-                    owner_namespace.as_str(),
-                    owner_role.as_str(),
-                    owner_name.as_str(),
-                );
+                let owner_label = format_node_label(owner_namespace.as_str(), owner_role.as_str(), owner_name.as_str());
                 let colored_owner = colorize_owner_label(&owner_label);
                 let colored_name = colorize_attribute_name(&attribute_namespace, name);
                 let value_text = format_attribute_value(value);
                 let colored_value = colorize_attribute_value(&value_text);
-                let _ =
-                    writeln!(&mut output, "{colored_name} = {colored_value} ({colored_owner})",);
+                let _ = writeln!(&mut output, "{colored_name} = {colored_value} ({colored_owner})",);
             }
             QueryItemSummary::Value { value } => {
                 let plain = format_attribute_value(value);
@@ -245,12 +222,7 @@ fn print_node_stream_text(node: &Arc<dyn UiNode>) {
     }
 }
 
-fn print_attribute_stream_text(
-    owner: &Arc<dyn UiNode>,
-    namespace: &Namespace,
-    name: &str,
-    value: &UiValue,
-) {
+fn print_attribute_stream_text(owner: &Arc<dyn UiNode>, namespace: &Namespace, name: &str, value: &UiValue) {
     let attribute_namespace = format_namespace_prefix(namespace.as_str());
     let owner_label = format_node_label(owner.namespace().as_str(), owner.role(), owner.name());
     let colored_owner = colorize_owner_label(&owner_label);
@@ -309,8 +281,7 @@ mod tests {
 
     #[rstest]
     fn query_attribute_text_omits_default_namespace(runtime: Runtime) {
-        let args =
-            QueryArgs { expression: "//control:Button/@Name".into(), format: OutputFormat::Text };
+        let args = QueryArgs { expression: "//control:Button/@Name".into(), format: OutputFormat::Text };
         let results = runtime.evaluate(None, &args.expression).expect("eval");
         let output = render_query_text(&summaries_for(results));
         let plain = strip_ansi(&output);

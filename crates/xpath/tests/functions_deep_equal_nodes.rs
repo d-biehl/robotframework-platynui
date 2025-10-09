@@ -14,11 +14,8 @@ fn deep_equal_nodes(a: SimpleNode, b: SimpleNode) -> bool {
 
 #[rstest]
 fn elements_with_same_structure_and_attr_order_irrelevant() {
-    let a = elem("root")
-        .attr(attr("id", "1"))
-        .attr(attr("class", "x"))
-        .child(elem("child").child(text("hello")))
-        .build();
+    let a =
+        elem("root").attr(attr("id", "1")).attr(attr("class", "x")).child(elem("child").child(text("hello"))).build();
     let b = elem("root")
         .attr(attr("class", "x"))
         .attr(attr("id", "1")) // different order

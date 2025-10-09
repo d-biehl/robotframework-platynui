@@ -7,22 +7,21 @@ use std::sync::{
 use std::time::Duration;
 
 use platynui_core::platform::{
-    DesktopInfo, DesktopInfoProvider, HighlightProvider, HighlightRequest, KeyboardDevice,
-    KeyboardError, KeyboardOverrides, KeyboardSettings, MonitorInfo, PlatformError,
-    PlatformErrorKind, PointerButton, PointerDevice, Screenshot, ScreenshotProvider,
-    ScreenshotRequest, ScrollDelta, desktop_info_providers, highlight_providers, keyboard_devices,
-    platform_modules, pointer_devices, screenshot_providers,
+    DesktopInfo, DesktopInfoProvider, HighlightProvider, HighlightRequest, KeyboardDevice, KeyboardError,
+    KeyboardOverrides, KeyboardSettings, MonitorInfo, PlatformError, PlatformErrorKind, PointerButton, PointerDevice,
+    Screenshot, ScreenshotProvider, ScreenshotRequest, ScrollDelta, desktop_info_providers, highlight_providers,
+    keyboard_devices, platform_modules, pointer_devices, screenshot_providers,
 };
 use platynui_core::provider::{
-    ProviderError, ProviderErrorKind, ProviderEvent, ProviderEventKind, ProviderEventListener,
-    UiTreeProvider, UiTreeProviderFactory,
+    ProviderError, ProviderErrorKind, ProviderEvent, ProviderEventKind, ProviderEventListener, UiTreeProvider,
+    UiTreeProviderFactory,
 };
 use platynui_core::types::{Point, Rect};
 use platynui_core::ui::attribute_names;
 use platynui_core::ui::identifiers::TechnologyId;
 use platynui_core::ui::{
-    DESKTOP_RUNTIME_ID, FocusableAction, FocusablePattern, Namespace, PatternError, PatternId,
-    RuntimeId, UiAttribute, UiNode, UiValue, supported_patterns_value,
+    DESKTOP_RUNTIME_ID, FocusableAction, FocusablePattern, Namespace, PatternError, PatternId, RuntimeId, UiAttribute,
+    UiNode, UiValue, supported_patterns_value,
 };
 use thiserror::Error;
 
@@ -126,9 +125,7 @@ impl Runtime {
 
     /// Builds a Runtime from an explicit list of provider factories.
     /// No inventory discovery is performed.
-    pub fn new_with_factories(
-        factories: &[&'static dyn UiTreeProviderFactory],
-    ) -> Result<Self, ProviderError> {
+    pub fn new_with_factories(factories: &[&'static dyn UiTreeProviderFactory]) -> Result<Self, ProviderError> {
         initialize_platform_modules()?;
         let registry = ProviderRegistry::with_factories(factories);
         Self::from_registry_with_platforms(registry, None)
@@ -150,8 +147,7 @@ impl Runtime {
     ) -> Result<Self, ProviderError> {
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
         let provider_instances = registry.instantiate_all()?;
-        let mut providers: Vec<Arc<dyn UiTreeProvider>> =
-            Vec::with_capacity(provider_instances.len());
+        let mut providers: Vec<Arc<dyn UiTreeProvider>> = Vec::with_capacity(provider_instances.len());
         for provider in provider_instances {
             let listener = Arc::new(RuntimeEventListener::new(dispatcher.clone()));
             provider.subscribe_events(listener)?;
@@ -259,11 +255,7 @@ impl Runtime {
         EvaluateOptions::new(self.desktop_node())
     }
 
-    pub fn evaluate(
-        &self,
-        node: Option<Arc<dyn UiNode>>,
-        xpath: &str,
-    ) -> Result<Vec<EvaluationItem>, EvaluateError> {
+    pub fn evaluate(&self, node: Option<Arc<dyn UiNode>>, xpath: &str) -> Result<Vec<EvaluationItem>, EvaluateError> {
         evaluate(node, xpath, self.evaluate_options())
     }
 
@@ -317,10 +309,7 @@ impl Runtime {
                 provider.highlight(requests)?;
                 Ok(())
             }
-            None => Err(PlatformError::new(
-                PlatformErrorKind::UnsupportedPlatform,
-                "no HighlightProvider registered",
-            )),
+            None => Err(PlatformError::new(PlatformErrorKind::UnsupportedPlatform, "no HighlightProvider registered")),
         }
     }
 
@@ -328,10 +317,7 @@ impl Runtime {
     pub fn clear_highlight(&self) -> Result<(), PlatformError> {
         match self.highlight {
             Some(provider) => provider.clear(),
-            None => Err(PlatformError::new(
-                PlatformErrorKind::UnsupportedPlatform,
-                "no HighlightProvider registered",
-            )),
+            None => Err(PlatformError::new(PlatformErrorKind::UnsupportedPlatform, "no HighlightProvider registered")),
         }
     }
 
@@ -339,10 +325,7 @@ impl Runtime {
     pub fn screenshot(&self, request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
         match self.screenshot {
             Some(provider) => provider.capture(request),
-            None => Err(PlatformError::new(
-                PlatformErrorKind::UnsupportedPlatform,
-                "no ScreenshotProvider registered",
-            )),
+            None => Err(PlatformError::new(PlatformErrorKind::UnsupportedPlatform, "no ScreenshotProvider registered")),
         }
     }
 
@@ -385,11 +368,7 @@ impl Runtime {
         *self.keyboard_settings.lock().unwrap() = settings;
     }
 
-    pub fn pointer_move_to(
-        &self,
-        point: Point,
-        overrides: Option<PointerOverrides>,
-    ) -> Result<Point, PointerError> {
+    pub fn pointer_move_to(&self, point: Point, overrides: Option<PointerOverrides>) -> Result<Point, PointerError> {
         let bounds = self.desktop.info().bounds;
         let mut guard = self.pointer_engine.lock().unwrap();
         let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
@@ -459,11 +438,7 @@ impl Runtime {
         engine.release(resolved_button, overrides_ref)
     }
 
-    pub fn pointer_scroll(
-        &self,
-        delta: ScrollDelta,
-        overrides: Option<PointerOverrides>,
-    ) -> Result<(), PointerError> {
+    pub fn pointer_scroll(&self, delta: ScrollDelta, overrides: Option<PointerOverrides>) -> Result<(), PointerError> {
         let bounds = self.desktop.info().bounds;
         let mut guard = self.pointer_engine.lock().unwrap();
         let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
@@ -497,8 +472,7 @@ impl Runtime {
         let resolved = parsed.resolve(device)?;
         let overrides = overrides.unwrap_or_default();
         let settings = apply_keyboard_overrides(&self.keyboard_settings(), &overrides);
-        KeyboardEngine::new(device, settings, &default_keyboard_sleep)?
-            .execute(&resolved, KeyboardMode::Press)?;
+        KeyboardEngine::new(device, settings, &default_keyboard_sleep)?.execute(&resolved, KeyboardMode::Press)?;
         Ok(())
     }
 
@@ -512,8 +486,7 @@ impl Runtime {
         let resolved = parsed.resolve(device)?;
         let overrides = overrides.unwrap_or_default();
         let settings = apply_keyboard_overrides(&self.keyboard_settings(), &overrides);
-        KeyboardEngine::new(device, settings, &default_keyboard_sleep)?
-            .execute(&resolved, KeyboardMode::Release)?;
+        KeyboardEngine::new(device, settings, &default_keyboard_sleep)?.execute(&resolved, KeyboardMode::Release)?;
         Ok(())
     }
 
@@ -527,8 +500,7 @@ impl Runtime {
         let resolved = parsed.resolve(device)?;
         let overrides = overrides.unwrap_or_default();
         let settings = apply_keyboard_overrides(&self.keyboard_settings(), &overrides);
-        KeyboardEngine::new(device, settings, &default_keyboard_sleep)?
-            .execute(&resolved, KeyboardMode::Type)?;
+        KeyboardEngine::new(device, settings, &default_keyboard_sleep)?.execute(&resolved, KeyboardMode::Type)?;
         Ok(())
     }
 
@@ -573,19 +545,12 @@ impl Drop for Runtime {
 
 fn build_desktop_info() -> Result<DesktopInfo, PlatformError> {
     let mut providers = desktop_info_providers();
-    let info = if let Some(provider) = providers.next() {
-        provider.desktop_info()?
-    } else {
-        fallback_desktop_info()
-    };
+    let info = if let Some(provider) = providers.next() { provider.desktop_info()? } else { fallback_desktop_info() };
     Ok(info)
 }
 
 fn map_desktop_error(err: PlatformError) -> ProviderError {
-    ProviderError::new(
-        ProviderErrorKind::InitializationFailed,
-        format!("desktop initialization failed: {err}"),
-    )
+    ProviderError::new(ProviderErrorKind::InitializationFailed, format!("desktop initialization failed: {err}"))
 }
 
 fn initialize_platform_modules() -> Result<(), ProviderError> {
@@ -645,11 +610,7 @@ impl DesktopNode {
         let supported = vec![PatternId::from("Desktop")];
 
         attributes.push(attr(namespace, attribute_names::common::ROLE, UiValue::from("Desktop")));
-        attributes.push(attr(
-            namespace,
-            attribute_names::common::NAME,
-            UiValue::from(info.name.clone()),
-        ));
+        attributes.push(attr(namespace, attribute_names::common::NAME, UiValue::from(info.name.clone())));
         attributes.push(attr(
             namespace,
             attribute_names::common::RUNTIME_ID,
@@ -666,35 +627,19 @@ impl DesktopNode {
             supported_patterns_value(&supported),
         ));
 
-        attributes.push(attr(
-            namespace,
-            attribute_names::element::BOUNDS,
-            UiValue::from(info.bounds),
-        ));
+        attributes.push(attr(namespace, attribute_names::element::BOUNDS, UiValue::from(info.bounds)));
         attributes.extend(rect_alias_attributes(namespace, "Bounds", &info.bounds));
         attributes.push(attr(namespace, attribute_names::element::IS_VISIBLE, UiValue::from(true)));
         attributes.push(attr(namespace, attribute_names::element::IS_ENABLED, UiValue::from(true)));
-        attributes.push(attr(
-            namespace,
-            attribute_names::element::IS_OFFSCREEN,
-            UiValue::from(false),
-        ));
+        attributes.push(attr(namespace, attribute_names::element::IS_OFFSCREEN, UiValue::from(false)));
 
         attributes.push(attr(
             namespace,
             attribute_names::desktop::DISPLAY_COUNT,
             UiValue::from(info.display_count() as i64),
         ));
-        attributes.push(attr(
-            namespace,
-            attribute_names::desktop::OS_NAME,
-            UiValue::from(info.os_name.clone()),
-        ));
-        attributes.push(attr(
-            namespace,
-            attribute_names::desktop::OS_VERSION,
-            UiValue::from(info.os_version.clone()),
-        ));
+        attributes.push(attr(namespace, attribute_names::desktop::OS_NAME, UiValue::from(info.os_name.clone())));
+        attributes.push(attr(namespace, attribute_names::desktop::OS_VERSION, UiValue::from(info.os_version.clone())));
         attributes.push(attr(
             namespace,
             attribute_names::desktop::MONITORS,
@@ -791,11 +736,7 @@ fn attr(namespace: Namespace, name: impl Into<String>, value: UiValue) -> Arc<dy
     Arc::new(DesktopAttribute { namespace, name: name.into(), value })
 }
 
-fn rect_alias_attributes(
-    namespace: Namespace,
-    base: &str,
-    rect: &Rect,
-) -> Vec<Arc<dyn UiAttribute>> {
+fn rect_alias_attributes(namespace: Namespace, base: &str, rect: &Rect) -> Vec<Arc<dyn UiAttribute>> {
     vec![
         attr(namespace, format!("{base}.X"), UiValue::from(rect.x())),
         attr(namespace, format!("{base}.Y"), UiValue::from(rect.y())),
@@ -842,9 +783,7 @@ impl UiAttribute for DesktopAttribute {
 mod tests {
     use super::*;
     use crate::PointerOverrides;
-    use platynui_core::platform::{
-        HighlightRequest, KeyboardOverrides, PointerButton, ScreenshotRequest, ScrollDelta,
-    };
+    use platynui_core::platform::{HighlightRequest, KeyboardOverrides, PointerButton, ScreenshotRequest, ScrollDelta};
     use platynui_core::platform::{PlatformError, PlatformModule};
     use platynui_core::provider::{
         ProviderDescriptor, ProviderEvent, ProviderEventKind, ProviderEventListener, ProviderKind,
@@ -857,9 +796,8 @@ mod tests {
     use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
     use platynui_platform_mock as _;
     use platynui_platform_mock::{
-        KeyboardLogEntry, PointerLogEntry, reset_highlight_state, reset_keyboard_state,
-        reset_pointer_state, reset_screenshot_state, take_highlight_log, take_keyboard_log,
-        take_pointer_log, take_screenshot_log,
+        KeyboardLogEntry, PointerLogEntry, reset_highlight_state, reset_keyboard_state, reset_pointer_state,
+        reset_screenshot_state, take_highlight_log, take_keyboard_log, take_pointer_log, take_screenshot_log,
     };
     // Provider werden in diesen Tests explizit injiziert (keine inventory-Discovery)
     use crate::test_support::runtime_with_factories_and_mock_platform as rt_with_pf;
@@ -874,8 +812,7 @@ mod tests {
     // A tiny test-only platform module toggles a flag in initialize(). A test-only provider
     // asserts that the flag is set in its factory `create()`. Runtime::new() must call
     // platform initialization before instantiating providers for this test to pass.
-    static TEST_PLATFORM_INITIALIZED: LazyLock<AtomicBool> =
-        LazyLock::new(|| AtomicBool::new(false));
+    static TEST_PLATFORM_INITIALIZED: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
 
     struct TestInitOrderPlatform;
     impl PlatformModule for TestInitOrderPlatform {
@@ -911,14 +848,10 @@ mod tests {
                 fn get_nodes(
                     &self,
                     _parent: Arc<dyn UiNode>,
-                ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError>
-                {
+                ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
                     Ok(Box::new(std::iter::empty()))
                 }
-                fn subscribe_events(
-                    &self,
-                    _listener: Arc<dyn ProviderEventListener>,
-                ) -> Result<(), ProviderError> {
+                fn subscribe_events(&self, _listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> {
                     Ok(())
                 }
                 fn shutdown(&self) {}
@@ -945,8 +878,7 @@ mod tests {
     #[test]
     fn platform_init_happens_before_provider_instantiation() {
         // The assertions happen inside the provider factory `create()`.
-        let _runtime =
-            Runtime::new_with_factories(&[&INIT_ORDER_PROVIDER]).expect("runtime initializes");
+        let _runtime = Runtime::new_with_factories(&[&INIT_ORDER_PROVIDER]).expect("runtime initializes");
     }
 
     #[fixture]
@@ -989,9 +921,7 @@ mod tests {
     #[rstest]
     fn union_windows_or_buttons_returns_both(rt_runtime_mock: Runtime) {
         // The mock tree contains 1 Window and 2 Buttons
-        let res = rt_runtime_mock
-            .evaluate(None, "//control:Window | //control:Button")
-            .expect("evaluate union");
+        let res = rt_runtime_mock.evaluate(None, "//control:Window | //control:Button").expect("evaluate union");
         let mut count = 0usize;
         let mut names = Vec::new();
         for item in res {
@@ -1008,9 +938,8 @@ mod tests {
 
     #[rstest]
     fn intersect_windows_and_buttons_is_empty(rt_runtime_mock: Runtime) {
-        let res = rt_runtime_mock
-            .evaluate(None, "//control:Window intersect //control:Button")
-            .expect("evaluate intersect");
+        let res =
+            rt_runtime_mock.evaluate(None, "//control:Window intersect //control:Button").expect("evaluate intersect");
         let mut count = 0usize;
         for _ in res {
             count += 1;
@@ -1028,9 +957,7 @@ mod tests {
         }
 
         // Subtract buttons from windows (disjoint sets) — result should equal windows
-        let diff = rt_runtime_mock
-            .evaluate(None, "//control:Window except //control:Button")
-            .expect("evaluate except");
+        let diff = rt_runtime_mock.evaluate(None, "//control:Window except //control:Button").expect("evaluate except");
         let mut diff_count = 0usize;
         for _ in diff {
             diff_count += 1;
@@ -1155,8 +1082,7 @@ mod tests {
         profile.ensure_move_threshold = 1.0;
         profile.ensure_move_timeout = Duration::from_millis(10);
         profile.scroll_delay = Duration::ZERO;
-        profile.acceleration_profile =
-            platynui_core::platform::PointerAccelerationProfile::Constant;
+        profile.acceleration_profile = platynui_core::platform::PointerAccelerationProfile::Constant;
         runtime.set_pointer_profile(profile);
     }
 
@@ -1191,10 +1117,7 @@ mod tests {
             self.node.set_parent(&parent);
             Ok(Box::new(std::iter::once(self.node.clone() as Arc<dyn UiNode>)))
         }
-        fn subscribe_events(
-            &self,
-            listener: Arc<dyn ProviderEventListener>,
-        ) -> Result<(), ProviderError> {
+        fn subscribe_events(&self, listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> {
             listener.on_event(ProviderEvent { kind: ProviderEventKind::TreeInvalidated });
             SUBSCRIPTION_REGISTERED.store(true, Ordering::SeqCst);
             Ok(())
@@ -1270,13 +1193,7 @@ mod tests {
     }
     impl FocusNode {
         fn new(id: &str, role: &'static str, name: &'static str, focusable: bool) -> Self {
-            Self {
-                runtime_id: RuntimeId::from(id),
-                role,
-                name,
-                parent: Mutex::new(None),
-                focusable,
-            }
+            Self { runtime_id: RuntimeId::from(id), role, name, parent: Mutex::new(None), focusable }
         }
         fn set_parent(&self, parent: &Arc<dyn UiNode>) {
             *self.parent.lock().unwrap() = Some(Arc::downgrade(parent));
@@ -1365,14 +1282,10 @@ mod tests {
             self.button.set_parent(&parent);
             self.panel.set_parent(&parent);
             Ok(Box::new(
-                vec![self.button.clone() as Arc<dyn UiNode>, self.panel.clone() as Arc<dyn UiNode>]
-                    .into_iter(),
+                vec![self.button.clone() as Arc<dyn UiNode>, self.panel.clone() as Arc<dyn UiNode>].into_iter(),
             ))
         }
-        fn subscribe_events(
-            &self,
-            _listener: Arc<dyn ProviderEventListener>,
-        ) -> Result<(), ProviderError> {
+        fn subscribe_events(&self, _listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> {
             Ok(())
         }
         fn shutdown(&self) {}
@@ -1414,8 +1327,7 @@ mod tests {
         SUBSCRIPTION_REGISTERED.store(false, Ordering::SeqCst);
 
         // Build runtime after resetting flags so subscribe_events sets the flag now
-        let runtime =
-            Runtime::new_with_factories(&[&RUNTIME_FACTORY]).expect("runtime initializes");
+        let runtime = Runtime::new_with_factories(&[&RUNTIME_FACTORY]).expect("runtime initializes");
         let providers: Vec<_> = runtime.providers().collect();
         assert!(!providers.is_empty());
         assert!(providers.iter().any(|provider| provider.descriptor().id == "runtime-stub"));
@@ -1468,10 +1380,7 @@ mod tests {
         ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
             Ok(Box::new(std::iter::empty()))
         }
-        fn subscribe_events(
-            &self,
-            _listener: Arc<dyn ProviderEventListener>,
-        ) -> Result<(), ProviderError> {
+        fn subscribe_events(&self, _listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> {
             Ok(())
         }
         fn shutdown(&self) {
@@ -1536,9 +1445,7 @@ mod tests {
         let node = runtime
             .providers()
             .find(|provider| provider.descriptor().id == "runtime-stub")
-            .and_then(|provider| {
-                provider.get_nodes(Arc::clone(&parent)).ok().and_then(|mut nodes| nodes.next())
-            })
+            .and_then(|provider| provider.get_nodes(Arc::clone(&parent)).ok().and_then(|mut nodes| nodes.next()))
             .expect("runtime stub provider node available");
         assert!(node.parent().is_some());
     }
@@ -1641,9 +1548,7 @@ mod tests {
             ]
         );
 
-        runtime
-            .keyboard_release("<Ctrl+Alt+T>", Some(overrides))
-            .expect("cleanup release succeeds");
+        runtime.keyboard_release("<Ctrl+Alt+T>", Some(overrides)).expect("cleanup release succeeds");
         runtime.shutdown();
     }
 
@@ -1658,9 +1563,7 @@ mod tests {
         runtime.keyboard_press("<Ctrl+Alt+T>", Some(overrides.clone())).expect("press succeeds");
         reset_keyboard_state();
 
-        runtime
-            .keyboard_release("<Ctrl+Alt+T>", Some(overrides.clone()))
-            .expect("release succeeds");
+        runtime.keyboard_release("<Ctrl+Alt+T>", Some(overrides.clone())).expect("release succeeds");
 
         let log = take_keyboard_log();
         assert_eq!(
@@ -1710,14 +1613,10 @@ mod tests {
         let runtime = rt_runtime_platform;
         configure_pointer_for_tests(&runtime);
 
-        runtime
-            .pointer_move_to(Point::new(50.0, 25.0), Some(zero_overrides()))
-            .expect("move succeeds");
+        runtime.pointer_move_to(Point::new(50.0, 25.0), Some(zero_overrides())).expect("move succeeds");
 
         let log = take_pointer_log();
-        assert!(log.iter().any(
-            |event| matches!(event, PointerLogEntry::Move(p) if *p == Point::new(50.0, 25.0))
-        ));
+        assert!(log.iter().any(|event| matches!(event, PointerLogEntry::Move(p) if *p == Point::new(50.0, 25.0))));
     }
 
     #[rstest]
@@ -1727,17 +1626,11 @@ mod tests {
         let runtime = rt_runtime_platform;
         configure_pointer_for_tests(&runtime);
 
-        runtime
-            .pointer_click(Point::new(10.0, 10.0), None, Some(zero_overrides()))
-            .expect("click succeeds");
+        runtime.pointer_click(Point::new(10.0, 10.0), None, Some(zero_overrides())).expect("click succeeds");
 
         let log = take_pointer_log();
-        assert!(
-            log.iter().any(|event| matches!(event, PointerLogEntry::Press(PointerButton::Left)))
-        );
-        assert!(
-            log.iter().any(|event| matches!(event, PointerLogEntry::Release(PointerButton::Left)))
-        );
+        assert!(log.iter().any(|event| matches!(event, PointerLogEntry::Press(PointerButton::Left))));
+        assert!(log.iter().any(|event| matches!(event, PointerLogEntry::Release(PointerButton::Left))));
     }
 
     #[rstest]
@@ -1748,23 +1641,13 @@ mod tests {
         configure_pointer_for_tests(&runtime);
 
         runtime
-            .pointer_multi_click(
-                Point::new(20.0, 20.0),
-                Some(PointerButton::Right),
-                3,
-                Some(zero_overrides()),
-            )
+            .pointer_multi_click(Point::new(20.0, 20.0), Some(PointerButton::Right), 3, Some(zero_overrides()))
             .expect("multi-click succeeds");
 
         let log = take_pointer_log();
-        let presses = log
-            .iter()
-            .filter(|event| matches!(event, PointerLogEntry::Press(PointerButton::Right)))
-            .count();
-        let releases = log
-            .iter()
-            .filter(|event| matches!(event, PointerLogEntry::Release(PointerButton::Right)))
-            .count();
+        let presses = log.iter().filter(|event| matches!(event, PointerLogEntry::Press(PointerButton::Right))).count();
+        let releases =
+            log.iter().filter(|event| matches!(event, PointerLogEntry::Release(PointerButton::Right))).count();
         assert_eq!(presses, 3);
         assert_eq!(releases, 3);
     }
@@ -1776,9 +1659,7 @@ mod tests {
         let runtime = rt_runtime_platform;
         configure_pointer_for_tests(&runtime);
 
-        let error = runtime
-            .pointer_multi_click(Point::new(5.0, 5.0), None, 0, Some(zero_overrides()))
-            .unwrap_err();
+        let error = runtime.pointer_multi_click(Point::new(5.0, 5.0), None, 0, Some(zero_overrides())).unwrap_err();
         match error {
             PointerError::InvalidClickCount { provided } => assert_eq!(provided, 0),
             other => panic!("unexpected error: {other}"),
@@ -1793,9 +1674,7 @@ mod tests {
         configure_pointer_for_tests(&runtime);
 
         let overrides = zero_overrides().scroll_step(ScrollDelta::new(0.0, -10.0));
-        runtime
-            .pointer_scroll(ScrollDelta::new(0.0, -25.0), Some(overrides))
-            .expect("scroll succeeds");
+        runtime.pointer_scroll(ScrollDelta::new(0.0, -25.0), Some(overrides)).expect("scroll succeeds");
 
         let scrolls: Vec<_> = take_pointer_log()
             .into_iter()

@@ -27,11 +27,7 @@ pub fn run(runtime: &mut Runtime, args: &WatchArgs) -> CliResult<()> {
     watch_with_writer(runtime, args, &mut stdout)
 }
 
-pub fn watch_with_writer<W: IoWrite>(
-    runtime: &mut Runtime,
-    args: &WatchArgs,
-    writer: &mut W,
-) -> CliResult<()> {
+pub fn watch_with_writer<W: IoWrite>(runtime: &mut Runtime, args: &WatchArgs, writer: &mut W) -> CliResult<()> {
     watch_with_writer_internal(runtime, args, writer, || {})
 }
 
@@ -59,8 +55,7 @@ where
     let mut processed = 0usize;
 
     while processed < limit {
-        let event =
-            receiver.recv().map_err(|err| anyhow!("failed to receive provider event: {err}"))?;
+        let event = receiver.recv().map_err(|err| anyhow!("failed to receive provider event: {err}"))?;
 
         let summary = watch_event_summary(&event);
         let query_results = if let Some(expr) = expression {
@@ -73,13 +68,11 @@ where
         match args.format {
             OutputFormat::Text => {
                 let text = render_watch_text(&summary, query_results.as_deref());
-                writeln!(writer, "{}", text)
-                    .map_err(|err| anyhow!("failed to write output: {err}"))?;
+                writeln!(writer, "{}", text).map_err(|err| anyhow!("failed to write output: {err}"))?;
             }
             OutputFormat::Json => {
                 let json = render_watch_json(&summary, query_results.as_deref())?;
-                writeln!(writer, "{}", json)
-                    .map_err(|err| anyhow!("failed to write output: {err}"))?;
+                writeln!(writer, "{}", json).map_err(|err| anyhow!("failed to write output: {err}"))?;
             }
         }
 
@@ -145,10 +138,7 @@ impl NodeSnapshot {
     }
 }
 
-fn render_watch_text(
-    summary: &WatchEventSummary,
-    query_results: Option<&[QueryItemSummary]>,
-) -> String {
+fn render_watch_text(summary: &WatchEventSummary, query_results: Option<&[QueryItemSummary]>) -> String {
     let mut sections = Vec::new();
     sections.push(format!("Event: {}", summary.event));
     if let Some(id) = &summary.runtime_id {
@@ -187,10 +177,7 @@ struct WatchEventJson {
     query_results: Option<Vec<QueryItemSummary>>,
 }
 
-fn render_watch_json(
-    summary: &WatchEventSummary,
-    query_results: Option<&[QueryItemSummary]>,
-) -> CliResult<String> {
+fn render_watch_json(summary: &WatchEventSummary, query_results: Option<&[QueryItemSummary]>) -> CliResult<String> {
     let payload = WatchEventJson {
         event: summary.event.clone(),
         runtime_id: summary.runtime_id.clone(),
@@ -249,11 +236,8 @@ mod tests {
 
     #[rstest]
     fn watch_json_produces_serializable_payload(mut runtime: Runtime) {
-        let args = WatchArgs {
-            format: OutputFormat::Json,
-            expression: Some("//control:Button".into()),
-            limit: Some(1),
-        };
+        let args =
+            WatchArgs { format: OutputFormat::Json, expression: Some("//control:Button".into()), limit: Some(1) };
 
         let mut buffer = Cursor::new(Vec::new());
         watch_with_writer_internal(&mut runtime, &args, &mut buffer, || {

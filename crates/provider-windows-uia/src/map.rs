@@ -11,23 +11,21 @@ use windows::Win32::Security::{
     GetTokenInformation, LookupAccountSidW, SID_NAME_USE, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows::Win32::System::Ole::VarR8FromDec;
-use windows::Win32::System::Ole::{
-    SafeArrayGetDim, SafeArrayGetElement, SafeArrayGetLBound, SafeArrayGetUBound,
-};
+use windows::Win32::System::Ole::{SafeArrayGetDim, SafeArrayGetElement, SafeArrayGetLBound, SafeArrayGetUBound};
 use windows::Win32::System::SystemInformation::{
-    GetNativeSystemInfo, PROCESSOR_ARCHITECTURE, PROCESSOR_ARCHITECTURE_AMD64,
-    PROCESSOR_ARCHITECTURE_ARM64, PROCESSOR_ARCHITECTURE_INTEL, SYSTEM_INFO,
+    GetNativeSystemInfo, PROCESSOR_ARCHITECTURE, PROCESSOR_ARCHITECTURE_AMD64, PROCESSOR_ARCHITECTURE_ARM64,
+    PROCESSOR_ARCHITECTURE_INTEL, SYSTEM_INFO,
 };
 use windows::Win32::System::Threading::{GetProcessTimes, OpenProcessToken};
 use windows::Win32::System::Threading::{
-    OpenProcess, PROCESS_ACCESS_RIGHTS, PROCESS_QUERY_INFORMATION,
-    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ, QueryFullProcessImageNameW,
+    OpenProcess, PROCESS_ACCESS_RIGHTS, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
+    QueryFullProcessImageNameW,
 };
 use windows::Win32::System::Time::FileTimeToSystemTime;
 use windows::Win32::System::Variant::{VARIANT, VariantClear};
 use windows::Win32::System::Variant::{
-    VT_ARRAY, VT_BOOL, VT_BSTR, VT_BYREF, VT_DATE, VT_DECIMAL, VT_EMPTY, VT_I2, VT_I4, VT_I8,
-    VT_R4, VT_R8, VT_TYPEMASK, VT_UI2, VT_UI4, VT_UI8, VT_UNKNOWN,
+    VT_ARRAY, VT_BOOL, VT_BSTR, VT_BYREF, VT_DATE, VT_DECIMAL, VT_EMPTY, VT_I2, VT_I4, VT_I8, VT_R4, VT_R8,
+    VT_TYPEMASK, VT_UI2, VT_UI4, VT_UI8, VT_UNKNOWN,
 };
 use windows::Win32::UI::Accessibility::*;
 use windows::core::BSTR;
@@ -87,25 +85,17 @@ pub fn control_type_to_role(control_type: i32) -> &'static str {
 }
 
 pub fn get_name(elem: &IUIAutomationElement) -> Result<String, crate::error::UiaError> {
-    unsafe {
-        crate::error::uia_api("IUIAutomationElement::CurrentName", elem.CurrentName())
-            .map(|b| b.to_string())
-    }
+    unsafe { crate::error::uia_api("IUIAutomationElement::CurrentName", elem.CurrentName()).map(|b| b.to_string()) }
 }
 
 pub fn get_control_type(elem: &IUIAutomationElement) -> Result<i32, crate::error::UiaError> {
-    unsafe {
-        crate::error::uia_api("IUIAutomationElement::CurrentControlType", elem.CurrentControlType())
-            .map(|v| v.0)
-    }
+    unsafe { crate::error::uia_api("IUIAutomationElement::CurrentControlType", elem.CurrentControlType()).map(|v| v.0) }
 }
 
 pub fn get_bounding_rect(elem: &IUIAutomationElement) -> Result<Rect, crate::error::UiaError> {
     unsafe {
-        let r = crate::error::uia_api(
-            "IUIAutomationElement::CurrentBoundingRectangle",
-            elem.CurrentBoundingRectangle(),
-        )?;
+        let r =
+            crate::error::uia_api("IUIAutomationElement::CurrentBoundingRectangle", elem.CurrentBoundingRectangle())?;
 
         let left = r.left as f64;
         let top = r.top as f64;
@@ -119,10 +109,8 @@ pub fn get_clickable_point(elem: &IUIAutomationElement) -> Result<UiPoint, crate
         // UIA returns a POINT in desktop coordinates and a BOOL as return value indicating success
         let mut pt = POINT { x: 0, y: 0 };
 
-        let got_clickable = crate::error::uia_api(
-            "IUIAutomationElement::GetClickablePoint",
-            elem.GetClickablePoint(&mut pt),
-        )?;
+        let got_clickable =
+            crate::error::uia_api("IUIAutomationElement::GetClickablePoint", elem.GetClickablePoint(&mut pt))?;
 
         // Check if a clickable point was actually found
         if got_clickable.as_bool() {
@@ -146,10 +134,7 @@ pub fn format_runtime_id(elem: &IUIAutomationElement) -> Result<String, crate::e
         let ub = crate::error::uia_api("SafeArrayGetUBound", SafeArrayGetUBound(psa, 1))?;
         let count = (ub - lb + 1) as usize;
         let mut data: *mut i32 = std::ptr::null_mut();
-        crate::error::uia_api(
-            "SafeArrayAccessData",
-            SafeArrayAccessData(psa, &mut data as *mut _ as *mut _),
-        )?;
+        crate::error::uia_api("SafeArrayAccessData", SafeArrayAccessData(psa, &mut data as *mut _ as *mut _))?;
         let slice = std::slice::from_raw_parts(data, count);
         let body = slice.iter().map(|v| format!("{:x}", v)).collect::<Vec<_>>().join(".");
         crate::error::uia_api("SafeArrayUnaccessData", SafeArrayUnaccessData(psa))?;
@@ -159,8 +144,7 @@ pub fn format_runtime_id(elem: &IUIAutomationElement) -> Result<String, crate::e
 
 pub fn get_is_enabled(elem: &IUIAutomationElement) -> Result<bool, crate::error::UiaError> {
     unsafe {
-        crate::error::uia_api("IUIAutomationElement::CurrentIsEnabled", elem.CurrentIsEnabled())
-            .map(|b| b.as_bool())
+        crate::error::uia_api("IUIAutomationElement::CurrentIsEnabled", elem.CurrentIsEnabled()).map(|b| b.as_bool())
     }
 }
 
@@ -172,23 +156,16 @@ pub fn get_is_offscreen(elem: &IUIAutomationElement) -> Result<bool, crate::erro
 }
 
 pub fn get_process_id(elem: &IUIAutomationElement) -> Result<i32, crate::error::UiaError> {
-    unsafe {
-        crate::error::uia_api("IUIAutomationElement::CurrentProcessId", elem.CurrentProcessId())
-    }
+    unsafe { crate::error::uia_api("IUIAutomationElement::CurrentProcessId", elem.CurrentProcessId()) }
 }
 
 pub fn open_process_query(pid: i32) -> Option<HANDLE> {
     unsafe {
         // Prefer broader rights to allow module queries (base module name), then fall back.
         let full = PROCESS_ACCESS_RIGHTS(PROCESS_QUERY_INFORMATION.0 | PROCESS_VM_READ.0);
-        OpenProcess(full, false, pid as u32).ok().or_else(|| {
-            OpenProcess(
-                PROCESS_ACCESS_RIGHTS(PROCESS_QUERY_LIMITED_INFORMATION.0),
-                false,
-                pid as u32,
-            )
+        OpenProcess(full, false, pid as u32)
             .ok()
-        })
+            .or_else(|| OpenProcess(PROCESS_ACCESS_RIGHTS(PROCESS_QUERY_LIMITED_INFORMATION.0), false, pid as u32).ok())
     }
 }
 
@@ -221,9 +198,7 @@ pub fn query_process_command_line(handle: HANDLE) -> Option<String> {
     // Use NtQueryInformationProcess(ProcessCommandLineInformation) from ntdll to query
     // the command line UNICODE_STRING. Requires PROCESS_QUERY_INFORMATION | PROCESS_VM_READ.
     unsafe {
-        use windows::Wdk::System::Threading::{
-            NtQueryInformationProcess, ProcessCommandLineInformation,
-        };
+        use windows::Wdk::System::Threading::{NtQueryInformationProcess, ProcessCommandLineInformation};
         use windows::Win32::Foundation::{NTSTATUS, STATUS_INFO_LENGTH_MISMATCH, STATUS_SUCCESS};
 
         let mut cap: u32 = 4096; // start with 4 KB, grow as needed
@@ -285,15 +260,7 @@ pub fn query_process_username(handle: HANDLE) -> Option<String> {
             return None;
         }
         let mut buf = vec![0u8; needed as usize];
-        if GetTokenInformation(
-            token,
-            TokenUser,
-            Some(buf.as_mut_ptr() as *mut _),
-            needed,
-            &mut needed,
-        )
-        .is_err()
-        {
+        if GetTokenInformation(token, TokenUser, Some(buf.as_mut_ptr() as *mut _), needed, &mut needed).is_err() {
             let _ = CloseHandle(token);
             return None;
         }
@@ -310,8 +277,7 @@ pub fn query_process_username(handle: HANDLE) -> Option<String> {
             return None;
         }
         let mut name_buf: Vec<u16> = vec![0u16; name_len as usize];
-        let mut domain_buf: Vec<u16> =
-            if domain_len > 0 { vec![0u16; domain_len as usize] } else { Vec::new() };
+        let mut domain_buf: Vec<u16> = if domain_len > 0 { vec![0u16; domain_len as usize] } else { Vec::new() };
         if LookupAccountSidW(
             None,
             sid,
@@ -327,11 +293,8 @@ pub fn query_process_username(handle: HANDLE) -> Option<String> {
             return None;
         }
         let name = String::from_utf16_lossy(&name_buf[..(name_len as usize)]);
-        let domain = if domain_len > 0 {
-            String::from_utf16_lossy(&domain_buf[..(domain_len as usize)])
-        } else {
-            String::new()
-        };
+        let domain =
+            if domain_len > 0 { String::from_utf16_lossy(&domain_buf[..(domain_len as usize)]) } else { String::new() };
         let _ = CloseHandle(token);
         if !domain.is_empty() { Some(format!("{}\\{}", domain, name)) } else { Some(name) }
     }
@@ -517,168 +480,96 @@ unsafe fn variant_to_ui_value(variant: &VARIANT) -> Option<UiValue> {
             match base {
                 x if x == VT_BSTR.0 as u16 => {
                     let mut b: BSTR = BSTR::new();
-                    if unsafe {
-                        SafeArrayGetElement(
-                            psa,
-                            &i as *const _ as *const i32,
-                            &mut b as *mut _ as *mut _,
-                        )
-                    }
-                    .is_ok()
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut b as *mut _ as *mut _) }
+                        .is_ok()
                     {
                         items.push(UiValue::from(b.to_string()));
                     }
                 }
                 x if x == VT_BOOL.0 as u16 => {
                     let mut v: VARIANT_BOOL = VARIANT_BOOL(0);
-                    if unsafe {
-                        SafeArrayGetElement(
-                            psa,
-                            &i as *const _ as *const i32,
-                            &mut v as *mut _ as *mut _,
-                        )
-                    }
-                    .is_ok()
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }
+                        .is_ok()
                     {
                         items.push(UiValue::from(v.as_bool()));
                     }
                 }
                 x if x == VT_I2.0 as u16 => {
                     let mut v: i16 = 0;
-                    if unsafe {
-                        SafeArrayGetElement(
-                            psa,
-                            &i as *const _ as *const i32,
-                            &mut v as *mut _ as *mut _,
-                        )
-                    }
-                    .is_ok()
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }
+                        .is_ok()
                     {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_UI2.0 as u16 => {
                     let mut v: u16 = 0;
-                    if unsafe {
-                        SafeArrayGetElement(
-                            psa,
-                            &i as *const _ as *const i32,
-                            &mut v as *mut _ as *mut _,
-                        )
-                    }
-                    .is_ok()
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }
+                        .is_ok()
                     {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_I4.0 as u16 => {
                     let mut v: i32 = 0;
-                    if unsafe {
-                        SafeArrayGetElement(
-                            psa,
-                            &i as *const _ as *const i32,
-                            &mut v as *mut _ as *mut _,
-                        )
-                    }
-                    .is_ok()
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }
+                        .is_ok()
                     {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_UI4.0 as u16 => {
                     let mut v: u32 = 0;
-                    if unsafe {
-                        SafeArrayGetElement(
-                            psa,
-                            &i as *const _ as *const i32,
-                            &mut v as *mut _ as *mut _,
-                        )
-                    }
-                    .is_ok()
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }
+                        .is_ok()
                     {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_I8.0 as u16 => {
                     let mut v: i64 = 0;
-                    if unsafe {
-                        SafeArrayGetElement(
-                            psa,
-                            &i as *const _ as *const i32,
-                            &mut v as *mut _ as *mut _,
-                        )
-                    }
-                    .is_ok()
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }
+                        .is_ok()
                     {
                         items.push(UiValue::from(v));
                     }
                 }
                 x if x == VT_UI8.0 as u16 => {
                     let mut v: u64 = 0;
-                    if unsafe {
-                        SafeArrayGetElement(
-                            psa,
-                            &i as *const _ as *const i32,
-                            &mut v as *mut _ as *mut _,
-                        )
-                    }
-                    .is_ok()
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }
+                        .is_ok()
                     {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_R4.0 as u16 => {
                     let mut v: f32 = 0.0;
-                    if unsafe {
-                        SafeArrayGetElement(
-                            psa,
-                            &i as *const _ as *const i32,
-                            &mut v as *mut _ as *mut _,
-                        )
-                    }
-                    .is_ok()
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }
+                        .is_ok()
                     {
                         items.push(UiValue::from(v as f64));
                     }
                 }
                 x if x == VT_R8.0 as u16 => {
                     let mut v: f64 = 0.0;
-                    if unsafe {
-                        SafeArrayGetElement(
-                            psa,
-                            &i as *const _ as *const i32,
-                            &mut v as *mut _ as *mut _,
-                        )
-                    }
-                    .is_ok()
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }
+                        .is_ok()
                     {
                         items.push(UiValue::from(v));
                     }
                 }
                 x if x == VT_DATE.0 as u16 => {
                     let mut v: f64 = 0.0;
-                    if unsafe {
-                        SafeArrayGetElement(
-                            psa,
-                            &i as *const _ as *const i32,
-                            &mut v as *mut _ as *mut _,
-                        )
-                    }
-                    .is_ok()
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut v as *mut _ as *mut _) }
+                        .is_ok()
                     {
                         items.push(UiValue::from(v));
                     }
                 }
                 x if x == VT_DECIMAL.0 as u16 => {
                     let mut d: DECIMAL = unsafe { std::mem::zeroed() };
-                    if unsafe {
-                        SafeArrayGetElement(
-                            psa,
-                            &i as *const _ as *const i32,
-                            &mut d as *mut _ as *mut _,
-                        )
-                    }
-                    .is_ok()
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _ as *const i32, &mut d as *mut _ as *mut _) }
+                        .is_ok()
                     {
                         if let Ok(v) = unsafe { VarR8FromDec(&d) } {
                             items.push(UiValue::from(v));

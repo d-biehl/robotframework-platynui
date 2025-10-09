@@ -25,8 +25,7 @@ pub fn run(runtime: &Runtime, format: OutputFormat) -> CliResult<String> {
 }
 
 fn collect_provider_summaries(runtime: &Runtime) -> Vec<ProviderSummary> {
-    let active: HashSet<&str> =
-        runtime.providers().map(|provider| provider.descriptor().id).collect();
+    let active: HashSet<&str> = runtime.providers().map(|provider| provider.descriptor().id).collect();
     runtime
         .registry()
         .entries()
@@ -42,11 +41,7 @@ fn collect_provider_summaries(runtime: &Runtime) -> Vec<ProviderSummary> {
 
 fn render_provider_text(summaries: &[ProviderSummary]) -> String {
     let mut output = String::new();
-    let _ = writeln!(
-        &mut output,
-        "{:<16} {:<12} {:<8} {:<7} {:<}",
-        "Id", "Technology", "Kind", "Active", "Name"
-    );
+    let _ = writeln!(&mut output, "{:<16} {:<12} {:<8} {:<7} {:<}", "Id", "Technology", "Kind", "Active", "Name");
 
     for summary in summaries {
         let _ = writeln!(

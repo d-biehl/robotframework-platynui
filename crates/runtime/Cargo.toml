@@ -14,10 +14,7 @@ rust-version.workspace = true
 
 [features]
 default = []
-mock-provider = [
-    "platynui-provider-mock",
-    "platynui-platform-mock",
-]
+mock-provider = ["platynui-provider-mock", "platynui-platform-mock"]
 
 [dependencies]
 platynui-core = { path = "../core" }

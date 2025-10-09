@@ -22,9 +22,7 @@ fn build_tree() -> N {
                 .namespace(ns("p", "urn:x"))
                 .child(elem("a"))
                 .child(elem("b").attr(attr("class", "B")))
-                .child(
-                    elem("c").namespace(ns("q", "urn:y")).child(elem("d").attr(attr("data", "D"))),
-                )
+                .child(elem("c").namespace(ns("q", "urn:y")).child(elem("d").attr(attr("data", "D"))))
                 .child(elem("e")),
         )
         .build();

@@ -5,8 +5,7 @@ use crate::window;
 #[cfg(test)]
 use platynui_core::provider::UiTreeProviderFactory;
 use platynui_core::provider::{
-    ProviderDescriptor, ProviderError, ProviderEvent, ProviderEventKind, ProviderEventListener,
-    UiTreeProvider,
+    ProviderDescriptor, ProviderError, ProviderEvent, ProviderEventKind, ProviderEventListener, UiTreeProvider,
 };
 use platynui_core::ui::Namespace;
 use platynui_core::ui::UiNode;
@@ -82,10 +81,7 @@ impl UiTreeProvider for MockProvider {
         Ok(Box::new(children.into_iter().map(|child| -> Arc<dyn UiNode> { child })))
     }
 
-    fn subscribe_events(
-        &self,
-        listener: Arc<dyn ProviderEventListener>,
-    ) -> Result<(), ProviderError> {
+    fn subscribe_events(&self, listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> {
         listener.on_event(ProviderEvent { kind: ProviderEventKind::TreeInvalidated });
         self.listeners.write().unwrap().push(listener);
         Ok(())

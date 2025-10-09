@@ -11,16 +11,8 @@ fn wrap(root: SimpleNode) -> Vec<XdmItem<platynui_xpath::model::simple::SimpleNo
 #[rstest]
 fn deep_equal_same_namespaces_different_prefix_order() {
     // <r p1:one="" p2:two=""> (namespaces only)
-    let a = elem("r")
-        .namespace(ns("p1", "urn:one"))
-        .namespace(ns("p2", "urn:two"))
-        .child(text("x"))
-        .build();
-    let b = elem("r")
-        .namespace(ns("p2", "urn:two"))
-        .namespace(ns("p1", "urn:one"))
-        .child(text("x"))
-        .build();
+    let a = elem("r").namespace(ns("p1", "urn:one")).namespace(ns("p2", "urn:two")).child(text("x")).build();
+    let b = elem("r").namespace(ns("p2", "urn:two")).namespace(ns("p1", "urn:one")).child(text("x")).build();
     let result = deep_equal_with_collation(&wrap(a), &wrap(b), None).unwrap();
     assert!(result, "Namespace set order should not matter");
 }
@@ -28,11 +20,7 @@ fn deep_equal_same_namespaces_different_prefix_order() {
 #[rstest]
 fn deep_equal_namespace_missing() {
     let a = elem("r").namespace(ns("p1", "urn:one")).child(text("x")).build();
-    let b = elem("r")
-        .namespace(ns("p1", "urn:one"))
-        .namespace(ns("p2", "urn:two"))
-        .child(text("x"))
-        .build();
+    let b = elem("r").namespace(ns("p1", "urn:one")).namespace(ns("p2", "urn:two")).child(text("x")).build();
     let result = deep_equal_with_collation(&wrap(a), &wrap(b), None).unwrap();
     assert!(!result, "Different namespace sets must be unequal");
 }

@@ -9,12 +9,9 @@ pub mod xdm;
 // Back-compat public surface for existing tests and examples
 pub use compiler::{compile, compile_with_context};
 pub use engine::evaluator::{
-    evaluate, evaluate_expr, evaluate_first, evaluate_first_expr, evaluate_stream,
-    evaluate_stream_expr,
+    evaluate, evaluate_expr, evaluate_first, evaluate_first_expr, evaluate_stream, evaluate_stream_expr,
 };
-pub use engine::runtime::{
-    DynamicContext, DynamicContextBuilder, StaticContext, StaticContextBuilder,
-};
+pub use engine::runtime::{DynamicContext, DynamicContextBuilder, StaticContext, StaticContextBuilder};
 pub use model::simple::{SimpleNode, SimpleNodeBuilder, attr, doc as simple_doc, elem, ns, text};
 pub use model::{NodeKind, QName, XdmNode};
 pub use xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence};

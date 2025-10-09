@@ -100,9 +100,7 @@ impl PatternRegistry {
             *entry = RegistryEntry::Lazy { probe: Arc::clone(&probe_arc), cached: OnceLock::new() };
         } else {
             state.order.push(id.clone());
-            state
-                .entries
-                .insert(id, RegistryEntry::Lazy { probe: probe_arc, cached: OnceLock::new() });
+            state.entries.insert(id, RegistryEntry::Lazy { probe: probe_arc, cached: OnceLock::new() });
         }
     }
 
@@ -588,9 +586,7 @@ mod tests {
                 }
             });
 
-        actions
-            .move_and_resize(Rect::new(10.0, 20.0, 300.0, 200.0))
-            .expect("default implementation should succeed");
+        actions.move_and_resize(Rect::new(10.0, 20.0, 300.0, 200.0)).expect("default implementation should succeed");
 
         assert_eq!(moves.lock().unwrap().as_slice(), &[Point::new(10.0, 20.0)]);
         assert_eq!(sizes.lock().unwrap().as_slice(), &[Size::new(300.0, 200.0)]);
@@ -611,8 +607,7 @@ mod tests {
 
     #[rstest]
     fn window_surface_accepts_user_input_propagates_error() {
-        let actions =
-            WindowSurfaceActions::new().with_accepts_user_input(|| Err(PatternError::new("io")));
+        let actions = WindowSurfaceActions::new().with_accepts_user_input(|| Err(PatternError::new("io")));
         let err = actions.accepts_user_input().expect_err("should bubble up");
         assert_eq!(err.message(), "io");
     }
@@ -621,9 +616,6 @@ mod tests {
     fn supported_patterns_value_converts_ids() {
         let patterns = vec![PatternId::from("Focusable"), PatternId::from("WindowSurface")];
         let value = supported_patterns_value(&patterns);
-        assert_eq!(
-            value,
-            UiValue::Array(vec![UiValue::from("Focusable"), UiValue::from("WindowSurface")])
-        );
+        assert_eq!(value, UiValue::Array(vec![UiValue::from("Focusable"), UiValue::from("WindowSurface")]));
     }
 }

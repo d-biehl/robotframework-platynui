@@ -36,9 +36,7 @@ fn bench_early_termination_first_match(c: &mut Criterion) {
 
     for size in sizes {
         let doc = build_tree(size / 100, 100);
-        let ctx = DynamicContextBuilder::<SimpleNode>::default()
-            .with_context_item(I::Node(doc.clone()))
-            .build();
+        let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(I::Node(doc.clone())).build();
         let compiled = compile("//item[1]").unwrap();
 
         // Materialized: collects entire tree first
@@ -70,9 +68,7 @@ fn bench_filtered_query(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     let doc = build_tree(100, 100); // 10,000 items
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(I::Node(doc.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(I::Node(doc.clone())).build();
 
     let query = "//item[@selected='true']";
     let compiled = compile(query).unwrap();
@@ -103,9 +99,7 @@ fn bench_count_aggregation(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     let doc = build_tree(100, 100); // 10,000 items
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(I::Node(doc.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(I::Node(doc.clone())).build();
 
     let query = "count(//item)";
     let compiled = compile(query).unwrap();
@@ -136,9 +130,7 @@ fn bench_take_limiting(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     let doc = build_tree(100, 100); // 10,000 items
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(I::Node(doc.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(I::Node(doc.clone())).build();
 
     let query = "//item";
     let compiled = compile(query).unwrap();
@@ -147,31 +139,22 @@ fn bench_take_limiting(c: &mut Criterion) {
 
     for take_size in take_sizes {
         // Materialized: must collect all, then take
-        group.bench_with_input(
-            BenchmarkId::new("materialized_then_take", take_size),
-            &take_size,
-            |b, &take| {
-                b.iter(|| {
-                    let result = evaluate(&compiled, &ctx).unwrap();
-                    let taken: Vec<_> = result.into_iter().take(take).collect();
-                    black_box(taken);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("materialized_then_take", take_size), &take_size, |b, &take| {
+            b.iter(|| {
+                let result = evaluate(&compiled, &ctx).unwrap();
+                let taken: Vec<_> = result.into_iter().take(take).collect();
+                black_box(taken);
+            });
+        });
 
         // Streaming: take limits evaluation
-        group.bench_with_input(
-            BenchmarkId::new("streaming_take", take_size),
-            &take_size,
-            |b, &take| {
-                b.iter(|| {
-                    let stream = evaluate_stream(&compiled, &ctx).unwrap();
-                    let taken: Vec<_> =
-                        stream.iter().take(take).collect::<Result<Vec<_>, _>>().unwrap();
-                    black_box(taken);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("streaming_take", take_size), &take_size, |b, &take| {
+            b.iter(|| {
+                let stream = evaluate_stream(&compiled, &ctx).unwrap();
+                let taken: Vec<_> = stream.iter().take(take).collect::<Result<Vec<_>, _>>().unwrap();
+                black_box(taken);
+            });
+        });
     }
 
     group.finish();
@@ -185,9 +168,7 @@ fn bench_union_operation(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     let doc = build_tree(50, 100); // 5,000 items
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(I::Node(doc.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(I::Node(doc.clone())).build();
 
     let query = "(//item[@selected='true']) | (//item[position() <= 100])";
     let compiled = compile(query).unwrap();
@@ -218,9 +199,7 @@ fn bench_path_expression(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     let doc = build_tree(50, 100); // 5,000 items
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(I::Node(doc.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(I::Node(doc.clone())).build();
 
     let query = "//section/item";
     let compiled = compile(query).unwrap();
@@ -254,22 +233,16 @@ fn bench_large_result_set_memory(c: &mut Criterion) {
 
     for size in sizes {
         let doc = build_tree(size / 100, 100);
-        let ctx = DynamicContextBuilder::<SimpleNode>::default()
-            .with_context_item(I::Node(doc.clone()))
-            .build();
+        let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(I::Node(doc.clone())).build();
         let compiled = compile("//item").unwrap();
 
         // Materialized: allocates Vec for all results
-        group.bench_with_input(
-            BenchmarkId::new("materialized_collect_all", size),
-            &size,
-            |b, _| {
-                b.iter(|| {
-                    let result = evaluate(&compiled, &ctx).unwrap();
-                    black_box(result);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("materialized_collect_all", size), &size, |b, _| {
+            b.iter(|| {
+                let result = evaluate(&compiled, &ctx).unwrap();
+                black_box(result);
+            });
+        });
 
         // Streaming: processes one at a time
         group.bench_with_input(BenchmarkId::new("streaming_iterate", size), &size, |b, _| {

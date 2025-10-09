@@ -12,12 +12,7 @@ fn cmp(a: &SimpleNode, b: &SimpleNode) -> &'static str {
 
 #[rstest]
 fn ordering_attributes_before_children() {
-    let root = elem("root")
-        .attr(attr("id", "1"))
-        .attr(attr("b", "x"))
-        .child(elem("a"))
-        .child(elem("b"))
-        .build();
+    let root = elem("root").attr(attr("id", "1")).attr(attr("b", "x")).child(elem("a")).child(elem("b")).build();
     let attrs: Vec<_> = root.attributes().collect();
     let kids: Vec<_> = root.children().collect();
     assert_eq!(cmp(&attrs[0], &attrs[1]), "<");
@@ -51,12 +46,7 @@ fn namespaces_nested_lookup() {
 #[rstest]
 fn document_builder_example() {
     let doc = simple_doc()
-        .child(
-            elem("root")
-                .attr(attr("id", "r"))
-                .child(text("Hello"))
-                .child(elem("inner").child(text("!"))),
-        )
+        .child(elem("root").attr(attr("id", "r")).child(text("Hello")).child(elem("inner").child(text("!"))))
         .build();
     let root = doc.children().next().unwrap();
     assert_eq!(root.string_value(), "Hello!");
@@ -71,11 +61,7 @@ fn compare_different_roots_error() {
 
 #[rstest]
 fn build_simple() {
-    let n = elem("root")
-        .attr(attr("id", "1"))
-        .child(elem("a").child(text("hi")))
-        .child(elem("b"))
-        .build();
+    let n = elem("root").attr(attr("id", "1")).child(elem("a").child(text("hi"))).child(elem("b")).build();
     assert_eq!(n.children().count(), 2);
     assert_eq!(n.attributes().count(), 1);
     let children: Vec<_> = n.children().collect();
@@ -87,12 +73,7 @@ fn build_simple() {
 #[rstest]
 fn memoized_string_value_and_ns() {
     let root = simple_doc()
-        .child(
-            elem("root")
-                .namespace(ns("p", "urn:x"))
-                .child(elem("a").child(text("hi")))
-                .child(text("!")),
-        )
+        .child(elem("root").namespace(ns("p", "urn:x")).child(elem("a").child(text("hi"))).child(text("!")))
         .build();
     let doc_child = root.children().next().unwrap();
     assert_eq!(doc_child.string_value(), "hi!");

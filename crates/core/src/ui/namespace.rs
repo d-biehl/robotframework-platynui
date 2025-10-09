@@ -92,10 +92,7 @@ mod tests {
     #[case(Some("item"), Namespace::Item)]
     #[case(Some("app"), Namespace::App)]
     #[case(Some("native"), Namespace::Native)]
-    fn resolve_namespace_handles_known_prefixes(
-        #[case] input: Option<&'static str>,
-        #[case] expected: Namespace,
-    ) {
+    fn resolve_namespace_handles_known_prefixes(#[case] input: Option<&'static str>, #[case] expected: Namespace) {
         assert_eq!(resolve_namespace(input), expected);
     }
 

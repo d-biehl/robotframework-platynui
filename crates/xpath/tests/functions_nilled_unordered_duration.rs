@@ -93,26 +93,22 @@ fn unordered_identity_basic(ctx: DynamicContext<N>) {
 #[rstest]
 fn duration_component_accessors_examples(ctx: DynamicContext<N>) {
     // years/months from yearMonthDuration
-    let y =
-        evaluate_expr::<N>("years-from-duration(xs:yearMonthDuration('P20Y15M'))", &ctx).unwrap();
+    let y = evaluate_expr::<N>("years-from-duration(xs:yearMonthDuration('P20Y15M'))", &ctx).unwrap();
     match &y[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(i)) => assert_eq!(*i, 21),
         _ => panic!(),
     }
-    let m =
-        evaluate_expr::<N>("months-from-duration(xs:yearMonthDuration('P20Y15M'))", &ctx).unwrap();
+    let m = evaluate_expr::<N>("months-from-duration(xs:yearMonthDuration('P20Y15M'))", &ctx).unwrap();
     match &m[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(i)) => assert_eq!(*i, 3),
         _ => panic!(),
     }
-    let y_neg =
-        evaluate_expr::<N>("years-from-duration(xs:yearMonthDuration('-P15M'))", &ctx).unwrap();
+    let y_neg = evaluate_expr::<N>("years-from-duration(xs:yearMonthDuration('-P15M'))", &ctx).unwrap();
     match &y_neg[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(i)) => assert_eq!(*i, -1),
         _ => panic!(),
     }
-    let m_neg =
-        evaluate_expr::<N>("months-from-duration(xs:yearMonthDuration('-P20Y18M'))", &ctx).unwrap();
+    let m_neg = evaluate_expr::<N>("months-from-duration(xs:yearMonthDuration('-P20Y18M'))", &ctx).unwrap();
     match &m_neg[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(i)) => assert_eq!(*i, -6),
         _ => panic!(),
@@ -129,21 +125,17 @@ fn duration_component_accessors_examples(ctx: DynamicContext<N>) {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(i)) => assert_eq!(*i, 3),
         _ => panic!(),
     }
-    let h_neg =
-        evaluate_expr::<N>("hours-from-duration(xs:dayTimeDuration('-P3DT10H'))", &ctx).unwrap();
+    let h_neg = evaluate_expr::<N>("hours-from-duration(xs:dayTimeDuration('-P3DT10H'))", &ctx).unwrap();
     match &h_neg[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(i)) => assert_eq!(*i, -10),
         _ => panic!(),
     }
-    let min_neg =
-        evaluate_expr::<N>("minutes-from-duration(xs:dayTimeDuration('-P5DT12H30M'))", &ctx)
-            .unwrap();
+    let min_neg = evaluate_expr::<N>("minutes-from-duration(xs:dayTimeDuration('-P5DT12H30M'))", &ctx).unwrap();
     match &min_neg[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Integer(i)) => assert_eq!(*i, -30),
         _ => panic!(),
     }
-    let sec =
-        evaluate_expr::<N>("seconds-from-duration(xs:dayTimeDuration('-PT256S'))", &ctx).unwrap();
+    let sec = evaluate_expr::<N>("seconds-from-duration(xs:dayTimeDuration('-PT256S'))", &ctx).unwrap();
     match &sec[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Decimal(v)) => assert_eq!(*v, -16.0),
         _ => panic!(),

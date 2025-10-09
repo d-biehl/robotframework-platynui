@@ -9,9 +9,7 @@ fn ctx() -> DynamicContext<platynui_xpath::model::simple::SimpleNode> {
 }
 
 fn err(expr: &str) -> ErrorCode {
-    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx())
-        .unwrap_err()
-        .code_enum()
+    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx()).unwrap_err().code_enum()
 }
 
 #[rstest]

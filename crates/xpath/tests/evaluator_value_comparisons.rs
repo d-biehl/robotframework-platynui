@@ -4,11 +4,7 @@ use rstest::rstest;
 
 // Helper: evaluate simple expression with empty dynamic context
 fn eval(expr: &str) -> Vec<I<platynui_xpath::model::simple::SimpleNode>> {
-    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(
-        expr,
-        &DynamicContextBuilder::default().build(),
-    )
-    .unwrap()
+    evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &DynamicContextBuilder::default().build()).unwrap()
 }
 
 #[rstest]

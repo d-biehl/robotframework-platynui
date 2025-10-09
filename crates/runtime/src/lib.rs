@@ -21,6 +21,4 @@ const _: () = {
 pub use keyboard_sequence::{KeyboardSequence, KeyboardSequenceError};
 pub use pointer::{PointerError, PointerOverrides, PointerProfile, PointerSettings};
 pub use runtime::{FocusError, Runtime};
-pub use xpath::{
-    EvaluateError, EvaluateOptions, EvaluatedAttribute, EvaluationItem, NodeResolver, evaluate,
-};
+pub use xpath::{EvaluateError, EvaluateOptions, EvaluatedAttribute, EvaluationItem, NodeResolver, evaluate};

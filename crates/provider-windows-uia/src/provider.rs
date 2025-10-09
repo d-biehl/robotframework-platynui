@@ -9,9 +9,7 @@ use std::sync::Arc;
 
 use once_cell::sync::Lazy;
 use platynui_core::provider::ProviderErrorKind;
-use platynui_core::provider::{
-    ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory,
-};
+use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::register_provider;
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::collections::HashSet;
@@ -64,11 +62,7 @@ impl Iterator for ElementAndAppIter {
                     let pid = self.app_order[self.app_index];
                     self.app_index += 1;
                     if pid > 0 && pid != self.self_pid {
-                        let app = crate::node::ApplicationNode::new(
-                            pid,
-                            self.parent_elem.clone(),
-                            &self.parent,
-                        );
+                        let app = crate::node::ApplicationNode::new(pid, self.parent_elem.clone(), &self.parent);
                         return Some(app as Arc<dyn UiNode>);
                     }
                 }
@@ -183,14 +177,12 @@ impl UiTreeProvider for WindowsUiaProvider {
         &self,
         parent: Arc<dyn UiNode>,
     ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
-        let uia = crate::com::uia().map_err(|e| {
-            ProviderError::new(ProviderErrorKind::CommunicationFailure, e.to_string())
-        })?;
+        let uia = crate::com::uia()
+            .map_err(|e| ProviderError::new(ProviderErrorKind::CommunicationFailure, e.to_string()))?;
 
         let root = unsafe {
-            uia.GetRootElement().map_err(|e| {
-                ProviderError::new(ProviderErrorKind::CommunicationFailure, e.to_string())
-            })?
+            uia.GetRootElement()
+                .map_err(|e| ProviderError::new(ProviderErrorKind::CommunicationFailure, e.to_string()))?
         };
         // Stream: first raw desktop children (excluding own process), then one app:Application per PID.
         let self_pid: i32 = std::process::id() as i32;

@@ -3,15 +3,13 @@ use crate::provider::{self, MockProvider};
 use crate::tree::{NodeSpec, StaticMockTree, install_mock_tree, reset_mock_tree};
 use platynui_core::provider::{UiTreeProvider, provider_factories};
 use platynui_core::types::{Point, Size};
-use platynui_core::ui::attribute_names::{
-    activation_target, element, focusable, text_content, window_surface,
-};
+use platynui_core::ui::attribute_names::{activation_target, element, focusable, text_content, window_surface};
 use platynui_core::ui::contract::testkit::{
     AttributeExpectation, NodeExpectation, PatternExpectation, require_node, verify_node,
 };
 use platynui_core::ui::{
-    FocusableAction, FocusablePattern, Namespace, PatternId, RuntimeId, UiAttribute, UiNode,
-    UiValue, WindowSurfaceActions, WindowSurfacePattern,
+    FocusableAction, FocusablePattern, Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue,
+    WindowSurfaceActions, WindowSurfacePattern,
 };
 use rstest::rstest;
 use serial_test::serial;
@@ -51,11 +49,7 @@ fn attr_bool(node: &Arc<dyn UiNode>, namespace: Namespace, name: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn attr_rect(
-    node: &Arc<dyn UiNode>,
-    namespace: Namespace,
-    name: &str,
-) -> Option<platynui_core::types::Rect> {
+fn attr_rect(node: &Arc<dyn UiNode>, namespace: Namespace, name: &str) -> Option<platynui_core::types::Rect> {
     node.attribute(namespace, name).map(|attr| attr.value()).and_then(|value| match value {
         UiValue::Rect(r) => Some(r),
         _ => None,
@@ -117,11 +111,7 @@ impl UiNode for DesktopNode {
 fn provider_not_auto_registered() {
     // Mock providers should NOT be auto-registered; they're only available via explicit handles
     let ids: Vec<_> = provider_factories().map(|factory| factory.descriptor().id).collect();
-    assert!(
-        !ids.contains(&factory::PROVIDER_ID),
-        "Mock provider should not be auto-registered, found in: {:?}",
-        ids
-    );
+    assert!(!ids.contains(&factory::PROVIDER_ID), "Mock provider should not be auto-registered, found in: {:?}", ids);
 }
 
 #[rstest]
@@ -131,17 +121,12 @@ fn custom_tree_overrides_defaults() {
         NodeSpec::new(Namespace::App, "Application", "Custom App", "mock://app/custom")
             .with_pattern("Application")
             .with_child(
-                NodeSpec::new(
-                    Namespace::Control,
-                    "Window",
-                    "Custom Window",
-                    "mock://window/custom",
-                )
-                .with_pattern("Element")
-                .with_child(
-                    NodeSpec::new(Namespace::Control, "Button", "Launch", "mock://button/custom")
-                        .with_pattern("Element"),
-                ),
+                NodeSpec::new(Namespace::Control, "Window", "Custom Window", "mock://window/custom")
+                    .with_pattern("Element")
+                    .with_child(
+                        NodeSpec::new(Namespace::Control, "Button", "Launch", "mock://button/custom")
+                            .with_pattern("Element"),
+                    ),
             ),
     ]);
 
@@ -149,8 +134,7 @@ fn custom_tree_overrides_defaults() {
     let provider = MockProvider::new(MockProviderFactory::descriptor_static());
     drop(guard);
     let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
-    let mut roots =
-        provider.get_nodes(Arc::clone(&desktop)).expect("custom tree root").collect::<Vec<_>>();
+    let mut roots = provider.get_nodes(Arc::clone(&desktop)).expect("custom tree root").collect::<Vec<_>>();
 
     assert_eq!(roots.len(), 1);
     let app = roots.pop().unwrap();
@@ -178,27 +162,16 @@ fn contract_expectations_for_button_hold() {
     let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
     let app = provider.get_nodes(Arc::clone(&desktop)).unwrap().next().unwrap();
     let mut windows = provider.get_nodes(Arc::clone(&app)).unwrap();
-    let window = windows
-        .find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID)
-        .expect("main window present");
+    let window =
+        windows.find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID).expect("main window present");
 
-    let button = find_by_runtime_id(window, factory::BUTTON_RUNTIME_ID)
-        .expect("button reachable in mock tree");
+    let button = find_by_runtime_id(window, factory::BUTTON_RUNTIME_ID).expect("button reachable in mock tree");
 
     let expectations = NodeExpectation::default()
         .with_pattern(PatternExpectation::new(PatternId::from("Element"), &ELEMENT_EXPECTATIONS))
-        .with_pattern(PatternExpectation::new(
-            PatternId::from("TextContent"),
-            &TEXT_CONTENT_EXPECTATIONS,
-        ))
-        .with_pattern(PatternExpectation::new(
-            PatternId::from("ActivationTarget"),
-            &ACTIVATION_TARGET_EXPECTATIONS,
-        ))
-        .with_pattern(PatternExpectation::new(
-            PatternId::from("Focusable"),
-            &FOCUSABLE_EXPECTATIONS,
-        ));
+        .with_pattern(PatternExpectation::new(PatternId::from("TextContent"), &TEXT_CONTENT_EXPECTATIONS))
+        .with_pattern(PatternExpectation::new(PatternId::from("ActivationTarget"), &ACTIVATION_TARGET_EXPECTATIONS))
+        .with_pattern(PatternExpectation::new(PatternId::from("Focusable"), &FOCUSABLE_EXPECTATIONS));
 
     require_node(button.as_ref(), &expectations).expect("button contract satisfied");
     let issues = verify_node(button.as_ref(), &expectations);
@@ -212,9 +185,8 @@ fn rect_aliases_absent_and_base_present() {
     let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
     let app = provider.get_nodes(Arc::clone(&desktop)).unwrap().next().unwrap();
     let mut windows = provider.get_nodes(Arc::clone(&app)).unwrap();
-    let window = windows
-        .find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID)
-        .expect("main window present");
+    let window =
+        windows.find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID).expect("main window present");
 
     let mut names = window.attributes().map(|attr| attr.name().to_owned()).collect::<Vec<_>>();
     names.sort();
@@ -234,24 +206,19 @@ fn window_surface_pattern_is_exposed() {
     let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
     let app = provider.get_nodes(Arc::clone(&desktop)).unwrap().next().unwrap();
     let mut windows = provider.get_nodes(Arc::clone(&app)).unwrap();
-    let window = windows
-        .find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID)
-        .expect("main window present");
+    let window =
+        windows.find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID).expect("main window present");
 
     let patterns = window.supported_patterns();
     assert!(patterns.contains(&PatternId::from("WindowSurface")));
     assert!(patterns.contains(&PatternId::from("Focusable")));
 
-    let window_surface =
-        window.pattern::<WindowSurfaceActions>().expect("window surface pattern registered");
+    let window_surface = window.pattern::<WindowSurfaceActions>().expect("window surface pattern registered");
     assert!(window_surface.accepts_user_input().unwrap().is_some());
 
-    let focus_pattern =
-        window.pattern::<FocusableAction>().expect("window focusable pattern available");
+    let focus_pattern = window.pattern::<FocusableAction>().expect("window focusable pattern available");
     focus_pattern.focus().expect("focusing window succeeds");
-    let focused_attr = window
-        .attribute(Namespace::Control, focusable::IS_FOCUSED)
-        .expect("focus attribute present");
+    let focused_attr = window.attribute(Namespace::Control, focusable::IS_FOCUSED).expect("focus attribute present");
     assert_eq!(focused_attr.value(), UiValue::from(true));
 }
 
@@ -262,12 +229,10 @@ fn window_surface_actions_update_state() {
     let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
     let app = provider.get_nodes(Arc::clone(&desktop)).unwrap().next().unwrap();
     let mut windows = provider.get_nodes(Arc::clone(&app)).unwrap();
-    let window = windows
-        .find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID)
-        .expect("main window present");
+    let window =
+        windows.find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID).expect("main window present");
 
-    let pattern =
-        window.pattern::<WindowSurfaceActions>().expect("window surface pattern registered");
+    let pattern = window.pattern::<WindowSurfaceActions>().expect("window surface pattern registered");
 
     pattern.activate().expect("activate succeeds");
     assert!(attr_bool(&window, Namespace::Control, focusable::IS_FOCUSED));
@@ -311,11 +276,9 @@ fn activation_point_aliases_absent_and_value_ok() {
     let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
     let app = provider.get_nodes(Arc::clone(&desktop)).unwrap().next().unwrap();
     let mut windows = provider.get_nodes(Arc::clone(&app)).unwrap();
-    let window = windows
-        .find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID)
-        .expect("main window present");
-    let button =
-        find_by_runtime_id(window, factory::BUTTON_RUNTIME_ID).expect("mock ok button present");
+    let window =
+        windows.find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID).expect("main window present");
+    let button = find_by_runtime_id(window, factory::BUTTON_RUNTIME_ID).expect("mock ok button present");
 
     let activation_point = button
         .attributes()
@@ -345,41 +308,31 @@ fn focusable_pattern_switches_focus() {
     let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
     let app = provider.get_nodes(Arc::clone(&desktop)).unwrap().next().unwrap();
     let mut windows = provider.get_nodes(Arc::clone(&app)).unwrap();
-    let window = windows
-        .find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID)
-        .expect("main window present");
+    let window =
+        windows.find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID).expect("main window present");
 
-    let button =
-        find_by_runtime_id(window.clone(), factory::BUTTON_RUNTIME_ID).expect("ok button present");
+    let button = find_by_runtime_id(window.clone(), factory::BUTTON_RUNTIME_ID).expect("ok button present");
     let cancel = find_by_runtime_id(window, CANCEL_RUNTIME_ID).expect("cancel button present");
 
-    let focus_attr = button
-        .attribute(Namespace::Control, focusable::IS_FOCUSED)
-        .expect("focus attribute present");
+    let focus_attr = button.attribute(Namespace::Control, focusable::IS_FOCUSED).expect("focus attribute present");
     assert_eq!(focus_attr.value(), UiValue::from(true));
 
-    let focusable_action =
-        button.pattern::<FocusableAction>().expect("focusable pattern available on ok button");
+    let focusable_action = button.pattern::<FocusableAction>().expect("focusable pattern available on ok button");
     focusable_action.focus().expect("focus action succeeds");
 
-    let focused_value = button
-        .attribute(Namespace::Control, focusable::IS_FOCUSED)
-        .expect("focus attribute after focus")
-        .value();
+    let focused_value =
+        button.attribute(Namespace::Control, focusable::IS_FOCUSED).expect("focus attribute after focus").value();
     assert_eq!(focused_value, UiValue::from(true));
 
-    let cancel_action =
-        cancel.pattern::<FocusableAction>().expect("focusable pattern available on cancel button");
+    let cancel_action = cancel.pattern::<FocusableAction>().expect("focusable pattern available on cancel button");
     cancel_action.focus().expect("focus action on cancel succeeds");
 
     let button_focus = button
         .attribute(Namespace::Control, focusable::IS_FOCUSED)
         .expect("ok button attribute after cancel focus")
         .value();
-    let cancel_focus = cancel
-        .attribute(Namespace::Control, focusable::IS_FOCUSED)
-        .expect("cancel attribute after focus")
-        .value();
+    let cancel_focus =
+        cancel.attribute(Namespace::Control, focusable::IS_FOCUSED).expect("cancel attribute after focus").value();
 
     assert_eq!(button_focus, UiValue::from(false));
     assert_eq!(cancel_focus, UiValue::from(true));

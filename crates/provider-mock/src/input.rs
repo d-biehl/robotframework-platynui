@@ -82,10 +82,7 @@ pub fn text_snapshot(runtime_id: &str) -> Option<String> {
     text_buffer(runtime_id).ok().map(|buffer| buffer.read().expect("text buffer poisoned").clone())
 }
 
-pub fn apply_keyboard_events(
-    runtime_id: &str,
-    events: &[KeyboardInputEvent],
-) -> Result<String, TextInputError> {
+pub fn apply_keyboard_events(runtime_id: &str, events: &[KeyboardInputEvent]) -> Result<String, TextInputError> {
     let buffer = text_buffer(runtime_id)?;
     let mut guard = buffer.write().expect("text buffer poisoned");
     let mut modifiers = ModifierState::default();

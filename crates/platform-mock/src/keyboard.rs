@@ -195,10 +195,7 @@ const NAMED_KEYS: &[NamedKey] = &[
 ];
 
 static NAMED_LOOKUP: Lazy<Vec<(&'static str, KeyCode)>> = Lazy::new(|| {
-    NAMED_KEYS
-        .iter()
-        .map(|entry| (entry.canonical, KeyCode::new(MockKeyCode::named(entry.canonical))))
-        .collect()
+    NAMED_KEYS.iter().map(|entry| (entry.canonical, KeyCode::new(MockKeyCode::named(entry.canonical)))).collect()
 });
 
 fn resolve_named_key(input: &str) -> Option<KeyCode> {
@@ -228,8 +225,9 @@ mod tests {
         let devices: Vec<_> = keyboard_devices().collect();
         // Should only contain OS-specific devices, not mock
         assert!(
-            !devices.iter().any(|device| device.key_to_code("Control").is_ok()
-                && device.key_to_code("MockSpecificKey").is_ok()),
+            !devices
+                .iter()
+                .any(|device| device.key_to_code("Control").is_ok() && device.key_to_code("MockSpecificKey").is_ok()),
             "Mock keyboard should not be auto-registered"
         );
     }
@@ -253,12 +251,8 @@ mod tests {
         device.start_input().unwrap();
         let ctrl = device.key_to_code("Control").unwrap();
         let letter = device.key_to_code("A").unwrap();
-        device
-            .send_key_event(KeyboardEvent { code: ctrl.clone(), state: KeyState::Press })
-            .unwrap();
-        device
-            .send_key_event(KeyboardEvent { code: letter.clone(), state: KeyState::Press })
-            .unwrap();
+        device.send_key_event(KeyboardEvent { code: ctrl.clone(), state: KeyState::Press }).unwrap();
+        device.send_key_event(KeyboardEvent { code: letter.clone(), state: KeyState::Press }).unwrap();
         device.send_key_event(KeyboardEvent { code: letter, state: KeyState::Release }).unwrap();
         device.send_key_event(KeyboardEvent { code: ctrl, state: KeyState::Release }).unwrap();
         device.end_input().unwrap();

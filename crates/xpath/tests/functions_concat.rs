@@ -7,8 +7,7 @@ use rstest::rstest;
 fn concat_variadic_many_args() {
     let ctx = DynamicContextBuilder::<platynui_xpath::model::simple::SimpleNode>::new().build();
     let expr = r#"concat('a', '-', 'b', '-', 'c', '-', 'd', '-', 'e', '-', 'f', '-', 'g')"#;
-    let result = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx)
-        .expect("concat should succeed");
+    let result = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>(expr, &ctx).expect("concat should succeed");
     assert_eq!(result.len(), 1);
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::String(s)) => assert_eq!(s, "a-b-c-d-e-f-g"),

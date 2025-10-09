@@ -105,9 +105,7 @@ pub enum EvaluationItem {
 impl std::fmt::Debug for EvaluationItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EvaluationItem::Node(node) => {
-                f.debug_tuple("Node").field(&node.runtime_id().as_str()).finish()
-            }
+            EvaluationItem::Node(node) => f.debug_tuple("Node").field(&node.runtime_id().as_str()).finish(),
             EvaluationItem::Attribute(attr) => f.debug_tuple("Attribute").field(attr).finish(),
             EvaluationItem::Value(value) => f.debug_tuple("Value").field(value).finish(),
         }
@@ -194,27 +192,19 @@ impl RuntimeXdmNode {
     }
 
     fn from_node(node: Arc<dyn UiNode>) -> Self {
-        if node.parent().is_none() {
-            RuntimeXdmNode::document(node)
-        } else {
-            RuntimeXdmNode::element(node)
-        }
+        if node.parent().is_none() { RuntimeXdmNode::document(node) } else { RuntimeXdmNode::element(node) }
     }
 }
 
 impl PartialEq for RuntimeXdmNode {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (RuntimeXdmNode::Document(a), RuntimeXdmNode::Document(b)) => {
-                a.runtime_id == b.runtime_id
-            }
+            (RuntimeXdmNode::Document(a), RuntimeXdmNode::Document(b)) => a.runtime_id == b.runtime_id,
             (RuntimeXdmNode::Element(a), RuntimeXdmNode::Element(b)) => {
                 a.runtime_id == b.runtime_id && a.order_key == b.order_key
             }
             (RuntimeXdmNode::Attribute(a), RuntimeXdmNode::Attribute(b)) => {
-                a.owner_runtime_id == b.owner_runtime_id
-                    && a.namespace == b.namespace
-                    && a.name == b.name
+                a.owner_runtime_id == b.owner_runtime_id && a.namespace == b.namespace && a.name == b.name
             }
             _ => false,
         }
@@ -226,20 +216,16 @@ impl Eq for RuntimeXdmNode {}
 impl std::fmt::Debug for RuntimeXdmNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RuntimeXdmNode::Document(doc) => {
-                f.debug_struct("Document").field("runtime_id", &doc.runtime_id).finish()
-            }
+            RuntimeXdmNode::Document(doc) => f.debug_struct("Document").field("runtime_id", &doc.runtime_id).finish(),
             RuntimeXdmNode::Element(elem) => f
                 .debug_struct("Element")
                 .field("runtime_id", &elem.runtime_id)
                 .field("order_key", &elem.order_key)
                 .field("role", &elem.role)
                 .finish(),
-            RuntimeXdmNode::Attribute(attr) => f
-                .debug_struct("Attribute")
-                .field("owner", &attr.owner_runtime_id)
-                .field("name", &attr.name)
-                .finish(),
+            RuntimeXdmNode::Attribute(attr) => {
+                f.debug_struct("Attribute").field("owner", &attr.owner_runtime_id).field("name", &attr.name).finish()
+            }
         }
     }
 }
@@ -591,26 +577,21 @@ fn ui_value_to_atomic_values(value: &UiValue) -> Vec<XdmAtomicValue> {
         UiValue::Integer(i) => vec![XdmAtomicValue::Integer(*i)],
         UiValue::Number(n) => vec![XdmAtomicValue::Double(*n)],
         UiValue::String(s) => vec![XdmAtomicValue::String(s.clone())],
-        UiValue::Array(items) => serde_json::to_string(items)
-            .ok()
-            .map(|json| vec![XdmAtomicValue::String(json)])
-            .unwrap_or_default(),
-        UiValue::Object(map) => serde_json::to_string(map)
-            .ok()
-            .map(|json| vec![XdmAtomicValue::String(json)])
-            .unwrap_or_default(),
-        UiValue::Point(point) => serde_json::to_string(point)
-            .ok()
-            .map(|json| vec![XdmAtomicValue::String(json)])
-            .unwrap_or_default(),
-        UiValue::Size(size) => serde_json::to_string(size)
-            .ok()
-            .map(|json| vec![XdmAtomicValue::String(json)])
-            .unwrap_or_default(),
-        UiValue::Rect(rect) => serde_json::to_string(rect)
-            .ok()
-            .map(|json| vec![XdmAtomicValue::String(json)])
-            .unwrap_or_default(),
+        UiValue::Array(items) => {
+            serde_json::to_string(items).ok().map(|json| vec![XdmAtomicValue::String(json)]).unwrap_or_default()
+        }
+        UiValue::Object(map) => {
+            serde_json::to_string(map).ok().map(|json| vec![XdmAtomicValue::String(json)]).unwrap_or_default()
+        }
+        UiValue::Point(point) => {
+            serde_json::to_string(point).ok().map(|json| vec![XdmAtomicValue::String(json)]).unwrap_or_default()
+        }
+        UiValue::Size(size) => {
+            serde_json::to_string(size).ok().map(|json| vec![XdmAtomicValue::String(json)]).unwrap_or_default()
+        }
+        UiValue::Rect(rect) => {
+            serde_json::to_string(rect).ok().map(|json| vec![XdmAtomicValue::String(json)]).unwrap_or_default()
+        }
     }
 }
 
@@ -674,10 +655,8 @@ fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
     use XdmAtomicValue::*;
     match value {
         Boolean(b) => UiValue::Bool(*b),
-        String(s) | UntypedAtomic(s) | AnyUri(s) | NormalizedString(s) | Token(s) | Language(s)
-        | Name(s) | NCName(s) | NMTOKEN(s) | Id(s) | IdRef(s) | Entity(s) | Notation(s) => {
-            UiValue::String(s.clone())
-        }
+        String(s) | UntypedAtomic(s) | AnyUri(s) | NormalizedString(s) | Token(s) | Language(s) | Name(s)
+        | NCName(s) | NMTOKEN(s) | Id(s) | IdRef(s) | Entity(s) | Notation(s) => UiValue::String(s.clone()),
         Integer(i) | Long(i) | NonPositiveInteger(i) | NegativeInteger(i) => UiValue::Integer(*i),
         Decimal(d) | Double(d) => UiValue::Number(*d),
         Float(f) => UiValue::Number(*f as f64),
@@ -713,27 +692,17 @@ fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
         YearMonthDuration(months) => UiValue::String(format!("P{}M", months)),
         DayTimeDuration(secs) => UiValue::String(format!("PT{}S", secs)),
         Base64Binary(data) | HexBinary(data) => UiValue::String(data.clone()),
-        GYear { year, tz } => {
-            UiValue::String(format!("{}{}", year, tz.map_or("".to_string(), |o| o.to_string())))
+        GYear { year, tz } => UiValue::String(format!("{}{}", year, tz.map_or("".to_string(), |o| o.to_string()))),
+        GYearMonth { year, month, tz } => {
+            UiValue::String(format!("{}-{:02}{}", year, month, tz.map_or("".to_string(), |o| o.to_string())))
         }
-        GYearMonth { year, month, tz } => UiValue::String(format!(
-            "{}-{:02}{}",
-            year,
-            month,
-            tz.map_or("".to_string(), |o| o.to_string())
-        )),
         GMonth { month, tz } => {
             UiValue::String(format!("{:02}{}", month, tz.map_or("".to_string(), |o| o.to_string())))
         }
-        GMonthDay { month, day, tz } => UiValue::String(format!(
-            "{:02}-{:02}{}",
-            month,
-            day,
-            tz.map_or("".to_string(), |o| o.to_string())
-        )),
-        GDay { day, tz } => {
-            UiValue::String(format!("{:02}{}", day, tz.map_or("".to_string(), |o| o.to_string())))
+        GMonthDay { month, day, tz } => {
+            UiValue::String(format!("{:02}-{:02}{}", month, day, tz.map_or("".to_string(), |o| o.to_string())))
         }
+        GDay { day, tz } => UiValue::String(format!("{:02}{}", day, tz.map_or("".to_string(), |o| o.to_string()))),
     }
 }
 
@@ -746,11 +715,7 @@ struct NodeChildrenIter<'a> {
     parent_doc: Option<RuntimeXdmNode>,
 }
 impl<'a> NodeChildrenIter<'a> {
-    fn from_shared(
-        inner: NodeIteratorCell,
-        cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
-        finished: Rc<Cell<bool>>,
-    ) -> Self {
+    fn from_shared(inner: NodeIteratorCell, cache: Rc<RefCell<Vec<RuntimeXdmNode>>>, finished: Rc<Cell<bool>>) -> Self {
         Self { inner, cache, finished, pos: 0, _marker: std::marker::PhantomData, parent_doc: None }
     }
     fn with_parent_doc(mut self, doc: RuntimeXdmNode) -> Self {
@@ -788,14 +753,11 @@ impl<'a> Iterator for NodeChildrenIter<'a> {
             Some(iter) => {
                 if let Some(owner) = iter.next() {
                     let mut node = RuntimeXdmNode::from_node(owner);
-                    if let (
-                        Some(RuntimeXdmNode::Document(doc_parent)),
-                        RuntimeXdmNode::Element(elem),
-                    ) = (self.parent_doc.as_ref(), &mut node)
+                    if let (Some(RuntimeXdmNode::Document(doc_parent)), RuntimeXdmNode::Element(elem)) =
+                        (self.parent_doc.as_ref(), &mut node)
                     {
                         // Link element's cached parent to the shared document wrapper
-                        *elem.parent_cache.borrow_mut() =
-                            Some(Some(RuntimeXdmNode::Document(doc_parent.clone())));
+                        *elem.parent_cache.borrow_mut() = Some(Some(RuntimeXdmNode::Document(doc_parent.clone())));
                     }
                     self.cache.borrow_mut().push(node.clone());
                     self.pos += 1;
@@ -972,9 +934,7 @@ mod tests {
     use super::*;
     use platynui_core::provider::{ProviderError, ProviderErrorKind};
     use platynui_core::types::Rect;
-    use platynui_core::ui::{
-        PatternId, RuntimeId, UiAttribute, UiNode, attribute_names, supported_patterns_value,
-    };
+    use platynui_core::ui::{PatternId, RuntimeId, UiAttribute, UiNode, attribute_names, supported_patterns_value};
     use rstest::rstest;
     use std::sync::{Arc, Mutex, Weak};
 
@@ -1029,46 +989,25 @@ mod tests {
             let supported = supported_patterns_value(&patterns_vec);
 
             let mut attributes: Vec<Arc<dyn UiAttribute>> = vec![
-                Arc::new(StaticAttribute::new(
-                    namespace,
-                    attribute_names::element::BOUNDS,
-                    UiValue::Rect(bounds),
-                )) as Arc<dyn UiAttribute>,
-                Arc::new(StaticAttribute::new(
-                    namespace,
-                    attribute_names::common::ROLE,
-                    UiValue::from(role),
-                )) as Arc<dyn UiAttribute>,
-                Arc::new(StaticAttribute::new(
-                    namespace,
-                    attribute_names::common::NAME,
-                    UiValue::from(name),
-                )) as Arc<dyn UiAttribute>,
-                Arc::new(StaticAttribute::new(
-                    namespace,
-                    attribute_names::element::IS_VISIBLE,
-                    UiValue::from(true),
-                )) as Arc<dyn UiAttribute>,
-                Arc::new(StaticAttribute::new(
-                    namespace,
-                    attribute_names::element::IS_ENABLED,
-                    UiValue::from(true),
-                )) as Arc<dyn UiAttribute>,
+                Arc::new(StaticAttribute::new(namespace, attribute_names::element::BOUNDS, UiValue::Rect(bounds)))
+                    as Arc<dyn UiAttribute>,
+                Arc::new(StaticAttribute::new(namespace, attribute_names::common::ROLE, UiValue::from(role)))
+                    as Arc<dyn UiAttribute>,
+                Arc::new(StaticAttribute::new(namespace, attribute_names::common::NAME, UiValue::from(name)))
+                    as Arc<dyn UiAttribute>,
+                Arc::new(StaticAttribute::new(namespace, attribute_names::element::IS_VISIBLE, UiValue::from(true)))
+                    as Arc<dyn UiAttribute>,
+                Arc::new(StaticAttribute::new(namespace, attribute_names::element::IS_ENABLED, UiValue::from(true)))
+                    as Arc<dyn UiAttribute>,
                 Arc::new(StaticAttribute::new(
                     namespace,
                     attribute_names::common::RUNTIME_ID,
                     UiValue::from(runtime_id.as_str().to_owned()),
                 )) as Arc<dyn UiAttribute>,
-                Arc::new(StaticAttribute::new(
-                    namespace,
-                    attribute_names::common::TECHNOLOGY,
-                    UiValue::from("Mock"),
-                )) as Arc<dyn UiAttribute>,
-                Arc::new(StaticAttribute::new(
-                    namespace,
-                    attribute_names::common::SUPPORTED_PATTERNS,
-                    supported,
-                )) as Arc<dyn UiAttribute>,
+                Arc::new(StaticAttribute::new(namespace, attribute_names::common::TECHNOLOGY, UiValue::from("Mock")))
+                    as Arc<dyn UiAttribute>,
+                Arc::new(StaticAttribute::new(namespace, attribute_names::common::SUPPORTED_PATTERNS, supported))
+                    as Arc<dyn UiAttribute>,
             ];
 
             if role == "Desktop" {
@@ -1121,8 +1060,7 @@ mod tests {
         }
 
         fn add_child(parent: &Arc<Self>, child: &Arc<Self>) {
-            *child.parent.lock().unwrap() =
-                Some(Arc::downgrade(&(Arc::clone(parent) as Arc<dyn UiNode>)));
+            *child.parent.lock().unwrap() = Some(Arc::downgrade(&(Arc::clone(parent) as Arc<dyn UiNode>)));
             parent.children.lock().unwrap().push(Self::to_ref(child));
         }
     }
@@ -1241,8 +1179,7 @@ mod tests {
     #[rstest]
     fn bounds_width_data_returns_numbers() {
         let tree = sample_tree();
-        let attrs =
-            evaluate(None, "//@*:Bounds.Width", EvaluateOptions::new(tree.clone())).unwrap();
+        let attrs = evaluate(None, "//@*:Bounds.Width", EvaluateOptions::new(tree.clone())).unwrap();
         assert!(!attrs.is_empty());
         for item in &attrs {
             match item {
@@ -1252,8 +1189,7 @@ mod tests {
                 other => panic!("expected attribute node, got {:?}", other),
             }
         }
-        let items =
-            evaluate(None, "data(//@*:Bounds.Width)", EvaluateOptions::new(tree.clone())).unwrap();
+        let items = evaluate(None, "data(//@*:Bounds.Width)", EvaluateOptions::new(tree.clone())).unwrap();
         assert!(!items.is_empty());
         let mut widths = Vec::new();
         for item in items {
@@ -1269,8 +1205,7 @@ mod tests {
     #[rstest]
     fn boolean_attributes_atomize_to_bools() {
         let tree = sample_tree();
-        let items =
-            evaluate(None, "data(//@*:IsVisible)", EvaluateOptions::new(tree.clone())).unwrap();
+        let items = evaluate(None, "data(//@*:IsVisible)", EvaluateOptions::new(tree.clone())).unwrap();
         assert!(!items.is_empty());
         for item in items {
             match item {
@@ -1318,10 +1253,7 @@ mod tests {
     }
 
     impl NodeResolver for ResolverOk {
-        fn resolve(
-            &self,
-            _runtime_id: &RuntimeId,
-        ) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
+        fn resolve(&self, _runtime_id: &RuntimeId) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
             Ok(Some(self.node.clone()))
         }
     }
@@ -1329,10 +1261,7 @@ mod tests {
     struct ResolverMissing;
 
     impl NodeResolver for ResolverMissing {
-        fn resolve(
-            &self,
-            _runtime_id: &RuntimeId,
-        ) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
+        fn resolve(&self, _runtime_id: &RuntimeId) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
             Ok(None)
         }
     }
@@ -1340,10 +1269,7 @@ mod tests {
     struct ResolverError;
 
     impl NodeResolver for ResolverError {
-        fn resolve(
-            &self,
-            _runtime_id: &RuntimeId,
-        ) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
+        fn resolve(&self, _runtime_id: &RuntimeId) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
             Err(ProviderError::simple(ProviderErrorKind::TreeUnavailable))
         }
     }
@@ -1371,12 +1297,9 @@ mod tests {
         let fresh_node = StaticNode::to_ref(&fresh);
         let resolver = Arc::new(ResolverOk { node: fresh_node.clone() });
 
-        let items = evaluate(
-            Some(stale_node.clone()),
-            ".",
-            EvaluateOptions::new(tree.clone()).with_node_resolver(resolver),
-        )
-        .unwrap();
+        let items =
+            evaluate(Some(stale_node.clone()), ".", EvaluateOptions::new(tree.clone()).with_node_resolver(resolver))
+                .unwrap();
 
         match &items[0] {
             EvaluationItem::Node(node) => {
@@ -1401,11 +1324,8 @@ mod tests {
         let runtime_id = stale_node.runtime_id().as_str().to_string();
         let resolver = Arc::new(ResolverMissing);
 
-        let result = evaluate(
-            Some(stale_node.clone()),
-            ".",
-            EvaluateOptions::new(tree.clone()).with_node_resolver(resolver),
-        );
+        let result =
+            evaluate(Some(stale_node.clone()), ".", EvaluateOptions::new(tree.clone()).with_node_resolver(resolver));
 
         match result {
             Err(EvaluateError::ContextNodeUnknown(id)) => assert_eq!(id, runtime_id),
@@ -1427,11 +1347,8 @@ mod tests {
         let stale_node = StaticNode::to_ref(&stale);
         let resolver = Arc::new(ResolverError);
 
-        let result = evaluate(
-            Some(stale_node.clone()),
-            ".",
-            EvaluateOptions::new(tree.clone()).with_node_resolver(resolver),
-        );
+        let result =
+            evaluate(Some(stale_node.clone()), ".", EvaluateOptions::new(tree.clone()).with_node_resolver(resolver));
 
         match result {
             Err(EvaluateError::Provider(err)) => match err {

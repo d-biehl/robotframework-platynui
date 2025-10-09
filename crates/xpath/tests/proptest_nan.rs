@@ -21,10 +21,7 @@ fn number_alpha_nan_equality_behavior(#[case] s: &str) {
     let seq_eq = evaluate_expr(&expr_eq, &ctx).unwrap();
     let seq_ne = evaluate_expr(&expr_ne, &ctx).unwrap();
     match (seq_eq.first(), seq_ne.first()) {
-        (
-            Some(XdmItem::Atomic(XdmAtomicValue::Boolean(beq))),
-            Some(XdmItem::Atomic(XdmAtomicValue::Boolean(bne))),
-        ) => {
+        (Some(XdmItem::Atomic(XdmAtomicValue::Boolean(beq))), Some(XdmItem::Atomic(XdmAtomicValue::Boolean(bne)))) => {
             assert!(!beq && *bne, "expected NaN equality false & inequality true for {s}");
         }
         _ => panic!("expected boolean results"),

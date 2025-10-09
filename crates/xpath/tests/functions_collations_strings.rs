@@ -3,8 +3,7 @@ use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::xdm::{XdmAtomicValue, XdmItem};
 use rstest::rstest;
 
-fn dctx()
--> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
+fn dctx() -> platynui_xpath::engine::runtime::DynamicContext<platynui_xpath::model::simple::SimpleNode> {
     DynamicContextBuilder::new().build()
 }
 
@@ -39,10 +38,7 @@ fn contains_cases(#[case] expr: &str, #[case] expected: bool) {
 #[case("fn:starts-with('Hello','he')", false)]
 #[case("fn:ends-with('Hello','lo')", true)]
 #[case("fn:ends-with('Hello','LO')", false)]
-#[case(
-    "fn:ends-with('Hello','lo','http://www.w3.org/2005/xpath-functions/collation/codepoint')",
-    true
-)]
+#[case("fn:ends-with('Hello','lo','http://www.w3.org/2005/xpath-functions/collation/codepoint')", true)]
 fn starts_ends_cases(#[case] expr: &str, #[case] expected: bool) {
     assert_eq!(eval_bool(expr), expected);
 }

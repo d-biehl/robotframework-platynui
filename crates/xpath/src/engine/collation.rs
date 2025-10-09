@@ -39,10 +39,7 @@ pub fn resolve_collation<N>(
         if let Some(c) = dyn_ctx.collations.get(u) {
             c
         } else {
-            return Err(Error::from_code(
-                ErrorCode::FOCH0002,
-                format!("unknown collation URI: {u}"),
-            ));
+            return Err(Error::from_code(ErrorCode::FOCH0002, format!("unknown collation URI: {u}")));
         }
     } else if let Some(c) = default_collation {
         c.clone()
@@ -50,11 +47,7 @@ pub fn resolve_collation<N>(
         // Fallback to codepoint collation; registry should contain it, but don't panic if not.
         dyn_ctx.collations.get(CODEPOINT_URI).unwrap_or_else(|| Rc::new(CodepointCollation))
     };
-    if arc.uri() == CODEPOINT_URI {
-        Ok(CollationKind::Codepoint(arc))
-    } else {
-        Ok(CollationKind::Other(arc))
-    }
+    if arc.uri() == CODEPOINT_URI { Ok(CollationKind::Codepoint(arc)) } else { Ok(CollationKind::Other(arc)) }
 }
 
 pub struct CodepointCollation;

@@ -1,8 +1,6 @@
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::xdm::XdmItem;
-use platynui_xpath::{
-    DynamicContextBuilder, SimpleNode, XdmNode, compile, evaluate_first, evaluate_first_expr,
-};
+use platynui_xpath::{DynamicContextBuilder, SimpleNode, XdmNode, compile, evaluate_first, evaluate_first_expr};
 
 #[test]
 fn test_evaluate_first_with_results() {
@@ -14,9 +12,7 @@ fn test_evaluate_first_with_results() {
                 .child(elem("item").child(text("third"))),
         )
         .build();
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(XdmItem::Node(doc))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(XdmItem::Node(doc)).build();
 
     let compiled = compile("//item").unwrap();
     let result = evaluate_first(&compiled, &ctx).unwrap();
@@ -33,9 +29,7 @@ fn test_evaluate_first_with_results() {
 #[test]
 fn test_evaluate_first_empty_sequence() {
     let doc = simple_doc().child(elem("root")).build();
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(XdmItem::Node(doc))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(XdmItem::Node(doc)).build();
 
     let compiled = compile("//item").unwrap();
     let result = evaluate_first(&compiled, &ctx).unwrap();
@@ -53,9 +47,7 @@ fn test_evaluate_first_with_predicate() {
                 .child(elem("item").attr(attr("id", "c"))),
         )
         .build();
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(XdmItem::Node(doc.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(XdmItem::Node(doc.clone())).build();
 
     let compiled = compile("//item[@id='b']").unwrap();
     let result = evaluate_first(&compiled, &ctx).unwrap();
@@ -63,8 +55,7 @@ fn test_evaluate_first_with_predicate() {
     assert!(result.is_some());
 
     // Verify it's the correct item by checking the attribute via XPath
-    let verify_ctx =
-        DynamicContextBuilder::<SimpleNode>::default().with_context_item(result.unwrap()).build();
+    let verify_ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(result.unwrap()).build();
     let id_value = evaluate_first_expr::<SimpleNode>("@id", &verify_ctx).unwrap();
     match id_value {
         Some(XdmItem::Node(attr_node)) => {
@@ -77,15 +68,9 @@ fn test_evaluate_first_with_predicate() {
 #[test]
 fn test_evaluate_first_expr_convenience() {
     let doc = simple_doc()
-        .child(
-            elem("root")
-                .child(elem("item").child(text("value1")))
-                .child(elem("item").child(text("value2"))),
-        )
+        .child(elem("root").child(elem("item").child(text("value1"))).child(elem("item").child(text("value2"))))
         .build();
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(XdmItem::Node(doc))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(XdmItem::Node(doc)).build();
 
     let result = evaluate_first_expr::<SimpleNode>("//item", &ctx).unwrap();
 
@@ -108,9 +93,7 @@ fn test_evaluate_first_position_predicate() {
                 .child(elem("item").child(text("3"))),
         )
         .build();
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(XdmItem::Node(doc))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(XdmItem::Node(doc)).build();
 
     // Note: Due to current limitation, [1] doesn't early-exit
     // But evaluate_first() still provides fast-path by stopping at first result
@@ -134,9 +117,7 @@ fn test_evaluate_first_large_tree_performance() {
         root = root.child(elem("item").child(text(&i.to_string())));
     }
     let doc = simple_doc().child(root).build();
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(XdmItem::Node(doc))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(XdmItem::Node(doc)).build();
 
     let compiled = compile("//item").unwrap();
 
@@ -155,9 +136,7 @@ fn test_evaluate_first_large_tree_performance() {
 #[test]
 fn test_evaluate_first_atomic_value() {
     let doc = simple_doc().child(elem("root")).build();
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(XdmItem::Node(doc))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(XdmItem::Node(doc)).build();
 
     let compiled = compile("1 to 100").unwrap();
     let result = evaluate_first(&compiled, &ctx).unwrap();
@@ -180,16 +159,12 @@ fn test_evaluate_first_exists_pattern() {
                 .child(elem("item").attr(attr("status", "ok"))),
         )
         .build();
-    let ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(XdmItem::Node(doc))
-        .build();
+    let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(XdmItem::Node(doc)).build();
 
     // Existence check pattern
-    let has_error =
-        evaluate_first_expr::<SimpleNode>("//item[@status='error']", &ctx).unwrap().is_some();
+    let has_error = evaluate_first_expr::<SimpleNode>("//item[@status='error']", &ctx).unwrap().is_some();
     assert!(has_error);
 
-    let has_warning =
-        evaluate_first_expr::<SimpleNode>("//item[@status='warning']", &ctx).unwrap().is_some();
+    let has_warning = evaluate_first_expr::<SimpleNode>("//item[@status='warning']", &ctx).unwrap().is_some();
     assert!(!has_warning);
 }
