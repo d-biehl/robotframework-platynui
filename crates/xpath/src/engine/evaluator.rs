@@ -450,20 +450,22 @@ enum AxisState<N> {
         current: Option<N>,
         initialized: bool,
     },
-    // attribute:: axis with per-parent snapshot (attributes are few; avoids unstable equality/iterators)
-    AttributeBuf {
-        buf: SmallVec<[N; 8]>,
-        idx: usize,
+    // attribute:: axis true streaming without buffering
+    AttributeIter {
+        current: Option<N>,
         initialized: bool,
     },
     // Depth-first traversal for descendant/descendant-or-self using document-order successors.
     // `last` holds the last emitted node in pre-order; the next candidate is its doc_successor.
-    // We stop once we leave the anchor's subtree.
+    // We stop once we reach the first node after the anchor's subtree (precomputed boundary).
     Descend {
         anchor: N,
         last: Option<N>,
         include_self: bool,
         started: bool,
+        // First node after the subtree rooted at `anchor` (doc_successor(last_descendant(anchor)))
+        // If None, there is no node after the subtree in this document.
+        after: Option<N>,
     },
     // Parent/ancestor chains
     Parent {
@@ -489,15 +491,10 @@ enum AxisState<N> {
         initialized: bool,
     },
     Preceding {
-        // path from root to context (inclusive)
+        // path from root to context (inclusive) to filter ancestors
         path: SmallVec<[N; 16]>,
-        // index into path where parent=path[depth], child=path[depth+1]
-        depth: usize,
-        // siblings before the path child at current depth (left siblings)
-        sibs: SmallVec<[N; 16]>,
-        sib_idx: usize,
-        // pre-order traversal stack for current sibling subtree
-        subtree_stack: SmallVec<[N; 16]>,
+        current: Option<N>,
+        initialized: bool,
     },
     // Namespace axis
     Namespaces {
@@ -523,7 +520,9 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             AxisIR::SelfAxis => AxisState::SelfOnce { emitted: false },
             // Stream children lazily to avoid building large buffers
             AxisIR::Child => AxisState::ChildIter { current: None, initialized: false },
-            AxisIR::Attribute => AxisState::AttributeBuf { buf: SmallVec::new(), idx: 0, initialized: false },
+            AxisIR::Attribute =>
+                AxisState::AttributeIter { current: None, initialized: false },
+            // replaced later by AttributeQueue in init_state refactor
             AxisIR::Parent => AxisState::Parent { done: false },
             AxisIR::Ancestor => {
                 AxisState::Ancestors { current: self.node.parent(), include_self: false }
@@ -536,12 +535,14 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                 last: None,
                 include_self: false,
                 started: false,
+                after: None,
             },
             AxisIR::DescendantOrSelf => AxisState::Descend {
                 anchor: self.node.clone(),
                 last: None,
                 include_self: true,
                 started: false,
+                after: None,
             },
             AxisIR::FollowingSibling =>
                 AxisState::FollowingSiblingIter { current: None, initialized: false },
@@ -552,13 +553,7 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             }
             AxisIR::Preceding => {
                 let path = Self::path_to_root(self.node.clone());
-                AxisState::Preceding {
-                    path,
-                    depth: 0,
-                    sibs: SmallVec::new(),
-                    sib_idx: 0,
-                    subtree_stack: SmallVec::new(),
-                }
+                AxisState::Preceding { path, current: None, initialized: false }
             }
             AxisIR::Namespace => {
                 let cur = if matches!(self.node.kind(), NodeKind::Element) {
@@ -597,20 +592,14 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                 }
                 Ok(current.clone())
             }
-            AxisState::AttributeBuf { buf, idx, initialized } => {
+            AxisState::AttributeIter { current, initialized } => {
                 if !*initialized {
-                    buf.clear();
-                    *idx = 0;
-                    for a in self.node.attributes() { buf.push(a); }
+                    *current = Self::first_attribute(&self.node);
                     *initialized = true;
+                } else if let Some(cur) = current.clone() {
+                    *current = Self::next_attribute_in_doc(&self.node, &cur);
                 }
-                if *idx < buf.len() {
-                    let n = buf[*idx].clone();
-                    *idx += 1;
-                    Ok(Some(n))
-                } else {
-                    Ok(None)
-                }
+                Ok(current.clone())
             }
             // no generic buffer state anymore
             AxisState::Parent { done } => {
@@ -632,9 +621,12 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                     Ok(None)
                 }
             }
-            AxisState::Descend { anchor, last, include_self, started } => {
+            AxisState::Descend { anchor, last, include_self, started, after } => {
                 if !*started {
                     *started = true;
+                    // Precompute boundary: node after the subtree rooted at `anchor`.
+                    let end = Self::last_descendant_in_doc(anchor.clone());
+                    *after = Self::doc_successor(&end);
                     if *include_self {
                         let n = self.node.clone();
                         *last = Some(n.clone());
@@ -649,29 +641,16 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                         }
                     }
                 }
-                // Advance to the next document-order successor within the anchor's subtree
+                // Advance to the next document-order successor; stop when reaching boundary `after`.
                 if let Some(prev) = last.take() {
-                    let mut cur = prev.clone();
-                    loop {
-                        let succ = match Self::doc_successor(&cur) {
-                            Some(s) => s,
-                            None => break,
-                        };
-                        // Check whether `succ` is still under `anchor` (descendant-or-self)
-                        let mut p = Some(succ.clone());
-                        let mut within = false;
-                        while let Some(node) = p {
-                            if node == *anchor {
-                                within = true;
-                                break;
+                    if let Some(succ) = Self::doc_successor(&prev) {
+                        if let Some(a) = after.as_ref() {
+                            if &succ == a {
+                                return Ok(None);
                             }
-                            p = node.parent();
                         }
-                        if within {
-                            *last = Some(succ.clone());
-                            return Ok(Some(succ));
-                        }
-                        cur = succ;
+                        *last = Some(succ.clone());
+                        return Ok(Some(succ));
                     }
                     Ok(None)
                 } else {
@@ -703,59 +682,41 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                     *anchor = Some(start.clone());
                     *next = Self::doc_successor(&start);
                 }
-                if let Some(n) = next.take() {
-                    // compute following successor for subsequent call
+                while let Some(n) = next.take() {
+                    *anchor = Some(n.clone());
+                    *next = Self::doc_successor(&n);
                     if !Self::is_attr_or_namespace(&n) {
-                        *anchor = Some(n.clone());
-                        *next = Self::doc_successor(&n);
                         return Ok(Some(n));
-                    } else {
-                        // skip attr/ns; continue to next successor
-                        *anchor = Some(n.clone());
-                        *next = Self::doc_successor(&n);
-                        return self.next_candidate();
                     }
+                    // continue loop to skip attr/ns without recursion
                 }
                 Ok(None)
             }
-            AxisState::Preceding { path, depth, sibs, sib_idx, subtree_stack } => {
-                // emit subtree nodes if any
-                if let Some(n) = subtree_stack.pop() {
-                    // push children in reverse order to get pre-order traversal
-                    let mut tmp: SmallVec<[N; 16]> = SmallVec::new();
-                    for c in n.children() {
-                        if !Self::is_attr_or_namespace(&c) {
-                            tmp.push(c);
-                        }
-                    }
-                    for c in tmp.into_iter().rev() {
-                        subtree_stack.push(c);
-                    }
-                    return Ok(Some(n));
+            AxisState::Preceding { path, current, initialized } => {
+                if !*initialized {
+                    *initialized = true;
+                    *current = Self::doc_predecessor(&self.node);
                 }
-                // move to next sibling subtree if available
-                if *sib_idx < sibs.len() {
-                    let root = sibs[*sib_idx].clone();
-                    *sib_idx += 1;
-                    subtree_stack.push(root);
-                    return self.next_candidate();
-                }
-                // advance to next ancestor level
-                if *depth + 1 < path.len() {
-                    let parent = &path[*depth];
-                    let child = &path[*depth + 1];
-                    sibs.clear();
-                    *sib_idx = 0;
-                    for s in parent.children() {
-                        if s == *child {
+                while let Some(cur) = current.take() {
+                    // advance for next call now
+                    let next_prev = Self::doc_predecessor(&cur);
+                    *current = next_prev;
+                    // Skip attributes/namespaces and ancestors of the context node
+                    if Self::is_attr_or_namespace(&cur) {
+                        continue;
+                    }
+                    // Is ancestor? compare against path (which includes context at the end)
+                    let mut is_ancestor = false;
+                    for a in path.iter() {
+                        if &cur == a {
+                            is_ancestor = true;
                             break;
                         }
-                        if !Self::is_attr_or_namespace(&s) {
-                            sibs.push(s);
-                        }
                     }
-                    *depth += 1;
-                    return self.next_candidate();
+                    if is_ancestor {
+                        continue;
+                    }
+                    return Ok(Some(cur));
                 }
                 Ok(None)
             }
@@ -1088,7 +1049,22 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
         }
         None
     }
-    // no attribute helpers needed with AttributeBuf
+    // attribute helpers for streaming without buffering
+    fn first_attribute(node: &N) -> Option<N> {
+        node.attributes().next()
+    }
+    fn next_attribute_in_doc(parent: &N, prev: &N) -> Option<N> {
+        let mut seen = false;
+        for a in parent.attributes() {
+            if seen {
+                return Some(a);
+            }
+            if &a == prev {
+                seen = true;
+            }
+        }
+        None
+    }
     fn last_descendant_in_doc(mut node: N) -> N {
         loop {
             let mut last: Option<N> = None;
@@ -1129,6 +1105,14 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             }
         }
         prev
+    }
+    fn doc_predecessor(node: &N) -> Option<N> {
+        // Predecessor in doc order (elements only for axes that use it):
+        // 1) If there is a preceding sibling element, take its last descendant; else parent.
+        if let Some(prev_sib) = Self::prev_sibling_in_doc(node) {
+            return Some(Self::last_descendant_in_doc(prev_sib));
+        }
+        node.parent()
     }
 }
 
@@ -1177,13 +1161,15 @@ struct PredicateCursor<N> {
     position: usize,
     last_cache: Option<usize>,
     needs_last: bool,
+    fast_kind: PredicateFastKind,
 }
 
 impl<N: 'static + XdmNode + Clone> PredicateCursor<N> {
     fn new(vm: VmHandle<N>, predicate: InstrSeq, input: Box<dyn SequenceCursor<N>>) -> Self {
         let seed = Some(input.boxed_clone());
         let needs_last = instr_seq_uses_last(&predicate);
-        Self { vm, predicate, input, seed, position: 0, last_cache: None, needs_last }
+        let fast_kind = classify_predicate_fast(&predicate);
+        Self { vm, predicate, input, seed, position: 0, last_cache: None, needs_last, fast_kind }
     }
 
     fn ensure_last(&mut self) -> Result<usize, Error> {
@@ -1215,6 +1201,13 @@ impl<N: 'static + XdmNode + Clone> PredicateCursor<N> {
         pos: usize,
         last: usize,
     ) -> Result<bool, Error> {
+        // Fast path evaluation for simple positional predicates
+        match self.fast_kind {
+            PredicateFastKind::First => return Ok(pos == 1),
+            PredicateFastKind::Exact(k) => return Ok(pos == k),
+            PredicateFastKind::PositionLe(k) => return Ok(pos <= k),
+            PredicateFastKind::None => {}
+        }
         self.vm.with_vm(|vm| {
             let stream = vm.eval_subprogram_stream(
                 &self.predicate,
@@ -1229,10 +1222,13 @@ impl<N: 'static + XdmNode + Clone> PredicateCursor<N> {
 
 impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for PredicateCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
-        let last = match self.ensure_last() {
-            Ok(v) => v,
-            Err(err) => return Some(Err(err)),
-        };
+        // For fast positional predicates we never need last() unless original code truly referenced it.
+        let last = if matches!(self.fast_kind, PredicateFastKind::None) || self.needs_last {
+            match self.ensure_last() {
+                Ok(v) => v,
+                Err(err) => return Some(Err(err)),
+            }
+        } else { 0 };
 
         while let Some(candidate) = self.input.next_item() {
             match candidate {
@@ -1265,7 +1261,71 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for PredicateCursor<N> {
             position: self.position,
             last_cache: self.last_cache,
             needs_last: self.needs_last,
+            fast_kind: self.fast_kind,
         })
+    }
+}
+
+// Classification of simple positional predicate patterns to skip full VM evaluation.
+#[derive(Copy, Clone, Debug)]
+enum PredicateFastKind {
+    None,
+    First,          // [1] or position()=1
+    Exact(usize),   // [K] or position()=K
+    PositionLe(usize), // position() <= K (common in slices)
+}
+
+fn classify_predicate_fast(code: &InstrSeq) -> PredicateFastKind {
+    use OpCode::*;
+    // Pattern: [K]  -> single PushAtomic numeric literal
+    if code.0.len() == 1 {
+        if let PushAtomic(ref av) = code.0[0] {
+            if let Some(k) = atomic_to_usize(av) {
+                return if k == 1 { PredicateFastKind::First } else { PredicateFastKind::Exact(k) };
+            }
+        }
+    }
+    // Patterns: position() (=|<=) K   (CompareValue / CompareGeneral)
+    if code.0.len() <= 3 {
+        let mut saw_position = false;
+        let mut number: Option<usize> = None;
+        let mut cmp: Option<ComparisonOp> = None;
+        for op in &code.0 {
+            match op {
+                Position => saw_position = true,
+                PushAtomic(av) => if number.is_none() { number = atomic_to_usize(av); },
+                CompareValue(c) | CompareGeneral(c) => if cmp.is_none() { cmp = Some(*c); },
+                _ => {}
+            }
+        }
+        if saw_position {
+            if let Some(k) = number {
+                if let Some(c) = cmp {
+                    match c {
+                        ComparisonOp::Eq => return if k == 1 { PredicateFastKind::First } else { PredicateFastKind::Exact(k) },
+                        ComparisonOp::Le => return PredicateFastKind::PositionLe(k),
+                        _ => {}
+                    }
+                } else if k == 1 { // Degenerate form
+                    return PredicateFastKind::First;
+                }
+            }
+        }
+    }
+    PredicateFastKind::None
+}
+
+fn atomic_to_usize(av: &XdmAtomicValue) -> Option<usize> {
+    match av {
+        XdmAtomicValue::Integer(i) if *i >= 1 => Some(*i as usize),
+        XdmAtomicValue::Long(i) if *i >= 1 => Some(*i as usize),
+        XdmAtomicValue::Int(i) if *i >= 1 => Some(*i as usize),
+        XdmAtomicValue::UnsignedInt(u) if *u >= 1 => Some(*u as usize),
+        XdmAtomicValue::UnsignedLong(u) if *u >= 1 && *u <= usize::MAX as u64 => Some(*u as usize),
+        XdmAtomicValue::Double(d) if *d >= 1.0 && d.fract() == 0.0 => Some(*d as usize),
+        XdmAtomicValue::Decimal(d) if *d >= 1.0 && d.fract() == 0.0 => Some(*d as usize),
+        XdmAtomicValue::Float(f) if *f >= 1.0 && (*f as f64).fract() == 0.0 => Some(*f as usize),
+        _ => None,
     }
 }
 
