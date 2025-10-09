@@ -10,8 +10,12 @@ def test_pointer_overrides_class_is_accepted():
     from platynui_native import Runtime, Point, PointerOverrides
 
     rt = Runtime()
-    ov = PointerOverrides(speed_factor=1.2, origin=Point(0.0, 0.0),
-                                  after_move_delay_ms=15, scroll_step=(1.0, -2.0))
+    ov = PointerOverrides(
+        speed_factor=1.2,
+        origin=Point(0.0, 0.0),
+        after_move_delay_ms=15,
+        scroll_step=(1.0, -2.0),
+    )
     _assert_ok(lambda: rt.pointer_move_to(Point(0.0, 0.0), overrides=ov))
     _assert_ok(lambda: rt.pointer_click(Point(0.0, 0.0), overrides=ov))
 

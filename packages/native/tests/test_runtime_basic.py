@@ -10,17 +10,12 @@ from platynui_native import (
 )
 
 
-
 def is_num(x: t.Any) -> bool:
     return isinstance(x, (int, float)) and math.isfinite(float(x))
 
 
 def is_rect_tuple(v: t.Any) -> bool:
-    return (
-        isinstance(v, tuple)
-        and len(v) == 4
-        and all(is_num(n) for n in v)
-    )
+    return isinstance(v, tuple) and len(v) == 4 and all(is_num(n) for n in v)
 
 
 def test_evaluate_desktop_node():

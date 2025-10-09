@@ -5,7 +5,6 @@ from platynui_native import (
 )
 
 
-
 def test_desktop_node_and_info():
     rt = Runtime()
     node = rt.desktop_node()

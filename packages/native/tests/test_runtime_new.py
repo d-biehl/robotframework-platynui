@@ -3,6 +3,7 @@
 
 from platynui_native import Runtime, UiNode
 
+
 def test_evaluate_single():
     """Test that evaluate_single returns only the first result."""
     rt = Runtime()
@@ -24,6 +25,7 @@ def test_evaluate_single():
 
     print("  ✅ evaluate_single() works correctly!\n")
 
+
 def test_providers():
     """Test that providers() returns provider information."""
     rt = Runtime()
@@ -40,12 +42,13 @@ def test_providers():
     # Verify structure
     assert isinstance(providers, list)
     if providers:
-        assert 'id' in providers[0]
-        assert 'display_name' in providers[0]
-        assert 'technology' in providers[0]
-        assert 'kind' in providers[0]
+        assert "id" in providers[0]
+        assert "display_name" in providers[0]
+        assert "technology" in providers[0]
+        assert "kind" in providers[0]
 
     print("\n  ✅ providers() works correctly!\n")
+
 
 def test_evaluate_iter():
     """Test that evaluate_iter returns an iterator."""
@@ -56,8 +59,8 @@ def test_evaluate_iter():
     print(f"evaluate_iter('/') returned: {type(result_iter).__name__}")
 
     # Check that it's an iterator
-    assert hasattr(result_iter, '__iter__')
-    assert hasattr(result_iter, '__next__')
+    assert hasattr(result_iter, "__iter__")
+    assert hasattr(result_iter, "__next__")
 
     # Consume the iterator
     results = list(result_iter)
@@ -73,10 +76,13 @@ def test_evaluate_iter():
     # Test with no results
     empty_iter = rt.evaluate_iter("//NonExistentElement")
     empty_results = list(empty_iter)
-    print(f"\nevaluate_iter('//NonExistentElement') yielded {len(empty_results)} result(s)")
+    print(
+        f"\nevaluate_iter('//NonExistentElement') yielded {len(empty_results)} result(s)"
+    )
     assert len(empty_results) == 0
 
     print("\n  ✅ evaluate_iter() works correctly!\n")
+
 
 if __name__ == "__main__":
     print("=" * 60)

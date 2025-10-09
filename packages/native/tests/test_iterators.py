@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Test that UiNode.children() and UiNode.attributes() return iterators."""
 
-from platynui_native import Runtime, UiNode, NodeChildrenIterator, NodeAttributesIterator
+from platynui_native import (
+    Runtime,
+    UiNode,
+    NodeChildrenIterator,
+    NodeAttributesIterator,
+)
 
 
 def get_desktop_node():
@@ -19,8 +24,9 @@ def test_children_returns_iterator():
 
     children_result = desktop.children()
     print(f"children() returned: {type(children_result).__name__}")
-    assert isinstance(children_result, NodeChildrenIterator), \
+    assert isinstance(children_result, NodeChildrenIterator), (
         f"Expected NodeChildrenIterator, got {type(children_result)}"
+    )
 
     # Should be iterable
     children_list = list(children_result)
@@ -42,8 +48,9 @@ def test_attributes_returns_iterator():
 
     attrs_result = desktop.attributes()
     print(f"attributes() returned: {type(attrs_result).__name__}")
-    assert isinstance(attrs_result, NodeAttributesIterator), \
+    assert isinstance(attrs_result, NodeAttributesIterator), (
         f"Expected NodeAttributesIterator, got {type(attrs_result)}"
+    )
 
     # Should be iterable
     attrs_list = list(attrs_result)
@@ -100,7 +107,7 @@ def test_lazy_evaluation():
 
     print(f"  Took first {len(first_three)} children without iterating all")
     for i, child in enumerate(first_three):
-        print(f"    {i+1}. {child.name} ({child.role})")
+        print(f"    {i + 1}. {child.name} ({child.role})")
 
     print("  ✅ Iterator supports lazy evaluation!\n")
 

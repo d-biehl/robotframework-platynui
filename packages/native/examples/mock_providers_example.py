@@ -65,10 +65,7 @@ def test_pointer_automation_with_mock():
     platforms.pointer = pn.MOCK_POINTER_DEVICE
 
     # Create Runtime with mock provider and mock platforms
-    rt = pn.Runtime.new_with_providers_and_platforms(
-        [pn.MOCK_PROVIDER],
-        platforms
-    )
+    rt = pn.Runtime.new_with_providers_and_platforms([pn.MOCK_PROVIDER], platforms)
 
     print("\n" + "=" * 70)
     print("Testing Pointer Automation with Mock Device")
@@ -89,10 +86,7 @@ def test_pointer_automation_with_mock():
     print("Clicked at (150, 250)")
 
     # Perform a drag operation
-    rt.pointer_drag(
-        pn.Point(50.0, 50.0),
-        pn.Point(150.0, 150.0)
-    )
+    rt.pointer_drag(pn.Point(50.0, 50.0), pn.Point(150.0, 150.0))
     print("Dragged from (50, 50) to (150, 150)")
 
 
@@ -107,10 +101,7 @@ def test_keyboard_automation_with_mock():
     platforms = pn.PlatformOverrides()
     platforms.keyboard = pn.MOCK_KEYBOARD_DEVICE
 
-    rt = pn.Runtime.new_with_providers_and_platforms(
-        [pn.MOCK_PROVIDER],
-        platforms
-    )
+    rt = pn.Runtime.new_with_providers_and_platforms([pn.MOCK_PROVIDER], platforms)
 
     print("\n" + "=" * 70)
     print("Testing Keyboard Automation with Mock Device")
@@ -143,10 +134,7 @@ def test_complete_ui_test_scenario():
     platforms.pointer = pn.MOCK_POINTER_DEVICE
     platforms.keyboard = pn.MOCK_KEYBOARD_DEVICE
 
-    rt = pn.Runtime.new_with_providers_and_platforms(
-        [pn.MOCK_PROVIDER],
-        platforms
-    )
+    rt = pn.Runtime.new_with_providers_and_platforms([pn.MOCK_PROVIDER], platforms)
 
     print("\n" + "=" * 70)
     print("Complete UI Test Scenario")
@@ -166,8 +154,10 @@ def test_complete_ui_test_scenario():
         bounds_value = button.attribute("Bounds", "control")
         if isinstance(bounds_value, pn.Rect):
             bounds = bounds_value
-            print(f"  Bounds: x={bounds.x}, y={bounds.y}, "
-                  f"w={bounds.width}, h={bounds.height}")
+            print(
+                f"  Bounds: x={bounds.x}, y={bounds.y}, "
+                f"w={bounds.width}, h={bounds.height}"
+            )
 
             # 3. Highlight the element (for debugging/visualization)
             rt.highlight([bounds])

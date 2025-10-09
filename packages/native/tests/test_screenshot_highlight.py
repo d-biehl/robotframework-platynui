@@ -2,11 +2,10 @@ import pytest
 from platynui_native import Runtime, Rect, ProviderError
 
 
-
 def test_screenshot_png_bytes():
     rt = Runtime()
     try:
-        data = rt.screenshot(Rect(0, 0, 10, 10), 'image/png')
+        data = rt.screenshot(Rect(0, 0, 10, 10), "image/png")
     except ProviderError:
         pytest.skip("Screenshot provider not available in this build")
     assert isinstance(data, (bytes, bytearray))

@@ -3,6 +3,7 @@
 
 import platynui_native as pn
 
+
 def test_mock_providers_available():
     """Test that mock provider constants are available."""
     # Check that they are integers (directly access them since they're always available)
@@ -19,6 +20,7 @@ def test_mock_providers_available():
     print(f"  MOCK_POINTER_DEVICE = {pn.MOCK_POINTER_DEVICE}")
     print(f"  MOCK_KEYBOARD_DEVICE = {pn.MOCK_KEYBOARD_DEVICE}")
 
+
 def test_runtime_with_mock_provider():
     """Test creating a Runtime with only the mock provider."""
     # Create Runtime with only mock provider
@@ -26,19 +28,20 @@ def test_runtime_with_mock_provider():
 
     # Verify it works
     providers = rt.providers()
-    print(f"\n✅ Runtime created with mock provider:")
+    print("\n✅ Runtime created with mock provider:")
     print(f"  Active providers: {len(providers)}")
     for i, p in enumerate(providers, 1):
         print(f"    {i}. {p['display_name']} ({p['technology']})")
 
     # Should have exactly one provider (the mock provider)
     assert len(providers) == 1
-    assert providers[0]['technology'] == 'Mock'
+    assert providers[0]["technology"] == "Mock"
 
     # Test that we can query the tree
     desktop = rt.desktop_node()
     print(f"\n  Desktop node: {desktop.name} ({desktop.role})")
     assert desktop is not None
+
 
 def test_runtime_with_mock_platforms():
     """Test creating a Runtime with mock platform providers."""
@@ -50,12 +53,9 @@ def test_runtime_with_mock_platforms():
     platforms.keyboard = pn.MOCK_KEYBOARD_DEVICE
 
     # Create Runtime with mock provider and mock platforms
-    rt = pn.Runtime.new_with_providers_and_platforms(
-        [pn.MOCK_PROVIDER],
-        platforms
-    )
+    rt = pn.Runtime.new_with_providers_and_platforms([pn.MOCK_PROVIDER], platforms)
 
-    print(f"\n✅ Runtime created with mock platforms:")
+    print("\n✅ Runtime created with mock platforms:")
 
     # Test pointer
     try:
@@ -73,18 +73,19 @@ def test_runtime_with_mock_platforms():
     # Test keyboard
     try:
         rt.keyboard_type("Hello World")
-        print(f"  Keyboard typed: 'Hello World'")
+        print("  Keyboard typed: 'Hello World'")
     except pn.KeyboardError as e:
         print(f"  Keyboard test skipped: {e}")
 
     # Test highlight
     try:
         rt.highlight([pn.Rect(10.0, 10.0, 100.0, 100.0)])
-        print(f"  Highlight created")
+        print("  Highlight created")
         rt.clear_highlight()
-        print(f"  Highlight cleared")
+        print("  Highlight cleared")
     except Exception as e:
         print(f"  Highlight test skipped: {e}")
+
 
 if __name__ == "__main__":
     test_mock_providers_available()

@@ -3,6 +3,7 @@
 
 from platynui_native import Point, Size, Rect
 
+
 def test_point_methods():
     print("Testing Point methods:")
     p = Point(10.0, 20.0)
@@ -32,6 +33,7 @@ def test_point_methods():
     assert p6.x == 9.0 and p6.y == 18.0
 
     print("  ✅ All Point tests passed!\n")
+
 
 def test_size_methods():
     print("Testing Size methods:")
@@ -69,12 +71,15 @@ def test_size_methods():
 
     print("  ✅ All Size tests passed!\n")
 
+
 def test_rect_methods():
     print("Testing Rect methods:")
     r = Rect(10.0, 20.0, 100.0, 50.0)
     print(f"  Original: {r}")
 
-    print(f"  left: {r.left()}, top: {r.top()}, right: {r.right()}, bottom: {r.bottom()}")
+    print(
+        f"  left: {r.left()}, top: {r.top()}, right: {r.right()}, bottom: {r.bottom()}"
+    )
     assert r.left() == 10.0
     assert r.top() == 20.0
     assert r.right() == 110.0
@@ -144,6 +149,7 @@ def test_rect_methods():
     assert r7.x == 5.0 and r7.y == 17.0
 
     print("  ✅ All Rect tests passed!\n")
+
 
 if __name__ == "__main__":
     test_point_methods()
