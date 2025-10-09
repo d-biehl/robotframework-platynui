@@ -48,6 +48,4 @@ cache-keys = [
 # config-settings = { build-args = '--profile=dev' }
 
 [dependency-groups]
-dev = [
-    "maturin>=1.9.6",
-]
+dev = ["maturin>=1.9.6"]

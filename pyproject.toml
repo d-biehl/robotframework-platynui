@@ -1,6 +1,6 @@
 [project]
 name = "robotframework-PlatynUI"
-version = "0.1.0"
+version = "0.0.0"
 description = "Cross-platform UI automation toolkit for Robot Framework with XPath-based element selection"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -49,10 +49,36 @@ robotframework-platynui-native = { workspace = true }
 members = ["packages/*"]
 
 [dependency-groups]
-dev = ["mypy>=1.17.1", "pytest>=8.4.2", "ruff>=0.12.11"]
+dev = [
+    "commitizen>=4.9.1",
+    "git-cliff>=2.10.1",
+    "gitpython>=3.1.45",
+    "mypy>=1.17.1",
+    "pytest>=8.4.2",
+    "ruff>=0.12.11",
+    "semantic-version>=2.10.0",
+]
 
 [tool.cibuildwheel.macos.environment]
 MACOSX_DEPLOYMENT_TARGET = "10.12"
 
 [tool.cibuildwheel]
 skip = ["*-musllinux_i686"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+bump_message = "chore(release): bump version $current_version → $new_version"
+tag_format = "v$version"
+version_scheme = "semver2"
+version_provider = "scm"
+update_changelog_on_bump = false
+# major_version_zero = true
+changelog_incremental = true
+changelog_merge_prerelease = true
+gpg_sign = true
+annotated_tag = true
+pre_bump_hooks = [
+    "uv run scripts/update-git-versions.py",
+    "uv run scripts/update-changelog.py",
+    "git add .",
+]
