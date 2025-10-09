@@ -1,10 +1,7 @@
 use platynui_core::platform::{HighlightProvider, HighlightRequest, PlatformError};
-use platynui_core::register_highlight_provider;
 use std::sync::Mutex;
 
 pub static MOCK_HIGHLIGHT: MockHighlight = MockHighlight::new();
-
-register_highlight_provider!(&MOCK_HIGHLIGHT);
 
 #[derive(Debug)]
 pub struct MockHighlight {

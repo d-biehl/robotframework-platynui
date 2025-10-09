@@ -1,7 +1,5 @@
 use once_cell::sync::Lazy;
-use platynui_core::platform::{
-    KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, register_keyboard_device,
-};
+use platynui_core::platform::{KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent};
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,8 +128,6 @@ impl KeyboardDevice for MockKeyboardDevice {
 
 pub static MOCK_KEYBOARD: MockKeyboardDevice = MockKeyboardDevice::new();
 
-register_keyboard_device!(&MOCK_KEYBOARD);
-
 pub fn reset_keyboard_state() {
     let mut state = MOCK_KEYBOARD.state.lock().unwrap();
     *state = KeyboardState::new();
@@ -221,21 +217,25 @@ mod tests {
     #[rstest]
     fn keyboard_device_not_auto_registered() {
         let _guard = TEST_LOCK.lock().unwrap();
+        reset_keyboard_state();
         // Mock keyboard should NOT auto-register
         let devices: Vec<_> = keyboard_devices().collect();
-        // Should only contain OS-specific devices, not mock
-        assert!(
-            !devices
-                .iter()
-                .any(|device| device.key_to_code("Control").is_ok() && device.key_to_code("MockSpecificKey").is_ok()),
-            "Mock keyboard should not be auto-registered"
-        );
+        // Mock device should NOT be in the registry
+        let mock_in_registry =
+            devices.iter().any(|device| std::ptr::eq(*device, &MOCK_KEYBOARD as &dyn KeyboardDevice));
+        assert!(!mock_in_registry, "Mock keyboard device should not be auto-registered");
+
+        // Use direct reference for testing the device itself
+        let device = &MOCK_KEYBOARD;
+        let control = device.key_to_code("Control").unwrap();
+        assert!(control.downcast_ref::<MockKeyCode>().is_some());
     }
 
     #[rstest]
     fn key_to_code_accepts_named_and_chars() {
         let _guard = TEST_LOCK.lock().unwrap();
-        let device = keyboard_devices().next().expect("keyboard registered");
+        // Use direct reference to mock keyboard instead of registry lookup
+        let device = &MOCK_KEYBOARD;
         let control = device.key_to_code("ctrl").expect("ctrl resolves");
         assert!(control.downcast_ref::<MockKeyCode>().is_some());
         let letter = device.key_to_code("a").expect("character resolves");
@@ -247,7 +247,8 @@ mod tests {
     fn keyboard_logs_events() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_keyboard_state();
-        let device = keyboard_devices().next().expect("keyboard registered");
+        // Use direct reference to mock keyboard instead of registry lookup
+        let device = &MOCK_KEYBOARD;
         device.start_input().unwrap();
         let ctrl = device.key_to_code("Control").unwrap();
         let letter = device.key_to_code("A").unwrap();
@@ -275,7 +276,8 @@ mod tests {
     fn start_input_is_guarded() {
         let _guard = TEST_LOCK.lock().unwrap();
         reset_keyboard_state();
-        let device = keyboard_devices().next().expect("keyboard registered");
+        // Use direct reference to mock keyboard instead of registry lookup
+        let device = &MOCK_KEYBOARD;
         device.start_input().unwrap();
         let err = device.start_input().expect_err("second start fails");
         assert!(matches!(err, KeyboardError::InputInProgress));
