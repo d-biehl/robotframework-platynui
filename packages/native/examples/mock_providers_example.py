@@ -7,9 +7,10 @@ deterministic unit tests without requiring actual UI automation.
 """
 
 import platynui_native as pn
+from typing import List
 
 
-def test_xpath_evaluation_with_mock_tree():
+def test_xpath_evaluation_with_mock_tree() -> None:
     """
     Demonstrate XPath evaluation against the mock provider's tree.
 
@@ -28,13 +29,18 @@ def test_xpath_evaluation_with_mock_tree():
     print(f"\nDesktop: {desktop.name} ({desktop.role})")
 
     # Query for all buttons
-    buttons = rt.evaluate("//Button")
+    # Evaluate returns a union of possible XDM values; filter to UiNode for safe access
+    buttons: List[pn.UiNode] = [
+        n for n in rt.evaluate("//Button") if isinstance(n, pn.UiNode)
+    ]
     print(f"\nFound {len(buttons)} buttons:")
     for i, btn in enumerate(buttons, 1):
         print(f"  {i}. {btn.name}")
 
     # Query for elements with specific attributes
-    focusable_elements = rt.evaluate("//*[@IsFocused='true']")
+    focusable_elements: List[pn.UiNode] = [
+        n for n in rt.evaluate("//*[@IsFocused='true']") if isinstance(n, pn.UiNode)
+    ]
     print(f"\nFocused elements: {len(focusable_elements)}")
     for elem in focusable_elements:
         print(f"  - {elem.name} ({elem.role})")
@@ -49,11 +55,11 @@ def test_xpath_evaluation_with_mock_tree():
 
     # Use evaluate_single to get just the first match
     first_window = rt.evaluate_single("//Window")
-    if first_window:
+    if isinstance(first_window, pn.UiNode):
         print(f"\nFirst window: {first_window.name}")
 
 
-def test_pointer_automation_with_mock():
+def test_pointer_automation_with_mock() -> None:
     """
     Demonstrate pointer automation with mock devices.
 
@@ -90,7 +96,7 @@ def test_pointer_automation_with_mock():
     print("Dragged from (50, 50) to (150, 150)")
 
 
-def test_keyboard_automation_with_mock():
+def test_keyboard_automation_with_mock() -> None:
     """
     Demonstrate keyboard automation with mock devices.
 
@@ -120,7 +126,7 @@ def test_keyboard_automation_with_mock():
     print("Released: Ctrl+C")
 
 
-def test_complete_ui_test_scenario():
+def test_complete_ui_test_scenario() -> None:
     """
     Demonstrate a complete UI test scenario using all mock providers.
 
@@ -142,12 +148,12 @@ def test_complete_ui_test_scenario():
 
     # 1. Find a UI element using XPath
     button = rt.evaluate_single("//Button[@Name='Submit']")
-    if not button:
+    if not isinstance(button, pn.UiNode):
         print("\n⚠️  'Submit' button not found in mock tree")
         # Try finding any button
         button = rt.evaluate_single("//Button")
 
-    if button:
+    if isinstance(button, pn.UiNode):
         print(f"\n✓ Found button: {button.name}")
 
         # 2. Get the button's bounding rectangle
@@ -179,7 +185,7 @@ def test_complete_ui_test_scenario():
 
     # 7. Test keyboard input in a text field
     text_field = rt.evaluate_single("//Edit")
-    if text_field:
+    if isinstance(text_field, pn.UiNode):
         print(f"\n✓ Found text field: {text_field.name}")
 
         # Type some text
