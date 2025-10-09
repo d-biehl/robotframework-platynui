@@ -46,3 +46,8 @@ cache-keys = [
     { file = "**/*.rs" },
 ]
 # config-settings = { build-args = '--profile=dev' }
+
+[dependency-groups]
+dev = [
+    "maturin>=1.9.6",
+]
