@@ -105,7 +105,7 @@ jobs:
         run: uv sync --dev --all-packages
 
       - name: Build wheels with maturin (via uv)
-        run: uv run maturin build -m packages/native/pyproject.toml --no-sdist --release
+        run: uv run maturin build -m packages/native/Cargo.toml --uv --no-sdist --release
 
       - name: build wheels with build (pure Python)
         run: uv build --all-packages --wheel
