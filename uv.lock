@@ -161,6 +161,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "robotframework" },
+    { name = "robotframework-platynui-native" },
 ]
 
 [package.dev-dependencies]
@@ -171,7 +172,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "robotframework", specifier = ">=7.0.0" }]
+requires-dist = [
+    { name = "robotframework", specifier = ">=7.0.0" },
+    { name = "robotframework-platynui-native", editable = "packages/native" },
+]
 
 [package.metadata.requires-dev]
 dev = [

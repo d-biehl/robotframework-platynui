@@ -1,16 +1,12 @@
 [project]
-name = "robotframework-PlatynUI-native"
+name = "robotframework-platynui-native"
 version = "0.1.0"
 description = "Native Python bindings for PlatynUI (core types + runtime)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
-authors = [
-    { name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }
-]
-maintainers = [
-    { name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }
-]
+authors = [{ name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }]
+maintainers = [{ name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }]
 keywords = ["robotframework", "platynui", "gui", "automation", "desktop"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -42,3 +38,10 @@ build-backend = "maturin"
 module-name = "platynui_native._native"
 python-source = "python"
 features = ["pyo3/extension-module", "pyo3/abi3-py310"]
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "rust/Cargo.toml" },
+    { file = "**/*.rs" },
+]

@@ -46,3 +46,6 @@ packages/native/python/platynui_native/*.pyd
 packages/native/python/platynui_native/*.dylib
 packages/native/python/platynui_native/*.pdb
 packages/native/python/platynui_native/*.dSYM/
+
+# cibuildwheel artifacts
+wheelhouse/
