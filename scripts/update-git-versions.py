@@ -42,6 +42,7 @@ def main() -> None:
     version_files = list(Path("packages").rglob("__version__.py"))
 
     for f in [Path("src/PlatynUI/__version__.py"), *version_files]:
+        print(f"updating {f}")
         replace_in_file(
             f,
             re.compile(r"""(^_*version_*\s*=\s*['"])([^'"]*)(['"])""", re.MULTILINE),
@@ -57,6 +58,12 @@ def main() -> None:
         *pyproject_files,
         *cargo_files,
     ]:
+        print(f"updating {f}")
+        replace_in_file(
+            f,
+            re.compile(r"""(^version\s*=\s*['"])([^'"]*)(['"])""", re.MULTILINE),
+            rf"\g<1>{version or ''}\g<3>",
+        )
         replace_in_file(
             f,
             re.compile(

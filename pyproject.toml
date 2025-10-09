@@ -1,6 +1,6 @@
 [project]
 name = "robotframework-PlatynUI"
-version = "0.0.0"
+version = "0.1.0"
 description = "Cross-platform UI automation toolkit for Robot Framework with XPath-based element selection"
 readme = "README.md"
 requires-python = ">=3.10"
