@@ -3,8 +3,8 @@ use platynui_xpath::engine::runtime::{
 };
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::{
-    ExpandedName, compile_with_context, evaluate, evaluate_expr, xdm::XdmAtomicValue as A,
-    xdm::XdmItem as I, xdm::XdmSequenceStream, XdmSequence,
+    ExpandedName, XdmSequence, compile_with_context, evaluate, evaluate_expr,
+    xdm::XdmAtomicValue as A, xdm::XdmItem as I, xdm::XdmSequenceStream,
 };
 use rstest::rstest;
 type N = platynui_xpath::model::simple::SimpleNode;

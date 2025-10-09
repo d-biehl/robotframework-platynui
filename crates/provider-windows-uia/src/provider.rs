@@ -35,7 +35,11 @@ struct ElementAndAppIter {
 }
 
 impl ElementAndAppIter {
-    fn new(parent_elem: windows::Win32::UI::Accessibility::IUIAutomationElement, parent: Arc<dyn UiNode>, self_pid: i32) -> Self {
+    fn new(
+        parent_elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+        parent: Arc<dyn UiNode>,
+        self_pid: i32,
+    ) -> Self {
         Self {
             parent_elem,
             current: None,
@@ -60,14 +64,21 @@ impl Iterator for ElementAndAppIter {
                     let pid = self.app_order[self.app_index];
                     self.app_index += 1;
                     if pid > 0 && pid != self.self_pid {
-                        let app = crate::node::ApplicationNode::new(pid, self.parent_elem.clone(), &self.parent);
+                        let app = crate::node::ApplicationNode::new(
+                            pid,
+                            self.parent_elem.clone(),
+                            &self.parent,
+                        );
                         return Some(app as Arc<dyn UiNode>);
                     }
                 }
                 return None;
             }
 
-            let walker = match crate::com::raw_walker() { Ok(w) => w, Err(_) => return None };
+            let walker = match crate::com::raw_walker() {
+                Ok(w) => w,
+                Err(_) => return None,
+            };
             loop {
                 if self.first {
                     self.first = false;
@@ -177,8 +188,9 @@ impl UiTreeProvider for WindowsUiaProvider {
         })?;
 
         let root = unsafe {
-            uia.GetRootElement()
-                .map_err(|e| ProviderError::new(ProviderErrorKind::CommunicationFailure, e.to_string()))?
+            uia.GetRootElement().map_err(|e| {
+                ProviderError::new(ProviderErrorKind::CommunicationFailure, e.to_string())
+            })?
         };
         // Stream: first raw desktop children (excluding own process), then one app:Application per PID.
         let self_pid: i32 = std::process::id() as i32;

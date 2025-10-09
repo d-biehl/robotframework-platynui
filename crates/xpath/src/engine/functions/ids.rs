@@ -110,16 +110,8 @@ pub(super) fn id_stream<N: 'static + crate::model::XdmNode + Clone>(
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq0 = args[0].materialize()?;
-    let seq1 = if args.len() >= 2 {
-        args[1].materialize()?
-    } else {
-        vec![]
-    };
-    let materialized_args = if seq1.is_empty() {
-        vec![seq0]
-    } else {
-        vec![seq0, seq1]
-    };
+    let seq1 = if args.len() >= 2 { args[1].materialize()? } else { vec![] };
+    let materialized_args = if seq1.is_empty() { vec![seq0] } else { vec![seq0, seq1] };
     let result = id_fn(ctx, &materialized_args)?;
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -163,16 +155,8 @@ pub(super) fn element_with_id_stream<N: 'static + crate::model::XdmNode + Clone>
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq0 = args[0].materialize()?;
-    let seq1 = if args.len() >= 2 {
-        args[1].materialize()?
-    } else {
-        vec![]
-    };
-    let materialized_args = if seq1.is_empty() {
-        vec![seq0]
-    } else {
-        vec![seq0, seq1]
-    };
+    let seq1 = if args.len() >= 2 { args[1].materialize()? } else { vec![] };
+    let materialized_args = if seq1.is_empty() { vec![seq0] } else { vec![seq0, seq1] };
     let result = element_with_id_fn(ctx, &materialized_args)?;
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -246,16 +230,8 @@ pub(super) fn idref_stream<N: 'static + crate::model::XdmNode + Clone>(
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq0 = args[0].materialize()?;
-    let seq1 = if args.len() >= 2 {
-        args[1].materialize()?
-    } else {
-        vec![]
-    };
-    let materialized_args = if seq1.is_empty() {
-        vec![seq0]
-    } else {
-        vec![seq0, seq1]
-    };
+    let seq1 = if args.len() >= 2 { args[1].materialize()? } else { vec![] };
+    let materialized_args = if seq1.is_empty() { vec![seq0] } else { vec![seq0, seq1] };
     let result = idref_fn(ctx, &materialized_args)?;
     Ok(XdmSequenceStream::from_vec(result))
 }

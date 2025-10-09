@@ -69,7 +69,10 @@ mod tests {
     #[rstest]
     fn mock_platform_not_auto_registered() {
         let names: Vec<_> = platform_modules().map(|module| module.name()).collect();
-        assert!(!names.contains(&MockPlatform::NAME), "Mock platform should not be auto-registered");
+        assert!(
+            !names.contains(&MockPlatform::NAME),
+            "Mock platform should not be auto-registered"
+        );
     }
 
     #[rstest]

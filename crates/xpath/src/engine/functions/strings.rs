@@ -19,7 +19,8 @@ pub(super) fn string_stream<N: 'static + crate::model::XdmNode + Clone>(
         super::common::string_default(ctx, Some(&seq))?
     };
     Ok(XdmSequenceStream::from_vec(result))
-}/// Stream-based string-length() implementation.
+}
+/// Stream-based string-length() implementation.
 /// Handles both 0-arity (uses context item) and 1-arity versions.
 pub(super) fn string_length_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
@@ -34,7 +35,8 @@ pub(super) fn string_length_stream<N: 'static + crate::model::XdmNode + Clone>(
     };
     let result = vec![XdmItem::Atomic(XdmAtomicValue::Integer(s.chars().count() as i64))];
     Ok(XdmSequenceStream::from_vec(result))
-}/// Stream-based untypedAtomic() implementation.
+}
+/// Stream-based untypedAtomic() implementation.
 pub(super) fn untyped_atomic_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
@@ -43,8 +45,6 @@ pub(super) fn untyped_atomic_stream<N: 'static + crate::model::XdmNode + Clone>(
     let result = vec![XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(item_to_string(&seq)))];
     Ok(XdmSequenceStream::from_vec(result))
 }
-
-
 
 pub(super) fn concat_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
@@ -240,7 +240,8 @@ pub(super) fn normalize_space_stream<N: 'static + crate::model::XdmNode + Clone>
         normalize_space_default(ctx, Some(&seq))?
     };
     Ok(XdmSequenceStream::from_vec(result))
-}/// Stream-based translate() implementation.
+}
+/// Stream-based translate() implementation.
 pub(super) fn translate_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],

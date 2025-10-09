@@ -217,7 +217,8 @@ mod tests {
         let providers: Vec<_> = screenshot_providers().collect();
         // Mock provider should NOT be in the registry
         // On most test systems this will be empty, or contain OS providers
-        let mock_in_registry = providers.iter().any(|p| std::ptr::eq(*p, &MOCK_SCREENSHOT as &dyn ScreenshotProvider));
+        let mock_in_registry =
+            providers.iter().any(|p| std::ptr::eq(*p, &MOCK_SCREENSHOT as &dyn ScreenshotProvider));
         assert!(!mock_in_registry, "Mock screenshot provider should not be auto-registered");
 
         // Use direct reference for testing the provider itself

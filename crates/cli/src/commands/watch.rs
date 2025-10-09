@@ -59,9 +59,8 @@ where
     let mut processed = 0usize;
 
     while processed < limit {
-        let event = receiver
-            .recv()
-            .map_err(|err| anyhow!("failed to receive provider event: {err}"))?;
+        let event =
+            receiver.recv().map_err(|err| anyhow!("failed to receive provider event: {err}"))?;
 
         let summary = watch_event_summary(&event);
         let query_results = if let Some(expr) = expression {
@@ -89,7 +88,6 @@ where
 
     Ok(())
 }
-
 
 #[derive(Debug, Clone, Serialize)]
 struct WatchEventSummary {
@@ -223,7 +221,7 @@ impl ProviderEventSink for ChannelSink {
 mod tests {
     use super::*;
     use platynui_runtime::Runtime;
-    use rstest::{rstest, fixture};
+    use rstest::{fixture, rstest};
     use std::io::Cursor;
 
     #[cfg(any(test, feature = "mock-provider"))]
@@ -236,11 +234,7 @@ mod tests {
 
     #[rstest]
     fn watch_text_streams_events(mut runtime: Runtime) {
-        let args = WatchArgs {
-            format: OutputFormat::Text,
-            expression: None,
-            limit: Some(1),
-        };
+        let args = WatchArgs { format: OutputFormat::Text, expression: None, limit: Some(1) };
 
         let mut buffer = Cursor::new(Vec::new());
         watch_with_writer_internal(&mut runtime, &args, &mut buffer, || {

@@ -209,17 +209,17 @@ impl<'a> Compiler<'a> {
                         //
                         // Code: LHS JumpIfFalse(skip) Pop RHS ToEBV Jump(end) skip: Pop PushFalse end:
 
-                        self.lower_expr(left)?;  // Stack: [LHS]
+                        self.lower_expr(left)?; // Stack: [LHS]
 
                         let jump_if_false_pos = self.code.len();
-                        self.emit(ir::OpCode::JumpIfFalse(0));  // Pops LHS, jumps if false
+                        self.emit(ir::OpCode::JumpIfFalse(0)); // Pops LHS, jumps if false
 
                         // LHS was true, evaluate RHS
-                        self.lower_expr(right)?;  // Stack: [RHS]
-                        self.emit(ir::OpCode::ToEBV);  // Convert RHS to boolean
+                        self.lower_expr(right)?; // Stack: [RHS]
+                        self.emit(ir::OpCode::ToEBV); // Convert RHS to boolean
 
                         let jump_to_end_pos = self.code.len();
-                        self.emit(ir::OpCode::Jump(0));  // Jump over the false-push
+                        self.emit(ir::OpCode::Jump(0)); // Jump over the false-push
 
                         // If we jumped here, LHS was false
                         let false_label = self.code.len();
@@ -229,7 +229,8 @@ impl<'a> Compiler<'a> {
 
                         // Patch jumps
                         let jump_if_false_offset = false_label - jump_if_false_pos - 1;
-                        self.code[jump_if_false_pos] = ir::OpCode::JumpIfFalse(jump_if_false_offset);
+                        self.code[jump_if_false_pos] =
+                            ir::OpCode::JumpIfFalse(jump_if_false_offset);
 
                         let jump_to_end_offset = end_label - jump_to_end_pos - 1;
                         self.code[jump_to_end_pos] = ir::OpCode::Jump(jump_to_end_offset);
@@ -238,17 +239,17 @@ impl<'a> Compiler<'a> {
                         // Pattern for Or with short-circuit:
                         // LHS JumpIfTrue(skip) Pop RHS ToEBV Jump(end) skip: Pop PushTrue end:
 
-                        self.lower_expr(left)?;  // Stack: [LHS]
+                        self.lower_expr(left)?; // Stack: [LHS]
 
                         let jump_if_true_pos = self.code.len();
-                        self.emit(ir::OpCode::JumpIfTrue(0));  // Pops LHS, jumps if true
+                        self.emit(ir::OpCode::JumpIfTrue(0)); // Pops LHS, jumps if true
 
                         // LHS was false, evaluate RHS
-                        self.lower_expr(right)?;  // Stack: [RHS]
-                        self.emit(ir::OpCode::ToEBV);  // Convert RHS to boolean
+                        self.lower_expr(right)?; // Stack: [RHS]
+                        self.emit(ir::OpCode::ToEBV); // Convert RHS to boolean
 
                         let jump_to_end_pos = self.code.len();
-                        self.emit(ir::OpCode::Jump(0));  // Jump over the true-push
+                        self.emit(ir::OpCode::Jump(0)); // Jump over the true-push
 
                         // If we jumped here, LHS was true
                         let true_label = self.code.len();
@@ -558,7 +559,8 @@ impl<'a> Compiler<'a> {
                         | ir::AxisIR::DescendantOrSelf
                         | ir::AxisIR::Following
                         | ir::AxisIR::FollowingSibling => self.emit(ir::OpCode::EnsureDistinct),
-                        ir::AxisIR::Attribute | ir::AxisIR::Namespace => { /* no normalization needed */ }
+                        ir::AxisIR::Attribute | ir::AxisIR::Namespace => { /* no normalization needed */
+                        }
                         // Reverse axes need both: order and distinct
                         ir::AxisIR::Parent
                         | ir::AxisIR::Ancestor

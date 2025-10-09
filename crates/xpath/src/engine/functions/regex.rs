@@ -2,12 +2,6 @@ use super::common::{matches_default, replace_default, tokenize_default};
 use crate::engine::runtime::{CallCtx, Error};
 use crate::xdm::XdmSequenceStream;
 
-
-
-
-
-
-
 pub(super) fn matches_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],

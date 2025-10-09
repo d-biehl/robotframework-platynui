@@ -481,7 +481,9 @@ pub(super) fn xs_int_stream<N: 'static + crate::model::XdmNode + Clone>(
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = int_subtype_i64(&[seq], i32::MIN as i64, i32::MAX as i64, |v| XdmAtomicValue::Int(v as i32))?;
+    let result = int_subtype_i64(&[seq], i32::MIN as i64, i32::MAX as i64, |v| {
+        XdmAtomicValue::Int(v as i32)
+    })?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -490,7 +492,9 @@ pub(super) fn xs_short_stream<N: 'static + crate::model::XdmNode + Clone>(
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = int_subtype_i64(&[seq], i16::MIN as i64, i16::MAX as i64, |v| XdmAtomicValue::Short(v as i16))?;
+    let result = int_subtype_i64(&[seq], i16::MIN as i64, i16::MAX as i64, |v| {
+        XdmAtomicValue::Short(v as i16)
+    })?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -499,7 +503,8 @@ pub(super) fn xs_byte_stream<N: 'static + crate::model::XdmNode + Clone>(
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = int_subtype_i64(&[seq], i8::MIN as i64, i8::MAX as i64, |v| XdmAtomicValue::Byte(v as i8))?;
+    let result =
+        int_subtype_i64(&[seq], i8::MIN as i64, i8::MAX as i64, |v| XdmAtomicValue::Byte(v as i8))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -508,7 +513,8 @@ pub(super) fn xs_unsigned_long_stream<N: 'static + crate::model::XdmNode + Clone
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 0, u64::MAX as u128, |v| XdmAtomicValue::UnsignedLong(v as u64))?;
+    let result =
+        uint_subtype_u128(&[seq], 0, u64::MAX as u128, |v| XdmAtomicValue::UnsignedLong(v as u64))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -517,7 +523,8 @@ pub(super) fn xs_unsigned_int_stream<N: 'static + crate::model::XdmNode + Clone>
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 0, u32::MAX as u128, |v| XdmAtomicValue::UnsignedInt(v as u32))?;
+    let result =
+        uint_subtype_u128(&[seq], 0, u32::MAX as u128, |v| XdmAtomicValue::UnsignedInt(v as u32))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -526,7 +533,9 @@ pub(super) fn xs_unsigned_short_stream<N: 'static + crate::model::XdmNode + Clon
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 0, u16::MAX as u128, |v| XdmAtomicValue::UnsignedShort(v as u16))?;
+    let result = uint_subtype_u128(&[seq], 0, u16::MAX as u128, |v| {
+        XdmAtomicValue::UnsignedShort(v as u16)
+    })?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -535,7 +544,8 @@ pub(super) fn xs_unsigned_byte_stream<N: 'static + crate::model::XdmNode + Clone
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 0, u8::MAX as u128, |v| XdmAtomicValue::UnsignedByte(v as u8))?;
+    let result =
+        uint_subtype_u128(&[seq], 0, u8::MAX as u128, |v| XdmAtomicValue::UnsignedByte(v as u8))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -562,7 +572,9 @@ pub(super) fn xs_non_negative_integer_stream<N: 'static + crate::model::XdmNode 
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 0, u64::MAX as u128, |v| XdmAtomicValue::NonNegativeInteger(v as u64))?;
+    let result = uint_subtype_u128(&[seq], 0, u64::MAX as u128, |v| {
+        XdmAtomicValue::NonNegativeInteger(v as u64)
+    })?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -571,7 +583,9 @@ pub(super) fn xs_positive_integer_stream<N: 'static + crate::model::XdmNode + Cl
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 1, u64::MAX as u128, |v| XdmAtomicValue::PositiveInteger(v as u64))?;
+    let result = uint_subtype_u128(&[seq], 1, u64::MAX as u128, |v| {
+        XdmAtomicValue::PositiveInteger(v as u64)
+    })?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 

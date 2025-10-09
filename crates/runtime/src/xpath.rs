@@ -5,9 +5,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use platynui_core::provider::ProviderError;
+use platynui_core::ui::attribute_names;
 use platynui_core::ui::identifiers::RuntimeId;
 use platynui_core::ui::{Namespace as UiNamespace, UiAttribute, UiNode, UiValue};
-use platynui_core::ui::attribute_names;
 use platynui_xpath::compiler;
 use platynui_xpath::engine::evaluator;
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilder};
@@ -318,7 +318,8 @@ impl XdmNode for RuntimeXdmNode {
                     Rc::clone(&doc.children_inner),
                     Rc::clone(&doc.children_cache),
                     Rc::clone(&doc.children_finished),
-                ).with_parent_doc(self.clone())
+                )
+                .with_parent_doc(self.clone())
             }
             RuntimeXdmNode::Element(elem) => {
                 if elem.children_inner.borrow().is_none() && !elem.children_finished.get() {
@@ -787,11 +788,14 @@ impl<'a> Iterator for NodeChildrenIter<'a> {
             Some(iter) => {
                 if let Some(owner) = iter.next() {
                     let mut node = RuntimeXdmNode::from_node(owner);
-                    if let (Some(RuntimeXdmNode::Document(doc_parent)), RuntimeXdmNode::Element(elem)) =
-                        (self.parent_doc.as_ref(), &mut node)
+                    if let (
+                        Some(RuntimeXdmNode::Document(doc_parent)),
+                        RuntimeXdmNode::Element(elem),
+                    ) = (self.parent_doc.as_ref(), &mut node)
                     {
                         // Link element's cached parent to the shared document wrapper
-                        *elem.parent_cache.borrow_mut() = Some(Some(RuntimeXdmNode::Document(doc_parent.clone())));
+                        *elem.parent_cache.borrow_mut() =
+                            Some(Some(RuntimeXdmNode::Document(doc_parent.clone())));
                     }
                     self.cache.borrow_mut().push(node.clone());
                     self.pos += 1;
@@ -858,74 +862,74 @@ impl<'a> Iterator for NodeAttributeIter<'a> {
             let ns = attr.namespace();
             let base_name = attr.name().to_string();
             let src = attr.clone();
-                {
-                    let mut cache = self.cache.borrow_mut();
-                    cache.push(RuntimeXdmNode::Attribute(AttributeData::new_from_source(
+            {
+                let mut cache = self.cache.borrow_mut();
+                cache.push(RuntimeXdmNode::Attribute(AttributeData::new_from_source(
+                    self.owner.clone(),
+                    ns,
+                    base_name.clone(),
+                    src.clone(),
+                )));
+                if base_name == attribute_names::element::BOUNDS {
+                    cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
                         self.owner.clone(),
                         ns,
-                        base_name.clone(),
                         src.clone(),
+                        attribute_names::element::BOUNDS,
+                        RectComp::X,
                     )));
-                    if base_name == attribute_names::element::BOUNDS {
-                        cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
-                            self.owner.clone(),
-                            ns,
-                            src.clone(),
-                            attribute_names::element::BOUNDS,
-                            RectComp::X,
-                        )));
-                        cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
-                            self.owner.clone(),
-                            ns,
-                            src.clone(),
-                            attribute_names::element::BOUNDS,
-                            RectComp::Y,
-                        )));
-                        cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
-                            self.owner.clone(),
-                            ns,
-                            src.clone(),
-                            attribute_names::element::BOUNDS,
-                            RectComp::Width,
-                        )));
-                        cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
-                            self.owner.clone(),
-                            ns,
-                            src,
-                            attribute_names::element::BOUNDS,
-                            RectComp::Height,
-                        )));
-                    } else if base_name == attribute_names::activation_target::ACTIVATION_POINT {
-                        let src_point = attr.clone();
-                        cache.push(RuntimeXdmNode::Attribute(AttributeData::new_point_component(
-                            self.owner.clone(),
-                            ns,
-                            src_point.clone(),
-                            attribute_names::activation_target::ACTIVATION_POINT,
-                            PointComp::X,
-                        )));
-                        cache.push(RuntimeXdmNode::Attribute(AttributeData::new_point_component(
-                            self.owner.clone(),
-                            ns,
-                            src_point,
-                            attribute_names::activation_target::ACTIVATION_POINT,
-                            PointComp::Y,
-                        )));
-                    }
+                    cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
+                        self.owner.clone(),
+                        ns,
+                        src.clone(),
+                        attribute_names::element::BOUNDS,
+                        RectComp::Y,
+                    )));
+                    cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
+                        self.owner.clone(),
+                        ns,
+                        src.clone(),
+                        attribute_names::element::BOUNDS,
+                        RectComp::Width,
+                    )));
+                    cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
+                        self.owner.clone(),
+                        ns,
+                        src,
+                        attribute_names::element::BOUNDS,
+                        RectComp::Height,
+                    )));
+                } else if base_name == attribute_names::activation_target::ACTIVATION_POINT {
+                    let src_point = attr.clone();
+                    cache.push(RuntimeXdmNode::Attribute(AttributeData::new_point_component(
+                        self.owner.clone(),
+                        ns,
+                        src_point.clone(),
+                        attribute_names::activation_target::ACTIVATION_POINT,
+                        PointComp::X,
+                    )));
+                    cache.push(RuntimeXdmNode::Attribute(AttributeData::new_point_component(
+                        self.owner.clone(),
+                        ns,
+                        src_point,
+                        attribute_names::activation_target::ACTIVATION_POINT,
+                        PointComp::Y,
+                    )));
                 }
-                // Return the just-pushed item at current position (should exist)
-                let idx = self.pos;
-                {
-                    let cache = self.cache.borrow();
-                    if idx < cache.len() {
-                        let it = cache[idx].clone();
-                        self.pos += 1;
-                        return Some(it);
-                    }
+            }
+            // Return the just-pushed item at current position (should exist)
+            let idx = self.pos;
+            {
+                let cache = self.cache.borrow();
+                if idx < cache.len() {
+                    let it = cache[idx].clone();
+                    self.pos += 1;
+                    return Some(it);
                 }
-                // Fallback: inconsistent state — mark finished
-                self.finished.set(true);
-                None
+            }
+            // Fallback: inconsistent state — mark finished
+            self.finished.set(true);
+            None
         } else {
             self.finished.set(true);
             None
@@ -1430,12 +1434,10 @@ mod tests {
         );
 
         match result {
-            Err(EvaluateError::Provider(err)) => {
-                match err {
-                    ProviderError::TreeUnavailable { .. } => {}
-                    other => panic!("unexpected provider error: {other}"),
-                }
-            }
+            Err(EvaluateError::Provider(err)) => match err {
+                ProviderError::TreeUnavailable { .. } => {}
+                other => panic!("unexpected provider error: {other}"),
+            },
             other => panic!("unexpected result: {:?}", other),
         }
     }

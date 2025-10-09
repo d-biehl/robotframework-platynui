@@ -12,12 +12,7 @@ fn get_ir(xpath: &str) -> InstrSeq {
 }
 
 fn assert_single_push_atomic(ir: &InstrSeq, expected: XdmAtomicValue) {
-    assert_eq!(
-        ir.0.len(),
-        1,
-        "Expected single instruction, got: {:?}",
-        ir.0
-    );
+    assert_eq!(ir.0.len(), 1, "Expected single instruction, got: {:?}", ir.0);
     match &ir.0[0] {
         OpCode::PushAtomic(val) => {
             assert_eq!(val, &expected, "Expected {:?}, got {:?}", expected, val);
@@ -116,15 +111,10 @@ fn test_constant_folding_in_predicates() {
     let ir = get_ir("(1, 2, 3)[. = 1 + 2]");
 
     // The folded constant 3 should appear somewhere in the IR
-    let has_folded = ir.0.iter().any(|op| {
-        matches!(op, OpCode::PushAtomic(XdmAtomicValue::Integer(3)))
-    });
+    let has_folded =
+        ir.0.iter().any(|op| matches!(op, OpCode::PushAtomic(XdmAtomicValue::Integer(3))));
 
-    assert!(
-        has_folded,
-        "Should contain folded constant 3 from predicate, got IR: {:?}",
-        ir.0
-    );
+    assert!(has_folded, "Should contain folded constant 3 from predicate, got IR: {:?}", ir.0);
 }
 
 #[test]

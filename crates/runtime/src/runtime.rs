@@ -66,7 +66,6 @@ pub enum FocusError {
     },
 }
 
-
 #[derive(Debug, Error)]
 pub enum KeyboardActionError {
     #[error("invalid keyboard sequence: {0}")]

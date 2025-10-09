@@ -1,4 +1,3 @@
-
 use platynui_core::platform::{
     PixelFormat, PlatformError, PlatformErrorKind, Screenshot, ScreenshotProvider,
     ScreenshotRequest, desktop_info_providers,

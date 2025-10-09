@@ -61,7 +61,9 @@ pub fn run(runtime: &Runtime, args: &WindowArgs) -> CliResult<String> {
     }
 
     let actions = WindowActions::from_args(args)?;
-    if actions.is_empty() { bail!("no window action specified"); }
+    if actions.is_empty() {
+        bail!("no window action specified");
+    }
 
     let expression = args.expression.as_deref().unwrap_or(DEFAULT_WINDOW_QUERY);
 
@@ -361,7 +363,6 @@ mod tests {
     use platynui_runtime::Runtime;
     use rstest::rstest;
     use serial_test::serial;
-
 
     #[rstest]
     #[serial]

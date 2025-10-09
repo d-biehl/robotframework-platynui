@@ -3,8 +3,8 @@
 // These benchmarks measure the performance improvement from short-circuit evaluation
 // by comparing scenarios where expensive operations are skipped vs. evaluated.
 
-use criterion::{criterion_group, criterion_main, Criterion};
-use platynui_xpath::{compile, evaluate, DynamicContextBuilder, SimpleNode};
+use criterion::{Criterion, criterion_group, criterion_main};
+use platynui_xpath::{DynamicContextBuilder, SimpleNode, compile, evaluate};
 use std::hint::black_box;
 
 fn bench_short_circuit_and_false(c: &mut Criterion) {
@@ -68,9 +68,7 @@ fn bench_complex_short_circuit(c: &mut Criterion) {
         // Complex boolean expression with multiple short-circuits
         // (false() and (expensive1)) or (true() or (expensive2))
         // Both expensive operations should be skipped
-        let compiled = compile(
-            "(false() and (1 to 100000)) or (true() or (1 to 100000))"
-        ).unwrap();
+        let compiled = compile("(false() and (1 to 100000)) or (true() or (1 to 100000))").unwrap();
         let ctx = DynamicContextBuilder::<SimpleNode>::default().build();
 
         b.iter(|| {
@@ -84,9 +82,7 @@ fn bench_predicate_short_circuit(c: &mut Criterion) {
     c.bench_function("predicate_short_circuit", |b| {
         // Simulates predicate with short-circuit
         // false() and expensive-predicate
-        let compiled = compile(
-            "false() and (count(1 to 10000) > 5000)"
-        ).unwrap();
+        let compiled = compile("false() and (count(1 to 10000) > 5000)").unwrap();
         let ctx = DynamicContextBuilder::<SimpleNode>::default().build();
 
         b.iter(|| {
@@ -100,9 +96,7 @@ fn bench_nested_short_circuit(c: &mut Criterion) {
     c.bench_function("nested_short_circuit", |b| {
         // Nested boolean expressions
         // ((false() and expr1) and expr2) should skip both expr1 and expr2
-        let compiled = compile(
-            "((false() and (1 to 5000)) and (1 to 5000))"
-        ).unwrap();
+        let compiled = compile("((false() and (1 to 5000)) and (1 to 5000))").unwrap();
         let ctx = DynamicContextBuilder::<SimpleNode>::default().build();
 
         b.iter(|| {

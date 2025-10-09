@@ -142,7 +142,6 @@ mod tests {
     use rstest::rstest;
     use serial_test::serial;
 
-
     fn entries() -> Vec<KeyboardLogEntry> {
         take_keyboard_log()
     }

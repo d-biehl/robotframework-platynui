@@ -3,13 +3,15 @@ use platynui_core::platform::{
     PointOrigin, PointerAccelerationProfile, PointerButton, PointerMotionMode, ScrollDelta,
 };
 use platynui_core::types::{Point, Rect};
-use platynui_core::ui::attribute_names::{activation_target, element, common};
+use platynui_core::ui::attribute_names::{activation_target, common, element};
 use platynui_core::ui::{Namespace, UiNode, UiValue};
 use platynui_runtime::{EvaluationItem, PointerError, PointerOverrides, Runtime};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::util::{CliResult, map_evaluate_error, parse_point, parse_pointer_button, parse_scroll_delta};
+use crate::util::{
+    CliResult, map_evaluate_error, parse_point, parse_pointer_button, parse_scroll_delta,
+};
 
 #[derive(Args)]
 pub struct PointerArgs {
@@ -32,7 +34,10 @@ pub enum PointerCommand {
 #[derive(Args)]
 #[command(about = "Move the pointer to a point or XPath-selected element.")]
 pub struct PointerMoveArgs {
-    #[arg(value_name = "XPATH", help = "XPath selecting a node (preferred). Uses @ActivationPoint if available, otherwise the center of @Bounds.")]
+    #[arg(
+        value_name = "XPATH",
+        help = "XPath selecting a node (preferred). Uses @ActivationPoint if available, otherwise the center of @Bounds."
+    )]
     pub expression: Option<String>,
     #[arg(long = "point", value_parser = parse_point_arg, allow_hyphen_values = true, help = "Target point as 'x,y' (used if no XPATH is provided).")]
     pub point: Option<Point>,
@@ -43,7 +48,10 @@ pub struct PointerMoveArgs {
 #[derive(Args)]
 #[command(about = "Click at a point or on an XPath-selected element.")]
 pub struct PointerClickArgs {
-    #[arg(value_name = "XPATH", help = "XPath selecting a node (preferred). Uses @ActivationPoint if available, otherwise the center of @Bounds.")]
+    #[arg(
+        value_name = "XPATH",
+        help = "XPath selecting a node (preferred). Uses @ActivationPoint if available, otherwise the center of @Bounds."
+    )]
     pub expression: Option<String>,
     #[arg(long = "point", value_parser = parse_point_arg, allow_hyphen_values = true, help = "Target point as 'x,y' (used if no XPATH is provided).")]
     pub point: Option<Point>,
@@ -58,7 +66,10 @@ pub struct PointerClickArgs {
 #[derive(Args)]
 #[command(about = "Perform multiple clicks at a point or on an XPath-selected element.")]
 pub struct PointerMultiClickArgs {
-    #[arg(value_name = "XPATH", help = "XPath selecting a node (preferred). Uses @ActivationPoint if available, otherwise the center of @Bounds.")]
+    #[arg(
+        value_name = "XPATH",
+        help = "XPath selecting a node (preferred). Uses @ActivationPoint if available, otherwise the center of @Bounds."
+    )]
     pub expression: Option<String>,
     #[arg(long = "point", value_parser = parse_point_arg, help = "Target point as 'x,y' (used if no XPATH is provided).")]
     pub point: Option<Point>,
@@ -75,7 +86,10 @@ pub struct PointerMultiClickArgs {
 #[derive(Args)]
 #[command(about = "Press a mouse button at a point or XPath-selected element.")]
 pub struct PointerPressArgs {
-    #[arg(value_name = "XPATH", help = "XPath selecting a node (preferred). Uses @ActivationPoint if available, otherwise the center of @Bounds.")]
+    #[arg(
+        value_name = "XPATH",
+        help = "XPath selecting a node (preferred). Uses @ActivationPoint if available, otherwise the center of @Bounds."
+    )]
     pub expression: Option<String>,
     #[arg(long = "point", value_parser = parse_point_arg, allow_hyphen_values = true, help = "Optional target point 'x,y'.")]
     pub point: Option<Point>,
@@ -92,7 +106,10 @@ pub struct PointerPressArgs {
 pub struct PointerReleaseArgs {
     #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg, help = "Mouse button (left/right/middle or numeric code).")]
     pub button: PointerButton,
-    #[arg(value_name = "XPATH", help = "XPath selecting a node to move to before release (unless --no-move).")]
+    #[arg(
+        value_name = "XPATH",
+        help = "XPath selecting a node to move to before release (unless --no-move)."
+    )]
     pub expression: Option<String>,
     #[arg(long = "no-move", help = "Perform the release without moving the pointer.")]
     pub no_move: bool,
@@ -105,7 +122,11 @@ pub struct PointerReleaseArgs {
 pub struct PointerScrollArgs {
     #[arg(value_parser = parse_scroll_delta_arg, allow_hyphen_values = true, help = "Scroll delta as 'x,y'.")]
     pub delta: ScrollDelta,
-    #[arg(long = "expr", value_name = "XPATH", help = "Optional XPath selecting a node to move to before scrolling (unless --no-move).")]
+    #[arg(
+        long = "expr",
+        value_name = "XPATH",
+        help = "Optional XPath selecting a node to move to before scrolling (unless --no-move)."
+    )]
     pub expr: Option<String>,
     #[arg(long = "no-move", help = "Perform the scroll without moving the pointer.")]
     pub no_move: bool,
@@ -214,7 +235,7 @@ fn run_move(runtime: &Runtime, args: &PointerMoveArgs) -> CliResult<String> {
         (Some(expr), _) => {
             let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
             (point, Some(format_element_info(&node)))
-        },
+        }
         (None, Some(p)) => (*p, None),
         (None, None) => anyhow::bail!("either --expr or a point must be provided"),
     };
@@ -230,7 +251,9 @@ fn run_click(runtime: &Runtime, args: &PointerClickArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
     let element_info = if args.no_move {
         // Do not move: perform press+release at current location
-        runtime.pointer_press(None, Some(args.button), overrides.clone()).map_err(map_pointer_error)?;
+        runtime
+            .pointer_press(None, Some(args.button), overrides.clone())
+            .map_err(map_pointer_error)?;
         runtime.pointer_release(Some(args.button), overrides).map_err(map_pointer_error)?;
         None
     } else {
@@ -238,7 +261,7 @@ fn run_click(runtime: &Runtime, args: &PointerClickArgs) -> CliResult<String> {
             (Some(expr), _) => {
                 let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
                 (point, Some(format_element_info(&node)))
-            },
+            }
             (None, Some(p)) => (*p, None),
             (None, None) => anyhow::bail!("either --expr or a point must be provided"),
         };
@@ -256,8 +279,12 @@ fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs) -> CliResult
     let overrides = build_overrides(runtime, &args.overrides)?;
     let element_info = if args.no_move {
         for _ in 0..args.count {
-            runtime.pointer_press(None, Some(args.button), overrides.clone()).map_err(map_pointer_error)?;
-            runtime.pointer_release(Some(args.button), overrides.clone()).map_err(map_pointer_error)?;
+            runtime
+                .pointer_press(None, Some(args.button), overrides.clone())
+                .map_err(map_pointer_error)?;
+            runtime
+                .pointer_release(Some(args.button), overrides.clone())
+                .map_err(map_pointer_error)?;
         }
         None
     } else {
@@ -265,7 +292,7 @@ fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs) -> CliResult
             (Some(expr), _) => {
                 let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
                 (point, Some(format_element_info(&node)))
-            },
+            }
             (None, Some(p)) => (*p, None),
             (None, None) => anyhow::bail!("either --expr or a point must be provided"),
         };
@@ -304,7 +331,8 @@ fn run_release(runtime: &Runtime, args: &PointerReleaseArgs) -> CliResult<String
     let element_info = if !args.no_move {
         if let Some(expr) = &args.expression {
             let (target, node) = resolve_point_and_node_from_expr(runtime, expr)?;
-            let _ = runtime.pointer_move_to(target, overrides.clone()).map_err(map_pointer_error)?;
+            let _ =
+                runtime.pointer_move_to(target, overrides.clone()).map_err(map_pointer_error)?;
             Some(format_element_info(&node))
         } else {
             None
@@ -325,7 +353,8 @@ fn run_scroll(runtime: &Runtime, args: &PointerScrollArgs) -> CliResult<String> 
     let element_info = if !args.no_move {
         if let Some(expr) = &args.expr {
             let (target, node) = resolve_point_and_node_from_expr(runtime, expr)?;
-            let _ = runtime.pointer_move_to(target, overrides.clone()).map_err(map_pointer_error)?;
+            let _ =
+                runtime.pointer_move_to(target, overrides.clone()).map_err(map_pointer_error)?;
             Some(format_element_info(&node))
         } else {
             None
@@ -363,8 +392,15 @@ fn run_drag(runtime: &Runtime, args: &PointerDragArgs) -> CliResult<String> {
 
     match (from_info, to_info) {
         (Some(from), Some(to)) => Ok(format!("Dragged from element: {} to element: {}", from, to)),
-        (Some(from), None) => Ok(format!("Dragged from element: {} to point ({:.1}, {:.1})", from, end.x(), end.y())),
-        (None, Some(to)) => Ok(format!("Dragged from point ({:.1}, {:.1}) to element: {}", start.x(), start.y(), to)),
+        (Some(from), None) => {
+            Ok(format!("Dragged from element: {} to point ({:.1}, {:.1})", from, end.x(), end.y()))
+        }
+        (None, Some(to)) => Ok(format!(
+            "Dragged from point ({:.1}, {:.1}) to element: {}",
+            start.x(),
+            start.y(),
+            to
+        )),
         (None, None) => Ok(String::new()),
     }
 }
@@ -440,10 +476,9 @@ fn build_overrides(runtime: &Runtime, args: &OverrideArgs) -> CliResult<Option<P
             overrides.origin = Some(PointOrigin::Bounds(rect));
         }
         OriginKind::Absolute => {
-            let anchor_s = args
-                .anchor
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("--anchor must be provided when --origin absolute"))?;
+            let anchor_s = args.anchor.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("--anchor must be provided when --origin absolute")
+            })?;
             let anchor = parse_point_arg(anchor_s).map_err(|e| anyhow::anyhow!(e))?;
             overrides.origin = Some(PointOrigin::Absolute(anchor));
         }
@@ -509,11 +544,15 @@ fn parse_pointer_button_arg(value: &str) -> Result<PointerButton, String> {
 fn parse_click_count(value: &str) -> Result<u32, String> {
     let count: u32 =
         value.parse().map_err(|err| format!("invalid click count '{value}': {err}"))?;
-    if count < 2 { return Err("--count must be at least 2".to_owned()); }
+    if count < 2 {
+        return Err("--count must be at least 2".to_owned());
+    }
     Ok(count)
 }
 
-fn map_pointer_error(err: PointerError) -> anyhow::Error { anyhow::Error::new(err) }
+fn map_pointer_error(err: PointerError) -> anyhow::Error {
+    anyhow::Error::new(err)
+}
 
 fn format_element_info(node: &Arc<dyn UiNode>) -> String {
     let role = node.role();
@@ -521,12 +560,12 @@ fn format_element_info(node: &Arc<dyn UiNode>) -> String {
     let runtime_id = node.runtime_id().as_str();
 
     // Try to get additional info from attributes if available
-    let technology = node
-        .attribute(Namespace::Control, common::TECHNOLOGY)
-        .and_then(|attr| match attr.value() {
+    let technology = node.attribute(Namespace::Control, common::TECHNOLOGY).and_then(|attr| {
+        match attr.value() {
             UiValue::String(s) => Some(s),
             _ => None,
-        });
+        }
+    });
 
     let mut info = format!("{}[\"{}\"]", role, name);
     if let Some(tech) = technology {
@@ -536,7 +575,10 @@ fn format_element_info(node: &Arc<dyn UiNode>) -> String {
     info
 }
 
-fn resolve_point_and_node_from_expr(runtime: &Runtime, expr: &str) -> CliResult<(Point, Arc<dyn UiNode>)> {
+fn resolve_point_and_node_from_expr(
+    runtime: &Runtime,
+    expr: &str,
+) -> CliResult<(Point, Arc<dyn UiNode>)> {
     let item = runtime
         .evaluate_single(None, expr)
         .map_err(map_evaluate_error)?
@@ -545,18 +587,23 @@ fn resolve_point_and_node_from_expr(runtime: &Runtime, expr: &str) -> CliResult<
         EvaluationItem::Node(node) => node,
         _ => anyhow::bail!("expression `{expr}` must select a node"),
     };
-    let point = activation_point_or_bounds_center(&node)
-        .ok_or_else(|| anyhow::anyhow!("expression `{expr}` did not yield a usable ActivationPoint/Bounds"))?;
+    let point = activation_point_or_bounds_center(&node).ok_or_else(|| {
+        anyhow::anyhow!("expression `{expr}` did not yield a usable ActivationPoint/Bounds")
+    })?;
     Ok((point, node))
 }
 
 fn activation_point_or_bounds_center(node: &Arc<dyn UiNode>) -> Option<Point> {
     if let Some(attr) = node.attribute(Namespace::Control, activation_target::ACTIVATION_POINT)
-        && let UiValue::Point(p) = attr.value() { return Some(p); }
+        && let UiValue::Point(p) = attr.value()
+    {
+        return Some(p);
+    }
     if let Some(attr) = node.attribute(Namespace::Control, element::BOUNDS)
-        && let UiValue::Rect(r) = attr.value() {
-            return Some(Point::new(r.x() + r.width() / 2.0, r.y() + r.height() / 2.0));
-        }
+        && let UiValue::Rect(r) = attr.value()
+    {
+        return Some(Point::new(r.x() + r.width() / 2.0, r.y() + r.height() / 2.0));
+    }
     None
 }
 
@@ -569,20 +616,22 @@ mod tests {
     use rstest::rstest;
     use serial_test::serial;
 
-
     #[rstest]
     #[serial]
     fn move_command_moves_pointer() {
         reset_pointer_state();
         let runtime = runtime();
-        let args = PointerMoveArgs { expression: None, point: Some(Point::new(100.0, 150.0)), overrides: OverrideArgs::default() };
+        let args = PointerMoveArgs {
+            expression: None,
+            point: Some(Point::new(100.0, 150.0)),
+            overrides: OverrideArgs::default(),
+        };
         let output = super::run_move(&runtime, &args).expect("move");
         assert!(output.is_empty());
         let log = take_pointer_log();
-        assert!(
-            log.iter()
-                .any(|entry| matches!(entry, PointerLogEntry::Move(point) if *point == args.point.unwrap()))
-        );
+        assert!(log.iter().any(
+            |entry| matches!(entry, PointerLogEntry::Move(point) if *point == args.point.unwrap())
+        ));
     }
 
     #[rstest]
@@ -590,7 +639,11 @@ mod tests {
     fn move_command_supports_negative_coordinates() {
         reset_pointer_state();
         let runtime = runtime();
-        let args = PointerMoveArgs { expression: None, point: Some(Point::new(-2560.0, 0.0)), overrides: OverrideArgs::default() };
+        let args = PointerMoveArgs {
+            expression: None,
+            point: Some(Point::new(-2560.0, 0.0)),
+            overrides: OverrideArgs::default(),
+        };
         let output = super::run_move(&runtime, &args).expect("move negative");
         assert!(output.is_empty());
     }
@@ -600,7 +653,13 @@ mod tests {
     fn click_command_clicks_button() {
         reset_pointer_state();
         let runtime = runtime();
-        let args = PointerClickArgs { expression: None, point: Some(Point::new(50.0, 60.0)), button: PointerButton::Left, no_move: false, overrides: OverrideArgs::default() };
+        let args = PointerClickArgs {
+            expression: None,
+            point: Some(Point::new(50.0, 60.0)),
+            button: PointerButton::Left,
+            no_move: false,
+            overrides: OverrideArgs::default(),
+        };
         let output = super::run_click(&runtime, &args).expect("click");
         assert!(output.is_empty());
         let log = take_pointer_log();
@@ -617,7 +676,14 @@ mod tests {
     fn multi_click_command_clicks_multiple_times() {
         reset_pointer_state();
         let runtime = runtime();
-        let args = PointerMultiClickArgs { expression: None, point: Some(Point::new(30.0, 40.0)), button: PointerButton::Left, count: 3, no_move: false, overrides: OverrideArgs::default() };
+        let args = PointerMultiClickArgs {
+            expression: None,
+            point: Some(Point::new(30.0, 40.0)),
+            button: PointerButton::Left,
+            count: 3,
+            no_move: false,
+            overrides: OverrideArgs::default(),
+        };
         let output = super::run_multi_click(&runtime, &args).expect("multi-click");
         assert!(output.is_empty());
         let log = take_pointer_log();

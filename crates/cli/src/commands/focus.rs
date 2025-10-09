@@ -12,9 +12,7 @@ pub struct FocusArgs {
 }
 
 pub fn run(runtime: &Runtime, args: &FocusArgs) -> CliResult<String> {
-    let item = runtime
-        .evaluate_single(None, &args.expression)
-        .map_err(map_evaluate_error)?;
+    let item = runtime.evaluate_single(None, &args.expression).map_err(map_evaluate_error)?;
     let Some(EvaluationItem::Node(node)) = item else {
         anyhow::bail!("expression `{}` did not match any nodes", args.expression);
     };
@@ -76,7 +74,6 @@ mod tests {
     use rstest::rstest;
     use serial_test::serial;
 
-
     #[rstest]
     #[serial]
     fn focus_command_sets_focus(runtime: Runtime) {
@@ -102,7 +99,6 @@ mod tests {
         let attr =
             focused.attribute(Namespace::Control, focusable::IS_FOCUSED).expect("focus attribute");
         assert_eq!(attr.value(), UiValue::from(true));
-
     }
 
     #[rstest]
@@ -114,8 +110,6 @@ mod tests {
         assert!(output.contains("Skipped (missing Focusable pattern)"));
         assert!(output.contains("mock://panel/workspace"));
         assert!(output.contains("Focused 0 node"));
-
-        
     }
 
     #[rstest]
@@ -125,7 +119,5 @@ mod tests {
 
         let err = run(&runtime, &args).expect_err("no node should error");
         assert!(err.to_string().contains("did not match any nodes"));
-
-        
     }
 }

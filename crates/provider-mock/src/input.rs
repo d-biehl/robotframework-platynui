@@ -3,8 +3,8 @@ use platynui_core::ui::attribute_names::text_content;
 use platynui_core::ui::{Namespace, RuntimeId, UiAttribute, UiValue};
 use std::collections::HashMap;
 // no additional std imports required
-use thiserror::Error;
 use std::sync::{Arc, LazyLock, RwLock};
+use thiserror::Error;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyboardInputEvent {

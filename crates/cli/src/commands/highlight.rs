@@ -154,7 +154,6 @@ mod tests {
 
     static TEST_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-
     #[rstest]
     fn highlight_records_requests(runtime: Runtime) {
         let _lock = TEST_GUARD.lock().unwrap();
@@ -200,7 +199,6 @@ mod tests {
         )
         .expect_err("missing expression or rect should error");
         assert!(err.to_string().contains("requires"));
-
     }
 
     #[rstest]

@@ -4,8 +4,6 @@ use super::common::{
 use crate::engine::runtime::{CallCtx, Error};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequenceStream};
 
-
-
 pub(super) fn compare_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
@@ -48,8 +46,6 @@ pub(super) fn codepoint_equal_stream<N: 'static + crate::model::XdmNode + Clone>
     let result = vec![XdmItem::Atomic(XdmAtomicValue::Boolean(eq))];
     Ok(XdmSequenceStream::from_vec(result))
 }
-
-
 
 pub(super) fn deep_equal_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,

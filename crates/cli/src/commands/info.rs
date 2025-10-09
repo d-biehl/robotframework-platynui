@@ -129,7 +129,6 @@ mod tests {
     use platynui_runtime::Runtime;
     use rstest::rstest;
 
-
     #[rstest]
     fn desktop_summary_uses_mock_desktop(runtime: Runtime) {
         let summary = DesktopSummary::from_info(runtime.desktop_info());

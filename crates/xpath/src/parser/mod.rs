@@ -518,9 +518,7 @@ fn build_multiplicative_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 fn build_union_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // intersect_except_expr (union_op intersect_except_expr)*
     let mut it = pair.into_inner();
-    let first = it
-        .next()
-        .ok_or_else(|| ParseAstError::new("union_expr missing lhs"))?;
+    let first = it.next().ok_or_else(|| ParseAstError::new("union_expr missing lhs"))?;
     let mut exprs: SmallVec<[ast::Expr; 2]> = SmallVec::new();
     exprs.push(build_intersect_except_like(first)?);
     let mut ops: SmallVec<[ast::SetOp; 2]> = SmallVec::new();
@@ -529,9 +527,7 @@ fn build_union_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
             // Some pest versions flatten the alternation, yielding OP_PIPE directly instead of union_op
             Rule::union_op | Rule::K_UNION | Rule::OP_PIPE => {
                 ops.push(ast::SetOp::Union);
-                let rhs = it
-                    .next()
-                    .ok_or_else(|| ParseAstError::new("union_expr missing rhs"))?;
+                let rhs = it.next().ok_or_else(|| ParseAstError::new("union_expr missing rhs"))?;
                 exprs.push(build_intersect_except_like(rhs)?);
             }
             Rule::intersect_except_expr => {
@@ -547,9 +543,7 @@ fn build_union_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
 fn build_intersect_except_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     // instanceof_expr (intersect_except_op instanceof_expr)*
     let mut it = pair.into_inner();
-    let first = it
-        .next()
-        .ok_or_else(|| ParseAstError::new("intersect_except_expr missing lhs"))?;
+    let first = it.next().ok_or_else(|| ParseAstError::new("intersect_except_expr missing lhs"))?;
     let mut exprs: SmallVec<[ast::Expr; 2]> = SmallVec::new();
     exprs.push(build_instanceof_like(first)?);
     let mut ops: SmallVec<[ast::SetOp; 2]> = SmallVec::new();
@@ -573,16 +567,12 @@ fn build_intersect_except_like(pair: Pair<Rule>) -> AstResult<ast::Expr> {
             }
             Rule::K_INTERSECT => {
                 ops.push(ast::SetOp::Intersect);
-                let rhs = it
-                    .next()
-                    .ok_or_else(|| ParseAstError::new("intersect missing rhs"))?;
+                let rhs = it.next().ok_or_else(|| ParseAstError::new("intersect missing rhs"))?;
                 exprs.push(build_instanceof_like(rhs)?);
             }
             Rule::K_EXCEPT => {
                 ops.push(ast::SetOp::Except);
-                let rhs = it
-                    .next()
-                    .ok_or_else(|| ParseAstError::new("except missing rhs"))?;
+                let rhs = it.next().ok_or_else(|| ParseAstError::new("except missing rhs"))?;
                 exprs.push(build_instanceof_like(rhs)?);
             }
             Rule::instanceof_expr => {

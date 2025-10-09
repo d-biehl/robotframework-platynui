@@ -5,8 +5,8 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 // std::error::Error is provided by the thiserror derive for PatternError
 use std::fmt::{Display, Formatter};
-use thiserror::Error as ThisError;
 use std::sync::{Arc, Mutex, OnceLock};
+use thiserror::Error as ThisError;
 
 use super::identifiers::PatternId;
 

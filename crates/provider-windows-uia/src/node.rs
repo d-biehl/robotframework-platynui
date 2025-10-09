@@ -10,16 +10,13 @@ use std::sync::{Arc, Mutex, Weak};
 use platynui_core::types::{Point as UiPoint, Rect};
 use platynui_core::ui::pattern::{FocusableAction, PatternError, UiPattern, WindowSurfaceActions};
 use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
+use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, WAIT_TIMEOUT};
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, WaitForInputIdle};
 use windows::Win32::UI::Accessibility::{
-    IUIAutomationTransformPattern,
-    IUIAutomationWindowPattern,
-    IUIAutomationVirtualizedItemPattern,
-    WindowVisualState_Maximized,
-    WindowVisualState_Minimized,
+    IUIAutomationTransformPattern, IUIAutomationVirtualizedItemPattern, IUIAutomationWindowPattern,
+    WindowVisualState_Maximized, WindowVisualState_Minimized,
 };
 use windows::core::Interface;
-use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, WAIT_TIMEOUT};
-use windows::Win32::System::Threading::{OpenProcess, WaitForInputIdle, PROCESS_QUERY_INFORMATION};
 
 /// Thread-safe checker for WaitForInputIdle using process ID
 #[derive(Clone)]
@@ -38,19 +35,20 @@ impl WaitForInputIdleChecker {
         }
 
         // Open process handle with query rights
-        let process_handle = match unsafe {
-            OpenProcess(PROCESS_QUERY_INFORMATION, false, self.pid as u32)
-        } {
-            Ok(handle) => handle,
-            Err(_) => {
-                // Process might not be accessible or doesn't exist anymore
-                return Ok(Some(false));
-            }
-        };
+        let process_handle =
+            match unsafe { OpenProcess(PROCESS_QUERY_INFORMATION, false, self.pid as u32) } {
+                Ok(handle) => handle,
+                Err(_) => {
+                    // Process might not be accessible or doesn't exist anymore
+                    return Ok(Some(false));
+                }
+            };
 
         // Call WaitForInputIdle with a short timeout (100ms)
         let result = unsafe { WaitForInputIdle(process_handle, 100) };
-        unsafe { let _ = CloseHandle(process_handle); };
+        unsafe {
+            let _ = CloseHandle(process_handle);
+        };
 
         if result == WAIT_OBJECT_0.0 {
             Ok(Some(true))
@@ -105,11 +103,9 @@ impl UiaNode {
     fn try_realize(&self) {
         let unk = unsafe {
             self.elem
-                .GetCurrentPattern(
-                    windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                        windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
-                    ),
-                )
+                .GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                    windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
+                ))
                 .ok()
         };
         if let Some(unk) = unk {
@@ -157,7 +153,9 @@ impl UiNode for UiaNode {
         // Ensure a virtualized item is realized before enumerating its children.
         self.try_realize();
         match self.as_ui_node() {
-            Some(parent_arc) => Box::new(ElementChildrenIter::new(self.elem.clone(), Some(parent_arc))),
+            Some(parent_arc) => {
+                Box::new(ElementChildrenIter::new(self.elem.clone(), Some(parent_arc)))
+            }
             None => Box::new(std::iter::empty::<Arc<dyn UiNode>>()),
         }
     }
@@ -193,18 +191,16 @@ impl UiNode for UiaNode {
             unsafe impl Sync for ElemSend {}
             impl ElemSend {
                 unsafe fn set_focus(&self) -> Result<(), crate::error::UiaError> {
-                    crate::error::uia_api(
-                        "IUIAutomationElement::SetFocus",
-                        unsafe { self.elem.SetFocus() },
-                    )
+                    crate::error::uia_api("IUIAutomationElement::SetFocus", unsafe {
+                        self.elem.SetFocus()
+                    })
                 }
             }
             let es = ElemSend { elem: self.elem.clone() };
             let action = FocusableAction::new(move || unsafe {
                 // If the element is virtualized, try to realize before focusing.
-                if let Ok(unk) = es
-                    .elem
-                    .GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                if let Ok(unk) =
+                    es.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
                         windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
                     ))
                 {
@@ -224,10 +220,15 @@ impl UiNode for UiaNode {
             unsafe impl Send for ElemSend {}
             unsafe impl Sync for ElemSend {}
             impl ElemSend {
-                unsafe fn window_set_state(&self, state: WindowVisualState) -> Result<(), crate::error::UiaError> {
+                unsafe fn window_set_state(
+                    &self,
+                    state: WindowVisualState,
+                ) -> Result<(), crate::error::UiaError> {
                     let unk = crate::error::uia_api(
                         "IUIAutomationElement::GetCurrentPattern(Window)",
-                        unsafe { self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)) },
+                        unsafe {
+                            self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
+                        },
                     )?;
                     let pat: IUIAutomationWindowPattern =
                         crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
@@ -239,29 +240,49 @@ impl UiNode for UiaNode {
                 unsafe fn window_close(&self) -> Result<(), crate::error::UiaError> {
                     let unk = crate::error::uia_api(
                         "IUIAutomationElement::GetCurrentPattern(Window)",
-                        unsafe { self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)) },
+                        unsafe {
+                            self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
+                        },
                     )?;
                     let pat: IUIAutomationWindowPattern =
                         crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
-                    crate::error::uia_api("IUIAutomationWindowPattern::Close", unsafe { pat.Close() })
+                    crate::error::uia_api("IUIAutomationWindowPattern::Close", unsafe {
+                        pat.Close()
+                    })
                 }
-                unsafe fn transform_move(&self, x: f64, y: f64) -> Result<(), crate::error::UiaError> {
+                unsafe fn transform_move(
+                    &self,
+                    x: f64,
+                    y: f64,
+                ) -> Result<(), crate::error::UiaError> {
                     let unk = crate::error::uia_api(
                         "IUIAutomationElement::GetCurrentPattern(Transform)",
-                        unsafe { self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)) },
+                        unsafe {
+                            self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
+                        },
                     )?;
                     let pat: IUIAutomationTransformPattern =
                         crate::error::uia_api("IUnknown::cast(TransformPattern)", unk.cast())?;
-                    crate::error::uia_api("IUIAutomationTransformPattern::Move", unsafe { pat.Move(x, y) })
+                    crate::error::uia_api("IUIAutomationTransformPattern::Move", unsafe {
+                        pat.Move(x, y)
+                    })
                 }
-                unsafe fn transform_resize(&self, w: f64, h: f64) -> Result<(), crate::error::UiaError> {
+                unsafe fn transform_resize(
+                    &self,
+                    w: f64,
+                    h: f64,
+                ) -> Result<(), crate::error::UiaError> {
                     let unk = crate::error::uia_api(
                         "IUIAutomationElement::GetCurrentPattern(Transform)",
-                        unsafe { self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)) },
+                        unsafe {
+                            self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
+                        },
                     )?;
                     let pat: IUIAutomationTransformPattern =
                         crate::error::uia_api("IUnknown::cast(TransformPattern)", unk.cast())?;
-                    crate::error::uia_api("IUIAutomationTransformPattern::Resize", unsafe { pat.Resize(w, h) })
+                    crate::error::uia_api("IUIAutomationTransformPattern::Resize", unsafe {
+                        pat.Resize(w, h)
+                    })
                 }
             }
             let e1 = ElemSend { elem: self.elem.clone() };
@@ -365,18 +386,20 @@ impl Iterator for ElementChildrenIter {
         let elem = self.current.as_ref()?.clone();
         // Best-effort: if the child is virtualized, realize it before wrapping.
         unsafe {
-            if let Ok(unk) = elem.GetCurrentPattern(
-                windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+            if let Ok(unk) =
+                elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
                     windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
-                ),
-            ) {
+                ))
+            {
                 if let Ok(vpat) = unk.cast::<IUIAutomationVirtualizedItemPattern>() {
                     let _ = vpat.Realize();
                 }
             }
         }
         let node = UiaNode::from_elem(elem);
-        if let Some(ref parent) = self.parent { node.set_parent(parent); }
+        if let Some(ref parent) = self.parent {
+            node.set_parent(parent);
+        }
         UiaNode::init_self(&node);
         Some(node as Arc<dyn UiNode>)
     }
@@ -535,8 +558,12 @@ struct AcceptsUserInputAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
 }
 impl UiAttribute for AcceptsUserInputAttr {
-    fn namespace(&self) -> Namespace { Namespace::Control }
-    fn name(&self) -> &str { "AcceptsUserInput" }
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        "AcceptsUserInput"
+    }
     fn value(&self) -> UiValue {
         // Get process ID for WaitForInputIdle checking
         let pid = crate::map::get_process_id(&self.elem).unwrap_or(-1);
@@ -570,12 +597,9 @@ impl AttrsIter {
     fn new(elem: windows::Win32::UI::Accessibility::IUIAutomationElement) -> Self {
         use windows::Win32::UI::Accessibility::*;
         let has_window_surface = unsafe {
-            let has_window = elem
-                .GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
-                .is_ok();
-            let has_transform = elem
-                .GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0))
-                .is_ok();
+            let has_window = elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)).is_ok();
+            let has_transform =
+                elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)).is_ok();
             has_window || has_transform
         };
         Self { idx: 0, elem, has_window_surface, native_cache: None, native_pos: 0 }
@@ -591,21 +615,26 @@ impl Iterator for AttrsIter {
                 1 => Some(Arc::new(NameAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 2 => Some(Arc::new(RuntimeIdAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 3 => Some(Arc::new(BoundsAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                4 => Some(Arc::new(ActivationPointAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                4 => {
+                    Some(Arc::new(ActivationPointAttr { elem: elem.clone() })
+                        as Arc<dyn UiAttribute>)
+                }
                 5 => Some(Arc::new(IsEnabledAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 6 => Some(Arc::new(IsOffscreenAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 7 => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 8 => Some(Arc::new(IsFocusedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 9 => {
                     if self.has_window_surface {
-                        Some(Arc::new(IsMinimizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                        Some(Arc::new(IsMinimizedAttr { elem: elem.clone() })
+                            as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
                 10 => {
                     if self.has_window_surface {
-                        Some(Arc::new(IsMaximizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                        Some(Arc::new(IsMaximizedAttr { elem: elem.clone() })
+                            as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
@@ -619,21 +648,24 @@ impl Iterator for AttrsIter {
                 }
                 12 => {
                     if self.has_window_surface {
-                        Some(Arc::new(SupportsMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                        Some(Arc::new(SupportsMoveAttr { elem: elem.clone() })
+                            as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
                 13 => {
                     if self.has_window_surface {
-                        Some(Arc::new(SupportsResizeAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                        Some(Arc::new(SupportsResizeAttr { elem: elem.clone() })
+                            as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
                 14 => {
                     if self.has_window_surface {
-                        Some(Arc::new(AcceptsUserInputAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                        Some(Arc::new(AcceptsUserInputAttr { elem: elem.clone() })
+                            as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
@@ -644,7 +676,9 @@ impl Iterator for AttrsIter {
                         let pairs = crate::map::collect_native_properties(&elem);
                         let attrs: Vec<Arc<dyn UiAttribute>> = pairs
                             .into_iter()
-                            .map(|(name, value)| Arc::new(NativePropAttr { name, value }) as Arc<dyn UiAttribute>)
+                            .map(|(name, value)| {
+                                Arc::new(NativePropAttr { name, value }) as Arc<dyn UiAttribute>
+                            })
                             .collect();
                         self.native_cache = Some(attrs);
                         self.native_pos = 0;
@@ -679,7 +713,13 @@ impl Iterator for AttrsIter {
                         // No native props at all
                         return None;
                     }
-                    if self.idx > 15 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false) {
+                    if self.idx > 15
+                        && self
+                            .native_cache
+                            .as_ref()
+                            .map(|v| self.native_pos >= v.len())
+                            .unwrap_or(false)
+                    {
                         return None;
                     }
                     continue;
@@ -694,14 +734,18 @@ struct IsFocusedAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
 }
 impl UiAttribute for IsFocusedAttr {
-    fn namespace(&self) -> Namespace { Namespace::Control }
-    fn name(&self) -> &str { "IsFocused" }
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        "IsFocused"
+    }
     fn value(&self) -> UiValue {
         let result = (|| -> Result<bool, crate::error::UiaError> {
-            let v = crate::error::uia_api(
-                "IUIAutomationElement::CurrentHasKeyboardFocus",
-                unsafe { self.elem.CurrentHasKeyboardFocus() },
-            )?;
+            let v =
+                crate::error::uia_api("IUIAutomationElement::CurrentHasKeyboardFocus", unsafe {
+                    self.elem.CurrentHasKeyboardFocus()
+                })?;
             Ok(v.as_bool())
         })();
         UiValue::from(result.unwrap_or(false))
@@ -710,34 +754,65 @@ impl UiAttribute for IsFocusedAttr {
 unsafe impl Send for IsFocusedAttr {}
 unsafe impl Sync for IsFocusedAttr {}
 
-struct NativePropAttr { name: String, value: UiValue }
+struct NativePropAttr {
+    name: String,
+    value: UiValue,
+}
 impl UiAttribute for NativePropAttr {
-    fn namespace(&self) -> Namespace { Namespace::Native }
-    fn name(&self) -> &str { &self.name }
-    fn value(&self) -> UiValue { self.value.clone() }
+    fn namespace(&self) -> Namespace {
+        Namespace::Native
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn value(&self) -> UiValue {
+        self.value.clone()
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Application attribute types and iterator (module-level, lazy values)
 
-struct AppRuntimeIdAttr { rid: String }
+struct AppRuntimeIdAttr {
+    rid: String,
+}
 impl UiAttribute for AppRuntimeIdAttr {
-    fn namespace(&self) -> Namespace { Namespace::App }
-    fn name(&self) -> &str { platynui_core::ui::attribute_names::common::RUNTIME_ID }
-    fn value(&self) -> UiValue { UiValue::from(self.rid.clone()) }
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+    fn name(&self) -> &str {
+        platynui_core::ui::attribute_names::common::RUNTIME_ID
+    }
+    fn value(&self) -> UiValue {
+        UiValue::from(self.rid.clone())
+    }
 }
 
-struct AppProcessIdAttr { pid: i32 }
+struct AppProcessIdAttr {
+    pid: i32,
+}
 impl UiAttribute for AppProcessIdAttr {
-    fn namespace(&self) -> Namespace { Namespace::App }
-    fn name(&self) -> &str { platynui_core::ui::attribute_names::application::PROCESS_ID }
-    fn value(&self) -> UiValue { UiValue::from(self.pid as i64) }
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+    fn name(&self) -> &str {
+        platynui_core::ui::attribute_names::application::PROCESS_ID
+    }
+    fn value(&self) -> UiValue {
+        UiValue::from(self.pid as i64)
+    }
 }
 
-struct AppNameAttr { pid: i32 }
+struct AppNameAttr {
+    pid: i32,
+}
 impl UiAttribute for AppNameAttr {
-    fn namespace(&self) -> Namespace { Namespace::App }
-    fn name(&self) -> &str { platynui_core::ui::attribute_names::application::NAME }
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+    fn name(&self) -> &str {
+        platynui_core::ui::attribute_names::application::NAME
+    }
     fn value(&self) -> UiValue {
         if let Some(handle) = crate::map::open_process_query(self.pid) {
             if let Some(path) = crate::map::query_executable_path(handle) {
@@ -753,78 +828,128 @@ impl UiAttribute for AppNameAttr {
     }
 }
 
-struct AppExecutablePathAttr { pid: i32 }
+struct AppExecutablePathAttr {
+    pid: i32,
+}
 impl UiAttribute for AppExecutablePathAttr {
-    fn namespace(&self) -> Namespace { Namespace::App }
-    fn name(&self) -> &str { platynui_core::ui::attribute_names::application::EXECUTABLE_PATH }
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+    fn name(&self) -> &str {
+        platynui_core::ui::attribute_names::application::EXECUTABLE_PATH
+    }
     fn value(&self) -> UiValue {
         if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_executable_path(h).map(UiValue::from).unwrap_or(UiValue::from(""));
-            unsafe { let _ = CloseHandle(h); }
+            let out = crate::map::query_executable_path(h)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::from(""));
+            unsafe {
+                let _ = CloseHandle(h);
+            }
             return out;
         }
         UiValue::from("")
     }
 }
 
-struct AppCommandLineAttr { pid: i32 }
+struct AppCommandLineAttr {
+    pid: i32,
+}
 impl UiAttribute for AppCommandLineAttr {
-    fn namespace(&self) -> Namespace { Namespace::App }
-    fn name(&self) -> &str { platynui_core::ui::attribute_names::application::COMMAND_LINE }
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+    fn name(&self) -> &str {
+        platynui_core::ui::attribute_names::application::COMMAND_LINE
+    }
     fn value(&self) -> UiValue {
         if let Some(h) = crate::map::open_process_query(self.pid) {
             let out = crate::map::query_process_command_line(h)
                 .map(UiValue::from)
                 .unwrap_or(UiValue::Null);
-            unsafe { let _ = CloseHandle(h); }
+            unsafe {
+                let _ = CloseHandle(h);
+            }
             return out;
         }
         UiValue::Null
     }
 }
 
-struct AppUserNameAttr { pid: i32 }
+struct AppUserNameAttr {
+    pid: i32,
+}
 impl UiAttribute for AppUserNameAttr {
-    fn namespace(&self) -> Namespace { Namespace::App }
-    fn name(&self) -> &str { platynui_core::ui::attribute_names::application::USER_NAME }
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+    fn name(&self) -> &str {
+        platynui_core::ui::attribute_names::application::USER_NAME
+    }
     fn value(&self) -> UiValue {
         if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_process_username(h).map(UiValue::from).unwrap_or(UiValue::from(""));
-            unsafe { let _ = CloseHandle(h); }
+            let out = crate::map::query_process_username(h)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::from(""));
+            unsafe {
+                let _ = CloseHandle(h);
+            }
             return out;
         }
         UiValue::from("")
     }
 }
 
-struct AppStartTimeAttr { pid: i32 }
+struct AppStartTimeAttr {
+    pid: i32,
+}
 impl UiAttribute for AppStartTimeAttr {
-    fn namespace(&self) -> Namespace { Namespace::App }
-    fn name(&self) -> &str { platynui_core::ui::attribute_names::application::START_TIME }
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+    fn name(&self) -> &str {
+        platynui_core::ui::attribute_names::application::START_TIME
+    }
     fn value(&self) -> UiValue {
         if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_process_start_time_iso8601(h).map(UiValue::from).unwrap_or(UiValue::from(""));
-            unsafe { let _ = CloseHandle(h); }
+            let out = crate::map::query_process_start_time_iso8601(h)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::from(""));
+            unsafe {
+                let _ = CloseHandle(h);
+            }
             return out;
         }
         UiValue::from("")
     }
 }
 
-struct AppArchitectureAttr { pid: i32 }
+struct AppArchitectureAttr {
+    pid: i32,
+}
 impl UiAttribute for AppArchitectureAttr {
-    fn namespace(&self) -> Namespace { Namespace::App }
-    fn name(&self) -> &str { platynui_core::ui::attribute_names::application::ARCHITECTURE }
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+    fn name(&self) -> &str {
+        platynui_core::ui::attribute_names::application::ARCHITECTURE
+    }
     fn value(&self) -> UiValue {
         if let Some(h) = crate::map::open_process_query(self.pid) {
             if let Some(path) = crate::map::query_executable_path(h) {
                 if let Some(a) = crate::map::process_architecture_from_path(&path) {
-                    unsafe { let _ = CloseHandle(h); }
+                    unsafe {
+                        let _ = CloseHandle(h);
+                    }
                     return UiValue::from(a);
                 }
             }
-            let out = crate::map::process_architecture(h).map(UiValue::from).unwrap_or(UiValue::from("unknown"));
-            unsafe { let _ = CloseHandle(h); }
+            let out = crate::map::process_architecture(h)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::from("unknown"));
+            unsafe {
+                let _ = CloseHandle(h);
+            }
             return out;
         }
         UiValue::from("unknown")
@@ -837,7 +962,9 @@ struct AppAttrsIter {
     idx: u8,
 }
 impl AppAttrsIter {
-    fn new(pid: i32, rid: &str) -> Self { Self { pid, rid: rid.to_owned(), idx: 0 } }
+    fn new(pid: i32, rid: &str) -> Self {
+        Self { pid, rid: rid.to_owned(), idx: 0 }
+    }
 }
 impl Iterator for AppAttrsIter {
     type Item = Arc<dyn UiAttribute>;
@@ -863,20 +990,21 @@ struct IsMinimizedAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
 }
 impl UiAttribute for IsMinimizedAttr {
-    fn namespace(&self) -> Namespace { Namespace::Control }
-    fn name(&self) -> &str { "IsMinimized" }
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        "IsMinimized"
+    }
     fn value(&self) -> UiValue {
         // Default false on errors/missing pattern
         let result = (|| -> Result<bool, crate::error::UiaError> {
-            let unk = crate::error::uia_api(
-                "IUIAutomationElement::GetCurrentPattern(Window)",
-                unsafe {
-                    self.elem
-                        .GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                            windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
-                        ))
-                },
-            )?;
+            let unk =
+                crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Window)", unsafe {
+                    self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                        windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
+                    ))
+                })?;
             let pat: IUIAutomationWindowPattern =
                 crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
             let state = crate::error::uia_api(
@@ -895,19 +1023,20 @@ struct IsMaximizedAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
 }
 impl UiAttribute for IsMaximizedAttr {
-    fn namespace(&self) -> Namespace { Namespace::Control }
-    fn name(&self) -> &str { "IsMaximized" }
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        "IsMaximized"
+    }
     fn value(&self) -> UiValue {
         let result = (|| -> Result<bool, crate::error::UiaError> {
-            let unk = crate::error::uia_api(
-                "IUIAutomationElement::GetCurrentPattern(Window)",
-                unsafe {
-                    self.elem
-                        .GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                            windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
-                        ))
-                },
-            )?;
+            let unk =
+                crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Window)", unsafe {
+                    self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                        windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
+                    ))
+                })?;
             let pat: IUIAutomationWindowPattern =
                 crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
             let state = crate::error::uia_api(
@@ -926,25 +1055,26 @@ struct IsTopmostAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
 }
 impl UiAttribute for IsTopmostAttr {
-    fn namespace(&self) -> Namespace { Namespace::Control }
-    fn name(&self) -> &str { "IsTopmost" }
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        "IsTopmost"
+    }
     fn value(&self) -> UiValue {
         let result = (|| -> Result<bool, crate::error::UiaError> {
-            let unk = crate::error::uia_api(
-                "IUIAutomationElement::GetCurrentPattern(Window)",
-                unsafe {
-                    self.elem
-                        .GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                            windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
-                        ))
-                },
-            )?;
+            let unk =
+                crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Window)", unsafe {
+                    self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                        windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
+                    ))
+                })?;
             let pat: IUIAutomationWindowPattern =
                 crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
-            let v = crate::error::uia_api(
-                "IUIAutomationWindowPattern::CurrentIsTopmost",
-                unsafe { pat.CurrentIsTopmost() },
-            )?;
+            let v =
+                crate::error::uia_api("IUIAutomationWindowPattern::CurrentIsTopmost", unsafe {
+                    pat.CurrentIsTopmost()
+                })?;
             Ok(v.as_bool())
         })();
         UiValue::from(result.unwrap_or(false))
@@ -957,25 +1087,28 @@ struct SupportsMoveAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
 }
 impl UiAttribute for SupportsMoveAttr {
-    fn namespace(&self) -> Namespace { Namespace::Control }
-    fn name(&self) -> &str { "SupportsMove" }
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        "SupportsMove"
+    }
     fn value(&self) -> UiValue {
         let result = (|| -> Result<bool, crate::error::UiaError> {
             let unk = crate::error::uia_api(
                 "IUIAutomationElement::GetCurrentPattern(Transform)",
                 unsafe {
-                    self.elem
-                        .GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                            windows::Win32::UI::Accessibility::UIA_TransformPatternId.0,
-                        ))
+                    self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                        windows::Win32::UI::Accessibility::UIA_TransformPatternId.0,
+                    ))
                 },
             )?;
             let pat: IUIAutomationTransformPattern =
                 crate::error::uia_api("IUnknown::cast(TransformPattern)", unk.cast())?;
-            let v = crate::error::uia_api(
-                "IUIAutomationTransformPattern::CurrentCanMove",
-                unsafe { pat.CurrentCanMove() },
-            )?;
+            let v =
+                crate::error::uia_api("IUIAutomationTransformPattern::CurrentCanMove", unsafe {
+                    pat.CurrentCanMove()
+                })?;
             Ok(v.as_bool())
         })();
         UiValue::from(result.unwrap_or(false))
@@ -988,25 +1121,28 @@ struct SupportsResizeAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
 }
 impl UiAttribute for SupportsResizeAttr {
-    fn namespace(&self) -> Namespace { Namespace::Control }
-    fn name(&self) -> &str { "SupportsResize" }
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        "SupportsResize"
+    }
     fn value(&self) -> UiValue {
         let result = (|| -> Result<bool, crate::error::UiaError> {
             let unk = crate::error::uia_api(
                 "IUIAutomationElement::GetCurrentPattern(Transform)",
                 unsafe {
-                    self.elem
-                        .GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                            windows::Win32::UI::Accessibility::UIA_TransformPatternId.0,
-                        ))
+                    self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                        windows::Win32::UI::Accessibility::UIA_TransformPatternId.0,
+                    ))
                 },
             )?;
             let pat: IUIAutomationTransformPattern =
                 crate::error::uia_api("IUnknown::cast(TransformPattern)", unk.cast())?;
-            let v = crate::error::uia_api(
-                "IUIAutomationTransformPattern::CurrentCanResize",
-                unsafe { pat.CurrentCanResize() },
-            )?;
+            let v =
+                crate::error::uia_api("IUIAutomationTransformPattern::CurrentCanResize", unsafe {
+                    pat.CurrentCanResize()
+                })?;
             Ok(v.as_bool())
         })();
         UiValue::from(result.unwrap_or(false))
@@ -1030,7 +1166,11 @@ unsafe impl Send for ApplicationNode {}
 unsafe impl Sync for ApplicationNode {}
 
 impl ApplicationNode {
-    pub fn new(pid: i32, root: windows::Win32::UI::Accessibility::IUIAutomationElement, parent: &Arc<dyn UiNode>) -> Arc<Self> {
+    pub fn new(
+        pid: i32,
+        root: windows::Win32::UI::Accessibility::IUIAutomationElement,
+        parent: &Arc<dyn UiNode>,
+    ) -> Arc<Self> {
         let node = Arc::new(Self {
             pid,
             root,
@@ -1046,21 +1186,29 @@ impl ApplicationNode {
 }
 
 impl UiNode for ApplicationNode {
-    fn namespace(&self) -> Namespace { Namespace::App }
-    fn role(&self) -> &str { "Application" }
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+    fn role(&self) -> &str {
+        "Application"
+    }
     fn name(&self) -> &str {
-        self.name_cell.get_or_init(|| {
-            // Derive process name from executable path (file name)
-            if let Some(handle) = crate::map::open_process_query(self.pid) {
-                if let Some(path) = crate::map::query_executable_path(handle) {
-                    let _ = unsafe { CloseHandle(handle) };
-                    if let Some(stem) = std::path::Path::new(&path).file_stem() { return stem.to_string_lossy().to_string(); }
-                } else {
-                    let _ = unsafe { CloseHandle(handle) };
+        self.name_cell
+            .get_or_init(|| {
+                // Derive process name from executable path (file name)
+                if let Some(handle) = crate::map::open_process_query(self.pid) {
+                    if let Some(path) = crate::map::query_executable_path(handle) {
+                        let _ = unsafe { CloseHandle(handle) };
+                        if let Some(stem) = std::path::Path::new(&path).file_stem() {
+                            return stem.to_string_lossy().to_string();
+                        }
+                    } else {
+                        let _ = unsafe { CloseHandle(handle) };
+                    }
                 }
-            }
-            String::new()
-        }).as_str()
+                String::new()
+            })
+            .as_str()
     }
     fn runtime_id(&self) -> &RuntimeId {
         self.rid_cell.get_or_init(|| RuntimeId::from(format!("uia-app://{}", self.pid)))
@@ -1088,17 +1236,23 @@ impl UiNode for ApplicationNode {
                     if self.first {
                         self.first = false;
                         self.current = unsafe { walker.GetFirstChildElement(&self.root).ok() };
-                        if self.current.is_none() { return None; }
+                        if self.current.is_none() {
+                            return None;
+                        }
                     } else if let Some(ref elem) = self.current {
                         let cur = elem.clone();
                         self.current = unsafe { walker.GetNextSiblingElement(&cur).ok() };
-                        if self.current.is_none() { return None; }
+                        if self.current.is_none() {
+                            return None;
+                        }
                     }
                     let elem = self.current.as_ref()?.clone();
                     let pid = crate::map::get_process_id(&elem).unwrap_or(-1);
                     if pid == self.pid {
                         let node = UiaNode::from_elem(elem);
-                        if let Some(ref parent) = self.parent { node.set_parent(parent); }
+                        if let Some(ref parent) = self.parent {
+                            node.set_parent(parent);
+                        }
                         UiaNode::init_self(&node);
                         return Some(node as Arc<dyn UiNode>);
                     }
@@ -1107,12 +1261,22 @@ impl UiNode for ApplicationNode {
         }
         unsafe impl Send for AppWindowsIter {}
         let parent = self.self_weak.get().and_then(|w| w.upgrade());
-        Box::new(AppWindowsIter { root: self.root.clone(), current: None, first: true, parent, pid: self.pid })
+        Box::new(AppWindowsIter {
+            root: self.root.clone(),
+            current: None,
+            first: true,
+            parent,
+            pid: self.pid,
+        })
     }
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         Box::new(AppAttrsIter::new(self.pid, self.runtime_id().as_str()))
     }
-    fn supported_patterns(&self) -> Vec<PatternId> { Vec::new() }
+    fn supported_patterns(&self) -> Vec<PatternId> {
+        Vec::new()
+    }
     fn invalidate(&self) {}
-    fn doc_order_key(&self) -> Option<u64> { Some(self.pid as u64) }
+    fn doc_order_key(&self) -> Option<u64> {
+        Some(self.pid as u64)
+    }
 }

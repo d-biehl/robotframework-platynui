@@ -34,9 +34,7 @@ pub(super) fn count_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let count = args[0].iter().try_fold(0i64, |acc, item_result| {
-        item_result.map(|_| acc + 1)
-    })?;
+    let count = args[0].iter().try_fold(0i64, |acc, item_result| item_result.map(|_| acc + 1))?;
     Ok(XdmSequenceStream::from_item(XdmItem::Atomic(XdmAtomicValue::Integer(count))))
 }
 
@@ -94,10 +92,9 @@ pub(super) fn zero_or_one_stream<N: 'static + crate::model::XdmNode + Clone>(
     match (first, second) {
         (None, _) => Ok(XdmSequenceStream::empty()),
         (Some(Ok(item)), None) => Ok(XdmSequenceStream::from_item(item)),
-        (Some(Ok(_)), Some(_)) => Err(Error::from_code(
-            ErrorCode::FORG0004,
-            "zero-or-one requires at most one item",
-        )),
+        (Some(Ok(_)), Some(_)) => {
+            Err(Error::from_code(ErrorCode::FORG0004, "zero-or-one requires at most one item"))
+        }
         (Some(Err(e)), _) => Err(e),
     }
 }
@@ -149,7 +146,8 @@ pub(super) fn subsequence_stream<N: 'static + crate::model::XdmNode + Clone>(
     }
 
     let start_rounded = crate::engine::functions::common::round_half_to_even_f64(start_raw);
-    let from_index = if start_rounded <= 1.0 { 0 } else { (start_rounded as isize - 1).max(0) as usize };
+    let from_index =
+        if start_rounded <= 1.0 { 0 } else { (start_rounded as isize - 1).max(0) as usize };
 
     if let Some(len_raw) = len_raw_opt {
         let len_rounded = crate::engine::functions::common::round_half_to_even_f64(len_raw);
@@ -277,7 +275,7 @@ pub(super) fn index_of_stream<N: 'static + crate::model::XdmNode + Clone>(
         if uri.is_empty() {
             None
         } else {
-            Some(Box::leak(uri.into_boxed_str()))  // Leak for 'static lifetime
+            Some(Box::leak(uri.into_boxed_str())) // Leak for 'static lifetime
         }
     } else {
         None

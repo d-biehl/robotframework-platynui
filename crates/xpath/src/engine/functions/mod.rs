@@ -55,18 +55,10 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         }};
     }
 
-
-
     // ===== Core booleans =====
     reg_ns_stream!(crate::consts::FNS, "true", 0, boolean::fn_true_stream::<N>, vec![]);
     reg_ns_stream!(crate::consts::FNS, "false", 0, boolean::fn_false_stream::<N>, vec![]);
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "data",
-        0,
-        boolean::data_stream::<N>,
-        vec![]
-    );
+    reg_ns_stream!(crate::consts::FNS, "data", 0, boolean::data_stream::<N>, vec![]);
     reg_ns_stream!(
         crate::consts::FNS,
         "data",
@@ -90,13 +82,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
     );
 
     // ===== Numeric core =====
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "number",
-        0,
-        numeric::number_stream::<N>,
-        vec![]
-    );
+    reg_ns_stream!(crate::consts::FNS, "number", 0, numeric::number_stream::<N>, vec![]);
     reg_ns_stream!(
         crate::consts::FNS,
         "number",
@@ -106,13 +92,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
     );
 
     // ===== String family =====
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "string",
-        0,
-        strings::string_stream::<N>,
-        vec![]
-    );
+    reg_ns_stream!(crate::consts::FNS, "string", 0, strings::string_stream::<N>, vec![]);
     reg_ns_stream!(
         crate::consts::FNS,
         "string",
@@ -134,18 +114,19 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         strings::string_length_stream::<N>,
         vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
     );
-    reg_ns_stream!(crate::consts::FNS, "untypedAtomic", 1, strings::untyped_atomic_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ExactlyOne)]);
+    reg_ns_stream!(
+        crate::consts::FNS,
+        "untypedAtomic",
+        1,
+        strings::untyped_atomic_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ExactlyOne)]
+    );
     // concat() is variadic (2+ args)
     if let Some(s) = sigs.as_mut() {
         s.register_ns(crate::consts::FNS, "concat", 2, None);
     }
     if let Some(r) = reg.as_mut() {
-        r.register_stream_ns_variadic(
-            crate::consts::FNS,
-            "concat",
-            2,
-            strings::concat_stream::<N>,
-        );
+        r.register_stream_ns_variadic(crate::consts::FNS, "concat", 2, strings::concat_stream::<N>);
     }
     reg_ns_stream!(
         crate::consts::FNS,
@@ -324,13 +305,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         qnames::node_name_stream::<N>,
         vec![ParamTypeSpec::node(Occurrence::ZeroOrOne)]
     );
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "name",
-        0,
-        qnames::name_stream::<N>,
-        vec![]
-    );
+    reg_ns_stream!(crate::consts::FNS, "name", 0, qnames::name_stream::<N>, vec![]);
     reg_ns_stream!(
         crate::consts::FNS,
         "name",
@@ -338,13 +313,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         qnames::name_stream::<N>,
         vec![ParamTypeSpec::node(Occurrence::ZeroOrOne)]
     );
-    reg_ns_stream!(
-        crate::consts::FNS,
-        "local-name",
-        0,
-        qnames::local_name_stream::<N>,
-        vec![]
-    );
+    reg_ns_stream!(crate::consts::FNS, "local-name", 0, qnames::local_name_stream::<N>, vec![]);
     reg_ns_stream!(
         crate::consts::FNS,
         "local-name",
@@ -844,15 +813,21 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
     );
 
     // ===== Environment / Document / URI helpers =====
-    reg_ns_stream!(crate::consts::FNS, "default-collation", 0, environment::default_collation_stream::<N>, vec![]);
-    reg_ns_stream!(crate::consts::FNS, "static-base-uri", 0, environment::static_base_uri_stream::<N>, vec![]);
     reg_ns_stream!(
         crate::consts::FNS,
-        "root",
+        "default-collation",
         0,
-        environment::root_stream::<N>,
+        environment::default_collation_stream::<N>,
         vec![]
     );
+    reg_ns_stream!(
+        crate::consts::FNS,
+        "static-base-uri",
+        0,
+        environment::static_base_uri_stream::<N>,
+        vec![]
+    );
+    reg_ns_stream!(crate::consts::FNS, "root", 0, environment::root_stream::<N>, vec![]);
     reg_ns_stream!(
         crate::consts::FNS,
         "root",
@@ -868,7 +843,13 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         environment::base_uri_stream::<N>,
         vec![ParamTypeSpec::node(Occurrence::ZeroOrOne)]
     );
-    reg_ns_stream!(crate::consts::FNS, "document-uri", 0, environment::document_uri_stream::<N>, vec![]);
+    reg_ns_stream!(
+        crate::consts::FNS,
+        "document-uri",
+        0,
+        environment::document_uri_stream::<N>,
+        vec![]
+    );
     reg_ns_stream!(
         crate::consts::FNS,
         "document-uri",
@@ -969,7 +950,13 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         environment::doc_stream::<N>,
         vec![ParamTypeSpec::string(Occurrence::ZeroOrOne)]
     );
-    reg_ns_stream!(crate::consts::FNS, "collection", 0, environment::collection_stream::<N>, vec![]);
+    reg_ns_stream!(
+        crate::consts::FNS,
+        "collection",
+        0,
+        environment::collection_stream::<N>,
+        vec![]
+    );
     reg_ns_stream!(
         crate::consts::FNS,
         "collection",
@@ -1041,7 +1028,13 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
     );
 
     // ===== Misc constructors =====
-    reg_ns_stream!(crate::consts::FNS, "integer", 1, constructors::integer_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
+    reg_ns_stream!(
+        crate::consts::FNS,
+        "integer",
+        1,
+        constructors::integer_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
 
     // ===== Date/Time family =====
     reg_ns_stream!(
@@ -1105,10 +1098,34 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
             ParamTypeSpec::day_time_duration(Occurrence::ZeroOrOne),
         ]
     );
-    reg_ns_stream!(crate::consts::FNS, "current-dateTime", 0, datetime::current_datetime_stream::<N>, vec![]);
-    reg_ns_stream!(crate::consts::FNS, "current-date", 0, datetime::current_date_stream::<N>, vec![]);
-    reg_ns_stream!(crate::consts::FNS, "current-time", 0, datetime::current_time_stream::<N>, vec![]);
-    reg_ns_stream!(crate::consts::FNS, "implicit-timezone", 0, datetime::implicit_timezone_stream::<N>, vec![]);
+    reg_ns_stream!(
+        crate::consts::FNS,
+        "current-dateTime",
+        0,
+        datetime::current_datetime_stream::<N>,
+        vec![]
+    );
+    reg_ns_stream!(
+        crate::consts::FNS,
+        "current-date",
+        0,
+        datetime::current_date_stream::<N>,
+        vec![]
+    );
+    reg_ns_stream!(
+        crate::consts::FNS,
+        "current-time",
+        0,
+        datetime::current_time_stream::<N>,
+        vec![]
+    );
+    reg_ns_stream!(
+        crate::consts::FNS,
+        "implicit-timezone",
+        0,
+        datetime::implicit_timezone_stream::<N>,
+        vec![]
+    );
     reg_ns_stream!(
         crate::consts::FNS,
         "year-from-dateTime",
@@ -1365,7 +1382,13 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         constructors::xs_duration_stream::<N>,
         vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
     );
-    reg_ns_stream!(crate::consts::XS, "dayTimeDuration", 1, constructors::xs_day_time_duration_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
+    reg_ns_stream!(
+        crate::consts::XS,
+        "dayTimeDuration",
+        1,
+        constructors::xs_day_time_duration_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
     reg_ns_stream!(
         crate::consts::XS,
         "yearMonthDuration",
@@ -1373,19 +1396,97 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         constructors::xs_year_month_duration_stream::<N>,
         vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
     );
-    reg_ns_stream!(crate::consts::XS, "gYear", 1, constructors::xs_g_year_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "gYearMonth", 1, constructors::xs_g_year_month_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "gMonth", 1, constructors::xs_g_month_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "gMonthDay", 1, constructors::xs_g_month_day_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "gDay", 1, constructors::xs_g_day_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "long", 1, constructors::xs_long_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "int", 1, constructors::xs_int_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "short", 1, constructors::xs_short_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "byte", 1, constructors::xs_byte_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "unsignedLong", 1, constructors::xs_unsigned_long_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "unsignedInt", 1, constructors::xs_unsigned_int_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "unsignedShort", 1, constructors::xs_unsigned_short_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "unsignedByte", 1, constructors::xs_unsigned_byte_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
+    reg_ns_stream!(
+        crate::consts::XS,
+        "gYear",
+        1,
+        constructors::xs_g_year_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "gYearMonth",
+        1,
+        constructors::xs_g_year_month_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "gMonth",
+        1,
+        constructors::xs_g_month_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "gMonthDay",
+        1,
+        constructors::xs_g_month_day_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "gDay",
+        1,
+        constructors::xs_g_day_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "long",
+        1,
+        constructors::xs_long_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "int",
+        1,
+        constructors::xs_int_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "short",
+        1,
+        constructors::xs_short_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "byte",
+        1,
+        constructors::xs_byte_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "unsignedLong",
+        1,
+        constructors::xs_unsigned_long_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "unsignedInt",
+        1,
+        constructors::xs_unsigned_int_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "unsignedShort",
+        1,
+        constructors::xs_unsigned_short_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "unsignedByte",
+        1,
+        constructors::xs_unsigned_byte_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
     reg_ns_stream!(
         crate::consts::XS,
         "nonPositiveInteger",
@@ -1393,7 +1494,13 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         constructors::xs_non_positive_integer_stream::<N>,
         vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
     );
-    reg_ns_stream!(crate::consts::XS, "negativeInteger", 1, constructors::xs_negative_integer_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
+    reg_ns_stream!(
+        crate::consts::XS,
+        "negativeInteger",
+        1,
+        constructors::xs_negative_integer_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
     reg_ns_stream!(
         crate::consts::XS,
         "nonNegativeInteger",
@@ -1401,17 +1508,83 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
         constructors::xs_non_negative_integer_stream::<N>,
         vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
     );
-    reg_ns_stream!(crate::consts::XS, "positiveInteger", 1, constructors::xs_positive_integer_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "normalizedString", 1, constructors::xs_normalized_string_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "token", 1, constructors::xs_token_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "language", 1, constructors::xs_language_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "Name", 1, constructors::xs_name_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "NCName", 1, constructors::xs_ncname_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "NMTOKEN", 1, constructors::xs_nmtoken_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "ID", 1, constructors::xs_id_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "IDREF", 1, constructors::xs_idref_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "ENTITY", 1, constructors::xs_entity_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
-    reg_ns_stream!(crate::consts::XS, "NOTATION", 1, constructors::xs_notation_stream::<N>, vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]);
+    reg_ns_stream!(
+        crate::consts::XS,
+        "positiveInteger",
+        1,
+        constructors::xs_positive_integer_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "normalizedString",
+        1,
+        constructors::xs_normalized_string_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "token",
+        1,
+        constructors::xs_token_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "language",
+        1,
+        constructors::xs_language_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "Name",
+        1,
+        constructors::xs_name_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "NCName",
+        1,
+        constructors::xs_ncname_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "NMTOKEN",
+        1,
+        constructors::xs_nmtoken_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "ID",
+        1,
+        constructors::xs_id_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "IDREF",
+        1,
+        constructors::xs_idref_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "ENTITY",
+        1,
+        constructors::xs_entity_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
+    reg_ns_stream!(
+        crate::consts::XS,
+        "NOTATION",
+        1,
+        constructors::xs_notation_stream::<N>,
+        vec![ParamTypeSpec::any_item(Occurrence::ZeroOrOne)]
+    );
 }
 
 pub fn default_function_registry<N: 'static + crate::model::XdmNode + Clone>()

@@ -51,13 +51,15 @@ fn attr_bool(node: &Arc<dyn UiNode>, namespace: Namespace, name: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn attr_rect(node: &Arc<dyn UiNode>, namespace: Namespace, name: &str) -> Option<platynui_core::types::Rect> {
-    node.attribute(namespace, name)
-        .map(|attr| attr.value())
-        .and_then(|value| match value {
-            UiValue::Rect(r) => Some(r),
-            _ => None,
-        })
+fn attr_rect(
+    node: &Arc<dyn UiNode>,
+    namespace: Namespace,
+    name: &str,
+) -> Option<platynui_core::types::Rect> {
+    node.attribute(namespace, name).map(|attr| attr.value()).and_then(|value| match value {
+        UiValue::Rect(r) => Some(r),
+        _ => None,
+    })
 }
 
 fn find_by_runtime_id(node: Arc<dyn UiNode>, target: &str) -> Option<Arc<dyn UiNode>> {
@@ -115,8 +117,11 @@ impl UiNode for DesktopNode {
 fn provider_not_auto_registered() {
     // Mock providers should NOT be auto-registered; they're only available via explicit handles
     let ids: Vec<_> = provider_factories().map(|factory| factory.descriptor().id).collect();
-    assert!(!ids.contains(&factory::PROVIDER_ID),
-        "Mock provider should not be auto-registered, found in: {:?}", ids);
+    assert!(
+        !ids.contains(&factory::PROVIDER_ID),
+        "Mock provider should not be auto-registered, found in: {:?}",
+        ids
+    );
 }
 
 #[rstest]

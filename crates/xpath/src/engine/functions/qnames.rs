@@ -159,7 +159,10 @@ pub(super) fn namespace_uri_from_qname_stream<N: 'static + crate::model::XdmNode
             vec![]
         }
     } else {
-        return Err(Error::from_code(ErrorCode::XPTY0004, "namespace-uri-from-QName expects xs:QName"));
+        return Err(Error::from_code(
+            ErrorCode::XPTY0004,
+            "namespace-uri-from-QName expects xs:QName",
+        ));
     };
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -176,7 +179,10 @@ pub(super) fn local_name_from_qname_stream<N: 'static + crate::model::XdmNode + 
     let result = if let XdmItem::Atomic(XdmAtomicValue::QName { local, .. }) = &seq[0] {
         vec![XdmItem::Atomic(XdmAtomicValue::NCName(local.clone()))]
     } else {
-        return Err(Error::from_code(ErrorCode::XPTY0004, "local-name-from-QName expects xs:QName"));
+        return Err(Error::from_code(
+            ErrorCode::XPTY0004,
+            "local-name-from-QName expects xs:QName",
+        ));
     };
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -281,11 +287,7 @@ pub(super) fn namespace_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
         Some(super::common::require_context_item(ctx)?)
     } else {
         let seq = args[0].materialize()?;
-        if seq.is_empty() {
-            None
-        } else {
-            Some(seq[0].clone())
-        }
+        if seq.is_empty() { None } else { Some(seq[0].clone()) }
     };
     let Some(item) = item_opt else {
         return Ok(XdmSequenceStream::from_vec(vec![]));

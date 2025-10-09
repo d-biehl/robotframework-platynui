@@ -1,6 +1,4 @@
-use platynui_core::platform::{
-    PlatformError, PointerButton, PointerDevice, ScrollDelta,
-};
+use platynui_core::platform::{PlatformError, PointerButton, PointerDevice, ScrollDelta};
 use platynui_core::types::{Point, Size};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -112,7 +110,9 @@ mod tests {
     fn pointer_not_auto_registered() {
         let providers: Vec<_> = pointer_devices().collect();
         // Mock pointer should NOT be in the registry
-        let mock_in_registry = providers.iter().any(|device| std::ptr::eq(*device, &MOCK_POINTER as &dyn PointerDevice));
+        let mock_in_registry = providers
+            .iter()
+            .any(|device| std::ptr::eq(*device, &MOCK_POINTER as &dyn PointerDevice));
         assert!(!mock_in_registry, "Mock pointer should not be auto-registered");
     }
 

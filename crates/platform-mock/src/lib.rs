@@ -17,9 +17,7 @@ pub use pointer::MOCK_POINTER;
 pub use screenshot::MOCK_SCREENSHOT;
 
 // Export test helper functions
-pub use highlight::{
-    highlight_clear_count, reset_highlight_state, take_highlight_log,
-};
+pub use highlight::{highlight_clear_count, reset_highlight_state, take_highlight_log};
 pub use keyboard::{KeyboardLogEntry, reset_keyboard_state, take_keyboard_log};
 pub use pointer::{PointerLogEntry, reset_pointer_state, take_pointer_log};
 pub use screenshot::{reset_screenshot_state, take_screenshot_log};

@@ -1,17 +1,22 @@
+use anyhow::{anyhow, bail};
 use platynui_core::platform::{PlatformError, PointerButton, ScrollDelta};
 use platynui_core::provider::ProviderError;
 use platynui_core::types::Point;
 use platynui_runtime::EvaluateError;
-use anyhow::{anyhow, bail};
 
 pub type CliResult<T> = anyhow::Result<T>;
 
-pub fn map_provider_error(err: ProviderError) -> anyhow::Error { anyhow::Error::new(err) }
+pub fn map_provider_error(err: ProviderError) -> anyhow::Error {
+    anyhow::Error::new(err)
+}
 
-pub fn map_evaluate_error(err: EvaluateError) -> anyhow::Error { anyhow::Error::new(err) }
+pub fn map_evaluate_error(err: EvaluateError) -> anyhow::Error {
+    anyhow::Error::new(err)
+}
 
-pub fn map_platform_error(err: PlatformError) -> anyhow::Error { anyhow::Error::new(err) }
-
+pub fn map_platform_error(err: PlatformError) -> anyhow::Error {
+    anyhow::Error::new(err)
+}
 
 pub fn yes_no(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
@@ -49,9 +54,8 @@ pub fn parse_pointer_button(value: &str) -> CliResult<PointerButton> {
         "right" | "secondary" => PointerButton::Right,
         "middle" | "wheel" => PointerButton::Middle,
         other => {
-            let code = other
-                .parse::<u16>()
-                .map_err(|_| anyhow!("unknown pointer button '{value}'"))?;
+            let code =
+                other.parse::<u16>().map_err(|_| anyhow!("unknown pointer button '{value}'"))?;
             PointerButton::Other(code)
         }
     };

@@ -105,11 +105,7 @@ pub(super) fn adjust_date_to_timezone_stream<N: 'static + crate::model::XdmNode 
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq0 = args[0].materialize()?;
-    let seq1 = if args.len() >= 2 {
-        args[1].materialize()?
-    } else {
-        vec![]
-    };
+    let seq1 = if args.len() >= 2 { args[1].materialize()? } else { vec![] };
     let materialized_args = vec![seq0, seq1];
     let result = adjust_date_to_timezone_fn(ctx, &materialized_args)?;
     Ok(XdmSequenceStream::from_vec(result))
@@ -163,11 +159,7 @@ pub(super) fn adjust_time_to_timezone_stream<N: 'static + crate::model::XdmNode 
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq0 = args[0].materialize()?;
-    let seq1 = if args.len() >= 2 {
-        args[1].materialize()?
-    } else {
-        vec![]
-    };
+    let seq1 = if args.len() >= 2 { args[1].materialize()? } else { vec![] };
     let materialized_args = vec![seq0, seq1];
     let result = adjust_time_to_timezone_fn(ctx, &materialized_args)?;
     Ok(XdmSequenceStream::from_vec(result))
@@ -226,11 +218,7 @@ pub(super) fn adjust_datetime_to_timezone_stream<N: 'static + crate::model::XdmN
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq0 = args[0].materialize()?;
-    let seq1 = if args.len() >= 2 {
-        args[1].materialize()?
-    } else {
-        vec![]
-    };
+    let seq1 = if args.len() >= 2 { args[1].materialize()? } else { vec![] };
     let materialized_args = vec![seq0, seq1];
     let result = adjust_datetime_to_timezone_fn(ctx, &materialized_args)?;
     Ok(XdmSequenceStream::from_vec(result))
@@ -265,7 +253,8 @@ pub(super) fn current_time_stream<N: 'static + crate::model::XdmNode + Clone>(
     _args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let dt = now_in_effective_tz(ctx);
-    let result = vec![XdmItem::Atomic(XdmAtomicValue::Time { time: dt.time(), tz: Some(*dt.offset()) })];
+    let result =
+        vec![XdmItem::Atomic(XdmAtomicValue::Time { time: dt.time(), tz: Some(*dt.offset()) })];
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -424,9 +413,7 @@ pub(super) fn timezone_from_date_stream<N: 'static + crate::model::XdmNode + Clo
     let result = match &seq[0] {
         XdmItem::Atomic(XdmAtomicValue::Date { tz, .. }) => {
             if let Some(off) = tz {
-                vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(
-                    off.local_minus_utc() as i64
-                ))]
+                vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(off.local_minus_utc() as i64))]
             } else {
                 vec![]
             }
@@ -434,18 +421,14 @@ pub(super) fn timezone_from_date_stream<N: 'static + crate::model::XdmNode + Clo
         XdmItem::Atomic(XdmAtomicValue::String(s))
         | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
             if let Ok((_d, Some(off))) = parse_xs_date_local(s) {
-                vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(
-                    off.local_minus_utc() as i64
-                ))]
+                vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(off.local_minus_utc() as i64))]
             } else {
                 vec![]
             }
         }
         XdmItem::Node(n) => {
             if let Ok((_d, Some(off))) = parse_xs_date_local(&n.string_value()) {
-                vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(
-                    off.local_minus_utc() as i64
-                ))]
+                vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(off.local_minus_utc() as i64))]
             } else {
                 vec![]
             }

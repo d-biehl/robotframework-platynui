@@ -219,9 +219,7 @@ fn path_ir_sequence_complex() {
         other => panic!("unexpected second step: {:?}", other),
     }
     // Attribute axis does not need normalization (each attribute belongs to exactly one element)
-    assert!(
-        !matches!(ops.get(idx + 3), Some(OpCode::EnsureOrder | OpCode::EnsureDistinct))
-    );
+    assert!(!matches!(ops.get(idx + 3), Some(OpCode::EnsureOrder | OpCode::EnsureDistinct)));
 }
 
 #[rstest]
@@ -261,8 +259,12 @@ fn union_compiles_distinct_operands() {
     let mut has_button = false;
     for op in &is.0 {
         if let AxisStep(_, NodeTestIR::Name(q), _) = op {
-            if q.original.local == "Window" { has_window = true; }
-            if q.original.local == "Button" { has_button = true; }
+            if q.original.local == "Window" {
+                has_window = true;
+            }
+            if q.original.local == "Button" {
+                has_button = true;
+            }
         }
     }
     assert!(has_window, "union must contain Window operand");

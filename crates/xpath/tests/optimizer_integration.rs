@@ -4,39 +4,27 @@
 /// in end-to-end scenarios with the complete compilation and evaluation pipeline.
 use platynui_xpath::simple_node::{attr, doc, elem, text};
 use platynui_xpath::xdm::XdmItem;
-use platynui_xpath::{evaluate_expr, evaluate_stream_expr, DynamicContextBuilder, XdmNode};
+use platynui_xpath::{DynamicContextBuilder, XdmNode, evaluate_expr, evaluate_stream_expr};
 
 type N = platynui_xpath::model::simple::SimpleNode;
 
 /// Helper to create a simple test tree.
 fn make_test_tree() -> N {
-    doc().child(
-        elem("root")
-            .child(
-                elem("item")
-                    .attr(attr("id", "foo"))
-                    .child(text("First"))
-            )
-            .child(
-                elem("item")
-                    .attr(attr("id", "bar"))
-                    .child(text("Second"))
-            )
-            .child(
-                elem("item")
-                    .attr(attr("id", "baz"))
-                    .child(text("Third"))
-            )
-    ).build()
+    doc()
+        .child(
+            elem("root")
+                .child(elem("item").attr(attr("id", "foo")).child(text("First")))
+                .child(elem("item").attr(attr("id", "bar")).child(text("Second")))
+                .child(elem("item").attr(attr("id", "baz")).child(text("Third"))),
+        )
+        .build()
 }
 
 #[test]
 fn test_predicate_pushdown_simple() {
     let root = make_test_tree();
     let root_elem = root.children().next().unwrap();
-    let ctx = DynamicContextBuilder::new()
-        .with_context_item(XdmItem::Node(root_elem))
-        .build();
+    let ctx = DynamicContextBuilder::new().with_context_item(XdmItem::Node(root_elem)).build();
 
     // This expression should have predicates pushed down:
     // Before: (//item)[@id='foo']
@@ -51,9 +39,7 @@ fn test_predicate_pushdown_simple() {
 fn test_predicate_pushdown_multiple() {
     let root = make_test_tree();
     let root_elem = root.children().next().unwrap();
-    let ctx = DynamicContextBuilder::new()
-        .with_context_item(XdmItem::Node(root_elem))
-        .build();
+    let ctx = DynamicContextBuilder::new().with_context_item(XdmItem::Node(root_elem)).build();
 
     // Multiple predicates should all be pushed down
     let nodes = evaluate_expr::<N>("(//item)[@id='foo'][text()='First']", &ctx).unwrap();
@@ -66,9 +52,7 @@ fn test_predicate_pushdown_multiple() {
 fn test_predicate_pushdown_positional() {
     let root = make_test_tree();
     let root_elem = root.children().next().unwrap();
-    let ctx = DynamicContextBuilder::new()
-        .with_context_item(XdmItem::Node(root_elem))
-        .build();
+    let ctx = DynamicContextBuilder::new().with_context_item(XdmItem::Node(root_elem)).build();
 
     // Positional predicate - should still work correctly after optimization
     let nodes = evaluate_expr::<N>("(//item)[1]", &ctx).unwrap();
@@ -81,9 +65,7 @@ fn test_predicate_pushdown_positional() {
 fn test_optimizer_streaming_benefit() {
     let root = make_test_tree();
     let root_elem = root.children().next().unwrap();
-    let ctx = DynamicContextBuilder::new()
-        .with_context_item(XdmItem::Node(root_elem))
-        .build();
+    let ctx = DynamicContextBuilder::new().with_context_item(XdmItem::Node(root_elem)).build();
 
     // With optimization, this should be able to stop after finding the first match
     let stream = evaluate_stream_expr::<N>("(//item[@id='foo'])[1]", &ctx).unwrap();
@@ -95,18 +77,18 @@ fn test_optimizer_streaming_benefit() {
 
 #[test]
 fn test_nested_predicates() {
-    let root = doc().child(
-        elem("root").child(
-            elem("container")
-                .attr(attr("type", "main"))
-                .child(elem("item").attr(attr("id", "nested")).child(text("Nested")))
+    let root = doc()
+        .child(
+            elem("root").child(
+                elem("container")
+                    .attr(attr("type", "main"))
+                    .child(elem("item").attr(attr("id", "nested")).child(text("Nested"))),
+            ),
         )
-    ).build();
+        .build();
 
     let root_elem = root.children().next().unwrap();
-    let ctx = DynamicContextBuilder::new()
-        .with_context_item(XdmItem::Node(root_elem))
-        .build();
+    let ctx = DynamicContextBuilder::new().with_context_item(XdmItem::Node(root_elem)).build();
 
     // Nested path with predicates at multiple levels
     let nodes = evaluate_expr::<N>("(//container[@type='main']/item)[@id='nested']", &ctx).unwrap();

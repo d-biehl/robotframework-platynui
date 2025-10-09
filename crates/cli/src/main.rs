@@ -179,7 +179,8 @@ mod tests {
 
     #[test]
     fn clap_parsing_pointer_move() {
-        let cli = Cli::try_parse_from(["platynui", "pointer", "move", "--point", "10,20"]).expect("parse");
+        let cli = Cli::try_parse_from(["platynui", "pointer", "move", "--point", "10,20"])
+            .expect("parse");
         match cli.command {
             Commands::Pointer(args) => match args.command {
                 pointer::PointerCommand::Move(move_args) => {

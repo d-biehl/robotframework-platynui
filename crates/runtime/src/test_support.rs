@@ -12,7 +12,9 @@ use rstest::fixture;
 /// rstest fixture: Runtime with mock provider and mock platform devices
 #[fixture]
 pub fn rt_runtime_mock() -> Runtime {
-    return runtime_with_factories_and_mock_platform(&[&platynui_provider_mock::MOCK_PROVIDER_FACTORY]);
+    return runtime_with_factories_and_mock_platform(&[
+        &platynui_provider_mock::MOCK_PROVIDER_FACTORY,
+    ]);
 }
 
 /// Builds a Runtime from the given provider factories and injects all mock

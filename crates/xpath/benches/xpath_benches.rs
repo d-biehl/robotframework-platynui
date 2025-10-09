@@ -225,10 +225,8 @@ fn benchmark_time_to_first_item(c: &mut Criterion) {
         ("desc-item-type-a", "//item[@type='a']"),
         ("section-beta", "//section[@name='beta']"),
     ];
-    let compiled: Vec<_> = queries
-        .into_iter()
-        .map(|(n, q)| (n, compile(q).expect("compile")))
-        .collect();
+    let compiled: Vec<_> =
+        queries.into_iter().map(|(n, q)| (n, compile(q).expect("compile"))).collect();
 
     let mut group = c.benchmark_group("streaming/time_to_first_item");
     group.sample_size(12);
@@ -237,7 +235,8 @@ fn benchmark_time_to_first_item(c: &mut Criterion) {
     for (name, program) in &compiled {
         group.bench_with_input(BenchmarkId::from_parameter(name), program, |b, prog| {
             b.iter(|| {
-                let stream = platynui_xpath::evaluate_stream::<SimpleNode>(prog, &ctx).expect("eval");
+                let stream =
+                    platynui_xpath::evaluate_stream::<SimpleNode>(prog, &ctx).expect("eval");
                 let mut cursor = stream.cursor();
                 if let Some(item) = cursor.next_item() {
                     black_box(item.expect("first item"));

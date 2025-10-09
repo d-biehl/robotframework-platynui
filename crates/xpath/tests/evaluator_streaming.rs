@@ -442,16 +442,11 @@ fn streaming_early_termination_first_match() {
     // Build a tree with 10,000 items
     let mut root_builder = elem("root");
     for idx in 1..=10_000 {
-        root_builder = root_builder.child(
-            elem("item")
-                .child(text(&format!("item_{idx}")))
-        );
+        root_builder = root_builder.child(elem("item").child(text(&format!("item_{idx}"))));
     }
     let document = doc().child(root_builder).build();
     let root = document.children().next().unwrap();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(root.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
 
     // Query: descendant-or-self::item[1]
     // Should find first item and stop, not traverse all 10,000
@@ -491,8 +486,7 @@ fn streaming_infinite_sequence_early_exit() {
 
     // Create a large range but only take first 10
     let expr = "(1 to 999999999)[position() < 11]";
-    let stream = evaluate_stream_expr::<N>(expr, &ctx)
-        .expect("stream eval succeeds");
+    let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval succeeds");
 
     let results: Vec<i64> = stream
         .iter()
@@ -516,8 +510,7 @@ fn streaming_large_range_with_predicate() {
 
     // Large range with a filter that matches early
     let expr = "(1 to 100000)[. > 99995]";
-    let stream = evaluate_stream_expr::<N>(expr, &ctx)
-        .expect("stream eval succeeds");
+    let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval succeeds");
 
     let results: Vec<i64> = stream
         .iter()
@@ -536,18 +529,13 @@ fn streaming_large_range_with_predicate() {
 fn streaming_take_limits_evaluation() {
     let mut root_builder = elem("root");
     for idx in 1..=1000 {
-        root_builder = root_builder.child(
-            elem("item").child(text(&format!("{idx}")))
-        );
+        root_builder = root_builder.child(elem("item").child(text(&format!("{idx}"))));
     }
     let document = doc().child(root_builder).build();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     // Get all items but only take first 5
-    let stream = evaluate_stream_expr::<N>("//item", &ctx)
-        .expect("stream eval succeeds");
+    let stream = evaluate_stream_expr::<N>("//item", &ctx).expect("stream eval succeeds");
 
     let first_five: Vec<String> = stream
         .iter()
@@ -570,20 +558,14 @@ fn streaming_memory_efficient_large_tree() {
     // Build a tree with 5,000 items
     let mut root_builder = elem("root");
     for idx in 1..=5_000 {
-        root_builder = root_builder.child(
-            elem("item")
-                .child(text(&format!("value_{idx}")))
-        );
+        root_builder = root_builder.child(elem("item").child(text(&format!("value_{idx}"))));
     }
     let document = doc().child(root_builder).build();
-    let ctx = DynamicContextBuilder::default()
-        .with_context_item(I::Node(document.clone()))
-        .build();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(document.clone())).build();
 
     // Query all descendants but only take first match with specific condition
     let expr = "//item[contains(text(), 'value_2500')][1]";
-    let stream = evaluate_stream_expr::<N>(expr, &ctx)
-        .expect("stream eval succeeds");
+    let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval succeeds");
 
     let result: Vec<_> = stream.iter().collect::<Result<Vec<_>, _>>().expect("ok");
 

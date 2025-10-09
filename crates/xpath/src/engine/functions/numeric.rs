@@ -19,7 +19,8 @@ pub(super) fn number_stream<N: 'static + crate::model::XdmNode + Clone>(
         number_default(ctx, Some(&seq))?
     };
     Ok(XdmSequenceStream::from_vec(result))
-}/// Stream-based abs() implementation.
+}
+/// Stream-based abs() implementation.
 pub(super) fn abs_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
@@ -158,7 +159,9 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
             _ => {
                 if let Some((nk, num)) = classify_numeric(a)? {
                     if nk == NumericKind::Double && num.is_nan() {
-                        return Ok(XdmSequenceStream::from_item(XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))));
+                        return Ok(XdmSequenceStream::from_item(XdmItem::Atomic(
+                            XdmAtomicValue::Double(f64::NAN),
+                        )));
                     }
                     state = match state {
                         None => Some(AvgState::Numeric),

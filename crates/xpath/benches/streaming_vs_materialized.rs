@@ -12,8 +12,7 @@ use std::time::Duration;
 fn build_tree(sections: usize, items_per_section: usize) -> SimpleNode {
     let mut root_builder = elem("root");
     for section_idx in 0..sections {
-        let mut section_builder = elem("section")
-            .attr(attr("id", &format!("s{section_idx}")));
+        let mut section_builder = elem("section").attr(attr("id", &format!("s{section_idx}")));
         for item_idx in 0..items_per_section {
             let item_builder = elem("item")
                 .attr(attr("id", &format!("i{item_idx}")))
@@ -43,29 +42,21 @@ fn bench_early_termination_first_match(c: &mut Criterion) {
         let compiled = compile("//item[1]").unwrap();
 
         // Materialized: collects entire tree first
-        group.bench_with_input(
-            BenchmarkId::new("materialized", size),
-            &size,
-            |b, _| {
-                b.iter(|| {
-                    let result = evaluate(&compiled, &ctx).unwrap();
-                    black_box(result);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("materialized", size), &size, |b, _| {
+            b.iter(|| {
+                let result = evaluate(&compiled, &ctx).unwrap();
+                black_box(result);
+            });
+        });
 
         // Streaming: stops after first match
-        group.bench_with_input(
-            BenchmarkId::new("streaming", size),
-            &size,
-            |b, _| {
-                b.iter(|| {
-                    let stream = evaluate_stream(&compiled, &ctx).unwrap();
-                    let result: Vec<_> = stream.iter().collect::<Result<Vec<_>, _>>().unwrap();
-                    black_box(result);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("streaming", size), &size, |b, _| {
+            b.iter(|| {
+                let stream = evaluate_stream(&compiled, &ctx).unwrap();
+                let result: Vec<_> = stream.iter().collect::<Result<Vec<_>, _>>().unwrap();
+                black_box(result);
+            });
+        });
     }
 
     group.finish();
@@ -175,7 +166,8 @@ fn bench_take_limiting(c: &mut Criterion) {
             |b, &take| {
                 b.iter(|| {
                     let stream = evaluate_stream(&compiled, &ctx).unwrap();
-                    let taken: Vec<_> = stream.iter().take(take).collect::<Result<Vec<_>, _>>().unwrap();
+                    let taken: Vec<_> =
+                        stream.iter().take(take).collect::<Result<Vec<_>, _>>().unwrap();
                     black_box(taken);
                 });
             },
@@ -280,21 +272,17 @@ fn bench_large_result_set_memory(c: &mut Criterion) {
         );
 
         // Streaming: processes one at a time
-        group.bench_with_input(
-            BenchmarkId::new("streaming_iterate", size),
-            &size,
-            |b, _| {
-                b.iter(|| {
-                    let stream = evaluate_stream(&compiled, &ctx).unwrap();
-                    let mut count = 0;
-                    for item in stream.iter() {
-                        black_box(item.unwrap());
-                        count += 1;
-                    }
-                    black_box(count);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("streaming_iterate", size), &size, |b, _| {
+            b.iter(|| {
+                let stream = evaluate_stream(&compiled, &ctx).unwrap();
+                let mut count = 0;
+                for item in stream.iter() {
+                    black_box(item.unwrap());
+                    count += 1;
+                }
+                black_box(count);
+            });
+        });
     }
 
     group.finish();

@@ -10,7 +10,7 @@
 // 3. XPath spec compliance
 
 use platynui_xpath::xdm::{XdmAtomicValue, XdmItem};
-use platynui_xpath::{compile, evaluate, DynamicContextBuilder, SimpleNode};
+use platynui_xpath::{DynamicContextBuilder, SimpleNode, compile, evaluate};
 
 fn eval_to_bool(xpath: &str) -> bool {
     let compiled = compile(xpath).expect("Compilation failed");

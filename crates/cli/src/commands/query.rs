@@ -81,9 +81,7 @@ pub fn run(runtime: &Runtime, args: &QueryArgs) -> CliResult<String> {
     }
 }
 
-pub(crate) fn summarize_query_results(
-    results: Vec<EvaluationItem>,
-) -> Vec<QueryItemSummary> {
+pub(crate) fn summarize_query_results(results: Vec<EvaluationItem>) -> Vec<QueryItemSummary> {
     results
         .into_iter()
         .map(|item| match item {
@@ -91,20 +89,16 @@ pub(crate) fn summarize_query_results(
                 let patterns = node.supported_patterns();
                 node_to_query_summary(node, patterns)
             }
-            EvaluationItem::Attribute(attr) => {
-                QueryItemSummary::Attribute {
-                    owner_runtime_id: attr.owner.runtime_id().as_str().to_owned(),
-                    owner_namespace: attr.owner.namespace().as_str().to_owned(),
-                    owner_role: attr.owner.role().to_owned(),
-                    owner_name: attr.owner.name().to_owned(),
-                    namespace: attr.namespace.as_str().to_owned(),
-                    name: attr.name.clone(),
-                    value: attr.value.clone(),
-                }
-            }
-            EvaluationItem::Value(value) => {
-                QueryItemSummary::Value { value }
-            }
+            EvaluationItem::Attribute(attr) => QueryItemSummary::Attribute {
+                owner_runtime_id: attr.owner.runtime_id().as_str().to_owned(),
+                owner_namespace: attr.owner.namespace().as_str().to_owned(),
+                owner_role: attr.owner.role().to_owned(),
+                owner_name: attr.owner.name().to_owned(),
+                namespace: attr.namespace.as_str().to_owned(),
+                name: attr.name.clone(),
+                value: attr.value.clone(),
+            },
+            EvaluationItem::Value(value) => QueryItemSummary::Value { value },
         })
         .collect()
 }
@@ -135,7 +129,6 @@ fn node_to_query_summary(node: Arc<dyn UiNode>, patterns: Vec<PatternId>) -> Que
         attributes,
     }
 }
-
 
 fn format_attribute_value(value: &UiValue) -> String {
     match value {
@@ -301,7 +294,6 @@ mod tests {
         }
         Cow::Owned(result)
     }
-
 
     #[rstest]
     fn query_text_returns_nodes(runtime: Runtime) {

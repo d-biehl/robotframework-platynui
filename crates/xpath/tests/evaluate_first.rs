@@ -1,7 +1,7 @@
 use platynui_xpath::simple_node::{attr, doc as simple_doc, elem, text};
 use platynui_xpath::xdm::XdmItem;
 use platynui_xpath::{
-    compile, evaluate_first, evaluate_first_expr, DynamicContextBuilder, SimpleNode, XdmNode,
+    DynamicContextBuilder, SimpleNode, XdmNode, compile, evaluate_first, evaluate_first_expr,
 };
 
 #[test]
@@ -63,9 +63,8 @@ fn test_evaluate_first_with_predicate() {
     assert!(result.is_some());
 
     // Verify it's the correct item by checking the attribute via XPath
-    let verify_ctx = DynamicContextBuilder::<SimpleNode>::default()
-        .with_context_item(result.unwrap())
-        .build();
+    let verify_ctx =
+        DynamicContextBuilder::<SimpleNode>::default().with_context_item(result.unwrap()).build();
     let id_value = evaluate_first_expr::<SimpleNode>("@id", &verify_ctx).unwrap();
     match id_value {
         Some(XdmItem::Node(attr_node)) => {
@@ -186,13 +185,11 @@ fn test_evaluate_first_exists_pattern() {
         .build();
 
     // Existence check pattern
-    let has_error = evaluate_first_expr::<SimpleNode>("//item[@status='error']", &ctx)
-        .unwrap()
-        .is_some();
+    let has_error =
+        evaluate_first_expr::<SimpleNode>("//item[@status='error']", &ctx).unwrap().is_some();
     assert!(has_error);
 
-    let has_warning = evaluate_first_expr::<SimpleNode>("//item[@status='warning']", &ctx)
-        .unwrap()
-        .is_some();
+    let has_warning =
+        evaluate_first_expr::<SimpleNode>("//item[@status='warning']", &ctx).unwrap().is_some();
     assert!(!has_warning);
 }

@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use platynui_xpath::compiler::compile;
 use platynui_xpath::engine::runtime::DynamicContextBuilder;
 use platynui_xpath::simple_node::{doc as simple_doc, elem};

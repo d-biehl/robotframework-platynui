@@ -867,7 +867,9 @@ mod tests {
     use super::*;
     use super::{ClickStamp, PointerOverrides, PointerProfile, PointerSettings};
     use platynui_core::types::{Rect, Size};
-    use platynui_platform_mock::{PointerLogEntry, MOCK_POINTER, reset_pointer_state, take_pointer_log};
+    use platynui_platform_mock::{
+        MOCK_POINTER, PointerLogEntry, reset_pointer_state, take_pointer_log,
+    };
     use rstest::rstest;
     use serial_test::serial;
     use std::sync::Mutex;

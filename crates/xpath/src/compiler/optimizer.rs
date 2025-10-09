@@ -229,92 +229,86 @@ fn fold_constants(instrs: &mut Vec<OpCode>) {
             (
                 OpCode::PushAtomic(_),
                 OpCode::PushAtomic(_),
-                OpCode::Add
-                    | OpCode::Sub
-                    | OpCode::Mul
-                    | OpCode::Div
-                    | OpCode::IDiv
-                    | OpCode::Mod
+                OpCode::Add | OpCode::Sub | OpCode::Mul | OpCode::Div | OpCode::IDiv | OpCode::Mod
             )
         );
 
         if can_fold
-            && let (OpCode::PushAtomic(a), OpCode::PushAtomic(b)) =
-                (&instrs[i], &instrs[i + 1])
+            && let (OpCode::PushAtomic(a), OpCode::PushAtomic(b)) = (&instrs[i], &instrs[i + 1])
         {
             let result = match (&instrs[i + 2], a, b) {
-                    // Integer arithmetic - use checked operations to prevent overflow
-                    (OpCode::Add, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y)) => {
-                        x.checked_add(*y).map(XdmAtomicValue::Integer)
-                    }
-                    (OpCode::Sub, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y)) => {
-                        x.checked_sub(*y).map(XdmAtomicValue::Integer)
-                    }
-                    (OpCode::Mul, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y)) => {
-                        x.checked_mul(*y).map(XdmAtomicValue::Integer)
-                    }
-                    (OpCode::IDiv, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y))
-                        if *y != 0 =>
-                    {
-                        x.checked_div(*y).map(XdmAtomicValue::Integer)
-                    }
-                    (OpCode::Mod, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y))
-                        if *y != 0 =>
-                    {
-                        x.checked_rem(*y).map(XdmAtomicValue::Integer)
-                    }
-
-                    // Decimal arithmetic
-                    (OpCode::Add, XdmAtomicValue::Decimal(x), XdmAtomicValue::Decimal(y)) => {
-                        Some(XdmAtomicValue::Decimal(x + y))
-                    }
-                    (OpCode::Sub, XdmAtomicValue::Decimal(x), XdmAtomicValue::Decimal(y)) => {
-                        Some(XdmAtomicValue::Decimal(x - y))
-                    }
-                    (OpCode::Mul, XdmAtomicValue::Decimal(x), XdmAtomicValue::Decimal(y)) => {
-                        Some(XdmAtomicValue::Decimal(x * y))
-                    }
-                    (OpCode::Div, XdmAtomicValue::Decimal(x), XdmAtomicValue::Decimal(y)) => {
-                        Some(XdmAtomicValue::Decimal(x / y))
-                    }
-
-                    // Mixed integer/decimal - promote to decimal
-                    (OpCode::Add, XdmAtomicValue::Integer(x), XdmAtomicValue::Decimal(y)) => {
-                        Some(XdmAtomicValue::Decimal(*x as f64 + y))
-                    }
-                    (OpCode::Add, XdmAtomicValue::Decimal(x), XdmAtomicValue::Integer(y)) => {
-                        Some(XdmAtomicValue::Decimal(x + *y as f64))
-                    }
-                    (OpCode::Sub, XdmAtomicValue::Integer(x), XdmAtomicValue::Decimal(y)) => {
-                        Some(XdmAtomicValue::Decimal(*x as f64 - y))
-                    }
-                    (OpCode::Sub, XdmAtomicValue::Decimal(x), XdmAtomicValue::Integer(y)) => {
-                        Some(XdmAtomicValue::Decimal(x - *y as f64))
-                    }
-                    (OpCode::Mul, XdmAtomicValue::Integer(x), XdmAtomicValue::Decimal(y)) => {
-                        Some(XdmAtomicValue::Decimal(*x as f64 * y))
-                    }
-                    (OpCode::Mul, XdmAtomicValue::Decimal(x), XdmAtomicValue::Integer(y)) => {
-                        Some(XdmAtomicValue::Decimal(x * *y as f64))
-                    }
-                    (OpCode::Div, XdmAtomicValue::Integer(x), XdmAtomicValue::Decimal(y)) => {
-                        Some(XdmAtomicValue::Decimal(*x as f64 / y))
-                    }
-                    (OpCode::Div, XdmAtomicValue::Decimal(x), XdmAtomicValue::Integer(y)) => {
-                        Some(XdmAtomicValue::Decimal(x / *y as f64))
-                    }
-
-                    _ => None,
-                };
-
-                if let Some(folded) = result {
-                    // Replace three instructions with one
-                    instrs[i] = OpCode::PushAtomic(folded);
-                    instrs.remove(i + 1);
-                    instrs.remove(i + 1);
-                    // Don't increment i - check if we can fold more at this position
-                    continue;
+                // Integer arithmetic - use checked operations to prevent overflow
+                (OpCode::Add, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y)) => {
+                    x.checked_add(*y).map(XdmAtomicValue::Integer)
                 }
+                (OpCode::Sub, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y)) => {
+                    x.checked_sub(*y).map(XdmAtomicValue::Integer)
+                }
+                (OpCode::Mul, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y)) => {
+                    x.checked_mul(*y).map(XdmAtomicValue::Integer)
+                }
+                (OpCode::IDiv, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y))
+                    if *y != 0 =>
+                {
+                    x.checked_div(*y).map(XdmAtomicValue::Integer)
+                }
+                (OpCode::Mod, XdmAtomicValue::Integer(x), XdmAtomicValue::Integer(y))
+                    if *y != 0 =>
+                {
+                    x.checked_rem(*y).map(XdmAtomicValue::Integer)
+                }
+
+                // Decimal arithmetic
+                (OpCode::Add, XdmAtomicValue::Decimal(x), XdmAtomicValue::Decimal(y)) => {
+                    Some(XdmAtomicValue::Decimal(x + y))
+                }
+                (OpCode::Sub, XdmAtomicValue::Decimal(x), XdmAtomicValue::Decimal(y)) => {
+                    Some(XdmAtomicValue::Decimal(x - y))
+                }
+                (OpCode::Mul, XdmAtomicValue::Decimal(x), XdmAtomicValue::Decimal(y)) => {
+                    Some(XdmAtomicValue::Decimal(x * y))
+                }
+                (OpCode::Div, XdmAtomicValue::Decimal(x), XdmAtomicValue::Decimal(y)) => {
+                    Some(XdmAtomicValue::Decimal(x / y))
+                }
+
+                // Mixed integer/decimal - promote to decimal
+                (OpCode::Add, XdmAtomicValue::Integer(x), XdmAtomicValue::Decimal(y)) => {
+                    Some(XdmAtomicValue::Decimal(*x as f64 + y))
+                }
+                (OpCode::Add, XdmAtomicValue::Decimal(x), XdmAtomicValue::Integer(y)) => {
+                    Some(XdmAtomicValue::Decimal(x + *y as f64))
+                }
+                (OpCode::Sub, XdmAtomicValue::Integer(x), XdmAtomicValue::Decimal(y)) => {
+                    Some(XdmAtomicValue::Decimal(*x as f64 - y))
+                }
+                (OpCode::Sub, XdmAtomicValue::Decimal(x), XdmAtomicValue::Integer(y)) => {
+                    Some(XdmAtomicValue::Decimal(x - *y as f64))
+                }
+                (OpCode::Mul, XdmAtomicValue::Integer(x), XdmAtomicValue::Decimal(y)) => {
+                    Some(XdmAtomicValue::Decimal(*x as f64 * y))
+                }
+                (OpCode::Mul, XdmAtomicValue::Decimal(x), XdmAtomicValue::Integer(y)) => {
+                    Some(XdmAtomicValue::Decimal(x * *y as f64))
+                }
+                (OpCode::Div, XdmAtomicValue::Integer(x), XdmAtomicValue::Decimal(y)) => {
+                    Some(XdmAtomicValue::Decimal(*x as f64 / y))
+                }
+                (OpCode::Div, XdmAtomicValue::Decimal(x), XdmAtomicValue::Integer(y)) => {
+                    Some(XdmAtomicValue::Decimal(x / *y as f64))
+                }
+
+                _ => None,
+            };
+
+            if let Some(folded) = result {
+                // Replace three instructions with one
+                instrs[i] = OpCode::PushAtomic(folded);
+                instrs.remove(i + 1);
+                instrs.remove(i + 1);
+                // Don't increment i - check if we can fold more at this position
+                continue;
+            }
         }
 
         i += 1;
@@ -329,14 +323,10 @@ mod tests {
     #[test]
     fn test_simple_predicate_pushdown() {
         let mut instrs = vec![
-            OpCode::AxisStep(
-                AxisIR::Descendant,
-                NodeTestIR::AnyKind,
-                vec![],
-            ),
-            OpCode::ApplyPredicates(vec![
-                InstrSeq(vec![OpCode::PushAtomic(XdmAtomicValue::Boolean(true))]),
-            ]),
+            OpCode::AxisStep(AxisIR::Descendant, NodeTestIR::AnyKind, vec![]),
+            OpCode::ApplyPredicates(vec![InstrSeq(vec![OpCode::PushAtomic(
+                XdmAtomicValue::Boolean(true),
+            )])]),
         ];
 
         push_down_predicates(&mut instrs);
@@ -377,9 +367,9 @@ mod tests {
     fn test_no_pushdown_without_axis_step() {
         let mut instrs = vec![
             OpCode::LoadContextItem,
-            OpCode::ApplyPredicates(vec![
-                InstrSeq(vec![OpCode::PushAtomic(XdmAtomicValue::Boolean(true))]),
-            ]),
+            OpCode::ApplyPredicates(vec![InstrSeq(vec![OpCode::PushAtomic(
+                XdmAtomicValue::Boolean(true),
+            )])]),
         ];
 
         let original_len = instrs.len();
@@ -391,19 +381,17 @@ mod tests {
 
     #[test]
     fn test_nested_predicate_optimization() {
-        let mut instrs = vec![
-            OpCode::AxisStep(
-                AxisIR::Descendant,
-                NodeTestIR::AnyKind,
-                vec![InstrSeq(vec![
-                    // Nested axis step with predicate to push
-                    OpCode::AxisStep(AxisIR::Child, NodeTestIR::AnyKind, vec![]),
-                    OpCode::ApplyPredicates(vec![
-                        InstrSeq(vec![OpCode::PushAtomic(XdmAtomicValue::Boolean(true))]),
-                    ]),
-                ])],
-            ),
-        ];
+        let mut instrs = vec![OpCode::AxisStep(
+            AxisIR::Descendant,
+            NodeTestIR::AnyKind,
+            vec![InstrSeq(vec![
+                // Nested axis step with predicate to push
+                OpCode::AxisStep(AxisIR::Child, NodeTestIR::AnyKind, vec![]),
+                OpCode::ApplyPredicates(vec![InstrSeq(vec![OpCode::PushAtomic(
+                    XdmAtomicValue::Boolean(true),
+                )])]),
+            ])],
+        )];
 
         push_down_predicates(&mut instrs);
 

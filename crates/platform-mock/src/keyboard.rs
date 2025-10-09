@@ -227,10 +227,11 @@ mod tests {
         // Mock keyboard should NOT auto-register
         let devices: Vec<_> = keyboard_devices().collect();
         // Should only contain OS-specific devices, not mock
-        assert!(!devices.iter().any(|device|
-            device.key_to_code("Control").is_ok() &&
-            device.key_to_code("MockSpecificKey").is_ok()
-        ), "Mock keyboard should not be auto-registered");
+        assert!(
+            !devices.iter().any(|device| device.key_to_code("Control").is_ok()
+                && device.key_to_code("MockSpecificKey").is_ok()),
+            "Mock keyboard should not be auto-registered"
+        );
     }
 
     #[rstest]

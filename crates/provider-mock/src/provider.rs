@@ -2,12 +2,12 @@ use crate::focus;
 use crate::node::MockNode;
 use crate::tree;
 use crate::window;
+#[cfg(test)]
+use platynui_core::provider::UiTreeProviderFactory;
 use platynui_core::provider::{
     ProviderDescriptor, ProviderError, ProviderEvent, ProviderEventKind, ProviderEventListener,
     UiTreeProvider,
 };
-#[cfg(test)]
-use platynui_core::provider::UiTreeProviderFactory;
 use platynui_core::ui::Namespace;
 use platynui_core::ui::UiNode;
 use std::collections::HashMap;

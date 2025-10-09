@@ -364,7 +364,9 @@ mod tests {
                 Box::new(std::iter::empty())
             }
 
-            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+            fn attributes(
+                &self,
+            ) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
                 Box::new(std::iter::empty())
             }
 
@@ -468,7 +470,9 @@ mod tests {
                 Box::new(std::iter::empty())
             }
 
-            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+            fn attributes(
+                &self,
+            ) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
                 Box::new(std::iter::empty())
             }
 
@@ -522,7 +526,9 @@ mod tests {
                 Box::new(std::iter::empty())
             }
 
-            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+            fn attributes(
+                &self,
+            ) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
                 Box::new(std::iter::empty())
             }
 

@@ -527,7 +527,9 @@ impl RegexProvider for FancyRegexProvider {
                 Ok(s) => tokens.push(s.to_string()),
                 Err(e) => {
                     return Err(Error::from_code(ErrorCode::FORX0002, "regex evaluation error")
-                        .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>)));
+                        .with_source(Some(
+                            Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>
+                        )));
                 }
             }
         }

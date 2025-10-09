@@ -133,7 +133,6 @@ mod tests {
 
     static TEST_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-
     #[rstest]
     #[serial]
     fn screenshot_command_writes_png(runtime: Runtime) {
@@ -157,7 +156,6 @@ mod tests {
         assert_eq!(log.len(), 1);
         assert_eq!(log[0].width, 400);
         assert_eq!(log[0].height, 200);
-
     }
 
     #[rstest]
@@ -179,7 +177,6 @@ mod tests {
         assert!(log[0].request.region.is_none());
         assert_eq!(log[0].width, 7920);
         assert_eq!(log[0].height, 3840);
-
     }
 
     #[test]

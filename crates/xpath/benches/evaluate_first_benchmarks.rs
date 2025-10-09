@@ -12,8 +12,7 @@ fn build_tree(sections: usize, items_per_section: usize) -> SimpleNode {
     for s in 0..sections {
         let mut section = elem("section");
         for i in 0..items_per_section {
-            let mut item = elem("item")
-                .attr(attr("id", &format!("item-{}-{}", s, i)));
+            let mut item = elem("item").attr(attr("id", &format!("item-{}-{}", s, i)));
             if i % 10 == 0 {
                 item = item.attr(attr("selected", "true"));
             }
@@ -39,41 +38,29 @@ fn benchmark_first_item(c: &mut Criterion) {
         let compiled = compile("//item").unwrap();
 
         // Materialized: collect all, then take first
-        group.bench_with_input(
-            BenchmarkId::new("materialized_first", size),
-            &size,
-            |b, _| {
-                b.iter(|| {
-                    let all = evaluate(&compiled, &ctx).unwrap();
-                    black_box(all.first().cloned());
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("materialized_first", size), &size, |b, _| {
+            b.iter(|| {
+                let all = evaluate(&compiled, &ctx).unwrap();
+                black_box(all.first().cloned());
+            });
+        });
 
         // Streaming: take(1)
-        group.bench_with_input(
-            BenchmarkId::new("streaming_take_1", size),
-            &size,
-            |b, _| {
-                b.iter(|| {
-                    let stream = evaluate_stream(&compiled, &ctx).unwrap();
-                    let first = stream.iter().take(1).next().transpose().unwrap();
-                    black_box(first);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("streaming_take_1", size), &size, |b, _| {
+            b.iter(|| {
+                let stream = evaluate_stream(&compiled, &ctx).unwrap();
+                let first = stream.iter().take(1).next().transpose().unwrap();
+                black_box(first);
+            });
+        });
 
         // Fast path: evaluate_first()
-        group.bench_with_input(
-            BenchmarkId::new("evaluate_first", size),
-            &size,
-            |b, _| {
-                b.iter(|| {
-                    let first = evaluate_first(&compiled, &ctx).unwrap();
-                    black_box(first);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("evaluate_first", size), &size, |b, _| {
+            b.iter(|| {
+                let first = evaluate_first(&compiled, &ctx).unwrap();
+                black_box(first);
+            });
+        });
     }
 
     group.finish();

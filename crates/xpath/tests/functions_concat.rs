@@ -32,7 +32,7 @@ fn concat_variadic_50_args() {
         XdmItem::Atomic(XdmAtomicValue::String(s)) => {
             let expected = (1..=50).map(|n| n.to_string()).collect::<Vec<_>>().join("");
             assert_eq!(s, &expected);
-        },
+        }
         other => panic!("expected atomic String, got {other:?}"),
     }
 }

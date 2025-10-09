@@ -4,7 +4,7 @@
 //! original implementation also selected document nodes.
 
 use platynui_xpath::engine::runtime::{DynamicContext, DynamicContextBuilder};
-use platynui_xpath::model::simple::{doc, elem, attr};
+use platynui_xpath::model::simple::{attr, doc, elem};
 use platynui_xpath::{XdmNode, evaluate_expr, xdm::XdmItem as I};
 use rstest::{fixture, rstest};
 
@@ -12,9 +12,7 @@ type N = platynui_xpath::model::simple::SimpleNode;
 
 #[fixture]
 fn document_context() -> DynamicContext<N> {
-    let d = doc()
-        .child(elem("root").child(elem("child")))
-        .build();
+    let d = doc().child(elem("root").child(elem("child"))).build();
 
     DynamicContextBuilder::default().with_context_item(I::Node(d)).build()
 }
@@ -23,18 +21,10 @@ fn document_context() -> DynamicContext<N> {
 fn complex_nested_context() -> DynamicContext<N> {
     let d = doc()
         .child(
-            elem("Application")
-                .attr(attr("app:Name", "olk"))
-                .child(
-                    elem("Window")
-                        .child(
-                            elem("Panel")
-                                .child(
-                                    elem("Control")
-                                        .attr(attr("Name", "Daniel User"))
-                                )
-                        )
-                )
+            elem("Application").attr(attr("app:Name", "olk")).child(
+                elem("Window")
+                    .child(elem("Panel").child(elem("Control").attr(attr("Name", "Daniel User")))),
+            ),
         )
         .build();
 

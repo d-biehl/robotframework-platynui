@@ -31,12 +31,8 @@ fn reverse_single_item() {
 
 #[test]
 fn reverse_multiple_items() {
-    let doc = simple_doc()
-        .child(elem("root")
-            .child(elem("a"))
-            .child(elem("b"))
-            .child(elem("c"))
-        ).build();
+    let doc =
+        simple_doc().child(elem("root").child(elem("a")).child(elem("b")).child(elem("c"))).build();
 
     let ctx = DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc)).build();
     let result = evaluate_expr::<SimpleNode>("reverse(//a | //b | //c)", &ctx).unwrap();
@@ -165,7 +161,9 @@ fn combined_reverse_count() {
 fn combined_unordered_exists() {
     let doc = build_doc_with_items(3);
     let ctx = DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc)).build();
-    let result = evaluate_expr::<SimpleNode>("if (exists(unordered(//item))) then 'yes' else 'no'", &ctx).unwrap();
+    let result =
+        evaluate_expr::<SimpleNode>("if (exists(unordered(//item))) then 'yes' else 'no'", &ctx)
+            .unwrap();
 
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::String(s)) => assert_eq!(s, "yes"),
@@ -176,7 +174,8 @@ fn combined_unordered_exists() {
 #[test]
 fn combined_string_length_concat() {
     let ctx = DynamicContextBuilder::default().build();
-    let result = evaluate_expr::<SimpleNode>("string-length(concat('hello', ' ', 'world'))", &ctx).unwrap();
+    let result =
+        evaluate_expr::<SimpleNode>("string-length(concat('hello', ' ', 'world'))", &ctx).unwrap();
 
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::Integer(len)) => assert_eq!(*len, 11), // "hello world"

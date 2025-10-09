@@ -8,7 +8,9 @@
 //! same MTA thread when used from iterator code.
 
 use std::cell::{Cell, RefCell};
-use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx};
+use windows::Win32::System::Com::{
+    CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
+};
 use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation, IUIAutomationTreeWalker};
 
 thread_local! {
@@ -51,9 +53,8 @@ pub fn raw_walker() -> Result<IUIAutomationTreeWalker, crate::error::UiaError> {
         if let Some(existing) = cell.borrow().as_ref() {
             return Ok(existing.clone());
         }
-        let walker: IUIAutomationTreeWalker = unsafe {
-            crate::error::uia_api("IUIAutomation::RawViewWalker", uia.RawViewWalker())?
-        };
+        let walker: IUIAutomationTreeWalker =
+            unsafe { crate::error::uia_api("IUIAutomation::RawViewWalker", uia.RawViewWalker())? };
         *cell.borrow_mut() = Some(walker.clone());
         Ok(walker)
     })

@@ -6,10 +6,12 @@ use rstest::*;
 fn eval_expression_strs(expr: &str, ctx: &DynamicContext<SimpleNode>) -> Vec<String> {
     let compiled = compile(expr).unwrap();
     let result = evaluate(&compiled, ctx).unwrap();
-    result.iter().map(|item| {
-        match item {
+    result
+        .iter()
+        .map(|item| match item {
             XdmItem::Atomic(XdmAtomicValue::Integer(n)) => n.to_string(),
-            XdmItem::Atomic(XdmAtomicValue::Decimal(d)) | XdmItem::Atomic(XdmAtomicValue::Double(d)) => {
+            XdmItem::Atomic(XdmAtomicValue::Decimal(d))
+            | XdmItem::Atomic(XdmAtomicValue::Double(d)) => {
                 if d.is_nan() {
                     "NaN".to_string()
                 } else if d.fract() == 0.0 {
@@ -30,8 +32,8 @@ fn eval_expression_strs(expr: &str, ctx: &DynamicContext<SimpleNode>) -> Vec<Str
             XdmItem::Atomic(XdmAtomicValue::String(s)) => s.to_string(),
             XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => b.to_string(),
             _ => format!("{:?}", item),
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 // ===== distinct-values() Tests =====

@@ -44,11 +44,7 @@ pub(super) fn root_stream<N: 'static + crate::model::XdmNode + Clone>(
         Some(require_context_item(ctx)?)
     } else {
         let seq: XdmSequence<N> = args[0].materialize()?;
-        if seq.is_empty() {
-            None
-        } else {
-            Some(seq[0].clone())
-        }
+        if seq.is_empty() { None } else { Some(seq[0].clone()) }
     };
     let Some(item) = item_opt else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
@@ -97,11 +93,7 @@ pub(super) fn base_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq = if args.is_empty() {
-        vec![]
-    } else {
-        args[0].materialize()?
-    };
+    let seq = if args.is_empty() { vec![] } else { args[0].materialize()? };
     let materialized_args = if args.is_empty() {
         // Arity 0 - use context item
         vec![]
@@ -143,11 +135,7 @@ pub(super) fn document_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq = if args.is_empty() {
-        vec![]
-    } else {
-        args[0].materialize()?
-    };
+    let seq = if args.is_empty() { vec![] } else { args[0].materialize()? };
     let materialized_args = if args.is_empty() {
         // Arity 0 - use context item
         vec![]
@@ -228,16 +216,8 @@ pub(super) fn lang_stream<N: 'static + crate::model::XdmNode + Clone>(
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq0 = args[0].materialize()?;
-    let seq1 = if args.len() >= 2 {
-        args[1].materialize()?
-    } else {
-        vec![]
-    };
-    let materialized_args = if seq1.is_empty() {
-        vec![seq0]
-    } else {
-        vec![seq0, seq1]
-    };
+    let seq1 = if args.len() >= 2 { args[1].materialize()? } else { vec![] };
+    let materialized_args = if seq1.is_empty() { vec![seq0] } else { vec![seq0, seq1] };
     let result = lang_fn(ctx, &materialized_args)?;
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -254,7 +234,9 @@ pub(super) fn encode_for_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
         ));
     }
     if seq.is_empty() {
-        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]));
+        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::String(
+            String::new(),
+        ))]));
     }
     let s = item_to_string(&seq);
     fn is_unreserved(ch: char) -> bool {
@@ -344,7 +326,9 @@ pub(super) fn escape_html_uri_stream<N: 'static + crate::model::XdmNode + Clone>
         ));
     }
     if seq.is_empty() {
-        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]));
+        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::String(
+            String::new(),
+        ))]));
     }
     let s = item_to_string(&seq);
     let mut out = String::new();
@@ -412,16 +396,8 @@ pub(super) fn resolve_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq0 = args[0].materialize()?;
-    let seq1 = if args.len() >= 2 {
-        args[1].materialize()?
-    } else {
-        vec![]
-    };
-    let materialized_args = if seq1.is_empty() {
-        vec![seq0]
-    } else {
-        vec![seq0, seq1]
-    };
+    let seq1 = if args.len() >= 2 { args[1].materialize()? } else { vec![] };
+    let materialized_args = if seq1.is_empty() { vec![seq0] } else { vec![seq0, seq1] };
     let result = resolve_uri_fn(ctx, &materialized_args)?;
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -476,16 +452,8 @@ pub(super) fn normalize_unicode_stream<N: 'static + crate::model::XdmNode + Clon
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq0 = args[0].materialize()?;
-    let seq1 = if args.len() >= 2 {
-        args[1].materialize()?
-    } else {
-        vec![]
-    };
-    let materialized_args = if seq1.is_empty() {
-        vec![seq0]
-    } else {
-        vec![seq0, seq1]
-    };
+    let seq1 = if args.len() >= 2 { args[1].materialize()? } else { vec![] };
+    let materialized_args = if seq1.is_empty() { vec![seq0] } else { vec![seq0, seq1] };
     let result = normalize_unicode_fn(ctx, &materialized_args)?;
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -496,7 +464,9 @@ pub(super) fn doc_available_stream<N: 'static + crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
     if seq.is_empty() {
-        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]));
+        return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(
+            false,
+        ))]));
     }
     let uri = item_to_string(&seq);
     let result = if let Some(nr) = &ctx.dyn_ctx.node_resolver {
@@ -570,16 +540,8 @@ pub(super) fn collection_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq = if args.is_empty() {
-        vec![]
-    } else {
-        args[0].materialize()?
-    };
-    let materialized_args = if seq.is_empty() {
-        vec![]
-    } else {
-        vec![seq]
-    };
+    let seq = if args.is_empty() { vec![] } else { args[0].materialize()? };
+    let materialized_args = if seq.is_empty() { vec![] } else { vec![seq] };
     let result = collection_fn(ctx, &materialized_args)?;
     Ok(XdmSequenceStream::from_vec(result))
 }
