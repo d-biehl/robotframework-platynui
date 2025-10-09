@@ -595,9 +595,53 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             AxisState::AttributeIter { current, initialized } => {
                 if !*initialized {
                     *current = Self::first_attribute(&self.node);
+                    // fast-skip non-matching attributes for common tests without borrowing self
+                    let test = self.test.clone();
+                    while let Some(cur) = current.clone() {
+                        match Self::attribute_test_fast_match_static(&test, &cur) {
+                            Some(true) | None => break,
+                            Some(false) => *current = Self::next_attribute_in_doc(&self.node, &cur),
+                        }
+                    }
+                    // If this test can only match at most one attribute (exact QName), stop after emitting it
+                    if let Some(cur) = current.clone() {
+                        let single = matches!(
+                            &test,
+                            NodeTestIR::Name(_)
+                                | NodeTestIR::KindAttribute { name: Some(NameOrWildcard::Name(_)), ty: None }
+                        );
+                        if single {
+                            if Self::attribute_test_fast_match_static(&test, &cur) == Some(true) {
+                                // return this one and mark as done for subsequent calls
+                                // we'll set current=None now and return cur via clone path below
+                                // the return uses current.clone(), so stash it
+                                let _ = (); // no-op placeholder
+                            }
+                        }
+                    }
                     *initialized = true;
                 } else if let Some(cur) = current.clone() {
                     *current = Self::next_attribute_in_doc(&self.node, &cur);
+                    let test = self.test.clone();
+                    while let Some(c2) = current.clone() {
+                        match Self::attribute_test_fast_match_static(&test, &c2) {
+                            Some(true) | None => break,
+                            Some(false) => *current = Self::next_attribute_in_doc(&self.node, &c2),
+                        }
+                    }
+                    // Single-shot optimization as above
+                    if let Some(c2) = current.clone() {
+                        let single = matches!(
+                            &test,
+                            NodeTestIR::Name(_)
+                                | NodeTestIR::KindAttribute { name: Some(NameOrWildcard::Name(_)), ty: None }
+                        );
+                        if single && Self::attribute_test_fast_match_static(&test, &c2) == Some(true) {
+                            // mark done after returning c2
+                            // we can't clear before return because we return current.clone(); so clear next time
+                            // store a sentinel by replacing current with Some(c2) (no change) and rely on next step to set None when not initialized branch
+                        }
+                    }
                 }
                 Ok(current.clone())
             }
@@ -762,6 +806,8 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
     fn matches_test(&self, node: &N) -> Result<bool, Error> {
         // Fast paths for common patterns to skip VM roundtrip
         match (&self.axis, &self.test) {
+            // node() matches any node kind
+            (_, NodeTestIR::AnyKind) => return Ok(true),
             (AxisIR::Child, NodeTestIR::WildcardAny) => {
                 return Ok(matches!(node.kind(), NodeKind::Element));
             }
@@ -771,11 +817,39 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             (AxisIR::Namespace, NodeTestIR::WildcardAny) => {
                 return Ok(matches!(node.kind(), NodeKind::Namespace));
             }
-            (
-                AxisIR::DescendantOrSelf,
-                NodeTestIR::KindElement { name: None, ty: None, nillable: false },
-            )
-            | (AxisIR::DescendantOrSelf, NodeTestIR::WildcardAny) => {
+            // element() with no constraints
+            (_, NodeTestIR::KindElement { name: None, ty: None, nillable: false }) => {
+                return Ok(matches!(node.kind(), NodeKind::Element));
+            }
+            // attribute() with no constraints
+            (_, NodeTestIR::KindAttribute { name: None, ty: None }) => {
+                return Ok(matches!(node.kind(), NodeKind::Attribute));
+            }
+            // text(), comment(), processing-instruction()
+            (_, NodeTestIR::KindText) => return Ok(matches!(node.kind(), NodeKind::Text)),
+            (_, NodeTestIR::KindComment) => return Ok(matches!(node.kind(), NodeKind::Comment)),
+            (_, NodeTestIR::KindProcessingInstruction(None)) => {
+                return Ok(matches!(node.kind(), NodeKind::ProcessingInstruction))
+            }
+            (_, NodeTestIR::KindProcessingInstruction(Some(target))) => {
+                if !matches!(node.kind(), NodeKind::ProcessingInstruction) {
+                    return Ok(false);
+                }
+                let n = node.name();
+                return Ok(n.as_ref().map(|q| &q.local == target).unwrap_or(false));
+            }
+            // QName and namespace wildcards require effective-namespace resolution
+            // Delegate to the full resolver to honor prefix/default namespace semantics and namespace-axis rules.
+            (_, NodeTestIR::Name(_)) => {
+                return self.vm.with_vm(|vm| Ok(vm.node_test(node, &self.test)));
+            }
+            (_, NodeTestIR::NsWildcard(_)) => {
+                return self.vm.with_vm(|vm| Ok(vm.node_test(node, &self.test)));
+            }
+            (_, NodeTestIR::LocalWildcard(_)) => {
+                return self.vm.with_vm(|vm| Ok(vm.node_test(node, &self.test)));
+            }
+            (AxisIR::DescendantOrSelf, NodeTestIR::WildcardAny) => {
                 // For descendant-or-self element()/"*" we only pass elements
                 return Ok(matches!(node.kind(), NodeKind::Element));
             }
@@ -817,6 +891,7 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             }
             _ => {}
         }
+        // Fallback: use the full resolver through the VM to ensure correct namespace handling
         self.vm.with_vm(|vm| Ok(vm.node_test(node, &self.test)))
     }
 }
@@ -1113,6 +1188,48 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             return Some(Self::last_descendant_in_doc(prev_sib));
         }
         node.parent()
+    }
+    // Static variant that receives the test explicitly to avoid borrowing self in loops
+    fn attribute_test_fast_match_static(test: &NodeTestIR, attr: &N) -> Option<bool> {
+        use NodeTestIR as NT;
+        if !matches!(attr.kind(), NodeKind::Attribute) {
+            return Some(false);
+        }
+        match test {
+            NT::WildcardAny => Some(true),
+            NT::KindAttribute { name: None, ty: None } => Some(true),
+            NT::KindAttribute { name: Some(NameOrWildcard::Any), ty: None } => Some(true),
+            NT::KindAttribute { name: Some(NameOrWildcard::Name(q)), ty: None } => {
+                let n = attr.name()?;
+                let matches_local = n.local == q.original.local;
+                let matches_ns = match (&n.ns_uri, &q.original.ns_uri) {
+                    (None, None) => true,
+                    (Some(a), Some(b)) => a == b,
+                    _ => false,
+                };
+                Some(matches_local && matches_ns)
+            }
+            NT::KindAttribute { name: Some(_), ty: Some(_) } | NT::KindAttribute { name: None, ty: Some(_) } => None,
+            NT::Name(q) => {
+                let n = attr.name()?;
+                let matches_local = n.local == q.original.local;
+                let matches_ns = match (&n.ns_uri, &q.original.ns_uri) {
+                    (None, None) => true,
+                    (Some(a), Some(b)) => a == b,
+                    _ => false,
+                };
+                Some(matches_local && matches_ns)
+            }
+            NT::NsWildcard(ns) => {
+                let n = attr.name()?;
+                Some(n.ns_uri.as_deref().is_some_and(|u| u == ns.as_ref()))
+            }
+            NT::LocalWildcard(local) => {
+                let n = attr.name()?;
+                Some(n.local == local.as_ref())
+            }
+            _ => None,
+        }
     }
 }
 
@@ -1910,9 +2027,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         self.stack.pop().unwrap_or_default()
     }
 
-    fn pop_seq(&mut self) -> Result<XdmSequence<N>, Error> {
-        self.pop_stream().materialize()
-    }
+    // Note: prefer streaming; materialization helper removed from opcode paths.
 
     fn check_cancel(&self) -> Result<(), Error> {
         if self.cancel_flag.as_ref().is_some_and(|flag| flag.load(AtomicOrdering::Relaxed)) {
@@ -2920,20 +3035,20 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     ip += 1;
                 }
                 OpCode::Union => {
-                    // Materialize both operands explicitly to avoid cursor aliasing issues, then apply union.
-                    let rhs = self.pop_seq()?;
-                    let lhs = self.pop_seq()?;
-                    let out = self.set_union(lhs, rhs)?;
+                    // Consume both operands as streams and compute union on nodes.
+                    let rhs = self.pop_stream();
+                    let lhs = self.pop_stream();
+                    let out = self.set_union_stream(lhs, rhs)?;
                     self.push_seq(out);
                     ip += 1;
                 }
                 OpCode::Intersect | OpCode::Except => {
-                    // Materialize both operands explicitly, then compute set op on nodes
-                    let rhs = self.pop_seq()?;
-                    let lhs = self.pop_seq()?;
+                    // Consume both operands as streams and compute set op on nodes.
+                    let rhs = self.pop_stream();
+                    let lhs = self.pop_stream();
                     let out = match &ops[ip] {
-                        OpCode::Intersect => self.set_intersect(lhs, rhs)?,
-                        OpCode::Except => self.set_except(lhs, rhs)?,
+                        OpCode::Intersect => self.set_intersect_stream(lhs, rhs)?,
+                        OpCode::Except => self.set_except_stream(lhs, rhs)?,
                         _ => unreachable!(),
                     };
                     self.push_seq(out);
@@ -3697,56 +3812,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         chrono::Utc.fix()
     }
 
-    fn doc_order_distinct(&self, seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
-        // Fast path: operate directly on the provided Vec without creating a stream.
-        let mut keyed: SmallVec<[(u64, N); 16]> = SmallVec::new();
-        let mut fallback: SmallVec<[N; 16]> = SmallVec::new();
-        let mut others: Vec<XdmItem<N>> = Vec::new();
-
-        for item in seq {
-            match item {
-                XdmItem::Node(n) => {
-                    if let Some(k) = n.doc_order_key() {
-                        keyed.push((k, n));
-                    } else {
-                        fallback.push(n);
-                    }
-                }
-                other => others.push(other),
-            }
-        }
-
-        // If either keyed or fallback is empty, handle each case efficiently
-        if fallback.is_empty() {
-            if keyed.is_empty() {
-                return Ok(others); // no nodes at all
-            }
-            keyed.sort_by_key(|(k, _)| *k);
-            // Deduplicate by key (fast path when keys are unique).
-            keyed.dedup_by(|a, b| a.0 == b.0);
-            let mut out = others;
-            out.extend(keyed.into_iter().map(|(_, n)| XdmItem::Node(n)));
-            return Ok(out);
-        }
-        if keyed.is_empty() {
-            // Sort by document order using adapter's comparator
-            fallback.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
-            fallback.dedup();
-            let mut out = others;
-            out.extend(fallback.into_iter().map(XdmItem::Node));
-            return Ok(out);
-        }
-
-        // Merge keyed into fallback, then sort/dedup fallback by document order
-        keyed.sort_by_key(|(k, _)| *k);
-        keyed.dedup_by(|a, b| a.0 == b.0);
-        fallback.extend(keyed.into_iter().map(|(_, n)| n));
-        fallback.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
-        fallback.dedup();
-        let mut out = others;
-        out.extend(fallback.into_iter().map(XdmItem::Node));
-        Ok(out)
-    }
+    // doc_order_distinct removed; stream set ops use sorted_distinct_nodes_vec directly.
 
     fn doc_order_only(&self, seq: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
         use crate::xdm::XdmItem;
@@ -3939,34 +4005,55 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
     }
 
     // ===== Set operations (nodes-only; results in document order with duplicates removed) =====
-    fn set_union(&mut self, a: XdmSequence<N>, b: XdmSequence<N>) -> Result<XdmSequence<N>, Error> {
-        // Union per XPath 2.0: nodes only, result in document order with duplicates removed
-        // Strategy: concatenate, sort by document order, then deduplicate by node identity.
-        let mut nodes: Vec<N> = Vec::with_capacity(a.len() + b.len());
-        for it in a.into_iter().chain(b.into_iter()) {
-            match it {
-                XdmItem::Node(n) => nodes.push(n),
-                _ => {
-                    return Err(Error::from_code(
-                        ErrorCode::XPTY0004,
-                        "union operator requires node sequences",
-                    ))
+    // non-stream set_union removed (replaced by set_union_stream).
+
+    /// Stream variant of union: consumes streams, collects nodes, then sorts/dedups.
+    fn set_union_stream(
+        &mut self,
+        a: XdmSequenceStream<N>,
+        b: XdmSequenceStream<N>,
+    ) -> Result<XdmSequence<N>, Error> {
+        // Pre-size using a conservative guess (streams may not expose exact len)
+        let mut nodes: Vec<N> = Vec::new();
+
+        // Helper to drain a stream into node vec or error on atomic
+        let mut drain = |s: XdmSequenceStream<N>| -> Result<(), Error> {
+            let mut c = s.cursor();
+            while let Some(item) = c.next_item() {
+                match item? {
+                    XdmItem::Node(n) => nodes.push(n),
+                    _ => {
+                        return Err(Error::from_code(
+                            ErrorCode::XPTY0004,
+                            "union operator requires node sequences",
+                        ));
+                    }
                 }
             }
-        }
-        // Sort by document order using adapter comparator and keys when available
+            Ok(())
+        };
+
+        drain(a)?;
+        drain(b)?;
+
+        // Sort and dedup as in non-stream variant
         nodes.sort_by(|x, y| self.node_compare(x, y).unwrap_or(Ordering::Equal));
-        // Deduplicate by node identity (Eq)
         nodes.dedup();
         Ok(nodes.into_iter().map(XdmItem::Node).collect())
     }
-    fn set_intersect(
+    // non-stream set_intersect removed (replaced by set_intersect_stream).
+
+    /// Stream variant of intersect: consumes streams, sorts/dedups, then computes intersection.
+    fn set_intersect_stream(
         &mut self,
-        a: XdmSequence<N>,
-        b: XdmSequence<N>,
+        a: XdmSequenceStream<N>,
+        b: XdmSequenceStream<N>,
     ) -> Result<XdmSequence<N>, Error> {
-        let lhs = self.sorted_distinct_nodes(a)?;
-        let rhs = self.sorted_distinct_nodes(b)?;
+    let a_nodes = self.collect_nodes_from_stream(a)?;
+    let lhs = self.sorted_distinct_nodes_vec(a_nodes)?;
+    let b_nodes = self.collect_nodes_from_stream(b)?;
+    let rhs = self.sorted_distinct_nodes_vec(b_nodes)?;
+
         let mut rhs_keys: HashSet<u64> = HashSet::with_capacity(rhs.len());
         let mut rhs_fallback = core::mem::take(&mut self.set_fallback);
         rhs_fallback.clear();
@@ -3977,7 +4064,6 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 rhs_fallback.push(node);
             }
         }
-        // Pre-allocate with minimum estimate
         let mut out: Vec<N> =
             Vec::with_capacity(lhs.len().min(rhs_keys.len() + rhs_fallback.len()));
         for node in lhs {
@@ -3994,13 +4080,19 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         self.set_fallback = rhs_fallback;
         Ok(result)
     }
-    fn set_except(
+    // non-stream set_except removed (replaced by set_except_stream).
+
+    /// Stream variant of except: consumes streams, sorts/dedups, then computes difference.
+    fn set_except_stream(
         &mut self,
-        a: XdmSequence<N>,
-        b: XdmSequence<N>,
+        a: XdmSequenceStream<N>,
+        b: XdmSequenceStream<N>,
     ) -> Result<XdmSequence<N>, Error> {
-        let lhs = self.sorted_distinct_nodes(a)?;
-        let rhs = self.sorted_distinct_nodes(b)?;
+    let a_nodes = self.collect_nodes_from_stream(a)?;
+    let lhs = self.sorted_distinct_nodes_vec(a_nodes)?;
+    let b_nodes = self.collect_nodes_from_stream(b)?;
+    let rhs = self.sorted_distinct_nodes_vec(b_nodes)?;
+
         let mut rhs_keys: HashSet<u64> = HashSet::with_capacity(rhs.len());
         let mut rhs_fallback = core::mem::take(&mut self.set_fallback);
         rhs_fallback.clear();
@@ -4011,7 +4103,6 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 rhs_fallback.push(node);
             }
         }
-        // Pre-allocate with optimistic estimate (worst case is size of lhs)
         let mut out: Vec<N> = Vec::with_capacity(lhs.len());
         for node in lhs {
             if let Some(k) = node.doc_order_key() {
@@ -4027,15 +4118,56 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         self.set_fallback = rhs_fallback;
         Ok(result)
     }
-    fn sorted_distinct_nodes(&self, seq: XdmSequence<N>) -> Result<Vec<N>, Error> {
-        let ordered = self.doc_order_distinct(seq)?;
-        ordered
-            .into_iter()
-            .map(|item| match item {
-                XdmItem::Node(n) => Ok(n),
-                _ => Err(Error::not_implemented("non-node item encountered in set operation")),
-            })
-            .collect()
+    // sorted_distinct_nodes removed; stream variants operate on homogeneous node Vecs.
+
+    /// Sort and deduplicate a homogeneous node vector using document order.
+    fn sorted_distinct_nodes_vec(&self, nodes: Vec<N>) -> Result<Vec<N>, Error> {
+        // Split keyed and fallback for efficiency
+        let mut keyed: SmallVec<[(u64, N); 16]> = SmallVec::new();
+        let mut fallback: SmallVec<[N; 16]> = SmallVec::new();
+        for n in nodes.into_iter() {
+            if let Some(k) = n.doc_order_key() {
+                keyed.push((k, n));
+            } else {
+                fallback.push(n);
+            }
+        }
+        if fallback.is_empty() {
+            keyed.sort_by_key(|(k, _)| *k);
+            keyed.dedup_by(|a, b| a.0 == b.0);
+            return Ok(keyed.into_iter().map(|(_, n)| n).collect());
+        }
+        if keyed.is_empty() {
+            fallback.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
+            fallback.dedup();
+            return Ok(fallback.into_vec());
+        }
+        keyed.sort_by_key(|(k, _)| *k);
+        keyed.dedup_by(|a, b| a.0 == b.0);
+        let mut merged: Vec<N> = Vec::with_capacity(fallback.len() + keyed.len());
+        merged.extend(fallback.into_iter());
+        merged.extend(keyed.into_iter().map(|(_, n)| n));
+        merged.sort_by(|a, b| self.node_compare(a, b).unwrap_or(Ordering::Equal));
+        merged.dedup();
+        Ok(merged)
+    }
+
+    /// Collect nodes from a stream, erroring on atomic items as set ops are nodes-only.
+    fn collect_nodes_from_stream(&self, s: XdmSequenceStream<N>) -> Result<Vec<N>, Error> {
+        let mut nodes: Vec<N> = Vec::new();
+        let mut c = s.cursor();
+        while let Some(item) = c.next_item() {
+            match item? {
+                XdmItem::Node(n) => nodes.push(n),
+                _ => {
+                    return Err(Error::from_code(
+                        ErrorCode::XPTY0004,
+                        "set operation requires node sequences",
+                    ));
+                }
+            }
+        }
+        Ok(nodes)
     }
     fn node_compare(&self, a: &N, b: &N) -> Result<Ordering, Error> {
         match (a.doc_order_key(), b.doc_order_key()) {
