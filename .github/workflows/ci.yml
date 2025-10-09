@@ -106,10 +106,10 @@ jobs:
           cache-all-crates: true
 
       - name: update versions from git
-        run: uv run scripts/update_version.py
+        run: uv run scripts/update-git-versions.py
 
       - name: update changelog
-        run: uv run scripts/update_changelog.py
+        run: uv run scripts/update-changelog.py
 
       - name: Sync Python environment (uv)
         run: uv sync --dev --all-packages
