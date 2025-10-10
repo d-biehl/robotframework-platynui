@@ -15,7 +15,7 @@
 ## Querschnittsrichtlinien
 - Dokumentationssprache: Planungskern (Konzept, Plan, Patterns, Checklisten) bleibt deutsch; alle übrigen Repository-Dateien führen wir auf Englisch.
 - Abhängigkeiten: Beim Hinzufügen oder Aktualisieren immer die aktuell stabil veröffentlichte Version verwenden. Dafür `cargo search`, crates.io-API oder `cargo outdated` einsetzen und Versionsstand explizit im Review erwähnen.
-- Crate-Erstellung: In jeder neuen oder überarbeiteten `Cargo.toml` muss der Eintrag `package.name` mit `platynui-` beginnen. Verzeichnisnamen dürfen kürzer sein (`crates/runtime` → `platynui-runtime`), entscheidend ist der Paketname. Bei Reviews aktiv prüfen, dass keine Ausnahme entsteht.
+- Crate-Erstellung: Für Workspace‑Crates (unter `crates/*`, `apps/*`) muss der Eintrag `package.name` mit `platynui-` beginnen. Verzeichnisnamen dürfen kürzer sein (`crates/runtime` → `platynui-runtime`), entscheidend ist der Paketname. Packaging/FFI‑Crates außerhalb des Cargo‑Workspaces (z. B. `packages/native` → `platynui_native`) sind von der Regel ausgenommen und folgen den Konventionen des Ziel‑Ökosystems. Ausnahmen sind im Review explizit zu benennen.
 - Tests: In Rust-Unit- und Integrationstests konsequent `rstest` einsetzen und dessen Features nutzen (Fixtures, `#[rstest]` mit `case`/`matrix`, parametrische Tests). Bestehende Tests bei Anpassungen entsprechend migrieren.
 - Typbenennung: Neue Rust-Typen (Structs, Enums, Traits) folgen dem üblichen Namensraum über Module – kein zusätzlicher `Platynui`-Präfix nötig. Stattdessen aussagekräftige Namen im entsprechenden Modul wählen (`RuntimeState`, `WindowsDeviceBundle`, ...).
 - Planpflege: Nach jedem Arbeitspaket den Plan aktualisieren, erledigte Aufgaben abhaken und ggf. neue Erkenntnisse ergänzen. Der Umsetzungsplan bleibt so synchron zur tatsächlichen Umsetzung.
@@ -87,7 +87,8 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Event-Pipeline der Runtime an CLI anbinden (`watch` lauscht auf `ProviderEventKind`, kann optional Folgeabfragen auslösen).
 - [x] Mock-Provider erweitert Szenarien um Event-Simulation (`emit_event`, `emit_node_updated`, initiales `TreeInvalidated`).
 - [x] Runtime respektiert `event_capabilities`: Event-fähige Provider markieren Snapshots als „dirty“, ereignislose Provider lösen weiterhin Vollabfragen aus.
-- [x] CLI-Kommando `watch`: Streaming-Ausgabe (Text/JSON) mit Filtern (`--namespace`, `--pattern`, `--runtime-id`) sowie optionaler XPath-Nachabfrage (`--expression`) und `--limit` für Tests.
+- [x] CLI-Kommando `watch`: Streaming-Ausgabe (Text/JSON) mit optionaler XPath‑Nachabfrage (`--expression`) und `--limit` für Tests.
+- [ ] Watch‑Filter nach Namespace/Pattern/RuntimeId (`--namespace`, `--pattern`, `--runtime-id`).
 - [x] Tests: Simulierte Eventsequenzen (TreeInvalidated + NodeUpdated) prüfen Ausgabe in Text/JSON-Format.
 
 ### 9. CLI `highlight`
@@ -179,7 +180,7 @@ Implementierungsstand (2025-09-29)
 - Overlay: Layered-Window (UpdateLayeredWindow) mit `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE`; Anzeige mit `SW_SHOWNOACTIVATE`; `WM_MOUSEACTIVATE → MA_NOACTIVATE` (kein Fokus-/Aktivierungswechsel, klick‑durchlässig, nicht in Alt‑Tab/Taskbar).
 - Darstellung: Roter Rahmen (RGBA 255,0,0,230), 3 px Rahmenstärke, 1 px Abstand um Ziel‑Rects (keine Überdeckung des Inhalts).
 - Clamping: Rahmengeometrie wird gegen Desktop‑Bounds geschnitten; komplett außerhalb → kein Overlay. Abgeschnittene Seiten werden gestrichelt (Muster 6 an/4 aus) gezeichnet; ungeschnittene Seiten bleiben durchgezogen.
-- Dauer/Timeout: Runtime triggert einen `clear()`‑Fallback nach der minimalen angeforderten Dauer (portabel), zusätzlich blockiert die CLI für die Dauer (sichtbare Haltbarkeit in Ein‑Shot‑Szenarien).
+- Dauer/Timeout: Das Overlay im Highlight‑Provider plant ein `clear()` nach der minimal angeforderten Dauer (generation‑aware). Die Runtime selbst schedult keinen Fallback‑Timer. Die CLI blockiert für die Dauer (sichtbare Haltbarkeit in Ein‑Shot‑Szenarien).
 - CLI: `platynui-cli highlight --rect X,Y,WIDTH,HEIGHT [--duration-ms N]` (Default 1500 ms) alternativ zu XPATH; `--clear` zum Entfernen aktiver Highlights; Prozess hält für die angegebene Dauer.
 
 #### 19.3 Screenshot (`platynui-platform-windows`)
@@ -232,6 +233,10 @@ Aktualisierungen/Status (2025‑10‑05)
 - [ ] Tests: Windows‑Smoke für Iterator‑Reihenfolge (Elements → Apps), Eigener‑PID‑Filter, App‑Attribute, Native‑Properties.
 - [ ] Tests: Struktur-/Attribut‑Abdeckung, Pattern‑Liste, Desktop‑Top‑Level (Windows‑only smoke). Optional: Root‑Geschwister‑Iteration.
 
+Aktualisierung (2025‑10‑10)
+- Watch‑Filter sind noch offen; die aktuelle CLI unterstützt `--expression` und `--limit`.
+- Highlight‑Timer‑Clear liegt im Provider‑Overlay; die Runtime schedult keinen Fallback‑Timer (siehe 19.2). Die CLI blockiert für die gewünschte Dauer.
+
 Aktuelle Design-Notizen (2025‑09‑30)
 - Keine Actor‑Schicht, kein NodeStore: `UiaNode` wrappt direkt `IUIAutomationElement`.
 - Provider liefert Desktop‑Kinder über denselben Iterator; Root‑Geschwister werden derzeit nicht zusammengeführt (kann ergänzt werden).
@@ -243,6 +248,9 @@ Weitere Details siehe: `docs/provider_windows_uia_design.md`.
 - [ ] Key-Code-Tabellen und Sequenzauflösung (Press/Release/Type) implementieren, Modifier-Chords und Unicode/IME-Fälle abdecken.
 - [ ] Fehlerabbildung (`KeyboardError`) auf UIA/Win32-Codes abstützen und in Runtime integrieren.
 - [ ] Tests: Sequenzparser-Resolver plus Echtgeräte-Logging (Mock-Vergleich), Dokumentation der unterstützten Key-Namen.
+
+Status (2025‑10‑10)
+- Parser/Resolver und CLI‑Kommandos sind vorhanden; das Windows‑Keyboard‑Device (SendInput/MapVirtualKeyEx) ist noch nicht implementiert.
 
 
 #### 19.8 Fokus & WindowSurface via UIA
