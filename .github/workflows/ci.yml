@@ -90,6 +90,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - run: git describe --tag
+      - run: git describe --tag --long --first-parent --match "v[0-9]*"
 
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
