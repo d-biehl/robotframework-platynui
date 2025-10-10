@@ -129,8 +129,6 @@ fn parse_millis(value: &str) -> Result<Duration, String> {
     value.parse::<u64>().map(Duration::from_millis).map_err(|err| format!("invalid milliseconds '{value}': {err}"))
 }
 
-// Legacy helper no longer used (anyhow handles conversions directly).
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -374,11 +374,11 @@ pub fn process_architecture_from_path(path: &str) -> Option<String> {
 /// Collects a curated set of native UIA properties and returns only those
 /// that appear to be supported (non-empty / meaningful values).
 ///
-/// Hinweis: Die UIA COM‑API bietet keine direkte Enumeration aller unterstützten
-/// Properties eines Elements. Wir ermitteln Properties daher über einen
-/// Programmatic‑Name‑Katalog (IDs im typischen UIA‑Bereich) und lesen pro ID
-/// den aktuellen Wert via `GetCurrentPropertyValueEx(id, true)` aus. Nicht
-/// unterstützte oder gemischte Werte werden über die UIA‑Sentinels gefiltert.
+/// Note: The UIA COM API does not provide a direct enumeration of all
+/// supported properties for an element. We therefore use a catalog of
+/// programmatic names (typical UIA property ID range) and read each ID via
+/// `GetCurrentPropertyValueEx(id, true)`. Unsupported/mixed values are
+/// filtered using the UIA reserved sentinels.
 pub fn collect_native_properties(elem: &IUIAutomationElement) -> Vec<(String, UiValue)> {
     // Enumerate UIA property programmatic names in the common range and fetch current values.
     static PROPERTY_CATALOG: OnceCell<Vec<(UIA_PROPERTY_ID, String)>> = OnceCell::new();

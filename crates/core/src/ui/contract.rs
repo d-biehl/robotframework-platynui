@@ -9,7 +9,7 @@ use std::collections::HashSet;
 pub enum ContractViolation {
     /// The validator does not support the namespace of the given node.
     UnsupportedNamespace { namespace: Namespace },
-    /// `SupportedPatterns` enthält doppelte Einträge.
+    /// `SupportedPatterns` contains duplicate entries.
     DuplicatePattern { pattern: PatternId },
 }
 

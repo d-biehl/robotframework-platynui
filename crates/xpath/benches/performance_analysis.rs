@@ -30,7 +30,7 @@ fn compile_bench(c: &mut Criterion) {
                 )
             )
         "#;
-        // Cache vorwärmen, damit spätere Iterationen echte Hits erzeugen.
+        // Warm up cache so subsequent iterations produce real hits.
         compile_with_context(COMPLEX_EXPR, &ctx).expect("cache warm-up");
 
         b.iter(|| {
@@ -41,7 +41,7 @@ fn compile_bench(c: &mut Criterion) {
 
     c.bench_function("compile/cache_miss", |b| {
         let ctx = StaticContext::default();
-        // Mehr verschiedene Ausdrücke als Cache-Plätze, um konstante Misses zu erzwingen.
+        // Use more distinct expressions than cache slots to force constant misses.
         const MISS_EXPR_COUNT: usize = 32;
         let miss_exprs: Vec<String> = (0..MISS_EXPR_COUNT)
             .map(|i| {

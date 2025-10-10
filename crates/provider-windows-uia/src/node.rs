@@ -1,9 +1,6 @@
 //! Windows UIAutomation node wrapper and iterators (no provider-side caching).
 //!
-//! Philosophy
-//! - UiaNode should reflect the current UIA state. Heavy caching is left to the
-//!   Runtime/XPath adapter (RuntimeXdmNode). We keep only identity fields that
-//!   require references (`name()`/`runtime_id()`) in small OnceCells.
+//! UiaNode reflects the current UIA state; no heavy provider‑side caches.
 
 use std::sync::{Arc, Mutex, Weak};
 

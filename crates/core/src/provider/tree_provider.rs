@@ -15,8 +15,8 @@ pub trait UiTreeProvider: Send + Sync {
     ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError>;
 
     /// Registers a listener for provider-originated events. The default
-    /// implementation tut nichts, sodass Provider ohne Event-Unterstützung
-    /// diesen Aufruf ignorieren können.
+    /// implementation does nothing so providers without event support can
+    /// ignore this call.
     fn subscribe_events(&self, _listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> {
         Ok(())
     }

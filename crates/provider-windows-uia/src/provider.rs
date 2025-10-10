@@ -1,11 +1,7 @@
 use std::sync::Arc;
 
-// Windows UIAutomation provider factory and top‑level traversal.
-//
-// - Registers a native provider with Technology `UIAutomation`.
-// - `get_nodes(desktop)` returns the children of the UIA Root's first Desktop
-//   element using the shared RawView walker and the common `ElementChildrenIter`.
-// - No `FindAll`, no UIA `CacheRequest`.
+// Windows UIAutomation provider: registers the UIA technology and streams root
+// children via the RawView walker (no FindAll/CacheRequest).
 
 use once_cell::sync::Lazy;
 use platynui_core::provider::ProviderErrorKind;
@@ -18,8 +14,7 @@ pub const PROVIDER_ID: &str = "windows-uia";
 pub const PROVIDER_NAME: &str = "Windows UIAutomation";
 pub static TECHNOLOGY: Lazy<TechnologyId> = Lazy::new(|| TechnologyId::from("UIAutomation"));
 
-// Iterator similar to ElementChildrenIter: streams root's immediate children first (skipping
-// elements from our own process), then one synthetic app:Application node per seen PID.
+// Streams root children (excluding this process), then one app:Application per PID.
 struct ElementAndAppIter {
     parent_elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
     current: Option<windows::Win32::UI::Accessibility::IUIAutomationElement>,
@@ -56,7 +51,6 @@ impl Iterator for ElementAndAppIter {
     type Item = Arc<dyn UiNode>;
     fn next(&mut self) -> Option<Self::Item> {
         unsafe {
-            // Phase 2: emit apps in stable PID order
             if self.apps_phase {
                 while self.app_index < self.app_order.len() {
                     let pid = self.app_order[self.app_index];
@@ -78,7 +72,6 @@ impl Iterator for ElementAndAppIter {
                     self.first = false;
                     self.current = walker.GetFirstChildElement(&self.parent_elem).ok();
                     if self.current.is_none() {
-                        // Switch to apps phase
                         self.apps_phase = true;
                         let mut ordered: Vec<i32> = self.seen.iter().copied().collect();
                         ordered.sort_unstable();
@@ -90,7 +83,6 @@ impl Iterator for ElementAndAppIter {
                     let cur = e.clone();
                     self.current = walker.GetNextSiblingElement(&cur).ok();
                     if self.current.is_none() {
-                        // finished elements, switch to apps phase
                         self.apps_phase = true;
                         let mut ordered: Vec<i32> = self.seen.iter().copied().collect();
                         ordered.sort_unstable();

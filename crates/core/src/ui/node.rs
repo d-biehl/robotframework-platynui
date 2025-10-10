@@ -17,9 +17,9 @@ pub trait UiNode: Send + Sync {
     fn runtime_id(&self) -> &RuntimeId;
     /// Weak reference to the parent node, if available.
     fn parent(&self) -> Option<Weak<dyn UiNode>>;
-    /// Child nodes. Providers können Iteratoren über vorbereitetes oder lazily erzeugtes Material liefern.
+    /// Child nodes. Providers may return iterators over prepared or lazily produced material.
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static>;
-    /// Alle Attribute dieses Knotens; Iterator darf Werte lazy erzeugen.
+    /// All attributes of this node; the iterator may produce values lazily.
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static>;
 
     /// Returns a matching attribute for the given namespace/name pair.
@@ -34,13 +34,12 @@ pub trait UiNode: Send + Sync {
     fn pattern_by_id(&self, _pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
         None
     }
-    /// Optional hint for Dokumentordnungs-Vergleiche. Wenn vorhanden, muss der Wert
-    /// für jeden Knoten eindeutig sein.
+    /// Optional hint for document-order comparisons. If present, the value must
+    /// be unique per node.
     fn doc_order_key(&self) -> Option<u64> {
         None
     }
-    /// Invalidates cached state. Provider können den nächsten Zugriff nutzen,
-    /// um Werte neu zu laden.
+    /// Invalidates cached state. Providers may reload values on the next access.
     fn invalidate(&self);
 }
 
@@ -79,15 +78,15 @@ pub trait UiNodeExt {
     fn parent_arc(&self) -> Option<Arc<dyn UiNode>>;
     /// Iterator over all ancestors, starting with the immediate parent.
     fn ancestors(&self) -> UiNodeAncestorIter;
-    /// Iterator over the node itself gefolgt von allen Vorfahren.
+    /// Iterator over the node itself followed by all ancestors.
     fn ancestors_including_self(&self) -> UiNodeAncestorIter;
-    /// Oberster Vorfahre (oder `self`, wenn kein Parent existiert).
+    /// Top-level ancestor (or `self` if no parent exists).
     fn top_level_or_self(&self) -> Arc<dyn UiNode>;
-    /// First ancestor (inkl. self) that exposes the requested pattern.
+    /// First ancestor (including self) that exposes the requested pattern.
     fn ancestor_pattern<P>(&self) -> Option<Arc<P>>
     where
         P: UiPattern + 'static;
-    /// Pattern des Top-Level-Knotens (falls vorhanden).
+    /// Pattern of the top-level node, if available.
     fn top_level_pattern<P>(&self) -> Option<Arc<P>>
     where
         P: UiPattern + 'static;
@@ -146,8 +145,8 @@ pub trait UiAttribute: Send + Sync {
     fn namespace(&self) -> Namespace;
     /// PascalCase attribute name (without namespace prefix).
     fn name(&self) -> &str;
-    /// Current value. Implementationen können hier neue `UiValue`-Instanzen
-    /// erzeugen oder gecachte Werte zurückgeben.
+    /// Current value. Implementations may construct fresh `UiValue`s or return
+    /// cached values.
     fn value(&self) -> UiValue;
 }
 

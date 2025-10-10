@@ -190,12 +190,12 @@ fn rect_aliases_absent_and_base_present() {
 
     let mut names = window.attributes().map(|attr| attr.name().to_owned()).collect::<Vec<_>>();
     names.sort();
-    // Abgeleitete Aliase sollten vom Provider NICHT mehr geliefert werden.
+    // Derived aliases must NOT be provided by the provider anymore.
     assert!(!names.contains(&"Bounds.X".to_owned()));
     assert!(!names.contains(&"Bounds.Y".to_owned()));
     assert!(!names.contains(&"Bounds.Width".to_owned()));
     assert!(!names.contains(&"Bounds.Height".to_owned()));
-    // Basis-Attribut bleibt vorhanden.
+    // The base attribute remains present.
     assert!(names.contains(&element::BOUNDS.to_owned()));
 }
 
@@ -288,10 +288,10 @@ fn activation_point_aliases_absent_and_value_ok() {
 
     assert!(matches!(activation_point, UiValue::Point(Point { .. })));
 
-    // Der Provider liefert die Aliase nicht mehr, nur den Basiswert
+    // Provider no longer returns aliases, only the base value
     let has_alias = button.attributes().any(|attr| attr.name().starts_with("ActivationPoint."));
     assert!(!has_alias);
-    // Basiswert entspricht den im XML gesetzten Koordinaten (OK-Button: 200,636)
+    // Base value matches the coordinates set in the XML (OK button: 200,636)
     match activation_point {
         UiValue::Point(p) => {
             assert_eq!(p.x(), 200.0);

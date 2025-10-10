@@ -872,9 +872,10 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
     }
 }
 
-// Filters an input of items to drop context nodes that are descendants of the last kept node.
-// Assumes (typisch im Compiler) doc-ordered input; otherwise correctness bleibt erhalten,
-// aber ggf. weniger Duplikate werden im Vorfeld entfernt (EnsureDistinct fängt Reste ab).
+// Filters items to drop context nodes that are descendants of the last kept node.
+// Assumes (as typically produced by the compiler) document‑ordered input;
+// otherwise correctness is preserved but fewer duplicates may be removed up front
+// (EnsureDistinct handles the remainder).
 struct ContextMinCursor<N> {
     inner: Box<dyn SequenceCursor<N>>,
     last_kept: Option<N>,

@@ -12,9 +12,8 @@ use super::identifiers::PatternId;
 
 /// Base trait for runtime patterns that enrich a [`UiNode`](super::UiNode).
 ///
-/// Provider implementer hinterlegen Pattern-Instanzen im [`PatternRegistry`],
-/// damit `supported_patterns()` und `UiNode::pattern::<T>()` identische Daten
-/// verwenden.
+/// Provider implementations register pattern instances in the [`PatternRegistry`]
+/// so `supported_patterns()` and `UiNode::pattern::<T>()` operate on the same data.
 pub trait UiPattern: Any + Send + Sync {
     fn id(&self) -> PatternId;
 
@@ -383,8 +382,7 @@ impl WindowSurfacePattern for WindowSurfaceActions {
     }
 }
 
-/// Fehlerobjekt für Runtime-Aktionen, die aus einem Pattern heraus ausgelöst
-/// werden.
+/// Error object for runtime actions triggered from a pattern implementation.
 #[derive(Debug, Clone, ThisError)]
 pub struct PatternError {
     message: Cow<'static, str>,
@@ -408,12 +406,12 @@ impl Display for PatternError {
 
 // Error provided by thiserror derive via Display impl above.
 
-/// Pattern für Fokuswechsel – löst über die Runtime einen Fokuswechsel aus.
+/// Pattern for focus changes – requests focus via the runtime.
 pub trait FocusablePattern: UiPattern {
     fn focus(&self) -> Result<(), PatternError>;
 }
 
-/// Pattern für Fenstersteuerung via plattformspezifische Fenster-APIs.
+/// Pattern for window control via platform‑specific window APIs.
 pub trait WindowSurfacePattern: UiPattern {
     fn activate(&self) -> Result<(), PatternError>;
     fn minimize(&self) -> Result<(), PatternError>;

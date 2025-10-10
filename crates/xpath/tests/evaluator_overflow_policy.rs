@@ -4,7 +4,7 @@ use platynui_xpath::{
     runtime::{DynamicContext, ErrorCode},
     xdm::{XdmAtomicValue, XdmItem},
 };
-use rstest::rstest; // Placeholder; no actual nodes needed for these tests
+use rstest::rstest;
 fn eval_atomic(expr: &str) -> XdmAtomicValue {
     let ctx: DynamicContext<SimpleNode> = DynamicContext::default();
     let seq = evaluate_expr(expr, &ctx).expect("eval ok");

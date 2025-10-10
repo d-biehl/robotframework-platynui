@@ -21,8 +21,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::PCWSTR;
 
-// Public registration ----------------------------------------------------------------------------
-
 static WINDOWS_HIGHLIGHT: WindowsHighlightProvider = WindowsHighlightProvider;
 
 register_highlight_provider!(&WINDOWS_HIGHLIGHT);
@@ -48,8 +46,6 @@ impl HighlightProvider for WindowsHighlightProvider {
 fn min_duration(requests: &[HighlightRequest]) -> Option<Duration> {
     requests.iter().filter_map(|r| r.duration).min()
 }
-
-// Overlay controller -----------------------------------------------------------------------------
 
 struct OverlayController {
     tx: Sender<Command>,
@@ -85,7 +81,6 @@ impl OverlayThread {
     }
 
     fn run(rx: Receiver<Command>, tx: Sender<Command>) {
-        // Ensure a basic window class exists
         let class_name: Vec<u16> = "PlatynUI_Highlight\0".encode_utf16().collect();
         unsafe {
             extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
@@ -187,11 +182,9 @@ impl Overlay {
         const FRAME_THICKNESS: i32 = 3; // pixels
         const FRAME_GAP: i32 = 1; // 1px gap between target and frame
 
-        // Expand each requested rect so the frame is drawn AROUND the target
-        // area with a 1px gap instead of covering the target itself.
+        // Expand target rects to draw a frame around the area (1px gap).
         let expanded: Vec<Rect> = rects.iter().map(|r| expand_rect(r, FRAME_THICKNESS, FRAME_GAP)).collect();
 
-        // Clamp to desktop bounds to avoid drawing off-screen.
         let desktop_bounds = desktop_bounds().unwrap_or_else(|| union_rect(&expanded));
         let mut clamped: Vec<Rect> = Vec::new();
         for r in &expanded {
@@ -209,20 +202,17 @@ impl Overlay {
         let width = union.width().max(1.0).round() as i32;
         let height = union.height().max(1.0).round() as i32;
         unsafe {
-            // Acquire screen DC and guard against failures
             let screen_dc: HDC = GetDC(None);
             if screen_dc.0.is_null() {
                 return; // Nothing we can do; avoid leaking handles
             }
 
-            // Create a compatible memory DC; on failure, release screen DC and return
             let mem_dc: HDC = CreateCompatibleDC(Some(screen_dc));
             if mem_dc.0.is_null() {
                 let _ = ReleaseDC(None, screen_dc);
                 return;
             }
 
-            // Create a top-down 32bpp DIB section to draw the overlay pixels into
             let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
             let mut bmi = BITMAPINFO::new(width as i32, height as i32);
             let bitmap: HBITMAP =
@@ -237,14 +227,12 @@ impl Overlay {
 
             let old = SelectObject(mem_dc, bitmap.into());
 
-            // Fill fully transparent
             let buf_size = (width as usize) * (height as usize) * 4;
             let slice = std::slice::from_raw_parts_mut(bits as *mut u8, buf_size);
             for b in slice.iter_mut() {
                 *b = 0;
             }
 
-            // Draw frames around each clamped rect. Use red for better visibility.
             let color = Rgba { r: 255, g: 0, b: 0, a: 230 };
             for (idx, r) in clamped.iter().enumerate() {
                 let expanded = &expanded[idx];
@@ -476,8 +464,6 @@ fn blend_pixel(buf: &mut [u8], idx: usize, color: Rgba) {
     buf[idx + 2] = r;
     buf[idx + 3] = color.a;
 }
-
-// Minimal BITMAPINFO for CreateDIBSection --------------------------------------------------------
 
 #[repr(C)]
 struct BITMAPINFO {

@@ -306,17 +306,16 @@ impl<'a> Compiler<'a> {
             E::IfThenElse { cond, then_expr, else_expr } => {
                 self.lower_expr(cond)?;
                 self.emit(ir::OpCode::ToEBV);
-                // JumpIfFalse to else
-                // Placeholder offset 0; patch later
+                // JumpIfFalse to else (emit placeholder, patched below)
                 let pos_jf = self.code.len();
                 self.emit(ir::OpCode::JumpIfFalse(0));
                 self.lower_expr(then_expr)?;
                 let pos_j = self.code.len();
                 self.emit(ir::OpCode::Jump(0));
-                // patch JumpIfFalse to here
+                // Patch JumpIfFalse to here
                 Self::patch_jump(&mut self.code, pos_jf);
                 self.lower_expr(else_expr)?;
-                // patch Jump to here
+                // Patch Jump to here
                 Self::patch_jump(&mut self.code, pos_j);
                 Ok(())
             }

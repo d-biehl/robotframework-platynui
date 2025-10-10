@@ -1,15 +1,14 @@
 //! Helper types for provider contract tests.
 //!
-//! Dieses Modul stellt Strukturen bereit, mit denen Provider-spezifische
-//! Tests die erwarteten Attribute pro Pattern beschreiben können. Die
-//! eigentliche Prüf-Logik folgt in einem separaten Schritt; hier definieren
-//! wir lediglich die Datenmodelle, die diese Prüfungen benötigen.
+//! This module provides structures for provider contract tests to declare
+//! expected attributes per pattern. The actual verification logic lives in a
+//! separate step; here we only define the data models those checks consume.
 
 use crate::ui::{Namespace, PatternId, UiAttribute, UiNode, UiValue};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-/// Beschreibt ein erwartetes Attribut für Contract-Tests.
+/// Describes an expected attribute for contract tests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AttributeExpectation {
     pub namespace: Namespace,
@@ -27,7 +26,7 @@ impl AttributeExpectation {
     }
 }
 
-/// Gruppiert Attribut-Erwartungen für ein Pattern.
+/// Groups attribute expectations for a pattern.
 #[derive(Debug)]
 pub struct PatternExpectation {
     pub id: PatternId,
@@ -40,7 +39,7 @@ impl PatternExpectation {
     }
 }
 
-/// Sammlung von Pattern-Erwartungen für einen Knoten.
+/// Collection of pattern expectations for a node.
 #[derive(Debug, Default)]
 pub struct NodeExpectation {
     pub patterns: Vec<PatternExpectation>,
@@ -53,7 +52,7 @@ impl NodeExpectation {
     }
 }
 
-/// Ergebnis einer Contract-Prüfung.
+/// Result of a contract check.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContractIssue {
     MissingPattern {
@@ -83,8 +82,7 @@ pub enum ContractIssue {
     },
 }
 
-/// Prüft einen Knoten gegen die übergebenen Erwartungen und liefert alle
-/// festgestellten Abweichungen zurück.
+/// Verifies a node against expectations and returns all detected deviations.
 pub fn verify_node(node: &dyn UiNode, expectations: &NodeExpectation) -> Vec<ContractIssue> {
     let mut issues = Vec::new();
 
@@ -128,7 +126,7 @@ pub fn verify_node(node: &dyn UiNode, expectations: &NodeExpectation) -> Vec<Con
     issues
 }
 
-/// Prüft einen Knoten und liefert beim ersten Fehler eine detaillierte Liste.
+/// Verifies a node and returns a detailed list on the first failure.
 pub fn require_node(node: &dyn UiNode, expectations: &NodeExpectation) -> Result<(), Vec<ContractIssue>> {
     let issues = verify_node(node, expectations);
     if issues.is_empty() { Ok(()) } else { Err(issues) }
