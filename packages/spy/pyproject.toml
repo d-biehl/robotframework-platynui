@@ -1,0 +1,24 @@
+[project]
+name = "robotframework-platynui-spy"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [{ name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }]
+requires-python = ">=3.10"
+dependencies = [
+    "pyside6>=6.10.0",
+    "robotframework-platynui-native",
+]
+
+[project.scripts]
+platynui-spy = "platynui_spy:main"
+
+[build-system]
+requires = ["uv_build>=0.9.1,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "platynui_spy"
+
+[tool.uv.sources]
+robotframework-platynui-native = { workspace = true }
