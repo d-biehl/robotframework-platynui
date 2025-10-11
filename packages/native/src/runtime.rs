@@ -3,14 +3,14 @@
 #![allow(unexpected_cfgs)]
 use std::sync::Arc;
 
+use pyo3::IntoPyObject;
 use pyo3::exceptions::{PyException, PyTypeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyAnyMethods, PyDict, PyList, PyTuple};
 use std::str::FromStr;
-use pyo3::IntoPyObject;
 
 use platynui_core as core_rs;
-use platynui_core::platform::{HighlightRequest, ScreenshotRequest, PixelFormat};
+use platynui_core::platform::{HighlightRequest, PixelFormat, ScreenshotRequest};
 use platynui_runtime as runtime_rs;
 use platynui_runtime::runtime::PlatformOverrides;
 
@@ -57,10 +57,7 @@ impl PyNode {
 
     /// Parent node if available.
     fn parent(&self, py: Python<'_>) -> Option<Py<PyNode>> {
-        self.inner
-            .parent()
-            .and_then(|w| w.upgrade())
-            .and_then(|arc| Py::new(py, PyNode { inner: arc }).ok())
+        self.inner.parent().and_then(|w| w.upgrade()).and_then(|arc| Py::new(py, PyNode { inner: arc }).ok())
     }
 
     /// Child nodes as an iterator.
@@ -95,12 +92,8 @@ impl PyNode {
     /// Currently supported ids: "Focusable", "WindowSurface".
     fn pattern_by_id(&self, py: Python<'_>, id: &str) -> Option<Py<PyAny>> {
         match id {
-            "Focusable" => {
-                Py::new(py, PyFocusable { node: self.inner.clone() }).ok().map(|p| p.into_any())
-            }
-            "WindowSurface" => Py::new(py, PyWindowSurface { node: self.inner.clone() })
-                .ok()
-                .map(|p| p.into_any()),
+            "Focusable" => Py::new(py, PyFocusable { node: self.inner.clone() }).ok().map(|p| p.into_any()),
+            "WindowSurface" => Py::new(py, PyWindowSurface { node: self.inner.clone() }).ok().map(|p| p.into_any()),
             _ => None,
         }
     }
@@ -154,14 +147,7 @@ impl PyNodeAttributesIterator {
             if let Some(attr) = iter.next() {
                 let ns = attr.namespace().as_str().to_string();
                 let name = attr.name().to_string();
-                return Ok(Some(Py::new(
-                    py,
-                    PyAttribute {
-                        namespace: ns,
-                        name,
-                        owner: slf.owner.clone(),
-                    },
-                )?));
+                return Ok(Some(Py::new(py, PyAttribute { namespace: ns, name, owner: slf.owner.clone() })?));
             }
         }
         slf.iter = None;
@@ -195,10 +181,7 @@ impl PyEvaluationIterator {
                         let name = a.name.clone();
                         let value = ui_value_to_py(py, &a.value)?;
                         let owner = Py::new(py, PyNode { inner: a.owner.clone() })?;
-                        Py::new(
-                            py,
-                            PyEvaluatedAttribute::new(ns, name, value, Some(owner)),
-                        )?.into_any()
+                        Py::new(py, PyEvaluatedAttribute::new(ns, name, value, Some(owner)))?.into_any()
                     }
                     runtime_rs::EvaluationItem::Value(v) => ui_value_to_py(py, &v)?,
                 };
@@ -294,8 +277,7 @@ impl PyAttribute {
     /// Lazily resolves the attribute value on demand.
     /// Returns None if the attribute is no longer available.
     fn value(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let ns = core_rs::ui::namespace::Namespace::from_str(self.namespace.as_str())
-            .unwrap_or_default();
+        let ns = core_rs::ui::namespace::Namespace::from_str(self.namespace.as_str()).unwrap_or_default();
         match self.owner.attribute(ns, &self.name) {
             Some(attr) => ui_value_to_py(py, &attr.value()),
             None => Ok(py.None()),
@@ -344,9 +326,7 @@ impl PyEvaluatedAttribute {
 impl PyWindowSurface {
     fn with_pattern<T, F>(&self, f: F) -> PyResult<T>
     where
-        F: FnOnce(
-            &dyn core_rs::ui::pattern::WindowSurfacePattern,
-        ) -> Result<T, core_rs::ui::pattern::PatternError>,
+        F: FnOnce(&dyn core_rs::ui::pattern::WindowSurfacePattern) -> Result<T, core_rs::ui::pattern::PatternError>,
     {
         // Try to obtain a concrete pattern instance registered for this node.
         // We first attempt the default WindowSurfaceActions type; if not present, fall back to trait-object style via as_any.
@@ -359,9 +339,7 @@ impl PyWindowSurface {
 
     fn call<F>(&self, f: F) -> PyResult<()>
     where
-        F: FnOnce(
-            &dyn core_rs::ui::pattern::WindowSurfacePattern,
-        ) -> Result<(), core_rs::ui::pattern::PatternError>,
+        F: FnOnce(&dyn core_rs::ui::pattern::WindowSurfacePattern) -> Result<(), core_rs::ui::pattern::PatternError>,
     {
         self.with_pattern(|p| f(p))
     }
@@ -395,16 +373,21 @@ impl PyPlatformOverrides {
 }
 
 // Internal registry for platform providers (using usize as opaque handles)
-static DESKTOP_INFO_PROVIDERS: once_cell::sync::Lazy<std::sync::Mutex<Vec<&'static dyn platynui_core::platform::DesktopInfoProvider>>> =
-    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
-static HIGHLIGHT_PROVIDERS: once_cell::sync::Lazy<std::sync::Mutex<Vec<&'static dyn platynui_core::platform::HighlightProvider>>> =
-    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
-static SCREENSHOT_PROVIDERS: once_cell::sync::Lazy<std::sync::Mutex<Vec<&'static dyn platynui_core::platform::ScreenshotProvider>>> =
-    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
-static POINTER_DEVICES: once_cell::sync::Lazy<std::sync::Mutex<Vec<&'static dyn platynui_core::platform::PointerDevice>>> =
-    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
-static KEYBOARD_DEVICES: once_cell::sync::Lazy<std::sync::Mutex<Vec<&'static dyn platynui_core::platform::KeyboardDevice>>> =
-    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
+static DESKTOP_INFO_PROVIDERS: once_cell::sync::Lazy<
+    std::sync::Mutex<Vec<&'static dyn platynui_core::platform::DesktopInfoProvider>>,
+> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
+static HIGHLIGHT_PROVIDERS: once_cell::sync::Lazy<
+    std::sync::Mutex<Vec<&'static dyn platynui_core::platform::HighlightProvider>>,
+> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
+static SCREENSHOT_PROVIDERS: once_cell::sync::Lazy<
+    std::sync::Mutex<Vec<&'static dyn platynui_core::platform::ScreenshotProvider>>,
+> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
+static POINTER_DEVICES: once_cell::sync::Lazy<
+    std::sync::Mutex<Vec<&'static dyn platynui_core::platform::PointerDevice>>,
+> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
+static KEYBOARD_DEVICES: once_cell::sync::Lazy<
+    std::sync::Mutex<Vec<&'static dyn platynui_core::platform::KeyboardDevice>>,
+> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
 
 fn register_highlight_provider(provider: &'static dyn platynui_core::platform::HighlightProvider) -> usize {
     let mut providers = HIGHLIGHT_PROVIDERS.lock().unwrap();
@@ -438,21 +421,13 @@ fn register_desktop_info_provider(provider: &'static dyn platynui_core::platform
 
 fn get_platform_overrides(py_overrides: &PyPlatformOverrides) -> PlatformOverrides {
     PlatformOverrides {
-        desktop_info: py_overrides.desktop_info.and_then(|idx| {
-            DESKTOP_INFO_PROVIDERS.lock().unwrap().get(idx).copied()
-        }),
-        highlight: py_overrides.highlight.and_then(|idx| {
-            HIGHLIGHT_PROVIDERS.lock().unwrap().get(idx).copied()
-        }),
-        screenshot: py_overrides.screenshot.and_then(|idx| {
-            SCREENSHOT_PROVIDERS.lock().unwrap().get(idx).copied()
-        }),
-        pointer: py_overrides.pointer.and_then(|idx| {
-            POINTER_DEVICES.lock().unwrap().get(idx).copied()
-        }),
-        keyboard: py_overrides.keyboard.and_then(|idx| {
-            KEYBOARD_DEVICES.lock().unwrap().get(idx).copied()
-        }),
+        desktop_info: py_overrides
+            .desktop_info
+            .and_then(|idx| DESKTOP_INFO_PROVIDERS.lock().unwrap().get(idx).copied()),
+        highlight: py_overrides.highlight.and_then(|idx| HIGHLIGHT_PROVIDERS.lock().unwrap().get(idx).copied()),
+        screenshot: py_overrides.screenshot.and_then(|idx| SCREENSHOT_PROVIDERS.lock().unwrap().get(idx).copied()),
+        pointer: py_overrides.pointer.and_then(|idx| POINTER_DEVICES.lock().unwrap().get(idx).copied()),
+        keyboard: py_overrides.keyboard.and_then(|idx| KEYBOARD_DEVICES.lock().unwrap().get(idx).copied()),
     }
 }
 
@@ -464,8 +439,9 @@ pub struct PyRuntime {
 }
 
 // Internal registry for provider factories (using usize as opaque handles)
-static PROVIDER_FACTORIES: once_cell::sync::Lazy<std::sync::Mutex<Vec<&'static dyn platynui_core::provider::UiTreeProviderFactory>>> =
-    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
+static PROVIDER_FACTORIES: once_cell::sync::Lazy<
+    std::sync::Mutex<Vec<&'static dyn platynui_core::provider::UiTreeProviderFactory>>,
+> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
 
 fn register_provider_factory(factory: &'static dyn platynui_core::provider::UiTreeProviderFactory) -> usize {
     let mut factories = PROVIDER_FACTORIES.lock().unwrap();
@@ -485,14 +461,10 @@ impl PyRuntime {
     fn new_with_providers(provider_handles: Vec<usize>) -> PyResult<Self> {
         let factories_lock = PROVIDER_FACTORIES.lock().unwrap();
         let factories: Vec<&'static dyn platynui_core::provider::UiTreeProviderFactory> =
-            provider_handles.iter()
-                .filter_map(|&idx| factories_lock.get(idx).copied())
-                .collect();
+            provider_handles.iter().filter_map(|&idx| factories_lock.get(idx).copied()).collect();
         drop(factories_lock);
 
-        runtime_rs::Runtime::new_with_factories(&factories)
-            .map(|inner| Self { inner })
-            .map_err(map_provider_err)
+        runtime_rs::Runtime::new_with_factories(&factories).map(|inner| Self { inner }).map_err(map_provider_err)
     }
 
     /// Create a Runtime with specific providers and platform overrides.
@@ -503,9 +475,7 @@ impl PyRuntime {
     ) -> PyResult<Self> {
         let factories_lock = PROVIDER_FACTORIES.lock().unwrap();
         let factories: Vec<&'static dyn platynui_core::provider::UiTreeProviderFactory> =
-            provider_handles.iter()
-                .filter_map(|&idx| factories_lock.get(idx).copied())
-                .collect();
+            provider_handles.iter().filter_map(|&idx| factories_lock.get(idx).copied()).collect();
         drop(factories_lock);
 
         let platform_overrides = get_platform_overrides(platforms);
@@ -520,19 +490,12 @@ impl PyRuntime {
     /// - dicts for attributes: {"type":"attr", "owner": Node, "namespace": str, "name": str, "value": object}
     /// - plain Python values
     #[pyo3(signature = (xpath, node=None), text_signature = "(xpath: str, node: UiNode | None = None)")]
-    fn evaluate(
-        &self,
-        py: Python<'_>,
-        xpath: &str,
-        node: Option<Bound<'_, PyAny>>,
-    ) -> PyResult<Py<PyList>> {
+    fn evaluate(&self, py: Python<'_>, xpath: &str, node: Option<Bound<'_, PyAny>>) -> PyResult<Py<PyList>> {
         let node_arc = match node {
             Some(obj) => match obj.extract::<PyRef<PyNode>>() {
                 Ok(cellref) => Some(cellref.inner.clone()),
                 Err(_) => {
-                    return Err(PyTypeError::new_err(
-                        "node must be platynui_native.runtime.UiNode",
-                    ));
+                    return Err(PyTypeError::new_err("node must be platynui_native.runtime.UiNode"));
                 }
             },
             None => None,
@@ -550,10 +513,7 @@ impl PyRuntime {
                     let name = a.name.clone();
                     let value = ui_value_to_py(py, &a.value)?;
                     let owner = Py::new(py, PyNode { inner: a.owner.clone() })?;
-                    out.append(Py::new(
-                        py,
-                        PyEvaluatedAttribute::new(ns, name, value, Some(owner)),
-                    )?)?;
+                    out.append(Py::new(py, PyEvaluatedAttribute::new(ns, name, value, Some(owner)))?)?;
                 }
                 runtime_rs::EvaluationItem::Value(v) => out.append(ui_value_to_py(py, &v)?)?,
             }
@@ -563,19 +523,12 @@ impl PyRuntime {
 
     /// Evaluates an XPath expression and returns the first result, or None if no results.
     #[pyo3(signature = (xpath, node=None), text_signature = "(xpath: str, node: UiNode | None = None)")]
-    fn evaluate_single(
-        &self,
-        py: Python<'_>,
-        xpath: &str,
-        node: Option<Bound<'_, PyAny>>,
-    ) -> PyResult<Py<PyAny>> {
+    fn evaluate_single(&self, py: Python<'_>, xpath: &str, node: Option<Bound<'_, PyAny>>) -> PyResult<Py<PyAny>> {
         let node_arc = match node {
             Some(obj) => match obj.extract::<PyRef<PyNode>>() {
                 Ok(cellref) => Some(cellref.inner.clone()),
                 Err(_) => {
-                    return Err(PyTypeError::new_err(
-                        "node must be platynui_native.runtime.UiNode",
-                    ));
+                    return Err(PyTypeError::new_err("node must be platynui_native.runtime.UiNode"));
                 }
             },
             None => None,
@@ -593,10 +546,7 @@ impl PyRuntime {
                 let name = a.name.clone();
                 let value = ui_value_to_py(py, &a.value)?;
                 let owner = Py::new(py, PyNode { inner: a.owner.clone() })?;
-                Ok(Py::new(
-                    py,
-                    PyEvaluatedAttribute::new(ns, name, value, Some(owner)),
-                )?.into_any())
+                Ok(Py::new(py, PyEvaluatedAttribute::new(ns, name, value, Some(owner)))?.into_any())
             }
             Some(runtime_rs::EvaluationItem::Value(v)) => ui_value_to_py(py, &v),
             None => Ok(py.None()),
@@ -619,9 +569,7 @@ impl PyRuntime {
             Some(obj) => match obj.extract::<PyRef<PyNode>>() {
                 Ok(cellref) => Some(cellref.inner.clone()),
                 Err(_) => {
-                    return Err(PyTypeError::new_err(
-                        "node must be platynui_native.runtime.UiNode",
-                    ));
+                    return Err(PyTypeError::new_err("node must be platynui_native.runtime.UiNode"));
                 }
             },
             None => None,
@@ -748,16 +696,10 @@ impl PyRuntime {
 
     /// Scroll by delta (h, v) with optional overrides.
     #[pyo3(signature = (delta, overrides=None), text_signature = "(self, delta, overrides=None)")]
-    fn pointer_scroll(
-        &self,
-        delta: ScrollLike,
-        overrides: Option<PointerOverridesLike>,
-    ) -> PyResult<()> {
+    fn pointer_scroll(&self, delta: ScrollLike, overrides: Option<PointerOverridesLike>) -> PyResult<()> {
         let ScrollLike::Tuple((h, v)) = delta;
         let ov = overrides.map(|o| o.into());
-        self.inner
-            .pointer_scroll(core_rs::platform::ScrollDelta::new(h, v), ov)
-            .map_err(map_pointer_err)?;
+        self.inner.pointer_scroll(core_rs::platform::ScrollDelta::new(h, v), ov).map_err(map_pointer_err)?;
         Ok(())
     }
 
@@ -765,33 +707,21 @@ impl PyRuntime {
 
     /// Types the given keyboard sequence (see runtime docs for syntax).
     #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
-    fn keyboard_type(
-        &self,
-        sequence: &str,
-        overrides: Option<PyRef<'_, PyKeyboardOverrides>>,
-    ) -> PyResult<()> {
+    fn keyboard_type(&self, sequence: &str, overrides: Option<PyRef<'_, PyKeyboardOverrides>>) -> PyResult<()> {
         let ov = overrides.map(|d| d.inner.clone());
         self.inner.keyboard_type(sequence, ov).map_err(map_keyboard_err)?;
         Ok(())
     }
 
     #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
-    fn keyboard_press(
-        &self,
-        sequence: &str,
-        overrides: Option<PyRef<'_, PyKeyboardOverrides>>,
-    ) -> PyResult<()> {
+    fn keyboard_press(&self, sequence: &str, overrides: Option<PyRef<'_, PyKeyboardOverrides>>) -> PyResult<()> {
         let ov = overrides.map(|d| d.inner.clone());
         self.inner.keyboard_press(sequence, ov).map_err(map_keyboard_err)?;
         Ok(())
     }
 
     #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
-    fn keyboard_release(
-        &self,
-        sequence: &str,
-        overrides: Option<PyRef<'_, PyKeyboardOverrides>>,
-    ) -> PyResult<()> {
+    fn keyboard_release(&self, sequence: &str, overrides: Option<PyRef<'_, PyKeyboardOverrides>>) -> PyResult<()> {
         let ov = overrides.map(|d| d.inner.clone());
         self.inner.keyboard_release(sequence, ov).map_err(map_keyboard_err)?;
         Ok(())
@@ -848,7 +778,9 @@ impl PyRuntime {
         if !effective_mime.eq_ignore_ascii_case("image/png") {
             return Err(PyTypeError::new_err("unsupported mime_type; only 'image/png' is supported"));
         }
-        let request = rect.map(|r| ScreenshotRequest::with_region(r.as_inner())).unwrap_or_else(ScreenshotRequest::entire_display);
+        let request = rect
+            .map(|r| ScreenshotRequest::with_region(r.as_inner()))
+            .unwrap_or_else(ScreenshotRequest::entire_display);
         let shot = self.inner.screenshot(&request).map_err(map_platform_err)?;
         let encoded = encode_png(&shot)?;
         let pybytes = pyo3::types::PyBytes::new(py, &encoded);
@@ -862,7 +794,7 @@ fn ui_value_to_py(py: Python<'_>, value: &core_rs::ui::value::UiValue) -> PyResu
     use core_rs::ui::value::UiValue as V;
     Ok(match value {
         V::Null => py.None(),
-        V::Bool(b) => (*b as i32).into_pyobject(py)?.unbind().into_any(),
+        V::Bool(b) => pyo3::types::PyBool::new(py, *b).to_owned().into(),
         V::Integer(i) => i.into_pyobject(py)?.unbind().into_any(),
         V::Number(n) => n.into_pyobject(py)?.unbind().into_any(),
         V::String(s) => s.clone().into_pyobject(py)?.unbind().into_any(),
@@ -903,10 +835,18 @@ fn desktop_info_to_py(py: Python<'_>, info: &core_rs::platform::DesktopInfo) -> 
     for m in &info.monitors {
         let md = PyDict::new(py);
         md.set_item("id", &m.id)?;
-        if let Some(name) = &m.name { md.set_item("name", name)?; } else { md.set_item("name", py.None())?; }
+        if let Some(name) = &m.name {
+            md.set_item("name", name)?;
+        } else {
+            md.set_item("name", py.None())?;
+        }
         md.set_item("bounds", rect_to_py(py, &m.bounds)?)?;
         md.set_item("is_primary", m.is_primary)?;
-        if let Some(scale) = m.scale_factor { md.set_item("scale_factor", scale)?; } else { md.set_item("scale_factor", py.None())?; }
+        if let Some(scale) = m.scale_factor {
+            md.set_item("scale_factor", scale)?;
+        } else {
+            md.set_item("scale_factor", py.None())?;
+        }
         monitors.append(md)?;
     }
     dict.set_item("monitors", monitors)?;
@@ -932,13 +872,9 @@ fn encode_png(shot: &core_rs::platform::Screenshot) -> PyResult<Vec<u8>> {
     let mut encoder = Encoder::new(&mut data, shot.width, shot.height);
     encoder.set_color(ColorType::Rgba);
     encoder.set_depth(BitDepth::Eight);
-    let mut writer = encoder
-        .write_header()
-        .map_err(|e| PyTypeError::new_err(format!("png header error: {e}")))?;
+    let mut writer = encoder.write_header().map_err(|e| PyTypeError::new_err(format!("png header error: {e}")))?;
     let rgba = to_rgba_bytes(shot);
-    writer
-        .write_image_data(&rgba)
-        .map_err(|e| PyTypeError::new_err(format!("png encode error: {e}")))?;
+    writer.write_image_data(&rgba).map_err(|e| PyTypeError::new_err(format!("png encode error: {e}")))?;
     drop(writer);
     Ok(data)
 }
@@ -977,10 +913,7 @@ pyo3::create_exception!(runtime, KeyboardError, PyException);
 pyo3::create_exception!(runtime, PatternError, PyException);
 
 /// Register all runtime types and functions directly into the module (no submodule).
-pub fn register_types(
-    py: Python<'_>,
-    m: &Bound<'_, PyModule>,
-) -> PyResult<()> {
+pub fn register_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyRuntime>()?;
     m.add_class::<PyNode>()?;
     m.add_class::<PyNodeChildrenIterator>()?;
@@ -1018,10 +951,8 @@ pub fn register_types(
 
 // Mock provider registration (constants always available in Python)
 fn register_mock_providers(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    use platynui_platform_mock::{MOCK_HIGHLIGHT, MOCK_KEYBOARD, MOCK_PLATFORM, MOCK_POINTER, MOCK_SCREENSHOT};
     use platynui_provider_mock::MOCK_PROVIDER_FACTORY;
-    use platynui_platform_mock::{
-        MOCK_HIGHLIGHT, MOCK_KEYBOARD, MOCK_PLATFORM, MOCK_POINTER, MOCK_SCREENSHOT,
-    };
 
     // NOTE: We do NOT register the mock provider in the Rust inventory here.
     // Mock providers register themselves only when:
@@ -1358,27 +1289,17 @@ impl<'py> pyo3::FromPyObject<'py> for PointerOverridesInput {
         Ok(Self {
             origin: dict_get(d, "origin").map(|v| OriginInput::extract_bound(&v)).transpose()?,
             speed_factor: dict_get(d, "speed_factor").and_then(|v| v.extract().ok()),
-            acceleration_profile: dict_get(d, "acceleration_profile")
-                .and_then(|v| v.extract().ok()),
-            max_move_duration_ms: dict_get(d, "max_move_duration_ms")
-                .and_then(|v| v.extract().ok()),
-            move_time_per_pixel_us: dict_get(d, "move_time_per_pixel_us")
-                .and_then(|v| v.extract().ok()),
+            acceleration_profile: dict_get(d, "acceleration_profile").and_then(|v| v.extract().ok()),
+            max_move_duration_ms: dict_get(d, "max_move_duration_ms").and_then(|v| v.extract().ok()),
+            move_time_per_pixel_us: dict_get(d, "move_time_per_pixel_us").and_then(|v| v.extract().ok()),
             after_move_delay_ms: dict_get(d, "after_move_delay_ms").and_then(|v| v.extract().ok()),
-            after_input_delay_ms: dict_get(d, "after_input_delay_ms")
-                .and_then(|v| v.extract().ok()),
-            press_release_delay_ms: dict_get(d, "press_release_delay_ms")
-                .and_then(|v| v.extract().ok()),
-            after_click_delay_ms: dict_get(d, "after_click_delay_ms")
-                .and_then(|v| v.extract().ok()),
-            before_next_click_delay_ms: dict_get(d, "before_next_click_delay_ms")
-                .and_then(|v| v.extract().ok()),
-            multi_click_delay_ms: dict_get(d, "multi_click_delay_ms")
-                .and_then(|v| v.extract().ok()),
-            ensure_move_threshold: dict_get(d, "ensure_move_threshold")
-                .and_then(|v| v.extract().ok()),
-            ensure_move_timeout_ms: dict_get(d, "ensure_move_timeout_ms")
-                .and_then(|v| v.extract().ok()),
+            after_input_delay_ms: dict_get(d, "after_input_delay_ms").and_then(|v| v.extract().ok()),
+            press_release_delay_ms: dict_get(d, "press_release_delay_ms").and_then(|v| v.extract().ok()),
+            after_click_delay_ms: dict_get(d, "after_click_delay_ms").and_then(|v| v.extract().ok()),
+            before_next_click_delay_ms: dict_get(d, "before_next_click_delay_ms").and_then(|v| v.extract().ok()),
+            multi_click_delay_ms: dict_get(d, "multi_click_delay_ms").and_then(|v| v.extract().ok()),
+            ensure_move_threshold: dict_get(d, "ensure_move_threshold").and_then(|v| v.extract().ok()),
+            ensure_move_timeout_ms: dict_get(d, "ensure_move_timeout_ms").and_then(|v| v.extract().ok()),
             scroll_step: dict_get(d, "scroll_step").and_then(|v| v.extract().ok()),
             scroll_delay_ms: dict_get(d, "scroll_delay_ms").and_then(|v| v.extract().ok()),
         })
@@ -1481,9 +1402,7 @@ impl<'py> pyo3::FromPyObject<'py> for OriginInput {
             let ri = r.as_inner();
             return Ok(OriginInput::Bounds((ri.x(), ri.y(), ri.width(), ri.height())));
         }
-        Err(pyo3::exceptions::PyTypeError::new_err(
-            "invalid origin: expected 'desktop', core.Point or core.Rect",
-        ))
+        Err(pyo3::exceptions::PyTypeError::new_err("invalid origin: expected 'desktop', core.Point or core.Rect"))
     }
 }
 
@@ -1492,9 +1411,7 @@ impl From<OriginInput> for core_rs::platform::PointOrigin {
         match o {
             OriginInput::Desktop => Self::Desktop,
             OriginInput::Absolute((x, y)) => Self::Absolute(core_rs::types::Point::new(x, y)),
-            OriginInput::Bounds((x, y, w, h)) => {
-                Self::Bounds(core_rs::types::Rect::new(x, y, w, h))
-            }
+            OriginInput::Bounds((x, y, w, h)) => Self::Bounds(core_rs::types::Rect::new(x, y, w, h)),
         }
     }
 }
@@ -1515,14 +1432,10 @@ impl<'py> pyo3::FromPyObject<'py> for KeyboardOverridesInput {
         Ok(Self {
             press_delay_ms: dict_get(d, "press_delay_ms").and_then(|v| v.extract().ok()),
             release_delay_ms: dict_get(d, "release_delay_ms").and_then(|v| v.extract().ok()),
-            between_keys_delay_ms: dict_get(d, "between_keys_delay_ms")
-                .and_then(|v| v.extract().ok()),
-            chord_press_delay_ms: dict_get(d, "chord_press_delay_ms")
-                .and_then(|v| v.extract().ok()),
-            chord_release_delay_ms: dict_get(d, "chord_release_delay_ms")
-                .and_then(|v| v.extract().ok()),
-            after_sequence_delay_ms: dict_get(d, "after_sequence_delay_ms")
-                .and_then(|v| v.extract().ok()),
+            between_keys_delay_ms: dict_get(d, "between_keys_delay_ms").and_then(|v| v.extract().ok()),
+            chord_press_delay_ms: dict_get(d, "chord_press_delay_ms").and_then(|v| v.extract().ok()),
+            chord_release_delay_ms: dict_get(d, "chord_release_delay_ms").and_then(|v| v.extract().ok()),
+            after_sequence_delay_ms: dict_get(d, "after_sequence_delay_ms").and_then(|v| v.extract().ok()),
             after_text_delay_ms: dict_get(d, "after_text_delay_ms").and_then(|v| v.extract().ok()),
         })
     }
