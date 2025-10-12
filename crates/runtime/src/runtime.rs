@@ -881,6 +881,12 @@ mod tests {
         let _runtime = Runtime::new_with_factories(&[&INIT_ORDER_PROVIDER]).expect("runtime initializes");
     }
 
+    #[test]
+    fn runtime_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<Runtime>();
+    }
+
     #[fixture]
     fn rt_runtime_stub() -> Runtime {
         return rt_with_pf(&[&RUNTIME_FACTORY]);

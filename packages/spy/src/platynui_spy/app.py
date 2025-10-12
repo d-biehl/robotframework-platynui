@@ -1,5 +1,5 @@
 import os
-from PySide6.QtCore import QObject, Slot, QUrl, Signal
+from PySide6.QtCore import QObject, Slot, QUrl, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
@@ -29,39 +29,46 @@ class VirtualUiNode:
     def children(self) -> list[object]:
         return []
 
-
 class Backend(QObject):
-    # Signal um QML über Auswahl-Änderungen zu informieren
-    selectedPathChanged = Signal(list)
-
     def __init__(self, tree_model: TreeModel, attrs_model: AttributesModel) -> None:
         super().__init__()
         self.tree_model = tree_model
         self.attrs_model = attrs_model
-        self._selected_path: list[int] = []
+        self._selected_node: TreeNode | None = None
+        self._pending_node: TreeNode | None = None
+        self._load_timer = QTimer(self)
+        self._load_timer.setSingleShot(True)
+        self._load_timer.timeout.connect(self._load_attributes)
 
-    @property
-    def selectedPath(self) -> list[int]:
-        """Aktuell ausgewählter Pfad."""
-        return self._selected_path
-
-    @Slot(list)
-    def selectPath(self, row_path: list[int]) -> None:
-        """
-        row_path: z.B. [2, 0, 1] bedeutet:
-        root -> child(2) -> child(0) -> child(1)
-        """
-        self._selected_path = row_path
-        self.selectedPathChanged.emit(row_path)
-
-        node = self.tree_model.node_from_row_path(row_path)
-        if node is None:
-            self.attrs_model.clear_attrs()
+    @Slot(object)
+    def selectTreeNode(self, tree_node: object) -> None:
+        """Update the attribute table whenever the tree selection changes."""
+        if isinstance(tree_node, TreeNode):
+            self._selected_node = tree_node
+            needs_deferred = self.attrs_model.set_tree_node(tree_node)
+            if needs_deferred:
+                self._pending_node = tree_node
+                self._load_timer.start(75)
+            else:
+                self._pending_node = None
             return
-        self.attrs_model.set_attrs_dict(node.attrs)
+        self._selected_node = None
+        self.attrs_model.clear_attrs()
+        self._pending_node = None
+        self._load_timer.stop()
+
+    def _load_attributes(self) -> None:
+        node = self._pending_node
+        if node is None or node is not self._selected_node:
+            return
+        attrs = node.compute_attrs()
+        node.cache_attrs(attrs)
+        if node is self._selected_node:
+            self.attrs_model.set_attrs_dict(attrs)
+        self._pending_node = None
 
 
-def run_app(mock: bool=True) -> None:
+def run_app(mock: bool=False) -> None:
     app = QGuiApplication([])
 
     if mock:

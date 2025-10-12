@@ -7,10 +7,11 @@ ApplicationWindow {
     width: 900
     height: 560
     visible: true
-    title: "Tree + Attribute-Ansicht (PySide6 + QtQuick)"
+    title: "PlatynUI Spy"
 
     SplitView {
         anchors.fill: parent
+        orientation: Qt.Horizontal
 
         Frame {
             SplitView.preferredWidth: 360
@@ -19,12 +20,15 @@ ApplicationWindow {
 
             ColumnLayout {
                 anchors.fill: parent
-                spacing: 6
+                spacing: 0
 
                 Label {
+                    id: treeLabel
                     text: "Baum"
                     font.bold: true
                     padding: 8
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 40
                 }
 
                 TreeView {
@@ -33,6 +37,17 @@ ApplicationWindow {
                     Layout.fillHeight: true
 
                     model: TreeModel
+                    clip: true
+                    resizableColumns: false
+
+                    ScrollBar.vertical: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                        implicitWidth: 12
+                    }
+                    ScrollBar.horizontal: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                        implicitHeight: 12
+                    }
 
                     selectionModel: ItemSelectionModel {
                         model: TreeModel
@@ -43,66 +58,74 @@ ApplicationWindow {
                     Connections {
                         target: tree.selectionModel
                         function onCurrentChanged(current, previous) {
-                            if (current.valid) {
-                                var path = tree.rowPath(current);
-                                Backend.selectPath(path);
+                            if (!current.valid) {
+                                Backend.selectTreeNode(null);
+                                return;
                             }
+                            var treeNode = tree.model.data(current, Qt.UserRole + 3);
+                            Backend.selectTreeNode(treeNode);
                         }
-                    }
-
-                    function rowPath(idx) {
-                        var path = [];
-                        var cur = idx;
-                        while (cur.valid) {
-                            path.unshift(cur.row);
-                            cur = cur.parent;
-                        }
-                        return path;
                     }
                 }
             }
         }
 
         Frame {
+            SplitView.fillWidth: true
+            SplitView.minimumWidth: 260
             padding: 0
+
             ColumnLayout {
                 anchors.fill: parent
-                spacing: 6
+                spacing: 0
 
                 Label {
+                    id: attributeLabel
                     text: "Attribute"
                     font.bold: true
                     padding: 8
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 40
                 }
 
                 HorizontalHeaderView {
                     id: attributeHeader
                     Layout.fillWidth: true
+                    Layout.preferredHeight: 30
                     syncView: attrTable
                     model: ["Name", "Value"]
+                    delegate: Label {
+                        verticalAlignment: Text.AlignVCenter
+                        horizontalAlignment: Text.AlignLeft
+                        padding: 4
+                        font.bold: true
+                        text: modelData
+                    }
                 }
 
                 TableView {
                     id: attrTable
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-
+                    resizableColumns: true
                     model: AttributesModel
                     clip: true
+
+                    ScrollBar.vertical: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                        implicitWidth: 12
+                    }
+                    ScrollBar.horizontal: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                        implicitHeight: 12
+                    }
 
                     selectionModel: ItemSelectionModel {
                         model: AttributesModel
                     }
 
                     delegate: TableViewDelegate {}
-
-                    columnWidthProvider: function (column) {
-                        if (column === 0)
-                            return attrTable.width * 0.45;
-                        if (column === 1)
-                            return attrTable.width * 0.55;
-                        return 100;
-                    }
+                    columnSpacing: 2
                 }
             }
         }

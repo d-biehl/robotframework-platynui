@@ -21,7 +21,7 @@ use pyo3::prelude::PyRef;
 
 // ---------------- Node wrapper ----------------
 
-#[pyclass(name = "UiNode", module = "platynui_native", unsendable)]
+#[pyclass(name = "UiNode", module = "platynui_native")]
 pub struct PyNode {
     pub(crate) inner: Arc<dyn core_rs::ui::UiNode>,
 }
@@ -433,7 +433,7 @@ fn get_platform_overrides(py_overrides: &PyPlatformOverrides) -> PlatformOverrid
 
 // ---------------- Runtime ----------------
 
-#[pyclass(name = "Runtime", module = "platynui_native", unsendable)]
+#[pyclass(name = "Runtime", module = "platynui_native")]
 pub struct PyRuntime {
     inner: runtime_rs::Runtime,
 }

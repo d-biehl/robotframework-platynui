@@ -16,7 +16,7 @@ class TreeNode:
         self.ui_node = ui_node
         self.parent = parent
         self._children: list["TreeNode"] | None = None
-        self._attrs: dict[str, Any] = {}
+        self._attrs: dict[str, Any] | None = None
 
     @property
     def name(self) -> str:
@@ -24,33 +24,45 @@ class TreeNode:
 
     @property
     def attrs(self) -> dict[str, Any]:
-        """Attribute des UI-Knotens als Dictionary."""
-        attrs: dict[str, Any] = {}
-        for attr in self.ui_node.attributes():
-            attrs[f"{attr.namespace}:{attr.name}"] = attr.value()
-
-        return attrs
+        if self._attrs is None:
+            self._attrs = self.compute_attrs()
+        return self._attrs
 
     @property
     def children(self) -> list["TreeNode"]:
-        """Lazy-Loading der Kinder."""
         if self._children is None:
             self._children = []
-            # UiNode hat immer eine children() Methode
+
             try:
                 for child_ui_node in self.ui_node.children():
                     child_tree_node = TreeNode(child_ui_node, parent=self)
                     self._children.append(child_tree_node)
             except Exception:
-                # Falls ein Fehler auftritt, leere Liste zurückgeben
                 pass
         return self._children
+
+    def has_cached_attrs(self) -> bool:
+        return self._attrs is not None
+
+    def cache_attrs(self, attrs: dict[str, Any]) -> None:
+        self._attrs = dict(attrs)
+
+    def compute_attrs(self) -> dict[str, Any]:
+        attributes: dict[str, Any] = {}
+        for attr in self.ui_node.attributes():
+            key = f"{attr.namespace}:{attr.name}"
+            try:
+                attributes[key] = str(attr.value())
+            except Exception as exc:  # pragma: no cover - defensive fallback
+                attributes[key] = f"<Error: {exc}>"
+        return attributes
 
 
 # --------- TreeModel (hierarchisch) ----------
 class TreeModel(QAbstractItemModel):
     NameRole = Qt.ItemDataRole.UserRole + 1
-    AttrsRole = Qt.ItemDataRole.UserRole + 2
+    UiNodeRole = Qt.ItemDataRole.UserRole + 2
+    TreeNodeRole = Qt.ItemDataRole.UserRole + 3
 
     def __init__(self, root: TreeNode) -> None:
         super().__init__()
@@ -81,9 +93,17 @@ class TreeModel(QAbstractItemModel):
         parent_node = node.parent
         grand = parent_node.parent or self._root
         if grand is self._root:
-            row = self._root.children.index(parent_node) if parent_node in self._root.children else 0
+            row = (
+                self._root.children.index(parent_node)
+                if parent_node in self._root.children
+                else 0
+            )
         else:
-            row = grand.children.index(parent_node) if parent_node in grand.children else 0
+            row = (
+                grand.children.index(parent_node)
+                if parent_node in grand.children
+                else 0
+            )
         return self.createIndex(row, 0, parent_node)
 
     def rowCount(
@@ -107,8 +127,10 @@ class TreeModel(QAbstractItemModel):
         node: TreeNode = index.internalPointer()
         if role in (Qt.ItemDataRole.DisplayRole, self.NameRole):
             return node.name
-        if role == self.AttrsRole:
-            return node.attrs
+        if role == self.UiNodeRole:
+            return node.ui_node
+        if role == self.TreeNodeRole:
+            return node
         return None
 
     def flags(self, index: QModelIndex | QPersistentModelIndex) -> Qt.ItemFlag:
@@ -127,18 +149,9 @@ class TreeModel(QAbstractItemModel):
         roles = super().roleNames()
         roles[Qt.ItemDataRole.DisplayRole] = QByteArray(b"display")
         roles[self.NameRole] = QByteArray(b"name")
-        roles[self.AttrsRole] = QByteArray(b"attrs")
+        roles[self.UiNodeRole] = QByteArray(b"ui_node")
+        roles[self.TreeNodeRole] = QByteArray(b"tree_node")
         return roles
-
-    # Hilfsfunktion für Backend: Node über Row-Pfad finden
-    def node_from_row_path(self, row_path: list[int]) -> TreeNode | None:
-        node: TreeNode = self._root
-        try:
-            for r in row_path:
-                node = node.children[int(r)]
-            return node
-        except Exception:
-            return None
 
 
 # --------- flache Attribut-Tabelle (Name/Value) als 2-Spalten-Modell ----------
@@ -170,20 +183,36 @@ class AttributesModel(QAbstractItemModel):
 
         name, value = self._items[index.row()]
 
+        try:
+            calculated_value = value() if callable(value) else value
+        except Exception as e:
+            calculated_value = f"<Error: {e}>"
+
         if role == Qt.ItemDataRole.DisplayRole:
             if index.column() == 0:
                 return name
             elif index.column() == 1:
-                return str(value)
+                return calculated_value
         elif role == self.NameRole:
             return name
         elif role == self.ValueRole:
-            return str(value)
+            return calculated_value
 
         return None
 
-    def index(self, row: int, column: int, parent: QModelIndex | QPersistentModelIndex = QModelIndex()) -> QModelIndex:
-        if parent.isValid() or row < 0 or row >= len(self._items) or column < 0 or column >= 2:
+    def index(
+        self,
+        row: int,
+        column: int,
+        parent: QModelIndex | QPersistentModelIndex = QModelIndex(),
+    ) -> QModelIndex:
+        if (
+            parent.isValid()
+            or row < 0
+            or row >= len(self._items)
+            or column < 0
+            or column >= 2
+        ):
             return QModelIndex()
         return self.createIndex(row, column)
 
@@ -203,7 +232,24 @@ class AttributesModel(QAbstractItemModel):
         self._items = []
         self.endResetModel()
 
+    def show_loading(self) -> None:
+        self.beginResetModel()
+        self._items = [("Loading…", "…")]
+        self.endResetModel()
+
+    def set_tree_node(self, tree_node: "TreeNode | None") -> bool:
+        """Populate the model using ``tree_node``; return True if async fetch is needed."""
+        if tree_node is None:
+            self.clear_attrs()
+            return False
+        if tree_node.has_cached_attrs():
+            self.set_attrs_dict(tree_node.attrs)
+            return False
+        self.show_loading()
+        return True
+
     def set_attrs_dict(self, d: dict[str, Any]) -> None:
+        """Populate the model with a pre-built attribute mapping."""
         self.beginResetModel()
         self._items = list(d.items())
         self.endResetModel()

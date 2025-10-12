@@ -223,7 +223,7 @@ pub(crate) struct PointerEngine<'a> {
     settings: PointerSettings,
     profile: PointerProfile,
     last_click: Option<ClickStamp>,
-    sleep: &'a dyn Fn(Duration),
+    sleep: &'a (dyn Fn(Duration) + Send + Sync),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -244,7 +244,7 @@ impl<'a> PointerEngine<'a> {
         desktop_bounds: Rect,
         settings: PointerSettings,
         profile: PointerProfile,
-        sleep: &'a dyn Fn(Duration),
+        sleep: &'a (dyn Fn(Duration) + Send + Sync),
     ) -> Self {
         Self { device, desktop_bounds, settings, profile, last_click: None, sleep }
     }

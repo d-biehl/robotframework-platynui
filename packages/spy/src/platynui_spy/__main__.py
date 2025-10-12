@@ -1,5 +1,7 @@
-#!/usr/bin/env python3
-from platynui_spy.main import main
+def main() -> None:
+    from .app import run_app
+
+    run_app()
 
 if __name__ == "__main__":
     main()
