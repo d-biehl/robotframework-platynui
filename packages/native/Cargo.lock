@@ -749,7 +749,6 @@ dependencies = [
  "platynui-provider-mock",
  "platynui-provider-windows-uia",
  "platynui-runtime",
- "platynui-xpath",
  "png",
  "pyo3",
  "serde",
