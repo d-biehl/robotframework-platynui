@@ -8,7 +8,7 @@
 //! same MTA thread when used from iterator code.
 
 use std::cell::{Cell, RefCell};
-use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx};
+use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx};
 use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation, IUIAutomationTreeWalker};
 
 thread_local! {
@@ -21,7 +21,7 @@ pub fn ensure_com_mta() {
     COM_INIT.with(|flag| {
         if !flag.get() {
             unsafe {
-                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
             }
             flag.set(true);
         }

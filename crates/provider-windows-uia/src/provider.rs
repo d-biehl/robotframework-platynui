@@ -147,15 +147,7 @@ impl WindowsUiaProvider {
                 ProviderKind::Native,
             )
         });
-        // Warm up COM + UIA singletons on the current thread to avoid first-use latency
-        {
-            let _ = crate::com::uia();
-            let _ = crate::com::raw_walker();
-            // Touch root once; ignore errors to keep construction infallible
-            if let Ok(uia) = crate::com::uia() {
-                let _ = unsafe { uia.GetRootElement() };
-            }
-        }
+
         Self { descriptor: &DESCRIPTOR }
     }
 }
