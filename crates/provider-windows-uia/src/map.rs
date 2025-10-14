@@ -121,7 +121,8 @@ pub fn get_clickable_point(elem: &IUIAutomationElement) -> Result<UiPoint, crate
     }
 }
 
-pub fn format_runtime_id(elem: &IUIAutomationElement) -> Result<String, crate::error::UiaError> {
+/// Internal helper: returns the hex-dotted RuntimeId body without any scheme/prefix.
+fn runtime_id_hex_body(elem: &IUIAutomationElement) -> Result<String, crate::error::UiaError> {
     use windows::Win32::System::Ole::{
         SafeArrayAccessData, SafeArrayGetLBound, SafeArrayGetUBound, SafeArrayUnaccessData,
     };
@@ -136,10 +137,38 @@ pub fn format_runtime_id(elem: &IUIAutomationElement) -> Result<String, crate::e
         let mut data: *mut i32 = std::ptr::null_mut();
         crate::error::uia_api("SafeArrayAccessData", SafeArrayAccessData(psa, &mut data as *mut _ as *mut _))?;
         let slice = std::slice::from_raw_parts(data, count);
+        // Keep formatting identical to legacy behavior to avoid breaking changes.
         let body = slice.iter().map(|v| format!("{:x}", v)).collect::<Vec<_>>().join(".");
         crate::error::uia_api("SafeArrayUnaccessData", SafeArrayUnaccessData(psa))?;
-        Ok(format!("uia://{}", body))
+        Ok(body)
     }
+}
+
+// Note: legacy unscoped formatter removed; use `format_scoped_runtime_id` instead.
+
+/// Scope for composing unique, view-aware RuntimeId URIs within our combined trees.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UiaIdScope {
+    /// Desktop TopLevel view
+    Desktop,
+    /// Application-grouped view; disambiguate by process id
+    App { pid: i32 },
+}
+
+/// Compose a scoped RuntimeId URI that stays unique across multiple views in our trees.
+/// Examples:
+///  - Desktop: `uia://desktop/<rid>`
+///  - App:     `uia://app/<pid>/<rid>`
+pub fn format_scoped_runtime_id(
+    elem: &IUIAutomationElement,
+    scope: UiaIdScope,
+) -> Result<String, crate::error::UiaError> {
+    let body = runtime_id_hex_body(elem)?;
+    let s = match scope {
+        UiaIdScope::Desktop => format!("uia://desktop/{}", body),
+        UiaIdScope::App { pid } => format!("uia://app/{}/{}", pid, body),
+    };
+    Ok(s)
 }
 
 pub fn get_is_enabled(elem: &IUIAutomationElement) -> Result<bool, crate::error::UiaError> {

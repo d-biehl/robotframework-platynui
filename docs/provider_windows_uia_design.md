@@ -50,7 +50,7 @@ UiNode‑Basics (lazy)
 - `namespace()`: über UIA‑Flags `CurrentIsControlElement`/`CurrentIsContentElement` (Control hat Priorität; Content → `item`; Fallback → `control`).
 - `role()`: aus `ControlType` per Mapping; Ergebnisse im Knoten gecached.
 - `name()`: `CurrentName()`; lazy gecached.
-- `runtime_id()`: `GetRuntimeId()` → `uia://...`; lazy gecached.
+- `runtime_id()`: `GetRuntimeId()` → gescopte URI (siehe Abschnitt unten); lazy gecached.
 - `invalidate()`: Derzeit bewusst No‑Op, da die Trait‑Signaturen Referenzen zurückgeben. Attributwerte bleiben lazy und können unabhängig neu gelesen werden. Echte Cache‑Invalidierung ist möglich, würde aber API‑Anpassungen oder eine interne, referenzstabile Cache‑Schicht erfordern.
 
 ## Kein NodeStore im MVP
@@ -59,7 +59,18 @@ UiNode‑Basics (lazy)
 ## Attribute (lazy)
 - Role: aus `ControlType` → String‑Mapping; Namespace aus dem Rollentyp (z. B. `app:Application`, `control:*`, `item:*`).
 - Name: `UIA_NamePropertyId` → `Name`.
-- RuntimeId: `GetRuntimeId()` (SAFEARRAY von INT) → String‑Schema `uia://<hex>.<hex>…`.
+- RuntimeId: `GetRuntimeId()` (SAFEARRAY von INT) → gescopte URI, z. B. `uia://desktop/<hex>.<hex>…` bzw. `uia://app/<pid>/<hex>.<hex>…`.
+
+## RuntimeId‑Schema (scoped URIs)
+- UIA RuntimeId ist nur zur Laufzeit eindeutig und als Opaque‑Wert zu behandeln. Damit Knoten in unterschiedlichen Sichten (TopLevel vs. App‑Gruppierung) nicht kollidieren, versehen wir die ID mit einem Scope.
+- Desktop‑Sicht: `uia://desktop/<rid>`
+- App‑Gruppierung: `uia://app/<pid>/<rid>`
+- `<rid>` ist der punkt‑separierte Hex‑Body aus `GetRuntimeId()`.
+
+Implementierungsdetails
+- Der Hex‑Body wird unverändert aus dem SAFEARRAY erzeugt (32‑Bit‑Ints → Hex → durch Punkte getrennt).
+- Der Scope wird basierend auf dem Erzeugungskontext gesetzt: TopLevel‑Nodes erhalten `desktop`, Kinder eines `app:Application` erhalten `app/<pid>`.
+- Damit bleiben IDs innerhalb der kombinierten Darstellung eindeutig, ohne das UIA‑Semantik zu verletzen.
 - Bounds: `UIA_BoundingRectanglePropertyId` → `Rect(x,y,width,height)`.
 - Sichtbarkeit/Status: `UIA_IsEnabledPropertyId` → `IsEnabled`, `UIA_IsOffscreenPropertyId` → `IsOffscreen`, abgeleitet `IsVisible = !IsOffscreen && Bounds.Width>0 && Bounds.Height>0`.
 - ActivationPoint: Mitte der Bounds (später optional `GetClickablePoint`).

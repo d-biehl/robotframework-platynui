@@ -66,18 +66,23 @@ pub struct UiaNode {
     // Minimal identity caches required by trait return types
     name_cell: once_cell::sync::OnceCell<String>,
     rid_cell: once_cell::sync::OnceCell<RuntimeId>,
+    id_scope: crate::map::UiaIdScope,
 }
 unsafe impl Send for UiaNode {}
 unsafe impl Sync for UiaNode {}
 
 impl UiaNode {
-    pub fn from_elem(elem: windows::Win32::UI::Accessibility::IUIAutomationElement) -> Arc<Self> {
+    pub fn from_elem_with_scope(
+        elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+        scope: crate::map::UiaIdScope,
+    ) -> Arc<Self> {
         Arc::new(Self {
             elem,
             parent: Mutex::new(None),
             self_weak: once_cell::sync::OnceCell::new(),
             name_cell: once_cell::sync::OnceCell::new(),
             rid_cell: once_cell::sync::OnceCell::new(),
+            id_scope: scope,
         })
     }
     pub fn set_parent(&self, parent: &Arc<dyn UiNode>) {
@@ -132,7 +137,8 @@ impl UiNode for UiaNode {
     }
     fn runtime_id(&self) -> &RuntimeId {
         self.rid_cell.get_or_init(|| {
-            let s = crate::map::format_runtime_id(&self.elem).unwrap_or_else(|_| "uia://temp".into());
+            let s = crate::map::format_scoped_runtime_id(&self.elem, self.id_scope)
+                .unwrap_or_else(|_| "uia://temp".into());
             RuntimeId::from(s)
         })
     }
@@ -146,12 +152,17 @@ impl UiNode for UiaNode {
         // Ensure a virtualized item is realized before enumerating its children.
         self.try_realize();
         match self.as_ui_node() {
-            Some(parent_arc) => Box::new(ElementChildrenIter::new(self.elem.clone(), Some(parent_arc))),
+            Some(parent_arc) => Box::new(ElementChildrenIter::new(
+                self.elem.clone(),
+                Some(parent_arc),
+                self.id_scope,
+            )),
             None => Box::new(std::iter::empty::<Arc<dyn UiNode>>()),
         }
     }
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
-        Box::new(AttrsIter::new(self.elem.clone()))
+        let rid_str = self.runtime_id().as_str().to_string();
+        Box::new(AttrsIter::new(self.elem.clone(), rid_str))
     }
 
     fn supported_patterns(&self) -> Vec<PatternId> {
@@ -300,14 +311,16 @@ pub(crate) struct ElementChildrenIter {
     current: Option<windows::Win32::UI::Accessibility::IUIAutomationElement>,
     first: bool,
     parent: Option<Arc<dyn UiNode>>,
+    scope: crate::map::UiaIdScope,
 }
 impl ElementChildrenIter {
     pub fn new(
         parent_elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
         parent_node: Option<Arc<dyn UiNode>>,
+        scope: crate::map::UiaIdScope,
     ) -> Self {
         let walker = crate::com::raw_walker().ok();
-        Self { walker, parent_elem, current: None, first: true, parent: parent_node }
+        Self { walker, parent_elem, current: None, first: true, parent: parent_node, scope }
     }
 }
 unsafe impl Send for ElementChildrenIter {}
@@ -339,7 +352,7 @@ impl Iterator for ElementChildrenIter {
                 }
             }
         }
-        let node = UiaNode::from_elem(elem);
+        let node = UiaNode::from_elem_with_scope(elem, self.scope);
         if let Some(ref parent) = self.parent {
             node.set_parent(parent);
         }
@@ -383,7 +396,7 @@ unsafe impl Send for NameAttr {}
 unsafe impl Sync for NameAttr {}
 
 struct RuntimeIdAttr {
-    elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+    rid: String,
 }
 impl UiAttribute for RuntimeIdAttr {
     fn namespace(&self) -> Namespace {
@@ -393,7 +406,7 @@ impl UiAttribute for RuntimeIdAttr {
         "RuntimeId"
     }
     fn value(&self) -> UiValue {
-        UiValue::from(crate::map::format_runtime_id(&self.elem).unwrap_or_else(|_| "uia://temp".into()))
+        UiValue::from(self.rid.clone())
     }
 }
 unsafe impl Send for RuntimeIdAttr {}
@@ -528,16 +541,17 @@ struct AttrsIter {
     has_window_surface: bool,
     native_cache: Option<Vec<Arc<dyn UiAttribute>>>,
     native_pos: usize,
+    rid_str: String,
 }
 impl AttrsIter {
-    fn new(elem: windows::Win32::UI::Accessibility::IUIAutomationElement) -> Self {
+    fn new(elem: windows::Win32::UI::Accessibility::IUIAutomationElement, rid_str: String) -> Self {
         use windows::Win32::UI::Accessibility::*;
         let has_window_surface = unsafe {
             let has_window = elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)).is_ok();
             let has_transform = elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)).is_ok();
             has_window || has_transform
         };
-        Self { idx: 0, elem, has_window_surface, native_cache: None, native_pos: 0 }
+        Self { idx: 0, elem, has_window_surface, native_cache: None, native_pos: 0, rid_str }
     }
 }
 impl Iterator for AttrsIter {
@@ -548,7 +562,7 @@ impl Iterator for AttrsIter {
             let item = match self.idx {
                 0 => Some(Arc::new(RoleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 1 => Some(Arc::new(NameAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                2 => Some(Arc::new(RuntimeIdAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                2 => Some(Arc::new(RuntimeIdAttr { rid: self.rid_str.clone() }) as Arc<dyn UiAttribute>),
                 3 => Some(Arc::new(BoundsAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 4 => Some(Arc::new(ActivationPointAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 5 => Some(Arc::new(IsEnabledAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
@@ -1103,7 +1117,7 @@ impl UiNode for ApplicationNode {
             .as_str()
     }
     fn runtime_id(&self) -> &RuntimeId {
-        self.rid_cell.get_or_init(|| RuntimeId::from(format!("uia-app://{}", self.pid)))
+        self.rid_cell.get_or_init(|| RuntimeId::from(format!("uia://app/{}", self.pid)))
     }
     fn parent(&self) -> Option<Weak<dyn UiNode>> {
         match self.parent.lock() {
@@ -1141,7 +1155,10 @@ impl UiNode for ApplicationNode {
                     let elem = self.current.as_ref()?.clone();
                     let pid = crate::map::get_process_id(&elem).unwrap_or(-1);
                     if pid == self.pid {
-                        let node = UiaNode::from_elem(elem);
+                        let node = UiaNode::from_elem_with_scope(
+                            elem,
+                            crate::map::UiaIdScope::App { pid: self.pid },
+                        );
                         if let Some(ref parent) = self.parent {
                             node.set_parent(parent);
                         }
