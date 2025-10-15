@@ -1,0 +1,149 @@
+import { CheckBox, LineEdit, StandardListView, GroupBox, StandardTableView } from "std-widgets.slint";
+import { HorizontalResizablePane } from "components/horizontal-resizable-pane.slint";
+import { VerticalResizablePane } from "components/vertical-resizable-pane.slint";
+import { TreeView, TreeNodeVM } from "components/tree-view.slint";
+
+
+export component MainWindow inherits Window {
+    preferred-width: 1100px;
+    preferred-height: 750px;
+    title: "PlatynUI Spy";
+
+    // External model for the TreeView (set from Rust)
+    in property <[TreeNodeVM]> tree-model: [];
+
+    // Forward important TreeView events to Rust
+    callback tree-node-toggled(node_id: string, expanded: bool);
+    callback tree-request-children(node_id: string);
+    callback tree-request-parent(node_id: string);
+
+    // Programmatic selection from Rust
+    public function select_tree_node_id(id: string) {
+        tv.set_selected_node(id);
+        tv.request_focus();
+    }
+
+
+    // Exit callback
+    callback exit-requested();
+    MenuBar {
+        Menu {
+            title: "File";
+            MenuItem {
+                title: "Exit";
+                activated => {
+                    root.exit-requested();
+                };
+            }
+        }
+
+        Menu {
+            title: "Edit";
+            MenuItem {
+                title: "Undo";
+            }
+
+            MenuItem {
+                title: "Redo";
+            }
+
+            MenuItem {
+                title: "Cut";
+            }
+
+            MenuItem {
+                title: "Copy";
+            }
+
+            MenuItem {
+                title: "Paste";
+            }
+        }
+
+        Menu {
+            title: "Help";
+            MenuItem {
+                title: "About PlatynUI Spy";
+            }
+        }
+    }
+
+    VerticalLayout {
+        //padding: 6px;
+        spacing: 6px;
+
+        // Top Bar
+        HorizontalLayout {
+            spacing: 12px;
+            padding: 6px;
+            LineEdit {
+                placeholder-text: "Search via XPath...";
+                horizontal-stretch: 1;
+            }
+
+            CheckBox {
+                text: "Always On Top";
+            }
+        }
+
+        // Main Content Area (resizable) mit TreeView + Properties
+        VerticalResizablePane {
+            content-height: 450px;
+            HorizontalLayout {
+                spacing: 0px;
+
+                // Linke resizable Pane für TreeView
+                HorizontalResizablePane {
+                    content-width: 450px;
+                    tv := TreeView {
+                        root-model: root.tree-model;
+                        node-toggled(node_id, expanded) => {
+                            root.tree-node-toggled(node_id, expanded);
+                        }
+                        request-children(node_id) => {
+                            root.tree-request-children(node_id);
+                        }
+                        request-parent(node_id) => {
+                            root.tree-request-parent(node_id);
+                        }
+                    }
+                }
+
+                // Rechte Seite nur für Properties
+                StandardTableView {
+                    columns: [{ title: "Name" }, { title: "Value" }, { title: "Type" }];
+                    rows: [
+                        [
+                            { text: "Name" },
+                            { text: "Dummy" },
+                            { text: "string" },
+                        ],
+                        [
+                            { text: "Bounds" },
+                            { text: "100, 200, 800, 600" },
+                            { text: "Rect" },
+                        ],
+                        [
+                            { text: "AutomationId" },
+                            { text: "dummCtrl" },
+                            { text: "string" },
+                        ]
+                    ];
+                }
+            }
+        }
+
+        // Results Pane (unten, fest)
+        GroupBox {
+            title: "Results";
+            VerticalLayout {
+                StandardListView {
+                    model: [
+                        { text: "Control \"DummyResult1\"" },
+                        { text: "Control \"DummyResult2\"" },
+                    ];
+                }
+            }
+        }
+    }
+}

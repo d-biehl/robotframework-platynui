@@ -1,0 +1,80 @@
+// HorizontalResizablePane.slint
+import { Palette } from "std-widgets.slint";
+
+export component HorizontalResizablePane inherits Rectangle {
+    // --- API ---
+    in-out property <length> content-width: 300px;  // Breite des Content-Bereichs
+    in property <length> content-min-width: 0px;    // Mindestbreite des Contents (0px = unbegrenzt)
+    in property <length> content-max-width: 0px;    // Maximalbreite des Contents (0px = unbegrenzt)
+    in property <length> handle-width: 6px;         // Drag-Handle Breite
+    in property <length> hit-area-extra: 4px;       // Zusätzliche Hit-Zone
+
+    // --- Layout Integration ---
+    // Gesamtbreite ergibt sich aus Content + Handle
+    width: content-width + handle-width;
+    // Preferred-Größen für Layout-System
+    preferred-width: content-width + handle-width;
+    preferred-height: 100%;
+
+    // --- Style ---
+    background: transparent;
+
+    // --- Intern ---
+    private property <bool> _dragging: false;
+
+    // --- Content Area (links) ---
+    content_area := HorizontalLayout {
+        x: 0px;
+        y: 0px;
+        width: root.content-width;
+        height: parent.height;
+        padding: 8px;
+        spacing: 8px;
+        @children
+    }
+
+    // --- Drag Handle (rechts) ---
+    handle := Rectangle {
+        x: content_area.width;
+        y: 0px;
+        width: root.handle-width;
+        height: parent.height;
+        background: Palette.alternate-background;
+
+        // Griff-Optik
+        Rectangle {
+            width: 2px;
+            height: 40px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Palette.foreground;
+            border-radius: 2px;
+            opacity: root._dragging ? 0.8 : 0.4;
+        }
+    }
+
+    // --- Touch Area (erweiterte Hit-Zone) ---
+    TouchArea {
+        x: handle.x - root.hit-area-extra;
+        y: 0px;
+        width: root.handle-width + (2 * root.hit-area-extra);
+        height: parent.height;
+        mouse-cursor: MouseCursor.col-resize;
+
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                root._dragging = true;
+            } else if (root._dragging && event.kind == PointerEventKind.move) {
+                // Mausposition -> Content-Breite mit optionaler Min/Max-Begrenzung
+                let desired-content-width = self.mouse-x + self.x;
+                let min-width = root.content-min-width > 0px ? root.content-min-width : desired-content-width;
+                let max-width = root.content-max-width > 0px ? root.content-max-width : desired-content-width;
+                root.content-width = max(min-width, min(max-width, desired-content-width));
+            } else if (event.kind == PointerEventKind.up) {
+                root._dragging = false;
+            } else if (event.kind == PointerEventKind.cancel) {
+                root._dragging = false;
+            }
+        }
+    }
+}

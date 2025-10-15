@@ -1,0 +1,80 @@
+// VerticalResizablePane.slint
+import { Palette } from "std-widgets.slint";
+
+export component VerticalResizablePane inherits Rectangle {
+    // --- API ---
+    in-out property <length> content-height: 200px; // Höhe des Content-Bereichs
+    in property <length> content-min-height: 0px;   // Mindesthöhe des Contents (0px = unbegrenzt)
+    in property <length> content-max-height: 0px;   // Maximalhöhe des Contents (0px = unbegrenzt)
+    in property <length> handle-height: 6px;        // Drag-Handle Höhe
+    in property <length> hit-area-extra: 4px;       // Zusätzliche Hit-Zone
+
+    // --- Layout Integration ---
+    // Gesamthöhe ergibt sich aus Content + Handle
+    height: content-height + handle-height;
+    // Preferred-Größen für Layout-System
+    preferred-width: 100%;
+    preferred-height: content-height + handle-height;
+
+    // --- Style ---
+    background: transparent;
+
+    // --- Intern ---
+    private property <bool> _dragging: false;
+
+    // --- Content Area (oben) ---
+    content_area := VerticalLayout {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: root.content-height;
+        // padding: 8px;
+        // spacing: 8px;
+        @children
+    }
+
+    // --- Drag Handle (unten) ---
+    handle := Rectangle {
+        x: 0px;
+        y: root.content-height;
+        width: parent.width;
+        height: root.handle-height;
+        background: Palette.alternate-background;
+
+        // Griff-Optik
+        Rectangle {
+            width: 40px;
+            height: 2px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Palette.foreground;
+            border-radius: 2px;
+            opacity: root._dragging ? 0.8 : 0.4;
+        }
+    }
+
+    // --- Touch Area (erweiterte Hit-Zone) ---
+    TouchArea {
+        x: 0px;
+        y: handle.y - root.hit-area-extra;
+        width: parent.width;
+        height: root.handle-height + (2 * root.hit-area-extra);
+        mouse-cursor: MouseCursor.row-resize;
+
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                root._dragging = true;
+            } else if (root._dragging && event.kind == PointerEventKind.move) {
+                // Mausposition -> Content-Höhe mit optionaler Min/Max-Begrenzung
+                let desired-content-height = self.mouse-y + self.y;
+                let min-height = root.content-min-height > 0px ? root.content-min-height : desired-content-height;
+                let max-height = root.content-max-height > 0px ? root.content-max-height : desired-content-height;
+                root.content-height = max(min-height, min(max-height, desired-content-height));
+            } else if (event.kind == PointerEventKind.up) {
+                root._dragging = false;
+            } else if (event.kind == PointerEventKind.cancel) {
+                root._dragging = false;
+            }
+        }
+    }
+}

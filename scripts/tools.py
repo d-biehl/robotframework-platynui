@@ -13,7 +13,7 @@ class GitDescribeVersion(NamedTuple):
     hash: Optional[str] = None
 
 
-def determine_version_bump(repo_path="."):
+def determine_version_bump(repo_path: str =".") -> Optional[str]:
     try:
         repo = Repo(repo_path)
         if repo.bare:

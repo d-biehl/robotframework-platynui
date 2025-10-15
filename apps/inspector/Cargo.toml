@@ -10,4 +10,39 @@ repository.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = []
+mock-provider = [
+    "platynui-runtime/mock-provider",
+    "dep:platynui-provider-mock",
+    "dep:platynui-platform-mock",
+]
+
 [dependencies]
+slint = "1"
+thiserror = "2.0"
+
+# Mock providers are always available for Python testing
+platynui-provider-mock = { path = "../../crates/provider-mock", optional = true }
+platynui-platform-mock = { path = "../../crates/platform-mock", optional = true }
+
+# Internal crates
+platynui-core = { path = "../../crates/core" }
+platynui-runtime = { path = "../../crates/runtime", default-features = false }
+
+platynui-link = { path = "../../crates/link" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+platynui-platform-windows = { path = "../../crates/platform-windows" }
+platynui-provider-windows-uia = { path = "../../crates/provider-windows-uia" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+platynui-platform-linux-x11 = { path = "../../crates/platform-linux-x11" }
+platynui-provider-atspi = { path = "../../crates/provider-atspi" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+platynui-platform-macos = { path = "../../crates/platform-macos" }
+platynui-provider-macos-ax = { path = "../../crates/provider-macos-ax" }
+
+[build-dependencies]
+slint-build = "1"

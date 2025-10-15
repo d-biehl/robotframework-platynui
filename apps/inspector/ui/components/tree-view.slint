@@ -1,0 +1,666 @@
+import { Palette, ScrollView } from "std-widgets.slint";
+
+export struct TreeNodeVM {
+	id: string,
+	label: string,
+	has_children: bool,
+    icon_name: string,
+    depth: int,
+    is_expanded: bool,
+}
+
+// (Tooltip removed for now)
+
+// Einzelne Zeile (vorab definieren, damit nutzbar)
+component TreeRow inherits Rectangle {
+    in property <TreeNodeVM> node;
+    in property <bool> show-icons;
+    in property <int> indent-size;
+    in property <bool> is-selected;
+    in property <bool> is-focused;
+    in property <bool> is-expanded;
+    in property <int> index;
+	// callbacks to bubble actions
+	callback activate();
+    callback toggle();
+    height: 22px;
+    // Base visuals
+    background: Palette.background;
+    border-width: 0px;
+    border-color: Palette.border;
+    // Smooth transition between backgrounds
+    animate background { duration: 120ms; }
+    // (Optional fade-in removed for compatibility)
+
+    states [
+        hover when ta.has-hover && !is-selected: {
+            root.background: Palette.background.darker(5%);
+        }
+        pressed when ta.pressed && !is-selected: {
+            root.background: Palette.background.darker(10%);
+        }
+        selected when is-selected: {
+            root.background: Palette.selection-background;
+            label_text.color: Palette.selection-foreground;
+            root.border-width: 0px;
+        }
+        focused when is-focused && !is-selected: {
+            root.border-width: 1px;
+            root.border-color: Palette.selection-foreground;
+        }
+    ]
+
+	// Left selection indicator for better contrast
+	Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 3px;
+        height: parent.height;
+        background: Palette.selection-foreground;
+        visible: is-selected;
+        opacity: 0.6;
+    }
+
+	// Row click handling base layer (behind specific controls)
+    // No-op property; hover detection uses ta.has-hover directly
+    ta := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => {
+            root.activate();
+        }
+    }
+    // (Tooltip hover timers removed)
+
+    HorizontalLayout {
+        spacing: 6px;
+
+		// Einrückung je Ebene
+        Rectangle {
+            width: (node.depth * indent-size) * 1px;
+            height: 1px;
+            opacity: 0;
+        }
+
+		// Disclosure
+        Rectangle {
+            width: 16px;
+            height: parent.height;
+
+            // Right-facing chevron (collapsed)
+            path_right := Path {
+                visible: root.node.has_children;
+                x: (parent.width - 12px) / 2;
+                y: (parent.height - 12px) / 2;
+                width: 12px;
+                height: 12px;
+                commands: "M 5 4 L 9 8 L 5 12";
+                stroke: is-selected ? Palette.selection-foreground : Palette.foreground;
+                stroke-width: 2px;
+                opacity: is-expanded ? 0.0 : 1.0;
+                animate opacity { duration: 120ms; }
+                fill: transparent;
+            }
+
+            // Down-facing chevron (expanded)
+            path_down := Path {
+                visible: root.node.has_children;
+                x: (parent.width - 12px) / 2;
+                y: (parent.height - 12px) / 2;
+                width: 12px;
+                height: 12px;
+                commands: "M 4 7 L 8 11 L 12 7";
+                stroke: is-selected ? Palette.selection-foreground : Palette.foreground;
+                stroke-width: 2px;
+                opacity: is-expanded ? 1.0 : 0.0;
+                animate opacity { duration: 120ms; }
+                fill: transparent;
+            }
+
+            TouchArea {
+                clicked => {
+                    if (root.node.has_children) {
+                        root.toggle();
+                    }
+                }
+            }
+        }
+
+		// Optionales Icon (16x16) – leerer Platzhalter wenn kein Icon
+        Rectangle {
+            visible: show-icons;
+            width: 16px;
+            height: 16px;
+
+			// TODO: In späterer Phase: image: @image-url("icons/" + node.icon_name + ".svg");
+		}
+
+		// Label
+        label_text := Text {
+            text: node.label;
+            color: is-selected ? Palette.selection-foreground : Palette.foreground;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+    }
+
+    // Simple tooltip shown on hover, using standard Palette
+    // Appears above the row near the mouse cursor; kept lightweight (no Material import)
+}
+
+export component TreeView inherits ScrollView {
+    in property <bool> show-icons: true;
+    in property <int> indent-size: 14;
+    in property <[TreeNodeVM]> root-model: [
+        { id: "root", label: "Root", has_children: true, icon_name: "", depth: 0, is_expanded: false },
+        {
+            id: "root-1",
+            label: "Child 1",
+            has_children: false,
+            icon_name: "",
+            depth: 1,
+            is_expanded: false
+        },
+        {
+            id: "root-2",
+            label: "Child 2",
+            has_children: false,
+            icon_name: "",
+            depth: 1,
+            is_expanded: false
+        },
+        {
+            id: "root-3",
+            label: "Child 3 - Long Text Item to Test Horizontal Scrolling",
+            has_children: false,
+            icon_name: "",
+            depth: 1,
+            is_expanded: false
+        },
+        {
+            id: "item-1",
+            label: "Item 1",
+            has_children: true,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+        {
+            id: "item-2",
+            label: "Item 2",
+            has_children: false,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+        {
+            id: "item-3",
+            label: "Item 3",
+            has_children: false,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+        {
+            id: "item-4",
+            label: "Item 4",
+            has_children: false,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+        {
+            id: "item-5",
+            label: "Item 5",
+            has_children: false,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+        {
+            id: "item-6",
+            label: "Item 6",
+            has_children: false,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+        {
+            id: "item-7",
+            label: "Item 7",
+            has_children: false,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+        {
+            id: "item-8",
+            label: "Item 8",
+            has_children: false,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+        {
+            id: "item-9",
+            label: "Item 9",
+            has_children: false,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+        {
+            id: "item-10",
+            label: "Item 10",
+            has_children: false,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+        {
+            id: "item-11",
+            label: "Item 11",
+            has_children: false,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+        {
+            id: "item-12",
+            label: "Item 12",
+            has_children: false,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+        {
+            id: "item-13",
+            label: "Item 13",
+            has_children: false,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+        {
+            id: "item-14",
+            label: "Item 14",
+            has_children: false,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+        {
+            id: "item-15",
+            label: "Item 15 - Another Long Text Item to Force Horizontal Scrolling to be Needed",
+            has_children: false,
+            icon_name: "",
+            depth: 0,
+            is_expanded: false
+        },
+    ];
+    in-out property <string> selected-node-id: "";  // "" = none
+
+	// Internal state
+	in-out property <int> focused-index: -1; // -1 = none
+	private property <length> row-height: 22px;
+
+	// ScrollView configuration - scrollbars as needed
+	vertical-scrollbar-policy: as-needed;
+    horizontal-scrollbar-policy: as-needed;
+
+    // Viewport dimensions - essential for ScrollView to work correctly
+    viewport-height: root-model.length * row-height + 4px; // +4px for padding
+    // Smooth scrolling adjustments
+    animate viewport-y { duration: 140ms; }
+    // Calculate minimum width needed for content - this enables horizontal scrolling
+    // viewport-width: max(self.visible-width, 500px); // at least 500px or visible width
+
+	// Signals (noch ohne vollständige Implementierung in Phase 1)
+	callback node-selected(node_id: string);
+    callback node-toggled(node_id: string, is_expanded: bool);
+    callback request-children(node_id: string);
+    callback request-parent(node_id: string);
+    callback context-menu-requested(node_id: string, x: length, y: length);
+
+	// Public API (Phase 2/5 füllt Logik)
+	public function set_selected_node(id: string) {
+        if (id == selected-node-id) {
+            return;
+        }
+        selected-node-id = id;
+        root.node-selected(id);
+		// focused-index remains unchanged unless user navigates; request_focus may set it to 0 if needed
+	}
+	// New: programmatic selection by index; focuses + scrolls consistently
+	public function select_index(i: int) {
+        if (i < 0 || i >= root-model.length) {
+            return;
+        }
+        self.apply_focus_and_select(i);
+    }
+    public function expand_node(id: string) {
+        root.node-toggled(id, true);
+    }
+    public function collapse_node(id: string) {
+        root.node-toggled(id, false);
+    }
+    public function reveal_node(id: string) {
+		// MVP: same as set_selected_node (no actual tree expansion yet)
+		self.set_selected_node(id);
+    }
+    public function request_focus() {
+        fs.focus();
+        if (root-model.length == 0) {
+            return;
+        }
+		// Do not change focus arbitrarily if there is already a selection or focus.
+		if (focused-index >= 0) {
+            self.scroll_into_view(focused-index);
+        } else if (selected-node-id.is-empty) {
+			// No selection and no focus: move to first row once
+			selected-node-id = root-model[0].id;
+            focused-index = 0;
+            root.node-selected(selected-node-id);
+            self.scroll_into_view(0);
+        }
+    }
+
+	// Helpers
+	function scroll_into_view(index: int) {
+        let item_y = row-height * index;
+        let view_top = -self.viewport-y;  // viewport-y is negative, so negate it
+        let view_bottom = view_top + self.visible-height;
+        let item_bottom = item_y + row-height;
+        if (item_y < view_top) {
+            // Item is above visible area, scroll up
+            self.viewport-y = -item_y;
+        } else if (item_bottom > view_bottom) {
+            // Item is below visible area, scroll down
+            let desired = item_bottom - self.visible-height;
+            self.viewport-y = -desired;
+        }
+    }
+    function has_rows() -> bool {
+        return root-model.length > 0;
+    }
+    function max_index() -> int {
+        if (root-model.length == 0) {
+            return -1;
+        }
+        return root-model.length - 1;
+    }
+    function prev_index() -> int {
+        let mi = self.max_index();
+        if (mi < 0) {
+            return -1;
+        }
+        let i = focused-index;
+        if (i < 0) {
+            return 0;
+        }
+        if (i > 0) {
+            return i - 1;
+        }
+        return 0;
+    }
+    function next_index() -> int {
+        let mi = self.max_index();
+        if (mi < 0) {
+            return -1;
+        }
+        let i = focused-index;
+        if (i < 0) {
+            return 0;
+        }
+        if (i < mi) {
+            return i + 1;
+        }
+        return mi;
+    }
+
+    // (Tooltip API removed)
+    function home_index() -> int {
+        if (root-model.length > 0) {
+            return 0;
+        }
+        return -1;
+    }
+    function end_index() -> int {
+        return self.max_index();
+    }
+
+	// (Parent navigation - simplified version)
+	function find_parent_index(child_index: int) -> int {
+        if (child_index <= 0 || child_index >= root-model.length) {
+            return -1;
+        }
+        let child_depth = root-model[child_index].depth;
+        if (child_depth <= 0) {
+            return -1; // No parent for root level items
+        }
+
+        // For now, just go to previous item with less depth
+        // This is a simplified approach - in a real tree we'd need proper parent tracking
+        let target_depth = child_depth - 1;
+        if (child_index > 0) {
+            let prev = child_index - 1;
+            if (prev >= 0 && root-model[prev].depth == target_depth) {
+                return prev;
+            }
+            if (child_index > 1) {
+                let prev2 = child_index - 2;
+                if (prev2 >= 0 && root-model[prev2].depth == target_depth) {
+                    return prev2;
+                }
+            }
+            if (child_index > 2) {
+                let prev3 = child_index - 3;
+                if (prev3 >= 0 && root-model[prev3].depth == target_depth) {
+                    return prev3;
+                }
+            }
+        }
+        return -1;
+    }
+
+	// Return index of first child (i+1) if it exists and has greater depth
+	function first_child_index(i: int) -> int {
+        let mi = self.max_index();
+        if (i < 0 || i >= mi) {
+            return -1;
+        }
+        let my_depth = root-model[i].depth;
+        let next_i = i + 1;
+        if (next_i <= mi && root-model[next_i].depth > my_depth) {
+            return next_i;
+        }
+        return -1;
+    }
+
+	// Content container
+	fs := FocusScope {
+        width: 100%;
+        height: 100%;
+        focus-on-click: true;
+
+            // Tastatur-Navigation wie im Windows Explorer (Safer Version)
+            key-pressed(event) => {
+            if (!root.has_rows()) {
+                reject
+            }
+
+            // Validiere focused-index EINMAL zu Beginn
+            if (root.focused-index < 0 || root.focused-index >= root.root-model.length) {
+                root.focused-index = 0;
+                // KEIN apply_focus_and_select hier - das könnte Events auslösen
+                if (root.root-model.length > 0) {
+                    selected-node-id = root.root-model[0].id;
+                    root.node-selected(selected-node-id);
+                    root.scroll_into_view(0);
+                }
+                accept
+            }
+
+                // Pfeil HOCH: vorherige sichtbare Node
+                if (event.text == Key.UpArrow) {
+                let current = root.focused-index;
+                if (current > 0) {
+                    root.apply_focus_and_select(current - 1);
+                }
+                accept
+            }
+
+            // Pfeil RUNTER: nächste sichtbare Node
+            if (event.text == Key.DownArrow) {
+                let current = root.focused-index;
+                let max_idx = root.max_index();
+                if (current < max_idx) {
+                    root.apply_focus_and_select(current + 1);
+                }
+                accept
+            }            // Pfeil LINKS: Kollabieren oder zu Parent
+            if (event.text == Key.LeftArrow) {
+                let current = root.focused-index;
+                if (current >= 0 && current < root.root-model.length) {
+                    let node = root.root-model[current];
+                    if (node.has_children && node.is_expanded) {
+                        // Node ist expanded -> kollabieren
+                        root.node-toggled(node.id, false);
+                    } else if (node.depth > 0) {
+                        // Gehe zum Parent (vorherige Node mit geringerer Tiefe)
+                        let parent_idx = root.find_parent_index(current);
+                        if (parent_idx >= 0) {
+                            root.apply_focus_and_select(parent_idx);
+                        }
+                    }
+                }
+                accept
+            }
+
+            // Pfeil RECHTS: Expandieren oder zu erstem Child
+            if (event.text == Key.RightArrow) {
+                let current = root.focused-index;
+                if (current >= 0 && current < root.root-model.length) {
+                    let node = root.root-model[current];
+                    if (node.has_children) {
+                        if (!node.is_expanded) {
+                            // Node hat Kinder aber ist collapsed -> expandieren
+                            root.node-toggled(node.id, true);
+                            root.request-children(node.id);
+                        } else {
+                            // Node ist bereits expanded -> gehe zum ersten Kind
+                            if (current + 1 < root.root-model.length) {
+                                let next_node = root.root-model[current + 1];
+                                if (next_node.depth > node.depth) {
+                                    root.apply_focus_and_select(current + 1);
+                                }
+                            }
+                        }
+                    }
+                    // Wenn Node keine Kinder hat: Ignorieren und accept trotzdem
+                }
+                accept
+            }
+
+                // Home: Springe zum ersten Element
+                if (event.text == Key.Home) {
+                root.apply_focus_and_select(0);
+                accept
+            }
+
+            // End: Springe zum letzten Element
+            if (event.text == Key.End) {
+                let max_idx = root.max_index();
+                if (max_idx >= 0) {
+                    root.apply_focus_and_select(max_idx);
+                }
+                accept
+            }
+
+                // PageUp: Springe eine Bildschirmseite nach oben
+                if (event.text == Key.PageUp) {
+                let page_size = max(1, floor(root.visible-height / root.row-height));
+                let current = root.focused-index;
+                let new_idx = max(0, current - page_size);
+                root.apply_focus_and_select(new_idx);
+                accept
+            }
+
+            // PageDown: Springe eine Bildschirmseite nach unten
+            if (event.text == Key.PageDown) {
+                let page_size = max(1, floor(root.visible-height / root.row-height));
+                let current = root.focused-index;
+                let max_idx = root.max_index();
+                let new_idx = min(max_idx, current + page_size);
+                root.apply_focus_and_select(new_idx);
+                accept
+            }
+
+            // Für alle anderen Keys: accept statt reject um "Hängen" zu vermeiden
+            accept
+        }
+        VerticalLayout {
+            padding: 2px;
+            for item[i] in root-model: TreeRow {
+                node: item;
+                show-icons: root.show-icons;
+                indent-size: root.indent-size;
+                is-selected: item.id == root.selected-node-id;
+                is-focused: i == root.focused-index;
+                is-expanded: item.is_expanded;
+                index: i;
+                activate => {
+                    root.on_row_activated(i);
+                }
+                toggle => {
+                    root.on_row_toggled(i);
+                }
+                // (Tooltip wiring removed)
+            }
+        }
+    }
+
+	// internal handlers
+	function on_row_activated(i: int) {
+        // Ensure the FocusScope has keyboard focus when a row is clicked
+        // (safe here because it's pointer-initiated, avoiding key event loops)
+        fs.focus();
+        focused-index = i;
+        let id = root-model[i].id;
+        if (id != selected-node-id) {
+            selected-node-id = id;
+            root.node-selected(id);
+        }
+        self.scroll_into_view(i);
+    }
+    function on_row_toggled(i: int) {
+        // Mouse-initiated toggle: it's safe to focus the scope to keep keyboard navigation active
+        fs.focus();
+        let nd = root-model[i];
+        if (!nd.has_children) {
+            return;
+        }
+        let id = nd.id;
+		// Emit toggle intent with inverse of current expanded state
+		root.node-toggled(id, !nd.is_expanded);
+        if (!nd.is_expanded) {
+            root.request-children(id);
+        }
+    }
+    function apply_focus_and_select(i: int) {
+        // Robuste Bounds-Checking
+        if (i < 0 || i >= root-model.length) {
+            return;
+        }
+        focused-index = i;
+
+        // ENTFERNT: fs.focus() - das könnte Event-Schleifen verursachen
+
+        let id = root-model[i].id;
+        if (id != selected-node-id) {
+            selected-node-id = id;
+            root.node-selected(id);
+        }
+        self.scroll_into_view(i);
+    }
+}
