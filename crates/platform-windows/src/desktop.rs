@@ -191,8 +191,8 @@ fn build_friendly_name_map() -> HashMap<String, String> {
 fn os_version_string() -> String {
     unsafe {
         let v = GetVersion();
-    let major = v & 0xFF;
-    let minor = (v >> 8) & 0xFF;
+        let major = v & 0xFF;
+        let minor = (v >> 8) & 0xFF;
         let build = if (v & 0x8000_0000) == 0 { (v >> 16) & 0xFFFF } else { 0 };
         if build != 0 { format!("{}.{}.{}", major, minor, build) } else { format!("{}.{}", major, minor) }
     }

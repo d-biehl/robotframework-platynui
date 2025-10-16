@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use super::data::TreeData;
 use crate::TreeNodeVM;
-use platynui_core::ui::{UiNode, RuntimeId};
+use platynui_core::ui::{RuntimeId, UiNode};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -67,7 +67,7 @@ impl ViewModel {
         let mut out: Vec<VisibleRow> = Vec::new();
         Self::flatten_node_static(Arc::clone(&self.root), 0, &mut out, &self.expanded);
         // push into VecModel for Slint
-    let rows: Vec<TreeNodeVM> = out.iter().map(TreeNodeVM::from).collect();
+        let rows: Vec<TreeNodeVM> = out.iter().map(TreeNodeVM::from).collect();
         self.model.set_vec(rows);
         // keep the full rows including UiNode for fast resolution
         self.visible_rows = out;
@@ -87,10 +87,7 @@ impl ViewModel {
         let id = node.id();
         let has_children = node.has_children().unwrap_or(false);
         // Prefer a stable key from the underlying UiNode
-        let key_opt: Option<RuntimeId> = node
-            .as_underlying_data()
-            .as_ref()
-            .map(|u| u.runtime_id().clone());
+        let key_opt: Option<RuntimeId> = node.as_underlying_data().as_ref().map(|u| u.runtime_id().clone());
         let is_expanded = key_opt.as_ref().map(|k| expanded.contains(k)).unwrap_or(false);
         let label = node.label().unwrap_or_else(|_| format!("Error loading node {}", id.as_str()).into());
 
@@ -99,13 +96,21 @@ impl ViewModel {
         // In practice, root and children are always Arc-backed in our UiNodeData provider.
         // So we only push None here and let callers pass Arcs.
         // Determine validity via underlying UiNode if available; default true
-        let is_valid = node
-            .as_underlying_data()
-            .map(|u| u.is_valid())
-            .unwrap_or(true);
-        out.push(VisibleRow { id: id.clone(), label, depth, has_children, is_expanded, is_valid, data: Some(Arc::clone(&node)) });
+        let is_valid = node.as_underlying_data().map(|u| u.is_valid()).unwrap_or(true);
+        out.push(VisibleRow {
+            id: id.clone(),
+            label,
+            depth,
+            has_children,
+            is_expanded,
+            is_valid,
+            data: Some(Arc::clone(&node)),
+        });
 
-        if has_children && is_expanded && let Ok(children) = node.children() {
+        if has_children
+            && is_expanded
+            && let Ok(children) = node.children()
+        {
             for child in children {
                 Self::flatten_node_static(child, depth + 1, out, expanded);
             }

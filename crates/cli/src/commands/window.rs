@@ -233,7 +233,7 @@ fn render_window_header(node: &Arc<dyn UiNode>) -> String {
     let label = if name.is_empty() {
         format!("{prefix}{role}")
     } else {
-    let quoted = serde_json::to_string(&name).unwrap_or_else(|_| format!("\"{name}\""));
+        let quoted = serde_json::to_string(&name).unwrap_or_else(|_| format!("\"{name}\""));
         format!("{prefix}{role} {quoted}")
     };
 

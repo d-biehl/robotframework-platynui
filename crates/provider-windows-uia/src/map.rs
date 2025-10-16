@@ -534,97 +534,73 @@ unsafe fn variant_to_ui_value(variant: &VARIANT) -> Option<UiValue> {
             match base {
                 x if x == VT_BSTR.0 => {
                     let mut b: BSTR = BSTR::new();
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut b as *mut _ as *mut _) }
-                        .is_ok()
-                    {
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut b as *mut _ as *mut _) }.is_ok() {
                         items.push(UiValue::from(b.to_string()));
                     }
                 }
                 x if x == VT_BOOL.0 => {
                     let mut v: VARIANT_BOOL = VARIANT_BOOL(0);
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }
-                        .is_ok()
-                    {
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
                         items.push(UiValue::from(v.as_bool()));
                     }
                 }
                 x if x == VT_I2.0 => {
                     let mut v: i16 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }
-                        .is_ok()
-                    {
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_UI2.0 => {
                     let mut v: u16 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }
-                        .is_ok()
-                    {
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_I4.0 => {
                     let mut v: i32 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }
-                        .is_ok()
-                    {
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_UI4.0 => {
                     let mut v: u32 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }
-                        .is_ok()
-                    {
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_I8.0 => {
                     let mut v: i64 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }
-                        .is_ok()
-                    {
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
                         items.push(UiValue::from(v));
                     }
                 }
                 x if x == VT_UI8.0 => {
                     let mut v: u64 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }
-                        .is_ok()
-                    {
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
                         items.push(UiValue::from(v as i64));
                     }
                 }
                 x if x == VT_R4.0 => {
                     let mut v: f32 = 0.0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }
-                        .is_ok()
-                    {
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
                         items.push(UiValue::from(v as f64));
                     }
                 }
                 x if x == VT_R8.0 => {
                     let mut v: f64 = 0.0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }
-                        .is_ok()
-                    {
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
                         items.push(UiValue::from(v));
                     }
                 }
                 x if x == VT_DATE.0 => {
                     let mut v: f64 = 0.0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }
-                        .is_ok()
-                    {
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
                         items.push(UiValue::from(v));
                     }
                 }
                 x if x == VT_DECIMAL.0 => {
                     let mut d: DECIMAL = unsafe { std::mem::zeroed() };
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut d as *mut _ as *mut _) }
-                        .is_ok()
-                    {
+                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut d as *mut _ as *mut _) }.is_ok() {
                         if let Ok(v) = unsafe { VarR8FromDec(&d) } {
                             items.push(UiValue::from(v));
                         } else {

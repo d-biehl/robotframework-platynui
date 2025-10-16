@@ -1,4 +1,4 @@
-#![allow(clippy::arc_with_non_send_sync)]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 slint::include_modules!();
 use std::sync::Arc;
 use std::{cell::RefCell, rc::Rc};

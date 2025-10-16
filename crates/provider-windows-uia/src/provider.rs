@@ -96,10 +96,7 @@ impl Iterator for ElementAndAppIter {
                 let pid = crate::map::get_process_id(&elem).unwrap_or(-1);
                 if pid > 0 && pid != self.self_pid {
                     self.seen.insert(pid);
-                    let node = crate::node::UiaNode::from_elem_with_scope(
-                        elem,
-                        crate::map::UiaIdScope::Desktop,
-                    );
+                    let node = crate::node::UiaNode::from_elem_with_scope(elem, crate::map::UiaIdScope::Desktop);
                     node.set_parent(&self.parent);
                     crate::node::UiaNode::init_self(&node);
                     return Some(node as Arc<dyn UiNode>);

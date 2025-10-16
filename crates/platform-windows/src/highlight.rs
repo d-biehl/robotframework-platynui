@@ -56,7 +56,7 @@ struct OverlayController {
 impl OverlayController {
     fn global() -> &'static Self {
         static CTRL: OnceLock<OverlayController> = OnceLock::new();
-    CTRL.get_or_init(OverlayThread::spawn)
+        CTRL.get_or_init(OverlayThread::spawn)
     }
 
     fn show(&self, rects: &[Rect], duration: Option<Duration>) -> Result<(), PlatformError> {
@@ -221,15 +221,14 @@ impl Overlay {
 
             let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
             let bmi = BITMAPINFO::new(width as i32, height as i32);
-            let bitmap: HBITMAP =
-                match CreateDIBSection(Some(mem_dc), &bmi.inner, DIB_RGB_COLORS, &mut bits, None, 0) {
-                    Ok(bmp) => bmp,
-                    Err(_) => {
-                        let _ = DeleteDC(mem_dc);
-                        let _ = ReleaseDC(None, screen_dc);
-                        return;
-                    }
-                };
+            let bitmap: HBITMAP = match CreateDIBSection(Some(mem_dc), &bmi.inner, DIB_RGB_COLORS, &mut bits, None, 0) {
+                Ok(bmp) => bmp,
+                Err(_) => {
+                    let _ = DeleteDC(mem_dc);
+                    let _ = ReleaseDC(None, screen_dc);
+                    return;
+                }
+            };
 
             let old = SelectObject(mem_dc, bitmap.into());
 
@@ -246,7 +245,12 @@ impl Overlay {
                 draw_frame(slice, width as usize, height as usize, r, &union, FRAME_THICKNESS, color, styles);
             }
 
-            let blend = BLENDFUNCTION { BlendOp: AC_SRC_OVER as u8, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: AC_SRC_ALPHA as u8 };
+            let blend = BLENDFUNCTION {
+                BlendOp: AC_SRC_OVER as u8,
+                BlendFlags: 0,
+                SourceConstantAlpha: 255,
+                AlphaFormat: AC_SRC_ALPHA as u8,
+            };
             let dst = POINT { x: union.x().round() as i32, y: union.y().round() as i32 };
             let size = SIZE { cx: width, cy: height };
             let src = POINT { x: 0, y: 0 };
@@ -473,7 +477,7 @@ struct BITMAPINFO {
 
 impl BITMAPINFO {
     fn new(width: i32, height: i32) -> Self {
-    use windows::Win32::Graphics::Gdi::{BI_RGB, BITMAPINFOHEADER};
+        use windows::Win32::Graphics::Gdi::{BI_RGB, BITMAPINFOHEADER};
         let info = windows::Win32::Graphics::Gdi::BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: size_of::<BITMAPINFOHEADER>() as u32,

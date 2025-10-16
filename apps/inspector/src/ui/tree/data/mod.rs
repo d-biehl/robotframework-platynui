@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use slint::SharedString;
+use std::sync::Arc;
 
 pub mod uinode;
 
@@ -10,7 +10,7 @@ pub enum TreeDataError {
 
 /// Abstraction for tree data that can back our UI.
 /// Provides cached identifiers/labels and navigation for a single node.
-pub trait TreeData {
+pub trait TreeData: Send + Sync {
     type Underlying;
     fn id(&self) -> SharedString;
     fn label(&self) -> Result<SharedString, TreeDataError>;

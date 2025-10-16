@@ -47,11 +47,7 @@ impl WaitForInputIdleChecker {
             let _ = CloseHandle(process_handle);
         };
 
-        if result == WAIT_OBJECT_0.0 {
-            Ok(Some(true))
-        } else {
-            Ok(Some(false))
-        }
+        if result == WAIT_OBJECT_0.0 { Ok(Some(true)) } else { Ok(Some(false)) }
     }
 }
 
@@ -192,8 +188,7 @@ impl UiNode for UiaNode {
                 // If the element is virtualized, try to realize before focusing.
                 if let Ok(unk) = es.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
                     windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
-                ))
-                    && let Ok(vpat) = unk.cast::<IUIAutomationVirtualizedItemPattern>()
+                )) && let Ok(vpat) = unk.cast::<IUIAutomationVirtualizedItemPattern>()
                 {
                     let _ = vpat.Realize();
                 }
@@ -333,27 +328,26 @@ impl Iterator for ElementChildrenIter {
     fn next(&mut self) -> Option<Self::Item> {
         // If no walker could be created, yield no children.
         let Some(walker) = &self.walker else { return None };
-            if self.first {
+        if self.first {
             self.first = false;
-                self.current = unsafe { walker.GetFirstChildElement(&self.parent_elem).ok() };
-                self.current.as_ref()?;
+            self.current = unsafe { walker.GetFirstChildElement(&self.parent_elem).ok() };
+            self.current.as_ref()?;
         } else if let Some(ref elem) = self.current {
             let cur = elem.clone();
-                self.current = unsafe { walker.GetNextSiblingElement(&cur).ok() };
+            self.current = unsafe { walker.GetNextSiblingElement(&cur).ok() };
         } else {
             return None;
         }
         let elem = self.current.as_ref()?.clone();
         // Best-effort: if the child is virtualized, realize it before wrapping.
-            unsafe {
-                if let Ok(unk) = elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                    windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
-                ))
-                    && let Ok(vpat) = unk.cast::<IUIAutomationVirtualizedItemPattern>()
-                {
-                    let _ = vpat.Realize();
-                }
+        unsafe {
+            if let Ok(unk) = elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
+            )) && let Ok(vpat) = unk.cast::<IUIAutomationVirtualizedItemPattern>()
+            {
+                let _ = vpat.Realize();
             }
+        }
         let node = UiaNode::from_elem_with_scope(elem, self.scope);
         if let Some(ref parent) = self.parent {
             node.set_parent(parent);
@@ -571,36 +565,48 @@ impl Iterator for AttrsIter {
                 6 => Some(Arc::new(IsOffscreenAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 7 => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 8 => Some(Arc::new(IsFocusedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                9 => if self.has_window_surface {
-                    Some(Arc::new(IsMinimizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
-                } else {
-                    None
-                },
-                10 => if self.has_window_surface {
-                    Some(Arc::new(IsMaximizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
-                } else {
-                    None
-                },
-                11 => if self.has_window_surface {
-                    Some(Arc::new(IsTopmostAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
-                } else {
-                    None
-                },
-                12 => if self.has_window_surface {
-                    Some(Arc::new(SupportsMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
-                } else {
-                    None
-                },
-                13 => if self.has_window_surface {
-                    Some(Arc::new(SupportsResizeAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
-                } else {
-                    None
-                },
-                14 => if self.has_window_surface {
-                    Some(Arc::new(AcceptsUserInputAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
-                } else {
-                    None
-                },
+                9 => {
+                    if self.has_window_surface {
+                        Some(Arc::new(IsMinimizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                10 => {
+                    if self.has_window_surface {
+                        Some(Arc::new(IsMaximizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                11 => {
+                    if self.has_window_surface {
+                        Some(Arc::new(IsTopmostAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                12 => {
+                    if self.has_window_surface {
+                        Some(Arc::new(SupportsMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                13 => {
+                    if self.has_window_surface {
+                        Some(Arc::new(SupportsResizeAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                14 => {
+                    if self.has_window_surface {
+                        Some(Arc::new(AcceptsUserInputAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
                 // Native property attributes (dynamic): build once, then stream
                 15 => {
                     if self.native_cache.is_none() {
@@ -628,7 +634,9 @@ impl Iterator for AttrsIter {
                 None => {
                     if self.idx > 15 && self.native_cache.is_some() {
                         // Continue streaming native cache until exhausted
-                        if let Some(list) = self.native_cache.as_ref() && self.native_pos < list.len() {
+                        if let Some(list) = self.native_cache.as_ref()
+                            && self.native_pos < list.len()
+                        {
                             // compensate index bump and yield next from cache
                             self.idx -= 1;
                             let attr = list[self.native_pos].clone();
