@@ -114,8 +114,7 @@ fn trim_wstr(buf: &[u16]) -> String {
 
 unsafe fn monitor_friendly_name(infoex: &MONITORINFOEXW) -> Option<String> {
     // Try to resolve a human-friendly monitor name via EnumDisplayDevicesW
-    let mut dd: DISPLAY_DEVICEW = DISPLAY_DEVICEW::default();
-    dd.cb = size_of::<DISPLAY_DEVICEW>() as u32;
+    let mut dd: DISPLAY_DEVICEW = DISPLAY_DEVICEW { cb: size_of::<DISPLAY_DEVICEW>() as u32, ..Default::default() };
     let ok = unsafe { EnumDisplayDevicesW(windows::core::PCWSTR(infoex.szDevice.as_ptr()), 0, &mut dd, 0) };
     if ok.as_bool() {
         let s = trim_wstr(&dd.DeviceString);
@@ -153,12 +152,14 @@ fn build_friendly_name_map() -> HashMap<String, String> {
         let paths = &paths[..path_count as usize];
         for p in paths {
             // Source device name (\\.\DISPLAYn)
-            let mut src: DISPLAYCONFIG_SOURCE_DEVICE_NAME = DISPLAYCONFIG_SOURCE_DEVICE_NAME::default();
-            src.header = DISPLAYCONFIG_DEVICE_INFO_HEADER {
-                r#type: DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
-                size: size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>() as u32,
-                adapterId: p.sourceInfo.adapterId,
-                id: p.sourceInfo.id,
+            let mut src: DISPLAYCONFIG_SOURCE_DEVICE_NAME = DISPLAYCONFIG_SOURCE_DEVICE_NAME {
+                header: DISPLAYCONFIG_DEVICE_INFO_HEADER {
+                    r#type: DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+                    size: size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>() as u32,
+                    adapterId: p.sourceInfo.adapterId,
+                    id: p.sourceInfo.id,
+                },
+                ..Default::default()
             };
             if DisplayConfigGetDeviceInfo(&mut src.header) != 0 {
                 continue;
@@ -166,12 +167,14 @@ fn build_friendly_name_map() -> HashMap<String, String> {
             let gdi_name = trim_wstr(&src.viewGdiDeviceName);
 
             // Target friendly name
-            let mut tgt: DISPLAYCONFIG_TARGET_DEVICE_NAME = DISPLAYCONFIG_TARGET_DEVICE_NAME::default();
-            tgt.header = DISPLAYCONFIG_DEVICE_INFO_HEADER {
-                r#type: DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
-                size: size_of::<DISPLAYCONFIG_TARGET_DEVICE_NAME>() as u32,
-                adapterId: p.targetInfo.adapterId,
-                id: p.targetInfo.id,
+            let mut tgt: DISPLAYCONFIG_TARGET_DEVICE_NAME = DISPLAYCONFIG_TARGET_DEVICE_NAME {
+                header: DISPLAYCONFIG_DEVICE_INFO_HEADER {
+                    r#type: DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
+                    size: size_of::<DISPLAYCONFIG_TARGET_DEVICE_NAME>() as u32,
+                    adapterId: p.targetInfo.adapterId,
+                    id: p.targetInfo.id,
+                },
+                ..Default::default()
             };
             if DisplayConfigGetDeviceInfo(&mut tgt.header) != 0 {
                 continue;
@@ -188,14 +191,10 @@ fn build_friendly_name_map() -> HashMap<String, String> {
 fn os_version_string() -> String {
     unsafe {
         let v = GetVersion();
-        let major = (v & 0xFF) as u32;
-        let minor = ((v >> 8) & 0xFF) as u32;
-        let build = if (v & 0x8000_0000) == 0 { (v >> 16) & 0xFFFF } else { 0 } as u32;
-        if build != 0 {
-            return format!("{}.{}.{}", major, minor, build);
-        } else {
-            return format!("{}.{}", major, minor);
-        }
+    let major = v & 0xFF;
+    let minor = (v >> 8) & 0xFF;
+        let build = if (v & 0x8000_0000) == 0 { (v >> 16) & 0xFFFF } else { 0 };
+        if build != 0 { format!("{}.{}.{}", major, minor, build) } else { format!("{}.{}", major, minor) }
     }
 }
 

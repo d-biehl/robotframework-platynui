@@ -12,16 +12,12 @@ export component MainWindow inherits Window {
     // External model for the TreeView (set from Rust)
     in property <[TreeNodeVM]> tree-model: [];
 
-    // Forward important TreeView events to Rust
-    callback tree-node-toggled(node_id: string, expanded: bool);
-    callback tree-request-children(node_id: string);
-    callback tree-request-parent(node_id: string);
-
-    // Programmatic selection from Rust
-    public function select_tree_node_id(id: string) {
-        tv.set_selected_node(id);
-        tv.request_focus();
-    }
+    // Forward important TreeView events to Rust (index-only)
+    callback tree-node-selected-index(index: int);
+    callback tree-node-toggled-index(index: int, expanded: bool);
+    callback tree-request-children-index(index: int);
+    callback tree-refresh-index(index: int);
+    callback tree-refresh-subtree-index(index: int);
 
 
     // Exit callback
@@ -97,14 +93,20 @@ export component MainWindow inherits Window {
                     content-width: 450px;
                     tv := TreeView {
                         root-model: root.tree-model;
-                        node-toggled(node_id, expanded) => {
-                            root.tree-node-toggled(node_id, expanded);
+                        node-selected-index(index) => {
+                            root.tree-node-selected-index(index);
                         }
-                        request-children(node_id) => {
-                            root.tree-request-children(node_id);
+                        node-toggled-index(index, expanded) => {
+                            root.tree-node-toggled-index(index, expanded);
                         }
-                        request-parent(node_id) => {
-                            root.tree-request-parent(node_id);
+                        request-children-index(index) => {
+                            root.tree-request-children-index(index);
+                        }
+                        refresh-index(index) => {
+                            root.tree-refresh-index(index);
+                        }
+                        refresh-subtree-index(index) => {
+                            root.tree-refresh-subtree-index(index);
                         }
                     }
                 }

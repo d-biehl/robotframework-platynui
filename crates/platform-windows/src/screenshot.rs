@@ -45,23 +45,25 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
                 return Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "CreateCompatibleDC failed"));
             }
 
-            let mut info: BITMAPINFO = BITMAPINFO::default();
-            info.bmiHeader = BITMAPINFOHEADER {
-                biSize: size_of::<BITMAPINFOHEADER>() as u32,
-                biWidth: width,
-                biHeight: -height, // top-down DIB
-                biPlanes: 1,
-                biBitCount: 32,
-                biCompression: BI_RGB.0 as u32,
-                biSizeImage: 0,
-                biXPelsPerMeter: 0,
-                biYPelsPerMeter: 0,
-                biClrUsed: 0,
-                biClrImportant: 0,
+            let info: BITMAPINFO = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: width,
+                    biHeight: -height, // top-down DIB
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    biSizeImage: 0,
+                    biXPelsPerMeter: 0,
+                    biYPelsPerMeter: 0,
+                    biClrUsed: 0,
+                    biClrImportant: 0,
+                },
+                ..Default::default()
             };
 
             let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
-            let bitmap: HBITMAP = match CreateDIBSection(Some(mem_dc), &mut info, DIB_RGB_COLORS, &mut bits, None, 0) {
+            let bitmap: HBITMAP = match CreateDIBSection(Some(mem_dc), &info, DIB_RGB_COLORS, &mut bits, None, 0) {
                 Ok(bmp) => bmp,
                 Err(e) => {
                     let _ = DeleteDC(mem_dc);
@@ -76,7 +78,7 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
 
             // Copy from screen DC into memory DC
             let res = BitBlt(mem_dc, 0, 0, width, height, Some(screen_dc), left, top, SRCCOPY);
-            if let Err(_) = res {
+            if res.is_err() {
                 let _ = SelectObject(mem_dc, old);
                 let _ = DeleteObject(bitmap.into());
                 let _ = DeleteDC(mem_dc);

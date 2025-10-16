@@ -147,8 +147,8 @@ mod tests {
             "Button"
         }
 
-        fn name(&self) -> &str {
-            "OK"
+        fn name(&self) -> String {
+            "OK".to_string()
         }
 
         fn runtime_id(&self) -> &super::super::identifiers::RuntimeId {

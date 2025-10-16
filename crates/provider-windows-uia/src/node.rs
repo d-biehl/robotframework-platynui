@@ -3,11 +3,12 @@
 //! UiaNode reflects the current UIA state; no heavy provider‑side caches.
 
 use std::sync::{Arc, Mutex, Weak};
+// no name cache atomics needed
 
 use platynui_core::types::{Point as UiPoint, Rect};
 use platynui_core::ui::pattern::{FocusableAction, PatternError, UiPattern, WindowSurfaceActions};
 use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
-use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, WAIT_TIMEOUT};
+use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, WaitForInputIdle};
 use windows::Win32::UI::Accessibility::{
     IUIAutomationTransformPattern, IUIAutomationVirtualizedItemPattern, IUIAutomationWindowPattern,
@@ -48,8 +49,6 @@ impl WaitForInputIdleChecker {
 
         if result == WAIT_OBJECT_0.0 {
             Ok(Some(true))
-        } else if result == WAIT_TIMEOUT.0 {
-            Ok(Some(false))
         } else {
             Ok(Some(false))
         }
@@ -64,7 +63,6 @@ pub struct UiaNode {
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     self_weak: once_cell::sync::OnceCell<Weak<dyn UiNode>>,
     // Minimal identity caches required by trait return types
-    name_cell: once_cell::sync::OnceCell<String>,
     rid_cell: once_cell::sync::OnceCell<RuntimeId>,
     id_scope: crate::map::UiaIdScope,
 }
@@ -80,7 +78,6 @@ impl UiaNode {
             elem,
             parent: Mutex::new(None),
             self_weak: once_cell::sync::OnceCell::new(),
-            name_cell: once_cell::sync::OnceCell::new(),
             rid_cell: once_cell::sync::OnceCell::new(),
             id_scope: scope,
         })
@@ -109,10 +106,10 @@ impl UiaNode {
                 ))
                 .ok()
         };
-        if let Some(unk) = unk {
-            if let Ok(pat) = unk.cast::<IUIAutomationVirtualizedItemPattern>() {
-                let _ = unsafe { pat.Realize() };
-            }
+        if let Some(unk) = unk
+            && let Ok(pat) = unk.cast::<IUIAutomationVirtualizedItemPattern>()
+        {
+            let _ = unsafe { pat.Realize() };
         }
     }
 }
@@ -132,8 +129,8 @@ impl UiNode for UiaNode {
         let ct = crate::map::get_control_type(&self.elem).unwrap_or(0);
         crate::map::control_type_to_role(ct)
     }
-    fn name(&self) -> &str {
-        self.name_cell.get_or_init(|| crate::map::get_name(&self.elem).unwrap_or_default()).as_str()
+    fn name(&self) -> String {
+        crate::map::get_name(&self.elem).unwrap_or_default()
     }
     fn runtime_id(&self) -> &RuntimeId {
         self.rid_cell.get_or_init(|| {
@@ -195,10 +192,10 @@ impl UiNode for UiaNode {
                 // If the element is virtualized, try to realize before focusing.
                 if let Ok(unk) = es.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
                     windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
-                )) {
-                    if let Ok(vpat) = unk.cast::<IUIAutomationVirtualizedItemPattern>() {
-                        let _ = vpat.Realize();
-                    }
+                ))
+                    && let Ok(vpat) = unk.cast::<IUIAutomationVirtualizedItemPattern>()
+                {
+                    let _ = vpat.Realize();
                 }
                 es.set_focus().map_err(|e| PatternError::new(e.to_string()))
             });
@@ -299,6 +296,7 @@ impl UiNode for UiaNode {
         }
         None
     }
+
     fn invalidate(&self) {}
 
     fn is_valid(&self) -> bool {
@@ -335,29 +333,27 @@ impl Iterator for ElementChildrenIter {
     fn next(&mut self) -> Option<Self::Item> {
         // If no walker could be created, yield no children.
         let Some(walker) = &self.walker else { return None };
-        if self.first {
+            if self.first {
             self.first = false;
-            self.current = unsafe { walker.GetFirstChildElement(&self.parent_elem).ok() };
-            if self.current.is_none() {
-                return None;
-            }
+                self.current = unsafe { walker.GetFirstChildElement(&self.parent_elem).ok() };
+                self.current.as_ref()?;
         } else if let Some(ref elem) = self.current {
             let cur = elem.clone();
-            self.current = unsafe { walker.GetNextSiblingElement(&cur).ok() };
+                self.current = unsafe { walker.GetNextSiblingElement(&cur).ok() };
         } else {
             return None;
         }
         let elem = self.current.as_ref()?.clone();
         // Best-effort: if the child is virtualized, realize it before wrapping.
-        unsafe {
-            if let Ok(unk) = elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
-            )) {
-                if let Ok(vpat) = unk.cast::<IUIAutomationVirtualizedItemPattern>() {
+            unsafe {
+                if let Ok(unk) = elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                    windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
+                ))
+                    && let Ok(vpat) = unk.cast::<IUIAutomationVirtualizedItemPattern>()
+                {
                     let _ = vpat.Realize();
                 }
             }
-        }
         let node = UiaNode::from_elem_with_scope(elem, self.scope);
         if let Some(ref parent) = self.parent {
             node.set_parent(parent);
@@ -525,11 +521,11 @@ impl UiAttribute for AcceptsUserInputAttr {
 
         // First check if the process is ready for input using WaitForInputIdle
         let input_checker = WaitForInputIdleChecker::new(pid);
-        if let Ok(Some(idle_ready)) = input_checker.check_input_idle() {
-            if !idle_ready {
-                // Process is not ready for input (busy or error)
-                return UiValue::from(false);
-            }
+        if let Ok(Some(idle_ready)) = input_checker.check_input_idle()
+            && !idle_ready
+        {
+            // Process is not ready for input (busy or error)
+            return UiValue::from(false);
         }
 
         // Process is idle or check failed - fall back to basic enabled/visible check
@@ -575,48 +571,36 @@ impl Iterator for AttrsIter {
                 6 => Some(Arc::new(IsOffscreenAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 7 => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 8 => Some(Arc::new(IsFocusedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                9 => {
-                    if self.has_window_surface {
-                        Some(Arc::new(IsMinimizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
-                    } else {
-                        None
-                    }
-                }
-                10 => {
-                    if self.has_window_surface {
-                        Some(Arc::new(IsMaximizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
-                    } else {
-                        None
-                    }
-                }
-                11 => {
-                    if self.has_window_surface {
-                        Some(Arc::new(IsTopmostAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
-                    } else {
-                        None
-                    }
-                }
-                12 => {
-                    if self.has_window_surface {
-                        Some(Arc::new(SupportsMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
-                    } else {
-                        None
-                    }
-                }
-                13 => {
-                    if self.has_window_surface {
-                        Some(Arc::new(SupportsResizeAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
-                    } else {
-                        None
-                    }
-                }
-                14 => {
-                    if self.has_window_surface {
-                        Some(Arc::new(AcceptsUserInputAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
-                    } else {
-                        None
-                    }
-                }
+                9 => if self.has_window_surface {
+                    Some(Arc::new(IsMinimizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                } else {
+                    None
+                },
+                10 => if self.has_window_surface {
+                    Some(Arc::new(IsMaximizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                } else {
+                    None
+                },
+                11 => if self.has_window_surface {
+                    Some(Arc::new(IsTopmostAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                } else {
+                    None
+                },
+                12 => if self.has_window_surface {
+                    Some(Arc::new(SupportsMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                } else {
+                    None
+                },
+                13 => if self.has_window_surface {
+                    Some(Arc::new(SupportsResizeAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                } else {
+                    None
+                },
+                14 => if self.has_window_surface {
+                    Some(Arc::new(AcceptsUserInputAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                } else {
+                    None
+                },
                 // Native property attributes (dynamic): build once, then stream
                 15 => {
                     if self.native_cache.is_none() {
@@ -644,14 +628,12 @@ impl Iterator for AttrsIter {
                 None => {
                     if self.idx > 15 && self.native_cache.is_some() {
                         // Continue streaming native cache until exhausted
-                        if let Some(list) = self.native_cache.as_ref() {
-                            if self.native_pos < list.len() {
-                                // compensate index bump and yield next from cache
-                                self.idx -= 1;
-                                let attr = list[self.native_pos].clone();
-                                self.native_pos += 1;
-                                return Some(attr);
-                            }
+                        if let Some(list) = self.native_cache.as_ref() && self.native_pos < list.len() {
+                            // compensate index bump and yield next from cache
+                            self.idx -= 1;
+                            let attr = list[self.native_pos].clone();
+                            self.native_pos += 1;
+                            return Some(attr);
                         }
                     }
                     if self.idx > 15 && self.native_cache.is_none() {
@@ -717,7 +699,7 @@ struct AppRuntimeIdAttr {
 }
 impl UiAttribute for AppRuntimeIdAttr {
     fn namespace(&self) -> Namespace {
-        Namespace::App
+        Namespace::Control
     }
     fn name(&self) -> &str {
         platynui_core::ui::attribute_names::common::RUNTIME_ID
@@ -747,7 +729,7 @@ struct AppNameAttr {
 }
 impl UiAttribute for AppNameAttr {
     fn namespace(&self) -> Namespace {
-        Namespace::App
+        Namespace::Control
     }
     fn name(&self) -> &str {
         platynui_core::ui::attribute_names::application::NAME
@@ -867,13 +849,13 @@ impl UiAttribute for AppArchitectureAttr {
     }
     fn value(&self) -> UiValue {
         if let Some(h) = crate::map::open_process_query(self.pid) {
-            if let Some(path) = crate::map::query_executable_path(h) {
-                if let Some(a) = crate::map::process_architecture_from_path(&path) {
-                    unsafe {
-                        let _ = CloseHandle(h);
-                    }
-                    return UiValue::from(a);
+            if let Some(path) = crate::map::query_executable_path(h)
+                && let Some(a) = crate::map::process_architecture_from_path(&path)
+            {
+                unsafe {
+                    let _ = CloseHandle(h);
                 }
+                return UiValue::from(a);
             }
             let out = crate::map::process_architecture(h).map(UiValue::from).unwrap_or(UiValue::from("unknown"));
             unsafe {
@@ -1072,7 +1054,7 @@ pub struct ApplicationNode {
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     self_weak: once_cell::sync::OnceCell<Weak<dyn UiNode>>,
     rid_cell: once_cell::sync::OnceCell<RuntimeId>,
-    name_cell: once_cell::sync::OnceCell<String>,
+    // no cached name required; compute on demand
 }
 unsafe impl Send for ApplicationNode {}
 unsafe impl Sync for ApplicationNode {}
@@ -1089,7 +1071,6 @@ impl ApplicationNode {
             parent: Mutex::new(Some(Arc::downgrade(parent))),
             self_weak: once_cell::sync::OnceCell::new(),
             rid_cell: once_cell::sync::OnceCell::new(),
-            name_cell: once_cell::sync::OnceCell::new(),
         });
         let arc: Arc<dyn UiNode> = node.clone();
         let _ = node.self_weak.set(Arc::downgrade(&arc));
@@ -1104,23 +1085,19 @@ impl UiNode for ApplicationNode {
     fn role(&self) -> &str {
         "Application"
     }
-    fn name(&self) -> &str {
-        self.name_cell
-            .get_or_init(|| {
-                // Derive process name from executable path (file name)
-                if let Some(handle) = crate::map::open_process_query(self.pid) {
-                    if let Some(path) = crate::map::query_executable_path(handle) {
-                        let _ = unsafe { CloseHandle(handle) };
-                        if let Some(stem) = std::path::Path::new(&path).file_stem() {
-                            return stem.to_string_lossy().to_string();
-                        }
-                    } else {
-                        let _ = unsafe { CloseHandle(handle) };
-                    }
+    fn name(&self) -> String {
+        // Derive process name from executable path (file name)
+        if let Some(handle) = crate::map::open_process_query(self.pid) {
+            if let Some(path) = crate::map::query_executable_path(handle) {
+                let _ = unsafe { CloseHandle(handle) };
+                if let Some(stem) = std::path::Path::new(&path).file_stem() {
+                    return stem.to_string_lossy().to_string();
                 }
-                String::new()
-            })
-            .as_str()
+            } else {
+                let _ = unsafe { CloseHandle(handle) };
+            }
+        }
+        String::new()
     }
     fn runtime_id(&self) -> &RuntimeId {
         self.rid_cell.get_or_init(|| RuntimeId::from(format!("uia://app/{}", self.pid)))
@@ -1148,15 +1125,11 @@ impl UiNode for ApplicationNode {
                     if self.first {
                         self.first = false;
                         self.current = unsafe { walker.GetFirstChildElement(&self.root).ok() };
-                        if self.current.is_none() {
-                            return None;
-                        }
+                        self.current.as_ref()?;
                     } else if let Some(ref elem) = self.current {
                         let cur = elem.clone();
                         self.current = unsafe { walker.GetNextSiblingElement(&cur).ok() };
-                        if self.current.is_none() {
-                            return None;
-                        }
+                        self.current.as_ref()?;
                     }
                     let elem = self.current.as_ref()?.clone();
                     let pid = crate::map::get_process_id(&elem).unwrap_or(-1);
@@ -1181,7 +1154,9 @@ impl UiNode for ApplicationNode {
     fn supported_patterns(&self) -> Vec<PatternId> {
         Vec::new()
     }
-    fn invalidate(&self) {}
+    fn invalidate(&self) {
+        // No-op: see UiaNode comment. Use "Refresh" via attributes for fresh values.
+    }
     fn doc_order_key(&self) -> Option<u64> {
         Some(self.pid as u64)
     }

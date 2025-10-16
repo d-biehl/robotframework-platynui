@@ -907,8 +907,8 @@ impl UiNode for DummyNode {
     fn role(&self) -> &str {
         ""
     }
-    fn name(&self) -> &str {
-        ""
+    fn name(&self) -> String {
+        String::new()
     }
     fn runtime_id(&self) -> &RuntimeId {
         static RID: once_cell::sync::OnceCell<RuntimeId> = once_cell::sync::OnceCell::new();
@@ -1074,8 +1074,8 @@ mod tests {
             self.role
         }
 
-        fn name(&self) -> &str {
-            &self.name
+        fn name(&self) -> String {
+            self.name.clone()
         }
 
         fn runtime_id(&self) -> &RuntimeId {

@@ -86,8 +86,8 @@ mod tests {
         fn role(&self) -> &str {
             "Button"
         }
-        fn name(&self) -> &str {
-            "Stub"
+        fn name(&self) -> String {
+            "Stub".to_string()
         }
         fn runtime_id(&self) -> &RuntimeId {
             &self.runtime_id

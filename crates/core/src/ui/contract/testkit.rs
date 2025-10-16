@@ -209,8 +209,8 @@ mod geometry_tests {
             "Node"
         }
 
-        fn name(&self) -> &str {
-            "Node"
+        fn name(&self) -> String {
+            "Node".to_string()
         }
 
         fn runtime_id(&self) -> &crate::ui::identifiers::RuntimeId {
@@ -374,8 +374,8 @@ mod expectation_tests {
             "Button"
         }
 
-        fn name(&self) -> &str {
-            "OK"
+        fn name(&self) -> String {
+            "OK".to_string()
         }
 
         fn runtime_id(&self) -> &crate::ui::RuntimeId {

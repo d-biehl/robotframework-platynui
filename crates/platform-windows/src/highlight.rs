@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments, clippy::upper_case_acronyms)]
 use std::mem::size_of;
 use std::sync::OnceLock;
 use std::sync::mpsc::{Receiver, Sender};
@@ -55,7 +56,7 @@ struct OverlayController {
 impl OverlayController {
     fn global() -> &'static Self {
         static CTRL: OnceLock<OverlayController> = OnceLock::new();
-        CTRL.get_or_init(|| OverlayThread::spawn())
+    CTRL.get_or_init(OverlayThread::spawn)
     }
 
     fn show(&self, rects: &[Rect], duration: Option<Duration>) -> Result<(), PlatformError> {
@@ -219,9 +220,9 @@ impl Overlay {
             }
 
             let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
-            let mut bmi = BITMAPINFO::new(width as i32, height as i32);
+            let bmi = BITMAPINFO::new(width as i32, height as i32);
             let bitmap: HBITMAP =
-                match CreateDIBSection(Some(mem_dc), &mut bmi.inner, DIB_RGB_COLORS, &mut bits, None, 0) {
+                match CreateDIBSection(Some(mem_dc), &bmi.inner, DIB_RGB_COLORS, &mut bits, None, 0) {
                     Ok(bmp) => bmp,
                     Err(_) => {
                         let _ = DeleteDC(mem_dc);
@@ -245,12 +246,7 @@ impl Overlay {
                 draw_frame(slice, width as usize, height as usize, r, &union, FRAME_THICKNESS, color, styles);
             }
 
-            let blend = BLENDFUNCTION {
-                BlendOp: AC_SRC_OVER as u8,
-                BlendFlags: 0,
-                SourceConstantAlpha: 255,
-                AlphaFormat: AC_SRC_ALPHA as u8,
-            };
+            let blend = BLENDFUNCTION { BlendOp: AC_SRC_OVER as u8, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: AC_SRC_ALPHA as u8 };
             let dst = POINT { x: union.x().round() as i32, y: union.y().round() as i32 };
             let size = SIZE { cx: width, cy: height };
             let src = POINT { x: 0, y: 0 };
@@ -464,7 +460,7 @@ fn blend_pixel(buf: &mut [u8], idx: usize, color: Rgba) {
     let r = (color.r as u16 * a / 255) as u8;
     let g = (color.g as u16 * a / 255) as u8;
     let b = (color.b as u16 * a / 255) as u8;
-    buf[idx + 0] = b; // BGRA
+    buf[idx] = b; // BGRA
     buf[idx + 1] = g;
     buf[idx + 2] = r;
     buf[idx + 3] = color.a;
@@ -477,20 +473,22 @@ struct BITMAPINFO {
 
 impl BITMAPINFO {
     fn new(width: i32, height: i32) -> Self {
-        use windows::Win32::Graphics::Gdi::{BI_RGB, BITMAPINFO, BITMAPINFOHEADER};
-        let mut info = BITMAPINFO::default();
-        info.bmiHeader = BITMAPINFOHEADER {
-            biSize: size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: width,
-            biHeight: -height, // top-down DIB
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: BI_RGB.0 as u32,
-            biSizeImage: 0,
-            biXPelsPerMeter: 0,
-            biYPelsPerMeter: 0,
-            biClrUsed: 0,
-            biClrImportant: 0,
+    use windows::Win32::Graphics::Gdi::{BI_RGB, BITMAPINFOHEADER};
+        let info = windows::Win32::Graphics::Gdi::BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: width,
+                biHeight: -height, // top-down DIB
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                biSizeImage: 0,
+                biXPelsPerMeter: 0,
+                biYPelsPerMeter: 0,
+                biClrUsed: 0,
+                biClrImportant: 0,
+            },
+            ..Default::default()
         };
         Self { inner: info }
     }

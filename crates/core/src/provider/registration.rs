@@ -58,8 +58,8 @@ mod tests {
             "Button"
         }
 
-        fn name(&self) -> &str {
-            "Dummy"
+        fn name(&self) -> String {
+            "Dummy".to_string()
         }
 
         fn runtime_id(&self) -> &RuntimeId {

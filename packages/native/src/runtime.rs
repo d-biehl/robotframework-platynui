@@ -33,7 +33,7 @@ impl PyNode {
         self.inner.runtime_id().as_str().to_string()
     }
     #[getter]
-    fn name(&self) -> &str {
+    fn name(&self) -> String {
         self.inner.name()
     }
     #[getter]

@@ -91,7 +91,7 @@ Zur Duplikatvermeidung an der Quelle minimieren wir Kontexte vor bestimmten Achs
   pub trait UiNode: Send + Sync {
       fn namespace(&self) -> Namespace;
       fn role(&self) -> &str;                // z. B. "Window", "Button", "ListItem"
-      fn name(&self) -> &str;
+      fn name(&self) -> String;  //
       fn runtime_id(&self) -> &RuntimeId;    // stabil pro Lebensdauer
       fn parent(&self) -> Option<Weak<dyn UiNode>>;
       fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_>;
@@ -113,7 +113,7 @@ Zur Duplikatvermeidung an der Quelle minimieren wir Kontexte vor bestimmten Achs
 
   pub trait UiAttribute: Send + Sync {
       fn namespace(&self) -> Namespace;
-      fn name(&self) -> &str;        // PascalCase
+  fn name(&self) -> String;        // PascalCase
       fn value(&self) -> UiValue;    // lazily ermittelter Wert
   }
 

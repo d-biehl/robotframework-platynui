@@ -211,7 +211,7 @@ pub(crate) fn render_query_text(items: &[QueryItemSummary]) -> String {
 
 fn print_node_stream_text(node: &Arc<dyn UiNode>) {
     let namespace = node.namespace();
-    let node_label = format_node_label(namespace.as_str(), node.role(), node.name());
+    let node_label = format_node_label(namespace.as_str(), node.role(), node.name().as_str());
     println!("{}", colorize_node_label(&node_label));
     for attribute in node.attributes() {
         let value = format_attribute_value(&attribute.value());
@@ -224,7 +224,7 @@ fn print_node_stream_text(node: &Arc<dyn UiNode>) {
 
 fn print_attribute_stream_text(owner: &Arc<dyn UiNode>, namespace: &Namespace, name: &str, value: &UiValue) {
     let attribute_namespace = format_namespace_prefix(namespace.as_str());
-    let owner_label = format_node_label(owner.namespace().as_str(), owner.role(), owner.name());
+    let owner_label = format_node_label(owner.namespace().as_str(), owner.role(), owner.name().as_str());
     let colored_owner = colorize_owner_label(&owner_label);
     let colored_name = colorize_attribute_name(&attribute_namespace, name);
     let value_text = format_attribute_value(value);

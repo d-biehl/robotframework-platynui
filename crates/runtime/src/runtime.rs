@@ -673,8 +673,8 @@ impl UiNode for DesktopNode {
         "Desktop"
     }
 
-    fn name(&self) -> &str {
-        &self.info.name
+    fn name(&self) -> String {
+        self.info.name.clone()
     }
 
     fn runtime_id(&self) -> &RuntimeId {
@@ -1049,8 +1049,8 @@ mod tests {
         fn role(&self) -> &str {
             "Button"
         }
-        fn name(&self) -> &str {
-            "Stub"
+        fn name(&self) -> String {
+            "Stub".to_string()
         }
         fn runtime_id(&self) -> &RuntimeId {
             &self.runtime_id
@@ -1212,8 +1212,8 @@ mod tests {
         fn role(&self) -> &str {
             self.role
         }
-        fn name(&self) -> &str {
-            self.name
+        fn name(&self) -> String {
+            self.name.to_string()
         }
         fn runtime_id(&self) -> &RuntimeId {
             &self.runtime_id

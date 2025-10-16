@@ -1,50 +1,121 @@
+#![allow(clippy::type_complexity, clippy::arc_with_non_send_sync)]
+use std::cell::RefCell;
 use std::sync::Arc;
 use slint::SharedString;
 
-use platynui_core::ui::{UiNode, UiNodeExt};
+use platynui_core::ui::{UiNode, UiNodeExt, Namespace, UiValue};
 use super::{TreeData, TreeDataError};
 
 /// TreeData implementation that wraps a single UiNode
 /// Each UiNodeData represents exactly one node in the tree
 pub struct UiNodeData {
     node: Arc<dyn UiNode>,
+    id_cache: RefCell<Option<SharedString>>,
+    label_cache: RefCell<Option<SharedString>>,
+    has_children_cache: RefCell<Option<bool>>,
+    children_cache:
+        RefCell<Option<Vec<Arc<dyn super::TreeData<Underlying = Arc<dyn UiNode>>>>>>,
+    parent_cache: RefCell<Option<Arc<dyn super::TreeData<Underlying = Arc<dyn UiNode>>>>>,
 }
 
 impl UiNodeData {
     pub fn new(node: Arc<dyn UiNode>) -> Self {
-        Self { node }
+        Self {
+            node,
+            id_cache: RefCell::new(None),
+            label_cache: RefCell::new(None),
+            has_children_cache: RefCell::new(None),
+            children_cache: RefCell::new(None),
+            parent_cache: RefCell::new(None),
+        }
     }
 }
 
 impl TreeData for UiNodeData {
+    type Underlying = Arc<dyn UiNode>;
     fn id(&self) -> SharedString {
-        self.node.runtime_id().as_str().into()
+        if let Some(v) = self.id_cache.borrow().as_ref() {
+            return v.clone();
+        }
+        let v: SharedString = self.node.runtime_id().as_str().into();
+        *self.id_cache.borrow_mut() = Some(v.clone());
+        v
     }
 
     fn label(&self) -> Result<SharedString, TreeDataError> {
-        let name = self.node.name();
-        let escaped = escape_control_chars(&name);
+        if let Some(v) = self.label_cache.borrow().as_ref() {
+            return Ok(v.clone());
+        }
+        // Prefer the dynamic Control/Name attribute (fresh each read); fall back to no name
+        let name_str: String = self
+            .node
+            .attribute(Namespace::Control, "Name")
+            .map(|attr| match attr.value() { UiValue::String(s) => s, _ => String::new() })
+            .unwrap_or_default();
+        let escaped = escape_control_chars(&name_str);
         let label = if escaped.is_empty() {
             self.node.role().to_string()
         } else {
             format!("{} \"{}\"", self.node.role(), escaped)
         };
-        Ok(label.into())
+        let s: SharedString = label.into();
+        *self.label_cache.borrow_mut() = Some(s.clone());
+        Ok(s)
     }
 
     fn has_children(&self) -> Result<bool, TreeDataError> {
-        Ok(self.node.children().next().is_some())
+        // Prefer cached children list if available
+        if let Some(children) = self.children_cache.borrow().as_ref() {
+            return Ok(!children.is_empty());
+        }
+        if let Some(hc) = *self.has_children_cache.borrow() {
+            return Ok(hc);
+        }
+        // Probe a single child and cache the boolean
+        let has = self.node.children().next().is_some();
+        *self.has_children_cache.borrow_mut() = Some(has);
+        Ok(has)
     }
 
-    fn children(&self) -> Result<Vec<Box<dyn TreeData>>, TreeDataError> {
-        Ok(self.node.children()
-            .map(|child_node| Box::new(UiNodeData::new(child_node)) as Box<dyn TreeData>)
-            .collect())
+    fn children(&self) -> Result<Vec<Arc<dyn TreeData<Underlying = Self::Underlying>>>, TreeDataError> {
+        if let Some(v) = self.children_cache.borrow().as_ref() {
+            return Ok(v.clone());
+        }
+        let list: Vec<Arc<dyn TreeData<Underlying = Self::Underlying>>> = self
+            .node
+            .children()
+            .map(|child_node| Arc::new(UiNodeData::new(child_node)) as Arc<dyn TreeData<Underlying = Self::Underlying>>)
+            .collect();
+        *self.has_children_cache.borrow_mut() = Some(!list.is_empty());
+        *self.children_cache.borrow_mut() = Some(list.clone());
+        Ok(list)
     }
 
-    fn parent(&self) -> Result<Option<Box<dyn TreeData>>, TreeDataError> {
-        Ok(self.node.parent_arc()
-            .map(|parent_node| Box::new(UiNodeData::new(parent_node)) as Box<dyn TreeData>))
+    fn parent(&self) -> Result<Option<Arc<dyn TreeData<Underlying = Self::Underlying>>>, TreeDataError> {
+        if let Some(v) = self.parent_cache.borrow().as_ref() {
+            return Ok(Some(v.clone()));
+        }
+        let p = self
+            .node
+            .parent_arc()
+            .map(|parent_node| Arc::new(UiNodeData::new(parent_node)) as Arc<dyn TreeData<Underlying = Self::Underlying>>);
+        if let Some(ref arc) = p {
+            *self.parent_cache.borrow_mut() = Some(arc.clone());
+        }
+        Ok(p)
+    }
+
+    fn as_underlying_data(&self) -> Option<Self::Underlying> { Some(self.node.clone()) }
+
+    fn refresh_self(&self) {
+        // Invalidate underlying provider caches so values (like name) are re-queried.
+        self.node.invalidate();
+        // Clear only our own caches; children are kept unless refresh_recursive is used.
+        *self.id_cache.borrow_mut() = None;
+        *self.label_cache.borrow_mut() = None;
+        *self.has_children_cache.borrow_mut() = None;
+        *self.children_cache.borrow_mut() = None;
+        *self.parent_cache.borrow_mut() = None;
     }
 }
 

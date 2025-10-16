@@ -11,8 +11,9 @@ pub trait UiNode: Send + Sync {
     fn namespace(&self) -> Namespace;
     /// Normalised PascalCase role (used as local-name in XPath).
     fn role(&self) -> &str;
-    /// Human readable name.
-    fn name(&self) -> &str;
+    /// Human readable name (owned string). Providers may compute this on each call
+    /// or cache internally. For up-to-date values prefer the Control/Name attribute.
+    fn name(&self) -> String;
     /// Platform specific runtime identifier.
     fn runtime_id(&self) -> &RuntimeId;
     /// Weak reference to the parent node, if available.
@@ -242,8 +243,8 @@ mod tests {
             self.role
         }
 
-        fn name(&self) -> &str {
-            self.name
+        fn name(&self) -> String {
+            self.name.to_string()
         }
 
         fn runtime_id(&self) -> &RuntimeId {
@@ -348,8 +349,8 @@ mod tests {
                 self.name
             }
 
-            fn name(&self) -> &str {
-                self.name
+            fn name(&self) -> String {
+                self.name.to_string()
             }
 
             fn runtime_id(&self) -> &RuntimeId {
@@ -450,8 +451,8 @@ mod tests {
                 "Desktop"
             }
 
-            fn name(&self) -> &str {
-                "Desktop"
+            fn name(&self) -> String {
+                "Desktop".to_string()
             }
 
             fn runtime_id(&self) -> &RuntimeId {
@@ -504,8 +505,8 @@ mod tests {
                 "Button"
             }
 
-            fn name(&self) -> &str {
-                "Button"
+            fn name(&self) -> String {
+                "Button".to_string()
             }
 
             fn runtime_id(&self) -> &RuntimeId {

@@ -79,8 +79,8 @@ impl UiNode for DesktopNode {
         "Desktop"
     }
 
-    fn name(&self) -> &str {
-        "Desktop"
+    fn name(&self) -> String {
+        "Desktop".to_string()
     }
 
     fn runtime_id(&self) -> &RuntimeId {

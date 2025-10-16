@@ -85,8 +85,8 @@ impl UiNode for MockNode {
         &self.role
     }
 
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> String {
+        self.name.clone()
     }
 
     fn runtime_id(&self) -> &RuntimeId {
