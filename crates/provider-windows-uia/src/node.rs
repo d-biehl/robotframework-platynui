@@ -306,7 +306,7 @@ impl UiNode for UiaNode {
         // If the element is stale (e.g., UIA_E_ELEMENTNOTAVAILABLE), windows::core::Result will be Err.
         unsafe {
             // CurrentControlType is a minimal call and doesn't alter state.
-            self.elem.CurrentControlType().is_ok()
+            self.elem.CurrentProcessId().is_ok()
         }
     }
 }
