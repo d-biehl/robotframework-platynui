@@ -199,26 +199,45 @@ pub fn open_process_query(pid: i32) -> Option<HANDLE> {
 }
 
 pub fn query_executable_path(handle: HANDLE) -> Option<String> {
-    let mut cap: u32 = 512;
-    for _ in 0..3 {
+    use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
+    let mut cap: u32 = 4096;
+    let max_cap: u32 = 32768; // 32K UTF-16 code units upper bound
+    // Loop until success or we hit the max cap
+    loop {
         let mut buf: Vec<u16> = vec![0u16; cap as usize];
         let mut size = cap;
-        if unsafe {
+        let res = unsafe {
             QueryFullProcessImageNameW(
                 handle,
                 windows::Win32::System::Threading::PROCESS_NAME_FORMAT(0),
                 PWSTR(buf.as_mut_ptr()),
                 &mut size,
             )
+        };
+        match res {
+            Ok(()) => {
+                let slice = &buf[..size as usize];
+                return String::from_utf16(slice).ok();
+            }
+            Err(e) => {
+                // Grow buffer if too small; prefer the returned required size when available
+                let hr = e.code();
+                // Map common insufficient-buffer case: on Win32 APIs this usually means last-error
+                // is ERROR_INSUFFICIENT_BUFFER. Compare using raw value as a pragmatic fallback.
+                if hr.0 as u32 == ERROR_INSUFFICIENT_BUFFER.0 {
+                    // If API updated 'size' with the required length, use it; otherwise double
+                    let next = size.max(cap.saturating_mul(2)).min(max_cap);
+                    if next <= cap || next > max_cap {
+                        return None;
+                    }
+                    cap = next;
+                    continue;
+                } else {
+                    return None;
+                }
+            }
         }
-        .is_ok()
-        {
-            let slice = &buf[..size as usize];
-            return String::from_utf16(slice).ok();
-        }
-        cap *= 2;
     }
-    None
 }
 
 /// Best-effort command line retrieval for a process. Currently not implemented
@@ -231,7 +250,11 @@ pub fn query_process_command_line(handle: HANDLE) -> Option<String> {
         use windows::Win32::Foundation::{NTSTATUS, STATUS_INFO_LENGTH_MISMATCH, STATUS_SUCCESS};
 
         let mut cap: u32 = 4096; // start with 4 KB, grow as needed
-        for _ in 0..4 {
+        let max_cap: u32 = 1 << 20; // 1 MB upper bound for safety
+        loop {
+            if cap == 0 || cap > max_cap {
+                return None;
+            }
             let mut buf: Vec<u8> = vec![0u8; cap as usize];
             let mut ret_len: u32 = 0;
             let status: NTSTATUS = NtQueryInformationProcess(
@@ -264,13 +287,17 @@ pub fn query_process_command_line(handle: HANDLE) -> Option<String> {
                 return Some(s);
             }
             if status == STATUS_INFO_LENGTH_MISMATCH || ret_len > cap {
-                cap = ret_len.max(cap.saturating_mul(2));
+                // Grow to the required size if provided, otherwise double
+                let next = ret_len.max(cap.saturating_mul(2)).min(max_cap);
+                if next <= cap || next > max_cap {
+                    return None;
+                }
+                cap = next;
                 continue;
             }
             // Other status codes: give up
             return None;
         }
-        None
     }
 }
 // No argv-splitting; callers consume the raw command line string only.

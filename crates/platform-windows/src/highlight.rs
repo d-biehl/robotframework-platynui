@@ -15,9 +15,10 @@ use windows::Win32::Graphics::Gdi::{
     DeleteObject, GetDC, HBITMAP, HDC, ReleaseDC, SelectObject,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, MA_NOACTIVATE, RegisterClassW, SW_HIDE,
-    SW_SHOWNOACTIVATE, ShowWindow, ULW_ALPHA, UpdateLayeredWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_MOUSEACTIVATE,
-    WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, HTTRANSPARENT, MA_NOACTIVATE,
+    RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, ShowWindow, ULW_ALPHA, UpdateLayeredWindow, WINDOW_EX_STYLE,
+    WINDOW_STYLE, WM_MOUSEACTIVATE, WM_NCHITTEST, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::PCWSTR;
 
@@ -84,6 +85,10 @@ impl OverlayThread {
         let class_name: Vec<u16> = "PlatynUI_Highlight\0".encode_utf16().collect();
         unsafe {
             extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+                // Make overlay fully click-through so it never blocks underlying UI interactions
+                if msg == WM_NCHITTEST {
+                    return LRESULT(HTTRANSPARENT as isize);
+                }
                 if msg == WM_MOUSEACTIVATE {
                     return LRESULT(MA_NOACTIVATE as isize);
                 }

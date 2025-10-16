@@ -137,8 +137,8 @@ impl UiNode for UiaNode {
     }
     fn runtime_id(&self) -> &RuntimeId {
         self.rid_cell.get_or_init(|| {
-            let s = crate::map::format_scoped_runtime_id(&self.elem, self.id_scope)
-                .unwrap_or_else(|_| "uia://temp".into());
+            let s =
+                crate::map::format_scoped_runtime_id(&self.elem, self.id_scope).unwrap_or_else(|_| "uia://temp".into());
             RuntimeId::from(s)
         })
     }
@@ -152,11 +152,7 @@ impl UiNode for UiaNode {
         // Ensure a virtualized item is realized before enumerating its children.
         self.try_realize();
         match self.as_ui_node() {
-            Some(parent_arc) => Box::new(ElementChildrenIter::new(
-                self.elem.clone(),
-                Some(parent_arc),
-                self.id_scope,
-            )),
+            Some(parent_arc) => Box::new(ElementChildrenIter::new(self.elem.clone(), Some(parent_arc), self.id_scope)),
             None => Box::new(std::iter::empty::<Arc<dyn UiNode>>()),
         }
     }
@@ -216,6 +212,9 @@ impl UiNode for UiaNode {
             unsafe impl Send for ElemSend {}
             unsafe impl Sync for ElemSend {}
             impl ElemSend {
+                unsafe fn set_focus(&self) -> Result<(), crate::error::UiaError> {
+                    crate::error::uia_api("IUIAutomationElement::SetFocus", unsafe { self.elem.SetFocus() })
+                }
                 unsafe fn window_set_state(&self, state: WindowVisualState) -> Result<(), crate::error::UiaError> {
                     let unk = crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Window)", unsafe {
                         self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
@@ -278,9 +277,7 @@ impl UiNode for UiaNode {
                 Ok(None)
             };
             let actions = WindowSurfaceActions::new()
-                .with_activate(move || unsafe {
-                    e1.window_set_state(WindowVisualState_Normal).map_err(|e| PatternError::new(e.to_string()))
-                })
+                .with_activate(move || unsafe { e1.set_focus().map_err(|e| PatternError::new(e.to_string())) })
                 .with_minimize(move || unsafe {
                     e2.window_set_state(WindowVisualState_Minimized).map_err(|e| PatternError::new(e.to_string()))
                 })
@@ -1155,10 +1152,7 @@ impl UiNode for ApplicationNode {
                     let elem = self.current.as_ref()?.clone();
                     let pid = crate::map::get_process_id(&elem).unwrap_or(-1);
                     if pid == self.pid {
-                        let node = UiaNode::from_elem_with_scope(
-                            elem,
-                            crate::map::UiaIdScope::App { pid: self.pid },
-                        );
+                        let node = UiaNode::from_elem_with_scope(elem, crate::map::UiaIdScope::App { pid: self.pid });
                         if let Some(ref parent) = self.parent {
                             node.set_parent(parent);
                         }
