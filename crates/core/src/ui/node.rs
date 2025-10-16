@@ -39,6 +39,13 @@ pub trait UiNode: Send + Sync {
     fn doc_order_key(&self) -> Option<u64> {
         None
     }
+    /// Returns whether the underlying platform node is still valid/available.
+    /// Default returns true; providers may override with a cheap liveness check
+    /// (e.g., a lightweight property call that fails with a platform-specific
+    /// "element not available" error when the node is stale).
+    fn is_valid(&self) -> bool {
+        true
+    }
     /// Invalidates cached state. Providers may reload values on the next access.
     fn invalidate(&self);
 }

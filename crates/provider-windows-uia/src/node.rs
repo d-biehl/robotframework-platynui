@@ -300,6 +300,15 @@ impl UiNode for UiaNode {
         None
     }
     fn invalidate(&self) {}
+
+    fn is_valid(&self) -> bool {
+        // Try a very cheap property read that should succeed for live elements.
+        // If the element is stale (e.g., UIA_E_ELEMENTNOTAVAILABLE), windows::core::Result will be Err.
+        unsafe {
+            // CurrentControlType is a minimal call and doesn't alter state.
+            self.elem.CurrentControlType().is_ok()
+        }
+    }
 }
 
 pub(crate) struct ElementChildrenIter {
