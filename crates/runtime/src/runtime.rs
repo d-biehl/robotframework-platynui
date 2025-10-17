@@ -301,14 +301,9 @@ impl Runtime {
     }
 
     /// Highlights the given regions using the registered highlight provider.
-    /// If any request specifies a duration, the runtime schedules a clear() call
-    /// after the minimum duration as a portability fallback.
-    pub fn highlight(&self, requests: &[HighlightRequest]) -> Result<(), PlatformError> {
+    pub fn highlight(&self, request: &HighlightRequest) -> Result<(), PlatformError> {
         match self.highlight {
-            Some(provider) => {
-                provider.highlight(requests)?;
-                Ok(())
-            }
+            Some(provider) => provider.highlight(request),
             None => Err(PlatformError::new(PlatformErrorKind::UnsupportedPlatform, "no HighlightProvider registered")),
         }
     }
@@ -1511,13 +1506,12 @@ mod tests {
     fn highlight_invokes_registered_provider(rt_runtime_platform: Runtime) {
         reset_highlight_state();
         let runtime = rt_runtime_platform;
-        let request = HighlightRequest::new(Rect::new(0.0, 0.0, 50.0, 25.0));
-        runtime.highlight(std::slice::from_ref(&request)).expect("highlight succeeds");
+    let request = HighlightRequest::new(Rect::new(0.0, 0.0, 50.0, 25.0));
+    runtime.highlight(&request).expect("highlight succeeds");
 
-        let log = take_highlight_log();
-        assert_eq!(log.len(), 1);
-        assert_eq!(log[0].len(), 1);
-        assert_eq!(log[0][0], request);
+    let log = take_highlight_log();
+    assert_eq!(log.len(), 1);
+    assert_eq!(log[0], request);
     }
 
     #[rstest]

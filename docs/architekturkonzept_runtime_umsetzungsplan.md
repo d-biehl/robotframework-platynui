@@ -92,7 +92,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Tests: Simulierte Eventsequenzen (TreeInvalidated + NodeUpdated) prüfen Ausgabe in Text/JSON-Format.
 
 ### 9. CLI `highlight`
-- [x] `HighlightProvider` in `platynui-core` finalisieren (`highlight(&[HighlightRequest])`, `clear()` inkl. optionaler Dauerangabe).
+- [x] `HighlightProvider` in `platynui-core` finalisiert (`highlight(&HighlightRequest)`, `clear()` inkl. optionaler Dauerangabe für eine gesamte Anfrage).
 - [x] `platynui-platform-mock`: Stellt Highlight-Attrappe (Logging) bereit (`take_highlight_log`, `reset_highlight_state`).
 - [x] CLI-Kommando `highlight`: Markiert Bounding-Boxen über XPath-Ergebnisse (`Bounds`), unterstützt `--duration-ms` und `--clear`.
 - [x] Tests: Highlight-Aufrufe protokollieren und überprüfen (`rstest`, Mock-Log-Auswertung).
@@ -235,7 +235,11 @@ Aktualisierungen/Status (2025‑10‑05)
 
 Aktualisierung (2025‑10‑10)
 - Watch‑Filter sind noch offen; die aktuelle CLI unterstützt `--expression` und `--limit`.
-- Highlight‑Timer‑Clear liegt im Provider‑Overlay; die Runtime schedult keinen Fallback‑Timer (siehe 19.2). Die CLI blockiert für die gewünschte Dauer.
+- Highlight‑Timer‑Clear liegt im Provider‑Overlay; die Runtime schedult keinen Fallback‑Timer (siehe 19.2). Die CLI blockiert optional für die gewünschte Dauer.
+
+Aktualisierung (2025‑10‑17)
+- Python Bindings: `Runtime.highlight(rects: Rect | Iterable[Rect], duration_ms: float | None)` akzeptiert einen einzelnen `Rect` oder beliebige Iterables von `Rect`‑Objekten; intern werden Iterables materialisiert und als einzelner `HighlightRequest` an die Runtime/Provider übergeben.
+- Python Core‑Typen: `Point`, `Size`, `Rect`, `PatternId`, `RuntimeId`, `TechnologyId`, `Namespace` implementieren `__eq__`/`__ne__` sowie `__hash__` und sind damit als Dict‑Keys/Set‑Elemente nutzbar. Stubs wurden synchronisiert.
 
 Aktuelle Design-Notizen (2025‑09‑30)
 - Keine Actor‑Schicht, kein NodeStore: `UiaNode` wrappt direkt `IUIAutomationElement`.

@@ -213,10 +213,11 @@ Zur Duplikatvermeidung an der Quelle minimieren wir Kontexte vor bestimmten Achs
 
 ## 6. Geräte- und Interaktionsdienste
 - `DeviceProvider`-Trait + Capability-Typen leben in `crates/core` (Pointer, Keyboard, DesktopInfoProvider, ScreenshotProvider, HighlightProvider); Touch-Unterstützung wird später ergänzt.
-  - `HighlightProvider` zeichnet Hervorhebungen über `highlight(&[HighlightRequest])` und entfernt sie via `clear()`.
-    * `HighlightRequest` enthält die Desktop-Koordinaten (`Rect`). Optional kann eine gewünschte Sichtbarkeitsdauer (`Duration`) mitgegeben werden. Der Highlight-Effekt wird nach der kleinsten angeforderten Dauer automatisch vom Provider entfernt.
+  - `HighlightProvider` zeichnet Hervorhebungen über `highlight(&HighlightRequest)` und entfernt sie via `clear()`.
+    * `HighlightRequest` enthält eine oder mehrere Desktop-Bounding-Boxen (`Vec<Rect>`) und optional eine gewünschte Sichtbarkeitsdauer (`Duration`). Eine Anfrage umfasst stets genau eine gemeinsame Dauer für alle Rechtecke.
+    * Der Highlight-Effekt wird nach der angeforderten Dauer automatisch vom Provider entfernt (Timer im Provider/Overlay). Es existiert kein API‑Konzept „mehrerer Requests mit unterschiedlichen Dauern“ mehr.
     * Plattform (Windows): nicht‑aktivierendes, klick‑durchlässiges Layered‑Window mit rotem Rahmen (3 px) und 1 px Abstand um die Ziel‑BBox. Rahmen werden an Desktop‑Bounds beschnitten; abgeschnittene Seiten erscheinen gestrichelt.
-    * Es existiert immer nur ein aktives Highlight. Erneute Aufrufe ersetzen das bestehende Overlay: Der Rahmen wandert zur neuen Position.
+    * Es existiert immer nur ein aktives Highlight. Erneute Aufrufe ersetzen das bestehende Overlay: Die Rahmen werden auf die neuen Ziel‑Rects aktualisiert.
   - `PointerDevice` kapselt elementare Zeigereingaben vollständig in Desktop-Koordinaten (`f64`). Das Trait umfasst mindestens `position() -> Point`, `move_to(Point)`, `press(PointerButton)`, `release(PointerButton)` sowie `scroll(ScrollDelta)`; optional liefern Provider Double-Click-Metadaten (`double_click_time()`, `double_click_size()`), soweit die Plattform sie bereitstellt. Notwendige Umrechnungen in native Koordinatensysteme (Win32-Absolute, X11-Integer, macOS-CGFloat) erfolgen providerseitig.
     * Oberhalb des Traits implementiert die Runtime eine Bewegungs-Engine, die Zielkoordinaten in Schrittfolgen übersetzt (linear, Bezier/Overshoot, zufällige Jitter) und konfigurierbare Verzögerungen (`after_move_delay`, `press_release_delay`, `before_next_click_delay`, `multi_click_delay`) berücksichtigt. CLI-Kommandos greifen standardmäßig auf diese Engine zurück, Provider müssen lediglich die atomaren Operationen zuverlässig bereitstellen.
     * Vor jedem Aufruf klemmt die Runtime Koordinaten anhand der Desktop-Bounds (`DesktopInfo`). Provider dürfen zusätzliche Sicherheitsprüfungen durchführen (z. B. Fokusfenster-Abgleich), liefern aber stets normalisierte `f64`-Koordinaten zurück oder signalisieren Fehler, falls die OS-API das Bewegen verhindert.
@@ -266,7 +267,7 @@ Zur Duplikatvermeidung an der Quelle minimieren wir Kontexte vor bestimmten Achs
 - Highlight
   - Overlay-Fenster: `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE`; Anzeige via `SW_SHOWNOACTIVATE`; `WM_MOUSEACTIVATE → MA_NOACTIVATE` (nicht‑aktivierend, klick‑durchlässig, nicht in Alt‑Tab/Taskbar).
   - Darstellung: Roter Rahmen (3 px) mit 1 px Abstand um das Zielrechteck; abgeschnittene Seiten gestrichelt (6 an / 4 aus), andere Seiten durchgezogen.
-  - Dauer: Runtime triggert `clear()` nach der kleinsten angeforderten Dauer als Fallback; die CLI wartet lokal für die angegebene Dauer.
+  - Dauer: Die Overlays planen `clear()` mittels internem Timer nach der angeforderten Dauer (generation‑aware). Die Runtime schedult keinen Fallback‑Timer; die CLI kann optional lokal für die gewünschte Dauer blockieren.
 
 — DPI/Scaling
 - Die Plattforminitialisierung setzt Per‑Monitor‑V2‑DPI‑Awareness (`SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`). Koordinaten in Runtime/CLI beziehen sich auf Desktop‑Pixel (Virtual Screen). GDI‑Capture (BitBlt) und `UpdateLayeredWindow` arbeiten in denselben Gerätepixeln; zusätzliche Skalierungen sind nicht erforderlich.

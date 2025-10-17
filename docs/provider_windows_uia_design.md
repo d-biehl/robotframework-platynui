@@ -36,6 +36,8 @@ Implementierungsdetail Iteratoren
   - Lazy‑Erstaufruf mit `first`‑Marker: `GetFirstChildElement(parent)` startet erst beim ersten `next()`.
   - Danach nur `GetNextSiblingElement(current)` pro Schritt.
   - Iterator hält den modellseitigen Parent (`Arc<dyn UiNode>`) und setzt ihn bei jedem erzeugten Kind.
+  - Rekursion wurde bewusst durch iterative Schleifen ersetzt, um Stacktiefe zu vermeiden und Fehlerpfade klarer zu handhaben.
+  - Der eigene Prozess wird frühzeitig herausgefiltert (SELF_PID‑Cache via `OnceCell/Lazy`), sodass der Provider keine UI‑Elemente des eigenen Prozesses zurückliefert (Overlap mit Overlay/Inspector wird vermieden).
 
 ## Node‑Wrapper und Iteratoren
 - `UiaNode` wrappt direkt das `IUIAutomationElement` und hält keine zentrale Store‑Struktur.

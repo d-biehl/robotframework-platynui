@@ -43,17 +43,19 @@ pub fn run(runtime: &Runtime, args: &HighlightArgs) -> CliResult<String> {
     let mut highlighted = 0usize;
     let mut hold_ms: Option<u64> = None;
     if let Some(rect) = args.rect {
-        let req = HighlightRequest::new(rect).with_duration(Duration::from_millis(args.duration_ms));
-        runtime.highlight(&[req]).map_err(map_platform_error)?;
+    let req = HighlightRequest::new(rect).with_duration(Duration::from_millis(args.duration_ms));
+    runtime.highlight(&req).map_err(map_platform_error)?;
         highlighted = 1;
         hold_ms = Some(args.duration_ms);
     } else if let Some(expression) = &args.expression {
         let highlight = collect_highlight_requests(runtime, expression, Some(args.duration_ms))?;
-        if highlight.requests.is_empty() {
+        if highlight.rects.is_empty() {
             anyhow::bail!("no highlightable nodes for expression `{expression}`");
         }
-        runtime.highlight(&highlight.requests).map_err(map_platform_error)?;
-        highlighted = highlight.requests.len();
+        let mut req = HighlightRequest::from_rects(highlight.rects);
+        if let Some(ms) = highlight.duration_ms { req = req.with_duration(Duration::from_millis(ms)); }
+    runtime.highlight(&req).map_err(map_platform_error)?;
+        highlighted = 1;
         hold_ms = Some(args.duration_ms);
         if !highlight.skipped.is_empty() {
             let skipped = highlight.skipped.join(", ");
@@ -79,10 +81,7 @@ pub fn run(runtime: &Runtime, args: &HighlightArgs) -> CliResult<String> {
     Ok(messages.join("\n"))
 }
 
-struct HighlightComputation {
-    requests: Vec<HighlightRequest>,
-    skipped: Vec<String>,
-}
+struct HighlightComputation { rects: Vec<Rect>, duration_ms: Option<u64>, skipped: Vec<String> }
 
 fn collect_highlight_requests(
     runtime: &Runtime,
@@ -90,7 +89,7 @@ fn collect_highlight_requests(
     duration_ms: Option<u64>,
 ) -> CliResult<HighlightComputation> {
     let results = runtime.evaluate(None, expression).map_err(map_evaluate_error)?;
-    let mut requests = Vec::new();
+    let mut rects = Vec::new();
     let mut skipped = Vec::new();
 
     for item in results {
@@ -114,15 +113,9 @@ fn collect_highlight_requests(
             continue;
         }
 
-        let request = if let Some(ms) = duration_ms {
-            HighlightRequest::new(bounds).with_duration(Duration::from_millis(ms))
-        } else {
-            HighlightRequest::new(bounds)
-        };
-        requests.push(request);
+        rects.push(bounds);
     }
-
-    Ok(HighlightComputation { requests, skipped })
+    Ok(HighlightComputation { rects, duration_ms, skipped })
 }
 
 fn parse_rect_arg(value: &str) -> Result<Rect, String> {
@@ -161,9 +154,9 @@ mod tests {
         let output = run(&runtime, &args).expect("highlight execution");
         assert!(output.contains("Highlighted"));
 
-        let log = take_highlight_log();
-        assert!(!log.is_empty());
-        assert_eq!(log[0][0].duration, Some(Duration::from_millis(500)));
+    let log = take_highlight_log();
+    assert!(!log.is_empty());
+    assert_eq!(log[0].duration, Some(Duration::from_millis(500)));
 
         reset_highlight_state();
     }
@@ -203,9 +196,9 @@ mod tests {
         };
         let output = run(&runtime, &args).expect("highlight rect");
         assert!(output.contains("Highlighted 1 region"));
-        let log = take_highlight_log();
-        assert_eq!(log.len(), 1);
-        assert_eq!(log[0][0].duration, Some(Duration::from_millis(1500)));
+    let log = take_highlight_log();
+    assert_eq!(log.len(), 1);
+    assert_eq!(log[0].duration, Some(Duration::from_millis(1500)));
 
         reset_highlight_state();
     }

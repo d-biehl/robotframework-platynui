@@ -37,7 +37,7 @@ mod tests {
 
         // Use direct reference to mock highlight provider
         let request = HighlightRequest::new(Rect::new(0.0, 0.0, 50.0, 50.0));
-        MOCK_HIGHLIGHT.highlight(&[request]).unwrap();
-        assert_eq!(take_highlight_log().len(), 1);
+    MOCK_HIGHLIGHT.highlight(&request).unwrap();
+    assert_eq!(take_highlight_log().len(), 1);
     }
 }

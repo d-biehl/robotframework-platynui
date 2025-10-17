@@ -47,7 +47,7 @@ This document proposes a clean, future‑proof design for Python bindings to Pla
   - `evaluate(xpath: str, node: UiNode | None = None) -> list[UiNode | EvaluatedAttribute | UiValue]`
   - `desktop_node() -> UiNode`, `desktop_info() -> dict`
   - `focus(node: UiNode)`
-  - `highlight(rects: list[core.Rect], duration_ms: float | None = None)`
+  - `highlight(rects: core.Rect | Iterable[core.Rect], duration_ms: float | None = None)`
   - `clear_highlight()`
   - `screenshot(rect: core.Rect | None = None, mime_type: str | None = None) -> bytes` — aktuell nur `image/png`
   - Pointer ops: `pointer_position`, `pointer_move_to`, `pointer_click`, `pointer_multi_click`, `pointer_drag`, `pointer_press`, `pointer_release`, `pointer_scroll`
@@ -266,3 +266,7 @@ The first slice is implemented under `packages/native` and usable for local dev 
 - Device availability: with the mock feature some pointer/keyboard calls may raise device errors; conversion paths are still validated.
 - Warnings: non‑functional pyo3 warnings (richcmp omissions, non_snake_case classattrs for Namespace, unsafe_op_in_unsafe_fn from macro glue) are cosmetic and can be cleaned up later.
 - Docs: expand README with tabular overrides reference (names, types, units, defaults) across platforms as they evolve.
+
+### Implemented API Notes (2025‑10‑17)
+- Highlight accepts either a single `Rect` or any iterable of `Rect` and always issues a single highlight request with one shared duration.
+- Core value types and IDs implement `__eq__`/`__ne__`/`__hash__` in the native module; stubs expose these, enabling use as set/dict keys in Python.

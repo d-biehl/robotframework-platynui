@@ -6,7 +6,7 @@ use std::sync::Arc;
 use pyo3::IntoPyObject;
 use pyo3::exceptions::{PyException, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyAnyMethods, PyDict, PyList, PyTuple};
+use pyo3::types::{PyAny, PyAnyMethods, PyDict, PyIterator, PyList, PyTuple};
 use std::str::FromStr;
 
 use platynui_core as core_rs;
@@ -655,18 +655,27 @@ impl PyRuntime {
     // ---------------- Highlight & Screenshot ----------------
 
     /// Highlights one or more rectangles for an optional duration (milliseconds).
+    /// Accepts a single Rect or any Python Iterable[Rect] (e.g., list, tuple, generator).
     #[pyo3(signature = (rects, duration_ms=None), text_signature = "(self, rects, duration_ms=None)")]
-    fn highlight(&self, rects: Bound<'_, PyList>, duration_ms: Option<f64>) -> PyResult<()> {
-        let mut requests: Vec<HighlightRequest> = Vec::with_capacity(rects.len());
-        for item in rects.iter() {
-            let r: PyRef<PyRect> = item.extract()?;
-            let mut req = HighlightRequest::new(r.as_inner());
-            if let Some(ms) = duration_ms {
-                req = req.with_duration(std::time::Duration::from_millis(ms as u64));
+    fn highlight(&self, rects: Bound<'_, PyAny>, duration_ms: Option<f64>) -> PyResult<()> {
+        let mut all: Vec<platynui_core::types::Rect> = Vec::new();
+        // Fast path: single Rect passed directly
+        if let Ok(r) = rects.extract::<PyRef<PyRect>>() {
+            all.push(r.as_inner());
+        } else {
+            // Fallback: consume any iterable of Rects
+            let iter = PyIterator::from_object(&rects)?;
+            for item in iter {
+                let any = item?;
+                let r: PyRef<PyRect> = any.extract()?;
+                all.push(r.as_inner());
             }
-            requests.push(req);
         }
-        self.inner.highlight(&requests).map_err(map_platform_err)?;
+        let mut req = HighlightRequest::from_rects(all);
+        if let Some(ms) = duration_ms {
+            req = req.with_duration(std::time::Duration::from_millis(ms as u64));
+        }
+        self.inner.highlight(&req).map_err(map_platform_err)?;
         Ok(())
     }
 

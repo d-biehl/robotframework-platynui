@@ -31,14 +31,13 @@ register_highlight_provider!(&WINDOWS_HIGHLIGHT);
 pub struct WindowsHighlightProvider;
 
 impl HighlightProvider for WindowsHighlightProvider {
-    fn highlight(&self, requests: &[HighlightRequest]) -> Result<(), PlatformError> {
-        if requests.is_empty() {
+    fn highlight(&self, request: &HighlightRequest) -> Result<(), PlatformError> {
+        if request.rects.is_empty() {
             return self.clear();
         }
 
-        let duration = min_duration(requests);
-        let rects: Vec<Rect> = requests.iter().map(|r| r.bounds).collect();
-        OverlayController::global().show(&rects, duration)
+        let duration = request.duration;
+        OverlayController::global().show(&request.rects, duration)
     }
 
     fn clear(&self) -> Result<(), PlatformError> {
@@ -46,9 +45,7 @@ impl HighlightProvider for WindowsHighlightProvider {
     }
 }
 
-fn min_duration(requests: &[HighlightRequest]) -> Option<Duration> {
-    requests.iter().filter_map(|r| r.duration).min()
-}
+// per-request duration is used directly; no helper needed
 
 struct OverlayController {
     tx: Sender<Command>,

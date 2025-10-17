@@ -5,7 +5,7 @@ pub static MOCK_HIGHLIGHT: MockHighlight = MockHighlight::new();
 
 #[derive(Debug)]
 pub struct MockHighlight {
-    log: Mutex<Vec<Vec<HighlightRequest>>>,
+    log: Mutex<Vec<HighlightRequest>>,
     clear_calls: Mutex<usize>,
 }
 
@@ -14,9 +14,9 @@ impl MockHighlight {
         Self { log: Mutex::new(Vec::new()), clear_calls: Mutex::new(0) }
     }
 
-    fn record(&self, requests: &[HighlightRequest]) {
+    fn record(&self, request: &HighlightRequest) {
         let mut log = self.log.lock().expect("highlight log poisoned");
-        log.push(requests.to_vec());
+        log.push(request.clone());
     }
 
     fn mark_clear(&self) {
@@ -26,8 +26,8 @@ impl MockHighlight {
 }
 
 impl HighlightProvider for MockHighlight {
-    fn highlight(&self, requests: &[HighlightRequest]) -> Result<(), PlatformError> {
-        self.record(requests);
+    fn highlight(&self, request: &HighlightRequest) -> Result<(), PlatformError> {
+        self.record(request);
         Ok(())
     }
 
@@ -37,7 +37,7 @@ impl HighlightProvider for MockHighlight {
     }
 }
 
-pub fn take_highlight_log() -> Vec<Vec<HighlightRequest>> {
+pub fn take_highlight_log() -> Vec<HighlightRequest> {
     let mut log = MOCK_HIGHLIGHT.log.lock().expect("highlight log poisoned");
     log.drain(..).collect()
 }
@@ -73,10 +73,10 @@ mod tests {
 
         // Use direct reference for testing the provider itself
         let request = HighlightRequest::new(Rect::new(0.0, 0.0, 100.0, 50.0));
-        MOCK_HIGHLIGHT.highlight(&[request]).unwrap();
+        MOCK_HIGHLIGHT.highlight(&request).unwrap();
         let log = take_highlight_log();
         assert_eq!(log.len(), 1);
-        assert_eq!(log[0][0].bounds, Rect::new(0.0, 0.0, 100.0, 50.0));
+        assert_eq!(log[0].rects[0], Rect::new(0.0, 0.0, 100.0, 50.0));
 
         MOCK_HIGHLIGHT.clear().unwrap();
         assert_eq!(highlight_clear_count(), 1);

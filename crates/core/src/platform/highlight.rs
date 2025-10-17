@@ -2,24 +2,35 @@ use crate::platform::PlatformError;
 use crate::types::Rect;
 use std::time::Duration;
 
-/// Request structure describing a region that should be highlighted on screen.
+/// Request structure describing one or more regions that should be highlighted on screen.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HighlightRequest {
-    /// Bounding box in desktop coordinates.
-    pub bounds: Rect,
+    /// One or more bounding boxes in desktop coordinates.
+    pub rects: Vec<Rect>,
     /// Optional duration that the highlight should stay visible before it
     /// disappears automatically.
     pub duration: Option<Duration>,
 }
 
 impl HighlightRequest {
+    /// Create a request for a single rectangle.
     pub fn new(bounds: Rect) -> Self {
-        Self { bounds, duration: None }
+        Self { rects: vec![bounds], duration: None }
+    }
+
+    /// Create a request for multiple rectangles.
+    pub fn from_rects(rects: Vec<Rect>) -> Self {
+        Self { rects, duration: None }
     }
 
     pub fn with_duration(mut self, duration: Duration) -> Self {
         self.duration = Some(duration);
         self
+    }
+
+    /// Iterate the rectangles in this request.
+    pub fn rects(&self) -> impl Iterator<Item = &Rect> {
+        self.rects.iter()
     }
 }
 
@@ -27,7 +38,7 @@ impl HighlightRequest {
 pub trait HighlightProvider: Send + Sync {
     /// Draws the given highlight regions. Providers decide whether the highlight
     /// persists until cleared or fades automatically.
-    fn highlight(&self, requests: &[HighlightRequest]) -> Result<(), PlatformError>;
+    fn highlight(&self, request: &HighlightRequest) -> Result<(), PlatformError>;
 
     /// Clears any active highlight overlays.
     fn clear(&self) -> Result<(), PlatformError>;
@@ -61,7 +72,7 @@ mod tests {
     struct StubHighlightProvider;
 
     impl HighlightProvider for StubHighlightProvider {
-        fn highlight(&self, _requests: &[HighlightRequest]) -> Result<(), PlatformError> {
+        fn highlight(&self, _request: &HighlightRequest) -> Result<(), PlatformError> {
             Ok(())
         }
 
@@ -77,7 +88,8 @@ mod tests {
     #[test]
     fn registration_exposes_provider() {
         let providers: Vec<_> = highlight_providers().collect();
-        assert!(providers.iter().any(|provider| provider.highlight(&[]).is_ok()));
+        let req = HighlightRequest::new(Rect::new(0.0, 0.0, 1.0, 1.0));
+        assert!(providers.iter().any(|provider| provider.highlight(&req).is_ok()));
     }
 
     #[test]

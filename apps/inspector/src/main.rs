@@ -78,7 +78,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         //     let _ = window.activate();
                         // }
                         let req = HighlightRequest::new(bounds).with_duration(Duration::from_millis(1500));
-                        if let Err(err) = runtime_for_select.highlight(&[req]) {
+                        if let Err(err) = runtime_for_select.highlight(&req) {
                             eprintln!("Highlight error: {}", err);
                         }
                     }

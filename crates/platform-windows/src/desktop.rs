@@ -250,7 +250,7 @@ mod tests {
             // Names/IDs should not be empty (friendly name may still be generic depending on system).
             assert!(info.monitors.iter().all(|m| !m.id.trim().is_empty()), "device ids must be non-empty");
             assert!(
-                info.monitors.iter().all(|m| m.name.as_deref().unwrap_or("").trim().len() >= 1),
+                info.monitors.iter().all(|m| !m.name.as_deref().unwrap_or("").trim().is_empty()),
                 "monitor names should be present"
             );
         }
