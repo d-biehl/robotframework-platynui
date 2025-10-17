@@ -94,6 +94,8 @@ annotated_tag = true
 pre_bump_hooks = [
     "uv run scripts/update-git-versions.py",
     "uv run scripts/update-changelog.py",
+    "cargo update -w --offline --recursive --verbose",
+    "uv lock -U --offline",
     "git add .",
 ]
 
