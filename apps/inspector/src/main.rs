@@ -93,15 +93,12 @@ fn main() -> Result<(), slint::PlatformError> {
                     let name = attr.name();
                     let value = attr.value();
                     // Capture control:Bounds if available and non-empty
-                    if cached_bounds.is_none() {
-                        if let (Namespace::Control, "Bounds") = (ns, name) {
-                            if let UiValue::Rect(r) = &value {
-                                if !r.is_empty() {
+                    if cached_bounds.is_none()
+                        && let (Namespace::Control, "Bounds") = (ns, name)
+                            && let UiValue::Rect(r) = &value
+                                && !r.is_empty() {
                                     cached_bounds = Some(*r);
                                 }
-                            }
-                        }
-                    }
                     let (val_str, ty_str) = match value {
                         UiValue::Null => ("<null>".to_string(), "null".to_string()),
                         UiValue::Bool(b) => (b.to_string(), "bool".to_string()),
