@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [Unreleased]
+
+### Bug Fixes
+
+- **provider-windows-uia:** Update UiaNode's availability check to use CurrentProcessId ([500b4a2](https://github.com/imbus/robotframework-PlatynUI/commit/500b4a2a8141e01af19f3b755c537bdb4ea3def0))
+- **scripts:** Update regex pattern for robotframework-platynui version matching ([d0b0e41](https://github.com/imbus/robotframework-PlatynUI/commit/d0b0e414c56524a14abbdeb3e0dd87526a266467))
+- Add sync command to pre-bump hooks for all packages and extras ([e310385](https://github.com/imbus/robotframework-PlatynUI/commit/e310385a823e38851d922590b212e1363cbe5034))
+- Add type hints and mypy configuration for improved type checking ([b31f326](https://github.com/imbus/robotframework-PlatynUI/commit/b31f32631908a82d79a6b5ed53a25b0769940a61))
+
+
+### Documentation
+
+- Enhance CONTRIBUTING.md ([d7304ed](https://github.com/imbus/robotframework-PlatynUI/commit/d7304ed9a481a2fe45bf02bed9368676d34800c8))
+- Update README.md for clarity and structure, enhancing installation instructions and project description ([5a447e3](https://github.com/imbus/robotframework-PlatynUI/commit/5a447e39af2847ee6f3ba1551dc83d9ebd6f2cd5))
+
+
+### Features
+
+- **core:** Introduce is_valid method to check node availability ([6a82573](https://github.com/imbus/robotframework-PlatynUI/commit/6a82573dacd55a8b701ed05c0f824f4ea6cca3b1))
+- **inspector:** Implement caching and refreshing of nodes ([035b6e2](https://github.com/imbus/robotframework-PlatynUI/commit/035b6e29f9d635b41691a387b421018028dc676d))
+- **inspector:** Add some custom components for split layout and treeview ([5ecb57a](https://github.com/imbus/robotframework-PlatynUI/commit/5ecb57a7a0426ad78b8a3e0225d68258ecdc4f60))
+- **provider-windows-uia:** Implement scoped RuntimeId URIs for UiaNode and related attributes ([c7c4623](https://github.com/imbus/robotframework-PlatynUI/commit/c7c462327b3084199a5c21f5645cda04c3716a5c))
+- **python-native:** Add is_valid method to UiNode for liveness checks ([a49e26c](https://github.com/imbus/robotframework-PlatynUI/commit/a49e26cf17c0ce07392f9a5a2c7166c77910bbcb))
+- Add project URLs to pyproject.toml files ([61cf164](https://github.com/imbus/robotframework-PlatynUI/commit/61cf16449c8c9a933a2a60ab5db91e554d0eab24))
+- Introduce platynui-cli and platynui-inspector tools as separate installable python packages ([c58da55](https://github.com/imbus/robotframework-PlatynUI/commit/c58da55d9769e9694d59fcaf6c261b61a473f8a5))
+- First version of spy tool part 3 ([345c3e2](https://github.com/imbus/robotframework-PlatynUI/commit/345c3e28f471eb9b213478b363b789ab53516b99))
+- First version of spy tool part 2 ([f4b38e1](https://github.com/imbus/robotframework-PlatynUI/commit/f4b38e1cdc1f5287d181c29d5de304deb5540186))
+- First simple version of spy tool ([ec5d124](https://github.com/imbus/robotframework-PlatynUI/commit/ec5d124bb3807195ff31183c36063cefd40a6057))
+
+
+### Refactor
+
+- **inspector:** Simplify conditional checks for cached_bounds assignment ([f0ddb50](https://github.com/imbus/robotframework-PlatynUI/commit/f0ddb50bae04e5a6dcf7f580f756796b0f4b398e))
+- **platform-windows:** Improve buffer handling in process query functions and enhance click-through overlay behavior ([6bac989](https://github.com/imbus/robotframework-PlatynUI/commit/6bac989a6d62aae5f2d0ef18d5d4b3c487680b27))
+- **provider-windows-uia:** Update COM initialization to use apartment-threaded model and remove warm-up code ([87eb9ef](https://github.com/imbus/robotframework-PlatynUI/commit/87eb9efa3d8ac0a88b3b6a54e67f770f120b49fc))
+- Replace Rc with Arc for runtime management in main function ([eb3ac97](https://github.com/imbus/robotframework-PlatynUI/commit/eb3ac97603aee8ebd4881334fa2d452f9b67b3bf))
+- Unify highlight request handling and support multiple rectangles ([03bd173](https://github.com/imbus/robotframework-PlatynUI/commit/03bd173342286eb9926399409de635a641c661ca))
+
+
 ## [0.1.0] - 2025-10-09
 
 ### Bug Fixes

@@ -552,7 +552,7 @@ wheels = [
 
 [[package]]
 name = "robotframework-platynui"
-version = "0.1.0"
+version = "0.2.0.dev1"
 source = { editable = "." }
 dependencies = [
     { name = "robotframework" },
@@ -600,7 +600,7 @@ dev = [
 
 [[package]]
 name = "robotframework-platynui-cli"
-version = "0.1.0"
+version = "0.2.0.dev1"
 source = { editable = "packages/cli" }
 
 [package.dev-dependencies]
@@ -615,7 +615,7 @@ dev = [{ name = "maturin", specifier = ">=1.9.6" }]
 
 [[package]]
 name = "robotframework-platynui-inspector"
-version = "0.1.0"
+version = "0.2.0.dev1"
 source = { editable = "packages/inspector" }
 
 [package.dev-dependencies]
@@ -630,7 +630,7 @@ dev = [{ name = "maturin", specifier = ">=1.9.6" }]
 
 [[package]]
 name = "robotframework-platynui-native"
-version = "0.1.0"
+version = "0.2.0.dev1"
 source = { editable = "packages/native" }
 
 [package.optional-dependencies]

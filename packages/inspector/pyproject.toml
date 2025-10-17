@@ -1,7 +1,7 @@
 [project]
 name = "robotframework-platynui-inspector"
 description = "Inspector for Robot Framework PlatynUI"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

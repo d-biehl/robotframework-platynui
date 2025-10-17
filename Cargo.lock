@@ -3707,7 +3707,7 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
 name = "platynui-cli"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3733,7 +3733,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-core"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "bitflags 2.9.4",
  "inventory",
@@ -3746,7 +3746,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-inspector"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "platynui-core",
  "platynui-link",
@@ -3766,19 +3766,19 @@ dependencies = [
 
 [[package]]
 name = "platynui-link"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 
 [[package]]
 name = "platynui-platform-linux-x11"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 
 [[package]]
 name = "platynui-platform-macos"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 
 [[package]]
 name = "platynui-platform-mock"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "inventory",
  "once_cell",
@@ -3789,7 +3789,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-platform-windows"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "inventory",
  "once_cell",
@@ -3799,7 +3799,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-provider-atspi"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "inventory",
  "once_cell",
@@ -3808,11 +3808,11 @@ dependencies = [
 
 [[package]]
 name = "platynui-provider-jsonrpc"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 
 [[package]]
 name = "platynui-provider-macos-ax"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "inventory",
  "once_cell",
@@ -3821,7 +3821,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-provider-mock"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "inventory",
  "platynui-core",
@@ -3834,7 +3834,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-provider-windows-uia"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "inventory",
  "once_cell",
@@ -3845,7 +3845,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-runtime"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "inventory",
  "once_cell",
@@ -3863,11 +3863,11 @@ dependencies = [
 
 [[package]]
 name = "platynui-server"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 
 [[package]]
 name = "platynui-xpath"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "base64",
  "chrono",
@@ -3889,7 +3889,7 @@ dependencies = [
 
 [[package]]
 name = "playground"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "anyhow",
  "platynui-core",

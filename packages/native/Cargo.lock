@@ -617,7 +617,7 @@ checksum = "3b3cff922bd51709b605d9ead9aa71031d81447142d828eb4a6eba76fe619f9b"
 
 [[package]]
 name = "platynui-core"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "bitflags",
  "inventory",
@@ -629,19 +629,19 @@ dependencies = [
 
 [[package]]
 name = "platynui-link"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 
 [[package]]
 name = "platynui-platform-linux-x11"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 
 [[package]]
 name = "platynui-platform-macos"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 
 [[package]]
 name = "platynui-platform-mock"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "inventory",
  "once_cell",
@@ -650,7 +650,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-platform-windows"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "inventory",
  "once_cell",
@@ -660,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-provider-atspi"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "inventory",
  "once_cell",
@@ -669,7 +669,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-provider-macos-ax"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "inventory",
  "once_cell",
@@ -678,7 +678,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-provider-mock"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "inventory",
  "platynui-core",
@@ -689,7 +689,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-provider-windows-uia"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "inventory",
  "once_cell",
@@ -700,7 +700,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-runtime"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "once_cell",
  "pest",
@@ -715,7 +715,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-xpath"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "base64",
  "chrono",
@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "platynui_native"
-version = "0.1.0"
+version = "0.2.0-dev.1"
 dependencies = [
  "once_cell",
  "platynui-core",
