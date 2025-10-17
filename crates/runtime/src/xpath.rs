@@ -170,6 +170,59 @@ pub fn evaluate_iter(
     }))
 }
 
+/// Owned iterator variant for FFI consumers: returns a boxed iterator that does not
+/// borrow from `self` or the `xpath` input. This avoids lifetime constraints when
+/// exposing a streaming API across FFI boundaries (e.g., Python).
+pub fn evaluate_iter_owned(
+    node: Option<Arc<dyn UiNode>>,
+    xpath: String,
+    options: EvaluateOptions,
+ ) -> Result<Box<dyn Iterator<Item = EvaluationItem>>, EvaluateError> {
+    use platynui_xpath::xdm::XdmItem;
+    let root = options.desktop();
+    let context = if let Some(node_ref) = node.as_ref() {
+        if let Some(resolver) = options.node_resolver() {
+            let runtime_id = node_ref.runtime_id().clone();
+            match resolver.resolve(&runtime_id)? {
+                Some(resolved) => resolved,
+                None => return Err(EvaluateError::ContextNodeUnknown(runtime_id.to_string())),
+            }
+        } else {
+            Arc::clone(node_ref)
+        }
+    } else {
+        root.clone()
+    };
+
+    if options.invalidate_before_eval() {
+        context.invalidate();
+    }
+
+    let static_ctx = StaticContextBuilder::new()
+        .with_default_element_namespace(CONTROL_NS_URI)
+        .with_namespace("control", CONTROL_NS_URI)
+        .with_namespace("item", ITEM_NS_URI)
+        .with_namespace("app", APP_NS_URI)
+        .with_namespace("native", NATIVE_NS_URI)
+        .build();
+
+    let compiled = compiler::compile_with_context(&xpath, &static_ctx)?;
+    let mut dyn_builder = DynamicContextBuilder::new();
+    dyn_builder = dyn_builder.with_context_item(RuntimeXdmNode::from_node(context.clone()));
+    let dyn_ctx = dyn_builder.build();
+
+    let stream = evaluator::evaluate_stream(&compiled, &dyn_ctx)?;
+    let it = stream.into_iter().filter_map(|res| match res.ok()? {
+        XdmItem::Node(node) => match node {
+            RuntimeXdmNode::Document(doc) => Some(EvaluationItem::Node(doc.root.clone())),
+            RuntimeXdmNode::Element(elem) => Some(EvaluationItem::Node(elem.node.clone())),
+            RuntimeXdmNode::Attribute(attr) => Some(EvaluationItem::Attribute(attr.to_evaluated())),
+        },
+        XdmItem::Atomic(atom) => Some(EvaluationItem::Value(atomic_to_ui_value(&atom))),
+    });
+    Ok(Box::new(it))
+ }
+
 #[derive(Clone)]
 enum RuntimeXdmNode {
     Document(DocumentData),

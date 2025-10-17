@@ -12,6 +12,11 @@ crate-type = ["cdylib"]
 
 [features]
 default = []
+mock-provider = [
+    "platynui-runtime/mock-provider",
+    "dep:platynui-provider-mock",
+    "dep:platynui-platform-mock",
+]
 
 [dependencies]
 pyo3 = { version = "0.26.0", features = ["extension-module", "abi3-py310"] }
@@ -22,14 +27,14 @@ png = "0.18.0"
 
 
 # Internal crates
+platynui-runtime = { path = "../../crates/runtime", default-features = false }
 platynui-core = { path = "../../crates/core" }
-platynui-runtime = { package = "platynui-runtime", path = "../../crates/runtime" }
-
-platynui-link = { path = "../../crates/link" }
 
 # Mock providers are always available for Python testing
-platynui-provider-mock = { path = "../../crates/provider-mock" }
-platynui-platform-mock = { path = "../../crates/platform-mock" }
+platynui-provider-mock = { path = "../../crates/provider-mock", optional = true }
+platynui-platform-mock = { path = "../../crates/platform-mock", optional = true }
+
+platynui-link = { path = "../../crates/link" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 platynui-platform-windows = { path = "../../crates/platform-windows" }

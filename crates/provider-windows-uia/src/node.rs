@@ -3,6 +3,7 @@
 //! UiaNode reflects the current UIA state; no heavy provider‑side caches.
 
 use std::sync::{Arc, Mutex, Weak};
+use once_cell::sync::Lazy;
 // no name cache atomics needed
 
 use platynui_core::types::{Point as UiPoint, Rect};
@@ -11,8 +12,8 @@ use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, Ui
 use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, WaitForInputIdle};
 use windows::Win32::UI::Accessibility::{
-    IUIAutomationTransformPattern, IUIAutomationVirtualizedItemPattern, IUIAutomationWindowPattern,
-    WindowVisualState_Maximized, WindowVisualState_Minimized,
+    IUIAutomationElement, IUIAutomationTransformPattern, IUIAutomationVirtualizedItemPattern,
+    IUIAutomationWindowPattern, WindowVisualState_Maximized, WindowVisualState_Minimized,
 };
 use windows::core::Interface;
 
@@ -321,12 +322,8 @@ impl ElementChildrenIter {
         let walker = crate::com::raw_walker().ok();
         Self { walker, parent_elem, current: None, first: true, parent: parent_node, scope }
     }
-}
-unsafe impl Send for ElementChildrenIter {}
-impl Iterator for ElementChildrenIter {
-    type Item = Arc<dyn UiNode>;
-    fn next(&mut self) -> Option<Self::Item> {
-        // If no walker could be created, yield no children.
+
+    fn next_internal(&mut self) -> Option<IUIAutomationElement> {
         let Some(walker) = &self.walker else { return None };
         if self.first {
             self.first = false;
@@ -348,14 +345,34 @@ impl Iterator for ElementChildrenIter {
                 let _ = vpat.Realize();
             }
         }
-        let node = UiaNode::from_elem_with_scope(elem, self.scope);
-        if let Some(ref parent) = self.parent {
-            node.set_parent(parent);
-        }
-        UiaNode::init_self(&node);
-        Some(node as Arc<dyn UiNode>)
+        Some(elem)
     }
 }
+
+unsafe impl Send for ElementChildrenIter {}
+impl Iterator for ElementChildrenIter {
+    type Item = Arc<dyn UiNode>;
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let elem = self.next_internal()?;
+            let pid = crate::map::get_process_id(&elem).unwrap_or(-1);
+            if pid == *SELF_PID {
+                // Skip elements from the same process to avoid infinite loops.
+                continue;
+            }
+
+            let node = UiaNode::from_elem_with_scope(elem, self.scope);
+            if let Some(ref parent) = self.parent {
+                node.set_parent(parent);
+            }
+            UiaNode::init_self(&node);
+            return Some(node as Arc<dyn UiNode>);
+        }
+    }
+}
+
+// Cache current process id once for the entire module; process id is stable for the process lifetime.
+static SELF_PID: Lazy<i32> = Lazy::new(|| std::process::id() as i32);
 
 struct RoleAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,

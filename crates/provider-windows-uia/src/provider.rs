@@ -13,6 +13,8 @@ use std::collections::HashSet;
 pub const PROVIDER_ID: &str = "windows-uia";
 pub const PROVIDER_NAME: &str = "Windows UIAutomation";
 pub static TECHNOLOGY: Lazy<TechnologyId> = Lazy::new(|| TechnologyId::from("UIAutomation"));
+// Cache current process id once for the entire module; stable for process lifetime.
+static SELF_PID: Lazy<i32> = Lazy::new(|| std::process::id() as i32);
 
 // Streams root children (excluding this process), then one app:Application per PID.
 struct ElementAndAppIter {
@@ -21,7 +23,6 @@ struct ElementAndAppIter {
     first: bool,
     parent: Arc<dyn UiNode>,
     seen: HashSet<i32>,
-    self_pid: i32,
     apps_phase: bool,
     app_order: Vec<i32>,
     app_index: usize,
@@ -31,7 +32,6 @@ impl ElementAndAppIter {
     fn new(
         parent_elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
         parent: Arc<dyn UiNode>,
-        self_pid: i32,
     ) -> Self {
         Self {
             parent_elem,
@@ -39,7 +39,6 @@ impl ElementAndAppIter {
             first: true,
             parent,
             seen: HashSet::new(),
-            self_pid,
             apps_phase: false,
             app_order: Vec::new(),
             app_index: 0,
@@ -55,7 +54,7 @@ impl Iterator for ElementAndAppIter {
                 while self.app_index < self.app_order.len() {
                     let pid = self.app_order[self.app_index];
                     self.app_index += 1;
-                    if pid > 0 && pid != self.self_pid {
+                    if pid > 0 && pid != *SELF_PID {
                         let app = crate::node::ApplicationNode::new(pid, self.parent_elem.clone(), &self.parent);
                         return Some(app as Arc<dyn UiNode>);
                     }
@@ -94,7 +93,7 @@ impl Iterator for ElementAndAppIter {
 
                 let elem = self.current.as_ref()?.clone();
                 let pid = crate::map::get_process_id(&elem).unwrap_or(-1);
-                if pid > 0 && pid != self.self_pid {
+                if pid > 0 && pid != *SELF_PID {
                     self.seen.insert(pid);
                     let node = crate::node::UiaNode::from_elem_with_scope(elem, crate::map::UiaIdScope::Desktop);
                     node.set_parent(&self.parent);
@@ -169,8 +168,7 @@ impl UiTreeProvider for WindowsUiaProvider {
                 .map_err(|e| ProviderError::new(ProviderErrorKind::CommunicationFailure, e.to_string()))?
         };
         // Stream: first raw desktop children (excluding own process), then one app:Application per PID.
-        let self_pid: i32 = std::process::id() as i32;
-        let it = ElementAndAppIter::new(root, parent, self_pid);
+        let it = ElementAndAppIter::new(root, parent);
         Ok(Box::new(it))
     }
 }

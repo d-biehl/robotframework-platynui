@@ -12,7 +12,6 @@ use std::str::FromStr;
 use platynui_core as core_rs;
 use platynui_core::platform::{HighlightRequest, PixelFormat, ScreenshotRequest};
 use platynui_runtime as runtime_rs;
-use platynui_runtime::runtime::PlatformOverrides;
 
 use crate::core::{PyNamespace, PyPoint, PyRect, PySize, py_namespace_from_inner};
 use platynui_core::ui::FocusablePattern as _;
@@ -371,82 +370,11 @@ impl PyPlatformOverrides {
         Self { desktop_info: None, highlight: None, screenshot: None, pointer: None, keyboard: None }
     }
 }
-
-// Internal registry for platform providers (using usize as opaque handles)
-static DESKTOP_INFO_PROVIDERS: once_cell::sync::Lazy<
-    std::sync::Mutex<Vec<&'static dyn platynui_core::platform::DesktopInfoProvider>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
-static HIGHLIGHT_PROVIDERS: once_cell::sync::Lazy<
-    std::sync::Mutex<Vec<&'static dyn platynui_core::platform::HighlightProvider>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
-static SCREENSHOT_PROVIDERS: once_cell::sync::Lazy<
-    std::sync::Mutex<Vec<&'static dyn platynui_core::platform::ScreenshotProvider>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
-static POINTER_DEVICES: once_cell::sync::Lazy<
-    std::sync::Mutex<Vec<&'static dyn platynui_core::platform::PointerDevice>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
-static KEYBOARD_DEVICES: once_cell::sync::Lazy<
-    std::sync::Mutex<Vec<&'static dyn platynui_core::platform::KeyboardDevice>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
-
-fn register_highlight_provider(provider: &'static dyn platynui_core::platform::HighlightProvider) -> usize {
-    let mut providers = HIGHLIGHT_PROVIDERS.lock().unwrap();
-    providers.push(provider);
-    providers.len() - 1
-}
-
-fn register_screenshot_provider(provider: &'static dyn platynui_core::platform::ScreenshotProvider) -> usize {
-    let mut providers = SCREENSHOT_PROVIDERS.lock().unwrap();
-    providers.push(provider);
-    providers.len() - 1
-}
-
-fn register_pointer_device(device: &'static dyn platynui_core::platform::PointerDevice) -> usize {
-    let mut devices = POINTER_DEVICES.lock().unwrap();
-    devices.push(device);
-    devices.len() - 1
-}
-
-fn register_keyboard_device(device: &'static dyn platynui_core::platform::KeyboardDevice) -> usize {
-    let mut devices = KEYBOARD_DEVICES.lock().unwrap();
-    devices.push(device);
-    devices.len() - 1
-}
-
-fn register_desktop_info_provider(provider: &'static dyn platynui_core::platform::DesktopInfoProvider) -> usize {
-    let mut providers = DESKTOP_INFO_PROVIDERS.lock().unwrap();
-    providers.push(provider);
-    providers.len() - 1
-}
-
-fn get_platform_overrides(py_overrides: &PyPlatformOverrides) -> PlatformOverrides {
-    PlatformOverrides {
-        desktop_info: py_overrides
-            .desktop_info
-            .and_then(|idx| DESKTOP_INFO_PROVIDERS.lock().unwrap().get(idx).copied()),
-        highlight: py_overrides.highlight.and_then(|idx| HIGHLIGHT_PROVIDERS.lock().unwrap().get(idx).copied()),
-        screenshot: py_overrides.screenshot.and_then(|idx| SCREENSHOT_PROVIDERS.lock().unwrap().get(idx).copied()),
-        pointer: py_overrides.pointer.and_then(|idx| POINTER_DEVICES.lock().unwrap().get(idx).copied()),
-        keyboard: py_overrides.keyboard.and_then(|idx| KEYBOARD_DEVICES.lock().unwrap().get(idx).copied()),
-    }
-}
-
 // ---------------- Runtime ----------------
 
 #[pyclass(name = "Runtime", module = "platynui_native")]
 pub struct PyRuntime {
     inner: runtime_rs::Runtime,
-}
-
-// Internal registry for provider factories (using usize as opaque handles)
-static PROVIDER_FACTORIES: once_cell::sync::Lazy<
-    std::sync::Mutex<Vec<&'static dyn platynui_core::provider::UiTreeProviderFactory>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Vec::new()));
-
-fn register_provider_factory(factory: &'static dyn platynui_core::provider::UiTreeProviderFactory) -> usize {
-    let mut factories = PROVIDER_FACTORIES.lock().unwrap();
-    factories.push(factory);
-    factories.len() - 1
 }
 
 #[pymethods]
@@ -456,39 +384,10 @@ impl PyRuntime {
         runtime_rs::Runtime::new().map(|inner| Self { inner }).map_err(map_provider_err)
     }
 
-    /// Create a Runtime with specific provider factories (by handle).
-    #[staticmethod]
-    fn new_with_providers(provider_handles: Vec<usize>) -> PyResult<Self> {
-        let factories_lock = PROVIDER_FACTORIES.lock().unwrap();
-        let factories: Vec<&'static dyn platynui_core::provider::UiTreeProviderFactory> =
-            provider_handles.iter().filter_map(|&idx| factories_lock.get(idx).copied()).collect();
-        drop(factories_lock);
-
-        runtime_rs::Runtime::new_with_factories(&factories).map(|inner| Self { inner }).map_err(map_provider_err)
-    }
-
-    /// Create a Runtime with specific providers and platform overrides.
-    #[staticmethod]
-    fn new_with_providers_and_platforms(
-        provider_handles: Vec<usize>,
-        platforms: &PyPlatformOverrides,
-    ) -> PyResult<Self> {
-        let factories_lock = PROVIDER_FACTORIES.lock().unwrap();
-        let factories: Vec<&'static dyn platynui_core::provider::UiTreeProviderFactory> =
-            provider_handles.iter().filter_map(|&idx| factories_lock.get(idx).copied()).collect();
-        drop(factories_lock);
-
-        let platform_overrides = get_platform_overrides(platforms);
-
-        runtime_rs::Runtime::new_with_factories_and_platforms(&factories, platform_overrides)
-            .map(|inner| Self { inner })
-            .map_err(map_provider_err)
-    }
-
-    /// Evaluates an XPath expression; returns a list of Python-native items:
-    /// - Node objects
-    /// - dicts for attributes: {"type":"attr", "owner": Node, "namespace": str, "name": str, "value": object}
-    /// - plain Python values
+    /// Evaluates an XPath expression; returns a list of items:
+    /// - UiNode objects (platynui_native.UiNode)
+    /// - EvaluatedAttribute objects (platynui_native.EvaluatedAttribute)
+    /// - plain Python values (None/bool/int/float/str/list/dict/Point/Size/Rect)
     #[pyo3(signature = (xpath, node=None), text_signature = "(xpath: str, node: UiNode | None = None)")]
     fn evaluate(&self, py: Python<'_>, xpath: &str, node: Option<Bound<'_, PyAny>>) -> PyResult<Py<PyList>> {
         let node_arc = match node {
@@ -522,6 +421,7 @@ impl PyRuntime {
     }
 
     /// Evaluates an XPath expression and returns the first result, or None if no results.
+    /// Possible return types are UiNode, EvaluatedAttribute, or a plain Python value.
     #[pyo3(signature = (xpath, node=None), text_signature = "(xpath: str, node: UiNode | None = None)")]
     fn evaluate_single(&self, py: Python<'_>, xpath: &str, node: Option<Bound<'_, PyAny>>) -> PyResult<Py<PyAny>> {
         let node_arc = match node {
@@ -575,9 +475,14 @@ impl PyRuntime {
             None => None,
         };
 
-        let iter = self.inner.evaluate_iter(node_arc, xpath).map_err(map_eval_err)?;
-        let items: Vec<_> = iter.collect();
-        Py::new(py, PyEvaluationIterator { iter: Some(Box::new(items.into_iter())) })
+        // Use owned iterator variant to avoid lifetime issues across FFI boundary
+        let iter = runtime_rs::evaluate_iter_owned(
+            node_arc,
+            xpath.to_string(),
+            self.inner.evaluate_options(),
+        )
+        .map_err(map_eval_err)?;
+        Py::new(py, PyEvaluationIterator { iter: Some(iter) })
     }
 
     /// Returns a list of active provider information dictionaries.
@@ -942,43 +847,6 @@ pub fn register_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PointerError", py.get_type::<PointerError>())?;
     m.add("KeyboardError", py.get_type::<KeyboardError>())?;
     m.add("PatternError", py.get_type::<PatternError>())?;
-
-    // Register mock providers (always available)
-    register_mock_providers(m)?;
-
-    Ok(())
-}
-
-// Mock provider registration (constants always available in Python)
-fn register_mock_providers(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    use platynui_platform_mock::{MOCK_HIGHLIGHT, MOCK_KEYBOARD, MOCK_PLATFORM, MOCK_POINTER, MOCK_SCREENSHOT};
-    use platynui_provider_mock::MOCK_PROVIDER_FACTORY;
-
-    // NOTE: We do NOT register the mock provider in the Rust inventory here.
-    // Mock providers register themselves only when:
-    // 1. Used via Runtime.new_with_providers([MOCK_PROVIDER])
-    // 2. Application uses platynui_link with mock-provider feature
-    // This ensures Runtime() uses only OS providers by default.
-
-    // Register the mock provider factory for Python handle-based access
-    let mock_provider_handle = register_provider_factory(&MOCK_PROVIDER_FACTORY);
-    m.add("MOCK_PROVIDER", mock_provider_handle)?;
-
-    // Register mock platform providers
-    let mock_platform_handle = register_desktop_info_provider(&MOCK_PLATFORM);
-    m.add("MOCK_PLATFORM", mock_platform_handle)?;
-
-    let mock_highlight_handle = register_highlight_provider(&MOCK_HIGHLIGHT);
-    m.add("MOCK_HIGHLIGHT_PROVIDER", mock_highlight_handle)?;
-
-    let mock_screenshot_handle = register_screenshot_provider(&MOCK_SCREENSHOT);
-    m.add("MOCK_SCREENSHOT_PROVIDER", mock_screenshot_handle)?;
-
-    let mock_pointer_handle = register_pointer_device(&MOCK_POINTER);
-    m.add("MOCK_POINTER_DEVICE", mock_pointer_handle)?;
-
-    let mock_keyboard_handle = register_keyboard_device(&MOCK_KEYBOARD);
-    m.add("MOCK_KEYBOARD_DEVICE", mock_keyboard_handle)?;
 
     Ok(())
 }

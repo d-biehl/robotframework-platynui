@@ -8,8 +8,6 @@ use ui::tree::{
 };
 
 use platynui_core::platform::HighlightRequest;
-use platynui_core::ui::node::UiNodeExt;
-use platynui_core::ui::pattern::{WindowSurfaceActions, WindowSurfacePattern};
 use platynui_core::ui::{Namespace, UiValue};
 use platynui_link::platynui_link_providers;
 use platynui_runtime::Runtime;
@@ -65,6 +63,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // Index-based selection
     let adapter5 = Rc::clone(&adapter);
     let runtime_for_select = Rc::clone(&runtime);
+    let main_window_handle = main_window.as_weak();
     main_window.on_tree_node_selected_index(move |index| {
         if let Some(node) = adapter5.borrow().resolve_node_by_index(index as usize) {
             let name = node.name();
@@ -75,9 +74,9 @@ fn main() -> Result<(), slint::PlatformError> {
             if let Some(attr) = node.attribute(Namespace::Control, "Bounds") {
                 match attr.value() {
                     UiValue::Rect(bounds) if !bounds.is_empty() => {
-                        if let Some(window) = node.top_level_or_self().pattern::<WindowSurfaceActions>() {
-                            let _ = window.activate();
-                        }
+                        // if let Some(window) = node.top_level_or_self().pattern::<WindowSurfaceActions>() {
+                        //     let _ = window.activate();
+                        // }
                         let req = HighlightRequest::new(bounds).with_duration(Duration::from_millis(1500));
                         if let Err(err) = runtime_for_select.highlight(&[req]) {
                             eprintln!("Highlight error: {}", err);
@@ -90,6 +89,77 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
             } else {
                 let _ = runtime_for_select.clear_highlight();
+            }
+
+            // Collect attributes and push into the Slint table model
+            if let Some(win) = main_window_handle.upgrade() {
+                use slint::{ModelRc, SharedString, StandardListViewItem, VecModel};
+                // Helper to create a cell without struct literal (non_exhaustive)
+                let cell_owned = |s: String| StandardListViewItem::from(SharedString::from(s));
+
+                // Outer model (list of rows)
+                let outer: Rc<VecModel<ModelRc<StandardListViewItem>>> = Rc::new(VecModel::default());
+
+                // Small helper to push a row of three cells directly
+                let push_row = |c1: String, c2: String, c3: String| {
+                    let inner: Rc<VecModel<StandardListViewItem>> = Rc::new(VecModel::default());
+                    inner.push(cell_owned(c1));
+                    inner.push(cell_owned(c2));
+                    inner.push(cell_owned(c3));
+                    outer.push(ModelRc::from(inner));
+                };
+
+                // Basic properties first
+                push_row("Role".to_string(), role.to_string(), "string".to_string());
+                push_row("Name".to_string(), name.to_string(), "string".to_string());
+                push_row(
+                    "RuntimeId".to_string(),
+                    node.runtime_id().as_str().to_string(),
+                    "string".to_string(),
+                );
+
+                // Dynamic attributes: stream directly into models
+                for attr in node.attributes() {
+                    use std::fmt::Write as _;
+                    let ns = attr.namespace();
+                    let name = attr.name();
+                    let value = attr.value();
+                    let (val_str, ty_str) = match value {
+                        UiValue::Null => ("<null>".to_string(), "null".to_string()),
+                        UiValue::Bool(b) => (b.to_string(), "bool".to_string()),
+                        UiValue::Integer(i) => (i.to_string(), "integer".to_string()),
+                        UiValue::Number(n) => (n.to_string(), "number".to_string()),
+                        UiValue::String(s) => (s, "string".to_string()),
+                        UiValue::Point(p) => (format!("{:.0}, {:.0}", p.x(), p.y()), "Point".to_string()),
+                        UiValue::Size(s) => (format!("{:.0} x {:.0}", s.width(), s.height()), "Size".to_string()),
+                        UiValue::Rect(r) => (format!("{:.0}, {:.0}, {:.0}, {:.0}", r.x(), r.y(), r.width(), r.height()), "Rect".to_string()),
+                        UiValue::Array(a) => {
+                            let mut s = String::new();
+                            s.push('[');
+                            for (i, it) in a.into_iter().enumerate() {
+                                if i > 0 { s.push_str(", "); }
+                                let _ = write!(&mut s, "{}", match it { UiValue::String(st) => st, _ => format!("{:?}", it) });
+                            }
+                            s.push(']');
+                            (s, "array".to_string())
+                        }
+                        UiValue::Object(o) => {
+                            let mut s = String::new();
+                            s.push('{');
+                            for (i, (k, v)) in o.into_iter().enumerate() {
+                                if i > 0 { s.push_str(", "); }
+                                let _ = write!(&mut s, "{}: {:?}", k, v);
+                            }
+                            s.push('}');
+                            (s, "object".to_string())
+                        }
+                    };
+                    let ns_name = match ns { Namespace::Control => "control", Namespace::Item => "item", Namespace::App => "app", Namespace::Native => "native" };
+                    let full_name = format!("{}: {}", ns_name, name);
+                    push_row(full_name, val_str, ty_str);
+                }
+
+                win.set_attr_rows(ModelRc::from(outer));
             }
         }
     });

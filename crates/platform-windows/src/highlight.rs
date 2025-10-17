@@ -16,10 +16,11 @@ use windows::Win32::Graphics::Gdi::{
     DeleteObject, GetDC, HBITMAP, HDC, ReleaseDC, SelectObject,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, HTTRANSPARENT, MA_NOACTIVATE,
-    RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, ShowWindow, ULW_ALPHA, UpdateLayeredWindow, WINDOW_EX_STYLE,
-    WINDOW_STYLE, WM_MOUSEACTIVATE, WM_NCHITTEST, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, HTTRANSPARENT,
+    MA_NOACTIVATE, MSG, PeekMessageW, RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, ShowWindow, TranslateMessage,
+    ULW_ALPHA, UpdateLayeredWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_MOUSEACTIVATE, WM_NCHITTEST, WNDCLASSW,
+    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, PM_REMOVE,
+    WM_TIMER, SetTimer, KillTimer,
 };
 use windows::core::PCWSTR;
 
@@ -77,12 +78,11 @@ struct OverlayThread;
 impl OverlayThread {
     fn spawn() -> OverlayController {
         let (tx, rx) = std::sync::mpsc::channel::<Command>();
-        let tx_clone = tx.clone();
-        thread::spawn(move || Self::run(rx, tx_clone));
+        thread::spawn(move || Self::run(rx));
         OverlayController { tx }
     }
 
-    fn run(rx: Receiver<Command>, tx: Sender<Command>) {
+    fn run(rx: Receiver<Command>) {
         let class_name: Vec<u16> = "PlatynUI_Highlight\0".encode_utf16().collect();
         unsafe {
             extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
@@ -105,29 +105,66 @@ impl OverlayThread {
             let _ = RegisterClassW(&wc);
         }
 
-        let mut overlay = Overlay::new();
-        let mut generation: u64 = 0;
+    let mut overlay = Overlay::new();
+    let mut generation: u64 = 0;
+    let mut current_timer_id: usize = 0;
 
-        while let Ok(cmd) = rx.recv() {
-            match cmd {
-                Command::Show { rects, duration } => {
-                    generation = generation.wrapping_add(1);
-                    overlay.show(&rects);
-                    if let Some(d) = duration {
-                        let gen_id = generation;
-                        let tx2 = tx.clone();
-                        thread::spawn(move || {
-                            thread::sleep(d);
-                            let _ = tx2.send(Command::ClearIfGeneration(gen_id));
-                        });
+        loop {
+            // Pump any pending window messages to keep the overlay responsive
+            unsafe {
+                let mut msg = MSG::default();
+                while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                    if msg.message == WM_TIMER {
+                        // Handle timer elapsed: clear current overlay if this is our active timer
+                        if current_timer_id != 0 && msg.wParam.0 == current_timer_id {
+                            if let Some(hwnd) = overlay.hwnd {
+                                let _ = KillTimer(Some(hwnd), current_timer_id);
+                            }
+                            current_timer_id = 0;
+                            overlay.clear();
+                            // Skip dispatching WM_TIMER
+                            continue;
+                        }
                     }
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
                 }
-                Command::Clear => overlay.clear(),
-                Command::ClearIfGeneration(expected) => {
-                    if generation == expected {
+            }
+
+            // Process highlight commands with a short timeout to interleave with message pump
+            match rx.recv_timeout(Duration::from_millis(16)) {
+                Ok(cmd) => match cmd {
+                    Command::Show { rects, duration } => {
+                        generation = generation.wrapping_add(1);
+                        overlay.show(&rects);
+                        // Cancel previous timer if any
+                        if let Some(hwnd) = overlay.hwnd {
+                            if current_timer_id != 0 {
+                                unsafe { let _ = KillTimer(Some(hwnd), current_timer_id); }
+                                current_timer_id = 0;
+                            }
+                            if let Some(d) = duration {
+                                let ms = (d.as_millis().min(u128::from(u32::MAX)) as u32).max(1);
+                                let new_id = (generation as usize).max(1);
+                                // Use generation as timer id; ignore return value (non-zero indicates success)
+                                unsafe { let _ = SetTimer(Some(hwnd), new_id, ms, None); }
+                                current_timer_id = new_id;
+                            }
+                        }
+                    }
+                    Command::Clear => {
+                        if let Some(hwnd) = overlay.hwnd
+                            && current_timer_id != 0 {
+                                unsafe { let _ = KillTimer(Some(hwnd), current_timer_id); }
+                                current_timer_id = 0;
+                            }
                         overlay.clear();
                     }
+                },
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    // nothing to do this tick
                 }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
     }
@@ -137,7 +174,6 @@ impl OverlayThread {
 enum Command {
     Show { rects: Vec<Rect>, duration: Option<Duration> },
     Clear,
-    ClearIfGeneration(u64),
 }
 
 // Overlay window + drawing -----------------------------------------------------------------------

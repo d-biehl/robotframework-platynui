@@ -708,6 +708,8 @@ dependencies = [
  "pest",
  "pest_derive",
  "platynui-core",
+ "platynui-platform-mock",
+ "platynui-provider-mock",
  "platynui-xpath",
  "serde_json",
  "thiserror",
