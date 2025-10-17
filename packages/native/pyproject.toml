@@ -29,6 +29,13 @@ classifiers = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 
+[project.urls]
+Homepage = "https://github.com/imbus/robotframework-PlatynUI"
+Documentation = "https://github.com/imbus/robotframework-PlatynUI#readme"
+Changelog = "https://github.com/imbus/robotframework-PlatynUI/blob/main/CHANGELOG.md"
+Issues = "https://github.com/imbus/robotframework-PlatynUI/issues"
+Source = "https://github.com/imbus/robotframework-PlatynUI"
+
 [build-system]
 requires = ["maturin>=1,<2"]
 build-backend = "maturin"

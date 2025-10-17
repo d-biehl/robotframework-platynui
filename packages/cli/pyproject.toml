@@ -23,6 +23,13 @@ readme = "README.md"
 authors = [{ name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }]
 requires-python = ">=3.10"
 
+[project.urls]
+Homepage = "https://github.com/imbus/robotframework-PlatynUI"
+Documentation = "https://github.com/imbus/robotframework-PlatynUI#readme"
+Changelog = "https://github.com/imbus/robotframework-PlatynUI/blob/main/CHANGELOG.md"
+Issues = "https://github.com/imbus/robotframework-PlatynUI/issues"
+Source = "https://github.com/imbus/robotframework-PlatynUI"
+
 [tool.maturin]
 module-name = "platynui-cli"
 bindings = "bin"
