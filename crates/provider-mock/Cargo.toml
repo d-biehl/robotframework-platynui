@@ -15,7 +15,7 @@ rust-version.workspace = true
 [dependencies]
 platynui-core = { path = "../core" }
 inventory = "0.3.21"
-quick-xml = { version = "0.32", features = ["serialize"] }
+quick-xml = { version = "0.38", features = ["serialize"] }
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0"
 
