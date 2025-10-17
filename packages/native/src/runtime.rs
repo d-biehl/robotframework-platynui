@@ -82,6 +82,12 @@ impl PyNode {
         self.inner.doc_order_key()
     }
 
+    /// Returns whether the underlying platform node is still valid/available.
+    /// Providers may override this to perform a cheap liveness check.
+    fn is_valid(&self) -> bool {
+        self.inner.is_valid()
+    }
+
     /// Invalidate cached state on the underlying node.
     fn invalidate(&self) {
         self.inner.invalidate();
