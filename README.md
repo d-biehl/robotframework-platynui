@@ -1,155 +1,82 @@
-# robotframework-PlatynUI
+# Robot Framework PlatynUI
 
-## Disclaimer
+Cross-platform UI automation for Robot Framework. Early alpha stage.
 
-This project is still under development and should not be used productively **yet**.
+> [!WARNING]
+> Preview quality. APIs and behavior may change. Use for evaluation only.
 
-At the current state expect:
+## Quick install (preview)
 
-- bugs
-- missing features
-- missing documentation
+Install the pre-release packages from PyPI (explicit flags required):
 
-Feel free to contribute, create issues, provide documentation or test the implementation.
+```pwsh
+# CLI
+uv pip install --pre robotframework-platynui-cli
+pip install --pre robotframework-platynui-cli
+uv tool install --prerelease allow robotframework-platynui-cli
 
-## Project Description
+# Inspector GUI
+uv pip install --pre robotframework-platynui-inspector
+pip install --pre robotframework-platynui-inspector
+uv tool install --prerelease allow robotframework-platynui-inspector
+```
 
-PlatynUI is a library for Robot Framework, providing a cross-platform solution for UI test automation. Its main goal is to make it easier for testers and developers to identify, interact with, and verify various UI elements.
+Try it:
 
-We aim to provide a Robot Framework-first library.
+```pwsh
+platynui-cli list-providers
+platynui-cli info --format json
+platynui-inspector
+```
 
-### Documentation
+## What is PlatynUI?
+
+PlatynUI is a Robot Framework library and toolset to inspect, query, and control native desktop UIs across Windows, Linux, and macOS. It ships with:
+
+- A CLI for XPath queries, highlighting, screenshots, keyboard/pointer input
+- A GUI inspector to explore the UI tree and attributes
+- Python bindings to integrate with Robot Framework test suites
+
+Why PlatynUI?
+- Consistent, cross-platform API surface
+- Works with native accessibility stacks
+- XPath-like queries to find elements
+
+## Vision and direction
+
+This repository is a ground‑up rewrite of the original project (see https://github.com/imbus/robotframework-PlatynUI), keeping the vision but modernizing the architecture and tooling.
+
+We’re building PlatynUI to be:
+
+- Robot Framework‑first: a clean keyword library with simple Python packaging and installation.
+- Cross‑platform at the core: shared logic in Rust for performance, determinism, and safety; Python exposes the library to Robot Framework.
+- Query‑centric: an XPath 2.0‑inspired language tailored for desktop UIs with a streaming evaluator and predictable document‑order semantics.
+- Uniformly modeled: a single UI model with namespaces (control, item, app, native), typed attributes, and discoverable patterns (e.g., Focusable, WindowSurface, Invoke, Text).
+- Provider‑based: native OS providers (Windows UIA, Linux AT‑SPI, macOS AX) plus room for external providers (e.g., JSON‑RPC) and fast mock providers for tests.
+- Tooled for productivity: a CLI for diagnostics/automation, a GUI Inspector for exploring the tree and crafting queries, and a server façade later on.
+- Reliability‑oriented: pointer/keyboard profiles, motion/acceleration and timing controls, highlighting and screenshots for feedback, and typed errors to reduce flakiness.
+- Extensible: hook points for custom providers and functions; as we leave preview, public APIs will stabilize.
+
+Expect differences to the original project’s API and keywords during the preview phase—capabilities converge, but names and behaviors may change as the new core matures.
+
+## Package docs
+
+- CLI: `packages/cli/README.md`
+- Inspector: `packages/inspector/README.md`
+- Native Python bindings: `packages/native/README.md`
+
+## Documentation (design notes)
 
 - Architecture & Runtime Concept (German): `docs/architekturkonzept_runtime.md`
 - Implementation Plan (German): `docs/architekturkonzept_runtime_umsetzungsplan.md`
-- Pattern Catalogue (German – trait capabilities, coordinate rules, mappings): `docs/patterns.md`
-- Provider Checklist (German/EN mix, draft): `docs/provider_checklist.md`
-- Windows UIA Provider – Design (German, EN summary): `docs/provider_windows_uia_design.md`
+- Pattern Catalogue (German): `docs/patterns.md`
+- Provider Checklist (draft): `docs/provider_checklist.md`
+- Windows UIA Provider – Design: `docs/provider_windows_uia_design.md`
 
-### Error Handling
+## Contributing
 
-- Libraries (core/runtime/xpath/providers/platforms) use typed errors via `thiserror`.
-  - `platynui-core` exposes `ProviderError`, `PlatformError`, and `PatternError` as public error types.
-  - `platynui-xpath` uses a typed `Error` (Send + Sync) and attaches sources where available.
-  - Provider crates should define provider‑specific errors for external APIs; e.g. the Windows UIA provider uses `UiaError` and maps it to `ProviderError` at the boundary.
-- CLI (`platynui-cli`) aggregates with `anyhow`, returning `anyhow::Result<T>` and adding human‑readable context where helpful.
-- Guidance: new library code introduces typed error enums with clear variants; binaries convert to `anyhow::Error` close to the user interface and provide actionable messages.
+Contributions are welcome. Please see `CONTRIBUTING.md` for guidelines. Development notes and deeper build instructions live in the repository docs and package READMEs.
 
-All concept documents are living drafts and evolve alongside the implementation.
+## License
 
-### Workspace Layout
-
-- `crates/core`: Shared datatypes (UiNode, attribute keys, pattern primitives).
-- `crates/xpath`: XPath evaluator and parser helpers tailored for PlatynUI.
-  - Streaming by default. Node‑sequence normalisation is split into two explicit ops in the IR:
-    - EnsureDistinct (streaming): removes duplicate nodes while preserving order.
-    - EnsureOrder (mostly streaming): passes through if the stream is already in document order and only buffers when true disorder is detected.
-  - Forward axes (child, self, attribute, namespace) do not emit normalisation; descendant*/following* only require EnsureDistinct. Reverse axes (ancestor/preceding*) require both.
-- `crates/runtime` (`platynui-runtime`): Orchestrates providers, devices, and the XPath pipeline.
-- `crates/server` (`platynui-server`): JSON-RPC façade that exposes the runtime.
-- `crates/platform-*` (`platynui-platform-*`): Platform-level device drivers and window control APIs (Windows, Linux/X11, macOS, mock).
-- `crates/provider-*` (`platynui-provider-*`): UiTreeProvider implementations (UIAutomation, AT-SPI, macOS AX, JSON-RPC, mock).
-- `crates/cli` (`platynui-cli`): Command-line utility for XPath queries, highlighting, keyboard/pointer interactions, and diagnostics.
-- `apps/inspector` (`platynui-inspector`): Planned GUI to explore the UI tree and craft XPath expressions.
-- `packages/native` (`platynui_native`): Maturin/pyo3-based Python bindings (cdylib). Built and tested separately via Python tooling:
-  - Build/install: `uv run maturin develop --release` (run inside `packages/native/`)
-  - Tests: `uv run pytest`
-  - Note: This crate is intentionally excluded from the Cargo workspace so `cargo test`/`cargo nextest` don’t try to link `-lpython3` during Rust-only test runs.
-
-### Provider Linking (Apps vs. Tests)
-- **OS Providers (auto-register)**: AT-SPI, Windows UIA, and macOS AX providers automatically register in the inventory when linked. The Runtime discovers them via `Runtime::new()`.
-- **Mock Providers (explicit-only)**: Mock providers do NOT auto-register. They're only available via direct factory access:
-  - In Rust tests: Use factory directly (e.g., `MOCK_PROVIDER_FACTORY.create()`)
-  - In Python: Use explicit handles with `Runtime.new_with_providers([MOCK_PROVIDER])`
-  - **See `packages/native/README.md`** for complete Python mock provider examples (including `MOCK_PLATFORM` for desktop info, `MOCK_POINTER_DEVICE`, etc.)
-- Applications link providers per OS:
-  - CLI: links `platynui-platform-*` and `platynui-provider-*` via `cfg(target_os)` in `crates/cli/Cargo.toml` and `src/main.rs`.
-  - Python extension: links providers per OS in `packages/native/Cargo.toml` and `src/lib.rs`.
-
-### CLI Quick Examples (mock-provider)
-
-```bash
-# Type text and shortcuts via the mock keyboard device
-cargo run -p platynui-cli --features mock-provider -- keyboard type "<Ctrl+A>Hello"
-# Der Mock-Provider protokolliert die Eingaben auf stdout, z. B.:
-# mock-keyboard: start
-# mock-keyboard: press Control
-# …
-# mock-keyboard: end
-
-# Hold modifiers without releasing them
-cargo run -p platynui-cli --features mock-provider -- keyboard press "<Shift+Ctrl+S>"
-
-# Release a previously pressed chord
-cargo run -p platynui-cli --features mock-provider -- keyboard release "<Shift+Ctrl+S>"
-```
-
-### Windows Cross‑Build (GNU target)
-
-- Prerequisites
-  - Rust target: `rustup target add x86_64-pc-windows-gnu`
-  - MinGW toolchain (choose the POSIX variant if prompted):
-    - Debian/Ubuntu: `sudo apt-get install mingw-w64`
-    - Fedora: `sudo dnf install mingw64-gcc`
-    - Arch: `sudo pacman -S mingw-w64-gcc`
-
-- Build examples
-  - Platform crate: `cargo build -p platynui-platform-windows --target x86_64-pc-windows-gnu`
-  - CLI (debug): `cargo build -p platynui-cli --target x86_64-pc-windows-gnu`
-  - CLI (release): `cargo build -p platynui-cli --target x86_64-pc-windows-gnu --release`
-  - Artifact path: `target/x86_64-pc-windows-gnu/{debug,release}/platynui-cli.exe`
-
-- Tips
-  - Set `CARGO_TARGET_DIR=/mnt/c/...` in WSL so the `.exe` lands on the Windows filesystem.
-  - If linking fails, ensure `x86_64-w64-mingw32-gcc` is in `PATH`.
-  - For native Win32 builds (MSVC), see the next section.
-
-### Windows Native Build (MSVC toolchain)
-
-- Prerequisites (Windows host)
-  - Visual Studio 2022 (or Build Tools) with workload “Desktop development with C++” (MSVC, Windows SDK).
-  - Rust MSVC toolchain: `rustup toolchain install stable-x86_64-pc-windows-msvc` and `rustup default stable-x86_64-pc-windows-msvc`.
-  - Use a “Developer PowerShell/Prompt for VS” so `cl.exe`/`link.exe` are on `PATH`.
-
-- Build
-  - Workspace: `cargo build --release`
-  - CLI only: `cargo build -p platynui-cli --release`
-
-- Run
-  - `target\release\platynui-cli.exe info`
-  - Example: `platynui-cli.exe highlight --rect 200,300,400,250 --duration-ms 1500`
-
-- Troubleshooting
-  - “link.exe not found”: Start the shell via “Developer PowerShell for VS” or install the Build Tools + Windows SDK.
-  - Avoid mixing GNU/MSVC: use only the MSVC toolchain for native builds.
-
-### Contribution Workflow (At a Glance)
-
-- Initialize the Python tooling once via `uv sync --dev` (matching `.python-version`).
-- Ensure every new crate entry in `Cargo.toml` uses the `platynui-` prefix.
-- Pin dependencies to the latest stable release (`cargo search`, crates.io, or `cargo outdated`).
-- Before committing, run `cargo fmt-all`, `cargo lint`, `cargo check-all`, and `cargo test-all`.
-- Write unit and integration tests with `rstest` (fixtures, `#[case]`, `#[matrix]`).
-- After each work batch, update `docs/architekturkonzept_runtime_umsetzungsplan.md` and tick off completed tasks.
-- See `CONTRIBUTING.md` for the full contributor guide.
-
-### Why PlatynUI?
-
-- Cross-platform capability with consistent API across Windows, Linux, and MacOS
-- Direct access to native UI elements
-- Simplified element identification
-- Builtin ui inspector tool
-
-## Testable Frameworks
-
-- **Linux**
-  - X11
-  - AT-SPI2
-- **Windows**
-  - Microsoft UI Automation (UIA)
-- **MacOS**
-  - Accessibility API
-
-> Roadmap focus: Windows and Linux/X11 implementations are prioritized in the current development cycle; macOS support will follow once both are stable.
-
-Extendable for any other ui technologies.
+Apache-2.0. See `LICENSE` in this repository.
