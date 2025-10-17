@@ -8,7 +8,7 @@ import { TreeView, TreeNodeVM } from "components/tree-view.slint";
 export component MainWindow inherits Window {
     preferred-width: 1100px;
     preferred-height: 750px;
-    title: "PlatynUI Spy";
+    title: "PlatynUI Inspector";
 
     // External model for the TreeView (set from Rust)
     in property <[TreeNodeVM]> tree-model: [];
@@ -62,7 +62,7 @@ export component MainWindow inherits Window {
         Menu {
             title: "Help";
             MenuItem {
-                title: "About PlatynUI Spy";
+                title: "About PlatynUI Inspector";
             }
         }
     }

@@ -56,3 +56,11 @@ tempfile = "3.23.0"
 serial_test = "3.2.0"
 platynui-provider-mock = { path = "../provider-mock" }
 platynui-platform-mock = { path = "../platform-mock" }
+
+[lib]
+name = "platynui_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "platynui-cli"
+path = "src/main.rs"

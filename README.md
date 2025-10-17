@@ -138,7 +138,7 @@ cargo run -p platynui-cli --features mock-provider -- keyboard release "<Shift+C
 - Cross-platform capability with consistent API across Windows, Linux, and MacOS
 - Direct access to native UI elements
 - Simplified element identification
-- Builtin ui spy tool
+- Builtin ui inspector tool
 
 ## Testable Frameworks
 

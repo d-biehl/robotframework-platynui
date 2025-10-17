@@ -1,0 +1,42 @@
+[project]
+name = "robotframework-platynui-inspector"
+description = "Inspector for Robot Framework PlatynUI"
+version = "0.1.0"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+    "Framework :: Robot Framework",
+    "Framework :: Robot Framework :: Library",
+]
+readme = "README.md"
+authors = [{ name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }]
+requires-python = ">=3.10"
+
+[tool.maturin]
+module-name = "platynui-inspector"
+bindings = "bin"
+
+[build-system]
+requires = ["maturin>=1.9,<2.0"]
+build-backend = "maturin"
+
+[dependency-groups]
+dev = ["maturin>=1.9.6"]
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "rust/Cargo.toml" },
+    { file = "**/*.rs" },
+]

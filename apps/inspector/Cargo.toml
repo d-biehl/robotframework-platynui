@@ -46,3 +46,11 @@ platynui-provider-macos-ax = { path = "../../crates/provider-macos-ax" }
 
 [build-dependencies]
 slint-build = "1"
+
+[lib]
+name = "platynui_inspector"
+path = "src/lib.rs"
+
+[[bin]]
+name = "platynui-inspector"
+path = "src/main.rs"

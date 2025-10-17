@@ -1,0 +1,16 @@
+[package]
+name = "platynui-inspector-pybin"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Inspector application for PlatynUI"
+repository = "https://github.com/imbus/robotframework-PlatynUI"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+platynui-inspector = { path = "../../apps/inspector" }
+
+[[bin]]
+name = "platynui-inspector"
+path = "src/main.rs"
