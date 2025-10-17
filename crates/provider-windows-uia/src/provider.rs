@@ -29,10 +29,7 @@ struct ElementAndAppIter {
 }
 
 impl ElementAndAppIter {
-    fn new(
-        parent_elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
-        parent: Arc<dyn UiNode>,
-    ) -> Self {
+    fn new(parent_elem: windows::Win32::UI::Accessibility::IUIAutomationElement, parent: Arc<dyn UiNode>) -> Self {
         Self {
             parent_elem,
             current: None,

@@ -16,11 +16,10 @@ use windows::Win32::Graphics::Gdi::{
     DeleteObject, GetDC, HBITMAP, HDC, ReleaseDC, SelectObject,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, HTTRANSPARENT,
-    MA_NOACTIVATE, MSG, PeekMessageW, RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, ShowWindow, TranslateMessage,
-    ULW_ALPHA, UpdateLayeredWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_MOUSEACTIVATE, WM_NCHITTEST, WNDCLASSW,
-    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, PM_REMOVE,
-    WM_TIMER, SetTimer, KillTimer,
+    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, HTTRANSPARENT, KillTimer,
+    MA_NOACTIVATE, MSG, PM_REMOVE, PeekMessageW, RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, SetTimer, ShowWindow,
+    TranslateMessage, ULW_ALPHA, UpdateLayeredWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_MOUSEACTIVATE, WM_NCHITTEST,
+    WM_TIMER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::PCWSTR;
 
@@ -102,9 +101,9 @@ impl OverlayThread {
             let _ = RegisterClassW(&wc);
         }
 
-    let mut overlay = Overlay::new();
-    let mut generation: u64 = 0;
-    let mut current_timer_id: usize = 0;
+        let mut overlay = Overlay::new();
+        let mut generation: u64 = 0;
+        let mut current_timer_id: usize = 0;
 
         loop {
             // Pump any pending window messages to keep the overlay responsive
@@ -137,24 +136,31 @@ impl OverlayThread {
                         // Cancel previous timer if any
                         if let Some(hwnd) = overlay.hwnd {
                             if current_timer_id != 0 {
-                                unsafe { let _ = KillTimer(Some(hwnd), current_timer_id); }
+                                unsafe {
+                                    let _ = KillTimer(Some(hwnd), current_timer_id);
+                                }
                                 current_timer_id = 0;
                             }
                             if let Some(d) = duration {
                                 let ms = (d.as_millis().min(u128::from(u32::MAX)) as u32).max(1);
                                 let new_id = (generation as usize).max(1);
                                 // Use generation as timer id; ignore return value (non-zero indicates success)
-                                unsafe { let _ = SetTimer(Some(hwnd), new_id, ms, None); }
+                                unsafe {
+                                    let _ = SetTimer(Some(hwnd), new_id, ms, None);
+                                }
                                 current_timer_id = new_id;
                             }
                         }
                     }
                     Command::Clear => {
                         if let Some(hwnd) = overlay.hwnd
-                            && current_timer_id != 0 {
-                                unsafe { let _ = KillTimer(Some(hwnd), current_timer_id); }
-                                current_timer_id = 0;
+                            && current_timer_id != 0
+                        {
+                            unsafe {
+                                let _ = KillTimer(Some(hwnd), current_timer_id);
                             }
+                            current_timer_id = 0;
+                        }
                         overlay.clear();
                     }
                 },

@@ -2,8 +2,8 @@
 //!
 //! UiaNode reflects the current UIA state; no heavy provider‑side caches.
 
-use std::sync::{Arc, Mutex, Weak};
 use once_cell::sync::Lazy;
+use std::sync::{Arc, Mutex, Weak};
 // no name cache atomics needed
 
 use platynui_core::types::{Point as UiPoint, Rect};

@@ -177,7 +177,7 @@ pub fn evaluate_iter_owned(
     node: Option<Arc<dyn UiNode>>,
     xpath: String,
     options: EvaluateOptions,
- ) -> Result<Box<dyn Iterator<Item = EvaluationItem>>, EvaluateError> {
+) -> Result<Box<dyn Iterator<Item = EvaluationItem>>, EvaluateError> {
     use platynui_xpath::xdm::XdmItem;
     let root = options.desktop();
     let context = if let Some(node_ref) = node.as_ref() {
@@ -221,7 +221,7 @@ pub fn evaluate_iter_owned(
         XdmItem::Atomic(atom) => Some(EvaluationItem::Value(atomic_to_ui_value(&atom))),
     });
     Ok(Box::new(it))
- }
+}
 
 #[derive(Clone)]
 enum RuntimeXdmNode {

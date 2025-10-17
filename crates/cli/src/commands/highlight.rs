@@ -43,8 +43,8 @@ pub fn run(runtime: &Runtime, args: &HighlightArgs) -> CliResult<String> {
     let mut highlighted = 0usize;
     let mut hold_ms: Option<u64> = None;
     if let Some(rect) = args.rect {
-    let req = HighlightRequest::new(rect).with_duration(Duration::from_millis(args.duration_ms));
-    runtime.highlight(&req).map_err(map_platform_error)?;
+        let req = HighlightRequest::new(rect).with_duration(Duration::from_millis(args.duration_ms));
+        runtime.highlight(&req).map_err(map_platform_error)?;
         highlighted = 1;
         hold_ms = Some(args.duration_ms);
     } else if let Some(expression) = &args.expression {
@@ -53,8 +53,10 @@ pub fn run(runtime: &Runtime, args: &HighlightArgs) -> CliResult<String> {
             anyhow::bail!("no highlightable nodes for expression `{expression}`");
         }
         let mut req = HighlightRequest::from_rects(highlight.rects);
-        if let Some(ms) = highlight.duration_ms { req = req.with_duration(Duration::from_millis(ms)); }
-    runtime.highlight(&req).map_err(map_platform_error)?;
+        if let Some(ms) = highlight.duration_ms {
+            req = req.with_duration(Duration::from_millis(ms));
+        }
+        runtime.highlight(&req).map_err(map_platform_error)?;
         highlighted = 1;
         hold_ms = Some(args.duration_ms);
         if !highlight.skipped.is_empty() {
@@ -81,7 +83,11 @@ pub fn run(runtime: &Runtime, args: &HighlightArgs) -> CliResult<String> {
     Ok(messages.join("\n"))
 }
 
-struct HighlightComputation { rects: Vec<Rect>, duration_ms: Option<u64>, skipped: Vec<String> }
+struct HighlightComputation {
+    rects: Vec<Rect>,
+    duration_ms: Option<u64>,
+    skipped: Vec<String>,
+}
 
 fn collect_highlight_requests(
     runtime: &Runtime,
@@ -154,9 +160,9 @@ mod tests {
         let output = run(&runtime, &args).expect("highlight execution");
         assert!(output.contains("Highlighted"));
 
-    let log = take_highlight_log();
-    assert!(!log.is_empty());
-    assert_eq!(log[0].duration, Some(Duration::from_millis(500)));
+        let log = take_highlight_log();
+        assert!(!log.is_empty());
+        assert_eq!(log[0].duration, Some(Duration::from_millis(500)));
 
         reset_highlight_state();
     }
@@ -196,9 +202,9 @@ mod tests {
         };
         let output = run(&runtime, &args).expect("highlight rect");
         assert!(output.contains("Highlighted 1 region"));
-    let log = take_highlight_log();
-    assert_eq!(log.len(), 1);
-    assert_eq!(log[0].duration, Some(Duration::from_millis(1500)));
+        let log = take_highlight_log();
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0].duration, Some(Duration::from_millis(1500)));
 
         reset_highlight_state();
     }

@@ -112,11 +112,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 // Basic properties first
                 push_row("Role".to_string(), role.to_string(), "string".to_string());
                 push_row("Name".to_string(), name.to_string(), "string".to_string());
-                push_row(
-                    "RuntimeId".to_string(),
-                    node.runtime_id().as_str().to_string(),
-                    "string".to_string(),
-                );
+                push_row("RuntimeId".to_string(), node.runtime_id().as_str().to_string(), "string".to_string());
 
                 // Dynamic attributes: stream directly into models
                 for attr in node.attributes() {
@@ -132,13 +128,25 @@ fn main() -> Result<(), slint::PlatformError> {
                         UiValue::String(s) => (s, "string".to_string()),
                         UiValue::Point(p) => (format!("{:.0}, {:.0}", p.x(), p.y()), "Point".to_string()),
                         UiValue::Size(s) => (format!("{:.0} x {:.0}", s.width(), s.height()), "Size".to_string()),
-                        UiValue::Rect(r) => (format!("{:.0}, {:.0}, {:.0}, {:.0}", r.x(), r.y(), r.width(), r.height()), "Rect".to_string()),
+                        UiValue::Rect(r) => (
+                            format!("{:.0}, {:.0}, {:.0}, {:.0}", r.x(), r.y(), r.width(), r.height()),
+                            "Rect".to_string(),
+                        ),
                         UiValue::Array(a) => {
                             let mut s = String::new();
                             s.push('[');
                             for (i, it) in a.into_iter().enumerate() {
-                                if i > 0 { s.push_str(", "); }
-                                let _ = write!(&mut s, "{}", match it { UiValue::String(st) => st, _ => format!("{:?}", it) });
+                                if i > 0 {
+                                    s.push_str(", ");
+                                }
+                                let _ = write!(
+                                    &mut s,
+                                    "{}",
+                                    match it {
+                                        UiValue::String(st) => st,
+                                        _ => format!("{:?}", it),
+                                    }
+                                );
                             }
                             s.push(']');
                             (s, "array".to_string())
@@ -147,14 +155,21 @@ fn main() -> Result<(), slint::PlatformError> {
                             let mut s = String::new();
                             s.push('{');
                             for (i, (k, v)) in o.into_iter().enumerate() {
-                                if i > 0 { s.push_str(", "); }
+                                if i > 0 {
+                                    s.push_str(", ");
+                                }
                                 let _ = write!(&mut s, "{}: {:?}", k, v);
                             }
                             s.push('}');
                             (s, "object".to_string())
                         }
                     };
-                    let ns_name = match ns { Namespace::Control => "control", Namespace::Item => "item", Namespace::App => "app", Namespace::Native => "native" };
+                    let ns_name = match ns {
+                        Namespace::Control => "control",
+                        Namespace::Item => "item",
+                        Namespace::App => "app",
+                        Namespace::Native => "native",
+                    };
                     let full_name = format!("{}: {}", ns_name, name);
                     push_row(full_name, val_str, ty_str);
                 }

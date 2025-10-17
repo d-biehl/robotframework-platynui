@@ -1506,12 +1506,12 @@ mod tests {
     fn highlight_invokes_registered_provider(rt_runtime_platform: Runtime) {
         reset_highlight_state();
         let runtime = rt_runtime_platform;
-    let request = HighlightRequest::new(Rect::new(0.0, 0.0, 50.0, 25.0));
-    runtime.highlight(&request).expect("highlight succeeds");
+        let request = HighlightRequest::new(Rect::new(0.0, 0.0, 50.0, 25.0));
+        runtime.highlight(&request).expect("highlight succeeds");
 
-    let log = take_highlight_log();
-    assert_eq!(log.len(), 1);
-    assert_eq!(log[0], request);
+        let log = take_highlight_log();
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0], request);
     }
 
     #[rstest]
