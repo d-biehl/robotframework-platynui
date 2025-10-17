@@ -404,8 +404,6 @@ impl Display for PatternError {
     }
 }
 
-// Error provided by thiserror derive via Display impl above.
-
 /// Pattern for focus changes – requests focus via the runtime.
 pub trait FocusablePattern: UiPattern {
     fn focus(&self) -> Result<(), PatternError>;

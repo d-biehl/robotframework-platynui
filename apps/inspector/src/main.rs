@@ -25,7 +25,7 @@ fn main() -> Result<(), slint::PlatformError> {
         eprintln!("Failed to create PlatynUI runtime: {}", e);
         slint::PlatformError::Other(format!("Runtime creation failed: {}", e))
     })?;
-    let runtime: Rc<Runtime> = Rc::new(runtime);
+    let runtime: Arc<Runtime> = Arc::new(runtime);
 
     let desktop_node = runtime.desktop_node();
     let root_data: Arc<dyn TreeData<Underlying = Arc<dyn platynui_core::ui::UiNode>>> =
@@ -62,35 +62,10 @@ fn main() -> Result<(), slint::PlatformError> {
 
     // Index-based selection
     let adapter5 = Rc::clone(&adapter);
-    let runtime_for_select = Rc::clone(&runtime);
+    let runtime_for_select = Arc::clone(&runtime);
     let main_window_handle = main_window.as_weak();
     main_window.on_tree_node_selected_index(move |index| {
         if let Some(node) = adapter5.borrow().resolve_node_by_index(index as usize) {
-            let name = node.name();
-            let role = node.role();
-            eprintln!("Selected[idx={}]: role={} name={}", index, role, name);
-
-            // Try to highlight the node's Bounds if available
-            if let Some(attr) = node.attribute(Namespace::Control, "Bounds") {
-                match attr.value() {
-                    UiValue::Rect(bounds) if !bounds.is_empty() => {
-                        // if let Some(window) = node.top_level_or_self().pattern::<WindowSurfaceActions>() {
-                        //     let _ = window.activate();
-                        // }
-                        let req = HighlightRequest::new(bounds).with_duration(Duration::from_millis(1500));
-                        if let Err(err) = runtime_for_select.highlight(&req) {
-                            eprintln!("Highlight error: {}", err);
-                        }
-                    }
-                    _ => {
-                        // Clear existing highlight if selection has no usable bounds
-                        let _ = runtime_for_select.clear_highlight();
-                    }
-                }
-            } else {
-                let _ = runtime_for_select.clear_highlight();
-            }
-
             // Collect attributes and push into the Slint table model
             if let Some(win) = main_window_handle.upgrade() {
                 use slint::{ModelRc, SharedString, StandardListViewItem, VecModel};
@@ -109,17 +84,24 @@ fn main() -> Result<(), slint::PlatformError> {
                     outer.push(ModelRc::from(inner));
                 };
 
-                // Basic properties first
-                push_row("Role".to_string(), role.to_string(), "string".to_string());
-                push_row("Name".to_string(), name.to_string(), "string".to_string());
-                push_row("RuntimeId".to_string(), node.runtime_id().as_str().to_string(), "string".to_string());
-
                 // Dynamic attributes: stream directly into models
+                // Also cache control:Bounds once if present to use it for highlighting later
+                let mut cached_bounds: Option<platynui_core::types::Rect> = None;
                 for attr in node.attributes() {
                     use std::fmt::Write as _;
                     let ns = attr.namespace();
                     let name = attr.name();
                     let value = attr.value();
+                    // Capture control:Bounds if available and non-empty
+                    if cached_bounds.is_none() {
+                        if let (Namespace::Control, "Bounds") = (ns, name) {
+                            if let UiValue::Rect(r) = &value {
+                                if !r.is_empty() {
+                                    cached_bounds = Some(*r);
+                                }
+                            }
+                        }
+                    }
                     let (val_str, ty_str) = match value {
                         UiValue::Null => ("<null>".to_string(), "null".to_string()),
                         UiValue::Bool(b) => (b.to_string(), "bool".to_string()),
@@ -175,6 +157,22 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
 
                 win.set_attr_rows(ModelRc::from(outer));
+
+                // Try to highlight the cached bounds (if present); otherwise clear highlight
+                if let Some(bounds) = cached_bounds {
+                    let rt = Arc::clone(&runtime_for_select);
+                    std::thread::spawn(move || {
+                        let req = HighlightRequest::new(bounds).with_duration(Duration::from_millis(1500));
+                        if let Err(err) = rt.highlight(&req) {
+                            eprintln!("Highlight error: {}", err);
+                        }
+                    });
+                } else {
+                    let rt = Arc::clone(&runtime_for_select);
+                    std::thread::spawn(move || {
+                        let _ = rt.clear_highlight();
+                    });
+                }
             }
         }
     });
