@@ -44,6 +44,7 @@ Plattform-Crates bündeln Geräte und Hilfen je OS; Provider-Crates liefern den 
 - Provider laufen entweder **in-process** (Rust-Crate) oder **out-of-process** (JSON-RPC). Für externe Provider stellt `platynui-provider-jsonrpc` Transport- und Vertragsebene bereit: Eine schlanke JSON-RPC-Spezifikation beschreibt den Mindestumfang (`initialize`, `getNodes`, `getAttributes`, `getSupportedPatterns`, optional `ping`). Die Runtime hält dazu einen JSON-RPC-Client, der den Provider zunächst über `initialize` nach Basismetadaten (Version, Technologiekennung, RuntimeId-Schema, Heartbeat-Intervalle, optionale vendor-spezifische Hinweise) abfragt und anschließend `getNodes(parentRuntimeId)` nutzt, um Kinder eines Parents (Desktop, App, Container) zu laden. Provider senden Baum-Events (`$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`) zur Synchronisation. Der eigentliche Provider-Prozess liefert ausschließlich die UI-Baum-Daten und bleibt unabhängig vom Runtime-Prozess. Sicherheitsschichten (Pipe-/Socket-Namen, ACLs/Tokens) werden auf Transportebene definiert. Komfortfunktionen wie Kontext-Abfragen (`evaluate(node, xpath, options)`) liegen vollständig bei der Runtime; Provider liefern ausschließlich Rohdaten.
 - Tests nutzen das gleiche Registrierungsmodell: In Testmodulen werden die Mock‑Crates explizit gelinkt (z. B. `const _: () = { use platynui_platform_mock as _; use platynui_provider_mock as _; };`), sodass die Inventory‑Registrierungen garantiert im Test‑Binary vorhanden sind.
 
+- Zusätzliche Verlinkungshilfe: Das Hilfscrate `platynui-link` stellt Makros zur Verlinkung bereit: `platynui_link_providers!()` (Feature‑gesteuert Mock vs. OS) und `platynui_link_os_providers!()` (explizit OS) vereinheitlichen die Einbindung in Anwendungen (CLI, Python‑Native) und halten die Runtime frei von Auto‑Verlinkung.
 ### 2.3 Laufzeitkontext
 - Runtime läuft lokal, verwaltet Provider-Instanzen (nativ oder JSON-RPC) und agiert als Backend für CLI/Inspector.
 - `crates/server` (Crate `platynui-server`) exponiert optional eine JSON-RPC-2.0-Schnittstelle (Language-Server-ähnlich) für Remote-Clients.
@@ -78,9 +79,17 @@ Zur Duplikatvermeidung an der Quelle minimieren wir Kontexte vor bestimmten Achs
 - `rstest`-Fixtures im `platynui-runtime`-Crate:
   - `#[fixture] fn rt_runtime_platform() -> Runtime { return rt_with_pf(&[]); }` – nur Mock-Geräte (ohne Provider), für reine Plattformtests.
   - `#[fixture] fn rt_runtime_stub() -> Runtime { return rt_with_pf(&[&RUNTIME_FACTORY]); }` – Laufzeit-Stub-Provider.
-  - `#[fixture] fn rt_runtime_focus() -> Runtime { return rt_with_pf(&[&FOCUS_FACTORY]); }` – Fokus-spezifischer Stub.
+- `#[fixture] fn rt_runtime_focus() -> Runtime { return rt_with_pf(&[&FOCUS_FACTORY]); }` – Fokus-spezifischer Stub.
   - Plattform-/Provider-spezifische Fixtures (z. B. UIA auf Windows) werden bei Bedarf in konsumierenden Crates (CLI, Integrationstests) definiert, nicht in `platynui-runtime`.
   - Motivation: Keine stillen Nebenwirkungen durch Inventory, kürzere und stabilere Tests, klarer Arrange-Block in den Tests (Fixture-Namen einheitlich: `rt_runtime_*`).
+
+### 2.5 Host‑Resolver & FFI (Ergänzung 2025‑10‑21)
+EN: This section documents the host‑side NodeResolver and the owned evaluation stream designed for FFI bindings.
+
+- NodeResolver (Runtime): Über `EvaluateOptions::with_node_resolver(...)` kann die Runtime Kontextknoten anhand ihrer `RuntimeId` vor der Auswertung re‑resolven. Bei fehlendem Knoten wird ein spezifischer Fehler (`ContextNodeUnknown`) gemeldet; Providerfehler werden durchgereicht.
+- Owned Evaluation Streams: `Runtime::evaluate_iter_owned(...)` liefert einen owneden Iterator (`EvaluationStream`), der keine geliehenen Slices/Strings referenziert. Er eignet sich für FFI‑Bindings (z. B. Python), die Ergebnisse über Iterator‑Protokolle konsumieren möchten.
+- Python‑Binding: Der `EvaluationIterator` im Paket `platynui_native` baut auf dem owned Stream auf und liefert `UiNode`/`EvaluatedAttribute`/native Werte (None/bool/int/float/str/Point/Size/Rect/Array/Dict).
+- Desktop‑Fallback: Falls kein `DesktopInfoProvider` registriert ist, erzeugt die Runtime einen Fallback‑Desktop (Bounds/OS‑Infos), um Diagnose‑Kommandos (CLI/Python) weiterhin zu ermöglichen.
 
 ## 3. Datenmodell & Namespaces
 ### 3.1 Knoten- & Attributmodell

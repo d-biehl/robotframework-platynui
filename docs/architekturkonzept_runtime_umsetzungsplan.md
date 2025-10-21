@@ -20,6 +20,7 @@
 - Typbenennung: Neue Rust-Typen (Structs, Enums, Traits) folgen dem üblichen Namensraum über Module – kein zusätzlicher `Platynui`-Präfix nötig. Stattdessen aussagekräftige Namen im entsprechenden Modul wählen (`RuntimeState`, `WindowsDeviceBundle`, ...).
 - Planpflege: Nach jedem Arbeitspaket den Plan aktualisieren, erledigte Aufgaben abhaken und ggf. neue Erkenntnisse ergänzen. Der Umsetzungsplan bleibt so synchron zur tatsächlichen Umsetzung.
 - Mock-Stack: `platynui-provider-mock`/`platynui-platform-mock` hängen am optionalen Feature `mock-provider`. Werkzeuge (z. B. `cargo run -p platynui-cli --features mock-provider -- watch`) und Tests nutzen dieses Feature gezielt; Standard‑Builds bleiben ohne Mock. Produktive Plattform-/Provider‑Crates werden nicht mehr durch die Runtime, sondern durch Anwendungen (CLI, Python‑Extension) per `cfg(target_os = …)` verlinkt.
+ - Verlinkung produktiver Provider/Plattformen: Anwendungen verlinken OS‑spezifische Crates explizit über das Hilfscrate `platynui-link`. Die Makros `platynui_link_providers!()` (Feature‑gesteuert Mock vs. OS) und `platynui_link_os_providers!()` (explizit OS) stellen sicher, dass keine Auto‑Verlinkung in der Runtime erfolgt und Tests den Mock gezielt einbinden können.
 
 ## Arbeitsbereiche
 Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschnitts sind Empfehlungen, keine starre Vorgabe.
@@ -218,6 +219,7 @@ Ergänzungen (2025-09-29 später am Tag)
  - [x] Application‑Attribute befüllt: `application::PROCESS_ID`, `NAME` (ohne Dateierweiterung; aus `EXECUTABLE_PATH` abgeleitet), `EXECUTABLE_PATH`, `COMMAND_LINE` (Roh‑String), `USER_NAME` (DOMAIN\User), `START_TIME` (ISO‑8601), `ARCHITECTURE`. Kinder der Application sind die zugehörigen `control:`‑Top‑Level‑Knoten.
 - [x] WindowSurface‑Status/Capabilities als Attribute bereitstellen: `window_surface::IS_MINIMIZED`, `IS_MAXIMIZED`, `IS_TOPMOST`, `SUPPORTS_MOVE`, `SUPPORTS_RESIZE` (über `WindowPattern`/`TransformPattern`).
 - [x] `WindowSurface.accepts_user_input()` implementieren (Heuristik: `IsEnabled && !IsOffscreen`; perspektivisch `WaitForInputIdle`). Optional gleichnamiges Attribut bereitstellen.
+ - [x] Virtualisierte Elemente: Best‑effort `VirtualizedItemPattern::Realize()` vor Kind‑Traversal/Focus; `UiNode::is_valid()` nutzt eine leichte Live‑Abfrage.
 - [x] Native UIA‑Properties: Unterstützung und Werte ermitteln
   - [x] Properties ermitteln über Programmatic‑Name‑Katalog (IDs im typischen UIA‑Bereich via `IUIAutomation::GetPropertyProgrammaticName()`); nur Werte übernehmen, die per `GetCurrentPropertyValueEx(propertyId, true)` einen sinnvollen Wert liefern (Sentinels/Empty filtern).
   - [x] Werte abrufen über `IUIAutomationElement::GetCurrentPropertyValueEx(propertyId, /*ignoreDefault*/ true)`; Rückgabewerte konvertieren (VARIANT → `UiValue`).
@@ -240,6 +242,13 @@ Aktualisierung (2025‑10‑10)
 Aktualisierung (2025‑10‑17)
 - Python Bindings: `Runtime.highlight(rects: Rect | Iterable[Rect], duration_ms: float | None)` akzeptiert einen einzelnen `Rect` oder beliebige Iterables von `Rect`‑Objekten; intern werden Iterables materialisiert und als einzelner `HighlightRequest` an die Runtime/Provider übergeben.
 - Python Core‑Typen: `Point`, `Size`, `Rect`, `PatternId`, `RuntimeId`, `TechnologyId`, `Namespace` implementieren `__eq__`/`__ne__` sowie `__hash__` und sind damit als Dict‑Keys/Set‑Elemente nutzbar. Stubs wurden synchronisiert.
+
+Aktualisierung (2025‑10‑21)
+- FFI & Host‑Resolver: Owned‑Iterator (`EvaluationStream`, `Runtime::evaluate_iter_owned`) und `NodeResolver` in der Runtime sind implementiert und in den Python‑Bindings als `EvaluationIterator` verfügbar. Der frühere Backlog‑Punkt wurde geschlossen.
+- Linking‑Makros: Dokumentation ergänzt; CLI und Python‑Native verwenden `platynui_link_providers!()` zur OS‑spezifischen Verlinkung.
+- Pointer‑Overrides: CLI/Runtime unterstützen detaillierte Overrides (Bewegungsmodus, Beschleunigungsprofile, Geschwindigkeitsfaktor sowie Schritt-/Zeit‑Parameter für Move/Scroll/Click). Hinweise im Plan ergänzt.
+- UIA‑Details: Best‑effort‑Realize für virtualisierte Items und eine leichte `UiNode::is_valid()`‑Liveness‑Prüfung sind aktiv.
+- Desktop‑Fallback: Bei fehlenden Desktop‑Providern liefert die Runtime einen generischen Fallback‑Desktop (Diagnosezwecke). 
 
 Aktuelle Design-Notizen (2025‑09‑30)
 - Keine Actor‑Schicht, kein NodeStore: `UiaNode` wrappt direkt `IUIAutomationElement`.
@@ -305,7 +314,7 @@ Status (2025‑10‑10)
 - [ ] Release-/Versionierungsstrategie festlegen (SemVer pro Crate? Workspace-Version?).
 
 ### 25. Backlog & Explorations
-- Kontextknoten-Resolver: `RuntimeId`-basierte Re-Resolution für Kontextknoten außerhalb des aktuellen Wurzelknotens.
+- [x] Kontextknoten-Resolver: `RuntimeId`-basierte Re-Resolution für Kontextknoten außerhalb des aktuellen Wurzelknotens (umgesetzt; siehe Aktualisierung 2025‑10‑21).
 - JSON-RPC-Provider & Out-of-Process Integration
   - JSON-RPC 2.0 Vertrag dokumentieren (Markdown + JSON-Schema): Mindestumfang `initialize`, `getNodes(parentRuntimeId|null)`, `getAttributes(nodeRuntimeId)`, `getSupportedPatterns(nodeRuntimeId)`, optional `ping`; Events `$/notifyNodeAdded`, `$/notifyNodeUpdated`, `$/notifyNodeRemoved`, `$/notifyTreeInvalidated`.
   - `platynui-provider-jsonrpc` implementieren: Verbindung über Named Pipe/Unix Socket/localhost, Registrierung bei Runtime, Heartbeat/Timeout-Handling, Sicherheit (Namenskonvention „PlatynUI+PID+User+…“).
