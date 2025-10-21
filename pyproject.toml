@@ -30,14 +30,12 @@ classifiers = [
     "Framework :: Robot Framework",
     "Framework :: Robot Framework :: Library",
 ]
-dependencies = [
-    "robotframework>=7.0.0",
-    "robotframework-platynui-native==0.2.0-dev.1",
-]
+dependencies = ["robotframework>=7.0.0", "platynui-native==0.2.0-dev.1"]
 
 [project.optional-dependencies]
-cli = ["robotframework-platynui-cli==0.2.0-dev.1"]
-inspector = ["robotframework-platynui-inspector==0.2.0-dev.1"]
+cli = ["platynui-cli==0.2.0-dev.1"]
+inspector = ["platynui-inspector==0.2.0-dev.1"]
+all = ["platynui-cli==0.2.0-dev.1", "platynui-inspector==0.2.0-dev.1"]
 
 [project.urls]
 Homepage = "https://github.com/imbus/robotframework-PlatynUI"
@@ -55,9 +53,9 @@ build-backend = "uv_build"
 module-name = "PlatynUI"
 
 [tool.uv.sources]
-robotframework-platynui-native = { workspace = true }
-robotframework-platynui-cli = { workspace = true }
-robotframework-platynui-inspector = { workspace = true }
+platynui-native = { workspace = true }
+platynui-cli = { workspace = true }
+platynui-inspector = { workspace = true }
 
 [tool.uv.workspace]
 members = ["packages/*"]

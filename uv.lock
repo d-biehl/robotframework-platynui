@@ -4,10 +4,10 @@ requires-python = ">=3.10"
 
 [manifest]
 members = [
+    "platynui-cli",
+    "platynui-inspector",
+    "platynui-native",
     "robotframework-platynui",
-    "robotframework-platynui-cli",
-    "robotframework-platynui-inspector",
-    "robotframework-platynui-native",
 ]
 
 [[package]]
@@ -418,6 +418,58 @@ wheels = [
 ]
 
 [[package]]
+name = "platynui-cli"
+version = "0.2.0.dev1"
+source = { editable = "packages/cli" }
+
+[package.dev-dependencies]
+dev = [
+    { name = "maturin" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [{ name = "maturin", specifier = ">=1.9.6" }]
+
+[[package]]
+name = "platynui-inspector"
+version = "0.2.0.dev1"
+source = { editable = "packages/inspector" }
+
+[package.dev-dependencies]
+dev = [
+    { name = "maturin" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [{ name = "maturin", specifier = ">=1.9.6" }]
+
+[[package]]
+name = "platynui-native"
+version = "0.2.0.dev1"
+source = { editable = "packages/native" }
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "maturin" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" }]
+provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "maturin", specifier = ">=1.9.6" }]
+
+[[package]]
 name = "pluggy"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -555,16 +607,16 @@ name = "robotframework-platynui"
 version = "0.2.0.dev1"
 source = { editable = "." }
 dependencies = [
+    { name = "platynui-native" },
     { name = "robotframework" },
-    { name = "robotframework-platynui-native" },
 ]
 
 [package.optional-dependencies]
 cli = [
-    { name = "robotframework-platynui-cli" },
+    { name = "platynui-cli" },
 ]
 inspector = [
-    { name = "robotframework-platynui-inspector" },
+    { name = "platynui-inspector" },
 ]
 
 [package.dev-dependencies]
@@ -580,10 +632,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "platynui-cli", marker = "extra == 'cli'", editable = "packages/cli" },
+    { name = "platynui-inspector", marker = "extra == 'inspector'", editable = "packages/inspector" },
+    { name = "platynui-native", editable = "packages/native" },
     { name = "robotframework", specifier = ">=7.0.0" },
-    { name = "robotframework-platynui-cli", marker = "extra == 'cli'", editable = "packages/cli" },
-    { name = "robotframework-platynui-inspector", marker = "extra == 'inspector'", editable = "packages/inspector" },
-    { name = "robotframework-platynui-native", editable = "packages/native" },
 ]
 provides-extras = ["cli", "inspector"]
 
@@ -597,58 +649,6 @@ dev = [
     { name = "ruff", specifier = ">=0.12.11" },
     { name = "semantic-version", specifier = ">=2.10.0" },
 ]
-
-[[package]]
-name = "robotframework-platynui-cli"
-version = "0.2.0.dev1"
-source = { editable = "packages/cli" }
-
-[package.dev-dependencies]
-dev = [
-    { name = "maturin" },
-]
-
-[package.metadata]
-
-[package.metadata.requires-dev]
-dev = [{ name = "maturin", specifier = ">=1.9.6" }]
-
-[[package]]
-name = "robotframework-platynui-inspector"
-version = "0.2.0.dev1"
-source = { editable = "packages/inspector" }
-
-[package.dev-dependencies]
-dev = [
-    { name = "maturin" },
-]
-
-[package.metadata]
-
-[package.metadata.requires-dev]
-dev = [{ name = "maturin", specifier = ">=1.9.6" }]
-
-[[package]]
-name = "robotframework-platynui-native"
-version = "0.2.0.dev1"
-source = { editable = "packages/native" }
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "maturin" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" }]
-provides-extras = ["dev"]
-
-[package.metadata.requires-dev]
-dev = [{ name = "maturin", specifier = ">=1.9.6" }]
 
 [[package]]
 name = "ruff"

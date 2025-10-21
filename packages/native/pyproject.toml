@@ -1,5 +1,5 @@
 [project]
-name = "robotframework-platynui-native"
+name = "platynui-native"
 version = "0.2.0-dev.1"
 description = "Native Python bindings for PlatynUI (core types + runtime)"
 readme = "README.md"

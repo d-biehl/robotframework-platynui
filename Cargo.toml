@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/*", "apps/*"]
-exclude = ["packages/native", "packages/inspector", "packages/cli"]
+members = ["crates/*", "apps/*", "packages/*"]
+#exclude = ["packages/native", "packages/inspector", "packages/cli"]
 default-members = ["crates/playground"]
 resolver = "3"
 

@@ -1,5 +1,5 @@
 [project]
-name = "robotframework-platynui-cli"
+name = "platynui-cli"
 description = "CLI for Robot Framework PlatynUI"
 version = "0.2.0-dev.1"
 classifiers = [
