@@ -623,7 +623,6 @@ impl DesktopNode {
         ));
 
         attributes.push(attr(namespace, attribute_names::element::BOUNDS, UiValue::from(info.bounds)));
-        attributes.extend(rect_alias_attributes(namespace, "Bounds", &info.bounds));
         attributes.push(attr(namespace, attribute_names::element::IS_VISIBLE, UiValue::from(true)));
         attributes.push(attr(namespace, attribute_names::element::IS_ENABLED, UiValue::from(true)));
         attributes.push(attr(namespace, attribute_names::element::IS_OFFSCREEN, UiValue::from(false)));
@@ -729,15 +728,6 @@ impl UiNode for DesktopNode {
 
 fn attr(namespace: Namespace, name: impl Into<String>, value: UiValue) -> Arc<dyn UiAttribute> {
     Arc::new(DesktopAttribute { namespace, name: name.into(), value })
-}
-
-fn rect_alias_attributes(namespace: Namespace, base: &str, rect: &Rect) -> Vec<Arc<dyn UiAttribute>> {
-    vec![
-        attr(namespace, format!("{base}.X"), UiValue::from(rect.x())),
-        attr(namespace, format!("{base}.Y"), UiValue::from(rect.y())),
-        attr(namespace, format!("{base}.Width"), UiValue::from(rect.width())),
-        attr(namespace, format!("{base}.Height"), UiValue::from(rect.height())),
-    ]
 }
 
 fn monitor_to_value(info: &MonitorInfo) -> UiValue {
