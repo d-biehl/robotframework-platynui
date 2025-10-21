@@ -1150,7 +1150,7 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerOverridesInput {
     type Error = PyErr;
     fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let d_borrowed = ob.cast::<PyDict>()?;
-        let d: &Bound<'py, PyDict> = &*d_borrowed;
+        let d: &Bound<'py, PyDict> = &d_borrowed;
         Ok(Self {
             origin: dict_get(d, "origin").map(|v| OriginInput::extract((&v).into())).transpose()?,
             speed_factor: dict_get(d, "speed_factor").and_then(|v| v.extract().ok()),
@@ -1296,7 +1296,7 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for KeyboardOverridesInput {
     type Error = PyErr;
     fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let d_borrowed = ob.cast::<PyDict>()?;
-        let d: &Bound<'py, PyDict> = &*d_borrowed;
+        let d: &Bound<'py, PyDict> = &d_borrowed;
         Ok(Self {
             press_delay_ms: dict_get(d, "press_delay_ms").and_then(|v| v.extract().ok()),
             release_delay_ms: dict_get(d, "release_delay_ms").and_then(|v| v.extract().ok()),
