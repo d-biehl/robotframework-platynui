@@ -123,11 +123,10 @@ impl PyNodeChildrenIterator {
     }
 
     fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<Py<PyNode>>> {
-        if let Some(ref mut iter) = slf.iter {
-            if let Some(child) = iter.next() {
+        if let Some(ref mut iter) = slf.iter
+            && let Some(child) = iter.next() {
                 return Ok(Some(Py::new(py, PyNode { inner: child })?));
             }
-        }
         slf.iter = None;
         Ok(None)
     }
@@ -148,13 +147,12 @@ impl PyNodeAttributesIterator {
     }
 
     fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<Py<PyAttribute>>> {
-        if let Some(ref mut iter) = slf.iter {
-            if let Some(attr) = iter.next() {
+        if let Some(ref mut iter) = slf.iter
+            && let Some(attr) = iter.next() {
                 let ns = attr.namespace().as_str().to_string();
                 let name = attr.name().to_string();
                 return Ok(Some(Py::new(py, PyAttribute { namespace: ns, name, owner: slf.owner.clone() })?));
             }
-        }
         slf.iter = None;
         Ok(None)
     }
@@ -174,25 +172,11 @@ impl PyEvaluationIterator {
     }
 
     fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
-        if let Some(ref mut iter) = slf.iter {
-            if let Some(item) = iter.next() {
-                let result = match item {
-                    runtime_rs::EvaluationItem::Node(n) => {
-                        let py_node = PyNode { inner: n };
-                        Py::new(py, py_node)?.into_any()
-                    }
-                    runtime_rs::EvaluationItem::Attribute(a) => {
-                        let ns = a.namespace.as_str().to_string();
-                        let name = a.name.clone();
-                        let value = ui_value_to_py(py, &a.value)?;
-                        let owner = Py::new(py, PyNode { inner: a.owner.clone() })?;
-                        Py::new(py, PyEvaluatedAttribute::new(ns, name, value, Some(owner)))?.into_any()
-                    }
-                    runtime_rs::EvaluationItem::Value(v) => ui_value_to_py(py, &v)?,
-                };
+        if let Some(ref mut iter) = slf.iter
+            && let Some(item) = iter.next() {
+                let result = evaluation_item_to_py(py, &item)?;
                 return Ok(Some(result));
             }
-        }
         slf.iter = None;
         Ok(None)
     }
@@ -408,20 +392,7 @@ impl PyRuntime {
         let items = self.inner.evaluate(node_arc, xpath).map_err(map_eval_err)?;
         let out = PyList::empty(py);
         for item in items {
-            match item {
-                runtime_rs::EvaluationItem::Node(n) => {
-                    let py_node = PyNode { inner: n };
-                    out.append(Py::new(py, py_node)?)?;
-                }
-                runtime_rs::EvaluationItem::Attribute(a) => {
-                    let ns = a.namespace.as_str().to_string();
-                    let name = a.name.clone();
-                    let value = ui_value_to_py(py, &a.value)?;
-                    let owner = Py::new(py, PyNode { inner: a.owner.clone() })?;
-                    out.append(Py::new(py, PyEvaluatedAttribute::new(ns, name, value, Some(owner)))?)?;
-                }
-                runtime_rs::EvaluationItem::Value(v) => out.append(ui_value_to_py(py, &v)?)?,
-            }
+            out.append(evaluation_item_to_py(py, &item)?)?;
         }
         Ok(out.into())
     }
@@ -443,18 +414,7 @@ impl PyRuntime {
         let item = self.inner.evaluate_single(node_arc, xpath).map_err(map_eval_err)?;
 
         match item {
-            Some(runtime_rs::EvaluationItem::Node(n)) => {
-                let py_node = PyNode { inner: n };
-                Ok(Py::new(py, py_node)?.into_any())
-            }
-            Some(runtime_rs::EvaluationItem::Attribute(a)) => {
-                let ns = a.namespace.as_str().to_string();
-                let name = a.name.clone();
-                let value = ui_value_to_py(py, &a.value)?;
-                let owner = Py::new(py, PyNode { inner: a.owner.clone() })?;
-                Ok(Py::new(py, PyEvaluatedAttribute::new(ns, name, value, Some(owner)))?.into_any())
-            }
-            Some(runtime_rs::EvaluationItem::Value(v)) => ui_value_to_py(py, &v),
+            Some(it) => evaluation_item_to_py(py, &it),
             None => Ok(py.None()),
         }
     }
@@ -481,14 +441,9 @@ impl PyRuntime {
             None => None,
         };
 
-        // Use owned iterator variant to avoid lifetime issues across FFI boundary
-        let iter = runtime_rs::evaluate_iter_owned(
-            node_arc,
-            xpath.to_string(),
-            self.inner.evaluate_options(),
-        )
-        .map_err(map_eval_err)?;
-        Py::new(py, PyEvaluationIterator { iter: Some(iter) })
+        // Build owned evaluation stream via Runtime helper and box it for Python iterator
+        let stream = self.inner.evaluate_iter_owned(node_arc, xpath).map_err(map_eval_err)?;
+        Py::new(py, PyEvaluationIterator { iter: Some(Box::new(stream)) })
     }
 
     /// Returns a list of active provider information dictionaries.
@@ -735,6 +690,28 @@ fn ui_value_to_py(py: Python<'_>, value: &core_rs::ui::value::UiValue) -> PyResu
         V::Point(p) => Py::new(py, PyPoint::from(*p))?.into_any(),
         V::Size(s) => Py::new(py, PySize::from(*s))?.into_any(),
         V::Rect(r) => Py::new(py, PyRect::from(*r))?.into_any(),
+    })
+}
+
+/// Convert a runtime EvaluationItem into its Python representation.
+/// - Node      -> platynui_native.UiNode
+/// - Attribute -> platynui_native.EvaluatedAttribute
+/// - Value     -> native Python value via ui_value_to_py
+fn evaluation_item_to_py(py: Python<'_>, item: &runtime_rs::EvaluationItem) -> PyResult<Py<PyAny>> {
+    Ok(match item {
+        runtime_rs::EvaluationItem::Node(n) => {
+            // Clone Arc to create a Python-visible node wrapper
+            let py_node = PyNode { inner: n.clone() };
+            Py::new(py, py_node)?.into_any()
+        }
+        runtime_rs::EvaluationItem::Attribute(a) => {
+            let ns = a.namespace.as_str().to_string();
+            let name = a.name.clone();
+            let value = ui_value_to_py(py, &a.value)?;
+            let owner = Py::new(py, PyNode { inner: a.owner.clone() })?;
+            Py::new(py, PyEvaluatedAttribute::new(ns, name, value, Some(owner)))?.into_any()
+        }
+        runtime_rs::EvaluationItem::Value(v) => ui_value_to_py(py, v)?,
     })
 }
 

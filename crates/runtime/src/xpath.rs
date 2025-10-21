@@ -121,38 +121,58 @@ pub fn evaluate(
     Ok(iter.collect())
 }
 
+/// Concrete, owned iterator over XPath evaluation results.
+/// This type is stable across FFI boundaries and does not expose generics or lifetimes to callers.
+pub struct EvaluationStream {
+    inner: Box<dyn Iterator<Item = EvaluationItem>>,
+}
+
+impl Iterator for EvaluationStream {
+    type Item = EvaluationItem;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+}
+
+impl EvaluationStream {
+    /// Build a new owned evaluation stream. Accepts an owned XPath string to avoid lifetime issues.
+    pub fn new(
+        node: Option<Arc<dyn UiNode>>,
+        xpath: String,
+        options: EvaluateOptions,
+    ) -> Result<Self, EvaluateError> {
+        let context = resolve_context(node.as_ref(), &options)?;
+
+        if options.invalidate_before_eval() {
+            context.invalidate();
+        }
+
+        let static_ctx = build_static_context();
+
+        let compiled = compiler::compile_with_context(&xpath, &static_ctx)?;
+        let mut dyn_builder = DynamicContextBuilder::new();
+        let ctx_item = RuntimeXdmNode::from_node(context.clone());
+        dyn_builder = dyn_builder.with_context_item(ctx_item);
+        let dyn_ctx = dyn_builder.build();
+
+        let stream = evaluator::evaluate_stream(&compiled, &dyn_ctx)?;
+        let it = eval_stream_to_iter(stream);
+        Ok(Self { inner: Box::new(it) })
+    }
+}
+
 pub fn evaluate_iter(
     node: Option<Arc<dyn UiNode>>,
     xpath: &str,
     options: EvaluateOptions,
 ) -> Result<impl Iterator<Item = EvaluationItem>, EvaluateError> {
-    use platynui_xpath::xdm::XdmItem;
-    let root = options.desktop();
-    let context = if let Some(node_ref) = node.as_ref() {
-        if let Some(resolver) = options.node_resolver() {
-            let runtime_id = node_ref.runtime_id().clone();
-            match resolver.resolve(&runtime_id)? {
-                Some(resolved) => resolved,
-                None => return Err(EvaluateError::ContextNodeUnknown(runtime_id.to_string())),
-            }
-        } else {
-            Arc::clone(node_ref)
-        }
-    } else {
-        root.clone()
-    };
+    let context = resolve_context(node.as_ref(), &options)?;
 
     if options.invalidate_before_eval() {
         context.invalidate();
     }
 
-    let static_ctx = StaticContextBuilder::new()
-        .with_default_element_namespace(CONTROL_NS_URI)
-        .with_namespace("control", CONTROL_NS_URI)
-        .with_namespace("item", ITEM_NS_URI)
-        .with_namespace("app", APP_NS_URI)
-        .with_namespace("native", NATIVE_NS_URI)
-        .build();
+    let static_ctx = build_static_context();
 
     let compiled = compiler::compile_with_context(xpath, &static_ctx)?;
     let mut dyn_builder = DynamicContextBuilder::new();
@@ -160,27 +180,16 @@ pub fn evaluate_iter(
     let dyn_ctx = dyn_builder.build();
 
     let stream = evaluator::evaluate_stream(&compiled, &dyn_ctx)?;
-    Ok(stream.into_iter().filter_map(|res| match res.ok()? {
-        XdmItem::Node(node) => match node {
-            RuntimeXdmNode::Document(doc) => Some(EvaluationItem::Node(doc.root.clone())),
-            RuntimeXdmNode::Element(elem) => Some(EvaluationItem::Node(elem.node.clone())),
-            RuntimeXdmNode::Attribute(attr) => Some(EvaluationItem::Attribute(attr.to_evaluated())),
-        },
-        XdmItem::Atomic(atom) => Some(EvaluationItem::Value(atomic_to_ui_value(&atom))),
-    }))
+    Ok(eval_stream_to_iter(stream))
 }
 
-/// Owned iterator variant for FFI consumers: returns a boxed iterator that does not
-/// borrow from `self` or the `xpath` input. This avoids lifetime constraints when
-/// exposing a streaming API across FFI boundaries (e.g., Python).
-pub fn evaluate_iter_owned(
-    node: Option<Arc<dyn UiNode>>,
-    xpath: String,
-    options: EvaluateOptions,
-) -> Result<Box<dyn Iterator<Item = EvaluationItem>>, EvaluateError> {
-    use platynui_xpath::xdm::XdmItem;
+/// Resolve the effective context node for evaluation based on input node and options.
+fn resolve_context(
+    node: Option<&Arc<dyn UiNode>>,
+    options: &EvaluateOptions,
+) -> Result<Arc<dyn UiNode>, EvaluateError> {
     let root = options.desktop();
-    let context = if let Some(node_ref) = node.as_ref() {
+    let context = if let Some(node_ref) = node {
         if let Some(resolver) = options.node_resolver() {
             let runtime_id = node_ref.runtime_id().clone();
             match resolver.resolve(&runtime_id)? {
@@ -193,34 +202,38 @@ pub fn evaluate_iter_owned(
     } else {
         root.clone()
     };
+    Ok(context)
+}
 
-    if options.invalidate_before_eval() {
-        context.invalidate();
-    }
-
-    let static_ctx = StaticContextBuilder::new()
+/// Build the static context with PlatynUI namespaces configured.
+fn build_static_context() -> platynui_xpath::engine::runtime::StaticContext {
+    StaticContextBuilder::new()
         .with_default_element_namespace(CONTROL_NS_URI)
         .with_namespace("control", CONTROL_NS_URI)
         .with_namespace("item", ITEM_NS_URI)
         .with_namespace("app", APP_NS_URI)
         .with_namespace("native", NATIVE_NS_URI)
-        .build();
+        .build()
+}
 
-    let compiled = compiler::compile_with_context(&xpath, &static_ctx)?;
-    let mut dyn_builder = DynamicContextBuilder::new();
-    dyn_builder = dyn_builder.with_context_item(RuntimeXdmNode::from_node(context.clone()));
-    let dyn_ctx = dyn_builder.build();
-
-    let stream = evaluator::evaluate_stream(&compiled, &dyn_ctx)?;
-    let it = stream.into_iter().filter_map(|res| match res.ok()? {
+/// Map a stream of XDM items to `EvaluationItem`s, skipping errors and non-mappable values.
+fn eval_stream_to_iter<I>(
+    iter: I,
+) -> impl Iterator<Item = EvaluationItem>
+where
+    I: IntoIterator<
+        Item = Result<platynui_xpath::xdm::XdmItem<RuntimeXdmNode>, platynui_xpath::engine::runtime::Error>,
+    >,
+{
+    use platynui_xpath::xdm::XdmItem;
+    iter.into_iter().filter_map(|res| match res.ok()? {
         XdmItem::Node(node) => match node {
             RuntimeXdmNode::Document(doc) => Some(EvaluationItem::Node(doc.root.clone())),
             RuntimeXdmNode::Element(elem) => Some(EvaluationItem::Node(elem.node.clone())),
             RuntimeXdmNode::Attribute(attr) => Some(EvaluationItem::Attribute(attr.to_evaluated())),
         },
         XdmItem::Atomic(atom) => Some(EvaluationItem::Value(atomic_to_ui_value(&atom))),
-    });
-    Ok(Box::new(it))
+    })
 }
 
 #[derive(Clone)]
@@ -376,6 +389,9 @@ impl XdmNode for RuntimeXdmNode {
 
     fn attributes(&self) -> Self::Attributes<'_> {
         match self {
+            // In PlatynUI's model, the document wrapper exposes the root element's attributes
+            // to allow queries like './@*' from the desktop context. This intentionally
+            // diverges from the strict XPath document-node semantics to keep CLI UX simple.
             RuntimeXdmNode::Document(doc) => {
                 if doc.attrs_inner.borrow().is_none() && !doc.attrs_finished.get() {
                     *doc.attrs_inner.borrow_mut() = Some(doc.root.attributes());
@@ -1300,6 +1316,7 @@ mod tests {
             other => panic!("unexpected monitors result: {:?}", other),
         }
     }
+
 
     struct ResolverOk {
         node: Arc<dyn UiNode>,

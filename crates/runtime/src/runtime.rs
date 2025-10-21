@@ -267,6 +267,18 @@ impl Runtime {
         crate::xpath::evaluate_iter(node, xpath, self.evaluate_options())
     }
 
+    /// Evaluate an XPath expression and return an owned, FFI-safe iterator.
+    /// This variant does not borrow from the input `xpath` and encapsulates
+    /// all required runtime state so the iterator can be stored and consumed
+    /// beyond this call's lifetime (e.g., across FFI boundaries).
+    pub fn evaluate_iter_owned(
+        &self,
+        node: Option<Arc<dyn UiNode>>,
+        xpath: &str,
+    ) -> Result<crate::xpath::EvaluationStream, EvaluateError> {
+        crate::xpath::EvaluationStream::new(node, xpath.to_string(), self.evaluate_options())
+    }
+
     /// Evaluate an XPath and return the first resulting item, if any.
     /// The stream is not fully consumed and no uniqueness is enforced.
     pub fn evaluate_single(
