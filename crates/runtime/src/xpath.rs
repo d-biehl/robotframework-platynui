@@ -136,11 +136,7 @@ impl Iterator for EvaluationStream {
 
 impl EvaluationStream {
     /// Build a new owned evaluation stream. Accepts an owned XPath string to avoid lifetime issues.
-    pub fn new(
-        node: Option<Arc<dyn UiNode>>,
-        xpath: String,
-        options: EvaluateOptions,
-    ) -> Result<Self, EvaluateError> {
+    pub fn new(node: Option<Arc<dyn UiNode>>, xpath: String, options: EvaluateOptions) -> Result<Self, EvaluateError> {
         let context = resolve_context(node.as_ref(), &options)?;
 
         if options.invalidate_before_eval() {
@@ -217,9 +213,7 @@ fn build_static_context() -> platynui_xpath::engine::runtime::StaticContext {
 }
 
 /// Map a stream of XDM items to `EvaluationItem`s, skipping errors and non-mappable values.
-fn eval_stream_to_iter<I>(
-    iter: I,
-) -> impl Iterator<Item = EvaluationItem>
+fn eval_stream_to_iter<I>(iter: I) -> impl Iterator<Item = EvaluationItem>
 where
     I: IntoIterator<
         Item = Result<platynui_xpath::xdm::XdmItem<RuntimeXdmNode>, platynui_xpath::engine::runtime::Error>,
@@ -1316,7 +1310,6 @@ mod tests {
             other => panic!("unexpected monitors result: {:?}", other),
         }
     }
-
 
     struct ResolverOk {
         node: Arc<dyn UiNode>,

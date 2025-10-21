@@ -124,9 +124,10 @@ impl PyNodeChildrenIterator {
 
     fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<Py<PyNode>>> {
         if let Some(ref mut iter) = slf.iter
-            && let Some(child) = iter.next() {
-                return Ok(Some(Py::new(py, PyNode { inner: child })?));
-            }
+            && let Some(child) = iter.next()
+        {
+            return Ok(Some(Py::new(py, PyNode { inner: child })?));
+        }
         slf.iter = None;
         Ok(None)
     }
@@ -148,11 +149,12 @@ impl PyNodeAttributesIterator {
 
     fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<Py<PyAttribute>>> {
         if let Some(ref mut iter) = slf.iter
-            && let Some(attr) = iter.next() {
-                let ns = attr.namespace().as_str().to_string();
-                let name = attr.name().to_string();
-                return Ok(Some(Py::new(py, PyAttribute { namespace: ns, name, owner: slf.owner.clone() })?));
-            }
+            && let Some(attr) = iter.next()
+        {
+            let ns = attr.namespace().as_str().to_string();
+            let name = attr.name().to_string();
+            return Ok(Some(Py::new(py, PyAttribute { namespace: ns, name, owner: slf.owner.clone() })?));
+        }
         slf.iter = None;
         Ok(None)
     }
@@ -173,10 +175,11 @@ impl PyEvaluationIterator {
 
     fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         if let Some(ref mut iter) = slf.iter
-            && let Some(item) = iter.next() {
-                let result = evaluation_item_to_py(py, &item)?;
-                return Ok(Some(result));
-            }
+            && let Some(item) = iter.next()
+        {
+            let result = evaluation_item_to_py(py, &item)?;
+            return Ok(Some(result));
+        }
         slf.iter = None;
         Ok(None)
     }

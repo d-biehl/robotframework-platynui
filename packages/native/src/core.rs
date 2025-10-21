@@ -52,11 +52,7 @@ impl PyPoint {
         Self { inner: self.inner - other.inner }
     }
     fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        if let Ok(o) = other.extract::<PyRef<PyPoint>>() {
-            Ok(self.inner == o.inner)
-        } else {
-            Ok(false)
-        }
+        if let Ok(o) = other.extract::<PyRef<PyPoint>>() { Ok(self.inner == o.inner) } else { Ok(false) }
     }
     fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
         self.__eq__(other).map(|eq| !eq)
@@ -127,11 +123,7 @@ impl PySize {
         Self { inner: self.inner / scalar }
     }
     fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        if let Ok(o) = other.extract::<PyRef<PySize>>() {
-            Ok(self.inner == o.inner)
-        } else {
-            Ok(false)
-        }
+        if let Ok(o) = other.extract::<PyRef<PySize>>() { Ok(self.inner == o.inner) } else { Ok(false) }
     }
     fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
         self.__eq__(other).map(|eq| !eq)
@@ -242,23 +234,13 @@ impl PyRect {
         PyRect { inner: self.inner - point.inner }
     }
     fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        if let Ok(o) = other.extract::<PyRef<PyRect>>() {
-            Ok(self.inner == o.inner)
-        } else {
-            Ok(false)
-        }
+        if let Ok(o) = other.extract::<PyRef<PyRect>>() { Ok(self.inner == o.inner) } else { Ok(false) }
     }
     fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
         self.__eq__(other).map(|eq| !eq)
     }
     fn __repr__(&self) -> String {
-        format!(
-            "Rect({}, {}, {}, {})",
-            self.inner.x(),
-            self.inner.y(),
-            self.inner.width(),
-            self.inner.height()
-        )
+        format!("Rect({}, {}, {}, {})", self.inner.x(), self.inner.y(), self.inner.width(), self.inner.height())
     }
     fn __hash__(&self) -> PyResult<isize> {
         let mut s = DefaultHasher::new();
@@ -302,11 +284,7 @@ macro_rules! define_id {
                 self.inner.as_str()
             }
             fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-                if let Ok(o) = other.extract::<PyRef<$name>>() {
-                    Ok(self.inner == o.inner)
-                } else {
-                    Ok(false)
-                }
+                if let Ok(o) = other.extract::<PyRef<$name>>() { Ok(self.inner == o.inner) } else { Ok(false) }
             }
             fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
                 self.__eq__(other).map(|eq| !eq)
@@ -368,11 +346,7 @@ impl PyNamespace {
         self.inner.as_str()
     }
     fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        if let Ok(o) = other.extract::<PyRef<PyNamespace>>() {
-            Ok(self.inner == o.inner)
-        } else {
-            Ok(false)
-        }
+        if let Ok(o) = other.extract::<PyRef<PyNamespace>>() { Ok(self.inner == o.inner) } else { Ok(false) }
     }
     fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
         self.__eq__(other).map(|eq| !eq)

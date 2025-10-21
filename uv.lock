@@ -612,6 +612,10 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "platynui-cli" },
+    { name = "platynui-inspector" },
+]
 cli = [
     { name = "platynui-cli" },
 ]
@@ -632,12 +636,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "platynui-cli", marker = "extra == 'all'", editable = "packages/cli" },
     { name = "platynui-cli", marker = "extra == 'cli'", editable = "packages/cli" },
+    { name = "platynui-inspector", marker = "extra == 'all'", editable = "packages/inspector" },
     { name = "platynui-inspector", marker = "extra == 'inspector'", editable = "packages/inspector" },
     { name = "platynui-native", editable = "packages/native" },
     { name = "robotframework", specifier = ">=7.0.0" },
 ]
-provides-extras = ["cli", "inspector"]
+provides-extras = ["cli", "inspector", "all"]
 
 [package.metadata.requires-dev]
 dev = [
