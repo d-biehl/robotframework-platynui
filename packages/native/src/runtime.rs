@@ -1146,11 +1146,13 @@ pub struct PointerOverridesInput {
     pub scroll_delay_ms: Option<f64>,
 }
 
-impl<'py> pyo3::FromPyObject<'py> for PointerOverridesInput {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let d = ob.downcast::<PyDict>()?;
+impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerOverridesInput {
+    type Error = PyErr;
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        let d_borrowed = ob.cast::<PyDict>()?;
+        let d: &Bound<'py, PyDict> = &*d_borrowed;
         Ok(Self {
-            origin: dict_get(d, "origin").map(|v| OriginInput::extract_bound(&v)).transpose()?,
+            origin: dict_get(d, "origin").map(|v| OriginInput::extract((&v).into())).transpose()?,
             speed_factor: dict_get(d, "speed_factor").and_then(|v| v.extract().ok()),
             acceleration_profile: dict_get(d, "acceleration_profile").and_then(|v| v.extract().ok()),
             max_move_duration_ms: dict_get(d, "max_move_duration_ms").and_then(|v| v.extract().ok()),
@@ -1239,7 +1241,7 @@ impl From<PointerOverridesLike<'_>> for runtime_rs::PointerOverrides {
     fn from(v: PointerOverridesLike<'_>) -> Self {
         match v {
             PointerOverridesLike::Dict(d) => d.into(),
-            PointerOverridesLike::Class(c) => c.inner.clone(),
+            PointerOverridesLike::Class(c) => (*c).inner.clone(),
         }
     }
 }
@@ -1250,8 +1252,9 @@ pub enum OriginInput {
     Bounds((f64, f64, f64, f64)),
 }
 
-impl<'py> pyo3::FromPyObject<'py> for OriginInput {
-    fn extract_bound(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for OriginInput {
+    type Error = PyErr;
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         if let Ok(s) = obj.extract::<String>()
             && s.eq_ignore_ascii_case("desktop")
         {
@@ -1289,9 +1292,11 @@ pub struct KeyboardOverridesInput {
     pub after_text_delay_ms: Option<f64>,
 }
 
-impl<'py> pyo3::FromPyObject<'py> for KeyboardOverridesInput {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let d = ob.downcast::<PyDict>()?;
+impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for KeyboardOverridesInput {
+    type Error = PyErr;
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        let d_borrowed = ob.cast::<PyDict>()?;
+        let d: &Bound<'py, PyDict> = &*d_borrowed;
         Ok(Self {
             press_delay_ms: dict_get(d, "press_delay_ms").and_then(|v| v.extract().ok()),
             release_delay_ms: dict_get(d, "release_delay_ms").and_then(|v| v.extract().ok()),
@@ -1343,7 +1348,7 @@ impl From<KeyboardOverridesLike<'_>> for core_rs::platform::KeyboardOverrides {
     fn from(v: KeyboardOverridesLike<'_>) -> Self {
         match v {
             KeyboardOverridesLike::Dict(d) => d.into(),
-            KeyboardOverridesLike::Class(c) => c.inner.clone(),
+            KeyboardOverridesLike::Class(c) => (*c).inner.clone(),
         }
     }
 }
