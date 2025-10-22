@@ -2,9 +2,9 @@ from platynui_native import Rect, Runtime
 
 
 def test_screenshot_png_bytes(rt_mock_platform: Runtime) -> None:
-    data = rt_mock_platform.screenshot(Rect(0, 0, 10, 10), "image/png")
+    data = rt_mock_platform.screenshot(Rect(0, 0, 10, 10), 'image/png')
     assert isinstance(data, (bytes, bytearray))
-    assert data.startswith(b"\x89PNG\r\n\x1a\n")
+    assert data.startswith(b'\x89PNG\r\n\x1a\n')
 
     # default mime
     data2 = rt_mock_platform.screenshot(Rect(0, 0, 5, 5))

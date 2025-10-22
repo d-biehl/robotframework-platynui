@@ -603,12 +603,28 @@ wheels = [
 ]
 
 [[package]]
+name = "robotframework-assertion-engine"
+version = "3.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "robotframework" },
+    { name = "robotframework-pythonlibcore" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/82/6a/64caaaff181a6f56847124a98e029bd91e3479c56f2db2803e3f5e19a8d8/robotframework_assertion_engine-3.0.3.tar.gz", hash = "sha256:1c608d4c69d96520986a1ddc6def0fc7f7e849520f1e6882a633b51dbb98fd88", size = 11901, upload-time = "2023-11-21T19:20:22.752Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/51/5d/b160d9a55db18f9847e0cc680012dfab03e9efcebae0a09280d57ae8a6ee/robotframework_assertion_engine-3.0.3-py3-none-any.whl", hash = "sha256:3cd8962744ea4f307feadd596266c1d563e87b586ed61803c9445295ab15a0cd", size = 12944, upload-time = "2023-11-21T19:20:20.251Z" },
+]
+
+[[package]]
 name = "robotframework-platynui"
 version = "0.2.0.dev1"
 source = { editable = "." }
 dependencies = [
     { name = "platynui-native" },
     { name = "robotframework" },
+    { name = "robotframework-assertion-engine" },
+    { name = "robotframework-pythonlibcore" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -642,6 +658,9 @@ requires-dist = [
     { name = "platynui-inspector", marker = "extra == 'inspector'", editable = "packages/inspector" },
     { name = "platynui-native", editable = "packages/native" },
     { name = "robotframework", specifier = ">=7.0.0" },
+    { name = "robotframework-assertion-engine", specifier = ">=3.0.0" },
+    { name = "robotframework-pythonlibcore", specifier = ">=4.4.0" },
+    { name = "typing-extensions" },
 ]
 provides-extras = ["cli", "inspector", "all"]
 
@@ -654,6 +673,15 @@ dev = [
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "ruff", specifier = ">=0.12.11" },
     { name = "semantic-version", specifier = ">=2.10.0" },
+]
+
+[[package]]
+name = "robotframework-pythonlibcore"
+version = "4.4.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/71/89/5dc8c8186c897ee4b7d0b2631ebc90e679e8c8f04ea85505f96ad38aad64/robotframework-pythonlibcore-4.4.1.tar.gz", hash = "sha256:2d695b2ea906f5815179643e29182466675e682d82c5fa9d1009edfae2f84b16", size = 12835, upload-time = "2024-04-05T22:27:12.049Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ac/64/47d8403c7c0af89b46461640a2f67e49a5778062b8dd6eb3e128aa3c50cc/robotframework_pythonlibcore-4.4.1-py2.py3-none-any.whl", hash = "sha256:e0517129522aaa039eb2a28fd3d9720b7a0be0b90d0cbcb153a6c8016bb9e973", size = 12452, upload-time = "2024-04-05T22:27:10.353Z" },
 ]
 
 [[package]]

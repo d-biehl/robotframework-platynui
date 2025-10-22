@@ -15,7 +15,6 @@ def test_mock_providers_available():
     assert isinstance(pn.MOCK_KEYBOARD_DEVICE, int)
 
 
-
 def test_runtime_with_mock_provider(rt_mock_platform: Runtime) -> None:
     """Test creating a Runtime with only the mock provider."""
     # Verify it works
@@ -25,7 +24,7 @@ def test_runtime_with_mock_provider(rt_mock_platform: Runtime) -> None:
 
     # Should have exactly one provider (the mock provider)
     assert len(providers) == 1
-    assert providers[0]["technology"] == "Mock"
+    assert providers[0]['technology'] == 'Mock'
 
     # Test that we can query the tree
     desktop = rt_mock_platform.desktop_node()
@@ -48,7 +47,7 @@ def test_runtime_with_mock_platforms(rt_mock_platform: Runtime) -> None:
 
     # Test keyboard
     try:
-        rt_mock_platform.keyboard_type("Hello World")
+        rt_mock_platform.keyboard_type('Hello World')
     except pn.KeyboardError:
         pass
 
@@ -60,5 +59,5 @@ def test_runtime_with_mock_platforms(rt_mock_platform: Runtime) -> None:
         pass
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

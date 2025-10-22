@@ -2,10 +2,10 @@
 """Quick type check for iterator imports."""
 
 from platynui_native import (
-    NodeChildrenIterator,
     NodeAttributesIterator,
-    UiNode,
+    NodeChildrenIterator,
     Runtime,
+    UiNode,
 )
 
 

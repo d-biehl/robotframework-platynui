@@ -2,18 +2,18 @@
 """Test that UiNode.children() and UiNode.attributes() return iterators."""
 
 from platynui_native import (
-    UiNode,
-    NodeChildrenIterator,
     NodeAttributesIterator,
+    NodeChildrenIterator,
     Runtime,
+    UiNode,
 )
 
 
 def get_desktop_node(rt_mock_platform: Runtime) -> UiNode:
     """Helper to get desktop node."""
-    items = rt_mock_platform.evaluate("/")
+    items = rt_mock_platform.evaluate('/')
     node = next((it for it in items if isinstance(it, UiNode)), None)
-    assert node is not None, "Expected at least one UiNode result"
+    assert node is not None, 'Expected at least one UiNode result'
     return node
 
 
@@ -23,7 +23,7 @@ def test_children_returns_iterator(rt_mock_platform: Runtime) -> None:
 
     children_result = desktop.children()
     assert isinstance(children_result, NodeChildrenIterator), (
-        f"Expected NodeChildrenIterator, got {type(children_result)}"
+        f'Expected NodeChildrenIterator, got {type(children_result)}'
     )
 
     # Should be iterable
@@ -38,14 +38,13 @@ def test_children_returns_iterator(rt_mock_platform: Runtime) -> None:
     assert count >= 1
 
 
-
 def test_attributes_returns_iterator(rt_mock_platform: Runtime) -> None:
     """Verify that attributes() returns an iterator, not a list."""
     desktop = get_desktop_node(rt_mock_platform)
 
     attrs_result = desktop.attributes()
     assert isinstance(attrs_result, NodeAttributesIterator), (
-        f"Expected NodeAttributesIterator, got {type(attrs_result)}"
+        f'Expected NodeAttributesIterator, got {type(attrs_result)}'
     )
 
     # Should be iterable
@@ -57,9 +56,8 @@ def test_attributes_returns_iterator(rt_mock_platform: Runtime) -> None:
     for attr in get_desktop_node(rt_mock_platform).attributes():
         count += 1
         # Minimal shape check
-        assert hasattr(attr, "namespace") and hasattr(attr, "name")
+        assert hasattr(attr, 'namespace') and hasattr(attr, 'name')
     assert count >= 1
-
 
 
 def test_iterator_exhaustion(rt_mock_platform: Runtime) -> None:
@@ -74,11 +72,11 @@ def test_iterator_exhaustion(rt_mock_platform: Runtime) -> None:
 
     # Second iteration on same iterator (should be empty)
     second_list = list(children_iter)
-    assert len(second_list) == 0, "Iterator should be exhausted after first iteration"
+    assert len(second_list) == 0, 'Iterator should be exhausted after first iteration'
 
     # Get fresh iterator
     fresh_list = list(get_desktop_node(rt_mock_platform).children())
-    assert len(fresh_list) == len(first_list), "Fresh iterator should have same count"
+    assert len(fresh_list) == len(first_list), 'Fresh iterator should have same count'
 
 
 def test_lazy_evaluation(rt_mock_platform: Runtime) -> None:
@@ -99,5 +97,5 @@ def test_lazy_evaluation(rt_mock_platform: Runtime) -> None:
         assert isinstance(node, UiNode)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

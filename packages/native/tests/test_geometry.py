@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Quick test of the newly exposed geometry methods."""
 
-from platynui_native import Point, Size, Rect
+from platynui_native import Point, Rect, Size
 
 
 def test_point_methods() -> None:
@@ -23,7 +23,6 @@ def test_point_methods() -> None:
 
     p6 = p - Point(1.0, 2.0)
     assert p6.x == 9.0 and p6.y == 18.0
-
 
 
 def test_size_methods() -> None:
@@ -49,7 +48,6 @@ def test_size_methods() -> None:
 
     s5 = s / 2.0
     assert s5.width == 50.0 and s5.height == 25.0
-
 
 
 def test_rect_methods() -> None:
@@ -110,6 +108,5 @@ def test_rect_methods() -> None:
     assert r7.x == 5.0 and r7.y == 17.0
 
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

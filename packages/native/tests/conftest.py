@@ -1,12 +1,10 @@
-import pytest
+from collections.abc import Generator
 
 import platynui_native as pn
+import pytest
 
 
-from typing import Generator
-
-
-@pytest.fixture(scope="function")
+@pytest.fixture(scope='function')
 def rt_mock_platform() -> Generator[pn.Runtime, None, None]:
     """Runtime with mock UI provider and mock platform devices.
 
