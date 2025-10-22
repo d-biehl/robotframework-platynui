@@ -63,10 +63,10 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: sync Python environment (uv)
-        run: uv sync --dev --all-packages
+        run: uv sync --dev --all-packages --all-groups
 
       - name: build runtime with maturin (via uv)
-        run: uv run maturin develop -m packages/native/Cargo.toml --uv
+        run: uv run maturin develop -m packages/native/Cargo.toml --features mock-provider --uv
 
       - name: Python lint (ruff)
         run: uv run ruff check
@@ -75,7 +75,7 @@ jobs:
         run: uv run mypy .
 
       - name: Python tests (pytest)
-        run: uv run pytest -v --tb=short --maxfail=5
+        run: uv run --no-sync pytest -v --tb=short --maxfail=5
 
   build-wheels:
     name: Build Python wheels (tags)
@@ -115,9 +115,6 @@ jobs:
 
       - name: update changelog
         run: uv run scripts/update-changelog.py
-
-      - name: Sync Python environment (uv)
-        run: uv sync --dev --all-packages
 
       - name: build wheels
         run: uv build --all-packages --wheel

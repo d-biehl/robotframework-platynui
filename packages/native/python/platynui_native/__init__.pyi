@@ -203,22 +203,10 @@ class WindowSurface:
     ) -> None: ...
     def accepts_user_input(self) -> bool | None: ...
 
-class PlatformOverrides:
-    def __init__(self) -> None: ...
-    desktop_info: int | None
-    highlight: int | None
-    screenshot: int | None
-    pointer: int | None
-    keyboard: int | None
-
 class Runtime:
     def __init__(self) -> None: ...
     @staticmethod
-    def new_with_providers(provider_handles: List[int]) -> "Runtime": ...
-    @staticmethod
-    def new_with_providers_and_platforms(
-        provider_handles: List[int], platforms: PlatformOverrides
-    ) -> "Runtime": ...
+    def new_with_mock() -> "Runtime": ...
     def evaluate(
         self, xpath: str, node: "UiNode | None" = ...
     ) -> List[Union[UiNode, EvaluatedAttribute, UiValue]]: ...
@@ -391,7 +379,6 @@ __all__ = [
     "EvaluatedAttribute",
     "Focusable",
     "WindowSurface",
-    "PlatformOverrides",
     # Overrides
     "PointerOverrides",
     "KeyboardOverrides",

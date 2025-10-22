@@ -343,30 +343,6 @@ impl PyWindowSurface {
 
 // ---------------- Runtime wrapper ----------------
 
-// ---------------- Platform Overrides ----------------
-
-/// Platform provider overrides for custom Runtime configurations.
-#[pyclass(name = "PlatformOverrides", module = "platynui_native")]
-pub struct PyPlatformOverrides {
-    #[pyo3(get, set)]
-    pub desktop_info: Option<usize>,
-    #[pyo3(get, set)]
-    pub highlight: Option<usize>,
-    #[pyo3(get, set)]
-    pub screenshot: Option<usize>,
-    #[pyo3(get, set)]
-    pub pointer: Option<usize>,
-    #[pyo3(get, set)]
-    pub keyboard: Option<usize>,
-}
-
-#[pymethods]
-impl PyPlatformOverrides {
-    #[new]
-    fn new() -> Self {
-        Self { desktop_info: None, highlight: None, screenshot: None, pointer: None, keyboard: None }
-    }
-}
 // ---------------- Runtime ----------------
 
 #[pyclass(name = "Runtime", module = "platynui_native")]
@@ -379,6 +355,35 @@ impl PyRuntime {
     #[new]
     fn new() -> PyResult<Self> {
         runtime_rs::Runtime::new().map(|inner| Self { inner }).map_err(map_provider_err)
+    }
+
+    // ---------------- Static builder (mock only) ----------------
+
+    /// Create a Runtime fully backed by the bundled mock provider and mock platform devices.
+    /// Compiles only when built with the `mock-provider` feature.
+    #[staticmethod]
+    fn new_with_mock() -> PyResult<Self> {
+        #[cfg(feature = "mock-provider")]
+        {
+            let factories: [&'static dyn core_rs::provider::UiTreeProviderFactory; 1] =
+                [&platynui_provider_mock::MOCK_PROVIDER_FACTORY];
+            let platforms = runtime_rs::runtime::PlatformOverrides {
+                desktop_info: Some(&platynui_platform_mock::MOCK_PLATFORM),
+                highlight: Some(&platynui_platform_mock::MOCK_HIGHLIGHT),
+                screenshot: Some(&platynui_platform_mock::MOCK_SCREENSHOT),
+                pointer: Some(&platynui_platform_mock::MOCK_POINTER),
+                keyboard: Some(&platynui_platform_mock::MOCK_KEYBOARD),
+            };
+            return runtime_rs::Runtime::new_with_factories_and_platforms(&factories, platforms)
+                .map(|inner| Self { inner })
+                .map_err(map_provider_err);
+        }
+        #[cfg(not(feature = "mock-provider"))]
+        {
+            Err(ProviderError::new_err(
+                "Runtime.new_with_mock() requires building with feature 'mock-provider'",
+            ))
+        }
     }
 
     /// Evaluates an XPath expression; returns a list of items:
@@ -833,7 +838,6 @@ pub fn register_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEvaluationIterator>()?;
     m.add_class::<PyAttribute>()?;
     m.add_class::<PyEvaluatedAttribute>()?;
-    m.add_class::<PyPlatformOverrides>()?;
     m.add_class::<PyPointerOverrides>()?;
     m.add_class::<PyKeyboardOverrides>()?;
     // Create a Python IntEnum for pointer buttons: 1=LEFT, 2=MIDDLE, 3=RIGHT
@@ -855,8 +859,72 @@ pub fn register_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("KeyboardError", py.get_type::<KeyboardError>())?;
     m.add("PatternError", py.get_type::<PatternError>())?;
 
+    // ---- Export mock handles for Python (opaque usize values) ----
+    // These exist for convenience in tests; they are zero when the mock feature is disabled.
+    #[cfg(feature = "mock-provider")]
+    {
+        // Provider factory handle
+        let mock_provider = unsafe {
+            std::mem::transmute::<
+                *const platynui_provider_mock::MockProviderFactory,
+                usize,
+            >(&platynui_provider_mock::MOCK_PROVIDER_FACTORY as *const _)
+        };
+        m.add("MOCK_PROVIDER", mock_provider)?;
+
+        // Platform devices/providers
+        let mock_platform = unsafe {
+            std::mem::transmute::<_, usize>(&platynui_platform_mock::MOCK_PLATFORM as *const _)
+        };
+        let mock_highlight = unsafe {
+            std::mem::transmute::<_, usize>(&platynui_platform_mock::MOCK_HIGHLIGHT as *const _)
+        };
+        let mock_screenshot = unsafe {
+            std::mem::transmute::<_, usize>(&platynui_platform_mock::MOCK_SCREENSHOT as *const _)
+        };
+        let mock_pointer = unsafe {
+            std::mem::transmute::<_, usize>(&platynui_platform_mock::MOCK_POINTER as *const _)
+        };
+        let mock_keyboard = unsafe {
+            std::mem::transmute::<_, usize>(&platynui_platform_mock::MOCK_KEYBOARD as *const _)
+        };
+
+        m.add("MOCK_PLATFORM", mock_platform)?;
+        m.add("MOCK_HIGHLIGHT_PROVIDER", mock_highlight)?;
+        m.add("MOCK_SCREENSHOT_PROVIDER", mock_screenshot)?;
+        m.add("MOCK_POINTER_DEVICE", mock_pointer)?;
+        m.add("MOCK_KEYBOARD_DEVICE", mock_keyboard)?;
+    }
+    #[cfg(not(feature = "mock-provider"))]
+    {
+        m.add("MOCK_PROVIDER", 0usize)?;
+        m.add("MOCK_PLATFORM", 0usize)?;
+        m.add("MOCK_HIGHLIGHT_PROVIDER", 0usize)?;
+        m.add("MOCK_SCREENSHOT_PROVIDER", 0usize)?;
+        m.add("MOCK_POINTER_DEVICE", 0usize)?;
+        m.add("MOCK_KEYBOARD_DEVICE", 0usize)?;
+    }
+
     Ok(())
 }
+
+// ---------------- Handle resolution helpers ----------------
+
+// no handle-based constructors anymore
+
+// no platform override plumbing in Python API
+
+// removed: provider_factory_from_handle
+
+// removed: desktop_info_from_handle
+
+// removed: highlight_from_handle
+
+// removed: screenshot_from_handle
+
+// removed: pointer_from_handle
+
+// removed: keyboard_from_handle
 
 // ---------------- FromPyObject helpers ----------------
 

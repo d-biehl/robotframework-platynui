@@ -27,7 +27,6 @@ __all__ = [  # noqa: F405
     "EvaluatedAttribute",
     "Focusable",
     "WindowSurface",
-    "PlatformOverrides",
     # Overrides
     "PointerOverrides",
     "KeyboardOverrides",
