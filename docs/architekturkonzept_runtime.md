@@ -218,7 +218,7 @@ EN: This section documents the host‑side NodeResolver and the owned evaluation
   - Windows (UIAutomation): `Id ← AutomationId` (`UIA_AutomationIdPropertyId`). Leere Werte werden als „nicht gesetzt“ behandelt.
   - Linux (AT‑SPI2): falls vorhanden `Id ← accessible_id` (Toolkit‑abhängig). Wo nicht verfügbar, bleibt `Id` leer.
   - macOS (AX): `Id ← AXIdentifier` (sofern unterstützt). Fallback: nicht gesetzt.
-  - Application‑Knoten (`app:Application`): empfohlen ist eine plattformtypische, stabile Kennung (z. B. Bundle Identifier auf macOS). Wenn nicht verfügbar, kann ein heuristischer Fallback (z. B. `ProcessName`) verwendet und entsprechend dokumentiert werden.
+  - Application‑Knoten (`app:Application`): empfohlen ist eine plattformtypische, stabile Kennung (z. B. Bundle Identifier auf macOS). Wenn nicht verfügbar, kann ein heuristischer Fallback (z. B. `ProcessName`) verwendet und entsprechend dokumentiert werden. Unter Windows wäre als Alternative zurzeit optional die AppUserModelID (AUMID) nutzbar, die über `SHGetPropertyStoreForWindow(hwnd)`/`PKEY_AppUserModel_ID` ermittelt werden kann; aktuell verwenden wir den Prozessnamen.
 - Verwendung: Für persistente Selektoren sollte – wenn vorhanden – `@control:Id='…'` bevorzugt werden, ggf. in Kombination mit Rolle/Struktur (`//control:*[@Id='login-button']`).
 
 #### UiNode‑Trait – neue Methode `id()`

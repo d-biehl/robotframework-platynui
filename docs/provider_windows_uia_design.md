@@ -68,8 +68,13 @@ UiNode‑Basics (lazy)
 
 ## ApplicationNode (App‑Sicht)
 - `runtime_id()`: `uia://app/<pid>` (scoped URI).
-- `id()`: Prozessname (Executable‑Dateiname ohne Endung) als Fallback für eine stabile Kennung; leer ⇒ `None`.
+- `id()`: aktuell Prozessname (Executable‑Dateiname ohne Endung) als Kennung; leer ⇒ `None`.
 - Attribute: `@control:Id` wird nur emittiert, wenn `id()` gesetzt ist; weitere App‑Attribute wie `ProcessId`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture` bleiben unverändert.
+
+Hinweis (Option): AUMID als Application‑Id
+- Unter Windows kann statt des Prozessnamens auch die Application User Model ID (AUMID) als stabilere Kennung dienen.
+- Ermittlung (high‑level): Main‑Window eines Prozesses bestimmen und über `SHGetPropertyStoreForWindow(hwnd)` den `PKEY_AppUserModel_ID` auslesen.
+- Diese Option ist derzeit nicht aktiv, kann aber später als bevorzugte Id für `app:Application` eingeführt werden, sofern verfügbar (Fallback bleibt der Prozessname).
 
 ## RuntimeId‑Schema (scoped URIs)
 - UIA RuntimeId ist nur zur Laufzeit eindeutig und als Opaque‑Wert zu behandeln. Damit Knoten in unterschiedlichen Sichten (TopLevel vs. App‑Gruppierung) nicht kollidieren, versehen wir die ID mit einem Scope.

@@ -378,10 +378,11 @@ Kurzfassung (EN)
   - [ ] Keine Alias‑Ableitungen nötig (reiner String). Sicherstellen, dass `@control:Id` als `xs:string` atomisiert wird.
 - Provider
   - [x] Windows/UIA: `AutomationId` → `control:Id` übernommen (leere Strings = „nicht gesetzt“). `UiNode::id()` nutzt `CurrentAutomationId()`.
-  - [x] Windows/ApplicationNode: `id()` liefert Prozessname (Executable‑Stem) als Fallback; `@control:Id` wird nur erzeugt, wenn gesetzt.
+  - [x] Windows/ApplicationNode: `id()` liefert Prozessname (Executable‑Stem); `@control:Id` wird nur erzeugt, wenn gesetzt.
   - [ ] AT‑SPI2: falls verfügbar `accessible_id` mappen; ansonsten auslassen (kein Fallback generieren).
   - [ ] macOS/AX: `AXIdentifier` mappen (sofern vorhanden); ansonsten auslassen.
   - [ ] Application‑Knoten: Plattformangemessene, möglichst stabile Kennung (präferiert Bundle Identifier auf macOS). Fallbacks (z. B. `ProcessName`) dokumentieren.
+  - [ ] Windows (Option): AUMID als Application‑Id prüfen und ggf. bevorzugen. Ermittlung über Main‑Window‑Handle → `SHGetPropertyStoreForWindow(hwnd)` → `PKEY_AppUserModel_ID`. Fallback bleibt Prozessname.
 - Tests
   - [ ] Core‑Contracttests: `Id` darf fehlen/leer sein; wenn gesetzt, ist es `xs:string` und nicht sprachabhängig.
   - [ ] Provider‑Tests: Windows/UIA Smoke‑Test, der `AutomationId` → `Id` spiegelt (Mock/Fixture); AT‑SPI2/macOS optional, sobald verfügbar.
