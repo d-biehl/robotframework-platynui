@@ -541,6 +541,12 @@ impl Runtime {
     fn keyboard_device(&self) -> Result<&'static dyn KeyboardDevice, KeyboardError> {
         self.keyboard.ok_or(KeyboardError::NotReady)
     }
+
+    /// Returns the list of known key names exposed by the active keyboard device.
+    pub fn keyboard_known_key_names(&self) -> Result<Vec<String>, KeyboardError> {
+        let device = self.keyboard_device()?;
+        Ok(device.known_key_names())
+    }
 }
 
 impl Drop for Runtime {

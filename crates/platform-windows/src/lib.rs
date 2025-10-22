@@ -11,11 +11,11 @@ mod highlight;
 #[cfg(target_os = "windows")]
 mod init;
 #[cfg(target_os = "windows")]
+mod keyboard;
+#[cfg(target_os = "windows")]
 mod pointer;
 #[cfg(target_os = "windows")]
 mod screenshot;
-#[cfg(target_os = "windows")]
-mod keyboard;
 
 #[cfg(not(target_os = "windows"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

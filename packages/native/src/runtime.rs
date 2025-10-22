@@ -596,6 +596,14 @@ impl PyRuntime {
         Ok(())
     }
 
+    /// Returns the list of known key names supported by the active keyboard device.
+    #[pyo3(text_signature = "(self)")]
+    fn keyboard_known_key_names(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
+        let names = self.inner.keyboard_known_key_names().map_err(|e| PyException::new_err(e.to_string()))?;
+        let list = PyList::new(py, names)?;
+        Ok(list.unbind())
+    }
+
     // ---------------- Desktop & Focus ----------------
 
     /// Returns the desktop root node.

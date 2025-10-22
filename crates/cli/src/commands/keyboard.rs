@@ -1,3 +1,4 @@
+use crate::OutputFormat;
 use clap::{Args, Subcommand};
 use platynui_core::platform::KeyboardOverrides;
 use platynui_runtime::Runtime;
@@ -16,6 +17,8 @@ pub enum KeyboardCommand {
     Type(KeyboardTypeArgs),
     Press(KeyboardSequenceArgs),
     Release(KeyboardSequenceArgs),
+    #[command(name = "list", about = "List known keyboard key names.")]
+    List(KeyboardListArgs),
 }
 
 #[derive(Args)]
@@ -34,6 +37,12 @@ pub struct KeyboardSequenceArgs {
 
     #[command(flatten)]
     overrides: KeyboardOverrideArgs,
+}
+
+#[derive(Args)]
+pub struct KeyboardListArgs {
+    #[arg(long = "format", value_enum, default_value_t = OutputFormat::Text)]
+    pub format: OutputFormat,
 }
 
 #[derive(Args, Default, Clone)]
@@ -61,6 +70,7 @@ pub fn run(runtime: &Runtime, args: &KeyboardArgs) -> CliResult<String> {
         KeyboardCommand::Type(type_args) => run_type(runtime, type_args),
         KeyboardCommand::Press(sequence_args) => run_press(runtime, sequence_args),
         KeyboardCommand::Release(sequence_args) => run_release(runtime, sequence_args),
+        KeyboardCommand::List(list_args) => run_list(runtime, list_args),
     }
 }
 
@@ -123,6 +133,16 @@ fn build_overrides(args: &KeyboardOverrideArgs) -> Option<KeyboardOverrides> {
     }
 
     if overrides.is_empty() { None } else { Some(overrides) }
+}
+
+fn run_list(runtime: &Runtime, args: &KeyboardListArgs) -> CliResult<String> {
+    let mut names = runtime.keyboard_known_key_names().map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    // Ensure stable readable order
+    names.sort_by_key(|a| a.to_ascii_uppercase());
+    match args.format {
+        OutputFormat::Text => Ok(names.join("\n")),
+        OutputFormat::Json => Ok(serde_json::to_string_pretty(&names)?),
+    }
 }
 
 fn parse_millis(value: &str) -> Result<Duration, String> {

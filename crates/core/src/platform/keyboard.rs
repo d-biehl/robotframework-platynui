@@ -215,6 +215,16 @@ pub trait KeyboardDevice: Send + Sync {
     fn end_input(&self) -> Result<(), KeyboardError> {
         Ok(())
     }
+
+    /// Returns a list of supported key names that this device recognizes.
+    ///
+    /// Notes:
+    /// - Implementations may return uppercase names. Callers should compare case‑insensitively.
+    /// - Character input (e.g., letters/digits) may be accepted by `key_to_code` even if not
+    ///   listed here; this function focuses on named (non‑character) keys and well‑known aliases.
+    fn known_key_names(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 pub struct KeyboardRegistration {

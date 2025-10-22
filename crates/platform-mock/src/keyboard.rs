@@ -124,6 +124,27 @@ impl KeyboardDevice for MockKeyboardDevice {
         println!("mock-keyboard: end");
         Ok(())
     }
+
+    fn known_key_names(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        // Include canonical and alias names
+        for entry in NAMED_KEYS {
+            out.push(entry.canonical.to_string());
+            for &alias in entry.aliases {
+                out.push(alias.to_string());
+            }
+        }
+        // Letters and digits as character names
+        for ch in 'A'..='Z' {
+            out.push(ch.to_string());
+        }
+        for ch in '0'..='9' {
+            out.push(ch.to_string());
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
 }
 
 pub static MOCK_KEYBOARD: MockKeyboardDevice = MockKeyboardDevice::new();

@@ -150,8 +150,12 @@ impl KeyboardDevice for WindowsKeyboardDevice {
                             // Right Alt (AltGr) erzeugen, nicht Ctrl+Alt
                             Self::send_vk(KeyState::Press, 0xA5 /* VK_RMENU */)?;
                         } else {
-                            if ctrl { Self::send_vk(KeyState::Press, VK_CONTROL.0 as u16)?; }
-                            if alt { Self::send_vk(KeyState::Press, VK_MENU.0 as u16)?; }
+                            if ctrl {
+                                Self::send_vk(KeyState::Press, VK_CONTROL.0 as u16)?;
+                            }
+                            if alt {
+                                Self::send_vk(KeyState::Press, VK_MENU.0 as u16)?;
+                            }
                         }
                         if shift && !(ctrl_down_now || alt_down_now || altgr) {
                             Self::send_vk(KeyState::Press, VK_SHIFT.0 as u16)?;
@@ -169,8 +173,12 @@ impl KeyboardDevice for WindowsKeyboardDevice {
                         if altgr {
                             let _ = Self::send_vk(KeyState::Release, 0xA5 /* VK_RMENU */ as u16);
                         } else {
-                            if alt { let _ = Self::send_vk(KeyState::Release, VK_MENU.0 as u16); }
-                            if ctrl { let _ = Self::send_vk(KeyState::Release, VK_CONTROL.0 as u16); }
+                            if alt {
+                                let _ = Self::send_vk(KeyState::Release, VK_MENU.0 as u16);
+                            }
+                            if ctrl {
+                                let _ = Self::send_vk(KeyState::Release, VK_CONTROL.0 as u16);
+                            }
                         }
                         r
                     }
@@ -181,6 +189,25 @@ impl KeyboardDevice for WindowsKeyboardDevice {
 
     fn end_input(&self) -> Result<(), KeyboardError> {
         Ok(())
+    }
+
+    fn known_key_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = VK_MAP.keys().cloned().collect();
+        // Also advertise letters A..Z and digits 0..9 as acceptable character names
+        for ch in 'A'..='Z' {
+            let s = ch.to_string();
+            if !names.iter().any(|n| n.eq_ignore_ascii_case(&s)) {
+                names.push(s);
+            }
+        }
+        for ch in '0'..='9' {
+            let s = ch.to_string();
+            if !names.iter().any(|n| n.eq_ignore_ascii_case(&s)) {
+                names.push(s);
+            }
+        }
+        names.sort_unstable();
+        names
     }
 }
 
