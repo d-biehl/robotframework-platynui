@@ -6,5 +6,6 @@ pub mod list_providers;
 pub mod pointer;
 pub mod query;
 pub mod screenshot;
+pub mod snapshot;
 pub mod watch;
 pub mod window;

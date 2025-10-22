@@ -28,6 +28,8 @@ platynui-cli list-providers
 platynui-cli info --format json
 platynui-cli keyboard list | head -n 20   # show first key names
 platynui-cli keyboard type "Hello <Ctrl+A>\u00A7"   # mixed text + chord + unicode
+platynui-cli snapshot "//control:Window" --pretty              # human-readable tree on console
+platynui-cli snapshot "//control:Window" --format xml --output windows.xml  # export as XML
 platynui-inspector
 ```
 

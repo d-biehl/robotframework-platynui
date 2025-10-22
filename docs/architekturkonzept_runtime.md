@@ -417,10 +417,48 @@ Diese Ergänzung fasst den aktuellen Stand der Tastatur-Schnittstellen zusammen 
 ## 12. Nächste Schritte
 > Kurzfristiger Fokus: Windows (UIA) und Linux/X11 (AT-SPI2) werden zuerst umgesetzt; macOS folgt, sobald beide Plattformen stabil laufen.
 
-1. **CLI + Mock-Stack** – Runtime mit `platynui-platform-mock`/`platynui-provider-mock` verdrahten; Befehle `list-providers`, `info`, `query`, `watch`, `highlight`, `screenshot`, `focus`, `window`, `pointer`, `keyboard` sind umgesetzt (Mock-basiert, `rstest`-abgedeckt). Nächste Ausbaustufen betreffen erweiterte Ausgabeformate (`--json`, `--yaml`).
+1. **CLI + Mock-Stack** – Runtime mit `platynui-platform-mock`/`platynui-provider-mock` verdrahten; Befehle `list-providers`, `info`, `query`, `watch`, `highlight`, `screenshot`, `focus`, `window`, `pointer`, `keyboard` sind umgesetzt (Mock-basiert, `rstest`-abgedeckt). Nächste Ausbaustufen betreffen erweiterte Ausgabeformate (`--json`).
 2. **Runtime-Patterns** – Fokus-/WindowSurface-Pattern finalisieren, Mock-Provider/-Tests ergänzen und CLI `window` grundlegend funktionsfähig machen.
 3. **Runtime-Basis** – Plattformunabhängige Mechanismen (`PlatformRegistry`/`PlatformBundle`) fertigstellen.
 4. **Plattform Windows** – Geräte (`platynui-platform-windows`) und UiTree (`platynui-provider-windows-uia`) produktionsreif machen; Fokus-/Highlight-/Screenshot-/Window-Flows mit Windows-spezifischen APIs absichern.
 5. **Plattform Linux/X11** – Geräte (`platynui-platform-linux-x11`) und AT-SPI2-Provider (`platynui-provider-atspi`) umsetzen; X11-spezifische Tests spiegeln.
 6. **Werkzeuge** – CLI um weiterführende Befehle (`dump-node`, `watch`-Skripting) erweitern, Inspector-Prototyp aufsetzen.
 7. **Optionale Erweiterungen** – macOS-Stack, JSON-RPC-Anbindung, Wayland-Support, Performance-/Caching-Themen und Community-Dokumentation.
+# 6. Werkzeuge – CLI Snapshot (Text/XML Export)
+
+Ziel: UI‑Teilbäume exportieren – standardmäßig als lesbarer Text‑Baum, optional als XML (kompatibel zu externen XPath‑Parsern). Der Export ist streaming‑basiert und skaliert für große Bäume.
+
+Kurzüberblick
+- Befehl: `platynui-cli snapshot <XPATH>`
+- Standardausgabe: Text‑Baum auf stdout oder in Datei (`--output`).
+- XML nur mit `--format xml` (siehe unten).
+
+XML‑Export
+- Elementname = Rolle, Präfix = Knoten‑Namespace (`control`, `item`, `app`, `native`).
+- Attribute als XML‑Attribute; komplexe Werte (Rect/Point/Size/Array/Object) als JSON‑String.
+- Kinder in Dokumentreihenfolge als Kindelemente.
+
+Namespaces (fest)
+- `xmlns:control = "urn:platynui:control"`
+- `xmlns:item    = "urn:platynui:item"`
+- `xmlns:app     = "urn:platynui:app"`
+- `xmlns:native  = "urn:platynui:native"`
+
+Wichtige Optionen
+- `--output FILE` (Text oder XML je nach `--format`; bei mehreren XML‑Wurzeln Wrapper `<snapshot>`)
+- `--split PREFIX` (je Root eine Datei; `.txt` für Text, `.xml` für XML)
+- `--max-depth N` (0=nur Wurzel, 1=+Kinder, …)
+- `--attrs default|all|list`, `--include ns:Name[*]`, `--exclude ns:Name[*]`
+- `--exclude-derived` (Alias‑Attribute wie `Bounds.X/Y/…` unterdrücken; Standard = erzeugen, wenn Basisattribut enthalten ist)
+- `--include-runtime-id` (`control:RuntimeId` hinzufügen)
+- `--pretty` (Einrückung/Zeilenumbrüche)
+- `--format text|xml` (Default: `text`)
+- `--no-attrs` (Text nur Struktur, keine Attributzeilen)
+- `--no-color` (Farben aus)
+
+Beispiel (XML, alle Fenster, alle Attribute)
+```
+platynui-cli snapshot "//control:Window" --attrs all --pretty --format xml --output windows.xml
+```
+
+Weitere Details: `docs/cli_snapshot_spec.md`, Umsetzungsplan §23.1.

@@ -18,6 +18,7 @@ use commands::{
     pointer::{self, PointerArgs},
     query::{self, QueryArgs},
     screenshot::{self, ScreenshotArgs},
+    snapshot::{self, SnapshotArgs},
     watch::{self, WatchArgs},
     window::{self, WindowArgs},
 };
@@ -50,6 +51,8 @@ enum Commands {
     },
     #[command(name = "query", about = "Evaluate XPath expressions.")]
     Query(QueryArgs),
+    #[command(name = "snapshot", about = "Export UI subtrees as XML.")]
+    Snapshot(SnapshotArgs),
     #[command(name = "watch", about = "Watch provider events.")]
     Watch(WatchArgs),
     #[command(name = "highlight", about = "Highlight elements matching an XPath expression.")]
@@ -89,6 +92,12 @@ pub fn run() -> CliResult<()> {
         Commands::Query(args) => {
             let output = query::run(&runtime, &args)?;
             println!("{output}");
+        }
+        Commands::Snapshot(args) => {
+            let output = snapshot::run(&runtime, &args)?;
+            if !output.is_empty() {
+                println!("{output}");
+            }
         }
         Commands::Watch(args) => watch::run(&mut runtime, &args)?,
         Commands::Highlight(args) => {

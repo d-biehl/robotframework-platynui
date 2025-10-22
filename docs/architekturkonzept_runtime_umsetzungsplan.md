@@ -254,7 +254,7 @@ Aktualisierung (2025‑10‑21)
 - Linking‑Makros: Dokumentation ergänzt; CLI und Python‑Native verwenden `platynui_link_providers!()` zur OS‑spezifischen Verlinkung.
 - Pointer‑Overrides: CLI/Runtime unterstützen detaillierte Overrides (Bewegungsmodus, Beschleunigungsprofile, Geschwindigkeitsfaktor sowie Schritt-/Zeit‑Parameter für Move/Scroll/Click). Hinweise im Plan ergänzt.
 - UIA‑Details: Best‑effort‑Realize für virtualisierte Items und eine leichte `UiNode::is_valid()`‑Liveness‑Prüfung sind aktiv.
-- Desktop‑Fallback: Bei fehlenden Desktop‑Providern liefert die Runtime einen generischen Fallback‑Desktop (Diagnosezwecke). 
+- Desktop‑Fallback: Bei fehlenden Desktop‑Providern liefert die Runtime einen generischen Fallback‑Desktop (Diagnosezwecke).
 
 Aktuelle Design-Notizen (2025‑09‑30)
 - Keine Actor‑Schicht, kein NodeStore: `UiaNode` wrappt direkt `IUIAutomationElement`.
@@ -318,8 +318,8 @@ Kurzfassung (EN)
   - Für das Python‑Crate selbst Windows‑seitig mit Maturin bauen: `uv run maturin develop --release`.
 
 ### 20. CLI `window` – Windows-Integration
-- [ ] CLI-Kommandos erweitern, um Windows-spezifische Optionen (z. B. Fensterliste mit Prozessinfos) zu nutzen.
-- [ ] Tests: CLI `window` gegen reale Windows-Fenstersteuerung (soweit automatisierbar) bzw. Mock-Abdeckung.
+- [x] Implementiert: Fensterliste mit Status/Capabilities (minimized/maximized/topmost/accepts_user_input) und Bounds; Aktionen: activate/minimize/maximize/restore/close sowie move/resize. Deduplizierte Treffer pro RuntimeId, farbige Textausgabe und klare Fehlertexte bei leeren Treffern.
+- [x] Tests: Mock‑Abdeckung für Listing und Aktionssequenzen inkl. Fehlerpfade; E2E‑Tests auf echtem Windows bleiben optionaler Ausbau.
 
 ### 21. Plattform Linux/X11 – Devices & UiTree
 - [ ] `platynui-platform-linux-x11`: Pointer/Keyboard via XTest oder äquivalente APIs, Screenshot (XShm), Highlight (XComposite), Fenstersteuerung über EWMH/NetWM.
@@ -333,10 +333,25 @@ Kurzfassung (EN)
 - [ ] CLI `window` nutzt X11-spezifische Funktionen (EWMH/NetWM) für Fensterlisten, Move/Resize etc.
 - [ ] Tests: CLI `window` gegen Mock/X11-spezifische Szenarien (soweit automatisierbar).
 
-- ### 23. Werkzeuge
-- [ ] CLI (`crates/platynui-cli`): Erweiterungen für `watch`, `dump-node`, strukturierte Ausgabe (`--json`, `--yaml`), Skript-Integration; ergänzt die MVP-Kommandos (`query`/`highlight`).
+### 23. Werkzeuge
+- [x] CLI: `watch`‑Befehl mit Text/JSON‑Ausgabe und optionaler Query‑Auswertung pro Event (Fan‑out über `ProviderEventDispatcher`).
+- [x] CLI: strukturierte Ausgabe `--json` für `query` umgesetzt.
+- [ ] CLI: `dump-node`.
+- [ ] Skript‑Integration/weitere CLI‑Ergonomie.
 - [ ] Inspector (GUI): Tree-Ansicht mit Namespaces, Property-Panel (Patterns), XPath-Editor, Element-Picker, Highlight; arbeitet wahlweise Embedded oder via JSON-RPC.
 - [ ] Beispiel-Workflows dokumentieren (Readme/Docs): XPath → Highlight, Fokus setzen, Fensterstatus (`accepts_user_input`) ermitteln.
+
+#### 23.1 CLI `snapshot` – XML‑Tree Export (neu)
+- [x] Spezifikation erstellt: `docs/cli_snapshot_spec.md` (Aufruf, XML‑Modell, Filter, Multi‑Root, Beispiele).
+- [x] CLI‑Scaffold: neues Kommando `snapshot` einhängen (Args‑Parser mit Validierung).
+- [x] Streaming‑XML‑Writer: feste Namespaces (`urn:platynui:*`), Elementname=Rolle, Attribute namespace‑qualifiziert; komplexe Werte als JSON‑String.
+- [x] Attribut‑Filter: `--attrs default|all|list`, `--include/--exclude` (Wildcards `*`), `--include-runtime-id`.
+- [x] Alias‑Attribute: standardmäßig erzeugen; per `--exclude-derived` unterdrücken.
+- [x] Tiefenbegrenzung: `--max-depth` (0=Wurzel, 1=+Kinder, …).
+- [x] Multi‑Root: Wrapper `<snapshot>` bei `--output`; Dateisplitting via `--split PREFIX` (sichere Nummerierung, keine Überschreibung).
+- [x] Pretty‑Modus: optionale Einrückung/Zeilenumbrüche (`--pretty`).
+- [x] Tests (Mock): Golden‑Vergleiche für Default/All/Filter/Alias/Depth/Multi‑Root/Pretty; Fehlerfälle (leere Query, ungültige Patterns).
+- [x] Doku: README‑Abschnitt/Beispiele verlinken; `docs/cli_snapshot_spec.md` vom Plan referenzieren.
 
 ### 24. Qualitätssicherung & Prozesse
 - [ ] CI-Pipeline: `cargo fmt --all`, `cargo clippy --all`, `cargo test --workspace`, `uv run ruff check .`, `uv run mypy src/PlatynUI packages/core/src` (sofern Python-Anteile relevant).
