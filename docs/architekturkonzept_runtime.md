@@ -358,6 +358,7 @@ Diese Ergänzung fasst den aktuellen Stand der Tastatur-Schnittstellen zusammen 
   - `KeyboardDevice` stellt `key_to_code(&str)`, `send_key_event(KeyboardEvent)`, optionale `start_input`/`end_input` sowie `known_key_names()` bereit.
   - `known_key_names()` liefert die von der jeweiligen Plattform unterstützten Tastennamen (case‑insensitiv zu vergleichen). Zeichen‑Eingaben (z. B. Buchstaben/Ziffern) können von `key_to_code()` akzeptiert werden, ohne in dieser Liste zu erscheinen.
   - Benennungsregeln: Plattform‑offizielle Namen ohne Präfixe (z. B. Windows ohne `VK_`). Gemeinsame Tasten tragen plattformübergreifend denselben Namen (z. B. `Enter`, `Escape`, `Shift`). Plattformspezifische Tasten nutzen etablierte OS‑Begriffe (`Command`, `Option`, `Windows`, `Super`/`Meta`).
+  - Shortcut‑Syntax: In Shortcut‑Blöcken (`<…>`) kann ein Key entweder ein Name (alphanumerisch/`_`/Escapes) oder ein einzelnes, nicht reserviertes Zeichen sein (z. B. `<Ctrl+#>`, `<Ctrl+Shift+.>`). Reserviert sind `+`, `<`, `>` und Whitespace; hierfür existieren Symbol‑Aliasse (siehe unten).
 
 - Windows‑Spezifika (Provider `platynui-platform-windows`)
   - Benannte VKs: vollständige Map aller `VK_*`‑Konstanten ohne Präfix (`ESCAPE`, `RETURN`, `F24`, `LCTRL`, `RMENU`, …). Links/Rechts‑Aliasse zusätzlich (`LSHIFT/LEFTSHIFT`, `RCTRL/RIGHTCTRL`, `ALTGR/RALT/RIGHTALT`, `LEFTWIN/RIGHTWIN`).

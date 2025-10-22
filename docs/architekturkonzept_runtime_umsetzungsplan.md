@@ -267,13 +267,18 @@ Weitere Details siehe: `docs/provider_windows_uia_design.md`.
 - [x] Extended Keys: Für bekannte Extended‑Keys wird `KEYEVENTF_EXTENDEDKEY` gesetzt (u. a. Right Ctrl/Alt, Insert/Delete/Home/End/PgUp/PgDn, Pfeile, NumLock, Divide, Windows/Menu).
 - [x] Links/Rechts‑Modifier‑Aliasse: `LSHIFT/LEFTSHIFT`, `RSHIFT/RIGHTSHIFT`, `LCTRL/LEFTCTRL/LEFTCONTROL`, `RCTRL/RIGHTCTRL/RIGHTCONTROL`, `LALT/LEFTALT`, `ALTGR/RALT/RIGHTALT`, `LEFTWIN/RIGHTWIN` sind zusätzlich zu den offiziellen Namen verfügbar. Präfix `VK_` wird nicht benötigt und nicht akzeptiert.
 - [x] Symbol‑Aliasse für reservierte Zeichen: `PLUS` (`+`), `MINUS` (`-`), `LESS`/`LT` (`<`), `GREATER`/`GT` (`>`). Implementiert in Mock und Windows; Linux/macOS folgen.
+- [x] Abdeckung weiterer VK‑Gruppen: neben NAVIGATION_* und GAMEPAD_* sind auch regionale/IME‑bezogene Tasten wie `VK_ABNT_C1`, `VK_ABNT_C2` (brasilianisches Layout) und japanische DBE‑Tasten (`VK_DBE_*`) sowie die OEM‑Gruppe (`VK_OEM_*`, inkl. `VK_OEM_102`) aufgenommen. Namen werden ohne `VK_`‑Präfix exponiert.
+- [x] L/R‑Modifier und Synonyme: neben den generischen Modifiers (`Shift`, `Control`, `Alt`, `Windows`) existieren synonyme Links/Rechts‑Bezeichner (`LSHIFT`/`LEFTSHIFT`, `RSHIFT`/`RIGHTSHIFT`, `LCTRL`/`LEFTCTRL`/`LEFTCONTROL`, `RCTRL`/`RIGHTCTRL`/`RIGHTCONTROL`, `LALT`/`LEFTALT`, `RALT`/`RIGHTALT`/`ALTGR`, `LEFTWIN`/`RIGHTWIN`). Diese lösen auf die jeweiligen VK‑Codes (z. B. `VK_LSHIFT`, `VK_RMENU`).
 - [x] Bekannte Namen listen: `KeyboardDevice::known_key_names()` liefert die unterstützten Namen (Union aus `VK_MAP`‑Keys plus `A..Z`/`0..9`). CLI‑Unterbefehl `keyboard list` gibt diese Namen in Text/JSON aus.
 - [ ] Fehlerabbildung (`KeyboardError`) noch verfeinern und, wo sinnvoll, auf Win32‑Fehler (LastError) abstützen.
 - [ ] Tests (Windows‑Host): AltGr‑Szenarien (z. B. `@` via DE‑Layout), Groß-/Kleinschreibung mit/ohne CapsLock, Extended‑Keys und Shortcuts. Ergänzend: Stabilität der Namensliste (CLI/Python).
+- [ ] Tests (VK‑Sondergruppen): OEM‑Tasten (`OEM_*` inkl. `OEM_102`), ABNT‑Tasten (`ABNT_C1/ABNT_C2`) und DBE‑Tasten (`DBE_*`) mindestens „does not crash“ verifizieren; Verhalten ist layout‑/IME‑abhängig.
+- [ ] Option bewerten: `VkKeyScanExW` mit Thread‑Layout (HKL) einsetzen, falls die Layout‑Auflösung im Multi‑Layout‑Szenario unzureichend ist (Feature‑Gate, dokumentierte Abhängigkeit zum aktiven Layout).
 
 Aktualisierung (2025‑10‑22)
 - Implementierung des Windows‑Keyboard‑Devices abgeschlossen und in die Runtime integriert. Neue Runtime‑API `keyboard_known_key_names()` sowie Python‑Binding `Runtime.keyboard_known_key_names()` hinzugefügt. CLI erweitert um `platynui-cli keyboard list [--format text|json]`.
-- Mapping‑Entscheidung: Radikale Trennung der „benannten“ VK‑Tasten (ohne `VK_`‑Präfix) und der zeichenbasierten Eingabe. Für Buchstaben/Ziffern wird nicht über `VK_*`-Konstanten injiziert, sondern über `VkKeyScanW` bzw. Unicode, um Layout‑Korrektheit (AltGr, Dead‑Keys, CapsLock) sicherzustellen.
+- Mapping‑Entscheidung: Radikale Trennung der „benannten“ VK‑Tasten (ohne `VK_`‑Präfix) und der zeichenbasierten Eingabe. Für Buchstaben/Ziffern wird nicht über `VK_*`‑Konstanten injiziert, sondern über `VkKeyScanW` bzw. Unicode, um Layout‑Korrektheit (AltGr, Dead‑Keys, CapsLock) sicherzustellen.
+- Bekannte Einschränkungen: Einige NAVIGATION_*/GAMEPAD_*/OEM/DBE/ABNT‑VKeys erzeugen über `SendInput` keine sichtbare Wirkung in allen Apps/Windows‑Versionen. Wir behandeln diese als Best‑Effort‑Mapping und dokumentieren Abweichungen in Tests/README, sobald Beobachtungen vorliegen.
 - Bekannte offene Punkte: Einsatz von `VkKeyScanExW` mit Thread‑Layout (HKL) evaluieren; optional L/R‑spezifische Modifier bei erzwungener Injektion; Clippy‑Hinweis im CLI (Sortierung) umgesetzt; Cross‑Build‑Hinweis siehe unten.
 
 Kurzfassung (EN)
