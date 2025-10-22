@@ -102,7 +102,6 @@ impl WindowsKeyboardDevice {
 
 impl KeyboardDevice for WindowsKeyboardDevice {
     fn key_to_code(&self, name: &str) -> Result<KeyCode, KeyboardError> {
-        println!("Resolving key code for: {}", name);
         // 1) VK-Namen (ohne Präfix) als Virtual-Key
         if let Some(vk) = Self::name_to_vk(name) {
             return Ok(WinKeyCode::from_vk(vk));
@@ -143,32 +142,35 @@ impl KeyboardDevice for WindowsKeyboardDevice {
             WinKey::CharMapped { vk, shift, ctrl, alt } => {
                 match event.state {
                     KeyState::Press => {
-                        // Consider current modifier state (e.g., shortcuts) to avoid injecting SHIFT with Ctrl/Alt
-                        let ctrl_down = ctrl || Self::is_key_down(VK_CONTROL);
-                        let alt_down = alt || Self::is_key_down(VK_MENU);
-                        if ctrl {
-                            Self::send_vk(KeyState::Press, VK_CONTROL.0 as u16)?;
+                        // Avoid injecting SHIFT with Ctrl/Alt (shortcut contexts)
+                        let ctrl_down_now = Self::is_key_down(VK_CONTROL);
+                        let alt_down_now = Self::is_key_down(VK_MENU);
+                        let altgr = ctrl && alt;
+                        if altgr {
+                            // Right Alt (AltGr) erzeugen, nicht Ctrl+Alt
+                            Self::send_vk(KeyState::Press, 0xA5 /* VK_RMENU */)?;
+                        } else {
+                            if ctrl { Self::send_vk(KeyState::Press, VK_CONTROL.0 as u16)?; }
+                            if alt { Self::send_vk(KeyState::Press, VK_MENU.0 as u16)?; }
                         }
-                        if alt {
-                            Self::send_vk(KeyState::Press, VK_MENU.0 as u16)?;
-                        }
-                        if shift && !(ctrl_down || alt_down) {
+                        if shift && !(ctrl_down_now || alt_down_now || altgr) {
                             Self::send_vk(KeyState::Press, VK_SHIFT.0 as u16)?;
                         }
                         Self::send_vk(KeyState::Press, vk)
                     }
                     KeyState::Release => {
                         let r = Self::send_vk(KeyState::Release, vk);
-                        let ctrl_down = ctrl || Self::is_key_down(VK_CONTROL);
-                        let alt_down = alt || Self::is_key_down(VK_MENU);
-                        if shift && !(ctrl_down || alt_down) {
+                        let ctrl_down_now = Self::is_key_down(VK_CONTROL);
+                        let alt_down_now = Self::is_key_down(VK_MENU);
+                        let altgr = ctrl && alt;
+                        if shift && !(ctrl_down_now || alt_down_now || altgr) {
                             let _ = Self::send_vk(KeyState::Release, VK_SHIFT.0 as u16);
                         }
-                        if alt {
-                            let _ = Self::send_vk(KeyState::Release, VK_MENU.0 as u16);
-                        }
-                        if ctrl {
-                            let _ = Self::send_vk(KeyState::Release, VK_CONTROL.0 as u16);
+                        if altgr {
+                            let _ = Self::send_vk(KeyState::Release, 0xA5 /* VK_RMENU */ as u16);
+                        } else {
+                            if alt { let _ = Self::send_vk(KeyState::Release, VK_MENU.0 as u16); }
+                            if ctrl { let _ = Self::send_vk(KeyState::Release, VK_CONTROL.0 as u16); }
                         }
                         r
                     }
@@ -373,6 +375,27 @@ static VK_MAP: LazyLock<HashMap<String, u16>> = LazyLock::new(|| {
     alias("PRINTSCREEN", VK_SNAPSHOT);
     alias("PRTSC", VK_SNAPSHOT);
     alias("CAPSLOCK", VK_CAPITAL);
+    // AltGr / RightAlt synonyms
+    alias("ALTGR", VK_RMENU);
+    alias("RALT", VK_RMENU);
+    alias("RIGHTALT", VK_RMENU);
+    alias("LALT", VK_MENU);
+    alias("LEFTALT", VK_MENU);
+    // Shift Left/Right
+    alias("LSHIFT", VK_LSHIFT);
+    alias("LEFTSHIFT", VK_LSHIFT);
+    alias("RSHIFT", VK_RSHIFT);
+    alias("RIGHTSHIFT", VK_RSHIFT);
+    // Control Left/Right
+    alias("LCTRL", VK_LCONTROL);
+    alias("LEFTCTRL", VK_LCONTROL);
+    alias("RCTRL", VK_RCONTROL);
+    alias("RIGHTCTRL", VK_RCONTROL);
+    alias("LEFTCONTROL", VK_LCONTROL);
+    alias("RIGHTCONTROL", VK_RCONTROL);
+    // Windows key aliases
+    alias("LEFTWIN", VK_LWIN);
+    alias("RIGHTWIN", VK_RWIN);
 
     // Normalize keys to uppercase for lookups
     let mut upper_map: HashMap<String, u16> = HashMap::new();
