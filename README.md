@@ -26,6 +26,8 @@ Try it:
 ```pwsh
 platynui-cli list-providers
 platynui-cli info --format json
+platynui-cli keyboard list | head -n 20   # show first key names
+platynui-cli keyboard type "Hello <Ctrl+A>\u00A7"   # mixed text + chord + unicode
 platynui-inspector
 ```
 

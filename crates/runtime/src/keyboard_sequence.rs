@@ -279,6 +279,31 @@ mod tests {
     }
 
     #[test]
+    fn parse_shortcut_with_single_char_key() {
+        let input = "<Ctrl+#>";
+        let sequence = KeyboardSequence::parse(input).expect("parse <Ctrl+#>");
+        match &sequence.segments()[0] {
+            SequenceSegment::Shortcut(groups) => {
+                assert_eq!(groups.len(), 1);
+                assert_eq!(groups[0], vec![String::from("Ctrl"), String::from("#")]);
+            }
+            _ => panic!("expected shortcut"),
+        }
+    }
+
+    #[test]
+    fn parse_shortcut_with_shift_and_dot_char() {
+        let input = "<Ctrl+Shift+.>";
+        let sequence = KeyboardSequence::parse(input).expect("parse <Ctrl+Shift+.>");
+        match &sequence.segments()[0] {
+            SequenceSegment::Shortcut(groups) => {
+                assert_eq!(groups[0], vec![String::from("Ctrl"), String::from("Shift"), String::from(".")]);
+            }
+            _ => panic!("expected shortcut"),
+        }
+    }
+
+    #[test]
     fn reject_unfinished_block() {
         let input = "<Ctrl";
         assert!(matches!(KeyboardSequence::parse(input), Err(KeyboardSequenceError::Parse(_))));

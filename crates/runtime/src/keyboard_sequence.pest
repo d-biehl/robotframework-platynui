@@ -14,7 +14,16 @@ combination = { key ~ ("+" ~ key)* }
 
 command_space = _{ " " | "\t" | "\n" | "\r" }
 
-key = @{ ("_" | unicode_alnum | escape)+ }
+// A key inside a shortcut can be either a name (letters/digits/underscore/escapes)
+// or a single, non-reserved character such as '.' or '#'. Reserved characters
+// are '+', '<', '>', and whitespace which delimit combinations and blocks.
+key = @{ key_name | key_char }
+
+key_name = { ("_" | unicode_alnum | escape)+ }
+
+// Accept exactly one visible character that is not a separator or bracket.
+// Examples: '.', '#', ',', ';', ':'
+key_char = { !("+" | "<" | ">" | command_space) ~ ANY }
 
 escape = @{ "\\" ~ (escape_unicode | escape_hex | escape_special | escape_generic) }
 

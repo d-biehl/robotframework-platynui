@@ -14,12 +14,12 @@ def rt_mock_platform() -> Generator[pn.Runtime, None, None]:
     mock desktop info devices for deterministic behavior.
     """
     platforms = pn.PlatformOverrides()
-    # Desktop info via mock platform
-    platforms.desktop_info = pn.MOCK_PLATFORM
-    platforms.highlight = pn.MOCK_HIGHLIGHT_PROVIDER
-    platforms.screenshot = pn.MOCK_SCREENSHOT_PROVIDER
-    platforms.pointer = pn.MOCK_POINTER_DEVICE
-    platforms.keyboard = pn.MOCK_KEYBOARD_DEVICE
+    # # Desktop info via mock platform
+    # platforms.desktop_info = pn.MOCK_PLATFORM
+    # platforms.highlight = pn.MOCK_HIGHLIGHT_PROVIDER
+    # platforms.screenshot = pn.MOCK_SCREENSHOT_PROVIDER
+    # platforms.pointer = pn.MOCK_POINTER_DEVICE
+    # platforms.keyboard = pn.MOCK_KEYBOARD_DEVICE
 
     runtime = pn.Runtime.new_with_providers_and_platforms([pn.MOCK_PROVIDER], platforms)
     try:

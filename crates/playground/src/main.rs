@@ -29,6 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     runtime.keyboard_type("öäüÖÄÜ<Return>", None)?;
                     runtime.keyboard_type("<Up><Delete><Delete><Delete><Delete><Delete><Delete><Delete>", None)?;
                     runtime.keyboard_type("µ@€<Return>", None)?;
+                    runtime.keyboard_type("Hi\nDu\nDa", None)?;
 
                     sleep(Duration::from_millis(500));
                     runtime.keyboard_type("<ESC>", None)?;

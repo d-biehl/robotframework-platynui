@@ -51,9 +51,9 @@ impl WindowsKeyboardDevice {
             _ => false,
         }
     }
-    fn name_to_vk(name: &str) -> Option<u16> {
+    fn name_to_entry(name: &str) -> Option<&KeyName> {
         let upper = name.trim().to_ascii_uppercase();
-        VK_MAP.get(&upper).copied()
+        VK_MAP.get(&upper)
     }
 
     fn send_vk(state: KeyState, vk: u16) -> Result<(), KeyboardError> {
@@ -98,32 +98,54 @@ impl WindowsKeyboardDevice {
     fn is_key_down(vk: VIRTUAL_KEY) -> bool {
         unsafe { (GetKeyState(vk.0 as i32) & (0x8000u16 as i16)) != 0 }
     }
+
+    #[inline]
+    fn char_to_keycode(ch_u16: u16) -> KeyCode {
+        // Try layout-aware mapping first
+        unsafe {
+            let res = VkKeyScanW(ch_u16);
+            if res != -1i16 {
+                let vk = (res & 0xFF) as u16;
+                let shift = ((res >> 8) & 1) != 0;
+                let ctrl = ((res >> 9) & 1) != 0;
+                let alt = ((res >> 10) & 1) != 0;
+                return KeyCode::new(WinKeyCode(WinKey::CharMapped { vk, shift, ctrl, alt }));
+            }
+        }
+        // Fallback to Unicode injection
+        WinKeyCode::from_unicode(ch_u16)
+    }
 }
 
 impl KeyboardDevice for WindowsKeyboardDevice {
     fn key_to_code(&self, name: &str) -> Result<KeyCode, KeyboardError> {
-        // 1) VK-Namen (ohne Präfix) als Virtual-Key
-        if let Some(vk) = Self::name_to_vk(name) {
-            return Ok(WinKeyCode::from_vk(vk));
+        // 1) Benannte Auflösung aus einer gemeinsamen Map: VK(..) oder Char(..)
+        if let Some(entry) = Self::name_to_entry(name) {
+            return Ok(match entry {
+                KeyName::Vk(vk) => WinKeyCode::from_vk(*vk),
+                KeyName::Char(ch) => Self::char_to_keycode(*ch as u16),
+            });
         }
-        // 2) Einzelnes Zeichen → VkKeyScanExW (mit Shift/Alt/Ctrl), Fallback Unicode
+
+        // 2) Einzelnes Zeichen → VkKeyScanW (mit Shift/Alt/Ctrl), Fallback Unicode
         if name.chars().count() == 1 {
             let ch_u16 = name.chars().next().unwrap() as u16;
-            unsafe {
-                let res = VkKeyScanW(ch_u16);
-                if res != -1i16 {
-                    let vk = (res & 0xFF) as u16;
-                    let mut shift = ((res >> 8) & 1) != 0;
-                    let ctrl = ((res >> 9) & 1) != 0;
-                    let alt = ((res >> 10) & 1) != 0;
-                    // CapsLock beeinflusst nur Buchstaben: invertiere SHIFT bei aktivem CapsLock
-                    if ((ch_u16 as u8 as char).is_ascii_alphabetic()) && Self::current_capslock() {
+            // CapsLock beeinflusst nur Buchstaben: invertiere SHIFT bei aktivem CapsLock
+            if ((ch_u16 as u8 as char).is_ascii_alphabetic()) && Self::current_capslock() {
+                // Use VkKeyScanW first, then flip shift bit
+                unsafe {
+                    let res = VkKeyScanW(ch_u16);
+                    if res != -1i16 {
+                        let vk = (res & 0xFF) as u16;
+                        let mut shift = ((res >> 8) & 1) != 0;
+                        let ctrl = ((res >> 9) & 1) != 0;
+                        let alt = ((res >> 10) & 1) != 0;
                         shift = !shift;
+                        return Ok(KeyCode::new(WinKeyCode(WinKey::CharMapped { vk, shift, ctrl, alt })));
                     }
-                    return Ok(KeyCode::new(WinKeyCode(WinKey::CharMapped { vk, shift, ctrl, alt })));
                 }
             }
-            return Ok(WinKeyCode::from_unicode(ch_u16));
+            return Ok(Self::char_to_keycode(ch_u16));
         }
         Err(KeyboardError::UnsupportedKey(name.to_owned()))
     }
@@ -216,15 +238,21 @@ static DEVICE: WindowsKeyboardDevice = WindowsKeyboardDevice;
 register_keyboard_device!(&DEVICE);
 
 // Global VK_* name → VK code mapping (exact VK_* strings only)
-static VK_MAP: LazyLock<HashMap<String, u16>> = LazyLock::new(|| {
+#[derive(Clone, Copy, Debug)]
+enum KeyName {
+    Vk(u16),
+    Char(char),
+}
+
+static VK_MAP: LazyLock<HashMap<String, KeyName>> = LazyLock::new(|| {
     use windows::Win32::UI::Input::KeyboardAndMouse::*;
-    let mut m: HashMap<String, u16> = HashMap::new();
+    let mut m: HashMap<String, KeyName> = HashMap::new();
     // Insert only WITHOUT the VK_ prefix (we don't need VK_* names)
     macro_rules! ins {
         ($name:ident) => {{
             let full = stringify!($name);
             if let Some(no) = full.strip_prefix("VK_") {
-                m.insert(no.to_string(), $name.0 as u16);
+                m.insert(no.to_string(), KeyName::Vk($name.0 as u16));
             }
         }};
     }
@@ -275,6 +303,9 @@ static VK_MAP: LazyLock<HashMap<String, u16>> = LazyLock::new(|| {
     ins!(VK_NONCONVERT);
     ins!(VK_ACCEPT);
     ins!(VK_MODECHANGE);
+    // IME toggles
+    ins!(VK_IME_ON);
+    ins!(VK_IME_OFF);
     // Windows keys/apps
     ins!(VK_LWIN);
     ins!(VK_RWIN);
@@ -350,6 +381,15 @@ static VK_MAP: LazyLock<HashMap<String, u16>> = LazyLock::new(|| {
     ins!(VK_LAUNCH_MEDIA_SELECT);
     ins!(VK_LAUNCH_APP1);
     ins!(VK_LAUNCH_APP2);
+    // Navigation keys (Windows 10+)
+    ins!(VK_NAVIGATION_VIEW);
+    ins!(VK_NAVIGATION_MENU);
+    ins!(VK_NAVIGATION_UP);
+    ins!(VK_NAVIGATION_DOWN);
+    ins!(VK_NAVIGATION_LEFT);
+    ins!(VK_NAVIGATION_RIGHT);
+    ins!(VK_NAVIGATION_ACCEPT);
+    ins!(VK_NAVIGATION_CANCEL);
     // OEM and other specials
     ins!(VK_OEM_1);
     ins!(VK_OEM_PLUS);
@@ -365,6 +405,15 @@ static VK_MAP: LazyLock<HashMap<String, u16>> = LazyLock::new(|| {
     ins!(VK_OEM_8);
     ins!(VK_OEM_AX);
     ins!(VK_OEM_102);
+    ins!(VK_OEM_NEC_EQUAL);
+    ins!(VK_OEM_FJ_JISHO);
+    ins!(VK_OEM_FJ_MASSHOU);
+    ins!(VK_OEM_FJ_TOUROKU);
+    ins!(VK_OEM_FJ_LOYA);
+    ins!(VK_OEM_FJ_ROYA);
+    // Brazilian ABNT keys
+    ins!(VK_ABNT_C1);
+    ins!(VK_ABNT_C2);
     ins!(VK_ICO_HELP);
     ins!(VK_ICO_00);
     ins!(VK_PROCESSKEY);
@@ -378,12 +427,61 @@ static VK_MAP: LazyLock<HashMap<String, u16>> = LazyLock::new(|| {
     ins!(VK_NONAME);
     ins!(VK_PA1);
     ins!(VK_OEM_CLEAR);
+    // Japanese DBE (IME) keys
+    ins!(VK_DBE_ALPHANUMERIC);
+    ins!(VK_DBE_KATAKANA);
+    ins!(VK_DBE_HIRAGANA);
+    ins!(VK_DBE_SBCSCHAR);
+    ins!(VK_DBE_DBCSCHAR);
+    ins!(VK_DBE_ROMAN);
+    ins!(VK_DBE_NOROMAN);
+    ins!(VK_DBE_ENTERWORDREGISTERMODE);
+    ins!(VK_DBE_ENTERIMECONFIGMODE);
+    ins!(VK_DBE_FLUSHSTRING);
+    ins!(VK_DBE_CODEINPUT);
+    ins!(VK_DBE_NOCODEINPUT);
+    ins!(VK_DBE_DETERMINESTRING);
+    ins!(VK_DBE_ENTERDLGCONVERSIONMODE);
+
+    // Gamepad (Windows 10+)
+    ins!(VK_GAMEPAD_A);
+    ins!(VK_GAMEPAD_B);
+    ins!(VK_GAMEPAD_X);
+    ins!(VK_GAMEPAD_Y);
+    ins!(VK_GAMEPAD_RIGHT_SHOULDER);
+    ins!(VK_GAMEPAD_LEFT_SHOULDER);
+    ins!(VK_GAMEPAD_LEFT_TRIGGER);
+    ins!(VK_GAMEPAD_RIGHT_TRIGGER);
+    ins!(VK_GAMEPAD_DPAD_UP);
+    ins!(VK_GAMEPAD_DPAD_DOWN);
+    ins!(VK_GAMEPAD_DPAD_LEFT);
+    ins!(VK_GAMEPAD_DPAD_RIGHT);
+    ins!(VK_GAMEPAD_MENU);
+    ins!(VK_GAMEPAD_VIEW);
+    ins!(VK_GAMEPAD_LEFT_THUMBSTICK_BUTTON);
+    ins!(VK_GAMEPAD_RIGHT_THUMBSTICK_BUTTON);
+    ins!(VK_GAMEPAD_LEFT_THUMBSTICK_UP);
+    ins!(VK_GAMEPAD_LEFT_THUMBSTICK_DOWN);
+    ins!(VK_GAMEPAD_LEFT_THUMBSTICK_RIGHT);
+    ins!(VK_GAMEPAD_LEFT_THUMBSTICK_LEFT);
+    ins!(VK_GAMEPAD_RIGHT_THUMBSTICK_UP);
+    ins!(VK_GAMEPAD_RIGHT_THUMBSTICK_DOWN);
+    ins!(VK_GAMEPAD_RIGHT_THUMBSTICK_RIGHT);
+    ins!(VK_GAMEPAD_RIGHT_THUMBSTICK_LEFT);
 
     // Intentionally NOT inserting VK_0..VK_9 / VK_A..VK_Z here. They are handled via single-char Unicode path.
 
+    // Symbol aliases that map to characters and should be resolved layout-aware via VkKeyScanW
+    m.insert("PLUS".to_string(), KeyName::Char('+'));
+    m.insert("MINUS".to_string(), KeyName::Char('-'));
+    m.insert("LESS".to_string(), KeyName::Char('<'));
+    m.insert("LT".to_string(), KeyName::Char('<'));
+    m.insert("GREATER".to_string(), KeyName::Char('>'));
+    m.insert("GT".to_string(), KeyName::Char('>'));
+
     // Common abbreviations/synonyms
     let mut alias = |key: &str, vk: VIRTUAL_KEY| {
-        m.insert(key.to_string(), vk.0 as u16);
+        m.insert(key.to_string(), KeyName::Vk(vk.0 as u16));
     };
     alias("CTRL", VK_CONTROL);
     alias("CONTROL", VK_CONTROL);
@@ -425,7 +523,7 @@ static VK_MAP: LazyLock<HashMap<String, u16>> = LazyLock::new(|| {
     alias("RIGHTWIN", VK_RWIN);
 
     // Normalize keys to uppercase for lookups
-    let mut upper_map: HashMap<String, u16> = HashMap::new();
+    let mut upper_map: HashMap<String, KeyName> = HashMap::new();
     for (k, v) in m.into_iter() {
         upper_map.insert(k.to_ascii_uppercase(), v);
     }

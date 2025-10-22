@@ -349,6 +349,38 @@ Hinweise & offene Punkte
 1. **CLI (`crates/cli`, Crate `platynui-cli`)** – modularer Satz an Befehlen, die wir schrittweise ausbauen:
    - `list-providers`: registrierte Provider/Technologien anzeigen (Name, Version, Aktiv-Status; Mock → reale Plattformen).
    - `info`: Desktop-/Plattformmetadaten (OS, Auflösung, Monitore) über `DesktopInfoProvider` ausgeben.
+
+## Ergänzung: Keyboard-Device und CLI (Stand 2025-10-22)
+
+Diese Ergänzung fasst den aktuellen Stand der Tastatur-Schnittstellen zusammen und präzisiert Benennungen, Mapping und CLI/Python-APIs.
+
+- Trait und Benennung
+  - `KeyboardDevice` stellt `key_to_code(&str)`, `send_key_event(KeyboardEvent)`, optionale `start_input`/`end_input` sowie `known_key_names()` bereit.
+  - `known_key_names()` liefert die von der jeweiligen Plattform unterstützten Tastennamen (case‑insensitiv zu vergleichen). Zeichen‑Eingaben (z. B. Buchstaben/Ziffern) können von `key_to_code()` akzeptiert werden, ohne in dieser Liste zu erscheinen.
+  - Benennungsregeln: Plattform‑offizielle Namen ohne Präfixe (z. B. Windows ohne `VK_`). Gemeinsame Tasten tragen plattformübergreifend denselben Namen (z. B. `Enter`, `Escape`, `Shift`). Plattformspezifische Tasten nutzen etablierte OS‑Begriffe (`Command`, `Option`, `Windows`, `Super`/`Meta`).
+
+- Windows‑Spezifika (Provider `platynui-platform-windows`)
+  - Benannte VKs: vollständige Map aller `VK_*`‑Konstanten ohne Präfix (`ESCAPE`, `RETURN`, `F24`, `LCTRL`, `RMENU`, …). Links/Rechts‑Aliasse zusätzlich (`LSHIFT/LEFTSHIFT`, `RCTRL/RIGHTCTRL`, `ALTGR/RALT/RIGHTALT`, `LEFTWIN/RIGHTWIN`).
+  - Zeichen: Einzelzeichen werden via `VkKeyScanW` auf `(vk, shift, ctrl, alt)` gemappt; für Buchstaben invertiert aktives CapsLock das Shift‑Bit. Fallback: Unicode‑Injection für unmappbare Zeichen.
+  - AltGr: Wenn `Ctrl+Alt` gemeldet wird, injiziert der Provider `VK_RMENU` (Right Alt) statt eines separaten Ctrl‑/Alt‑Chords.
+  - Extended Keys: bekannte Extended‑VKs setzen `KEYEVENTF_EXTENDEDKEY` (z. B. Right Ctrl/Alt, Insert/Delete/Home/End/PgUp/PgDn, Pfeile, NumLock, Divide, Windows/Menu).
+
+### Symbol‑Aliasse für reservierte Zeichen
+- Motivation: In Shortcut‑Blöcken sind `+`, `<`, `>` und Whitespace reserviert. Statt Escapes (`<Ctrl+\\+>`, `<Ctrl+\\>>`) können symbolische Aliasse verwendet werden.
+- Aliasse: `PLUS` (`+`), `MINUS` (`-`), `LESS`/`LT` (`<`), `GREATER`/`GT` (`>`).
+- Implementierungsstand: Im Mock‑Keyboard und im Windows‑Keyboard implementiert. Für Linux/macOS‑Provider ist die Umsetzung vorgesehen.
+
+- CLI
+  - `keyboard type <SEQUENCE>` – gemischte Eingabe (Text + `<Ctrl+A>` etc.).
+  - `keyboard press <SEQUENCE>` / `keyboard release <SEQUENCE>` – reiner Press/Release‑Modus.
+  - `keyboard list [--format text|json]` – gibt `known_key_names()` des aktiven Keyboard‑Geräts aus.
+  - Alle Kommandos akzeptieren Timing‑Overrides (`--delay-ms`, `--press-delay`, `--release-delay`, `--between-keys-delay`, `--chord-press-delay`, `--chord-release-delay`, `--after-sequence-delay`, `--after-text-delay`).
+
+- Python
+  - `Runtime.keyboard_type(sequence, overrides=None)`
+  - `Runtime.keyboard_press(sequence, overrides=None)` / `Runtime.keyboard_release(sequence, overrides=None)`
+  - Neu: `Runtime.keyboard_known_key_names() -> list[str]` – liefert die vom aktiven Keyboard‑Gerät bekannten Tastennamen (gleiche Quelle wie `keyboard list`).
+
    - `query`: XPath-Auswertung mit Ausgabe als Tabelle oder JSON; optional lassen sich Ergebnisse nach Namespace (`--namespace`) und Patterns (`--pattern`) filtern.
    - Referenzstruktur des Mock-Baums: siehe `crates/provider-mock/assets/mock_tree.xml`; für Tests stellt `platynui-provider-mock` Hilfsfunktionen wie `emit_event(...)`, `emit_node_updated(...)`, `append_text(...)`, `replace_text(...)` und `apply_keyboard_events(...)` bereit. Damit lassen sich gezielt Ereignisse erzeugen oder Texte in Steuerelementen manipulieren, ohne native APIs zu berühren. Der Mock wird nur eingebunden, wenn das Cargo-Feature `mock-provider` aktiviert ist (z. B. `cargo run -p platynui-cli --features mock-provider -- watch --limit 1`).
    - `watch`: Provider-Ereignisse streamen (Text oder JSON), Filter auf Namespace/Pattern/RuntimeId anwenden und optional per `--expression` nach jedem Event eine XPath-Abfrage nachschieben; `--limit` erleichtert automatisierte Tests.

@@ -131,7 +131,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] Tests (`rstest`): Motion-Engine ist durch Runtime-Unit-Tests abgedeckt, CLI-Integration (Move/Click/Scroll) läuft gegen den Mock-Provider und nutzt das Feature-Flag `mock-provider`.
 
 ### 15. Keyboard – Trait & Settings
-- [x] `KeyboardDevice`-Trait in `platynui-core` fixieren (`key_to_code`, `send_key_event(KeyboardEvent)`, `start_input`/`end_input` nur für tastaturspezifische Vor-/Nachbereitung) inkl. Fehler-Typen (`KeyboardError`, `KeyCodeError`).
+- [x] `KeyboardDevice`-Trait in `platynui-core` fixieren (`key_to_code`, `send_key_event(KeyboardEvent)`, `start_input`/`end_input` nur für tastaturspezifische Vor-/Nachbereitung, `known_key_names()`) inkl. Fehler-Typen (`KeyboardError`, `KeyCodeError`).
 - [x] Provider dokumentieren ihre unterstützten Tastennamen konsistent (`Control`, `Shift`, `Alt`, `Enter`, `Escape`, …) und halten sich an etablierte Plattformbezeichnungen (`Command`, `Option`, `Windows`, `Super`, ...).
 - [x] `KeyboardEvent` als schlankes Struct (Felder `KeyCode`, `KeyState`) implementieren; `start_input()` ist optional und trägt keinen zusätzlichen Phasen-Typ mehr.
 - [x] `KeyboardSettings` + `KeyboardOverrides` (Builder) analog zum Pointer-Stack definieren; Defaults aus Legacy-Werten übernehmen.
@@ -148,6 +148,7 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [x] `platynui-platform-mock`: Logging-Keyboard mit Mapping für Buchstaben, Sonderzeichen, Modifier; Utilities `take_keyboard_log`, `reset_keyboard_state` ergänzen.
 - [x] `platynui-provider-mock`: Beispiel-Key-Mapping (`key_to_code`) und Text-Handhabung (z. B. Emojis, IME-Strings) implementieren.
 - [x] CLI-Kommando `keyboard`: Unterbefehle `type`, `press`, `release`; alle nehmen eine komplette Sequenz (z. B. `<Ctrl+A>Hallo`). Bei aktiviertem Mock-Feature schreibt der Plattform-Mock Press/Release-Ereignisse auf stdout; `--delay-ms`/spezifische Override-Flags spiegeln den Pointer-Stil.
+- [x] Zusätzlich: `keyboard list [--format text|json]` gibt die vom aktiven Keyboard‑Device unterstützten Tastennamen zurück (Quelle: `KeyboardDevice::known_key_names()`).
 - [x] Tests (`rstest`): Parser-Unit-Tests, Runtime-Tests sowie CLI-Integration gegen den Mock (Fokus-Pflicht, Fehlerformat). Feature-Flag `mock-provider` berücksichtigen.
 - [x] README/CLI-Hilfe (`--help`) um Keyboard-Beispiele ergänzen.
 
@@ -258,12 +259,25 @@ Aktuelle Design-Notizen (2025‑09‑30)
 Weitere Details siehe: `docs/provider_windows_uia_design.md`.
 
 #### 19.7 Keyboard (`platynui-platform-windows`)
-- [ ] Key-Code-Tabellen und Sequenzauflösung (Press/Release/Type) implementieren, Modifier-Chords und Unicode/IME-Fälle abdecken.
-- [ ] Fehlerabbildung (`KeyboardError`) auf UIA/Win32-Codes abstützen und in Runtime integrieren.
-- [ ] Tests: Sequenzparser-Resolver plus Echtgeräte-Logging (Mock-Vergleich), Dokumentation der unterstützten Key-Namen.
+- [x] Key-Code-Auflösung und Event-Injektion via Win32 `SendInput`/`MapVirtualKeyW` implementiert; Press/Release/Type werden über die Runtime-Sequenzpipeline gespeist.
+- [x] VK‑Namensauflösung: Globale `VK_MAP` mit allen von Windows definierten `VK_*`-Konstanten (ohne Präfix `VK_`, z. B. `ESCAPE`, `RETURN`, `F24`, `LCTRL`, `RMENU`). Buchstaben/Ziffern werden bewusst nicht in die Map aufgenommen, sondern als Einzelzeichen über die Zeichenpfade behandelt.
+  Inklusive neuerer Konstanten: `NAVIGATION_*` und `GAMEPAD_*` (Windows 10+). Aliasse für reservierte Zeichen: `PLUS`, `MINUS`, `LESS`/`LT`, `GREATER`/`GT`.
+- [x] Zeichenpfad: Einzelne Zeichen werden mit `VkKeyScanW` auf `(vk, shift, ctrl, alt)` gemappt; für Buchstaben wird bei aktivem CapsLock das Shift‑Bit invertiert. Fallback auf Unicode‑Injection (`KEYEVENTF_UNICODE`) für Zeichen ohne Mapping.
+- [x] AltGr: Wenn `VkKeyScanW` `Ctrl+Alt` signalisiert, injiziert der Provider stattdessen `VK_RMENU` (Right Alt) anstelle eines getrennten `Ctrl+Alt`‑Chords (entspricht gängiger Windows‑Semantik für AltGr).
+- [x] Extended Keys: Für bekannte Extended‑Keys wird `KEYEVENTF_EXTENDEDKEY` gesetzt (u. a. Right Ctrl/Alt, Insert/Delete/Home/End/PgUp/PgDn, Pfeile, NumLock, Divide, Windows/Menu).
+- [x] Links/Rechts‑Modifier‑Aliasse: `LSHIFT/LEFTSHIFT`, `RSHIFT/RIGHTSHIFT`, `LCTRL/LEFTCTRL/LEFTCONTROL`, `RCTRL/RIGHTCTRL/RIGHTCONTROL`, `LALT/LEFTALT`, `ALTGR/RALT/RIGHTALT`, `LEFTWIN/RIGHTWIN` sind zusätzlich zu den offiziellen Namen verfügbar. Präfix `VK_` wird nicht benötigt und nicht akzeptiert.
+- [x] Symbol‑Aliasse für reservierte Zeichen: `PLUS` (`+`), `MINUS` (`-`), `LESS`/`LT` (`<`), `GREATER`/`GT` (`>`). Implementiert in Mock und Windows; Linux/macOS folgen.
+- [x] Bekannte Namen listen: `KeyboardDevice::known_key_names()` liefert die unterstützten Namen (Union aus `VK_MAP`‑Keys plus `A..Z`/`0..9`). CLI‑Unterbefehl `keyboard list` gibt diese Namen in Text/JSON aus.
+- [ ] Fehlerabbildung (`KeyboardError`) noch verfeinern und, wo sinnvoll, auf Win32‑Fehler (LastError) abstützen.
+- [ ] Tests (Windows‑Host): AltGr‑Szenarien (z. B. `@` via DE‑Layout), Groß-/Kleinschreibung mit/ohne CapsLock, Extended‑Keys und Shortcuts. Ergänzend: Stabilität der Namensliste (CLI/Python).
 
-Status (2025‑10‑10)
-- Parser/Resolver und CLI‑Kommandos sind vorhanden; das Windows‑Keyboard‑Device (SendInput/MapVirtualKeyEx) ist noch nicht implementiert.
+Aktualisierung (2025‑10‑22)
+- Implementierung des Windows‑Keyboard‑Devices abgeschlossen und in die Runtime integriert. Neue Runtime‑API `keyboard_known_key_names()` sowie Python‑Binding `Runtime.keyboard_known_key_names()` hinzugefügt. CLI erweitert um `platynui-cli keyboard list [--format text|json]`.
+- Mapping‑Entscheidung: Radikale Trennung der „benannten“ VK‑Tasten (ohne `VK_`‑Präfix) und der zeichenbasierten Eingabe. Für Buchstaben/Ziffern wird nicht über `VK_*`-Konstanten injiziert, sondern über `VkKeyScanW` bzw. Unicode, um Layout‑Korrektheit (AltGr, Dead‑Keys, CapsLock) sicherzustellen.
+- Bekannte offene Punkte: Einsatz von `VkKeyScanExW` mit Thread‑Layout (HKL) evaluieren; optional L/R‑spezifische Modifier bei erzwungener Injektion; Clippy‑Hinweis im CLI (Sortierung) umgesetzt; Cross‑Build‑Hinweis siehe unten.
+
+Kurzfassung (EN)
+- Windows keyboard device implemented (SendInput, VkKeyScan). Complete VK name map (without `VK_` prefix), AltGr as `VK_RMENU`, extended‑key flagging, known key names exposed to CLI/Python. Remaining: refine error mapping, verify AltGr on DE layout, consider VkKeyScanExW.
 
 
 #### 19.8 Fokus & WindowSurface via UIA
@@ -285,6 +299,13 @@ Status (2025‑10‑10)
 - [ ] Gemeinsame Tests (Provider vs. Mock) für Bounds, ActivationPoint, Sichtbarkeit/Enabled, Fokuswechsel und WindowSurface-Aktionen etablieren.
 - [ ] Abweichungen der UIA-API dokumentieren und Regression-Playbooks festlegen.
 - [ ] Test-Infrastruktur (z. B. Windows-spezifischer CI-Job) entwerfen oder vorhandene Plattformen anpassen.
+
+##### Cross-Build (Hinweis)
+- Der komplette Workspace enthält das Python‑FFI‑Crate `platynui_native` (Maturin/PyO3). Ein Cross‑Build des gesamten Workspaces nach `x86_64-pc-windows-gnu` schlägt ohne passende Python‑Dev‑Umgebung i. d. R. fehl (fehlendes `-lpython3*`).
+- Workarounds:
+  - Nur die relevanten Crates bauen: z. B. `cargo build -p platynui-platform-windows -p platynui-provider-windows-uia --target x86_64-pc-windows-gnu`.
+  - Alternativ den Workspace‑Build ohne Python‑Crate ausführen: `cargo build --workspace --exclude platynui_native --target x86_64-pc-windows-gnu`.
+  - Für das Python‑Crate selbst Windows‑seitig mit Maturin bauen: `uv run maturin develop --release`.
 
 ### 20. CLI `window` – Windows-Integration
 - [ ] CLI-Kommandos erweitern, um Windows-spezifische Optionen (z. B. Fensterliste mit Prozessinfos) zu nutzen.

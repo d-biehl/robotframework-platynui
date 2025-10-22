@@ -67,6 +67,9 @@ impl MockKeyboardDevice {
 
 impl KeyboardDevice for MockKeyboardDevice {
     fn key_to_code(&self, name: &str) -> Result<KeyCode, KeyboardError> {
+        if let Some(code) = resolve_symbol_alias(name) {
+            return Ok(code);
+        }
         if let Some(code) = resolve_named_key(name) {
             return Ok(code);
         }
@@ -133,6 +136,10 @@ impl KeyboardDevice for MockKeyboardDevice {
             for &alias in entry.aliases {
                 out.push(alias.to_string());
             }
+        }
+        // Symbol aliases for reserved shortcut characters
+        for sym in SYMBOL_ALIASES.iter().map(|s| s.name) {
+            out.push(sym.to_string());
         }
         // Letters and digits as character names
         for ch in 'A'..='Z' {
@@ -224,6 +231,29 @@ fn resolve_named_key(input: &str) -> Option<KeyCode> {
     })
 }
 
+struct SymbolAlias {
+    name: &'static str,
+    ch: char,
+    // optional alternates (e.g., LT for LESS)
+    aliases: &'static [&'static str],
+}
+
+const SYMBOL_ALIASES: &[SymbolAlias] = &[
+    SymbolAlias { name: "PLUS", ch: '+', aliases: &[] },
+    SymbolAlias { name: "MINUS", ch: '-', aliases: &[] },
+    SymbolAlias { name: "LESS", ch: '<', aliases: &["LT"] },
+    SymbolAlias { name: "GREATER", ch: '>', aliases: &["GT"] },
+];
+
+fn resolve_symbol_alias(input: &str) -> Option<KeyCode> {
+    for sym in SYMBOL_ALIASES {
+        if sym.name.eq_ignore_ascii_case(input) || sym.aliases.iter().any(|a| a.eq_ignore_ascii_case(input)) {
+            return Some(KeyCode::new(MockKeyCode::character(sym.ch)));
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,6 +292,16 @@ mod tests {
         let letter = device.key_to_code("a").expect("character resolves");
         assert!(letter.downcast_ref::<MockKeyCode>().is_some());
         assert!(device.key_to_code("<unknown>").is_err());
+    }
+
+    #[rstest]
+    fn symbol_aliases_produce_characters() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let device = &MOCK_KEYBOARD;
+        let plus = device.key_to_code("PLUS").expect("PLUS resolves");
+        assert_eq!(plus.downcast_ref::<MockKeyCode>().unwrap().display_name(), "+");
+        let lt = device.key_to_code("LT").expect("LT resolves");
+        assert_eq!(lt.downcast_ref::<MockKeyCode>().unwrap().display_name(), "<");
     }
 
     #[rstest]

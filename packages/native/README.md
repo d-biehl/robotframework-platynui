@@ -29,6 +29,7 @@ API overview
 - Module layout
   - `platynui_native.core`: `Point`/`Size`/`Rect`, `Namespace`, IDs, `attribute_names()`
   - `platynui_native.runtime`: `Runtime`, `UiNode`, `UiAttribute`, `EvaluatedAttribute`, pointer/keyboard methods
+  - New: `Runtime.keyboard_known_key_names()` returns a list of supported key names from the active keyboard device.
 
 - Creating a Runtime
   - `rt = runtime.Runtime()`
@@ -82,6 +83,10 @@ rt.pointer_drag(core.Point(10, 10), core.Point(180, 140), button=runtime.Pointer
 rt.keyboard_type("Hello", overrides=runtime.KeyboardOverrides(between_keys_delay_ms=5))
 rt.keyboard_press("<Ctrl+C>")
 rt.keyboard_release("<Ctrl+C>")
+
+# Inspect available key names from the active device
+names = rt.keyboard_known_key_names()
+print(names[:20])
 ```
 
 Notes
