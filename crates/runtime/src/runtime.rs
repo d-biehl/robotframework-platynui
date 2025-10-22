@@ -386,7 +386,7 @@ impl Runtime {
 
     pub fn pointer_click(
         &self,
-        point: Point,
+        target: Option<Point>,
         button: Option<PointerButton>,
         overrides: Option<PointerOverrides>,
     ) -> Result<(), PointerError> {
@@ -395,12 +395,12 @@ impl Runtime {
         let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
         engine.set_desktop_bounds(bounds);
         let overrides_ref = overrides.as_ref();
-        engine.click(point, button, overrides_ref)
+        engine.click(target, button, overrides_ref)
     }
 
     pub fn pointer_multi_click(
         &self,
-        point: Point,
+        target: Option<Point>,
         button: Option<PointerButton>,
         clicks: u32,
         overrides: Option<PointerOverrides>,
@@ -410,7 +410,7 @@ impl Runtime {
         let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
         engine.set_desktop_bounds(bounds);
         let overrides_ref = overrides.as_ref();
-        engine.multi_click(point, button, clicks, overrides_ref)
+        engine.multi_click(target, button, clicks, overrides_ref)
     }
 
     pub fn pointer_press(
@@ -433,6 +433,7 @@ impl Runtime {
 
     pub fn pointer_release(
         &self,
+        target: Option<Point>,
         button: Option<PointerButton>,
         overrides: Option<PointerOverrides>,
     ) -> Result<(), PointerError> {
@@ -442,6 +443,9 @@ impl Runtime {
         engine.set_desktop_bounds(bounds);
         let overrides_ref = overrides.as_ref();
         let resolved_button = button.unwrap_or_else(|| engine.default_button());
+        if let Some(point) = target {
+            engine.move_to(point, overrides_ref)?;
+        }
         engine.release(resolved_button, overrides_ref)
     }
 
@@ -1634,7 +1638,7 @@ mod tests {
         let runtime = rt_runtime_platform;
         configure_pointer_for_tests(&runtime);
 
-        runtime.pointer_click(Point::new(10.0, 10.0), None, Some(zero_overrides())).expect("click succeeds");
+        runtime.pointer_click(Some(Point::new(10.0, 10.0)), None, Some(zero_overrides())).expect("click succeeds");
 
         let log = take_pointer_log();
         assert!(log.iter().any(|event| matches!(event, PointerLogEntry::Press(PointerButton::Left))));
@@ -1649,7 +1653,7 @@ mod tests {
         configure_pointer_for_tests(&runtime);
 
         runtime
-            .pointer_multi_click(Point::new(20.0, 20.0), Some(PointerButton::Right), 3, Some(zero_overrides()))
+            .pointer_multi_click(Some(Point::new(20.0, 20.0)), Some(PointerButton::Right), 3, Some(zero_overrides()))
             .expect("multi-click succeeds");
 
         let log = take_pointer_log();
@@ -1667,7 +1671,8 @@ mod tests {
         let runtime = rt_runtime_platform;
         configure_pointer_for_tests(&runtime);
 
-        let error = runtime.pointer_multi_click(Point::new(5.0, 5.0), None, 0, Some(zero_overrides())).unwrap_err();
+        let error =
+            runtime.pointer_multi_click(Some(Point::new(5.0, 5.0)), None, 0, Some(zero_overrides())).unwrap_err();
         match error {
             PointerError::InvalidClickCount { provided } => assert_eq!(provided, 0),
             other => panic!("unexpected error: {other}"),

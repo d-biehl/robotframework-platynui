@@ -3,7 +3,7 @@
 All types are directly exported from the native extension module.
 """
 
-from typing import Any, List, Tuple, Literal, Union, Dict, TypeAlias, Iterable
+from typing import Any, List, Tuple, Literal, Union, Dict, Iterable, TypeAlias
 import enum as _enum
 
 # ===== Core Types =====
@@ -122,7 +122,6 @@ JSONLike: TypeAlias = Union[Dict[str, Any], List[Any]]
 Complex: TypeAlias = Union[Point, Size, Rect]
 UiValue: TypeAlias = Union[Primitive, JSONLike, Complex]
 
-PointLike: TypeAlias = Point
 OriginLike: TypeAlias = Union[Literal["desktop"], Point, Rect]
 ScrollDeltaLike: TypeAlias = Tuple[float, float]
 
@@ -223,39 +222,40 @@ class Runtime:
     def focus(self, node: UiNode) -> None: ...
     def pointer_position(self) -> Point: ...
     def pointer_move_to(
-        self, point: PointLike, /, overrides: "PointerOverrides | None" = ...
+        self, point: Point, /, overrides: "PointerOverrides | None" = ...
     ) -> Point: ...
     def pointer_click(
         self,
-        point: PointLike,
+        point: Point | None = ...,
         /,
         button: ButtonLike | None = ...,
         overrides: "PointerOverrides | None" = ...,
     ) -> None: ...
     def pointer_multi_click(
         self,
-        point: PointLike,
+        point: Point | None = ...,
         /,
-        clicks: int,
+        clicks: int = 2,
         button: ButtonLike | None = ...,
         overrides: "PointerOverrides | None" = ...,
     ) -> None: ...
     def pointer_drag(
         self,
-        start: PointLike,
+        start: Point,
         /,
-        end: PointLike,
+        end: Point,
         button: ButtonLike | None = ...,
         overrides: "PointerOverrides | None" = ...,
     ) -> None: ...
     def pointer_press(
         self,
-        point: PointLike | None = ...,
+        point: Point | None = ...,
         button: ButtonLike | None = ...,
         overrides: "PointerOverrides | None" = ...,
     ) -> None: ...
     def pointer_release(
         self,
+        point: Point | None = ...,
         button: ButtonLike | None = ...,
         overrides: "PointerOverrides | None" = ...,
     ) -> None: ...
@@ -401,7 +401,6 @@ __all__ = [
     "JSONLike",
     "Complex",
     "UiValue",
-    "PointLike",
     "OriginLike",
     "ScrollDeltaLike",
     "ButtonLike",

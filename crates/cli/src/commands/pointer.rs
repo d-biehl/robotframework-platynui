@@ -71,7 +71,7 @@ pub struct PointerMultiClickArgs {
     pub point: Option<Point>,
     #[arg(long = "button", default_value = "left", value_parser = parse_pointer_button_arg, help = "Mouse button (left/right/middle or numeric code).")]
     pub button: PointerButton,
-    #[arg(long = "count", default_value_t = 2, value_parser = parse_click_count, help = "Number of clicks (>=2).")]
+    #[arg(long = "count", default_value_t = 2, value_parser = parse_click_count, help = "Number of clicks (>=2, default: 2).")]
     pub count: u32,
     #[arg(long = "no-move", help = "Perform the clicks without moving the pointer.")]
     pub no_move: bool,
@@ -239,9 +239,8 @@ fn run_move(runtime: &Runtime, args: &PointerMoveArgs) -> CliResult<String> {
 fn run_click(runtime: &Runtime, args: &PointerClickArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
     let element_info = if args.no_move {
-        // Do not move: perform press+release at current location
-        runtime.pointer_press(None, Some(args.button), overrides.clone()).map_err(map_pointer_error)?;
-        runtime.pointer_release(Some(args.button), overrides).map_err(map_pointer_error)?;
+        // Do not move: single click at current position
+        runtime.pointer_click(None, Some(args.button), overrides).map_err(map_pointer_error)?;
         None
     } else {
         let (target, info) = match (&args.expression, &args.point) {
@@ -252,7 +251,7 @@ fn run_click(runtime: &Runtime, args: &PointerClickArgs) -> CliResult<String> {
             (None, Some(p)) => (*p, None),
             (None, None) => anyhow::bail!("either --expr or a point must be provided"),
         };
-        runtime.pointer_click(target, Some(args.button), overrides).map_err(map_pointer_error)?;
+        runtime.pointer_click(Some(target), Some(args.button), overrides).map_err(map_pointer_error)?;
         info
     };
     if let Some(info) = element_info { Ok(format!("Clicked on element: {}", info)) } else { Ok(String::new()) }
@@ -261,10 +260,7 @@ fn run_click(runtime: &Runtime, args: &PointerClickArgs) -> CliResult<String> {
 fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
     let element_info = if args.no_move {
-        for _ in 0..args.count {
-            runtime.pointer_press(None, Some(args.button), overrides.clone()).map_err(map_pointer_error)?;
-            runtime.pointer_release(Some(args.button), overrides.clone()).map_err(map_pointer_error)?;
-        }
+        runtime.pointer_multi_click(None, Some(args.button), args.count, overrides).map_err(map_pointer_error)?;
         None
     } else {
         let (target, info) = match (&args.expression, &args.point) {
@@ -275,7 +271,9 @@ fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs) -> CliResult
             (None, Some(p)) => (*p, None),
             (None, None) => anyhow::bail!("either --expr or a point must be provided"),
         };
-        runtime.pointer_multi_click(target, Some(args.button), args.count, overrides).map_err(map_pointer_error)?;
+        runtime
+            .pointer_multi_click(Some(target), Some(args.button), args.count, overrides)
+            .map_err(map_pointer_error)?;
         info
     };
     if let Some(info) = element_info {
@@ -305,18 +303,25 @@ fn run_press(runtime: &Runtime, args: &PointerPressArgs) -> CliResult<String> {
 
 fn run_release(runtime: &Runtime, args: &PointerReleaseArgs) -> CliResult<String> {
     let overrides = build_overrides(runtime, &args.overrides)?;
-    let element_info = if !args.no_move {
+    let target = if !args.no_move {
         if let Some(expr) = &args.expression {
-            let (target, node) = resolve_point_and_node_from_expr(runtime, expr)?;
-            let _ = runtime.pointer_move_to(target, overrides.clone()).map_err(map_pointer_error)?;
-            Some(format_element_info(&node))
+            let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+            let _ = node; // info rendered below
+            Some(point)
         } else {
             None
         }
     } else {
         None
     };
-    runtime.pointer_release(Some(args.button), overrides).map_err(map_pointer_error)?;
+    let element_info = if target.is_some() && args.expression.is_some() {
+        // We resolved node earlier, recompute for label
+        let (_, node) = resolve_point_and_node_from_expr(runtime, args.expression.as_ref().unwrap())?;
+        Some(format_element_info(&node))
+    } else {
+        None
+    };
+    runtime.pointer_release(target, Some(args.button), overrides).map_err(map_pointer_error)?;
     if let Some(info) = element_info {
         Ok(format!("Released mouse button on element: {}", info))
     } else {

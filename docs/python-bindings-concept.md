@@ -50,7 +50,9 @@ This document proposes a clean, future‑proof design for Python bindings to Pla
   - `highlight(rects: core.Rect | Iterable[core.Rect], duration_ms: float | None = None)`
   - `clear_highlight()`
   - `screenshot(rect: core.Rect | None = None, mime_type: str | None = None) -> bytes` — aktuell nur `image/png`
-  - Pointer ops: `pointer_position`, `pointer_move_to`, `pointer_click`, `pointer_multi_click`, `pointer_drag`, `pointer_press`, `pointer_release`, `pointer_scroll`
+- Pointer ops: `pointer_position`, `pointer_move_to`, `pointer_click`, `pointer_multi_click`, `pointer_drag`, `pointer_press`, `pointer_release`, `pointer_scroll`
+  - Optional-Zielpunkte: `pointer_click/multi_click/press/release` akzeptieren `point: core.Point | None`. Bei `None` erfolgt kein Move; die Aktion läuft an der aktuellen Mausposition.
+  - Standard für Multi‑Click: `clicks=2`.
   - Keyboard ops: `keyboard_type`, `keyboard_press`, `keyboard_release`
 - `UiNode` (wraps `Arc<dyn UiNode>`)
   - Properties: `runtime_id`, `name`, `role`, `namespace`
@@ -63,18 +65,8 @@ This document proposes a clean, future‑proof design for Python bindings to Pla
 ## Type Conversion Strategy
 
 ### Flexible Inputs via `FromPyObject`
-- Use `#[derive(FromPyObject)]` to accept ergonomic Python arguments where it improves DX, but keep shapes explicit and consistent with typing stubs:
-
-```rust
-#[derive(FromPyObject)]
-enum PointLike<'py> {
-    Core(PyRef<'py, crate::core::Point>),
-}
-
-impl From<PointLike<'_>> for platynui_core::types::Point { /* map to core::Point */ }
-```
-
-- Apply the same pattern for rectangles, sizes, optional overrides, etc. Use `#[pyo3(from_py_with = "...")]` where custom parsing helps.
+- Für die meisten Werte setzen wir auf explizite Klassen statt Union‑Shortcuts. Punkte werden direkt als `core.Point` übergeben (keine Tuple‑Kurzform). Optionalität wird über `None` abgebildet (z. B. `pointer_click(point=None, ...)`).
+- Für andere Parametertypen, bei denen es Sinn ergibt (z. B. ButtonLike als `int|Enum`, `RectLike` als Tuple oder Klasse), nutzen wir weiterhin kleine `FromPyObject`‑Helper.
 
 ### Outbound Values
 - Convert Rust `UiValue` to Python natively (`UiValue` in Python):
@@ -183,7 +175,7 @@ packages/
 ## Phased Implementation Plan
 1. Scaffold `packages/native` (maturin, PyO3, submodules) and minimal `core` types (Point/Size/Rect, IDs, Namespace, `attribute_names()`).
 2. Implement `Runtime.new()` and `evaluate()` in `platynui_native.runtime`, including conversions (`UiValue` → Python types) and a basic `Node` wrapper.
-3. Add pointer/keyboard methods with `FromPyObject` helpers (`PointLike`, overrides), plus error mapping.
+3. Add pointer/keyboard methods; keep points explicit (`core.Point`), continue using `FromPyObject` only where it adds value (e.g., ButtonLike, Rect tuples), plus error mapping.
 4. Author initial `.pyi` stubs for `core` and `runtime`; add wrapper stubs (optional).
 5. Add `packages/core` as pure‑Python wrapper (if chosen), re‑exporting `core` symbols; document imports.
 6. CI: maturin wheel builds (per OS/arch), Python type checks (mypy/pyright), linters (ruff), Rust fmt/lints/tests.
@@ -236,7 +228,7 @@ The first slice is implemented under `packages/native` and usable for local dev 
   - Overrides: `KeyboardOverrides` Klasse (nur Klasse); read‑only Properties
 
 ### FromPyObject Ergonomics
-- Points/Rects: `PointLike = core.Point` (keine Tuple‑Kurzform)
+- Points: nur `core.Point` (keine Tuple‑Kurzform); optional über `None` in APIs, die keinen Move ausführen sollen.
 - Scroll delta: `ScrollLike = (float, float)`
 - Buttons: `PointerButtonLike = str('left'|'middle'|'right') | int` (int maps to `Other(n)`)
 - Origins: `OriginInput = 'desktop' | core.Point | core.Rect` (keine Dict/Tuple‑Formen)
@@ -245,7 +237,7 @@ The first slice is implemented under `packages/native` and usable for local dev 
 
 ### Typing (.pyi)
 - `core.pyi`: `Point/Size/Rect`, IDs, `Namespace`, helpers
-- `runtime.pyi`: `UiNode`, `UiAttribute`, `EvaluatedAttribute`, `Runtime`, `PointerOverrides`, `KeyboardOverrides`, `PointerButton` enum; kompakte Signaturen mit `PointLike`, `ButtonLike` etc.
+- `runtime.pyi`: `UiNode`, `UiAttribute`, `EvaluatedAttribute`, `Runtime`, `PointerOverrides`, `KeyboardOverrides`, `PointerButton` enum; kompakte Signaturen mit `Point`, `ButtonLike` etc.
 
 ### Tests
 - `packages/native/tests/test_runtime_basic.py`

@@ -75,6 +75,9 @@ rt.pointer_move_to(core.Point(100, 200), overrides=ov)
 rt.pointer_click(core.Point(100, 200), button=runtime.PointerButton.LEFT,
                  overrides=runtime.PointerOverrides(multi_click_delay_ms=240))
 
+# Click at current pointer position (no move)
+rt.pointer_click(None, button=runtime.PointerButton.LEFT)
+
 # Drag with relative origin
 rt.pointer_drag(core.Point(10, 10), core.Point(180, 140), button=runtime.PointerButton.LEFT,
                 overrides=runtime.PointerOverrides(origin=core.Rect(50, 60, 200, 200)))
@@ -224,3 +227,4 @@ uv run maturin develop -m packages/native/Cargo.toml --features mock-provider
 - If `maturin` complains about the manifest path, always pass `-m packages/native/Cargo.toml` for mixed projects.
 - If your shell shows a VIRTUAL_ENV mismatch, prefer `uv run --active ...` to target the active environment explicitly.
 ```
+- Multi‑click: `Runtime.pointer_multi_click(point=None, clicks=2, ...)` uses 2 clicks by default.

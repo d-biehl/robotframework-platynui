@@ -485,10 +485,10 @@ impl PyRuntime {
     fn pointer_move_to(
         &self,
         py: Python<'_>,
-        point: PointLike,
+        point: PyRef<'_, crate::core::PyPoint>,
         overrides: Option<PyRef<'_, PyPointerOverrides>>,
     ) -> PyResult<Py<PyPoint>> {
-        let p: core_rs::types::Point = point.into();
+        let p: core_rs::types::Point = point.as_inner();
         let ov = overrides.map(|o| o.inner.clone());
         let new_pos = self.inner.pointer_move_to(p, ov).map_err(map_pointer_err)?;
         Py::new(py, PyPoint::from(new_pos))
@@ -498,11 +498,11 @@ impl PyRuntime {
     #[pyo3(signature = (point, button=None, overrides=None), text_signature = "(self, point, button=None, overrides=None)")]
     fn pointer_click(
         &self,
-        point: PointLike,
+        point: Option<PyRef<'_, crate::core::PyPoint>>,
         button: Option<PointerButtonLike>,
         overrides: Option<PyRef<'_, PyPointerOverrides>>,
     ) -> PyResult<()> {
-        let p: core_rs::types::Point = point.into();
+        let p: Option<core_rs::types::Point> = point.map(|r| r.as_inner());
         let btn = button.map(|b| b.into());
         let ov = overrides.map(|o| o.inner.clone());
         self.inner.pointer_click(p, btn, ov).map_err(map_pointer_err)?;
@@ -510,15 +510,15 @@ impl PyRuntime {
     }
 
     /// Multiple clicks at point.
-    #[pyo3(signature = (point, clicks, button=None, overrides=None), text_signature = "(self, point, clicks, button=None, overrides=None)")]
+    #[pyo3(signature = (point=None, clicks=2, button=None, overrides=None), text_signature = "(self, point=None, clicks=2, button=None, overrides=None)")]
     fn pointer_multi_click(
         &self,
-        point: PointLike,
+        point: Option<PyRef<'_, crate::core::PyPoint>>,
         clicks: u32,
         button: Option<PointerButtonLike>,
         overrides: Option<PyRef<'_, PyPointerOverrides>>,
     ) -> PyResult<()> {
-        let p: core_rs::types::Point = point.into();
+        let p: Option<core_rs::types::Point> = point.map(|r| r.as_inner());
         let btn = button.map(|b| b.into());
         let ov = overrides.map(|o| o.inner.clone());
         self.inner.pointer_multi_click(p, btn, clicks, ov).map_err(map_pointer_err)?;
@@ -529,13 +529,13 @@ impl PyRuntime {
     #[pyo3(signature = (start, end, button=None, overrides=None), text_signature = "(self, start, end, button=None, overrides=None)")]
     fn pointer_drag(
         &self,
-        start: PointLike,
-        end: PointLike,
+        start: PyRef<'_, crate::core::PyPoint>,
+        end: PyRef<'_, crate::core::PyPoint>,
         button: Option<PointerButtonLike>,
         overrides: Option<PyRef<'_, PyPointerOverrides>>,
     ) -> PyResult<()> {
-        let s: core_rs::types::Point = start.into();
-        let e: core_rs::types::Point = end.into();
+        let s: core_rs::types::Point = start.as_inner();
+        let e: core_rs::types::Point = end.as_inner();
         let btn = button.map(|b| b.into());
         let ov = overrides.map(|o| o.inner.clone());
         self.inner.pointer_drag(s, e, btn, ov).map_err(map_pointer_err)?;
@@ -546,27 +546,29 @@ impl PyRuntime {
     #[pyo3(signature = (point=None, button=None, overrides=None), text_signature = "(self, point=None, button=None, overrides=None)")]
     fn pointer_press(
         &self,
-        point: Option<PointLike>,
+        point: Option<PyRef<'_, crate::core::PyPoint>>,
         button: Option<PointerButtonLike>,
         overrides: Option<PyRef<'_, PyPointerOverrides>>,
     ) -> PyResult<()> {
-        let p = point.map(Into::<core_rs::types::Point>::into);
+        let p = point.map(|r| r.as_inner());
         let btn = button.map(|b| b.into());
         let ov = overrides.map(|o| o.inner.clone());
         self.inner.pointer_press(p, btn, ov).map_err(map_pointer_err)?;
         Ok(())
     }
 
-    /// Release pointer button.
-    #[pyo3(signature = (button=None, overrides=None), text_signature = "(self, button=None, overrides=None)")]
+    /// Release pointer button (optionally move first).
+    #[pyo3(signature = (point=None, button=None, overrides=None), text_signature = "(self, point=None, button=None, overrides=None)")]
     fn pointer_release(
         &self,
+        point: Option<PyRef<'_, crate::core::PyPoint>>,
         button: Option<PointerButtonLike>,
         overrides: Option<PyRef<'_, PyPointerOverrides>>,
     ) -> PyResult<()> {
+        let p: Option<core_rs::types::Point> = point.map(|r| r.as_inner());
         let btn = button.map(|b| b.into());
         let ov = overrides.map(|o| o.inner.clone());
-        self.inner.pointer_release(btn, ov).map_err(map_pointer_err)?;
+        self.inner.pointer_release(p, btn, ov).map_err(map_pointer_err)?;
         Ok(())
     }
 
@@ -898,39 +900,6 @@ pub fn register_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     }
 
     Ok(())
-}
-
-// ---------------- Handle resolution helpers ----------------
-
-// no handle-based constructors anymore
-
-// no platform override plumbing in Python API
-
-// removed: provider_factory_from_handle
-
-// removed: desktop_info_from_handle
-
-// removed: highlight_from_handle
-
-// removed: screenshot_from_handle
-
-// removed: pointer_from_handle
-
-// removed: keyboard_from_handle
-
-// ---------------- FromPyObject helpers ----------------
-
-#[derive(FromPyObject)]
-pub enum PointLike<'py> {
-    Point(PyRef<'py, PyPoint>),
-}
-
-impl From<PointLike<'_>> for core_rs::types::Point {
-    fn from(v: PointLike<'_>) -> Self {
-        match v {
-            PointLike::Point(p) => p.as_inner(),
-        }
-    }
 }
 
 #[derive(FromPyObject)]

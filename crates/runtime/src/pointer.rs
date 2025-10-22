@@ -291,16 +291,16 @@ impl<'a> PointerEngine<'a> {
 
     pub fn click(
         &mut self,
-        point: Point,
+        target: Option<Point>,
         button: Option<PointerButton>,
         overrides: Option<&PointerOverrides>,
     ) -> Result<(), PointerError> {
-        self.multi_click(point, button, 1, overrides)
+        self.multi_click(target, button, 1, overrides)
     }
 
     pub fn multi_click(
         &mut self,
-        point: Point,
+        target: Option<Point>,
         button: Option<PointerButton>,
         clicks: u32,
         overrides: Option<&PointerOverrides>,
@@ -310,7 +310,8 @@ impl<'a> PointerEngine<'a> {
         }
 
         let target_button = button.unwrap_or(self.settings.default_button);
-        let anchor = self.move_to(point, overrides)?;
+        // Determine anchor: move if a target is provided, otherwise use current device position.
+        let anchor = if let Some(point) = target { self.move_to(point, overrides)? } else { self.device.position()? };
         let (press_release_delay, after_click_delay, after_input_delay, multi_click_delay, before_next_click_delay) = {
             let effective = self.effective_profile(overrides);
             (
@@ -1162,12 +1163,12 @@ mod tests {
             &sleep,
         );
 
-        engine.click(Point::new(10.0, 10.0), None, None).unwrap();
+        engine.click(Some(Point::new(10.0, 10.0)), None, None).unwrap();
 
         engine.last_click =
             Some(ClickStamp { time: Instant::now() - Duration::from_millis(20), position: Point::new(10.0, 10.0) });
         sleeps.lock().unwrap().clear();
-        engine.click(Point::new(12.0, 10.0), None, None).unwrap();
+        engine.click(Some(Point::new(12.0, 10.0)), None, None).unwrap();
         let recorded = sleeps.lock().unwrap().clone();
         assert!(!recorded.is_empty());
         let enforced = *recorded.last().unwrap();
@@ -1177,7 +1178,7 @@ mod tests {
         engine.last_click =
             Some(ClickStamp { time: Instant::now() - Duration::from_millis(400), position: Point::new(12.0, 10.0) });
         sleeps.lock().unwrap().clear();
-        engine.click(Point::new(14.0, 10.0), None, None).unwrap();
+        engine.click(Some(Point::new(14.0, 10.0)), None, None).unwrap();
         let recorded = sleeps.lock().unwrap().clone();
         assert!(recorded.len() <= 1);
         if let Some(&duration) = recorded.first() {
@@ -1214,7 +1215,7 @@ mod tests {
         engine.last_click =
             Some(ClickStamp { time: Instant::now() - Duration::from_millis(20), position: Point::new(0.0, 0.0) });
 
-        engine.click(Point::new(200.0, 0.0), None, None).unwrap();
+        engine.click(Some(Point::new(200.0, 0.0)), None, None).unwrap();
 
         assert!(sleeps.lock().unwrap().is_empty());
         assert!(engine.last_click.is_some());
@@ -1408,12 +1409,12 @@ mod tests {
             configured_delay.min(half_double)
         };
 
-        engine.click(Point::new(0.0, 0.0), None, None).unwrap();
+        engine.click(Some(Point::new(0.0, 0.0)), None, None).unwrap();
         sleeps.lock().unwrap().clear();
 
         engine.last_click =
             Some(ClickStamp { time: Instant::now() - Duration::from_millis(25), position: Point::new(0.0, 0.0) });
-        engine.click(Point::new(0.0, 0.0), None, None).unwrap();
+        engine.click(Some(Point::new(0.0, 0.0)), None, None).unwrap();
         let enforced = sleeps.lock().unwrap().first().copied().unwrap_or(Duration::ZERO);
         let expected_sleep = target_total.checked_sub(Duration::from_millis(25)).unwrap_or(Duration::ZERO);
         assert_duration_approx(enforced, expected_sleep);
@@ -1440,7 +1441,7 @@ mod tests {
         let mut engine =
             PointerEngine::new(&device, Rect::new(-100.0, -100.0, 200.0, 200.0), settings, profile, &noop_sleep);
 
-        engine.multi_click(Point::new(5.0, 5.0), Some(PointerButton::Right), 3, None).unwrap();
+        engine.multi_click(Some(Point::new(5.0, 5.0)), Some(PointerButton::Right), 3, None).unwrap();
 
         let log = device.take_log();
         let presses = log.iter().filter(|action| matches!(action, Action::Press(PointerButton::Right))).count();
@@ -1467,7 +1468,7 @@ mod tests {
         let mut engine =
             PointerEngine::new(&device, Rect::new(-50.0, -50.0, 100.0, 100.0), settings, profile, &noop_sleep);
 
-        let error = engine.multi_click(Point::new(0.0, 0.0), None, 0, None).unwrap_err();
+        let error = engine.multi_click(Some(Point::new(0.0, 0.0)), None, 0, None).unwrap_err();
         match error {
             PointerError::InvalidClickCount { provided } => assert_eq!(provided, 0),
             other => panic!("unexpected error: {other}"),
@@ -1503,7 +1504,7 @@ mod tests {
 
         let mut engine = PointerEngine::new(&device, Rect::new(-10.0, -10.0, 20.0, 20.0), settings, profile, &sleep);
 
-        engine.multi_click(Point::new(0.0, 0.0), None, 3, None).unwrap();
+        engine.multi_click(Some(Point::new(0.0, 0.0)), None, 3, None).unwrap();
 
         let recorded = sleeps.lock().unwrap().clone();
         let inter_press = Duration::from_millis(80);
@@ -1543,7 +1544,7 @@ mod tests {
 
         let mut engine = PointerEngine::new(&device, Rect::new(-10.0, -10.0, 20.0, 20.0), settings, profile, &sleep);
 
-        engine.click(Point::new(0.0, 0.0), None, None).unwrap();
+        engine.click(Some(Point::new(0.0, 0.0)), None, None).unwrap();
 
         let recorded = sleeps.lock().unwrap().clone();
         assert_eq!(recorded.len(), 1);
