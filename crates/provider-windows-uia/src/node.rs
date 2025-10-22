@@ -136,6 +136,17 @@ impl UiNode for UiaNode {
             RuntimeId::from(s)
         })
     }
+    fn id(&self) -> Option<String> {
+        unsafe {
+            match self.elem.CurrentAutomationId() {
+                Ok(bstr) => {
+                    let s = bstr.to_string();
+                    if s.is_empty() { None } else { Some(s) }
+                }
+                Err(_) => None,
+            }
+        }
+    }
     fn parent(&self) -> Option<Weak<dyn UiNode>> {
         match self.parent.lock() {
             Ok(g) => g.clone(),
@@ -152,7 +163,8 @@ impl UiNode for UiaNode {
     }
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         let rid_str = self.runtime_id().as_str().to_string();
-        Box::new(AttrsIter::new(self.elem.clone(), rid_str))
+        let owner = self.as_ui_node();
+        Box::new(AttrsIter::new(self.elem.clone(), owner, rid_str))
     }
 
     fn supported_patterns(&self) -> Vec<PatternId> {
@@ -555,16 +567,22 @@ struct AttrsIter {
     native_cache: Option<Vec<Arc<dyn UiAttribute>>>,
     native_pos: usize,
     rid_str: String,
+    owner: Option<Weak<dyn UiNode>>,
 }
 impl AttrsIter {
-    fn new(elem: windows::Win32::UI::Accessibility::IUIAutomationElement, rid_str: String) -> Self {
+    fn new(
+        elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+        owner: Option<Arc<dyn UiNode>>,
+        rid_str: String,
+    ) -> Self {
         use windows::Win32::UI::Accessibility::*;
         let has_window_surface = unsafe {
             let has_window = elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)).is_ok();
             let has_transform = elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)).is_ok();
             has_window || has_transform
         };
-        Self { idx: 0, elem, has_window_surface, native_cache: None, native_pos: 0, rid_str }
+        let owner_weak = owner.as_ref().map(Arc::downgrade);
+        Self { idx: 0, elem, has_window_surface, native_cache: None, native_pos: 0, rid_str, owner: owner_weak }
     }
 }
 impl Iterator for AttrsIter {
@@ -575,49 +593,58 @@ impl Iterator for AttrsIter {
             let item = match self.idx {
                 0 => Some(Arc::new(RoleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 1 => Some(Arc::new(NameAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                2 => Some(Arc::new(RuntimeIdAttr { rid: self.rid_str.clone() }) as Arc<dyn UiAttribute>),
-                3 => Some(Arc::new(BoundsAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                4 => Some(Arc::new(ActivationPointAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                5 => Some(Arc::new(IsEnabledAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                6 => Some(Arc::new(IsOffscreenAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                7 => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                8 => Some(Arc::new(IsFocusedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                9 => {
+                2 => {
+                    // Only expose Id attribute when node.id() is present
+                    let present = self.owner.as_ref().and_then(|w| w.upgrade()).and_then(|n| n.id()).is_some();
+                    if present {
+                        Some(Arc::new(IdAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                3 => Some(Arc::new(RuntimeIdAttr { rid: self.rid_str.clone() }) as Arc<dyn UiAttribute>),
+                4 => Some(Arc::new(BoundsAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                5 => Some(Arc::new(ActivationPointAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                6 => Some(Arc::new(IsEnabledAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                7 => Some(Arc::new(IsOffscreenAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                8 => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                9 => Some(Arc::new(IsFocusedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                10 => {
                     if self.has_window_surface {
                         Some(Arc::new(IsMinimizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
-                10 => {
+                11 => {
                     if self.has_window_surface {
                         Some(Arc::new(IsMaximizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
-                11 => {
+                12 => {
                     if self.has_window_surface {
                         Some(Arc::new(IsTopmostAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
-                12 => {
+                13 => {
                     if self.has_window_surface {
                         Some(Arc::new(SupportsMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
-                13 => {
+                14 => {
                     if self.has_window_surface {
                         Some(Arc::new(SupportsResizeAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
-                14 => {
+                15 => {
                     if self.has_window_surface {
                         Some(Arc::new(AcceptsUserInputAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
@@ -625,7 +652,7 @@ impl Iterator for AttrsIter {
                     }
                 }
                 // Native property attributes (dynamic): build once, then stream
-                15 => {
+                16 => {
                     if self.native_cache.is_none() {
                         let pairs = crate::map::collect_native_properties(&elem);
                         let attrs: Vec<Arc<dyn UiAttribute>> = pairs
@@ -649,7 +676,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 15 && self.native_cache.is_some() {
+                    if self.idx > 16 && self.native_cache.is_some() {
                         // Continue streaming native cache until exhausted
                         if let Some(list) = self.native_cache.as_ref()
                             && self.native_pos < list.len()
@@ -661,11 +688,11 @@ impl Iterator for AttrsIter {
                             return Some(attr);
                         }
                     }
-                    if self.idx > 15 && self.native_cache.is_none() {
+                    if self.idx > 16 && self.native_cache.is_none() {
                         // No native props at all
                         return None;
                     }
-                    if self.idx > 15 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false)
+                    if self.idx > 16 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false)
                     {
                         return None;
                     }
@@ -896,10 +923,11 @@ struct AppAttrsIter {
     pid: i32,
     rid: String,
     idx: u8,
+    owner: Option<Weak<dyn UiNode>>,
 }
 impl AppAttrsIter {
-    fn new(pid: i32, rid: &str) -> Self {
-        Self { pid, rid: rid.to_owned(), idx: 0 }
+    fn new(pid: i32, rid: &str, owner: Option<Arc<dyn UiNode>>) -> Self {
+        Self { pid, rid: rid.to_owned(), idx: 0, owner: owner.as_ref().map(Arc::downgrade) }
     }
 }
 impl Iterator for AppAttrsIter {
@@ -907,13 +935,22 @@ impl Iterator for AppAttrsIter {
     fn next(&mut self) -> Option<Self::Item> {
         let item = match self.idx {
             0 => Some(Arc::new(AppRuntimeIdAttr { rid: self.rid.clone() }) as Arc<dyn UiAttribute>),
-            1 => Some(Arc::new(AppProcessIdAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            2 => Some(Arc::new(AppNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            3 => Some(Arc::new(AppExecutablePathAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            4 => Some(Arc::new(AppCommandLineAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            5 => Some(Arc::new(AppUserNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            6 => Some(Arc::new(AppStartTimeAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            7 => Some(Arc::new(AppArchitectureAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            // 1: optional developer Id (delegates to node.id())
+            1 => {
+                let present = self.owner.as_ref().and_then(|w| w.upgrade()).and_then(|n| n.id()).is_some();
+                if present {
+                    Some(Arc::new(IdAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>)
+                } else {
+                    None
+                }
+            }
+            2 => Some(Arc::new(AppProcessIdAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            3 => Some(Arc::new(AppNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            4 => Some(Arc::new(AppExecutablePathAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            5 => Some(Arc::new(AppCommandLineAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            6 => Some(Arc::new(AppUserNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            7 => Some(Arc::new(AppStartTimeAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            8 => Some(Arc::new(AppArchitectureAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
             _ => None,
         };
         self.idx = self.idx.saturating_add(1);
@@ -1127,6 +1164,10 @@ impl UiNode for ApplicationNode {
     fn runtime_id(&self) -> &RuntimeId {
         self.rid_cell.get_or_init(|| RuntimeId::from(format!("uia://app/{}", self.pid)))
     }
+    fn id(&self) -> Option<String> {
+        let n = self.name();
+        if n.is_empty() { None } else { Some(n) }
+    }
     fn parent(&self) -> Option<Weak<dyn UiNode>> {
         match self.parent.lock() {
             Ok(g) => g.clone(),
@@ -1174,7 +1215,8 @@ impl UiNode for ApplicationNode {
         Box::new(AppWindowsIter { root: self.root.clone(), current: None, first: true, parent, pid: self.pid })
     }
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
-        Box::new(AppAttrsIter::new(self.pid, self.runtime_id().as_str()))
+        let owner = self.self_weak.get().and_then(|w| w.upgrade());
+        Box::new(AppAttrsIter::new(self.pid, self.runtime_id().as_str(), owner))
     }
     fn supported_patterns(&self) -> Vec<PatternId> {
         Vec::new()
@@ -1186,3 +1228,26 @@ impl UiNode for ApplicationNode {
         Some(self.pid as u64)
     }
 }
+struct IdAttr {
+    owner: Option<Weak<dyn UiNode>>,
+}
+impl UiAttribute for IdAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        platynui_core::ui::attribute_names::common::ID
+    }
+    fn value(&self) -> UiValue {
+        if let Some(ref weak) = self.owner {
+            if let Some(node) = weak.upgrade() {
+                if let Some(id) = node.id() {
+                    return UiValue::from(id);
+                }
+            }
+        }
+        UiValue::Null
+    }
+}
+unsafe impl Send for IdAttr {}
+unsafe impl Sync for IdAttr {}

@@ -16,6 +16,11 @@ pub trait UiNode: Send + Sync {
     fn name(&self) -> String;
     /// Platform specific runtime identifier.
     fn runtime_id(&self) -> &RuntimeId;
+    /// Optional developer-provided stable identifier (control:Id). Empty or missing means "not set".
+    /// Default: None.
+    fn id(&self) -> Option<String> {
+        None
+    }
     /// Weak reference to the parent node, if available.
     fn parent(&self) -> Option<Weak<dyn UiNode>>;
     /// Child nodes. Providers may return iterators over prepared or lazily produced material.

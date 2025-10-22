@@ -55,6 +55,7 @@ This document proposes a clean, future‑proof design for Python bindings to Pla
 - `UiNode` (wraps `Arc<dyn UiNode>`)
   - Properties: `runtime_id`, `name`, `role`, `namespace`
   - Methods: `attribute(name, namespace=None) -> UiValue`, `parent() -> UiNode | None`, `children() -> list[UiNode]`, `attributes() -> list[UiAttribute]`, `supported_patterns() -> list[str]`, `doc_order_key() -> int | None`, `invalidate()`, `has_pattern(id) -> bool`, `pattern_by_id(id) -> object | None`
+  - Hinweis: Die entwicklerseitige Kennung eines Elements steht – sofern vom Provider gesetzt – als `@control:Id` (`node.attribute("Id", "control")`) zur Verfügung.
 - Attribute classes
 - `UiAttribute`: `namespace`, `name`, `value()` (lazy; no owner)
   - `EvaluatedAttribute`: `namespace`, `name`, `value`, `owner() -> UiNode | None`

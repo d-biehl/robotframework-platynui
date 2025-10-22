@@ -32,6 +32,10 @@ impl PyNode {
         self.inner.runtime_id().as_str().to_string()
     }
     #[getter]
+    fn id(&self) -> Option<String> {
+        self.inner.id()
+    }
+    #[getter]
     fn name(&self) -> String {
         self.inner.name()
     }

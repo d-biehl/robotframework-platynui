@@ -5,6 +5,7 @@
 ## 1. Einleitung & Ziele
 - PlatynUI soll eine plattformübergreifende UI-Automationsbibliothek bereitstellen, deren Kern eine konsistente Sicht auf native UI-Bäume (UIA, AT-SPI2, macOS AX, …) bildet.
 - Die Runtime abstrahiert Plattform-APIs zu einem normalisierten Knotenbaum, der per XPath durchsucht wird und über Patterns beschreibende Fähigkeiten (keine direkten Aktionen) bereitstellt. Fokuswechsel und Fenstersteuerung bleiben die einzigen Laufzeitaktionen.
+ - Jede UiNode kann zusätzlich eine vom Anwendungsentwickler gesetzte, stabile Kennung `Id` tragen. Diese ist inhalt‑ und sprachunabhängig, optional und dient als dauerhafte Selektor‑Basis über Prozessneustarts hinweg (im Gegensatz zu `RuntimeId`, die nur für die Lebensdauer des nativen Elements stabil ist).
 - Dieses Dokument beschreibt die Architektur, zentrale Module und offene Fragen als Grundlage für Implementierung und Diskussion.
 
 ## 2. Architekturüberblick
@@ -209,6 +210,23 @@ EN: This section documents the host‑side NodeResolver and the owned evaluation
 - Tests prüfen, ob Pflichtattribute und Patterns eingehalten werden; der Buildumfang wird über `cfg`-Attribute bzw. Ziel-Tripel gesteuert.
 
 ### 5.1 Provider-Richtlinien
+#### Knoten‑Identität: `control:Id` (optional, stabil)
+- Zweck: Entwicklerseitig vergebene, applikationsinterne Kennung eines Elements. Sie ist unabhängig von sichtbaren Beschriftungen/Sprachen und vom Laufzeitlebenszyklus des nativen UI‑Elements.
+- Sichtbarkeit: Attribut `Id` im `control`‑Namespace (XPath: `@control:Id`). Kann fehlen (`null`) oder leer sein, wenn die Plattform keine solche Kennung bereitstellt oder die Anwendung keine vergibt.
+- Abgrenzung: `RuntimeId` bleibt weiterhin die laufzeitstabile, provider‑spezifische Identifikation (UIA/AT‑SPI/AX). `Id` ergänzt diese um eine (idealerweise) pro Anwendung lebensdauer‑stabile Kennung.
+- Plattform‑Mapping (Richtlinie):
+  - Windows (UIAutomation): `Id ← AutomationId` (`UIA_AutomationIdPropertyId`). Leere Werte werden als „nicht gesetzt“ behandelt.
+  - Linux (AT‑SPI2): falls vorhanden `Id ← accessible_id` (Toolkit‑abhängig). Wo nicht verfügbar, bleibt `Id` leer.
+  - macOS (AX): `Id ← AXIdentifier` (sofern unterstützt). Fallback: nicht gesetzt.
+  - Application‑Knoten (`app:Application`): empfohlen ist eine plattformtypische, stabile Kennung (z. B. Bundle Identifier auf macOS). Wenn nicht verfügbar, kann ein heuristischer Fallback (z. B. `ProcessName`) verwendet und entsprechend dokumentiert werden.
+- Verwendung: Für persistente Selektoren sollte – wenn vorhanden – `@control:Id='…'` bevorzugt werden, ggf. in Kombination mit Rolle/Struktur (`//control:*[@Id='login-button']`).
+
+#### UiNode‑Trait – neue Methode `id()`
+- Die Runtime stellt auf `UiNode` eine optionale Methode `id(&self) -> Option<String>` bereit. Standard‑Implementierung liefert `None`.
+- Provider mit nativem Pendant setzen diese Methode (z. B. UIA → `CurrentAutomationId()`; ApplicationNode unter Windows → Prozessname als Fallback).
+- Attribut‑Emission: Das Attribut `@control:Id` wird nur erzeugt, wenn `UiNode::id()` einen Wert liefert (keine Null‑/Leer‑Attribute).
+
+
 - Liefere sämtliche Positionsangaben (`Bounds`, `ActivationPoint`, `ActivationArea`, Fensterrahmen) im Desktop-Koordinatensystem (linke obere Ecke des Primärmonitors = Ursprung). Etwaige DPI-/Scaling-Anpassungen erfolgen providerseitig; die Runtime erwartet normalisierte Desktop-Koordinaten.
 - Spiegle native Rollennamen in `control:Role` bzw. `item:Role` (lokaler Name für XPath) und hinterlege die Originalrollen zusätzlich unter `native:*`, um Technologie-spezifische Detailabfragen zu erlauben.
 - Pflege `SupportedPatterns` konsistent: Ein Pattern darf nur gemeldet werden, wenn alle Pflichtattribute verfügbar sind. Optionale Attribute werden als `null` oder ausgelassen, nicht mit Platzhalterwerten gefüllt.

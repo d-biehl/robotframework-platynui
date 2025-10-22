@@ -5,6 +5,8 @@ pub mod pattern {
     pub mod common {
         pub const ROLE: &str = "Role";
         pub const NAME: &str = "Name";
+        /// Developer-provided stable element identifier (optional)
+        pub const ID: &str = "Id";
         pub const RUNTIME_ID: &str = "RuntimeId";
         pub const TECHNOLOGY: &str = "Technology";
         pub const SUPPORTED_PATTERNS: &str = "SupportedPatterns";

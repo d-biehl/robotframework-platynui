@@ -6,7 +6,7 @@ English summary
 - Expose proper iterators for `UiNode.children()` and `UiNode.attributes()`. They fetch the next item on demand instead of materializing a Vec up front.
 - No NodeStore in this MVP: `UiaNode` wraps the `IUIAutomationElement` directly. Iterators create walkers on demand and yield lightweight node wrappers.
 - Patterns for slice 1: `Focusable` via `SetFocus()`, `WindowSurface` via `WindowPattern`/`TransformPattern` (activate/minimize/maximize/restore/close/move/resize). `accepts_user_input` uses a simple heuristic.
-- Attributes are resolved lazily on demand: Role (from ControlType), Name, RuntimeId (encoded), Bounds, IsEnabled, IsOffscreen, ActivationPoint.
+- Attributes are resolved lazily on demand: Role (from ControlType), Name, RuntimeId (encoded), Bounds, IsEnabled, IsOffscreen, ActivationPoint, and developer `Id` from `AutomationId`.
 - Parents are always proper `UiNode` references: provider attaches the given parent in `get_nodes(...)`, and children set `self` as parent when created.
 - Error handling: internal UIA calls use a typed `UiaError` (thiserror). Provider boundaries map `UiaError` to `ProviderError` variants; no `Result<_, String>`.
 
@@ -53,6 +53,8 @@ UiNode‑Basics (lazy)
 - `role()`: aus `ControlType` per Mapping; Ergebnisse im Knoten gecached.
 - `name()`: `CurrentName()`; lazy gecached.
 - `runtime_id()`: `GetRuntimeId()` → gescopte URI (siehe Abschnitt unten); lazy gecached.
+- `id()`: `CurrentAutomationId()`; leere Zeichenfolge ⇒ `None`.
+- `Id` (optional): `UIA_AutomationIdPropertyId` via `GetCurrentPropertyValueEx(..., /*ignoreDefault*/ true)`; nicht‑leere `BSTR` werden als `control:Id` exponiert, leere Werte gelten als „nicht gesetzt“.
 - `invalidate()`: Derzeit bewusst No‑Op, da die Trait‑Signaturen Referenzen zurückgeben. Attributwerte bleiben lazy und können unabhängig neu gelesen werden. Echte Cache‑Invalidierung ist möglich, würde aber API‑Anpassungen oder eine interne, referenzstabile Cache‑Schicht erfordern.
 
 ## Kein NodeStore im MVP
@@ -62,6 +64,12 @@ UiNode‑Basics (lazy)
 - Role: aus `ControlType` → String‑Mapping; Namespace aus dem Rollentyp (z. B. `app:Application`, `control:*`, `item:*`).
 - Name: `UIA_NamePropertyId` → `Name`.
 - RuntimeId: `GetRuntimeId()` (SAFEARRAY von INT) → gescopte URI, z. B. `uia://desktop/<hex>.<hex>…` bzw. `uia://app/<pid>/<hex>.<hex>…`.
+- Developer‑Id (`control:Id`): Attribut wird nur emittiert, wenn `id()` einen Wert liefert (keine Null‑/Leer‑Attribute). Quelle: `CurrentAutomationId()`.
+
+## ApplicationNode (App‑Sicht)
+- `runtime_id()`: `uia://app/<pid>` (scoped URI).
+- `id()`: Prozessname (Executable‑Dateiname ohne Endung) als Fallback für eine stabile Kennung; leer ⇒ `None`.
+- Attribute: `@control:Id` wird nur emittiert, wenn `id()` gesetzt ist; weitere App‑Attribute wie `ProcessId`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture` bleiben unverändert.
 
 ## RuntimeId‑Schema (scoped URIs)
 - UIA RuntimeId ist nur zur Laufzeit eindeutig und als Opaque‑Wert zu behandeln. Damit Knoten in unterschiedlichen Sichten (TopLevel vs. App‑Gruppierung) nicht kollidieren, versehen wir die ID mit einem Scope.

@@ -22,6 +22,11 @@
 - Mock-Stack: `platynui-provider-mock`/`platynui-platform-mock` hängen am optionalen Feature `mock-provider`. Werkzeuge (z. B. `cargo run -p platynui-cli --features mock-provider -- watch`) und Tests nutzen dieses Feature gezielt; Standard‑Builds bleiben ohne Mock. Produktive Plattform-/Provider‑Crates werden nicht mehr durch die Runtime, sondern durch Anwendungen (CLI, Python‑Extension) per `cfg(target_os = …)` verlinkt.
  - Verlinkung produktiver Provider/Plattformen: Anwendungen verlinken OS‑spezifische Crates explizit über das Hilfscrate `platynui-link`. Die Makros `platynui_link_providers!()` (Feature‑gesteuert Mock vs. OS) und `platynui_link_os_providers!()` (explizit OS) stellen sicher, dass keine Auto‑Verlinkung in der Runtime erfolgt und Tests den Mock gezielt einbinden können.
 
+### Ergänzung: UiNode `Id` (entwicklerseitige Kennung)
+- Neues, optionales Attribut `control:Id` als stabile, sprach‑ und inhaltsunabhängige Kennung eines Elements. Abzugrenzen von `RuntimeId` (nur laufzeitstabil).
+- Plattform‑Mapping (Ziel): Windows → `AutomationId`, Linux/AT‑SPI2 → `accessible_id` (falls vorhanden), macOS/AX → `AXIdentifier` (falls vorhanden). Leere oder fehlende Werte gelten als „nicht gesetzt“.
+- Anwendungsknoten: Nach Plattform wählen (z. B. Bundle Identifier auf macOS); ansonsten konservativer Fallback wie `ProcessName` – dokumentationspflichtig.
+
 ## Arbeitsbereiche
 Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschnitts sind Empfehlungen, keine starre Vorgabe.
 
@@ -221,7 +226,7 @@ Ergänzungen (2025-09-29 später am Tag)
 - [x] WindowSurface‑Status/Capabilities als Attribute bereitstellen: `window_surface::IS_MINIMIZED`, `IS_MAXIMIZED`, `IS_TOPMOST`, `SUPPORTS_MOVE`, `SUPPORTS_RESIZE` (über `WindowPattern`/`TransformPattern`).
 - [x] `WindowSurface.accepts_user_input()` implementieren (Heuristik: `IsEnabled && !IsOffscreen`; perspektivisch `WaitForInputIdle`). Optional gleichnamiges Attribut bereitstellen.
  - [x] Virtualisierte Elemente: Best‑effort `VirtualizedItemPattern::Realize()` vor Kind‑Traversal/Focus; `UiNode::is_valid()` nutzt eine leichte Live‑Abfrage.
-- [x] Native UIA‑Properties: Unterstützung und Werte ermitteln
+  - [x] Native UIA‑Properties: Unterstützung und Werte ermitteln
   - [x] Properties ermitteln über Programmatic‑Name‑Katalog (IDs im typischen UIA‑Bereich via `IUIAutomation::GetPropertyProgrammaticName()`); nur Werte übernehmen, die per `GetCurrentPropertyValueEx(propertyId, true)` einen sinnvollen Wert liefern (Sentinels/Empty filtern).
   - [x] Werte abrufen über `IUIAutomationElement::GetCurrentPropertyValueEx(propertyId, /*ignoreDefault*/ true)`; Rückgabewerte konvertieren (VARIANT → `UiValue`).
   - [x] Sentinels korrekt behandeln: `ReservedNotSupportedValue` → „nicht unterstützt“ (gefiltert); `ReservedMixedAttributeValue` → „gemischt“ (gefiltert).
@@ -363,3 +368,21 @@ Kurzfassung (EN)
 - Erweiterte Eingabegeräte (Gamepad, Stift), Barrierefreiheits-Funktionen.
 - Touch-Device-Unterstützung (Traits, CLI-Befehle) nach erfolgreichem Pointer/Keyboard-Ausbau.
 - Community-Guides, Beispiel-Provider, Trainingsmaterial.
+
+### 26. UiNode `Id` – Umsetzungsschritte
+- Core
+  - [x] Attribut definieren: `control:Id` als optionales String‑Attribut (leer/fehlend = nicht gesetzt). Konstanten in `attribute_names` ergänzt.
+  - [x] UiNode‑Trait um `fn id(&self) -> Option<String>` erweitert (Default `None`).
+  - [ ] Dokumentation: Architektur/Patterns/Checkliste um Semantik und Beispiele erweitern (XPath‑Nutzung, Stabilität, Abgrenzung zu `RuntimeId`).
+- Runtime/XPath
+  - [ ] Keine Alias‑Ableitungen nötig (reiner String). Sicherstellen, dass `@control:Id` als `xs:string` atomisiert wird.
+- Provider
+  - [x] Windows/UIA: `AutomationId` → `control:Id` übernommen (leere Strings = „nicht gesetzt“). `UiNode::id()` nutzt `CurrentAutomationId()`.
+  - [x] Windows/ApplicationNode: `id()` liefert Prozessname (Executable‑Stem) als Fallback; `@control:Id` wird nur erzeugt, wenn gesetzt.
+  - [ ] AT‑SPI2: falls verfügbar `accessible_id` mappen; ansonsten auslassen (kein Fallback generieren).
+  - [ ] macOS/AX: `AXIdentifier` mappen (sofern vorhanden); ansonsten auslassen.
+  - [ ] Application‑Knoten: Plattformangemessene, möglichst stabile Kennung (präferiert Bundle Identifier auf macOS). Fallbacks (z. B. `ProcessName`) dokumentieren.
+- Tests
+  - [ ] Core‑Contracttests: `Id` darf fehlen/leer sein; wenn gesetzt, ist es `xs:string` und nicht sprachabhängig.
+  - [ ] Provider‑Tests: Windows/UIA Smoke‑Test, der `AutomationId` → `Id` spiegelt (Mock/Fixture); AT‑SPI2/macOS optional, sobald verfügbar.
+  - [ ] CLI/Python: Beispiel‑Abfragen dokumentieren (`//*[@control:Id='login-button']`).
