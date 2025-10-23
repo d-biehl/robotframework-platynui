@@ -32,16 +32,16 @@ classifiers = [
 ]
 dependencies = [
     "robotframework>=7.0.0",
-    "platynui-native==0.12.0-dev.2",
+    "platynui-native==0.12.0-dev.3",
     "typing-extensions",
     "robotframework-pythonlibcore>=4.4.0",
     "robotframework-assertion-engine>=3.0.0",
 ]
 
 [project.optional-dependencies]
-cli = ["platynui-cli==0.12.0-dev.2"]
-inspector = ["platynui-inspector==0.12.0-dev.2"]
-all = ["platynui-cli==0.12.0-dev.2", "platynui-inspector==0.12.0-dev.2"]
+cli = ["platynui-cli==0.12.0-dev.3"]
+inspector = ["platynui-inspector==0.12.0-dev.3"]
+all = ["platynui-cli==0.12.0-dev.2", "platynui-inspector==0.12.0-dev.3"]
 
 [project.urls]
 Homepage = "https://github.com/imbus/robotframework-PlatynUI"

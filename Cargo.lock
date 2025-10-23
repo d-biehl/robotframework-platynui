@@ -3766,7 +3766,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "platynui-cli-pybin"
+name = "platynui-cli-bin"
 version = "0.12.0-dev.3"
 dependencies = [
  "platynui-cli",
@@ -3806,7 +3806,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "platynui-inspector-pybin"
+name = "platynui-inspector-bin"
 version = "0.12.0-dev.3"
 dependencies = [
  "platynui-inspector",
