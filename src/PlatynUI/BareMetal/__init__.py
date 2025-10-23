@@ -1,8 +1,12 @@
+import base64
 from functools import cached_property
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal, cast
 
 from platynui_native import Point, PointerButton, Rect, Runtime, UiNode, WindowSurface
+from robot.api import logger
 from robot.api.deco import library
+from robot.libraries.BuiltIn import BuiltIn
 
 from ..__version__ import __version__
 from .._assertable import assertable
@@ -54,6 +58,7 @@ class BareMetal(OurDynamicCore):
 
     def __init__(self) -> None:
         super().__init__([])
+        self._screenshot_counter = 1
 
     @cached_property
     def runtime(self) -> Runtime:
@@ -63,6 +68,10 @@ class BareMetal(OurDynamicCore):
         enabling XPath-like queries and actions against the UI tree.
         """
         return Runtime()
+
+    @cached_property
+    def _screenshot_path(self) -> Path:
+        return Path(str(BuiltIn().get_variable_value('${OUTPUT DIR}', default='screenshots')))  # pyright: ignore[reportUnknownArgumentType]
 
     @keyword
     def query(
@@ -457,7 +466,7 @@ class BareMetal(OurDynamicCore):
         descriptor: UiNodeDescriptor | None,
         text: str,
     ) -> None:
-        """Type a sequence of characters and/or keys.
+        r"""Type a sequence of characters and/or keys.
 
         If ``descriptor`` is provided, the element is brought to front and focused first.
         Sequences may include plain text and special keys wrapped in angle brackets.
@@ -531,3 +540,53 @@ class BareMetal(OurDynamicCore):
             self.runtime.bring_to_front(target_node)
             self.runtime.focus(target_node)
         self.runtime.keyboard_release(text)
+
+    @keyword
+    def take_screenshot(
+        self,
+        descriptor: UiNodeDescriptor | None = None,
+        filename: Literal['EMBED'] | str = 'platynui-screenshot-{index}.png',
+        rect: Rect | None = None,
+    ) -> str:
+        """Take a screenshot of the entire screen or a specific element.
+
+        Args:
+            descriptor: Optional element to capture. If None, captures the full screen.
+            filename: Literal['EMBED'] or path to save the screenshot image.
+            rect: Optional rectangle area to capture. If provided, captures this area
+
+        Examples:
+            | Take Screenshot | | file_path=screenshots/full_desktop.png |
+            | Take Screenshot | //control:Window[@Name="Settings"] | file_path=screenshots/settings_window.png |
+        """
+        if descriptor is not None:
+            node = descriptor()
+            self.runtime.bring_to_front(node)
+            rect = cast(Rect, node.attribute('Bounds'))
+
+        screenshot = self.runtime.screenshot(rect, 'image/png')
+        if filename == 'EMBED':
+            logger.info(
+                '</td></tr><tr><td colspan="3">'
+                '<img alt="screenshot" class="robot-seleniumlibrary-screenshot" '
+                f'src="data:image/png;base64,{base64.b64encode(screenshot).decode("utf-8")}" width="900px"/>',
+                html=True,
+            )
+            return filename
+        screenshot_dir = self._screenshot_path
+        screenshot_dir.mkdir(parents=True, exist_ok=True)
+        if '{index}' in filename:
+            filename = filename.replace('{index}', str(self._screenshot_counter))
+            self._screenshot_counter += 1
+        filepath = screenshot_dir / filename
+        with open(filepath, 'wb') as f:
+            f.write(screenshot)
+
+        relative_path = filepath.relative_to(screenshot_dir)
+        logger.info(
+            '</td></tr><tr><td colspan="3">'
+            f'<a href="{relative_path}" target="_blank"><img src="{relative_path}" width="800px"/></a>',
+            html=True,
+        )
+
+        return filename
