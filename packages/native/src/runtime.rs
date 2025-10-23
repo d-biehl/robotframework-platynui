@@ -633,6 +633,24 @@ impl PyRuntime {
         Ok(())
     }
 
+    /// Bring the window associated with `node` to the foreground.
+    /// If `wait_ms` is provided, waits up to that many milliseconds for the window
+    /// to become input-ready (if the platform reports readiness), otherwise returns immediately
+    /// after activation.
+    #[pyo3(signature = (node, wait_ms=None), text_signature = "(self, node, wait_ms=None)")]
+    fn bring_to_front(&self, node: PyRef<'_, PyNode>, wait_ms: Option<f64>) -> PyResult<()> {
+        match wait_ms {
+            Some(ms) => {
+                let dur = std::time::Duration::from_millis(ms.max(0.0) as u64);
+                self.inner.bring_to_front_and_wait(&node.inner, dur).map_err(map_bring_err)?;
+            }
+            None => {
+                self.inner.bring_to_front(&node.inner).map_err(map_bring_err)?;
+            }
+        }
+        Ok(())
+    }
+
     // ---------------- Highlight & Screenshot ----------------
 
     /// Highlights one or more rectangles for an optional duration (milliseconds).
@@ -817,6 +835,11 @@ fn map_focus_err(err: runtime_rs::runtime::FocusError) -> PyErr {
 
 fn map_platform_err(err: core_rs::platform::PlatformError) -> PyErr {
     ProviderError::new_err(err.to_string())
+}
+
+fn map_bring_err(err: runtime_rs::runtime::BringToFrontError) -> PyErr {
+    // Reuse PatternError for simplicity; include the runtime id and message
+    PatternError::new_err(err.to_string())
 }
 
 // ---------------- Module init ----------------

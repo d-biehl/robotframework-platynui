@@ -12,5 +12,5 @@ repository = "https://github.com/imbus/robotframework-PlatynUI"
 platynui-inspector = { path = "../../apps/inspector" }
 
 [[bin]]
-name = "platynui-inspector"
+name = "platynui-inspector-pybin"
 path = "src/main.rs"

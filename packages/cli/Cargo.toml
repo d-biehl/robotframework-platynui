@@ -12,5 +12,5 @@ repository = "https://github.com/imbus/robotframework-PlatynUI"
 platynui-cli = { path = "../../crates/cli" }
 
 [[bin]]
-name = "platynui-cli"
+name = "platynui-cli-pybin"
 path = "src/main.rs"

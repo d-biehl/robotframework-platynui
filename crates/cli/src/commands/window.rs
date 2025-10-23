@@ -25,6 +25,10 @@ pub struct WindowArgs {
 
     #[arg(long, help = "Activate the selected windows.")]
     pub activate: bool,
+    #[arg(long = "bring-to-front", help = "Bring windows to front (restore if minimized, then activate).")]
+    pub bring_to_front: bool,
+    #[arg(long = "wait-ms", value_parser = clap::value_parser!(u64), requires = "bring_to_front", help = "Wait up to N milliseconds for input readiness (only with --bring-to-front).")]
+    pub wait_ms: Option<u64>,
     #[arg(long, help = "Minimize the selected windows.")]
     pub minimize: bool,
     #[arg(long, help = "Maximize the selected windows.")]
@@ -135,8 +139,31 @@ fn execute_actions(runtime: &Runtime, expression: &str, actions: &WindowActions)
             continue;
         }
 
+        // Runtime-level bring-to-front (restore+activate) before pattern actions, if requested
+        if actions.bring_to_front {
+            match actions.wait_ms {
+                Some(ms) => {
+                    let dur = std::time::Duration::from_millis(ms);
+                    if let Err(err) = runtime.bring_to_front_and_wait(&node, dur) {
+                        failed.push(format!("- {}: {}", render_window_header(&node), err));
+                        continue;
+                    }
+                }
+                None => {
+                    if let Err(err) = runtime.bring_to_front(&node) {
+                        failed.push(format!("- {}: {}", render_window_header(&node), err));
+                        continue;
+                    }
+                }
+            }
+            applied.push(format!("- {}: brought to front", render_window_header(&node)));
+        }
+
         let Some(pattern) = node.pattern::<WindowSurfaceActions>() else {
-            missing_pattern.push(render_window_header(&node));
+            // If no further pattern actions are requested, silently accept runtime-only bring-to-front.
+            if !actions.only_runtime_action() {
+                missing_pattern.push(render_window_header(&node));
+            }
             continue;
         };
 
@@ -287,6 +314,8 @@ struct WindowStatus {
 
 #[derive(Clone, Copy)]
 struct WindowActions {
+    bring_to_front: bool,
+    wait_ms: Option<u64>,
     activate: bool,
     minimize: bool,
     maximize: bool,
@@ -302,6 +331,8 @@ impl WindowActions {
         let resize = args.resize.as_ref().map(|values| Size::new(values[0], values[1]));
 
         Ok(Self {
+            bring_to_front: args.bring_to_front,
+            wait_ms: args.wait_ms,
             activate: args.activate,
             minimize: args.minimize,
             maximize: args.maximize,
@@ -313,7 +344,19 @@ impl WindowActions {
     }
 
     fn is_empty(&self) -> bool {
-        !self.activate
+        !self.bring_to_front
+            && !self.activate
+            && !self.minimize
+            && !self.maximize
+            && !self.restore
+            && !self.close
+            && self.move_to.is_none()
+            && self.resize.is_none()
+    }
+
+    fn only_runtime_action(&self) -> bool {
+        self.bring_to_front
+            && !self.activate
             && !self.minimize
             && !self.maximize
             && !self.restore
@@ -334,11 +377,56 @@ mod tests {
 
     #[rstest]
     #[serial]
+    fn window_bring_to_front_restores_minimized(runtime: Runtime) {
+        // Minimize the window via pattern first
+        let _ = run(
+            &runtime,
+            &WindowArgs {
+                expression: Some("//control:Window[@Name='Settings']".into()),
+                list: false,
+                activate: false,
+                bring_to_front: false,
+                wait_ms: None,
+                minimize: true,
+                maximize: false,
+                restore: false,
+                close: false,
+                move_to: None,
+                resize: None,
+            },
+        )
+        .expect("minimize step");
+
+        // Now bring to front (restore + activate)
+        let output = run(
+            &runtime,
+            &WindowArgs {
+                expression: Some("//control:Window[@Name='Settings']".into()),
+                list: false,
+                activate: false,
+                bring_to_front: true,
+                wait_ms: Some(100),
+                minimize: false,
+                maximize: false,
+                restore: false,
+                close: false,
+                move_to: None,
+                resize: None,
+            },
+        )
+        .expect("bring-to-front step");
+        assert!(output.contains("brought to front"));
+    }
+
+    #[rstest]
+    #[serial]
     fn list_windows_outputs_state(runtime: Runtime) {
         let args = WindowArgs {
             expression: None,
             list: true,
             activate: false,
+            bring_to_front: false,
+            wait_ms: None,
             minimize: false,
             maximize: false,
             restore: false,
@@ -359,6 +447,8 @@ mod tests {
             expression: Some("//control:Window[@Name='Operations Console']".into()),
             list: false,
             activate: true,
+            bring_to_front: false,
+            wait_ms: None,
             minimize: true,
             maximize: false,
             restore: true,
@@ -381,6 +471,8 @@ mod tests {
             expression: Some("//control:Window[@Name='Nonexistent']".into()),
             list: false,
             activate: true,
+            bring_to_front: false,
+            wait_ms: None,
             minimize: false,
             maximize: false,
             restore: false,

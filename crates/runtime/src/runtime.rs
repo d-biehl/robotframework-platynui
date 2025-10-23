@@ -21,7 +21,7 @@ use platynui_core::ui::attribute_names;
 use platynui_core::ui::identifiers::TechnologyId;
 use platynui_core::ui::{
     DESKTOP_RUNTIME_ID, FocusableAction, FocusablePattern, Namespace, PatternError, PatternId, RuntimeId, UiAttribute,
-    UiNode, UiValue, supported_patterns_value,
+    UiNode, UiNodeExt, UiValue, WindowSurfaceActions, WindowSurfacePattern, supported_patterns_value,
 };
 use thiserror::Error;
 
@@ -71,6 +71,20 @@ pub enum KeyboardActionError {
     Sequence(Box<KeyboardSequenceError>),
     #[error(transparent)]
     Keyboard(#[from] KeyboardError),
+}
+
+#[derive(Debug, Error)]
+pub enum BringToFrontError {
+    #[error("node `{runtime_id}` has no window-capable ancestor (WindowSurface pattern missing)")]
+    PatternMissing { runtime_id: String },
+    #[error("bringing window `{runtime_id}` to front failed: {source}")]
+    ActionFailed {
+        runtime_id: String,
+        #[source]
+        source: PatternError,
+    },
+    #[error("window `{runtime_id}` did not become input-ready within {waited:?}")]
+    Timeout { runtime_id: String, waited: Duration },
 }
 
 impl From<KeyboardSequenceError> for KeyboardActionError {
@@ -310,6 +324,79 @@ impl Runtime {
 
     pub fn desktop_info(&self) -> &DesktopInfo {
         self.desktop.info()
+    }
+
+    /// Returns the nearest ancestor (including `node` itself) that exposes the `WindowSurface`
+    /// pattern. For `app:Application` nodes without a direct pattern, this method selects the
+    /// first child that exposes a `WindowSurface`.
+    pub fn top_level_window_for(&self, node: &Arc<dyn UiNode>) -> Option<Arc<dyn UiNode>> {
+        for anc in node.ancestors_including_self() {
+            if anc.pattern::<WindowSurfaceActions>().is_some() {
+                return Some(anc);
+            }
+        }
+        if node.namespace() == Namespace::App && node.role() == "Application" {
+            for child in node.children() {
+                if child.pattern::<WindowSurfaceActions>().is_some() {
+                    return Some(child);
+                }
+            }
+        }
+        None
+    }
+
+    /// Bring the window associated with `node` to the foreground. If minimized, tries `restore()`
+    /// first, then `activate()`.
+    pub fn bring_to_front(&self, node: &Arc<dyn UiNode>) -> Result<(), BringToFrontError> {
+        let window = match self.top_level_window_for(node) {
+            Some(w) => w,
+            None => {
+                return Err(BringToFrontError::PatternMissing { runtime_id: node.runtime_id().as_str().to_owned() });
+            }
+        };
+        let rid = window.runtime_id().as_str().to_owned();
+        let pattern = window
+            .pattern::<WindowSurfaceActions>()
+            .ok_or_else(|| BringToFrontError::PatternMissing { runtime_id: rid.clone() })?;
+
+        // Always try to restore to a normal state first. On many platforms this is a no-op when
+        // the window is already visible, but required when minimized. Ignore errors here and rely
+        // on the subsequent activate() to surface meaningful failures.
+        let _ = pattern.restore();
+        pattern.activate().map_err(|source| BringToFrontError::ActionFailed { runtime_id: rid, source })
+    }
+
+    /// Bring the window to the foreground and wait until it accepts user input, or until `timeout`.
+    /// If the platform does not report input readiness (`accepts_user_input` returns `None`), this
+    /// returns immediately after activating the window.
+    pub fn bring_to_front_and_wait(&self, node: &Arc<dyn UiNode>, timeout: Duration) -> Result<(), BringToFrontError> {
+        self.bring_to_front(node)?;
+
+        let window = match self.top_level_window_for(node) {
+            Some(w) => w,
+            None => {
+                return Err(BringToFrontError::PatternMissing { runtime_id: node.runtime_id().as_str().to_owned() });
+            }
+        };
+        let rid = window.runtime_id().as_str().to_owned();
+        let pattern = window
+            .pattern::<WindowSurfaceActions>()
+            .ok_or_else(|| BringToFrontError::PatternMissing { runtime_id: rid.clone() })?;
+
+        let start = std::time::Instant::now();
+        loop {
+            match pattern.accepts_user_input() {
+                Ok(Some(true)) => return Ok(()),
+                Ok(Some(false)) => {
+                    if start.elapsed() >= timeout {
+                        return Err(BringToFrontError::Timeout { runtime_id: rid, waited: timeout });
+                    }
+                    default_keyboard_sleep(Duration::from_millis(20));
+                }
+                Ok(None) => return Ok(()),
+                Err(source) => return Err(BringToFrontError::ActionFailed { runtime_id: rid, source }),
+            }
+        }
     }
 
     /// Highlights the given regions using the registered highlight provider.
@@ -798,14 +885,15 @@ mod tests {
     };
     use platynui_core::register_platform_module;
     use platynui_core::types::{Point, Rect};
-    use platynui_core::ui::UiPattern;
     use platynui_core::ui::identifiers::TechnologyId;
     use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
+    use platynui_core::ui::{UiPattern, WindowSurfaceActions, WindowSurfacePattern};
     use platynui_platform_mock as _;
     use platynui_platform_mock::{
         KeyboardLogEntry, PointerLogEntry, reset_highlight_state, reset_keyboard_state, reset_pointer_state,
         reset_screenshot_state, take_highlight_log, take_keyboard_log, take_pointer_log, take_screenshot_log,
     };
+    use platynui_provider_mock as _;
     // Provider werden in diesen Tests explizit injiziert (keine inventory-Discovery)
     use crate::test_support::runtime_with_factories_and_mock_platform as rt_with_pf;
     use rstest::{fixture, rstest};
@@ -1699,5 +1787,59 @@ mod tests {
         assert_eq!(scrolls.len(), 3);
         let total: f64 = scrolls.iter().map(|delta| delta.vertical).sum();
         assert!((total + 25.0).abs() < f64::EPSILON);
+    }
+
+    fn is_minimized_bool(node: &Arc<dyn UiNode>) -> Option<bool> {
+        use platynui_core::ui::value::UiValue as V;
+        let attr = node.attribute(Namespace::Control, attribute_names::window_surface::IS_MINIMIZED)?;
+        match attr.value() {
+            V::Bool(b) => Some(b),
+            V::Integer(i) => Some(i != 0),
+            V::Number(n) => Some(n != 0.0),
+            _ => None,
+        }
+    }
+    #[rstest]
+    fn bring_to_front_restores_minimized_window() {
+        let runtime = Runtime::new_with_factories(&[&platynui_provider_mock::MOCK_PROVIDER_FACTORY])
+            .expect("runtime initializes with mock provider");
+
+        let results = runtime.evaluate(None, "//control:Window[@Name='Settings']").expect("evaluate ok");
+        let window = match results.into_iter().find_map(|it| match it {
+            EvaluationItem::Node(n) => Some(n),
+            _ => None,
+        }) {
+            Some(n) => n,
+            None => panic!("window not found"),
+        };
+
+        let pattern = window.pattern::<WindowSurfaceActions>().expect("mock window exposes WindowSurface");
+        pattern.minimize().expect("minimize succeeds");
+
+        let is_min = is_minimized_bool(&window).unwrap_or(false);
+        assert!(is_min, "window should be minimized before bring_to_front");
+
+        runtime.bring_to_front(&window).expect("bring_to_front succeeds");
+
+        let is_min = is_minimized_bool(&window).unwrap_or(true);
+        assert!(!is_min, "window should be restored after bring_to_front");
+    }
+
+    #[rstest]
+    fn bring_to_front_reports_missing_pattern(rt_runtime_stub: Runtime) {
+        let runtime = rt_runtime_stub;
+        let results = runtime.evaluate(None, "//control:Button").expect("eval ok");
+        let panel = match results.into_iter().find_map(|it| match it {
+            EvaluationItem::Node(n) => Some(n),
+            _ => None,
+        }) {
+            Some(n) => n,
+            None => panic!("node not found"),
+        };
+        let err = runtime.bring_to_front(&panel).expect_err("should fail: no WindowSurface ancestor");
+        match err {
+            BringToFrontError::PatternMissing { .. } => {}
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }
