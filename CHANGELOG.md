@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file. See [conven
 - **provider-windows-uia:** Update UiaNode's availability check to use CurrentProcessId ([500b4a2](https://github.com/imbus/robotframework-PlatynUI/commit/500b4a2a8141e01af19f3b755c537bdb4ea3def0))
 - **runtime:** Update FromPyObject implementations for PointerOverridesInput and KeyboardOverridesInput to match new PyO3 ([54e4bfc](https://github.com/imbus/robotframework-PlatynUI/commit/54e4bfc3057d069922ba43a1f095b5611bdcc031))
 - **scripts:** Update regex pattern for robotframework-platynui version matching ([d0b0e41](https://github.com/imbus/robotframework-PlatynUI/commit/d0b0e414c56524a14abbdeb3e0dd87526a266467))
+- Correct update version script ([f7b88a6](https://github.com/imbus/robotframework-PlatynUI/commit/f7b88a640a6d76132f2435b240e7c49a28806718))
 - Add sync command to pre-bump hooks for all packages and extras ([e310385](https://github.com/imbus/robotframework-PlatynUI/commit/e310385a823e38851d922590b212e1363cbe5034))
 - Add type hints and mypy configuration for improved type checking ([b31f326](https://github.com/imbus/robotframework-PlatynUI/commit/b31f32631908a82d79a6b5ed53a25b0769940a61))
 
