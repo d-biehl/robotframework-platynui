@@ -1,1 +1,10 @@
 paths = "tests"
+
+[tool.robocop.lint]
+configure = ["line-too-long.line_length=140"]
+ignore = [
+    "DOC01",
+    "DOC02",
+    "DOC03",
+    "DOC04",
+]

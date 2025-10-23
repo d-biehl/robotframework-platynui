@@ -1,9 +1,9 @@
 import warnings
 
 from robot.api.deco import library
-from robotlibcore import DynamicCore, keyword
 
 from .__version__ import __version__
+from ._our_libcore import OurDynamicCore, keyword
 
 
 @library(
@@ -11,7 +11,7 @@ from .__version__ import __version__
     version=__version__,
     converters={},
 )
-class PlatynUI(DynamicCore):
+class PlatynUI(OurDynamicCore):
     """PlatynUI is a library for Robot Framework to automate and test graphical user interfaces (GUIs) using the PlatynUI native backend.
 
     It provides keywords to interact with UI elements, perform actions,
@@ -25,5 +25,13 @@ class PlatynUI(DynamicCore):
 
     @keyword
     def dummy_keyword(self) -> None:
-        """A dummy keyword to illustrate the structure of the library."""
+        """A no-op example keyword.
+
+        This placeholder keyword demonstrates how library keywords are exposed and documented.
+
+        Examples:
+        | Dummy Keyword |
+
+        Tags: example, internal
+        """
         pass

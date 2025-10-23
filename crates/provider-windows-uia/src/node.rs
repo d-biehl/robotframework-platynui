@@ -1239,12 +1239,11 @@ impl UiAttribute for IdAttr {
         platynui_core::ui::attribute_names::common::ID
     }
     fn value(&self) -> UiValue {
-        if let Some(ref weak) = self.owner {
-            if let Some(node) = weak.upgrade() {
-                if let Some(id) = node.id() {
-                    return UiValue::from(id);
-                }
-            }
+        if let Some(ref weak) = self.owner
+            && let Some(node) = weak.upgrade()
+            && let Some(id) = node.id()
+        {
+            return UiValue::from(id);
         }
         UiValue::Null
     }

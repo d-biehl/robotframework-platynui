@@ -73,8 +73,10 @@ dev = [
     "gitpython>=3.1.45",
     "mypy>=1.17.1",
     "pytest>=8.4.2",
+    "robotframework-robocop>=6.8.3",
     "ruff>=0.12.11",
     "semantic-version>=2.10.0",
+    "robotcode[runner]>=2.0.0",
 ]
 
 [tool.cibuildwheel.macos.environment]
@@ -137,7 +139,6 @@ ignore = [
 [tool.ruff.lint.isort]
 combine-as-imports = true
 known-first-party = ["PlatynUI", "platynui_runtime"]
-# weird issue with ruff thinking fasta2a is still editable
 known-third-party = ["robot", "pythonlibcore"]
 
 [tool.ruff.lint.pydocstyle]

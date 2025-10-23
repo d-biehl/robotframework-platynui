@@ -93,7 +93,9 @@ pub trait UiNodeExt {
     fn ancestors(&self) -> UiNodeAncestorIter;
     /// Iterator over the node itself followed by all ancestors.
     fn ancestors_including_self(&self) -> UiNodeAncestorIter;
-    /// Top-level ancestor (or `self` if no parent exists).
+    /// Window ancestor (or `self` if none found): returns the nearest ancestor
+    /// (including `self`) that implements the `WindowSurface` pattern. If no such
+    /// ancestor exists, falls back to the top-level ancestor (skipping the Desktop node).
     fn top_level_or_self(&self) -> Arc<dyn UiNode>;
     /// First ancestor (including self) that exposes the requested pattern.
     fn ancestor_pattern<P>(&self) -> Option<Arc<P>>
@@ -121,6 +123,14 @@ impl UiNodeExt for Arc<dyn UiNode> {
     }
 
     fn top_level_or_self(&self) -> Arc<dyn UiNode> {
+        let window_pattern_id = PatternId::from("WindowSurface");
+        for node in self.ancestors_including_self() {
+            if node.supported_patterns().iter().any(|pid| pid == &window_pattern_id) {
+                return node;
+            }
+        }
+
+        // Fallback: climb to the highest non-desktop ancestor.
         let mut current = self.clone();
         while let Some(parent) = current.parent_arc() {
             current = parent;
@@ -423,7 +433,7 @@ mod tests {
         let ancestors: Vec<String> = button_arc.ancestors().map(|node| node.runtime_id().to_string()).collect();
         assert_eq!(ancestors, vec!["panel", "root"]);
 
-        // top level
+        // top level (window ancestor behavior): should pick root which has WindowSurface
         let top = button_arc.top_level_or_self();
         assert_eq!(top.runtime_id(), &RuntimeId::from("root"));
 
@@ -433,6 +443,70 @@ mod tests {
 
         // top-level pattern
         assert!(button_arc.top_level_pattern::<WindowPattern>().is_some());
+    }
+
+    #[test]
+    fn ancestors_including_self_yields_self_then_parents() {
+        struct StubNode {
+            name: &'static str,
+            runtime_id: RuntimeId,
+            parent: Mutex<Option<Weak<dyn UiNode>>>,
+        }
+
+        impl StubNode {
+            fn new(name: &'static str, runtime_id: &'static str) -> Arc<Self> {
+                Arc::new(Self { name, runtime_id: RuntimeId::from(runtime_id), parent: Mutex::new(None) })
+            }
+
+            fn set_parent(child: &Arc<Self>, parent: &Arc<dyn UiNode>) {
+                *child.parent.lock().unwrap() = Some(Arc::downgrade(parent));
+            }
+        }
+
+        impl UiNode for StubNode {
+            fn namespace(&self) -> Namespace {
+                Namespace::Control
+            }
+            fn role(&self) -> &str {
+                self.name
+            }
+            fn name(&self) -> String {
+                self.name.to_string()
+            }
+            fn runtime_id(&self) -> &RuntimeId {
+                &self.runtime_id
+            }
+            fn parent(&self) -> Option<Weak<dyn UiNode>> {
+                self.parent.lock().unwrap().clone()
+            }
+            fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
+                Box::new(std::iter::empty())
+            }
+            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+                Box::new(std::iter::empty())
+            }
+            fn supported_patterns(&self) -> Vec<PatternId> {
+                vec![]
+            }
+            fn pattern_by_id(&self, _id: &PatternId) -> Option<Arc<dyn UiPattern>> {
+                None
+            }
+            fn invalidate(&self) {}
+        }
+
+        let root = StubNode::new("Window", "root");
+        let panel = StubNode::new("Panel", "panel");
+        let button = StubNode::new("Button", "button");
+
+        let root_arc: Arc<dyn UiNode> = root.clone();
+        let panel_arc: Arc<dyn UiNode> = panel.clone();
+        let button_arc: Arc<dyn UiNode> = button.clone();
+
+        StubNode::set_parent(&panel, &root_arc);
+        StubNode::set_parent(&button, &panel_arc);
+
+        let seq: Vec<String> = button_arc.ancestors_including_self().map(|n| n.runtime_id().to_string()).collect();
+        assert_eq!(seq, vec!["button", "panel", "root"]);
     }
 
     #[test]

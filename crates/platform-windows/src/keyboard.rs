@@ -173,14 +173,14 @@ impl KeyboardDevice for WindowsKeyboardDevice {
                             Self::send_vk(KeyState::Press, 0xA5 /* VK_RMENU */)?;
                         } else {
                             if ctrl {
-                                Self::send_vk(KeyState::Press, VK_CONTROL.0 as u16)?;
+                                Self::send_vk(KeyState::Press, VK_CONTROL.0)?;
                             }
                             if alt {
-                                Self::send_vk(KeyState::Press, VK_MENU.0 as u16)?;
+                                Self::send_vk(KeyState::Press, VK_MENU.0)?;
                             }
                         }
                         if shift && !(ctrl_down_now || alt_down_now || altgr) {
-                            Self::send_vk(KeyState::Press, VK_SHIFT.0 as u16)?;
+                            Self::send_vk(KeyState::Press, VK_SHIFT.0)?;
                         }
                         Self::send_vk(KeyState::Press, vk)
                     }
@@ -190,16 +190,16 @@ impl KeyboardDevice for WindowsKeyboardDevice {
                         let alt_down_now = Self::is_key_down(VK_MENU);
                         let altgr = ctrl && alt;
                         if shift && !(ctrl_down_now || alt_down_now || altgr) {
-                            let _ = Self::send_vk(KeyState::Release, VK_SHIFT.0 as u16);
+                            let _ = Self::send_vk(KeyState::Release, VK_SHIFT.0);
                         }
                         if altgr {
-                            let _ = Self::send_vk(KeyState::Release, 0xA5 /* VK_RMENU */ as u16);
+                            let _ = Self::send_vk(KeyState::Release, 0xA5_u16);
                         } else {
                             if alt {
-                                let _ = Self::send_vk(KeyState::Release, VK_MENU.0 as u16);
+                                let _ = Self::send_vk(KeyState::Release, VK_MENU.0);
                             }
                             if ctrl {
-                                let _ = Self::send_vk(KeyState::Release, VK_CONTROL.0 as u16);
+                                let _ = Self::send_vk(KeyState::Release, VK_CONTROL.0);
                             }
                         }
                         r
@@ -481,7 +481,7 @@ static VK_MAP: LazyLock<HashMap<String, KeyName>> = LazyLock::new(|| {
 
     // Common abbreviations/synonyms
     let mut alias = |key: &str, vk: VIRTUAL_KEY| {
-        m.insert(key.to_string(), KeyName::Vk(vk.0 as u16));
+        m.insert(key.to_string(), KeyName::Vk(vk.0));
     };
     alias("CTRL", VK_CONTROL);
     alias("CONTROL", VK_CONTROL);

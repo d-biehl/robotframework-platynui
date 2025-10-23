@@ -9,9 +9,9 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyAnyMethods, PyDict, PyIterator, PyList, PyTuple};
 use std::str::FromStr;
 
+use core_rs::ui::UiNodeExt;
 use platynui_core as core_rs;
 use platynui_core::platform::{HighlightRequest, PixelFormat, ScreenshotRequest};
-use platynui_core::ui::DESKTOP_RUNTIME_ID;
 use platynui_runtime as runtime_rs;
 
 use crate::core::{PyNamespace, PyPoint, PyRect, PySize, py_namespace_from_inner};
@@ -72,69 +72,46 @@ impl PyNode {
     /// Ancestors list (closest parent first), skipping Desktop root.
     fn ancestors(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let list = PyList::empty(py);
-        let mut current = self.inner.parent().and_then(|w| w.upgrade());
-        while let Some(node) = current {
-            let is_desktop =
-                node.parent().is_none() && node.role() == "Desktop" && node.runtime_id().as_str() == DESKTOP_RUNTIME_ID;
-            if is_desktop {
-                break;
-            }
-            list.append(Py::new(py, PyNode { inner: node.clone() })?)?;
-            current = node.parent().and_then(|w| w.upgrade());
+        for node in self.inner.ancestors() {
+            list.append(Py::new(py, PyNode { inner: node })?)?;
         }
         Ok(list.unbind())
     }
 
     /// Self + ancestors list, skipping Desktop root.
     fn ancestors_including_self(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let list = self.ancestors(py)?;
-        // Insert self at the front: rebuild list with self followed by existing
-        let out = PyList::empty(py);
-        out.append(Py::new(py, PyNode { inner: self.inner.clone() })?)?;
-        for item in list.bind(py).iter() {
-            out.append(item)?;
+        let list = PyList::empty(py);
+        for node in self.inner.ancestors_including_self() {
+            list.append(Py::new(py, PyNode { inner: node })?)?;
         }
-        Ok(out.unbind())
+        Ok(list.unbind())
     }
 
-    /// Top-level ancestor (or self if none), skipping Desktop root.
+    /// Top-level ancestor (or self if none).
     fn top_level_or_self(&self, py: Python<'_>) -> PyResult<Py<PyNode>> {
-        let mut current = self.inner.clone();
-        while let Some(parent) = current.parent().and_then(|w| w.upgrade()) {
-            let is_desktop = parent.parent().is_none()
-                && parent.role() == "Desktop"
-                && parent.runtime_id().as_str() == DESKTOP_RUNTIME_ID;
-            if is_desktop {
-                break;
-            }
-            current = parent;
-        }
-        Py::new(py, PyNode { inner: current })
+        let node = self.inner.top_level_or_self();
+        Py::new(py, PyNode { inner: node })
     }
 
     /// First ancestor (including self) that exposes the requested pattern id ('Focusable', 'WindowSurface', ...).
     fn ancestor_pattern(&self, py: Python<'_>, id: &str) -> Option<Py<PyAny>> {
-        // self
-        if let Some(obj) = pattern_object(py, &self.inner, id) {
-            return Some(obj);
-        }
-        // climb
-        let mut current = self.inner.parent().and_then(|w| w.upgrade());
-        while let Some(node) = current {
-            if let Some(obj) = pattern_object(py, &node, id) {
-                return Some(obj);
+        let pid = core_rs::ui::identifiers::PatternId::from(id);
+        for node in self.inner.ancestors_including_self() {
+            if node.pattern_by_id(&pid).is_some() {
+                return pattern_object(py, &node, id);
             }
-            current = node.parent().and_then(|w| w.upgrade());
         }
         None
     }
 
-    /// Pattern object from the top-level ancestor if available.
+    /// Pattern object from the top-level/window ancestor if available.
     fn top_level_pattern(&self, py: Python<'_>, id: &str) -> Option<Py<PyAny>> {
-        let tl = self.top_level_or_self(py).ok()?;
-        let cell = tl.bind(py);
-        let node_ref: PyRef<PyNode> = cell.borrow();
-        pattern_object(py, &node_ref.inner, id)
+        let top = self.inner.top_level_or_self();
+        let pid = core_rs::ui::identifiers::PatternId::from(id);
+        if top.pattern_by_id(&pid).is_some() {
+            return pattern_object(py, &top, id);
+        }
+        None
     }
 
     /// Child nodes as an iterator.
@@ -279,7 +256,7 @@ impl PyFocusable {
         if let Some(p) = self.node.pattern::<core_rs::ui::pattern::FocusableAction>() {
             p.focus().map_err(|e| PatternError::new_err(e.to_string()))
         } else {
-            Err(PatternError::new_err("pattern not available"))
+            Err(PatternError::new_err("Focusable pattern not available"))
         }
     }
 }
@@ -404,7 +381,7 @@ impl PyWindowSurface {
             return f(&*p).map_err(|e| PatternError::new_err(e.to_string()));
         }
         // Not available as known concrete type; report not available.
-        Err(PatternError::new_err("pattern not available"))
+        Err(PatternError::new_err("WindowSurface pattern not available"))
     }
 
     fn call<F>(&self, f: F) -> PyResult<()>
