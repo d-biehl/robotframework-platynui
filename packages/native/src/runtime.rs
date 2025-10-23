@@ -11,8 +11,8 @@ use std::str::FromStr;
 
 use platynui_core as core_rs;
 use platynui_core::platform::{HighlightRequest, PixelFormat, ScreenshotRequest};
-use platynui_runtime as runtime_rs;
 use platynui_core::ui::DESKTOP_RUNTIME_ID;
+use platynui_runtime as runtime_rs;
 
 use crate::core::{PyNamespace, PyPoint, PyRect, PySize, py_namespace_from_inner};
 use platynui_core::ui::FocusablePattern as _;
@@ -55,7 +55,12 @@ impl PyNode {
         let ns = core_rs::ui::resolve_namespace(namespace);
         match self.inner.attribute(ns, name) {
             Some(attr) => ui_value_to_py(py, &attr.value()),
-            None => Ok(py.None()),
+            None => Err(AttributeNotFoundError::new_err(format!(
+                "attribute not found: {}:{} on {}",
+                ns.as_str(),
+                name,
+                self.inner.runtime_id().as_str()
+            ))),
         }
     }
 
@@ -69,9 +74,8 @@ impl PyNode {
         let list = PyList::empty(py);
         let mut current = self.inner.parent().and_then(|w| w.upgrade());
         while let Some(node) = current {
-            let is_desktop = node.parent().is_none()
-                && node.role() == "Desktop"
-                && node.runtime_id().as_str() == DESKTOP_RUNTIME_ID;
+            let is_desktop =
+                node.parent().is_none() && node.role() == "Desktop" && node.runtime_id().as_str() == DESKTOP_RUNTIME_ID;
             if is_desktop {
                 break;
             }
@@ -926,11 +930,15 @@ fn pattern_object(py: Python<'_>, node: &Arc<dyn core_rs::ui::UiNode>, id: &str)
 
 // ---------------- Exceptions ----------------
 
-pyo3::create_exception!(runtime, EvaluationError, PyException);
-pyo3::create_exception!(runtime, ProviderError, PyException);
-pyo3::create_exception!(runtime, PointerError, PyException);
-pyo3::create_exception!(runtime, KeyboardError, PyException);
-pyo3::create_exception!(runtime, PatternError, PyException);
+// Base error for all PlatynUI-related exceptions
+pyo3::create_exception!(runtime, PlatynUiError, PyException);
+// Specific errors deriving from PlatynUiError for finer-grained handling
+pyo3::create_exception!(runtime, EvaluationError, PlatynUiError);
+pyo3::create_exception!(runtime, ProviderError, PlatynUiError);
+pyo3::create_exception!(runtime, PointerError, PlatynUiError);
+pyo3::create_exception!(runtime, KeyboardError, PlatynUiError);
+pyo3::create_exception!(runtime, PatternError, PlatynUiError);
+pyo3::create_exception!(runtime, AttributeNotFoundError, PlatynUiError);
 
 /// Register all runtime types and functions directly into the module (no submodule).
 pub fn register_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -963,6 +971,8 @@ pub fn register_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PointerError", py.get_type::<PointerError>())?;
     m.add("KeyboardError", py.get_type::<KeyboardError>())?;
     m.add("PatternError", py.get_type::<PatternError>())?;
+    m.add("PlatynUiError", py.get_type::<PlatynUiError>())?;
+    m.add("AttributeNotFoundError", py.get_type::<AttributeNotFoundError>())?;
 
     // ---- Export mock handles for Python (opaque usize values) ----
     // These exist for convenience in tests; they are zero when the mock feature is disabled.

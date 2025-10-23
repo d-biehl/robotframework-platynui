@@ -37,6 +37,8 @@ __all__ = [  # noqa: F405
     'PointerError',
     'KeyboardError',
     'PatternError',
+    'PlatynUiError',
+    'AttributeNotFoundError',
     # Mock providers (always available)
     'MOCK_PROVIDER',
     'MOCK_PLATFORM',
