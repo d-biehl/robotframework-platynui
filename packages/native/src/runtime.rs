@@ -559,10 +559,10 @@ impl PyRuntime {
     fn pointer_move_to(
         &self,
         py: Python<'_>,
-        point: PyRef<'_, crate::core::PyPoint>,
+        point: PointInput,
         overrides: Option<PyRef<'_, PyPointerOverrides>>,
     ) -> PyResult<Py<PyPoint>> {
-        let p: core_rs::types::Point = point.as_inner();
+        let p: core_rs::types::Point = point.0;
         let ov = overrides.map(|o| o.inner.clone());
         let new_pos = self.inner.pointer_move_to(p, ov).map_err(map_pointer_err)?;
         Py::new(py, PyPoint::from(new_pos))
@@ -572,11 +572,11 @@ impl PyRuntime {
     #[pyo3(signature = (point, button=None, overrides=None), text_signature = "(self, point, button=None, overrides=None)")]
     fn pointer_click(
         &self,
-        point: Option<PyRef<'_, crate::core::PyPoint>>,
+        point: Option<PointInput>,
         button: Option<PointerButtonLike>,
         overrides: Option<PyRef<'_, PyPointerOverrides>>,
     ) -> PyResult<()> {
-        let p: Option<core_rs::types::Point> = point.map(|r| r.as_inner());
+        let p: Option<core_rs::types::Point> = point.map(|r| r.0);
         let btn = button.map(|b| b.into());
         let ov = overrides.map(|o| o.inner.clone());
         self.inner.pointer_click(p, btn, ov).map_err(map_pointer_err)?;
@@ -587,12 +587,12 @@ impl PyRuntime {
     #[pyo3(signature = (point=None, clicks=2, button=None, overrides=None), text_signature = "(self, point=None, clicks=2, button=None, overrides=None)")]
     fn pointer_multi_click(
         &self,
-        point: Option<PyRef<'_, crate::core::PyPoint>>,
+        point: Option<PointInput>,
         clicks: u32,
         button: Option<PointerButtonLike>,
         overrides: Option<PyRef<'_, PyPointerOverrides>>,
     ) -> PyResult<()> {
-        let p: Option<core_rs::types::Point> = point.map(|r| r.as_inner());
+        let p: Option<core_rs::types::Point> = point.map(|r| r.0);
         let btn = button.map(|b| b.into());
         let ov = overrides.map(|o| o.inner.clone());
         self.inner.pointer_multi_click(p, btn, clicks, ov).map_err(map_pointer_err)?;
@@ -603,13 +603,13 @@ impl PyRuntime {
     #[pyo3(signature = (start, end, button=None, overrides=None), text_signature = "(self, start, end, button=None, overrides=None)")]
     fn pointer_drag(
         &self,
-        start: PyRef<'_, crate::core::PyPoint>,
-        end: PyRef<'_, crate::core::PyPoint>,
+        start: PointInput,
+        end: PointInput,
         button: Option<PointerButtonLike>,
         overrides: Option<PyRef<'_, PyPointerOverrides>>,
     ) -> PyResult<()> {
-        let s: core_rs::types::Point = start.as_inner();
-        let e: core_rs::types::Point = end.as_inner();
+        let s: core_rs::types::Point = start.0;
+        let e: core_rs::types::Point = end.0;
         let btn = button.map(|b| b.into());
         let ov = overrides.map(|o| o.inner.clone());
         self.inner.pointer_drag(s, e, btn, ov).map_err(map_pointer_err)?;
@@ -620,11 +620,11 @@ impl PyRuntime {
     #[pyo3(signature = (point=None, button=None, overrides=None), text_signature = "(self, point=None, button=None, overrides=None)")]
     fn pointer_press(
         &self,
-        point: Option<PyRef<'_, crate::core::PyPoint>>,
+        point: Option<PointInput>,
         button: Option<PointerButtonLike>,
         overrides: Option<PyRef<'_, PyPointerOverrides>>,
     ) -> PyResult<()> {
-        let p = point.map(|r| r.as_inner());
+        let p = point.map(|r| r.0);
         let btn = button.map(|b| b.into());
         let ov = overrides.map(|o| o.inner.clone());
         self.inner.pointer_press(p, btn, ov).map_err(map_pointer_err)?;
@@ -635,11 +635,11 @@ impl PyRuntime {
     #[pyo3(signature = (point=None, button=None, overrides=None), text_signature = "(self, point=None, button=None, overrides=None)")]
     fn pointer_release(
         &self,
-        point: Option<PyRef<'_, crate::core::PyPoint>>,
+        point: Option<PointInput>,
         button: Option<PointerButtonLike>,
         overrides: Option<PyRef<'_, PyPointerOverrides>>,
     ) -> PyResult<()> {
-        let p: Option<core_rs::types::Point> = point.map(|r| r.as_inner());
+        let p: Option<core_rs::types::Point> = point.map(|r| r.0);
         let btn = button.map(|b| b.into());
         let ov = overrides.map(|o| o.inner.clone());
         self.inner.pointer_release(p, btn, ov).map_err(map_pointer_err)?;
@@ -733,15 +733,19 @@ impl PyRuntime {
     fn highlight(&self, rects: Bound<'_, PyAny>, duration_ms: Option<f64>) -> PyResult<()> {
         let mut all: Vec<platynui_core::types::Rect> = Vec::new();
         // Fast path: single Rect passed directly
-        if let Ok(r) = rects.extract::<PyRef<PyRect>>() {
-            all.push(r.as_inner());
+        if let Ok(inp) = rects.extract::<RectInput>() {
+            all.push(inp.0);
         } else {
             // Fallback: consume any iterable of Rects
             let iter = PyIterator::from_object(&rects)?;
             for item in iter {
                 let any = item?;
-                let r: PyRef<PyRect> = any.extract()?;
-                all.push(r.as_inner());
+                if let Ok(inp) = any.extract::<RectInput>() {
+                    all.push(inp.0);
+                } else {
+                    let r: PyRef<PyRect> = any.extract()?;
+                    all.push(r.as_inner());
+                }
             }
         }
         let mut req = HighlightRequest::from_rects(all);
@@ -760,14 +764,13 @@ impl PyRuntime {
 
     /// Captures a screenshot and returns encoded bytes. Supports only 'image/png'.
     #[pyo3(signature = (rect=None, mime_type=None), text_signature = "(self, rect=None, mime_type=None)")]
-    fn screenshot(&self, py: Python<'_>, rect: Option<PyRef<PyRect>>, mime_type: Option<&str>) -> PyResult<Py<PyAny>> {
+    fn screenshot(&self, py: Python<'_>, rect: Option<RectInput>, mime_type: Option<&str>) -> PyResult<Py<PyAny>> {
         let effective_mime = mime_type.unwrap_or("image/png");
         if !effective_mime.eq_ignore_ascii_case("image/png") {
             return Err(PyTypeError::new_err("unsupported mime_type; only 'image/png' is supported"));
         }
-        let request = rect
-            .map(|r| ScreenshotRequest::with_region(r.as_inner()))
-            .unwrap_or_else(ScreenshotRequest::entire_display);
+        let request =
+            rect.map(|r| ScreenshotRequest::with_region(r.0)).unwrap_or_else(ScreenshotRequest::entire_display);
         let shot = self.inner.screenshot(&request).map_err(map_platform_err)?;
         let encoded = encode_png(&shot)?;
         let pybytes = pyo3::types::PyBytes::new(py, &encoded);
@@ -1036,6 +1039,72 @@ impl From<RectLike<'_>> for core_rs::types::Rect {
 
 fn dict_get<'py>(d: &Bound<'py, PyDict>, key: &str) -> Option<Bound<'py, PyAny>> {
     d.get_item(key).ok().flatten()
+}
+
+// -------- Like helpers for Point/Rect (tuple/list/dict/instances) --------
+
+fn ci_get<'py>(d: &Bound<'py, PyDict>, k: &str) -> Option<Bound<'py, PyAny>> {
+    if let Some(v) = dict_get(d, k) {
+        return Some(v);
+    }
+    let k2 = k.to_ascii_uppercase();
+    dict_get(d, k2.as_str())
+}
+
+pub struct PointInput(pub core_rs::types::Point);
+
+impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointInput {
+    type Error = PyErr;
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        if let Ok(p) = ob.extract::<PyRef<PyPoint>>() {
+            return Ok(PointInput(p.as_inner()));
+        }
+        if let Ok((x, y)) = ob.extract::<(f64, f64)>() {
+            return Ok(PointInput(core_rs::types::Point::new(x, y)));
+        }
+        if let Ok(seq) = ob.extract::<Vec<f64>>()
+            && seq.len() == 2
+        {
+            return Ok(PointInput(core_rs::types::Point::new(seq[0], seq[1])));
+        }
+        if let Ok(d) = ob.cast::<PyDict>() {
+            let x = ci_get(&d, "x").and_then(|v| v.extract::<f64>().ok());
+            let y = ci_get(&d, "y").and_then(|v| v.extract::<f64>().ok());
+            if let (Some(x), Some(y)) = (x, y) {
+                return Ok(PointInput(core_rs::types::Point::new(x, y)));
+            }
+        }
+        Err(PyTypeError::new_err("invalid point: expected Point | (x, y) | {x, y}"))
+    }
+}
+
+pub struct RectInput(pub core_rs::types::Rect);
+
+impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for RectInput {
+    type Error = PyErr;
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        if let Ok(r) = ob.extract::<PyRef<PyRect>>() {
+            return Ok(RectInput(r.as_inner()));
+        }
+        if let Ok((x, y, w, h)) = ob.extract::<(f64, f64, f64, f64)>() {
+            return Ok(RectInput(core_rs::types::Rect::new(x, y, w, h)));
+        }
+        if let Ok(seq) = ob.extract::<Vec<f64>>()
+            && seq.len() == 4
+        {
+            return Ok(RectInput(core_rs::types::Rect::new(seq[0], seq[1], seq[2], seq[3])));
+        }
+        if let Ok(d) = ob.cast::<PyDict>() {
+            let x = ci_get(&d, "x").and_then(|v| v.extract::<f64>().ok());
+            let y = ci_get(&d, "y").and_then(|v| v.extract::<f64>().ok());
+            let w = ci_get(&d, "width").and_then(|v| v.extract::<f64>().ok());
+            let h = ci_get(&d, "height").and_then(|v| v.extract::<f64>().ok());
+            if let (Some(x), Some(y), Some(w), Some(h)) = (x, y, w, h) {
+                return Ok(RectInput(core_rs::types::Rect::new(x, y, w, h)));
+            }
+        }
+        Err(PyTypeError::new_err("invalid rect: expected Rect | (x, y, w, h) | {x, y, width, height}"))
+    }
 }
 
 // ---------------- FromPyObject-friendly wrappers ----------------

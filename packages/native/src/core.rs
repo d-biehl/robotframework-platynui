@@ -1,6 +1,8 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(clippy::useless_conversion)]
+use pyo3::exceptions::{PyIndexError, PyTypeError};
 use pyo3::prelude::*;
+use pyo3::types::{PyAny, PyDict};
 
 use platynui_core as core_rs;
 use std::collections::hash_map::DefaultHasher;
@@ -31,6 +33,16 @@ impl PyPoint {
     fn to_tuple(&self) -> (f64, f64) {
         (self.inner.x(), self.inner.y())
     }
+    fn __len__(&self) -> usize {
+        2
+    }
+    fn __getitem__(&self, idx: isize) -> PyResult<f64> {
+        match idx {
+            0 => Ok(self.inner.x()),
+            1 => Ok(self.inner.y()),
+            _ => Err(PyIndexError::new_err("Point index out of range")),
+        }
+    }
 
     fn with_x(&self, x: f64) -> Self {
         Self { inner: self.inner.with_x(x) }
@@ -52,10 +64,19 @@ impl PyPoint {
         Self { inner: self.inner - other.inner }
     }
     fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        if let Ok(o) = other.extract::<PyRef<PyPoint>>() { Ok(self.inner == o.inner) } else { Ok(false) }
+        if let Some(p) = point_from_any(other) { Ok(self.inner == p) } else { Ok(false) }
     }
     fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
         self.__eq__(other).map(|eq| !eq)
+    }
+    #[classmethod]
+    #[pyo3(text_signature = "(value)")]
+    fn from_like(_cls: &Bound<'_, pyo3::types::PyType>, value: &Bound<'_, PyAny>) -> PyResult<Self> {
+        if let Some(p) = point_from_any(value) {
+            Ok(Self { inner: p })
+        } else {
+            Err(PyTypeError::new_err("Point.from_like(): expected Point | (x, y) | {x, y}"))
+        }
     }
     fn __repr__(&self) -> String {
         format!("Point({}, {})", self.inner.x(), self.inner.y())
@@ -99,6 +120,16 @@ impl PySize {
     fn to_tuple(&self) -> (f64, f64) {
         (self.inner.width(), self.inner.height())
     }
+    fn __len__(&self) -> usize {
+        2
+    }
+    fn __getitem__(&self, idx: isize) -> PyResult<f64> {
+        match idx {
+            0 => Ok(self.inner.width()),
+            1 => Ok(self.inner.height()),
+            _ => Err(PyIndexError::new_err("Size index out of range")),
+        }
+    }
 
     fn area(&self) -> f64 {
         self.inner.area()
@@ -123,10 +154,19 @@ impl PySize {
         Self { inner: self.inner / scalar }
     }
     fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        if let Ok(o) = other.extract::<PyRef<PySize>>() { Ok(self.inner == o.inner) } else { Ok(false) }
+        if let Some(s) = size_from_any(other) { Ok(self.inner == s) } else { Ok(false) }
     }
     fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
         self.__eq__(other).map(|eq| !eq)
+    }
+    #[classmethod]
+    #[pyo3(text_signature = "(value)")]
+    fn from_like(_cls: &Bound<'_, pyo3::types::PyType>, value: &Bound<'_, PyAny>) -> PyResult<Self> {
+        if let Some(s) = size_from_any(value) {
+            Ok(Self { inner: s })
+        } else {
+            Err(PyTypeError::new_err("Size.from_like(): expected Size | (width, height) | {width, height}"))
+        }
     }
     fn __repr__(&self) -> String {
         format!("Size({}, {})", self.inner.width(), self.inner.height())
@@ -177,6 +217,18 @@ impl PyRect {
     }
     fn to_tuple(&self) -> (f64, f64, f64, f64) {
         (self.inner.x(), self.inner.y(), self.inner.width(), self.inner.height())
+    }
+    fn __len__(&self) -> usize {
+        4
+    }
+    fn __getitem__(&self, idx: isize) -> PyResult<f64> {
+        match idx {
+            0 => Ok(self.inner.x()),
+            1 => Ok(self.inner.y()),
+            2 => Ok(self.inner.width()),
+            3 => Ok(self.inner.height()),
+            _ => Err(PyIndexError::new_err("Rect index out of range")),
+        }
     }
 
     fn left(&self) -> f64 {
@@ -234,10 +286,19 @@ impl PyRect {
         PyRect { inner: self.inner - point.inner }
     }
     fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        if let Ok(o) = other.extract::<PyRef<PyRect>>() { Ok(self.inner == o.inner) } else { Ok(false) }
+        if let Some(r) = rect_from_any(other) { Ok(self.inner == r) } else { Ok(false) }
     }
     fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
         self.__eq__(other).map(|eq| !eq)
+    }
+    #[classmethod]
+    #[pyo3(text_signature = "(value)")]
+    fn from_like(_cls: &Bound<'_, pyo3::types::PyType>, value: &Bound<'_, PyAny>) -> PyResult<Self> {
+        if let Some(r) = rect_from_any(value) {
+            Ok(Self { inner: r })
+        } else {
+            Err(PyTypeError::new_err("Rect.from_like(): expected Rect | (x, y, width, height) | {x, y, width, height}"))
+        }
     }
     fn __repr__(&self) -> String {
         format!("Rect({}, {}, {}, {})", self.inner.x(), self.inner.y(), self.inner.width(), self.inner.height())
@@ -384,4 +445,97 @@ impl PyRect {
     pub(crate) fn as_inner(&self) -> core_rs::types::Rect {
         self.inner
     }
+}
+
+// ---------- Like-type helpers (private) ----------
+
+fn as_f64(obj: &Bound<'_, PyAny>) -> Option<f64> {
+    obj.extract::<f64>().ok()
+}
+
+fn dict_get_ci<'py>(d: &Bound<'py, PyDict>, k: &str) -> Option<Bound<'py, PyAny>> {
+    if let Ok(v) = d.get_item(k)
+        && v.is_some()
+    {
+        return v;
+    }
+    let k2 = k.to_ascii_uppercase();
+    if let Ok(v) = d.get_item(k2.as_str())
+        && v.is_some()
+    {
+        return v;
+    }
+    None
+}
+
+fn point_from_any(obj: &Bound<'_, PyAny>) -> Option<core_rs::types::Point> {
+    // Point instance
+    if let Ok(p) = obj.extract::<PyRef<PyPoint>>() {
+        return Some(p.inner);
+    }
+    // Tuple or list
+    if let Ok((x, y)) = obj.extract::<(f64, f64)>() {
+        return Some(core_rs::types::Point::new(x, y));
+    }
+    if let Ok(seq) = obj.extract::<Vec<f64>>()
+        && seq.len() == 2
+    {
+        return Some(core_rs::types::Point::new(seq[0], seq[1]));
+    }
+    // Dict {x, y}
+    if let Ok(d) = obj.cast::<PyDict>() {
+        let x = dict_get_ci(d, "x").and_then(|v| as_f64(&v));
+        let y = dict_get_ci(d, "y").and_then(|v| as_f64(&v));
+        if let (Some(x), Some(y)) = (x, y) {
+            return Some(core_rs::types::Point::new(x, y));
+        }
+    }
+    None
+}
+
+fn size_from_any(obj: &Bound<'_, PyAny>) -> Option<core_rs::types::Size> {
+    if let Ok(s) = obj.extract::<PyRef<PySize>>() {
+        return Some(s.inner);
+    }
+    if let Ok((w, h)) = obj.extract::<(f64, f64)>() {
+        return Some(core_rs::types::Size::new(w, h));
+    }
+    if let Ok(seq) = obj.extract::<Vec<f64>>()
+        && seq.len() == 2
+    {
+        return Some(core_rs::types::Size::new(seq[0], seq[1]));
+    }
+    if let Ok(d) = obj.cast::<PyDict>() {
+        // prefer width/height, tolerate w/h
+        let w = dict_get_ci(d, "width").or_else(|| dict_get_ci(d, "w")).and_then(|v| as_f64(&v));
+        let h = dict_get_ci(d, "height").or_else(|| dict_get_ci(d, "h")).and_then(|v| as_f64(&v));
+        if let (Some(w), Some(h)) = (w, h) {
+            return Some(core_rs::types::Size::new(w, h));
+        }
+    }
+    None
+}
+
+fn rect_from_any(obj: &Bound<'_, PyAny>) -> Option<core_rs::types::Rect> {
+    if let Ok(r) = obj.extract::<PyRef<PyRect>>() {
+        return Some(r.inner);
+    }
+    if let Ok((x, y, w, h)) = obj.extract::<(f64, f64, f64, f64)>() {
+        return Some(core_rs::types::Rect::new(x, y, w, h));
+    }
+    if let Ok(seq) = obj.extract::<Vec<f64>>()
+        && seq.len() == 4
+    {
+        return Some(core_rs::types::Rect::new(seq[0], seq[1], seq[2], seq[3]));
+    }
+    if let Ok(d) = obj.cast::<PyDict>() {
+        let x = dict_get_ci(d, "x").and_then(|v| as_f64(&v));
+        let y = dict_get_ci(d, "y").and_then(|v| as_f64(&v));
+        let w = dict_get_ci(d, "width").and_then(|v| as_f64(&v));
+        let h = dict_get_ci(d, "height").and_then(|v| as_f64(&v));
+        if let (Some(x), Some(y), Some(w), Some(h)) = (x, y, w, h) {
+            return Some(core_rs::types::Rect::new(x, y, w, h));
+        }
+    }
+    None
 }

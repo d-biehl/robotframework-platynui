@@ -43,3 +43,17 @@ def test_pointer_and_keyboard_smoke(rt_mock_platform: Runtime) -> None:
 
     # keyboard should be available with mock platform
     rt_mock_platform.keyboard_type('a')
+
+
+def test_pointer_like_args(rt_mock_platform: Runtime) -> None:
+    # tuple input
+    pos = rt_mock_platform.pointer_move_to((10.0, 20.0))
+    assert hasattr(pos, 'x') and hasattr(pos, 'y')
+    # dict input
+    pos = rt_mock_platform.pointer_move_to({'x': 30, 'y': 40})
+    assert pos.x == 30 and pos.y == 40
+    # click accepts None (no move) and like types
+    rt_mock_platform.pointer_click((5.0, 6.0))
+    rt_mock_platform.pointer_click({'x': 7, 'y': 8})
+    # drag accepts like types
+    rt_mock_platform.pointer_drag((1.0, 2.0), (3.0, 4.0))
