@@ -1,7 +1,7 @@
 [project]
 name = "platynui-cli"
 description = "CLI for Robot Framework PlatynUI"
-version = "0.12.0-dev.3"
+version = "0.12.0-dev.4"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
