@@ -66,7 +66,7 @@ def main() -> None:
         )
         replace_in_file(
             f,
-            re.compile(r"""("robotframework-platynui\S*==)([0-9]+\.[0-9]+\.[0-9]+[^'"]*)(")""", re.MULTILINE),
+            re.compile(r"""("platynui\S*==)([0-9]+\.[0-9]+\.[0-9]+[^'"]*)(")""", re.MULTILINE),
             rf'\g<1>{version or ""}\g<3>',
         )
 
