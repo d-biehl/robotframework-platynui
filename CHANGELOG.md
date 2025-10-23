@@ -6,7 +6,10 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Bug Fixes
 
+- **native:** Simplify borrowing of PyDict in FromPyObject implementations for PointerOverridesInput and KeyboardOverridesInput ([9b47049](https://github.com/imbus/robotframework-PlatynUI/commit/9b470493fb754facd7a091170d2277223bb116cd))
+- **platform-windows:** Enhance keyboard input handling with AltGr and modifier key aliases ([ea07d7f](https://github.com/imbus/robotframework-PlatynUI/commit/ea07d7fa63a66eeedf107f3b9727240a342dc7a5))
 - **provider-windows-uia:** Update UiaNode's availability check to use CurrentProcessId ([500b4a2](https://github.com/imbus/robotframework-PlatynUI/commit/500b4a2a8141e01af19f3b755c537bdb4ea3def0))
+- **runtime:** Update FromPyObject implementations for PointerOverridesInput and KeyboardOverridesInput to match new PyO3 ([54e4bfc](https://github.com/imbus/robotframework-PlatynUI/commit/54e4bfc3057d069922ba43a1f095b5611bdcc031))
 - **scripts:** Update regex pattern for robotframework-platynui version matching ([d0b0e41](https://github.com/imbus/robotframework-PlatynUI/commit/d0b0e414c56524a14abbdeb3e0dd87526a266467))
 - Add sync command to pre-bump hooks for all packages and extras ([e310385](https://github.com/imbus/robotframework-PlatynUI/commit/e310385a823e38851d922590b212e1363cbe5034))
 - Add type hints and mypy configuration for improved type checking ([b31f326](https://github.com/imbus/robotframework-PlatynUI/commit/b31f32631908a82d79a6b5ed53a25b0769940a61))
@@ -14,17 +17,32 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Documentation
 
+- Update Windows ApplicationNode id() fallback to include optional AUMID as a stable identifier ([0ace67e](https://github.com/imbus/robotframework-PlatynUI/commit/0ace67e136b29cded3a4a7ec5fc952b0ddfa2632))
+- Update architecture documentation with symbol aliases for reserved characters and modifier key support ([addc5d6](https://github.com/imbus/robotframework-PlatynUI/commit/addc5d6fa21a3e76af97d096a16a30cf39a7f55a))
+- Enhance architecture documentation with linking macros and FFI details, update plan ([ebdf73f](https://github.com/imbus/robotframework-PlatynUI/commit/ebdf73f0bf4dedfc2bcbe7d17d87a3ce8bba136c))
 - Enhance CONTRIBUTING.md ([d7304ed](https://github.com/imbus/robotframework-PlatynUI/commit/d7304ed9a481a2fe45bf02bed9368676d34800c8))
 - Update README.md for clarity and structure, enhancing installation instructions and project description ([5a447e3](https://github.com/imbus/robotframework-PlatynUI/commit/5a447e39af2847ee6f3ba1551dc83d9ebd6f2cd5))
 
 
 ### Features
 
+- **cli:** Add snapshot command for exporting UI subtrees as XML ([60bf6b0](https://github.com/imbus/robotframework-PlatynUI/commit/60bf6b06dd2e0a7f6822fa803d452dc4aedb2051))
 - **core:** Introduce is_valid method to check node availability ([6a82573](https://github.com/imbus/robotframework-PlatynUI/commit/6a82573dacd55a8b701ed05c0f824f4ea6cca3b1))
 - **inspector:** Implement caching and refreshing of nodes ([035b6e2](https://github.com/imbus/robotframework-PlatynUI/commit/035b6e29f9d635b41691a387b421018028dc676d))
 - **inspector:** Add some custom components for split layout and treeview ([5ecb57a](https://github.com/imbus/robotframework-PlatynUI/commit/5ecb57a7a0426ad78b8a3e0225d68258ecdc4f60))
+- **keyboard:** Implement symbol aliases for reserved characters and enhance keyboard device functionality ([dee5900](https://github.com/imbus/robotframework-PlatynUI/commit/dee59001dc815d0ca227502d5e6ba3db1be0f5d2))
+- **keyboard:** Add known_key_names method to KeyboardDevice trait and implementations ([bba29a1](https://github.com/imbus/robotframework-PlatynUI/commit/bba29a18f427ef6924feb148abde32762e9834ab))
+- **platform-windows:** Implement keyboard device ([5e60335](https://github.com/imbus/robotframework-PlatynUI/commit/5e60335c4aed54f3eed3256c404ec1708f41863f))
+- **platynui:** Add take_screenshot keyword to BareMetal Library ([74c8ea8](https://github.com/imbus/robotframework-PlatynUI/commit/74c8ea80187e477987d5921931a43e366b1eab72))
+- **platynui:** Add a lot of keywords for BareMetal library ([0fc1fba](https://github.com/imbus/robotframework-PlatynUI/commit/0fc1fba9c475837f77399b2025fe7aa0342e5447))
 - **provider-windows-uia:** Implement scoped RuntimeId URIs for UiaNode and related attributes ([c7c4623](https://github.com/imbus/robotframework-PlatynUI/commit/c7c462327b3084199a5c21f5645cda04c3716a5c))
+- **python-native:** Enhance Point, Size, and Rect classes with 'from_like' methods and support for tuple/dict inputs ([77c7161](https://github.com/imbus/robotframework-PlatynUI/commit/77c71619de54c7e466b21a74a7a1bf16ffad8dd2))
+- **python-native:** Add AttributeNotFoundError and update exception hierarchy ([c2f91d1](https://github.com/imbus/robotframework-PlatynUI/commit/c2f91d13c9d6a1394505fa7aa16cb628b71deb31))
+- **python-native:** Add methods for ancestor traversal and pattern retrieval ([654bd61](https://github.com/imbus/robotframework-PlatynUI/commit/654bd61b44c0f0fcf6a120cff529430d6ebcce7f))
 - **python-native:** Add is_valid method to UiNode for liveness checks ([a49e26c](https://github.com/imbus/robotframework-PlatynUI/commit/a49e26cf17c0ce07392f9a5a2c7166c77910bbcb))
+- **ui:** Add optional developer-provided stable identifier `Id` to UiNode and related attributes ([8ee7905](https://github.com/imbus/robotframework-PlatynUI/commit/8ee7905f1dcf12c9117f2f2dd8922d753dbf15a5))
+- **window:** Add bring-to-front functionality with optional wait time for window activation ([f6422ef](https://github.com/imbus/robotframework-PlatynUI/commit/f6422efc5e331bc6bf99152ef1f9ed0209e011c9))
+- **xpath:** Introduce EvaluationStream for owned XPath evaluation results ([bca283f](https://github.com/imbus/robotframework-PlatynUI/commit/bca283fd075f5b35d02ccfed12d91fb1dfb413f3))
 - Add project URLs to pyproject.toml files ([61cf164](https://github.com/imbus/robotframework-PlatynUI/commit/61cf16449c8c9a933a2a60ab5db91e554d0eab24))
 - Introduce platynui-cli and platynui-inspector tools as separate installable python packages ([c58da55](https://github.com/imbus/robotframework-PlatynUI/commit/c58da55d9769e9694d59fcaf6c261b61a473f8a5))
 - First version of spy tool part 3 ([345c3e2](https://github.com/imbus/robotframework-PlatynUI/commit/345c3e28f471eb9b213478b363b789ab53516b99))
@@ -36,7 +54,11 @@ All notable changes to this project will be documented in this file. See [conven
 
 - **inspector:** Simplify conditional checks for cached_bounds assignment ([f0ddb50](https://github.com/imbus/robotframework-PlatynUI/commit/f0ddb50bae04e5a6dcf7f580f756796b0f4b398e))
 - **platform-windows:** Improve buffer handling in process query functions and enhance click-through overlay behavior ([6bac989](https://github.com/imbus/robotframework-PlatynUI/commit/6bac989a6d62aae5f2d0ef18d5d4b3c487680b27))
+- **pointer:** Update pointer click functions to accept optional target points ([bf725d6](https://github.com/imbus/robotframework-PlatynUI/commit/bf725d6430a57ba6b17f42aa5a10fcbe93523079))
 - **provider-windows-uia:** Update COM initialization to use apartment-threaded model and remove warm-up code ([87eb9ef](https://github.com/imbus/robotframework-PlatynUI/commit/87eb9efa3d8ac0a88b3b6a54e67f770f120b49fc))
+- **python-native:** Simplify type annotations and improve consistency across the module ([5feda99](https://github.com/imbus/robotframework-PlatynUI/commit/5feda9936d289c1d9cc84ad2ee4a96a3213bef98))
+- **runtime:** Remove unused rect_alias_attributes function and related call in DesktopNode ([650a50e](https://github.com/imbus/robotframework-PlatynUI/commit/650a50e0bae9b1c77be78b39e5a25cff5ba0d5d7))
+- Rename packages and update dependencies in project files ([346b346](https://github.com/imbus/robotframework-PlatynUI/commit/346b346bf74afa7831c83db143189419abfbde26))
 - Replace Rc with Arc for runtime management in main function ([eb3ac97](https://github.com/imbus/robotframework-PlatynUI/commit/eb3ac97603aee8ebd4881334fa2d452f9b67b3bf))
 - Unify highlight request handling and support multiple rectangles ([03bd173](https://github.com/imbus/robotframework-PlatynUI/commit/03bd173342286eb9926399409de635a641c661ca))
 
