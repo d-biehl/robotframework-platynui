@@ -1,6 +1,6 @@
 [package]
 name = "platynui-inspector-pybin"
-version = "0.12.0-dev.1"
+version = "0.12.0-dev.2"
 edition = "2024"
 license = "Apache-2.0"
 description = "Inspector application for PlatynUI"
