@@ -12,6 +12,7 @@ use std::str::FromStr;
 use platynui_core as core_rs;
 use platynui_core::platform::{HighlightRequest, PixelFormat, ScreenshotRequest};
 use platynui_runtime as runtime_rs;
+use platynui_core::ui::DESKTOP_RUNTIME_ID;
 
 use crate::core::{PyNamespace, PyPoint, PyRect, PySize, py_namespace_from_inner};
 use platynui_core::ui::FocusablePattern as _;
@@ -61,6 +62,75 @@ impl PyNode {
     /// Parent node if available.
     fn parent(&self, py: Python<'_>) -> Option<Py<PyNode>> {
         self.inner.parent().and_then(|w| w.upgrade()).and_then(|arc| Py::new(py, PyNode { inner: arc }).ok())
+    }
+
+    /// Ancestors list (closest parent first), skipping Desktop root.
+    fn ancestors(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
+        let list = PyList::empty(py);
+        let mut current = self.inner.parent().and_then(|w| w.upgrade());
+        while let Some(node) = current {
+            let is_desktop = node.parent().is_none()
+                && node.role() == "Desktop"
+                && node.runtime_id().as_str() == DESKTOP_RUNTIME_ID;
+            if is_desktop {
+                break;
+            }
+            list.append(Py::new(py, PyNode { inner: node.clone() })?)?;
+            current = node.parent().and_then(|w| w.upgrade());
+        }
+        Ok(list.unbind())
+    }
+
+    /// Self + ancestors list, skipping Desktop root.
+    fn ancestors_including_self(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
+        let list = self.ancestors(py)?;
+        // Insert self at the front: rebuild list with self followed by existing
+        let out = PyList::empty(py);
+        out.append(Py::new(py, PyNode { inner: self.inner.clone() })?)?;
+        for item in list.bind(py).iter() {
+            out.append(item)?;
+        }
+        Ok(out.unbind())
+    }
+
+    /// Top-level ancestor (or self if none), skipping Desktop root.
+    fn top_level_or_self(&self, py: Python<'_>) -> PyResult<Py<PyNode>> {
+        let mut current = self.inner.clone();
+        while let Some(parent) = current.parent().and_then(|w| w.upgrade()) {
+            let is_desktop = parent.parent().is_none()
+                && parent.role() == "Desktop"
+                && parent.runtime_id().as_str() == DESKTOP_RUNTIME_ID;
+            if is_desktop {
+                break;
+            }
+            current = parent;
+        }
+        Py::new(py, PyNode { inner: current })
+    }
+
+    /// First ancestor (including self) that exposes the requested pattern id ('Focusable', 'WindowSurface', ...).
+    fn ancestor_pattern(&self, py: Python<'_>, id: &str) -> Option<Py<PyAny>> {
+        // self
+        if let Some(obj) = pattern_object(py, &self.inner, id) {
+            return Some(obj);
+        }
+        // climb
+        let mut current = self.inner.parent().and_then(|w| w.upgrade());
+        while let Some(node) = current {
+            if let Some(obj) = pattern_object(py, &node, id) {
+                return Some(obj);
+            }
+            current = node.parent().and_then(|w| w.upgrade());
+        }
+        None
+    }
+
+    /// Pattern object from the top-level ancestor if available.
+    fn top_level_pattern(&self, py: Python<'_>, id: &str) -> Option<Py<PyAny>> {
+        let tl = self.top_level_or_self(py).ok()?;
+        let cell = tl.bind(py);
+        let node_ref: PyRef<PyNode> = cell.borrow();
+        pattern_object(py, &node_ref.inner, id)
     }
 
     /// Child nodes as an iterator.
@@ -842,6 +912,16 @@ fn map_bring_err(err: runtime_rs::runtime::BringToFrontError) -> PyErr {
     PatternError::new_err(err.to_string())
 }
 
+// ---------------- Internal helpers ----------------
+
+fn pattern_object(py: Python<'_>, node: &Arc<dyn core_rs::ui::UiNode>, id: &str) -> Option<Py<PyAny>> {
+    match id {
+        "Focusable" => Py::new(py, PyFocusable { node: node.clone() }).ok().map(|p| p.into_any()),
+        "WindowSurface" => Py::new(py, PyWindowSurface { node: node.clone() }).ok().map(|p| p.into_any()),
+        _ => None,
+    }
+}
+
 // ---------------- Module init ----------------
 
 // ---------------- Exceptions ----------------
@@ -861,6 +941,8 @@ pub fn register_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEvaluationIterator>()?;
     m.add_class::<PyAttribute>()?;
     m.add_class::<PyEvaluatedAttribute>()?;
+    m.add_class::<PyFocusable>()?;
+    m.add_class::<PyWindowSurface>()?;
     m.add_class::<PyPointerOverrides>()?;
     m.add_class::<PyKeyboardOverrides>()?;
     // Create a Python IntEnum for pointer buttons: 1=LEFT, 2=MIDDLE, 3=RIGHT
