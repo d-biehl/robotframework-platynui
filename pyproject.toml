@@ -1,6 +1,6 @@
 [project]
 name = "robotframework-PlatynUI"
-version = "0.12.0-dev.2"
+version = "0.12.0-dev.3"
 description = "Cross-platform UI automation toolkit for Robot Framework with XPath-based element selection"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -32,16 +32,16 @@ classifiers = [
 ]
 dependencies = [
     "robotframework>=7.0.0",
-    "platynui-native==0.2.0-dev.1",
+    "platynui-native==0.12.0-dev.2",
     "typing-extensions",
     "robotframework-pythonlibcore>=4.4.0",
     "robotframework-assertion-engine>=3.0.0",
 ]
 
 [project.optional-dependencies]
-cli = ["platynui-cli==0.2.0-dev.1"]
-inspector = ["platynui-inspector==0.2.0-dev.1"]
-all = ["platynui-cli==0.2.0-dev.1", "platynui-inspector==0.2.0-dev.1"]
+cli = ["platynui-cli==0.12.0-dev.2"]
+inspector = ["platynui-inspector==0.12.0-dev.2"]
+all = ["platynui-cli==0.12.0-dev.2", "platynui-inspector==0.12.0-dev.2"]
 
 [project.urls]
 Homepage = "https://github.com/imbus/robotframework-PlatynUI"
