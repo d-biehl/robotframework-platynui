@@ -52,5 +52,5 @@ name = "platynui_inspector"
 path = "src/lib.rs"
 
 [[bin]]
-name = "platynui-inspector"
+name = "platynui-inspector-rs"
 path = "src/main.rs"
