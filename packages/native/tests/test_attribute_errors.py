@@ -11,4 +11,3 @@ def test_missing_attribute_raises_specific_error(rt_mock_platform: pn.Runtime) -
         assert 'control:DoesNotExist' in msg
     else:
         raise AssertionError('AttributeNotFoundError was not raised')
-

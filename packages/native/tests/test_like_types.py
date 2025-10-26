@@ -18,7 +18,8 @@ def test_point_equality_with_tuple_and_dict() -> None:
 
 def test_point_from_like() -> None:
     p1 = Point.from_like((1, 2))
-    assert p1.x == 1 and p1.y == 2
+    assert p1.x == 1
+    assert p1.y == 2
     p2 = Point.from_like({'x': 3, 'y': 4})
     assert p2.to_tuple() == (3.0, 4.0)
 
@@ -39,7 +40,8 @@ def test_size_equality_with_tuple_and_dict() -> None:
 
 def test_size_from_like() -> None:
     s1 = Size.from_like((5, 6))
-    assert s1.width == 5 and s1.height == 6
+    assert s1.width == 5
+    assert s1.height == 6
     s2 = Size.from_like({'width': 7, 'height': 8})
     assert (s2.width, s2.height) == (7.0, 8.0)
 
@@ -60,7 +62,8 @@ def test_rect_from_like() -> None:
     r1 = Rect.from_like((9, 8, 7, 6))
     assert r1.to_tuple() == (9.0, 8.0, 7.0, 6.0)
     r2 = Rect.from_like({'x': 2, 'y': 3, 'width': 4, 'height': 5})
-    assert r2.left() == 2 and r2.top() == 3
+    assert r2.left() == 2
+    assert r2.top() == 3
 
 
 def test_rect_unpacking() -> None:

@@ -10,7 +10,8 @@ def test_desktop_node_and_info(rt_mock_platform: Runtime) -> None:
     assert node.role == 'Desktop'
     info = rt_mock_platform.desktop_info()
     assert isinstance(info, dict)
-    assert 'bounds' in info and hasattr(info['bounds'], 'to_tuple')
+    assert 'bounds' in info
+    assert hasattr(info['bounds'], 'to_tuple')
     # Mock platform exposes deterministic OS info
     assert info.get('os_name') == 'MockOS'
     monitors = info.get('monitors', [])

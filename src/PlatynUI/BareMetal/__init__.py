@@ -104,11 +104,7 @@ class BareMetal(OurDynamicCore):
             - Namespaces follow PlatynUI defaults (e.g., control); qualify names when needed.
             - Read-only: This keyword does not modify UI state.
         """
-        result = (
-            self.runtime.evaluate_single(expression, root) if only_first else self.runtime.evaluate(expression, root)
-        )
-
-        return result
+        return self.runtime.evaluate_single(expression, root) if only_first else self.runtime.evaluate(expression, root)
 
     # Internal helpers
     def _resolve_screen_point(
@@ -581,7 +577,8 @@ class BareMetal(OurDynamicCore):
             logger.info(
                 '</td></tr><tr><td colspan="3">'
                 '<img alt="screenshot" class="robot-seleniumlibrary-screenshot" '
-                f'src="data:image/png;base64,{base64.b64encode(screenshot).decode("utf-8")}" style="max-width:800px;width:100%"/>',
+                f'src="data:image/png;base64,{base64.b64encode(screenshot).decode("utf-8")}" '
+                'style="max-width:800px;width:100%"/>',
                 html=True,
             )
             return filename
@@ -597,7 +594,8 @@ class BareMetal(OurDynamicCore):
         relative_path = filepath.relative_to(screenshot_dir)
         logger.info(
             '</td></tr><tr><td colspan="3">'
-            f'<a href="{relative_path}" target="_blank"><img src="{relative_path}" style="max-width:800px;width:100%"/></a>',
+            f'<a href="{relative_path}" target="_blank"><img src="{relative_path}" '
+            'style="max-width:800px;width:100%"/></a>',
             html=True,
         )
 

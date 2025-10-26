@@ -116,25 +116,61 @@ include = [
 ]
 
 [tool.ruff.lint]
-extend-select = [
-    "Q",
-    "RUF100",
-    "RUF018", # https://docs.astral.sh/ruff/rules/assignment-in-assert/
-    "C90",
-    "UP",
-    "I",
-    "D",
-    "TID251",
+ignore = [
+    "E741",
+    "N805",
+    "N999",
+    "RUF012",
+    "RUF006",
+    "ISC001",
+    "D100",   # ignore missing docstring in module
+    "D102",   # ignore missing docstring in public method
+    "D104",   # ignore missing docstring in public package
+    "D105",   # ignore missing docstring in magic methods
+    "D107",   # ignore missing docstring in __init__ methods
 ]
+extend-select = [
+    "E",
+    "F",
+    "W",
+    "I",
+    "N",
+    #"UP",
+    "YTT",
+    #"ANN",
+    #"BLE",
+    #"B",
+    #"A"
+    #"COM"
+    # "C4", # TODO enable this
+    "DTZ",
+    "T10",
+    # "EM",
+    "ISC",
+    "G",
+    #"INP",
+    "PIE",
+    # "T20",
+    "PT",
+    "Q",
+    "RET",
+    # "SIM", # TODO enable this
+    # "TID",
+    # "TCH",
+    # "ARG",
+    # "PTH", # TODO enable this
+    # "SLF", #  TODO enable this
+    # "ERA", # TODO enable this
+    "RSE",
+    # "PL",
+    #"TRY",
+    "RUF",
+    # "TID"
+]
+
 flake8-quotes = { inline-quotes = "single", multiline-quotes = "double" }
 mccabe = { max-complexity = 15 }
-ignore = [
-    "D100", # ignore missing docstring in module
-    "D102", # ignore missing docstring in public method
-    "D104", # ignore missing docstring in public package
-    "D105", # ignore missing docstring in magic methods
-    "D107", # ignore missing docstring in __init__ methods
-]
+
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

@@ -38,6 +38,7 @@ from ._native import (
 
 # ===== Type Aliases =====
 
+
 # Like dictionaries for ergonomics
 class _PointDict(TypedDict):
     x: float
@@ -74,38 +75,38 @@ ScrollDeltaLike = tuple[float, float]
 
 # Explicit __all__ for better IDE support (will be populated by stub file)
 __all__ = [
+    'AttributeNotFoundError',
+    'EvaluatedAttribute',
+    # Exceptions
+    'EvaluationError',
+    'EvaluationIterator',
+    'Focusable',
+    'KeyboardError',
+    'KeyboardOverrides',
+    'Namespace',
+    'NodeAttributesIterator',
+    'NodeChildrenIterator',
+    'PatternError',
+    'PatternId',
+    'PlatynUiError',
     # Core types
     'Point',
     'PointLike',
-    'Size',
-    'SizeLike',
-    'Rect',
-    'RectLike',
-    'PatternId',
-    'RuntimeId',
-    'TechnologyId',
-    'Namespace',
-    # Runtime
-    'Runtime',
-    'UiNode',
-    'UiValue',
-    'NodeChildrenIterator',
-    'NodeAttributesIterator',
-    'EvaluationIterator',
-    'UiAttribute',
-    'EvaluatedAttribute',
-    'Focusable',
-    'WindowSurface',
+    'PointerButton',
+    'PointerError',
     # Overrides
     'PointerOverrides',
-    'KeyboardOverrides',
-    'PointerButton',
-    # Exceptions
-    'EvaluationError',
     'ProviderError',
-    'PointerError',
-    'KeyboardError',
-    'PatternError',
-    'PlatynUiError',
-    'AttributeNotFoundError'
+    'Rect',
+    'RectLike',
+    # Runtime
+    'Runtime',
+    'RuntimeId',
+    'Size',
+    'SizeLike',
+    'TechnologyId',
+    'UiAttribute',
+    'UiNode',
+    'UiValue',
+    'WindowSurface',
 ]

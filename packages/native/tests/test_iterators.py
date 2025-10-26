@@ -56,7 +56,8 @@ def test_attributes_returns_iterator(rt_mock_platform: Runtime) -> None:
     for attr in get_desktop_node(rt_mock_platform).attributes():
         count += 1
         # Minimal shape check
-        assert hasattr(attr, 'namespace') and hasattr(attr, 'name')
+        assert hasattr(attr, 'namespace')
+        assert hasattr(attr, 'name')
     assert count >= 1
 
 
