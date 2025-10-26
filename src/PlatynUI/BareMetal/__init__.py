@@ -3,7 +3,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from platynui_native import Point, PointerButton, Rect, Runtime, UiNode, WindowSurface
+from platynui_native import Point, PointerButton, Rect, RectLike, Runtime, UiNode, WindowSurface
 from robot.api import logger
 from robot.api.deco import library
 from robot.libraries.BuiltIn import BuiltIn
@@ -77,7 +77,7 @@ class BareMetal(OurDynamicCore):
     def query(
         self,
         expression: str,
-        root: Any = None,
+        root: UiNode | None = None,
         only_first: bool = False,
     ) -> Any:
         """Evaluate a PlatynUI XPath-like expression against the UI tree.
@@ -546,7 +546,7 @@ class BareMetal(OurDynamicCore):
         self,
         descriptor: UiNodeDescriptor | None = None,
         filename: Literal['EMBED'] | str = 'platynui-screenshot-{index}.png',
-        rect: Rect | None = None,
+        rect: RectLike | None = None,
     ) -> str:
         """Take a screenshot of the entire screen or a specific element.
 
@@ -562,14 +562,26 @@ class BareMetal(OurDynamicCore):
         if descriptor is not None:
             node = descriptor()
             self.runtime.bring_to_front(node)
-            rect = cast(Rect, node.attribute('Bounds'))
+            node_rect = cast(Rect, node.attribute('Bounds'))
+            if rect is not None:
+                rect = Rect.from_like(rect)
+                translated_rect = node_rect.translate(rect.x, rect.y)
+                rect = Rect(
+                    translated_rect.x,
+                    translated_rect.y,
+                    min(rect.width, node_rect.width - (rect.x)),
+                    min(rect.height, node_rect.height - (rect.y)),
+                )
+            else:
+                rect = node_rect
 
         screenshot = self.runtime.screenshot(rect, 'image/png')
+
         if filename == 'EMBED':
             logger.info(
                 '</td></tr><tr><td colspan="3">'
                 '<img alt="screenshot" class="robot-seleniumlibrary-screenshot" '
-                f'src="data:image/png;base64,{base64.b64encode(screenshot).decode("utf-8")}" width="900px"/>',
+                f'src="data:image/png;base64,{base64.b64encode(screenshot).decode("utf-8")}" style="max-width:800px;width:100%"/>',
                 html=True,
             )
             return filename
@@ -585,8 +597,33 @@ class BareMetal(OurDynamicCore):
         relative_path = filepath.relative_to(screenshot_dir)
         logger.info(
             '</td></tr><tr><td colspan="3">'
-            f'<a href="{relative_path}" target="_blank"><img src="{relative_path}" width="800px"/></a>',
+            f'<a href="{relative_path}" target="_blank"><img src="{relative_path}" style="max-width:800px;width:100%"/></a>',
             html=True,
         )
 
         return filename
+
+    @keyword
+    def highlight(
+        self, descriptor: UiNodeDescriptor | str, *, root: UiNode | None = None, duration: float = 1.0
+    ) -> None:
+        """Highlight a UI element for a specified duration.
+
+        Args:
+            descriptor: The UiNodeDescriptor representing the target node.
+            root: Optional UiNode to use as the evaluation root when `descriptor` is a selector string;
+                if provided, the query will be evaluated relative to this root.
+            duration: Duration in seconds to highlight the element.
+        """
+        if isinstance(descriptor, UiNodeDescriptor):
+            rect = cast(Rect, descriptor().attribute('Bounds'))  # Ensure node is resolved
+            self.runtime.highlight(rect, duration)
+            return
+
+        rects: list[Rect] = []
+        for i in [descriptor] if isinstance(descriptor, UiNodeDescriptor) else self.query(descriptor, root):
+            if isinstance(i, UiNode):
+                rect = cast(Rect, i.attribute('Bounds'))
+                rects.append(rect)
+
+        self.runtime.highlight(rects, duration * 1000)  # duration in ms
