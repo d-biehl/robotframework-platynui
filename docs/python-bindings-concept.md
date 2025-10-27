@@ -47,13 +47,16 @@ This document proposes a clean, future‑proof design for Python bindings to Pla
   - `evaluate(xpath: str, node: UiNode | None = None) -> list[UiNode | EvaluatedAttribute | UiValue]`
   - `desktop_node() -> UiNode`, `desktop_info() -> dict`
   - `focus(node: UiNode)`
+  - `top_level_window_for(node: UiNode) -> UiNode | None` (liefert das Fenster mit `WindowSurface`‑Pattern oder `None`)
   - `highlight(rects: core.Rect | Iterable[core.Rect], duration_ms: float | None = None)`
   - `clear_highlight()`
   - `screenshot(rect: core.Rect | None = None, mime_type: str | None = None) -> bytes` — aktuell nur `image/png`
 - Pointer ops: `pointer_position`, `pointer_move_to`, `pointer_click`, `pointer_multi_click`, `pointer_drag`, `pointer_press`, `pointer_release`, `pointer_scroll`
   - Optional-Zielpunkte: `pointer_click/multi_click/press/release` akzeptieren `point: core.Point | None`. Bei `None` erfolgt kein Move; die Aktion läuft an der aktuellen Mausposition.
   - Standard für Multi‑Click: `clicks=2`.
+  - Pointer-Konfiguration: `pointer_settings() -> PointerSettings`, `set_pointer_settings(settings)` (Klasse oder dict); `pointer_profile() -> PointerProfile`, `set_pointer_profile(profile)` zum Anpassen der Bewegungsprofile.
   - Keyboard ops: `keyboard_type`, `keyboard_press`, `keyboard_release`
+  - Keyboard-Konfiguration: `keyboard_settings() -> KeyboardSettings`, `set_keyboard_settings(settings)` für globale Timings.
 - `UiNode` (wraps `Arc<dyn UiNode>`)
   - Properties: `runtime_id`, `name`, `role`, `namespace`
   - Methods: `attribute(name, namespace=None) -> UiValue`, `parent() -> UiNode | None`, `children() -> list[UiNode]`, `attributes() -> list[UiAttribute]`, `supported_patterns() -> list[str]`, `doc_order_key() -> int | None`, `invalidate()`, `has_pattern(id) -> bool`, `pattern_by_id(id) -> object | None`
@@ -115,12 +118,8 @@ This document proposes a clean, future‑proof design for Python bindings to Pla
 
 ### Locations
 - Place stubs alongside the Python sources shipped with the wheel (maturin’s `python-source`):
-  - `packages/native/python/platynui_native/__init__.pyi` (simple `from . import core, runtime`).
-  - `packages/native/python/platynui_native/core.pyi`.
-  - `packages/native/python/platynui_native/runtime.pyi`.
-- Optional wrapper stubs:
-  - `packages/core/src/platynui_core/__init__.pyi` re‑exporting from `platynui_native.core`.
-  - Include `py.typed` in wrapper for PEP 561.
+  - `packages/native/python/platynui_native/_native.pyi` (simple `from . import core, runtime`).
+- Include `py.typed` in wrapper for PEP 561.
 
 ### Authoring Process
 - Generate coarse stubs as a starting point after a dev build:
@@ -144,16 +143,10 @@ packages/
     python/
       platynui_native/
         __init__.py           # from . import core, runtime; light helpers
-        __init__.pyi
+        _native.pyi
         core.pyi
         runtime.pyi
 
-  core/                       # optional pure-Python wrapper
-    pyproject.toml            # pure Python; depends on platynui_native
-    src/platynui_core/
-      __init__.py             # re-exports from platynui_native.core
-      __init__.pyi            # (optional) re-exports for typing
-      py.typed                # optional PEP 561 marker
 ```
 
 ## Implementation Notes
@@ -223,21 +216,28 @@ The first slice is implemented under `packages/native` and usable for local dev 
   - Buttons: `ButtonLike = int | runtime.PointerButton`; ints `1/2/3` → `LEFT/MIDDLE/RIGHT`, sonst `Other(n)`
   - Overrides: `PointerOverrides` Klasse (nur Klasse); read‑only Properties für alle Felder
   - Origin: `'desktop' | core.Point | core.Rect`; Property `origin` liefert `'desktop'`, `core.Point` oder `core.Rect`
+  - Settings: `PointerSettings` (double-click-Zeit, Größe, Default-Button) via `Runtime.pointer_settings()` / `set_pointer_settings()`
+  - Profile: `PointerProfile` (Motion-Mode, Timings, Scroll) via `Runtime.pointer_profile()` / `set_pointer_profile()`
+- Motion-Enum: `PointerMotionMode` (`DIRECT`, `LINEAR`, `BEZIER`, `OVERSHOOT`, `JITTER`) – akzeptiert in Profil-APIs und wird von `PointerProfile.motion` zurückgegeben
+  - Acceleration-Enum: `PointerAccelerationProfile` (`CONSTANT`, `EASE_IN`, `EASE_OUT`, `SMOOTH_STEP`) – nutzbar in Overrides und Profilen
   - Methoden: wie oben
 - Keyboard
   - Overrides: `KeyboardOverrides` Klasse (nur Klasse); read‑only Properties
+  - Settings: `KeyboardSettings` (press/between/chord/after delays) via `Runtime.keyboard_settings()` / `set_keyboard_settings()`
 
 ### FromPyObject Ergonomics
 - Points: nur `core.Point` (keine Tuple‑Kurzform); optional über `None` in APIs, die keinen Move ausführen sollen.
 - Scroll delta: `ScrollLike = (float, float)`
-- Buttons: `PointerButtonLike = str('left'|'middle'|'right') | int` (int maps to `Other(n)`)
+- Buttons: `ButtonLike = int | runtime.PointerButton` (IntEnums werden als `int` übergeben)
+- Motion: `PointerMotionMode` (IntEnum, keine String-Shortcuts)
 - Origins: `OriginInput = 'desktop' | core.Point | core.Rect` (keine Dict/Tuple‑Formen)
 - Pointer overrides: prefer concrete `runtime.PointerOverrides` class; dicts remain supported for convenience and are parsed via `FromPyObject` (the `origin` key must be `'desktop'`/`core.Point`/`core.Rect`).
+- Acceleration profile: `PointerAccelerationProfile` enum oder Strings (`'constant'`, `'ease_in'`, `'ease_out'`, `'smooth_step'`)
 - Keyboard overrides: prefer concrete `runtime.KeyboardOverrides` class; dicts remain supported for convenience and are parsed via `FromPyObject`.
 
 ### Typing (.pyi)
 - `core.pyi`: `Point/Size/Rect`, IDs, `Namespace`, helpers
-- `runtime.pyi`: `UiNode`, `UiAttribute`, `EvaluatedAttribute`, `Runtime`, `PointerOverrides`, `KeyboardOverrides`, `PointerButton` enum; kompakte Signaturen mit `Point`, `ButtonLike` etc.
+- `runtime.pyi`: `UiNode`, `UiAttribute`, `EvaluatedAttribute`, `Runtime`, `PointerOverrides`, `PointerSettings`, `PointerProfile`, `KeyboardOverrides`, `KeyboardSettings`, `PointerButton` enum; kompakte Signaturen mit `Point`, `ButtonLike` etc.
 
 ### Tests
 - `packages/native/tests/test_runtime_basic.py`

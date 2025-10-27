@@ -171,6 +171,19 @@ class PointerButton(_enum.IntEnum):
 
 ButtonLike = int | PointerButton
 
+class PointerMotionMode(_enum.IntEnum):
+    DIRECT = 0
+    LINEAR = 1
+    BEZIER = 2
+    OVERSHOOT = 3
+    JITTER = 4
+
+class PointerAccelerationProfile(_enum.IntEnum):
+    CONSTANT = 0
+    EASE_IN = 1
+    EASE_OUT = 2
+    SMOOTH_STEP = 3
+
 # ===== Runtime Classes =====
 
 class UiAttribute:
@@ -259,6 +272,13 @@ class Runtime:
     def desktop_info(self) -> dict[str, Any]: ...
     def focus(self, node: UiNode) -> None: ...
     def bring_to_front(self, node: UiNode, wait_ms: float | None = ...) -> None: ...
+    def top_level_window_for(self, node: UiNode) -> UiNode | None: ...
+    def pointer_settings(self) -> PointerSettings: ...
+    def set_pointer_settings(self, settings: PointerSettings | dict[str, Any]) -> None: ...
+    def pointer_profile(self) -> PointerProfile: ...
+    def set_pointer_profile(self, profile: PointerProfile | dict[str, Any]) -> None: ...
+    def keyboard_settings(self) -> KeyboardSettings: ...
+    def set_keyboard_settings(self, settings: KeyboardSettings | dict[str, Any]) -> None: ...
     def pointer_position(self) -> Point: ...
     def pointer_move_to(self, point: PointLike, /, overrides: PointerOverrides | None = ...) -> Point: ...
     def pointer_click(
@@ -310,7 +330,7 @@ class PointerOverrides:
         *,
         origin: OriginLike | None = ...,
         speed_factor: float | None = ...,
-        acceleration_profile: Literal['constant', 'ease_in', 'ease_out', 'smooth_step'] | None = ...,
+        acceleration_profile: PointerAccelerationProfile | None = ...,
         max_move_duration_ms: float | None = ...,
         move_time_per_pixel_us: float | None = ...,
         after_move_delay_ms: float | None = ...,
@@ -329,9 +349,7 @@ class PointerOverrides:
     @property
     def speed_factor(self) -> float | None: ...
     @property
-    def acceleration_profile(
-        self,
-    ) -> Literal['constant', 'ease_in', 'ease_out', 'smooth_step'] | None: ...
+    def acceleration_profile(self) -> PointerAccelerationProfile | None: ...
     @property
     def max_move_duration_ms(self) -> float | None: ...
     @property
@@ -384,6 +402,117 @@ class KeyboardOverrides:
     @property
     def after_text_delay_ms(self) -> float | None: ...
 
+class PointerSettings:
+    def __init__(
+        self,
+        *,
+        double_click_time_ms: float | None = ...,
+        double_click_size: SizeLike | None = ...,
+        default_button: ButtonLike | None = ...,
+    ) -> None: ...
+    @property
+    def double_click_time_ms(self) -> float: ...
+    @property
+    def double_click_size(self) -> Size: ...
+    @property
+    def default_button(self) -> int: ...
+
+class PointerProfile:
+    def __init__(
+        self,
+        *,
+        motion: PointerMotionMode | None = ...,
+        steps_per_pixel: float | None = ...,
+        max_move_duration_ms: float | None = ...,
+        speed_factor: float | None = ...,
+        acceleration_profile: PointerAccelerationProfile | None = ...,
+        overshoot_ratio: float | None = ...,
+        overshoot_settle_steps: int | None = ...,
+        curve_amplitude: float | None = ...,
+        jitter_amplitude: float | None = ...,
+        after_move_delay_ms: float | None = ...,
+        after_input_delay_ms: float | None = ...,
+        press_release_delay_ms: float | None = ...,
+        after_click_delay_ms: float | None = ...,
+        before_next_click_delay_ms: float | None = ...,
+        multi_click_delay_ms: float | None = ...,
+        ensure_move_position: bool | None = ...,
+        ensure_move_threshold: float | None = ...,
+        ensure_move_timeout_ms: float | None = ...,
+        scroll_step: tuple[float, float] | None = ...,
+        scroll_delay_ms: float | None = ...,
+        move_time_per_pixel_us: float | None = ...,
+    ) -> None: ...
+    @property
+    def motion(self) -> PointerMotionMode: ...
+    @property
+    def steps_per_pixel(self) -> float: ...
+    @property
+    def max_move_duration_ms(self) -> float: ...
+    @property
+    def speed_factor(self) -> float: ...
+    @property
+    def acceleration_profile(self) -> PointerAccelerationProfile: ...
+    @property
+    def overshoot_ratio(self) -> float: ...
+    @property
+    def overshoot_settle_steps(self) -> int: ...
+    @property
+    def curve_amplitude(self) -> float: ...
+    @property
+    def jitter_amplitude(self) -> float: ...
+    @property
+    def after_move_delay_ms(self) -> float: ...
+    @property
+    def after_input_delay_ms(self) -> float: ...
+    @property
+    def press_release_delay_ms(self) -> float: ...
+    @property
+    def after_click_delay_ms(self) -> float: ...
+    @property
+    def before_next_click_delay_ms(self) -> float: ...
+    @property
+    def multi_click_delay_ms(self) -> float: ...
+    @property
+    def ensure_move_position(self) -> bool: ...
+    @property
+    def ensure_move_threshold(self) -> float: ...
+    @property
+    def ensure_move_timeout_ms(self) -> float: ...
+    @property
+    def scroll_step(self) -> tuple[float, float]: ...
+    @property
+    def scroll_delay_ms(self) -> float: ...
+    @property
+    def move_time_per_pixel_us(self) -> float: ...
+
+class KeyboardSettings:
+    def __init__(
+        self,
+        *,
+        press_delay_ms: float | None = ...,
+        release_delay_ms: float | None = ...,
+        between_keys_delay_ms: float | None = ...,
+        chord_press_delay_ms: float | None = ...,
+        chord_release_delay_ms: float | None = ...,
+        after_sequence_delay_ms: float | None = ...,
+        after_text_delay_ms: float | None = ...,
+    ) -> None: ...
+    @property
+    def press_delay_ms(self) -> float: ...
+    @property
+    def release_delay_ms(self) -> float: ...
+    @property
+    def between_keys_delay_ms(self) -> float: ...
+    @property
+    def chord_press_delay_ms(self) -> float: ...
+    @property
+    def chord_release_delay_ms(self) -> float: ...
+    @property
+    def after_sequence_delay_ms(self) -> float: ...
+    @property
+    def after_text_delay_ms(self) -> float: ...
+
 # ===== Module exports =====
 
 __all__ = [
@@ -407,7 +536,12 @@ __all__ = [
     'WindowSurface',
     # Overrides
     'PointerOverrides',
+    'PointerMotionMode',
+    'PointerAccelerationProfile',
     'KeyboardOverrides',
+    'PointerSettings',
+    'PointerProfile',
+    'KeyboardSettings',
     'PointerButton',
     # Exceptions
     'EvaluationError',

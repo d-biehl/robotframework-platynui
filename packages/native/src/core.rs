@@ -468,7 +468,7 @@ fn dict_get_ci<'py>(d: &Bound<'py, PyDict>, k: &str) -> Option<Bound<'py, PyAny>
     None
 }
 
-fn point_from_any(obj: &Bound<'_, PyAny>) -> Option<core_rs::types::Point> {
+pub(crate) fn point_from_any(obj: &Bound<'_, PyAny>) -> Option<core_rs::types::Point> {
     // Point instance
     if let Ok(p) = obj.extract::<PyRef<PyPoint>>() {
         return Some(p.inner);
@@ -493,7 +493,7 @@ fn point_from_any(obj: &Bound<'_, PyAny>) -> Option<core_rs::types::Point> {
     None
 }
 
-fn size_from_any(obj: &Bound<'_, PyAny>) -> Option<core_rs::types::Size> {
+pub(crate) fn size_from_any(obj: &Bound<'_, PyAny>) -> Option<core_rs::types::Size> {
     if let Ok(s) = obj.extract::<PyRef<PySize>>() {
         return Some(s.inner);
     }
@@ -516,7 +516,7 @@ fn size_from_any(obj: &Bound<'_, PyAny>) -> Option<core_rs::types::Size> {
     None
 }
 
-fn rect_from_any(obj: &Bound<'_, PyAny>) -> Option<core_rs::types::Rect> {
+pub(crate) fn rect_from_any(obj: &Bound<'_, PyAny>) -> Option<core_rs::types::Rect> {
     if let Ok(r) = obj.extract::<PyRef<PyRect>>() {
         return Some(r.inner);
     }

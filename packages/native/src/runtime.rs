@@ -6,7 +6,7 @@ use std::sync::Arc;
 use pyo3::IntoPyObject;
 use pyo3::exceptions::{PyException, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyAnyMethods, PyDict, PyIterator, PyList, PyTuple};
+use pyo3::types::{PyAny, PyAnyMethods, PyDict, PyIterator, PyList, PyModule, PyTuple};
 use std::str::FromStr;
 
 use core_rs::ui::UiNodeExt;
@@ -522,6 +522,54 @@ impl PyRuntime {
         Ok(list.into())
     }
 
+    /// Returns the current pointer settings as a dedicated object.
+    #[pyo3(text_signature = "(self)")]
+    fn pointer_settings(&self, py: Python<'_>) -> PyResult<Py<PyPointerSettings>> {
+        Py::new(py, PyPointerSettings::from(self.inner.pointer_settings()))
+    }
+
+    /// Updates the pointer settings for subsequent operations.
+    #[pyo3(signature = (settings), text_signature = "(self, settings)")]
+    fn set_pointer_settings(&self, settings: PointerSettingsLike) -> PyResult<()> {
+        self.inner.set_pointer_settings(settings.into());
+        Ok(())
+    }
+
+    /// Returns the active pointer movement profile.
+    #[pyo3(text_signature = "(self)")]
+    fn pointer_profile(&self, py: Python<'_>) -> PyResult<Py<PyPointerProfile>> {
+        Py::new(py, PyPointerProfile::from(self.inner.pointer_profile()))
+    }
+
+    /// Applies a new pointer movement profile.
+    #[pyo3(signature = (profile), text_signature = "(self, profile)")]
+    fn set_pointer_profile(&self, profile: PointerProfileLike) -> PyResult<()> {
+        self.inner.set_pointer_profile(profile.into());
+        Ok(())
+    }
+
+    /// Returns the keyboard timing settings currently in use.
+    #[pyo3(text_signature = "(self)")]
+    fn keyboard_settings(&self, py: Python<'_>) -> PyResult<Py<PyKeyboardSettings>> {
+        Py::new(py, PyKeyboardSettings::from(self.inner.keyboard_settings()))
+    }
+
+    /// Updates the keyboard timing settings.
+    #[pyo3(signature = (settings), text_signature = "(self, settings)")]
+    fn set_keyboard_settings(&self, settings: KeyboardSettingsLike) -> PyResult<()> {
+        self.inner.set_keyboard_settings(settings.into());
+        Ok(())
+    }
+
+    /// Resolves the top-level window for a given node, if any.
+    #[pyo3(signature = (node), text_signature = "(self, node)")]
+    fn top_level_window_for(&self, py: Python<'_>, node: PyRef<'_, PyNode>) -> PyResult<Option<Py<PyNode>>> {
+        match self.inner.top_level_window_for(&node.inner) {
+            Some(window) => Ok(Some(Py::new(py, PyNode { inner: window })?)),
+            None => Ok(None),
+        }
+    }
+
     // ---------------- Pointer minimal API ----------------
 
     /// Returns the current pointer position.
@@ -932,7 +980,36 @@ pub fn register_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyFocusable>()?;
     m.add_class::<PyWindowSurface>()?;
     m.add_class::<PyPointerOverrides>()?;
+    m.add_class::<PyPointerSettings>()?;
+    m.add_class::<PyPointerProfile>()?;
     m.add_class::<PyKeyboardOverrides>()?;
+    m.add_class::<PyKeyboardSettings>()?;
+    // Pointer motion mode enum (IntEnum)
+    {
+        let enum_mod = PyModule::import(py, "enum")?;
+        let int_enum = enum_mod.getattr("IntEnum")?;
+        let dict = PyDict::new(py);
+        dict.set_item("DIRECT", 0)?;
+        dict.set_item("LINEAR", 1)?;
+        dict.set_item("BEZIER", 2)?;
+        dict.set_item("OVERSHOOT", 3)?;
+        dict.set_item("JITTER", 4)?;
+        let args = ("PointerMotionMode", dict);
+        let py_enum = int_enum.call1(args)?;
+        m.add("PointerMotionMode", py_enum)?;
+    }
+    {
+        let enum_mod = PyModule::import(py, "enum")?;
+        let int_enum = enum_mod.getattr("IntEnum")?;
+        let dict = PyDict::new(py);
+        dict.set_item("CONSTANT", 0)?;
+        dict.set_item("EASE_IN", 1)?;
+        dict.set_item("EASE_OUT", 2)?;
+        dict.set_item("SMOOTH_STEP", 3)?;
+        let args = ("PointerAccelerationProfile", dict);
+        let py_enum = int_enum.call1(args)?;
+        m.add("PointerAccelerationProfile", py_enum)?;
+    }
     // Create a Python IntEnum for pointer buttons: 1=LEFT, 2=MIDDLE, 3=RIGHT
     {
         let enum_mod = PyModule::import(py, "enum")?;
@@ -1020,6 +1097,109 @@ fn dict_get<'py>(d: &Bound<'py, PyDict>, key: &str) -> Option<Bound<'py, PyAny>>
 
 // -------- Like helpers for Point/Rect (tuple/list/dict/instances) --------
 
+fn duration_from_millis(ms: f64) -> std::time::Duration {
+    std::time::Duration::from_millis(ms.max(0.0) as u64)
+}
+
+fn duration_from_micros(us: f64) -> std::time::Duration {
+    std::time::Duration::from_micros(us.max(0.0) as u64)
+}
+
+fn pointer_button_to_int(button: core_rs::platform::PointerButton) -> u16 {
+    match button {
+        core_rs::platform::PointerButton::Left => 1,
+        core_rs::platform::PointerButton::Middle => 2,
+        core_rs::platform::PointerButton::Right => 3,
+        core_rs::platform::PointerButton::Other(code) => code,
+    }
+}
+
+fn pointer_motion_mode_from_int(value: i32) -> Option<core_rs::platform::PointerMotionMode> {
+    match value {
+        0 => Some(core_rs::platform::PointerMotionMode::Direct),
+        1 => Some(core_rs::platform::PointerMotionMode::Linear),
+        2 => Some(core_rs::platform::PointerMotionMode::Bezier),
+        3 => Some(core_rs::platform::PointerMotionMode::Overshoot),
+        4 => Some(core_rs::platform::PointerMotionMode::Jitter),
+        _ => None,
+    }
+}
+
+fn pointer_motion_mode_to_str(mode: core_rs::platform::PointerMotionMode) -> &'static str {
+    match mode {
+        core_rs::platform::PointerMotionMode::Direct => "direct",
+        core_rs::platform::PointerMotionMode::Linear => "linear",
+        core_rs::platform::PointerMotionMode::Bezier => "bezier",
+        core_rs::platform::PointerMotionMode::Overshoot => "overshoot",
+        core_rs::platform::PointerMotionMode::Jitter => "jitter",
+    }
+}
+
+fn pointer_motion_mode_to_int(mode: core_rs::platform::PointerMotionMode) -> i32 {
+    match mode {
+        core_rs::platform::PointerMotionMode::Direct => 0,
+        core_rs::platform::PointerMotionMode::Linear => 1,
+        core_rs::platform::PointerMotionMode::Bezier => 2,
+        core_rs::platform::PointerMotionMode::Overshoot => 3,
+        core_rs::platform::PointerMotionMode::Jitter => 4,
+    }
+}
+
+fn pointer_motion_mode_to_py(py: Python<'_>, mode: core_rs::platform::PointerMotionMode) -> PyResult<Py<PyAny>> {
+    let module = PyModule::import(py, "platynui_native")?;
+    let enum_cls = module.getattr("PointerMotionMode")?;
+    let value = pointer_motion_mode_to_int(mode);
+    Ok(enum_cls.call1((value,))?.unbind().into_any())
+}
+
+fn pointer_acceleration_from_str(name: &str) -> Option<core_rs::platform::PointerAccelerationProfile> {
+    match name.to_ascii_lowercase().as_str() {
+        "constant" => Some(core_rs::platform::PointerAccelerationProfile::Constant),
+        "ease_in" | "easein" => Some(core_rs::platform::PointerAccelerationProfile::EaseIn),
+        "ease_out" | "easeout" => Some(core_rs::platform::PointerAccelerationProfile::EaseOut),
+        "smooth_step" | "smoothstep" => Some(core_rs::platform::PointerAccelerationProfile::SmoothStep),
+        _ => None,
+    }
+}
+
+fn pointer_acceleration_from_int(value: i32) -> Option<core_rs::platform::PointerAccelerationProfile> {
+    match value {
+        0 => Some(core_rs::platform::PointerAccelerationProfile::Constant),
+        1 => Some(core_rs::platform::PointerAccelerationProfile::EaseIn),
+        2 => Some(core_rs::platform::PointerAccelerationProfile::EaseOut),
+        3 => Some(core_rs::platform::PointerAccelerationProfile::SmoothStep),
+        _ => None,
+    }
+}
+
+fn pointer_acceleration_to_str(profile: core_rs::platform::PointerAccelerationProfile) -> &'static str {
+    match profile {
+        core_rs::platform::PointerAccelerationProfile::Constant => "constant",
+        core_rs::platform::PointerAccelerationProfile::EaseIn => "ease_in",
+        core_rs::platform::PointerAccelerationProfile::EaseOut => "ease_out",
+        core_rs::platform::PointerAccelerationProfile::SmoothStep => "smooth_step",
+    }
+}
+
+fn pointer_acceleration_to_int(profile: core_rs::platform::PointerAccelerationProfile) -> i32 {
+    match profile {
+        core_rs::platform::PointerAccelerationProfile::Constant => 0,
+        core_rs::platform::PointerAccelerationProfile::EaseIn => 1,
+        core_rs::platform::PointerAccelerationProfile::EaseOut => 2,
+        core_rs::platform::PointerAccelerationProfile::SmoothStep => 3,
+    }
+}
+
+fn pointer_acceleration_to_py(
+    py: Python<'_>,
+    profile: core_rs::platform::PointerAccelerationProfile,
+) -> PyResult<Py<PyAny>> {
+    let module = PyModule::import(py, "platynui_native")?;
+    let enum_cls = module.getattr("PointerAccelerationProfile")?;
+    let value = pointer_acceleration_to_int(profile);
+    Ok(enum_cls.call1((value,))?.unbind().into_any())
+}
+
 fn ci_get<'py>(d: &Bound<'py, PyDict>, k: &str) -> Option<Bound<'py, PyAny>> {
     if let Some(v) = dict_get(d, k) {
         return Some(v);
@@ -1084,6 +1264,33 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for RectInput {
     }
 }
 
+pub struct SizeInput(pub core_rs::types::Size);
+
+impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for SizeInput {
+    type Error = PyErr;
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        if let Ok(s) = ob.extract::<PyRef<PySize>>() {
+            return Ok(SizeInput(s.as_inner()));
+        }
+        if let Ok((w, h)) = ob.extract::<(f64, f64)>() {
+            return Ok(SizeInput(core_rs::types::Size::new(w, h)));
+        }
+        if let Ok(seq) = ob.extract::<Vec<f64>>()
+            && seq.len() == 2
+        {
+            return Ok(SizeInput(core_rs::types::Size::new(seq[0], seq[1])));
+        }
+        if let Ok(d) = ob.cast::<PyDict>() {
+            let w = ci_get(&d, "width").or_else(|| ci_get(&d, "w")).and_then(|v| v.extract::<f64>().ok());
+            let h = ci_get(&d, "height").or_else(|| ci_get(&d, "h")).and_then(|v| v.extract::<f64>().ok());
+            if let (Some(w), Some(h)) = (w, h) {
+                return Ok(SizeInput(core_rs::types::Size::new(w, h)));
+            }
+        }
+        Err(PyTypeError::new_err("invalid size: expected Size | (width, height) | {width, height}"))
+    }
+}
+
 // ---------------- FromPyObject-friendly wrappers ----------------
 
 #[derive(FromPyObject)]
@@ -1108,6 +1315,68 @@ impl From<PointerButtonLike> for core_rs::platform::PointerButton {
 #[derive(FromPyObject)]
 pub enum ScrollLike {
     Tuple((f64, f64)),
+}
+
+#[derive(Clone, Copy)]
+pub struct PointerMotionModeInput(pub core_rs::platform::PointerMotionMode);
+
+impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerMotionModeInput {
+    type Error = PyErr;
+
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        if let Ok(value) = ob.extract::<i32>() {
+            pointer_motion_mode_from_int(value)
+                .map(PointerMotionModeInput)
+                .ok_or_else(|| PyTypeError::new_err(format!("unknown pointer motion mode value {value}")))
+        } else if let Ok(enum_obj) = ob.extract::<PyRef<PyAny>>() {
+            if let Ok(value) = enum_obj.getattr("value")?.extract::<i32>() {
+                pointer_motion_mode_from_int(value)
+                    .map(PointerMotionModeInput)
+                    .ok_or_else(|| PyTypeError::new_err(format!("unknown pointer motion mode value {value}")))
+            } else {
+                Err(PyTypeError::new_err("pointer motion mode must be PointerMotionMode enum value"))
+            }
+        } else {
+            Err(PyTypeError::new_err("pointer motion mode must be PointerMotionMode enum value"))
+        }
+    }
+}
+
+impl From<PointerMotionModeInput> for core_rs::platform::PointerMotionMode {
+    fn from(value: PointerMotionModeInput) -> Self {
+        value.0
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct PointerAccelerationInput(pub core_rs::platform::PointerAccelerationProfile);
+
+impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerAccelerationInput {
+    type Error = PyErr;
+
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        if let Ok(value) = ob.extract::<i32>() {
+            pointer_acceleration_from_int(value)
+                .map(PointerAccelerationInput)
+                .ok_or_else(|| PyTypeError::new_err(format!("unknown pointer acceleration value {value}")))
+        } else if let Ok(enum_obj) = ob.extract::<PyRef<PyAny>>() {
+            if let Ok(value) = enum_obj.getattr("value")?.extract::<i32>() {
+                pointer_acceleration_from_int(value)
+                    .map(PointerAccelerationInput)
+                    .ok_or_else(|| PyTypeError::new_err(format!("unknown pointer acceleration value {value}")))
+            } else {
+                Err(PyTypeError::new_err("pointer acceleration profile must be PointerAccelerationProfile enum value"))
+            }
+        } else {
+            Err(PyTypeError::new_err("pointer acceleration profile must be PointerAccelerationProfile enum value"))
+        }
+    }
+}
+
+impl From<PointerAccelerationInput> for core_rs::platform::PointerAccelerationProfile {
+    fn from(value: PointerAccelerationInput) -> Self {
+        value.0
+    }
 }
 
 // ---------------- Concrete overrides classes (Python-visible) ----------------
@@ -1141,7 +1410,7 @@ impl PyPointerOverrides {
     fn new(
         origin: Option<OriginInput>,
         speed_factor: Option<f64>,
-        acceleration_profile: Option<String>,
+        acceleration_profile: Option<PointerAccelerationInput>,
         max_move_duration_ms: Option<f64>,
         move_time_per_pixel_us: Option<f64>,
         after_move_delay_ms: Option<f64>,
@@ -1194,17 +1463,8 @@ impl PyPointerOverrides {
         self.inner.speed_factor
     }
     #[getter]
-    fn acceleration_profile(&self) -> Option<String> {
-        use core_rs::platform::PointerAccelerationProfile as Accel;
-        self.inner.acceleration_profile.map(|p| {
-            match p {
-                Accel::Constant => "constant",
-                Accel::EaseIn => "ease_in",
-                Accel::EaseOut => "ease_out",
-                Accel::SmoothStep => "smooth_step",
-            }
-            .to_string()
-        })
+    fn acceleration_profile(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+        self.inner.acceleration_profile.map(|p| pointer_acceleration_to_py(py, p)).transpose()
     }
     #[getter]
     fn max_move_duration_ms(&self) -> Option<f64> {
@@ -1330,10 +1590,407 @@ impl PyKeyboardOverrides {
         self.inner.after_text_delay.map(|d| d.as_millis() as f64)
     }
 }
+
+#[pyclass(module = "platynui_native", name = "PointerSettings")]
+pub struct PyPointerSettings {
+    pub(crate) inner: runtime_rs::PointerSettings,
+}
+
+#[pymethods]
+impl PyPointerSettings {
+    #[new]
+    #[pyo3(signature = (*, double_click_time_ms=None, double_click_size=None, default_button=None))]
+    fn new(
+        double_click_time_ms: Option<f64>,
+        double_click_size: Option<SizeInput>,
+        default_button: Option<PointerButtonLike>,
+    ) -> PyResult<Self> {
+        let mut inner = runtime_rs::PointerSettings::default();
+        if let Some(ms) = double_click_time_ms {
+            inner.double_click_time = duration_from_millis(ms);
+        }
+        if let Some(SizeInput(size)) = double_click_size {
+            inner.double_click_size = size;
+        }
+        if let Some(button) = default_button {
+            inner.default_button = button.into();
+        }
+        Ok(Self { inner })
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "PointerSettings(double_click_time_ms={}, default_button={})",
+            self.double_click_time_ms(),
+            self.default_button()
+        )
+    }
+
+    #[getter]
+    fn double_click_time_ms(&self) -> f64 {
+        self.inner.double_click_time.as_millis() as f64
+    }
+
+    #[getter]
+    fn double_click_size(&self, py: Python<'_>) -> PyResult<Py<PySize>> {
+        Py::new(py, PySize::from(self.inner.double_click_size))
+    }
+
+    #[getter]
+    fn default_button(&self) -> u16 {
+        pointer_button_to_int(self.inner.default_button)
+    }
+}
+
+impl From<runtime_rs::PointerSettings> for PyPointerSettings {
+    fn from(inner: runtime_rs::PointerSettings) -> Self {
+        Self { inner }
+    }
+}
+
+#[pyclass(module = "platynui_native", name = "PointerProfile")]
+pub struct PyPointerProfile {
+    pub(crate) inner: runtime_rs::PointerProfile,
+}
+
+#[pymethods]
+impl PyPointerProfile {
+    #[new]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (*,
+        motion=None,
+        steps_per_pixel=None,
+        max_move_duration_ms=None,
+        speed_factor=None,
+        acceleration_profile=None,
+        overshoot_ratio=None,
+        overshoot_settle_steps=None,
+        curve_amplitude=None,
+        jitter_amplitude=None,
+        after_move_delay_ms=None,
+        after_input_delay_ms=None,
+        press_release_delay_ms=None,
+        after_click_delay_ms=None,
+        before_next_click_delay_ms=None,
+        multi_click_delay_ms=None,
+        ensure_move_position=None,
+        ensure_move_threshold=None,
+        ensure_move_timeout_ms=None,
+        scroll_step=None,
+        scroll_delay_ms=None,
+        move_time_per_pixel_us=None,
+    ))]
+    fn new(
+        motion: Option<PointerMotionModeInput>,
+        steps_per_pixel: Option<f64>,
+        max_move_duration_ms: Option<f64>,
+        speed_factor: Option<f64>,
+        acceleration_profile: Option<PointerAccelerationInput>,
+        overshoot_ratio: Option<f64>,
+        overshoot_settle_steps: Option<u32>,
+        curve_amplitude: Option<f64>,
+        jitter_amplitude: Option<f64>,
+        after_move_delay_ms: Option<f64>,
+        after_input_delay_ms: Option<f64>,
+        press_release_delay_ms: Option<f64>,
+        after_click_delay_ms: Option<f64>,
+        before_next_click_delay_ms: Option<f64>,
+        multi_click_delay_ms: Option<f64>,
+        ensure_move_position: Option<bool>,
+        ensure_move_threshold: Option<f64>,
+        ensure_move_timeout_ms: Option<f64>,
+        scroll_step: Option<(f64, f64)>,
+        scroll_delay_ms: Option<f64>,
+        move_time_per_pixel_us: Option<f64>,
+    ) -> PyResult<Self> {
+        let mut inner = runtime_rs::PointerProfile::named_default();
+        if let Some(mode) = motion {
+            inner.mode = mode.into();
+        }
+        if let Some(v) = steps_per_pixel {
+            inner.steps_per_pixel = v;
+        }
+        if let Some(ms) = max_move_duration_ms {
+            inner.max_move_duration = duration_from_millis(ms);
+        }
+        if let Some(v) = speed_factor {
+            inner.speed_factor = v;
+        }
+        if let Some(accel) = acceleration_profile {
+            inner.acceleration_profile = accel.into();
+        }
+        if let Some(v) = overshoot_ratio {
+            inner.overshoot_ratio = v;
+        }
+        if let Some(v) = overshoot_settle_steps {
+            inner.overshoot_settle_steps = v;
+        }
+        if let Some(v) = curve_amplitude {
+            inner.curve_amplitude = v;
+        }
+        if let Some(v) = jitter_amplitude {
+            inner.jitter_amplitude = v;
+        }
+        if let Some(ms) = after_move_delay_ms {
+            inner.after_move_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = after_input_delay_ms {
+            inner.after_input_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = press_release_delay_ms {
+            inner.press_release_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = after_click_delay_ms {
+            inner.after_click_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = before_next_click_delay_ms {
+            inner.before_next_click_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = multi_click_delay_ms {
+            inner.multi_click_delay = duration_from_millis(ms);
+        }
+        if let Some(flag) = ensure_move_position {
+            inner.ensure_move_position = flag;
+        }
+        if let Some(v) = ensure_move_threshold {
+            inner.ensure_move_threshold = v;
+        }
+        if let Some(ms) = ensure_move_timeout_ms {
+            inner.ensure_move_timeout = duration_from_millis(ms);
+        }
+        if let Some((h, v)) = scroll_step {
+            inner.scroll_step = core_rs::platform::ScrollDelta::new(h, v);
+        }
+        if let Some(ms) = scroll_delay_ms {
+            inner.scroll_delay = duration_from_millis(ms);
+        }
+        if let Some(us) = move_time_per_pixel_us {
+            inner.move_time_per_pixel = duration_from_micros(us);
+        }
+        Ok(Self { inner })
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "PointerProfile(mode='{}', speed_factor={})",
+            pointer_motion_mode_to_str(self.inner.mode),
+            self.inner.speed_factor
+        )
+    }
+
+    #[getter]
+    fn motion(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        pointer_motion_mode_to_py(py, self.inner.mode)
+    }
+
+    #[getter]
+    fn steps_per_pixel(&self) -> f64 {
+        self.inner.steps_per_pixel
+    }
+
+    #[getter]
+    fn max_move_duration_ms(&self) -> f64 {
+        self.inner.max_move_duration.as_millis() as f64
+    }
+
+    #[getter]
+    fn speed_factor(&self) -> f64 {
+        self.inner.speed_factor
+    }
+
+    #[getter]
+    fn acceleration_profile(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        pointer_acceleration_to_py(py, self.inner.acceleration_profile)
+    }
+
+    #[getter]
+    fn overshoot_ratio(&self) -> f64 {
+        self.inner.overshoot_ratio
+    }
+
+    #[getter]
+    fn overshoot_settle_steps(&self) -> u32 {
+        self.inner.overshoot_settle_steps
+    }
+
+    #[getter]
+    fn curve_amplitude(&self) -> f64 {
+        self.inner.curve_amplitude
+    }
+
+    #[getter]
+    fn jitter_amplitude(&self) -> f64 {
+        self.inner.jitter_amplitude
+    }
+
+    #[getter]
+    fn after_move_delay_ms(&self) -> f64 {
+        self.inner.after_move_delay.as_millis() as f64
+    }
+
+    #[getter]
+    fn after_input_delay_ms(&self) -> f64 {
+        self.inner.after_input_delay.as_millis() as f64
+    }
+
+    #[getter]
+    fn press_release_delay_ms(&self) -> f64 {
+        self.inner.press_release_delay.as_millis() as f64
+    }
+
+    #[getter]
+    fn after_click_delay_ms(&self) -> f64 {
+        self.inner.after_click_delay.as_millis() as f64
+    }
+
+    #[getter]
+    fn before_next_click_delay_ms(&self) -> f64 {
+        self.inner.before_next_click_delay.as_millis() as f64
+    }
+
+    #[getter]
+    fn multi_click_delay_ms(&self) -> f64 {
+        self.inner.multi_click_delay.as_millis() as f64
+    }
+
+    #[getter]
+    fn ensure_move_position(&self) -> bool {
+        self.inner.ensure_move_position
+    }
+
+    #[getter]
+    fn ensure_move_threshold(&self) -> f64 {
+        self.inner.ensure_move_threshold
+    }
+
+    #[getter]
+    fn ensure_move_timeout_ms(&self) -> f64 {
+        self.inner.ensure_move_timeout.as_millis() as f64
+    }
+
+    #[getter]
+    fn scroll_step(&self) -> (f64, f64) {
+        (self.inner.scroll_step.horizontal, self.inner.scroll_step.vertical)
+    }
+
+    #[getter]
+    fn scroll_delay_ms(&self) -> f64 {
+        self.inner.scroll_delay.as_millis() as f64
+    }
+
+    #[getter]
+    fn move_time_per_pixel_us(&self) -> f64 {
+        self.inner.move_time_per_pixel.as_micros() as f64
+    }
+}
+
+impl From<runtime_rs::PointerProfile> for PyPointerProfile {
+    fn from(inner: runtime_rs::PointerProfile) -> Self {
+        Self { inner }
+    }
+}
+
+#[pyclass(module = "platynui_native", name = "KeyboardSettings")]
+pub struct PyKeyboardSettings {
+    pub(crate) inner: core_rs::platform::KeyboardSettings,
+}
+
+#[pymethods]
+impl PyKeyboardSettings {
+    #[new]
+    #[pyo3(signature = (*,
+        press_delay_ms=None,
+        release_delay_ms=None,
+        between_keys_delay_ms=None,
+        chord_press_delay_ms=None,
+        chord_release_delay_ms=None,
+        after_sequence_delay_ms=None,
+        after_text_delay_ms=None,
+    ))]
+    fn new(
+        press_delay_ms: Option<f64>,
+        release_delay_ms: Option<f64>,
+        between_keys_delay_ms: Option<f64>,
+        chord_press_delay_ms: Option<f64>,
+        chord_release_delay_ms: Option<f64>,
+        after_sequence_delay_ms: Option<f64>,
+        after_text_delay_ms: Option<f64>,
+    ) -> Self {
+        let mut inner = core_rs::platform::KeyboardSettings::default();
+        if let Some(ms) = press_delay_ms {
+            inner.press_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = release_delay_ms {
+            inner.release_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = between_keys_delay_ms {
+            inner.between_keys_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = chord_press_delay_ms {
+            inner.chord_press_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = chord_release_delay_ms {
+            inner.chord_release_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = after_sequence_delay_ms {
+            inner.after_sequence_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = after_text_delay_ms {
+            inner.after_text_delay = duration_from_millis(ms);
+        }
+        Self { inner }
+    }
+
+    fn __repr__(&self) -> String {
+        "KeyboardSettings(...)".to_string()
+    }
+
+    #[getter]
+    fn press_delay_ms(&self) -> f64 {
+        self.inner.press_delay.as_millis() as f64
+    }
+
+    #[getter]
+    fn release_delay_ms(&self) -> f64 {
+        self.inner.release_delay.as_millis() as f64
+    }
+
+    #[getter]
+    fn between_keys_delay_ms(&self) -> f64 {
+        self.inner.between_keys_delay.as_millis() as f64
+    }
+
+    #[getter]
+    fn chord_press_delay_ms(&self) -> f64 {
+        self.inner.chord_press_delay.as_millis() as f64
+    }
+
+    #[getter]
+    fn chord_release_delay_ms(&self) -> f64 {
+        self.inner.chord_release_delay.as_millis() as f64
+    }
+
+    #[getter]
+    fn after_sequence_delay_ms(&self) -> f64 {
+        self.inner.after_sequence_delay.as_millis() as f64
+    }
+
+    #[getter]
+    fn after_text_delay_ms(&self) -> f64 {
+        self.inner.after_text_delay.as_millis() as f64
+    }
+}
+
+impl From<core_rs::platform::KeyboardSettings> for PyKeyboardSettings {
+    fn from(inner: core_rs::platform::KeyboardSettings) -> Self {
+        Self { inner }
+    }
+}
+
 pub struct PointerOverridesInput {
     pub origin: Option<OriginInput>,
     pub speed_factor: Option<f64>,
-    pub acceleration_profile: Option<String>,
+    pub acceleration_profile: Option<PointerAccelerationInput>,
     pub max_move_duration_ms: Option<f64>,
     pub move_time_per_pixel_us: Option<f64>,
     pub after_move_delay_ms: Option<f64>,
@@ -1356,7 +2013,9 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerOverridesInput {
         Ok(Self {
             origin: dict_get(d, "origin").map(|v| OriginInput::extract((&v).into())).transpose()?,
             speed_factor: dict_get(d, "speed_factor").and_then(|v| v.extract().ok()),
-            acceleration_profile: dict_get(d, "acceleration_profile").and_then(|v| v.extract().ok()),
+            acceleration_profile: dict_get(d, "acceleration_profile")
+                .map(|v| PointerAccelerationInput::extract((&v).into()))
+                .transpose()?,
             max_move_duration_ms: dict_get(d, "max_move_duration_ms").and_then(|v| v.extract().ok()),
             move_time_per_pixel_us: dict_get(d, "move_time_per_pixel_us").and_then(|v| v.extract().ok()),
             after_move_delay_ms: dict_get(d, "after_move_delay_ms").and_then(|v| v.extract().ok()),
@@ -1419,14 +2078,8 @@ impl From<PointerOverridesInput> for runtime_rs::PointerOverrides {
         if let Some(us) = s.move_time_per_pixel_us {
             ov = ov.move_time_per_pixel(std::time::Duration::from_micros(us as u64));
         }
-        if let Some(s) = s.acceleration_profile {
-            let ap = match s.to_ascii_lowercase().as_str() {
-                "constant" => Accel::Constant,
-                "ease_in" => Accel::EaseIn,
-                "ease_out" => Accel::EaseOut,
-                _ => Accel::SmoothStep,
-            };
-            ov = ov.acceleration_profile(ap);
+        if let Some(ap) = s.acceleration_profile {
+            ov = ov.acceleration_profile(ap.into());
         }
         ov
     }
@@ -1444,6 +2097,270 @@ impl From<PointerOverridesLike<'_>> for runtime_rs::PointerOverrides {
         match v {
             PointerOverridesLike::Dict(d) => d.into(),
             PointerOverridesLike::Class(c) => (*c).inner.clone(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct PointerSettingsInput {
+    pub double_click_time_ms: Option<f64>,
+    pub double_click_size: Option<SizeInput>,
+    pub default_button: Option<PointerButtonLike>,
+}
+
+impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerSettingsInput {
+    type Error = PyErr;
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        let d_borrowed = ob.cast::<PyDict>()?;
+        let d: &Bound<'py, PyDict> = &d_borrowed;
+        Ok(Self {
+            double_click_time_ms: dict_get(d, "double_click_time_ms").and_then(|v| v.extract().ok()),
+            double_click_size: dict_get(d, "double_click_size").map(|v| SizeInput::extract((&v).into())).transpose()?,
+            default_button: dict_get(d, "default_button").and_then(|v| v.extract().ok()),
+        })
+    }
+}
+
+impl From<PointerSettingsInput> for runtime_rs::PointerSettings {
+    fn from(input: PointerSettingsInput) -> Self {
+        let mut settings = runtime_rs::PointerSettings::default();
+        if let Some(ms) = input.double_click_time_ms {
+            settings.double_click_time = duration_from_millis(ms);
+        }
+        if let Some(SizeInput(size)) = input.double_click_size {
+            settings.double_click_size = size;
+        }
+        if let Some(button) = input.default_button {
+            settings.default_button = button.into();
+        }
+        settings
+    }
+}
+
+#[derive(FromPyObject)]
+pub enum PointerSettingsLike<'py> {
+    Dict(PointerSettingsInput),
+    Class(PyRef<'py, PyPointerSettings>),
+}
+
+impl From<PointerSettingsLike<'_>> for runtime_rs::PointerSettings {
+    fn from(value: PointerSettingsLike<'_>) -> Self {
+        match value {
+            PointerSettingsLike::Dict(d) => d.into(),
+            PointerSettingsLike::Class(c) => (*c).inner.clone(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct PointerProfileInput {
+    pub motion: Option<PointerMotionModeInput>,
+    pub steps_per_pixel: Option<f64>,
+    pub max_move_duration_ms: Option<f64>,
+    pub speed_factor: Option<f64>,
+    pub acceleration_profile: Option<PointerAccelerationInput>,
+    pub overshoot_ratio: Option<f64>,
+    pub overshoot_settle_steps: Option<u32>,
+    pub curve_amplitude: Option<f64>,
+    pub jitter_amplitude: Option<f64>,
+    pub after_move_delay_ms: Option<f64>,
+    pub after_input_delay_ms: Option<f64>,
+    pub press_release_delay_ms: Option<f64>,
+    pub after_click_delay_ms: Option<f64>,
+    pub before_next_click_delay_ms: Option<f64>,
+    pub multi_click_delay_ms: Option<f64>,
+    pub ensure_move_position: Option<bool>,
+    pub ensure_move_threshold: Option<f64>,
+    pub ensure_move_timeout_ms: Option<f64>,
+    pub scroll_step: Option<(f64, f64)>,
+    pub scroll_delay_ms: Option<f64>,
+    pub move_time_per_pixel_us: Option<f64>,
+}
+
+impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerProfileInput {
+    type Error = PyErr;
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        let d_borrowed = ob.cast::<PyDict>()?;
+        let d: &Bound<'py, PyDict> = &d_borrowed;
+        Ok(Self {
+            motion: dict_get(d, "motion").map(|v| PointerMotionModeInput::extract((&v).into())).transpose()?,
+            steps_per_pixel: dict_get(d, "steps_per_pixel").and_then(|v| v.extract().ok()),
+            max_move_duration_ms: dict_get(d, "max_move_duration_ms").and_then(|v| v.extract().ok()),
+            speed_factor: dict_get(d, "speed_factor").and_then(|v| v.extract().ok()),
+            acceleration_profile: dict_get(d, "acceleration_profile")
+                .map(|v| PointerAccelerationInput::extract((&v).into()))
+                .transpose()?,
+            overshoot_ratio: dict_get(d, "overshoot_ratio").and_then(|v| v.extract().ok()),
+            overshoot_settle_steps: dict_get(d, "overshoot_settle_steps").and_then(|v| v.extract().ok()),
+            curve_amplitude: dict_get(d, "curve_amplitude").and_then(|v| v.extract().ok()),
+            jitter_amplitude: dict_get(d, "jitter_amplitude").and_then(|v| v.extract().ok()),
+            after_move_delay_ms: dict_get(d, "after_move_delay_ms").and_then(|v| v.extract().ok()),
+            after_input_delay_ms: dict_get(d, "after_input_delay_ms").and_then(|v| v.extract().ok()),
+            press_release_delay_ms: dict_get(d, "press_release_delay_ms").and_then(|v| v.extract().ok()),
+            after_click_delay_ms: dict_get(d, "after_click_delay_ms").and_then(|v| v.extract().ok()),
+            before_next_click_delay_ms: dict_get(d, "before_next_click_delay_ms").and_then(|v| v.extract().ok()),
+            multi_click_delay_ms: dict_get(d, "multi_click_delay_ms").and_then(|v| v.extract().ok()),
+            ensure_move_position: dict_get(d, "ensure_move_position").and_then(|v| v.extract().ok()),
+            ensure_move_threshold: dict_get(d, "ensure_move_threshold").and_then(|v| v.extract().ok()),
+            ensure_move_timeout_ms: dict_get(d, "ensure_move_timeout_ms").and_then(|v| v.extract().ok()),
+            scroll_step: dict_get(d, "scroll_step").and_then(|v| v.extract().ok()),
+            scroll_delay_ms: dict_get(d, "scroll_delay_ms").and_then(|v| v.extract().ok()),
+            move_time_per_pixel_us: dict_get(d, "move_time_per_pixel_us").and_then(|v| v.extract().ok()),
+        })
+    }
+}
+
+impl From<PointerProfileInput> for runtime_rs::PointerProfile {
+    fn from(input: PointerProfileInput) -> Self {
+        let mut profile = runtime_rs::PointerProfile::named_default();
+        if let Some(mode) = input.motion {
+            profile.mode = mode.into();
+        }
+        if let Some(v) = input.steps_per_pixel {
+            profile.steps_per_pixel = v;
+        }
+        if let Some(ms) = input.max_move_duration_ms {
+            profile.max_move_duration = duration_from_millis(ms);
+        }
+        if let Some(v) = input.speed_factor {
+            profile.speed_factor = v;
+        }
+        if let Some(accel) = input.acceleration_profile {
+            profile.acceleration_profile = accel.into();
+        }
+        if let Some(v) = input.overshoot_ratio {
+            profile.overshoot_ratio = v;
+        }
+        if let Some(v) = input.overshoot_settle_steps {
+            profile.overshoot_settle_steps = v;
+        }
+        if let Some(v) = input.curve_amplitude {
+            profile.curve_amplitude = v;
+        }
+        if let Some(v) = input.jitter_amplitude {
+            profile.jitter_amplitude = v;
+        }
+        if let Some(ms) = input.after_move_delay_ms {
+            profile.after_move_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = input.after_input_delay_ms {
+            profile.after_input_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = input.press_release_delay_ms {
+            profile.press_release_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = input.after_click_delay_ms {
+            profile.after_click_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = input.before_next_click_delay_ms {
+            profile.before_next_click_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = input.multi_click_delay_ms {
+            profile.multi_click_delay = duration_from_millis(ms);
+        }
+        if let Some(flag) = input.ensure_move_position {
+            profile.ensure_move_position = flag;
+        }
+        if let Some(v) = input.ensure_move_threshold {
+            profile.ensure_move_threshold = v;
+        }
+        if let Some(ms) = input.ensure_move_timeout_ms {
+            profile.ensure_move_timeout = duration_from_millis(ms);
+        }
+        if let Some((h, v)) = input.scroll_step {
+            profile.scroll_step = core_rs::platform::ScrollDelta::new(h, v);
+        }
+        if let Some(ms) = input.scroll_delay_ms {
+            profile.scroll_delay = duration_from_millis(ms);
+        }
+        if let Some(us) = input.move_time_per_pixel_us {
+            profile.move_time_per_pixel = duration_from_micros(us);
+        }
+        profile
+    }
+}
+
+#[derive(FromPyObject)]
+pub enum PointerProfileLike<'py> {
+    Dict(PointerProfileInput),
+    Class(PyRef<'py, PyPointerProfile>),
+}
+
+impl From<PointerProfileLike<'_>> for runtime_rs::PointerProfile {
+    fn from(value: PointerProfileLike<'_>) -> Self {
+        match value {
+            PointerProfileLike::Dict(d) => d.into(),
+            PointerProfileLike::Class(c) => (*c).inner.clone(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct KeyboardSettingsInput {
+    pub press_delay_ms: Option<f64>,
+    pub release_delay_ms: Option<f64>,
+    pub between_keys_delay_ms: Option<f64>,
+    pub chord_press_delay_ms: Option<f64>,
+    pub chord_release_delay_ms: Option<f64>,
+    pub after_sequence_delay_ms: Option<f64>,
+    pub after_text_delay_ms: Option<f64>,
+}
+
+impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for KeyboardSettingsInput {
+    type Error = PyErr;
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        let dict = ob.cast::<PyDict>()?;
+        Ok(Self {
+            press_delay_ms: dict_get(&dict, "press_delay_ms").and_then(|v| v.extract().ok()),
+            release_delay_ms: dict_get(&dict, "release_delay_ms").and_then(|v| v.extract().ok()),
+            between_keys_delay_ms: dict_get(&dict, "between_keys_delay_ms").and_then(|v| v.extract().ok()),
+            chord_press_delay_ms: dict_get(&dict, "chord_press_delay_ms").and_then(|v| v.extract().ok()),
+            chord_release_delay_ms: dict_get(&dict, "chord_release_delay_ms").and_then(|v| v.extract().ok()),
+            after_sequence_delay_ms: dict_get(&dict, "after_sequence_delay_ms").and_then(|v| v.extract().ok()),
+            after_text_delay_ms: dict_get(&dict, "after_text_delay_ms").and_then(|v| v.extract().ok()),
+        })
+    }
+}
+
+impl From<KeyboardSettingsInput> for core_rs::platform::KeyboardSettings {
+    fn from(input: KeyboardSettingsInput) -> Self {
+        let mut settings = core_rs::platform::KeyboardSettings::default();
+        if let Some(ms) = input.press_delay_ms {
+            settings.press_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = input.release_delay_ms {
+            settings.release_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = input.between_keys_delay_ms {
+            settings.between_keys_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = input.chord_press_delay_ms {
+            settings.chord_press_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = input.chord_release_delay_ms {
+            settings.chord_release_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = input.after_sequence_delay_ms {
+            settings.after_sequence_delay = duration_from_millis(ms);
+        }
+        if let Some(ms) = input.after_text_delay_ms {
+            settings.after_text_delay = duration_from_millis(ms);
+        }
+        settings
+    }
+}
+
+#[derive(FromPyObject)]
+pub enum KeyboardSettingsLike<'py> {
+    Dict(KeyboardSettingsInput),
+    Class(PyRef<'py, PyKeyboardSettings>),
+}
+
+impl From<KeyboardSettingsLike<'_>> for core_rs::platform::KeyboardSettings {
+    fn from(value: KeyboardSettingsLike<'_>) -> Self {
+        match value {
+            KeyboardSettingsLike::Dict(d) => d.into(),
+            KeyboardSettingsLike::Class(c) => (*c).inner.clone(),
         }
     }
 }

@@ -22,6 +22,12 @@
 - Mock-Stack: `platynui-provider-mock`/`platynui-platform-mock` hängen am optionalen Feature `mock-provider`. Werkzeuge (z. B. `cargo run -p platynui-cli --features mock-provider -- watch`) und Tests nutzen dieses Feature gezielt; Standard‑Builds bleiben ohne Mock. Produktive Plattform-/Provider‑Crates werden nicht mehr durch die Runtime, sondern durch Anwendungen (CLI, Python‑Extension) per `cfg(target_os = …)` verlinkt.
  - Verlinkung produktiver Provider/Plattformen: Anwendungen verlinken OS‑spezifische Crates explizit über das Hilfscrate `platynui-link`. Die Makros `platynui_link_providers!()` (Feature‑gesteuert Mock vs. OS) und `platynui_link_os_providers!()` (explizit OS) stellen sicher, dass keine Auto‑Verlinkung in der Runtime erfolgt und Tests den Mock gezielt einbinden können.
 
+### Status-Update (2025-10-09 – Release 0.1.0)
+- Erste Preview-Version `0.1.0` veröffentlicht (09.10.2025) mit lauffähiger Runtime, CLI, XPath-Evaluator und Python-Bindings.
+- Windows-Fokus (UIA + Plattformgeräte) stabilisiert; Pointer- und Keyboard-Stacks produktionsreif inklusive Mock-Parität.
+- CLI erweitert um strukturierte Fenster-, Pointer- und Keyboard-Kommandos; `snapshot`-Export basiert auf Streaming-Writer.
+- Python-Integration deckt Highlight, Pointer, Keyboard und Fenstersteuerung ab und stellt Iterator-APIs bereit.
+
 ### Ergänzung: UiNode `Id` (entwicklerseitige Kennung)
 - Neues, optionales Attribut `control:Id` als stabile, sprach‑ und inhaltsunabhängige Kennung eines Elements. Abzugrenzen von `RuntimeId` (nur laufzeitstabil).
 - Plattform‑Mapping (Ziel): Windows → `AutomationId`, Linux/AT‑SPI2 → `accessible_id` (falls vorhanden), macOS/AX → `AXIdentifier` (falls vorhanden). Leere oder fehlende Werte gelten als „nicht gesetzt“.
@@ -318,7 +324,8 @@ Kurzfassung (EN)
   - Für das Python‑Crate selbst Windows‑seitig mit Maturin bauen: `uv run maturin develop --release`.
 
 ### 20. CLI `window` – Windows-Integration
-- [x] Implementiert: Fensterliste mit Status/Capabilities (minimized/maximized/topmost/accepts_user_input) und Bounds; Aktionen: activate/minimize/maximize/restore/close sowie move/resize. Deduplizierte Treffer pro RuntimeId, farbige Textausgabe und klare Fehlertexte bei leeren Treffern.
+- [x] Implementiert: Fensterliste mit Status/Capabilities (minimized/maximized/topmost/accepts_user_input) und Bounds; Aktionen: activate/minimize/maximize/restore/close sowie move/resize/bring_to_front (inklusive `--wait-ms` für `accepts_user_input`). Deduplizierte Treffer pro RuntimeId, farbige Textausgabe und klare Fehlertexte bei leeren Treffern.
+- [x] Runtime-/Python-Erweiterung `bring_to_front_and_wait` ergänzt (22.10.2025) und vom CLI `--wait-ms` genutzt.
 - [x] Tests: Mock‑Abdeckung für Listing und Aktionssequenzen inkl. Fehlerpfade; E2E‑Tests auf echtem Windows bleiben optionaler Ausbau.
 
 ### 21. Plattform Linux/X11 – Devices & UiTree
@@ -336,6 +343,7 @@ Kurzfassung (EN)
 ### 23. Werkzeuge
 - [x] CLI: `watch`‑Befehl mit Text/JSON‑Ausgabe und optionaler Query‑Auswertung pro Event (Fan‑out über `ProviderEventDispatcher`).
 - [x] CLI: strukturierte Ausgabe `--json` für `query` umgesetzt.
+- [x] CLI: Pointer-Kommandos liefern bei XPath-Zielen eine Kurzbeschreibung des angesprochenen Elements (seit 20.10.2025).
 - [ ] CLI: `dump-node`.
 - [ ] Skript‑Integration/weitere CLI‑Ergonomie.
 - [ ] Inspector (GUI): Tree-Ansicht mit Namespaces, Property-Panel (Patterns), XPath-Editor, Element-Picker, Highlight; arbeitet wahlweise Embedded oder via JSON-RPC.
@@ -388,7 +396,7 @@ Kurzfassung (EN)
 - Core
   - [x] Attribut definieren: `control:Id` als optionales String‑Attribut (leer/fehlend = nicht gesetzt). Konstanten in `attribute_names` ergänzt.
   - [x] UiNode‑Trait um `fn id(&self) -> Option<String>` erweitert (Default `None`).
-  - [ ] Dokumentation: Architektur/Patterns/Checkliste um Semantik und Beispiele erweitern (XPath‑Nutzung, Stabilität, Abgrenzung zu `RuntimeId`).
+  - [x] Dokumentation: Architektur/Patterns/Checkliste um Semantik und Beispiele erweitert (XPath‑Nutzung, Stabilität, Abgrenzung zu `RuntimeId`) – siehe `docs/architekturkonzept_runtime.md`, `docs/patterns.md`, `docs/provider_checklist.md`.
 - Runtime/XPath
   - [ ] Keine Alias‑Ableitungen nötig (reiner String). Sicherstellen, dass `@control:Id` als `xs:string` atomisiert wird.
 - Provider
