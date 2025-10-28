@@ -155,7 +155,6 @@ UiValue = Primitive | Point | Size | Rect | JSONLike
 
 # Explicit __all__ for better IDE support (will be populated by stub file)
 __all__ = [
-    # Exceptions
     'AttributeNotFoundError',
     'EvaluatedAttribute',
     'EvaluationError',
@@ -164,9 +163,7 @@ __all__ = [
     'KeyboardError',
     'KeyboardOverrides',
     'KeyboardOverridesLike',
-    'KeyboardOverridesLike',
     'KeyboardSettings',
-    'KeyboardSettingsLike',
     'KeyboardSettingsLike',
     'Namespace',
     'NodeAttributesIterator',
@@ -175,14 +172,12 @@ __all__ = [
     'PatternError',
     'PatternId',
     'PlatynUiError',
-    # Core types
     'Point',
     'PointLike',
     'PointerAccelerationProfile',
     'PointerButton',
     'PointerError',
     'PointerMotionMode',
-    # Overrides
     'PointerOverrides',
     'PointerOverridesLike',
     'PointerProfile',
@@ -192,7 +187,6 @@ __all__ = [
     'ProviderError',
     'Rect',
     'RectLike',
-    # Runtime
     'Runtime',
     'RuntimeId',
     'ScrollDeltaLike',

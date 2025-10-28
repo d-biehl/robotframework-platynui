@@ -1,12 +1,9 @@
-#![allow(clippy::useless_conversion)]
-#![allow(unsafe_op_in_unsafe_fn)]
-#![allow(unexpected_cfgs)]
 use std::sync::Arc;
 
 use pyo3::IntoPyObject;
 use pyo3::exceptions::{PyException, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyAnyMethods, PyDict, PyIterator, PyList, PyModule, PyTuple};
+use pyo3::types::{PyAny, PyAnyMethods, PyDict, PyIterator, PyList, PyModule, PyTuple, PyType};
 use std::str::FromStr;
 
 use core_rs::ui::UiNodeExt;
@@ -585,10 +582,10 @@ impl PyRuntime {
         &self,
         py: Python<'_>,
         point: PointInput,
-        overrides: Option<PyRef<'_, PyPointerOverrides>>,
+        overrides: Option<PointerOverridesLike>,
     ) -> PyResult<Py<PyPoint>> {
         let p: core_rs::types::Point = point.0;
-        let ov = overrides.map(|o| o.inner.clone());
+        let ov = overrides.map(Into::into);
         let new_pos = self.inner.pointer_move_to(p, ov).map_err(map_pointer_err)?;
         Py::new(py, PyPoint::from(new_pos))
     }
@@ -599,11 +596,11 @@ impl PyRuntime {
         &self,
         point: Option<PointInput>,
         button: Option<PointerButtonLike>,
-        overrides: Option<PyRef<'_, PyPointerOverrides>>,
+        overrides: Option<PointerOverridesLike>,
     ) -> PyResult<()> {
         let p: Option<core_rs::types::Point> = point.map(|r| r.0);
         let btn = button.map(|b| b.into());
-        let ov = overrides.map(|o| o.inner.clone());
+        let ov = overrides.map(Into::into);
         self.inner.pointer_click(p, btn, ov).map_err(map_pointer_err)?;
         Ok(())
     }
@@ -615,11 +612,11 @@ impl PyRuntime {
         point: Option<PointInput>,
         clicks: u32,
         button: Option<PointerButtonLike>,
-        overrides: Option<PyRef<'_, PyPointerOverrides>>,
+        overrides: Option<PointerOverridesLike>,
     ) -> PyResult<()> {
         let p: Option<core_rs::types::Point> = point.map(|r| r.0);
         let btn = button.map(|b| b.into());
-        let ov = overrides.map(|o| o.inner.clone());
+        let ov = overrides.map(Into::into);
         self.inner.pointer_multi_click(p, btn, clicks, ov).map_err(map_pointer_err)?;
         Ok(())
     }
@@ -631,12 +628,12 @@ impl PyRuntime {
         start: PointInput,
         end: PointInput,
         button: Option<PointerButtonLike>,
-        overrides: Option<PyRef<'_, PyPointerOverrides>>,
+        overrides: Option<PointerOverridesLike>,
     ) -> PyResult<()> {
         let s: core_rs::types::Point = start.0;
         let e: core_rs::types::Point = end.0;
         let btn = button.map(|b| b.into());
-        let ov = overrides.map(|o| o.inner.clone());
+        let ov = overrides.map(Into::into);
         self.inner.pointer_drag(s, e, btn, ov).map_err(map_pointer_err)?;
         Ok(())
     }
@@ -647,11 +644,11 @@ impl PyRuntime {
         &self,
         point: Option<PointInput>,
         button: Option<PointerButtonLike>,
-        overrides: Option<PyRef<'_, PyPointerOverrides>>,
+        overrides: Option<PointerOverridesLike>,
     ) -> PyResult<()> {
         let p = point.map(|r| r.0);
         let btn = button.map(|b| b.into());
-        let ov = overrides.map(|o| o.inner.clone());
+        let ov = overrides.map(Into::into);
         self.inner.pointer_press(p, btn, ov).map_err(map_pointer_err)?;
         Ok(())
     }
@@ -662,11 +659,11 @@ impl PyRuntime {
         &self,
         point: Option<PointInput>,
         button: Option<PointerButtonLike>,
-        overrides: Option<PyRef<'_, PyPointerOverrides>>,
+        overrides: Option<PointerOverridesLike>,
     ) -> PyResult<()> {
         let p: Option<core_rs::types::Point> = point.map(|r| r.0);
         let btn = button.map(|b| b.into());
-        let ov = overrides.map(|o| o.inner.clone());
+        let ov = overrides.map(Into::into);
         self.inner.pointer_release(p, btn, ov).map_err(map_pointer_err)?;
         Ok(())
     }
@@ -675,7 +672,7 @@ impl PyRuntime {
     #[pyo3(signature = (delta, overrides=None), text_signature = "(self, delta, overrides=None)")]
     fn pointer_scroll(&self, delta: ScrollLike, overrides: Option<PointerOverridesLike>) -> PyResult<()> {
         let ScrollLike::Tuple((h, v)) = delta;
-        let ov = overrides.map(|o| o.into());
+        let ov = overrides.map(Into::into);
         self.inner.pointer_scroll(core_rs::platform::ScrollDelta::new(h, v), ov).map_err(map_pointer_err)?;
         Ok(())
     }
@@ -684,22 +681,22 @@ impl PyRuntime {
 
     /// Types the given keyboard sequence (see runtime docs for syntax).
     #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
-    fn keyboard_type(&self, sequence: &str, overrides: Option<PyRef<'_, PyKeyboardOverrides>>) -> PyResult<()> {
-        let ov = overrides.map(|d| d.inner.clone());
+    fn keyboard_type(&self, sequence: &str, overrides: Option<KeyboardOverridesLike>) -> PyResult<()> {
+        let ov = overrides.map(Into::into);
         self.inner.keyboard_type(sequence, ov).map_err(map_keyboard_err)?;
         Ok(())
     }
 
     #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
-    fn keyboard_press(&self, sequence: &str, overrides: Option<PyRef<'_, PyKeyboardOverrides>>) -> PyResult<()> {
-        let ov = overrides.map(|d| d.inner.clone());
+    fn keyboard_press(&self, sequence: &str, overrides: Option<KeyboardOverridesLike>) -> PyResult<()> {
+        let ov = overrides.map(Into::into);
         self.inner.keyboard_press(sequence, ov).map_err(map_keyboard_err)?;
         Ok(())
     }
 
     #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
-    fn keyboard_release(&self, sequence: &str, overrides: Option<PyRef<'_, PyKeyboardOverrides>>) -> PyResult<()> {
-        let ov = overrides.map(|d| d.inner.clone());
+    fn keyboard_release(&self, sequence: &str, overrides: Option<KeyboardOverridesLike>) -> PyResult<()> {
+        let ov = overrides.map(Into::into);
         self.inner.keyboard_release(sequence, ov).map_err(map_keyboard_err)?;
         Ok(())
     }
@@ -1429,6 +1426,12 @@ impl PyPointerOverrides {
         "PointerOverrides(...)".to_string()
     }
 
+    #[classmethod]
+    fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
+        let like = value.extract::<PointerOverridesLike>()?;
+        Ok(Self { inner: like.into() })
+    }
+
     // ----- getters (read-only properties) -----
     #[getter]
     fn origin(&self, py: Python<'_>) -> Option<Py<PyAny>> {
@@ -1541,6 +1544,12 @@ impl PyKeyboardOverrides {
         "KeyboardOverrides(...)".to_string()
     }
 
+    #[classmethod]
+    fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
+        let like = value.extract::<KeyboardOverridesLike>()?;
+        Ok(Self { inner: like.into() })
+    }
+
     // ----- getters (read-only properties) -----
     #[getter]
     fn press_delay_ms(&self) -> Option<f64> {
@@ -1605,6 +1614,12 @@ impl PyPointerSettings {
             self.double_click_time_ms(),
             self.default_button()
         )
+    }
+
+    #[classmethod]
+    fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
+        let like = value.extract::<PointerSettingsLike>()?;
+        Ok(Self { inner: like.into() })
     }
 
     #[getter]
@@ -1757,6 +1772,12 @@ impl PyPointerProfile {
             pointer_motion_mode_to_str(self.inner.mode),
             self.inner.speed_factor
         )
+    }
+
+    #[classmethod]
+    fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
+        let like = value.extract::<PointerProfileLike>()?;
+        Ok(Self { inner: like.into() })
     }
 
     #[getter]
@@ -1924,6 +1945,12 @@ impl PyKeyboardSettings {
 
     fn __repr__(&self) -> String {
         "KeyboardSettings(...)".to_string()
+    }
+
+    #[classmethod]
+    fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
+        let like = value.extract::<KeyboardSettingsLike>()?;
+        Ok(Self { inner: like.into() })
     }
 
     #[getter]
