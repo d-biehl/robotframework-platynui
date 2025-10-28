@@ -156,13 +156,81 @@ class _RectDict(TypedDict):
 PointLike: TypeAlias = Point | tuple[float, float] | _PointDict
 SizeLike: TypeAlias = Size | tuple[float, float] | _SizeDict | _SizeShortDict
 RectLike: TypeAlias = Rect | tuple[float, float, float, float] | _RectDict
+OriginLike = Literal['desktop'] | PointLike | RectLike
+ScrollDeltaLike = tuple[float, float]
+
+class _PointerOverridesDict(TypedDict, total=False):
+    origin: OriginLike
+    speed_factor: float
+    acceleration_profile: PointerAccelerationProfile
+    max_move_duration_ms: float
+    move_time_per_pixel_us: float
+    after_move_delay_ms: float
+    after_input_delay_ms: float
+    press_release_delay_ms: float
+    after_click_delay_ms: float
+    before_next_click_delay_ms: float
+    multi_click_delay_ms: float
+    ensure_move_threshold: float
+    ensure_move_timeout_ms: float
+    scroll_step: tuple[float, float]
+    scroll_delay_ms: float
+
+class _PointerSettingsDict(TypedDict, total=False):
+    double_click_time_ms: float
+    double_click_size: SizeLike
+    default_button: ButtonLike
+
+class _PointerProfileDict(TypedDict, total=False):
+    motion: PointerMotionMode
+    steps_per_pixel: float
+    max_move_duration_ms: float
+    speed_factor: float
+    acceleration_profile: PointerAccelerationProfile
+    overshoot_ratio: float
+    overshoot_settle_steps: int
+    curve_amplitude: float
+    jitter_amplitude: float
+    after_move_delay_ms: float
+    after_input_delay_ms: float
+    press_release_delay_ms: float
+    after_click_delay_ms: float
+    before_next_click_delay_ms: float
+    multi_click_delay_ms: float
+    ensure_move_position: bool
+    ensure_move_threshold: float
+    ensure_move_timeout_ms: float
+    scroll_step: tuple[float, float]
+    scroll_delay_ms: float
+    move_time_per_pixel_us: float
+
+class _KeyboardSettingsDict(TypedDict, total=False):
+    press_delay_ms: float
+    release_delay_ms: float
+    between_keys_delay_ms: float
+    chord_press_delay_ms: float
+    chord_release_delay_ms: float
+    after_sequence_delay_ms: float
+    after_text_delay_ms: float
+
+class _KeyboardOverridesDict(TypedDict, total=False):
+    press_delay_ms: float
+    release_delay_ms: float
+    between_keys_delay_ms: float
+    chord_press_delay_ms: float
+    chord_release_delay_ms: float
+    after_sequence_delay_ms: float
+    after_text_delay_ms: float
+
+PointerOverridesLike: TypeAlias = PointerOverrides | _PointerOverridesDict
+PointerSettingsLike: TypeAlias = PointerSettings | _PointerSettingsDict
+PointerProfileLike: TypeAlias = PointerProfile | _PointerProfileDict
+KeyboardSettingsLike: TypeAlias = KeyboardSettings | _KeyboardSettingsDict
+KeyboardOverridesLike: TypeAlias = KeyboardOverrides | _KeyboardOverridesDict
 
 Primitive = bool | int | float | str | None
 JSONLike = dict[str, Any] | list[Any]
 UiValue = Primitive | Point | Size | Rect | JSONLike
-
-OriginLike = Literal['desktop'] | PointLike | RectLike
-ScrollDeltaLike = tuple[float, float]
 
 class PointerButton(_enum.IntEnum):
     LEFT = 1
@@ -274,11 +342,11 @@ class Runtime:
     def bring_to_front(self, node: UiNode, wait_ms: float | None = ...) -> None: ...
     def top_level_window_for(self, node: UiNode) -> UiNode | None: ...
     def pointer_settings(self) -> PointerSettings: ...
-    def set_pointer_settings(self, settings: PointerSettings | dict[str, Any]) -> None: ...
+    def set_pointer_settings(self, settings: PointerSettingsLike) -> None: ...
     def pointer_profile(self) -> PointerProfile: ...
-    def set_pointer_profile(self, profile: PointerProfile | dict[str, Any]) -> None: ...
+    def set_pointer_profile(self, profile: PointerProfileLike) -> None: ...
     def keyboard_settings(self) -> KeyboardSettings: ...
-    def set_keyboard_settings(self, settings: KeyboardSettings | dict[str, Any]) -> None: ...
+    def set_keyboard_settings(self, settings: KeyboardSettingsLike) -> None: ...
     def pointer_position(self) -> Point: ...
     def pointer_move_to(self, point: PointLike, /, overrides: PointerOverrides | None = ...) -> Point: ...
     def pointer_click(
@@ -558,4 +626,9 @@ __all__ = [
     'OriginLike',
     'ScrollDeltaLike',
     'ButtonLike',
+    'PointerOverridesLike',
+    'PointerSettingsLike',
+    'PointerProfileLike',
+    'KeyboardSettingsLike',
+    'KeyboardOverridesLike',
 ]

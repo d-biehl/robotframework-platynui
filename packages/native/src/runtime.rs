@@ -1152,16 +1152,6 @@ fn pointer_motion_mode_to_py(py: Python<'_>, mode: core_rs::platform::PointerMot
     Ok(enum_cls.call1((value,))?.unbind().into_any())
 }
 
-fn pointer_acceleration_from_str(name: &str) -> Option<core_rs::platform::PointerAccelerationProfile> {
-    match name.to_ascii_lowercase().as_str() {
-        "constant" => Some(core_rs::platform::PointerAccelerationProfile::Constant),
-        "ease_in" | "easein" => Some(core_rs::platform::PointerAccelerationProfile::EaseIn),
-        "ease_out" | "easeout" => Some(core_rs::platform::PointerAccelerationProfile::EaseOut),
-        "smooth_step" | "smoothstep" => Some(core_rs::platform::PointerAccelerationProfile::SmoothStep),
-        _ => None,
-    }
-}
-
 fn pointer_acceleration_from_int(value: i32) -> Option<core_rs::platform::PointerAccelerationProfile> {
     match value {
         0 => Some(core_rs::platform::PointerAccelerationProfile::Constant),
@@ -1169,15 +1159,6 @@ fn pointer_acceleration_from_int(value: i32) -> Option<core_rs::platform::Pointe
         2 => Some(core_rs::platform::PointerAccelerationProfile::EaseOut),
         3 => Some(core_rs::platform::PointerAccelerationProfile::SmoothStep),
         _ => None,
-    }
-}
-
-fn pointer_acceleration_to_str(profile: core_rs::platform::PointerAccelerationProfile) -> &'static str {
-    match profile {
-        core_rs::platform::PointerAccelerationProfile::Constant => "constant",
-        core_rs::platform::PointerAccelerationProfile::EaseIn => "ease_in",
-        core_rs::platform::PointerAccelerationProfile::EaseOut => "ease_out",
-        core_rs::platform::PointerAccelerationProfile::SmoothStep => "smooth_step",
     }
 }
 
@@ -1325,20 +1306,20 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerMotionModeInput {
 
     fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         if let Ok(value) = ob.extract::<i32>() {
-            pointer_motion_mode_from_int(value)
+            return pointer_motion_mode_from_int(value)
                 .map(PointerMotionModeInput)
-                .ok_or_else(|| PyTypeError::new_err(format!("unknown pointer motion mode value {value}")))
-        } else if let Ok(enum_obj) = ob.extract::<PyRef<PyAny>>() {
-            if let Ok(value) = enum_obj.getattr("value")?.extract::<i32>() {
-                pointer_motion_mode_from_int(value)
-                    .map(PointerMotionModeInput)
-                    .ok_or_else(|| PyTypeError::new_err(format!("unknown pointer motion mode value {value}")))
-            } else {
-                Err(PyTypeError::new_err("pointer motion mode must be PointerMotionMode enum value"))
-            }
-        } else {
-            Err(PyTypeError::new_err("pointer motion mode must be PointerMotionMode enum value"))
+                .ok_or_else(|| PyTypeError::new_err(format!("unknown pointer motion mode value {value}")));
         }
+
+        if let Ok(attr) = ob.getattr("value")
+            && let Ok(value) = attr.extract::<i32>()
+        {
+            return pointer_motion_mode_from_int(value)
+                .map(PointerMotionModeInput)
+                .ok_or_else(|| PyTypeError::new_err(format!("unknown pointer motion mode value {value}")));
+        }
+
+        Err(PyTypeError::new_err("pointer motion mode must be PointerMotionMode enum value"))
     }
 }
 
@@ -1356,20 +1337,20 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerAccelerationInput {
 
     fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         if let Ok(value) = ob.extract::<i32>() {
-            pointer_acceleration_from_int(value)
+            return pointer_acceleration_from_int(value)
                 .map(PointerAccelerationInput)
-                .ok_or_else(|| PyTypeError::new_err(format!("unknown pointer acceleration value {value}")))
-        } else if let Ok(enum_obj) = ob.extract::<PyRef<PyAny>>() {
-            if let Ok(value) = enum_obj.getattr("value")?.extract::<i32>() {
-                pointer_acceleration_from_int(value)
-                    .map(PointerAccelerationInput)
-                    .ok_or_else(|| PyTypeError::new_err(format!("unknown pointer acceleration value {value}")))
-            } else {
-                Err(PyTypeError::new_err("pointer acceleration profile must be PointerAccelerationProfile enum value"))
-            }
-        } else {
-            Err(PyTypeError::new_err("pointer acceleration profile must be PointerAccelerationProfile enum value"))
+                .ok_or_else(|| PyTypeError::new_err(format!("unknown pointer acceleration value {value}")));
         }
+
+        if let Ok(attr) = ob.getattr("value")
+            && let Ok(value) = attr.extract::<i32>()
+        {
+            return pointer_acceleration_from_int(value)
+                .map(PointerAccelerationInput)
+                .ok_or_else(|| PyTypeError::new_err(format!("unknown pointer acceleration value {value}")));
+        }
+
+        Err(PyTypeError::new_err("pointer acceleration profile must be PointerAccelerationProfile enum value"))
     }
 }
 
@@ -2034,7 +2015,6 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerOverridesInput {
 
 impl From<PointerOverridesInput> for runtime_rs::PointerOverrides {
     fn from(s: PointerOverridesInput) -> Self {
-        use core_rs::platform::PointerAccelerationProfile as Accel;
         let mut ov = runtime_rs::PointerOverrides::new();
         if let Some(origin) = s.origin {
             ov = ov.origin(origin.into());
@@ -2280,6 +2260,7 @@ impl From<PointerProfileInput> for runtime_rs::PointerProfile {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(FromPyObject)]
 pub enum PointerProfileLike<'py> {
     Dict(PointerProfileInput),

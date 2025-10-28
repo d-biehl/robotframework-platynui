@@ -185,6 +185,12 @@ impl From<core_rs::types::Size> for PySize {
     }
 }
 
+impl PySize {
+    pub(crate) fn as_inner(&self) -> core_rs::types::Size {
+        self.inner
+    }
+}
+
 // ---------- Rect ----------
 
 #[pyclass(name = "Rect", module = "platynui_native")]
