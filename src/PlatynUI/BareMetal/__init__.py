@@ -56,9 +56,10 @@ class BareMetal(OurDynamicCore):
 
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, use_mock: bool = False) -> None:
         super().__init__([])
         self._screenshot_counter = 1
+        self.use_mock = use_mock
 
     @cached_property
     def runtime(self) -> Runtime:
@@ -67,6 +68,9 @@ class BareMetal(OurDynamicCore):
         The runtime bridges this Robot Framework library with the native PlatynUI engine,
         enabling XPath-like queries and actions against the UI tree.
         """
+        if self.use_mock:
+            return Runtime.new_with_mock()
+
         return Runtime()
 
     @cached_property
