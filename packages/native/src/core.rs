@@ -410,14 +410,14 @@ impl From<core_rs::types::Rect> for PyRect {
 macro_rules! define_id {
     ($name:ident, $rust:ty, $desc:expr) => {
         #[doc = concat!(
-                    "Lightweight identifier for ",
-                    $desc,
-                    " exposed as :class:`",
-                    stringify!($name),
-                    "`.",
-                    "\n\n",
-                    "Behaves like an immutable string returned from runtime APIs."
-                )]
+                            "Lightweight identifier for ",
+                            $desc,
+                            " exposed as :class:`",
+                            stringify!($name),
+                            "`.",
+                            "\n\n",
+                            "Behaves like an immutable string returned from runtime APIs."
+                        )]
         #[pyclass(module = "platynui_native", frozen)]
         #[derive(Clone)]
         pub struct $name {
