@@ -18,6 +18,11 @@ use pyo3::prelude::PyRef;
 
 // ---------------- Node wrapper ----------------
 
+/// Represents a single UI element that was discovered through the runtime.
+///
+/// The object lets Python code inspect metadata (identifiers, attributes),
+/// traverse the accessibility tree, and invoke supported interaction patterns
+/// such as focus or window management.
 #[pyclass(name = "UiNode", module = "platynui_native")]
 pub struct PyNode {
     pub(crate) inner: Arc<dyn core_rs::ui::UiNode>,
@@ -25,28 +30,36 @@ pub struct PyNode {
 
 #[pymethods]
 impl PyNode {
+    /// Returns the provider-stable identifier for this node.
     #[getter]
     fn runtime_id(&self) -> String {
         self.inner.runtime_id().as_str().to_string()
     }
+    /// Returns the optional, human-readable identifier if the platform exposes one.
     #[getter]
     fn id(&self) -> Option<String> {
         self.inner.id()
     }
+    /// Returns the localized name announced for this node.
     #[getter]
     fn name(&self) -> String {
         self.inner.name()
     }
+    /// Returns the semantic role/type of the node (for example, "Button").
     #[getter]
     fn role(&self) -> &str {
         self.inner.role()
     }
+    /// Returns the attribute namespace this node lives in.
     #[getter]
     fn namespace(&self) -> PyNamespace {
         py_namespace_from_inner(self.inner.namespace())
     }
 
-    /// Returns the attribute value as a Python-native object (None/bool/int/float/str/list/dict/tuples).
+    /// Looks up an attribute and returns its value as a native Python object.
+    ///
+    /// The namespace parameter accepts a string such as ``"control"``; when omitted
+    /// the default namespace for the node is used.
     #[pyo3(signature = (name, namespace=None), text_signature = "(self, name, namespace=None)")]
     fn attribute(&self, name: &str, namespace: Option<&str>, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let ns = core_rs::ui::resolve_namespace(namespace);
@@ -61,12 +74,14 @@ impl PyNode {
         }
     }
 
-    /// Parent node if available.
+    /// Returns the immediate parent node, or ``None`` for the desktop root.
     fn parent(&self, py: Python<'_>) -> Option<Py<PyNode>> {
         self.inner.parent().and_then(|w| w.upgrade()).and_then(|arc| Py::new(py, PyNode { inner: arc }).ok())
     }
 
-    /// Ancestors list (closest parent first), skipping Desktop root.
+    /// Returns a list of ancestors beginning with the closest parent.
+    ///
+    /// The desktop root is omitted to avoid duplicated top-level entries.
     fn ancestors(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let list = PyList::empty(py);
         for node in self.inner.ancestors() {
@@ -75,7 +90,9 @@ impl PyNode {
         Ok(list.unbind())
     }
 
-    /// Self + ancestors list, skipping Desktop root.
+    /// Returns the node followed by its ancestors (closest first).
+    ///
+    /// This is useful when walking upwards until a predicate is met.
     fn ancestors_including_self(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let list = PyList::empty(py);
         for node in self.inner.ancestors_including_self() {
@@ -84,13 +101,19 @@ impl PyNode {
         Ok(list.unbind())
     }
 
-    /// Top-level ancestor (or self if none).
+    /// Returns the outermost ancestor above the node.
+    ///
+    /// If the node already represents a top-level element, the node itself is
+    /// returned.
     fn top_level_or_self(&self, py: Python<'_>) -> PyResult<Py<PyNode>> {
         let node = self.inner.top_level_or_self();
         Py::new(py, PyNode { inner: node })
     }
 
-    /// First ancestor (including self) that exposes the requested pattern id ('Focusable', 'WindowSurface', ...).
+    /// Returns the first ancestor (including ``self``) that supports the given pattern.
+    ///
+    /// ``id`` accepts names such as ``"Focusable"`` or ``"WindowSurface"`` and
+    /// returns the Python pattern object when available.
     fn ancestor_pattern(&self, py: Python<'_>, id: &str) -> Option<Py<PyAny>> {
         let pid = core_rs::ui::identifiers::PatternId::from(id);
         for node in self.inner.ancestors_including_self() {
@@ -101,7 +124,7 @@ impl PyNode {
         None
     }
 
-    /// Pattern object from the top-level/window ancestor if available.
+    /// Returns the requested pattern object from the top-level ancestor, if supported.
     fn top_level_pattern(&self, py: Python<'_>, id: &str) -> Option<Py<PyAny>> {
         let top = self.inner.top_level_or_self();
         let pid = core_rs::ui::identifiers::PatternId::from(id);
@@ -111,42 +134,45 @@ impl PyNode {
         None
     }
 
-    /// Child nodes as an iterator.
+    /// Returns an iterator that yields the direct children as ``UiNode`` objects.
     fn children(&self, py: Python<'_>) -> PyResult<Py<PyNodeChildrenIterator>> {
         let iter = self.inner.children();
         Py::new(py, PyNodeChildrenIterator { iter: Some(iter) })
     }
 
-    /// All attributes as an iterator of objects with `namespace`, `name`, and `value`.
+    /// Returns an iterator that yields attribute handles for the node.
+    ///
+    /// Each item is a ``UiAttribute`` exposing ``namespace``, ``name`` and
+    /// ``value()``.
     fn attributes(&self, py: Python<'_>) -> PyResult<Py<PyNodeAttributesIterator>> {
         let iter = self.inner.attributes();
         let owner = self.inner.clone();
         Py::new(py, PyNodeAttributesIterator { iter: Some(iter), owner })
     }
 
-    /// Pattern identifiers supported by this node.
+    /// Returns a list of pattern identifiers supported by the node.
     fn supported_patterns(&self) -> Vec<String> {
         self.inner.supported_patterns().into_iter().map(|p| p.as_str().to_string()).collect()
     }
 
-    /// Optional document order key used for consistent ordering.
+    /// Returns a stable ordering key when the provider assigns one.
     fn doc_order_key(&self) -> Option<u64> {
         self.inner.doc_order_key()
     }
 
-    /// Returns whether the underlying platform node is still valid/available.
-    /// Providers may override this to perform a cheap liveness check.
+    /// Returns ``True`` when the node still refers to a live platform element.
     fn is_valid(&self) -> bool {
         self.inner.is_valid()
     }
 
-    /// Invalidate cached state on the underlying node.
+    /// Tells the provider to refresh any cached information for this node.
     fn invalidate(&self) {
         self.inner.invalidate();
     }
 
-    /// Returns a pattern object for known pattern ids or None if unsupported.
-    /// Currently supported ids: "Focusable", "WindowSurface".
+    /// Returns the requested interaction pattern object or ``None`` when unsupported.
+    ///
+    /// Known pattern ids include ``"Focusable"`` and ``"WindowSurface"``.
     fn pattern_by_id(&self, py: Python<'_>, id: &str) -> Option<Py<PyAny>> {
         match id {
             "Focusable" => Py::new(py, PyFocusable { node: self.inner.clone() }).ok().map(|p| p.into_any()),
@@ -155,7 +181,7 @@ impl PyNode {
         }
     }
 
-    /// Convenience boolean: returns True if the node advertises the given pattern id.
+    /// Returns ``True`` when the node advertises support for the given pattern id.
     fn has_pattern(&self, id: &str) -> bool {
         self.inner.supported_patterns().iter().any(|p| p.as_str() == id)
     }
@@ -163,6 +189,9 @@ impl PyNode {
 
 // ---------------- Iterator for UiNode children ----------------
 
+/// Iterator returned by ``UiNode.children()``.
+///
+/// Each iteration yields another ``UiNode`` instance.
 #[pyclass(name = "NodeChildrenIterator", module = "platynui_native", unsendable)]
 pub struct PyNodeChildrenIterator {
     iter: Option<Box<dyn Iterator<Item = Arc<dyn core_rs::ui::UiNode>> + Send + 'static>>,
@@ -170,10 +199,12 @@ pub struct PyNodeChildrenIterator {
 
 #[pymethods]
 impl PyNodeChildrenIterator {
+    /// Part of the Python iterator protocol; returns ``self``.
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 
+    /// Returns the next child node or ``None`` when the sequence is exhausted.
     fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<Py<PyNode>>> {
         if let Some(ref mut iter) = slf.iter
             && let Some(child) = iter.next()
@@ -187,6 +218,9 @@ impl PyNodeChildrenIterator {
 
 // ---------------- Iterator for UiNode attributes ----------------
 
+/// Iterator returned by ``UiNode.attributes()``.
+///
+/// Each iteration yields a ``UiAttribute`` bound to the originating node.
 #[pyclass(name = "NodeAttributesIterator", module = "platynui_native", unsendable)]
 pub struct PyNodeAttributesIterator {
     iter: Option<Box<dyn Iterator<Item = Arc<dyn core_rs::ui::UiAttribute>> + Send + 'static>>,
@@ -195,10 +229,12 @@ pub struct PyNodeAttributesIterator {
 
 #[pymethods]
 impl PyNodeAttributesIterator {
+    /// Part of the Python iterator protocol; returns ``self``.
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 
+    /// Returns the next ``UiAttribute`` or ``None`` when no attributes remain.
     fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<Py<PyAttribute>>> {
         if let Some(ref mut iter) = slf.iter
             && let Some(attr) = iter.next()
@@ -214,6 +250,10 @@ impl PyNodeAttributesIterator {
 
 // ---------------- Iterator for Runtime evaluation results ----------------
 
+/// Iterator returned by :py:meth:`Runtime.evaluate_iter`.
+///
+/// Each iteration yields either a ``UiNode``, an ``EvaluatedAttribute`` or a
+/// primitive value depending on the query.
 #[pyclass(name = "EvaluationIterator", module = "platynui_native", unsendable)]
 pub struct PyEvaluationIterator {
     iter: Option<Box<dyn Iterator<Item = runtime_rs::EvaluationItem>>>,
@@ -221,10 +261,12 @@ pub struct PyEvaluationIterator {
 
 #[pymethods]
 impl PyEvaluationIterator {
+    /// Part of the Python iterator protocol; returns ``self``.
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 
+    /// Returns the next evaluation result or ``None`` when the iterator is exhausted.
     fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         if let Some(ref mut iter) = slf.iter
             && let Some(item) = iter.next()
@@ -239,6 +281,7 @@ impl PyEvaluationIterator {
 
 // ---------------- Pattern wrappers ----------------
 
+/// Provides focus-related actions for nodes that advertise the ``Focusable`` pattern.
 #[pyclass(module = "platynui_native", name = "Focusable")]
 pub struct PyFocusable {
     node: Arc<dyn core_rs::ui::UiNode>,
@@ -246,9 +289,11 @@ pub struct PyFocusable {
 
 #[pymethods]
 impl PyFocusable {
+    /// Returns the pattern identifier ``"Focusable"``.
     fn id(&self) -> &'static str {
         "Focusable"
     }
+    /// Requests focus for the associated node.
     fn focus(&self) -> PyResult<()> {
         if let Some(p) = self.node.pattern::<core_rs::ui::pattern::FocusableAction>() {
             p.focus().map_err(|e| PatternError::new_err(e.to_string()))
@@ -258,6 +303,7 @@ impl PyFocusable {
     }
 }
 
+/// Exposes window-management operations for nodes with the ``WindowSurface`` pattern.
 #[pyclass(module = "platynui_native", name = "WindowSurface")]
 pub struct PyWindowSurface {
     node: Arc<dyn core_rs::ui::UiNode>,
@@ -265,35 +311,45 @@ pub struct PyWindowSurface {
 
 #[pymethods]
 impl PyWindowSurface {
+    /// Returns the pattern identifier ``"WindowSurface"``.
     fn id(&self) -> &'static str {
         "WindowSurface"
     }
 
+    /// Brings the window to the foreground and activates it.
     fn activate(&self) -> PyResult<()> {
         self.call(|p| p.activate())
     }
+    /// Minimizes the window if the platform supports the action.
     fn minimize(&self) -> PyResult<()> {
         self.call(|p| p.minimize())
     }
+    /// Maximizes the window if the platform supports the action.
     fn maximize(&self) -> PyResult<()> {
         self.call(|p| p.maximize())
     }
+    /// Restores the window to its previous size/state after minimize or maximize.
     fn restore(&self) -> PyResult<()> {
         self.call(|p| p.restore())
     }
+    /// Closes the window.
     fn close(&self) -> PyResult<()> {
         self.call(|p| p.close())
     }
 
+    /// Moves the window's top-left corner to ``(x, y)`` screen coordinates.
     fn move_to(&self, x: f64, y: f64) -> PyResult<()> {
         self.call(|p| p.move_to(core_rs::types::Point::new(x, y)))
     }
+    /// Resizes the window to ``width`` × ``height``.
     fn resize(&self, width: f64, height: f64) -> PyResult<()> {
         self.call(|p| p.resize(core_rs::types::Size::new(width, height)))
     }
+    /// Moves and resizes the window in a single operation.
     fn move_and_resize(&self, x: f64, y: f64, width: f64, height: f64) -> PyResult<()> {
         self.call(|p| p.move_and_resize(core_rs::types::Rect::new(x, y, width, height)))
     }
+    /// Returns whether the window is currently able to receive user input, if known.
     fn accepts_user_input(&self) -> PyResult<Option<bool>> {
         self.with_pattern(|p| p.accepts_user_input())
     }
@@ -301,6 +357,7 @@ impl PyWindowSurface {
 
 // ---------------- UiAttribute wrapper ----------------
 
+/// Represents a node attribute that can be resolved on demand.
 #[pyclass(module = "platynui_native", name = "UiAttribute", subclass)]
 pub struct PyAttribute {
     namespace: String,
@@ -310,16 +367,19 @@ pub struct PyAttribute {
 
 #[pymethods]
 impl PyAttribute {
+    /// Returns the namespace label (for example ``"control"``).
     #[getter]
     fn namespace(&self) -> &str {
         &self.namespace
     }
+    /// Returns the attribute name within the namespace.
     #[getter]
     fn name(&self) -> &str {
         &self.name
     }
-    /// Lazily resolves the attribute value on demand.
-    /// Returns None if the attribute is no longer available.
+    /// Resolves the current attribute value.
+    ///
+    /// ``None`` is returned when the provider reports that the attribute no longer exists.
     fn value(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let ns = core_rs::ui::namespace::Namespace::from_str(self.namespace.as_str()).unwrap_or_default();
         match self.owner.attribute(ns, &self.name) {
@@ -327,11 +387,13 @@ impl PyAttribute {
             None => Ok(py.None()),
         }
     }
+    /// Returns a concise string representation useful for debugging.
     fn __repr__(&self) -> String {
         format!("Attribute(namespace='{}', name='{}')", self.namespace, self.name)
     }
 }
 
+/// Holds an attribute that was fully evaluated during an XPath query.
 #[pyclass(module = "platynui_native", name = "EvaluatedAttribute")]
 pub struct PyEvaluatedAttribute {
     namespace: String,
@@ -344,24 +406,30 @@ pub struct PyEvaluatedAttribute {
 impl PyEvaluatedAttribute {
     #[new]
     #[pyo3(signature = (namespace, name, value, owner=None))]
+    /// Creates a new evaluated attribute with a pre-resolved value.
     fn new(namespace: String, name: String, value: Py<PyAny>, owner: Option<Py<PyNode>>) -> Self {
         Self { namespace, name, value, owner }
     }
+    /// Returns the namespace label of the attribute.
     #[getter]
     fn namespace(&self) -> &str {
         &self.namespace
     }
+    /// Returns the attribute name within the namespace.
     #[getter]
     fn name(&self) -> &str {
         &self.name
     }
+    /// Returns the captured value.
     #[getter]
     fn value(&self, py: Python<'_>) -> Py<PyAny> {
         self.value.clone_ref(py)
     }
+    /// Returns the originating node if it was provided during evaluation.
     fn owner(&self, py: Python<'_>) -> Option<Py<PyNode>> {
         self.owner.as_ref().map(|o| o.clone_ref(py))
     }
+    /// Returns a concise string representation useful for debugging.
     fn __repr__(&self) -> String {
         format!("EvaluatedAttribute(namespace='{}', name='{}')", self.namespace, self.name)
     }
@@ -393,6 +461,29 @@ impl PyWindowSurface {
 
 // ---------------- Runtime ----------------
 
+/// High-level automation runtime for exploring UI trees and driving input devices.
+///
+/// A :class:`Runtime` instance is responsible for
+///
+/// - discovering the available platform providers (Windows UIA, AT-SPI, mock, …),
+/// - evaluating XPath queries into :class:`UiNode` objects or primitive values,
+/// - exposing helper APIs for pointer and keyboard input, and
+/// - exposing utilities such as focus, highlight overlays, and screenshots.
+///
+/// The binding offers an ergonomic API: call :py:meth:`evaluate` / :py:meth:`evaluate_single`
+/// to obtain :class:`UiNode` objects, inspect their attributes, then invoke pointer or keyboard
+/// actions using regular tuples or small helper classes (:class:`Point`, :class:`PointerOverrides`, …).
+///
+/// Example::
+///
+///     from platynui_native import Runtime
+///
+///     rt = Runtime()
+///     button = rt.evaluate_single("//Button[@Name='Sign in']")
+///     if button:
+///         rt.bring_to_front(button)
+///         rt.pointer_click()
+///
 #[pyclass(name = "Runtime", module = "platynui_native")]
 pub struct PyRuntime {
     inner: runtime_rs::Runtime,
@@ -401,14 +492,17 @@ pub struct PyRuntime {
 #[pymethods]
 impl PyRuntime {
     #[new]
+    /// Creates a runtime that discovers platform providers automatically.
     fn new() -> PyResult<Self> {
         runtime_rs::Runtime::new().map(|inner| Self { inner }).map_err(map_provider_err)
     }
 
     // ---------------- Static builder (mock only) ----------------
 
-    /// Create a Runtime fully backed by the bundled mock provider and mock platform devices.
-    /// Compiles only when built with the `mock-provider` feature.
+    /// Creates a runtime that talks to the bundled mock provider and devices.
+    ///
+    /// Available only when the native extension is compiled with the
+    /// ``mock-provider`` feature. Useful for unit testing on any host.
     #[staticmethod]
     fn new_with_mock() -> PyResult<Self> {
         #[cfg(feature = "mock-provider")]
@@ -432,10 +526,12 @@ impl PyRuntime {
         }
     }
 
-    /// Evaluates an XPath expression; returns a list of items:
-    /// - UiNode objects (platynui_native.UiNode)
-    /// - EvaluatedAttribute objects (platynui_native.EvaluatedAttribute)
-    /// - plain Python values (None/bool/int/float/str/list/dict/Point/Size/Rect)
+    /// Evaluates an XPath expression and returns all matching results as a list.
+    ///
+    /// Items are converted into ``UiNode`` instances, ``EvaluatedAttribute``
+    /// objects, or native Python values (``None``, ``bool``, ``int``, ``float``,
+    /// ``str``, ``list``, ``dict``, :class:`Point`, :class:`Size`, :class:`Rect`).
+    /// ``node`` restricts the search to the subtree when provided.
     #[pyo3(signature = (xpath, node=None), text_signature = "(xpath: str, node: UiNode | None = None)")]
     fn evaluate(&self, py: Python<'_>, xpath: &str, node: Option<Bound<'_, PyAny>>) -> PyResult<Py<PyList>> {
         let node_arc = match node {
@@ -455,8 +551,10 @@ impl PyRuntime {
         Ok(out.into())
     }
 
-    /// Evaluates an XPath expression and returns the first result, or None if no results.
-    /// Possible return types are UiNode, EvaluatedAttribute, or a plain Python value.
+    /// Evaluates an XPath expression and returns the first match.
+    ///
+    /// ``None`` is returned when the query produced no results. Items are converted
+    /// in the same way as :py:meth:`Runtime.evaluate`.
     #[pyo3(signature = (xpath, node=None), text_signature = "(xpath: str, node: UiNode | None = None)")]
     fn evaluate_single(&self, py: Python<'_>, xpath: &str, node: Option<Bound<'_, PyAny>>) -> PyResult<Py<PyAny>> {
         let node_arc = match node {
@@ -477,11 +575,16 @@ impl PyRuntime {
         }
     }
 
+    /// Immediately releases provider resources and device handles.
+    ///
+    /// Calling this ensures deterministic cleanup; otherwise the runtime will
+    /// dispose its resources later when Python garbage collection drops the
+    /// last reference.
     fn shutdown(&mut self) {
         self.inner.shutdown();
     }
 
-    /// Evaluates an XPath expression and returns an iterator over results.
+    /// Evaluates an XPath expression and returns a lazy iterator over the results.
     #[pyo3(signature = (xpath, node=None), text_signature = "(xpath: str, node: UiNode | None = None)")]
     fn evaluate_iter(
         &self,
@@ -504,7 +607,10 @@ impl PyRuntime {
         Py::new(py, PyEvaluationIterator { iter: Some(Box::new(stream)) })
     }
 
-    /// Returns a list of active provider information dictionaries.
+    /// Returns a list of dictionaries describing the active providers.
+    ///
+    /// Each dictionary exposes the provider ``id``, human-readable ``display_name``,
+    /// associated ``technology`` identifier, and the provider ``kind``.
     fn providers(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let list = PyList::empty(py);
         for provider in self.inner.providers() {
@@ -513,52 +619,56 @@ impl PyRuntime {
             dict.set_item("id", desc.id)?;
             dict.set_item("display_name", desc.display_name)?;
             dict.set_item("technology", desc.technology.as_str())?;
-            dict.set_item("kind", format!("{:?}", desc.kind))?;
+            let kind = match desc.kind {
+                core_rs::provider::ProviderKind::Native => "Native",
+                core_rs::provider::ProviderKind::External => "External",
+            };
+            dict.set_item("kind", kind)?;
             list.append(dict)?;
         }
-        Ok(list.into())
+        Ok(list.unbind())
     }
 
-    /// Returns the current pointer settings as a dedicated object.
+    /// Returns the current pointer defaults as a :class:`PointerSettings` instance.
     #[pyo3(text_signature = "(self)")]
     fn pointer_settings(&self, py: Python<'_>) -> PyResult<Py<PyPointerSettings>> {
         Py::new(py, PyPointerSettings::from(self.inner.pointer_settings()))
     }
 
-    /// Updates the pointer settings for subsequent operations.
+    /// Replaces the pointer defaults that future actions will use.
     #[pyo3(signature = (settings), text_signature = "(self, settings)")]
     fn set_pointer_settings(&self, settings: PointerSettingsLike) -> PyResult<()> {
         self.inner.set_pointer_settings(settings.into());
         Ok(())
     }
 
-    /// Returns the active pointer movement profile.
+    /// Returns the active pointer movement profile as :class:`PointerProfile`.
     #[pyo3(text_signature = "(self)")]
     fn pointer_profile(&self, py: Python<'_>) -> PyResult<Py<PyPointerProfile>> {
         Py::new(py, PyPointerProfile::from(self.inner.pointer_profile()))
     }
 
-    /// Applies a new pointer movement profile.
+    /// Sets the pointer movement profile that subsequent pointer operations will use.
     #[pyo3(signature = (profile), text_signature = "(self, profile)")]
     fn set_pointer_profile(&self, profile: PointerProfileLike) -> PyResult<()> {
         self.inner.set_pointer_profile(profile.into());
         Ok(())
     }
 
-    /// Returns the keyboard timing settings currently in use.
+    /// Returns the keyboard timing defaults as :class:`KeyboardSettings`.
     #[pyo3(text_signature = "(self)")]
     fn keyboard_settings(&self, py: Python<'_>) -> PyResult<Py<PyKeyboardSettings>> {
         Py::new(py, PyKeyboardSettings::from(self.inner.keyboard_settings()))
     }
 
-    /// Updates the keyboard timing settings.
+    /// Replaces the keyboard timing defaults for subsequent keyboard input.
     #[pyo3(signature = (settings), text_signature = "(self, settings)")]
     fn set_keyboard_settings(&self, settings: KeyboardSettingsLike) -> PyResult<()> {
         self.inner.set_keyboard_settings(settings.into());
         Ok(())
     }
 
-    /// Resolves the top-level window for a given node, if any.
+    /// Returns the top-level window that contains ``node``.
     #[pyo3(signature = (node), text_signature = "(self, node)")]
     fn top_level_window_for(&self, py: Python<'_>, node: PyRef<'_, PyNode>) -> PyResult<Option<Py<PyNode>>> {
         match self.inner.top_level_window_for(&node.inner) {
@@ -569,14 +679,14 @@ impl PyRuntime {
 
     // ---------------- Pointer minimal API ----------------
 
-    /// Returns the current pointer position.
+    /// Returns the current pointer position as a :class:`Point`.
     #[pyo3(text_signature = "(self)")]
     fn pointer_position(&self, py: Python<'_>) -> PyResult<Py<PyPoint>> {
         let p = self.inner.pointer_position().map_err(map_pointer_err)?;
         Py::new(py, PyPoint::from(p))
     }
 
-    /// Moves the pointer to the given point. Accepts a core.Point.
+    /// Moves the pointer to ``point`` and returns the final position.
     #[pyo3(signature = (point, overrides=None), text_signature = "(self, point, overrides=None)")]
     fn pointer_move_to(
         &self,
@@ -590,7 +700,10 @@ impl PyRuntime {
         Py::new(py, PyPoint::from(new_pos))
     }
 
-    /// Click at point using optional button and overrides.
+    /// Performs a single click.
+    ///
+    /// ``point`` defaults to the current pointer location. ``button`` selects the
+    /// button to use and ``overrides`` customises timing for this call.
     #[pyo3(signature = (point, button=None, overrides=None), text_signature = "(self, point, button=None, overrides=None)")]
     fn pointer_click(
         &self,
@@ -605,7 +718,7 @@ impl PyRuntime {
         Ok(())
     }
 
-    /// Multiple clicks at point.
+    /// Performs ``clicks`` consecutive clicks at ``point``.
     #[pyo3(signature = (point=None, clicks=2, button=None, overrides=None), text_signature = "(self, point=None, clicks=2, button=None, overrides=None)")]
     fn pointer_multi_click(
         &self,
@@ -621,7 +734,7 @@ impl PyRuntime {
         Ok(())
     }
 
-    /// Drag from start to end with optional button.
+    /// Performs a drag gesture from ``start`` to ``end``.
     #[pyo3(signature = (start, end, button=None, overrides=None), text_signature = "(self, start, end, button=None, overrides=None)")]
     fn pointer_drag(
         &self,
@@ -638,7 +751,7 @@ impl PyRuntime {
         Ok(())
     }
 
-    /// Press pointer button (optionally move first).
+    /// Presses the selected pointer button, optionally moving first.
     #[pyo3(signature = (point=None, button=None, overrides=None), text_signature = "(self, point=None, button=None, overrides=None)")]
     fn pointer_press(
         &self,
@@ -653,7 +766,7 @@ impl PyRuntime {
         Ok(())
     }
 
-    /// Release pointer button (optionally move first).
+    /// Releases the selected pointer button, optionally moving first.
     #[pyo3(signature = (point=None, button=None, overrides=None), text_signature = "(self, point=None, button=None, overrides=None)")]
     fn pointer_release(
         &self,
@@ -668,10 +781,12 @@ impl PyRuntime {
         Ok(())
     }
 
-    /// Scroll by delta (h, v) with optional overrides.
+    /// Scrolls by the horizontal/vertical deltas specified in ``delta``.
     #[pyo3(signature = (delta, overrides=None), text_signature = "(self, delta, overrides=None)")]
     fn pointer_scroll(&self, delta: ScrollLike, overrides: Option<PointerOverridesLike>) -> PyResult<()> {
-        let ScrollLike::Tuple((h, v)) = delta;
+        let (h, v) = match delta {
+            ScrollLike::Tuple((h, v)) => (h, v),
+        };
         let ov = overrides.map(Into::into);
         self.inner.pointer_scroll(core_rs::platform::ScrollDelta::new(h, v), ov).map_err(map_pointer_err)?;
         Ok(())
@@ -679,7 +794,7 @@ impl PyRuntime {
 
     // ---------------- Keyboard minimal API ----------------
 
-    /// Types the given keyboard sequence (see runtime docs for syntax).
+    /// Types the provided sequence using the runtime keyboard DSL.
     #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
     fn keyboard_type(&self, sequence: &str, overrides: Option<KeyboardOverridesLike>) -> PyResult<()> {
         let ov = overrides.map(Into::into);
@@ -687,6 +802,7 @@ impl PyRuntime {
         Ok(())
     }
 
+    /// Presses all keys from ``sequence`` without releasing them.
     #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
     fn keyboard_press(&self, sequence: &str, overrides: Option<KeyboardOverridesLike>) -> PyResult<()> {
         let ov = overrides.map(Into::into);
@@ -694,6 +810,7 @@ impl PyRuntime {
         Ok(())
     }
 
+    /// Releases the keys listed in ``sequence``.
     #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
     fn keyboard_release(&self, sequence: &str, overrides: Option<KeyboardOverridesLike>) -> PyResult<()> {
         let ov = overrides.map(Into::into);
@@ -701,7 +818,7 @@ impl PyRuntime {
         Ok(())
     }
 
-    /// Returns the list of known key names supported by the active keyboard device.
+    /// Returns the list of key names recognised by the active keyboard device.
     #[pyo3(text_signature = "(self)")]
     fn keyboard_known_key_names(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let names = self.inner.keyboard_known_key_names().map_err(|e| PyException::new_err(e.to_string()))?;
@@ -717,22 +834,22 @@ impl PyRuntime {
         Py::new(py, PyNode { inner: node })
     }
 
-    /// Returns desktop metadata (dict) including bounds and monitors.
+    /// Returns a dictionary describing the desktop (bounds, monitors, platform names).
     fn desktop_info(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let info = self.inner.desktop_info();
         desktop_info_to_py(py, info)
     }
 
-    /// Sets focus to the given node via the Focusable pattern.
+    /// Sets focus to ``node``.
     fn focus(&self, node: PyRef<'_, PyNode>) -> PyResult<()> {
         self.inner.focus(&node.inner).map_err(map_focus_err)?;
         Ok(())
     }
 
-    /// Bring the window associated with `node` to the foreground.
-    /// If `wait_ms` is provided, waits up to that many milliseconds for the window
-    /// to become input-ready (if the platform reports readiness), otherwise returns immediately
-    /// after activation.
+    /// Brings the window associated with ``node`` to the foreground.
+    ///
+    /// When ``wait_ms`` is provided the call waits up to that many milliseconds
+    /// for the window to become input ready if the platform reports readiness.
     #[pyo3(signature = (node, wait_ms=None), text_signature = "(self, node, wait_ms=None)")]
     fn bring_to_front(&self, node: PyRef<'_, PyNode>, wait_ms: Option<f64>) -> PyResult<()> {
         match wait_ms {
@@ -749,8 +866,9 @@ impl PyRuntime {
 
     // ---------------- Highlight & Screenshot ----------------
 
-    /// Highlights one or more rectangles for an optional duration (milliseconds).
-    /// Accepts a single Rect or any Python Iterable[Rect] (e.g., list, tuple, generator).
+    /// Highlights one or more rectangles for ``duration_ms`` milliseconds.
+    ///
+    /// ``rects`` may be a single :class:`Rect` or any iterable producing rectangles.
     #[pyo3(signature = (rects, duration_ms=None), text_signature = "(self, rects, duration_ms=None)")]
     fn highlight(&self, rects: Bound<'_, PyAny>, duration_ms: Option<f64>) -> PyResult<()> {
         let mut all: Vec<platynui_core::types::Rect> = Vec::new();
@@ -778,13 +896,16 @@ impl PyRuntime {
         Ok(())
     }
 
-    /// Clears an active highlight overlay if available.
+    /// Clears a previously shown highlight overlay when supported by the platform.
     fn clear_highlight(&self) -> PyResult<()> {
         self.inner.clear_highlight().map_err(map_platform_err)?;
         Ok(())
     }
 
-    /// Captures a screenshot and returns encoded bytes. Supports only 'image/png'.
+    /// Captures a screenshot and returns the encoded image bytes.
+    ///
+    /// ``rect`` limits the capture area; ``mime_type`` currently accepts only
+    /// ``"image/png"``.
     #[pyo3(signature = (rect=None, mime_type=None), text_signature = "(self, rect=None, mime_type=None)")]
     fn screenshot(&self, py: Python<'_>, rect: Option<RectInput>, mime_type: Option<&str>) -> PyResult<Py<PyAny>> {
         let effective_mime = mime_type.unwrap_or("image/png");
@@ -1319,6 +1440,7 @@ impl From<PointerAccelerationInput> for core_rs::platform::PointerAccelerationPr
 
 // ---------------- Concrete overrides classes (Python-visible) ----------------
 
+/// Per-action pointer overrides used to adjust movement, timing, and behaviour.
 #[pyclass(module = "platynui_native", name = "PointerOverrides")]
 pub struct PyPointerOverrides {
     pub(crate) inner: runtime_rs::PointerOverrides,
@@ -1352,6 +1474,7 @@ impl PyPointerOverrides {
         scroll_step=None,
         scroll_delay_ms=None,
     ))]
+    /// Creates overrides that can be passed to pointer-related runtime calls.
     fn new(
         origin: Option<OriginInput>,
         motion: Option<PointerMotionModeInput>,
@@ -1403,11 +1526,13 @@ impl PyPointerOverrides {
         Self { inner: input.into() }
     }
 
+    /// Returns a readable representation for debugging.
     fn __repr__(&self) -> String {
         "PointerOverrides(...)".to_string()
     }
 
     #[classmethod]
+    /// Accepts any object recognised by the ``PointerOverridesLike`` helper and creates overrides.
     fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
         let like = value.extract::<PointerOverridesLike>()?;
         Ok(Self { inner: like.into() })
@@ -1415,6 +1540,7 @@ impl PyPointerOverrides {
 
     // ----- getters (read-only properties) -----
     #[getter]
+    /// Returns the origin reference used when interpreting pointer coordinates.
     fn origin(&self, py: Python<'_>) -> Option<Py<PyAny>> {
         use core_rs::platform::PointOrigin as O;
         self.inner.origin.as_ref().and_then(|o| match o {
@@ -1424,93 +1550,115 @@ impl PyPointerOverrides {
         })
     }
     #[getter]
+    /// Returns the motion profile used for pointer moves when provided.
     fn motion(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         self.inner.motion_mode.map(|m| pointer_motion_mode_to_py(py, m)).transpose()
     }
     #[getter]
+    /// Returns the number of motion steps performed per pixel moved.
     fn steps_per_pixel(&self) -> Option<f64> {
         self.inner.steps_per_pixel
     }
     #[getter]
+    /// Returns the multiplier applied to pointer speed.
     fn speed_factor(&self) -> Option<f64> {
         self.inner.speed_factor
     }
     #[getter]
+    /// Returns the acceleration profile used for pointer moves when set.
     fn acceleration_profile(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         self.inner.acceleration_profile.map(|p| pointer_acceleration_to_py(py, p)).transpose()
     }
     #[getter]
+    /// Returns the maximum duration, in milliseconds, of a pointer move.
     fn max_move_duration_ms(&self) -> Option<f64> {
         self.inner.max_move_duration.map(|d| d.as_millis() as f64)
     }
     #[getter]
+    /// Returns the microseconds spent per pixel when timing is based on distance.
     fn move_time_per_pixel_us(&self) -> Option<f64> {
         self.inner.move_time_per_pixel.map(|d| d.as_micros() as f64)
     }
     #[getter]
+    /// Returns the delay after completing a pointer move in milliseconds.
     fn after_move_delay_ms(&self) -> Option<f64> {
         self.inner.after_move_delay.map(|d| d.as_millis() as f64)
     }
     #[getter]
+    /// Returns the delay applied after any pointer input action in milliseconds.
     fn after_input_delay_ms(&self) -> Option<f64> {
         self.inner.after_input_delay.map(|d| d.as_millis() as f64)
     }
     #[getter]
+    /// Returns the press/release delay in milliseconds when both happen together.
     fn press_release_delay_ms(&self) -> Option<f64> {
         self.inner.press_release_delay.map(|d| d.as_millis() as f64)
     }
     #[getter]
+    /// Returns the pause after completing a click, in milliseconds.
     fn after_click_delay_ms(&self) -> Option<f64> {
         self.inner.after_click_delay.map(|d| d.as_millis() as f64)
     }
     #[getter]
+    /// Returns the pause inserted before moving on to the next click.
     fn before_next_click_delay_ms(&self) -> Option<f64> {
         self.inner.before_next_click_delay.map(|d| d.as_millis() as f64)
     }
     #[getter]
+    /// Returns the time window used to group a sequence of clicks.
     fn multi_click_delay_ms(&self) -> Option<f64> {
         self.inner.multi_click_delay.map(|d| d.as_millis() as f64)
     }
     #[getter]
+    /// Returns the overshoot ratio applied to pointer moves.
     fn overshoot_ratio(&self) -> Option<f64> {
         self.inner.overshoot_ratio
     }
     #[getter]
+    /// Returns the number of easing steps used to settle after overshooting.
     fn overshoot_settle_steps(&self) -> Option<u32> {
         self.inner.overshoot_settle_steps
     }
     #[getter]
+    /// Returns the amplitude for curve-based motion shapes.
     fn curve_amplitude(&self) -> Option<f64> {
         self.inner.curve_amplitude
     }
     #[getter]
+    /// Returns the amplitude of random jitter applied during motion.
     fn jitter_amplitude(&self) -> Option<f64> {
         self.inner.jitter_amplitude
     }
     #[getter]
+    /// Returns whether the runtime verifies that pointer moves end at the requested position.
     fn ensure_move_position(&self) -> Option<bool> {
         self.inner.ensure_move_position
     }
     #[getter]
+    /// Returns the acceptable error threshold, in pixels, when verifying pointer moves.
     fn ensure_move_threshold(&self) -> Option<f64> {
         self.inner.ensure_move_threshold
     }
     #[getter]
+    /// Returns the timeout used when verifying pointer moves.
     fn ensure_move_timeout_ms(&self) -> Option<f64> {
         self.inner.ensure_move_timeout.map(|d| d.as_millis() as f64)
     }
     #[getter]
+    /// Returns the scroll delta that is applied per scroll step when set.
     fn scroll_step(&self, py: Python<'_>) -> Option<Py<PyAny>> {
         self.inner
             .scroll_step
             .and_then(|d| PyTuple::new(py, [d.horizontal, d.vertical]).ok().map(|t| t.unbind().into_any()))
     }
     #[getter]
+    /// Returns the delay between scroll steps in milliseconds.
     fn scroll_delay_ms(&self) -> Option<f64> {
         self.inner.scroll_delay.map(|d| d.as_millis() as f64)
     }
 }
 
+/// Temporary keyboard timing overrides applied to individual actions.
 #[pyclass(module = "platynui_native", name = "KeyboardOverrides")]
 pub struct PyKeyboardOverrides {
     pub(crate) inner: core_rs::platform::KeyboardOverrides,
@@ -1528,6 +1676,7 @@ impl PyKeyboardOverrides {
         after_sequence_delay_ms=None,
         after_text_delay_ms=None,
     ))]
+    /// Creates overrides that can be supplied to keyboard-related runtime calls.
     fn new(
         press_delay_ms: Option<f64>,
         release_delay_ms: Option<f64>,
@@ -1549,11 +1698,13 @@ impl PyKeyboardOverrides {
         Self { inner: input.into() }
     }
 
+    /// Returns a readable representation for debugging.
     fn __repr__(&self) -> String {
         "KeyboardOverrides(...)".to_string()
     }
 
     #[classmethod]
+    /// Accepts any object recognised by ``KeyboardOverridesLike`` and creates overrides.
     fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
         let like = value.extract::<KeyboardOverridesLike>()?;
         Ok(Self { inner: like.into() })
@@ -1561,35 +1712,43 @@ impl PyKeyboardOverrides {
 
     // ----- getters (read-only properties) -----
     #[getter]
+    /// Returns the delay between key press and release.
     fn press_delay_ms(&self) -> Option<f64> {
         self.inner.press_delay.map(|d| d.as_millis() as f64)
     }
     #[getter]
+    /// Returns the delay after releasing a key.
     fn release_delay_ms(&self) -> Option<f64> {
         self.inner.release_delay.map(|d| d.as_millis() as f64)
     }
     #[getter]
+    /// Returns the delay inserted between consecutive keys.
     fn between_keys_delay_ms(&self) -> Option<f64> {
         self.inner.between_keys_delay.map(|d| d.as_millis() as f64)
     }
     #[getter]
+    /// Returns the delay between pressing keys in a chord.
     fn chord_press_delay_ms(&self) -> Option<f64> {
         self.inner.chord_press_delay.map(|d| d.as_millis() as f64)
     }
     #[getter]
+    /// Returns the delay between releasing keys in a chord.
     fn chord_release_delay_ms(&self) -> Option<f64> {
         self.inner.chord_release_delay.map(|d| d.as_millis() as f64)
     }
     #[getter]
+    /// Returns the pause applied after finishing a sequence.
     fn after_sequence_delay_ms(&self) -> Option<f64> {
         self.inner.after_sequence_delay.map(|d| d.as_millis() as f64)
     }
     #[getter]
+    /// Returns the pause applied after text input operations.
     fn after_text_delay_ms(&self) -> Option<f64> {
         self.inner.after_text_delay.map(|d| d.as_millis() as f64)
     }
 }
 
+/// Persistent pointer defaults fetched from or applied to the active runtime.
 #[pyclass(module = "platynui_native", name = "PointerSettings")]
 pub struct PyPointerSettings {
     pub(crate) inner: runtime_rs::PointerSettings,
@@ -1599,6 +1758,7 @@ pub struct PyPointerSettings {
 impl PyPointerSettings {
     #[new]
     #[pyo3(signature = (*, double_click_time_ms=None, double_click_size=None, default_button=None))]
+    /// Creates a settings object that can be applied to the runtime.
     fn new(
         double_click_time_ms: Option<f64>,
         double_click_size: Option<SizeInput>,
@@ -1617,6 +1777,7 @@ impl PyPointerSettings {
         Ok(Self { inner })
     }
 
+    /// Returns a readable representation for debugging.
     fn __repr__(&self) -> String {
         format!(
             "PointerSettings(double_click_time_ms={}, default_button={})",
@@ -1626,22 +1787,26 @@ impl PyPointerSettings {
     }
 
     #[classmethod]
+    /// Accepts any object recognised by ``PointerSettingsLike`` and returns settings.
     fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
         let like = value.extract::<PointerSettingsLike>()?;
         Ok(Self { inner: like.into() })
     }
 
     #[getter]
+    /// Returns the double-click time in milliseconds.
     fn double_click_time_ms(&self) -> f64 {
         self.inner.double_click_time.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the double-click bounding box as :class:`Size`.
     fn double_click_size(&self, py: Python<'_>) -> PyResult<Py<PySize>> {
         Py::new(py, PySize::from(self.inner.double_click_size))
     }
 
     #[getter]
+    /// Returns the default pointer button as the numeric button id.
     fn default_button(&self) -> u16 {
         pointer_button_to_int(self.inner.default_button)
     }
@@ -1653,6 +1818,7 @@ impl From<runtime_rs::PointerSettings> for PyPointerSettings {
     }
 }
 
+/// Named pointer movement profile that can be swapped at runtime.
 #[pyclass(module = "platynui_native", name = "PointerProfile")]
 pub struct PyPointerProfile {
     pub(crate) inner: runtime_rs::PointerProfile,
@@ -1685,6 +1851,7 @@ impl PyPointerProfile {
         scroll_delay_ms=None,
         move_time_per_pixel_us=None,
     ))]
+    /// Creates a profile describing long-lived pointer behaviour.
     fn new(
         motion: Option<PointerMotionModeInput>,
         steps_per_pixel: Option<f64>,
@@ -1775,6 +1942,7 @@ impl PyPointerProfile {
         Ok(Self { inner })
     }
 
+    /// Returns a readable representation for debugging.
     fn __repr__(&self) -> String {
         format!(
             "PointerProfile(mode='{}', speed_factor={})",
@@ -1784,112 +1952,134 @@ impl PyPointerProfile {
     }
 
     #[classmethod]
+    /// Accepts any object recognised by ``PointerProfileLike`` and creates a profile.
     fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
         let like = value.extract::<PointerProfileLike>()?;
         Ok(Self { inner: like.into() })
     }
 
     #[getter]
+    /// Returns the pointer motion mode as a Python enum instance.
     fn motion(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         pointer_motion_mode_to_py(py, self.inner.mode)
     }
 
     #[getter]
+    /// Returns the number of movement steps performed per pixel.
     fn steps_per_pixel(&self) -> f64 {
         self.inner.steps_per_pixel
     }
 
     #[getter]
+    /// Returns the maximum pointer move duration in milliseconds.
     fn max_move_duration_ms(&self) -> f64 {
         self.inner.max_move_duration.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the pointer speed multiplier.
     fn speed_factor(&self) -> f64 {
         self.inner.speed_factor
     }
 
     #[getter]
+    /// Returns the acceleration profile used for pointer moves.
     fn acceleration_profile(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         pointer_acceleration_to_py(py, self.inner.acceleration_profile)
     }
 
     #[getter]
+    /// Returns the overshoot ratio applied to pointer motion targets.
     fn overshoot_ratio(&self) -> f64 {
         self.inner.overshoot_ratio
     }
 
     #[getter]
+    /// Returns the number of easing steps performed after overshooting.
     fn overshoot_settle_steps(&self) -> u32 {
         self.inner.overshoot_settle_steps
     }
 
     #[getter]
+    /// Returns the amplitude for curved pointer paths.
     fn curve_amplitude(&self) -> f64 {
         self.inner.curve_amplitude
     }
 
     #[getter]
+    /// Returns the amplitude of random jitter during motion.
     fn jitter_amplitude(&self) -> f64 {
         self.inner.jitter_amplitude
     }
 
     #[getter]
+    /// Returns the delay after finishing a pointer move, in milliseconds.
     fn after_move_delay_ms(&self) -> f64 {
         self.inner.after_move_delay.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the delay after any pointer input, in milliseconds.
     fn after_input_delay_ms(&self) -> f64 {
         self.inner.after_input_delay.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the delay between press and release actions, in milliseconds.
     fn press_release_delay_ms(&self) -> f64 {
         self.inner.press_release_delay.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the pause after a click, in milliseconds.
     fn after_click_delay_ms(&self) -> f64 {
         self.inner.after_click_delay.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the pause before the next click, in milliseconds.
     fn before_next_click_delay_ms(&self) -> f64 {
         self.inner.before_next_click_delay.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the multi-click grouping timeout, in milliseconds.
     fn multi_click_delay_ms(&self) -> f64 {
         self.inner.multi_click_delay.as_millis() as f64
     }
 
     #[getter]
+    /// Returns whether pointer moves must end at the requested position.
     fn ensure_move_position(&self) -> bool {
         self.inner.ensure_move_position
     }
 
     #[getter]
+    /// Returns the allowed deviation, in pixels, when verifying pointer moves.
     fn ensure_move_threshold(&self) -> f64 {
         self.inner.ensure_move_threshold
     }
 
     #[getter]
+    /// Returns the verification timeout, in milliseconds, for pointer moves.
     fn ensure_move_timeout_ms(&self) -> f64 {
         self.inner.ensure_move_timeout.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the scroll delta applied per step as ``(horizontal, vertical)``.
     fn scroll_step(&self) -> (f64, f64) {
         (self.inner.scroll_step.horizontal, self.inner.scroll_step.vertical)
     }
 
     #[getter]
+    /// Returns the delay between scroll steps, in milliseconds.
     fn scroll_delay_ms(&self) -> f64 {
         self.inner.scroll_delay.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the microseconds spent per pixel during pointer moves.
     fn move_time_per_pixel_us(&self) -> f64 {
         self.inner.move_time_per_pixel.as_micros() as f64
     }
@@ -1901,6 +2091,7 @@ impl From<runtime_rs::PointerProfile> for PyPointerProfile {
     }
 }
 
+/// Runtime keyboard timing defaults such as key press durations and delays.
 #[pyclass(module = "platynui_native", name = "KeyboardSettings")]
 pub struct PyKeyboardSettings {
     pub(crate) inner: core_rs::platform::KeyboardSettings,
@@ -1918,6 +2109,7 @@ impl PyKeyboardSettings {
         after_sequence_delay_ms=None,
         after_text_delay_ms=None,
     ))]
+    /// Creates keyboard timing defaults that can be applied to the runtime.
     fn new(
         press_delay_ms: Option<f64>,
         release_delay_ms: Option<f64>,
@@ -1952,47 +2144,56 @@ impl PyKeyboardSettings {
         Self { inner }
     }
 
+    /// Returns a readable representation for debugging.
     fn __repr__(&self) -> String {
         "KeyboardSettings(...)".to_string()
     }
 
     #[classmethod]
+    /// Accepts any object recognised by ``KeyboardSettingsLike`` and returns settings.
     fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
         let like = value.extract::<KeyboardSettingsLike>()?;
         Ok(Self { inner: like.into() })
     }
 
     #[getter]
+    /// Returns the key press duration in milliseconds.
     fn press_delay_ms(&self) -> f64 {
         self.inner.press_delay.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the key release duration in milliseconds.
     fn release_delay_ms(&self) -> f64 {
         self.inner.release_delay.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the delay between consecutive key strokes.
     fn between_keys_delay_ms(&self) -> f64 {
         self.inner.between_keys_delay.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the delay between pressing keys in a chord.
     fn chord_press_delay_ms(&self) -> f64 {
         self.inner.chord_press_delay.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the delay between releasing keys in a chord.
     fn chord_release_delay_ms(&self) -> f64 {
         self.inner.chord_release_delay.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the pause applied after a key sequence completes.
     fn after_sequence_delay_ms(&self) -> f64 {
         self.inner.after_sequence_delay.as_millis() as f64
     }
 
     #[getter]
+    /// Returns the pause after typing text content.
     fn after_text_delay_ms(&self) -> f64 {
         self.inner.after_text_delay.as_millis() as f64
     }
