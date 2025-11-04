@@ -1028,46 +1028,6 @@ pub fn register_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PlatynUiError", py.get_type::<PlatynUiError>())?;
     m.add("AttributeNotFoundError", py.get_type::<AttributeNotFoundError>())?;
 
-    // ---- Export mock handles for Python (opaque usize values) ----
-    // These exist for convenience in tests; they are zero when the mock feature is disabled.
-    #[cfg(feature = "mock-provider")]
-    {
-        // Provider factory handle
-        let mock_provider = unsafe {
-            std::mem::transmute::<*const platynui_provider_mock::MockProviderFactory, usize>(
-                &platynui_provider_mock::MOCK_PROVIDER_FACTORY as *const _,
-            )
-        };
-        m.add("MOCK_PROVIDER", mock_provider)?;
-
-        // Platform devices/providers
-        let mock_platform =
-            unsafe { std::mem::transmute::<_, usize>(&platynui_platform_mock::MOCK_PLATFORM as *const _) };
-        let mock_highlight =
-            unsafe { std::mem::transmute::<_, usize>(&platynui_platform_mock::MOCK_HIGHLIGHT as *const _) };
-        let mock_screenshot =
-            unsafe { std::mem::transmute::<_, usize>(&platynui_platform_mock::MOCK_SCREENSHOT as *const _) };
-        let mock_pointer =
-            unsafe { std::mem::transmute::<_, usize>(&platynui_platform_mock::MOCK_POINTER as *const _) };
-        let mock_keyboard =
-            unsafe { std::mem::transmute::<_, usize>(&platynui_platform_mock::MOCK_KEYBOARD as *const _) };
-
-        m.add("MOCK_PLATFORM", mock_platform)?;
-        m.add("MOCK_HIGHLIGHT_PROVIDER", mock_highlight)?;
-        m.add("MOCK_SCREENSHOT_PROVIDER", mock_screenshot)?;
-        m.add("MOCK_POINTER_DEVICE", mock_pointer)?;
-        m.add("MOCK_KEYBOARD_DEVICE", mock_keyboard)?;
-    }
-    #[cfg(not(feature = "mock-provider"))]
-    {
-        m.add("MOCK_PROVIDER", 0usize)?;
-        m.add("MOCK_PLATFORM", 0usize)?;
-        m.add("MOCK_HIGHLIGHT_PROVIDER", 0usize)?;
-        m.add("MOCK_SCREENSHOT_PROVIDER", 0usize)?;
-        m.add("MOCK_POINTER_DEVICE", 0usize)?;
-        m.add("MOCK_KEYBOARD_DEVICE", 0usize)?;
-    }
-
     Ok(())
 }
 
