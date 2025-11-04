@@ -223,7 +223,7 @@ pub fn run(runtime: &Runtime, args: &PointerArgs) -> CliResult<String> {
 }
 
 fn run_move(runtime: &Runtime, args: &PointerMoveArgs) -> CliResult<String> {
-    let overrides = build_overrides(runtime, &args.overrides)?;
+    let overrides = build_overrides(&args.overrides)?;
     let (target, element_info) = match (&args.expression, &args.point) {
         (Some(expr), _) => {
             let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
@@ -237,7 +237,7 @@ fn run_move(runtime: &Runtime, args: &PointerMoveArgs) -> CliResult<String> {
 }
 
 fn run_click(runtime: &Runtime, args: &PointerClickArgs) -> CliResult<String> {
-    let overrides = build_overrides(runtime, &args.overrides)?;
+    let overrides = build_overrides(&args.overrides)?;
     let element_info = if args.no_move {
         // Do not move: single click at current position
         runtime.pointer_click(None, Some(args.button), overrides).map_err(map_pointer_error)?;
@@ -258,7 +258,7 @@ fn run_click(runtime: &Runtime, args: &PointerClickArgs) -> CliResult<String> {
 }
 
 fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs) -> CliResult<String> {
-    let overrides = build_overrides(runtime, &args.overrides)?;
+    let overrides = build_overrides(&args.overrides)?;
     let element_info = if args.no_move {
         runtime.pointer_multi_click(None, Some(args.button), args.count, overrides).map_err(map_pointer_error)?;
         None
@@ -284,7 +284,7 @@ fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs) -> CliResult
 }
 
 fn run_press(runtime: &Runtime, args: &PointerPressArgs) -> CliResult<String> {
-    let overrides = build_overrides(runtime, &args.overrides)?;
+    let overrides = build_overrides(&args.overrides)?;
     let (target, element_info) = if args.no_move {
         (None, None)
     } else if let Some(expr) = &args.expression {
@@ -302,7 +302,7 @@ fn run_press(runtime: &Runtime, args: &PointerPressArgs) -> CliResult<String> {
 }
 
 fn run_release(runtime: &Runtime, args: &PointerReleaseArgs) -> CliResult<String> {
-    let overrides = build_overrides(runtime, &args.overrides)?;
+    let overrides = build_overrides(&args.overrides)?;
     let target = if !args.no_move {
         if let Some(expr) = &args.expression {
             let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
@@ -330,7 +330,7 @@ fn run_release(runtime: &Runtime, args: &PointerReleaseArgs) -> CliResult<String
 }
 
 fn run_scroll(runtime: &Runtime, args: &PointerScrollArgs) -> CliResult<String> {
-    let overrides = build_overrides(runtime, &args.overrides)?;
+    let overrides = build_overrides(&args.overrides)?;
     let element_info = if !args.no_move {
         if let Some(expr) = &args.expr {
             let (target, node) = resolve_point_and_node_from_expr(runtime, expr)?;
@@ -347,7 +347,7 @@ fn run_scroll(runtime: &Runtime, args: &PointerScrollArgs) -> CliResult<String> 
 }
 
 fn run_drag(runtime: &Runtime, args: &PointerDragArgs) -> CliResult<String> {
-    let overrides = build_overrides(runtime, &args.overrides)?;
+    let overrides = build_overrides(&args.overrides)?;
     let mut start = args.from;
     let mut end = args.to;
     let mut from_info = None;
@@ -379,7 +379,7 @@ fn run_position(runtime: &Runtime) -> CliResult<String> {
     Ok(format!("Pointer currently at ({:.1}, {:.1}).", point.x(), point.y()))
 }
 
-fn build_overrides(runtime: &Runtime, args: &OverrideArgs) -> CliResult<Option<PointerOverrides>> {
+fn build_overrides(args: &OverrideArgs) -> CliResult<Option<PointerOverrides>> {
     let mut overrides = PointerOverrides::new();
 
     if let Some(delay) = args.after_move_delay {
@@ -455,15 +455,14 @@ fn build_overrides(runtime: &Runtime, args: &OverrideArgs) -> CliResult<Option<P
     }
 
     if let Some(motion) = args.motion {
-        let mut profile = runtime.pointer_profile();
-        profile.mode = match motion {
+        let mode = match motion {
             MotionKind::Direct => PointerMotionMode::Direct,
             MotionKind::Linear => PointerMotionMode::Linear,
             MotionKind::Bezier => PointerMotionMode::Bezier,
             MotionKind::Overshoot => PointerMotionMode::Overshoot,
             MotionKind::Jitter => PointerMotionMode::Jitter,
         };
-        overrides.profile = Some(profile);
+        overrides = overrides.motion_mode(mode);
     }
 
     if overrides == PointerOverrides::default() { Ok(None) } else { Ok(Some(overrides)) }
@@ -669,25 +668,22 @@ mod tests {
 
     #[test]
     fn overrides_require_bounds() {
-        let runtime = runtime();
         let overrides = OverrideArgs { origin: OriginKind::Bounds, ..Default::default() };
-        let err = build_overrides(&runtime, &overrides).expect_err("missing bounds");
+        let err = build_overrides(&overrides).expect_err("missing bounds");
         assert!(err.to_string().contains("--bounds must be provided"));
     }
 
     #[test]
     fn overrides_require_anchor() {
-        let runtime = runtime();
         let overrides = OverrideArgs { origin: OriginKind::Absolute, ..Default::default() };
-        let err = build_overrides(&runtime, &overrides).expect_err("missing anchor");
+        let err = build_overrides(&overrides).expect_err("missing anchor");
         assert!(err.to_string().contains("--anchor must be provided"));
     }
 
     #[test]
     fn build_overrides_returns_none_if_empty() {
-        let runtime = runtime();
         let overrides = OverrideArgs::default();
-        let result = build_overrides(&runtime, &overrides).expect("overrides");
+        let result = build_overrides(&overrides).expect("overrides");
         assert!(result.is_none());
     }
 

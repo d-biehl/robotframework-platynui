@@ -102,13 +102,19 @@ impl Default for PointerProfile {
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct PointerOverrides {
     pub origin: Option<PointOrigin>,
-    pub profile: Option<PointerProfile>,
+    pub motion_mode: Option<PointerMotionMode>,
+    pub steps_per_pixel: Option<f64>,
     pub after_move_delay: Option<Duration>,
     pub after_input_delay: Option<Duration>,
     pub press_release_delay: Option<Duration>,
     pub after_click_delay: Option<Duration>,
     pub before_next_click_delay: Option<Duration>,
     pub multi_click_delay: Option<Duration>,
+    pub overshoot_ratio: Option<f64>,
+    pub overshoot_settle_steps: Option<u32>,
+    pub curve_amplitude: Option<f64>,
+    pub jitter_amplitude: Option<f64>,
+    pub ensure_move_position: Option<bool>,
     pub ensure_move_threshold: Option<f64>,
     pub ensure_move_timeout: Option<Duration>,
     pub scroll_step: Option<ScrollDelta>,
@@ -129,8 +135,13 @@ impl PointerOverrides {
         self
     }
 
-    pub fn profile(mut self, profile: PointerProfile) -> Self {
-        self.profile = Some(profile);
+    pub fn motion_mode(mut self, mode: PointerMotionMode) -> Self {
+        self.motion_mode = Some(mode);
+        self
+    }
+
+    pub fn steps_per_pixel(mut self, steps: f64) -> Self {
+        self.steps_per_pixel = Some(steps);
         self
     }
 
@@ -161,6 +172,31 @@ impl PointerOverrides {
 
     pub fn multi_click_delay(mut self, delay: Duration) -> Self {
         self.multi_click_delay = Some(delay);
+        self
+    }
+
+    pub fn overshoot_ratio(mut self, ratio: f64) -> Self {
+        self.overshoot_ratio = Some(ratio);
+        self
+    }
+
+    pub fn overshoot_settle_steps(mut self, steps: u32) -> Self {
+        self.overshoot_settle_steps = Some(steps);
+        self
+    }
+
+    pub fn curve_amplitude(mut self, amplitude: f64) -> Self {
+        self.curve_amplitude = Some(amplitude);
+        self
+    }
+
+    pub fn jitter_amplitude(mut self, amplitude: f64) -> Self {
+        self.jitter_amplitude = Some(amplitude);
+        self
+    }
+
+    pub fn ensure_move_position(mut self, ensure: bool) -> Self {
+        self.ensure_move_position = Some(ensure);
         self
     }
 
@@ -267,8 +303,7 @@ impl<'a> PointerEngine<'a> {
     }
 
     fn effective_profile<'b>(&'b self, overrides: Option<&'b PointerOverrides>) -> EffectiveProfile<'b> {
-        let profile = overrides.and_then(|o| o.profile.as_ref()).unwrap_or(&self.profile);
-        EffectiveProfile::new(profile, overrides, &self.settings)
+        EffectiveProfile::new(&self.profile, overrides, &self.settings)
     }
 
     fn resolve_origin(&self, overrides: Option<&PointerOverrides>) -> PointOrigin {
@@ -461,7 +496,7 @@ impl<'a> PointerEngine<'a> {
             return Ok(());
         }
 
-        let path = generate_path(start, target, profile);
+        let path = generate_path(start, target, &profile);
         if path.is_empty() {
             return Ok(());
         }
@@ -594,8 +629,74 @@ impl<'a> EffectiveProfile<'a> {
         Self { profile, overrides, settings }
     }
 
-    fn profile(&self) -> &'a PointerProfile {
-        self.profile
+    fn profile(&self) -> PointerProfile {
+        let mut profile = self.profile.clone();
+        if let Some(overrides) = self.overrides {
+            if let Some(mode) = overrides.motion_mode {
+                profile.mode = mode;
+            }
+            if let Some(steps) = overrides.steps_per_pixel {
+                profile.steps_per_pixel = steps;
+            }
+            if let Some(ratio) = overrides.overshoot_ratio {
+                profile.overshoot_ratio = ratio;
+            }
+            if let Some(steps) = overrides.overshoot_settle_steps {
+                profile.overshoot_settle_steps = steps;
+            }
+            if let Some(amplitude) = overrides.curve_amplitude {
+                profile.curve_amplitude = amplitude;
+            }
+            if let Some(amplitude) = overrides.jitter_amplitude {
+                profile.jitter_amplitude = amplitude;
+            }
+            if let Some(flag) = overrides.ensure_move_position {
+                profile.ensure_move_position = flag;
+            }
+            if let Some(threshold) = overrides.ensure_move_threshold {
+                profile.ensure_move_threshold = threshold;
+            }
+            if let Some(timeout) = overrides.ensure_move_timeout {
+                profile.ensure_move_timeout = timeout;
+            }
+            if let Some(delta) = overrides.scroll_step {
+                profile.scroll_step = delta;
+            }
+            if let Some(delay) = overrides.scroll_delay {
+                profile.scroll_delay = delay;
+            }
+            if let Some(duration) = overrides.max_move_duration {
+                profile.max_move_duration = duration;
+            }
+            if let Some(duration) = overrides.move_time_per_pixel {
+                profile.move_time_per_pixel = duration;
+            }
+            if let Some(speed) = overrides.speed_factor {
+                profile.speed_factor = speed;
+            }
+            if let Some(accel) = overrides.acceleration_profile {
+                profile.acceleration_profile = accel;
+            }
+            if let Some(delay) = overrides.after_move_delay {
+                profile.after_move_delay = delay;
+            }
+            if let Some(delay) = overrides.after_input_delay {
+                profile.after_input_delay = delay;
+            }
+            if let Some(delay) = overrides.press_release_delay {
+                profile.press_release_delay = delay;
+            }
+            if let Some(delay) = overrides.after_click_delay {
+                profile.after_click_delay = delay;
+            }
+            if let Some(delay) = overrides.before_next_click_delay {
+                profile.before_next_click_delay = delay;
+            }
+            if let Some(delay) = overrides.multi_click_delay {
+                profile.multi_click_delay = delay;
+            }
+        }
+        profile
     }
 
     fn after_move_delay(&self) -> Duration {
@@ -627,7 +728,7 @@ impl<'a> EffectiveProfile<'a> {
     }
 
     fn ensure_move_position(&self) -> bool {
-        self.profile.ensure_move_position
+        self.overrides.and_then(|o| o.ensure_move_position).unwrap_or(self.profile.ensure_move_position)
     }
 
     fn ensure_move_threshold(&self) -> f64 {
@@ -1449,6 +1550,26 @@ mod tests {
         assert_eq!(presses, 3);
         assert_eq!(releases, 3);
         assert!(engine.last_click.is_some());
+    }
+
+    #[rstest]
+    fn overrides_can_switch_motion_mode() {
+        let device = RecordingPointer::new();
+        let settings = PointerSettings::default();
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        profile.ensure_move_position = false;
+        profile.mode = PointerMotionMode::Linear;
+        profile.steps_per_pixel = 5.0;
+
+        let overrides = PointerOverrides::new().motion_mode(PointerMotionMode::Direct);
+
+        let mut engine =
+            PointerEngine::new(&device, Rect::new(-100.0, -100.0, 200.0, 200.0), settings, profile, &noop_sleep);
+
+        engine.move_to(Point::new(15.0, 0.0), Some(&overrides)).unwrap();
+
+        assert_eq!(device.moves.load(Ordering::SeqCst), 1);
     }
 
     #[rstest]

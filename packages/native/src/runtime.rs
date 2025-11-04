@@ -1330,6 +1330,8 @@ impl PyPointerOverrides {
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (*,
         origin=None,
+        motion=None,
+        steps_per_pixel=None,
         speed_factor=None,
         acceleration_profile=None,
         max_move_duration_ms=None,
@@ -1340,6 +1342,11 @@ impl PyPointerOverrides {
         after_click_delay_ms=None,
         before_next_click_delay_ms=None,
         multi_click_delay_ms=None,
+        overshoot_ratio=None,
+        overshoot_settle_steps=None,
+        curve_amplitude=None,
+        jitter_amplitude=None,
+        ensure_move_position=None,
         ensure_move_threshold=None,
         ensure_move_timeout_ms=None,
         scroll_step=None,
@@ -1347,6 +1354,8 @@ impl PyPointerOverrides {
     ))]
     fn new(
         origin: Option<OriginInput>,
+        motion: Option<PointerMotionModeInput>,
+        steps_per_pixel: Option<f64>,
         speed_factor: Option<f64>,
         acceleration_profile: Option<PointerAccelerationInput>,
         max_move_duration_ms: Option<f64>,
@@ -1357,6 +1366,11 @@ impl PyPointerOverrides {
         after_click_delay_ms: Option<f64>,
         before_next_click_delay_ms: Option<f64>,
         multi_click_delay_ms: Option<f64>,
+        overshoot_ratio: Option<f64>,
+        overshoot_settle_steps: Option<u32>,
+        curve_amplitude: Option<f64>,
+        jitter_amplitude: Option<f64>,
+        ensure_move_position: Option<bool>,
         ensure_move_threshold: Option<f64>,
         ensure_move_timeout_ms: Option<f64>,
         scroll_step: Option<(f64, f64)>,
@@ -1364,6 +1378,8 @@ impl PyPointerOverrides {
     ) -> Self {
         let input = PointerOverridesInput {
             origin,
+            motion,
+            steps_per_pixel,
             speed_factor,
             acceleration_profile,
             max_move_duration_ms,
@@ -1374,6 +1390,11 @@ impl PyPointerOverrides {
             after_click_delay_ms,
             before_next_click_delay_ms,
             multi_click_delay_ms,
+            overshoot_ratio,
+            overshoot_settle_steps,
+            curve_amplitude,
+            jitter_amplitude,
+            ensure_move_position,
             ensure_move_threshold,
             ensure_move_timeout_ms,
             scroll_step,
@@ -1401,6 +1422,14 @@ impl PyPointerOverrides {
             O::Absolute(p) => Py::new(py, PyPoint::from(*p)).ok().map(|v| v.into_any()),
             O::Bounds(r) => Py::new(py, PyRect::from(*r)).ok().map(|v| v.into_any()),
         })
+    }
+    #[getter]
+    fn motion(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+        self.inner.motion_mode.map(|m| pointer_motion_mode_to_py(py, m)).transpose()
+    }
+    #[getter]
+    fn steps_per_pixel(&self) -> Option<f64> {
+        self.inner.steps_per_pixel
     }
     #[getter]
     fn speed_factor(&self) -> Option<f64> {
@@ -1441,6 +1470,26 @@ impl PyPointerOverrides {
     #[getter]
     fn multi_click_delay_ms(&self) -> Option<f64> {
         self.inner.multi_click_delay.map(|d| d.as_millis() as f64)
+    }
+    #[getter]
+    fn overshoot_ratio(&self) -> Option<f64> {
+        self.inner.overshoot_ratio
+    }
+    #[getter]
+    fn overshoot_settle_steps(&self) -> Option<u32> {
+        self.inner.overshoot_settle_steps
+    }
+    #[getter]
+    fn curve_amplitude(&self) -> Option<f64> {
+        self.inner.curve_amplitude
+    }
+    #[getter]
+    fn jitter_amplitude(&self) -> Option<f64> {
+        self.inner.jitter_amplitude
+    }
+    #[getter]
+    fn ensure_move_position(&self) -> Option<bool> {
+        self.inner.ensure_move_position
     }
     #[getter]
     fn ensure_move_threshold(&self) -> Option<f64> {
@@ -1957,6 +2006,8 @@ impl From<core_rs::platform::KeyboardSettings> for PyKeyboardSettings {
 
 pub struct PointerOverridesInput {
     pub origin: Option<OriginInput>,
+    pub motion: Option<PointerMotionModeInput>,
+    pub steps_per_pixel: Option<f64>,
     pub speed_factor: Option<f64>,
     pub acceleration_profile: Option<PointerAccelerationInput>,
     pub max_move_duration_ms: Option<f64>,
@@ -1967,6 +2018,11 @@ pub struct PointerOverridesInput {
     pub after_click_delay_ms: Option<f64>,
     pub before_next_click_delay_ms: Option<f64>,
     pub multi_click_delay_ms: Option<f64>,
+    pub overshoot_ratio: Option<f64>,
+    pub overshoot_settle_steps: Option<u32>,
+    pub curve_amplitude: Option<f64>,
+    pub jitter_amplitude: Option<f64>,
+    pub ensure_move_position: Option<bool>,
     pub ensure_move_threshold: Option<f64>,
     pub ensure_move_timeout_ms: Option<f64>,
     pub scroll_step: Option<(f64, f64)>,
@@ -1980,6 +2036,8 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerOverridesInput {
         let d: &Bound<'py, PyDict> = &d_borrowed;
         Ok(Self {
             origin: dict_get(d, "origin").map(|v| OriginInput::extract((&v).into())).transpose()?,
+            motion: dict_get(d, "motion").map(|v| PointerMotionModeInput::extract((&v).into())).transpose()?,
+            steps_per_pixel: dict_get(d, "steps_per_pixel").and_then(|v| v.extract().ok()),
             speed_factor: dict_get(d, "speed_factor").and_then(|v| v.extract().ok()),
             acceleration_profile: dict_get(d, "acceleration_profile")
                 .map(|v| PointerAccelerationInput::extract((&v).into()))
@@ -1992,6 +2050,11 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerOverridesInput {
             after_click_delay_ms: dict_get(d, "after_click_delay_ms").and_then(|v| v.extract().ok()),
             before_next_click_delay_ms: dict_get(d, "before_next_click_delay_ms").and_then(|v| v.extract().ok()),
             multi_click_delay_ms: dict_get(d, "multi_click_delay_ms").and_then(|v| v.extract().ok()),
+            overshoot_ratio: dict_get(d, "overshoot_ratio").and_then(|v| v.extract().ok()),
+            overshoot_settle_steps: dict_get(d, "overshoot_settle_steps").and_then(|v| v.extract().ok()),
+            curve_amplitude: dict_get(d, "curve_amplitude").and_then(|v| v.extract().ok()),
+            jitter_amplitude: dict_get(d, "jitter_amplitude").and_then(|v| v.extract().ok()),
+            ensure_move_position: dict_get(d, "ensure_move_position").and_then(|v| v.extract().ok()),
             ensure_move_threshold: dict_get(d, "ensure_move_threshold").and_then(|v| v.extract().ok()),
             ensure_move_timeout_ms: dict_get(d, "ensure_move_timeout_ms").and_then(|v| v.extract().ok()),
             scroll_step: dict_get(d, "scroll_step").and_then(|v| v.extract().ok()),
@@ -2005,6 +2068,12 @@ impl From<PointerOverridesInput> for runtime_rs::PointerOverrides {
         let mut ov = runtime_rs::PointerOverrides::new();
         if let Some(origin) = s.origin {
             ov = ov.origin(origin.into());
+        }
+        if let Some(mode) = s.motion {
+            ov = ov.motion_mode(mode.into());
+        }
+        if let Some(steps) = s.steps_per_pixel {
+            ov = ov.steps_per_pixel(steps);
         }
         if let Some(v) = s.speed_factor {
             ov = ov.speed_factor(v);
@@ -2026,6 +2095,21 @@ impl From<PointerOverridesInput> for runtime_rs::PointerOverrides {
         }
         if let Some(ms) = s.multi_click_delay_ms {
             ov = ov.multi_click_delay(std::time::Duration::from_millis(ms as u64));
+        }
+        if let Some(ratio) = s.overshoot_ratio {
+            ov = ov.overshoot_ratio(ratio);
+        }
+        if let Some(steps) = s.overshoot_settle_steps {
+            ov = ov.overshoot_settle_steps(steps);
+        }
+        if let Some(amplitude) = s.curve_amplitude {
+            ov = ov.curve_amplitude(amplitude);
+        }
+        if let Some(amplitude) = s.jitter_amplitude {
+            ov = ov.jitter_amplitude(amplitude);
+        }
+        if let Some(flag) = s.ensure_move_position {
+            ov = ov.ensure_move_position(flag);
         }
         if let Some(v) = s.ensure_move_threshold {
             ov = ov.ensure_move_threshold(v);

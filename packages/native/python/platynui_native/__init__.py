@@ -76,6 +76,8 @@ ScrollDeltaLike = tuple[float, float]
 
 class _PointerOverridesDict(TypedDict, total=False):
     origin: OriginLike
+    motion: PointerMotionMode
+    steps_per_pixel: float
     speed_factor: float
     acceleration_profile: PointerAccelerationProfile
     max_move_duration_ms: float
@@ -86,6 +88,11 @@ class _PointerOverridesDict(TypedDict, total=False):
     after_click_delay_ms: float
     before_next_click_delay_ms: float
     multi_click_delay_ms: float
+    overshoot_ratio: float
+    overshoot_settle_steps: int
+    curve_amplitude: float
+    jitter_amplitude: float
+    ensure_move_position: bool
     ensure_move_threshold: float
     ensure_move_timeout_ms: float
     scroll_step: tuple[float, float]

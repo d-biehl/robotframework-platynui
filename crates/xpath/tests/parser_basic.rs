@@ -113,15 +113,9 @@ fn paths_and_predicates() {
 #[rstest]
 fn kind_tests_and_types() {
     let e = parse(". treat as item()*");
-    assert!(matches!(
-        e,
-        ast::Expr::TreatAs { ty: ast::SequenceType::Typed { .. }, .. }
-    ));
+    assert!(matches!(e, ast::Expr::TreatAs { ty: ast::SequenceType::Typed { .. }, .. }));
     let e = parse(". instance of empty-sequence()");
-    assert!(matches!(
-        e,
-        ast::Expr::InstanceOf { ty: ast::SequenceType::EmptySequence, .. }
-    ));
+    assert!(matches!(e, ast::Expr::InstanceOf { ty: ast::SequenceType::EmptySequence, .. }));
 }
 
 #[rstest]

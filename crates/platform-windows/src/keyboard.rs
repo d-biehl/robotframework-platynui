@@ -550,7 +550,8 @@ mod tests {
         let wk = kc.downcast_ref::<WinKeyCode>().unwrap();
         match wk.0 {
             WinKey::Vk(vk) => assert_eq!(vk, 'A' as u16),
-            _ => panic!("expected VK"),
+            WinKey::CharMapped { vk, .. } => assert_eq!(vk, 'A' as u16),
+            other => panic!("expected Vk or CharMapped mapping for 'A', got {:?}", other),
         }
     }
 
@@ -560,8 +561,9 @@ mod tests {
         let kc = dev.key_to_code("ä").unwrap();
         let wk = kc.downcast_ref::<WinKeyCode>().unwrap();
         match wk.0 {
-            WinKey::Unicode(_) => {}
-            _ => panic!("expected Unicode"),
+            WinKey::Unicode(code) => assert_eq!(code, 'ä' as u16),
+            WinKey::CharMapped { .. } => {}
+            other => panic!("expected Unicode fallback or CharMapped for 'ä', got {:?}", other),
         }
     }
 }

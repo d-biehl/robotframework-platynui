@@ -3,7 +3,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from platynui_native import Point, PointerButton, Rect, RectLike, Runtime, UiNode, WindowSurface
+from platynui_native import Point, PointerButton, PointerOverridesLike, Rect, RectLike, Runtime, UiNode, WindowSurface
 from robot.api import logger
 from robot.api.deco import library
 from robot.libraries.BuiltIn import BuiltIn
@@ -178,6 +178,7 @@ class BareMetal(OurDynamicCore):
         button: PointerButton | int = PointerButton.LEFT,
         x: float | None = None,
         y: float | None = None,
+        overrides: PointerOverridesLike | None = None,
     ) -> None:
         """Click at absolute or element-relative screen coordinates.
 
@@ -199,7 +200,7 @@ class BareMetal(OurDynamicCore):
             | Pointer Click | | x=${100} | y=${200} |
         """
         point = self._resolve_screen_point(descriptor, x, y)
-        self.runtime.pointer_click(point, button)
+        self.runtime.pointer_click(point, button, overrides)
 
     @keyword
     def pointer_multi_click(
@@ -210,6 +211,7 @@ class BareMetal(OurDynamicCore):
         button: PointerButton | int = PointerButton.LEFT,
         x: float | None = None,
         y: float | None = None,
+        overrides: PointerOverridesLike | None = None,
     ) -> None:
         """Perform multiple clicks at absolute or element-relative screen coordinates.
 
@@ -233,7 +235,7 @@ class BareMetal(OurDynamicCore):
             | Pointer Multi Click | //control:Text[@Name="File"] | clicks=${3} |
         """
         point = self._resolve_screen_point(descriptor, x, y)
-        self.runtime.pointer_multi_click(point, clicks, button)
+        self.runtime.pointer_multi_click(point, clicks, button, overrides)
 
     @keyword
     def pointer_press(
@@ -243,6 +245,7 @@ class BareMetal(OurDynamicCore):
         button: PointerButton | int = PointerButton.LEFT,
         x: float | None = None,
         y: float | None = None,
+        overrides: PointerOverridesLike | None = None,
     ) -> None:
         """Press a mouse button at absolute or element-relative screen coordinates.
 
@@ -263,7 +266,7 @@ class BareMetal(OurDynamicCore):
             | Pointer Press | //control:Slider | x=${10} | y=${5} |
         """
         point = self._resolve_screen_point(descriptor, x, y)
-        self.runtime.pointer_press(point, button)
+        self.runtime.pointer_press(point, button, overrides)
 
     @keyword
     def pointer_release(
@@ -273,6 +276,7 @@ class BareMetal(OurDynamicCore):
         button: PointerButton | int = PointerButton.LEFT,
         x: float | None = None,
         y: float | None = None,
+        overrides: PointerOverridesLike | None = None,
     ) -> None:
         """Release a mouse button at current or specified coordinates.
 
@@ -294,7 +298,7 @@ class BareMetal(OurDynamicCore):
             | Pointer Release | //control:Canvas | x=${50} | y=${50} |
         """
         point = self._resolve_screen_point(descriptor, x, y)
-        self.runtime.pointer_release(point, button)
+        self.runtime.pointer_release(point, button, overrides)
 
     @keyword
     def pointer_move_to(
@@ -303,6 +307,7 @@ class BareMetal(OurDynamicCore):
         *,
         x: float | None = None,
         y: float | None = None,
+        overrides: PointerOverridesLike | None = None,
     ) -> None:
         """Move the pointer to absolute or element-relative screen coordinates.
 
@@ -326,7 +331,7 @@ class BareMetal(OurDynamicCore):
         if point is None:
             raise ValueError('Coordinates x and y must be specified either directly or via node')
 
-        self.runtime.pointer_move_to(point)
+        self.runtime.pointer_move_to(point, overrides)
 
     @keyword
     @assertable
@@ -439,8 +444,6 @@ class BareMetal(OurDynamicCore):
         pattern = node.pattern_by_id('WindowSurface')
         if isinstance(pattern, WindowSurface):
             pattern.activate()
-
-    # TODO: Add more keywords for other interactions and patterns as needed
 
     @keyword
     @assertable

@@ -161,6 +161,8 @@ ScrollDeltaLike = tuple[float, float]
 
 class _PointerOverridesDict(TypedDict, total=False):
     origin: OriginLike
+    motion: PointerMotionMode
+    steps_per_pixel: float
     speed_factor: float
     acceleration_profile: PointerAccelerationProfile
     max_move_duration_ms: float
@@ -171,6 +173,11 @@ class _PointerOverridesDict(TypedDict, total=False):
     after_click_delay_ms: float
     before_next_click_delay_ms: float
     multi_click_delay_ms: float
+    overshoot_ratio: float
+    overshoot_settle_steps: int
+    curve_amplitude: float
+    jitter_amplitude: float
+    ensure_move_position: bool
     ensure_move_threshold: float
     ensure_move_timeout_ms: float
     scroll_step: tuple[float, float]
@@ -348,18 +355,16 @@ class Runtime:
     def keyboard_settings(self) -> KeyboardSettings: ...
     def set_keyboard_settings(self, settings: KeyboardSettingsLike) -> None: ...
     def pointer_position(self) -> Point: ...
-    def pointer_move_to(self, point: PointLike, /, overrides: PointerOverridesLike | None = ...) -> Point: ...
+    def pointer_move_to(self, point: PointLike, overrides: PointerOverridesLike | None = ...) -> Point: ...
     def pointer_click(
         self,
         point: PointLike | None = ...,
-        /,
         button: ButtonLike | None = ...,
         overrides: PointerOverridesLike | None = ...,
     ) -> None: ...
     def pointer_multi_click(
         self,
         point: PointLike | None = ...,
-        /,
         clicks: int = 2,
         button: ButtonLike | None = ...,
         overrides: PointerOverridesLike | None = ...,
@@ -367,7 +372,6 @@ class Runtime:
     def pointer_drag(
         self,
         start: PointLike,
-        /,
         end: PointLike,
         button: ButtonLike | None = ...,
         overrides: PointerOverridesLike | None = ...,
@@ -397,6 +401,8 @@ class PointerOverrides:
         self,
         *,
         origin: OriginLike | None = ...,
+        motion: PointerMotionMode | None = ...,
+        steps_per_pixel: float | None = ...,
         speed_factor: float | None = ...,
         acceleration_profile: PointerAccelerationProfile | None = ...,
         max_move_duration_ms: float | None = ...,
@@ -407,6 +413,11 @@ class PointerOverrides:
         after_click_delay_ms: float | None = ...,
         before_next_click_delay_ms: float | None = ...,
         multi_click_delay_ms: float | None = ...,
+        overshoot_ratio: float | None = ...,
+        overshoot_settle_steps: int | None = ...,
+        curve_amplitude: float | None = ...,
+        jitter_amplitude: float | None = ...,
+        ensure_move_position: bool | None = ...,
         ensure_move_threshold: float | None = ...,
         ensure_move_timeout_ms: float | None = ...,
         scroll_step: tuple[float, float] | None = ...,
@@ -416,6 +427,10 @@ class PointerOverrides:
     def from_like(cls, value: PointerOverridesLike) -> PointerOverrides: ...
     @property
     def origin(self) -> Literal['desktop'] | Point | Rect | None: ...
+    @property
+    def motion(self) -> PointerMotionMode | None: ...
+    @property
+    def steps_per_pixel(self) -> float | None: ...
     @property
     def speed_factor(self) -> float | None: ...
     @property
@@ -436,6 +451,16 @@ class PointerOverrides:
     def before_next_click_delay_ms(self) -> float | None: ...
     @property
     def multi_click_delay_ms(self) -> float | None: ...
+    @property
+    def overshoot_ratio(self) -> float | None: ...
+    @property
+    def overshoot_settle_steps(self) -> int | None: ...
+    @property
+    def curve_amplitude(self) -> float | None: ...
+    @property
+    def jitter_amplitude(self) -> float | None: ...
+    @property
+    def ensure_move_position(self) -> bool | None: ...
     @property
     def ensure_move_threshold(self) -> float | None: ...
     @property
