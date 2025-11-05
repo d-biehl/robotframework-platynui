@@ -622,7 +622,8 @@ class BareMetal(OurDynamicCore):
         """
         if isinstance(descriptor, UiNodeDescriptor):
             rect = cast(Rect, descriptor().attribute('Bounds'))  # Ensure node is resolved
-            self.runtime.highlight(rect, duration)
+            # runtime.highlight expects milliseconds; convert seconds -> ms
+            self.runtime.highlight(rect, duration * 1000)
             return
 
         rects: list[Rect] = []
