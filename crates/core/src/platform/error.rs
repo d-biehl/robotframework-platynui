@@ -24,6 +24,9 @@ pub enum PlatformError {
 
     #[error("unsupported platform{context}")]
     UnsupportedPlatform { context: Context },
+
+    #[error("platform operation failed{context}")]
+    OperationFailed { context: Context },
 }
 
 impl PlatformError {
@@ -34,6 +37,7 @@ impl PlatformError {
             PlatformErrorKind::InitializationFailed => Self::InitializationFailed { context },
             PlatformErrorKind::CapabilityUnavailable => Self::CapabilityUnavailable { context },
             PlatformErrorKind::UnsupportedPlatform => Self::UnsupportedPlatform { context },
+            PlatformErrorKind::OperationFailed => Self::OperationFailed { context },
         }
     }
 
@@ -43,6 +47,7 @@ impl PlatformError {
             PlatformErrorKind::InitializationFailed => Self::InitializationFailed { context: Context(None) },
             PlatformErrorKind::CapabilityUnavailable => Self::CapabilityUnavailable { context: Context(None) },
             PlatformErrorKind::UnsupportedPlatform => Self::UnsupportedPlatform { context: Context(None) },
+            PlatformErrorKind::OperationFailed => Self::OperationFailed { context: Context(None) },
         }
     }
 }
@@ -52,4 +57,5 @@ pub enum PlatformErrorKind {
     InitializationFailed,
     CapabilityUnavailable,
     UnsupportedPlatform,
+    OperationFailed,
 }

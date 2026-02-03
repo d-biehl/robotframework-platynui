@@ -14,6 +14,10 @@ pub const PROVIDER_ID: &str = "atspi";
 pub const PROVIDER_NAME: &str = "AT-SPI2";
 pub static TECHNOLOGY: Lazy<TechnologyId> = Lazy::new(|| TechnologyId::from("AT-SPI2"));
 
+// Bus discovery and the actual AT-SPI integration will be added in Phase 2.
+// No feature gate is used because the functionality is part of the core Linux
+// path; the module will land once we introduce the required dependencies.
+
 pub struct AtspiFactory;
 
 impl UiTreeProviderFactory for AtspiFactory {

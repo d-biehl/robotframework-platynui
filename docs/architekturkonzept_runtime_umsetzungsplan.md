@@ -28,6 +28,15 @@
 - CLI erweitert um strukturierte Fenster-, Pointer- und Keyboard-Kommandos; `snapshot`-Export basiert auf Streaming-Writer.
 - Python-Integration deckt Highlight, Pointer, Keyboard und Fenstersteuerung ab und stellt Iterator-APIs bereit.
 
+### Status-Update (2025-11-05 – Dev 0.12.0)
+- Workspace-Version auf `0.12.0-dev` angehoben; laufende Arbeiten erfolgen in inkrementellen Dev‑Releases.
+- CLI `snapshot` ist vollständig verfügbar (Text/XML, Depth/Include/Exclude/Alias/Split) inkl. Doku und Tests; siehe auch `docs/cli_snapshot_spec.md`.
+- Fenstersteuerung: Runtime bietet `bring_to_front_and_wait(timeout)`; CLI `window --bring-to-front --wait-ms N` nutzt dies für „activate & input-ready“.
+- Python/Robot: BareMetal‑Library mit umfangreichen Keywords (Pointer/Keyboard/Window/Query/Screenshot) einsatzfähig; native Python‑Bindings (Iteratoren, Typen, Overrides) stabilisiert.
+- Inspector: TreeView Phasen 1–4 abgeschlossen (echte UiNode‑Quelle), Properties‑Sync in Arbeit; siehe `docs/ui/treeview_plan.md`.
+- CI-Pipeline (Linux/Windows/macOS) aktiv: Build + Tests (nextest), Format/Lint (rustfmt, clippy -D warnings, ruff, mypy), Wheel‑Builds (maturin/uv). Siehe `.github/workflows/ci.yml`.
+- Ergänzende Analyse/Leitfäden: `docs/xpath_streaming_analysis.md`, `docs/provider_windows_uia_design.md`.
+
 ### Ergänzung: UiNode `Id` (entwicklerseitige Kennung)
 - Neues, optionales Attribut `control:Id` als stabile, sprach‑ und inhaltsunabhängige Kennung eines Elements. Abzugrenzen von `RuntimeId` (nur laufzeitstabil).
 - Plattform‑Mapping (Ziel): Windows → `AutomationId`, Linux/AT‑SPI2 → `accessible_id` (falls vorhanden), macOS/AX → `AXIdentifier` (falls vorhanden). Leere oder fehlende Werte gelten als „nicht gesetzt“.
@@ -262,6 +271,10 @@ Aktualisierung (2025‑10‑21)
 - UIA‑Details: Best‑effort‑Realize für virtualisierte Items und eine leichte `UiNode::is_valid()`‑Liveness‑Prüfung sind aktiv.
 - Desktop‑Fallback: Bei fehlenden Desktop‑Providern liefert die Runtime einen generischen Fallback‑Desktop (Diagnosezwecke).
 
+Aktualisierung (2025‑11‑05)
+- Watch‑Filter bleiben offen (CLI `watch` unterstützt weiterhin `--expression`/`--limit`; Feingranularität für Event‑Typ/IDs ist Backlog).
+- Distribution & Packaging: Rust‑CLI wird als Python‑Wheel (`packages/cli`) gebaut; native Bindings `platynui_native` liefern `core`/`runtime` Submodule (maturin/uv). Details unten.
+
 Aktuelle Design-Notizen (2025‑09‑30)
 - Keine Actor‑Schicht, kein NodeStore: `UiaNode` wrappt direkt `IUIAutomationElement`.
 - Provider liefert Desktop‑Kinder über denselben Iterator; Root‑Geschwister werden derzeit nicht zusammengeführt (kann ergänzt werden).
@@ -362,7 +375,7 @@ Kurzfassung (EN)
 - [x] Doku: README‑Abschnitt/Beispiele verlinken; `docs/cli_snapshot_spec.md` vom Plan referenzieren.
 
 ### 24. Qualitätssicherung & Prozesse
-- [ ] CI-Pipeline: `cargo fmt --all`, `cargo clippy --all`, `cargo test --workspace`, `uv run ruff check .`, `uv run mypy src/PlatynUI packages/core/src` (sofern Python-Anteile relevant).
+- [x] CI-Pipeline: `cargo fmt --all`, `cargo clippy --workspace --all-targets -D warnings`, `cargo nextest run`, `uv run ruff check`, `uv run mypy`, Wheel‑Builds via maturin/uv (siehe `.github/workflows/ci.yml`).
 - [ ] Contract-Tests für Provider & Devices (pattern-spezifische Attribute, Desktop-Koordinaten, RuntimeId-Quellen).
 - [ ] Dokumentation pflegen: Architekturkonzept, Patterns, Provider-Checkliste, Legacy-Analyse; Hinweis auf lebende Dokumente beibehalten.
 - [ ] Release-/Versionierungsstrategie festlegen (SemVer pro Crate? Workspace-Version?).
@@ -409,4 +422,14 @@ Kurzfassung (EN)
 - Tests
   - [ ] Core‑Contracttests: `Id` darf fehlen/leer sein; wenn gesetzt, ist es `xs:string` und nicht sprachabhängig.
   - [ ] Provider‑Tests: Windows/UIA Smoke‑Test, der `AutomationId` → `Id` spiegelt (Mock/Fixture); AT‑SPI2/macOS optional, sobald verfügbar.
-  - [ ] CLI/Python: Beispiel‑Abfragen dokumentieren (`//*[@control:Id='login-button']`).
+- [ ] CLI/Python: Beispiel‑Abfragen dokumentieren (`//*[@control:Id='login-button']`).
+
+### 27. Distribution & Packaging
+- CLI als Python‑Wheel `platynui-cli` (maturin bindings = `bin`), baut das Rust‑CLI und liefert das Binary plattformabhängig aus (`packages/cli`).
+- Native Python‑Bindings `platynui_native` (PyO3/maturin) mit Submodulen `core` (Typen/IDs/Namensräume) und `runtime` (UiNode, Evaluate, Pointer/Keyboard/Highlight/Screenshot) unter `packages/native`.
+- Lokale Entwicklung: `uv sync --dev`, danach `uv run maturin develop -m packages/native/Cargo.toml --release` für das Native‑Modul und `cargo build --workspace` für Rust‑Crates.
+- Release‑Artefakte (Wheels) werden in CI für Linux/macOS/Windows gebaut und als Artefakte bereitgestellt.
+
+### 28. Robot BareMetal (interim)
+- Robot Framework‑Library `PlatynUI.BareMetal` mit Keywords für Query, Pointer, Keyboard, Window, Screenshot: `src/PlatynUI/BareMetal/__init__.py`.
+- Akzeptanztests starten unter `tests/BareMetal/`; weitere Suites folgen. Bis zur finalen Runner‑Integration bitte temporäre Schritte im PR vermerken.
