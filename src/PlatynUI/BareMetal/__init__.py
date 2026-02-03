@@ -610,26 +610,37 @@ class BareMetal(OurDynamicCore):
 
     @keyword
     def highlight(
-        self, descriptor: UiNodeDescriptor | str, *, root: UiNode | None = None, duration: float = 1.0
+        self,
+        descriptor: UiNodeDescriptor | list[UiNodeDescriptor] | None = None,
+        *,
+        rect: RectLike | list[RectLike] | None = None,
+        duration: float = 1.0,
     ) -> None:
         """Highlight a UI element for a specified duration.
 
         Args:
             descriptor: The UiNodeDescriptor representing the target node.
-            root: Optional UiNode to use as the evaluation root when `descriptor` is a selector string;
-                if provided, the query will be evaluated relative to this root.
+            rect: Optional Rect to highlight directly; if provided, `descriptor` is ignored.
             duration: Duration in seconds to highlight the element.
         """
+
+        if descriptor is None and rect is None:
+            raise ValueError('Either descriptor or rect must be provided for highlighting')
+
+        descriptor_list: list[UiNodeDescriptor] = []
         if isinstance(descriptor, UiNodeDescriptor):
-            rect = cast(Rect, descriptor().attribute('Bounds'))  # Ensure node is resolved
-            # runtime.highlight expects milliseconds; convert seconds -> ms
-            self.runtime.highlight(rect, duration * 1000)
-            return
+            descriptor_list = [descriptor]
+        elif isinstance(descriptor, list):
+            descriptor_list = descriptor
 
         rects: list[Rect] = []
-        for i in [descriptor] if isinstance(descriptor, UiNodeDescriptor) else self.query(descriptor, root):
-            if isinstance(i, UiNode):
-                rect = cast(Rect, i.attribute('Bounds'))
-                rects.append(rect)
+        if descriptor_list:
+            for d in descriptor_list:
+                r = cast(Rect, d().attribute('Bounds'))
+                rects.append(r)
 
-        self.runtime.highlight(rects, duration * 1000)  # duration in ms
+            self.runtime.highlight(rects, duration * 1000)
+            return
+
+        if rect is not None:
+            self.runtime.highlight(rect, duration * 1000)  # duration in ms
