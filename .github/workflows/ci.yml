@@ -42,8 +42,6 @@ jobs:
             libasound2-dev \
             pkg-config \
             libssl-dev \
-            xcb \
-            xcbcommon \
             qt6-base-dev \
             qt6-tools-dev \
             qmake6
@@ -131,8 +129,6 @@ jobs:
             libasound2-dev \
             pkg-config \
             libssl-dev \
-            xcb \
-            xcbcommon \
             qt6-base-dev \
             qt6-tools-dev \
             qmake6
