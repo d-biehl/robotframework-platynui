@@ -68,20 +68,17 @@ jobs:
         with:
           tool: nextest
 
-      - name: Sync Python environment (uv)
-        run: uv sync --dev --all-packages
+      - name: Rust format check
+        run: cargo fmt --all -- --check
+
+      - name: Rust clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Build (Rust)
         run: cargo build --all --all-targets
 
       - name: Test (Rust - nextest)
         run: cargo nextest run --workspace --no-fail-fast
-
-      - name: Rust format check
-        run: cargo fmt --all -- --check
-
-      - name: Rust clippy (deny warnings)
-        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: sync Python environment (uv)
         run: uv sync --dev --all-packages --all-groups
