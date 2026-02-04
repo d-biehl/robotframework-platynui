@@ -138,8 +138,6 @@ class BareMetal(OurDynamicCore):
         if descriptor is not None:
             target_node = descriptor()
 
-            self.runtime.bring_to_front(target_node)
-
             # No coordinates provided: auto-resolve from node
             if x is None and y is None:
                 activation_point = target_node.attribute('ActivationPoint')
@@ -446,6 +444,16 @@ class BareMetal(OurDynamicCore):
             pattern.activate()
 
     @keyword
+    def bring_to_front(self, descriptor: UiNodeDescriptor) -> None:
+        """Bring the specified UiNode to the front.
+
+        Args:
+            descriptor: The UiNodeDescriptor representing the target node.
+        """
+        node = descriptor()
+        self.runtime.bring_to_front(node)
+
+    @keyword
     @assertable
     def get_attribute(self, descriptor: UiNodeDescriptor, attribute_name: str) -> Any:
         """Get an attribute value from the specified UiNode.
@@ -488,7 +496,6 @@ class BareMetal(OurDynamicCore):
         """
         if descriptor is not None:
             target_node = descriptor()
-            self.runtime.bring_to_front(target_node)
             self.runtime.focus(target_node)
         self.runtime.keyboard_type(text)
 
@@ -504,7 +511,7 @@ class BareMetal(OurDynamicCore):
         hold modifiers or keys; pair with ``Keyboard Release`` to complete the action.
 
         Args:
-            descriptor: Optional element to bring to front and focus before pressing.
+            descriptor: Optional element to focus before pressing.
             text: Sequence of keys, e.g. ``<Ctrl+Alt+T>`` or ``<Shift>``.
 
         Examples:
@@ -514,7 +521,6 @@ class BareMetal(OurDynamicCore):
         """
         if descriptor is not None:
             target_node = descriptor()
-            self.runtime.bring_to_front(target_node)
             self.runtime.focus(target_node)
         self.runtime.keyboard_press(text)
 
@@ -530,7 +536,7 @@ class BareMetal(OurDynamicCore):
         press→release cycle for characters or shortcuts, prefer ``Keyboard Type``.
 
         Args:
-            descriptor: Optional element to bring to front and focus before releasing.
+            descriptor: Optional element to focus before releasing.
             text: Sequence of keys to release, e.g. ``<Ctrl+Alt+T>`` or ``<Ctrl>``.
 
         Examples:
@@ -540,7 +546,6 @@ class BareMetal(OurDynamicCore):
         """
         if descriptor is not None:
             target_node = descriptor()
-            self.runtime.bring_to_front(target_node)
             self.runtime.focus(target_node)
         self.runtime.keyboard_release(text)
 
@@ -564,7 +569,6 @@ class BareMetal(OurDynamicCore):
         """
         if descriptor is not None:
             node = descriptor()
-            self.runtime.bring_to_front(node)
             node_rect = cast(Rect, node.attribute('Bounds'))
             if rect is not None:
                 rect = Rect.from_like(rect)

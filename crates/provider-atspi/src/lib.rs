@@ -1,22 +1,31 @@
-//! AT-SPI2 UiTree provider for Unix desktops (stub).
+//! AT-SPI2 UiTree provider for Unix desktops.
 //!
-//! This crate currently exposes a minimal provider factory so tests and
-//! consumers can construct a `Runtime` with an AT-SPI2 provider via
-//! `Runtime::new_with_factories(&[&ATSPI_FACTORY])`. The actual D-Bus backed
-//! implementation will be added incrementally.
+//! Provides a blocking D-Bus integration to query the accessibility tree on
+//! Linux/X11 systems. Event streaming and full WindowSurface integration will
+//! follow in later phases.
 
-use once_cell::sync::Lazy;
-use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
+mod connection;
+mod node;
+
+use crate::connection::connect_a11y_bus;
+use crate::node::AtspiNode;
+use atspi_connection::AccessibilityConnection;
+use atspi_proxies::accessible::AccessibleProxy;
+use futures_lite::future::block_on;
+use once_cell::sync::{Lazy, OnceCell};
+use platynui_core::provider::{
+    ProviderDescriptor, ProviderError, ProviderErrorKind, ProviderKind, UiTreeProvider, UiTreeProviderFactory,
+};
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::sync::Arc;
+use zbus::proxy::CacheProperties;
 
 pub const PROVIDER_ID: &str = "atspi";
 pub const PROVIDER_NAME: &str = "AT-SPI2";
 pub static TECHNOLOGY: Lazy<TechnologyId> = Lazy::new(|| TechnologyId::from("AT-SPI2"));
 
-// Bus discovery and the actual AT-SPI integration will be added in Phase 2.
-// No feature gate is used because the functionality is part of the core Linux
-// path; the module will land once we introduce the required dependencies.
+const REGISTRY_BUS: &str = "org.a11y.atspi.Registry";
+const ROOT_PATH: &str = "/org/a11y/atspi/accessible/root";
 
 pub struct AtspiFactory;
 
@@ -33,8 +42,9 @@ impl UiTreeProviderFactory for AtspiFactory {
     }
 }
 
-struct AtspiProvider {
+pub struct AtspiProvider {
     descriptor: &'static ProviderDescriptor,
+    conn: OnceCell<Arc<AccessibilityConnection>>,
 }
 
 impl AtspiProvider {
@@ -42,7 +52,14 @@ impl AtspiProvider {
         static DESCRIPTOR: Lazy<ProviderDescriptor> = Lazy::new(|| {
             ProviderDescriptor::new(PROVIDER_ID, PROVIDER_NAME, TechnologyId::from("AT-SPI2"), ProviderKind::Native)
         });
-        Self { descriptor: &DESCRIPTOR }
+        Self { descriptor: &DESCRIPTOR, conn: OnceCell::new() }
+    }
+
+    fn connection(&self) -> Result<Arc<AccessibilityConnection>, ProviderError> {
+        self.conn
+            .get_or_try_init(|| connect_a11y_bus().map(Arc::new))
+            .map(Arc::clone)
+            .map_err(|err| ProviderError::new(ProviderErrorKind::TreeUnavailable, err.to_string()))
     }
 }
 
@@ -50,15 +67,44 @@ impl UiTreeProvider for AtspiProvider {
     fn descriptor(&self) -> &ProviderDescriptor {
         self.descriptor
     }
+
     fn get_nodes(
         &self,
-        _parent: Arc<dyn UiNode>,
+        parent: Arc<dyn UiNode>,
     ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
-        Ok(Box::new(std::iter::empty()))
+        let conn = self.connection()?;
+        let proxy = block_on(
+            AccessibleProxy::builder(conn.connection())
+                .cache_properties(CacheProperties::No)
+                .destination(REGISTRY_BUS)
+                .map_err(|err| {
+                    ProviderError::new(ProviderErrorKind::CommunicationFailure, format!("registry destination: {err}"))
+                })?
+                .path(ROOT_PATH)
+                .map_err(|err| {
+                    ProviderError::new(ProviderErrorKind::CommunicationFailure, format!("registry path: {err}"))
+                })?
+                .build(),
+        )
+        .map_err(|err| ProviderError::new(ProviderErrorKind::CommunicationFailure, format!("registry proxy: {err}")))?;
+
+        let children = block_on(proxy.get_children()).map_err(|err| {
+            ProviderError::new(ProviderErrorKind::CommunicationFailure, format!("registry children: {err}"))
+        })?;
+
+        let parent = Arc::clone(&parent);
+        let conn = conn.clone();
+        Ok(Box::new(children.into_iter().filter_map(move |child| {
+            if AtspiNode::is_null_object(&child) {
+                return None;
+            }
+            let node = AtspiNode::new(conn.clone(), child, Some(&parent));
+            Some(node as Arc<dyn UiNode>)
+        })))
     }
 }
 
 pub static ATSPI_FACTORY: AtspiFactory = AtspiFactory;
 
-// Auto-register the AT-SPI provider when linked
+// Auto-register the AT-SPI provider when linked.
 platynui_core::register_provider!(&ATSPI_FACTORY);

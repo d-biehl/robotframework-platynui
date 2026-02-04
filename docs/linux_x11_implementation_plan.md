@@ -3,6 +3,8 @@
 English summary: This plan scopes and phases the Linux/X11 enablement for PlatynUI. We split work into platform devices (pointer, keyboard, screenshot, highlight, desktop info via XRandR) and the AT‑SPI2 UiTree provider. The first milestone targets a fully usable CLI path (query/snapshot/highlight/screenshot/input) on common X11 desktops; window actions follow via EWMH once Atspi → XID mapping is in place. CI builds compile on Linux; runtime/integration tests remain limited to mocks or opt‑in jobs.
 
 Status: Draft (2025‑11‑05)
+Update (2026‑02‑03): Phase‑1 Geräte (DesktopInfo/Pointer/Screenshot/Highlight) implementiert; Keyboard + `PlatformModule::initialize()` offen; AT‑SPI Provider weiterhin Stub; CLI `query`/`snapshot` warten auf Phase 2.
+Update (2026‑02‑04): AT‑SPI Provider‑Grundgerüst umgesetzt (atspi‑connection, Rollen‑/Namespace‑Mapping inkl. `app`, Component‑gated Standard‑Attribute, Streaming‑Attribute, umfangreiche Native‑Interface‑Attribute). Events/WindowSurface/Tests bleiben offen.
 
 Owner: Runtime/Providers Team
 
@@ -25,7 +27,7 @@ Nicht‑Ziele (für den ersten Wurf)
 ## Architektur & Abhängigkeiten
 
 - Plattform‑Crate `platynui-platform-linux-x11` (X11/XTest/XRandR):
-  - Pointer: XTest (`FakeMotion/ButtonEvent`), QueryPointer, WarpPointer
+  - Pointer: XTest (`FakeMotion/ButtonEvent`), QueryPointer
   - Keyboard: XTest (`FakeKeyEvent`), KeyName/Unicode‑Auflösung mit `xkbcommon-rs` (Safe‑Rust‑Port, keine System‑lib)
   - Screenshot: XGetImage (später optional XShm), RGBA/BGRA Konvertierung
   - Highlight: Override‑Redirect Overlay aus Segment‑Fenstern (solid rot, gestrichelte Kanten bei Clipping)
@@ -33,11 +35,13 @@ Nicht‑Ziele (für den ersten Wurf)
   - Initialisierung: `PlatformModule::initialize()` (XInitThreads, Display öffnen), Fehler zu `PlatformError`
 
 - Provider‑Crate `platynui-provider-atspi` (AT‑SPI2 über D‑Bus):
-  - Abhängigkeit: `atspi` (Rust‑Crate) bzw. `zbus`+Bindings
-  - Knotenmodell: `AtspiNode` mit lazy `children()`/`attributes()`
-  - Attribute: `Role`, `Name`, `RuntimeId`, `Bounds` (Koordinaten im Screen‑Space), `IsEnabled`, `IsVisible`, `Technology="AT-SPI2"`
-  - Namespace‑Mapping: `control`/`item` basierend auf AT‑SPI `Role`
-  - Pattern: `Focusable` via AT‑SPI Action (`grab_focus`/`focus`/`activate` – je nach Rolle)
+  - Abhängigkeiten: `atspi-connection`, `atspi-common`, `atspi-proxies` (zbus nur für Address‑Parsing)
+  - Knotenmodell: `AtspiNode` mit lazy `children()` und Streaming‑`attributes()`
+  - Attribute (Standard): `Role`, `Name`, `RuntimeId`, `Technology="AT-SPI2"`, optional `Id` (via `accessible_id`/`GetAttributes`‑Fallback)
+  - Component‑gated Attribute: `Bounds`, `ActivationPoint`, `IsEnabled`, `IsVisible`, `IsOffscreen`, `IsFocused`, `SupportedPatterns`
+  - Namespace‑Mapping: `control`/`item` über AT‑SPI `Role`; `app:Application` wenn `Application`‑Interface vorhanden
+  - Pattern: `Focusable` via `Component::grab_focus` + State‑Flags
+  - Native‑Attribute: `Native/<Interface>.<Property>` (z. B. `Accessible.Name`, `Component.Extents`, `Text.CharacterCount`); `GetAttributes` → `Native/Accessible.Attributes` + `Native/Accessible.Attribute.<key>`
   - (Später) `WindowSurface`: via EWMH (_NET_ACTIVE_WINDOW, _NET_WM_STATE, _NET_MOVERESIZE_WINDOW) nachdem XID‑Mapping steht
   - Events: Basisweiterleitung (`NodeAdded/Removed/Updated`, `TreeInvalidated`) an Runtime‑Dispatcher
 
@@ -49,20 +53,19 @@ Nicht‑Ziele (für den ersten Wurf)
 - [x] Crate‑Abhängigkeiten evaluieren/festlegen
   - `x11rb` für X11‑Protokoll (inkl. XKB/XTst/RandR)
   - `xkbcommon-rs` für Keymap/Keysym/Modifier‑Auflösung (reiner Rust‑Port von libxkbcommon)
-  - `atspi` (typisierte AT‑SPI2‑Proxies) und `zbus` (Blocking) für Bus‑Discovery/Low‑Level‑Calls
+  - `atspi-connection`/`atspi-proxies` (typisierte AT‑SPI2‑Proxies) und `zbus` (Address‑Parsing) für Bus‑Discovery/Calls
 - [x] Feature‑Flags skizzieren (nur dokumentiert; werden mit Implementierungen eingeführt)
   - `xshm` (Screenshot Fast‑Path), `debug-log`, `events`
 - [x] Sicherheits-/Sandboxhinweise dokumentieren (XTest benötigt Zugriff auf lokalen X‑Server)
 - [x] PlatformModule Skeleton registriert (Initialize = No‑Op, keine Nebenwirkungen)
 - [x] Plan in README verlinkt
 
-### AT‑SPI Bus Discovery & Session Handling (zbus)
+### AT‑SPI Bus Discovery & Session Handling (atspi-connection)
 
 - Ziel: Stabile, synchrone Verbindung zum Accessibility‑Bus (A11y‑Bus) herstellen.
 - Discovery‑Reihenfolge:
   1) `AT_SPI_BUS_ADDRESS` prüfen und verwenden, falls gesetzt.
-  2) Falls nicht gesetzt: Auf dem Session‑Bus `org.a11y.Bus` unter `/org/a11y/bus`, Interface `org.a11y.Bus`, Methode `GetAddress` aufrufen → A11y‑Bus‑Adresse erhalten.
-  3) Neue (blocking) zbus‑Verbindung zur A11y‑Bus‑Adresse öffnen und für atspi‑Proxies verwenden.
+  2) Falls nicht gesetzt: `AccessibilityConnection::new()` nutzt intern `org.a11y.Bus/GetAddress`.
 - Betrieb:
   - Blocking‑API in eigenem Thread für Event‑Streams; Weiterleitung an Runtime‑Dispatcher.
   - Reconnect‑Backoff bei Verbindungsabbruch.
@@ -74,7 +77,7 @@ Nicht‑Ziele (für den ersten Wurf)
   - Monitore inklusive Primary und Bounds (ScaleFactor default 1.0)
 - [x] `PointerDevice`
   - `position()` via `QueryPointer`
-  - `move_to()` via WarpPointer
+  - `move_to()` via XTest `FakeMotion`
   - `press/release()` via XTest Buttons (1,2,3,8,9), Scroll via Buttons (4/5 vertikal, 6/7 horizontal)
   - `double_click_time/size()` Defaults (z. B. 400 ms, 4×4 px) – später konfigurierbar
 - [ ] `KeyboardDevice`
@@ -88,20 +91,21 @@ Nicht‑Ziele (für den ersten Wurf)
   - Registrierung via `inventory` (keine echte Server‑Verbindung)
   - Konvertierungsfunktionen (Keynames/Buttons)
 
-Akzeptanz: `platynui-cli info/query/pointer/keyboard/screenshot/highlight` laufen auf X11‑Desktopen ohne Provider.
+Akzeptanz: `platynui-cli info/pointer/screenshot/highlight` laufen auf X11‑Desktopen ohne Provider; `keyboard` folgt nach Phase 1, `query`/`snapshot` nach Phase 2.
 
 ### Phase 2 – AT‑SPI2 Provider (Baum & Attribute)
-- [ ] Grundgerüst
-  - Bus‑Discovery: `AT_SPI_BUS_ADDRESS` Umgebungsvariable prüfen, sonst Session‑Bus → `org.a11y.Bus` (`/org/a11y/bus`, Interface `org.a11y.Bus`, Methode `GetAddress`) → Adresse beziehen → separate A11y‑Bus‑Connection öffnen (zbus blocking)
-  - Verbindung zum A11y‑Bus, Registry, Desktops/Applications/Windows ermitteln
-  - `AtspiNode` mit lazy `children()`/`attributes()`/`parent()`
-- [ ] Rollen‑Mapping
-  - AT‑SPI `Role` → `control:`/`item:` Rollen (PascalCase); `native:Role` roh abbilden
-- [ ] Attribute
-  - `Name`, `Role`, `RuntimeId` (stabile URI), `Bounds` (Screen‑Koordinaten), `IsEnabled`, `IsVisible`, `Technology`
-  - Optional `control:Id` falls `accessible_id` verfügbar
-- [ ] Pattern `Focusable`
-  - Fokus setzen via AT‑SPI (`grab_focus`/`focus`/`activate` je nach Interface)
+- [x] Grundgerüst
+  - Bus‑Discovery via `atspi-connection` (`AT_SPI_BUS_ADDRESS` oder `org.a11y.Bus/GetAddress`)
+  - Verbindung zum A11y‑Bus, Registry‑Root ermitteln
+  - `AtspiNode` mit lazy `children()`/Streaming‑`attributes()`/`parent()`
+- [x] Rollen‑Mapping
+  - AT‑SPI `Role` → `control:`/`item:` Rollen (PascalCase); `Application`‑Interface → `app:Application`
+- [x] Attribute
+  - Standard: `Name`, `Role`, `RuntimeId`, `Technology`, optional `control:Id`
+  - Component‑gated: `Bounds`, `ActivationPoint`, `IsEnabled`, `IsVisible`, `IsOffscreen`, `IsFocused`, `SupportedPatterns`
+  - Native‑Interface‑Attribute (`Accessible.*`, `Component.*`, `Text.*`, `Table.*`, …)
+- [x] Pattern `Focusable`
+  - Fokus setzen via `Component::grab_focus` (State‑Flags als Gate)
 - [ ] Events
   - Subscribe: Struktur/Property‑Events → `ProviderEventDispatcher`
 - [ ] Smoke‑Tests (so weit möglich ohne echten Desktop):
@@ -132,7 +136,7 @@ Akzeptanz: Fensteraktionen funktionieren in gängigen X11 WMs (KDE, Xfce, Openbo
 - Weiterhin: Mock‑Provider für deterministische Runtime/CLI‑Tests; Linux‑Spezifika separat halten.
 
 ### Ergebnis Phase 0
-- Architektur/Abhängigkeiten festgelegt und dokumentiert (x11rb, xkbcommon‑rs, atspi+zbus).
+- Architektur/Abhängigkeiten festgelegt und dokumentiert (x11rb, xkbcommon‑rs, atspi-connection/atspi-proxies + zbus).
 - Linux‑Plattformmodul als No‑Op registriert; Skeleton‑Module für Geräte angelegt (ohne Registrierung/Deps).
 - Bus‑Discovery als Kern‑Pfad dokumentiert (ohne Feature‑Gate; Implementierung folgt in Phase 2).
 - Keine neuen Abhängigkeiten hinzugefügt; bestehende Builds bleiben unverändert.

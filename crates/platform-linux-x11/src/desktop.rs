@@ -93,34 +93,37 @@ fn monitors_via_randr<C: x11rb::connection::Connection>(conn: &C, root: u32) -> 
     // Try RANDR 1.5 get_monitors first
     if let Ok(ver_cookie) = conn.randr_query_version(1, 5)
         && ver_cookie.reply().is_ok()
-            && let Ok(mon_cookie) = conn.randr_get_monitors(root, true)
-                && let Ok(reply) = mon_cookie.reply() {
-                    let mut out = Vec::new();
-                    for m in reply.monitors {
-                        let id = format!("{}x{}@{},{}", m.width, m.height, m.x, m.y);
-                        let bounds = Rect::new(m.x.into(), m.y.into(), m.width.into(), m.height.into());
-                        out.push(MonitorInfo { id, name: None, bounds, is_primary: m.primary, scale_factor: None });
-                    }
-                    return Ok(out);
-                }
+        && let Ok(mon_cookie) = conn.randr_get_monitors(root, true)
+        && let Ok(reply) = mon_cookie.reply()
+    {
+        let mut out = Vec::new();
+        for m in reply.monitors {
+            let id = format!("{}x{}@{},{}", m.width, m.height, m.x, m.y);
+            let bounds = Rect::new(m.x.into(), m.y.into(), m.width.into(), m.height.into());
+            out.push(MonitorInfo { id, name: None, bounds, is_primary: m.primary, scale_factor: None });
+        }
+        return Ok(out);
+    }
 
     // Fallback: RANDR <=1.4 via screen resources / crtcs
     if let Ok(res_cookie) = conn.randr_get_screen_resources_current(root)
-        && let Ok(res) = res_cookie.reply() {
-            let mut out = Vec::new();
-            for crtc in res.crtcs {
-                if let Ok(info_cookie) = conn.randr_get_crtc_info(crtc, 0)
-                    && let Ok(info) = info_cookie.reply() {
-                        if info.width == 0 || info.height == 0 {
-                            continue;
-                        }
-                        let bounds = Rect::new(info.x.into(), info.y.into(), info.width.into(), info.height.into());
-                        let id = format!("CRTC-{}:{}x{}@{},{}", crtc, info.width, info.height, info.x, info.y);
-                        out.push(MonitorInfo { id, name: None, bounds, is_primary: false, scale_factor: None });
-                    }
+        && let Ok(res) = res_cookie.reply()
+    {
+        let mut out = Vec::new();
+        for crtc in res.crtcs {
+            if let Ok(info_cookie) = conn.randr_get_crtc_info(crtc, 0)
+                && let Ok(info) = info_cookie.reply()
+            {
+                if info.width == 0 || info.height == 0 {
+                    continue;
+                }
+                let bounds = Rect::new(info.x.into(), info.y.into(), info.width.into(), info.height.into());
+                let id = format!("CRTC-{}:{}x{}@{},{}", crtc, info.width, info.height, info.x, info.y);
+                out.push(MonitorInfo { id, name: None, bounds, is_primary: false, scale_factor: None });
             }
-            return Ok(out);
         }
+        return Ok(out);
+    }
 
     Err("RANDR unavailable".into())
 }

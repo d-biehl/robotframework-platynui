@@ -136,27 +136,27 @@ impl OverlayThread {
 
                         if idx >= segments.len()
                             && let Ok(win) = conn.generate_id()
-                                && conn
-                                    .create_window(
-                                        screen.root_depth,
-                                        win,
-                                        root,
-                                        rect.x,
-                                        rect.y,
-                                        rect.width,
-                                        rect.height,
-                                        0,
-                                        x::WindowClass::INPUT_OUTPUT,
-                                        screen.root_visual,
-                                        &x::CreateWindowAux::new()
-                                            .background_pixel(red_pixel)
-                                            .border_pixel(0)
-                                            .override_redirect(1),
-                                    )
-                                    .is_ok()
-                                {
-                                    segments.push(win);
-                                }
+                            && conn
+                                .create_window(
+                                    screen.root_depth,
+                                    win,
+                                    root,
+                                    rect.x,
+                                    rect.y,
+                                    rect.width,
+                                    rect.height,
+                                    0,
+                                    x::WindowClass::INPUT_OUTPUT,
+                                    screen.root_visual,
+                                    &x::CreateWindowAux::new()
+                                        .background_pixel(red_pixel)
+                                        .border_pixel(0)
+                                        .override_redirect(1),
+                                )
+                                .is_ok()
+                        {
+                            segments.push(win);
+                        }
 
                         if let Some(&win) = segments.get(idx) {
                             let _ = conn.change_window_attributes(
@@ -195,13 +195,14 @@ impl OverlayThread {
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     if let Some(t) = deadline
-                        && Instant::now() >= t {
-                            for w in &segments {
-                                let _ = conn.unmap_window(*w);
-                            }
-                            let _ = conn.flush();
-                            deadline = None;
+                        && Instant::now() >= t
+                    {
+                        for w in &segments {
+                            let _ = conn.unmap_window(*w);
                         }
+                        let _ = conn.flush();
+                        deadline = None;
+                    }
                     // no messages; continue pumping
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,

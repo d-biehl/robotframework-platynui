@@ -20,12 +20,8 @@ impl ScreenshotProvider for LinuxScreenshot {
             (0, 0, geom.width, geom.height)
         };
 
-        let reply = guard
-            .conn
-            .get_image(ImageFormat::Z_PIXMAP, root, x, y, w, h, !0)
-            .map_err(to_pf)?
-            .reply()
-            .map_err(to_pf)?;
+        let reply =
+            guard.conn.get_image(ImageFormat::Z_PIXMAP, root, x, y, w, h, !0).map_err(to_pf)?.reply().map_err(to_pf)?;
 
         // Heuristic: Use BGRA8 (many X11 servers deliver BGRX/BGRA in ZPixmap 32bpp)
         let depth = reply.depth;

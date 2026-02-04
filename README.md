@@ -76,6 +76,7 @@ Expect differences to the original project’s API and keywords during the previ
 - Pattern Catalogue (German): `docs/patterns.md`
 - Provider Checklist (draft): `docs/provider_checklist.md`
 - Windows UIA Provider – Design: `docs/provider_windows_uia_design.md`
+- Linux/X11 implementation plan: `docs/linux_x11_implementation_plan.md`
 
 ## Contributing
 

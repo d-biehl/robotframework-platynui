@@ -1,5 +1,7 @@
 # Umsetzungsplan PlatynUI Runtime
 
+English summary: Implementation plan for the PlatynUI runtime with status checklists per area.
+
 > Lebendes Dokument: Wir pflegen diesen Plan fortlaufend und passen ihn bei neuen Erkenntnissen oder Prioritäten an.
 
 ## Ausgangspunkt & Zielbild
@@ -342,10 +344,20 @@ Kurzfassung (EN)
 - [x] Tests: Mock‑Abdeckung für Listing und Aktionssequenzen inkl. Fehlerpfade; E2E‑Tests auf echtem Windows bleiben optionaler Ausbau.
 
 ### 21. Plattform Linux/X11 – Devices & UiTree
-- [ ] `platynui-platform-linux-x11`: Pointer/Keyboard via XTest oder äquivalente APIs, Screenshot (XShm), Highlight (XComposite), Fenstersteuerung über EWMH/NetWM.
+- `platynui-platform-linux-x11`:
+  - [x] DesktopInfoProvider (XRandR, Root-Fallback).
+  - [x] Pointer via XTest (move/press/release/scroll).
+  - [ ] Keyboard via xkbcommon-rs + XTest Injection.
+  - [x] Screenshot via XGetImage (XShm optional).
+  - [x] Highlight via override-redirect Segment-Fenster (kein XComposite-Pfad).
+  - [ ] Fenstersteuerung über EWMH/NetWM.
+  - [ ] `PlatformModule::initialize()` (XInitThreads, Extension-Checks).
 - [ ] Fokus-Helper für AT-SPI2 + plattformspezifische Fallbacks.
 - [ ] Tests: Desktop-Bounds, ActivationPoint, Sichtbarkeits- und Enable-Flags unter X11.
-- [ ] `platynui-provider-atspi`: D-Bus-Integration, Baumaufbau (Application → Window → Control/Item), RuntimeId aus Objektpfad, Fokus-/Sichtbarkeitsflags.
+- [x] `platynui-provider-atspi`: D-Bus-Integration und Registry-Root, RuntimeId aus Objektpfad, Rollen-/Namespace-Mapping (inkl. `app:Application`), Streaming-Attribute.
+- [x] `platynui-provider-atspi`: Component-gated Standard-Attribute (`Bounds`, `ActivationPoint`, `IsEnabled`, `IsVisible`, `IsOffscreen`, `IsFocused`) und `Focusable` Pattern.
+- [x] `platynui-provider-atspi`: Native Interface-Attribute (`Native/<Interface>.<Property>` inkl. `Accessible.GetAttributes` Mapping).
+- [ ] `platynui-provider-atspi`: Baumstruktur verifizieren (Application → Window → Control/Item) und Window-Relationen dokumentieren.
 - [ ] Ergänzende Tests (AT-SPI2) auf Basis des Windows-Testsets inkl. Namespaces `item`/`control`.
 - [ ] Vorausplanen für Wayland: Vermittlungscrate `platynui-platform-linux` entwerfen, das zur Laufzeit anhand der Session-Umgebung (`$XDG_SESSION_TYPE`, heuristische Fallbacks) zwischen `platynui-platform-linux-x11` und `platynui-platform-linux-wayland` vermittelt, sobald letztere Implementierung verfügbar ist.
 
@@ -411,7 +423,7 @@ Kurzfassung (EN)
   - [x] UiNode‑Trait um `fn id(&self) -> Option<String>` erweitert (Default `None`).
   - [x] Dokumentation: Architektur/Patterns/Checkliste um Semantik und Beispiele erweitert (XPath‑Nutzung, Stabilität, Abgrenzung zu `RuntimeId`) – siehe `docs/architekturkonzept_runtime.md`, `docs/patterns.md`, `docs/provider_checklist.md`.
 - Runtime/XPath
-  - [ ] Keine Alias‑Ableitungen nötig (reiner String). Sicherstellen, dass `@control:Id` als `xs:string` atomisiert wird.
+  - [x] Keine Alias‑Ableitungen nötig (reiner String). Sicherstellen, dass `@control:Id` als `xs:string` atomisiert wird. (Verifiziert 2026-02-03: `UiValue::String` → `XdmAtomicValue::String` in `crates/runtime/src/xpath.rs`.)
 - Provider
   - [x] Windows/UIA: `AutomationId` → `control:Id` übernommen (leere Strings = „nicht gesetzt“). `UiNode::id()` nutzt `CurrentAutomationId()`.
   - [x] Windows/ApplicationNode: `id()` liefert Prozessname (Executable‑Stem); `@control:Id` wird nur erzeugt, wenn gesetzt.
