@@ -16,7 +16,7 @@ rust-version.workspace = true
 pest = "2.8"
 pest_derive = "2.8"
 unicode-normalization = "0.1"
-fancy-regex = "0.16"
+fancy-regex = "0.17"
 chrono = { version = "0.4", default-features = false, features = [
     "clock",
     "std",

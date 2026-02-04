@@ -19,7 +19,7 @@ mock-provider = [
 ]
 
 [dependencies]
-pyo3 = { version = "0.27", features = ["extension-module", "abi3-py310"] }
+pyo3 = { version = "0.28", features = ["extension-module", "abi3-py310"] }
 once_cell = "1.21"
 png = "0.18"
 

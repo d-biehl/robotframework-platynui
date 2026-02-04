@@ -19,4 +19,4 @@ once_cell = "1.21"
 
 [dev-dependencies]
 rstest = "0.26"
-serial_test = "3.2"
+serial_test = "3.3"

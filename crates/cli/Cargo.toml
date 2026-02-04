@@ -27,7 +27,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 owo-colors = { version = "4.2", features = ["supports-colors"] }
 png = "0.18"
-quick-xml = { version = "0.38", features = ["serialize"] }
+quick-xml = { version = "0.39", features = ["serialize"] }
 
 platynui-runtime = { path = "../runtime", default-features = false }
 platynui-core = { path = "../core" }
@@ -51,8 +51,8 @@ platynui-provider-macos-ax = { path = "../provider-macos-ax" }
 
 [dev-dependencies]
 rstest = "0.26"
-tempfile = "3.23"
-serial_test = "3.2"
+tempfile = "3.24"
+serial_test = "3.3"
 platynui-provider-mock = { path = "../provider-mock" }
 platynui-platform-mock = { path = "../platform-mock" }
 
