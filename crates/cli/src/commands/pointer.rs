@@ -303,23 +303,13 @@ fn run_press(runtime: &Runtime, args: &PointerPressArgs) -> CliResult<String> {
 
 fn run_release(runtime: &Runtime, args: &PointerReleaseArgs) -> CliResult<String> {
     let overrides = build_overrides(&args.overrides)?;
-    let target = if !args.no_move {
-        if let Some(expr) = &args.expression {
-            let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
-            let _ = node; // info rendered below
-            Some(point)
-        } else {
-            None
-        }
+    let (target, element_info) = if args.no_move {
+        (None, None)
+    } else if let Some(expr) = &args.expression {
+        let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+        (Some(point), Some(format_element_info(&node)))
     } else {
-        None
-    };
-    let element_info = if target.is_some() && args.expression.is_some() {
-        // We resolved node earlier, recompute for label
-        let (_, node) = resolve_point_and_node_from_expr(runtime, args.expression.as_ref().unwrap())?;
-        Some(format_element_info(&node))
-    } else {
-        None
+        (None, None)
     };
     runtime.pointer_release(target, Some(args.button), overrides).map_err(map_pointer_error)?;
     if let Some(info) = element_info {
