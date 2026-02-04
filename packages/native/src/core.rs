@@ -15,7 +15,7 @@ use std::hash::{Hash, Hasher};
 /// Create it with numeric ``x`` and ``y`` values or any point-like object. Supports
 /// tuple semantics (length, indexing) and helpers such as :py:meth:`translate`,
 /// :py:meth:`with_x`, and :py:meth:`with_y`.
-#[pyclass(name = "Point", module = "platynui_native")]
+#[pyclass(name = "Point", module = "platynui_native", from_py_object)]
 #[derive(Clone)]
 pub struct PyPoint {
     inner: core_rs::types::Point,
@@ -124,7 +124,7 @@ impl From<core_rs::types::Point> for PyPoint {
 /// Create it with numeric ``width`` and ``height`` or any size-like object.
 /// Supports tuple semantics (length, indexing) and helpers such as
 /// :py:meth:`area`, :py:meth:`is_empty`, and arithmetic operators.
-#[pyclass(name = "Size", module = "platynui_native")]
+#[pyclass(name = "Size", module = "platynui_native", from_py_object)]
 #[derive(Clone)]
 pub struct PySize {
     inner: core_rs::types::Size,
@@ -243,7 +243,7 @@ impl PySize {
 /// Construct it with ``x``, ``y``, ``width``, ``height`` values or any rect-like
 /// object. Supports tuple semantics and helpers such as :py:meth:`contains`,
 /// :py:meth:`intersection`, :py:meth:`union`, and translation/resize methods.
-#[pyclass(name = "Rect", module = "platynui_native")]
+#[pyclass(name = "Rect", module = "platynui_native", from_py_object)]
 #[derive(Clone)]
 pub struct PyRect {
     inner: core_rs::types::Rect,
@@ -418,7 +418,7 @@ macro_rules! define_id {
                                                         "\n\n",
                                                         "Behaves like an immutable string returned from runtime APIs.",
                                                                                                 )]
-        #[pyclass(module = "platynui_native", frozen)]
+        #[pyclass(module = "platynui_native", frozen, from_py_object)]
         #[derive(Clone)]
         pub struct $name {
             inner: $rust,
@@ -464,7 +464,7 @@ define_id!(TechnologyId, core_rs::ui::identifiers::TechnologyId, "accessibility 
 ///
 /// Exposes the common namespace constants and behaves like an immutable string
 /// for comparisons and repr output.
-#[pyclass(name = "Namespace", module = "platynui_native.core", frozen)]
+#[pyclass(name = "Namespace", module = "platynui_native.core", frozen, from_py_object)]
 #[derive(Clone, Copy)]
 pub struct PyNamespace {
     inner: core_rs::ui::namespace::Namespace,
