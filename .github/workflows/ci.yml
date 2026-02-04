@@ -26,6 +26,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Install slint dependencies
+        run: |
+          sudo apt install -y \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libfontconfig-dev \
+            clang \
+            libavcodec-dev \
+            libavformat-dev \
+            libavutil-dev \
+            libavfilter-dev \
+            libavdevice-dev \
+            libasound2-dev \
+            pkg-config \
+            libssl-dev \
+            xcb \
+            xcbcommon \
+            qt6-base-dev \
+            qt6-tools-dev \
+            qmake6
+
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -92,6 +114,28 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      - name: Install slint dependencies
+        run: |
+          sudo apt install -y \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libfontconfig-dev \
+            clang \
+            libavcodec-dev \
+            libavformat-dev \
+            libavutil-dev \
+            libavfilter-dev \
+            libavdevice-dev \
+            libasound2-dev \
+            pkg-config \
+            libssl-dev \
+            xcb \
+            xcbcommon \
+            qt6-base-dev \
+            qt6-tools-dev \
+            qmake6
 
       - run: git describe --tag
       - run: git describe --tag --long --first-parent --match "v[0-9]*"
