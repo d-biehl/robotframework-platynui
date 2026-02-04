@@ -243,11 +243,10 @@ fn normalize_value(value: String) -> Option<String> {
 
 fn pick_attr_value(attrs: &[(String, String)], keys: &[&str]) -> Option<String> {
     for key in keys {
-        if let Some((_name, value)) = attrs.iter().find(|(name, _)| name.eq_ignore_ascii_case(key)) {
-            if let Some(value) = normalize_value(value.clone()) {
+        if let Some((_name, value)) = attrs.iter().find(|(name, _)| name.eq_ignore_ascii_case(key))
+            && let Some(value) = normalize_value(value.clone()) {
                 return Some(value);
             }
-        }
     }
     None
 }
@@ -260,21 +259,19 @@ fn resolve_attributes(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> O
 }
 
 fn resolve_name(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<String> {
-    if let Ok(name) = block_on(accessible_proxy(conn, obj)?.name()) {
-        if let Some(value) = normalize_value(name) {
+    if let Ok(name) = block_on(accessible_proxy(conn, obj)?.name())
+        && let Some(value) = normalize_value(name) {
             return Some(value);
         }
-    }
     resolve_attributes(conn, obj)
         .and_then(|attrs| pick_attr_value(&attrs, &["accessible-name", "name", "label", "title"]))
 }
 
 fn resolve_id(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<String> {
-    if let Ok(id) = block_on(accessible_proxy(conn, obj)?.accessible_id()) {
-        if let Some(value) = normalize_value(id) {
+    if let Ok(id) = block_on(accessible_proxy(conn, obj)?.accessible_id())
+        && let Some(value) = normalize_value(id) {
             return Some(value);
         }
-    }
     resolve_attributes(conn, obj).and_then(|attrs| pick_attr_value(&attrs, &["accessible-id", "accessible_id", "id"]))
 }
 
@@ -356,44 +353,37 @@ fn collect_accessible_native_properties(
     };
     let mut out = Vec::new();
 
-    if let Ok(name) = block_on(accessible.name()) {
-        if let Some(value) = normalize_value(name) {
+    if let Ok(name) = block_on(accessible.name())
+        && let Some(value) = normalize_value(name) {
             push_native(&mut out, "Accessible", "Name", UiValue::from(value));
         }
-    }
-    if let Ok(description) = block_on(accessible.description()) {
-        if let Some(value) = normalize_value(description) {
+    if let Ok(description) = block_on(accessible.description())
+        && let Some(value) = normalize_value(description) {
             push_native(&mut out, "Accessible", "Description", UiValue::from(value));
         }
-    }
-    if let Ok(help_text) = block_on(accessible.help_text()) {
-        if let Some(value) = normalize_value(help_text) {
+    if let Ok(help_text) = block_on(accessible.help_text())
+        && let Some(value) = normalize_value(help_text) {
             push_native(&mut out, "Accessible", "HelpText", UiValue::from(value));
         }
-    }
-    if let Ok(locale) = block_on(accessible.locale()) {
-        if let Some(value) = normalize_value(locale) {
+    if let Ok(locale) = block_on(accessible.locale())
+        && let Some(value) = normalize_value(locale) {
             push_native(&mut out, "Accessible", "Locale", UiValue::from(value));
         }
-    }
     if let Ok(role) = block_on(accessible.get_role()) {
         push_native(&mut out, "Accessible", "Role", UiValue::from(role.name().to_string()));
     }
-    if let Ok(role_name) = block_on(accessible.get_role_name()) {
-        if let Some(value) = normalize_value(role_name) {
+    if let Ok(role_name) = block_on(accessible.get_role_name())
+        && let Some(value) = normalize_value(role_name) {
             push_native(&mut out, "Accessible", "RoleName", UiValue::from(value));
         }
-    }
-    if let Ok(localized_role) = block_on(accessible.get_localized_role_name()) {
-        if let Some(value) = normalize_value(localized_role) {
+    if let Ok(localized_role) = block_on(accessible.get_localized_role_name())
+        && let Some(value) = normalize_value(localized_role) {
             push_native(&mut out, "Accessible", "LocalizedRoleName", UiValue::from(value));
         }
-    }
-    if let Ok(accessible_id) = block_on(accessible.accessible_id()) {
-        if let Some(value) = normalize_value(accessible_id) {
+    if let Ok(accessible_id) = block_on(accessible.accessible_id())
+        && let Some(value) = normalize_value(accessible_id) {
             push_native(&mut out, "Accessible", "AccessibleId", UiValue::from(value));
         }
-    }
     if let Ok(parent) = block_on(accessible.parent()) {
         push_native(&mut out, "Accessible", "Parent", UiValue::from(object_runtime_id(&parent)));
     }
@@ -416,8 +406,8 @@ fn collect_accessible_native_properties(
     if let Ok(application) = block_on(accessible.get_application()) {
         push_native(&mut out, "Accessible", "Application", UiValue::from(object_runtime_id(&application)));
     }
-    if let Some(attrs) = attrs {
-        if !attrs.is_empty() {
+    if let Some(attrs) = attrs
+        && !attrs.is_empty() {
             push_native(&mut out, "Accessible", "Attributes", attributes_object(attrs));
             for (name, value) in attrs {
                 if name.trim().is_empty() {
@@ -426,7 +416,6 @@ fn collect_accessible_native_properties(
                 push_native(&mut out, "Accessible", &format!("Attribute.{name}"), UiValue::from(value.clone()));
             }
         }
-    }
 
     out
 }
@@ -456,26 +445,22 @@ fn collect_application_native_properties(
     if let Ok(id) = block_on(app.id()) {
         push_native(&mut out, "Application", "Id", UiValue::from(id as i64));
     }
-    if let Ok(version) = block_on(app.version()) {
-        if let Some(value) = normalize_value(version) {
+    if let Ok(version) = block_on(app.version())
+        && let Some(value) = normalize_value(version) {
             push_native(&mut out, "Application", "Version", UiValue::from(value));
         }
-    }
-    if let Ok(toolkit) = block_on(app.toolkit_name()) {
-        if let Some(value) = normalize_value(toolkit) {
+    if let Ok(toolkit) = block_on(app.toolkit_name())
+        && let Some(value) = normalize_value(toolkit) {
             push_native(&mut out, "Application", "ToolkitName", UiValue::from(value));
         }
-    }
-    if let Ok(atspi_version) = block_on(app.atspi_version()) {
-        if let Some(value) = normalize_value(atspi_version) {
+    if let Ok(atspi_version) = block_on(app.atspi_version())
+        && let Some(value) = normalize_value(atspi_version) {
             push_native(&mut out, "Application", "AtspiVersion", UiValue::from(value));
         }
-    }
-    if let Ok(address) = block_on(app.get_application_bus_address()) {
-        if let Some(value) = normalize_value(address) {
+    if let Ok(address) = block_on(app.get_application_bus_address())
+        && let Some(value) = normalize_value(address) {
             push_native(&mut out, "Application", "BusAddress", UiValue::from(value));
         }
-    }
     out
 }
 
@@ -530,16 +515,14 @@ fn collect_document_native_properties(conn: &AccessibilityConnection, obj: &Obje
     if let Ok(page) = block_on(document.current_page_number()) {
         push_native(&mut out, "Document", "CurrentPageNumber", UiValue::from(page as i64));
     }
-    if let Ok(locale) = block_on(document.get_locale()) {
-        if let Some(value) = normalize_value(locale) {
+    if let Ok(locale) = block_on(document.get_locale())
+        && let Some(value) = normalize_value(locale) {
             push_native(&mut out, "Document", "Locale", UiValue::from(value));
         }
-    }
-    if let Ok(attrs) = block_on(document.get_attributes()) {
-        if !attrs.is_empty() {
+    if let Ok(attrs) = block_on(document.get_attributes())
+        && !attrs.is_empty() {
             push_native(&mut out, "Document", "Attributes", string_map_object(&attrs));
         }
-    }
     out
 }
 
@@ -579,16 +562,14 @@ fn collect_image_native_properties(conn: &AccessibilityConnection, obj: &ObjectR
         return Vec::new();
     };
     let mut out = Vec::new();
-    if let Ok(description) = block_on(image.image_description()) {
-        if let Some(value) = normalize_value(description) {
+    if let Ok(description) = block_on(image.image_description())
+        && let Some(value) = normalize_value(description) {
             push_native(&mut out, "Image", "Description", UiValue::from(value));
         }
-    }
-    if let Ok(locale) = block_on(image.image_locale()) {
-        if let Some(value) = normalize_value(locale) {
+    if let Ok(locale) = block_on(image.image_locale())
+        && let Some(value) = normalize_value(locale) {
             push_native(&mut out, "Image", "Locale", UiValue::from(value));
         }
-    }
     if let Ok((x, y, w, h)) = block_on(image.get_image_extents(CoordType::Screen)) {
         push_native(&mut out, "Image", "Extents", UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)));
     }
@@ -691,16 +672,14 @@ fn collect_text_native_properties(conn: &AccessibilityConnection, obj: &ObjectRe
     if let Ok(count) = block_on(text.get_nselections()) {
         push_native(&mut out, "Text", "NSelections", UiValue::from(count as i64));
     }
-    if let Ok(attrs) = block_on(text.get_default_attributes()) {
-        if !attrs.is_empty() {
+    if let Ok(attrs) = block_on(text.get_default_attributes())
+        && !attrs.is_empty() {
             push_native(&mut out, "Text", "DefaultAttributes", string_map_object(&attrs));
         }
-    }
-    if let Ok(attrs) = block_on(text.get_default_attribute_set()) {
-        if !attrs.is_empty() {
+    if let Ok(attrs) = block_on(text.get_default_attribute_set())
+        && !attrs.is_empty() {
             push_native(&mut out, "Text", "DefaultAttributeSet", string_map_object(&attrs));
         }
-    }
     out
 }
 
@@ -721,11 +700,10 @@ fn collect_value_native_properties(conn: &AccessibilityConnection, obj: &ObjectR
     if let Ok(increment) = block_on(value.minimum_increment()) {
         push_native(&mut out, "Value", "MinimumIncrement", UiValue::from(increment));
     }
-    if let Ok(text) = block_on(value.text()) {
-        if let Some(value) = normalize_value(text) {
+    if let Ok(text) = block_on(value.text())
+        && let Some(value) = normalize_value(text) {
             push_native(&mut out, "Value", "Text", UiValue::from(value));
         }
-    }
     out
 }
 
@@ -1097,14 +1075,13 @@ impl Iterator for AttrsIter {
                 Some(attr) => return Some(attr),
                 None => {
                     if self.idx > 12 {
-                        if let Some(list) = self.native_cache.as_ref() {
-                            if self.native_pos < list.len() {
+                        if let Some(list) = self.native_cache.as_ref()
+                            && self.native_pos < list.len() {
                                 self.idx -= 1;
                                 let attr = list[self.native_pos].clone();
                                 self.native_pos += 1;
                                 return Some(attr);
                             }
-                        }
                         return None;
                     }
                     continue;
