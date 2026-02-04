@@ -28,6 +28,7 @@ jobs:
 
       - name: Install slint dependencies
         run: |
+          sudo apt-get update
           sudo apt install -y \
             libxcb-shape0-dev \
             libxcb-xfixes0-dev \
@@ -115,6 +116,7 @@ jobs:
 
       - name: Install slint dependencies
         run: |
+          sudo apt-get update
           sudo apt install -y \
             libxcb-shape0-dev \
             libxcb-xfixes0-dev \
