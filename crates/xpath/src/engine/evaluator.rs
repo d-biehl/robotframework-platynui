@@ -775,7 +775,7 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                 }
                 Ok(None)
             }
-            AxisState::Init => unreachable!(),
+            AxisState::Init => unreachable!("axis cursor used before initialization"),
         }
     }
 
@@ -2535,7 +2535,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     if matches!((ua, ub), (Int(_), Int(_))) {
                         let (ai, bi) = match (ua, ub) {
                             (Int(x), Int(y)) => (x as i128, y as i128),
-                            _ => unreachable!(),
+                            _ => unreachable!("integer arithmetic path entered with non-integer operands"),
                         };
                         match &ops[ip] {
                             OpCode::Add => {
@@ -2639,7 +2639,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             (Int(x), Int(y)) => {
                                 (rust_decimal::Decimal::from(x), rust_decimal::Decimal::from(y))
                             }
-                            _ => unreachable!(),
+                            _ => unreachable!("decimal arithmetic path entered with non-decimal/integer operands"),
                         };
                         let op = &ops[ip];
                         let result_atomic = match op {
@@ -2683,7 +2683,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 let q = (ad / bd).floor();
                                 V::Decimal(ad - bd * q)
                             }
-                            _ => unreachable!(),
+                            _ => unreachable!("unexpected opcode in decimal arithmetic"),
                         };
                         self.push_seq(vec![XdmItem::Atomic(result_atomic)]);
                         ip += 1;
@@ -2725,7 +2725,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             }
                             av_f64 % bv_f64
                         }
-                        _ => unreachable!(),
+                        _ => unreachable!("unexpected opcode in float/double arithmetic"),
                     };
 
                     // Determine result type (XPath 2.0 rules simplified):
@@ -2763,7 +2763,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             // Dec handled in Decimal path above; defensive fallback
                             _ => V::Integer(result_value as i64),
                         },
-                        _ => unreachable!(),
+                        _ => unreachable!("unexpected opcode in arithmetic result type selection"),
                     };
                     self.push_seq(vec![XdmItem::Atomic(result_atomic)]);
                     ip += 1;
@@ -2980,7 +2980,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     let out = match &ops[ip] {
                         OpCode::Intersect => self.set_intersect_stream(lhs, rhs)?,
                         OpCode::Except => self.set_except_stream(lhs, rhs)?,
-                        _ => unreachable!(),
+                        _ => unreachable!("expected Intersect or Except opcode"),
                     };
                     self.push_seq(out);
                     ip += 1;
@@ -3504,8 +3504,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
 
         // If both (after normalization) are strings and not numeric context
         if matches!((&a_norm, &b_norm), (V::String(_), V::String(_))) && matches!(op, Lt | Le | Gt | Ge | Eq | Ne) {
-            let ls = if let V::String(s) = &a_norm { s } else { unreachable!() };
-            let rs = if let V::String(s) = &b_norm { s } else { unreachable!() };
+            let ls = if let V::String(s) = &a_norm { s } else { unreachable!("expected string after normalization") };
+            let rs = if let V::String(s) = &b_norm { s } else { unreachable!("expected string after normalization") };
             // Collation-aware: use default collation (fallback to codepoint)
             let coll_arc;
             let coll: &dyn crate::engine::collation::Collation = if let Some(c) = &self.default_collation {
@@ -5004,7 +5004,8 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for EnsureOrderCursor<N> {
 
                     if ok {
                         // emit previous, shift window
-                        let to_emit = self.pending.replace(next.clone()).unwrap();
+                        let to_emit = self.pending.replace(next.clone())
+                            .expect("pending must be Some in monotonic node branch");
                         self.last_key = cur_n.doc_order_key();
                         self.last_node = Some(cur_n.clone());
                         return Some(Ok(to_emit));
@@ -5023,7 +5024,8 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for EnsureOrderCursor<N> {
                             return Some(Ok(next));
                         } else {
                             // disorder beyond simple adjacent inversion → fallback
-                            let first = self.pending.take().unwrap();
+                            let first = self.pending.take()
+                                .expect("pending must be Some before fallback switch");
                             if let Err(e) = self.switch_to_fallback(first, next) {
                                 return Some(Err(e));
                             }
@@ -5033,7 +5035,8 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for EnsureOrderCursor<N> {
                 }
                 (Some(_prev), _) => {
                     // Non-node items: emit previous, shift window
-                    let to_emit = self.pending.replace(next).unwrap();
+                    let to_emit = self.pending.replace(next)
+                        .expect("pending must be Some in non-node emit branch");
                     self.last_key = None;
                     self.last_node = None;
                     return Some(Ok(to_emit));

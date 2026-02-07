@@ -421,7 +421,7 @@ impl<'a> Compiler<'a> {
         use ast::Literal::*;
         let v = match l {
             Integer(i) => XdmAtomicValue::Integer(*i),
-            Decimal(d) => XdmAtomicValue::Decimal(d.clone()),
+            Decimal(d) => XdmAtomicValue::Decimal(*d),
             Double(d) => XdmAtomicValue::Double(*d),
             String(s) => XdmAtomicValue::String(s.to_string()),
             Boolean(b) => XdmAtomicValue::Boolean(*b),
