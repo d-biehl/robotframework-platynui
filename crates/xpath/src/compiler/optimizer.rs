@@ -257,33 +257,33 @@ fn fold_constants(instrs: &mut Vec<OpCode>) {
                     Some(XdmAtomicValue::Decimal(x * y))
                 }
                 (OpCode::Div, XdmAtomicValue::Decimal(x), XdmAtomicValue::Decimal(y)) => {
-                    Some(XdmAtomicValue::Decimal(x / y))
+                    if y.is_zero() { None } else { Some(XdmAtomicValue::Decimal(x / y)) }
                 }
 
                 // Mixed integer/decimal - promote to decimal
                 (OpCode::Add, XdmAtomicValue::Integer(x), XdmAtomicValue::Decimal(y)) => {
-                    Some(XdmAtomicValue::Decimal(*x as f64 + y))
+                    Some(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(*x) + y))
                 }
                 (OpCode::Add, XdmAtomicValue::Decimal(x), XdmAtomicValue::Integer(y)) => {
-                    Some(XdmAtomicValue::Decimal(x + *y as f64))
+                    Some(XdmAtomicValue::Decimal(x + rust_decimal::Decimal::from(*y)))
                 }
                 (OpCode::Sub, XdmAtomicValue::Integer(x), XdmAtomicValue::Decimal(y)) => {
-                    Some(XdmAtomicValue::Decimal(*x as f64 - y))
+                    Some(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(*x) - y))
                 }
                 (OpCode::Sub, XdmAtomicValue::Decimal(x), XdmAtomicValue::Integer(y)) => {
-                    Some(XdmAtomicValue::Decimal(x - *y as f64))
+                    Some(XdmAtomicValue::Decimal(x - rust_decimal::Decimal::from(*y)))
                 }
                 (OpCode::Mul, XdmAtomicValue::Integer(x), XdmAtomicValue::Decimal(y)) => {
-                    Some(XdmAtomicValue::Decimal(*x as f64 * y))
+                    Some(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(*x) * y))
                 }
                 (OpCode::Mul, XdmAtomicValue::Decimal(x), XdmAtomicValue::Integer(y)) => {
-                    Some(XdmAtomicValue::Decimal(x * *y as f64))
+                    Some(XdmAtomicValue::Decimal(x * rust_decimal::Decimal::from(*y)))
                 }
                 (OpCode::Div, XdmAtomicValue::Integer(x), XdmAtomicValue::Decimal(y)) => {
-                    Some(XdmAtomicValue::Decimal(*x as f64 / y))
+                    if y.is_zero() { None } else { Some(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(*x) / y)) }
                 }
                 (OpCode::Div, XdmAtomicValue::Decimal(x), XdmAtomicValue::Integer(y)) => {
-                    Some(XdmAtomicValue::Decimal(x / *y as f64))
+                    if *y == 0 { None } else { Some(XdmAtomicValue::Decimal(x / rust_decimal::Decimal::from(*y))) }
                 }
 
                 _ => None,

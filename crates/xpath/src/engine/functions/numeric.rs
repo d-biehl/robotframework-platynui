@@ -105,7 +105,7 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
     let mut state: Option<AvgState> = None;
     let mut kind = NumericKind::Integer;
     let mut int_acc: i128 = 0;
-    let mut dec_acc: f64 = 0.0;
+    let mut dec_acc: rust_decimal::Decimal = rust_decimal::Decimal::ZERO;
     let mut use_int_acc = true;
     let mut ym_total: i64 = 0;
     let mut dt_total: i128 = 0;
@@ -170,17 +170,22 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
                                     int_acc = v;
                                 } else {
                                     use_int_acc = false;
-                                    dec_acc = int_acc as f64 + i as f64;
+                                    dec_acc = rust_decimal::Decimal::from(int_acc) + rust_decimal::Decimal::from(i);
                                     kind = kind.promote(NumericKind::Decimal);
                                 }
                             }
                         }
                         _ => {
                             if use_int_acc {
-                                dec_acc = int_acc as f64;
+                                dec_acc = rust_decimal::Decimal::from(int_acc);
                                 use_int_acc = false;
                             }
-                            dec_acc += num;
+                            if let XdmAtomicValue::Decimal(d) = a {
+                                dec_acc += d;
+                            } else {
+                                use rust_decimal::prelude::FromPrimitive;
+                                dec_acc += rust_decimal::Decimal::from_f64(num).unwrap_or(rust_decimal::Decimal::ZERO);
+                            }
                         }
                     }
                 } else {
@@ -197,12 +202,23 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
 
     let out = match state.unwrap_or(AvgState::Numeric) {
         AvgState::Numeric => {
-            let total = if use_int_acc && matches!(kind, NumericKind::Integer) { int_acc as f64 } else { dec_acc };
-            let mean = total / (count as f64);
+            let total = if use_int_acc && matches!(kind, NumericKind::Integer) {
+                rust_decimal::Decimal::from(int_acc)
+            } else {
+                dec_acc
+            };
+            let count_dec = rust_decimal::Decimal::from(count);
+            let mean = total / count_dec;
             match kind {
                 NumericKind::Integer | NumericKind::Decimal => XdmAtomicValue::Decimal(mean),
-                NumericKind::Float => XdmAtomicValue::Float(mean as f32),
-                NumericKind::Double => XdmAtomicValue::Double(mean),
+                NumericKind::Float => {
+                    use rust_decimal::prelude::ToPrimitive;
+                    XdmAtomicValue::Float(mean.to_f32().unwrap_or(f32::NAN))
+                }
+                NumericKind::Double => {
+                    use rust_decimal::prelude::ToPrimitive;
+                    XdmAtomicValue::Double(mean.to_f64().unwrap_or(f64::NAN))
+                }
             }
         }
         AvgState::YearMonth => {

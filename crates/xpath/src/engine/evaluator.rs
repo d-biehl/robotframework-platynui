@@ -1437,7 +1437,10 @@ fn atomic_to_usize(av: &XdmAtomicValue) -> Option<usize> {
         XdmAtomicValue::UnsignedInt(u) if *u >= 1 => Some(*u as usize),
         XdmAtomicValue::UnsignedLong(u) if *u >= 1 && *u <= usize::MAX as u64 => Some(*u as usize),
         XdmAtomicValue::Double(d) if *d >= 1.0 && d.fract() == 0.0 => Some(*d as usize),
-        XdmAtomicValue::Decimal(d) if *d >= 1.0 && d.fract() == 0.0 => Some(*d as usize),
+        XdmAtomicValue::Decimal(d) if *d >= rust_decimal::Decimal::ONE && d.fract().is_zero() => {
+            use rust_decimal::prelude::ToPrimitive;
+            d.to_usize()
+        }
         XdmAtomicValue::Float(f) if *f >= 1.0 && (*f as f64).fract() == 0.0 => Some(*f as usize),
         _ => None,
     }
@@ -2220,7 +2223,10 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     let classify_numeric = |v: &V| -> Option<f64> {
                         match v {
                             V::Integer(i) => Some(*i as f64),
-                            V::Decimal(d) => Some(*d),
+                            V::Decimal(d) => {
+                                use rust_decimal::prelude::ToPrimitive;
+                                Some(d.to_f64().unwrap_or(f64::NAN))
+                            }
                             V::Double(d) => Some(*d),
                             V::Float(f) => Some(*f as f64),
                             _ => None,
@@ -2463,15 +2469,16 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     #[derive(Clone, Copy)]
                     enum NumKind {
                         Int(i64),
-                        Dec(f64),
+                        Dec(rust_decimal::Decimal),
                         Float(f32),
                         Double(f64),
                     }
                     impl NumKind {
                         fn to_f64(self) -> f64 {
+                            use rust_decimal::prelude::ToPrimitive;
                             match self {
                                 NumKind::Int(i) => i as f64,
-                                NumKind::Dec(d) => d,
+                                NumKind::Dec(d) => d.to_f64().unwrap_or(f64::NAN),
                                 NumKind::Float(f) => f as f64,
                                 NumKind::Double(d) => d,
                             }
@@ -2487,6 +2494,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         }
                     }
                     fn unify_numeric(a: NumKind, b: NumKind) -> (NumKind, NumKind) {
+                        use rust_decimal::prelude::ToPrimitive;
                         use NumKind::*;
                         match (a, b) {
                             (Double(x), y) => (Double(x), Double(y.to_f64())),
@@ -2494,11 +2502,11 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             (Float(x), Float(y)) => (Float(x), Float(y)),
                             (Float(x), Int(y)) => (Float(x), Float(y as f32)),
                             (Int(x), Float(y)) => (Float(x as f32), Float(y)),
-                            (Float(x), Dec(y)) => (Float(x), Float(y as f32)),
-                            (Dec(x), Float(y)) => (Float(x as f32), Float(y)),
+                            (Float(x), Dec(y)) => (Float(x), Float(y.to_f32().unwrap_or(f32::NAN))),
+                            (Dec(x), Float(y)) => (Float(x.to_f32().unwrap_or(f32::NAN)), Float(y)),
                             (Dec(x), Dec(y)) => (Dec(x), Dec(y)),
-                            (Dec(x), Int(y)) => (Dec(x), Dec(y as f64)),
-                            (Int(x), Dec(y)) => (Dec(x as f64), Dec(y)),
+                            (Dec(x), Int(y)) => (Dec(x), Dec(rust_decimal::Decimal::from(y))),
+                            (Int(x), Dec(y)) => (Dec(rust_decimal::Decimal::from(x)), Dec(y)),
                             (Int(x), Int(y)) => (Int(x), Int(y)),
                         }
                     }
@@ -2516,7 +2524,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     let promoted_kind = match (ua, ub) {
                         (Double(_), _) | (_, Double(_)) => Double(0.0),
                         (Float(_), _) | (_, Float(_)) => Float(0.0),
-                        (Dec(_), _) | (_, Dec(_)) => Dec(0.0),
+                        (Dec(_), _) | (_, Dec(_)) => Dec(rust_decimal::Decimal::ZERO),
                         (Int(_), Int(_)) => Int(0),
                     };
 
@@ -2535,13 +2543,13 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                     if sum >= i64::MIN as i128 && sum <= i64::MAX as i128 {
                                         self.push_seq(vec![XdmItem::Atomic(V::Integer(sum as i64))]);
                                     } else {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(sum as f64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(rust_decimal::Decimal::from_i128_with_scale(sum, 0)))]);
                                     }
                                     ip += 1;
                                     pushed = true;
                                 } else {
                                     // i128 overflow (extremely rare) → promote to decimal
-                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal((ai as f64) + (bi as f64)))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(rust_decimal::Decimal::from_i128_with_scale(ai, 0) + rust_decimal::Decimal::from_i128_with_scale(bi, 0)))]);
                                     ip += 1;
                                     pushed = true;
                                 }
@@ -2551,12 +2559,12 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                     if diff >= i64::MIN as i128 && diff <= i64::MAX as i128 {
                                         self.push_seq(vec![XdmItem::Atomic(V::Integer(diff as i64))]);
                                     } else {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(diff as f64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(rust_decimal::Decimal::from_i128_with_scale(diff, 0)))]);
                                     }
                                     ip += 1;
                                     pushed = true;
                                 } else {
-                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal((ai as f64) - (bi as f64)))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(rust_decimal::Decimal::from_i128_with_scale(ai, 0) - rust_decimal::Decimal::from_i128_with_scale(bi, 0)))]);
                                     ip += 1;
                                     pushed = true;
                                 }
@@ -2566,12 +2574,12 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                     if prod >= i64::MIN as i128 && prod <= i64::MAX as i128 {
                                         self.push_seq(vec![XdmItem::Atomic(V::Integer(prod as i64))]);
                                     } else {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(prod as f64))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(rust_decimal::Decimal::from_i128_with_scale(prod, 0)))]);
                                     }
                                     ip += 1;
                                     pushed = true;
                                 } else {
-                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal((ai as f64) * (bi as f64)))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(rust_decimal::Decimal::from_i128_with_scale(ai, 0) * rust_decimal::Decimal::from_i128_with_scale(bi, 0)))]);
                                     ip += 1;
                                     pushed = true;
                                 }
@@ -2620,7 +2628,69 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         continue;
                     }
 
-                    // Extract numeric primitives for calculation (generic floating/decimal path)
+                    // Decimal-specialized path: exact arithmetic using rust_decimal
+                    // Also handles integer division (which yields xs:decimal per XPath 2.0)
+                    if matches!(promoted_kind, Dec(_))
+                        || (matches!(promoted_kind, Int(_))
+                            && matches!(&ops[ip], OpCode::Div))
+                    {
+                        let (ad, bd) = match (ua, ub) {
+                            (Dec(x), Dec(y)) => (x, y),
+                            (Int(x), Int(y)) => {
+                                (rust_decimal::Decimal::from(x), rust_decimal::Decimal::from(y))
+                            }
+                            _ => unreachable!(),
+                        };
+                        let op = &ops[ip];
+                        let result_atomic = match op {
+                            OpCode::Add => V::Decimal(ad + bd),
+                            OpCode::Sub => V::Decimal(ad - bd),
+                            OpCode::Mul => V::Decimal(ad * bd),
+                            OpCode::Div => {
+                                if bd.is_zero() {
+                                    return Err(Error::from_code(
+                                        ErrorCode::FOAR0001,
+                                        "divide by zero",
+                                    ));
+                                }
+                                V::Decimal(ad / bd)
+                            }
+                            OpCode::IDiv => {
+                                if bd.is_zero() {
+                                    return Err(Error::from_code(
+                                        ErrorCode::FOAR0001,
+                                        "idiv by zero",
+                                    ));
+                                }
+                                use rust_decimal::prelude::ToPrimitive;
+                                let q = (ad / bd).floor();
+                                let qi = q.to_i64().ok_or_else(|| {
+                                    Error::from_code(
+                                        ErrorCode::FOAR0002,
+                                        "idiv result overflows xs:integer range",
+                                    )
+                                })?;
+                                V::Integer(qi)
+                            }
+                            OpCode::Mod => {
+                                if bd.is_zero() {
+                                    return Err(Error::from_code(
+                                        ErrorCode::FOAR0001,
+                                        "mod by zero",
+                                    ));
+                                }
+                                // XPath mod: a - b * floor(a div b)
+                                let q = (ad / bd).floor();
+                                V::Decimal(ad - bd * q)
+                            }
+                            _ => unreachable!(),
+                        };
+                        self.push_seq(vec![XdmItem::Atomic(result_atomic)]);
+                        ip += 1;
+                        continue;
+                    }
+
+                    // Extract numeric primitives for calculation (Float/Double path)
                     let (av_f64, bv_f64) = (ua.to_f64(), ub.to_f64());
                     // Operation semantics
                     let op = &ops[ip];
@@ -2660,8 +2730,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
 
                     // Determine result type (XPath 2.0 rules simplified):
                     // - idiv -> integer
-                    // - div: if promoted integer -> decimal; if decimal -> decimal; float->float; double->double
-                    // - add/sub/mul/mod -> promoted kind
+                    // - div/add/sub/mul/mod -> Float or Double (Dec/Int paths handled above)
                     let result_atomic = match op {
                         OpCode::IDiv => {
                             // Guard overflow: xs:integer result must fit our i64 storage
@@ -2679,26 +2748,20 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         OpCode::Div => match promoted_kind {
                             Double(_) => V::Double(result_value),
                             Float(_) => V::Float(result_value as f32),
-                            Dec(_) | Int(_) => V::Decimal(result_value), // integer division yields decimal
+                            // Dec/Int div handled in Decimal path above; defensive fallback
+                            _ => V::Double(result_value),
                         },
                         OpCode::Add | OpCode::Sub | OpCode::Mul => match promoted_kind {
                             Double(_) => V::Double(result_value),
                             Float(_) => V::Float(result_value as f32),
-                            Dec(_) => V::Decimal(result_value),
-                            Int(_) => {
-                                // If exact integer keep integer else decimal (rare due to overflow/frac)
-                                if (result_value.fract()).abs() < f64::EPSILON {
-                                    V::Integer(result_value as i64)
-                                } else {
-                                    V::Decimal(result_value)
-                                }
-                            }
+                            // Dec handled in Decimal path above; Int handled in integer path
+                            _ => V::Double(result_value),
                         },
                         OpCode::Mod => match promoted_kind {
                             Double(_) => V::Double(result_value),
                             Float(_) => V::Float(result_value as f32),
-                            Dec(_) => V::Decimal(result_value),
-                            Int(_) => V::Integer(result_value as i64),
+                            // Dec handled in Decimal path above; defensive fallback
+                            _ => V::Integer(result_value as i64),
                         },
                         _ => unreachable!(),
                     };
@@ -3185,7 +3248,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => Ok(*b),
                 XdmItem::Atomic(XdmAtomicValue::String(s)) => Ok(!s.is_empty()),
                 XdmItem::Atomic(XdmAtomicValue::Integer(i)) => Ok(*i != 0),
-                XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => Ok(*d != 0.0),
+                XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => Ok(!d.is_zero()),
                 XdmItem::Atomic(XdmAtomicValue::Double(d)) => Ok(*d != 0.0 && !d.is_nan()),
                 XdmItem::Atomic(XdmAtomicValue::Float(f)) => Ok(*f != 0.0 && !f.is_nan()),
                 XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => Ok(!s.is_empty()),
@@ -3223,7 +3286,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             V::Boolean(b) => b,
                             V::String(ref s) | V::UntypedAtomic(ref s) => !s.is_empty(),
                             V::Integer(i) => i != 0,
-                            V::Decimal(d) => d != 0.0,
+                            V::Decimal(d) => !d.is_zero(),
                             V::Double(d) => d != 0.0 && !d.is_nan(),
                             V::Float(f) => f != 0.0 && !f.is_nan(),
                             _ => {
@@ -3290,9 +3353,12 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     ));
                 }
                 // Singleton atomic: try numeric predicate special case first
-                let num_opt = match &a {
+                let num_opt: Option<f64> = match &a {
                     A::Integer(i) => Some(*i as f64),
-                    A::Decimal(d) => Some(*d),
+                    A::Decimal(d) => {
+                        use rust_decimal::prelude::ToPrimitive;
+                        Some(d.to_f64().unwrap_or(f64::NAN))
+                    }
                     A::Double(d) => Some(*d),
                     A::Float(f) => Some(*f as f64),
                     A::UntypedAtomic(s) => s.parse::<f64>().ok(),
@@ -3328,7 +3394,10 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
     fn atomic_to_number(a: &XdmAtomicValue) -> Result<f64, Error> {
         Ok(match a {
             XdmAtomicValue::Integer(i) => *i as f64,
-            XdmAtomicValue::Decimal(d) => *d,
+            XdmAtomicValue::Decimal(d) => {
+                use rust_decimal::prelude::ToPrimitive;
+                d.to_f64().unwrap_or(f64::NAN)
+            }
             XdmAtomicValue::Double(d) => *d,
             XdmAtomicValue::Float(f) => *f as f64,
             XdmAtomicValue::Boolean(b) => {
@@ -3357,15 +3426,16 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         #[derive(Clone, Copy)]
         enum NumKind {
             Int(i64),
-            Dec(f64),
+            Dec(rust_decimal::Decimal),
             Float(f32),
             Double(f64),
         }
         impl NumKind {
             fn to_f64(self) -> f64 {
+                use rust_decimal::prelude::ToPrimitive;
                 match self {
                     NumKind::Int(i) => i as f64,
-                    NumKind::Dec(d) => d,
+                    NumKind::Dec(d) => d.to_f64().unwrap_or(f64::NAN),
                     NumKind::Float(f) => f as f64,
                     NumKind::Double(d) => d,
                 }
@@ -3381,6 +3451,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             }
         }
         fn unify_numeric(a: NumKind, b: NumKind) -> (NumKind, NumKind) {
+            use rust_decimal::prelude::ToPrimitive;
             use NumKind::*;
             match (a, b) {
                 (Double(x), y) => (Double(x), Double(y.to_f64())),
@@ -3388,11 +3459,11 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 (Float(x), Float(y)) => (Float(x), Float(y)),
                 (Float(x), Int(y)) => (Float(x), Float(y as f32)),
                 (Int(x), Float(y)) => (Float(x as f32), Float(y)),
-                (Float(x), Dec(y)) => (Float(x), Float(y as f32)),
-                (Dec(x), Float(y)) => (Float(x as f32), Float(y)),
+                (Float(x), Dec(y)) => (Float(x), Float(y.to_f32().unwrap_or(f32::NAN))),
+                (Dec(x), Float(y)) => (Float(x.to_f32().unwrap_or(f32::NAN)), Float(y)),
                 (Dec(x), Dec(y)) => (Dec(x), Dec(y)),
-                (Dec(x), Int(y)) => (Dec(x), Dec(y as f64)),
-                (Int(x), Dec(y)) => (Dec(x as f64), Dec(y)),
+                (Dec(x), Int(y)) => (Dec(x), Dec(rust_decimal::Decimal::from(y))),
+                (Int(x), Dec(y)) => (Dec(rust_decimal::Decimal::from(x)), Dec(y)),
                 (Int(x), Int(y)) => (Int(x), Int(y)),
             }
         }
@@ -3999,7 +4070,10 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             UnsignedByte(v) => Ok(*v as i128),
             NonNegativeInteger(v) => Ok(*v as i128),
             PositiveInteger(v) => Ok(*v as i128),
-            Decimal(d) => self.float_to_integer(*d, target),
+            Decimal(d) => {
+                use rust_decimal::prelude::ToPrimitive;
+                self.float_to_integer(d.to_f64().unwrap_or(f64::NAN), target)
+            }
             Double(d) => self.float_to_integer(*d, target),
             Float(f) => self.float_to_integer(*f as f64, target),
             other => {
@@ -4065,7 +4139,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             "boolean" => match a {
                 XdmAtomicValue::Boolean(b) => Ok(XdmAtomicValue::Boolean(b)),
                 XdmAtomicValue::Integer(i) => Ok(XdmAtomicValue::Boolean(i != 0)),
-                XdmAtomicValue::Decimal(d) => Ok(XdmAtomicValue::Boolean(d != 0.0)),
+                XdmAtomicValue::Decimal(d) => Ok(XdmAtomicValue::Boolean(!d.is_zero())),
                 XdmAtomicValue::Double(d) => Ok(XdmAtomicValue::Boolean(d != 0.0 && !d.is_nan())),
                 XdmAtomicValue::Float(f) => Ok(XdmAtomicValue::Boolean(f != 0.0 && !f.is_nan())),
                 other => {
@@ -4090,30 +4164,31 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             },
             "decimal" => match a {
                 XdmAtomicValue::Decimal(d) => Ok(XdmAtomicValue::Decimal(d)),
-                XdmAtomicValue::Integer(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
-                XdmAtomicValue::Long(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
-                XdmAtomicValue::Int(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
-                XdmAtomicValue::Short(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
-                XdmAtomicValue::Byte(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
-                XdmAtomicValue::NonPositiveInteger(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
-                XdmAtomicValue::NegativeInteger(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
-                XdmAtomicValue::NonNegativeInteger(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
-                XdmAtomicValue::PositiveInteger(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
-                XdmAtomicValue::UnsignedLong(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
-                XdmAtomicValue::UnsignedInt(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
-                XdmAtomicValue::UnsignedShort(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
-                XdmAtomicValue::UnsignedByte(i) => Ok(XdmAtomicValue::Decimal(i as f64)),
+                XdmAtomicValue::Integer(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::Long(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::Int(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::Short(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i as i64))),
+                XdmAtomicValue::Byte(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i as i64))),
+                XdmAtomicValue::NonPositiveInteger(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::NegativeInteger(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::NonNegativeInteger(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::PositiveInteger(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::UnsignedLong(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::UnsignedInt(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::UnsignedShort(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i as u64))),
+                XdmAtomicValue::UnsignedByte(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i as u64))),
                 XdmAtomicValue::Double(d) => {
                     if d.is_finite() {
-                        Ok(XdmAtomicValue::Decimal(d))
+                        use rust_decimal::prelude::FromPrimitive;
+                        Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from_f64(d).unwrap_or(rust_decimal::Decimal::ZERO)))
                     } else {
                         Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))
                     }
                 }
                 XdmAtomicValue::Float(f) => {
-                    let v = f as f64;
-                    if v.is_finite() {
-                        Ok(XdmAtomicValue::Decimal(v))
+                    if f.is_finite() {
+                        use rust_decimal::prelude::FromPrimitive;
+                        Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from_f32(f).unwrap_or(rust_decimal::Decimal::ZERO)))
                     } else {
                         Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))
                     }
@@ -4127,15 +4202,19 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     {
                         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"));
                     }
-                    let value: f64 =
-                        trimmed.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?;
+                    use std::str::FromStr;
+                    let value = rust_decimal::Decimal::from_str(trimmed)
+                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?;
                     Ok(XdmAtomicValue::Decimal(value))
                 }
             },
             "double" => match a {
                 XdmAtomicValue::Double(d) => Ok(XdmAtomicValue::Double(d)),
                 XdmAtomicValue::Float(f) => Ok(XdmAtomicValue::Double(f as f64)),
-                XdmAtomicValue::Decimal(d) => Ok(XdmAtomicValue::Double(d)),
+                XdmAtomicValue::Decimal(d) => {
+                    use rust_decimal::prelude::ToPrimitive;
+                    Ok(XdmAtomicValue::Double(d.to_f64().unwrap_or(f64::NAN)))
+                }
                 XdmAtomicValue::Integer(i) => Ok(XdmAtomicValue::Double(i as f64)),
                 XdmAtomicValue::Long(i) => Ok(XdmAtomicValue::Double(i as f64)),
                 XdmAtomicValue::Int(i) => Ok(XdmAtomicValue::Double(i as f64)),
@@ -4164,7 +4243,10 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             "float" => match a {
                 XdmAtomicValue::Float(f) => Ok(XdmAtomicValue::Float(f)),
                 XdmAtomicValue::Double(d) => Ok(XdmAtomicValue::Float(d as f32)),
-                XdmAtomicValue::Decimal(d) => Ok(XdmAtomicValue::Float(d as f32)),
+                XdmAtomicValue::Decimal(d) => {
+                    use rust_decimal::prelude::ToPrimitive;
+                    Ok(XdmAtomicValue::Float(d.to_f32().unwrap_or(f32::NAN)))
+                }
                 XdmAtomicValue::Integer(i) => Ok(XdmAtomicValue::Float(i as f32)),
                 XdmAtomicValue::Long(i) => Ok(XdmAtomicValue::Float(i as f32)),
                 XdmAtomicValue::Int(i) => Ok(XdmAtomicValue::Float(i as f32)),

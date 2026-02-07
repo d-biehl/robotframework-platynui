@@ -10,7 +10,7 @@ fn parse(expr: &str) -> ast::Expr {
 #[rstest]
 #[allow(clippy::approx_constant)]
 #[case("0", ast::Literal::Integer(0))]
-#[case("3.14", ast::Literal::Decimal(3.14))]
+#[case("3.14", ast::Literal::Decimal(rust_decimal::Decimal::from_str_exact("3.14").unwrap()))]
 #[case("1e3", ast::Literal::Double(1000.0))]
 fn numeric_literals(#[case] input: &str, #[case] lit: ast::Literal) {
     match parse(input) {

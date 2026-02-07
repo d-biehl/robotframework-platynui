@@ -20,7 +20,7 @@ pub(super) fn ebv<N>(seq: &XdmSequence<N>) -> Result<bool, Error> {
             XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => Ok(*b),
             XdmItem::Atomic(XdmAtomicValue::String(s)) => Ok(!s.is_empty()),
             XdmItem::Atomic(XdmAtomicValue::Integer(i)) => Ok(*i != 0),
-            XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => Ok(*d != 0.0),
+            XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => Ok(!d.is_zero()),
             XdmItem::Atomic(XdmAtomicValue::Double(d)) => Ok(*d != 0.0 && !d.is_nan()),
             XdmItem::Atomic(XdmAtomicValue::Float(f)) => Ok(*f != 0.0 && !f.is_nan()),
             XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => Ok(!s.is_empty()),
@@ -408,7 +408,7 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
     }
     enum SumState {
         None,
-        Numeric { kind: NumericKind, use_int: bool, int_acc: i128, dec_acc: f64 },
+        Numeric { kind: NumericKind, use_int: bool, int_acc: i128, dec_acc: rust_decimal::Decimal },
         YearMonth { total: i64 },
         DayTime { total: i128 },
     }
@@ -451,9 +451,12 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
                             use_int: matches!(nk, NumericKind::Integer),
                             int_acc: if matches!(nk, NumericKind::Integer) { a_as_i128(a).unwrap_or(0) } else { 0 },
                             dec_acc: if matches!(nk, NumericKind::Integer) {
-                                a_as_i128(a).unwrap_or(0) as f64
+                                rust_decimal::Decimal::from(a_as_i128(a).unwrap_or(0))
+                            } else if let XdmAtomicValue::Decimal(d) = a {
+                                *d
                             } else {
-                                num
+                                use rust_decimal::prelude::FromPrimitive;
+                                rust_decimal::Decimal::from_f64(num).unwrap_or(rust_decimal::Decimal::ZERO)
                             },
                         },
                         SumState::Numeric { mut kind, mut use_int, mut int_acc, mut dec_acc } => {
@@ -464,15 +467,20 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
                                         int_acc = v;
                                     } else {
                                         use_int = false;
-                                        dec_acc = int_acc as f64 + i as f64;
+                                        dec_acc = rust_decimal::Decimal::from(int_acc) + rust_decimal::Decimal::from(i);
                                     }
                                 }
                             } else {
                                 if use_int {
-                                    dec_acc = int_acc as f64;
+                                    dec_acc = rust_decimal::Decimal::from(int_acc);
                                     use_int = false;
                                 }
-                                dec_acc += num;
+                                if let XdmAtomicValue::Decimal(d) = a {
+                                    dec_acc += d;
+                                } else {
+                                    use rust_decimal::prelude::FromPrimitive;
+                                    dec_acc += rust_decimal::Decimal::from_f64(num).unwrap_or(rust_decimal::Decimal::ZERO);
+                                }
                             }
                             SumState::Numeric { kind, use_int, int_acc, dec_acc }
                         }
@@ -495,8 +503,14 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
                 match kind {
                     NumericKind::Integer => XdmAtomicValue::Integer(int_acc as i64),
                     NumericKind::Decimal => XdmAtomicValue::Decimal(dec_acc),
-                    NumericKind::Float => XdmAtomicValue::Float(dec_acc as f32),
-                    NumericKind::Double => XdmAtomicValue::Double(dec_acc),
+                    NumericKind::Float => {
+                        use rust_decimal::prelude::ToPrimitive;
+                        XdmAtomicValue::Float(dec_acc.to_f32().unwrap_or(f32::NAN))
+                    }
+                    NumericKind::Double => {
+                        use rust_decimal::prelude::ToPrimitive;
+                        XdmAtomicValue::Double(dec_acc.to_f64().unwrap_or(f64::NAN))
+                    }
                 }
             }
         }
@@ -721,7 +735,7 @@ pub(super) fn as_string(a: &XdmAtomicValue) -> String {
         XdmAtomicValue::PositiveInteger(i) => i.to_string(),
         XdmAtomicValue::Double(d) => d.to_string(),
         XdmAtomicValue::Float(f) => f.to_string(),
-        XdmAtomicValue::Decimal(d) => d.to_string(),
+        XdmAtomicValue::Decimal(d) => d.normalize().to_string(),
         XdmAtomicValue::QName { prefix, local, .. } => {
             if let Some(p) = prefix {
                 format!("{}:{}", p, local)
@@ -810,7 +824,10 @@ pub(super) fn to_number_atomic(a: &XdmAtomicValue) -> Result<f64, Error> {
         XdmAtomicValue::PositiveInteger(i) => Ok(*i as f64),
         XdmAtomicValue::Double(d) => Ok(*d),
         XdmAtomicValue::Float(f) => Ok(*f as f64),
-        XdmAtomicValue::Decimal(d) => Ok(*d),
+        XdmAtomicValue::Decimal(d) => {
+            use rust_decimal::prelude::ToPrimitive;
+            Ok(d.to_f64().unwrap_or(f64::NAN))
+        }
         XdmAtomicValue::UntypedAtomic(s) | XdmAtomicValue::String(s) | XdmAtomicValue::AnyUri(s) => {
             s.parse::<f64>().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid number"))
         }
@@ -1256,7 +1273,12 @@ pub(super) fn minmax_impl<N: crate::model::XdmNode>(
         }
         let out = match kind {
             NumericKind::Integer => XdmAtomicValue::Integer(acc_num as i64),
-            NumericKind::Decimal => XdmAtomicValue::Decimal(acc_num),
+            NumericKind::Decimal => {
+                use rust_decimal::prelude::FromPrimitive;
+                XdmAtomicValue::Decimal(
+                    rust_decimal::Decimal::from_f64(acc_num).unwrap_or(rust_decimal::Decimal::ZERO),
+                )
+            }
             NumericKind::Float => XdmAtomicValue::Float(acc_num as f32),
             NumericKind::Double => XdmAtomicValue::Double(acc_num),
         };
@@ -1367,7 +1389,10 @@ pub(super) fn classify_numeric(a: &XdmAtomicValue) -> Result<Option<(NumericKind
         NegativeInteger(i) => Some((NumericKind::Integer, *i as f64)),
         NonNegativeInteger(i) => Some((NumericKind::Integer, *i as f64)),
         PositiveInteger(i) => Some((NumericKind::Integer, *i as f64)),
-        Decimal(d) => Some((NumericKind::Decimal, *d)),
+        Decimal(d) => {
+            use rust_decimal::prelude::ToPrimitive;
+            Some((NumericKind::Decimal, d.to_f64().unwrap_or(0.0)))
+        }
         Float(f) => Some((NumericKind::Float, *f as f64)),
         Double(d) => Some((NumericKind::Double, *d)),
         UntypedAtomic(s) => {

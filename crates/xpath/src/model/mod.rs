@@ -173,7 +173,8 @@ fn lexical_cast(value: &XdmAtomicValue) -> String {
         UnsignedInt(u) => u.to_string(),
         UnsignedShort(u) => u.to_string(),
         UnsignedByte(u) => u.to_string(),
-        Decimal(d) | Double(d) => trim_float(*d),
+        Decimal(d) => d.normalize().to_string(),
+        Double(d) => trim_float(*d),
         Float(f) => trim_float(*f as f64),
         QName { ns_uri, prefix, local } => match (ns_uri, prefix) {
             (Some(ns), Some(pref)) => format!("{{{}}}{}:{}", ns, pref, local),

@@ -44,7 +44,7 @@ fn sum_decimals() {
     let result = evaluate_expr::<SimpleNode>("sum((1.5, 2.5, 3.0))", &ctx).unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => assert!((d - 7.0).abs() < 0.001),
+        XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => assert_eq!(*d, rust_decimal::Decimal::from(7)),
         _ => panic!("Expected decimal"),
     }
 }
@@ -55,7 +55,7 @@ fn sum_mixed_numeric_types() {
     let result = evaluate_expr::<SimpleNode>("sum((1, 2.5, 3))", &ctx).unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => assert!((d - 6.5).abs() < 0.001),
+        XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => assert_eq!(*d, rust_decimal::Decimal::from_str_exact("6.5").unwrap()),
         _ => panic!("Expected decimal"),
     }
 }
@@ -86,7 +86,7 @@ fn avg_single_value() {
     let result = evaluate_expr::<SimpleNode>("avg(42)", &ctx).unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Decimal(d)) if (*d as i64) == 42 => {}
+        XdmItem::Atomic(XdmAtomicValue::Decimal(d)) if (*d == rust_decimal::Decimal::from(42)) => {}
         XdmItem::Atomic(XdmAtomicValue::Integer(n)) if *n == 42 => {}
         _ => panic!("Expected 42"),
     }
@@ -98,7 +98,7 @@ fn avg_integers() {
     let result = evaluate_expr::<SimpleNode>("avg((1, 2, 3, 4, 5))", &ctx).unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => assert!((d - 3.0).abs() < 0.001),
+        XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => assert_eq!(*d, rust_decimal::Decimal::from(3)),
         _ => panic!("Expected decimal 3.0"),
     }
 }
@@ -110,7 +110,8 @@ fn avg_decimals() {
     assert_eq!(result.len(), 1);
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => {
-            assert!((d - 3.333).abs() < 0.01, "Expected ~3.333, got {}", d);
+            let expected = rust_decimal::Decimal::from_str_exact("3.333333333333333333333333333").unwrap();
+            assert!((d - expected).abs() < rust_decimal::Decimal::from_str_exact("0.01").unwrap(), "Expected ~3.333, got {}", d);
         }
         _ => panic!("Expected decimal"),
     }
@@ -241,7 +242,7 @@ fn combined_sum_avg() {
     let result = evaluate_expr::<SimpleNode>("let $sum := sum(1 to 10) return avg(1 to 10)", &ctx).unwrap();
     assert_eq!(result.len(), 1);
     match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => assert!((d - 5.5).abs() < 0.001),
+        XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => assert_eq!(*d, rust_decimal::Decimal::from_str_exact("5.5").unwrap()),
         _ => panic!("Expected decimal 5.5"),
     }
 }

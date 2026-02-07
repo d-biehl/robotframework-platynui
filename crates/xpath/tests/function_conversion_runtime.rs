@@ -574,7 +574,7 @@ fn seconds_from_duration_converts_untyped_atomic() {
     let result = evaluate::<SimpleNode>(&compiled, &ctx).expect("eval");
     assert_eq!(result.len(), 1);
     match &result[0] {
-        I::Atomic(A::Decimal(v)) => assert_eq!(*v, 12.0),
+        I::Atomic(A::Decimal(v)) => assert_eq!(*v, rust_decimal::Decimal::from(12)),
         other => panic!("unexpected result: {other:?}"),
     }
 }

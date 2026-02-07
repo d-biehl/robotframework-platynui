@@ -1022,9 +1022,10 @@ fn convert_integer_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
             V::Integer(val)
         }
         V::Decimal(d) => {
-            if d.fract() == 0.0 {
-                if d >= (i64::MIN as f64) && d <= (i64::MAX as f64) {
-                    V::Integer(d as i64)
+            use rust_decimal::prelude::ToPrimitive;
+            if d.fract().is_zero() {
+                if let Some(i) = d.to_i64() {
+                    V::Integer(i)
                 } else {
                     return Err(Error::from_code(ErrorCode::FOCA0001, "decimal value out of xs:integer range"));
                 }
@@ -1140,7 +1141,7 @@ fn convert_boolean_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
         }
         V::Double(d) => V::Boolean(d != 0.0 && !d.is_nan()),
         V::Float(f) => V::Boolean(f != 0.0 && !f.is_nan()),
-        V::Decimal(d) => V::Boolean(d != 0.0),
+        V::Decimal(d) => V::Boolean(!d.is_zero()),
         V::Integer(i) => V::Boolean(i != 0),
         V::Long(i) => V::Boolean(i != 0),
         V::Int(i) => V::Boolean(i != 0),
@@ -1165,7 +1166,10 @@ fn convert_double_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
     match a {
         V::Double(_) => Ok(a),
         V::Float(f) => Ok(V::Double(f as f64)),
-        V::Decimal(d) => Ok(V::Double(d)),
+        V::Decimal(d) => {
+            use rust_decimal::prelude::ToPrimitive;
+            Ok(V::Double(d.to_f64().unwrap_or(f64::NAN)))
+        }
         V::Integer(i) => Ok(V::Double(i as f64)),
         V::Long(i) => Ok(V::Double(i as f64)),
         V::Int(i) => Ok(V::Double(i as f64)),
@@ -1194,25 +1198,30 @@ fn convert_decimal_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
     use XdmAtomicValue as V;
     match a {
         V::Decimal(_) => Ok(a),
-        V::Integer(i) => Ok(V::Decimal(i as f64)),
-        V::Long(i) => Ok(V::Decimal(i as f64)),
-        V::Int(i) => Ok(V::Decimal(i as f64)),
-        V::Short(i) => Ok(V::Decimal(i as f64)),
-        V::Byte(i) => Ok(V::Decimal(i as f64)),
-        V::NonPositiveInteger(i) => Ok(V::Decimal(i as f64)),
-        V::NegativeInteger(i) => Ok(V::Decimal(i as f64)),
-        V::UnsignedLong(i) => Ok(V::Decimal(i as f64)),
-        V::UnsignedInt(i) => Ok(V::Decimal(i as f64)),
-        V::UnsignedShort(i) => Ok(V::Decimal(i as f64)),
-        V::UnsignedByte(i) => Ok(V::Decimal(i as f64)),
-        V::NonNegativeInteger(i) => Ok(V::Decimal(i as f64)),
-        V::PositiveInteger(i) => Ok(V::Decimal(i as f64)),
-        V::Double(d) => Ok(V::Decimal(d)),
-        V::Float(f) => Ok(V::Decimal(f as f64)),
+        V::Integer(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
+        V::Long(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
+        V::Int(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
+        V::Short(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i as i64))),
+        V::Byte(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i as i64))),
+        V::NonPositiveInteger(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
+        V::NegativeInteger(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
+        V::UnsignedLong(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
+        V::UnsignedInt(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
+        V::UnsignedShort(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i as u64))),
+        V::UnsignedByte(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i as u64))),
+        V::NonNegativeInteger(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
+        V::PositiveInteger(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
+        V::Double(d) => {
+            use rust_decimal::prelude::FromPrimitive;
+            Ok(V::Decimal(rust_decimal::Decimal::from_f64(d).unwrap_or(rust_decimal::Decimal::ZERO)))
+        }
+        V::Float(f) => {
+            use rust_decimal::prelude::FromPrimitive;
+            Ok(V::Decimal(rust_decimal::Decimal::from_f32(f).unwrap_or(rust_decimal::Decimal::ZERO)))
+        }
         V::UntypedAtomic(s) => {
-            let parsed = s
-                .trim()
-                .parse::<f64>()
+            use std::str::FromStr;
+            let parsed = rust_decimal::Decimal::from_str(s.trim())
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:decimal"))?;
             Ok(V::Decimal(parsed))
         }
@@ -1225,7 +1234,10 @@ fn convert_float_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
     match a {
         V::Float(_) => Ok(a),
         V::Double(d) => Ok(V::Float(d as f32)),
-        V::Decimal(d) => Ok(V::Float(d as f32)),
+        V::Decimal(d) => {
+            use rust_decimal::prelude::ToPrimitive;
+            Ok(V::Float(d.to_f32().unwrap_or(f32::NAN)))
+        }
         V::Integer(i) => Ok(V::Float(i as f32)),
         V::Long(i) => Ok(V::Float(i as f32)),
         V::Int(i) => Ok(V::Float(i as f32)),

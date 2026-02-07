@@ -23,23 +23,23 @@ fn minutes_from_datetime_basic(ctx: platynui_xpath::engine::runtime::DynamicCont
 fn seconds_from_datetime_basic(ctx: platynui_xpath::engine::runtime::DynamicContext<N>) {
     let s = evaluate_expr::<N>("seconds-from-dateTime(xs:dateTime('2020-01-02T03:04:05Z'))", &ctx).unwrap();
     match &s[0] {
-        XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Decimal(v)) => assert_eq!(*v, 5.0),
+        XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Decimal(v)) => assert_eq!(*v, rust_decimal::Decimal::from(5)),
         _ => panic!("expected decimal"),
     }
 }
 
 #[rstest]
-#[case("seconds-from-time(xs:time('10:11:12.125'))", 12.125)]
-#[case("seconds-from-dateTime(xs:dateTime('2020-01-02T03:04:05.007Z'))", 5.007)]
+#[case("seconds-from-time(xs:time('10:11:12.125'))", rust_decimal::Decimal::from_str_exact("12.125").unwrap())]
+#[case("seconds-from-dateTime(xs:dateTime('2020-01-02T03:04:05.007Z'))", rust_decimal::Decimal::from_str_exact("5.007").unwrap())]
 fn seconds_fractional_decimal(
     ctx: platynui_xpath::engine::runtime::DynamicContext<N>,
     #[case] expr: &str,
-    #[case] expected: f64,
+    #[case] expected: rust_decimal::Decimal,
 ) {
     let r = evaluate_expr::<N>(expr, &ctx).unwrap();
     match &r[0] {
         XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Decimal(v)) => {
-            assert!((*v - expected).abs() < 1e-12, "got {}", v)
+            assert_eq!(*v, expected, "got {}", v)
         }
         _ => panic!("expected decimal"),
     }

@@ -1,9 +1,10 @@
 use compact_str::CompactString;
+use rust_decimal::Decimal;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     Integer(i64),
-    Decimal(f64),
+    Decimal(Decimal),
     Double(f64),
     String(CompactString),
     Boolean(bool),

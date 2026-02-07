@@ -1,6 +1,7 @@
 use crate::model::{NodeKind, QName, XdmNode};
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use core::fmt;
+use rust_decimal::Decimal as RustDecimal;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExpandedName {
@@ -26,7 +27,7 @@ pub enum XdmAtomicValue {
     Boolean(bool),
     String(String),
     Integer(i64),
-    Decimal(f64),
+    Decimal(RustDecimal),
     Double(f64),
     Float(f32),
     AnyUri(String),
@@ -421,7 +422,7 @@ impl fmt::Display for XdmAtomicValue {
             Boolean(b) => write!(f, "{}", b),
             String(s) => write!(f, "\"{}\"", s),
             Integer(i) => write!(f, "{}", i),
-            Decimal(d) => write!(f, "{}D", d),
+            Decimal(d) => write!(f, "{}D", d.normalize()),
             Double(d) => write!(f, "{}E", d),
             Float(fl) => write!(f, "{}F", fl),
             AnyUri(u) => write!(f, "anyURI(\"{}\")", u),

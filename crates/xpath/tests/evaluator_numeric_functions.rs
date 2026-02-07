@@ -25,7 +25,7 @@ fn sum_atomizes_attribute_nodes() {
     assert_eq!(result.len(), 1, "sum should return single item");
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::Integer(v)) => assert_eq!(*v, 60),
-        XdmItem::Atomic(XdmAtomicValue::Decimal(v)) => assert_eq!(*v, 60.0),
+        XdmItem::Atomic(XdmAtomicValue::Decimal(v)) => assert_eq!(*v, rust_decimal::Decimal::from(60)),
         XdmItem::Atomic(XdmAtomicValue::Double(v)) => assert!((*v - 60.0).abs() < f64::EPSILON),
         other => panic!("unexpected sum result: {other:?}"),
     }
@@ -41,7 +41,7 @@ fn avg_atomizes_attribute_nodes() {
     assert_eq!(result.len(), 1, "avg should return single item");
     match &result[0] {
         XdmItem::Atomic(XdmAtomicValue::Integer(v)) => assert_eq!(*v, 20),
-        XdmItem::Atomic(XdmAtomicValue::Decimal(v)) => assert_eq!(*v, 20.0),
+        XdmItem::Atomic(XdmAtomicValue::Decimal(v)) => assert_eq!(*v, rust_decimal::Decimal::from(20)),
         XdmItem::Atomic(XdmAtomicValue::Double(v)) => assert!((*v - 20.0).abs() < f64::EPSILON),
         other => panic!("unexpected avg result: {other:?}"),
     }

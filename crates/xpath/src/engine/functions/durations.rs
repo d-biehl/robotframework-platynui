@@ -124,10 +124,10 @@ pub(super) fn seconds_from_duration_stream<N: 'static + crate::model::XdmNode + 
     let result = match &seq[0] {
         XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs)) => {
             let rem = *secs % 60;
-            vec![XdmItem::Atomic(XdmAtomicValue::Decimal(rem as f64))]
+            vec![XdmItem::Atomic(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(rem)))]
         }
         XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(_)) => {
-            vec![XdmItem::Atomic(XdmAtomicValue::Decimal(0.0))]
+            vec![XdmItem::Atomic(XdmAtomicValue::Decimal(rust_decimal::Decimal::ZERO))]
         }
         _ => {
             return Err(Error::from_code(ErrorCode::XPTY0004, "seconds-from-duration expects xs:duration"));

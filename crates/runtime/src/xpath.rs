@@ -721,7 +721,11 @@ fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
         String(s) | UntypedAtomic(s) | AnyUri(s) | NormalizedString(s) | Token(s) | Language(s) | Name(s)
         | NCName(s) | NMTOKEN(s) | Id(s) | IdRef(s) | Entity(s) | Notation(s) => UiValue::String(s.clone()),
         Integer(i) | Long(i) | NonPositiveInteger(i) | NegativeInteger(i) => UiValue::Integer(*i),
-        Decimal(d) | Double(d) => UiValue::Number(*d),
+        Decimal(d) => {
+            use rust_decimal::prelude::ToPrimitive;
+            UiValue::Number(d.to_f64().unwrap_or(f64::NAN))
+        }
+        Double(d) => UiValue::Number(*d),
         Float(f) => UiValue::Number(*f as f64),
         UnsignedLong(u) => UiValue::Integer(*u as i64),
         NonNegativeInteger(u) => UiValue::Integer(*u as i64),

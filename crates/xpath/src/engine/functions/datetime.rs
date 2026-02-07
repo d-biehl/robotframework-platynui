@@ -295,7 +295,10 @@ pub(super) fn seconds_from_datetime_stream<N: 'static + crate::model::XdmNode + 
     let result = match get_datetime(&seq)? {
         None => vec![],
         Some(dt) => {
-            let secs = dt.second() as f64 + (dt.nanosecond() as f64) / 1_000_000_000.0;
+            use rust_decimal::prelude::FromPrimitive;
+            let secs = rust_decimal::Decimal::from(dt.second() as i64)
+                + rust_decimal::Decimal::from_u32(dt.nanosecond()).unwrap_or(rust_decimal::Decimal::ZERO)
+                    / rust_decimal::Decimal::from(1_000_000_000);
             vec![XdmItem::Atomic(XdmAtomicValue::Decimal(secs))]
         }
     };
@@ -358,7 +361,10 @@ pub(super) fn seconds_from_time_stream<N: 'static + crate::model::XdmNode + Clon
     let result = match get_time(&seq)? {
         None => vec![],
         Some((time, _)) => {
-            let secs = time.second() as f64 + (time.nanosecond() as f64) / 1_000_000_000.0;
+            use rust_decimal::prelude::FromPrimitive;
+            let secs = rust_decimal::Decimal::from(time.second() as i64)
+                + rust_decimal::Decimal::from_u32(time.nanosecond()).unwrap_or(rust_decimal::Decimal::ZERO)
+                    / rust_decimal::Decimal::from(1_000_000_000);
             vec![XdmItem::Atomic(XdmAtomicValue::Decimal(secs))]
         }
     };

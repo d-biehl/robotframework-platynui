@@ -22,7 +22,7 @@ fn avg_mixed_cases(#[case] expr: &str, #[case] expected: f64) {
     let got = match v {
         XdmItem::Atomic(XdmAtomicValue::Double(d)) => *d,
         XdmItem::Atomic(XdmAtomicValue::Float(f)) => *f as f64,
-        XdmItem::Atomic(XdmAtomicValue::Decimal(dd)) => *dd,
+        XdmItem::Atomic(XdmAtomicValue::Decimal(dd)) => rust_decimal::prelude::ToPrimitive::to_f64(dd).unwrap(),
         XdmItem::Atomic(XdmAtomicValue::Integer(i)) => *i as f64,
         _ => panic!("expected numeric"),
     };

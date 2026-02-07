@@ -10,7 +10,7 @@ fn empty_ctx() -> DynamicContext<N> {
 }
 
 #[rstest]
-#[case("xs:decimal('12.5')", I::Atomic(A::Decimal(12.5)))]
+#[case("xs:decimal('12.5')", I::Atomic(A::Decimal(rust_decimal::Decimal::from_str_exact("12.5").unwrap())))]
 #[case("xs:float('INF')", I::Atomic(A::Float(f32::INFINITY)))]
 #[case("xs:double('-INF')", I::Atomic(A::Double(f64::NEG_INFINITY)))]
 fn xs_numeric_family_basic(#[case] expr: &str, #[case] expected: I<N>) {

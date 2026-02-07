@@ -14,7 +14,7 @@ fn d(expr: &str) -> f64 {
     match seq.first() {
         Some(XdmItem::Atomic(XdmAtomicValue::Double(v))) => *v,
         Some(XdmItem::Atomic(XdmAtomicValue::Float(v))) => *v as f64,
-        Some(XdmItem::Atomic(XdmAtomicValue::Decimal(v))) => *v,
+        Some(XdmItem::Atomic(XdmAtomicValue::Decimal(v))) => rust_decimal::prelude::ToPrimitive::to_f64(v).unwrap(),
         Some(XdmItem::Atomic(XdmAtomicValue::Integer(v))) => *v as f64,
         _ => panic!("expected numeric atomic"),
     }
@@ -44,7 +44,7 @@ fn avg_basic(#[case] expr: &str, #[case] expected: Option<f64>) {
             let got = match seq.first().expect("value") {
                 XdmItem::Atomic(XdmAtomicValue::Double(v)) => *v,
                 XdmItem::Atomic(XdmAtomicValue::Float(v)) => *v as f64,
-                XdmItem::Atomic(XdmAtomicValue::Decimal(v)) => *v,
+                XdmItem::Atomic(XdmAtomicValue::Decimal(v)) => rust_decimal::prelude::ToPrimitive::to_f64(v).unwrap(),
                 XdmItem::Atomic(XdmAtomicValue::Integer(v)) => *v as f64,
                 _ => panic!("expected numeric atomic"),
             };

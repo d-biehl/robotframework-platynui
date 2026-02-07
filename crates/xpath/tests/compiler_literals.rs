@@ -17,7 +17,7 @@ fn ir(src: &str, ctx: &StaticContext) -> InstrSeq {
 #[rstest]
 #[allow(clippy::approx_constant)]
 #[case("42", XdmAtomicValue::Integer(42))]
-#[case("3.14", XdmAtomicValue::Decimal(3.14))]
+#[case("3.14", XdmAtomicValue::Decimal(rust_decimal::Decimal::from_str_exact("3.14").unwrap()))]
 #[case("1e2", XdmAtomicValue::Double(100.0))]
 #[case("'x'", XdmAtomicValue::String("x".into()))]
 fn literals_lower(#[case] src: &str, #[case] expect: XdmAtomicValue, ctx: StaticContext) {

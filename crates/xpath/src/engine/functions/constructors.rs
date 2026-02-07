@@ -116,7 +116,11 @@ pub(super) fn xs_decimal_stream<N: 'static + crate::model::XdmNode + Clone>(
     if s.eq_ignore_ascii_case("nan") || s.eq_ignore_ascii_case("inf") || s.eq_ignore_ascii_case("-inf") {
         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"));
     }
-    let v: f64 = s.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?;
+    let v = {
+        use std::str::FromStr;
+        rust_decimal::Decimal::from_str(&s)
+            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?
+    };
     let result = vec![XdmItem::Atomic(XdmAtomicValue::Decimal(v))];
     Ok(XdmSequenceStream::from_vec(result))
 }

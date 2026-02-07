@@ -55,14 +55,14 @@ fn test_constant_folding_mod_integers() {
 fn test_constant_folding_add_doubles() {
     // 1.5 + 2.5 should fold to 4.0
     let ir = get_ir("1.5 + 2.5");
-    assert_single_push_atomic(&ir, XdmAtomicValue::Decimal(4.0));
+    assert_single_push_atomic(&ir, XdmAtomicValue::Decimal(rust_decimal::Decimal::from(4)));
 }
 
 #[test]
 fn test_constant_folding_mixed_integer_double() {
-    // 1 + 2.5 should fold to 3.5 (integer promoted to double)
+    // 1 + 2.5 should fold to 3.5 (integer promoted to decimal)
     let ir = get_ir("1 + 2.5");
-    assert_single_push_atomic(&ir, XdmAtomicValue::Decimal(3.5));
+    assert_single_push_atomic(&ir, XdmAtomicValue::Decimal(rust_decimal::Decimal::from_str_exact("3.5").unwrap()));
 }
 
 #[test]

@@ -24,7 +24,7 @@ fn eval_atomic(expr: &str) -> A {
 
 // === Numeric tower and cross casts ===
 #[rstest]
-#[case("xs:integer(10) cast as xs:decimal", A::Decimal(10.0))]
+#[case("xs:integer(10) cast as xs:decimal", A::Decimal(rust_decimal::Decimal::from(10)))]
 #[case("xs:integer(10) cast as xs:double", A::Double(10.0))]
 #[case("xs:decimal(10.5) cast as xs:double", A::Double(10.5))]
 #[case("xs:double(10.0) cast as xs:integer", A::Integer(10))]
@@ -33,7 +33,7 @@ fn numeric_basic(#[case] expr: &str, #[case] expected: A) {
     let got = eval_atomic(expr);
     match (got, expected) {
         (A::Integer(a), A::Integer(b)) => assert_eq!(a, b),
-        (A::Decimal(a), A::Decimal(b)) => assert!((a - b).abs() < 1e-9),
+        (A::Decimal(a), A::Decimal(b)) => assert_eq!(a, b),
         (A::Double(a), A::Double(b)) => assert!((a - b).abs() < 1e-12),
         other => panic!("type/value mismatch: {:?}", other),
     }
@@ -71,13 +71,13 @@ fn bool_to_integer(#[case] expr: &str) {
 // === String / UntypedAtomic to numerics ===
 #[rstest]
 #[case("'42' cast as xs:integer", A::Integer(42))]
-#[case("'3.5' cast as xs:decimal", A::Decimal(3.5))]
+#[case("'3.5' cast as xs:decimal", A::Decimal(rust_decimal::Decimal::from_str_exact("3.5").unwrap()))]
 #[case("'3.5' cast as xs:double", A::Double(3.5))]
 fn string_to_numeric_success(#[case] expr: &str, #[case] expected: A) {
     let got = eval_atomic(expr);
     match (got, expected) {
         (A::Integer(a), A::Integer(b)) => assert_eq!(a, b),
-        (A::Decimal(a), A::Decimal(b)) => assert!((a - b).abs() < 1e-9),
+        (A::Decimal(a), A::Decimal(b)) => assert_eq!(a, b),
         (A::Double(a), A::Double(b)) => assert!((a - b).abs() < 1e-12),
         other => panic!("mismatch {:?}", other),
     }

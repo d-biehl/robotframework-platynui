@@ -53,13 +53,13 @@ fn cast_integer_fraction_error() {
 }
 
 #[rstest]
-#[case("xs:decimal(10)", 10.0)]
-#[case("xs:decimal('10.5')", 10.5)]
-fn cast_decimal_basic(#[case] expr: &str, #[case] expected: f64) {
+#[case("xs:decimal(10)", rust_decimal::Decimal::from(10))]
+#[case("xs:decimal('10.5')", rust_decimal::Decimal::from_str_exact("10.5").unwrap())]
+fn cast_decimal_basic(#[case] expr: &str, #[case] expected: rust_decimal::Decimal) {
     let c = ctx();
     let r = evaluate_expr::<N>(expr, &c).unwrap();
     if let I::Atomic(A::Decimal(d)) = &r[0] {
-        assert!((*d - expected).abs() < 1e-9);
+        assert_eq!(*d, expected);
     } else {
         panic!("expected decimal");
     }

@@ -14,7 +14,7 @@ fn eval_double(expr: &str) -> Option<f64> {
     }
     match &seq[0] {
         I::Atomic(A::Double(d)) => Some(*d),
-        I::Atomic(A::Decimal(d)) => Some(*d),
+        I::Atomic(A::Decimal(d)) => Some(rust_decimal::prelude::ToPrimitive::to_f64(d).unwrap()),
         other => {
             panic!("Expected Double/Decimal, got {:?}", other);
         }

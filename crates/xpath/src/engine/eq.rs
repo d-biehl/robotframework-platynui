@@ -219,39 +219,12 @@ impl core::hash::Hash for EqKey {
     }
 }
 
-// Helper: strip trailing zeros from a decimal mantissa; scale adjusted accordingly.
-fn normalize_decimal(mut mantissa: i128, mut scale: i16) -> (i128, i16) {
-    if mantissa == 0 {
-        return (0, 0);
-    }
-    while scale > 0 && mantissa % 10 == 0 {
-        mantissa /= 10;
-        scale -= 1;
-    }
-    (mantissa, scale)
-}
-
-fn canonicalize_decimal(v: f64) -> DecimalKey {
-    // NOTE: Current Decimal storage uses f64 upstream. We approximate a mantissa/scale by
-    // formatting then stripping trailing zeros; this is a stop-gap until a BigDecimal /
-    // exact decimal representation is introduced. Accept minor risk of floating artifacts.
-    if v == 0.0 {
-        return DecimalKey { mantissa: 0, scale: 0 };
-    }
-    let s = format!("{v:.15}"); // high precision string
-    let trimmed = s.trim_end_matches('0').trim_end_matches('.');
-    if let Some(dot) = trimmed.find('.') {
-        // unlikely after trimming but safe guard
-        let int_part = &trimmed[..dot];
-        let frac_part = &trimmed[dot + 1..];
-        let scale = frac_part.len() as i16;
-        let digits = format!("{int_part}{frac_part}");
-        let mantissa: i128 = digits.parse().unwrap_or(0);
-        let (m, s) = normalize_decimal(mantissa, scale);
-        DecimalKey { mantissa: m, scale: s }
-    } else {
-        DecimalKey { mantissa: trimmed.parse().unwrap_or(0), scale: 0 }
-    }
+fn canonicalize_decimal(v: &rust_decimal::Decimal) -> DecimalKey {
+    // rust_decimal provides exact mantissa/scale, no string-format workaround needed
+    let normalized = v.normalize();
+    let mantissa = normalized.mantissa();
+    let scale = normalized.scale() as i16;
+    DecimalKey { mantissa, scale }
 }
 
 fn float_norm(f: f32) -> f32 {
@@ -329,7 +302,7 @@ fn numeric_key(a: &XdmAtomicValue) -> Option<NumericKey> {
         NonNegativeInteger(i) => NumericKey::Integer(*i as i128),
         PositiveInteger(i) => NumericKey::Integer(*i as i128),
         Decimal(d) => {
-            let dk = canonicalize_decimal(*d);
+            let dk = canonicalize_decimal(d);
             if dk.scale == 0 { NumericKey::Integer(dk.mantissa) } else { NumericKey::Decimal(dk) }
         }
         Float(f) if f.is_nan() => return None,
@@ -419,7 +392,7 @@ mod tests {
     #[test]
     fn integer_decimal_unify() {
         let k1 = atomic_eq_key(&XdmAtomicValue::Integer(10), None);
-        let k2 = atomic_eq_key(&XdmAtomicValue::Decimal(10.0), None);
+        let k2 = atomic_eq_key(&XdmAtomicValue::Decimal(rust_decimal::Decimal::from(10)), None);
         assert_eq!(k1, k2, "integer and decimal 10 should share key");
     }
 
