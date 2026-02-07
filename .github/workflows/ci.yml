@@ -80,6 +80,9 @@ jobs:
       - name: Test (Rust - nextest)
         run: cargo nextest run --workspace --no-fail-fast
 
+      - name: Clean rust build artifacts
+        run: cargo clean
+
       - name: sync Python environment (uv)
         run: uv sync --dev --all-packages --all-groups
 
