@@ -104,6 +104,28 @@ fn variables_and_functions() {
 }
 
 #[rstest]
+fn local_variadic_functions_resolve_with_default_namespace() {
+    let mut reg: FunctionImplementations<N> = FunctionImplementations::new();
+    reg.register_stream_local_variadic(
+        "localfn",
+        1,
+        |_ctx: &CallCtx<N>, args: &[XdmSequenceStream<N>]| -> Result<XdmSequenceStream<N>, Error> {
+            let count = args.len() as i64;
+            Ok(XdmSequenceStream::from_vec(vec![I::Atomic(A::Integer(count))]))
+        },
+    );
+
+    let dyn_ctx = DynamicContextBuilder::default().with_functions(std::rc::Rc::new(reg)).build();
+    let static_ctx = StaticContextBuilder::new()
+        .with_function_signature(ExpandedName { ns_uri: None, local: "localfn".to_string() }, 1, None)
+        .build();
+
+    let compiled = compile_with_context("localfn(1,2,3)", &static_ctx).unwrap();
+    let out = evaluate::<N>(&compiled, &dyn_ctx).unwrap();
+    assert_eq!(out, vec![I::Atomic(A::Integer(3))]);
+}
+
+#[rstest]
 fn predicates_filter() {
     let out = evaluate_expr::<N>("(1,2,3)[. gt 1]", &ctx());
     // Node axes not implemented, but predicate on sequence should work (atomization + EBV)

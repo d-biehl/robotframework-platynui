@@ -121,6 +121,8 @@ pub type FunctionStreamOverload<N> = (Arity, Option<Arity>, FunctionStreamImpl<N
 pub type FunctionStreamOverloads<N> = Vec<FunctionStreamOverload<N>>;
 
 pub(crate) const STATIC_CONTEXT_COMPILE_CACHE_CAPACITY: usize = 20;
+const REGEX_CACHE_CAPACITY: usize = 256;
+const REGEX_MAX_PATTERN_LEN: usize = 4096;
 
 pub struct FunctionImplementations<N> {
     stream_fns: HashMap<ExpandedName, FunctionStreamOverloads<N>>,
@@ -278,12 +280,17 @@ impl<N> FunctionImplementations<N> {
         };
         let effective: &ExpandedName = effective_buf.as_ref().unwrap_or(name);
 
-        // Try exact match on original name first (for no-namespace functions)
-        if let Some(cands) = self.stream_fns.get(name)
-            && let Some((_, _, f)) =
+        // Try original (no-namespace) name first, including range/variadic matches.
+        if let Some(cands) = self.stream_fns.get(name) {
+            if let Some((_, _, f)) =
                 cands.iter().find(|(min, max, _)| *min == arity && matches!(max, Some(m) if *m == arity))
-        {
-            return Some(f);
+            {
+                return Some(f);
+            }
+            if let Some((_, _, f)) = cands.iter().find(|(min, max, _)| arity >= *min && max.is_none_or(|m| arity <= m))
+            {
+                return Some(f);
+            }
         }
 
         // Try effective name with range matching
@@ -314,11 +321,18 @@ pub struct FancyRegexProvider;
 
 impl FancyRegexProvider {
     fn build_with_flags(pattern: &str, flags: &str) -> Result<Rc<fancy_regex::Regex>, Error> {
+        if pattern.len() > REGEX_MAX_PATTERN_LEN {
+            return Err(Error::from_code(ErrorCode::FORX0002, "regex pattern too long"));
+        }
         thread_local! {
-            static REGEX_CACHE: std::cell::RefCell<HashMap<(String, String), Rc<fancy_regex::Regex>>> = Default::default();
+            static REGEX_CACHE: std::cell::RefCell<LruCache<(String, String), Rc<fancy_regex::Regex>>> = {
+                let cap = NonZeroUsize::new(REGEX_CACHE_CAPACITY)
+                    .unwrap_or_else(|| NonZeroUsize::new(1).expect("1 is a valid non-zero size"));
+                std::cell::RefCell::new(LruCache::new(cap))
+            };
         }
         let key = (pattern.to_string(), flags.to_string());
-        if let Some(found) = REGEX_CACHE.with(|cell| cell.borrow().get(&key).cloned()) {
+        if let Some(found) = REGEX_CACHE.with(|cell| cell.borrow_mut().get(&key).cloned()) {
             return Ok(found);
         }
 
@@ -348,7 +362,7 @@ impl FancyRegexProvider {
                 .with_source(Some(Arc::new(e) as Arc<dyn std::error::Error + Send + Sync>))
         })?;
         let rc = Rc::new(compiled);
-        REGEX_CACHE.with(|cell| cell.borrow_mut().insert(key, rc.clone()));
+        REGEX_CACHE.with(|cell| cell.borrow_mut().put(key, rc.clone()));
         Ok(rc)
     }
 }
