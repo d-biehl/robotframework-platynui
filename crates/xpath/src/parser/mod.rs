@@ -197,8 +197,7 @@ fn build_numeric_literal(pair: Pair<Rule>) -> AstResult<ast::Literal> {
             Ok(ast::Literal::Integer(v))
         }
         Rule::decimal_literal => {
-            let v: rust_decimal::Decimal =
-                text.parse().map_err(|e| ParseAstError::new(format!("bad decimal: {e}")))?;
+            let v: rust_decimal::Decimal = text.parse().map_err(|e| ParseAstError::new(format!("bad decimal: {e}")))?;
             Ok(ast::Literal::Decimal(v))
         }
         Rule::double_literal => {

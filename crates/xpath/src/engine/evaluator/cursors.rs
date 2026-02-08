@@ -7,9 +7,7 @@ use smallvec::SmallVec;
 use std::collections::{HashSet, VecDeque};
 use string_cache::DefaultAtom;
 
-use crate::compiler::ir::{
-    AxisIR, ComparisonOp, InstrSeq, NameOrWildcard, NodeTestIR, OpCode, QuantifierKind,
-};
+use crate::compiler::ir::{AxisIR, ComparisonOp, InstrSeq, NameOrWildcard, NodeTestIR, OpCode, QuantifierKind};
 use crate::engine::runtime::{Error, ErrorCode};
 use crate::model::{NodeKind, XdmNode};
 use crate::xdm::{ExpandedName, SequenceCursor, XdmAtomicValue, XdmItem, XdmItemResult, XdmSequenceStream};
@@ -1642,8 +1640,8 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for EnsureOrderCursor<N> {
 
                     if ok {
                         // emit previous, shift window
-                        let to_emit = self.pending.replace(next.clone())
-                            .expect("pending must be Some in monotonic node branch");
+                        let to_emit =
+                            self.pending.replace(next.clone()).expect("pending must be Some in monotonic node branch");
                         self.last_key = cur_n.doc_order_key();
                         self.last_node = Some(cur_n.clone());
                         return Some(Ok(to_emit));
@@ -1662,8 +1660,7 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for EnsureOrderCursor<N> {
                             return Some(Ok(next));
                         } else {
                             // disorder beyond simple adjacent inversion → fallback
-                            let first = self.pending.take()
-                                .expect("pending must be Some before fallback switch");
+                            let first = self.pending.take().expect("pending must be Some before fallback switch");
                             if let Err(e) = self.switch_to_fallback(first, next) {
                                 return Some(Err(e));
                             }
@@ -1673,8 +1670,7 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for EnsureOrderCursor<N> {
                 }
                 (Some(_prev), _) => {
                     // Non-node items: emit previous, shift window
-                    let to_emit = self.pending.replace(next)
-                        .expect("pending must be Some in non-node emit branch");
+                    let to_emit = self.pending.replace(next).expect("pending must be Some in non-node emit branch");
                     self.last_key = None;
                     self.last_node = None;
                     return Some(Ok(to_emit));

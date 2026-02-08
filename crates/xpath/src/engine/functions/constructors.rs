@@ -118,8 +118,7 @@ pub(super) fn xs_decimal_stream<N: 'static + crate::model::XdmNode + Clone>(
     }
     let v = {
         use std::str::FromStr;
-        rust_decimal::Decimal::from_str(&s)
-            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?
+        rust_decimal::Decimal::from_str(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?
     };
     let result = vec![XdmItem::Atomic(XdmAtomicValue::Decimal(v))];
     Ok(XdmSequenceStream::from_vec(result))

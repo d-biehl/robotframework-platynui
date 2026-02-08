@@ -53,7 +53,11 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
     }
 
     /// Stream variant of union: consumes streams, collects nodes, then sorts/dedups.
-    pub(crate) fn set_union_stream(&mut self, a: XdmSequenceStream<N>, b: XdmSequenceStream<N>) -> Result<XdmSequence<N>, Error> {
+    pub(crate) fn set_union_stream(
+        &mut self,
+        a: XdmSequenceStream<N>,
+        b: XdmSequenceStream<N>,
+    ) -> Result<XdmSequence<N>, Error> {
         // Pre-size using a conservative guess (streams may not expose exact len)
         let mut nodes: Vec<N> = Vec::new();
 
@@ -118,7 +122,11 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
     }
 
     /// Stream variant of except: consumes streams, sorts/dedups, then computes difference.
-    pub(crate) fn set_except_stream(&mut self, a: XdmSequenceStream<N>, b: XdmSequenceStream<N>) -> Result<XdmSequence<N>, Error> {
+    pub(crate) fn set_except_stream(
+        &mut self,
+        a: XdmSequenceStream<N>,
+        b: XdmSequenceStream<N>,
+    ) -> Result<XdmSequence<N>, Error> {
         let a_nodes = self.collect_nodes_from_stream(a)?;
         let lhs = self.sorted_distinct_nodes_vec(a_nodes)?;
         let b_nodes = self.collect_nodes_from_stream(b)?;

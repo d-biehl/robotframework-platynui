@@ -1,13 +1,13 @@
 //! Atomic value comparison for XPath 2.0 value and general comparisons.
 
-use chrono::TimeZone;
 use crate::compiler::ir::ComparisonOp;
 use crate::engine::runtime::{Error, ErrorCode};
 use crate::model::XdmNode;
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
+use chrono::TimeZone;
 
-use super::numeric::{classify, unify_numeric};
 use super::Vm;
+use super::numeric::{classify, unify_numeric};
 
 impl<N: 'static + XdmNode + Clone> Vm<N> {
     pub(crate) fn atomize(seq: XdmSequence<N>) -> XdmSequence<N> {

@@ -3,9 +3,7 @@ use crate::engine::runtime::{
     CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations, ItemTypeSpec, Occurrence, ParamTypeSpec,
 };
 use crate::model::XdmNode;
-use crate::xdm::{
-    ExpandedName, SequenceCursor, XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream,
-};
+use crate::xdm::{ExpandedName, SequenceCursor, XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
 use chrono::Duration as ChronoDuration;
 use chrono::{FixedOffset as ChronoFixedOffset, Offset, TimeZone};
 use smallvec::SmallVec;
@@ -24,10 +22,10 @@ mod type_check;
 mod xml_helpers;
 
 use cursors::{
-    AtomizeCursor, AxisStepCursor, DistinctCursor, EnsureOrderCursor, ForLoopCursor, PathStepCursor,
-    PredicateCursor, QuantLoopCursor, TreatCursor,
+    AtomizeCursor, AxisStepCursor, DistinctCursor, EnsureOrderCursor, ForLoopCursor, PathStepCursor, PredicateCursor,
+    QuantLoopCursor, TreatCursor,
 };
-use numeric::{classify, unify_numeric, NumKind};
+use numeric::{NumKind, classify, unify_numeric};
 
 /// Evaluates a compiled XPath expression against a dynamic context.
 ///
@@ -1000,13 +998,18 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                     if sum >= i64::MIN as i128 && sum <= i64::MAX as i128 {
                                         self.push_seq(vec![XdmItem::Atomic(V::Integer(sum as i64))]);
                                     } else {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(rust_decimal::Decimal::from_i128_with_scale(sum, 0)))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(
+                                            rust_decimal::Decimal::from_i128_with_scale(sum, 0),
+                                        ))]);
                                     }
                                     ip += 1;
                                     pushed = true;
                                 } else {
                                     // i128 overflow (extremely rare) → promote to decimal
-                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(rust_decimal::Decimal::from_i128_with_scale(ai, 0) + rust_decimal::Decimal::from_i128_with_scale(bi, 0)))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(
+                                        rust_decimal::Decimal::from_i128_with_scale(ai, 0)
+                                            + rust_decimal::Decimal::from_i128_with_scale(bi, 0),
+                                    ))]);
                                     ip += 1;
                                     pushed = true;
                                 }
@@ -1016,12 +1019,17 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                     if diff >= i64::MIN as i128 && diff <= i64::MAX as i128 {
                                         self.push_seq(vec![XdmItem::Atomic(V::Integer(diff as i64))]);
                                     } else {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(rust_decimal::Decimal::from_i128_with_scale(diff, 0)))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(
+                                            rust_decimal::Decimal::from_i128_with_scale(diff, 0),
+                                        ))]);
                                     }
                                     ip += 1;
                                     pushed = true;
                                 } else {
-                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(rust_decimal::Decimal::from_i128_with_scale(ai, 0) - rust_decimal::Decimal::from_i128_with_scale(bi, 0)))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(
+                                        rust_decimal::Decimal::from_i128_with_scale(ai, 0)
+                                            - rust_decimal::Decimal::from_i128_with_scale(bi, 0),
+                                    ))]);
                                     ip += 1;
                                     pushed = true;
                                 }
@@ -1031,12 +1039,17 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                     if prod >= i64::MIN as i128 && prod <= i64::MAX as i128 {
                                         self.push_seq(vec![XdmItem::Atomic(V::Integer(prod as i64))]);
                                     } else {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(rust_decimal::Decimal::from_i128_with_scale(prod, 0)))]);
+                                        self.push_seq(vec![XdmItem::Atomic(V::Decimal(
+                                            rust_decimal::Decimal::from_i128_with_scale(prod, 0),
+                                        ))]);
                                     }
                                     ip += 1;
                                     pushed = true;
                                 } else {
-                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(rust_decimal::Decimal::from_i128_with_scale(ai, 0) * rust_decimal::Decimal::from_i128_with_scale(bi, 0)))]);
+                                    self.push_seq(vec![XdmItem::Atomic(V::Decimal(
+                                        rust_decimal::Decimal::from_i128_with_scale(ai, 0)
+                                            * rust_decimal::Decimal::from_i128_with_scale(bi, 0),
+                                    ))]);
                                     ip += 1;
                                     pushed = true;
                                 }
@@ -1088,14 +1101,11 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     // Decimal-specialized path: exact arithmetic using rust_decimal
                     // Also handles integer division (which yields xs:decimal per XPath 2.0)
                     if matches!(promoted_kind, Dec(_))
-                        || (matches!(promoted_kind, Int(_))
-                            && matches!(&ops[ip], OpCode::Div))
+                        || (matches!(promoted_kind, Int(_)) && matches!(&ops[ip], OpCode::Div))
                     {
                         let (ad, bd) = match (ua, ub) {
                             (Dec(x), Dec(y)) => (x, y),
-                            (Int(x), Int(y)) => {
-                                (rust_decimal::Decimal::from(x), rust_decimal::Decimal::from(y))
-                            }
+                            (Int(x), Int(y)) => (rust_decimal::Decimal::from(x), rust_decimal::Decimal::from(y)),
                             _ => unreachable!("decimal arithmetic path entered with non-decimal/integer operands"),
                         };
                         let op = &ops[ip];
@@ -1105,36 +1115,24 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             OpCode::Mul => V::Decimal(ad * bd),
                             OpCode::Div => {
                                 if bd.is_zero() {
-                                    return Err(Error::from_code(
-                                        ErrorCode::FOAR0001,
-                                        "divide by zero",
-                                    ));
+                                    return Err(Error::from_code(ErrorCode::FOAR0001, "divide by zero"));
                                 }
                                 V::Decimal(ad / bd)
                             }
                             OpCode::IDiv => {
                                 if bd.is_zero() {
-                                    return Err(Error::from_code(
-                                        ErrorCode::FOAR0001,
-                                        "idiv by zero",
-                                    ));
+                                    return Err(Error::from_code(ErrorCode::FOAR0001, "idiv by zero"));
                                 }
                                 use rust_decimal::prelude::ToPrimitive;
                                 let q = (ad / bd).floor();
                                 let qi = q.to_i64().ok_or_else(|| {
-                                    Error::from_code(
-                                        ErrorCode::FOAR0002,
-                                        "idiv result overflows xs:integer range",
-                                    )
+                                    Error::from_code(ErrorCode::FOAR0002, "idiv result overflows xs:integer range")
                                 })?;
                                 V::Integer(qi)
                             }
                             OpCode::Mod => {
                                 if bd.is_zero() {
-                                    return Err(Error::from_code(
-                                        ErrorCode::FOAR0001,
-                                        "mod by zero",
-                                    ));
+                                    return Err(Error::from_code(ErrorCode::FOAR0001, "mod by zero"));
                                 }
                                 // XPath mod: a - b * floor(a div b)
                                 let q = (ad / bd).floor();

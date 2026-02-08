@@ -8,26 +8,19 @@ use crate::model::XdmNode;
 use crate::util::temporal::{parse_g_day, parse_g_month, parse_g_month_day, parse_g_year, parse_g_year_month};
 use crate::xdm::{ExpandedName, XdmAtomicValue};
 
-use super::xml_helpers::{
-    collapse_xml_whitespace, decode_hex, encode_hex_upper, is_valid_language, is_valid_name,
-    is_valid_nmtoken, replace_xml_whitespace, string_like_value,
-};
 use super::Vm;
+use super::xml_helpers::{
+    collapse_xml_whitespace, decode_hex, encode_hex_upper, is_valid_language, is_valid_name, is_valid_nmtoken,
+    replace_xml_whitespace, string_like_value,
+};
 
 impl<N: 'static + XdmNode + Clone> Vm<N> {
-    pub(crate) fn cast_atomic(
-        &self,
-        a: XdmAtomicValue,
-        target: &ExpandedName,
-    ) -> Result<XdmAtomicValue, Error> {
+    pub(crate) fn cast_atomic(&self, a: XdmAtomicValue, target: &ExpandedName) -> Result<XdmAtomicValue, Error> {
         // Namespace check: only xs:* types supported
         if let Some(ns) = &target.ns_uri {
             let xs_ns = crate::consts::XS;
             if ns.as_str() != xs_ns {
-                return Err(Error::from_code(
-                    ErrorCode::XPTY0004,
-                    "unsupported cast target namespace",
-                ));
+                return Err(Error::from_code(ErrorCode::XPTY0004, "unsupported cast target namespace"));
             }
         }
         match target.local.as_str() {
@@ -52,10 +45,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         "true" | "1" => true,
                         "false" | "0" => false,
                         _ => {
-                            return Err(Error::from_code(
-                                ErrorCode::FORG0001,
-                                "invalid boolean lexical form",
-                            ));
+                            return Err(Error::from_code(ErrorCode::FORG0001, "invalid boolean lexical form"));
                         }
                     };
                     Ok(XdmAtomicValue::Boolean(b))
@@ -65,8 +55,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::Integer(v) => Ok(XdmAtomicValue::Integer(v)),
                 other => {
                     let value = self.integer_from_atomic(&other, "xs:integer")?;
-                    let bounded =
-                        self.ensure_range_i128(value, i64::MIN as i128, i64::MAX as i128, "xs:integer")?;
+                    let bounded = self.ensure_range_i128(value, i64::MIN as i128, i64::MAX as i128, "xs:integer")?;
                     Ok(XdmAtomicValue::Integer(bounded as i64))
                 }
             },
@@ -75,36 +64,16 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::Integer(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
                 XdmAtomicValue::Long(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
                 XdmAtomicValue::Int(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
-                XdmAtomicValue::Short(i) => {
-                    Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i as i64)))
-                }
-                XdmAtomicValue::Byte(i) => {
-                    Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i as i64)))
-                }
-                XdmAtomicValue::NonPositiveInteger(i) => {
-                    Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i)))
-                }
-                XdmAtomicValue::NegativeInteger(i) => {
-                    Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i)))
-                }
-                XdmAtomicValue::NonNegativeInteger(i) => {
-                    Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i)))
-                }
-                XdmAtomicValue::PositiveInteger(i) => {
-                    Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i)))
-                }
-                XdmAtomicValue::UnsignedLong(i) => {
-                    Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i)))
-                }
-                XdmAtomicValue::UnsignedInt(i) => {
-                    Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i)))
-                }
-                XdmAtomicValue::UnsignedShort(i) => {
-                    Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i as u64)))
-                }
-                XdmAtomicValue::UnsignedByte(i) => {
-                    Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i as u64)))
-                }
+                XdmAtomicValue::Short(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i as i64))),
+                XdmAtomicValue::Byte(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i as i64))),
+                XdmAtomicValue::NonPositiveInteger(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::NegativeInteger(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::NonNegativeInteger(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::PositiveInteger(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::UnsignedLong(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::UnsignedInt(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i))),
+                XdmAtomicValue::UnsignedShort(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i as u64))),
+                XdmAtomicValue::UnsignedByte(i) => Ok(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(i as u64))),
                 XdmAtomicValue::Double(d) => {
                     if d.is_finite() {
                         use rust_decimal::prelude::FromPrimitive;
@@ -167,9 +136,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         "NaN" | "nan" => f64::NAN,
                         "INF" | "inf" => f64::INFINITY,
                         "-INF" | "-inf" => f64::NEG_INFINITY,
-                        _ => trimmed
-                            .parse()
-                            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:double"))?,
+                        _ => trimmed.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:double"))?,
                     };
                     Ok(XdmAtomicValue::Double(value))
                 }
@@ -201,9 +168,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         "NaN" | "nan" => f32::NAN,
                         "INF" | "inf" => f32::INFINITY,
                         "-INF" | "-inf" => f32::NEG_INFINITY,
-                        _ => trimmed
-                            .parse()
-                            .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:float"))?,
+                        _ => trimmed.parse().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:float"))?,
                     };
                     Ok(XdmAtomicValue::Float(value))
                 }
@@ -212,8 +177,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::Long(v) => Ok(XdmAtomicValue::Long(v)),
                 other => {
                     let value = self.integer_from_atomic(&other, "xs:long")?;
-                    let bounded =
-                        self.ensure_range_i128(value, i64::MIN as i128, i64::MAX as i128, "xs:long")?;
+                    let bounded = self.ensure_range_i128(value, i64::MIN as i128, i64::MAX as i128, "xs:long")?;
                     Ok(XdmAtomicValue::Long(bounded as i64))
                 }
             },
@@ -221,8 +185,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::Int(v) => Ok(XdmAtomicValue::Int(v)),
                 other => {
                     let value = self.integer_from_atomic(&other, "xs:int")?;
-                    let bounded =
-                        self.ensure_range_i128(value, i32::MIN as i128, i32::MAX as i128, "xs:int")?;
+                    let bounded = self.ensure_range_i128(value, i32::MIN as i128, i32::MAX as i128, "xs:int")?;
                     Ok(XdmAtomicValue::Int(bounded as i32))
                 }
             },
@@ -230,8 +193,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::Short(v) => Ok(XdmAtomicValue::Short(v)),
                 other => {
                     let value = self.integer_from_atomic(&other, "xs:short")?;
-                    let bounded =
-                        self.ensure_range_i128(value, i16::MIN as i128, i16::MAX as i128, "xs:short")?;
+                    let bounded = self.ensure_range_i128(value, i16::MIN as i128, i16::MAX as i128, "xs:short")?;
                     Ok(XdmAtomicValue::Short(bounded as i16))
                 }
             },
@@ -239,8 +201,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::Byte(v) => Ok(XdmAtomicValue::Byte(v)),
                 other => {
                     let value = self.integer_from_atomic(&other, "xs:byte")?;
-                    let bounded =
-                        self.ensure_range_i128(value, i8::MIN as i128, i8::MAX as i128, "xs:byte")?;
+                    let bounded = self.ensure_range_i128(value, i8::MIN as i128, i8::MAX as i128, "xs:byte")?;
                     Ok(XdmAtomicValue::Byte(bounded as i8))
                 }
             },
@@ -248,8 +209,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::UnsignedLong(v) => Ok(XdmAtomicValue::UnsignedLong(v)),
                 other => {
                     let value = self.unsigned_from_atomic(&other, "xs:unsignedLong")?;
-                    let bounded =
-                        self.ensure_range_u128(value, 0, u64::MAX as u128, "xs:unsignedLong")?;
+                    let bounded = self.ensure_range_u128(value, 0, u64::MAX as u128, "xs:unsignedLong")?;
                     Ok(XdmAtomicValue::UnsignedLong(bounded as u64))
                 }
             },
@@ -257,8 +217,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::UnsignedInt(v) => Ok(XdmAtomicValue::UnsignedInt(v)),
                 other => {
                     let value = self.unsigned_from_atomic(&other, "xs:unsignedInt")?;
-                    let bounded =
-                        self.ensure_range_u128(value, 0, u32::MAX as u128, "xs:unsignedInt")?;
+                    let bounded = self.ensure_range_u128(value, 0, u32::MAX as u128, "xs:unsignedInt")?;
                     Ok(XdmAtomicValue::UnsignedInt(bounded as u32))
                 }
             },
@@ -266,8 +225,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::UnsignedShort(v) => Ok(XdmAtomicValue::UnsignedShort(v)),
                 other => {
                     let value = self.unsigned_from_atomic(&other, "xs:unsignedShort")?;
-                    let bounded =
-                        self.ensure_range_u128(value, 0, u16::MAX as u128, "xs:unsignedShort")?;
+                    let bounded = self.ensure_range_u128(value, 0, u16::MAX as u128, "xs:unsignedShort")?;
                     Ok(XdmAtomicValue::UnsignedShort(bounded as u16))
                 }
             },
@@ -275,8 +233,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::UnsignedByte(v) => Ok(XdmAtomicValue::UnsignedByte(v)),
                 other => {
                     let value = self.unsigned_from_atomic(&other, "xs:unsignedByte")?;
-                    let bounded =
-                        self.ensure_range_u128(value, 0, u8::MAX as u128, "xs:unsignedByte")?;
+                    let bounded = self.ensure_range_u128(value, 0, u8::MAX as u128, "xs:unsignedByte")?;
                     Ok(XdmAtomicValue::UnsignedByte(bounded as u8))
                 }
             },
@@ -290,8 +247,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             "value must be <= 0 for xs:nonPositiveInteger",
                         ));
                     }
-                    let bounded =
-                        self.ensure_range_i128(value, i64::MIN as i128, 0, "xs:nonPositiveInteger")?;
+                    let bounded = self.ensure_range_i128(value, i64::MIN as i128, 0, "xs:nonPositiveInteger")?;
                     Ok(XdmAtomicValue::NonPositiveInteger(bounded as i64))
                 }
             },
@@ -300,13 +256,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 other => {
                     let value = self.integer_from_atomic(&other, "xs:negativeInteger")?;
                     if value >= 0 {
-                        return Err(Error::from_code(
-                            ErrorCode::FORG0001,
-                            "value must be < 0 for xs:negativeInteger",
-                        ));
+                        return Err(Error::from_code(ErrorCode::FORG0001, "value must be < 0 for xs:negativeInteger"));
                     }
-                    let bounded =
-                        self.ensure_range_i128(value, i64::MIN as i128, -1, "xs:negativeInteger")?;
+                    let bounded = self.ensure_range_i128(value, i64::MIN as i128, -1, "xs:negativeInteger")?;
                     Ok(XdmAtomicValue::NegativeInteger(bounded as i64))
                 }
             },
@@ -314,8 +266,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::NonNegativeInteger(v) => Ok(XdmAtomicValue::NonNegativeInteger(v)),
                 other => {
                     let value = self.unsigned_from_atomic(&other, "xs:nonNegativeInteger")?;
-                    let bounded =
-                        self.ensure_range_u128(value, 0, u64::MAX as u128, "xs:nonNegativeInteger")?;
+                    let bounded = self.ensure_range_u128(value, 0, u64::MAX as u128, "xs:nonNegativeInteger")?;
                     Ok(XdmAtomicValue::NonNegativeInteger(bounded as u64))
                 }
             },
@@ -324,13 +275,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 other => {
                     let value = self.unsigned_from_atomic(&other, "xs:positiveInteger")?;
                     if value == 0 {
-                        return Err(Error::from_code(
-                            ErrorCode::FORG0001,
-                            "value must be > 0 for xs:positiveInteger",
-                        ));
+                        return Err(Error::from_code(ErrorCode::FORG0001, "value must be > 0 for xs:positiveInteger"));
                     }
-                    let bounded =
-                        self.ensure_range_u128(value, 1, u64::MAX as u128, "xs:positiveInteger")?;
+                    let bounded = self.ensure_range_u128(value, 1, u64::MAX as u128, "xs:positiveInteger")?;
                     Ok(XdmAtomicValue::PositiveInteger(bounded as u64))
                 }
             },
@@ -342,24 +289,12 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 }
             },
             "QName" => match a {
-                XdmAtomicValue::QName {
-                    ns_uri,
-                    prefix,
-                    local,
-                } => Ok(XdmAtomicValue::QName {
-                    ns_uri,
-                    prefix,
-                    local,
-                }),
+                XdmAtomicValue::QName { ns_uri, prefix, local } => Ok(XdmAtomicValue::QName { ns_uri, prefix, local }),
                 other => {
                     let text = self.require_string_like(&other, "xs:QName")?;
                     let (prefix, local) = parse_qname_lexical(&text)
                         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"))?;
-                    Ok(XdmAtomicValue::QName {
-                        ns_uri: None,
-                        prefix,
-                        local,
-                    })
+                    Ok(XdmAtomicValue::QName { ns_uri: None, prefix, local })
                 }
             },
             "NOTATION" => match a {
@@ -384,10 +319,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     let text = self.require_string_like(&other, "xs:base64Binary")?;
                     let normalized: String = text.chars().filter(|c| !c.is_whitespace()).collect();
                     if BASE64_STANDARD.decode(normalized.as_bytes()).is_err() {
-                        return Err(Error::from_code(
-                            ErrorCode::FORG0001,
-                            "invalid xs:base64Binary",
-                        ));
+                        return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:base64Binary"));
                     }
                     Ok(XdmAtomicValue::Base64Binary(normalized))
                 }
@@ -553,15 +485,13 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::GYear { year, tz } => Ok(XdmAtomicValue::GYear { year, tz }),
                 other => {
                     let text = self.require_string_like(&other, "xs:gYear")?;
-                    let (year, tz) = parse_g_year(&text)
-                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYear"))?;
+                    let (year, tz) =
+                        parse_g_year(&text).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYear"))?;
                     Ok(XdmAtomicValue::GYear { year, tz })
                 }
             },
             "gYearMonth" => match a {
-                XdmAtomicValue::GYearMonth { year, month, tz } => {
-                    Ok(XdmAtomicValue::GYearMonth { year, month, tz })
-                }
+                XdmAtomicValue::GYearMonth { year, month, tz } => Ok(XdmAtomicValue::GYearMonth { year, month, tz }),
                 other => {
                     let text = self.require_string_like(&other, "xs:gYearMonth")?;
                     let (year, month, tz) = parse_g_year_month(&text)
@@ -573,15 +503,13 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::GMonth { month, tz } => Ok(XdmAtomicValue::GMonth { month, tz }),
                 other => {
                     let text = self.require_string_like(&other, "xs:gMonth")?;
-                    let (month, tz) = parse_g_month(&text)
-                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonth"))?;
+                    let (month, tz) =
+                        parse_g_month(&text).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonth"))?;
                     Ok(XdmAtomicValue::GMonth { month, tz })
                 }
             },
             "gMonthDay" => match a {
-                XdmAtomicValue::GMonthDay { month, day, tz } => {
-                    Ok(XdmAtomicValue::GMonthDay { month, day, tz })
-                }
+                XdmAtomicValue::GMonthDay { month, day, tz } => Ok(XdmAtomicValue::GMonthDay { month, day, tz }),
                 other => {
                     let text = self.require_string_like(&other, "xs:gMonthDay")?;
                     let (month, day, tz) = parse_g_month_day(&text)
@@ -593,8 +521,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::GDay { day, tz } => Ok(XdmAtomicValue::GDay { day, tz }),
                 other => {
                     let text = self.require_string_like(&other, "xs:gDay")?;
-                    let (day, tz) = parse_g_day(&text)
-                        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gDay"))?;
+                    let (day, tz) =
+                        parse_g_day(&text).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gDay"))?;
                     Ok(XdmAtomicValue::GDay { day, tz })
                 }
             },
@@ -605,10 +533,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
     fn parse_integer_string(&self, text: &str, target: &str) -> Result<i128, Error> {
         let trimmed = text.trim();
         if trimmed.is_empty() {
-            return Err(Error::from_code(
-                ErrorCode::FORG0001,
-                format!("cannot cast to {target}: empty string"),
-            ));
+            return Err(Error::from_code(ErrorCode::FORG0001, format!("cannot cast to {target}: empty string")));
         }
         trimmed
             .parse::<i128>()
@@ -617,22 +542,13 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
 
     fn float_to_integer(&self, value: f64, target: &str) -> Result<i128, Error> {
         if !value.is_finite() {
-            return Err(Error::from_code(
-                ErrorCode::FOCA0001,
-                format!("{target} overflow"),
-            ));
+            return Err(Error::from_code(ErrorCode::FOCA0001, format!("{target} overflow")));
         }
         if value.fract() != 0.0 {
-            return Err(Error::from_code(
-                ErrorCode::FOCA0001,
-                format!("non-integer value for {target}"),
-            ));
+            return Err(Error::from_code(ErrorCode::FOCA0001, format!("non-integer value for {target}")));
         }
         if value < i128::MIN as f64 || value > i128::MAX as f64 {
-            return Err(Error::from_code(
-                ErrorCode::FOCA0001,
-                format!("{target} overflow"),
-            ));
+            return Err(Error::from_code(ErrorCode::FOCA0001, format!("{target} overflow")));
         }
         Ok(value as i128)
     }
@@ -663,10 +579,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 if let Some(text) = string_like_value(other) {
                     self.parse_integer_string(&text, target)
                 } else {
-                    Err(Error::from_code(
-                        ErrorCode::FORG0001,
-                        format!("cannot cast to {target}"),
-                    ))
+                    Err(Error::from_code(ErrorCode::FORG0001, format!("cannot cast to {target}")))
                 }
             }
         }
@@ -683,10 +596,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             other => {
                 let signed = self.integer_from_atomic(other, target)?;
                 if signed < 0 {
-                    Err(Error::from_code(
-                        ErrorCode::FORG0001,
-                        format!("negative value not allowed for {target}"),
-                    ))
+                    Err(Error::from_code(ErrorCode::FORG0001, format!("negative value not allowed for {target}")))
                 } else {
                     Ok(signed as u128)
                 }
@@ -694,47 +604,24 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
     }
 
-    fn ensure_range_i128(
-        &self,
-        value: i128,
-        min: i128,
-        max: i128,
-        target: &str,
-    ) -> Result<i128, Error> {
+    fn ensure_range_i128(&self, value: i128, min: i128, max: i128, target: &str) -> Result<i128, Error> {
         if value < min || value > max {
-            Err(Error::from_code(
-                ErrorCode::FORG0001,
-                format!("value out of range for {target}"),
-            ))
+            Err(Error::from_code(ErrorCode::FORG0001, format!("value out of range for {target}")))
         } else {
             Ok(value)
         }
     }
 
-    fn ensure_range_u128(
-        &self,
-        value: u128,
-        min: u128,
-        max: u128,
-        target: &str,
-    ) -> Result<u128, Error> {
+    fn ensure_range_u128(&self, value: u128, min: u128, max: u128, target: &str) -> Result<u128, Error> {
         if value < min || value > max {
-            Err(Error::from_code(
-                ErrorCode::FORG0001,
-                format!("value out of range for {target}"),
-            ))
+            Err(Error::from_code(ErrorCode::FORG0001, format!("value out of range for {target}")))
         } else {
             Ok(value)
         }
     }
 
-    pub(crate) fn require_string_like(
-        &self,
-        atom: &XdmAtomicValue,
-        target: &str,
-    ) -> Result<String, Error> {
-        string_like_value(atom)
-            .ok_or_else(|| Error::from_code(ErrorCode::FORG0001, format!("cannot cast to {target}")))
+    pub(crate) fn require_string_like(&self, atom: &XdmAtomicValue, target: &str) -> Result<String, Error> {
+        string_like_value(atom).ok_or_else(|| Error::from_code(ErrorCode::FORG0001, format!("cannot cast to {target}")))
     }
 
     // Helper: best-effort canonical string form for debugging / fallback casts
@@ -742,26 +629,17 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         format!("{:?}", a)
     }
 
-    pub(crate) fn parse_date(
-        &self,
-        s: &str,
-    ) -> Result<XdmAtomicValue, crate::util::temporal::TemporalErr> {
+    pub(crate) fn parse_date(&self, s: &str) -> Result<XdmAtomicValue, crate::util::temporal::TemporalErr> {
         let (d, tz) = crate::util::temporal::parse_date_lex(s)?;
         Ok(XdmAtomicValue::Date { date: d, tz })
     }
 
-    pub(crate) fn parse_time(
-        &self,
-        s: &str,
-    ) -> Result<XdmAtomicValue, crate::util::temporal::TemporalErr> {
+    pub(crate) fn parse_time(&self, s: &str) -> Result<XdmAtomicValue, crate::util::temporal::TemporalErr> {
         let (t, tz) = crate::util::temporal::parse_time_lex(s)?;
         Ok(XdmAtomicValue::Time { time: t, tz })
     }
 
-    pub(crate) fn parse_date_time(
-        &self,
-        s: &str,
-    ) -> Result<XdmAtomicValue, crate::util::temporal::TemporalErr> {
+    pub(crate) fn parse_date_time(&self, s: &str) -> Result<XdmAtomicValue, crate::util::temporal::TemporalErr> {
         let (d, t, tz) = crate::util::temporal::parse_date_time_lex(s)?;
         let dt = crate::util::temporal::build_naive_datetime(d, t, tz);
         Ok(XdmAtomicValue::DateTime(dt))

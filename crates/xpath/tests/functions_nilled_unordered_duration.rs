@@ -137,7 +137,9 @@ fn duration_component_accessors_examples(ctx: DynamicContext<N>) {
     }
     let sec = evaluate_expr::<N>("seconds-from-duration(xs:dayTimeDuration('-PT256S'))", &ctx).unwrap();
     match &sec[0] {
-        XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Decimal(v)) => assert_eq!(*v, rust_decimal::Decimal::from(-16)),
+        XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Decimal(v)) => {
+            assert_eq!(*v, rust_decimal::Decimal::from(-16))
+        }
         _ => panic!(),
     }
 
@@ -154,7 +156,9 @@ fn duration_component_accessors_examples(ctx: DynamicContext<N>) {
     }
     let s2 = evaluate_expr::<N>("seconds-from-duration('PT256S')", &ctx).unwrap();
     match &s2[0] {
-        XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Decimal(v)) => assert_eq!(*v, rust_decimal::Decimal::from(16)),
+        XdmItem::Atomic(platynui_xpath::xdm::XdmAtomicValue::Decimal(v)) => {
+            assert_eq!(*v, rust_decimal::Decimal::from(16))
+        }
         _ => panic!(),
     }
 }

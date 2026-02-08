@@ -72,7 +72,9 @@ fn eval_atomic(val: &str, expr: &str) -> Result<XdmAtomicValue, platynui_xpath::
 fn arithmetic_untyped_numeric() {
     match eval_atomic("42", ". + 1") {
         Ok(XdmAtomicValue::Double(d)) if (d - 43.0).abs() < 1e-9 => {}
-        Ok(XdmAtomicValue::Decimal(d)) if (d - rust_decimal::Decimal::from(43)).abs() < rust_decimal::Decimal::from_str_exact("0.000000001").unwrap() => {}
+        Ok(XdmAtomicValue::Decimal(d))
+            if (d - rust_decimal::Decimal::from(43)).abs()
+                < rust_decimal::Decimal::from_str_exact("0.000000001").unwrap() => {}
         Ok(a) => panic!("wrong result {a:?}"),
         Err(e) => panic!("err {e:?}"),
     }

@@ -479,7 +479,8 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
                                     dec_acc += d;
                                 } else {
                                     use rust_decimal::prelude::FromPrimitive;
-                                    dec_acc += rust_decimal::Decimal::from_f64(num).unwrap_or(rust_decimal::Decimal::ZERO);
+                                    dec_acc +=
+                                        rust_decimal::Decimal::from_f64(num).unwrap_or(rust_decimal::Decimal::ZERO);
                                 }
                             }
                             SumState::Numeric { kind, use_int, int_acc, dec_acc }
@@ -1275,9 +1276,7 @@ pub(super) fn minmax_impl<N: crate::model::XdmNode>(
             NumericKind::Integer => XdmAtomicValue::Integer(acc_num as i64),
             NumericKind::Decimal => {
                 use rust_decimal::prelude::FromPrimitive;
-                XdmAtomicValue::Decimal(
-                    rust_decimal::Decimal::from_f64(acc_num).unwrap_or(rust_decimal::Decimal::ZERO),
-                )
+                XdmAtomicValue::Decimal(rust_decimal::Decimal::from_f64(acc_num).unwrap_or(rust_decimal::Decimal::ZERO))
             }
             NumericKind::Float => XdmAtomicValue::Float(acc_num as f32),
             NumericKind::Double => XdmAtomicValue::Double(acc_num),

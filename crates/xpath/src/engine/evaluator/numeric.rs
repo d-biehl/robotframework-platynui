@@ -48,8 +48,8 @@ pub(crate) fn classify(v: &XdmAtomicValue) -> Option<NumKind> {
 /// promotion rules (minimal promotion: integer+integer stays integer,
 /// integer+decimal→decimal, any+double→double, etc.).
 pub(crate) fn unify_numeric(a: NumKind, b: NumKind) -> (NumKind, NumKind) {
-    use rust_decimal::prelude::ToPrimitive;
     use NumKind::*;
+    use rust_decimal::prelude::ToPrimitive;
     match (a, b) {
         (Double(x), y) => (Double(x), Double(y.to_f64())),
         (y, Double(x)) => (Double(y.to_f64()), Double(x)),
@@ -130,7 +130,11 @@ pub(crate) fn classify_numeric(a: &XdmAtomicValue) -> Result<Option<(NumericKind
         Float(f) => Some((NumericKind::Float, *f as f64)),
         Double(d) => Some((NumericKind::Double, *d)),
         UntypedAtomic(s) => {
-            if let Ok(parsed) = s.parse::<f64>() { Some((NumericKind::Double, parsed)) } else { None }
+            if let Ok(parsed) = s.parse::<f64>() {
+                Some((NumericKind::Double, parsed))
+            } else {
+                None
+            }
         }
         String(_) | AnyUri(_) => None,
         Boolean(b) => Some((NumericKind::Integer, if *b { 1.0 } else { 0.0 })),

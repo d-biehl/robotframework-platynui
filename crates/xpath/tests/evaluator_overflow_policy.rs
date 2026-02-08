@@ -30,7 +30,9 @@ fn int_mul_overflow_promotes_to_decimal() {
     // i64::MAX / 2 * 3 overflows i64; should become decimal
     let a = eval_atomic(&format!("{} * 3", i64::MAX / 2));
     match a {
-        XdmAtomicValue::Decimal(d) => assert!(d > rust_decimal::Decimal::from(i64::MAX) / rust_decimal::Decimal::from(2)),
+        XdmAtomicValue::Decimal(d) => {
+            assert!(d > rust_decimal::Decimal::from(i64::MAX) / rust_decimal::Decimal::from(2))
+        }
         other => panic!("expected decimal, got {:?}", other),
     }
 }

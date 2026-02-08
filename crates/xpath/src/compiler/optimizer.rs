@@ -257,7 +257,11 @@ fn fold_constants(instrs: &mut Vec<OpCode>) {
                     Some(XdmAtomicValue::Decimal(x * y))
                 }
                 (OpCode::Div, XdmAtomicValue::Decimal(x), XdmAtomicValue::Decimal(y)) => {
-                    if y.is_zero() { None } else { Some(XdmAtomicValue::Decimal(x / y)) }
+                    if y.is_zero() {
+                        None
+                    } else {
+                        Some(XdmAtomicValue::Decimal(x / y))
+                    }
                 }
 
                 // Mixed integer/decimal - promote to decimal
@@ -280,10 +284,18 @@ fn fold_constants(instrs: &mut Vec<OpCode>) {
                     Some(XdmAtomicValue::Decimal(x * rust_decimal::Decimal::from(*y)))
                 }
                 (OpCode::Div, XdmAtomicValue::Integer(x), XdmAtomicValue::Decimal(y)) => {
-                    if y.is_zero() { None } else { Some(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(*x) / y)) }
+                    if y.is_zero() {
+                        None
+                    } else {
+                        Some(XdmAtomicValue::Decimal(rust_decimal::Decimal::from(*x) / y))
+                    }
                 }
                 (OpCode::Div, XdmAtomicValue::Decimal(x), XdmAtomicValue::Integer(y)) => {
-                    if *y == 0 { None } else { Some(XdmAtomicValue::Decimal(x / rust_decimal::Decimal::from(*y))) }
+                    if *y == 0 {
+                        None
+                    } else {
+                        Some(XdmAtomicValue::Decimal(x / rust_decimal::Decimal::from(*y)))
+                    }
                 }
 
                 _ => None,

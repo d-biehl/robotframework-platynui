@@ -40,7 +40,11 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
     }
 
-    pub(crate) fn item_matches_type(&self, item: &XdmItem<N>, t: &crate::compiler::ir::ItemTypeIR) -> Result<bool, Error> {
+    pub(crate) fn item_matches_type(
+        &self,
+        item: &XdmItem<N>,
+        t: &crate::compiler::ir::ItemTypeIR,
+    ) -> Result<bool, Error> {
         use crate::compiler::ir::ItemTypeIR;
         use XdmItem::*;
         match (item, t) {
