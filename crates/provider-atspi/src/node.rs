@@ -20,7 +20,7 @@ use atspi_proxies::value::ValueProxy;
 use futures_lite::future::block_on;
 use once_cell::sync::OnceCell;
 use platynui_core::types::{Point, Rect, Size};
-use platynui_core::ui::attribute_names::{activation_target, common, element, focusable};
+use platynui_core::ui::attribute_names::{activation_target, application, common, element, focusable};
 use platynui_core::ui::{
     FocusableAction, Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue,
     supported_patterns_value,
@@ -68,6 +68,8 @@ pub struct AtspiNode {
     pub(crate) cached_name: OnceCell<Option<String>>,
     /// Cached child count (from AT-SPI `ChildCount` property).
     pub(crate) cached_child_count: OnceCell<Option<i32>>,
+    /// Cached process ID resolved from D-Bus connection credentials.
+    cached_process_id: OnceCell<Option<u32>>,
 }
 
 impl AtspiNode {
@@ -84,6 +86,7 @@ impl AtspiNode {
             interfaces: OnceCell::new(),
             cached_name: OnceCell::new(),
             cached_child_count: OnceCell::new(),
+            cached_process_id: OnceCell::new(),
         });
         let arc: Arc<dyn UiNode> = node.clone();
         let _ = node.self_weak.set(Arc::downgrade(&arc));
@@ -151,6 +154,30 @@ impl AtspiNode {
         self.resolve_interfaces()
             .map(|ifaces| ifaces.contains(Interface::Component))
             .unwrap_or(false)
+    }
+
+    fn is_application(&self) -> bool {
+        self.resolve_interfaces()
+            .map(|ifaces| ifaces.contains(Interface::Application))
+            .unwrap_or(false)
+    }
+
+    /// Resolve the Unix process ID of the application owning this node's
+    /// D-Bus bus name.  The result is cached in `cached_process_id`.
+    fn resolve_process_id(&self) -> Option<u32> {
+        *self.cached_process_id.get_or_init(|| {
+            let bus_name = self.obj.name_as_str()?;
+            let conn = self.conn.connection();
+            block_on_timeout(async {
+                let dbus = zbus::fdo::DBusProxy::new(conn).await.ok()?;
+                dbus.get_connection_unix_process_id(
+                    zbus::names::BusName::try_from(bus_name).ok()?,
+                )
+                .await
+                .ok()
+            })
+            .flatten()
+        })
     }
 
     fn focusable(&self) -> bool {
@@ -246,6 +273,13 @@ impl UiNode for AtspiNode {
     }
 
     fn id(&self) -> Option<String> {
+        // For Application nodes, prefer the process ID as a stable
+        // identifier since accessible-id is typically empty.
+        if self.is_application()
+            && let Some(pid) = self.resolve_process_id()
+        {
+            return Some(pid.to_string());
+        }
         resolve_id(self.conn.as_ref(), &self.obj)
     }
 
@@ -668,6 +702,8 @@ struct AttrsIter {
     /// Shared lazy-resolution context for standard attributes.
     /// D-Bus calls are deferred until `.value()` and cached via `OnceCell`.
     ctx: Arc<LazyNodeData>,
+    /// Cached process ID (only set for Application nodes).
+    process_id: Option<u32>,
     /// Pre-filtered list of native property names applicable to this node.
     native_props: Vec<&'static str>,
     /// Current index into `native_props`.
@@ -803,6 +839,12 @@ impl AttrsIter {
             }
         }
 
+        let process_id = if node.is_application() {
+            node.resolve_process_id()
+        } else {
+            None
+        };
+
         Self {
             idx: 0,
             namespace,
@@ -810,6 +852,7 @@ impl AttrsIter {
             supports_component,
             role,
             ctx,
+            process_id,
             native_props,
             native_idx: 0,
         }
@@ -912,6 +955,14 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
+                12 => {
+                    self.process_id.map(|pid| {
+                        Arc::new(ProcessIdAttr {
+                            namespace: self.namespace,
+                            pid,
+                        }) as Arc<dyn UiAttribute>
+                    })
+                }
                 // Yield lazy native properties — D-Bus is only called
                 // when the consumer invokes `.value()` on the attribute.
                 _ => {
@@ -932,7 +983,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 12 {
+                    if self.idx > 13 {
                         return None;
                     }
                     continue;
@@ -1160,6 +1211,25 @@ impl UiAttribute for TechnologyAttr {
 
     fn value(&self) -> UiValue {
         UiValue::from(TECHNOLOGY)
+    }
+}
+
+struct ProcessIdAttr {
+    namespace: Namespace,
+    pid: u32,
+}
+
+impl UiAttribute for ProcessIdAttr {
+    fn namespace(&self) -> Namespace {
+        self.namespace
+    }
+
+    fn name(&self) -> &str {
+        application::PROCESS_ID
+    }
+
+    fn value(&self) -> UiValue {
+        UiValue::from(self.pid as i64)
     }
 }
 
