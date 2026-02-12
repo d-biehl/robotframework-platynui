@@ -679,6 +679,10 @@ impl AttrsIter {
         let supports_component = node.supports_component();
         let role = node.role().to_string();
         let ctx = Arc::new(LazyNodeData::new(node.conn.clone(), node.obj.clone()));
+        // Standard attributes always live in the Control namespace,
+        // regardless of the node's own namespace (e.g. App for
+        // Application nodes).
+        let namespace = Namespace::Control;
 
         // Build the list of applicable native property names based on
         // supported interfaces.  No D-Bus calls here — the interface set
@@ -801,7 +805,7 @@ impl AttrsIter {
 
         Self {
             idx: 0,
-            namespace: node.namespace(),
+            namespace,
             rid_str,
             supports_component,
             role,
