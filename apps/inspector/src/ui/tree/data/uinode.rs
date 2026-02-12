@@ -3,7 +3,7 @@ use slint::SharedString;
 use std::sync::{Arc, Mutex};
 
 use super::{TreeData, TreeDataError};
-use platynui_core::ui::{Namespace, UiNode, UiNodeExt, UiValue};
+use platynui_core::ui::{UiNode, UiNodeExt};
 
 /// TreeData implementation that wraps a single UiNode
 /// Each UiNodeData represents exactly one node in the tree
@@ -44,15 +44,10 @@ impl TreeData for UiNodeData {
         if let Some(v) = self.label_cache.lock().unwrap().as_ref() {
             return Ok(v.clone());
         }
-        // Prefer the dynamic Control/Name attribute (fresh each read); fall back to no name
-        let name_str: String = self
-            .node
-            .attribute(Namespace::Control, "Name")
-            .map(|attr| match attr.value() {
-                UiValue::String(s) => s,
-                _ => String::new(),
-            })
-            .unwrap_or_default();
+        // Use node.name() directly — avoids building the full AttrsIter
+        // just to find the Name attribute and saves D-Bus roundtrips when
+        // the name is already cached on the provider node.
+        let name_str = self.node.name();
         let escaped = escape_control_chars(&name_str);
         let label = if escaped.is_empty() {
             self.node.role().to_string()
@@ -72,8 +67,9 @@ impl TreeData for UiNodeData {
         if let Some(hc) = *self.has_children_cache.lock().unwrap() {
             return Ok(hc);
         }
-        // Probe a single child and cache the boolean
-        let has = self.node.children().next().is_some();
+        // Use the cheap has_children() check (e.g. AT-SPI child_count
+        // property) instead of the expensive children().next() probe.
+        let has = self.node.has_children();
         *self.has_children_cache.lock().unwrap() = Some(has);
         Ok(has)
     }

@@ -788,6 +788,10 @@ impl UiNode for DesktopNode {
         None
     }
 
+    fn has_children(&self) -> bool {
+        !self.providers.is_empty()
+    }
+
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
         struct DesktopChildrenIter {
             providers: Vec<Arc<dyn UiTreeProvider>>,

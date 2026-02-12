@@ -126,6 +126,20 @@ impl OverlayThread {
 
                     let frame_rects = frame_segments(&clamped_pairs, 3);
 
+                    // Safety cap: avoid flooding the X server with hundreds
+                    // of tiny override_redirect windows (e.g. dashed edges
+                    // around full-screen bounds).  Fall back to solid edges
+                    // when the segment count exceeds a reasonable limit.
+                    const MAX_OVERLAY_WINDOWS: usize = 64;
+                    let frame_rects = if frame_rects.len() > MAX_OVERLAY_WINDOWS {
+                        // Re-generate with solid edges only (4 windows).
+                        let solid_pairs: Vec<(Rect, Rect)> =
+                            clamped_pairs.iter().map(|(_, c)| (*c, *c)).collect();
+                        frame_segments(&solid_pairs, 3)
+                    } else {
+                        frame_rects
+                    };
+
                     for (idx, r) in frame_rects.iter().enumerate() {
                         let rect = Rectangle {
                             x: r.x().round() as i16,

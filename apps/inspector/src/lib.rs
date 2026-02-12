@@ -17,6 +17,20 @@ platynui_link_providers!();
 mod ui;
 
 pub fn run() -> Result<(), slint::PlatformError> {
+    // Initialize tracing subscriber for diagnostic output.
+    // Control verbosity via RUST_LOG, e.g.:
+    //   RUST_LOG=debug  — show all timing diagnostics
+    //   RUST_LOG=warn   — only show slow/timeout warnings
+    //   RUST_LOG=platynui_provider_atspi=debug — only AT-SPI diagnostics
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .with_target(true)
+        .with_writer(std::io::stderr)
+        .init();
+
     let main_window = MainWindow::new()?;
 
     // Create PlatynUI runtime and get desktop node - keep runtime alive for entire application lifetime
@@ -155,8 +169,14 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
                 win.set_attr_rows(ModelRc::from(outer));
 
-                // Try to highlight the cached bounds (if present); otherwise clear highlight
-                if let Some(bounds) = cached_bounds {
+                // Try to highlight the cached bounds (if present); otherwise clear highlight.
+                // Skip highlighting for the root desktop node — its bounds cover the
+                // entire screen, which would cause hundreds of X11 overlay windows and
+                // freeze the X server.
+                let is_root = node.parent().is_none();
+                if !is_root
+                    && let Some(bounds) = cached_bounds
+                {
                     let rt = Arc::clone(&runtime_for_select);
                     std::thread::spawn(move || {
                         let req = HighlightRequest::new(bounds).with_duration(Duration::from_millis(1500));

@@ -6,6 +6,7 @@ use crate::TreeNodeVM;
 use platynui_core::ui::{RuntimeId, UiNode};
 use std::rc::Rc;
 use std::sync::Arc;
+use tracing::{debug, warn};
 
 /// Visible row item used by the TreeView (flat model)
 #[derive(Clone, Default)]
@@ -63,6 +64,7 @@ impl ViewModel {
     }
 
     fn rebuild_visible(&mut self) {
+        let start = std::time::Instant::now();
         // Build a temporary list including UiNode handles
         let mut out: Vec<VisibleRow> = Vec::new();
         Self::flatten_node_static(Arc::clone(&self.root), 0, &mut out, &self.expanded);
@@ -70,7 +72,23 @@ impl ViewModel {
         let rows: Vec<TreeNodeVM> = out.iter().map(TreeNodeVM::from).collect();
         self.model.set_vec(rows);
         // keep the full rows including UiNode for fast resolution
+        let row_count = out.len();
         self.visible_rows = out;
+
+        let elapsed = start.elapsed();
+        debug!(
+            rows = row_count,
+            expanded_count = self.expanded.len(),
+            elapsed_ms = elapsed.as_millis() as u64,
+            "rebuild_visible: complete",
+        );
+        if elapsed.as_millis() > 500 {
+            warn!(
+                rows = row_count,
+                elapsed_ms = elapsed.as_millis() as u64,
+                "rebuild_visible: SLOW rebuild (>500ms)",
+            );
+        }
     }
 
     /// Public: force a rebuild of visible rows, useful after external refresh actions.
@@ -84,6 +102,7 @@ impl ViewModel {
         out: &mut Vec<VisibleRow>,
         expanded: &HashSet<RuntimeId>,
     ) {
+        let node_start = std::time::Instant::now();
         let id = node.id();
         let has_children = node.has_children().unwrap_or(false);
         // Prefer a stable key from the underlying UiNode
@@ -97,6 +116,18 @@ impl ViewModel {
         // So we only push None here and let callers pass Arcs.
         // Determine validity via underlying UiNode if available; default true
         let is_valid = node.as_underlying_data().map(|u| u.is_valid()).unwrap_or(true);
+
+        let self_elapsed = node_start.elapsed();
+        if self_elapsed.as_millis() > 50 {
+            warn!(
+                id = id.as_str(),
+                label = label.as_str(),
+                depth,
+                elapsed_ms = self_elapsed.as_millis() as u64,
+                "flatten_node: SLOW node props (>50ms)",
+            );
+        }
+
         out.push(VisibleRow {
             id: id.clone(),
             label,
@@ -111,8 +142,30 @@ impl ViewModel {
             && is_expanded
             && let Ok(children) = node.children()
         {
+            let expand_start = std::time::Instant::now();
+            let child_count = children.len();
+            debug!(
+                id = id.as_str(),
+                child_count,
+                "flatten_node: expanding children",
+            );
             for child in children {
                 Self::flatten_node_static(child, depth + 1, out, expanded);
+            }
+            let expand_elapsed = expand_start.elapsed();
+            debug!(
+                id = id.as_str(),
+                child_count,
+                elapsed_ms = expand_elapsed.as_millis() as u64,
+                "flatten_node: finished expanding",
+            );
+            if expand_elapsed.as_millis() > 500 {
+                warn!(
+                    id = id.as_str(),
+                    child_count,
+                    elapsed_ms = expand_elapsed.as_millis() as u64,
+                    "flatten_node: SLOW expansion (>500ms)",
+                );
             }
         }
     }

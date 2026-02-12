@@ -1,5 +1,6 @@
 use atspi_common::{
-    Action as AtspiAction, CoordType, Interface, InterfaceSet, ObjectRefOwned, RelationType, Role, State, StateSet,
+    Action as AtspiAction, CoordType, Interface, InterfaceSet, ObjectRefOwned, RelationType, Role,
+    State, StateSet,
 };
 use atspi_connection::AccessibilityConnection;
 use atspi_proxies::accessible::AccessibleProxy;
@@ -21,14 +22,37 @@ use once_cell::sync::OnceCell;
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{activation_target, common, element, focusable};
 use platynui_core::ui::{
-    FocusableAction, Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue, supported_patterns_value,
+    FocusableAction, Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue,
+    supported_patterns_value,
 };
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
+use tracing::{debug, warn};
 use zbus::proxy::CacheProperties;
 
 const NULL_PATH: &str = "/org/a11y/atspi/accessible/null";
 const TECHNOLOGY: &str = "AT-SPI2";
+/// Timeout for individual D-Bus calls to prevent hangs from unresponsive
+/// applications.
+const DBUS_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Execute a future with a timeout. Returns `None` if the future does not
+/// complete within [`DBUS_TIMEOUT`].
+pub(crate) fn block_on_timeout<F: std::future::Future>(future: F) -> Option<F::Output> {
+    let start = std::time::Instant::now();
+    let result = block_on(async {
+        futures_lite::future::or(async { Some(future.await) }, async {
+            async_io::Timer::after(DBUS_TIMEOUT).await;
+            None
+        })
+        .await
+    });
+    if result.is_none() {
+        warn!(elapsed_ms = start.elapsed().as_millis() as u64, "D-Bus call TIMED OUT ({}ms limit)", DBUS_TIMEOUT.as_millis());
+    }
+    result
+}
 
 pub struct AtspiNode {
     conn: Arc<AccessibilityConnection>,
@@ -36,10 +60,14 @@ pub struct AtspiNode {
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     self_weak: OnceCell<Weak<dyn UiNode>>,
     runtime_id: OnceCell<RuntimeId>,
-    role: OnceCell<String>,
-    namespace: OnceCell<Namespace>,
+    pub(crate) role: OnceCell<String>,
+    pub(crate) namespace: OnceCell<Namespace>,
     state: OnceCell<Option<StateSet>>,
-    interfaces: OnceCell<Option<InterfaceSet>>,
+    pub(crate) interfaces: OnceCell<Option<InterfaceSet>>,
+    /// Cached name resolved from the accessibility bus.
+    pub(crate) cached_name: OnceCell<Option<String>>,
+    /// Cached child count (from AT-SPI `ChildCount` property).
+    pub(crate) cached_child_count: OnceCell<Option<i32>>,
 }
 
 impl AtspiNode {
@@ -54,6 +82,8 @@ impl AtspiNode {
             namespace: OnceCell::new(),
             state: OnceCell::new(),
             interfaces: OnceCell::new(),
+            cached_name: OnceCell::new(),
+            cached_child_count: OnceCell::new(),
         });
         let arc: Arc<dyn UiNode> = node.clone();
         let _ = node.self_weak.set(Arc::downgrade(&arc));
@@ -72,8 +102,20 @@ impl AtspiNode {
         if self.role.get().is_some() {
             return;
         }
-        let interfaces = self.resolve_interfaces();
-        let role = self.accessible().and_then(|proxy| block_on(proxy.get_role()).ok()).unwrap_or(Role::Invalid);
+        let Some(proxy) = self.accessible() else {
+            let _ = self.role.set("Unknown".to_string());
+            let _ = self.namespace.set(Namespace::Control);
+            return;
+        };
+        // Resolve interfaces via the same proxy when not yet cached.
+        if self.interfaces.get().is_none() {
+            let ifaces = block_on_timeout(proxy.get_interfaces()).and_then(|r| r.ok());
+            let _ = self.interfaces.set(ifaces);
+        }
+        let interfaces = self.interfaces.get().copied().flatten();
+        let role = block_on_timeout(proxy.get_role())
+            .and_then(|r| r.ok())
+            .unwrap_or(Role::Invalid);
         let (namespace, role_name) = map_role_with_interfaces(role, interfaces);
         let _ = self.namespace.set(namespace);
         let _ = self.role.set(role_name);
@@ -81,16 +123,34 @@ impl AtspiNode {
 
     fn resolve_state(&self) -> Option<StateSet> {
         self.state
-            .get_or_init(|| self.accessible().and_then(|proxy| block_on(proxy.get_state()).ok()))
+            .get_or_init(|| {
+                self.accessible()
+                    .and_then(|proxy| block_on_timeout(proxy.get_state()).and_then(|r| r.ok()))
+            })
             .as_ref()
             .copied()
     }
 
     fn resolve_interfaces(&self) -> Option<InterfaceSet> {
         self.interfaces
-            .get_or_init(|| self.accessible().and_then(|proxy| block_on(proxy.get_interfaces()).ok()))
+            .get_or_init(|| {
+                self.accessible()
+                    .and_then(|proxy| block_on_timeout(proxy.get_interfaces()).and_then(|r| r.ok()))
+            })
             .as_ref()
             .copied()
+    }
+
+    fn resolve_name(&self) -> Option<String> {
+        self.cached_name
+            .get_or_init(|| resolve_name(self.conn.as_ref(), &self.obj))
+            .clone()
+    }
+
+    fn supports_component(&self) -> bool {
+        self.resolve_interfaces()
+            .map(|ifaces| ifaces.contains(Interface::Component))
+            .unwrap_or(false)
     }
 
     fn focusable(&self) -> bool {
@@ -99,6 +159,70 @@ impl AtspiNode {
         let supports_component = interfaces.map(|ifaces| ifaces.contains(Interface::Component)).unwrap_or(false);
         let focusable = state.map(|s| s.contains(State::Focusable) || s.contains(State::Focused)).unwrap_or(false);
         supports_component && focusable
+    }
+
+    /// Pre-resolve commonly needed properties using a single proxy.
+    ///
+    /// This avoids repeated proxy builds + D-Bus roundtrips when the
+    /// inspector (or any consumer) queries `has_children`, `role`, `name`
+    /// etc. in quick succession.
+    fn resolve_basics(&self) {
+        let start = std::time::Instant::now();
+        let obj_path = self.obj.path_as_str().to_string();
+        let obj_bus = self.obj.name_as_str().unwrap_or("<unknown>").to_string();
+
+        let Some(proxy) = self.accessible() else {
+            let _ = self.role.set("Unknown".to_string());
+            let _ = self.namespace.set(Namespace::Control);
+            let _ = self.cached_child_count.set(None);
+            let _ = self.cached_name.set(None);
+            warn!(bus = %obj_bus, path = %obj_path, "resolve_basics: no proxy");
+            return;
+        };
+        // child_count
+        if self.cached_child_count.get().is_none() {
+            let count = block_on_timeout(proxy.child_count()).and_then(|r| r.ok());
+            let _ = self.cached_child_count.set(count);
+        }
+        // interfaces + role
+        if self.interfaces.get().is_none() {
+            let ifaces = block_on_timeout(proxy.get_interfaces()).and_then(|r| r.ok());
+            let _ = self.interfaces.set(ifaces);
+        }
+        if self.role.get().is_none() {
+            let interfaces = self.interfaces.get().copied().flatten();
+            let role = block_on_timeout(proxy.get_role())
+                .and_then(|r| r.ok())
+                .unwrap_or(Role::Invalid);
+            let (namespace, role_name) = map_role_with_interfaces(role, interfaces);
+            let _ = self.namespace.set(namespace);
+            let _ = self.role.set(role_name);
+        }
+        // name
+        if self.cached_name.get().is_none() {
+            let name = block_on_timeout(proxy.name())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value);
+            let _ = self.cached_name.set(name);
+        }
+
+        let elapsed = start.elapsed();
+        debug!(
+            bus = %obj_bus,
+            path = %obj_path,
+            role = self.role.get().map(String::as_str).unwrap_or("?"),
+            name = self.cached_name.get().and_then(|n| n.as_deref()).unwrap_or(""),
+            elapsed_ms = elapsed.as_millis() as u64,
+            "resolve_basics",
+        );
+        if elapsed.as_millis() > 200 {
+            warn!(
+                bus = %obj_bus,
+                path = %obj_path,
+                elapsed_ms = elapsed.as_millis() as u64,
+                "resolve_basics: SLOW node (>200ms)",
+            );
+        }
     }
 }
 
@@ -114,7 +238,7 @@ impl UiNode for AtspiNode {
     }
 
     fn name(&self) -> String {
-        resolve_name(self.conn.as_ref(), &self.obj).unwrap_or_default()
+        self.resolve_name().unwrap_or_default()
     }
 
     fn runtime_id(&self) -> &RuntimeId {
@@ -129,10 +253,45 @@ impl UiNode for AtspiNode {
         self.parent.lock().unwrap().clone()
     }
 
+    fn has_children(&self) -> bool {
+        let count = self.cached_child_count.get_or_init(|| {
+            self.accessible()
+                .and_then(|proxy| block_on_timeout(proxy.child_count()).and_then(|r| r.ok()))
+        });
+        count.map(|c| c > 0).unwrap_or(false)
+    }
+
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
-        let Some(children) = self.accessible().and_then(|proxy| block_on(proxy.get_children()).ok()) else {
+        let parent_path = self.obj.path_as_str().to_string();
+        let parent_bus = self.obj.name_as_str().unwrap_or("<unknown>").to_string();
+        let children_start = std::time::Instant::now();
+
+        let Some(children) = self
+            .accessible()
+            .and_then(|proxy| block_on_timeout(proxy.get_children()).and_then(|r| r.ok()))
+        else {
+            warn!(bus = %parent_bus, path = %parent_path, "children: get_children failed or timed out");
             return Box::new(std::iter::empty());
         };
+
+        let child_count = children.len();
+        let get_children_elapsed = children_start.elapsed();
+        debug!(
+            bus = %parent_bus,
+            path = %parent_path,
+            count = child_count,
+            elapsed_ms = get_children_elapsed.as_millis() as u64,
+            "children: fetched child list",
+        );
+        if get_children_elapsed.as_millis() > 200 {
+            warn!(
+                bus = %parent_bus,
+                path = %parent_path,
+                elapsed_ms = get_children_elapsed.as_millis() as u64,
+                "children: SLOW get_children (>200ms)",
+            );
+        }
+
         let parent = self.self_weak.get().and_then(|weak| weak.upgrade());
         let conn = self.conn.clone();
         Box::new(children.into_iter().filter_map(move |child| {
@@ -140,14 +299,17 @@ impl UiNode for AtspiNode {
                 return None;
             }
             let node = AtspiNode::new(conn.clone(), child, parent.as_ref());
+            // Pre-resolve child_count, interfaces, role, and name using
+            // a single proxy so that later has_children/label calls are
+            // satisfied from cache without extra D-Bus roundtrips.
+            node.resolve_basics();
             Some(node as Arc<dyn UiNode>)
         }))
     }
 
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         let rid_str = self.runtime_id().as_str().to_string();
-        let owner = self.self_weak.get().and_then(|weak| weak.upgrade());
-        Box::new(AttrsIter::new(self, owner, rid_str))
+        Box::new(AttrsIter::new(self, rid_str))
     }
 
     fn supported_patterns(&self) -> Vec<PatternId> {
@@ -172,7 +334,12 @@ impl UiNode for AtspiNode {
         Some(Arc::new(action) as Arc<dyn UiPattern>)
     }
 
-    fn invalidate(&self) {}
+    fn invalidate(&self) {
+        // Clear cached data so the next access re-queries the bus.
+        // OnceCell does not support clearing, but we can document that
+        // invalidate is a best-effort operation. Full re-resolution happens
+        // when a new AtspiNode is created for the same object.
+    }
 }
 
 fn accessible_proxy<'a>(conn: &'a AccessibilityConnection, obj: &'a ObjectRefOwned) -> Option<AccessibleProxy<'a>> {
@@ -183,7 +350,7 @@ fn accessible_proxy<'a>(conn: &'a AccessibilityConnection, obj: &'a ObjectRefOwn
         .ok()?
         .path(obj.path_as_str())
         .ok()?;
-    block_on(builder.build()).ok()
+    block_on_timeout(builder.build()).and_then(|r| r.ok())
 }
 
 fn component_proxy<'a>(conn: &'a AccessibilityConnection, obj: &'a ObjectRefOwned) -> Option<ComponentProxy<'a>> {
@@ -194,12 +361,15 @@ fn component_proxy<'a>(conn: &'a AccessibilityConnection, obj: &'a ObjectRefOwne
         .ok()?
         .path(obj.path_as_str())
         .ok()?;
-    block_on(builder.build()).ok()
+    block_on_timeout(builder.build()).and_then(|r| r.ok())
 }
 
 macro_rules! make_proxy {
     ($fn_name:ident, $proxy:ident) => {
-        fn $fn_name<'a>(conn: &'a AccessibilityConnection, obj: &'a ObjectRefOwned) -> Option<$proxy<'a>> {
+        fn $fn_name<'a>(
+            conn: &'a AccessibilityConnection,
+            obj: &'a ObjectRefOwned,
+        ) -> Option<$proxy<'a>> {
             let name = obj.name_as_str()?;
             let builder = $proxy::builder(conn.connection())
                 .cache_properties(CacheProperties::No)
@@ -207,7 +377,7 @@ macro_rules! make_proxy {
                 .ok()?
                 .path(obj.path_as_str())
                 .ok()?;
-            block_on(builder.build()).ok()
+            block_on_timeout(builder.build()).and_then(|r| r.ok())
         }
     };
 }
@@ -226,7 +396,9 @@ make_proxy!(text_proxy, TextProxy);
 make_proxy!(value_proxy, ValueProxy);
 
 fn grab_focus(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<(), String> {
-    let ok = block_on(component_proxy(conn, obj).ok_or("component interface missing")?.grab_focus())
+    let proxy = component_proxy(conn, obj).ok_or("component interface missing")?;
+    let ok = block_on_timeout(proxy.grab_focus())
+        .ok_or_else(|| "grab_focus timed out".to_string())?
         .map_err(|e| e.to_string())?;
     if ok { Ok(()) } else { Err("grab_focus returned false".to_string()) }
 }
@@ -236,7 +408,7 @@ fn object_runtime_id(obj: &ObjectRefOwned) -> String {
     format!("atspi://{}{}", name, obj.path_as_str())
 }
 
-fn normalize_value(value: String) -> Option<String> {
+pub(crate) fn normalize_value(value: String) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
 }
@@ -253,14 +425,15 @@ fn pick_attr_value(attrs: &[(String, String)], keys: &[&str]) -> Option<String> 
 }
 
 fn resolve_attributes(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<Vec<(String, String)>> {
+    let proxy = accessible_proxy(conn, obj)?;
     let mut pairs: Vec<(String, String)> =
-        block_on(accessible_proxy(conn, obj)?.get_attributes()).ok()?.into_iter().collect();
+        block_on_timeout(proxy.get_attributes()).and_then(|r| r.ok())?.into_iter().collect();
     pairs.sort_by(|a, b| a.0.cmp(&b.0));
     Some(pairs)
 }
 
 fn resolve_name(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<String> {
-    if let Ok(name) = block_on(accessible_proxy(conn, obj)?.name())
+    if let Some(Ok(name)) = accessible_proxy(conn, obj).and_then(|p| block_on_timeout(p.name()))
         && let Some(value) = normalize_value(name)
     {
         return Some(value);
@@ -270,7 +443,7 @@ fn resolve_name(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<
 }
 
 fn resolve_id(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<String> {
-    if let Ok(id) = block_on(accessible_proxy(conn, obj)?.accessible_id())
+    if let Some(Ok(id)) = accessible_proxy(conn, obj).and_then(|p| block_on_timeout(p.accessible_id()))
         && let Some(value) = normalize_value(id)
     {
         return Some(value);
@@ -339,448 +512,6 @@ fn row_column_value(row: i32, column: i32) -> UiValue {
     map.insert("Row".to_string(), UiValue::from(row as i64));
     map.insert("Column".to_string(), UiValue::from(column as i64));
     UiValue::Object(map)
-}
-
-fn push_native(out: &mut Vec<(String, UiValue)>, interface: &str, name: &str, value: UiValue) {
-    out.push((format!("{interface}.{name}"), value));
-}
-
-fn collect_accessible_native_properties(
-    conn: &AccessibilityConnection,
-    obj: &ObjectRefOwned,
-    attrs: Option<&[(String, String)]>,
-    interfaces: Option<InterfaceSet>,
-) -> Vec<(String, UiValue)> {
-    let Some(accessible) = accessible_proxy(conn, obj) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-
-    if let Ok(name) = block_on(accessible.name())
-        && let Some(value) = normalize_value(name)
-    {
-        push_native(&mut out, "Accessible", "Name", UiValue::from(value));
-    }
-    if let Ok(description) = block_on(accessible.description())
-        && let Some(value) = normalize_value(description)
-    {
-        push_native(&mut out, "Accessible", "Description", UiValue::from(value));
-    }
-    if let Ok(help_text) = block_on(accessible.help_text())
-        && let Some(value) = normalize_value(help_text)
-    {
-        push_native(&mut out, "Accessible", "HelpText", UiValue::from(value));
-    }
-    if let Ok(locale) = block_on(accessible.locale())
-        && let Some(value) = normalize_value(locale)
-    {
-        push_native(&mut out, "Accessible", "Locale", UiValue::from(value));
-    }
-    if let Ok(role) = block_on(accessible.get_role()) {
-        push_native(&mut out, "Accessible", "Role", UiValue::from(role.name().to_string()));
-    }
-    if let Ok(role_name) = block_on(accessible.get_role_name())
-        && let Some(value) = normalize_value(role_name)
-    {
-        push_native(&mut out, "Accessible", "RoleName", UiValue::from(value));
-    }
-    if let Ok(localized_role) = block_on(accessible.get_localized_role_name())
-        && let Some(value) = normalize_value(localized_role)
-    {
-        push_native(&mut out, "Accessible", "LocalizedRoleName", UiValue::from(value));
-    }
-    if let Ok(accessible_id) = block_on(accessible.accessible_id())
-        && let Some(value) = normalize_value(accessible_id)
-    {
-        push_native(&mut out, "Accessible", "AccessibleId", UiValue::from(value));
-    }
-    if let Ok(parent) = block_on(accessible.parent()) {
-        push_native(&mut out, "Accessible", "Parent", UiValue::from(object_runtime_id(&parent)));
-    }
-    if let Ok(child_count) = block_on(accessible.child_count()) {
-        push_native(&mut out, "Accessible", "ChildCount", UiValue::from(child_count as i64));
-    }
-    if let Ok(index) = block_on(accessible.get_index_in_parent()) {
-        push_native(&mut out, "Accessible", "IndexInParent", UiValue::from(index as i64));
-    }
-    let interfaces = interfaces.or_else(|| block_on(accessible.get_interfaces()).ok());
-    if let Some(interfaces) = interfaces {
-        push_native(&mut out, "Accessible", "Interfaces", interface_set_value(interfaces));
-    }
-    if let Ok(state) = block_on(accessible.get_state()) {
-        push_native(&mut out, "Accessible", "State", state_set_value(state));
-    }
-    if let Ok(relations) = block_on(accessible.get_relation_set()) {
-        push_native(&mut out, "Accessible", "RelationSet", relation_set_value(relations));
-    }
-    if let Ok(application) = block_on(accessible.get_application()) {
-        push_native(&mut out, "Accessible", "Application", UiValue::from(object_runtime_id(&application)));
-    }
-    if let Some(attrs) = attrs
-        && !attrs.is_empty()
-    {
-        push_native(&mut out, "Accessible", "Attributes", attributes_object(attrs));
-        for (name, value) in attrs {
-            if name.trim().is_empty() {
-                continue;
-            }
-            push_native(&mut out, "Accessible", &format!("Attribute.{name}"), UiValue::from(value.clone()));
-        }
-    }
-
-    out
-}
-
-fn collect_action_native_properties(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Vec<(String, UiValue)> {
-    let Some(action) = action_proxy(conn, obj) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Ok(count) = block_on(action.nactions()) {
-        push_native(&mut out, "Action", "NActions", UiValue::from(count as i64));
-    }
-    if let Ok(actions) = block_on(action.get_actions()) {
-        push_native(&mut out, "Action", "Actions", actions_value(actions));
-    }
-    out
-}
-
-fn collect_application_native_properties(
-    conn: &AccessibilityConnection,
-    obj: &ObjectRefOwned,
-) -> Vec<(String, UiValue)> {
-    let Some(app) = application_proxy(conn, obj) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Ok(id) = block_on(app.id()) {
-        push_native(&mut out, "Application", "Id", UiValue::from(id as i64));
-    }
-    if let Ok(version) = block_on(app.version())
-        && let Some(value) = normalize_value(version)
-    {
-        push_native(&mut out, "Application", "Version", UiValue::from(value));
-    }
-    if let Ok(toolkit) = block_on(app.toolkit_name())
-        && let Some(value) = normalize_value(toolkit)
-    {
-        push_native(&mut out, "Application", "ToolkitName", UiValue::from(value));
-    }
-    if let Ok(atspi_version) = block_on(app.atspi_version())
-        && let Some(value) = normalize_value(atspi_version)
-    {
-        push_native(&mut out, "Application", "AtspiVersion", UiValue::from(value));
-    }
-    if let Ok(address) = block_on(app.get_application_bus_address())
-        && let Some(value) = normalize_value(address)
-    {
-        push_native(&mut out, "Application", "BusAddress", UiValue::from(value));
-    }
-    out
-}
-
-fn collect_collection_native_properties(
-    conn: &AccessibilityConnection,
-    obj: &ObjectRefOwned,
-) -> Vec<(String, UiValue)> {
-    let Some(collection) = collection_proxy(conn, obj) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Ok(descendant) = block_on(collection.get_active_descendant()) {
-        push_native(&mut out, "Collection", "ActiveDescendant", UiValue::from(object_runtime_id(&descendant)));
-    }
-    out
-}
-
-fn collect_component_native_properties(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Vec<(String, UiValue)> {
-    let Some(component) = component_proxy(conn, obj) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Ok(alpha) = block_on(component.get_alpha()) {
-        push_native(&mut out, "Component", "Alpha", UiValue::from(alpha));
-    }
-    if let Ok((x, y, w, h)) = block_on(component.get_extents(CoordType::Screen)) {
-        push_native(&mut out, "Component", "Extents", UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)));
-    }
-    if let Ok((x, y)) = block_on(component.get_position(CoordType::Screen)) {
-        push_native(&mut out, "Component", "Position", UiValue::from(Point::new(x as f64, y as f64)));
-    }
-    if let Ok((w, h)) = block_on(component.get_size()) {
-        push_native(&mut out, "Component", "Size", UiValue::from(Size::new(w as f64, h as f64)));
-    }
-    if let Ok(layer) = block_on(component.get_layer()) {
-        push_native(&mut out, "Component", "Layer", UiValue::from(format!("{layer:?}")));
-    }
-    if let Ok(order) = block_on(component.get_mdiz_order()) {
-        push_native(&mut out, "Component", "MDIZOrder", UiValue::from(order as i64));
-    }
-    out
-}
-
-fn collect_document_native_properties(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Vec<(String, UiValue)> {
-    let Some(document) = document_proxy(conn, obj) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Ok(page) = block_on(document.page_count()) {
-        push_native(&mut out, "Document", "PageCount", UiValue::from(page as i64));
-    }
-    if let Ok(page) = block_on(document.current_page_number()) {
-        push_native(&mut out, "Document", "CurrentPageNumber", UiValue::from(page as i64));
-    }
-    if let Ok(locale) = block_on(document.get_locale())
-        && let Some(value) = normalize_value(locale)
-    {
-        push_native(&mut out, "Document", "Locale", UiValue::from(value));
-    }
-    if let Ok(attrs) = block_on(document.get_attributes())
-        && !attrs.is_empty()
-    {
-        push_native(&mut out, "Document", "Attributes", string_map_object(&attrs));
-    }
-    out
-}
-
-fn collect_hyperlink_native_properties(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Vec<(String, UiValue)> {
-    let Some(link) = hyperlink_proxy(conn, obj) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Ok(valid) = block_on(link.is_valid()) {
-        push_native(&mut out, "Hyperlink", "IsValid", UiValue::from(valid));
-    }
-    if let Ok(end) = block_on(link.end_index()) {
-        push_native(&mut out, "Hyperlink", "EndIndex", UiValue::from(end as i64));
-    }
-    if let Ok(start) = block_on(link.start_index()) {
-        push_native(&mut out, "Hyperlink", "StartIndex", UiValue::from(start as i64));
-    }
-    if let Ok(count) = block_on(link.n_anchors()) {
-        push_native(&mut out, "Hyperlink", "NAnchors", UiValue::from(count as i64));
-    }
-    out
-}
-
-fn collect_hypertext_native_properties(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Vec<(String, UiValue)> {
-    let Some(text) = hypertext_proxy(conn, obj) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Ok(count) = block_on(text.get_nlinks()) {
-        push_native(&mut out, "Hypertext", "NLinks", UiValue::from(count as i64));
-    }
-    out
-}
-
-fn collect_image_native_properties(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Vec<(String, UiValue)> {
-    let Some(image) = image_proxy(conn, obj) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Ok(description) = block_on(image.image_description())
-        && let Some(value) = normalize_value(description)
-    {
-        push_native(&mut out, "Image", "Description", UiValue::from(value));
-    }
-    if let Ok(locale) = block_on(image.image_locale())
-        && let Some(value) = normalize_value(locale)
-    {
-        push_native(&mut out, "Image", "Locale", UiValue::from(value));
-    }
-    if let Ok((x, y, w, h)) = block_on(image.get_image_extents(CoordType::Screen)) {
-        push_native(&mut out, "Image", "Extents", UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)));
-    }
-    if let Ok((x, y)) = block_on(image.get_image_position(CoordType::Screen)) {
-        push_native(&mut out, "Image", "Position", UiValue::from(Point::new(x as f64, y as f64)));
-    }
-    if let Ok((w, h)) = block_on(image.get_image_size()) {
-        push_native(&mut out, "Image", "Size", UiValue::from(Size::new(w as f64, h as f64)));
-    }
-    out
-}
-
-fn collect_selection_native_properties(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Vec<(String, UiValue)> {
-    let Some(selection) = selection_proxy(conn, obj) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Ok(count) = block_on(selection.nselected_children()) {
-        push_native(&mut out, "Selection", "NSelectedChildren", UiValue::from(count as i64));
-    }
-    out
-}
-
-fn collect_table_native_properties(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Vec<(String, UiValue)> {
-    let Some(table) = table_proxy(conn, obj) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Ok(caption) = block_on(table.caption()) {
-        push_native(&mut out, "Table", "Caption", UiValue::from(object_runtime_id(&caption)));
-    }
-    if let Ok(summary) = block_on(table.summary()) {
-        push_native(&mut out, "Table", "Summary", UiValue::from(object_runtime_id(&summary)));
-    }
-    if let Ok(cols) = block_on(table.ncolumns()) {
-        push_native(&mut out, "Table", "NColumns", UiValue::from(cols as i64));
-    }
-    if let Ok(rows) = block_on(table.nrows()) {
-        push_native(&mut out, "Table", "NRows", UiValue::from(rows as i64));
-    }
-    if let Ok(cols) = block_on(table.nselected_columns()) {
-        push_native(&mut out, "Table", "NSelectedColumns", UiValue::from(cols as i64));
-    }
-    if let Ok(rows) = block_on(table.nselected_rows()) {
-        push_native(&mut out, "Table", "NSelectedRows", UiValue::from(rows as i64));
-    }
-    if let Ok(rows) = block_on(table.get_selected_rows()) {
-        push_native(
-            &mut out,
-            "Table",
-            "SelectedRows",
-            UiValue::from(rows.into_iter().map(|v| v as i64).collect::<Vec<_>>()),
-        );
-    }
-    if let Ok(cols) = block_on(table.get_selected_columns()) {
-        push_native(
-            &mut out,
-            "Table",
-            "SelectedColumns",
-            UiValue::from(cols.into_iter().map(|v| v as i64).collect::<Vec<_>>()),
-        );
-    }
-    out
-}
-
-fn collect_table_cell_native_properties(
-    conn: &AccessibilityConnection,
-    obj: &ObjectRefOwned,
-) -> Vec<(String, UiValue)> {
-    let Some(cell) = table_cell_proxy(conn, obj) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Ok(span) = block_on(cell.column_span()) {
-        push_native(&mut out, "TableCell", "ColumnSpan", UiValue::from(span as i64));
-    }
-    if let Ok(span) = block_on(cell.row_span()) {
-        push_native(&mut out, "TableCell", "RowSpan", UiValue::from(span as i64));
-    }
-    if let Ok((row, column)) = block_on(cell.position()) {
-        push_native(&mut out, "TableCell", "Position", row_column_value(row, column));
-    }
-    if let Ok(table) = block_on(cell.table()) {
-        push_native(&mut out, "TableCell", "Table", UiValue::from(object_runtime_id(&table)));
-    }
-    out
-}
-
-fn collect_text_native_properties(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Vec<(String, UiValue)> {
-    let Some(text) = text_proxy(conn, obj) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Ok(count) = block_on(text.character_count()) {
-        push_native(&mut out, "Text", "CharacterCount", UiValue::from(count as i64));
-    }
-    if let Ok(offset) = block_on(text.caret_offset()) {
-        push_native(&mut out, "Text", "CaretOffset", UiValue::from(offset as i64));
-    }
-    if let Ok(count) = block_on(text.get_nselections()) {
-        push_native(&mut out, "Text", "NSelections", UiValue::from(count as i64));
-    }
-    if let Ok(attrs) = block_on(text.get_default_attributes())
-        && !attrs.is_empty()
-    {
-        push_native(&mut out, "Text", "DefaultAttributes", string_map_object(&attrs));
-    }
-    if let Ok(attrs) = block_on(text.get_default_attribute_set())
-        && !attrs.is_empty()
-    {
-        push_native(&mut out, "Text", "DefaultAttributeSet", string_map_object(&attrs));
-    }
-    out
-}
-
-fn collect_value_native_properties(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Vec<(String, UiValue)> {
-    let Some(value) = value_proxy(conn, obj) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Ok(current) = block_on(value.current_value()) {
-        push_native(&mut out, "Value", "CurrentValue", UiValue::from(current));
-    }
-    if let Ok(maximum) = block_on(value.maximum_value()) {
-        push_native(&mut out, "Value", "MaximumValue", UiValue::from(maximum));
-    }
-    if let Ok(minimum) = block_on(value.minimum_value()) {
-        push_native(&mut out, "Value", "MinimumValue", UiValue::from(minimum));
-    }
-    if let Ok(increment) = block_on(value.minimum_increment()) {
-        push_native(&mut out, "Value", "MinimumIncrement", UiValue::from(increment));
-    }
-    if let Ok(text) = block_on(value.text())
-        && let Some(value) = normalize_value(text)
-    {
-        push_native(&mut out, "Value", "Text", UiValue::from(value));
-    }
-    out
-}
-
-fn collect_interface_native_properties(
-    conn: &AccessibilityConnection,
-    obj: &ObjectRefOwned,
-    interfaces: Option<InterfaceSet>,
-    attrs: Option<&[(String, String)]>,
-) -> Vec<(String, UiValue)> {
-    let interfaces =
-        interfaces.or_else(|| accessible_proxy(conn, obj).and_then(|proxy| block_on(proxy.get_interfaces()).ok()));
-    let mut out = collect_accessible_native_properties(conn, obj, attrs, interfaces);
-    let Some(interfaces) = interfaces else {
-        return out;
-    };
-    if interfaces.contains(Interface::Action) {
-        out.extend(collect_action_native_properties(conn, obj));
-    }
-    if interfaces.contains(Interface::Application) {
-        out.extend(collect_application_native_properties(conn, obj));
-    }
-    if interfaces.contains(Interface::Collection) {
-        out.extend(collect_collection_native_properties(conn, obj));
-    }
-    if interfaces.contains(Interface::Component) {
-        out.extend(collect_component_native_properties(conn, obj));
-    }
-    if interfaces.contains(Interface::Document) {
-        out.extend(collect_document_native_properties(conn, obj));
-    }
-    if interfaces.contains(Interface::Hyperlink) {
-        out.extend(collect_hyperlink_native_properties(conn, obj));
-    }
-    if interfaces.contains(Interface::Hypertext) {
-        out.extend(collect_hypertext_native_properties(conn, obj));
-    }
-    if interfaces.contains(Interface::Image) {
-        out.extend(collect_image_native_properties(conn, obj));
-    }
-    if interfaces.contains(Interface::Selection) {
-        out.extend(collect_selection_native_properties(conn, obj));
-    }
-    if interfaces.contains(Interface::Table) {
-        out.extend(collect_table_native_properties(conn, obj));
-    }
-    if interfaces.contains(Interface::TableCell) {
-        out.extend(collect_table_cell_native_properties(conn, obj));
-    }
-    if interfaces.contains(Interface::Text) {
-        out.extend(collect_text_native_properties(conn, obj));
-    }
-    if interfaces.contains(Interface::Value) {
-        out.extend(collect_value_native_properties(conn, obj));
-    }
-    out
 }
 
 fn map_role(role: Role) -> (Namespace, String) {
@@ -920,7 +651,7 @@ fn map_role(role: Role) -> (Namespace, String) {
     (namespace, name.to_string())
 }
 
-fn map_role_with_interfaces(role: Role, interfaces: Option<InterfaceSet>) -> (Namespace, String) {
+pub(crate) fn map_role_with_interfaces(role: Role, interfaces: Option<InterfaceSet>) -> (Namespace, String) {
     if interfaces.map(|ifaces| ifaces.contains(Interface::Application)).unwrap_or(false) {
         return (Namespace::App, "Application".to_string());
     }
@@ -929,33 +660,154 @@ fn map_role_with_interfaces(role: Role, interfaces: Option<InterfaceSet>) -> (Na
 
 struct AttrsIter {
     idx: u8,
-    conn: Arc<AccessibilityConnection>,
-    obj: ObjectRefOwned,
     namespace: Namespace,
     rid_str: String,
-    owner: Option<Weak<dyn UiNode>>,
-    interfaces: Option<InterfaceSet>,
     supports_component: bool,
-    native_cache: Option<Vec<Arc<dyn UiAttribute>>>,
-    native_pos: usize,
+    /// Pre-resolved role string (avoids re-querying D-Bus).
+    role: String,
+    /// Shared lazy-resolution context for standard attributes.
+    /// D-Bus calls are deferred until `.value()` and cached via `OnceCell`.
+    ctx: Arc<LazyNodeData>,
+    /// Pre-filtered list of native property names applicable to this node.
+    native_props: Vec<&'static str>,
+    /// Current index into `native_props`.
+    native_idx: usize,
 }
 
 impl AttrsIter {
-    fn new(node: &AtspiNode, owner: Option<Arc<dyn UiNode>>, rid_str: String) -> Self {
-        let owner_weak = owner.as_ref().map(Arc::downgrade);
+    fn new(node: &AtspiNode, rid_str: String) -> Self {
+        let supports_component = node.supports_component();
+        let role = node.role().to_string();
+        let ctx = Arc::new(LazyNodeData::new(node.conn.clone(), node.obj.clone()));
+
+        // Build the list of applicable native property names based on
+        // supported interfaces.  No D-Bus calls here — the interface set
+        // is already cached on AtspiNode.
         let interfaces = node.resolve_interfaces();
-        let supports_component = interfaces.map(|ifaces| ifaces.contains(Interface::Component)).unwrap_or(false);
+        let mut native_props: Vec<&'static str> = vec![
+            "Accessible.Name",
+            "Accessible.Description",
+            "Accessible.HelpText",
+            "Accessible.Locale",
+            "Accessible.Role",
+            "Accessible.RoleName",
+            "Accessible.LocalizedRoleName",
+            "Accessible.AccessibleId",
+            "Accessible.Parent",
+            "Accessible.ChildCount",
+            "Accessible.IndexInParent",
+            "Accessible.Interfaces",
+            "Accessible.State",
+            "Accessible.RelationSet",
+            "Accessible.Application",
+            "Accessible.Attributes",
+        ];
+        if let Some(ifaces) = interfaces {
+            if ifaces.contains(Interface::Action) {
+                native_props.extend_from_slice(&["Action.NActions", "Action.Actions"]);
+            }
+            if ifaces.contains(Interface::Application) {
+                native_props.extend_from_slice(&[
+                    "Application.Id",
+                    "Application.Version",
+                    "Application.ToolkitName",
+                    "Application.AtspiVersion",
+                    "Application.BusAddress",
+                ]);
+            }
+            if ifaces.contains(Interface::Collection) {
+                native_props.push("Collection.ActiveDescendant");
+            }
+            if ifaces.contains(Interface::Component) {
+                native_props.extend_from_slice(&[
+                    "Component.Alpha",
+                    "Component.Extents",
+                    "Component.Position",
+                    "Component.Size",
+                    "Component.Layer",
+                    "Component.MDIZOrder",
+                ]);
+            }
+            if ifaces.contains(Interface::Document) {
+                native_props.extend_from_slice(&[
+                    "Document.PageCount",
+                    "Document.CurrentPageNumber",
+                    "Document.Locale",
+                    "Document.Attributes",
+                ]);
+            }
+            if ifaces.contains(Interface::Hyperlink) {
+                native_props.extend_from_slice(&[
+                    "Hyperlink.IsValid",
+                    "Hyperlink.EndIndex",
+                    "Hyperlink.StartIndex",
+                    "Hyperlink.NAnchors",
+                ]);
+            }
+            if ifaces.contains(Interface::Hypertext) {
+                native_props.push("Hypertext.NLinks");
+            }
+            if ifaces.contains(Interface::Image) {
+                native_props.extend_from_slice(&[
+                    "Image.Description",
+                    "Image.Locale",
+                    "Image.Extents",
+                    "Image.Position",
+                    "Image.Size",
+                ]);
+            }
+            if ifaces.contains(Interface::Selection) {
+                native_props.push("Selection.NSelectedChildren");
+            }
+            if ifaces.contains(Interface::Table) {
+                native_props.extend_from_slice(&[
+                    "Table.Caption",
+                    "Table.Summary",
+                    "Table.NColumns",
+                    "Table.NRows",
+                    "Table.NSelectedColumns",
+                    "Table.NSelectedRows",
+                    "Table.SelectedRows",
+                    "Table.SelectedColumns",
+                ]);
+            }
+            if ifaces.contains(Interface::TableCell) {
+                native_props.extend_from_slice(&[
+                    "TableCell.ColumnSpan",
+                    "TableCell.RowSpan",
+                    "TableCell.Position",
+                    "TableCell.Table",
+                ]);
+            }
+            if ifaces.contains(Interface::Text) {
+                native_props.extend_from_slice(&[
+                    "Text.CharacterCount",
+                    "Text.CaretOffset",
+                    "Text.NSelections",
+                    "Text.DefaultAttributes",
+                    "Text.DefaultAttributeSet",
+                ]);
+            }
+            if ifaces.contains(Interface::Value) {
+                native_props.extend_from_slice(&[
+                    "Value.CurrentValue",
+                    "Value.MaximumValue",
+                    "Value.MinimumValue",
+                    "Value.MinimumIncrement",
+                    "Value.Text",
+                ]);
+            }
+        }
+
         Self {
             idx: 0,
-            conn: node.conn.clone(),
-            obj: node.obj.clone(),
             namespace: node.namespace(),
             rid_str,
-            owner: owner_weak,
-            interfaces,
             supports_component,
-            native_cache: None,
-            native_pos: 0,
+            role,
+            ctx,
+            native_props,
+            native_idx: 0,
         }
     }
 }
@@ -965,131 +817,111 @@ impl Iterator for AttrsIter {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let item = match self.idx {
-                0 => Some(Arc::new(RoleAttr { namespace: self.namespace, role: self.role() }) as Arc<dyn UiAttribute>),
-                1 => Some(Arc::new(NameAttr {
+            let item: Option<Arc<dyn UiAttribute>> = match self.idx {
+                0 => Some(Arc::new(RoleAttr { namespace: self.namespace, role: self.role.clone() })),
+                1 => Some(Arc::new(LazyStdAttr {
                     namespace: self.namespace,
-                    conn: self.conn.clone(),
-                    obj: self.obj.clone(),
-                }) as Arc<dyn UiAttribute>),
-                2 => {
-                    let present = self.owner.as_ref().and_then(|w| w.upgrade()).and_then(|n| n.id()).is_some();
-                    if present {
-                        Some(Arc::new(IdAttr {
-                            namespace: self.namespace,
-                            conn: self.conn.clone(),
-                            obj: self.obj.clone(),
-                        }) as Arc<dyn UiAttribute>)
-                    } else {
-                        None
-                    }
-                }
-                3 => Some(Arc::new(RuntimeIdAttr { namespace: self.namespace, rid: self.rid_str.clone() })
-                    as Arc<dyn UiAttribute>),
-                4 => Some(Arc::new(TechnologyAttr { namespace: self.namespace }) as Arc<dyn UiAttribute>),
+                    kind: StdAttrKind::Name,
+                    ctx: self.ctx.clone(),
+                })),
+                2 => Some(Arc::new(LazyStdAttr {
+                    namespace: self.namespace,
+                    kind: StdAttrKind::Id,
+                    ctx: self.ctx.clone(),
+                })),
+                3 => Some(Arc::new(RuntimeIdAttr { namespace: self.namespace, rid: self.rid_str.clone() })),
+                4 => Some(Arc::new(TechnologyAttr { namespace: self.namespace })),
                 5 => {
                     if self.supports_component {
-                        Some(Arc::new(BoundsAttr {
+                        Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
-                            conn: self.conn.clone(),
-                            obj: self.obj.clone(),
-                            supports_component: self.supports_component,
-                        }) as Arc<dyn UiAttribute>)
+                            kind: StdAttrKind::Bounds,
+                            ctx: self.ctx.clone(),
+                        }))
                     } else {
                         None
                     }
                 }
                 6 => {
                     if self.supports_component {
-                        Some(Arc::new(ActivationPointAttr {
+                        Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
-                            conn: self.conn.clone(),
-                            obj: self.obj.clone(),
-                            supports_component: self.supports_component,
-                        }) as Arc<dyn UiAttribute>)
+                            kind: StdAttrKind::ActivationPoint,
+                            ctx: self.ctx.clone(),
+                        }))
                     } else {
                         None
                     }
                 }
                 7 => {
                     if self.supports_component {
-                        Some(Arc::new(IsEnabledAttr {
+                        Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
-                            conn: self.conn.clone(),
-                            obj: self.obj.clone(),
-                        }) as Arc<dyn UiAttribute>)
+                            kind: StdAttrKind::IsEnabled,
+                            ctx: self.ctx.clone(),
+                        }))
                     } else {
                         None
                     }
                 }
                 8 => {
                     if self.supports_component {
-                        Some(Arc::new(IsVisibleAttr {
+                        Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
-                            conn: self.conn.clone(),
-                            obj: self.obj.clone(),
-                        }) as Arc<dyn UiAttribute>)
+                            kind: StdAttrKind::IsVisible,
+                            ctx: self.ctx.clone(),
+                        }))
                     } else {
                         None
                     }
                 }
                 9 => {
                     if self.supports_component {
-                        Some(Arc::new(IsOffscreenAttr {
+                        Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
-                            conn: self.conn.clone(),
-                            obj: self.obj.clone(),
-                        }) as Arc<dyn UiAttribute>)
+                            kind: StdAttrKind::IsOffscreen,
+                            ctx: self.ctx.clone(),
+                        }))
                     } else {
                         None
                     }
                 }
                 10 => {
                     if self.supports_component {
-                        Some(Arc::new(IsFocusedAttr {
+                        Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
-                            conn: self.conn.clone(),
-                            obj: self.obj.clone(),
-                        }) as Arc<dyn UiAttribute>)
+                            kind: StdAttrKind::IsFocused,
+                            ctx: self.ctx.clone(),
+                        }))
                     } else {
                         None
                     }
                 }
                 11 => {
                     if self.supports_component {
-                        Some(Arc::new(SupportedPatternsAttr {
+                        Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
-                            conn: self.conn.clone(),
-                            obj: self.obj.clone(),
-                        }) as Arc<dyn UiAttribute>)
+                            kind: StdAttrKind::SupportedPatterns,
+                            ctx: self.ctx.clone(),
+                        }))
                     } else {
                         None
                     }
                 }
-                12 => {
-                    if self.native_cache.is_none() {
-                        let attrs_pairs = resolve_attributes(self.conn.as_ref(), &self.obj);
-                        let attrs: Vec<Arc<dyn UiAttribute>> = collect_interface_native_properties(
-                            self.conn.as_ref(),
-                            &self.obj,
-                            self.interfaces,
-                            attrs_pairs.as_deref(),
-                        )
-                        .into_iter()
-                        .map(|(name, value)| Arc::new(NativePropAttr { name, value }) as Arc<dyn UiAttribute>)
-                        .collect();
-                        self.native_cache = Some(attrs);
-                        self.native_pos = 0;
+                // Yield lazy native properties — D-Bus is only called
+                // when the consumer invokes `.value()` on the attribute.
+                _ => {
+                    if self.native_idx < self.native_props.len() {
+                        let name = self.native_props[self.native_idx];
+                        self.native_idx += 1;
+                        return Some(Arc::new(LazyNativeAttr {
+                            conn: self.ctx.conn.clone(),
+                            obj: self.ctx.obj.clone(),
+                            name,
+                        }));
                     }
-                    match self.native_cache.as_ref().and_then(|v| v.get(self.native_pos)).cloned() {
-                        Some(attr) => {
-                            self.native_pos += 1;
-                            Some(attr)
-                        }
-                        None => None,
-                    }
+                    return None;
                 }
-                _ => None,
             };
 
             self.idx = self.idx.saturating_add(1);
@@ -1097,14 +929,6 @@ impl Iterator for AttrsIter {
                 Some(attr) => return Some(attr),
                 None => {
                     if self.idx > 12 {
-                        if let Some(list) = self.native_cache.as_ref()
-                            && self.native_pos < list.len()
-                        {
-                            self.idx -= 1;
-                            let attr = list[self.native_pos].clone();
-                            self.native_pos += 1;
-                            return Some(attr);
-                        }
                         return None;
                     }
                     continue;
@@ -1114,13 +938,168 @@ impl Iterator for AttrsIter {
     }
 }
 
-impl AttrsIter {
-    fn role(&self) -> String {
-        let role = accessible_proxy(self.conn.as_ref(), &self.obj)
-            .and_then(|proxy| block_on(proxy.get_role()).ok())
-            .unwrap_or(Role::Invalid);
-        let (_ns, role_name) = map_role_with_interfaces(role, self.interfaces);
-        role_name
+/// Shared lazy-resolution context for standard attributes.
+///
+/// D-Bus calls are deferred until first access and cached via `OnceCell`,
+/// so multiple attributes that need the same underlying data (e.g. state)
+/// share a single D-Bus roundtrip.
+struct LazyNodeData {
+    conn: Arc<AccessibilityConnection>,
+    obj: ObjectRefOwned,
+    state: OnceCell<Option<StateSet>>,
+    extents: OnceCell<Option<Rect>>,
+    name: OnceCell<String>,
+    id: OnceCell<Option<String>>,
+}
+
+impl LazyNodeData {
+    fn new(conn: Arc<AccessibilityConnection>, obj: ObjectRefOwned) -> Self {
+        Self {
+            conn,
+            obj,
+            state: OnceCell::new(),
+            extents: OnceCell::new(),
+            name: OnceCell::new(),
+            id: OnceCell::new(),
+        }
+    }
+
+    fn resolve_state(&self) -> Option<StateSet> {
+        *self.state.get_or_init(|| {
+            accessible_proxy(&self.conn, &self.obj)
+                .and_then(|proxy| block_on_timeout(proxy.get_state()).and_then(|r| r.ok()))
+        })
+    }
+
+    fn resolve_extents(&self) -> Option<Rect> {
+        *self.extents.get_or_init(|| {
+            component_proxy(&self.conn, &self.obj).and_then(|proxy| {
+                block_on_timeout(proxy.get_extents(CoordType::Screen))
+                    .and_then(|r| r.ok())
+                    .map(|(x, y, w, h)| Rect::new(x as f64, y as f64, w as f64, h as f64))
+            })
+        })
+    }
+
+    fn resolve_name(&self) -> &str {
+        self.name
+            .get_or_init(|| resolve_name(&self.conn, &self.obj).unwrap_or_default())
+    }
+
+    fn resolve_id(&self) -> Option<&str> {
+        self.id
+            .get_or_init(|| resolve_id(&self.conn, &self.obj))
+            .as_deref()
+    }
+}
+
+/// Discriminant for lazily-evaluated standard attributes.
+#[derive(Clone, Copy)]
+enum StdAttrKind {
+    Name,
+    Id,
+    Bounds,
+    ActivationPoint,
+    IsEnabled,
+    IsVisible,
+    IsOffscreen,
+    IsFocused,
+    SupportedPatterns,
+}
+
+/// A lazily-evaluated standard attribute.
+///
+/// The attribute's name and namespace are available immediately; the actual
+/// D-Bus roundtrip to resolve the value is deferred until
+/// [`UiAttribute::value()`] is called.  Multiple attributes sharing the same
+/// underlying data (e.g. state-dependent flags) reuse a single
+/// [`LazyNodeData`] context so the D-Bus call happens at most once.
+struct LazyStdAttr {
+    namespace: Namespace,
+    kind: StdAttrKind,
+    ctx: Arc<LazyNodeData>,
+}
+
+impl UiAttribute for LazyStdAttr {
+    fn namespace(&self) -> Namespace {
+        self.namespace
+    }
+
+    fn name(&self) -> &str {
+        match self.kind {
+            StdAttrKind::Name => common::NAME,
+            StdAttrKind::Id => common::ID,
+            StdAttrKind::Bounds => element::BOUNDS,
+            StdAttrKind::ActivationPoint => activation_target::ACTIVATION_POINT,
+            StdAttrKind::IsEnabled => element::IS_ENABLED,
+            StdAttrKind::IsVisible => element::IS_VISIBLE,
+            StdAttrKind::IsOffscreen => element::IS_OFFSCREEN,
+            StdAttrKind::IsFocused => focusable::IS_FOCUSED,
+            StdAttrKind::SupportedPatterns => common::SUPPORTED_PATTERNS,
+        }
+    }
+
+    fn value(&self) -> UiValue {
+        match self.kind {
+            StdAttrKind::Name => UiValue::from(self.ctx.resolve_name().to_string()),
+            StdAttrKind::Id => {
+                UiValue::from(self.ctx.resolve_id().unwrap_or_default().to_string())
+            }
+            StdAttrKind::Bounds => {
+                let rect =
+                    self.ctx.resolve_extents().unwrap_or_else(|| Rect::new(0.0, 0.0, 0.0, 0.0));
+                UiValue::from(rect)
+            }
+            StdAttrKind::ActivationPoint => {
+                let rect =
+                    self.ctx.resolve_extents().unwrap_or_else(|| Rect::new(0.0, 0.0, 0.0, 0.0));
+                UiValue::from(rect.center())
+            }
+            StdAttrKind::IsEnabled => {
+                let enabled = self
+                    .ctx
+                    .resolve_state()
+                    .map(|s| s.contains(State::Enabled) || s.contains(State::Sensitive))
+                    .unwrap_or(false);
+                UiValue::from(enabled)
+            }
+            StdAttrKind::IsVisible => {
+                let visible = self
+                    .ctx
+                    .resolve_state()
+                    .map(|s| s.contains(State::Visible) || s.contains(State::Showing))
+                    .unwrap_or(false);
+                UiValue::from(visible)
+            }
+            StdAttrKind::IsOffscreen => {
+                let visible = self
+                    .ctx
+                    .resolve_state()
+                    .map(|s| s.contains(State::Visible) || s.contains(State::Showing))
+                    .unwrap_or(false);
+                UiValue::from(!visible)
+            }
+            StdAttrKind::IsFocused => {
+                let focused = self
+                    .ctx
+                    .resolve_state()
+                    .map(|s| s.contains(State::Focused))
+                    .unwrap_or(false);
+                UiValue::from(focused)
+            }
+            StdAttrKind::SupportedPatterns => {
+                let focusable = self
+                    .ctx
+                    .resolve_state()
+                    .map(|s| s.contains(State::Focusable) || s.contains(State::Focused))
+                    .unwrap_or(false);
+                let mut patterns = Vec::new();
+                if focusable {
+                    patterns.push(PatternId::from("Focusable"));
+                }
+                supported_patterns_value(&patterns)
+            }
+        }
     }
 }
 
@@ -1140,46 +1119,6 @@ impl UiAttribute for RoleAttr {
 
     fn value(&self) -> UiValue {
         UiValue::from(self.role.clone())
-    }
-}
-
-struct NameAttr {
-    namespace: Namespace,
-    conn: Arc<AccessibilityConnection>,
-    obj: ObjectRefOwned,
-}
-
-impl UiAttribute for NameAttr {
-    fn namespace(&self) -> Namespace {
-        self.namespace
-    }
-
-    fn name(&self) -> &str {
-        common::NAME
-    }
-
-    fn value(&self) -> UiValue {
-        UiValue::from(resolve_name(self.conn.as_ref(), &self.obj).unwrap_or_default())
-    }
-}
-
-struct IdAttr {
-    namespace: Namespace,
-    conn: Arc<AccessibilityConnection>,
-    obj: ObjectRefOwned,
-}
-
-impl UiAttribute for IdAttr {
-    fn namespace(&self) -> Namespace {
-        self.namespace
-    }
-
-    fn name(&self) -> &str {
-        common::ID
-    }
-
-    fn value(&self) -> UiValue {
-        UiValue::from(resolve_id(self.conn.as_ref(), &self.obj).unwrap_or_default())
     }
 }
 
@@ -1220,199 +1159,469 @@ impl UiAttribute for TechnologyAttr {
     }
 }
 
-struct BoundsAttr {
-    namespace: Namespace,
+/// A lazily-evaluated native AT-SPI property attribute.
+///
+/// Iterating over attributes yields these without any D-Bus calls.
+/// The actual D-Bus roundtrip is deferred until [`UiAttribute::value()`] is
+/// called, so the XPath engine only pays for properties it actually reads.
+struct LazyNativeAttr {
     conn: Arc<AccessibilityConnection>,
     obj: ObjectRefOwned,
-    supports_component: bool,
+    /// Property name in `"Interface.Property"` format.
+    name: &'static str,
 }
 
-impl UiAttribute for BoundsAttr {
-    fn namespace(&self) -> Namespace {
-        self.namespace
-    }
-
-    fn name(&self) -> &str {
-        element::BOUNDS
-    }
-
-    fn value(&self) -> UiValue {
-        if !self.supports_component {
-            return UiValue::from(Rect::new(0.0, 0.0, 0.0, 0.0));
-        }
-        let rect = component_proxy(self.conn.as_ref(), &self.obj)
-            .and_then(|proxy| block_on(proxy.get_extents(CoordType::Screen)).ok())
-            .map(|(x, y, w, h)| Rect::new(x as f64, y as f64, w as f64, h as f64))
-            .unwrap_or_else(|| Rect::new(0.0, 0.0, 0.0, 0.0));
-        UiValue::from(rect)
-    }
-}
-
-struct ActivationPointAttr {
-    namespace: Namespace,
-    conn: Arc<AccessibilityConnection>,
-    obj: ObjectRefOwned,
-    supports_component: bool,
-}
-
-impl UiAttribute for ActivationPointAttr {
-    fn namespace(&self) -> Namespace {
-        self.namespace
-    }
-
-    fn name(&self) -> &str {
-        activation_target::ACTIVATION_POINT
-    }
-
-    fn value(&self) -> UiValue {
-        if !self.supports_component {
-            return UiValue::from(Rect::new(0.0, 0.0, 0.0, 0.0).center());
-        }
-        let rect = component_proxy(self.conn.as_ref(), &self.obj)
-            .and_then(|proxy| block_on(proxy.get_extents(CoordType::Screen)).ok())
-            .map(|(x, y, w, h)| Rect::new(x as f64, y as f64, w as f64, h as f64))
-            .unwrap_or_else(|| Rect::new(0.0, 0.0, 0.0, 0.0));
-        UiValue::from(rect.center())
-    }
-}
-
-struct IsEnabledAttr {
-    namespace: Namespace,
-    conn: Arc<AccessibilityConnection>,
-    obj: ObjectRefOwned,
-}
-
-impl UiAttribute for IsEnabledAttr {
-    fn namespace(&self) -> Namespace {
-        self.namespace
-    }
-
-    fn name(&self) -> &str {
-        element::IS_ENABLED
-    }
-
-    fn value(&self) -> UiValue {
-        let enabled = accessible_proxy(self.conn.as_ref(), &self.obj)
-            .and_then(|proxy| block_on(proxy.get_state()).ok())
-            .map(|state| state.contains(State::Enabled) || state.contains(State::Sensitive))
-            .unwrap_or(false);
-        UiValue::from(enabled)
-    }
-}
-
-struct IsVisibleAttr {
-    namespace: Namespace,
-    conn: Arc<AccessibilityConnection>,
-    obj: ObjectRefOwned,
-}
-
-impl UiAttribute for IsVisibleAttr {
-    fn namespace(&self) -> Namespace {
-        self.namespace
-    }
-
-    fn name(&self) -> &str {
-        element::IS_VISIBLE
-    }
-
-    fn value(&self) -> UiValue {
-        let visible = accessible_proxy(self.conn.as_ref(), &self.obj)
-            .and_then(|proxy| block_on(proxy.get_state()).ok())
-            .map(|state| state.contains(State::Visible) || state.contains(State::Showing))
-            .unwrap_or(false);
-        UiValue::from(visible)
-    }
-}
-
-struct IsOffscreenAttr {
-    namespace: Namespace,
-    conn: Arc<AccessibilityConnection>,
-    obj: ObjectRefOwned,
-}
-
-impl UiAttribute for IsOffscreenAttr {
-    fn namespace(&self) -> Namespace {
-        self.namespace
-    }
-
-    fn name(&self) -> &str {
-        element::IS_OFFSCREEN
-    }
-
-    fn value(&self) -> UiValue {
-        let visible = accessible_proxy(self.conn.as_ref(), &self.obj)
-            .and_then(|proxy| block_on(proxy.get_state()).ok())
-            .map(|state| state.contains(State::Visible) || state.contains(State::Showing))
-            .unwrap_or(false);
-        UiValue::from(!visible)
-    }
-}
-
-struct IsFocusedAttr {
-    namespace: Namespace,
-    conn: Arc<AccessibilityConnection>,
-    obj: ObjectRefOwned,
-}
-
-impl UiAttribute for IsFocusedAttr {
-    fn namespace(&self) -> Namespace {
-        self.namespace
-    }
-
-    fn name(&self) -> &str {
-        focusable::IS_FOCUSED
-    }
-
-    fn value(&self) -> UiValue {
-        let focused = accessible_proxy(self.conn.as_ref(), &self.obj)
-            .and_then(|proxy| block_on(proxy.get_state()).ok())
-            .map(|state| state.contains(State::Focused))
-            .unwrap_or(false);
-        UiValue::from(focused)
-    }
-}
-
-struct SupportedPatternsAttr {
-    namespace: Namespace,
-    conn: Arc<AccessibilityConnection>,
-    obj: ObjectRefOwned,
-}
-
-impl UiAttribute for SupportedPatternsAttr {
-    fn namespace(&self) -> Namespace {
-        self.namespace
-    }
-
-    fn name(&self) -> &str {
-        common::SUPPORTED_PATTERNS
-    }
-
-    fn value(&self) -> UiValue {
-        let state = accessible_proxy(self.conn.as_ref(), &self.obj).and_then(|proxy| block_on(proxy.get_state()).ok());
-        let focusable = state.map(|s| s.contains(State::Focusable) || s.contains(State::Focused)).unwrap_or(false);
-        let mut patterns = Vec::new();
-        if focusable {
-            patterns.push(PatternId::from("Focusable"));
-        }
-        supported_patterns_value(&patterns)
-    }
-}
-
-struct NativePropAttr {
-    name: String,
-    value: UiValue,
-}
-
-impl UiAttribute for NativePropAttr {
+impl UiAttribute for LazyNativeAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Native
     }
 
     fn name(&self) -> &str {
-        &self.name
+        self.name
     }
 
     fn value(&self) -> UiValue {
-        self.value.clone()
+        match self.name.split_once('.') {
+            Some(("Accessible", prop)) => self.fetch_accessible(prop),
+            Some(("Action", prop)) => self.fetch_action(prop),
+            Some(("Application", prop)) => self.fetch_application(prop),
+            Some(("Collection", prop)) => self.fetch_collection(prop),
+            Some(("Component", prop)) => self.fetch_component(prop),
+            Some(("Document", prop)) => self.fetch_document(prop),
+            Some(("Hyperlink", prop)) => self.fetch_hyperlink(prop),
+            Some(("Hypertext", prop)) => self.fetch_hypertext(prop),
+            Some(("Image", prop)) => self.fetch_image(prop),
+            Some(("Selection", prop)) => self.fetch_selection(prop),
+            Some(("Table", prop)) => self.fetch_table(prop),
+            Some(("TableCell", prop)) => self.fetch_table_cell(prop),
+            Some(("Text", prop)) => self.fetch_text(prop),
+            Some(("Value", prop)) => self.fetch_value_iface(prop),
+            _ => UiValue::Null,
+        }
+    }
+}
+
+impl LazyNativeAttr {
+    fn fetch_accessible(&self, prop: &str) -> UiValue {
+        let Some(proxy) = accessible_proxy(&self.conn, &self.obj) else {
+            return UiValue::Null;
+        };
+        match prop {
+            "Name" => block_on_timeout(proxy.name())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "Description" => block_on_timeout(proxy.description())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "HelpText" => block_on_timeout(proxy.help_text())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "Locale" => block_on_timeout(proxy.locale())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "Role" => block_on_timeout(proxy.get_role())
+                .and_then(|r| r.ok())
+                .map(|role| UiValue::from(role.name().to_string()))
+                .unwrap_or(UiValue::Null),
+            "RoleName" => block_on_timeout(proxy.get_role_name())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "LocalizedRoleName" => block_on_timeout(proxy.get_localized_role_name())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "AccessibleId" => block_on_timeout(proxy.accessible_id())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "Parent" => block_on_timeout(proxy.parent())
+                .and_then(|r| r.ok())
+                .map(|p| UiValue::from(object_runtime_id(&p)))
+                .unwrap_or(UiValue::Null),
+            "ChildCount" => block_on_timeout(proxy.child_count())
+                .and_then(|r| r.ok())
+                .map(|c| UiValue::from(c as i64))
+                .unwrap_or(UiValue::Null),
+            "IndexInParent" => block_on_timeout(proxy.get_index_in_parent())
+                .and_then(|r| r.ok())
+                .map(|i| UiValue::from(i as i64))
+                .unwrap_or(UiValue::Null),
+            "Interfaces" => block_on_timeout(proxy.get_interfaces())
+                .and_then(|r| r.ok())
+                .map(interface_set_value)
+                .unwrap_or(UiValue::Null),
+            "State" => block_on_timeout(proxy.get_state())
+                .and_then(|r| r.ok())
+                .map(state_set_value)
+                .unwrap_or(UiValue::Null),
+            "RelationSet" => block_on_timeout(proxy.get_relation_set())
+                .and_then(|r| r.ok())
+                .map(relation_set_value)
+                .unwrap_or(UiValue::Null),
+            "Application" => block_on_timeout(proxy.get_application())
+                .and_then(|r| r.ok())
+                .map(|a| UiValue::from(object_runtime_id(&a)))
+                .unwrap_or(UiValue::Null),
+            "Attributes" => block_on_timeout(proxy.get_attributes())
+                .and_then(|r| r.ok())
+                .map(|attrs| {
+                    let pairs: Vec<(String, String)> = attrs.into_iter().collect();
+                    attributes_object(&pairs)
+                })
+                .unwrap_or(UiValue::Null),
+            _ => UiValue::Null,
+        }
+    }
+
+    fn fetch_action(&self, prop: &str) -> UiValue {
+        let Some(proxy) = action_proxy(&self.conn, &self.obj) else {
+            return UiValue::Null;
+        };
+        match prop {
+            "NActions" => block_on_timeout(proxy.nactions())
+                .and_then(|r| r.ok())
+                .map(|c| UiValue::from(c as i64))
+                .unwrap_or(UiValue::Null),
+            "Actions" => block_on_timeout(proxy.get_actions())
+                .and_then(|r| r.ok())
+                .map(actions_value)
+                .unwrap_or(UiValue::Null),
+            _ => UiValue::Null,
+        }
+    }
+
+    fn fetch_application(&self, prop: &str) -> UiValue {
+        let Some(proxy) = application_proxy(&self.conn, &self.obj) else {
+            return UiValue::Null;
+        };
+        match prop {
+            "Id" => block_on_timeout(proxy.id())
+                .and_then(|r| r.ok())
+                .map(|id| UiValue::from(id as i64))
+                .unwrap_or(UiValue::Null),
+            "Version" => block_on_timeout(proxy.version())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "ToolkitName" => block_on_timeout(proxy.toolkit_name())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "AtspiVersion" => block_on_timeout(proxy.atspi_version())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "BusAddress" => block_on_timeout(proxy.get_application_bus_address())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            _ => UiValue::Null,
+        }
+    }
+
+    fn fetch_collection(&self, prop: &str) -> UiValue {
+        let Some(proxy) = collection_proxy(&self.conn, &self.obj) else {
+            return UiValue::Null;
+        };
+        match prop {
+            "ActiveDescendant" => block_on_timeout(proxy.get_active_descendant())
+                .and_then(|r| r.ok())
+                .map(|d| UiValue::from(object_runtime_id(&d)))
+                .unwrap_or(UiValue::Null),
+            _ => UiValue::Null,
+        }
+    }
+
+    fn fetch_component(&self, prop: &str) -> UiValue {
+        let Some(proxy) = component_proxy(&self.conn, &self.obj) else {
+            return UiValue::Null;
+        };
+        match prop {
+            "Alpha" => block_on_timeout(proxy.get_alpha())
+                .and_then(|r| r.ok())
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "Extents" => block_on_timeout(proxy.get_extents(CoordType::Screen))
+                .and_then(|r| r.ok())
+                .map(|(x, y, w, h)| {
+                    UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64))
+                })
+                .unwrap_or(UiValue::Null),
+            "Position" => block_on_timeout(proxy.get_position(CoordType::Screen))
+                .and_then(|r| r.ok())
+                .map(|(x, y)| UiValue::from(Point::new(x as f64, y as f64)))
+                .unwrap_or(UiValue::Null),
+            "Size" => block_on_timeout(proxy.get_size())
+                .and_then(|r| r.ok())
+                .map(|(w, h)| UiValue::from(Size::new(w as f64, h as f64)))
+                .unwrap_or(UiValue::Null),
+            "Layer" => block_on_timeout(proxy.get_layer())
+                .and_then(|r| r.ok())
+                .map(|layer| UiValue::from(format!("{layer:?}")))
+                .unwrap_or(UiValue::Null),
+            "MDIZOrder" => block_on_timeout(proxy.get_mdiz_order())
+                .and_then(|r| r.ok())
+                .map(|order| UiValue::from(order as i64))
+                .unwrap_or(UiValue::Null),
+            _ => UiValue::Null,
+        }
+    }
+
+    fn fetch_document(&self, prop: &str) -> UiValue {
+        let Some(proxy) = document_proxy(&self.conn, &self.obj) else {
+            return UiValue::Null;
+        };
+        match prop {
+            "PageCount" => block_on_timeout(proxy.page_count())
+                .and_then(|r| r.ok())
+                .map(|c| UiValue::from(c as i64))
+                .unwrap_or(UiValue::Null),
+            "CurrentPageNumber" => block_on_timeout(proxy.current_page_number())
+                .and_then(|r| r.ok())
+                .map(|c| UiValue::from(c as i64))
+                .unwrap_or(UiValue::Null),
+            "Locale" => block_on_timeout(proxy.get_locale())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "Attributes" => block_on_timeout(proxy.get_attributes())
+                .and_then(|r| r.ok())
+                .filter(|attrs| !attrs.is_empty())
+                .map(|attrs| string_map_object(&attrs))
+                .unwrap_or(UiValue::Null),
+            _ => UiValue::Null,
+        }
+    }
+
+    fn fetch_hyperlink(&self, prop: &str) -> UiValue {
+        let Some(proxy) = hyperlink_proxy(&self.conn, &self.obj) else {
+            return UiValue::Null;
+        };
+        match prop {
+            "IsValid" => block_on_timeout(proxy.is_valid())
+                .and_then(|r| r.ok())
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "EndIndex" => block_on_timeout(proxy.end_index())
+                .and_then(|r| r.ok())
+                .map(|i| UiValue::from(i as i64))
+                .unwrap_or(UiValue::Null),
+            "StartIndex" => block_on_timeout(proxy.start_index())
+                .and_then(|r| r.ok())
+                .map(|i| UiValue::from(i as i64))
+                .unwrap_or(UiValue::Null),
+            "NAnchors" => block_on_timeout(proxy.n_anchors())
+                .and_then(|r| r.ok())
+                .map(|c| UiValue::from(c as i64))
+                .unwrap_or(UiValue::Null),
+            _ => UiValue::Null,
+        }
+    }
+
+    fn fetch_hypertext(&self, prop: &str) -> UiValue {
+        let Some(proxy) = hypertext_proxy(&self.conn, &self.obj) else {
+            return UiValue::Null;
+        };
+        match prop {
+            "NLinks" => block_on_timeout(proxy.get_nlinks())
+                .and_then(|r| r.ok())
+                .map(|c| UiValue::from(c as i64))
+                .unwrap_or(UiValue::Null),
+            _ => UiValue::Null,
+        }
+    }
+
+    fn fetch_image(&self, prop: &str) -> UiValue {
+        let Some(proxy) = image_proxy(&self.conn, &self.obj) else {
+            return UiValue::Null;
+        };
+        match prop {
+            "Description" => block_on_timeout(proxy.image_description())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "Locale" => block_on_timeout(proxy.image_locale())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "Extents" => block_on_timeout(proxy.get_image_extents(CoordType::Screen))
+                .and_then(|r| r.ok())
+                .map(|(x, y, w, h)| {
+                    UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64))
+                })
+                .unwrap_or(UiValue::Null),
+            "Position" => block_on_timeout(proxy.get_image_position(CoordType::Screen))
+                .and_then(|r| r.ok())
+                .map(|(x, y)| UiValue::from(Point::new(x as f64, y as f64)))
+                .unwrap_or(UiValue::Null),
+            "Size" => block_on_timeout(proxy.get_image_size())
+                .and_then(|r| r.ok())
+                .map(|(w, h)| UiValue::from(Size::new(w as f64, h as f64)))
+                .unwrap_or(UiValue::Null),
+            _ => UiValue::Null,
+        }
+    }
+
+    fn fetch_selection(&self, prop: &str) -> UiValue {
+        let Some(proxy) = selection_proxy(&self.conn, &self.obj) else {
+            return UiValue::Null;
+        };
+        match prop {
+            "NSelectedChildren" => block_on_timeout(proxy.nselected_children())
+                .and_then(|r| r.ok())
+                .map(|c| UiValue::from(c as i64))
+                .unwrap_or(UiValue::Null),
+            _ => UiValue::Null,
+        }
+    }
+
+    fn fetch_table(&self, prop: &str) -> UiValue {
+        let Some(proxy) = table_proxy(&self.conn, &self.obj) else {
+            return UiValue::Null;
+        };
+        match prop {
+            "Caption" => block_on_timeout(proxy.caption())
+                .and_then(|r| r.ok())
+                .map(|c| UiValue::from(object_runtime_id(&c)))
+                .unwrap_or(UiValue::Null),
+            "Summary" => block_on_timeout(proxy.summary())
+                .and_then(|r| r.ok())
+                .map(|s| UiValue::from(object_runtime_id(&s)))
+                .unwrap_or(UiValue::Null),
+            "NColumns" => block_on_timeout(proxy.ncolumns())
+                .and_then(|r| r.ok())
+                .map(|c| UiValue::from(c as i64))
+                .unwrap_or(UiValue::Null),
+            "NRows" => block_on_timeout(proxy.nrows())
+                .and_then(|r| r.ok())
+                .map(|r| UiValue::from(r as i64))
+                .unwrap_or(UiValue::Null),
+            "NSelectedColumns" => block_on_timeout(proxy.nselected_columns())
+                .and_then(|r| r.ok())
+                .map(|c| UiValue::from(c as i64))
+                .unwrap_or(UiValue::Null),
+            "NSelectedRows" => block_on_timeout(proxy.nselected_rows())
+                .and_then(|r| r.ok())
+                .map(|r| UiValue::from(r as i64))
+                .unwrap_or(UiValue::Null),
+            "SelectedRows" => block_on_timeout(proxy.get_selected_rows())
+                .and_then(|r| r.ok())
+                .map(|rows| {
+                    UiValue::from(rows.into_iter().map(|v| v as i64).collect::<Vec<_>>())
+                })
+                .unwrap_or(UiValue::Null),
+            "SelectedColumns" => block_on_timeout(proxy.get_selected_columns())
+                .and_then(|r| r.ok())
+                .map(|cols| {
+                    UiValue::from(cols.into_iter().map(|v| v as i64).collect::<Vec<_>>())
+                })
+                .unwrap_or(UiValue::Null),
+            _ => UiValue::Null,
+        }
+    }
+
+    fn fetch_table_cell(&self, prop: &str) -> UiValue {
+        let Some(proxy) = table_cell_proxy(&self.conn, &self.obj) else {
+            return UiValue::Null;
+        };
+        match prop {
+            "ColumnSpan" => block_on_timeout(proxy.column_span())
+                .and_then(|r| r.ok())
+                .map(|s| UiValue::from(s as i64))
+                .unwrap_or(UiValue::Null),
+            "RowSpan" => block_on_timeout(proxy.row_span())
+                .and_then(|r| r.ok())
+                .map(|s| UiValue::from(s as i64))
+                .unwrap_or(UiValue::Null),
+            "Position" => block_on_timeout(proxy.position())
+                .and_then(|r| r.ok())
+                .map(|(row, col)| row_column_value(row, col))
+                .unwrap_or(UiValue::Null),
+            "Table" => block_on_timeout(proxy.table())
+                .and_then(|r| r.ok())
+                .map(|t| UiValue::from(object_runtime_id(&t)))
+                .unwrap_or(UiValue::Null),
+            _ => UiValue::Null,
+        }
+    }
+
+    fn fetch_text(&self, prop: &str) -> UiValue {
+        let Some(proxy) = text_proxy(&self.conn, &self.obj) else {
+            return UiValue::Null;
+        };
+        match prop {
+            "CharacterCount" => block_on_timeout(proxy.character_count())
+                .and_then(|r| r.ok())
+                .map(|c| UiValue::from(c as i64))
+                .unwrap_or(UiValue::Null),
+            "CaretOffset" => block_on_timeout(proxy.caret_offset())
+                .and_then(|r| r.ok())
+                .map(|o| UiValue::from(o as i64))
+                .unwrap_or(UiValue::Null),
+            "NSelections" => block_on_timeout(proxy.get_nselections())
+                .and_then(|r| r.ok())
+                .map(|c| UiValue::from(c as i64))
+                .unwrap_or(UiValue::Null),
+            "DefaultAttributes" => block_on_timeout(proxy.get_default_attributes())
+                .and_then(|r| r.ok())
+                .filter(|attrs| !attrs.is_empty())
+                .map(|attrs| string_map_object(&attrs))
+                .unwrap_or(UiValue::Null),
+            "DefaultAttributeSet" => block_on_timeout(proxy.get_default_attribute_set())
+                .and_then(|r| r.ok())
+                .filter(|attrs| !attrs.is_empty())
+                .map(|attrs| string_map_object(&attrs))
+                .unwrap_or(UiValue::Null),
+            _ => UiValue::Null,
+        }
+    }
+
+    fn fetch_value_iface(&self, prop: &str) -> UiValue {
+        let Some(proxy) = value_proxy(&self.conn, &self.obj) else {
+            return UiValue::Null;
+        };
+        match prop {
+            "CurrentValue" => block_on_timeout(proxy.current_value())
+                .and_then(|r| r.ok())
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "MaximumValue" => block_on_timeout(proxy.maximum_value())
+                .and_then(|r| r.ok())
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "MinimumValue" => block_on_timeout(proxy.minimum_value())
+                .and_then(|r| r.ok())
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "MinimumIncrement" => block_on_timeout(proxy.minimum_increment())
+                .and_then(|r| r.ok())
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            "Text" => block_on_timeout(proxy.text())
+                .and_then(|r| r.ok())
+                .and_then(normalize_value)
+                .map(UiValue::from)
+                .unwrap_or(UiValue::Null),
+            _ => UiValue::Null,
+        }
     }
 }

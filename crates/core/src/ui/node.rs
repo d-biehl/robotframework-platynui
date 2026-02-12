@@ -25,6 +25,14 @@ pub trait UiNode: Send + Sync {
     fn parent(&self) -> Option<Weak<dyn UiNode>>;
     /// Child nodes. Providers may return iterators over prepared or lazily produced material.
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static>;
+    /// Returns `true` if the node has at least one child.
+    ///
+    /// The default implementation probes `children()`, but providers should
+    /// override this with a cheaper check (e.g. a property read) when
+    /// available.
+    fn has_children(&self) -> bool {
+        self.children().next().is_some()
+    }
     /// All attributes of this node; the iterator may produce values lazily.
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static>;
 
