@@ -20,10 +20,10 @@ use atspi_proxies::value::ValueProxy;
 use futures_lite::future::block_on;
 use once_cell::sync::OnceCell;
 use platynui_core::types::{Point, Rect, Size};
-use platynui_core::ui::attribute_names::{activation_target, application, common, element, focusable};
+use platynui_core::ui::attribute_names::{activation_target, application, common, element, focusable, window_surface};
 use platynui_core::ui::{
     FocusableAction, Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue,
-    supported_patterns_value,
+    WindowSurfaceActions, supported_patterns_value,
 };
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -160,6 +160,13 @@ impl AtspiNode {
         self.resolve_interfaces()
             .map(|ifaces| ifaces.contains(Interface::Application))
             .unwrap_or(false)
+    }
+
+    /// Returns `true` if this node represents a top-level window surface
+    /// (Frame, Window, or Dialog).
+    fn is_window_surface(&self) -> bool {
+        let role = self.role();
+        matches!(role, "Frame" | "Window" | "Dialog")
     }
 
     /// Resolve the Unix process ID of the application owning this node's
@@ -351,21 +358,51 @@ impl UiNode for AtspiNode {
         if self.focusable() {
             patterns.push(PatternId::from("Focusable"));
         }
+        if self.is_window_surface() {
+            patterns.push(PatternId::from("WindowSurface"));
+        }
         patterns
     }
 
     fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
-        if pattern.as_str() != "Focusable" {
-            return None;
+        match pattern.as_str() {
+            "Focusable" => {
+                if !self.focusable() {
+                    return None;
+                }
+                let conn = self.conn.clone();
+                let obj = self.obj.clone();
+                let action = FocusableAction::new(move || {
+                    grab_focus(conn.as_ref(), &obj).map_err(platynui_core::ui::PatternError::new)
+                });
+                Some(Arc::new(action) as Arc<dyn UiPattern>)
+            }
+            "WindowSurface" => {
+                if !self.is_window_surface() {
+                    return None;
+                }
+                let conn = self.conn.clone();
+                let obj = self.obj.clone();
+                let conn2 = self.conn.clone();
+                let obj2 = self.obj.clone();
+                let conn3 = self.conn.clone();
+                let obj3 = self.obj.clone();
+                let pattern = WindowSurfaceActions::new()
+                    .with_activate(move || {
+                        activate_window(conn.as_ref(), &obj)
+                            .map_err(platynui_core::ui::PatternError::new)
+                    })
+                    .with_close(move || {
+                        close_window(conn2.as_ref(), &obj2)
+                            .map_err(platynui_core::ui::PatternError::new)
+                    })
+                    .with_accepts_user_input(move || {
+                        Ok(is_active_window(conn3.as_ref(), &obj3))
+                    });
+                Some(Arc::new(pattern) as Arc<dyn UiPattern>)
+            }
+            _ => None,
         }
-        if !self.focusable() {
-            return None;
-        }
-        let conn = self.conn.clone();
-        let obj = self.obj.clone();
-        let action =
-            FocusableAction::new(move || grab_focus(conn.as_ref(), &obj).map_err(platynui_core::ui::PatternError::new));
-        Some(Arc::new(action) as Arc<dyn UiPattern>)
     }
 
     fn invalidate(&self) {
@@ -435,6 +472,55 @@ fn grab_focus(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<()
         .ok_or_else(|| "grab_focus timed out".to_string())?
         .map_err(|e| e.to_string())?;
     if ok { Ok(()) } else { Err("grab_focus returned false".to_string()) }
+}
+
+/// Resolve the X11 window ID for this AT-SPI window node.
+///
+/// Uses the process ID (from the D-Bus bus name) and the component's screen
+/// extents to find the matching top-level X11 window via `_NET_CLIENT_LIST`
+/// and `_NET_WM_PID`.
+fn resolve_xid(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<u32, String> {
+    // Resolve PID from D-Bus connection credentials.
+    let bus_name = obj.name_as_str().ok_or("missing bus name")?;
+    let pid: u32 = block_on_timeout(async {
+        let dbus = zbus::fdo::DBusProxy::new(conn.connection()).await.ok()?;
+        dbus.get_connection_unix_process_id(
+            zbus::names::BusName::try_from(bus_name).ok()?,
+        )
+        .await
+        .ok()
+    })
+    .flatten()
+    .ok_or("could not resolve PID from D-Bus")?;
+
+    // Try to get screen extents for precise matching.
+    let extents = component_proxy(conn, obj).and_then(|proxy| {
+        block_on_timeout(proxy.get_extents(CoordType::Screen))
+            .and_then(|r| r.ok())
+    });
+
+    match extents {
+        Some((x, y, w, h)) => crate::ewmh::find_xid_for_pid(pid, x, y, w, h),
+        None => crate::ewmh::find_xid_for_pid_simple(pid),
+    }
+}
+
+/// Bring a window to the foreground via EWMH `_NET_ACTIVE_WINDOW`.
+fn activate_window(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<(), String> {
+    let xid = resolve_xid(conn, obj)?;
+    crate::ewmh::activate_window(xid)
+}
+
+/// Close a window via EWMH `_NET_CLOSE_WINDOW`.
+fn close_window(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<(), String> {
+    let xid = resolve_xid(conn, obj)?;
+    crate::ewmh::close_window(xid)
+}
+
+/// Check whether a window is the currently active (foreground) window.
+fn is_active_window(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<bool> {
+    let xid = resolve_xid(conn, obj).ok()?;
+    crate::ewmh::is_active_window(xid).ok()
 }
 
 fn object_runtime_id(obj: &ObjectRefOwned) -> String {
@@ -704,6 +790,8 @@ struct AttrsIter {
     ctx: Arc<LazyNodeData>,
     /// Cached process ID (only set for Application nodes).
     process_id: Option<u32>,
+    /// Whether this node is a top-level window (Frame/Window/Dialog).
+    is_window_surface: bool,
     /// Pre-filtered list of native property names applicable to this node.
     native_props: Vec<&'static str>,
     /// Current index into `native_props`.
@@ -714,7 +802,7 @@ impl AttrsIter {
     fn new(node: &AtspiNode, rid_str: String) -> Self {
         let supports_component = node.supports_component();
         let role = node.role().to_string();
-        let ctx = Arc::new(LazyNodeData::new(node.conn.clone(), node.obj.clone()));
+        let ctx = Arc::new(LazyNodeData::new(node.conn.clone(), node.obj.clone(), role.clone()));
         // Standard attributes always live in the Control namespace,
         // regardless of the node's own namespace (e.g. App for
         // Application nodes).
@@ -845,6 +933,8 @@ impl AttrsIter {
             None
         };
 
+        let is_window_surface = node.is_window_surface();
+
         Self {
             idx: 0,
             namespace,
@@ -853,6 +943,7 @@ impl AttrsIter {
             role,
             ctx,
             process_id,
+            is_window_surface,
             native_props,
             native_idx: 0,
         }
@@ -963,6 +1054,28 @@ impl Iterator for AttrsIter {
                         }) as Arc<dyn UiAttribute>
                     })
                 }
+                13 => {
+                    if self.is_window_surface {
+                        Some(Arc::new(LazyStdAttr {
+                            namespace: self.namespace,
+                            kind: StdAttrKind::IsTopmost,
+                            ctx: self.ctx.clone(),
+                        }))
+                    } else {
+                        None
+                    }
+                }
+                14 => {
+                    if self.is_window_surface {
+                        Some(Arc::new(LazyStdAttr {
+                            namespace: self.namespace,
+                            kind: StdAttrKind::AcceptsUserInput,
+                            ctx: self.ctx.clone(),
+                        }))
+                    } else {
+                        None
+                    }
+                }
                 // Yield lazy native properties — D-Bus is only called
                 // when the consumer invokes `.value()` on the attribute.
                 _ => {
@@ -983,7 +1096,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 13 {
+                    if self.idx > 15 {
                         return None;
                     }
                     continue;
@@ -1001,6 +1114,7 @@ impl Iterator for AttrsIter {
 struct LazyNodeData {
     conn: Arc<AccessibilityConnection>,
     obj: ObjectRefOwned,
+    role: String,
     state: OnceCell<Option<StateSet>>,
     extents: OnceCell<Option<Rect>>,
     name: OnceCell<String>,
@@ -1008,10 +1122,11 @@ struct LazyNodeData {
 }
 
 impl LazyNodeData {
-    fn new(conn: Arc<AccessibilityConnection>, obj: ObjectRefOwned) -> Self {
+    fn new(conn: Arc<AccessibilityConnection>, obj: ObjectRefOwned, role: String) -> Self {
         Self {
             conn,
             obj,
+            role,
             state: OnceCell::new(),
             extents: OnceCell::new(),
             name: OnceCell::new(),
@@ -1046,6 +1161,13 @@ impl LazyNodeData {
             .get_or_init(|| resolve_id(&self.conn, &self.obj))
             .as_deref()
     }
+
+    /// Check if this window is the currently active (foreground) window via
+    /// EWMH `_NET_ACTIVE_WINDOW`.  Returns `None` when the XID cannot be
+    /// resolved (e.g. not a top-level window on X11).
+    fn resolve_is_active_window(&self) -> Option<bool> {
+        is_active_window(&self.conn, &self.obj)
+    }
 }
 
 /// Discriminant for lazily-evaluated standard attributes.
@@ -1060,6 +1182,8 @@ enum StdAttrKind {
     IsOffscreen,
     IsFocused,
     SupportedPatterns,
+    IsTopmost,
+    AcceptsUserInput,
 }
 
 /// A lazily-evaluated standard attribute.
@@ -1091,6 +1215,8 @@ impl UiAttribute for LazyStdAttr {
             StdAttrKind::IsOffscreen => element::IS_OFFSCREEN,
             StdAttrKind::IsFocused => focusable::IS_FOCUSED,
             StdAttrKind::SupportedPatterns => common::SUPPORTED_PATTERNS,
+            StdAttrKind::IsTopmost => window_surface::IS_TOPMOST,
+            StdAttrKind::AcceptsUserInput => window_surface::ACCEPTS_USER_INPUT,
         }
     }
 
@@ -1148,11 +1274,33 @@ impl UiAttribute for LazyStdAttr {
                     .resolve_state()
                     .map(|s| s.contains(State::Focusable) || s.contains(State::Focused))
                     .unwrap_or(false);
+                let window_surface = matches!(
+                    self.ctx.role.as_str(),
+                    "Frame" | "Window" | "Dialog"
+                );
                 let mut patterns = Vec::new();
                 if focusable {
                     patterns.push(PatternId::from("Focusable"));
                 }
+                if window_surface {
+                    patterns.push(PatternId::from("WindowSurface"));
+                }
                 supported_patterns_value(&patterns)
+            }
+            StdAttrKind::IsTopmost => {
+                let active = self
+                    .ctx
+                    .resolve_is_active_window()
+                    .unwrap_or(false);
+                UiValue::from(active)
+            }
+            StdAttrKind::AcceptsUserInput => {
+                let accepts = self
+                    .ctx
+                    .resolve_state()
+                    .map(|s| s.contains(State::Enabled) || s.contains(State::Sensitive))
+                    .unwrap_or(false);
+                UiValue::from(accepts)
             }
         }
     }

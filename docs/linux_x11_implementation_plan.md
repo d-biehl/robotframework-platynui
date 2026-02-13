@@ -114,11 +114,14 @@ Akzeptanz: `platynui-cli info/pointer/screenshot/highlight` laufen auf X11‑Des
 Akzeptanz: `platynui-cli list-providers` zeigt AT‑SPI; `query/snapshot` liefern realistische Knoten/Attribute; `focus` funktioniert auf fokussierbaren Elementen.
 
 ### Phase 3 – WindowSurface (EWMH) & Integration
-- [ ] XID‑Auflösung
-  - AT‑SPI → X11 Window‑ID (XID) ermitteln (über Atspi Window‑Interface, ggf. Fallback/Heuristik)
-- [ ] EWMH‑Aktionen (über X11)
-  - `_NET_ACTIVE_WINDOW` (activate), `_NET_WM_STATE` (minimize/maximize), `_NET_MOVERESIZE_WINDOW` (move/resize)
-- [ ] `WindowSurface` Pattern an AtspiNode exponieren (nur wenn XID verfügbar)
+- [x] XID‑Auflösung
+  - AT‑SPI → X11 Window‑ID (XID) ermitteln via `_NET_CLIENT_LIST` + `_NET_WM_PID` Matching, mit Geometrie‑Fallback bei mehreren Fenstern pro PID
+- [x] EWMH‑Aktionen (über X11)
+  - `_NET_ACTIVE_WINDOW` (activate), `_NET_CLOSE_WINDOW` (close), `_NET_ACTIVE_WINDOW` Property‑Abfrage (is‑active)
+- [x] `WindowSurface` Pattern an AtspiNode exponieren (für Frame/Window/Dialog Rollen)
+  - `activate()`, `close()`, `accepts_user_input()` (= is‑active via EWMH)
+  - Attribute: `IsTopmost` (via EWMH `_NET_ACTIVE_WINDOW`), `AcceptsUserInput` (via AT‑SPI State)
+- [ ] EWMH‑Aktionen erweitern: `_NET_WM_STATE` (minimize/maximize), `_NET_MOVERESIZE_WINDOW` (move/resize)
 - [ ] CLI `window` End‑to‑End: `--bring-to-front`/`--minimize`/`--maximize`/`--move`/`--resize`
 
 Akzeptanz: Fensteraktionen funktionieren in gängigen X11 WMs (KDE, Xfce, Openbox); Logs/Fehler klar.
