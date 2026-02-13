@@ -64,7 +64,7 @@ enum Commands {
     #[command(name = "window", about = "List or control application windows.")]
     Window(WindowArgs),
     #[command(name = "pointer", about = "Control the pointer (move, click, scroll, drag).")]
-    Pointer(PointerArgs),
+    Pointer(Box<PointerArgs>),
     #[command(name = "keyboard", about = "Send keyboard input sequences.")]
     Keyboard(KeyboardArgs),
 }

@@ -11,6 +11,13 @@ use crate::util::{CliResult, map_evaluate_error, parse_point, parse_pointer_butt
 
 #[derive(Args)]
 pub struct PointerArgs {
+    #[arg(
+        long = "no-activate",
+        global = true,
+        help = "Do not bring the target element's window to the foreground before performing the action."
+    )]
+    pub no_activate: bool,
+
     #[command(subcommand)]
     pub command: PointerCommand,
 }
@@ -210,23 +217,27 @@ struct OverrideArgs {
 }
 
 pub fn run(runtime: &Runtime, args: &PointerArgs) -> CliResult<String> {
+    let activate = !args.no_activate;
     match &args.command {
-        PointerCommand::Move(move_args) => run_move(runtime, move_args),
-        PointerCommand::Click(click_args) => run_click(runtime, click_args),
-        PointerCommand::MultiClick(multi_click_args) => run_multi_click(runtime, multi_click_args),
-        PointerCommand::Press(press_args) => run_press(runtime, press_args),
-        PointerCommand::Release(release_args) => run_release(runtime, release_args),
-        PointerCommand::Scroll(scroll_args) => run_scroll(runtime, scroll_args),
-        PointerCommand::Drag(drag_args) => run_drag(runtime, drag_args),
+        PointerCommand::Move(move_args) => run_move(runtime, move_args, activate),
+        PointerCommand::Click(click_args) => run_click(runtime, click_args, activate),
+        PointerCommand::MultiClick(multi_click_args) => run_multi_click(runtime, multi_click_args, activate),
+        PointerCommand::Press(press_args) => run_press(runtime, press_args, activate),
+        PointerCommand::Release(release_args) => run_release(runtime, release_args, activate),
+        PointerCommand::Scroll(scroll_args) => run_scroll(runtime, scroll_args, activate),
+        PointerCommand::Drag(drag_args) => run_drag(runtime, drag_args, activate),
         PointerCommand::Position => run_position(runtime),
     }
 }
 
-fn run_move(runtime: &Runtime, args: &PointerMoveArgs) -> CliResult<String> {
+fn run_move(runtime: &Runtime, args: &PointerMoveArgs, activate: bool) -> CliResult<String> {
     let overrides = build_overrides(&args.overrides)?;
     let (target, element_info) = match (&args.expression, &args.point) {
         (Some(expr), _) => {
             let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+            if activate {
+                maybe_bring_to_front(runtime, &node);
+            }
             (point, Some(format_element_info(&node)))
         }
         (None, Some(p)) => (*p, None),
@@ -236,7 +247,7 @@ fn run_move(runtime: &Runtime, args: &PointerMoveArgs) -> CliResult<String> {
     if let Some(info) = element_info { Ok(format!("Moved pointer to element: {}", info)) } else { Ok(String::new()) }
 }
 
-fn run_click(runtime: &Runtime, args: &PointerClickArgs) -> CliResult<String> {
+fn run_click(runtime: &Runtime, args: &PointerClickArgs, activate: bool) -> CliResult<String> {
     let overrides = build_overrides(&args.overrides)?;
     let element_info = if args.no_move {
         // Do not move: single click at current position
@@ -246,6 +257,9 @@ fn run_click(runtime: &Runtime, args: &PointerClickArgs) -> CliResult<String> {
         let (target, info) = match (&args.expression, &args.point) {
             (Some(expr), _) => {
                 let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+                if activate {
+                    maybe_bring_to_front(runtime, &node);
+                }
                 (point, Some(format_element_info(&node)))
             }
             (None, Some(p)) => (*p, None),
@@ -257,7 +271,7 @@ fn run_click(runtime: &Runtime, args: &PointerClickArgs) -> CliResult<String> {
     if let Some(info) = element_info { Ok(format!("Clicked on element: {}", info)) } else { Ok(String::new()) }
 }
 
-fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs) -> CliResult<String> {
+fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs, activate: bool) -> CliResult<String> {
     let overrides = build_overrides(&args.overrides)?;
     let element_info = if args.no_move {
         runtime.pointer_multi_click(None, Some(args.button), args.count, overrides).map_err(map_pointer_error)?;
@@ -266,6 +280,9 @@ fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs) -> CliResult
         let (target, info) = match (&args.expression, &args.point) {
             (Some(expr), _) => {
                 let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+                if activate {
+                    maybe_bring_to_front(runtime, &node);
+                }
                 (point, Some(format_element_info(&node)))
             }
             (None, Some(p)) => (*p, None),
@@ -283,12 +300,15 @@ fn run_multi_click(runtime: &Runtime, args: &PointerMultiClickArgs) -> CliResult
     }
 }
 
-fn run_press(runtime: &Runtime, args: &PointerPressArgs) -> CliResult<String> {
+fn run_press(runtime: &Runtime, args: &PointerPressArgs, activate: bool) -> CliResult<String> {
     let overrides = build_overrides(&args.overrides)?;
     let (target, element_info) = if args.no_move {
         (None, None)
     } else if let Some(expr) = &args.expression {
         let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+        if activate {
+            maybe_bring_to_front(runtime, &node);
+        }
         (Some(point), Some(format_element_info(&node)))
     } else {
         (args.point, None)
@@ -301,12 +321,15 @@ fn run_press(runtime: &Runtime, args: &PointerPressArgs) -> CliResult<String> {
     }
 }
 
-fn run_release(runtime: &Runtime, args: &PointerReleaseArgs) -> CliResult<String> {
+fn run_release(runtime: &Runtime, args: &PointerReleaseArgs, activate: bool) -> CliResult<String> {
     let overrides = build_overrides(&args.overrides)?;
     let (target, element_info) = if args.no_move {
         (None, None)
     } else if let Some(expr) = &args.expression {
         let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+        if activate {
+            maybe_bring_to_front(runtime, &node);
+        }
         (Some(point), Some(format_element_info(&node)))
     } else {
         (None, None)
@@ -319,11 +342,14 @@ fn run_release(runtime: &Runtime, args: &PointerReleaseArgs) -> CliResult<String
     }
 }
 
-fn run_scroll(runtime: &Runtime, args: &PointerScrollArgs) -> CliResult<String> {
+fn run_scroll(runtime: &Runtime, args: &PointerScrollArgs, activate: bool) -> CliResult<String> {
     let overrides = build_overrides(&args.overrides)?;
     let element_info = if !args.no_move {
         if let Some(expr) = &args.expr {
             let (target, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+            if activate {
+                maybe_bring_to_front(runtime, &node);
+            }
             let _ = runtime.pointer_move_to(target, overrides.clone()).map_err(map_pointer_error)?;
             Some(format_element_info(&node))
         } else {
@@ -336,7 +362,7 @@ fn run_scroll(runtime: &Runtime, args: &PointerScrollArgs) -> CliResult<String> 
     if let Some(info) = element_info { Ok(format!("Scrolled on element: {}", info)) } else { Ok(String::new()) }
 }
 
-fn run_drag(runtime: &Runtime, args: &PointerDragArgs) -> CliResult<String> {
+fn run_drag(runtime: &Runtime, args: &PointerDragArgs, activate: bool) -> CliResult<String> {
     let overrides = build_overrides(&args.overrides)?;
     let mut start = args.from;
     let mut end = args.to;
@@ -345,6 +371,9 @@ fn run_drag(runtime: &Runtime, args: &PointerDragArgs) -> CliResult<String> {
 
     if let Some(expr) = &args.from_expr {
         let (point, node) = resolve_point_and_node_from_expr(runtime, expr)?;
+        if activate {
+            maybe_bring_to_front(runtime, &node);
+        }
         start = point;
         from_info = Some(format_element_info(&node));
     }
@@ -527,6 +556,12 @@ fn format_element_info(node: &Arc<dyn UiNode>) -> String {
     info
 }
 
+/// Try to bring the window containing `node` to the foreground.
+/// Failures are silently ignored since the pointer action is the primary goal.
+fn maybe_bring_to_front(runtime: &Runtime, node: &Arc<dyn UiNode>) {
+    let _ = runtime.bring_to_front(node);
+}
+
 fn resolve_point_and_node_from_expr(runtime: &Runtime, expr: &str) -> CliResult<(Point, Arc<dyn UiNode>)> {
     let item = runtime
         .evaluate_single(None, expr)
@@ -574,7 +609,7 @@ mod tests {
             point: Some(Point::new(100.0, 150.0)),
             overrides: OverrideArgs::default(),
         };
-        let output = super::run_move(&runtime, &args).expect("move");
+        let output = super::run_move(&runtime, &args, false).expect("move");
         assert!(output.is_empty());
         let log = take_pointer_log();
         assert!(log.iter().any(|entry| matches!(entry, PointerLogEntry::Move(point) if *point == args.point.unwrap())));
@@ -590,7 +625,7 @@ mod tests {
             point: Some(Point::new(-2560.0, 0.0)),
             overrides: OverrideArgs::default(),
         };
-        let output = super::run_move(&runtime, &args).expect("move negative");
+        let output = super::run_move(&runtime, &args, false).expect("move negative");
         assert!(output.is_empty());
     }
 
@@ -606,7 +641,7 @@ mod tests {
             no_move: false,
             overrides: OverrideArgs::default(),
         };
-        let output = super::run_click(&runtime, &args).expect("click");
+        let output = super::run_click(&runtime, &args, false).expect("click");
         assert!(output.is_empty());
         let log = take_pointer_log();
         assert!(log.iter().any(|entry| matches!(entry, PointerLogEntry::Press(PointerButton::Left))));
@@ -626,7 +661,7 @@ mod tests {
             no_move: false,
             overrides: OverrideArgs::default(),
         };
-        let output = super::run_multi_click(&runtime, &args).expect("multi-click");
+        let output = super::run_multi_click(&runtime, &args, false).expect("multi-click");
         assert!(output.is_empty());
         let log = take_pointer_log();
         let presses = log.iter().filter(|entry| matches!(entry, PointerLogEntry::Press(PointerButton::Left))).count();
@@ -644,7 +679,7 @@ mod tests {
             no_move: false,
             overrides: OverrideArgs { scroll_step: Some(ScrollDelta::new(0.0, -10.0)), ..Default::default() },
         };
-        let _ = super::run_scroll(&runtime, &args).expect("scroll");
+        let _ = super::run_scroll(&runtime, &args, false).expect("scroll");
         let log = take_pointer_log();
         let scrolls: Vec<_> = log
             .into_iter()
