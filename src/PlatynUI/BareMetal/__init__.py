@@ -6,11 +6,15 @@ from typing import Any, Literal, cast
 from platynui_native import Point, PointerButton, PointerOverridesLike, Rect, RectLike, Runtime, UiNode, WindowSurface
 from robot.api import logger
 from robot.api.deco import library
+from robot.api.interfaces import ListenerV3
 from robot.libraries.BuiltIn import BuiltIn
+from robot.running.context import EXECUTION_CONTEXTS
 
 from ..__version__ import __version__
 from .._assertable import assertable
 from .._our_libcore import OurDynamicCore, keyword
+
+NO_ROOT_NODE = object()  # Sentinel value to distinguish "no root specified" from "explicitly set root to None"
 
 
 class UiNodeDescriptor:
@@ -24,11 +28,14 @@ class UiNodeDescriptor:
         self.node = node
         self.library = library
 
-    def __call__(self) -> UiNode:
+    def __call__(self, no_root: bool = False) -> UiNode:
         if isinstance(self.node, UiNode):
-            return self.node
+            if self.node.is_valid():
+                return self.node
 
-        result = self.library.query(self.node, only_first=True)
+        result = self.library.query(
+            self.node, self.library.root if not no_root else cast(UiNode, NO_ROOT_NODE), only_first=True
+        )
         if result is None:
             raise ValueError(f'Query for UiNodeDescriptor {self.node!r} returned no results')
 
@@ -39,15 +46,31 @@ class UiNodeDescriptor:
 
         return result
 
+    cache: dict[str, 'UiNodeDescriptor'] = {}
+
     @staticmethod
     def convert(value: str | UiNode, library: 'BareMetal') -> 'UiNodeDescriptor':
-        return UiNodeDescriptor(value, library)
+        if isinstance(value, UiNode):
+            return UiNodeDescriptor(value, library)
+        if value in UiNodeDescriptor.cache:
+            return UiNodeDescriptor.cache[value]
+        descriptor = UiNodeDescriptor(value, library)
+        UiNodeDescriptor.cache[value] = descriptor
+        return descriptor
+
+
+PLATYNUI_ROOT_DESCRIPTOR = (
+    'PLATYNUI_ROOT_DESCRIPTOR'  # Variable name for storing the current root descriptor in Robot Framework variables
+)
 
 
 @library(
-    scope='GLOBAL', version=__version__, converters={UiNodeDescriptor: UiNodeDescriptor.convert}, doc_format='ROBOT'
+    scope='SUITE',
+    version=__version__,
+    converters={UiNodeDescriptor: UiNodeDescriptor.convert},
+    doc_format='ROBOT',
 )
-class BareMetal(OurDynamicCore):
+class BareMetal(OurDynamicCore, ListenerV3):
     """Robot Framework library for PlatynUI's native backend.
 
     This library exposes low-level, platform-aware UI automation keywords backed by the
@@ -76,7 +99,41 @@ class BareMetal(OurDynamicCore):
 
     @cached_property
     def _screenshot_path(self) -> Path:
-        return Path(str(BuiltIn().get_variable_value('${OUTPUT DIR}', default='screenshots')))  # pyright: ignore[reportUnknownArgumentType]
+        return Path(str(BuiltIn().get_variable_value('${OUTPUT DIR}', default='screenshots')))
+
+    @property
+    def root(self) -> UiNode | None:
+        """Return the root UiNode of the current UI tree.
+
+        This is the default context for queries when no root is specified.
+        """
+        return (
+            EXECUTION_CONTEXTS.current.variables[f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}'](True)
+            if PLATYNUI_ROOT_DESCRIPTOR in EXECUTION_CONTEXTS.current.variables
+            else None
+        )
+
+    @keyword
+    def set_root(self, descriptor: UiNodeDescriptor | None) -> UiNodeDescriptor | None:
+        """Set the root UiNode for subsequent queries.
+
+        Args:
+            descriptor: A UiNodeDescriptor representing the node to set as the new root.
+
+        Examples:
+            | ${window}= | Query | //control:Window[@Name="Settings"] | only_first=${True} |
+            | Set Root   | ${window} |
+
+        """
+        old_root = (
+            EXECUTION_CONTEXTS.current.variables[f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}']
+            if PLATYNUI_ROOT_DESCRIPTOR in EXECUTION_CONTEXTS.current.variables
+            else None
+        )
+
+        EXECUTION_CONTEXTS.current.variables[f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}'] = descriptor
+
+        return old_root
 
     @keyword
     def query(
@@ -109,6 +166,11 @@ class BareMetal(OurDynamicCore):
             - Namespaces follow PlatynUI defaults (e.g., control); qualify names when needed.
             - Read-only: This keyword does not modify UI state.
         """
+        if root is NO_ROOT_NODE:
+            root = None
+        elif root is None:
+            root = self.root
+
         return self.runtime.evaluate_single(expression, root) if only_first else self.runtime.evaluate(expression, root)
 
     # Internal helpers
