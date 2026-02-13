@@ -56,10 +56,11 @@ class BareMetal(OurDynamicCore):
 
     """
 
-    def __init__(self, *, use_mock: bool = False) -> None:
+    def __init__(self, *, use_mock: bool = False, auto_activate: bool = True) -> None:
         super().__init__([])
         self._screenshot_counter = 1
         self.use_mock = use_mock
+        self.auto_activate = auto_activate
 
     @cached_property
     def runtime(self) -> Runtime:
@@ -111,6 +112,27 @@ class BareMetal(OurDynamicCore):
         return self.runtime.evaluate_single(expression, root) if only_first else self.runtime.evaluate(expression, root)
 
     # Internal helpers
+    def _maybe_bring_to_front(
+        self,
+        descriptor: 'UiNodeDescriptor | None',
+        activate: bool | None,
+    ) -> None:
+        """Bring the target element's window to the foreground if activation is enabled.
+
+        Args:
+            descriptor: Optional element descriptor. If None, no action is taken.
+            activate: Override for auto_activate. If None, the library-level
+                ``auto_activate`` setting is used.
+        """
+        if descriptor is None:
+            return
+        should_activate = activate if activate is not None else self.auto_activate
+        if should_activate:
+            try:
+                self.runtime.bring_to_front(descriptor())
+            except Exception:
+                pass  # Best-effort; don't block the pointer action
+
     def _resolve_screen_point(
         self,
         descriptor: 'UiNodeDescriptor | None',
@@ -177,6 +199,7 @@ class BareMetal(OurDynamicCore):
         x: float | None = None,
         y: float | None = None,
         overrides: PointerOverridesLike | None = None,
+        activate: bool | None = None,
     ) -> None:
         """Click at absolute or element-relative screen coordinates.
 
@@ -188,6 +211,8 @@ class BareMetal(OurDynamicCore):
             button: Mouse button to use. Defaults to LEFT.
             x: X coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
             y: Y coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
+            activate: Whether to bring the element's window to the foreground before
+                clicking. If None, the library-level ``auto_activate`` setting is used.
 
         Raises:
             ValueError: If only one of x or y is provided; or if neither coordinates nor a
@@ -196,7 +221,9 @@ class BareMetal(OurDynamicCore):
         Examples:
             | Pointer Click | //control:Button[@Name="OK"] |
             | Pointer Click | | x=${100} | y=${200} |
+            | Pointer Click | //control:Button[@Name="OK"] | activate=${False} |
         """
+        self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
         self.runtime.pointer_click(point, button, overrides)
 
@@ -210,6 +237,7 @@ class BareMetal(OurDynamicCore):
         x: float | None = None,
         y: float | None = None,
         overrides: PointerOverridesLike | None = None,
+        activate: bool | None = None,
     ) -> None:
         """Perform multiple clicks at absolute or element-relative screen coordinates.
 
@@ -222,6 +250,8 @@ class BareMetal(OurDynamicCore):
             button: Mouse button to use. Defaults to LEFT.
             x: X coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
             y: Y coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
+            activate: Whether to bring the element's window to the foreground before
+                clicking. If None, the library-level ``auto_activate`` setting is used.
 
         Raises:
             ValueError: If only one of x or y is provided; or if neither coordinates nor a
@@ -232,6 +262,7 @@ class BareMetal(OurDynamicCore):
             | Pointer Multi Click | | x=${100} | y=${200} |
             | Pointer Multi Click | //control:Text[@Name="File"] | clicks=${3} |
         """
+        self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
         self.runtime.pointer_multi_click(point, clicks, button, overrides)
 
@@ -244,6 +275,7 @@ class BareMetal(OurDynamicCore):
         x: float | None = None,
         y: float | None = None,
         overrides: PointerOverridesLike | None = None,
+        activate: bool | None = None,
     ) -> None:
         """Press a mouse button at absolute or element-relative screen coordinates.
 
@@ -255,6 +287,8 @@ class BareMetal(OurDynamicCore):
             button: Mouse button to use. Defaults to LEFT.
             x: X coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
             y: Y coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
+            activate: Whether to bring the element's window to the foreground before
+                pressing. If None, the library-level ``auto_activate`` setting is used.
 
         Raises:
             ValueError: If only one of x or y is provided; or if neither coordinates nor a
@@ -263,6 +297,7 @@ class BareMetal(OurDynamicCore):
         Examples:
             | Pointer Press | //control:Slider | x=${10} | y=${5} |
         """
+        self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
         self.runtime.pointer_press(point, button, overrides)
 
@@ -275,6 +310,7 @@ class BareMetal(OurDynamicCore):
         x: float | None = None,
         y: float | None = None,
         overrides: PointerOverridesLike | None = None,
+        activate: bool | None = None,
     ) -> None:
         """Release a mouse button at current or specified coordinates.
 
@@ -287,6 +323,8 @@ class BareMetal(OurDynamicCore):
             button: Mouse button to release. Defaults to LEFT.
             x: Optional X coordinate (see pointer_click for rules).
             y: Optional Y coordinate (see pointer_click for rules).
+            activate: Whether to bring the element's window to the foreground before
+                releasing. If None, the library-level ``auto_activate`` setting is used.
 
         Raises:
             ValueError: If only one of x or y is provided when targeting a location.
@@ -295,6 +333,7 @@ class BareMetal(OurDynamicCore):
             | Pointer Release | | |
             | Pointer Release | //control:Canvas | x=${50} | y=${50} |
         """
+        self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
         self.runtime.pointer_release(point, button, overrides)
 
@@ -306,6 +345,7 @@ class BareMetal(OurDynamicCore):
         x: float | None = None,
         y: float | None = None,
         overrides: PointerOverridesLike | None = None,
+        activate: bool | None = None,
     ) -> None:
         """Move the pointer to absolute or element-relative screen coordinates.
 
@@ -316,6 +356,8 @@ class BareMetal(OurDynamicCore):
                 - If x/y are given: they are offsets relative to the node's top-left Bounds.
             x: X coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
             y: Y coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
+            activate: Whether to bring the element's window to the foreground before
+                moving. If None, the library-level ``auto_activate`` setting is used.
 
         Raises:
             ValueError: If only one of x or y is provided; or if neither coordinates nor a
@@ -325,6 +367,7 @@ class BareMetal(OurDynamicCore):
             | Pointer Move To | | x=${400} | y=${300} |
             | Pointer Move To | //control:Button[@Name="OK"] |
         """
+        self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
         if point is None:
             raise ValueError('Coordinates x and y must be specified either directly or via node')
