@@ -9,7 +9,7 @@ use string_cache::DefaultAtom;
 
 use crate::compiler::ir::{AxisIR, ComparisonOp, InstrSeq, NameOrWildcard, NodeTestIR, OpCode, QuantifierKind};
 use crate::engine::runtime::{Error, ErrorCode};
-use crate::model::{NodeKind, XdmNode};
+use crate::model::{NodeKind, QName, XdmNode};
 use crate::xdm::{ExpandedName, SequenceCursor, XdmAtomicValue, XdmItem, XdmItemResult, XdmSequenceStream};
 
 pub(super) struct AxisStepCursor<N> {
@@ -58,7 +58,12 @@ enum AxisState<N> {
         current: Option<N>,
         initialized: bool,
     },
-    // attribute:: axis true streaming without buffering
+    // attribute:: axis — exact-name lookup (single result via attribute_by_name)
+    AttributeDirect {
+        result: Option<N>,
+        emitted: bool,
+    },
+    // attribute:: axis — lazy streaming for wildcard / multi-match tests
     AttributeIter {
         current: Option<N>,
         initialized: bool,
@@ -128,7 +133,27 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             AxisIR::SelfAxis => AxisState::SelfOnce { emitted: false },
             // Stream children lazily to avoid building large buffers
             AxisIR::Child => AxisState::ChildIter { current: None, initialized: false },
-            AxisIR::Attribute => AxisState::AttributeIter { current: None, initialized: false },
+            AxisIR::Attribute => {
+                // Decide at init time whether this is an exact-name or wildcard test.
+                let exact_name = match &self.test {
+                    NodeTestIR::Name(q) => Some(&q.original),
+                    NodeTestIR::KindAttribute { name: Some(NameOrWildcard::Name(q)), ty: None } => {
+                        Some(&q.original)
+                    }
+                    _ => None,
+                };
+                if let Some(en) = exact_name {
+                    let lookup = QName {
+                        prefix: None,
+                        local: en.local.clone(),
+                        ns_uri: en.ns_uri.clone(),
+                    };
+                    let result = self.node.attribute_by_name(&lookup);
+                    AxisState::AttributeDirect { result, emitted: false }
+                } else {
+                    AxisState::AttributeIter { current: None, initialized: false }
+                }
+            }
             // replaced later by AttributeQueue in init_state refactor
             AxisIR::Parent => AxisState::Parent { done: false },
             AxisIR::Ancestor => AxisState::Ancestors { current: self.node.parent(), include_self: false },
@@ -186,11 +211,23 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                     Ok(None)
                 }
             }
+            // Exact-name attribute: emit the single result from attribute_by_name
+            AxisState::AttributeDirect { result, emitted } => {
+                if *emitted {
+                    return Ok(None);
+                }
+                *emitted = true;
+                Ok(result.take())
+            }
+            // Wildcard / multi-match attribute: lazy streaming via
+            // first_attribute / next_attribute_in_doc helpers.  The underlying
+            // RuntimeXdmNode caches attributes internally, so the O(N²)
+            // equality scans only hit in-memory Vec lookups, not COM calls.
             AxisState::AttributeIter { current, initialized } => {
                 if !*initialized {
                     *initialized = true;
                     *current = Self::first_attribute(&self.node);
-                    // fast-skip non-matching attributes for common tests without borrowing self
+                    // fast-skip non-matching attributes for common tests
                     let test = self.test.clone();
                     while let Some(cur) = current.as_ref() {
                         match Self::attribute_test_fast_match_static(&test, cur) {
@@ -204,29 +241,18 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                     }
                 }
                 if let Some(cur) = current.take() {
-                    // Determine if this test can only match one attribute at most
-                    let single = matches!(
-                        &self.test,
-                        NodeTestIR::Name(_)
-                            | NodeTestIR::KindAttribute { name: Some(NameOrWildcard::Name(_)), ty: None }
-                    );
-                    if single {
-                        // No further matches possible for exact QName
-                        *current = None;
-                    } else {
-                        // Pre-compute next matching attribute
-                        let test = self.test.clone();
-                        let mut next = Self::next_attribute_in_doc(&self.node, &cur);
-                        while let Some(ref c2) = next {
-                            match Self::attribute_test_fast_match_static(&test, c2) {
-                                Some(true) | None => break,
-                                Some(false) => {
-                                    next = Self::next_attribute_in_doc(&self.node, c2);
-                                }
+                    // Pre-compute next matching attribute
+                    let test = self.test.clone();
+                    let mut next = Self::next_attribute_in_doc(&self.node, &cur);
+                    while let Some(ref c2) = next {
+                        match Self::attribute_test_fast_match_static(&test, c2) {
+                            Some(true) | None => break,
+                            Some(false) => {
+                                next = Self::next_attribute_in_doc(&self.node, c2);
                             }
                         }
-                        *current = next;
                     }
+                    *current = next;
                     Ok(Some(cur))
                 } else {
                     Ok(None)
@@ -729,20 +755,7 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
     fn first_child_in_doc(node: &N) -> Option<N> {
         node.children().find(|c| !Self::is_attr_or_namespace(c))
     }
-    fn next_sibling_in_doc(node: &N) -> Option<N> {
-        let parent = node.parent()?;
-        let mut seen = false;
-        for s in parent.children() {
-            if seen && !Self::is_attr_or_namespace(&s) {
-                return Some(s);
-            }
-            if s == *node {
-                seen = true;
-            }
-        }
-        None
-    }
-    // attribute helpers for streaming without buffering
+    // attribute helpers for lazy streaming
     fn first_attribute(node: &N) -> Option<N> {
         node.attributes().next()
     }
@@ -753,6 +766,19 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                 return Some(a);
             }
             if &a == prev {
+                seen = true;
+            }
+        }
+        None
+    }
+    fn next_sibling_in_doc(node: &N) -> Option<N> {
+        let parent = node.parent()?;
+        let mut seen = false;
+        for s in parent.children() {
+            if seen && !Self::is_attr_or_namespace(&s) {
+                return Some(s);
+            }
+            if s == *node {
                 seen = true;
             }
         }

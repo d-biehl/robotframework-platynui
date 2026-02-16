@@ -427,118 +427,12 @@ pub fn process_architecture_from_path(path: &str) -> Option<String> {
 
 // get_activation_point and is_visible moved into attribute-level caching logic.
 
-/// Collects a curated set of native UIA properties and returns only those
-/// that appear to be supported (non-empty / meaningful values).
-///
-/// Note: The UIA COM API does not provide a direct enumeration of all
-/// supported properties for an element. We therefore use a catalog of
-/// programmatic names (typical UIA property ID range) and read each ID via
-/// `GetCurrentPropertyValueEx(id, true)`. Unsupported/mixed values are
-/// filtered using the UIA reserved sentinels.
-pub fn collect_native_properties(elem: &IUIAutomationElement) -> Vec<(String, UiValue)> {
-    // Enumerate UIA property programmatic names in the common range and fetch current values.
-    static PROPERTY_CATALOG: OnceCell<Vec<(UIA_PROPERTY_ID, String)>> = OnceCell::new();
-    let catalog = PROPERTY_CATALOG.get_or_init(|| {
-        let mut list: Vec<(UIA_PROPERTY_ID, String)> = Vec::new();
-        if let Ok(uia) = crate::com::uia() {
-            for id_num in 30000i32..31050i32 {
-                let id = UIA_PROPERTY_ID(id_num);
-                if let Ok(name_bstr) = unsafe { uia.GetPropertyProgrammaticName(id) } {
-                    let name = name_bstr.to_string();
-                    if !name.is_empty() {
-                        list.push((id, name));
-                    }
-                }
-            }
-        }
-        list
-    });
-
-    let mut out: Vec<(String, UiValue)> = Vec::new();
-    for (id, name) in catalog.iter() {
-        // Try Ex first (to ignore default values), fall back to plain getter.
-        let mut var: VARIANT = match unsafe { elem.GetCurrentPropertyValueEx(*id, true) } {
-            Ok(v) => v,
-            Err(_) => match unsafe { elem.GetCurrentPropertyValue(*id) } {
-                Ok(v) => v,
-                Err(_) => continue,
-            },
-        };
-
-        // Skip unsupported/mixed sentinels and empty values
-        let vt = unsafe { var.Anonymous.Anonymous.vt.0 };
-        if vt == VT_EMPTY.0 {
-            continue;
-        }
-        if vt == VT_UNKNOWN.0 {
-            // Compare against UIA reserved sentinels if available
-            let mut skip = false;
-            unsafe {
-                if let Ok(ns) = UiaGetReservedNotSupportedValue() {
-                    let p = var.Anonymous.Anonymous.Anonymous.punkVal.clone();
-                    if let Some(u) = p.as_ref()
-                        && u.as_raw() == ns.as_raw()
-                    {
-                        skip = true;
-                    }
-                }
-                if !skip && let Ok(mx) = UiaGetReservedMixedAttributeValue() {
-                    let p = var.Anonymous.Anonymous.Anonymous.punkVal.clone();
-                    if let Some(u) = p.as_ref()
-                        && u.as_raw() == mx.as_raw()
-                    {
-                        skip = true;
-                    }
-                }
-            }
-            if skip {
-                unsafe {
-                    let _ = VariantClear(&mut var);
-                }
-                continue;
-            }
-        }
-
-        if let Some(value) = unsafe { variant_to_ui_value(&var) } {
-            out.push((name.clone(), value));
-        }
-        unsafe {
-            let _ = VariantClear(&mut var);
-        }
-    }
-    out
-}
-
-/// Looks up a single native UIA property by its programmatic name, avoiding
-/// the cost of collecting all ~1050 properties.
-///
-/// Uses a lazily-built reverse map (name → property ID) so subsequent lookups
-/// are O(1) hash-table probes plus a single COM property read.
-pub fn get_native_property_by_name(elem: &IUIAutomationElement, prop_name: &str) -> Option<(String, UiValue)> {
-    use std::collections::HashMap;
-
-    static NAME_TO_ID: OnceCell<HashMap<String, UIA_PROPERTY_ID>> = OnceCell::new();
-    let map = NAME_TO_ID.get_or_init(|| {
-        let mut m = HashMap::new();
-        if let Ok(uia) = crate::com::uia() {
-            for id_num in 30000i32..31050i32 {
-                let id = UIA_PROPERTY_ID(id_num);
-                if let Ok(name_bstr) = unsafe { uia.GetPropertyProgrammaticName(id) } {
-                    let name = name_bstr.to_string();
-                    if !name.is_empty() {
-                        m.insert(name, id);
-                    }
-                }
-            }
-        }
-        m
-    });
-
-    let id = map.get(prop_name)?;
-
-    let mut var: VARIANT = match unsafe { elem.GetCurrentPropertyValueEx(*id, true) } {
+/// Reads a single UIA property value from an element, handling COM fallback
+/// and UIA sentinel filtering (NotSupported / MixedAttribute).
+fn read_uia_property(elem: &IUIAutomationElement, id: UIA_PROPERTY_ID) -> Option<UiValue> {
+    let mut var: VARIANT = match unsafe { elem.GetCurrentPropertyValueEx(id, true) } {
         Ok(v) => v,
-        Err(_) => match unsafe { elem.GetCurrentPropertyValue(*id) } {
+        Err(_) => match unsafe { elem.GetCurrentPropertyValue(id) } {
             Ok(v) => v,
             Err(_) => return None,
         },
@@ -576,11 +470,342 @@ pub fn get_native_property_by_name(elem: &IUIAutomationElement, prop_name: &str)
         }
     }
 
-    let result = unsafe { variant_to_ui_value(&var) }.map(|v| (prop_name.to_string(), v));
+    let result = unsafe { variant_to_ui_value(&var) };
     unsafe {
         let _ = VariantClear(&mut var);
     }
     result
+}
+
+/// Categorized UIA property catalog: separates base element properties from
+/// pattern-specific properties so we only query pattern properties when the
+/// pattern is actually supported by the element.
+struct CategorizedCatalog {
+    /// Base element properties — always queried for every element.
+    base: Vec<(UIA_PROPERTY_ID, String)>,
+    /// Pattern-specific groups: (pattern_availability_property_id, properties).
+    /// The availability ID is queried first; its properties are only read when
+    /// the pattern is available.
+    pattern_groups: Vec<(UIA_PROPERTY_ID, Vec<(UIA_PROPERTY_ID, String)>)>,
+}
+
+/// Builds the categorized catalog once and returns a static reference.
+///
+/// Pattern-specific property IDs are mapped to their owning pattern's
+/// availability-check property. Any property ID not covered by a known
+/// pattern group is treated as a base property.
+fn categorized_catalog() -> &'static CategorizedCatalog {
+    static INSTANCE: OnceCell<CategorizedCatalog> = OnceCell::new();
+    INSTANCE.get_or_init(|| {
+        use std::collections::HashMap;
+
+        // Define pattern groups: (availability_check_id, pattern_property_ids).
+        // Property IDs that don't appear in any group are classified as base.
+        let groups: &[(UIA_PROPERTY_ID, &[UIA_PROPERTY_ID])] = &[
+            // --- Classic patterns (Windows 7+) ---
+            (
+                UIA_IsDockPatternAvailablePropertyId,
+                &[UIA_DockDockPositionPropertyId],
+            ),
+            (
+                UIA_IsExpandCollapsePatternAvailablePropertyId,
+                &[UIA_ExpandCollapseExpandCollapseStatePropertyId],
+            ),
+            (
+                UIA_IsGridItemPatternAvailablePropertyId,
+                &[
+                    UIA_GridItemRowPropertyId,
+                    UIA_GridItemColumnPropertyId,
+                    UIA_GridItemRowSpanPropertyId,
+                    UIA_GridItemColumnSpanPropertyId,
+                    UIA_GridItemContainingGridPropertyId,
+                ],
+            ),
+            (
+                UIA_IsGridPatternAvailablePropertyId,
+                &[UIA_GridRowCountPropertyId, UIA_GridColumnCountPropertyId],
+            ),
+            // Invoke pattern has no properties.
+            (
+                UIA_IsMultipleViewPatternAvailablePropertyId,
+                &[
+                    UIA_MultipleViewCurrentViewPropertyId,
+                    UIA_MultipleViewSupportedViewsPropertyId,
+                ],
+            ),
+            (
+                UIA_IsRangeValuePatternAvailablePropertyId,
+                &[
+                    UIA_RangeValueValuePropertyId,
+                    UIA_RangeValueIsReadOnlyPropertyId,
+                    UIA_RangeValueMinimumPropertyId,
+                    UIA_RangeValueMaximumPropertyId,
+                    UIA_RangeValueLargeChangePropertyId,
+                    UIA_RangeValueSmallChangePropertyId,
+                ],
+            ),
+            (
+                UIA_IsScrollPatternAvailablePropertyId,
+                &[
+                    UIA_ScrollHorizontalScrollPercentPropertyId,
+                    UIA_ScrollHorizontalViewSizePropertyId,
+                    UIA_ScrollVerticalScrollPercentPropertyId,
+                    UIA_ScrollVerticalViewSizePropertyId,
+                    UIA_ScrollHorizontallyScrollablePropertyId,
+                    UIA_ScrollVerticallyScrollablePropertyId,
+                ],
+            ),
+            // ScrollItem pattern has no properties.
+            (
+                UIA_IsSelectionItemPatternAvailablePropertyId,
+                &[
+                    UIA_SelectionItemIsSelectedPropertyId,
+                    UIA_SelectionItemSelectionContainerPropertyId,
+                ],
+            ),
+            (
+                UIA_IsSelectionPatternAvailablePropertyId,
+                &[
+                    UIA_SelectionSelectionPropertyId,
+                    UIA_SelectionCanSelectMultiplePropertyId,
+                    UIA_SelectionIsSelectionRequiredPropertyId,
+                ],
+            ),
+            (
+                UIA_IsTablePatternAvailablePropertyId,
+                &[
+                    UIA_TableRowHeadersPropertyId,
+                    UIA_TableColumnHeadersPropertyId,
+                    UIA_TableRowOrColumnMajorPropertyId,
+                ],
+            ),
+            (
+                UIA_IsTableItemPatternAvailablePropertyId,
+                &[
+                    UIA_TableItemRowHeaderItemsPropertyId,
+                    UIA_TableItemColumnHeaderItemsPropertyId,
+                ],
+            ),
+            // Text pattern has no simple property IDs (uses TextRange).
+            (
+                UIA_IsTogglePatternAvailablePropertyId,
+                &[UIA_ToggleToggleStatePropertyId],
+            ),
+            (
+                UIA_IsTransformPatternAvailablePropertyId,
+                &[
+                    UIA_TransformCanMovePropertyId,
+                    UIA_TransformCanResizePropertyId,
+                    UIA_TransformCanRotatePropertyId,
+                ],
+            ),
+            (
+                UIA_IsValuePatternAvailablePropertyId,
+                &[UIA_ValueValuePropertyId, UIA_ValueIsReadOnlyPropertyId],
+            ),
+            (
+                UIA_IsWindowPatternAvailablePropertyId,
+                &[
+                    UIA_WindowCanMaximizePropertyId,
+                    UIA_WindowCanMinimizePropertyId,
+                    UIA_WindowWindowVisualStatePropertyId,
+                    UIA_WindowWindowInteractionStatePropertyId,
+                    UIA_WindowIsModalPropertyId,
+                    UIA_WindowIsTopmostPropertyId,
+                ],
+            ),
+            (
+                UIA_IsLegacyIAccessiblePatternAvailablePropertyId,
+                &[
+                    UIA_LegacyIAccessibleChildIdPropertyId,
+                    UIA_LegacyIAccessibleNamePropertyId,
+                    UIA_LegacyIAccessibleValuePropertyId,
+                    UIA_LegacyIAccessibleDescriptionPropertyId,
+                    UIA_LegacyIAccessibleRolePropertyId,
+                    UIA_LegacyIAccessibleStatePropertyId,
+                    UIA_LegacyIAccessibleHelpPropertyId,
+                    UIA_LegacyIAccessibleKeyboardShortcutPropertyId,
+                    UIA_LegacyIAccessibleSelectionPropertyId,
+                    UIA_LegacyIAccessibleDefaultActionPropertyId,
+                ],
+            ),
+            // --- Windows 8+ patterns ---
+            (
+                UIA_IsAnnotationPatternAvailablePropertyId,
+                &[
+                    UIA_AnnotationAnnotationTypeIdPropertyId,
+                    UIA_AnnotationAnnotationTypeNamePropertyId,
+                    UIA_AnnotationAuthorPropertyId,
+                    UIA_AnnotationDateTimePropertyId,
+                    UIA_AnnotationTargetPropertyId,
+                ],
+            ),
+            (
+                UIA_IsDragPatternAvailablePropertyId,
+                &[
+                    UIA_DragIsGrabbedPropertyId,
+                    UIA_DragDropEffectPropertyId,
+                    UIA_DragDropEffectsPropertyId,
+                    UIA_DragGrabbedItemsPropertyId,
+                ],
+            ),
+            (
+                UIA_IsDropTargetPatternAvailablePropertyId,
+                &[
+                    UIA_DropTargetDropTargetEffectPropertyId,
+                    UIA_DropTargetDropTargetEffectsPropertyId,
+                ],
+            ),
+            (
+                UIA_IsSpreadsheetItemPatternAvailablePropertyId,
+                &[
+                    UIA_SpreadsheetItemFormulaPropertyId,
+                    UIA_SpreadsheetItemAnnotationObjectsPropertyId,
+                    UIA_SpreadsheetItemAnnotationTypesPropertyId,
+                ],
+            ),
+            (
+                UIA_IsStylesPatternAvailablePropertyId,
+                &[
+                    UIA_StylesStyleIdPropertyId,
+                    UIA_StylesStyleNamePropertyId,
+                    UIA_StylesFillColorPropertyId,
+                    UIA_StylesFillPatternStylePropertyId,
+                    UIA_StylesShapePropertyId,
+                    UIA_StylesFillPatternColorPropertyId,
+                    UIA_StylesExtendedPropertiesPropertyId,
+                ],
+            ),
+            (
+                UIA_IsTransformPattern2AvailablePropertyId,
+                &[
+                    UIA_Transform2CanZoomPropertyId,
+                    UIA_Transform2ZoomLevelPropertyId,
+                    UIA_Transform2ZoomMinimumPropertyId,
+                    UIA_Transform2ZoomMaximumPropertyId,
+                ],
+            ),
+            (
+                UIA_IsSelectionPattern2AvailablePropertyId,
+                &[
+                    UIA_Selection2FirstSelectedItemPropertyId,
+                    UIA_Selection2LastSelectedItemPropertyId,
+                    UIA_Selection2CurrentSelectedItemPropertyId,
+                    UIA_Selection2ItemCountPropertyId,
+                ],
+            ),
+        ];
+
+        // Build reverse map: property ID → group index
+        let mut prop_to_group: HashMap<i32, usize> = HashMap::new();
+        for (idx, (_, props)) in groups.iter().enumerate() {
+            for prop_id in *props {
+                prop_to_group.insert(prop_id.0, idx);
+            }
+        }
+
+        let mut base = Vec::new();
+        let mut pattern_props: Vec<Vec<(UIA_PROPERTY_ID, String)>> = vec![Vec::new(); groups.len()];
+
+        if let Ok(uia) = crate::com::uia() {
+            for id_num in 30000i32..31050i32 {
+                let id = UIA_PROPERTY_ID(id_num);
+                if let Ok(name_bstr) = unsafe { uia.GetPropertyProgrammaticName(id) } {
+                    let name = name_bstr.to_string();
+                    if !name.is_empty() {
+                        if let Some(&group_idx) = prop_to_group.get(&id_num) {
+                            pattern_props[group_idx].push((id, name));
+                        } else {
+                            base.push((id, name));
+                        }
+                    }
+                }
+            }
+        }
+
+        let pattern_groups = groups
+            .iter()
+            .zip(pattern_props.into_iter())
+            .map(|((avail_id, _), props)| (*avail_id, props))
+            .filter(|(_, props)| !props.is_empty())
+            .collect();
+
+        CategorizedCatalog { base, pattern_groups }
+    })
+}
+
+/// Collects native UIA properties, querying only pattern-specific properties
+/// when the corresponding pattern is actually supported by the element.
+///
+/// This avoids the cost of blindly probing all ~1050 property IDs in the UIA
+/// range. Instead we query ~50 base element properties unconditionally plus
+/// one boolean availability check per pattern group (~20 cheap COM calls),
+/// then only read the properties of patterns the element actually supports.
+pub fn collect_native_properties(elem: &IUIAutomationElement) -> Vec<(String, UiValue)> {
+    let catalog = categorized_catalog();
+    let mut out: Vec<(String, UiValue)> = Vec::new();
+
+    // 1. Always query base element properties.
+    for (id, name) in &catalog.base {
+        if let Some(value) = read_uia_property(elem, *id) {
+            out.push((name.clone(), value));
+        }
+    }
+
+    // 2. For each pattern group, check availability first (single boolean
+    //    COM call), then read pattern-specific properties only if supported.
+    for (avail_id, props) in &catalog.pattern_groups {
+        let available = unsafe { elem.GetCurrentPropertyValue(*avail_id) }
+            .ok()
+            .and_then(|var| {
+                let vt = unsafe { var.Anonymous.Anonymous.vt.0 };
+                if vt == VT_BOOL.0 {
+                    Some(unsafe { var.Anonymous.Anonymous.Anonymous.boolVal.as_bool() })
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(false);
+
+        if available {
+            for (id, name) in props {
+                if let Some(value) = read_uia_property(elem, *id) {
+                    out.push((name.clone(), value));
+                }
+            }
+        }
+    }
+
+    out
+}
+
+/// Looks up a single native UIA property by its programmatic name, avoiding
+/// the cost of collecting all properties.
+///
+/// Uses a lazily-built reverse map (name → property ID) so subsequent lookups
+/// are O(1) hash-table probes plus a single COM property read.
+pub fn get_native_property_by_name(elem: &IUIAutomationElement, prop_name: &str) -> Option<(String, UiValue)> {
+    use std::collections::HashMap;
+
+    static NAME_TO_ID: OnceCell<HashMap<String, UIA_PROPERTY_ID>> = OnceCell::new();
+    let map = NAME_TO_ID.get_or_init(|| {
+        let mut m = HashMap::new();
+        if let Ok(uia) = crate::com::uia() {
+            for id_num in 30000i32..31050i32 {
+                let id = UIA_PROPERTY_ID(id_num);
+                if let Ok(name_bstr) = unsafe { uia.GetPropertyProgrammaticName(id) } {
+                    let name = name_bstr.to_string();
+                    if !name.is_empty() {
+                        m.insert(name, id);
+                    }
+                }
+            }
+        }
+        m
+    });
+
+    let id = map.get(prop_name)?;
+    read_uia_property(elem, *id).map(|v| (prop_name.to_string(), v))
 }
 
 unsafe fn variant_to_ui_value(variant: &VARIANT) -> Option<UiValue> {

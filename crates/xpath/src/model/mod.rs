@@ -133,6 +133,24 @@ pub trait XdmNode: Clone + Eq + core::fmt::Debug {
     fn attributes(&self) -> Self::Attributes<'_>;
     fn namespaces(&self) -> Self::Namespaces<'_>;
 
+    /// Direct lookup of a single attribute by expanded QName.
+    ///
+    /// The default implementation linearly scans `attributes()`.  Backends
+    /// that can resolve attributes in O(1) (e.g. via a direct provider call)
+    /// should override this to avoid materialising the full attribute list.
+    fn attribute_by_name(&self, name: &QName) -> Option<Self> {
+        self.attributes().find(|a| {
+            a.name().as_ref().is_some_and(|n| {
+                n.local == name.local
+                    && match (&n.ns_uri, &name.ns_uri) {
+                        (None, None) => true,
+                        (Some(a), Some(b)) => a == b,
+                        _ => false,
+                    }
+            })
+        })
+    }
+
     /// Optional hint for document order comparisons. If provided, the engine uses this
     /// value to avoid recomputing ancestry during ordering operations.
     fn doc_order_key(&self) -> Option<u64> {

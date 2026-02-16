@@ -540,6 +540,87 @@ impl XdmNode for RuntimeXdmNode {
             RuntimeXdmNode::Document(_) | RuntimeXdmNode::Attribute(_) => None,
         }
     }
+
+    /// O(1) attribute lookup via the provider's `UiNode::attribute()` method,
+    /// bypassing the full attribute iterator. This avoids materialising
+    /// expensive native properties (≈1 050 COM calls per element on Windows)
+    /// when the requested attribute lives in a cheaper namespace.
+    fn attribute_by_name(&self, name: &QName) -> Option<Self> {
+        let node: &Arc<dyn UiNode> = match self {
+            RuntimeXdmNode::Document(doc) => &doc.root,
+            RuntimeXdmNode::Element(elem) => &elem.node,
+            RuntimeXdmNode::Attribute(_) => return None,
+        };
+
+        // Map XPath namespace URI to provider UiNamespace.
+        let ui_ns = match &name.ns_uri {
+            None => UiNamespace::Control,
+            Some(uri) => match uri.as_str() {
+                CONTROL_NS_URI => UiNamespace::Control,
+                ITEM_NS_URI => UiNamespace::Item,
+                APP_NS_URI => UiNamespace::App,
+                NATIVE_NS_URI => UiNamespace::Native,
+                _ => return None,
+            },
+        };
+
+        // Fast path: direct provider lookup (handles Role, Name, Id, Bounds, …)
+        if let Some(attr) = node.attribute(ui_ns, &name.local) {
+            return Some(RuntimeXdmNode::Attribute(AttributeData::new_from_source(
+                node.clone(),
+                attr.namespace(),
+                attr.name().to_string(),
+                attr,
+            )));
+        }
+
+        // Handle virtual component attributes (e.g. Bounds.X, ActivationPoint.Y)
+        // that only exist inside the `NodeAttributeIter` expansion.
+        if ui_ns == UiNamespace::Control {
+            if let Some(suffix) = name.local.strip_prefix("Bounds.") {
+                let comp = match suffix {
+                    "X" => Some(RectComp::X),
+                    "Y" => Some(RectComp::Y),
+                    "Width" => Some(RectComp::Width),
+                    "Height" => Some(RectComp::Height),
+                    _ => None,
+                };
+                if let Some(comp) = comp {
+                    if let Some(base) = node.attribute(ui_ns, attribute_names::element::BOUNDS) {
+                        return Some(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
+                            node.clone(),
+                            ui_ns,
+                            base,
+                            attribute_names::element::BOUNDS,
+                            comp,
+                        )));
+                    }
+                }
+            }
+            if let Some(suffix) = name.local.strip_prefix("ActivationPoint.") {
+                let comp = match suffix {
+                    "X" => Some(PointComp::X),
+                    "Y" => Some(PointComp::Y),
+                    _ => None,
+                };
+                if let Some(comp) = comp {
+                    if let Some(base) =
+                        node.attribute(ui_ns, attribute_names::activation_target::ACTIVATION_POINT)
+                    {
+                        return Some(RuntimeXdmNode::Attribute(AttributeData::new_point_component(
+                            node.clone(),
+                            ui_ns,
+                            base,
+                            attribute_names::activation_target::ACTIVATION_POINT,
+                            comp,
+                        )));
+                    }
+                }
+            }
+        }
+
+        None
+    }
 }
 
 #[derive(Clone)]
