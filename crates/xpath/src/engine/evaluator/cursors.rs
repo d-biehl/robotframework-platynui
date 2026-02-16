@@ -1607,8 +1607,8 @@ impl<N: 'static + XdmNode + Clone> EnsureOrderCursor<N> {
         Self { vm, input, pending: None, last_key: None, last_node: None, buffer: VecDeque::new(), in_fallback: false }
     }
 
-    fn cmp_doc_order(&self, a: &N, b: &N) -> Ordering {
-        self.vm.with_vm(|vm| vm.node_compare(a, b)).unwrap_or(Ordering::Equal)
+    fn cmp_doc_order(&self, a: &N, b: &N) -> Result<Ordering, Error> {
+        self.vm.with_vm(|vm| vm.node_compare(a, b))
     }
 
     fn switch_to_fallback(&mut self, first: XdmItem<N>, second: XdmItem<N>) -> Result<(), Error> {
@@ -1659,7 +1659,10 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for EnsureOrderCursor<N> {
                     let ok = if let (Some(pk), Some(ck)) = (self.last_key, cur_n.doc_order_key()) {
                         ck >= pk
                     } else if let Some(pn) = &self.last_node {
-                        self.cmp_doc_order(pn, cur_n) != Ordering::Greater
+                        match self.cmp_doc_order(pn, cur_n) {
+                            Ok(ord) => ord != Ordering::Greater,
+                            Err(e) => return Some(Err(e)),
+                        }
                     } else {
                         true
                     };
@@ -1674,11 +1677,13 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for EnsureOrderCursor<N> {
                     } else {
                         // Try local adjacent-swap repair (single inversion): emit `cur` first if it
                         // still maintains global monotonicity relative to the last emitted item.
-                        let can_swap = self
-                            .last_node
-                            .as_ref()
-                            .map(|ln| self.cmp_doc_order(ln, cur_n) != Ordering::Greater)
-                            .unwrap_or(true);
+                        let can_swap = match self.last_node.as_ref() {
+                            Some(ln) => match self.cmp_doc_order(ln, cur_n) {
+                                Ok(ord) => ord != Ordering::Greater,
+                                Err(e) => return Some(Err(e)),
+                            },
+                            None => true,
+                        };
                         if can_swap {
                             // Emit current (`next`) immediately; keep `pending` (prev) for next round.
                             self.last_key = cur_n.doc_order_key();
@@ -1819,7 +1824,10 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for TreatCursor<N> {
                         format!("treat as failed: cardinality mismatch (expected max {} got {})", max, self.seen),
                     )));
                 }
-                let ok = self.vm.with_vm(|vm| vm.item_matches_type(&it, &self.item_type)).unwrap_or(false);
+                let ok = match self.vm.with_vm(|vm| vm.item_matches_type(&it, &self.item_type)) {
+                    Ok(v) => v,
+                    Err(e) => return Some(Err(e)),
+                };
                 if !ok {
                     return Some(Err(Error::from_code(ErrorCode::XPTY0004, "treat as failed: type mismatch")));
                 }

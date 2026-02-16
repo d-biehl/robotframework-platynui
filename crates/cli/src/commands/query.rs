@@ -55,6 +55,7 @@ pub fn run(runtime: &Runtime, args: &QueryArgs) -> CliResult<String> {
             let expr = args.expression.trim();
             let iter = runtime.evaluate_iter(None, expr).map_err(map_evaluate_error)?;
             for item in iter {
+                let item = item.map_err(map_evaluate_error)?;
                 match item {
                     EvaluationItem::Node(node) => print_node_stream_text(&node),
                     EvaluationItem::Attribute(attr) => {

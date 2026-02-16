@@ -279,7 +279,7 @@ impl Runtime {
         &self,
         node: Option<Arc<dyn UiNode>>,
         xpath: &str,
-    ) -> Result<impl Iterator<Item = crate::xpath::EvaluationItem>, EvaluateError> {
+    ) -> Result<impl Iterator<Item = Result<crate::xpath::EvaluationItem, EvaluateError>>, EvaluateError> {
         crate::xpath::evaluate_iter(node, xpath, self.evaluate_options())
     }
 
@@ -297,7 +297,11 @@ impl Runtime {
         xpath: &str,
     ) -> Result<Option<EvaluationItem>, EvaluateError> {
         let mut iter = self.evaluate_iter(node, xpath)?;
-        Ok(iter.next())
+        match iter.next() {
+            Some(Ok(item)) => Ok(Some(item)),
+            Some(Err(e)) => Err(e),
+            None => Ok(None),
+        }
     }
 
     pub fn evaluate_cached(
@@ -314,7 +318,7 @@ impl Runtime {
         node: Option<Arc<dyn UiNode>>,
         xpath: &str,
         cache: &crate::xpath::XdmCache,
-    ) -> Result<impl Iterator<Item = crate::xpath::EvaluationItem>, EvaluateError> {
+    ) -> Result<impl Iterator<Item = Result<crate::xpath::EvaluationItem, EvaluateError>>, EvaluateError> {
         crate::xpath::evaluate_iter(node, xpath, self.evaluate_options().with_cache(cache.clone()))
     }
 
@@ -334,7 +338,11 @@ impl Runtime {
         cache: &crate::xpath::XdmCache,
     ) -> Result<Option<EvaluationItem>, EvaluateError> {
         let mut iter = self.evaluate_iter_cached(node, xpath, cache)?;
-        Ok(iter.next())
+        match iter.next() {
+            Some(Ok(item)) => Ok(Some(item)),
+            Some(Err(e)) => Err(e),
+            None => Ok(None),
+        }
     }
 
     pub fn focus(&self, node: &Arc<dyn UiNode>) -> Result<(), FocusError> {

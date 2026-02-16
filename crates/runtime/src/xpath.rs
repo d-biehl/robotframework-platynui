@@ -163,15 +163,15 @@ pub fn evaluate(
     options: EvaluateOptions,
 ) -> Result<Vec<EvaluationItem>, EvaluateError> {
     let iter = evaluate_iter(node, xpath, options)?;
-    Ok(iter.collect())
+    iter.collect()
 }
 
 pub struct EvaluationStream {
-    inner: Box<dyn Iterator<Item = EvaluationItem>>,
+    inner: Box<dyn Iterator<Item = Result<EvaluationItem, EvaluateError>>>,
 }
 
 impl Iterator for EvaluationStream {
-    type Item = EvaluationItem;
+    type Item = Result<EvaluationItem, EvaluateError>;
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
     }
@@ -203,7 +203,7 @@ pub fn evaluate_iter(
     node: Option<Arc<dyn UiNode>>,
     xpath: &str,
     options: EvaluateOptions,
-) -> Result<impl Iterator<Item = EvaluationItem>, EvaluateError> {
+) -> Result<impl Iterator<Item = Result<EvaluationItem, EvaluateError>>, EvaluateError> {
     let context = resolve_context(node.as_ref(), &options)?;
 
     if options.invalidate_before_eval() {
@@ -286,21 +286,24 @@ fn build_static_context() -> &'static platynui_xpath::engine::runtime::StaticCon
     &STATIC_CTX
 }
 
-/// Map a stream of XDM items to `EvaluationItem`s, skipping errors and non-mappable values.
-fn eval_stream_to_iter<I>(iter: I) -> impl Iterator<Item = EvaluationItem>
+/// Map a stream of XDM items to `EvaluationItem`s, propagating evaluation errors.
+fn eval_stream_to_iter<I>(iter: I) -> impl Iterator<Item = Result<EvaluationItem, EvaluateError>>
 where
     I: IntoIterator<
         Item = Result<platynui_xpath::xdm::XdmItem<RuntimeXdmNode>, platynui_xpath::engine::runtime::Error>,
     >,
 {
     use platynui_xpath::xdm::XdmItem;
-    iter.into_iter().filter_map(|res| match res.ok()? {
-        XdmItem::Node(node) => match node {
-            RuntimeXdmNode::Document(doc) => Some(EvaluationItem::Node(doc.root.clone())),
-            RuntimeXdmNode::Element(elem) => Some(EvaluationItem::Node(elem.node.clone())),
-            RuntimeXdmNode::Attribute(attr) => Some(EvaluationItem::Attribute(attr.to_evaluated())),
+    iter.into_iter().filter_map(|res| match res {
+        Err(e) => Some(Err(EvaluateError::XPath(e))),
+        Ok(item) => match item {
+            XdmItem::Node(node) => match node {
+                RuntimeXdmNode::Document(doc) => Some(Ok(EvaluationItem::Node(doc.root.clone()))),
+                RuntimeXdmNode::Element(elem) => Some(Ok(EvaluationItem::Node(elem.node.clone()))),
+                RuntimeXdmNode::Attribute(attr) => Some(Ok(EvaluationItem::Attribute(attr.to_evaluated()))),
+            },
+            XdmItem::Atomic(atom) => Some(Ok(EvaluationItem::Value(atomic_to_ui_value(&atom)))),
         },
-        XdmItem::Atomic(atom) => Some(EvaluationItem::Value(atomic_to_ui_value(&atom))),
     })
 }
 

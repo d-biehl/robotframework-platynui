@@ -1589,7 +1589,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         if let Some(specs) =
                             self.compiled.static_ctx.function_signatures.param_types_for_call(en, argc, def_ns_ref)
                         {
-                            self.apply_stream_conversions(&mut args_stream, specs)?;
+                            self.apply_stream_conversions(&mut args_stream, specs, en)?;
                         }
 
                         // Build call context after popping args (borrow checker)
@@ -1629,6 +1629,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         &self,
         args: &mut [XdmSequenceStream<N>],
         specs: &[ParamTypeSpec],
+        fn_name: &ExpandedName,
     ) -> Result<(), Error> {
         for (idx, spec) in specs.iter().enumerate() {
             if let Some(arg_stream) = args.get_mut(idx) {
@@ -1649,8 +1650,14 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         materialized
                     };
 
-                    // Apply type conversion/validation
-                    let converted = spec.apply_to_sequence(atomized, &self.compiled.static_ctx)?;
+                    // Apply type conversion/validation, enriching errors with function context
+                    let arg_pos = idx + 1;
+                    let converted = spec.apply_to_sequence(atomized, &self.compiled.static_ctx).map_err(|e| {
+                        Error::from_code(
+                            e.code_enum(),
+                            format!("{}(): argument {arg_pos}: {}", fn_name.local, e.message),
+                        )
+                    })?;
 
                     // Convert back to stream
                     *arg_stream = XdmSequenceStream::from_vec(converted);

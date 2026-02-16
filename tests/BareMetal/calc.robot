@@ -1,15 +1,21 @@
 *** Settings ***
-Library     PlatynUI.BareMetal
-Library     Collections
-Library   Process
+Library         PlatynUI.BareMetal
+Library         Collections
+Library         Process
+
+Test Setup      Start Calculator
 
 
 *** Test Cases ***
 Calculate 1 + 2
-    Enter Number         18972349237891231239872345
+    Enter Number    18972349237891231239872345
 
 calculate 1 + 2 full
     Enter Number full    1893
+
+calc invalid expression
+    Query    app:Application[@Name='ApplicationFrameHost']//*[contains(@*, 'Close')]
+
 
 *** Keywords ***
 Enter Number
@@ -26,22 +32,26 @@ Enter Number
     END
     Highlight    rect=${rects}
 
-
 Enter Number full
     [Arguments]    ${number}
     VAR    @{rects}
 
     FOR    ${c}    IN    @{{list($number)}}
-        ${a}    Query    app:Application[@Name="ApplicationFrameHost"]/Window[@Name="Calculator" or @Name="Rechner"]//Button[@Id="num${c}Button"]    only_first=True
+        ${a}    Query
+        ...    app:Application[@Name="ApplicationFrameHost"]/Window[@Name="Calculator" or @Name="Rechner"]//Button[@Id="num${c}Button"]
+        ...    only_first=True
         ${r}    Get Attribute    ${a}    Bounds
         Append To List    ${rects}    ${r}
 
-
-        Pointer Click   app:Application[@Name="ApplicationFrameHost"]//Button[@Id="Close"]
-        Process.Start Process  calc.exe
+        Pointer Click    app:Application[@Name="ApplicationFrameHost"]//Button[@Id="Close"]
+        Process.Start Process    calc.exe
         Sleep    2s
 
         # Pointer Click    ${a}    overrides={"motion": "DIRECT"}
         # Pointer Click    .//Button[@Id="num${c}Button"]    overrides={"motion": "DIRECT"}
     END
     Highlight    rect=${rects}
+
+Start Calculator
+    Process.Start Process    calc.exe
+    Sleep    2s

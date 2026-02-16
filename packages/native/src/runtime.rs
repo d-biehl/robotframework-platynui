@@ -279,7 +279,7 @@ impl PyNodeAttributesIterator {
 /// primitive value depending on the query.
 #[pyclass(name = "EvaluationIterator", module = "platynui_native", unsendable)]
 pub struct PyEvaluationIterator {
-    iter: Option<Box<dyn Iterator<Item = runtime_rs::EvaluationItem>>>,
+    iter: Option<Box<dyn Iterator<Item = Result<runtime_rs::EvaluationItem, runtime_rs::EvaluateError>>>>,
 }
 
 #[pymethods]
@@ -292,8 +292,9 @@ impl PyEvaluationIterator {
     /// Returns the next evaluation result or ``None`` when the iterator is exhausted.
     fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         if let Some(ref mut iter) = slf.iter
-            && let Some(item) = iter.next()
+            && let Some(result) = iter.next()
         {
+            let item = result.map_err(|e| EvaluationError::new_err(e.to_string()))?;
             let result = evaluation_item_to_py(py, &item)?;
             return Ok(Some(result));
         }
