@@ -52,6 +52,7 @@ where
     }
 
     let expression = args.expression.as_deref();
+    let cache = runtime.create_cache();
     let mut processed = 0usize;
 
     while processed < limit {
@@ -59,7 +60,7 @@ where
 
         let summary = watch_event_summary(&event);
         let query_results = if let Some(expr) = expression {
-            let results = runtime.evaluate(None, expr).map_err(map_evaluate_error)?;
+            let results = runtime.evaluate_cached(None, expr, &cache).map_err(map_evaluate_error)?;
             Some(summarize_query_results(results))
         } else {
             None

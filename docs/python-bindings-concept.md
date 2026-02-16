@@ -84,9 +84,9 @@ This document proposes a clean, future‑proof design for Python bindings to Pla
 - Define these exception classes in the submodules and convert via `PyErr::new_err` in `From` impls.
 
 ## Threading & GIL
-- Start with `#[pyclass(unsendable)]` for `Runtime` and `Node` to avoid accidental cross‑thread misuse.
+- `Runtime` ist `#[pyclass]` (nicht `unsendable`) mit `Send + Sync`. Da der XDM-Cache `!Send` ist (nutzt `Rc`), wird er nicht direkt im `PyRuntime` gespeichert, sondern über ein thread-lokales `HashMap<u64, XdmCache>` verwaltet. Jede `PyRuntime`-Instanz erhält eine eindeutige `cache_id`; alle Evaluate-Methoden greifen über einen `with_cache(cache_id, |cache| …)`-Helfer auf den Cache zu. `clear_cache()` leert den Thread-lokalen Cache, `Drop` entfernt den Eintrag automatisch.
+- `UiNode` ist `#[pyclass]` und `Send + Sync` (wraps `Arc<dyn UiNode>`).
 - Where appropriate, use `Python::allow_threads` around blocking or OS calls; keep interior `Mutex`/`Arc` from Rust as is.
-- Re‑evaluate `Send + Sync` safety once invariants are verified; potentially enable `#[pyclass]` without `unsendable` later.
 
 ## Platform Handling & Feature Flags
 - Default dev builds can use a mock provider feature for portability:
@@ -163,7 +163,7 @@ packages/
 1. Do we introduce custom Python exception classes (`EvaluationError`, `PlatformError`, …) now or later?
 2. Exact shapes for screenshot/highlight requests and returns (dict vs. dedicated PyClasses)?
 3. Event subscription: expose provider events to Python in v1, or defer?
-4. Should `Node` be `Send + Sync` in the Python layer (once invariants are clear), or stay unsendable?
+4. ~~Should `Node` be `Send + Sync` in the Python layer (once invariants are clear), or stay unsendable?~~ → Erledigt: `Runtime` und `UiNode` sind `Send + Sync`; der XDM-Cache wird thread-lokal verwaltet.
 
 ## Phased Implementation Plan
 1. Scaffold `packages/native` (maturin, PyO3, submodules) and minimal `core` types (Point/Size/Rect, IDs, Namespace, `attribute_names()`).
@@ -196,7 +196,7 @@ The first slice is implemented under `packages/native` and usable for local dev 
 
 ### `runtime` Submodule (Rust → Python)
 - Exceptions: `EvaluationError`, `ProviderError`, `PointerError`, `KeyboardError`, `PatternError`
-- Runtime lifecycle: `Runtime()` (constructor), `evaluate(xpath, node=None)`, `shutdown()` (optional; called by `__del__`/drop semantics)
+- Runtime lifecycle: `Runtime()` (constructor), `evaluate(xpath, node=None)`, `shutdown()` (optional; called by `__del__`/drop semantics), `clear_cache()` (leert den thread-lokalen XDM-Cache; nützlich wenn sich die UI-Struktur geändert hat)
 - UiNode wrapper: properties + navigation and metadata
   - `runtime_id`, `name`, `role`, `namespace`
   - `attribute(name, namespace=None)` → Python native value

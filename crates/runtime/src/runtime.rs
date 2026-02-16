@@ -263,8 +263,10 @@ impl Runtime {
         Arc::clone(&self.dispatcher)
     }
 
-    /// Convenience helper that preconfigures `EvaluateOptions` with the runtime
-    /// desktop node so callers do not have to wire it manually.
+    pub fn create_cache(&self) -> crate::xpath::XdmCache {
+        crate::xpath::XdmCache::new()
+    }
+
     pub fn evaluate_options(&self) -> EvaluateOptions {
         EvaluateOptions::new(self.desktop_node())
     }
@@ -281,10 +283,6 @@ impl Runtime {
         crate::xpath::evaluate_iter(node, xpath, self.evaluate_options())
     }
 
-    /// Evaluate an XPath expression and return an owned, FFI-safe iterator.
-    /// This variant does not borrow from the input `xpath` and encapsulates
-    /// all required runtime state so the iterator can be stored and consumed
-    /// beyond this call's lifetime (e.g., across FFI boundaries).
     pub fn evaluate_iter_owned(
         &self,
         node: Option<Arc<dyn UiNode>>,
@@ -293,14 +291,49 @@ impl Runtime {
         crate::xpath::EvaluationStream::new(node, xpath.to_string(), self.evaluate_options())
     }
 
-    /// Evaluate an XPath and return the first resulting item, if any.
-    /// The stream is not fully consumed and no uniqueness is enforced.
     pub fn evaluate_single(
         &self,
         node: Option<Arc<dyn UiNode>>,
         xpath: &str,
     ) -> Result<Option<EvaluationItem>, EvaluateError> {
         let mut iter = self.evaluate_iter(node, xpath)?;
+        Ok(iter.next())
+    }
+
+    pub fn evaluate_cached(
+        &self,
+        node: Option<Arc<dyn UiNode>>,
+        xpath: &str,
+        cache: &crate::xpath::XdmCache,
+    ) -> Result<Vec<EvaluationItem>, EvaluateError> {
+        evaluate(node, xpath, self.evaluate_options().with_cache(cache.clone()))
+    }
+
+    pub fn evaluate_iter_cached(
+        &self,
+        node: Option<Arc<dyn UiNode>>,
+        xpath: &str,
+        cache: &crate::xpath::XdmCache,
+    ) -> Result<impl Iterator<Item = crate::xpath::EvaluationItem>, EvaluateError> {
+        crate::xpath::evaluate_iter(node, xpath, self.evaluate_options().with_cache(cache.clone()))
+    }
+
+    pub fn evaluate_iter_owned_cached(
+        &self,
+        node: Option<Arc<dyn UiNode>>,
+        xpath: &str,
+        cache: &crate::xpath::XdmCache,
+    ) -> Result<crate::xpath::EvaluationStream, EvaluateError> {
+        crate::xpath::EvaluationStream::new(node, xpath.to_string(), self.evaluate_options().with_cache(cache.clone()))
+    }
+
+    pub fn evaluate_single_cached(
+        &self,
+        node: Option<Arc<dyn UiNode>>,
+        xpath: &str,
+        cache: &crate::xpath::XdmCache,
+    ) -> Result<Option<EvaluationItem>, EvaluateError> {
+        let mut iter = self.evaluate_iter_cached(node, xpath, cache)?;
         Ok(iter.next())
     }
 

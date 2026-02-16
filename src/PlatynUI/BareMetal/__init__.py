@@ -514,8 +514,8 @@ class BareMetal(OurDynamicCore, ListenerV3):
         if isinstance(pattern, WindowSurface):
             pattern.minimize()
 
-    @keyword
-    def close(self, descriptor: UiNodeDescriptor) -> None:
+    @keyword('Close')
+    def close_window(self, descriptor: UiNodeDescriptor) -> None:
         """Close a window.
 
         Uses the element's ``WindowSurface`` pattern if supported. No-op otherwise.

@@ -509,6 +509,80 @@ pub fn collect_native_properties(elem: &IUIAutomationElement) -> Vec<(String, Ui
     out
 }
 
+/// Looks up a single native UIA property by its programmatic name, avoiding
+/// the cost of collecting all ~1050 properties.
+///
+/// Uses a lazily-built reverse map (name → property ID) so subsequent lookups
+/// are O(1) hash-table probes plus a single COM property read.
+pub fn get_native_property_by_name(elem: &IUIAutomationElement, prop_name: &str) -> Option<(String, UiValue)> {
+    use std::collections::HashMap;
+
+    static NAME_TO_ID: OnceCell<HashMap<String, UIA_PROPERTY_ID>> = OnceCell::new();
+    let map = NAME_TO_ID.get_or_init(|| {
+        let mut m = HashMap::new();
+        if let Ok(uia) = crate::com::uia() {
+            for id_num in 30000i32..31050i32 {
+                let id = UIA_PROPERTY_ID(id_num);
+                if let Ok(name_bstr) = unsafe { uia.GetPropertyProgrammaticName(id) } {
+                    let name = name_bstr.to_string();
+                    if !name.is_empty() {
+                        m.insert(name, id);
+                    }
+                }
+            }
+        }
+        m
+    });
+
+    let id = map.get(prop_name)?;
+
+    let mut var: VARIANT = match unsafe { elem.GetCurrentPropertyValueEx(*id, true) } {
+        Ok(v) => v,
+        Err(_) => match unsafe { elem.GetCurrentPropertyValue(*id) } {
+            Ok(v) => v,
+            Err(_) => return None,
+        },
+    };
+
+    let vt = unsafe { var.Anonymous.Anonymous.vt.0 };
+    if vt == VT_EMPTY.0 {
+        return None;
+    }
+    if vt == VT_UNKNOWN.0 {
+        let mut skip = false;
+        unsafe {
+            if let Ok(ns) = UiaGetReservedNotSupportedValue() {
+                let p = var.Anonymous.Anonymous.Anonymous.punkVal.clone();
+                if let Some(u) = p.as_ref()
+                    && u.as_raw() == ns.as_raw()
+                {
+                    skip = true;
+                }
+            }
+            if !skip && let Ok(mx) = UiaGetReservedMixedAttributeValue() {
+                let p = var.Anonymous.Anonymous.Anonymous.punkVal.clone();
+                if let Some(u) = p.as_ref()
+                    && u.as_raw() == mx.as_raw()
+                {
+                    skip = true;
+                }
+            }
+        }
+        if skip {
+            unsafe {
+                let _ = VariantClear(&mut var);
+            }
+            return None;
+        }
+    }
+
+    let result = unsafe { variant_to_ui_value(&var) }.map(|v| (prop_name.to_string(), v));
+    unsafe {
+        let _ = VariantClear(&mut var);
+    }
+    result
+}
+
 unsafe fn variant_to_ui_value(variant: &VARIANT) -> Option<UiValue> {
     let vt = unsafe { variant.Anonymous.Anonymous.vt.0 };
 

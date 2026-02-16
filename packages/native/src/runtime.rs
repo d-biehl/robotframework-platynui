@@ -1,4 +1,7 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use pyo3::IntoPyObject;
 use pyo3::exceptions::{PyException, PyTypeError};
@@ -15,6 +18,26 @@ use crate::core::{PyNamespace, PyPoint, PyRect, PySize, py_namespace_from_inner}
 use platynui_core::ui::FocusablePattern as _;
 
 use pyo3::prelude::PyRef;
+
+static NEXT_CACHE_ID: AtomicU64 = AtomicU64::new(1);
+
+thread_local! {
+    static CACHE_MAP: RefCell<HashMap<u64, runtime_rs::XdmCache>> = RefCell::new(HashMap::new());
+}
+
+fn with_cache<R>(cache_id: u64, f: impl FnOnce(&runtime_rs::XdmCache) -> R) -> R {
+    CACHE_MAP.with(|map| {
+        let mut map = map.borrow_mut();
+        let cache = map.entry(cache_id).or_insert_with(runtime_rs::XdmCache::new);
+        f(cache)
+    })
+}
+
+fn remove_cache(cache_id: u64) {
+    CACHE_MAP.with(|map| {
+        map.borrow_mut().remove(&cache_id);
+    });
+}
 
 // ---------------- Node wrapper ----------------
 
@@ -487,6 +510,7 @@ impl PyWindowSurface {
 #[pyclass(name = "Runtime", module = "platynui_native")]
 pub struct PyRuntime {
     inner: runtime_rs::Runtime,
+    cache_id: u64,
 }
 
 #[pymethods]
@@ -494,7 +518,9 @@ impl PyRuntime {
     #[new]
     /// Creates a runtime that discovers platform providers automatically.
     fn new() -> PyResult<Self> {
-        runtime_rs::Runtime::new().map(|inner| Self { inner }).map_err(map_provider_err)
+        runtime_rs::Runtime::new()
+            .map(|inner| Self { inner, cache_id: NEXT_CACHE_ID.fetch_add(1, Ordering::Relaxed) })
+            .map_err(map_provider_err)
     }
 
     // ---------------- Static builder (mock only) ----------------
@@ -517,7 +543,7 @@ impl PyRuntime {
                 keyboard: Some(&platynui_platform_mock::MOCK_KEYBOARD),
             };
             return runtime_rs::Runtime::new_with_factories_and_platforms(&factories, platforms)
-                .map(|inner| Self { inner })
+                .map(|inner| Self { inner, cache_id: NEXT_CACHE_ID.fetch_add(1, Ordering::Relaxed) })
                 .map_err(map_provider_err);
         }
         #[cfg(not(feature = "mock-provider"))]
@@ -543,7 +569,10 @@ impl PyRuntime {
             },
             None => None,
         };
-        let items = self.inner.evaluate(node_arc, xpath).map_err(map_eval_err)?;
+        let items = with_cache(self.cache_id, |cache| {
+            self.inner.evaluate_cached(node_arc, xpath, cache)
+        })
+        .map_err(map_eval_err)?;
         let out = PyList::empty(py);
         for item in items {
             out.append(evaluation_item_to_py(py, &item)?)?;
@@ -567,7 +596,10 @@ impl PyRuntime {
             None => None,
         };
 
-        let item = self.inner.evaluate_single(node_arc, xpath).map_err(map_eval_err)?;
+        let item = with_cache(self.cache_id, |cache| {
+            self.inner.evaluate_single_cached(node_arc, xpath, cache)
+        })
+        .map_err(map_eval_err)?;
 
         match item {
             Some(it) => evaluation_item_to_py(py, &it),
@@ -582,6 +614,14 @@ impl PyRuntime {
     /// last reference.
     fn shutdown(&mut self) {
         self.inner.shutdown();
+    }
+
+    fn clear_cache(&self) {
+        CACHE_MAP.with(|map| {
+            if let Some(cache) = map.borrow().get(&self.cache_id) {
+                cache.clear();
+            }
+        });
     }
 
     /// Evaluates an XPath expression and returns a lazy iterator over the results.
@@ -602,8 +642,10 @@ impl PyRuntime {
             None => None,
         };
 
-        // Build owned evaluation stream via Runtime helper and box it for Python iterator
-        let stream = self.inner.evaluate_iter_owned(node_arc, xpath).map_err(map_eval_err)?;
+        let stream = with_cache(self.cache_id, |cache| {
+            self.inner.evaluate_iter_owned_cached(node_arc, xpath, cache)
+        })
+        .map_err(map_eval_err)?;
         Py::new(py, PyEvaluationIterator { iter: Some(Box::new(stream)) })
     }
 
@@ -1435,6 +1477,12 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerAccelerationInput {
 impl From<PointerAccelerationInput> for core_rs::platform::PointerAccelerationProfile {
     fn from(value: PointerAccelerationInput) -> Self {
         value.0
+    }
+}
+
+impl Drop for PyRuntime {
+    fn drop(&mut self) {
+        remove_cache(self.cache_id);
     }
 }
 

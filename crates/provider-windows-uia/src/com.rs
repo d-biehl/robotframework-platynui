@@ -9,12 +9,17 @@
 
 use std::cell::{Cell, RefCell};
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx};
-use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation, IUIAutomationTreeWalker};
+use windows::Win32::UI::Accessibility::{
+    CUIAutomation, IUIAutomation, IUIAutomationCacheRequest, IUIAutomationTreeWalker,
+    UIA_AutomationIdPropertyId, UIA_ControlTypePropertyId, UIA_IsContentElementPropertyId,
+    UIA_IsControlElementPropertyId, UIA_ProcessIdPropertyId, UIA_RuntimeIdPropertyId,
+};
 
 thread_local! {
     static COM_INIT: Cell<bool> = const { Cell::new(false) };
     static UIA_SINGLETON: RefCell<Option<IUIAutomation>> = const { RefCell::new(None) };
     static RAW_WALKER: RefCell<Option<IUIAutomationTreeWalker>> = const { RefCell::new(None) };
+    static TRAVERSAL_CACHE: RefCell<Option<IUIAutomationCacheRequest>> = const { RefCell::new(None) };
 }
 
 pub fn ensure_com_mta() {
@@ -55,5 +60,31 @@ pub fn raw_walker() -> Result<IUIAutomationTreeWalker, crate::error::UiaError> {
             unsafe { crate::error::uia_api("IUIAutomation::RawViewWalker", uia.RawViewWalker())? };
         *cell.borrow_mut() = Some(walker.clone());
         Ok(walker)
+    })
+}
+
+/// Returns a cached `IUIAutomationCacheRequest` pre-loaded with properties needed during tree
+/// traversal: ProcessId, ControlType, IsControlElement, IsContentElement, AutomationId,
+/// and RuntimeId. Using BuildCache walker methods with this request fetches all properties
+/// in a single cross-process call per element rather than one call per property.
+pub fn traversal_cache_request() -> Result<IUIAutomationCacheRequest, crate::error::UiaError> {
+    let uia = uia()?;
+    TRAVERSAL_CACHE.with(|cell| {
+        if let Some(existing) = cell.borrow().as_ref() {
+            return Ok(existing.clone());
+        }
+        let req: IUIAutomationCacheRequest = unsafe {
+            crate::error::uia_api("IUIAutomation::CreateCacheRequest", uia.CreateCacheRequest())?
+        };
+        unsafe {
+            let _ = req.AddProperty(UIA_ProcessIdPropertyId);
+            let _ = req.AddProperty(UIA_ControlTypePropertyId);
+            let _ = req.AddProperty(UIA_IsControlElementPropertyId);
+            let _ = req.AddProperty(UIA_IsContentElementPropertyId);
+            let _ = req.AddProperty(UIA_AutomationIdPropertyId);
+            let _ = req.AddProperty(UIA_RuntimeIdPropertyId);
+        }
+        *cell.borrow_mut() = Some(req.clone());
+        Ok(req)
     })
 }

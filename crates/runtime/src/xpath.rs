@@ -4,6 +4,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use once_cell::sync::Lazy;
 use platynui_core::provider::ProviderError;
 use platynui_core::ui::attribute_names;
 use platynui_core::ui::identifiers::RuntimeId;
@@ -21,13 +22,42 @@ const ITEM_NS_URI: &str = "urn:platynui:item";
 const APP_NS_URI: &str = "urn:platynui:app";
 const NATIVE_NS_URI: &str = "urn:platynui:native";
 
-// Type aliases for complex iterator types to satisfy clippy::type_complexity
 type NodeIterator = Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>;
 type AttributeIterator = Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send>;
 type NodeIteratorCell = Rc<RefCell<Option<NodeIterator>>>;
 type AttributeIteratorCell = Rc<RefCell<Option<AttributeIterator>>>;
 
-/// Resolves nodes by runtime identifier on demand (e.g. after provider reloads).
+/// Cross-evaluation XDM tree cache.
+///
+/// `Clone` but `!Send` — must stay on the evaluation thread.
+#[derive(Clone)]
+pub struct XdmCache {
+    inner: Rc<RefCell<Option<(RuntimeId, RuntimeXdmNode)>>>,
+}
+
+impl XdmCache {
+    pub fn new() -> Self {
+        Self { inner: Rc::new(RefCell::new(None)) }
+    }
+
+    pub fn clear(&self) {
+        self.inner.borrow_mut().take();
+    }
+}
+
+impl Default for XdmCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for XdmCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let has_entry = self.inner.borrow().is_some();
+        f.debug_struct("XdmCache").field("cached", &has_entry).finish()
+    }
+}
+
 pub trait NodeResolver: Send + Sync {
     fn resolve(&self, runtime_id: &RuntimeId) -> Result<Option<Arc<dyn UiNode>>, ProviderError>;
 }
@@ -37,11 +67,12 @@ pub struct EvaluateOptions {
     desktop: Arc<dyn UiNode>,
     invalidate_before_eval: bool,
     resolver: Option<Arc<dyn NodeResolver>>,
+    cache: Option<XdmCache>,
 }
 
 impl EvaluateOptions {
     pub fn new(desktop: Arc<dyn UiNode>) -> Self {
-        Self { desktop, invalidate_before_eval: false, resolver: None }
+        Self { desktop, invalidate_before_eval: false, resolver: None, cache: None }
     }
 
     pub fn desktop(&self) -> Arc<dyn UiNode> {
@@ -64,6 +95,20 @@ impl EvaluateOptions {
 
     pub fn node_resolver(&self) -> Option<Arc<dyn NodeResolver>> {
         self.resolver.as_ref().map(Arc::clone)
+    }
+
+    pub fn with_cache(mut self, cache: XdmCache) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
+    pub fn without_cache(mut self) -> Self {
+        self.cache = None;
+        self
+    }
+
+    pub fn cache(&self) -> Option<&XdmCache> {
+        self.cache.as_ref()
     }
 }
 
@@ -121,8 +166,6 @@ pub fn evaluate(
     Ok(iter.collect())
 }
 
-/// Concrete, owned iterator over XPath evaluation results.
-/// This type is stable across FFI boundaries and does not expose generics or lifetimes to callers.
 pub struct EvaluationStream {
     inner: Box<dyn Iterator<Item = EvaluationItem>>,
 }
@@ -135,7 +178,6 @@ impl Iterator for EvaluationStream {
 }
 
 impl EvaluationStream {
-    /// Build a new owned evaluation stream. Accepts an owned XPath string to avoid lifetime issues.
     pub fn new(node: Option<Arc<dyn UiNode>>, xpath: String, options: EvaluateOptions) -> Result<Self, EvaluateError> {
         let context = resolve_context(node.as_ref(), &options)?;
 
@@ -143,12 +185,12 @@ impl EvaluationStream {
             context.invalidate();
         }
 
-        let static_ctx = build_static_context();
+        let xdm_root = get_or_create_xdm_root(&context, options.invalidate_before_eval(), options.cache());
 
-        let compiled = compiler::compile_with_context(&xpath, &static_ctx)?;
+        let static_ctx = build_static_context();
+        let compiled = compiler::compile_with_context(&xpath, static_ctx)?;
         let mut dyn_builder = DynamicContextBuilder::new();
-        let ctx_item = RuntimeXdmNode::from_node(context.clone());
-        dyn_builder = dyn_builder.with_context_item(ctx_item);
+        dyn_builder = dyn_builder.with_context_item(xdm_root);
         let dyn_ctx = dyn_builder.build();
 
         let stream = evaluator::evaluate_stream(&compiled, &dyn_ctx)?;
@@ -168,11 +210,12 @@ pub fn evaluate_iter(
         context.invalidate();
     }
 
-    let static_ctx = build_static_context();
+    let xdm_root = get_or_create_xdm_root(&context, options.invalidate_before_eval(), options.cache());
 
-    let compiled = compiler::compile_with_context(xpath, &static_ctx)?;
+    let static_ctx = build_static_context();
+    let compiled = compiler::compile_with_context(xpath, static_ctx)?;
     let mut dyn_builder = DynamicContextBuilder::new();
-    dyn_builder = dyn_builder.with_context_item(RuntimeXdmNode::from_node(context.clone()));
+    dyn_builder = dyn_builder.with_context_item(xdm_root);
     let dyn_ctx = dyn_builder.build();
 
     let stream = evaluator::evaluate_stream(&compiled, &dyn_ctx)?;
@@ -201,15 +244,46 @@ fn resolve_context(
     Ok(context)
 }
 
+fn get_or_create_xdm_root(
+    context: &Arc<dyn UiNode>,
+    force_rebuild: bool,
+    cache: Option<&XdmCache>,
+) -> RuntimeXdmNode {
+    let Some(cache) = cache else {
+        return RuntimeXdmNode::from_node(Arc::clone(context));
+    };
+
+    let mut slot = cache.inner.borrow_mut();
+
+    if !force_rebuild {
+        let context_id = context.runtime_id();
+        if let Some((cached_id, cached_node)) = slot.as_ref() {
+            if *cached_id == *context_id && cached_node.is_valid() {
+                let node = cached_node.clone();
+                node.prepare_for_evaluation();
+                return node;
+            }
+        }
+    }
+
+    let context_id = context.runtime_id().clone();
+    let node = RuntimeXdmNode::from_node(Arc::clone(context));
+    *slot = Some((context_id, node.clone()));
+    node
+}
+
 /// Build the static context with PlatynUI namespaces configured.
-fn build_static_context() -> platynui_xpath::engine::runtime::StaticContext {
-    StaticContextBuilder::new()
-        .with_default_element_namespace(CONTROL_NS_URI)
-        .with_namespace("control", CONTROL_NS_URI)
-        .with_namespace("item", ITEM_NS_URI)
-        .with_namespace("app", APP_NS_URI)
-        .with_namespace("native", NATIVE_NS_URI)
-        .build()
+fn build_static_context() -> &'static platynui_xpath::engine::runtime::StaticContext {
+    static STATIC_CTX: Lazy<platynui_xpath::engine::runtime::StaticContext> = Lazy::new(|| {
+        StaticContextBuilder::new()
+            .with_default_element_namespace(CONTROL_NS_URI)
+            .with_namespace("control", CONTROL_NS_URI)
+            .with_namespace("item", ITEM_NS_URI)
+            .with_namespace("app", APP_NS_URI)
+            .with_namespace("native", NATIVE_NS_URI)
+            .build()
+    });
+    &STATIC_CTX
 }
 
 /// Map a stream of XDM items to `EvaluationItem`s, skipping errors and non-mappable values.
@@ -253,6 +327,38 @@ impl RuntimeXdmNode {
 
     fn from_node(node: Arc<dyn UiNode>) -> Self {
         if node.parent().is_none() { RuntimeXdmNode::document(node) } else { RuntimeXdmNode::element(node) }
+    }
+
+    fn is_valid(&self) -> bool {
+        match self {
+            RuntimeXdmNode::Document(doc) => doc.root.is_valid(),
+            RuntimeXdmNode::Element(elem) => elem.node.is_valid(),
+            RuntimeXdmNode::Attribute(attr) => attr.owner.is_valid(),
+        }
+    }
+
+    fn prepare_for_evaluation(&self) {
+        match self {
+            RuntimeXdmNode::Document(doc) => {
+                doc.attrs_cache.borrow_mut().clear();
+                doc.attrs_finished.set(false);
+                *doc.attrs_inner.borrow_mut() = None;
+                doc.children_validated.set(false);
+                for child in doc.children_cache.borrow().iter() {
+                    child.prepare_for_evaluation();
+                }
+            }
+            RuntimeXdmNode::Element(elem) => {
+                elem.attrs_cache.borrow_mut().clear();
+                elem.attrs_finished.set(false);
+                *elem.attrs_inner.borrow_mut() = None;
+                elem.children_validated.set(false);
+                for child in elem.children_cache.borrow().iter() {
+                    child.prepare_for_evaluation();
+                }
+            }
+            RuntimeXdmNode::Attribute(_) => {}
+        }
     }
 }
 
@@ -315,8 +421,8 @@ impl XdmNode for RuntimeXdmNode {
     fn name(&self) -> Option<QName> {
         match self {
             RuntimeXdmNode::Document(_) => None,
-            RuntimeXdmNode::Element(elem) => Some(element_qname(elem.namespace, &elem.role)),
-            RuntimeXdmNode::Attribute(attr) => Some(attribute_qname(attr.namespace, &attr.name)),
+            RuntimeXdmNode::Element(elem) => Some(elem.qname.clone()),
+            RuntimeXdmNode::Attribute(attr) => Some(attr.qname.clone()),
         }
     }
 
@@ -335,11 +441,9 @@ impl XdmNode for RuntimeXdmNode {
         match self {
             RuntimeXdmNode::Document(_) => None,
             RuntimeXdmNode::Element(elem) => {
-                // Try cached parent first
                 if let Some(cached) = elem.parent_cache.borrow().as_ref() {
                     return cached.clone();
                 }
-                // Compute once and cache the result
                 let computed: Option<RuntimeXdmNode> = match elem.node.parent() {
                     Some(parent) => match parent.upgrade() {
                         Some(p) => Some(RuntimeXdmNode::from_node(p)),
@@ -357,6 +461,14 @@ impl XdmNode for RuntimeXdmNode {
     fn children(&self) -> Self::Children<'_> {
         match self {
             RuntimeXdmNode::Document(doc) => {
+                if !doc.children_validated.get() {
+                    if doc.children_cache.borrow().iter().any(|c| !c.is_valid()) {
+                        doc.children_cache.borrow_mut().clear();
+                        doc.children_finished.set(false);
+                        *doc.children_inner.borrow_mut() = Some(doc.root.children());
+                    }
+                    doc.children_validated.set(true);
+                }
                 if doc.children_inner.borrow().is_none() && !doc.children_finished.get() {
                     *doc.children_inner.borrow_mut() = Some(doc.root.children());
                 }
@@ -365,9 +477,17 @@ impl XdmNode for RuntimeXdmNode {
                     Rc::clone(&doc.children_cache),
                     Rc::clone(&doc.children_finished),
                 )
-                .with_parent_doc(self.clone())
+                .with_parent_node(self.clone())
             }
             RuntimeXdmNode::Element(elem) => {
+                if !elem.children_validated.get() {
+                    if elem.children_cache.borrow().iter().any(|c| !c.is_valid()) {
+                        elem.children_cache.borrow_mut().clear();
+                        elem.children_finished.set(false);
+                        *elem.children_inner.borrow_mut() = Some(elem.node.children());
+                    }
+                    elem.children_validated.set(true);
+                }
                 if elem.children_inner.borrow().is_none() && !elem.children_finished.get() {
                     *elem.children_inner.borrow_mut() = Some(elem.node.children());
                 }
@@ -376,6 +496,7 @@ impl XdmNode for RuntimeXdmNode {
                     Rc::clone(&elem.children_cache),
                     Rc::clone(&elem.children_finished),
                 )
+                .with_parent_node(self.clone())
             }
             RuntimeXdmNode::Attribute(_) => NodeChildrenIter::empty(),
         }
@@ -383,9 +504,6 @@ impl XdmNode for RuntimeXdmNode {
 
     fn attributes(&self) -> Self::Attributes<'_> {
         match self {
-            // In PlatynUI's model, the document wrapper exposes the root element's attributes
-            // to allow queries like './@*' from the desktop context. This intentionally
-            // diverges from the strict XPath document-node semantics to keep CLI UX simple.
             RuntimeXdmNode::Document(doc) => {
                 if doc.attrs_inner.borrow().is_none() && !doc.attrs_finished.get() {
                     *doc.attrs_inner.borrow_mut() = Some(doc.root.attributes());
@@ -428,10 +546,10 @@ impl XdmNode for RuntimeXdmNode {
 struct DocumentData {
     root: Arc<dyn UiNode>,
     runtime_id: RuntimeId,
-    // Persistent inner iterators + caches
     children_inner: NodeIteratorCell,
     children_cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
     children_finished: Rc<Cell<bool>>,
+    children_validated: Cell<bool>,
     attrs_inner: AttributeIteratorCell,
     attrs_cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
     attrs_finished: Rc<Cell<bool>>,
@@ -445,6 +563,7 @@ impl DocumentData {
             children_inner: Rc::new(RefCell::new(None)),
             children_cache: Rc::new(RefCell::new(Vec::new())),
             children_finished: Rc::new(Cell::new(false)),
+            children_validated: Cell::new(false),
             attrs_inner: Rc::new(RefCell::new(None)),
             attrs_cache: Rc::new(RefCell::new(Vec::new())),
             attrs_finished: Rc::new(Cell::new(false)),
@@ -456,12 +575,13 @@ impl DocumentData {
 struct ElementData {
     node: Arc<dyn UiNode>,
     runtime_id: RuntimeId,
-    namespace: UiNamespace,
     role: String,
+    qname: QName,
     order_key: Option<u64>,
     children_inner: NodeIteratorCell,
     children_cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
     children_finished: Rc<Cell<bool>>,
+    children_validated: Cell<bool>,
     attrs_inner: AttributeIteratorCell,
     attrs_cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
     attrs_finished: Rc<Cell<bool>>,
@@ -476,15 +596,17 @@ impl ElementData {
         role: String,
         order_key: Option<u64>,
     ) -> Self {
+        let qname = element_qname(namespace, &role);
         Self {
             node,
             runtime_id,
-            namespace,
             role,
+            qname,
             order_key,
             children_inner: Rc::new(RefCell::new(None)),
             children_cache: Rc::new(RefCell::new(Vec::new())),
             children_finished: Rc::new(Cell::new(false)),
+            children_validated: Cell::new(false),
             attrs_inner: Rc::new(RefCell::new(None)),
             attrs_cache: Rc::new(RefCell::new(Vec::new())),
             attrs_finished: Rc::new(Cell::new(false)),
@@ -499,6 +621,7 @@ struct AttributeData {
     owner_runtime_id: RuntimeId,
     namespace: UiNamespace,
     name: String,
+    qname: QName,
     // Lazy value provider (either direct source or derived component)
     value_kind: ValueKind,
     value_cell: once_cell::sync::OnceCell<UiValue>,
@@ -535,11 +658,13 @@ impl AttributeData {
         source: Arc<dyn UiAttribute>,
     ) -> Self {
         let owner_runtime_id = owner.runtime_id().clone();
+        let qname = attribute_qname(namespace, &name);
         Self {
             owner,
             owner_runtime_id,
             namespace,
             name,
+            qname,
             value_kind: ValueKind::Source(source),
             value_cell: once_cell::sync::OnceCell::new(),
             typed_cell: once_cell::sync::OnceCell::new(),
@@ -562,11 +687,13 @@ impl AttributeData {
             },
         );
         let owner_runtime_id = owner.runtime_id().clone();
+        let qname = attribute_qname(namespace, &name);
         Self {
             owner,
             owner_runtime_id,
             namespace,
             name,
+            qname,
             value_kind: ValueKind::RectComp { base, comp },
             value_cell: once_cell::sync::OnceCell::new(),
             typed_cell: once_cell::sync::OnceCell::new(),
@@ -587,11 +714,13 @@ impl AttributeData {
             },
         );
         let owner_runtime_id = owner.runtime_id().clone();
+        let qname = attribute_qname(namespace, &name);
         Self {
             owner,
             owner_runtime_id,
             namespace,
             name,
+            qname,
             value_kind: ValueKind::PointComp { base, comp },
             value_cell: once_cell::sync::OnceCell::new(),
             typed_cell: once_cell::sync::OnceCell::new(),
@@ -779,14 +908,14 @@ struct NodeChildrenIter<'a> {
     finished: Rc<Cell<bool>>,
     pos: usize,
     _marker: std::marker::PhantomData<&'a ()>,
-    parent_doc: Option<RuntimeXdmNode>,
+    parent_node: Option<RuntimeXdmNode>,
 }
 impl<'a> NodeChildrenIter<'a> {
     fn from_shared(inner: NodeIteratorCell, cache: Rc<RefCell<Vec<RuntimeXdmNode>>>, finished: Rc<Cell<bool>>) -> Self {
-        Self { inner, cache, finished, pos: 0, _marker: std::marker::PhantomData, parent_doc: None }
+        Self { inner, cache, finished, pos: 0, _marker: std::marker::PhantomData, parent_node: None }
     }
-    fn with_parent_doc(mut self, doc: RuntimeXdmNode) -> Self {
-        self.parent_doc = Some(doc);
+    fn with_parent_node(mut self, parent: RuntimeXdmNode) -> Self {
+        self.parent_node = Some(parent);
         self
     }
     fn empty() -> Self {
@@ -796,7 +925,7 @@ impl<'a> NodeChildrenIter<'a> {
             finished: Rc::new(Cell::new(true)),
             pos: 0,
             _marker: std::marker::PhantomData,
-            parent_doc: None,
+            parent_node: None,
         }
     }
 }
@@ -820,11 +949,14 @@ impl<'a> Iterator for NodeChildrenIter<'a> {
             Some(iter) => {
                 if let Some(owner) = iter.next() {
                     let mut node = RuntimeXdmNode::from_node(owner);
-                    if let (Some(RuntimeXdmNode::Document(doc_parent)), RuntimeXdmNode::Element(elem)) =
-                        (self.parent_doc.as_ref(), &mut node)
-                    {
-                        // Link element's cached parent to the shared document wrapper
-                        *elem.parent_cache.borrow_mut() = Some(Some(RuntimeXdmNode::Document(doc_parent.clone())));
+                    // Pre-link child's parent_cache to the parent node (Document or Element).
+                    // This ensures that cursor helpers like next_sibling_in_doc()
+                    // get the SAME parent wrapper (with shared children_cache), avoiding
+                    // O(N²) COM TreeWalker re-enumeration per sibling lookup.
+                    if let RuntimeXdmNode::Element(elem) = &mut node {
+                        if let Some(parent) = self.parent_node.as_ref() {
+                            *elem.parent_cache.borrow_mut() = Some(Some(parent.clone()));
+                        }
                     }
                     self.cache.borrow_mut().push(node.clone());
                     self.pos += 1;

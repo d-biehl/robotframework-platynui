@@ -62,6 +62,12 @@ pub struct UiaNode {
     // Minimal identity caches required by trait return types
     rid_cell: once_cell::sync::OnceCell<RuntimeId>,
     id_scope: crate::map::UiaIdScope,
+    // Cached: does window/transform pattern exist? Avoids repeated COM calls.
+    has_window_surface: once_cell::sync::OnceCell<bool>,
+    // Cached namespace, control type, and automation id — avoid repeated cross-process COM calls.
+    ns_cell: once_cell::sync::OnceCell<Namespace>,
+    ct_cell: once_cell::sync::OnceCell<i32>,
+    id_cell: once_cell::sync::OnceCell<Option<String>>,
 }
 unsafe impl Send for UiaNode {}
 unsafe impl Sync for UiaNode {}
@@ -77,6 +83,10 @@ impl UiaNode {
             self_weak: once_cell::sync::OnceCell::new(),
             rid_cell: once_cell::sync::OnceCell::new(),
             id_scope: scope,
+            has_window_surface: once_cell::sync::OnceCell::new(),
+            ns_cell: once_cell::sync::OnceCell::new(),
+            ct_cell: once_cell::sync::OnceCell::new(),
+            id_cell: once_cell::sync::OnceCell::new(),
         })
     }
     pub fn set_parent(&self, parent: &Arc<dyn UiNode>) {
@@ -90,6 +100,19 @@ impl UiaNode {
     }
     fn as_ui_node(&self) -> Option<Arc<dyn UiNode>> {
         self.self_weak.get().and_then(|w| w.upgrade())
+    }
+
+    /// Cached check: does this element support WindowPattern or TransformPattern?
+    /// Avoids repeated COM cross-process calls.
+    fn has_window_surface(&self) -> bool {
+        *self.has_window_surface.get_or_init(|| {
+            use windows::Win32::UI::Accessibility::*;
+            unsafe {
+                let has_window = self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)).is_ok();
+                let has_transform = self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)).is_ok();
+                has_window || has_transform
+            }
+        })
     }
 
     /// Best-effort realization for virtualized items.
@@ -113,17 +136,17 @@ impl UiaNode {
 
 impl UiNode for UiaNode {
     fn namespace(&self) -> Namespace {
-        unsafe {
+        *self.ns_cell.get_or_init(|| unsafe {
             let is_control = self.elem.CurrentIsControlElement().map(|b| b.as_bool()).unwrap_or(true);
             if is_control {
                 return Namespace::Control;
             }
             let is_content = self.elem.CurrentIsContentElement().map(|b| b.as_bool()).unwrap_or(false);
             if is_content { Namespace::Item } else { Namespace::Control }
-        }
+        })
     }
     fn role(&self) -> &str {
-        let ct = crate::map::get_control_type(&self.elem).unwrap_or(0);
+        let ct = *self.ct_cell.get_or_init(|| crate::map::get_control_type(&self.elem).unwrap_or(0));
         crate::map::control_type_to_role(ct)
     }
     fn name(&self) -> String {
@@ -137,15 +160,17 @@ impl UiNode for UiaNode {
         })
     }
     fn id(&self) -> Option<String> {
-        unsafe {
-            match self.elem.CurrentAutomationId() {
-                Ok(bstr) => {
-                    let s = bstr.to_string();
-                    if s.is_empty() { None } else { Some(s) }
+        self.id_cell
+            .get_or_init(|| unsafe {
+                match self.elem.CurrentAutomationId() {
+                    Ok(bstr) => {
+                        let s = bstr.to_string();
+                        if s.is_empty() { None } else { Some(s) }
+                    }
+                    Err(_) => None,
                 }
-                Err(_) => None,
-            }
-        }
+            })
+            .clone()
     }
     fn parent(&self) -> Option<Weak<dyn UiNode>> {
         match self.parent.lock() {
@@ -157,25 +182,75 @@ impl UiNode for UiaNode {
         // Ensure a virtualized item is realized before enumerating its children.
         self.try_realize();
         match self.as_ui_node() {
-            Some(parent_arc) => Box::new(ElementChildrenIter::new(self.elem.clone(), Some(parent_arc), self.id_scope)),
+            Some(parent_arc) => {
+                Box::new(ElementChildrenIter::new(self.elem.clone(), Some(parent_arc), self.id_scope))
+            }
             None => Box::new(std::iter::empty::<Arc<dyn UiNode>>()),
         }
     }
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         let rid_str = self.runtime_id().as_str().to_string();
         let owner = self.as_ui_node();
-        Box::new(AttrsIter::new(self.elem.clone(), owner, rid_str))
+        let has_ws = self.has_window_surface();
+        Box::new(AttrsIter::with_window_surface(self.elem.clone(), owner, rid_str, has_ws))
+    }
+
+    fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>> {
+        let elem = &self.elem;
+        match namespace {
+            Namespace::Control => match name {
+                "Role" => Some(Arc::new(RoleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                "Name" => Some(Arc::new(NameAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                "Id" => {
+                    if self.id().is_some() {
+                        Some(Arc::new(IdAttr { owner: self.self_weak.get().cloned() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                "RuntimeId" => Some(Arc::new(RuntimeIdAttr {
+                    rid: self.runtime_id().as_str().to_string(),
+                }) as Arc<dyn UiAttribute>),
+                "Bounds" => Some(Arc::new(BoundsAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                "ActivationPoint" => {
+                    Some(Arc::new(ActivationPointAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                }
+                "IsEnabled" => Some(Arc::new(IsEnabledAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                "IsOffscreen" => Some(Arc::new(IsOffscreenAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                "IsVisible" => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                "IsFocused" => Some(Arc::new(IsFocusedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                "IsMinimized" if self.has_window_surface() => {
+                    Some(Arc::new(IsMinimizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                }
+                "IsMaximized" if self.has_window_surface() => {
+                    Some(Arc::new(IsMaximizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                }
+                "IsTopmost" if self.has_window_surface() => {
+                    Some(Arc::new(IsTopmostAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                }
+                "SupportsMove" if self.has_window_surface() => {
+                    Some(Arc::new(SupportsMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                }
+                "SupportsResize" if self.has_window_surface() => {
+                    Some(Arc::new(SupportsResizeAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                }
+                "AcceptsUserInput" if self.has_window_surface() => {
+                    Some(Arc::new(AcceptsUserInputAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                }
+                _ => None,
+            },
+            Namespace::Native => {
+                // Look up a single native property by name without collecting all of them.
+                crate::map::get_native_property_by_name(elem, name)
+                    .map(|(n, v)| Arc::new(NativePropAttr { name: n, value: v }) as Arc<dyn UiAttribute>)
+            }
+            _ => None,
+        }
     }
 
     fn supported_patterns(&self) -> Vec<PatternId> {
-        use windows::Win32::UI::Accessibility::*;
         let mut out = vec![FocusableAction::static_id()];
-        let (has_window, has_transform) = unsafe {
-            let has_window = self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)).is_ok();
-            let has_transform = self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)).is_ok();
-            (has_window, has_transform)
-        };
-        if has_window || has_transform {
+        if self.has_window_surface() {
             out.push(WindowSurfaceActions::static_id());
         }
         out
@@ -319,6 +394,7 @@ impl UiNode for UiaNode {
 
 pub(crate) struct ElementChildrenIter {
     walker: Option<windows::Win32::UI::Accessibility::IUIAutomationTreeWalker>,
+    cache_req: Option<windows::Win32::UI::Accessibility::IUIAutomationCacheRequest>,
     parent_elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
     current: Option<windows::Win32::UI::Accessibility::IUIAutomationElement>,
     first: bool,
@@ -332,32 +408,63 @@ impl ElementChildrenIter {
         scope: crate::map::UiaIdScope,
     ) -> Self {
         let walker = crate::com::raw_walker().ok();
-        Self { walker, parent_elem, current: None, first: true, parent: parent_node, scope }
+        let cache_req = crate::com::traversal_cache_request().ok();
+        Self { walker, cache_req, parent_elem, current: None, first: true, parent: parent_node, scope }
     }
 
     fn next_internal(&mut self) -> Option<IUIAutomationElement> {
         let Some(walker) = &self.walker else { return None };
         if self.first {
             self.first = false;
-            self.current = unsafe { walker.GetFirstChildElement(&self.parent_elem).ok() };
+            self.current = if let Some(ref req) = self.cache_req {
+                unsafe { walker.GetFirstChildElementBuildCache(&self.parent_elem, req).ok() }
+            } else {
+                unsafe { walker.GetFirstChildElement(&self.parent_elem).ok() }
+            };
             self.current.as_ref()?;
         } else if let Some(ref elem) = self.current {
             let cur = elem.clone();
-            self.current = unsafe { walker.GetNextSiblingElement(&cur).ok() };
+            self.current = if let Some(ref req) = self.cache_req {
+                unsafe { walker.GetNextSiblingElementBuildCache(&cur, req).ok() }
+            } else {
+                unsafe { walker.GetNextSiblingElement(&cur).ok() }
+            };
         } else {
             return None;
         }
         let elem = self.current.as_ref()?.clone();
-        // Best-effort: if the child is virtualized, realize it before wrapping.
-        unsafe {
-            if let Ok(unk) = elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
-                windows::Win32::UI::Accessibility::UIA_VirtualizedItemPatternId.0,
-            )) && let Ok(vpat) = unk.cast::<IUIAutomationVirtualizedItemPattern>()
-            {
-                let _ = vpat.Realize();
-            }
-        }
+        // Note: virtualized-item realization is deferred to UiaNode::children()
+        // which calls try_realize() only when the child's own children are requested.
         Some(elem)
+    }
+
+    /// Eagerly populate a UiaNode's OnceCell caches from the element's cached properties,
+    /// avoiding separate cross-process COM calls later.
+    fn populate_cached_properties(node: &UiaNode) {
+        let elem = &node.elem;
+        // Populate namespace cache from cached IsControlElement / IsContentElement
+        let _ = node.ns_cell.get_or_init(|| unsafe {
+            let is_control = elem.CachedIsControlElement().map(|b| b.as_bool()).unwrap_or(true);
+            if is_control {
+                return Namespace::Control;
+            }
+            let is_content = elem.CachedIsContentElement().map(|b| b.as_bool()).unwrap_or(false);
+            if is_content { Namespace::Item } else { Namespace::Control }
+        });
+        // Populate control type cache
+        let _ = node.ct_cell.get_or_init(|| unsafe {
+            elem.CachedControlType().map(|v| v.0).unwrap_or(0)
+        });
+        // Populate automation id cache
+        let _ = node.id_cell.get_or_init(|| unsafe {
+            match elem.CachedAutomationId() {
+                Ok(bstr) => {
+                    let s = bstr.to_string();
+                    if s.is_empty() { None } else { Some(s) }
+                }
+                Err(_) => None,
+            }
+        });
     }
 }
 
@@ -365,15 +472,24 @@ unsafe impl Send for ElementChildrenIter {}
 impl Iterator for ElementChildrenIter {
     type Item = Arc<dyn UiNode>;
     fn next(&mut self) -> Option<Self::Item> {
+        let has_cache = self.cache_req.is_some();
         loop {
             let elem = self.next_internal()?;
-            let pid = crate::map::get_process_id(&elem).unwrap_or(-1);
+            // Use cached ProcessId when available to avoid an extra COM call.
+            let pid = if has_cache {
+                unsafe { elem.CachedProcessId().unwrap_or(-1) }
+            } else {
+                crate::map::get_process_id(&elem).unwrap_or(-1)
+            };
             if pid == *SELF_PID {
                 // Skip elements from the same process to avoid infinite loops.
                 continue;
             }
 
             let node = UiaNode::from_elem_with_scope(elem, self.scope);
+            if has_cache {
+                Self::populate_cached_properties(&node);
+            }
             if let Some(ref parent) = self.parent {
                 node.set_parent(parent);
             }
@@ -570,17 +686,12 @@ struct AttrsIter {
     owner: Option<Weak<dyn UiNode>>,
 }
 impl AttrsIter {
-    fn new(
+    fn with_window_surface(
         elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
         owner: Option<Arc<dyn UiNode>>,
         rid_str: String,
+        has_window_surface: bool,
     ) -> Self {
-        use windows::Win32::UI::Accessibility::*;
-        let has_window_surface = unsafe {
-            let has_window = elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)).is_ok();
-            let has_transform = elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)).is_ok();
-            has_window || has_transform
-        };
         let owner_weak = owner.as_ref().map(Arc::downgrade);
         Self { idx: 0, elem, has_window_surface, native_cache: None, native_pos: 0, rid_str, owner: owner_weak }
     }
@@ -1116,7 +1227,7 @@ pub struct ApplicationNode {
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     self_weak: once_cell::sync::OnceCell<Weak<dyn UiNode>>,
     rid_cell: once_cell::sync::OnceCell<RuntimeId>,
-    // no cached name required; compute on demand
+    name_cell: once_cell::sync::OnceCell<String>,
 }
 unsafe impl Send for ApplicationNode {}
 unsafe impl Sync for ApplicationNode {}
@@ -1133,6 +1244,7 @@ impl ApplicationNode {
             parent: Mutex::new(Some(Arc::downgrade(parent))),
             self_weak: once_cell::sync::OnceCell::new(),
             rid_cell: once_cell::sync::OnceCell::new(),
+            name_cell: once_cell::sync::OnceCell::new(),
         });
         let arc: Arc<dyn UiNode> = node.clone();
         let _ = node.self_weak.set(Arc::downgrade(&arc));
@@ -1148,18 +1260,22 @@ impl UiNode for ApplicationNode {
         "Application"
     }
     fn name(&self) -> String {
-        // Derive process name from executable path (file name)
-        if let Some(handle) = crate::map::open_process_query(self.pid) {
-            if let Some(path) = crate::map::query_executable_path(handle) {
-                let _ = unsafe { CloseHandle(handle) };
-                if let Some(stem) = std::path::Path::new(&path).file_stem() {
-                    return stem.to_string_lossy().to_string();
+        self.name_cell
+            .get_or_init(|| {
+                // Derive process name from executable path (file name)
+                if let Some(handle) = crate::map::open_process_query(self.pid) {
+                    if let Some(path) = crate::map::query_executable_path(handle) {
+                        let _ = unsafe { CloseHandle(handle) };
+                        if let Some(stem) = std::path::Path::new(&path).file_stem() {
+                            return stem.to_string_lossy().to_string();
+                        }
+                    } else {
+                        let _ = unsafe { CloseHandle(handle) };
+                    }
                 }
-            } else {
-                let _ = unsafe { CloseHandle(handle) };
-            }
-        }
-        String::new()
+                String::new()
+            })
+            .clone()
     }
     fn runtime_id(&self) -> &RuntimeId {
         self.rid_cell.get_or_init(|| RuntimeId::from(format!("uia://app/{}", self.pid)))

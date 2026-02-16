@@ -114,6 +114,16 @@ Die folgenden Kapitel listen Aufgabenpakete; Reihenfolgen innerhalb eines Abschn
 - [ ] Watch‑Filter nach Namespace/Pattern/RuntimeId (`--namespace`, `--pattern`, `--runtime-id`).
 - [x] Tests: Simulierte Eventsequenzen (TreeInvalidated + NodeUpdated) prüfen Ausgabe in Text/JSON-Format.
 
+### 8a. XDM-Cache (Lazy Revalidation)
+- [x] `XdmCache`-Typ als `Rc<RefCell<Option<(RuntimeId, RuntimeXdmNode)>>>` implementiert (`Clone`, `!Send`); wird vom Aufrufer erzeugt (`Runtime::create_cache()`), nicht von der Runtime gehalten.
+- [x] `EvaluateOptions` um Builder-Methoden `with_cache()`/`without_cache()` erweitert; `get_or_create_xdm_root()` akzeptiert optionalen Cache-Parameter.
+- [x] Lazy Revalidation: `is_valid()` prüft Provider-Knoten; `prepare_for_evaluation()` setzt `children_validated`-Flags zurück; ungültige Teilbäume werden beim nächsten Zugriff transparent neu aufgebaut.
+- [x] Convenience-Methoden in der Runtime: `evaluate_cached()`, `evaluate_iter_cached()`, `evaluate_iter_owned_cached()`, `evaluate_single_cached()`.
+- [x] CLI `watch` nutzt den Cache für wiederholte Auswertungen nach Events.
+- [x] Python-Bindings: Thread-lokales `HashMap<u64, XdmCache>` pro `PyRuntime`-Instanz (wegen `Send + Sync`-Anforderung von PyO3); `clear_cache()`-Methode und automatisches Cleanup via `Drop`.
+- [x] Benchmark: ~40 % schneller bei wiederholten Queries (55–70 ms vs. ~90 ms Baseline für 26 Abfragen).
+- [ ] Event-gesteuerte Cache-Invalidierung (Option B): Atomares Dirty-Flag in der Runtime, das von Provider-Events gesetzt und vor gecachten Auswertungen geprüft wird (siehe `docs/event_driven_cache_invalidation.md`).
+
 ### 9. CLI `highlight`
 - [x] `HighlightProvider` in `platynui-core` finalisiert (`highlight(&HighlightRequest)`, `clear()` inkl. optionaler Dauerangabe für eine gesamte Anfrage).
 - [x] `platynui-platform-mock`: Stellt Highlight-Attrappe (Logging) bereit (`take_highlight_log`, `reset_highlight_state`).

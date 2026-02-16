@@ -1,5 +1,5 @@
 paths = "tests"
-log-level = "TRACE"
+# log-level = "TRACE"
 
 [tool.robocop.lint]
 configure = ["line-too-long.line_length=140"]

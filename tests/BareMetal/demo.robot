@@ -8,7 +8,8 @@ first
 
 second
     Enter Number    20268797234987234
-    
+
+
 *** Keywords ***
 Activate Button
     [Arguments]    ${button}
