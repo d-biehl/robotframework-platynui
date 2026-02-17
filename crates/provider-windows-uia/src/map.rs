@@ -690,7 +690,7 @@ fn categorized_catalog() -> &'static CategorizedCatalog {
 
         let pattern_groups = groups
             .iter()
-            .zip(pattern_props.into_iter())
+            .zip(pattern_props)
             .map(|((avail_id, _), props)| (*avail_id, props))
             .filter(|(_, props)| !props.is_empty())
             .collect();
