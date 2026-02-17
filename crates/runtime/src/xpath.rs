@@ -254,11 +254,13 @@ fn get_or_create_xdm_root(context: &Arc<dyn UiNode>, force_rebuild: bool, cache:
     if !force_rebuild {
         let context_id = context.runtime_id();
         if let Some((cached_id, cached_node)) = slot.as_ref()
-            && *cached_id == *context_id && cached_node.is_valid() {
-                let node = cached_node.clone();
-                node.prepare_for_evaluation();
-                return node;
-            }
+            && *cached_id == *context_id
+            && cached_node.is_valid()
+        {
+            let node = cached_node.clone();
+            node.prepare_for_evaluation();
+            return node;
+        }
     }
 
     let context_id = context.runtime_id().clone();
@@ -584,15 +586,16 @@ impl XdmNode for RuntimeXdmNode {
                     _ => None,
                 };
                 if let Some(comp) = comp
-                    && let Some(base) = node.attribute(ui_ns, attribute_names::element::BOUNDS) {
-                        return Some(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
-                            node.clone(),
-                            ui_ns,
-                            base,
-                            attribute_names::element::BOUNDS,
-                            comp,
-                        )));
-                    }
+                    && let Some(base) = node.attribute(ui_ns, attribute_names::element::BOUNDS)
+                {
+                    return Some(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
+                        node.clone(),
+                        ui_ns,
+                        base,
+                        attribute_names::element::BOUNDS,
+                        comp,
+                    )));
+                }
             }
             if let Some(suffix) = name.local.strip_prefix("ActivationPoint.") {
                 let comp = match suffix {
@@ -601,15 +604,16 @@ impl XdmNode for RuntimeXdmNode {
                     _ => None,
                 };
                 if let Some(comp) = comp
-                    && let Some(base) = node.attribute(ui_ns, attribute_names::activation_target::ACTIVATION_POINT) {
-                        return Some(RuntimeXdmNode::Attribute(AttributeData::new_point_component(
-                            node.clone(),
-                            ui_ns,
-                            base,
-                            attribute_names::activation_target::ACTIVATION_POINT,
-                            comp,
-                        )));
-                    }
+                    && let Some(base) = node.attribute(ui_ns, attribute_names::activation_target::ACTIVATION_POINT)
+                {
+                    return Some(RuntimeXdmNode::Attribute(AttributeData::new_point_component(
+                        node.clone(),
+                        ui_ns,
+                        base,
+                        attribute_names::activation_target::ACTIVATION_POINT,
+                        comp,
+                    )));
+                }
             }
         }
 
@@ -1029,9 +1033,10 @@ impl<'a> Iterator for NodeChildrenIter<'a> {
                     // get the SAME parent wrapper (with shared children_cache), avoiding
                     // O(N²) COM TreeWalker re-enumeration per sibling lookup.
                     if let RuntimeXdmNode::Element(elem) = &mut node
-                        && let Some(parent) = self.parent_node.as_ref() {
-                            *elem.parent_cache.borrow_mut() = Some(Some(parent.clone()));
-                        }
+                        && let Some(parent) = self.parent_node.as_ref()
+                    {
+                        *elem.parent_cache.borrow_mut() = Some(Some(parent.clone()));
+                    }
                     self.cache.borrow_mut().push(node.clone());
                     self.pos += 1;
                     Some(node)
