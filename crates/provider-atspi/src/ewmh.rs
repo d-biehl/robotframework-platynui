@@ -101,9 +101,16 @@ pub fn find_xid_for_pid(pid: u32, x: i32, y: i32, w: i32, h: i32) -> Result<Wind
     }
 
     match candidates.len() {
-        0 => Err(format!("no X11 window found for PID {pid}")),
-        1 => Ok(candidates[0]),
+        0 => {
+            tracing::warn!(pid, "no X11 window found for PID");
+            Err(format!("no X11 window found for PID {pid}"))
+        }
+        1 => {
+            tracing::debug!(pid, xid = candidates[0], "resolved XID for PID");
+            Ok(candidates[0])
+        }
         _ => {
+            tracing::debug!(pid, count = candidates.len(), "multiple X11 windows for PID — selecting by geometry");
             // Multiple windows — pick the one whose geometry best matches.
             best_geometry_match(&handle, &candidates, x, y, w, h)
         }
@@ -121,9 +128,11 @@ pub fn find_xid_for_pid_simple(pid: u32) -> Result<Window, String> {
         if let Some(win_pid) = get_window_pid(&handle, win)
             && win_pid == pid
         {
+            tracing::debug!(pid, xid = win, "resolved XID for PID (simple)");
             return Ok(win);
         }
     }
+    tracing::warn!(pid, "no X11 window found for PID (simple)");
     Err(format!("no X11 window found for PID {pid}"))
 }
 
@@ -185,6 +194,7 @@ fn best_geometry_match(
 
 /// Activate (raise + focus) a window via `_NET_ACTIVE_WINDOW`.
 pub fn activate_window(xid: Window) -> Result<(), String> {
+    tracing::debug!(xid, "EWMH activate_window");
     let handle = x11()?;
     send_client_message(
         &handle,
@@ -203,6 +213,7 @@ pub fn activate_window(xid: Window) -> Result<(), String> {
 
 /// Request the window manager to close a window via `_NET_CLOSE_WINDOW`.
 pub fn close_window(xid: Window) -> Result<(), String> {
+    tracing::debug!(xid, "EWMH close_window");
     let handle = x11()?;
     send_client_message(
         &handle,

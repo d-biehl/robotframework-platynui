@@ -27,7 +27,7 @@ use platynui_core::ui::{
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::{trace, warn};
 use zbus::proxy::CacheProperties;
 
 const NULL_PATH: &str = "/org/a11y/atspi/accessible/null";
@@ -226,7 +226,7 @@ impl AtspiNode {
         }
 
         let elapsed = start.elapsed();
-        debug!(
+        trace!(
             bus = %obj_bus,
             path = %obj_path,
             role = self.role.get().map(String::as_str).unwrap_or("?"),
@@ -300,7 +300,7 @@ impl UiNode for AtspiNode {
 
         let child_count = children.len();
         let get_children_elapsed = children_start.elapsed();
-        debug!(
+        trace!(
             bus = %parent_bus,
             path = %parent_path,
             count = child_count,

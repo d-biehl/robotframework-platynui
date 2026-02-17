@@ -22,7 +22,7 @@ use platynui_core::provider::{
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::{trace, warn};
 use zbus::proxy::CacheProperties;
 
 pub const PROVIDER_ID: &str = "atspi";
@@ -151,7 +151,7 @@ impl UiTreeProvider for AtspiProvider {
             // Filter zombie registrations / empty toolkits.
             let child_count = block_on_timeout(proxy.child_count())?.ok()?;
             if child_count == 0 {
-                debug!(app = %app_bus, "skipped (0 children)");
+                trace!(app = %app_bus, "skipped (0 children)");
                 return None;
             }
 
@@ -171,7 +171,7 @@ impl UiTreeProvider for AtspiProvider {
             let _ = node.cached_name.set(node_name.clone());
 
             let elapsed = app_start.elapsed();
-            debug!(
+            trace!(
                 app = %app_bus,
                 name = node_name.as_deref().unwrap_or(""),
                 children = child_count,

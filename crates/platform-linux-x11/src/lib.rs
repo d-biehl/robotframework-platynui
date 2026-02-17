@@ -39,11 +39,8 @@ mod init {
             let conn = &guard.conn;
 
             // --- XTEST (critical) ---
-            let xtest_available = conn
-                .query_extension(b"XTEST")
-                .ok()
-                .and_then(|c| c.reply().ok())
-                .is_some_and(|r| r.present);
+            let xtest_available =
+                conn.query_extension(b"XTEST").ok().and_then(|c| c.reply().ok()).is_some_and(|r| r.present);
 
             if !xtest_available {
                 return Err(PlatformError::new(
@@ -54,11 +51,8 @@ mod init {
             debug!("XTEST extension available");
 
             // --- RANDR (optional, graceful degradation) ---
-            let randr_available = conn
-                .query_extension(b"RANDR")
-                .ok()
-                .and_then(|c| c.reply().ok())
-                .is_some_and(|r| r.present);
+            let randr_available =
+                conn.query_extension(b"RANDR").ok().and_then(|c| c.reply().ok()).is_some_and(|r| r.present);
 
             if randr_available {
                 debug!("RANDR extension available");

@@ -79,6 +79,7 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
             // Copy from screen DC into memory DC
             let res = BitBlt(mem_dc, 0, 0, width, height, Some(screen_dc), left, top, SRCCOPY);
             if res.is_err() {
+                tracing::error!("BitBlt screenshot failed");
                 let _ = SelectObject(mem_dc, old);
                 let _ = DeleteObject(bitmap.into());
                 let _ = DeleteDC(mem_dc);

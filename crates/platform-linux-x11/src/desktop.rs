@@ -14,6 +14,7 @@ impl DesktopInfoProvider for LinuxDesktopInfo {
         let guard = match connection() {
             Ok(g) => g,
             Err(_) => {
+                tracing::warn!("X11 connection failed — using fallback desktop info");
                 // Fallback when no X11 display is available
                 let bounds = Rect::new(0.0, 0.0, 1920.0, 1080.0);
                 let os_name = env::consts::OS.to_string();
@@ -41,6 +42,7 @@ impl DesktopInfoProvider for LinuxDesktopInfo {
         let root = root_window_from(&guard);
         let (bounds, monitors) = match monitors_via_randr(&guard.conn, root) {
             Ok(ms) if !ms.is_empty() => {
+                tracing::debug!(monitor_count = ms.len(), "RANDR monitors enumerated");
                 // Compute union bounds across monitors
                 let mut it = ms.iter();
                 let first = it.next().unwrap();
@@ -55,6 +57,7 @@ impl DesktopInfoProvider for LinuxDesktopInfo {
                 (union, ms)
             }
             _ => {
+                tracing::debug!("RANDR unavailable or empty — falling back to root window geometry");
                 // Fallback to root geometry as a single monitor
                 let geom = guard.conn.get_geometry(root).map_err(to_pf)?.reply().map_err(to_pf)?;
                 let width = f64::from(geom.width);

@@ -78,7 +78,12 @@ fn send_mouse_input(flags: MOUSE_EVENT_FLAGS, data: u32, dx: i32, dy: i32) -> Re
     };
 
     let sent = unsafe { SendInput(&[input], size_of::<INPUT>() as i32) };
-    if sent == 0 { Err(last_error("SendInput")) } else { Ok(()) }
+    if sent == 0 {
+        tracing::error!("SendInput failed for mouse event");
+        Err(last_error("SendInput"))
+    } else {
+        Ok(())
+    }
 }
 
 fn press_flags(button: PointerButton) -> Result<(MOUSE_EVENT_FLAGS, u32), PlatformError> {

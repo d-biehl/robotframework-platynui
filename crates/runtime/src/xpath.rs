@@ -162,6 +162,7 @@ pub fn evaluate(
     xpath: &str,
     options: EvaluateOptions,
 ) -> Result<Vec<EvaluationItem>, EvaluateError> {
+    tracing::debug!(xpath, cached = options.cache().is_some(), "xpath evaluate");
     let iter = evaluate_iter(node, xpath, options)?;
     iter.collect()
 }
@@ -204,6 +205,7 @@ pub fn evaluate_iter(
     xpath: &str,
     options: EvaluateOptions,
 ) -> Result<impl Iterator<Item = Result<EvaluationItem, EvaluateError>>, EvaluateError> {
+    tracing::debug!(xpath, cached = options.cache().is_some(), "xpath evaluate_iter");
     let context = resolve_context(node.as_ref(), &options)?;
 
     if options.invalidate_before_eval() {

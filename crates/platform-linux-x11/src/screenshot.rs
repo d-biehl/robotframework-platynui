@@ -26,6 +26,7 @@ impl ScreenshotProvider for LinuxScreenshot {
         // Heuristic: Use BGRA8 (many X11 servers deliver BGRX/BGRA in ZPixmap 32bpp)
         let depth = reply.depth;
         if depth != 24 && depth != 32 {
+            tracing::error!(depth, "unsupported X11 image depth for screenshot");
             return Err(PlatformError::new(
                 PlatformErrorKind::UnsupportedPlatform,
                 format!("unsupported image depth {depth}"),

@@ -30,11 +30,65 @@ use util::{CliResult, map_provider_error};
 // OS integrations. Tests link the mock providers explicitly in their modules.
 platynui_link_providers!();
 
+/// Initialize the tracing subscriber.
+///
+/// Priority (highest wins):
+/// 1. `RUST_LOG` environment variable (fine-grained per-crate filtering)
+/// 2. `--log-level` CLI argument
+/// 3. `PLATYNUI_LOG_LEVEL` environment variable
+/// 4. Default: `warn`
+fn init_tracing(cli_level: Option<LogLevel>) {
+    use tracing_subscriber::EnvFilter;
+
+    // RUST_LOG takes highest priority (power-user override).
+    let filter = if std::env::var("RUST_LOG").is_ok() {
+        EnvFilter::from_default_env()
+    } else {
+        // Derive directive from --log-level or PLATYNUI_LOG_LEVEL, fall back to "warn".
+        let directive = if let Some(level) = cli_level {
+            log_level_directive(level)
+        } else if let Ok(val) = std::env::var("PLATYNUI_LOG_LEVEL") {
+            val
+        } else {
+            "warn".to_string()
+        };
+        EnvFilter::new(directive)
+    };
+
+    tracing_subscriber::fmt().with_env_filter(filter).with_target(true).with_writer(std::io::stderr).init();
+}
+
+fn log_level_directive(level: LogLevel) -> String {
+    match level {
+        LogLevel::Error => "error",
+        LogLevel::Warn => "warn",
+        LogLevel::Info => "info",
+        LogLevel::Debug => "debug",
+        LogLevel::Trace => "trace",
+    }
+    .to_string()
+}
+
 #[derive(Parser)]
 #[command(author, version, about = "PlatynUI command line interface", long_about = None)]
 struct Cli {
+    /// Set the log level for diagnostic output (written to stderr).
+    /// Overrides the PLATYNUI_LOG environment variable.
+    /// Use RUST_LOG for fine-grained per-crate filtering.
+    #[arg(long = "log-level", value_enum, global = true)]
+    log_level: Option<LogLevel>,
+
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
 }
 
 #[derive(Subcommand)]
@@ -78,6 +132,9 @@ pub enum OutputFormat {
 /// Execute the PlatynUI CLI using command-line arguments from the environment.
 pub fn run() -> CliResult<()> {
     let cli = Cli::parse();
+
+    init_tracing(cli.log_level);
+
     let mut runtime = Runtime::new().map_err(map_provider_error)?;
 
     match cli.command {

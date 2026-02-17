@@ -31,12 +31,17 @@ pub(crate) fn ensure_dpi_awareness() -> Result<(), PlatformError> {
 fn set_dpi_awareness() -> Result<(), PlatformError> {
     unsafe {
         match SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                tracing::info!("DPI awareness set to PerMonitorAwareV2");
+                Ok(())
+            }
             Err(err) => {
                 let access_denied = HRESULT::from_win32(ERROR_ACCESS_DENIED.0);
                 if err.code() == access_denied {
+                    tracing::debug!("DPI awareness already set (ACCESS_DENIED — process manifest)");
                     Ok(())
                 } else {
+                    tracing::error!(?err, "SetProcessDpiAwarenessContext failed");
                     Err(PlatformError::new(
                         PlatformErrorKind::CapabilityUnavailable,
                         format!("SetProcessDpiAwarenessContext failed: {err:?}"),

@@ -71,11 +71,17 @@ impl OverlayThread {
         // Separate X11 connection in this thread
         let display = match env::var("DISPLAY") {
             Ok(val) => val,
-            Err(_) => return,
+            Err(_) => {
+                tracing::warn!("DISPLAY not set — highlight thread exiting");
+                return;
+            }
         };
         let (conn, screen_num) = match connect_raw(&display) {
             Ok(v) => v,
-            Err(_) => return,
+            Err(err) => {
+                tracing::warn!(%err, "highlight thread: X11 connect failed");
+                return;
+            }
         };
         let screen = &conn.setup().roots[screen_num];
         let root = screen.root;

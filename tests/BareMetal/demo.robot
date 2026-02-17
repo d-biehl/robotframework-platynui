@@ -1,6 +1,7 @@
 *** Settings ***
 Library     PlatynUI.BareMetal    AS    BM
 
+Test Setup      Start Calculator
 
 *** Test Cases ***
 first
@@ -22,3 +23,10 @@ Activate Button
         # Activate Button    ${c}
         Pointer Click    .//Label[@Name='${c}']
     END
+
+
+Start Calculator
+
+    Pointer Click   //Button[@Name='Anwendungsstarter']
+
+    Pointer Click   //*[@Name='Rechner']

@@ -31,6 +31,12 @@ impl<'a> KeyboardEngine<'a> {
     }
 
     pub fn execute(mut self, sequence: &ResolvedKeyboardSequence, mode: KeyboardMode) -> Result<(), KeyboardError> {
+        let mode_label = match &mode {
+            KeyboardMode::Press => "press",
+            KeyboardMode::Release => "release",
+            KeyboardMode::Type => "type",
+        };
+        tracing::debug!(mode = mode_label, segments = sequence.segments().len(), "keyboard execute");
         let mut result = match mode {
             KeyboardMode::Press => self.press_sequence(sequence),
             KeyboardMode::Release => self.release_sequence(sequence),
@@ -38,6 +44,7 @@ impl<'a> KeyboardEngine<'a> {
         };
 
         if result.is_err() {
+            tracing::warn!(stuck_keys = self.pressed.len(), "keyboard error — releasing stuck keys");
             let _ = self.release_all_pressed();
         }
 

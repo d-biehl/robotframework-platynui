@@ -316,6 +316,13 @@ impl<'a> PointerEngine<'a> {
         let target = self.resolve_point(point, &origin);
         let target = self.clamp_to_desktop(target);
         let start = self.device.position()?;
+        tracing::debug!(
+            from_x = start.x(),
+            from_y = start.y(),
+            to_x = target.x(),
+            to_y = target.y(),
+            "pointer move_to"
+        );
         self.perform_move(start, target, &effective)?;
         self.sleep(effective.after_move_delay());
         if effective.ensure_move_position() {
@@ -345,6 +352,7 @@ impl<'a> PointerEngine<'a> {
         }
 
         let target_button = button.unwrap_or(self.settings.default_button);
+        tracing::debug!(button = ?target_button, clicks, target = ?target, "pointer click");
         // Determine anchor: move if a target is provided, otherwise use current device position.
         let anchor = if let Some(point) = target { self.move_to(point, overrides)? } else { self.device.position()? };
         let (press_release_delay, after_click_delay, after_input_delay, multi_click_delay, before_next_click_delay) = {
@@ -406,6 +414,7 @@ impl<'a> PointerEngine<'a> {
             return Ok(());
         }
 
+        tracing::debug!(horizontal = delta.horizontal, vertical = delta.vertical, "pointer scroll");
         let effective = self.effective_profile(overrides);
         let step = effective.scroll_step();
         let steps = scroll_steps(delta, step).max(1);
@@ -437,6 +446,12 @@ impl<'a> PointerEngine<'a> {
         let active_button = button.unwrap_or(self.settings.default_button);
         let start_target = self.clamp_to_desktop(self.resolve_point(start, &origin));
         let end_target = self.clamp_to_desktop(self.resolve_point(end, &origin));
+        tracing::debug!(
+            button = ?active_button,
+            start_x = start_target.x(), start_y = start_target.y(),
+            end_x = end_target.x(), end_y = end_target.y(),
+            "pointer drag",
+        );
 
         let current = self.device.position()?;
         self.perform_move(current, start_target, &effective)?;
@@ -559,6 +574,14 @@ impl<'a> PointerEngine<'a> {
                 return Ok(());
             }
             if Instant::now() >= deadline {
+                tracing::warn!(
+                    expected_x = target.x(),
+                    expected_y = target.y(),
+                    actual_x = actual.x(),
+                    actual_y = actual.y(),
+                    threshold,
+                    "pointer ensure_position failed — target not reached",
+                );
                 return Err(PointerError::EnsureMove { expected: target, actual, threshold });
             }
             self.device.move_to(target)?;

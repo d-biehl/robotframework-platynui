@@ -61,7 +61,10 @@ impl Iterator for ElementAndAppIter {
 
             let walker = match crate::com::raw_walker() {
                 Ok(w) => w,
-                Err(_) => return None,
+                Err(err) => {
+                    tracing::warn!(%err, "UIA raw_walker failed, skipping children");
+                    return None;
+                }
             };
             loop {
                 if self.first {

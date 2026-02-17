@@ -35,6 +35,8 @@ platynui-core = { path = "../core" }
 platynui-provider-mock = { path = "../provider-mock", optional = true }
 platynui-platform-mock = { path = "../platform-mock", optional = true }
 
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
 platynui-link = { path = "../link" }
 
 [target.'cfg(target_os = "windows")'.dependencies]

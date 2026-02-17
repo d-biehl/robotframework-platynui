@@ -17,6 +17,7 @@ platynui-core = { path = "../core" }
 inventory = "0.3"
 once_cell = "1.21"
 thiserror = "2.0"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [

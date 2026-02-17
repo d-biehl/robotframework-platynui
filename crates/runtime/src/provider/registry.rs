@@ -28,6 +28,8 @@ impl ProviderRegistry {
         let mut entries: Vec<ProviderEntry> =
             provider_factories().map(|factory| ProviderEntry { descriptor: factory.descriptor(), factory }).collect();
 
+        tracing::debug!(count = entries.len(), "discovered provider factories");
+
         entries.sort_by(|a, b| {
             let tech_cmp = a.descriptor.technology.as_str().cmp(b.descriptor.technology.as_str());
             if tech_cmp != std::cmp::Ordering::Equal {
@@ -53,6 +55,7 @@ impl ProviderRegistry {
     }
 
     pub fn instantiate_all(&self) -> Result<Vec<Arc<dyn UiTreeProvider>>, ProviderError> {
+        tracing::debug!(count = self.entries.len(), "instantiating all providers");
         self.entries.iter().map(|entry| entry.instantiate()).collect()
     }
 

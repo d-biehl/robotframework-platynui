@@ -6,6 +6,7 @@ use ui::tree::{
     viewmodel::ViewModel,
 };
 
+use clap::{Parser, ValueEnum};
 use platynui_core::platform::HighlightRequest;
 use platynui_core::ui::{Namespace, UiValue};
 use platynui_link::platynui_link_providers;
@@ -16,20 +17,61 @@ platynui_link_providers!();
 
 mod ui;
 
+#[derive(Parser)]
+#[command(author, version, about = "PlatynUI Inspector", long_about = None)]
+struct InspectorArgs {
+    /// Set the log level for diagnostic output (written to stderr).
+    /// Overrides the PLATYNUI_LOG_LEVEL environment variable.
+    /// Use RUST_LOG for fine-grained per-crate filtering.
+    #[arg(long = "log-level", value_enum)]
+    log_level: Option<LogLevel>,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+/// Initialize the tracing subscriber.
+///
+/// Priority (highest wins):
+/// 1. `RUST_LOG` environment variable (fine-grained per-crate filtering)
+/// 2. `--log-level` CLI argument
+/// 3. `PLATYNUI_LOG_LEVEL` environment variable
+/// 4. Default: `warn`
+fn init_tracing(cli_level: Option<LogLevel>) {
+    use tracing_subscriber::EnvFilter;
+
+    let filter = if std::env::var("RUST_LOG").is_ok() {
+        EnvFilter::from_default_env()
+    } else {
+        let directive = if let Some(level) = cli_level {
+            match level {
+                LogLevel::Error => "error",
+                LogLevel::Warn => "warn",
+                LogLevel::Info => "info",
+                LogLevel::Debug => "debug",
+                LogLevel::Trace => "trace",
+            }
+            .to_string()
+        } else if let Ok(val) = std::env::var("PLATYNUI_LOG_LEVEL") {
+            val
+        } else {
+            "warn".to_string()
+        };
+        EnvFilter::new(directive)
+    };
+
+    tracing_subscriber::fmt().with_env_filter(filter).with_target(true).with_writer(std::io::stderr).init();
+}
+
 pub fn run() -> Result<(), slint::PlatformError> {
-    // Initialize tracing subscriber for diagnostic output.
-    // Control verbosity via RUST_LOG, e.g.:
-    //   RUST_LOG=debug  — show all timing diagnostics
-    //   RUST_LOG=warn   — only show slow/timeout warnings
-    //   RUST_LOG=platynui_provider_atspi=debug — only AT-SPI diagnostics
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
-        .with_target(true)
-        .with_writer(std::io::stderr)
-        .init();
+    let args = InspectorArgs::parse();
+    init_tracing(args.log_level);
 
     let main_window = MainWindow::new()?;
 

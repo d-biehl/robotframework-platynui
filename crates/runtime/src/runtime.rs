@@ -161,6 +161,7 @@ impl Runtime {
     ) -> Result<Self, ProviderError> {
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
         let provider_instances = registry.instantiate_all()?;
+        tracing::debug!(count = provider_instances.len(), "instantiated providers");
         let mut providers: Vec<Arc<dyn UiTreeProvider>> = Vec::with_capacity(provider_instances.len());
         for provider in provider_instances {
             let listener = Arc::new(RuntimeEventListener::new(dispatcher.clone()));
@@ -194,6 +195,13 @@ impl Runtime {
                 keyboard_devices().next(),
             )
         };
+        tracing::debug!(
+            highlight = highlight.is_some(),
+            screenshot = screenshot.is_some(),
+            pointer = pointer.is_some(),
+            keyboard = keyboard.is_some(),
+            "platform devices discovered",
+        );
 
         let mut pointer_settings = PointerSettings::default();
         if let Some(device) = pointer {
@@ -218,6 +226,7 @@ impl Runtime {
 
         let providers_for_desktop: Vec<Arc<dyn UiTreeProvider>> = providers.to_vec();
 
+        let provider_count = providers.len();
         let runtime = Self {
             registry,
             providers,
@@ -237,6 +246,7 @@ impl Runtime {
             keyboard_settings: Mutex::new(keyboard_settings),
             is_shutdown: AtomicBool::new(false),
         };
+        tracing::info!(providers = provider_count, "Runtime initialized");
         Ok(runtime)
     }
 
@@ -658,6 +668,7 @@ impl Runtime {
         if self.is_shutdown.swap(true, Ordering::AcqRel) {
             return; // already shut down
         }
+        tracing::info!(providers = self.providers.len(), "Runtime shutting down");
         self.dispatcher.shutdown();
         for provider in &self.providers {
             provider.shutdown();
@@ -700,7 +711,9 @@ fn map_desktop_error(err: PlatformError) -> ProviderError {
 
 fn initialize_platform_modules() -> Result<(), ProviderError> {
     for module in platform_modules() {
+        tracing::debug!(module = module.name(), "initializing platform module");
         module.initialize().map_err(|err| {
+            tracing::error!(module = module.name(), %err, "platform module initialization failed");
             ProviderError::new(
                 ProviderErrorKind::InitializationFailed,
                 format!("platform module `{}` failed to initialize: {err}", module.name()),
@@ -711,6 +724,7 @@ fn initialize_platform_modules() -> Result<(), ProviderError> {
 }
 
 fn fallback_desktop_info() -> DesktopInfo {
+    tracing::warn!("using fallback desktop info — no DesktopInfoProvider available");
     let os_name = std::env::consts::OS;
     let os_version = std::env::consts::ARCH;
     DesktopInfo {
@@ -859,7 +873,9 @@ impl UiNode for DesktopNode {
                         Ok(iter) => {
                             self.current = Some(iter);
                         }
-                        Err(_) => { /* skip provider */ }
+                        Err(err) => {
+                            tracing::error!(%err, "DesktopNode: provider get_nodes failed, skipping");
+                        }
                     }
                 }
             }
