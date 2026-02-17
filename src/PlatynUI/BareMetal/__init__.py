@@ -1,9 +1,22 @@
 import base64
+import time
+from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from platynui_native import Point, PointerButton, PointerOverridesLike, Rect, RectLike, Runtime, UiNode, WindowSurface
+from platynui_native import (
+    EvaluatedAttribute,
+    Point,
+    PointerButton,
+    PointerOverridesLike,
+    Rect,
+    RectLike,
+    Runtime,
+    UiNode,
+    UiValue,
+    WindowSurface,
+)
 from robot.api import logger
 from robot.api.deco import library
 from robot.api.interfaces import ListenerV3
@@ -17,6 +30,22 @@ from .._our_libcore import OurDynamicCore, keyword
 NO_ROOT_NODE = object()  # Sentinel value to distinguish "no root specified" from "explicitly set root to None"
 
 
+class BareMetalError(Exception):
+    """Base exception for BareMetal library errors."""
+
+
+class ElementNotFoundError(BareMetalError):
+    """Raised when a UiNode cannot be found for a given query within the specified timeout."""
+
+
+class ResultTypeError(BareMetalError):
+    """Raised when a query result cannot be interpreted as the expected type (e.g., UiNode)."""
+
+
+class NoQueryError(BareMetalError):
+    """Raised when a UiNodeDescriptor is called without a query to resolve the node."""
+
+
 class UiNodeDescriptor:
     """Descriptor wrapper allowing lazy resolution of a UiNode from a query string.
 
@@ -24,8 +53,9 @@ class UiNodeDescriptor:
     evaluated using the associated BareMetal library instance when called.
     """
 
-    def __init__(self, node: UiNode | str, library: 'BareMetal') -> None:
+    def __init__(self, node: UiNode | None, query: str | None, library: 'BareMetal') -> None:
         self.node = node
+        self.query = query
         self.library = library
 
     def __call__(self, no_root: bool = False) -> UiNode:
@@ -33,14 +63,34 @@ class UiNodeDescriptor:
             if self.node.is_valid():
                 return self.node
 
-        result = self.library.query(
-            self.node, self.library.root if not no_root else cast(UiNode, NO_ROOT_NODE), only_first=True
-        )
-        if result is None:
-            raise ValueError(f'Query for UiNodeDescriptor {self.node!r} returned no results')
+        if self.query is None:
+            raise NoQueryError('UiNodeDescriptor has no query to resolve the node')
+
+        start_time = time.monotonic()
+        result: UiNode | UiValue | EvaluatedAttribute | None = None
+        while True:
+            try:
+                result = self.library.runtime.evaluate_single(self.query, self.library.root if not no_root else None)
+            except (SystemExit, KeyboardInterrupt):
+                raise  # Don't interfere with user-initiated interrupts
+            except Exception as e:
+                if not self.library.query_settings.ignore_exceptions:
+                    raise e
+            else:
+                if result is not None:
+                    break
+
+                if (time.monotonic() - start_time) > self.library.query_settings.timeout:
+                    raise ElementNotFoundError(
+                        f'No UiNode found for UiNodeDescriptor query {self.query!r} within '
+                        f'timeout of {self.library.query_settings.timeout} seconds.'
+                    )
+
+                time.sleep(self.library.query_settings.retry_interval)
+                self.library.runtime.clear_cache()  # Clear runtime cache to attempt to resolve transient UI states
 
         if not isinstance(result, UiNode):
-            raise TypeError(f'Query for UiNodeDescriptor {self.node!r} did not return a UiNode, got: {result!r}')
+            raise ResultTypeError(f'Query for UiNodeDescriptor {self.query!r} did not return a UiNode, got: {result!r}')
 
         self.node = result  # Cache resolved node
 
@@ -51,10 +101,10 @@ class UiNodeDescriptor:
     @staticmethod
     def convert(value: str | UiNode, library: 'BareMetal') -> 'UiNodeDescriptor':
         if isinstance(value, UiNode):
-            return UiNodeDescriptor(value, library)
+            return UiNodeDescriptor(value, None, library)
         if value in UiNodeDescriptor.cache:
             return UiNodeDescriptor.cache[value]
-        descriptor = UiNodeDescriptor(value, library)
+        descriptor = UiNodeDescriptor(None, value, library)
         UiNodeDescriptor.cache[value] = descriptor
         return descriptor
 
@@ -62,6 +112,15 @@ class UiNodeDescriptor:
 PLATYNUI_ROOT_DESCRIPTOR = (
     'PLATYNUI_ROOT_DESCRIPTOR'  # Variable name for storing the current root descriptor in Robot Framework variables
 )
+
+
+@dataclass
+class QuerySettings:
+    """Settings for query evaluation context."""
+
+    timeout: float
+    retry_interval: float
+    ignore_exceptions: bool = False
 
 
 @library(
@@ -84,6 +143,7 @@ class BareMetal(OurDynamicCore, ListenerV3):
         self._screenshot_counter = 1
         self.use_mock = use_mock
         self.auto_activate = auto_activate
+        self.query_settings = QuerySettings(30, 0.1, False)
 
     @cached_property
     def runtime(self) -> Runtime:
@@ -171,6 +231,7 @@ class BareMetal(OurDynamicCore, ListenerV3):
         elif root is None:
             root = self.root
 
+        self.runtime.clear_cache()
         return self.runtime.evaluate_single(expression, root) if only_first else self.runtime.evaluate(expression, root)
 
     # Internal helpers
@@ -192,6 +253,10 @@ class BareMetal(OurDynamicCore, ListenerV3):
         if should_activate:
             try:
                 self.runtime.bring_to_front(descriptor())
+            except BareMetalError:
+                raise  # Critical error from the library/runtime; propagate it
+            except (KeyboardInterrupt, SystemExit):
+                raise  # Don't interfere with user-initiated interrupts
             except Exception:
                 pass  # Best-effort; don't block the pointer action
 
