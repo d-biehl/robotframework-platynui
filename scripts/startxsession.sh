@@ -18,6 +18,7 @@ dbus-run-session -- bash -c "
   export XDG_CURRENT_DESKTOP=xephyr-test
   export NO_AT_BRIDGE=0
   export ACCESSIBILITY_ENABLED=1
+  export QT_ACCESSIBILITY=1
   export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
   export LANG=de_DE.UTF-8
   export LC_ALL=de_DE.UTF-8
