@@ -4,14 +4,21 @@
 //! highlight) and desktop info helpers into the runtime via the registration
 //! macros provided by `platynui-core`.
 //!
-//! Phase 0 provides a minimal `PlatformModule` so the crate can be linked by
-//! applications without side effects. Devices will be registered in later
-//! phases once their implementations are ready.
+//! The `PlatformModule::initialize()` eagerly connects to the X11 display,
+//! probes required extensions (XTEST, RANDR), and logs their availability.
+//! This fail-fast approach surfaces configuration issues at startup rather
+//! than lazily when a device is first used.
+//!
+//! **XInitThreads is NOT needed.** This crate uses `x11rb::RustConnection`
+//! (pure Rust, no libX11 C bindings). Thread safety is handled by the
+//! `Mutex<X11Handle>` wrapper in `x11util`.
 
 #[cfg(target_os = "linux")]
 mod init {
-    use platynui_core::platform::{PlatformError, PlatformModule};
+    use platynui_core::platform::{PlatformError, PlatformErrorKind, PlatformModule};
     use platynui_core::register_platform_module;
+    use tracing::{debug, info, warn};
+    use x11rb::protocol::xproto::ConnectionExt as _;
 
     struct LinuxX11Module;
 
@@ -21,9 +28,45 @@ mod init {
         }
 
         fn initialize(&self) -> Result<(), PlatformError> {
-            // Phase 0: No side effects yet. Future phases will set up X11/XKB/XTest
-            // connections, probe extensions (RandR, MIT-SHM), and prepare global
-            // state required by device providers.
+            // Eagerly establish the shared X11 connection. This populates the
+            // OnceCell singleton in x11util so subsequent device calls don't
+            // encounter a cold-start surprise.
+            let guard = crate::x11util::connection()?;
+
+            // Probe extensions the crate depends on. XTEST is critical for
+            // pointer (and future keyboard) input injection. RANDR is used
+            // for monitor enumeration but has a root-geometry fallback.
+            let conn = &guard.conn;
+
+            // --- XTEST (critical) ---
+            let xtest_available = conn
+                .query_extension(b"XTEST")
+                .ok()
+                .and_then(|c| c.reply().ok())
+                .is_some_and(|r| r.present);
+
+            if !xtest_available {
+                return Err(PlatformError::new(
+                    PlatformErrorKind::CapabilityUnavailable,
+                    "XTEST extension not available — pointer/keyboard injection will not work",
+                ));
+            }
+            debug!("XTEST extension available");
+
+            // --- RANDR (optional, graceful degradation) ---
+            let randr_available = conn
+                .query_extension(b"RANDR")
+                .ok()
+                .and_then(|c| c.reply().ok())
+                .is_some_and(|r| r.present);
+
+            if randr_available {
+                debug!("RANDR extension available");
+            } else {
+                warn!("RANDR extension not available — monitor enumeration will fall back to root window geometry");
+            }
+
+            info!("Linux X11 platform initialized");
             Ok(())
         }
     }

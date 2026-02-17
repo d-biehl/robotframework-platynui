@@ -361,7 +361,7 @@ Kurzfassung (EN)
   - [x] Screenshot via XGetImage (XShm optional).
   - [x] Highlight via override-redirect Segment-Fenster (kein XComposite-Pfad).
   - [ ] Fenstersteuerung über EWMH/NetWM.
-  - [ ] `PlatformModule::initialize()` (XInitThreads, Extension-Checks).
+  - [x] `PlatformModule::initialize()` (Eager Connect, XTEST/RANDR Extension‑Checks; XInitThreads entfällt – x11rb `RustConnection` ist pure Rust).
 - [ ] Fokus-Helper für AT-SPI2 + plattformspezifische Fallbacks.
 - [ ] Tests: Desktop-Bounds, ActivationPoint, Sichtbarkeits- und Enable-Flags unter X11.
 - [x] `platynui-provider-atspi`: D-Bus-Integration und Registry-Root, RuntimeId aus Objektpfad, Rollen-/Namespace-Mapping (inkl. `app:Application`), Streaming-Attribute.

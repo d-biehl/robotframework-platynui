@@ -4,8 +4,7 @@ English summary: This plan scopes and phases the Linux/X11 enablement for Platyn
 
 Status: Draft (2025‑11‑05)
 Update (2026‑02‑03): Phase‑1 Geräte (DesktopInfo/Pointer/Screenshot/Highlight) implementiert; Keyboard + `PlatformModule::initialize()` offen; AT‑SPI Provider weiterhin Stub; CLI `query`/`snapshot` warten auf Phase 2.
-Update (2026‑02‑04): AT‑SPI Provider‑Grundgerüst umgesetzt (atspi‑connection, Rollen‑/Namespace‑Mapping inkl. `app`, Component‑gated Standard‑Attribute, Streaming‑Attribute, umfangreiche Native‑Interface‑Attribute). Events/WindowSurface/Tests bleiben offen.
-
+Update (2026‑02‑04): AT‑SPI Provider‑Grundgerüst umgesetzt (atspi‑connection, Rollen‑/Namespace‑Mapping inkl. `app`, Component‑gated Standard‑Attribute, Streaming‑Attribute, umfangreiche Native‑Interface‑Attribute). Events/WindowSurface/Tests bleiben offen.Update (2026‑02‑17): `PlatformModule::initialize()` implementiert. XInitThreads entfällt (x11rb nutzt `RustConnection`, kein libX11). Eager Connection + Extension‑Probing (XTEST kritisch, RANDR optional). Logging via `tracing`. Keyboard bleibt offen.
 Owner: Runtime/Providers Team
 
 ---
@@ -32,7 +31,10 @@ Nicht‑Ziele (für den ersten Wurf)
   - Screenshot: XGetImage (später optional XShm), RGBA/BGRA Konvertierung
   - Highlight: Override‑Redirect Overlay aus Segment‑Fenstern (solid rot, gestrichelte Kanten bei Clipping)
   - DesktopInfo: XRandR Monitore (ID/Name/Bounds/Primary)
-  - Initialisierung: `PlatformModule::initialize()` (XInitThreads, Display öffnen), Fehler zu `PlatformError`
+  - Initialisierung: `PlatformModule::initialize()` (Eager Connect, Extension‑Probing), Fehler zu `PlatformError`
+    - XInitThreads entfällt: x11rb nutzt `RustConnection` (pure Rust), Thread‑Safety über `Mutex<X11Handle>`
+    - XTEST: obligatorisch (Pointer/Keyboard‑Injection), Fehler bei Abwesenheit
+    - RANDR: optional, graceful Fallback auf Root‑Geometry
 
 - Provider‑Crate `platynui-provider-atspi` (AT‑SPI2 über D‑Bus):
   - Abhängigkeiten: `atspi-connection`, `atspi-common`, `atspi-proxies` (zbus nur für Address‑Parsing)
@@ -71,8 +73,10 @@ Nicht‑Ziele (für den ersten Wurf)
   - Reconnect‑Backoff bei Verbindungsabbruch.
 
 ### Phase 1 – Plattform Linux/X11 Minimal (Geräte)
-- [ ] `PlatformModule::initialize()`
-  - XInitThreads, Display öffnen, Atoms/Extensions (XTest/RandR) prüfen
+- [x] `PlatformModule::initialize()`
+  - Eager Connect zum X11‑Display (fail‑fast statt lazy), Extension‑Probing (XTEST kritisch, RANDR optional)
+  - XInitThreads entfällt (x11rb `RustConnection` ist pure Rust, kein libX11; Thread‑Safety via `Mutex<X11Handle>` in `x11util`)
+  - Logging via `tracing` (info/warn)
 - [x] `DesktopInfoProvider` (XRandR)
   - Monitore inklusive Primary und Bounds (ScaleFactor default 1.0)
 - [x] `PointerDevice`
@@ -143,6 +147,12 @@ Akzeptanz: Fensteraktionen funktionieren in gängigen X11 WMs (KDE, Xfce, Openbo
 - Linux‑Plattformmodul als No‑Op registriert; Skeleton‑Module für Geräte angelegt (ohne Registrierung/Deps).
 - Bus‑Discovery als Kern‑Pfad dokumentiert (ohne Feature‑Gate; Implementierung folgt in Phase 2).
 - Keine neuen Abhängigkeiten hinzugefügt; bestehende Builds bleiben unverändert.
+
+### Ergebnis Phase 1 (teilweise)
+- `PlatformModule::initialize()` implementiert: Eager X11 Connect + XTEST/RANDR Extension‑Probing.
+- Entscheidung: XInitThreads ist irrelevant, da x11rb `RustConnection` (pure Rust) verwendet und kein libX11 eingebunden ist.
+- `tracing` als Dependency hinzugefügt für strukturiertes Logging.
+- Offene Punkte: `KeyboardDevice` (xkbcommon‑rs + XTest Injection), Unit‑Tests.
 
 ## Sicherheit & Sandbox (X11/AT‑SPI2)
 

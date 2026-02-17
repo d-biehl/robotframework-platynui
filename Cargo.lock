@@ -3926,6 +3926,7 @@ dependencies = [
  "inventory",
  "once_cell",
  "platynui-core",
+ "tracing",
  "x11rb",
 ]
 
