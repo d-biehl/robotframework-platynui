@@ -137,17 +137,11 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                 // Decide at init time whether this is an exact-name or wildcard test.
                 let exact_name = match &self.test {
                     NodeTestIR::Name(q) => Some(&q.original),
-                    NodeTestIR::KindAttribute { name: Some(NameOrWildcard::Name(q)), ty: None } => {
-                        Some(&q.original)
-                    }
+                    NodeTestIR::KindAttribute { name: Some(NameOrWildcard::Name(q)), ty: None } => Some(&q.original),
                     _ => None,
                 };
                 if let Some(en) = exact_name {
-                    let lookup = QName {
-                        prefix: None,
-                        local: en.local.clone(),
-                        ns_uri: en.ns_uri.clone(),
-                    };
+                    let lookup = QName { prefix: None, local: en.local.clone(), ns_uri: en.ns_uri.clone() };
                     let result = self.node.attribute_by_name(&lookup);
                     AxisState::AttributeDirect { result, emitted: false }
                 } else {

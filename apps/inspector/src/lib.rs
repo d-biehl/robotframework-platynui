@@ -174,9 +174,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 // entire screen, which would cause hundreds of X11 overlay windows and
                 // freeze the X server.
                 let is_root = node.parent().is_none();
-                if !is_root
-                    && let Some(bounds) = cached_bounds
-                {
+                if !is_root && let Some(bounds) = cached_bounds {
                     let rt = Arc::clone(&runtime_for_select);
                     std::thread::spawn(move || {
                         let req = HighlightRequest::new(bounds).with_duration(Duration::from_millis(1500));

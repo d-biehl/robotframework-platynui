@@ -109,11 +109,15 @@ impl UiTreeProvider for AtspiProvider {
                 })?
                 .build(),
         )
-        .ok_or_else(|| ProviderError::new(ProviderErrorKind::CommunicationFailure, "registry proxy build timed out".to_string()))?
+        .ok_or_else(|| {
+            ProviderError::new(ProviderErrorKind::CommunicationFailure, "registry proxy build timed out".to_string())
+        })?
         .map_err(|err| ProviderError::new(ProviderErrorKind::CommunicationFailure, format!("registry proxy: {err}")))?;
 
         let children = block_on_timeout_init(proxy.get_children())
-            .ok_or_else(|| ProviderError::new(ProviderErrorKind::CommunicationFailure, "registry children timed out".to_string()))?
+            .ok_or_else(|| {
+                ProviderError::new(ProviderErrorKind::CommunicationFailure, "registry children timed out".to_string())
+            })?
             .map_err(|err| {
                 ProviderError::new(ProviderErrorKind::CommunicationFailure, format!("registry children: {err}"))
             })?;
@@ -154,12 +158,8 @@ impl UiTreeProvider for AtspiProvider {
             // Pre-resolve interfaces, role, and name using the same
             // proxy so that AtspiNode caches are warm on first access.
             let interfaces = block_on_timeout(proxy.get_interfaces()).and_then(|r| r.ok());
-            let role = block_on_timeout(proxy.get_role())
-                .and_then(|r| r.ok())
-                .unwrap_or(Role::Invalid);
-            let node_name = block_on_timeout(proxy.name())
-                .and_then(|r| r.ok())
-                .and_then(node::normalize_value);
+            let role = block_on_timeout(proxy.get_role()).and_then(|r| r.ok()).unwrap_or(Role::Invalid);
+            let node_name = block_on_timeout(proxy.name()).and_then(|r| r.ok()).and_then(node::normalize_value);
 
             let node = AtspiNode::new(conn.clone(), child, Some(&parent));
             // Seed caches directly — no additional D-Bus calls inside.

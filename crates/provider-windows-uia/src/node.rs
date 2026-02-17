@@ -182,9 +182,7 @@ impl UiNode for UiaNode {
         // Ensure a virtualized item is realized before enumerating its children.
         self.try_realize();
         match self.as_ui_node() {
-            Some(parent_arc) => {
-                Box::new(ElementChildrenIter::new(self.elem.clone(), Some(parent_arc), self.id_scope))
-            }
+            Some(parent_arc) => Box::new(ElementChildrenIter::new(self.elem.clone(), Some(parent_arc), self.id_scope)),
             None => Box::new(std::iter::empty::<Arc<dyn UiNode>>()),
         }
     }
@@ -208,13 +206,11 @@ impl UiNode for UiaNode {
                         None
                     }
                 }
-                "RuntimeId" => Some(Arc::new(RuntimeIdAttr {
-                    rid: self.runtime_id().as_str().to_string(),
-                }) as Arc<dyn UiAttribute>),
-                "Bounds" => Some(Arc::new(BoundsAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                "ActivationPoint" => {
-                    Some(Arc::new(ActivationPointAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                "RuntimeId" => {
+                    Some(Arc::new(RuntimeIdAttr { rid: self.runtime_id().as_str().to_string() }) as Arc<dyn UiAttribute>)
                 }
+                "Bounds" => Some(Arc::new(BoundsAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                "ActivationPoint" => Some(Arc::new(ActivationPointAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 "IsEnabled" => Some(Arc::new(IsEnabledAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 "IsOffscreen" => Some(Arc::new(IsOffscreenAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 "IsVisible" => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
@@ -452,9 +448,7 @@ impl ElementChildrenIter {
             if is_content { Namespace::Item } else { Namespace::Control }
         });
         // Populate control type cache
-        let _ = node.ct_cell.get_or_init(|| unsafe {
-            elem.CachedControlType().map(|v| v.0).unwrap_or(0)
-        });
+        let _ = node.ct_cell.get_or_init(|| unsafe { elem.CachedControlType().map(|v| v.0).unwrap_or(0) });
         // Populate automation id cache
         let _ = node.id_cell.get_or_init(|| unsafe {
             match elem.CachedAutomationId() {

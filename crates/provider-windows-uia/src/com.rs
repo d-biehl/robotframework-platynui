@@ -10,9 +10,9 @@
 use std::cell::{Cell, RefCell};
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx};
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IUIAutomation, IUIAutomationCacheRequest, IUIAutomationTreeWalker,
-    UIA_AutomationIdPropertyId, UIA_ControlTypePropertyId, UIA_IsContentElementPropertyId,
-    UIA_IsControlElementPropertyId, UIA_ProcessIdPropertyId, UIA_RuntimeIdPropertyId,
+    CUIAutomation, IUIAutomation, IUIAutomationCacheRequest, IUIAutomationTreeWalker, UIA_AutomationIdPropertyId,
+    UIA_ControlTypePropertyId, UIA_IsContentElementPropertyId, UIA_IsControlElementPropertyId, UIA_ProcessIdPropertyId,
+    UIA_RuntimeIdPropertyId,
 };
 
 thread_local! {
@@ -73,9 +73,8 @@ pub fn traversal_cache_request() -> Result<IUIAutomationCacheRequest, crate::err
         if let Some(existing) = cell.borrow().as_ref() {
             return Ok(existing.clone());
         }
-        let req: IUIAutomationCacheRequest = unsafe {
-            crate::error::uia_api("IUIAutomation::CreateCacheRequest", uia.CreateCacheRequest())?
-        };
+        let req: IUIAutomationCacheRequest =
+            unsafe { crate::error::uia_api("IUIAutomation::CreateCacheRequest", uia.CreateCacheRequest())? };
         unsafe {
             let _ = req.AddProperty(UIA_ProcessIdPropertyId);
             let _ = req.AddProperty(UIA_ControlTypePropertyId);

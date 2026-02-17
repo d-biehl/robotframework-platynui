@@ -133,8 +133,7 @@ impl OverlayThread {
                     const MAX_OVERLAY_WINDOWS: usize = 64;
                     let frame_rects = if frame_rects.len() > MAX_OVERLAY_WINDOWS {
                         // Re-generate with solid edges only (4 windows).
-                        let solid_pairs: Vec<(Rect, Rect)> =
-                            clamped_pairs.iter().map(|(_, c)| (*c, *c)).collect();
+                        let solid_pairs: Vec<(Rect, Rect)> = clamped_pairs.iter().map(|(_, c)| (*c, *c)).collect();
                         frame_segments(&solid_pairs, 3)
                     } else {
                         frame_rects

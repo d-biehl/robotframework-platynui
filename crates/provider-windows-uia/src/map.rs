@@ -503,14 +503,8 @@ fn categorized_catalog() -> &'static CategorizedCatalog {
         // Property IDs that don't appear in any group are classified as base.
         let groups: &[(UIA_PROPERTY_ID, &[UIA_PROPERTY_ID])] = &[
             // --- Classic patterns (Windows 7+) ---
-            (
-                UIA_IsDockPatternAvailablePropertyId,
-                &[UIA_DockDockPositionPropertyId],
-            ),
-            (
-                UIA_IsExpandCollapsePatternAvailablePropertyId,
-                &[UIA_ExpandCollapseExpandCollapseStatePropertyId],
-            ),
+            (UIA_IsDockPatternAvailablePropertyId, &[UIA_DockDockPositionPropertyId]),
+            (UIA_IsExpandCollapsePatternAvailablePropertyId, &[UIA_ExpandCollapseExpandCollapseStatePropertyId]),
             (
                 UIA_IsGridItemPatternAvailablePropertyId,
                 &[
@@ -521,17 +515,11 @@ fn categorized_catalog() -> &'static CategorizedCatalog {
                     UIA_GridItemContainingGridPropertyId,
                 ],
             ),
-            (
-                UIA_IsGridPatternAvailablePropertyId,
-                &[UIA_GridRowCountPropertyId, UIA_GridColumnCountPropertyId],
-            ),
+            (UIA_IsGridPatternAvailablePropertyId, &[UIA_GridRowCountPropertyId, UIA_GridColumnCountPropertyId]),
             // Invoke pattern has no properties.
             (
                 UIA_IsMultipleViewPatternAvailablePropertyId,
-                &[
-                    UIA_MultipleViewCurrentViewPropertyId,
-                    UIA_MultipleViewSupportedViewsPropertyId,
-                ],
+                &[UIA_MultipleViewCurrentViewPropertyId, UIA_MultipleViewSupportedViewsPropertyId],
             ),
             (
                 UIA_IsRangeValuePatternAvailablePropertyId,
@@ -558,10 +546,7 @@ fn categorized_catalog() -> &'static CategorizedCatalog {
             // ScrollItem pattern has no properties.
             (
                 UIA_IsSelectionItemPatternAvailablePropertyId,
-                &[
-                    UIA_SelectionItemIsSelectedPropertyId,
-                    UIA_SelectionItemSelectionContainerPropertyId,
-                ],
+                &[UIA_SelectionItemIsSelectedPropertyId, UIA_SelectionItemSelectionContainerPropertyId],
             ),
             (
                 UIA_IsSelectionPatternAvailablePropertyId,
@@ -573,36 +558,19 @@ fn categorized_catalog() -> &'static CategorizedCatalog {
             ),
             (
                 UIA_IsTablePatternAvailablePropertyId,
-                &[
-                    UIA_TableRowHeadersPropertyId,
-                    UIA_TableColumnHeadersPropertyId,
-                    UIA_TableRowOrColumnMajorPropertyId,
-                ],
+                &[UIA_TableRowHeadersPropertyId, UIA_TableColumnHeadersPropertyId, UIA_TableRowOrColumnMajorPropertyId],
             ),
             (
                 UIA_IsTableItemPatternAvailablePropertyId,
-                &[
-                    UIA_TableItemRowHeaderItemsPropertyId,
-                    UIA_TableItemColumnHeaderItemsPropertyId,
-                ],
+                &[UIA_TableItemRowHeaderItemsPropertyId, UIA_TableItemColumnHeaderItemsPropertyId],
             ),
             // Text pattern has no simple property IDs (uses TextRange).
-            (
-                UIA_IsTogglePatternAvailablePropertyId,
-                &[UIA_ToggleToggleStatePropertyId],
-            ),
+            (UIA_IsTogglePatternAvailablePropertyId, &[UIA_ToggleToggleStatePropertyId]),
             (
                 UIA_IsTransformPatternAvailablePropertyId,
-                &[
-                    UIA_TransformCanMovePropertyId,
-                    UIA_TransformCanResizePropertyId,
-                    UIA_TransformCanRotatePropertyId,
-                ],
+                &[UIA_TransformCanMovePropertyId, UIA_TransformCanResizePropertyId, UIA_TransformCanRotatePropertyId],
             ),
-            (
-                UIA_IsValuePatternAvailablePropertyId,
-                &[UIA_ValueValuePropertyId, UIA_ValueIsReadOnlyPropertyId],
-            ),
+            (UIA_IsValuePatternAvailablePropertyId, &[UIA_ValueValuePropertyId, UIA_ValueIsReadOnlyPropertyId]),
             (
                 UIA_IsWindowPatternAvailablePropertyId,
                 &[
@@ -651,10 +619,7 @@ fn categorized_catalog() -> &'static CategorizedCatalog {
             ),
             (
                 UIA_IsDropTargetPatternAvailablePropertyId,
-                &[
-                    UIA_DropTargetDropTargetEffectPropertyId,
-                    UIA_DropTargetDropTargetEffectsPropertyId,
-                ],
+                &[UIA_DropTargetDropTargetEffectPropertyId, UIA_DropTargetDropTargetEffectsPropertyId],
             ),
             (
                 UIA_IsSpreadsheetItemPatternAvailablePropertyId,

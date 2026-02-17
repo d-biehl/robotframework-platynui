@@ -570,10 +570,8 @@ impl PyRuntime {
             },
             None => None,
         };
-        let items = with_cache(self.cache_id, |cache| {
-            self.inner.evaluate_cached(node_arc, xpath, cache)
-        })
-        .map_err(map_eval_err)?;
+        let items = with_cache(self.cache_id, |cache| self.inner.evaluate_cached(node_arc, xpath, cache))
+            .map_err(map_eval_err)?;
         let out = PyList::empty(py);
         for item in items {
             out.append(evaluation_item_to_py(py, &item)?)?;
@@ -597,10 +595,8 @@ impl PyRuntime {
             None => None,
         };
 
-        let item = with_cache(self.cache_id, |cache| {
-            self.inner.evaluate_single_cached(node_arc, xpath, cache)
-        })
-        .map_err(map_eval_err)?;
+        let item = with_cache(self.cache_id, |cache| self.inner.evaluate_single_cached(node_arc, xpath, cache))
+            .map_err(map_eval_err)?;
 
         match item {
             Some(it) => evaluation_item_to_py(py, &it),
@@ -643,10 +639,8 @@ impl PyRuntime {
             None => None,
         };
 
-        let stream = with_cache(self.cache_id, |cache| {
-            self.inner.evaluate_iter_owned_cached(node_arc, xpath, cache)
-        })
-        .map_err(map_eval_err)?;
+        let stream = with_cache(self.cache_id, |cache| self.inner.evaluate_iter_owned_cached(node_arc, xpath, cache))
+            .map_err(map_eval_err)?;
         Py::new(py, PyEvaluationIterator { iter: Some(Box::new(stream)) })
     }
 

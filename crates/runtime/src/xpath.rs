@@ -244,11 +244,7 @@ fn resolve_context(
     Ok(context)
 }
 
-fn get_or_create_xdm_root(
-    context: &Arc<dyn UiNode>,
-    force_rebuild: bool,
-    cache: Option<&XdmCache>,
-) -> RuntimeXdmNode {
+fn get_or_create_xdm_root(context: &Arc<dyn UiNode>, force_rebuild: bool, cache: Option<&XdmCache>) -> RuntimeXdmNode {
     let Some(cache) = cache else {
         return RuntimeXdmNode::from_node(Arc::clone(context));
     };
@@ -607,9 +603,7 @@ impl XdmNode for RuntimeXdmNode {
                     _ => None,
                 };
                 if let Some(comp) = comp {
-                    if let Some(base) =
-                        node.attribute(ui_ns, attribute_names::activation_target::ACTIVATION_POINT)
-                    {
+                    if let Some(base) = node.attribute(ui_ns, attribute_names::activation_target::ACTIVATION_POINT) {
                         return Some(RuntimeXdmNode::Attribute(AttributeData::new_point_component(
                             node.clone(),
                             ui_ns,

@@ -1,16 +1,17 @@
 //! Tests for the `XdmNode::attribute_by_name` method.
 
-use platynui_xpath::model::simple::{attr, doc, elem, SimpleNode};
+use platynui_xpath::model::simple::{SimpleNode, attr, doc, elem};
 use platynui_xpath::model::{QName, XdmNode};
 
 fn make_tree() -> SimpleNode {
-    doc().child(
-        elem("root")
-            .attr(attr("id", "42"))
-            .attr(attr("class", "main"))
-            .child(elem("child").attr(attr("name", "inner"))),
-    )
-    .build()
+    doc()
+        .child(
+            elem("root")
+                .attr(attr("id", "42"))
+                .attr(attr("class", "main"))
+                .child(elem("child").attr(attr("name", "inner"))),
+        )
+        .build()
 }
 
 #[test]

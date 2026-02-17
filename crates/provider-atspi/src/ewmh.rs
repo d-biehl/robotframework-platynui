@@ -10,9 +10,7 @@ use std::env;
 use std::sync::Mutex;
 use std::time::Duration;
 use x11rb::connection::Connection;
-use x11rb::protocol::xproto::{
-    Atom, AtomEnum, ClientMessageEvent, ConnectionExt, EventMask, Window,
-};
+use x11rb::protocol::xproto::{Atom, AtomEnum, ClientMessageEvent, ConnectionExt, EventMask, Window};
 use x11rb::rust_connection::RustConnection;
 
 /// Shared X11 connection for EWMH operations.
@@ -33,8 +31,7 @@ struct Atoms {
 static X11: OnceCell<Mutex<X11Handle>> = OnceCell::new();
 
 fn x11() -> Result<std::sync::MutexGuard<'static, X11Handle>, String> {
-    let display =
-        env::var("DISPLAY").map_err(|_| "DISPLAY environment variable not set".to_string())?;
+    let display = env::var("DISPLAY").map_err(|_| "DISPLAY environment variable not set".to_string())?;
 
     let cell = X11.get_or_try_init(|| {
         let (conn, screen_num) = connect_raw(&display)?;
@@ -46,12 +43,7 @@ fn x11() -> Result<std::sync::MutexGuard<'static, X11Handle>, String> {
         let net_active_window = intern(&conn, b"_NET_ACTIVE_WINDOW")?;
         let net_close_window = intern(&conn, b"_NET_CLOSE_WINDOW")?;
 
-        let atoms = Atoms {
-            net_client_list,
-            net_wm_pid,
-            net_active_window,
-            net_close_window,
-        };
+        let atoms = Atoms { net_client_list, net_wm_pid, net_active_window, net_close_window };
 
         Ok::<Mutex<X11Handle>, String>(Mutex::new(X11Handle { conn, root, atoms }))
     })?;
@@ -138,39 +130,18 @@ pub fn find_xid_for_pid_simple(pid: u32) -> Result<Window, String> {
 fn get_client_list(handle: &X11Handle) -> Result<Vec<Window>, String> {
     let reply = handle
         .conn
-        .get_property(
-            false,
-            handle.root,
-            handle.atoms.net_client_list,
-            AtomEnum::WINDOW,
-            0,
-            u32::MAX,
-        )
+        .get_property(false, handle.root, handle.atoms.net_client_list, AtomEnum::WINDOW, 0, u32::MAX)
         .map_err(|e| format!("get_property _NET_CLIENT_LIST: {e}"))?
         .reply()
         .map_err(|e| format!("_NET_CLIENT_LIST reply: {e}"))?;
 
     // Value is array of u32 (Window IDs).
-    Ok(reply
-        .value32()
-        .map(|iter| iter.collect())
-        .unwrap_or_default())
+    Ok(reply.value32().map(|iter| iter.collect()).unwrap_or_default())
 }
 
 fn get_window_pid(handle: &X11Handle, win: Window) -> Option<u32> {
-    let reply = handle
-        .conn
-        .get_property(
-            false,
-            win,
-            handle.atoms.net_wm_pid,
-            AtomEnum::CARDINAL,
-            0,
-            1,
-        )
-        .ok()?
-        .reply()
-        .ok()?;
+    let reply =
+        handle.conn.get_property(false, win, handle.atoms.net_wm_pid, AtomEnum::CARDINAL, 0, 1).ok()?.reply().ok()?;
     reply.value32().and_then(|mut iter| iter.next())
 }
 
@@ -184,21 +155,12 @@ fn best_geometry_match(
 ) -> Result<Window, String> {
     let mut best: Option<(Window, i64)> = None;
     for &win in candidates {
-        if let Ok(geom) = handle
-            .conn
-            .get_geometry(win)
-            .map(|cookie| cookie.reply())
+        if let Ok(geom) = handle.conn.get_geometry(win).map(|cookie| cookie.reply())
             && let Ok(geom) = geom
         {
             // Translate to root coordinates.
-            let coords = handle
-                .conn
-                .translate_coordinates(win, handle.root, 0, 0)
-                .ok()
-                .and_then(|c| c.reply().ok());
-            let (wx, wy) = coords
-                .map(|c| (c.dst_x as i32, c.dst_y as i32))
-                .unwrap_or((geom.x as i32, geom.y as i32));
+            let coords = handle.conn.translate_coordinates(win, handle.root, 0, 0).ok().and_then(|c| c.reply().ok());
+            let (wx, wy) = coords.map(|c| (c.dst_x as i32, c.dst_y as i32)).unwrap_or((geom.x as i32, geom.y as i32));
             let ww = geom.width as i32;
             let wh = geom.height as i32;
 
@@ -207,16 +169,14 @@ fn best_geometry_match(
             let dy = (wy + wh / 2) - (target_y + target_h / 2);
             let dw = ww - target_w;
             let dh = wh - target_h;
-            let score =
-                (dx as i64).abs() + (dy as i64).abs() + (dw as i64).abs() + (dh as i64).abs();
+            let score = (dx as i64).abs() + (dy as i64).abs() + (dw as i64).abs() + (dh as i64).abs();
 
             if best.is_none() || score < best.unwrap().1 {
                 best = Some((win, score));
             }
         }
     }
-    best.map(|(w, _)| w)
-        .ok_or_else(|| "could not determine geometry for any candidate window".to_string())
+    best.map(|(w, _)| w).ok_or_else(|| "could not determine geometry for any candidate window".to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -234,14 +194,10 @@ pub fn activate_window(xid: Window) -> Result<(), String> {
             2, // source indication: pager/automation tool (bypasses focus-stealing prevention)
             0, // timestamp (0 = current)
             0, // currently active window (0 = none)
-            0,
-            0,
+            0, 0,
         ],
     )?;
-    handle
-        .conn
-        .flush()
-        .map_err(|e| format!("x11 flush: {e}"))?;
+    handle.conn.flush().map_err(|e| format!("x11 flush: {e}"))?;
     Ok(())
 }
 
@@ -255,15 +211,10 @@ pub fn close_window(xid: Window) -> Result<(), String> {
         [
             0, // timestamp
             2, // source indication: pager/automation tool
-            0,
-            0,
-            0,
+            0, 0, 0,
         ],
     )?;
-    handle
-        .conn
-        .flush()
-        .map_err(|e| format!("x11 flush: {e}"))?;
+    handle.conn.flush().map_err(|e| format!("x11 flush: {e}"))?;
     Ok(())
 }
 
@@ -281,17 +232,9 @@ pub fn is_active_window(xid: Window) -> Result<bool, String> {
     Ok(active_xid == xid)
 }
 
-fn send_client_message(
-    handle: &X11Handle,
-    win: Window,
-    message_type: Atom,
-    data: [u32; 5],
-) -> Result<(), String> {
+fn send_client_message(handle: &X11Handle, win: Window, message_type: Atom, data: [u32; 5]) -> Result<(), String> {
     let event = ClientMessageEvent::new(32, win, message_type, data);
     let mask = EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY;
-    handle
-        .conn
-        .send_event(false, handle.root, mask, event)
-        .map_err(|e| format!("send_event: {e}"))?;
+    handle.conn.send_event(false, handle.root, mask, event).map_err(|e| format!("send_event: {e}"))?;
     Ok(())
 }

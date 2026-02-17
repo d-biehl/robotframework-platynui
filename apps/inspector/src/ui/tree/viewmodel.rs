@@ -83,11 +83,7 @@ impl ViewModel {
             "rebuild_visible: complete",
         );
         if elapsed.as_millis() > 500 {
-            warn!(
-                rows = row_count,
-                elapsed_ms = elapsed.as_millis() as u64,
-                "rebuild_visible: SLOW rebuild (>500ms)",
-            );
+            warn!(rows = row_count, elapsed_ms = elapsed.as_millis() as u64, "rebuild_visible: SLOW rebuild (>500ms)",);
         }
     }
 
@@ -144,11 +140,7 @@ impl ViewModel {
         {
             let expand_start = std::time::Instant::now();
             let child_count = children.len();
-            debug!(
-                id = id.as_str(),
-                child_count,
-                "flatten_node: expanding children",
-            );
+            debug!(id = id.as_str(), child_count, "flatten_node: expanding children",);
             for child in children {
                 Self::flatten_node_static(child, depth + 1, out, expanded);
             }

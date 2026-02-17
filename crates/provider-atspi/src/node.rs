@@ -1,6 +1,5 @@
 use atspi_common::{
-    Action as AtspiAction, CoordType, Interface, InterfaceSet, ObjectRefOwned, RelationType, Role,
-    State, StateSet,
+    Action as AtspiAction, CoordType, Interface, InterfaceSet, ObjectRefOwned, RelationType, Role, State, StateSet,
 };
 use atspi_connection::AccessibilityConnection;
 use atspi_proxies::accessible::AccessibleProxy;
@@ -22,8 +21,8 @@ use once_cell::sync::OnceCell;
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{activation_target, application, common, element, focusable, window_surface};
 use platynui_core::ui::{
-    FocusableAction, Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue,
-    WindowSurfaceActions, supported_patterns_value,
+    FocusableAction, Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue, WindowSurfaceActions,
+    supported_patterns_value,
 };
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -49,7 +48,11 @@ pub(crate) fn block_on_timeout<F: std::future::Future>(future: F) -> Option<F::O
         .await
     });
     if result.is_none() {
-        warn!(elapsed_ms = start.elapsed().as_millis() as u64, "D-Bus call TIMED OUT ({}ms limit)", DBUS_TIMEOUT.as_millis());
+        warn!(
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            "D-Bus call TIMED OUT ({}ms limit)",
+            DBUS_TIMEOUT.as_millis()
+        );
     }
     result
 }
@@ -116,9 +119,7 @@ impl AtspiNode {
             let _ = self.interfaces.set(ifaces);
         }
         let interfaces = self.interfaces.get().copied().flatten();
-        let role = block_on_timeout(proxy.get_role())
-            .and_then(|r| r.ok())
-            .unwrap_or(Role::Invalid);
+        let role = block_on_timeout(proxy.get_role()).and_then(|r| r.ok()).unwrap_or(Role::Invalid);
         let (namespace, role_name) = map_role_with_interfaces(role, interfaces);
         let _ = self.namespace.set(namespace);
         let _ = self.role.set(role_name);
@@ -127,8 +128,7 @@ impl AtspiNode {
     fn resolve_state(&self) -> Option<StateSet> {
         self.state
             .get_or_init(|| {
-                self.accessible()
-                    .and_then(|proxy| block_on_timeout(proxy.get_state()).and_then(|r| r.ok()))
+                self.accessible().and_then(|proxy| block_on_timeout(proxy.get_state()).and_then(|r| r.ok()))
             })
             .as_ref()
             .copied()
@@ -137,29 +137,22 @@ impl AtspiNode {
     fn resolve_interfaces(&self) -> Option<InterfaceSet> {
         self.interfaces
             .get_or_init(|| {
-                self.accessible()
-                    .and_then(|proxy| block_on_timeout(proxy.get_interfaces()).and_then(|r| r.ok()))
+                self.accessible().and_then(|proxy| block_on_timeout(proxy.get_interfaces()).and_then(|r| r.ok()))
             })
             .as_ref()
             .copied()
     }
 
     fn resolve_name(&self) -> Option<String> {
-        self.cached_name
-            .get_or_init(|| resolve_name(self.conn.as_ref(), &self.obj))
-            .clone()
+        self.cached_name.get_or_init(|| resolve_name(self.conn.as_ref(), &self.obj)).clone()
     }
 
     fn supports_component(&self) -> bool {
-        self.resolve_interfaces()
-            .map(|ifaces| ifaces.contains(Interface::Component))
-            .unwrap_or(false)
+        self.resolve_interfaces().map(|ifaces| ifaces.contains(Interface::Component)).unwrap_or(false)
     }
 
     fn is_application(&self) -> bool {
-        self.resolve_interfaces()
-            .map(|ifaces| ifaces.contains(Interface::Application))
-            .unwrap_or(false)
+        self.resolve_interfaces().map(|ifaces| ifaces.contains(Interface::Application)).unwrap_or(false)
     }
 
     /// Returns `true` if this node represents a top-level window surface
@@ -177,11 +170,7 @@ impl AtspiNode {
             let conn = self.conn.connection();
             block_on_timeout(async {
                 let dbus = zbus::fdo::DBusProxy::new(conn).await.ok()?;
-                dbus.get_connection_unix_process_id(
-                    zbus::names::BusName::try_from(bus_name).ok()?,
-                )
-                .await
-                .ok()
+                dbus.get_connection_unix_process_id(zbus::names::BusName::try_from(bus_name).ok()?).await.ok()
             })
             .flatten()
         })
@@ -225,18 +214,14 @@ impl AtspiNode {
         }
         if self.role.get().is_none() {
             let interfaces = self.interfaces.get().copied().flatten();
-            let role = block_on_timeout(proxy.get_role())
-                .and_then(|r| r.ok())
-                .unwrap_or(Role::Invalid);
+            let role = block_on_timeout(proxy.get_role()).and_then(|r| r.ok()).unwrap_or(Role::Invalid);
             let (namespace, role_name) = map_role_with_interfaces(role, interfaces);
             let _ = self.namespace.set(namespace);
             let _ = self.role.set(role_name);
         }
         // name
         if self.cached_name.get().is_none() {
-            let name = block_on_timeout(proxy.name())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value);
+            let name = block_on_timeout(proxy.name()).and_then(|r| r.ok()).and_then(normalize_value);
             let _ = self.cached_name.set(name);
         }
 
@@ -296,8 +281,7 @@ impl UiNode for AtspiNode {
 
     fn has_children(&self) -> bool {
         let count = self.cached_child_count.get_or_init(|| {
-            self.accessible()
-                .and_then(|proxy| block_on_timeout(proxy.child_count()).and_then(|r| r.ok()))
+            self.accessible().and_then(|proxy| block_on_timeout(proxy.child_count()).and_then(|r| r.ok()))
         });
         count.map(|c| c > 0).unwrap_or(false)
     }
@@ -307,9 +291,8 @@ impl UiNode for AtspiNode {
         let parent_bus = self.obj.name_as_str().unwrap_or("<unknown>").to_string();
         let children_start = std::time::Instant::now();
 
-        let Some(children) = self
-            .accessible()
-            .and_then(|proxy| block_on_timeout(proxy.get_children()).and_then(|r| r.ok()))
+        let Some(children) =
+            self.accessible().and_then(|proxy| block_on_timeout(proxy.get_children()).and_then(|r| r.ok()))
         else {
             warn!(bus = %parent_bus, path = %parent_path, "children: get_children failed or timed out");
             return Box::new(std::iter::empty());
@@ -389,16 +372,12 @@ impl UiNode for AtspiNode {
                 let obj3 = self.obj.clone();
                 let pattern = WindowSurfaceActions::new()
                     .with_activate(move || {
-                        activate_window(conn.as_ref(), &obj)
-                            .map_err(platynui_core::ui::PatternError::new)
+                        activate_window(conn.as_ref(), &obj).map_err(platynui_core::ui::PatternError::new)
                     })
                     .with_close(move || {
-                        close_window(conn2.as_ref(), &obj2)
-                            .map_err(platynui_core::ui::PatternError::new)
+                        close_window(conn2.as_ref(), &obj2).map_err(platynui_core::ui::PatternError::new)
                     })
-                    .with_accepts_user_input(move || {
-                        Ok(is_active_window(conn3.as_ref(), &obj3))
-                    });
+                    .with_accepts_user_input(move || Ok(is_active_window(conn3.as_ref(), &obj3)));
                 Some(Arc::new(pattern) as Arc<dyn UiPattern>)
             }
             _ => None,
@@ -437,10 +416,7 @@ fn component_proxy<'a>(conn: &'a AccessibilityConnection, obj: &'a ObjectRefOwne
 
 macro_rules! make_proxy {
     ($fn_name:ident, $proxy:ident) => {
-        fn $fn_name<'a>(
-            conn: &'a AccessibilityConnection,
-            obj: &'a ObjectRefOwned,
-        ) -> Option<$proxy<'a>> {
+        fn $fn_name<'a>(conn: &'a AccessibilityConnection, obj: &'a ObjectRefOwned) -> Option<$proxy<'a>> {
             let name = obj.name_as_str()?;
             let builder = $proxy::builder(conn.connection())
                 .cache_properties(CacheProperties::No)
@@ -484,20 +460,14 @@ fn resolve_xid(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<u
     let bus_name = obj.name_as_str().ok_or("missing bus name")?;
     let pid: u32 = block_on_timeout(async {
         let dbus = zbus::fdo::DBusProxy::new(conn.connection()).await.ok()?;
-        dbus.get_connection_unix_process_id(
-            zbus::names::BusName::try_from(bus_name).ok()?,
-        )
-        .await
-        .ok()
+        dbus.get_connection_unix_process_id(zbus::names::BusName::try_from(bus_name).ok()?).await.ok()
     })
     .flatten()
     .ok_or("could not resolve PID from D-Bus")?;
 
     // Try to get screen extents for precise matching.
-    let extents = component_proxy(conn, obj).and_then(|proxy| {
-        block_on_timeout(proxy.get_extents(CoordType::Screen))
-            .and_then(|r| r.ok())
-    });
+    let extents = component_proxy(conn, obj)
+        .and_then(|proxy| block_on_timeout(proxy.get_extents(CoordType::Screen)).and_then(|r| r.ok()));
 
     match extents {
         Some((x, y, w, h)) => crate::ewmh::find_xid_for_pid(pid, x, y, w, h),
@@ -927,11 +897,7 @@ impl AttrsIter {
             }
         }
 
-        let process_id = if node.is_application() {
-            node.resolve_process_id()
-        } else {
-            None
-        };
+        let process_id = if node.is_application() { node.resolve_process_id() } else { None };
 
         let is_window_surface = node.is_window_surface();
 
@@ -1046,14 +1012,9 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                12 => {
-                    self.process_id.map(|pid| {
-                        Arc::new(ProcessIdAttr {
-                            namespace: self.namespace,
-                            pid,
-                        }) as Arc<dyn UiAttribute>
-                    })
-                }
+                12 => self
+                    .process_id
+                    .map(|pid| Arc::new(ProcessIdAttr { namespace: self.namespace, pid }) as Arc<dyn UiAttribute>),
                 13 => {
                     if self.is_window_surface {
                         Some(Arc::new(LazyStdAttr {
@@ -1152,14 +1113,11 @@ impl LazyNodeData {
     }
 
     fn resolve_name(&self) -> &str {
-        self.name
-            .get_or_init(|| resolve_name(&self.conn, &self.obj).unwrap_or_default())
+        self.name.get_or_init(|| resolve_name(&self.conn, &self.obj).unwrap_or_default())
     }
 
     fn resolve_id(&self) -> Option<&str> {
-        self.id
-            .get_or_init(|| resolve_id(&self.conn, &self.obj))
-            .as_deref()
+        self.id.get_or_init(|| resolve_id(&self.conn, &self.obj)).as_deref()
     }
 
     /// Check if this window is the currently active (foreground) window via
@@ -1223,17 +1181,13 @@ impl UiAttribute for LazyStdAttr {
     fn value(&self) -> UiValue {
         match self.kind {
             StdAttrKind::Name => UiValue::from(self.ctx.resolve_name().to_string()),
-            StdAttrKind::Id => {
-                UiValue::from(self.ctx.resolve_id().unwrap_or_default().to_string())
-            }
+            StdAttrKind::Id => UiValue::from(self.ctx.resolve_id().unwrap_or_default().to_string()),
             StdAttrKind::Bounds => {
-                let rect =
-                    self.ctx.resolve_extents().unwrap_or_else(|| Rect::new(0.0, 0.0, 0.0, 0.0));
+                let rect = self.ctx.resolve_extents().unwrap_or_else(|| Rect::new(0.0, 0.0, 0.0, 0.0));
                 UiValue::from(rect)
             }
             StdAttrKind::ActivationPoint => {
-                let rect =
-                    self.ctx.resolve_extents().unwrap_or_else(|| Rect::new(0.0, 0.0, 0.0, 0.0));
+                let rect = self.ctx.resolve_extents().unwrap_or_else(|| Rect::new(0.0, 0.0, 0.0, 0.0));
                 UiValue::from(rect.center())
             }
             StdAttrKind::IsEnabled => {
@@ -1261,11 +1215,7 @@ impl UiAttribute for LazyStdAttr {
                 UiValue::from(!visible)
             }
             StdAttrKind::IsFocused => {
-                let focused = self
-                    .ctx
-                    .resolve_state()
-                    .map(|s| s.contains(State::Focused))
-                    .unwrap_or(false);
+                let focused = self.ctx.resolve_state().map(|s| s.contains(State::Focused)).unwrap_or(false);
                 UiValue::from(focused)
             }
             StdAttrKind::SupportedPatterns => {
@@ -1274,10 +1224,7 @@ impl UiAttribute for LazyStdAttr {
                     .resolve_state()
                     .map(|s| s.contains(State::Focusable) || s.contains(State::Focused))
                     .unwrap_or(false);
-                let window_surface = matches!(
-                    self.ctx.role.as_str(),
-                    "Frame" | "Window" | "Dialog"
-                );
+                let window_surface = matches!(self.ctx.role.as_str(), "Frame" | "Window" | "Dialog");
                 let mut patterns = Vec::new();
                 if focusable {
                     patterns.push(PatternId::from("Focusable"));
@@ -1288,10 +1235,7 @@ impl UiAttribute for LazyStdAttr {
                 supported_patterns_value(&patterns)
             }
             StdAttrKind::IsTopmost => {
-                let active = self
-                    .ctx
-                    .resolve_is_active_window()
-                    .unwrap_or(false);
+                let active = self.ctx.resolve_is_active_window().unwrap_or(false);
                 UiValue::from(active)
             }
             StdAttrKind::AcceptsUserInput => {
@@ -1484,10 +1428,9 @@ impl LazyNativeAttr {
                 .and_then(|r| r.ok())
                 .map(interface_set_value)
                 .unwrap_or(UiValue::Null),
-            "State" => block_on_timeout(proxy.get_state())
-                .and_then(|r| r.ok())
-                .map(state_set_value)
-                .unwrap_or(UiValue::Null),
+            "State" => {
+                block_on_timeout(proxy.get_state()).and_then(|r| r.ok()).map(state_set_value).unwrap_or(UiValue::Null)
+            }
             "RelationSet" => block_on_timeout(proxy.get_relation_set())
                 .and_then(|r| r.ok())
                 .map(relation_set_value)
@@ -1516,10 +1459,9 @@ impl LazyNativeAttr {
                 .and_then(|r| r.ok())
                 .map(|c| UiValue::from(c as i64))
                 .unwrap_or(UiValue::Null),
-            "Actions" => block_on_timeout(proxy.get_actions())
-                .and_then(|r| r.ok())
-                .map(actions_value)
-                .unwrap_or(UiValue::Null),
+            "Actions" => {
+                block_on_timeout(proxy.get_actions()).and_then(|r| r.ok()).map(actions_value).unwrap_or(UiValue::Null)
+            }
             _ => UiValue::Null,
         }
     }
@@ -1575,15 +1517,12 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "Alpha" => block_on_timeout(proxy.get_alpha())
-                .and_then(|r| r.ok())
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
+            "Alpha" => {
+                block_on_timeout(proxy.get_alpha()).and_then(|r| r.ok()).map(UiValue::from).unwrap_or(UiValue::Null)
+            }
             "Extents" => block_on_timeout(proxy.get_extents(CoordType::Screen))
                 .and_then(|r| r.ok())
-                .map(|(x, y, w, h)| {
-                    UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64))
-                })
+                .map(|(x, y, w, h)| UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)))
                 .unwrap_or(UiValue::Null),
             "Position" => block_on_timeout(proxy.get_position(CoordType::Screen))
                 .and_then(|r| r.ok())
@@ -1637,10 +1576,9 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "IsValid" => block_on_timeout(proxy.is_valid())
-                .and_then(|r| r.ok())
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
+            "IsValid" => {
+                block_on_timeout(proxy.is_valid()).and_then(|r| r.ok()).map(UiValue::from).unwrap_or(UiValue::Null)
+            }
             "EndIndex" => block_on_timeout(proxy.end_index())
                 .and_then(|r| r.ok())
                 .map(|i| UiValue::from(i as i64))
@@ -1687,9 +1625,7 @@ impl LazyNativeAttr {
                 .unwrap_or(UiValue::Null),
             "Extents" => block_on_timeout(proxy.get_image_extents(CoordType::Screen))
                 .and_then(|r| r.ok())
-                .map(|(x, y, w, h)| {
-                    UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64))
-                })
+                .map(|(x, y, w, h)| UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)))
                 .unwrap_or(UiValue::Null),
             "Position" => block_on_timeout(proxy.get_image_position(CoordType::Screen))
                 .and_then(|r| r.ok())
@@ -1747,15 +1683,11 @@ impl LazyNativeAttr {
                 .unwrap_or(UiValue::Null),
             "SelectedRows" => block_on_timeout(proxy.get_selected_rows())
                 .and_then(|r| r.ok())
-                .map(|rows| {
-                    UiValue::from(rows.into_iter().map(|v| v as i64).collect::<Vec<_>>())
-                })
+                .map(|rows| UiValue::from(rows.into_iter().map(|v| v as i64).collect::<Vec<_>>()))
                 .unwrap_or(UiValue::Null),
             "SelectedColumns" => block_on_timeout(proxy.get_selected_columns())
                 .and_then(|r| r.ok())
-                .map(|cols| {
-                    UiValue::from(cols.into_iter().map(|v| v as i64).collect::<Vec<_>>())
-                })
+                .map(|cols| UiValue::from(cols.into_iter().map(|v| v as i64).collect::<Vec<_>>()))
                 .unwrap_or(UiValue::Null),
             _ => UiValue::Null,
         }
@@ -1822,18 +1754,15 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "CurrentValue" => block_on_timeout(proxy.current_value())
-                .and_then(|r| r.ok())
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "MaximumValue" => block_on_timeout(proxy.maximum_value())
-                .and_then(|r| r.ok())
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "MinimumValue" => block_on_timeout(proxy.minimum_value())
-                .and_then(|r| r.ok())
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
+            "CurrentValue" => {
+                block_on_timeout(proxy.current_value()).and_then(|r| r.ok()).map(UiValue::from).unwrap_or(UiValue::Null)
+            }
+            "MaximumValue" => {
+                block_on_timeout(proxy.maximum_value()).and_then(|r| r.ok()).map(UiValue::from).unwrap_or(UiValue::Null)
+            }
+            "MinimumValue" => {
+                block_on_timeout(proxy.minimum_value()).and_then(|r| r.ok()).map(UiValue::from).unwrap_or(UiValue::Null)
+            }
             "MinimumIncrement" => block_on_timeout(proxy.minimum_increment())
                 .and_then(|r| r.ok())
                 .map(UiValue::from)
