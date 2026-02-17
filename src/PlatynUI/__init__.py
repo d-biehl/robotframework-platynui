@@ -12,7 +12,8 @@ from ._our_libcore import OurDynamicCore, keyword
     converters={},
 )
 class PlatynUI(OurDynamicCore):
-    """PlatynUI is a library for Robot Framework to automate and test graphical user interfaces (GUIs) using the PlatynUI native backend.
+    """PlatynUI is a library for Robot Framework to automate and test graphical
+    user interfaces (GUIs) using the PlatynUI native backend.
 
     It provides keywords to interact with UI elements, perform actions,
     and verify the state of the application under test.
@@ -34,4 +35,3 @@ class PlatynUI(OurDynamicCore):
 
         Tags: example, internal
         """
-        pass

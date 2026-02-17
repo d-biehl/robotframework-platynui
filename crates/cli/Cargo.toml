@@ -53,7 +53,7 @@ platynui-provider-macos-ax = { path = "../provider-macos-ax" }
 
 [dev-dependencies]
 rstest = "0.26"
-tempfile = "3.24"
+tempfile = "3.25"
 serial_test = "3.3"
 platynui-provider-mock = { path = "../provider-mock" }
 platynui-platform-mock = { path = "../platform-mock" }

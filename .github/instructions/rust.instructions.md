@@ -133,4 +133,4 @@ Before publishing or reviewing Rust code, ensure:
 - [ ] **Performance**: Efficient use of iterators, minimal allocations
 - [ ] **API Design**: Functions are predictable, flexible, and type-safe
 - [ ] **Future Proofing**: Private fields in structs, sealed traits where appropriate
-- [ ] **Tooling**: Code passes `cargo fmt`, `cargo clippy`, and `cargo test`
+- [ ] **Tooling**: Code passes `cargo fmt`, `cargo clippy`, and `cargo nextest run`

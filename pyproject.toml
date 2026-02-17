@@ -109,6 +109,7 @@ pre_bump_hooks = [
 line-length = 120
 target-version = "py310"
 include = [
+    "src/**/*.py",
     "packages/**/*.py",
     "examples/**/*.py",
     "tests/**/*.py",
