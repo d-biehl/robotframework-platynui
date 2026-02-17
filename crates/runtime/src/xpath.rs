@@ -291,15 +291,15 @@ where
     >,
 {
     use platynui_xpath::xdm::XdmItem;
-    iter.into_iter().filter_map(|res| match res {
-        Err(e) => Some(Err(EvaluateError::XPath(e))),
+    iter.into_iter().map(|res| match res {
+        Err(e) => Err(EvaluateError::XPath(e)),
         Ok(item) => match item {
             XdmItem::Node(node) => match node {
-                RuntimeXdmNode::Document(doc) => Some(Ok(EvaluationItem::Node(doc.root.clone()))),
-                RuntimeXdmNode::Element(elem) => Some(Ok(EvaluationItem::Node(elem.node.clone()))),
-                RuntimeXdmNode::Attribute(attr) => Some(Ok(EvaluationItem::Attribute(attr.to_evaluated()))),
+                RuntimeXdmNode::Document(doc) => Ok(EvaluationItem::Node(doc.root.clone())),
+                RuntimeXdmNode::Element(elem) => Ok(EvaluationItem::Node(elem.node.clone())),
+                RuntimeXdmNode::Attribute(attr) => Ok(EvaluationItem::Attribute(attr.to_evaluated())),
             },
-            XdmItem::Atomic(atom) => Some(Ok(EvaluationItem::Value(atomic_to_ui_value(&atom)))),
+            XdmItem::Atomic(atom) => Ok(EvaluationItem::Value(atomic_to_ui_value(&atom))),
         },
     })
 }
