@@ -19,15 +19,12 @@ from platynui_native import (
 )
 from robot.api import logger
 from robot.api.deco import library
-from robot.api.interfaces import ListenerV3
 from robot.libraries.BuiltIn import BuiltIn
 from robot.running.context import EXECUTION_CONTEXTS
 
 from ..__version__ import __version__
 from .._assertable import assertable
 from .._our_libcore import OurDynamicCore, keyword
-
-NO_ROOT_NODE = object()  # Sentinel value to distinguish "no root specified" from "explicitly set root to None"
 
 
 class BareMetalError(Exception):
@@ -129,7 +126,7 @@ class QuerySettings:
     converters={UiNodeDescriptor: UiNodeDescriptor.convert},
     doc_format='ROBOT',
 )
-class BareMetal(OurDynamicCore, ListenerV3):
+class BareMetal(OurDynamicCore):
     """Robot Framework library for PlatynUI's native backend.
 
     This library exposes low-level, platform-aware UI automation keywords backed by the
@@ -168,8 +165,8 @@ class BareMetal(OurDynamicCore, ListenerV3):
         This is the default context for queries when no root is specified.
         """
         return (
-            EXECUTION_CONTEXTS.current.variables[f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}'](True)
-            if PLATYNUI_ROOT_DESCRIPTOR in EXECUTION_CONTEXTS.current.variables
+            EXECUTION_CONTEXTS.current.variables[f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}'](True)  # pyright: ignore[reportOptionalMemberAccess]
+            if PLATYNUI_ROOT_DESCRIPTOR in EXECUTION_CONTEXTS.current.variables  # pyright: ignore[reportOptionalMemberAccess]
             else None
         )
 
@@ -186,12 +183,12 @@ class BareMetal(OurDynamicCore, ListenerV3):
 
         """
         old_root = (
-            EXECUTION_CONTEXTS.current.variables[f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}']
-            if PLATYNUI_ROOT_DESCRIPTOR in EXECUTION_CONTEXTS.current.variables
+            EXECUTION_CONTEXTS.current.variables[f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}']  # pyright: ignore[reportOptionalMemberAccess]
+            if PLATYNUI_ROOT_DESCRIPTOR in EXECUTION_CONTEXTS.current.variables  # pyright: ignore[reportOptionalMemberAccess]
             else None
         )
 
-        EXECUTION_CONTEXTS.current.variables[f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}'] = descriptor
+        EXECUTION_CONTEXTS.current.variables[f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}'] = descriptor  # pyright: ignore[reportOptionalMemberAccess]
 
         return old_root
 
@@ -226,9 +223,8 @@ class BareMetal(OurDynamicCore, ListenerV3):
             - Namespaces follow PlatynUI defaults (e.g., control); qualify names when needed.
             - Read-only: This keyword does not modify UI state.
         """
-        if root is NO_ROOT_NODE:
-            root = None
-        elif root is None:
+
+        if root is None:
             root = self.root
 
         self.runtime.clear_cache()
@@ -810,8 +806,14 @@ class BareMetal(OurDynamicCore, ListenerV3):
         rects: list[Rect] = []
         if descriptor_list:
             for d in descriptor_list:
-                r = cast(Rect, d().attribute('Bounds'))
-                rects.append(r)
+                try:
+                    r = cast(Rect, d().attribute('Bounds'))
+                    rects.append(r)
+                except Exception:
+                    logger.trace(
+                        f'Could not retrieve bounds for descriptor {d.node!r}, skipping highlight for this node'
+                    )
+                    continue
 
             self.runtime.highlight(rects, duration * 1000)
             return
