@@ -1,0 +1,12 @@
+{
+    "recommendations": [
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb",
+        "slint.slint",
+        "pest.pest-ide-tools",
+        "d-biehl.robotcode",
+        "charliermarsh.ruff",
+        "ms-python.mypy-type-checker",
+        "ms-python.python"
+    ]
+}

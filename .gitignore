@@ -10,7 +10,8 @@ wheels/
 .venv
 
 # VSCode
-.vscode/
+.vscode/**
+!.vscode/extensions.json
 
 # macOS
 .DS_Store
