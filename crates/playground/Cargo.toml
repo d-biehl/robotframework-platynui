@@ -30,11 +30,6 @@ platynui-provider-windows-uia = { path = "../provider-windows-uia" }
 [target.'cfg(target_os = "linux")'.dependencies]
 platynui-platform-linux-x11 = { path = "../platform-linux-x11" }
 platynui-provider-atspi = { path = "../provider-atspi" }
-# Wayland
-wayland-client = "0.31"
-wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
-wayland-protocols-misc = { version = "0.3", features = ["client"] }
-wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 platynui-platform-macos = { path = "../platform-macos" }
