@@ -23,4 +23,3 @@ zbus = "5"
 futures-lite = "2"
 async-io = "2"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
-x11rb = { version = "0.13", features = [] }

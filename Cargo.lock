@@ -3971,7 +3971,6 @@ dependencies = [
  "once_cell",
  "platynui-core",
  "tracing",
- "x11rb",
  "zbus",
 ]
 

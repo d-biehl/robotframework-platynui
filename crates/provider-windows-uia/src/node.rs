@@ -871,7 +871,7 @@ struct AppProcessIdAttr {
 }
 impl UiAttribute for AppProcessIdAttr {
     fn namespace(&self) -> Namespace {
-        Namespace::App
+        Namespace::Control
     }
     fn name(&self) -> &str {
         platynui_core::ui::attribute_names::application::PROCESS_ID

@@ -239,7 +239,7 @@ EN: This section documents the host‑side NodeResolver and the owned evaluation
 - UI-Bäume dürfen keine Fenster oder Overlays des eigenen Prozesses enthalten. Highlight-Overlays oder andere Hilfsfenster werden ausschließlich von der Plattformebene verwaltet und niemals als reguläre `UiNode`-Elemente exponiert.
 
 ## 6. Geräte- und Interaktionsdienste
-- `DeviceProvider`-Trait + Capability-Typen leben in `crates/core` (Pointer, Keyboard, DesktopInfoProvider, ScreenshotProvider, HighlightProvider); Touch-Unterstützung wird später ergänzt.
+- `DeviceProvider`-Trait + Capability-Typen leben in `crates/core` (Pointer, Keyboard, DesktopInfoProvider, ScreenshotProvider, HighlightProvider, WindowManager); Touch-Unterstützung wird später ergänzt.
   - `HighlightProvider` zeichnet Hervorhebungen über `highlight(&HighlightRequest)` und entfernt sie via `clear()`.
     * `HighlightRequest` enthält eine oder mehrere Desktop-Bounding-Boxen (`Vec<Rect>`) und optional eine gewünschte Sichtbarkeitsdauer (`Duration`). Eine Anfrage umfasst stets genau eine gemeinsame Dauer für alle Rechtecke.
     * Der Highlight-Effekt wird nach der angeforderten Dauer automatisch vom Provider entfernt (Timer im Provider/Overlay). Es existiert kein API‑Konzept „mehrerer Requests mit unterschiedlichen Dauern“ mehr.
@@ -324,7 +324,56 @@ Hinweise & offene Punkte
 ## 7. Hinweise zur WindowSurface-Umsetzung
 - Ziel des Runtime-Patterns `WindowSurface` ist es, Fensteraktionen (Aktivieren, Minimieren, Maximieren, Wiederherstellen, Verschieben/Größenänderung) und den Eingabestatus (`accepts_user_input()`) konsistent bereitzustellen. Provider entscheiden je Technologie, welche Informationen direkt aus dem UiTree stammen und wo ergänzende Betriebssystem-APIs nötig sind.
 - **Direkte Technologie-Nutzung:** Einige APIs liefern bereits Fenster-Metadaten und Aktionen über eigene Patterns (z. B. UIA `IUIAutomationWindowPattern`, AT-SPI2 `org.a11y.atspi.Window`). Wo diese Schnittstellen stabil funktionieren, dürfen Provider sie eins-zu-eins einbinden und nur fehlende Felder ergänzen.
-- **Zusätzliche OS-Hilfen:** Reicht die Accessibility-API nicht aus (z. B. fehlende `WaitForInputIdle`-Information oder eingeschränkte Move/Resize-Unterstützung), greifen Provider auf die jeweiligen Windowing-APIs zurück: Windows (Win32 `HWND`, `SetForegroundWindow`, `ShowWindow`, `MoveWindow`), X11 (EWMH/NetWM über Xlib/x11rb, ggf. XWayland-Erkennung), macOS (AppKit/CoreGraphics `NSWindow`/`AXUIElement`). Die Provider-Schicht bleibt dabei zuständig; die Runtime stellt keine zusätzliche abstrakte „Window-Manager“-Ebene mehr bereit.
+- **WindowManager – plattformnative Fenstersteuerung:** Nicht jedes Accessibility-Framework deckt alle Fensteroperationen vollständig und zuverlässig ab. Zum Beispiel implementiert unter Windows nicht jedes UIA-Element mit `ControlType.Window` das `WindowPattern` oder `TransformPattern` — das native HWND ist aber immer vorhanden und erlaubt über Win32 (`SetForegroundWindow`, `MoveWindow`, `ShowWindow`, `GetWindowRect`) volle Kontrolle. Unter X11 liefert AT-SPI2 keine Fenstersteuerung; GTK4 gibt über `Component.GetExtents(Screen)` zudem ungültige Koordinaten zurück — EWMH über das native XID ist der einzige zuverlässige Weg. Unter Wayland gibt es kein globales Koordinatensystem; Fenstermanagement läuft über Compositor-Protokolle.
+
+  Um diese Plattform-Abhängigkeiten sauber zu kapseln, stellt `platynui-core` den Trait **`WindowManager`** bereit. Er abstrahiert den Zugriff auf native Fenster-Handles und -Operationen und wird über das Inventory-System registriert (analog zu `PointerDevice`, `KeyboardDevice` etc.):
+
+  ```rust
+  /// Opaque native window handle (HWND, XID, Wayland surface ID).
+  pub struct WindowId(u64);
+
+  pub trait WindowManager: Send + Sync {
+      fn name(&self) -> &'static str;
+
+      /// Resolve the native window handle from a UI node.
+      /// Each implementation inspects the node's native attributes as needed.
+      fn resolve_window(&self, node: &dyn UiNode) -> Result<WindowId, PlatformError>;
+
+      fn bounds(&self, id: WindowId) -> Result<Rect, PlatformError>;
+      fn is_active(&self, id: WindowId) -> Result<bool, PlatformError>;
+
+      fn activate(&self, id: WindowId) -> Result<(), PlatformError>;
+      fn close(&self, id: WindowId) -> Result<(), PlatformError>;
+      fn minimize(&self, id: WindowId) -> Result<(), PlatformError>;
+      fn maximize(&self, id: WindowId) -> Result<(), PlatformError>;
+      fn restore(&self, id: WindowId) -> Result<(), PlatformError>;
+      fn move_to(&self, id: WindowId, position: Point) -> Result<(), PlatformError>;
+      fn resize(&self, id: WindowId, size: Size) -> Result<(), PlatformError>;
+  }
+  ```
+
+  **Design-Entscheidung: `resolve_window` akzeptiert `&dyn UiNode`** statt z. B. PID + Koordinaten. Jede Plattform-Implementierung extrahiert selbst, was sie braucht:
+  - **Windows:** liest `native:NativeWindowHandle` → HWND.
+  - **X11 (EWMH):** ermittelt PID aus D-Bus-Credentials, nutzt `native:Component.Extents.Screen` als Geometry-Hint, matcht über `_NET_CLIENT_LIST` + `_NET_WM_PID`.
+  - **Wayland (zukünftig):** nutzt App-ID + PID und matcht über `wlr-foreign-toplevel-list` o. ä.
+
+  **Registrierung:** `register_window_manager!(&PROVIDER)` + Iterator `window_managers()`.
+
+  **Schichtenmodell:**
+  ```
+  provider-atspi / provider-windows-uia  ──uses──►  core::WindowManager (trait)
+                                                              ▲          ▲
+                                                              │          │
+                                            platform-linux-x11   platform-windows
+                                              (EWMH/NetWM)       (Win32 HWND)
+                                                              ▲
+                                                              │
+                                            platform-linux-wayland (zukünftig)
+  ```
+
+  Damit bleibt `provider-atspi` frei von `x11rb`-Abhängigkeiten und funktioniert identisch auf X11, Wayland und jeder zukünftigen Display-Server-Variante. Der Windows-UIA-Provider kann den `WindowManager` als zuverlässigen Fallback nutzen, wenn Elemente kein `WindowPattern`/`TransformPattern` implementieren.
+
+  **EWMH-Support-Prüfung:** Die X11-Implementierung prüft beim `PlatformModule::initialize()` zusätzlich, ob ein EWMH-kompatibler Fenstermanager läuft (`_NET_SUPPORTING_WM_CHECK`) und welche Atoms unterstützt werden (`_NET_SUPPORTED`). Fehlende EWMH-Unterstützung wird als `warn` geloggt (kein harter Fehler), da AT-SPI-Basisfunktionen auch ohne WM funktionieren. Der Name des WM wird aus `_NET_WM_NAME` gelesen und per `info!` protokolliert.
 - **Fokus-Kopplung:** `WindowSurface::activate()` bzw. `restore()` sollen den Fokus über das `Focusable`-Pattern setzen; `minimize()` und `close()` geben ihn frei. So bleibt das Verhalten deckungsgleich mit nativen Foreground-Wechseln (Alt+Tab, Klick) und das `IsFocused`-Attribut der Fenster bleibt konsistent.
 - **Zuordnung zum UiTree:** Jeder Fensterknoten, der `WindowSurface` meldet, muss sich eindeutig einem Applikations- oder Control-Knoten zuordnen lassen. Alias-Sichten (flach vs. gruppiert) verwenden dieselbe `RuntimeId`, ergänzen aber Ordnungsschlüssel, damit Dokumentsortierung und Aktionen reproduzierbar bleiben.
 - **Mock & Tests:** `platynui-platform-mock` und `platynui-provider-mock` liefern einfache Referenzimplementierungen für die Pattern-Aktionen. Sie dienen als Blaupause, bevor echte Plattformen angebunden werden, und stellen sicher, dass CLI-Befehle wie `window`, `pointer` und `keyboard` früh testbar bleiben. Der Provider hält dynamische Textpuffer (`append_text`, `replace_text`, `apply_keyboard_events`), so dass Tests Tastatureingaben inklusive Emojis oder IME-Strings simulieren und anschließend via XPath prüfen können.

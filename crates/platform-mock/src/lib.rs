@@ -8,6 +8,7 @@ mod highlight;
 mod keyboard;
 mod pointer;
 mod screenshot;
+mod window_manager;
 
 // Export mock components as public static references for direct use
 pub use desktop::MOCK_PLATFORM;
@@ -15,12 +16,14 @@ pub use highlight::MOCK_HIGHLIGHT;
 pub use keyboard::MOCK_KEYBOARD;
 pub use pointer::MOCK_POINTER;
 pub use screenshot::MOCK_SCREENSHOT;
+pub use window_manager::MOCK_WINDOW_MANAGER;
 
 // Export test helper functions
 pub use highlight::{highlight_clear_count, reset_highlight_state, take_highlight_log};
 pub use keyboard::{KeyboardLogEntry, reset_keyboard_state, take_keyboard_log};
 pub use pointer::{PointerLogEntry, reset_pointer_state, take_pointer_log};
 pub use screenshot::{reset_screenshot_state, take_screenshot_log};
+pub use window_manager::{WindowManagerLogEntry, reset_window_manager_state, take_window_manager_log};
 
 #[cfg(test)]
 mod tests {

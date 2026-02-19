@@ -60,6 +60,16 @@ mod init {
                 warn!("RANDR extension not available — monitor enumeration will fall back to root window geometry");
             }
 
+            // --- EWMH window manager (optional, graceful degradation) ---
+            // Drop the x11util guard before calling check_ewmh_wm_support so
+            // the shared connection is not double-locked.
+            drop(guard);
+            match crate::window_manager::check_ewmh_wm_support() {
+                Ok(true) => debug!("EWMH window manager support confirmed"),
+                Ok(false) => warn!("EWMH window manager not detected — window management operations may be limited"),
+                Err(e) => warn!("EWMH WM detection failed: {e}"),
+            }
+
             info!("Linux X11 platform initialized");
             Ok(())
         }
@@ -82,6 +92,8 @@ mod keyboard;
 mod pointer;
 #[cfg(target_os = "linux")]
 mod screenshot;
+#[cfg(target_os = "linux")]
+mod window_manager;
 #[cfg(target_os = "linux")]
 mod x11util;
 

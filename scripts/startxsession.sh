@@ -112,6 +112,6 @@ dbus-run-session -- bash -c '
 
   setxkbmap de -variant e2
 
-  exec openbox
+  exec openbox-session
   # exec startplasma-x11
 '

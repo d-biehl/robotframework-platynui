@@ -5,7 +5,6 @@
 //! follow in later phases.
 
 mod connection;
-mod ewmh;
 mod node;
 
 use crate::connection::connect_a11y_bus;

@@ -455,3 +455,60 @@ Kurzfassung (EN)
 ### 28. Robot BareMetal (interim)
 - Robot Framework‑Library `PlatynUI.BareMetal` mit Keywords für Query, Pointer, Keyboard, Window, Screenshot: `src/PlatynUI/BareMetal/__init__.py`.
 - Akzeptanztests starten unter `tests/BareMetal/`; weitere Suites folgen. Bis zur finalen Runner‑Integration bitte temporäre Schritte im PR vermerken.
+
+### 29. WindowManager – plattformnative Fenstersteuerung
+
+English summary: Extract window management into a cross-platform `WindowManager` trait in `platynui-core`, with implementations in `platform-linux-x11` (EWMH) and `platform-windows` (Win32 HWND). This removes the direct `x11rb` dependency from `provider-atspi` and enables future Wayland support without touching the provider layer.
+
+**Motivation:**
+- `provider-atspi` hat derzeit eine direkte `x11rb`-Abhängigkeit (`ewmh.rs`). AT-SPI ist Display-Server-agnostisch (D-Bus); die X11-Kopplung blockiert Wayland-Support.
+- Unter Windows implementieren nicht alle UIA-Elemente mit `ControlType.Window` das `WindowPattern`/`TransformPattern` — das HWND bietet einen zuverlässigeren Fallback über Win32-APIs.
+- Unter X11 liefern Toolkits wie GTK4 über AT-SPI ungültige Screen-Koordinaten; EWMH über das native XID liefert korrekte Werte.
+- In `PlatformModule::initialize()` für Linux/X11 fehlt eine Prüfung auf EWMH-kompatiblen Fenstermanager.
+
+**Phase 1 – Core-Trait + Inventory-Registrierung:**
+- [ ] `WindowManager`-Trait in `platynui-core::platform` definieren:
+  - `name() -> &'static str`
+  - `resolve_window(&dyn UiNode) -> Result<WindowId, PlatformError>` – inspiziert native Attribute der UiNode
+  - `bounds(WindowId) -> Result<Rect, PlatformError>` – echte Screen-Bounds vom WM
+  - `is_active(WindowId) -> Result<bool, PlatformError>`
+  - `activate(WindowId)`, `close(WindowId)`, `minimize(WindowId)`, `maximize(WindowId)`, `restore(WindowId)`, `move_to(WindowId, Point)`, `resize(WindowId, Size)`
+- [ ] `WindowId` als opaker Typ (`u64` intern, reicht für HWND, XID, Wayland surface IDs).
+- [ ] Registrierungsmakro `register_window_manager!` + Iterator `window_managers()`.
+- [ ] Mock-Implementierung in `platynui-platform-mock` für deterministische Tests.
+
+**Phase 2 – X11/EWMH-Implementierung (platform-linux-x11):**
+- [ ] `ewmh.rs` aus `provider-atspi` nach `platform-linux-x11` migrieren und als `WindowManager` registrieren.
+- [ ] `resolve_window()`: PID aus UiNode-Attributen (D-Bus Name → `native:Accessible.Application`), Geometry-Hint aus `native:Component.Extents.Screen`, dann `_NET_CLIENT_LIST` + `_NET_WM_PID`-Matching.
+- [ ] EWMH-Support-Check in `PlatformModule::initialize()` ergänzen:
+  - `_NET_SUPPORTING_WM_CHECK` auf Root-Window → WM-Child-Window → Konsistenzprüfung
+  - `_NET_WM_NAME` auf WM-Child → WM-Name loggen (`info!`)
+  - `_NET_SUPPORTED` auf Root → prüfen ob benötigte Atoms vorhanden (`_NET_CLIENT_LIST`, `_NET_ACTIVE_WINDOW`, `_NET_CLOSE_WINDOW`, `_NET_WM_PID`)
+  - Fehlender WM oder fehlende Atoms → `warn!` (kein harter Fehler)
+- [ ] Tests: EWMH-Funktionalität über Mock oder Integration.
+
+**Phase 3 – Windows/Win32-Implementierung (platform-windows):**
+- [ ] `WindowManager` in `platform-windows` implementieren.
+- [ ] `resolve_window()`: liest `native:NativeWindowHandle` → HWND.
+- [ ] `bounds()`: `GetWindowRect(hwnd)` → Desktop-Koordinaten.
+- [ ] `is_active()`: `GetForegroundWindow() == hwnd`.
+- [ ] `activate()`: `SetForegroundWindow(hwnd)` + `ShowWindow(SW_RESTORE)` falls minimiert.
+- [ ] `close()`: `PostMessage(WM_CLOSE)`.
+- [ ] `minimize/maximize/restore()`: `ShowWindow(SW_MINIMIZE/SW_MAXIMIZE/SW_RESTORE)`.
+- [ ] `move_to/resize()`: `MoveWindow(hwnd, …)` oder `SetWindowPos(hwnd, …)`.
+- [ ] Tests: Smoke-Tests gegen Mock + optionale E2E auf echtem Windows.
+
+**Phase 4 – Provider-Migration:**
+- [ ] `provider-atspi`: `ewmh.rs` entfernen, `x11rb`-Dependency aus `Cargo.toml` entfernen.
+- [ ] `provider-atspi/node.rs`: `resolve_xid()`, `activate_window()`, `close_window()`, `is_active_window()` durch Aufrufe an `window_managers()` ersetzen.
+- [ ] `provider-windows-uia`: Optional `WindowManager` als Fallback nutzen, wenn `WindowPattern`/`TransformPattern` nicht verfügbar sind.
+- [ ] Bestehende Tests anpassen und grün halten.
+
+**Phase 5 – Wayland (zukünftig/Backlog):**
+- [ ] `platform-linux-wayland`: `WindowManager` über `wlr-foreign-toplevel-management` / `ext-foreign-toplevel-list` implementieren.
+- [ ] `resolve_window()`: App-ID + PID aus UiNode, Matching über Compositor-Protokoll.
+- [ ] `provider-atspi` ändert sich nicht — nutzt automatisch den registrierten Provider.
+
+**Phase 6 – macOS (zukünftig/Backlog):**
+- [ ] `platform-macos`: `WindowManager` über AppKit/CoreGraphics implementieren (`AXUIElement`, `CGWindowListCopyWindowInfo`).
+- [ ] Details werden bei Bedarf konkretisiert.

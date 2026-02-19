@@ -18,6 +18,7 @@ use atspi_proxies::text::TextProxy;
 use atspi_proxies::value::ValueProxy;
 use futures_lite::future::block_on;
 use once_cell::sync::OnceCell;
+use platynui_core::platform::{WindowId, window_managers};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{activation_target, application, common, element, focusable, window_surface};
 use platynui_core::ui::{
@@ -276,7 +277,7 @@ impl UiNode for AtspiNode {
     }
 
     fn parent(&self) -> Option<Weak<dyn UiNode>> {
-        self.parent.lock().unwrap().clone()
+        self.parent.lock().ok()?.clone()
     }
 
     fn has_children(&self) -> bool {
@@ -364,20 +365,28 @@ impl UiNode for AtspiNode {
                 if !self.is_window_surface() {
                     return None;
                 }
-                let conn = self.conn.clone();
-                let obj = self.obj.clone();
-                let conn2 = self.conn.clone();
-                let obj2 = self.obj.clone();
-                let conn3 = self.conn.clone();
-                let obj3 = self.obj.clone();
+                let weak1 = self.self_weak.get().cloned();
+                let weak2 = weak1.clone();
+                let weak3 = weak1.clone();
                 let pattern = WindowSurfaceActions::new()
                     .with_activate(move || {
-                        activate_window(conn.as_ref(), &obj).map_err(platynui_core::ui::PatternError::new)
+                        let node = weak1
+                            .as_ref()
+                            .and_then(Weak::upgrade)
+                            .ok_or_else(|| platynui_core::ui::PatternError::new("node dropped"))?;
+                        activate_window(node.as_ref()).map_err(platynui_core::ui::PatternError::new)
                     })
                     .with_close(move || {
-                        close_window(conn2.as_ref(), &obj2).map_err(platynui_core::ui::PatternError::new)
+                        let node = weak2
+                            .as_ref()
+                            .and_then(Weak::upgrade)
+                            .ok_or_else(|| platynui_core::ui::PatternError::new("node dropped"))?;
+                        close_window(node.as_ref()).map_err(platynui_core::ui::PatternError::new)
                     })
-                    .with_accepts_user_input(move || Ok(is_active_window(conn3.as_ref(), &obj3)));
+                    .with_accepts_user_input(move || {
+                        let node = weak3.as_ref().and_then(Weak::upgrade);
+                        Ok(node.and_then(|n| is_active_window(n.as_ref())))
+                    });
                 Some(Arc::new(pattern) as Arc<dyn UiPattern>)
             }
             _ => None,
@@ -450,47 +459,36 @@ fn grab_focus(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<()
     if ok { Ok(()) } else { Err("grab_focus returned false".to_string()) }
 }
 
-/// Resolve the X11 window ID for this AT-SPI window node.
+/// Resolve the native window ID for this AT-SPI window node using the
+/// registered [`WindowManager`].
 ///
-/// Uses the process ID (from the D-Bus bus name) and the component's screen
-/// extents to find the matching top-level X11 window via `_NET_CLIENT_LIST`
-/// and `_NET_WM_PID`.
-fn resolve_xid(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<u32, String> {
-    // Resolve PID from D-Bus connection credentials.
-    let bus_name = obj.name_as_str().ok_or("missing bus name")?;
-    let pid: u32 = block_on_timeout(async {
-        let dbus = zbus::fdo::DBusProxy::new(conn.connection()).await.ok()?;
-        dbus.get_connection_unix_process_id(zbus::names::BusName::try_from(bus_name).ok()?).await.ok()
-    })
-    .flatten()
-    .ok_or("could not resolve PID from D-Bus")?;
-
-    // Try to get screen extents for precise matching.
-    let extents = component_proxy(conn, obj)
-        .and_then(|proxy| block_on_timeout(proxy.get_extents(CoordType::Screen)).and_then(|r| r.ok()));
-
-    match extents {
-        Some((x, y, w, h)) => crate::ewmh::find_xid_for_pid(pid, x, y, w, h),
-        None => crate::ewmh::find_xid_for_pid_simple(pid),
-    }
+/// The node itself carries PID (via `native:ProcessId`) and window name
+/// (via `UiNode::name()`) so the platform-specific window manager can
+/// match the correct top-level window.
+fn resolve_window_id(node: &dyn UiNode) -> Result<WindowId, String> {
+    let wm = window_managers().next().ok_or("no WindowManager registered")?;
+    wm.resolve_window(node).map_err(|e| e.to_string())
 }
 
-/// Bring a window to the foreground via EWMH `_NET_ACTIVE_WINDOW`.
-fn activate_window(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<(), String> {
-    let xid = resolve_xid(conn, obj)?;
-    crate::ewmh::activate_window(xid)
+/// Bring a window to the foreground via the registered [`WindowManager`].
+fn activate_window(node: &dyn UiNode) -> Result<(), String> {
+    let wid = resolve_window_id(node)?;
+    let wm = window_managers().next().ok_or("no WindowManager registered")?;
+    wm.activate(wid).map_err(|e| e.to_string())
 }
 
-/// Close a window via EWMH `_NET_CLOSE_WINDOW`.
-fn close_window(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<(), String> {
-    let xid = resolve_xid(conn, obj)?;
-    crate::ewmh::close_window(xid)
+/// Close a window via the registered [`WindowManager`].
+fn close_window(node: &dyn UiNode) -> Result<(), String> {
+    let wid = resolve_window_id(node)?;
+    let wm = window_managers().next().ok_or("no WindowManager registered")?;
+    wm.close(wid).map_err(|e| e.to_string())
 }
 
 /// Check whether a window is the currently active (foreground) window.
-fn is_active_window(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<bool> {
-    let xid = resolve_xid(conn, obj).ok()?;
-    crate::ewmh::is_active_window(xid).ok()
+fn is_active_window(node: &dyn UiNode) -> Option<bool> {
+    let wid = resolve_window_id(node).ok()?;
+    let wm = window_managers().next()?;
+    wm.is_active(wid).ok()
 }
 
 fn object_runtime_id(obj: &ObjectRefOwned) -> String {
@@ -772,7 +770,12 @@ impl AttrsIter {
     fn new(node: &AtspiNode, rid_str: String) -> Self {
         let supports_component = node.supports_component();
         let role = node.role().to_string();
-        let ctx = Arc::new(LazyNodeData::new(node.conn.clone(), node.obj.clone(), role.clone()));
+        let ctx = Arc::new(LazyNodeData::new(
+            node.conn.clone(),
+            node.obj.clone(),
+            role.clone(),
+            node.self_weak.get().cloned(),
+        ));
         // Standard attributes always live in the Control namespace,
         // regardless of the node's own namespace (e.g. App for
         // Application nodes).
@@ -1020,9 +1023,7 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                12 => self
-                    .process_id
-                    .map(|pid| Arc::new(ProcessIdAttr { namespace: self.namespace, pid }) as Arc<dyn UiAttribute>),
+                12 => self.process_id.map(|pid| Arc::new(ProcessIdAttr { pid }) as Arc<dyn UiAttribute>),
                 13 => {
                     if self.is_window_surface {
                         Some(Arc::new(LazyStdAttr {
@@ -1084,6 +1085,8 @@ struct LazyNodeData {
     conn: Arc<AccessibilityConnection>,
     obj: ObjectRefOwned,
     role: String,
+    /// Weak reference to the owning UiNode, used for window manager queries.
+    owner: Option<Weak<dyn UiNode>>,
     state: OnceCell<Option<StateSet>>,
     extents: OnceCell<Option<Rect>>,
     name: OnceCell<String>,
@@ -1091,11 +1094,17 @@ struct LazyNodeData {
 }
 
 impl LazyNodeData {
-    fn new(conn: Arc<AccessibilityConnection>, obj: ObjectRefOwned, role: String) -> Self {
+    fn new(
+        conn: Arc<AccessibilityConnection>,
+        obj: ObjectRefOwned,
+        role: String,
+        owner: Option<Weak<dyn UiNode>>,
+    ) -> Self {
         Self {
             conn,
             obj,
             role,
+            owner,
             state: OnceCell::new(),
             extents: OnceCell::new(),
             name: OnceCell::new(),
@@ -1129,10 +1138,12 @@ impl LazyNodeData {
     }
 
     /// Check if this window is the currently active (foreground) window via
-    /// EWMH `_NET_ACTIVE_WINDOW`.  Returns `None` when the XID cannot be
-    /// resolved (e.g. not a top-level window on X11).
+    /// the registered [`WindowManager`].  Returns `None` when the
+    /// window ID cannot be resolved (e.g. no provider registered, or the node
+    /// is not a top-level window).
     fn resolve_is_active_window(&self) -> Option<bool> {
-        is_active_window(&self.conn, &self.obj)
+        let node = self.owner.as_ref()?.upgrade()?;
+        is_active_window(node.as_ref())
     }
 }
 
@@ -1315,13 +1326,12 @@ impl UiAttribute for TechnologyAttr {
 }
 
 struct ProcessIdAttr {
-    namespace: Namespace,
     pid: u32,
 }
 
 impl UiAttribute for ProcessIdAttr {
     fn namespace(&self) -> Namespace {
-        self.namespace
+        Namespace::Control
     }
 
     fn name(&self) -> &str {

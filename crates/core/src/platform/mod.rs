@@ -6,6 +6,7 @@ mod module;
 mod pointer;
 mod registration;
 mod screenshot;
+mod window_manager;
 
 pub use desktop::{DesktopInfo, DesktopInfoProvider, DesktopInfoRegistration, MonitorInfo, desktop_info_providers};
 pub use error::{PlatformError, PlatformErrorKind};
@@ -23,6 +24,7 @@ pub use registration::{PlatformRegistration, platform_modules};
 pub use screenshot::{
     PixelFormat, Screenshot, ScreenshotProvider, ScreenshotRegistration, ScreenshotRequest, screenshot_providers,
 };
+pub use window_manager::{WindowId, WindowManager, WindowManagerRegistration, window_managers};
 
 #[macro_export]
 macro_rules! register_platform_module {
@@ -37,4 +39,5 @@ pub use crate::register_highlight_provider;
 pub use crate::register_keyboard_device;
 pub use crate::register_pointer_device;
 pub use crate::register_screenshot_provider;
+pub use crate::register_window_manager;
 pub use register_platform_module;
