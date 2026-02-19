@@ -819,8 +819,12 @@ impl AttrsIter {
             if ifaces.contains(Interface::Component) {
                 native_props.extend_from_slice(&[
                     "Component.Alpha",
-                    "Component.Extents",
-                    "Component.Position",
+                    "Component.Extents.Screen",
+                    "Component.Extents.Window",
+                    "Component.Extents.Parent",
+                    "Component.Position.Screen",
+                    "Component.Position.Window",
+                    "Component.Position.Parent",
                     "Component.Size",
                     "Component.Layer",
                     "Component.MDIZOrder",
@@ -849,8 +853,12 @@ impl AttrsIter {
                 native_props.extend_from_slice(&[
                     "Image.Description",
                     "Image.Locale",
-                    "Image.Extents",
-                    "Image.Position",
+                    "Image.Extents.Screen",
+                    "Image.Extents.Window",
+                    "Image.Extents.Parent",
+                    "Image.Position.Screen",
+                    "Image.Position.Window",
+                    "Image.Position.Parent",
                     "Image.Size",
                 ]);
             }
@@ -1520,11 +1528,27 @@ impl LazyNativeAttr {
             "Alpha" => {
                 block_on_timeout(proxy.get_alpha()).and_then(|r| r.ok()).map(UiValue::from).unwrap_or(UiValue::Null)
             }
-            "Extents" => block_on_timeout(proxy.get_extents(CoordType::Screen))
+            "Extents.Screen" => block_on_timeout(proxy.get_extents(CoordType::Screen))
                 .and_then(|r| r.ok())
                 .map(|(x, y, w, h)| UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)))
                 .unwrap_or(UiValue::Null),
-            "Position" => block_on_timeout(proxy.get_position(CoordType::Screen))
+            "Extents.Window" => block_on_timeout(proxy.get_extents(CoordType::Window))
+                .and_then(|r| r.ok())
+                .map(|(x, y, w, h)| UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)))
+                .unwrap_or(UiValue::Null),
+            "Extents.Parent" => block_on_timeout(proxy.get_extents(CoordType::Parent))
+                .and_then(|r| r.ok())
+                .map(|(x, y, w, h)| UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)))
+                .unwrap_or(UiValue::Null),
+            "Position.Screen" => block_on_timeout(proxy.get_position(CoordType::Screen))
+                .and_then(|r| r.ok())
+                .map(|(x, y)| UiValue::from(Point::new(x as f64, y as f64)))
+                .unwrap_or(UiValue::Null),
+            "Position.Window" => block_on_timeout(proxy.get_position(CoordType::Window))
+                .and_then(|r| r.ok())
+                .map(|(x, y)| UiValue::from(Point::new(x as f64, y as f64)))
+                .unwrap_or(UiValue::Null),
+            "Position.Parent" => block_on_timeout(proxy.get_position(CoordType::Parent))
                 .and_then(|r| r.ok())
                 .map(|(x, y)| UiValue::from(Point::new(x as f64, y as f64)))
                 .unwrap_or(UiValue::Null),
@@ -1623,11 +1647,27 @@ impl LazyNativeAttr {
                 .and_then(normalize_value)
                 .map(UiValue::from)
                 .unwrap_or(UiValue::Null),
-            "Extents" => block_on_timeout(proxy.get_image_extents(CoordType::Screen))
+            "Extents.Screen" => block_on_timeout(proxy.get_image_extents(CoordType::Screen))
                 .and_then(|r| r.ok())
                 .map(|(x, y, w, h)| UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)))
                 .unwrap_or(UiValue::Null),
-            "Position" => block_on_timeout(proxy.get_image_position(CoordType::Screen))
+            "Extents.Window" => block_on_timeout(proxy.get_image_extents(CoordType::Window))
+                .and_then(|r| r.ok())
+                .map(|(x, y, w, h)| UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)))
+                .unwrap_or(UiValue::Null),
+            "Extents.Parent" => block_on_timeout(proxy.get_image_extents(CoordType::Parent))
+                .and_then(|r| r.ok())
+                .map(|(x, y, w, h)| UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)))
+                .unwrap_or(UiValue::Null),
+            "Position.Screen" => block_on_timeout(proxy.get_image_position(CoordType::Screen))
+                .and_then(|r| r.ok())
+                .map(|(x, y)| UiValue::from(Point::new(x as f64, y as f64)))
+                .unwrap_or(UiValue::Null),
+            "Position.Window" => block_on_timeout(proxy.get_image_position(CoordType::Window))
+                .and_then(|r| r.ok())
+                .map(|(x, y)| UiValue::from(Point::new(x as f64, y as f64)))
+                .unwrap_or(UiValue::Null),
+            "Position.Parent" => block_on_timeout(proxy.get_image_position(CoordType::Parent))
                 .and_then(|r| r.ok())
                 .map(|(x, y)| UiValue::from(Point::new(x as f64, y as f64)))
                 .unwrap_or(UiValue::Null),
