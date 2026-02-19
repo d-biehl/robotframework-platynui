@@ -368,7 +368,7 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
             return false;
         }
     }
-    if !pattern.ends_with(parts.last().unwrap()) && !pattern.ends_with('*') {
+    if !pattern.ends_with(parts.last().unwrap_or(&"")) && !pattern.ends_with('*') {
         return false;
     }
     true

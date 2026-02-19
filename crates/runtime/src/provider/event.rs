@@ -17,21 +17,21 @@ impl ProviderEventDispatcher {
     }
 
     pub fn register(&self, sink: Arc<dyn ProviderEventSink>) {
-        self.sinks.write().unwrap().push(sink);
+        self.sinks.write().expect("event sinks lock poisoned").push(sink);
     }
 
     pub fn dispatch(&self, event: ProviderEvent) {
-        for sink in self.sinks.read().unwrap().iter() {
+        for sink in self.sinks.read().expect("event sinks lock poisoned").iter() {
             sink.dispatch(event.clone());
         }
     }
 
     pub fn sink_count(&self) -> usize {
-        self.sinks.read().unwrap().len()
+        self.sinks.read().expect("event sinks lock poisoned").len()
     }
 
     pub fn shutdown(&self) {
-        self.sinks.write().unwrap().clear();
+        self.sinks.write().expect("event sinks lock poisoned").clear();
     }
 }
 

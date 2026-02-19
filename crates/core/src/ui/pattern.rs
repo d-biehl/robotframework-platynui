@@ -79,7 +79,7 @@ impl PatternRegistry {
     }
 
     pub fn register_dyn(&self, pattern: Arc<dyn UiPattern>) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().expect("PatternRegistry lock poisoned");
         let id = pattern.id();
         if let Some(entry) = state.entries.get_mut(&id) {
             *entry = RegistryEntry::Ready(Arc::clone(&pattern));
@@ -93,7 +93,7 @@ impl PatternRegistry {
     where
         F: Fn() -> Option<Arc<dyn UiPattern>> + Send + Sync + 'static,
     {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().expect("PatternRegistry lock poisoned");
         let probe_arc: Arc<dyn Fn() -> Option<Arc<dyn UiPattern>> + Send + Sync> = Arc::new(probe);
         if let Some(entry) = state.entries.get_mut(&id) {
             *entry = RegistryEntry::Lazy { probe: Arc::clone(&probe_arc), cached: OnceLock::new() };
@@ -104,7 +104,7 @@ impl PatternRegistry {
     }
 
     pub fn get(&self, id: &PatternId) -> Option<Arc<dyn UiPattern>> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().expect("PatternRegistry lock poisoned");
         let entry = state.entries.get_mut(id)?;
         resolve_entry(entry)
     }
@@ -118,7 +118,7 @@ impl PatternRegistry {
     }
 
     pub fn supported(&self) -> Vec<PatternId> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().expect("PatternRegistry lock poisoned");
         let order_snapshot = state.order.clone();
         let mut supported = Vec::new();
         for id in order_snapshot {
@@ -133,7 +133,7 @@ impl PatternRegistry {
     }
 
     pub fn is_empty(&self) -> bool {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().expect("PatternRegistry lock poisoned");
         state.entries.is_empty()
     }
 }

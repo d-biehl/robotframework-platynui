@@ -475,27 +475,27 @@ impl Runtime {
     }
 
     pub fn pointer_settings(&self) -> PointerSettings {
-        self.pointer_settings.lock().unwrap().clone()
+        self.pointer_settings.lock().expect("pointer_settings lock poisoned").clone()
     }
 
     pub fn set_pointer_settings(&self, settings: PointerSettings) {
         {
-            *self.pointer_settings.lock().unwrap() = settings.clone();
+            *self.pointer_settings.lock().expect("pointer_settings lock poisoned") = settings.clone();
         }
-        if let Some(engine) = self.pointer_engine.lock().unwrap().as_mut() {
+        if let Some(engine) = self.pointer_engine.lock().expect("pointer_engine lock poisoned").as_mut() {
             engine.set_settings(settings);
         }
     }
 
     pub fn pointer_profile(&self) -> PointerProfile {
-        self.pointer_profile.lock().unwrap().clone()
+        self.pointer_profile.lock().expect("pointer_profile lock poisoned").clone()
     }
 
     pub fn set_pointer_profile(&self, profile: PointerProfile) {
         {
-            *self.pointer_profile.lock().unwrap() = profile.clone();
+            *self.pointer_profile.lock().expect("pointer_profile lock poisoned") = profile.clone();
         }
-        if let Some(engine) = self.pointer_engine.lock().unwrap().as_mut() {
+        if let Some(engine) = self.pointer_engine.lock().expect("pointer_engine lock poisoned").as_mut() {
             engine.set_profile(profile);
         }
     }
@@ -506,16 +506,16 @@ impl Runtime {
     }
 
     pub fn keyboard_settings(&self) -> KeyboardSettings {
-        self.keyboard_settings.lock().unwrap().clone()
+        self.keyboard_settings.lock().expect("keyboard_settings lock poisoned").clone()
     }
 
     pub fn set_keyboard_settings(&self, settings: KeyboardSettings) {
-        *self.keyboard_settings.lock().unwrap() = settings;
+        *self.keyboard_settings.lock().expect("keyboard_settings lock poisoned") = settings;
     }
 
     pub fn pointer_move_to(&self, point: Point, overrides: Option<PointerOverrides>) -> Result<Point, PointerError> {
         let bounds = self.desktop.info().bounds;
-        let mut guard = self.pointer_engine.lock().unwrap();
+        let mut guard = self.pointer_engine.lock().map_err(|_| PointerError::Poisoned)?;
         let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
         engine.set_desktop_bounds(bounds);
         let overrides_ref = overrides.as_ref();
@@ -529,7 +529,7 @@ impl Runtime {
         overrides: Option<PointerOverrides>,
     ) -> Result<(), PointerError> {
         let bounds = self.desktop.info().bounds;
-        let mut guard = self.pointer_engine.lock().unwrap();
+        let mut guard = self.pointer_engine.lock().map_err(|_| PointerError::Poisoned)?;
         let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
         engine.set_desktop_bounds(bounds);
         let overrides_ref = overrides.as_ref();
@@ -544,7 +544,7 @@ impl Runtime {
         overrides: Option<PointerOverrides>,
     ) -> Result<(), PointerError> {
         let bounds = self.desktop.info().bounds;
-        let mut guard = self.pointer_engine.lock().unwrap();
+        let mut guard = self.pointer_engine.lock().map_err(|_| PointerError::Poisoned)?;
         let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
         engine.set_desktop_bounds(bounds);
         let overrides_ref = overrides.as_ref();
@@ -558,7 +558,7 @@ impl Runtime {
         overrides: Option<PointerOverrides>,
     ) -> Result<(), PointerError> {
         let bounds = self.desktop.info().bounds;
-        let mut guard = self.pointer_engine.lock().unwrap();
+        let mut guard = self.pointer_engine.lock().map_err(|_| PointerError::Poisoned)?;
         let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
         engine.set_desktop_bounds(bounds);
         let overrides_ref = overrides.as_ref();
@@ -576,7 +576,7 @@ impl Runtime {
         overrides: Option<PointerOverrides>,
     ) -> Result<(), PointerError> {
         let bounds = self.desktop.info().bounds;
-        let mut guard = self.pointer_engine.lock().unwrap();
+        let mut guard = self.pointer_engine.lock().map_err(|_| PointerError::Poisoned)?;
         let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
         engine.set_desktop_bounds(bounds);
         let overrides_ref = overrides.as_ref();
@@ -589,7 +589,7 @@ impl Runtime {
 
     pub fn pointer_scroll(&self, delta: ScrollDelta, overrides: Option<PointerOverrides>) -> Result<(), PointerError> {
         let bounds = self.desktop.info().bounds;
-        let mut guard = self.pointer_engine.lock().unwrap();
+        let mut guard = self.pointer_engine.lock().map_err(|_| PointerError::Poisoned)?;
         let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
         engine.set_desktop_bounds(bounds);
         let overrides_ref = overrides.as_ref();
@@ -604,7 +604,7 @@ impl Runtime {
         overrides: Option<PointerOverrides>,
     ) -> Result<(), PointerError> {
         let bounds = self.desktop.info().bounds;
-        let mut guard = self.pointer_engine.lock().unwrap();
+        let mut guard = self.pointer_engine.lock().map_err(|_| PointerError::Poisoned)?;
         let engine = guard.as_mut().ok_or(PointerError::MissingDevice)?;
         engine.set_desktop_bounds(bounds);
         let overrides_ref = overrides.as_ref();

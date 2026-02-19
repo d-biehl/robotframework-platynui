@@ -251,6 +251,8 @@ pub enum PointerError {
     EnsureMove { expected: Point, actual: Point, threshold: f64 },
     #[error("click count must be greater than zero (got {provided})")]
     InvalidClickCount { provided: u32 },
+    #[error("internal lock poisoned: another thread panicked while holding the pointer lock")]
+    Poisoned,
 }
 
 pub(crate) struct PointerEngine<'a> {

@@ -129,7 +129,8 @@ impl KeyboardDevice for WindowsKeyboardDevice {
 
         // 2) Einzelnes Zeichen → VkKeyScanW (mit Shift/Alt/Ctrl), Fallback Unicode
         if name.chars().count() == 1 {
-            let ch_u16 = name.chars().next().unwrap() as u16;
+            // SAFETY: count() == 1 guarantees next() returns Some
+            let ch_u16 = name.chars().next().unwrap_or_default() as u16;
             // CapsLock beeinflusst nur Buchstaben: invertiere SHIFT bei aktivem CapsLock
             if ((ch_u16 as u8 as char).is_ascii_alphabetic()) && Self::current_capslock() {
                 // Use VkKeyScanW first, then flip shift bit

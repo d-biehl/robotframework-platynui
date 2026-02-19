@@ -45,7 +45,8 @@ impl DesktopInfoProvider for LinuxDesktopInfo {
                 tracing::debug!(monitor_count = ms.len(), "RANDR monitors enumerated");
                 // Compute union bounds across monitors
                 let mut it = ms.iter();
-                let first = it.next().unwrap();
+                // SAFETY: the `!ms.is_empty()` guard above ensures at least one element
+                let first = it.next().unwrap_or_else(|| unreachable!());
                 let mut union = first.bounds;
                 for m in it {
                     let x0 = union.x().min(m.bounds.x());
