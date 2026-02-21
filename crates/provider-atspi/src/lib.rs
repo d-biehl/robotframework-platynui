@@ -6,23 +6,23 @@
 
 mod connection;
 mod node;
+mod timeout;
 
 use crate::connection::connect_a11y_bus;
 use crate::node::AtspiNode;
 use atspi_common::Role;
 use atspi_connection::AccessibilityConnection;
 use atspi_proxies::accessible::AccessibleProxy;
-use futures_lite::future::block_on;
-use node::block_on_timeout;
 use once_cell::sync::{Lazy, OnceCell};
 use platynui_core::provider::{
     ProviderDescriptor, ProviderError, ProviderErrorKind, ProviderKind, UiTreeProvider, UiTreeProviderFactory,
 };
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::{trace, warn};
 use zbus::proxy::CacheProperties;
+
+use crate::timeout::{block_on_timeout_call, block_on_timeout_init};
 
 pub const PROVIDER_ID: &str = "atspi";
 pub const PROVIDER_NAME: &str = "AT-SPI2";
@@ -30,24 +30,6 @@ pub static TECHNOLOGY: Lazy<TechnologyId> = Lazy::new(|| TechnologyId::from("AT-
 
 const REGISTRY_BUS: &str = "org.a11y.atspi.Registry";
 const ROOT_PATH: &str = "/org/a11y/atspi/accessible/root";
-
-/// Timeout for D-Bus calls during provider initialisation.
-const DBUS_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Execute a future with a timeout. Returns `None` if the future does not
-/// complete within [`DBUS_TIMEOUT`].
-///
-/// This variant uses the longer init timeout (5 s) for one-off calls during
-/// provider startup such as building the registry proxy.
-fn block_on_timeout_init<F: std::future::Future>(future: F) -> Option<F::Output> {
-    block_on(async {
-        futures_lite::future::or(async { Some(future.await) }, async {
-            async_io::Timer::after(DBUS_TIMEOUT).await;
-            None
-        })
-        .await
-    })
-}
 
 pub struct AtspiFactory;
 
@@ -136,7 +118,7 @@ impl UiTreeProvider for AtspiProvider {
             // duplicate proxy builds and D-Bus roundtrips later when
             // the tree view queries has_children / label / role.
             let name = child.name_as_str()?;
-            let proxy = block_on_timeout(
+            let proxy = block_on_timeout_call(
                 AccessibleProxy::builder(conn.connection())
                     .cache_properties(CacheProperties::No)
                     .destination(name)
@@ -148,7 +130,7 @@ impl UiTreeProvider for AtspiProvider {
             .ok()?;
 
             // Filter zombie registrations / empty toolkits.
-            let child_count = block_on_timeout(proxy.child_count())?.ok()?;
+            let child_count = block_on_timeout_call(proxy.child_count())?.ok()?;
             if child_count == 0 {
                 trace!(app = %app_bus, "skipped (0 children)");
                 return None;
@@ -156,9 +138,9 @@ impl UiTreeProvider for AtspiProvider {
 
             // Pre-resolve interfaces, role, and name using the same
             // proxy so that AtspiNode caches are warm on first access.
-            let interfaces = block_on_timeout(proxy.get_interfaces()).and_then(|r| r.ok());
-            let role = block_on_timeout(proxy.get_role()).and_then(|r| r.ok()).unwrap_or(Role::Invalid);
-            let node_name = block_on_timeout(proxy.name()).and_then(|r| r.ok()).and_then(node::normalize_value);
+            let interfaces = block_on_timeout_call(proxy.get_interfaces()).and_then(|r| r.ok());
+            let role = block_on_timeout_call(proxy.get_role()).and_then(|r| r.ok()).unwrap_or(Role::Invalid);
+            let node_name = block_on_timeout_call(proxy.name()).and_then(|r| r.ok()).and_then(node::normalize_value);
 
             let node = AtspiNode::new(conn.clone(), child, Some(&parent));
             // Seed caches directly — no additional D-Bus calls inside.
