@@ -550,12 +550,17 @@ fn state_set_value(state: StateSet) -> UiValue {
     UiValue::from(state.iter().map(|s| format!("{s:?}")).collect::<Vec<_>>())
 }
 
-fn actions_value(actions: Vec<AtspiAction>) -> UiValue {
+fn actions_value(actions: Vec<AtspiAction>, names: &[Option<String>]) -> UiValue {
     let values = actions
         .into_iter()
-        .map(|action| {
+        .enumerate()
+        .map(|(i, action)| {
             let mut map = BTreeMap::new();
-            map.insert("Name".to_string(), UiValue::from(action.name));
+            // Machine-readable (non-localized) name via `GetName`.
+            if let Some(Some(name)) = names.get(i) {
+                map.insert("Name".to_string(), UiValue::from(name.clone()));
+            }
+            map.insert("LocalizedName".to_string(), UiValue::from(action.name));
             map.insert("Description".to_string(), UiValue::from(action.description));
             map.insert("KeyBinding".to_string(), UiValue::from(action.keybinding));
             UiValue::Object(map)
@@ -1354,86 +1359,91 @@ impl UiAttribute for LazyNativeAttr {
     }
 }
 
+/// Fetch a D-Bus property and convert the result directly to [`UiValue`].
+///
+/// Returns [`UiValue::Null`] on timeout or D-Bus error.
+fn fetch<T: Into<UiValue>, E>(future: impl std::future::Future<Output = Result<T, E>>) -> UiValue {
+    block_on_timeout_call(future).and_then(|r| r.ok()).map(Into::into).unwrap_or(UiValue::Null)
+}
+
+/// Fetch a D-Bus string property, normalise it (trim, reject empty), and
+/// convert to [`UiValue`].
+fn fetch_str<E>(future: impl std::future::Future<Output = Result<String, E>>) -> UiValue {
+    block_on_timeout_call(future)
+        .and_then(|r| r.ok())
+        .and_then(normalize_value)
+        .map(UiValue::from)
+        .unwrap_or(UiValue::Null)
+}
+
+/// Fetch a D-Bus property and apply a custom mapping to [`UiValue`].
+fn fetch_map<T, E>(future: impl std::future::Future<Output = Result<T, E>>, f: impl FnOnce(T) -> UiValue) -> UiValue {
+    block_on_timeout_call(future).and_then(|r| r.ok()).map(f).unwrap_or(UiValue::Null)
+}
+
+/// Shorthand for converting a D-Bus integer property to `UiValue::Integer`.
+fn fetch_int<T: Into<i64>, E>(future: impl std::future::Future<Output = Result<T, E>>) -> UiValue {
+    fetch_map(future, |v| UiValue::from(v.into()))
+}
+
+/// Convert D-Bus extents `(x, y, w, h)` to a [`Rect`] value.
+fn extents_value((x, y, w, h): (i32, i32, i32, i32)) -> UiValue {
+    UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64))
+}
+
+/// Convert D-Bus position `(x, y)` to a [`Point`] value.
+fn position_value((x, y): (i32, i32)) -> UiValue {
+    UiValue::from(Point::new(x as f64, y as f64))
+}
+
+/// Convert D-Bus size `(w, h)` to a [`Size`] value.
+fn size_value((w, h): (i32, i32)) -> UiValue {
+    UiValue::from(Size::new(w as f64, h as f64))
+}
+
+/// Convert an [`ObjectRefOwned`] to its runtime-id string value.
+fn object_ref_value(obj: ObjectRefOwned) -> UiValue {
+    UiValue::from(object_runtime_id(&obj))
+}
+
+/// Fetch a D-Bus property that returns a `HashMap<String, String>` and
+/// convert it to a [`UiValue::Object`].  Returns [`UiValue::Null`] when
+/// the call fails, times out, or the map is empty.
+fn fetch_string_map<E>(
+    future: impl std::future::Future<Output = Result<std::collections::HashMap<String, String>, E>>,
+) -> UiValue {
+    block_on_timeout_call(future)
+        .and_then(|r| r.ok())
+        .filter(|attrs| !attrs.is_empty())
+        .map(|attrs| string_map_object(&attrs))
+        .unwrap_or(UiValue::Null)
+}
+
 impl LazyNativeAttr {
     fn fetch_accessible(&self, prop: &str) -> UiValue {
         let Some(proxy) = accessible_proxy(&self.conn, &self.obj) else {
             return UiValue::Null;
         };
         match prop {
-            "Name" => block_on_timeout_call(proxy.name())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "Description" => block_on_timeout_call(proxy.description())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "HelpText" => block_on_timeout_call(proxy.help_text())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "Locale" => block_on_timeout_call(proxy.locale())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "Role" => block_on_timeout_call(proxy.get_role())
-                .and_then(|r| r.ok())
-                .map(|role| UiValue::from(role.name().to_string()))
-                .unwrap_or(UiValue::Null),
-            "RoleName" => block_on_timeout_call(proxy.get_role_name())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "LocalizedRoleName" => block_on_timeout_call(proxy.get_localized_role_name())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "AccessibleId" => block_on_timeout_call(proxy.accessible_id())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "Parent" => block_on_timeout_call(proxy.parent())
-                .and_then(|r| r.ok())
-                .map(|p| UiValue::from(object_runtime_id(&p)))
-                .unwrap_or(UiValue::Null),
-            "ChildCount" => block_on_timeout_call(proxy.child_count())
-                .and_then(|r| r.ok())
-                .map(|c| UiValue::from(c as i64))
-                .unwrap_or(UiValue::Null),
-            "IndexInParent" => block_on_timeout_call(proxy.get_index_in_parent())
-                .and_then(|r| r.ok())
-                .map(|i| UiValue::from(i as i64))
-                .unwrap_or(UiValue::Null),
-            "Interfaces" => block_on_timeout_call(proxy.get_interfaces())
-                .and_then(|r| r.ok())
-                .map(interface_set_value)
-                .unwrap_or(UiValue::Null),
-            "State" => block_on_timeout_call(proxy.get_state())
-                .and_then(|r| r.ok())
-                .map(state_set_value)
-                .unwrap_or(UiValue::Null),
-            "RelationSet" => block_on_timeout_call(proxy.get_relation_set())
-                .and_then(|r| r.ok())
-                .map(relation_set_value)
-                .unwrap_or(UiValue::Null),
-            "Application" => block_on_timeout_call(proxy.get_application())
-                .and_then(|r| r.ok())
-                .map(|a| UiValue::from(object_runtime_id(&a)))
-                .unwrap_or(UiValue::Null),
-            "Attributes" => block_on_timeout_call(proxy.get_attributes())
-                .and_then(|r| r.ok())
-                .map(|attrs| {
-                    let pairs: Vec<(String, String)> = attrs.into_iter().collect();
-                    attributes_object(&pairs)
-                })
-                .unwrap_or(UiValue::Null),
+            "Name" => fetch_str(proxy.name()),
+            "Description" => fetch_str(proxy.description()),
+            "HelpText" => fetch_str(proxy.help_text()),
+            "Locale" => fetch_str(proxy.locale()),
+            "Role" => fetch_map(proxy.get_role(), |role| UiValue::from(role.name().to_string())),
+            "RoleName" => fetch_str(proxy.get_role_name()),
+            "LocalizedRoleName" => fetch_str(proxy.get_localized_role_name()),
+            "AccessibleId" => fetch_str(proxy.accessible_id()),
+            "Parent" => fetch_map(proxy.parent(), object_ref_value),
+            "ChildCount" => fetch_int(proxy.child_count()),
+            "IndexInParent" => fetch_int(proxy.get_index_in_parent()),
+            "Interfaces" => fetch_map(proxy.get_interfaces(), interface_set_value),
+            "State" => fetch_map(proxy.get_state(), state_set_value),
+            "RelationSet" => fetch_map(proxy.get_relation_set(), relation_set_value),
+            "Application" => fetch_map(proxy.get_application(), object_ref_value),
+            "Attributes" => fetch_map(proxy.get_attributes(), |attrs| {
+                let pairs: Vec<(String, String)> = attrs.into_iter().collect();
+                attributes_object(&pairs)
+            }),
             _ => UiValue::Null,
         }
     }
@@ -1443,14 +1453,18 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "NActions" => block_on_timeout_call(proxy.nactions())
-                .and_then(|r| r.ok())
-                .map(|c| UiValue::from(c as i64))
-                .unwrap_or(UiValue::Null),
-            "Actions" => block_on_timeout_call(proxy.get_actions())
-                .and_then(|r| r.ok())
-                .map(actions_value)
-                .unwrap_or(UiValue::Null),
+            "NActions" => fetch_int(proxy.nactions()),
+            "Actions" => {
+                let Some(actions) = block_on_timeout_call(proxy.get_actions()).and_then(|r| r.ok()) else {
+                    return UiValue::Null;
+                };
+                // Enrich each action with its non-localized machine-readable
+                // name via the per-index `GetName` method.
+                let names: Vec<Option<String>> = (0..actions.len() as i32)
+                    .map(|i| block_on_timeout_call(proxy.get_name(i)).and_then(|r| r.ok()).and_then(normalize_value))
+                    .collect();
+                actions_value(actions, &names)
+            }
             _ => UiValue::Null,
         }
     }
@@ -1460,30 +1474,11 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "Id" => block_on_timeout_call(proxy.id())
-                .and_then(|r| r.ok())
-                .map(|id| UiValue::from(id as i64))
-                .unwrap_or(UiValue::Null),
-            "Version" => block_on_timeout_call(proxy.version())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "ToolkitName" => block_on_timeout_call(proxy.toolkit_name())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "AtspiVersion" => block_on_timeout_call(proxy.atspi_version())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "BusAddress" => block_on_timeout_call(proxy.get_application_bus_address())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
+            "Id" => fetch_map(proxy.id(), |id| UiValue::from(id as i64)),
+            "Version" => fetch_str(proxy.version()),
+            "ToolkitName" => fetch_str(proxy.toolkit_name()),
+            "AtspiVersion" => fetch_str(proxy.atspi_version()),
+            "BusAddress" => fetch_str(proxy.get_application_bus_address()),
             _ => UiValue::Null,
         }
     }
@@ -1493,10 +1488,7 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "ActiveDescendant" => block_on_timeout_call(proxy.get_active_descendant())
-                .and_then(|r| r.ok())
-                .map(|d| UiValue::from(object_runtime_id(&d)))
-                .unwrap_or(UiValue::Null),
+            "ActiveDescendant" => fetch_map(proxy.get_active_descendant(), object_ref_value),
             _ => UiValue::Null,
         }
     }
@@ -1506,46 +1498,16 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "Alpha" => block_on_timeout_call(proxy.get_alpha())
-                .and_then(|r| r.ok())
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "Extents.Screen" => block_on_timeout_call(proxy.get_extents(CoordType::Screen))
-                .and_then(|r| r.ok())
-                .map(|(x, y, w, h)| UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)))
-                .unwrap_or(UiValue::Null),
-            "Extents.Window" => block_on_timeout_call(proxy.get_extents(CoordType::Window))
-                .and_then(|r| r.ok())
-                .map(|(x, y, w, h)| UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)))
-                .unwrap_or(UiValue::Null),
-            "Extents.Parent" => block_on_timeout_call(proxy.get_extents(CoordType::Parent))
-                .and_then(|r| r.ok())
-                .map(|(x, y, w, h)| UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)))
-                .unwrap_or(UiValue::Null),
-            "Position.Screen" => block_on_timeout_call(proxy.get_position(CoordType::Screen))
-                .and_then(|r| r.ok())
-                .map(|(x, y)| UiValue::from(Point::new(x as f64, y as f64)))
-                .unwrap_or(UiValue::Null),
-            "Position.Window" => block_on_timeout_call(proxy.get_position(CoordType::Window))
-                .and_then(|r| r.ok())
-                .map(|(x, y)| UiValue::from(Point::new(x as f64, y as f64)))
-                .unwrap_or(UiValue::Null),
-            "Position.Parent" => block_on_timeout_call(proxy.get_position(CoordType::Parent))
-                .and_then(|r| r.ok())
-                .map(|(x, y)| UiValue::from(Point::new(x as f64, y as f64)))
-                .unwrap_or(UiValue::Null),
-            "Size" => block_on_timeout_call(proxy.get_size())
-                .and_then(|r| r.ok())
-                .map(|(w, h)| UiValue::from(Size::new(w as f64, h as f64)))
-                .unwrap_or(UiValue::Null),
-            "Layer" => block_on_timeout_call(proxy.get_layer())
-                .and_then(|r| r.ok())
-                .map(|layer| UiValue::from(format!("{layer:?}")))
-                .unwrap_or(UiValue::Null),
-            "MDIZOrder" => block_on_timeout_call(proxy.get_mdiz_order())
-                .and_then(|r| r.ok())
-                .map(|order| UiValue::from(order as i64))
-                .unwrap_or(UiValue::Null),
+            "Alpha" => fetch(proxy.get_alpha()),
+            "Extents.Screen" => fetch_map(proxy.get_extents(CoordType::Screen), extents_value),
+            "Extents.Window" => fetch_map(proxy.get_extents(CoordType::Window), extents_value),
+            "Extents.Parent" => fetch_map(proxy.get_extents(CoordType::Parent), extents_value),
+            "Position.Screen" => fetch_map(proxy.get_position(CoordType::Screen), position_value),
+            "Position.Window" => fetch_map(proxy.get_position(CoordType::Window), position_value),
+            "Position.Parent" => fetch_map(proxy.get_position(CoordType::Parent), position_value),
+            "Size" => fetch_map(proxy.get_size(), size_value),
+            "Layer" => fetch_map(proxy.get_layer(), |layer| UiValue::from(format!("{layer:?}"))),
+            "MDIZOrder" => fetch_map(proxy.get_mdiz_order(), |order| UiValue::from(order as i64)),
             _ => UiValue::Null,
         }
     }
@@ -1555,24 +1517,10 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "PageCount" => block_on_timeout_call(proxy.page_count())
-                .and_then(|r| r.ok())
-                .map(|c| UiValue::from(c as i64))
-                .unwrap_or(UiValue::Null),
-            "CurrentPageNumber" => block_on_timeout_call(proxy.current_page_number())
-                .and_then(|r| r.ok())
-                .map(|c| UiValue::from(c as i64))
-                .unwrap_or(UiValue::Null),
-            "Locale" => block_on_timeout_call(proxy.get_locale())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "Attributes" => block_on_timeout_call(proxy.get_attributes())
-                .and_then(|r| r.ok())
-                .filter(|attrs| !attrs.is_empty())
-                .map(|attrs| string_map_object(&attrs))
-                .unwrap_or(UiValue::Null),
+            "PageCount" => fetch_int(proxy.page_count()),
+            "CurrentPageNumber" => fetch_int(proxy.current_page_number()),
+            "Locale" => fetch_str(proxy.get_locale()),
+            "Attributes" => fetch_string_map(proxy.get_attributes()),
             _ => UiValue::Null,
         }
     }
@@ -1582,21 +1530,10 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "IsValid" => {
-                block_on_timeout_call(proxy.is_valid()).and_then(|r| r.ok()).map(UiValue::from).unwrap_or(UiValue::Null)
-            }
-            "EndIndex" => block_on_timeout_call(proxy.end_index())
-                .and_then(|r| r.ok())
-                .map(|i| UiValue::from(i as i64))
-                .unwrap_or(UiValue::Null),
-            "StartIndex" => block_on_timeout_call(proxy.start_index())
-                .and_then(|r| r.ok())
-                .map(|i| UiValue::from(i as i64))
-                .unwrap_or(UiValue::Null),
-            "NAnchors" => block_on_timeout_call(proxy.n_anchors())
-                .and_then(|r| r.ok())
-                .map(|c| UiValue::from(c as i64))
-                .unwrap_or(UiValue::Null),
+            "IsValid" => fetch(proxy.is_valid()),
+            "EndIndex" => fetch_int(proxy.end_index()),
+            "StartIndex" => fetch_int(proxy.start_index()),
+            "NAnchors" => fetch_int(proxy.n_anchors()),
             _ => UiValue::Null,
         }
     }
@@ -1606,10 +1543,7 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "NLinks" => block_on_timeout_call(proxy.get_nlinks())
-                .and_then(|r| r.ok())
-                .map(|c| UiValue::from(c as i64))
-                .unwrap_or(UiValue::Null),
+            "NLinks" => fetch_int(proxy.get_nlinks()),
             _ => UiValue::Null,
         }
     }
@@ -1619,44 +1553,15 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "Description" => block_on_timeout_call(proxy.image_description())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "Locale" => block_on_timeout_call(proxy.image_locale())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "Extents.Screen" => block_on_timeout_call(proxy.get_image_extents(CoordType::Screen))
-                .and_then(|r| r.ok())
-                .map(|(x, y, w, h)| UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)))
-                .unwrap_or(UiValue::Null),
-            "Extents.Window" => block_on_timeout_call(proxy.get_image_extents(CoordType::Window))
-                .and_then(|r| r.ok())
-                .map(|(x, y, w, h)| UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)))
-                .unwrap_or(UiValue::Null),
-            "Extents.Parent" => block_on_timeout_call(proxy.get_image_extents(CoordType::Parent))
-                .and_then(|r| r.ok())
-                .map(|(x, y, w, h)| UiValue::from(Rect::new(x as f64, y as f64, w as f64, h as f64)))
-                .unwrap_or(UiValue::Null),
-            "Position.Screen" => block_on_timeout_call(proxy.get_image_position(CoordType::Screen))
-                .and_then(|r| r.ok())
-                .map(|(x, y)| UiValue::from(Point::new(x as f64, y as f64)))
-                .unwrap_or(UiValue::Null),
-            "Position.Window" => block_on_timeout_call(proxy.get_image_position(CoordType::Window))
-                .and_then(|r| r.ok())
-                .map(|(x, y)| UiValue::from(Point::new(x as f64, y as f64)))
-                .unwrap_or(UiValue::Null),
-            "Position.Parent" => block_on_timeout_call(proxy.get_image_position(CoordType::Parent))
-                .and_then(|r| r.ok())
-                .map(|(x, y)| UiValue::from(Point::new(x as f64, y as f64)))
-                .unwrap_or(UiValue::Null),
-            "Size" => block_on_timeout_call(proxy.get_image_size())
-                .and_then(|r| r.ok())
-                .map(|(w, h)| UiValue::from(Size::new(w as f64, h as f64)))
-                .unwrap_or(UiValue::Null),
+            "Description" => fetch_str(proxy.image_description()),
+            "Locale" => fetch_str(proxy.image_locale()),
+            "Extents.Screen" => fetch_map(proxy.get_image_extents(CoordType::Screen), extents_value),
+            "Extents.Window" => fetch_map(proxy.get_image_extents(CoordType::Window), extents_value),
+            "Extents.Parent" => fetch_map(proxy.get_image_extents(CoordType::Parent), extents_value),
+            "Position.Screen" => fetch_map(proxy.get_image_position(CoordType::Screen), position_value),
+            "Position.Window" => fetch_map(proxy.get_image_position(CoordType::Window), position_value),
+            "Position.Parent" => fetch_map(proxy.get_image_position(CoordType::Parent), position_value),
+            "Size" => fetch_map(proxy.get_image_size(), size_value),
             _ => UiValue::Null,
         }
     }
@@ -1666,10 +1571,7 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "NSelectedChildren" => block_on_timeout_call(proxy.nselected_children())
-                .and_then(|r| r.ok())
-                .map(|c| UiValue::from(c as i64))
-                .unwrap_or(UiValue::Null),
+            "NSelectedChildren" => fetch_int(proxy.nselected_children()),
             _ => UiValue::Null,
         }
     }
@@ -1679,38 +1581,18 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "Caption" => block_on_timeout_call(proxy.caption())
-                .and_then(|r| r.ok())
-                .map(|c| UiValue::from(object_runtime_id(&c)))
-                .unwrap_or(UiValue::Null),
-            "Summary" => block_on_timeout_call(proxy.summary())
-                .and_then(|r| r.ok())
-                .map(|s| UiValue::from(object_runtime_id(&s)))
-                .unwrap_or(UiValue::Null),
-            "NColumns" => block_on_timeout_call(proxy.ncolumns())
-                .and_then(|r| r.ok())
-                .map(|c| UiValue::from(c as i64))
-                .unwrap_or(UiValue::Null),
-            "NRows" => block_on_timeout_call(proxy.nrows())
-                .and_then(|r| r.ok())
-                .map(|r| UiValue::from(r as i64))
-                .unwrap_or(UiValue::Null),
-            "NSelectedColumns" => block_on_timeout_call(proxy.nselected_columns())
-                .and_then(|r| r.ok())
-                .map(|c| UiValue::from(c as i64))
-                .unwrap_or(UiValue::Null),
-            "NSelectedRows" => block_on_timeout_call(proxy.nselected_rows())
-                .and_then(|r| r.ok())
-                .map(|r| UiValue::from(r as i64))
-                .unwrap_or(UiValue::Null),
-            "SelectedRows" => block_on_timeout_call(proxy.get_selected_rows())
-                .and_then(|r| r.ok())
-                .map(|rows| UiValue::from(rows.into_iter().map(|v| v as i64).collect::<Vec<_>>()))
-                .unwrap_or(UiValue::Null),
-            "SelectedColumns" => block_on_timeout_call(proxy.get_selected_columns())
-                .and_then(|r| r.ok())
-                .map(|cols| UiValue::from(cols.into_iter().map(|v| v as i64).collect::<Vec<_>>()))
-                .unwrap_or(UiValue::Null),
+            "Caption" => fetch_map(proxy.caption(), object_ref_value),
+            "Summary" => fetch_map(proxy.summary(), object_ref_value),
+            "NColumns" => fetch_int(proxy.ncolumns()),
+            "NRows" => fetch_int(proxy.nrows()),
+            "NSelectedColumns" => fetch_int(proxy.nselected_columns()),
+            "NSelectedRows" => fetch_int(proxy.nselected_rows()),
+            "SelectedRows" => fetch_map(proxy.get_selected_rows(), |rows| {
+                UiValue::from(rows.into_iter().map(|v| v as i64).collect::<Vec<_>>())
+            }),
+            "SelectedColumns" => fetch_map(proxy.get_selected_columns(), |cols| {
+                UiValue::from(cols.into_iter().map(|v| v as i64).collect::<Vec<_>>())
+            }),
             _ => UiValue::Null,
         }
     }
@@ -1720,22 +1602,10 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "ColumnSpan" => block_on_timeout_call(proxy.column_span())
-                .and_then(|r| r.ok())
-                .map(|s| UiValue::from(s as i64))
-                .unwrap_or(UiValue::Null),
-            "RowSpan" => block_on_timeout_call(proxy.row_span())
-                .and_then(|r| r.ok())
-                .map(|s| UiValue::from(s as i64))
-                .unwrap_or(UiValue::Null),
-            "Position" => block_on_timeout_call(proxy.position())
-                .and_then(|r| r.ok())
-                .map(|(row, col)| row_column_value(row, col))
-                .unwrap_or(UiValue::Null),
-            "Table" => block_on_timeout_call(proxy.table())
-                .and_then(|r| r.ok())
-                .map(|t| UiValue::from(object_runtime_id(&t)))
-                .unwrap_or(UiValue::Null),
+            "ColumnSpan" => fetch_int(proxy.column_span()),
+            "RowSpan" => fetch_int(proxy.row_span()),
+            "Position" => fetch_map(proxy.position(), |(row, col)| row_column_value(row, col)),
+            "Table" => fetch_map(proxy.table(), object_ref_value),
             _ => UiValue::Null,
         }
     }
@@ -1745,28 +1615,11 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "CharacterCount" => block_on_timeout_call(proxy.character_count())
-                .and_then(|r| r.ok())
-                .map(|c| UiValue::from(c as i64))
-                .unwrap_or(UiValue::Null),
-            "CaretOffset" => block_on_timeout_call(proxy.caret_offset())
-                .and_then(|r| r.ok())
-                .map(|o| UiValue::from(o as i64))
-                .unwrap_or(UiValue::Null),
-            "NSelections" => block_on_timeout_call(proxy.get_nselections())
-                .and_then(|r| r.ok())
-                .map(|c| UiValue::from(c as i64))
-                .unwrap_or(UiValue::Null),
-            "DefaultAttributes" => block_on_timeout_call(proxy.get_default_attributes())
-                .and_then(|r| r.ok())
-                .filter(|attrs| !attrs.is_empty())
-                .map(|attrs| string_map_object(&attrs))
-                .unwrap_or(UiValue::Null),
-            "DefaultAttributeSet" => block_on_timeout_call(proxy.get_default_attribute_set())
-                .and_then(|r| r.ok())
-                .filter(|attrs| !attrs.is_empty())
-                .map(|attrs| string_map_object(&attrs))
-                .unwrap_or(UiValue::Null),
+            "CharacterCount" => fetch_int(proxy.character_count()),
+            "CaretOffset" => fetch_int(proxy.caret_offset()),
+            "NSelections" => fetch_int(proxy.get_nselections()),
+            "DefaultAttributes" => fetch_string_map(proxy.get_default_attributes()),
+            "DefaultAttributeSet" => fetch_string_map(proxy.get_default_attribute_set()),
             _ => UiValue::Null,
         }
     }
@@ -1776,27 +1629,11 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "CurrentValue" => block_on_timeout_call(proxy.current_value())
-                .and_then(|r| r.ok())
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "MaximumValue" => block_on_timeout_call(proxy.maximum_value())
-                .and_then(|r| r.ok())
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "MinimumValue" => block_on_timeout_call(proxy.minimum_value())
-                .and_then(|r| r.ok())
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "MinimumIncrement" => block_on_timeout_call(proxy.minimum_increment())
-                .and_then(|r| r.ok())
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
-            "Text" => block_on_timeout_call(proxy.text())
-                .and_then(|r| r.ok())
-                .and_then(normalize_value)
-                .map(UiValue::from)
-                .unwrap_or(UiValue::Null),
+            "CurrentValue" => fetch(proxy.current_value()),
+            "MaximumValue" => fetch(proxy.maximum_value()),
+            "MinimumValue" => fetch(proxy.minimum_value()),
+            "MinimumIncrement" => fetch(proxy.minimum_increment()),
+            "Text" => fetch_str(proxy.text()),
             _ => UiValue::Null,
         }
     }
