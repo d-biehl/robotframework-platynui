@@ -351,6 +351,7 @@ Kurzfassung (EN)
 ### 20. CLI `window` – Windows-Integration
 - [x] Implementiert: Fensterliste mit Status/Capabilities (minimized/maximized/topmost/accepts_user_input) und Bounds; Aktionen: activate/minimize/maximize/restore/close sowie move/resize/bring_to_front (inklusive `--wait-ms` für `accepts_user_input`). Deduplizierte Treffer pro RuntimeId, farbige Textausgabe und klare Fehlertexte bei leeren Treffern.
 - [x] Runtime-/Python-Erweiterung `bring_to_front_and_wait` ergänzt (22.10.2025) und vom CLI `--wait-ms` genutzt.
+- [ ] `bring_to_front` um `ensure_window_accessible()`-Aufruf erweitern (vor `activate()`), best-effort mit `warn!` bei Fehler (→ `docs/virtual_desktop_switching.md` §3.4).
 - [x] Tests: Mock‑Abdeckung für Listing und Aktionssequenzen inkl. Fehlerpfade; E2E‑Tests auf echtem Windows bleiben optionaler Ausbau.
 
 ### 21. Plattform Linux/X11 – Devices & UiTree
@@ -473,6 +474,7 @@ English summary: Extract window management into a cross-platform `WindowManager`
   - `bounds(WindowId) -> Result<Rect, PlatformError>` – echte Screen-Bounds vom WM
   - `is_active(WindowId) -> Result<bool, PlatformError>`
   - `activate(WindowId)`, `close(WindowId)`, `minimize(WindowId)`, `maximize(WindowId)`, `restore(WindowId)`, `move_to(WindowId, Point)`, `resize(WindowId, Size)`
+  - `ensure_window_accessible(WindowId) -> Result<(), PlatformError>` – Default-Impl: No-Op. Stellt sicher, dass ein Fenster auf dem aktuellen virtuellen Desktop erreichbar ist (→ `docs/virtual_desktop_switching.md`).
 - [ ] `WindowId` als opaker Typ (`u64` intern, reicht für HWND, XID, Wayland surface IDs).
 - [ ] Registrierungsmakro `register_window_manager!` + Iterator `window_managers()`.
 - [ ] Mock-Implementierung in `platynui-platform-mock` für deterministische Tests.
@@ -484,7 +486,12 @@ English summary: Extract window management into a cross-platform `WindowManager`
   - `_NET_SUPPORTING_WM_CHECK` auf Root-Window → WM-Child-Window → Konsistenzprüfung
   - `_NET_WM_NAME` auf WM-Child → WM-Name loggen (`info!`)
   - `_NET_SUPPORTED` auf Root → prüfen ob benötigte Atoms vorhanden (`_NET_CLIENT_LIST`, `_NET_ACTIVE_WINDOW`, `_NET_CLOSE_WINDOW`, `_NET_WM_PID`)
+  - Zusätzlich auf `_NET_CURRENT_DESKTOP`, `_NET_WM_DESKTOP`, `_NET_NUMBER_OF_DESKTOPS` prüfen (Voraussetzung für `ensure_window_accessible()`)
   - Fehlender WM oder fehlende Atoms → `warn!` (kein harter Fehler)
+- [ ] `ensure_window_accessible(WindowId)` implementieren:
+  - Desktop des Fensters per `_NET_WM_DESKTOP` lesen.
+  - Falls Fenster auf anderem Desktop: aktuellen Desktop per `_NET_CURRENT_DESKTOP`-ClientMessage an Root-Window wechseln.
+  - Sonderfall `0xFFFFFFFF` (sticky/pinned): kein Wechsel nötig.
 - [ ] Tests: EWMH-Funktionalität über Mock oder Integration.
 
 **Phase 3 – Windows/Win32-Implementierung (platform-windows):**
@@ -496,6 +503,11 @@ English summary: Extract window management into a cross-platform `WindowManager`
 - [ ] `close()`: `PostMessage(WM_CLOSE)`.
 - [ ] `minimize/maximize/restore()`: `ShowWindow(SW_MINIMIZE/SW_MAXIMIZE/SW_RESTORE)`.
 - [ ] `move_to/resize()`: `MoveWindow(hwnd, …)` oder `SetWindowPos(hwnd, …)`.
+- [ ] `ensure_window_accessible(WindowId)` implementieren:
+  - `IVirtualDesktopManager::GetWindowDesktopId(hwnd)` → GUID des Fenster-Desktops.
+  - Aktuellen Desktop ermitteln (Foreground-Window → `GetWindowDesktopId`).
+  - Bei Abweichung: Fenster per `MoveWindowToDesktop(hwnd, current_guid)` auf den aktiven Desktop verschieben.
+  - COM-Initialisierung sicherstellen (`CoInitializeEx`).
 - [ ] Tests: Smoke-Tests gegen Mock + optionale E2E auf echtem Windows.
 
 **Phase 4 – Provider-Migration:**

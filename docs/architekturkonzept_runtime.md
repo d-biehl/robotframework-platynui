@@ -349,6 +349,10 @@ Hinweise & offene Punkte
       fn restore(&self, id: WindowId) -> Result<(), PlatformError>;
       fn move_to(&self, id: WindowId, position: Point) -> Result<(), PlatformError>;
       fn resize(&self, id: WindowId, size: Size) -> Result<(), PlatformError>;
+
+      /// Ensure the window is accessible on the current virtual desktop/workspace.
+      /// Default: no-op (returns Ok(())).
+      fn ensure_window_accessible(&self, id: WindowId) -> Result<(), PlatformError> { Ok(()) }
   }
   ```
 
@@ -373,8 +377,13 @@ Hinweise & offene Punkte
 
   Damit bleibt `provider-atspi` frei von `x11rb`-Abhängigkeiten und funktioniert identisch auf X11, Wayland und jeder zukünftigen Display-Server-Variante. Der Windows-UIA-Provider kann den `WindowManager` als zuverlässigen Fallback nutzen, wenn Elemente kein `WindowPattern`/`TransformPattern` implementieren.
 
-  **EWMH-Support-Prüfung:** Die X11-Implementierung prüft beim `PlatformModule::initialize()` zusätzlich, ob ein EWMH-kompatibler Fenstermanager läuft (`_NET_SUPPORTING_WM_CHECK`) und welche Atoms unterstützt werden (`_NET_SUPPORTED`). Fehlende EWMH-Unterstützung wird als `warn` geloggt (kein harter Fehler), da AT-SPI-Basisfunktionen auch ohne WM funktionieren. Der Name des WM wird aus `_NET_WM_NAME` gelesen und per `info!` protokolliert.
+  **EWMH-Support-Prüfung:** Die X11-Implementierung prüft beim `PlatformModule::initialize()` zusätzlich, ob ein EWMH-kompatibler Fenstermanager läuft (`_NET_SUPPORTING_WM_CHECK`) und welche Atoms unterstützt werden (`_NET_SUPPORTED`). Neben den bisherigen Atoms werden auch `_NET_CURRENT_DESKTOP`, `_NET_WM_DESKTOP` und `_NET_NUMBER_OF_DESKTOPS` geprüft — sie sind Voraussetzung für `ensure_window_accessible()` (siehe unten). Fehlende EWMH-Unterstützung wird als `warn` geloggt (kein harter Fehler), da AT-SPI-Basisfunktionen auch ohne WM funktionieren. Der Name des WM wird aus `_NET_WM_NAME` gelesen und per `info!` protokolliert.
 - **Fokus-Kopplung:** `WindowSurface::activate()` bzw. `restore()` sollen den Fokus über das `Focusable`-Pattern setzen; `minimize()` und `close()` geben ihn frei. So bleibt das Verhalten deckungsgleich mit nativen Foreground-Wechseln (Alt+Tab, Klick) und das `IsFocused`-Attribut der Fenster bleibt konsistent.
+- **Virtuelle Desktops / Workspaces:** Falls sich ein Zielfenster auf einem anderen virtuellen Desktop befindet, muss es vor der Aktivierung erreichbar gemacht werden. Dafür stellt `WindowManager` die Methode `ensure_window_accessible(WindowId)` bereit (Default-Implementierung: No-Op). Die Runtime ruft sie in `bring_to_front()` *vor* `activate()` auf — best-effort, d. h. ein Fehler wird geloggt, bricht aber den Fokussierungsversuch nicht ab. Plattformspezifische Strategien:
+  - **X11:** Desktop des Fensters per `_NET_WM_DESKTOP` lesen, bei Abweichung via `_NET_CURRENT_DESKTOP`-ClientMessage zum Desktop wechseln.
+  - **Windows:** `IVirtualDesktopManager::GetWindowDesktopId` liefert die GUID des Fenster-Desktops; bei Abweichung vom aktuellen Desktop wird das Fenster per `MoveWindowToDesktop` auf den aktiven Desktop verschoben.
+  - **macOS:** No-Op — `kAXRaiseAction` in `activate()` löst implizit einen Space-Wechsel aus.
+  Details und vollständige Implementierungsskizzen: → `docs/virtual_desktop_switching.md`.
 - **Zuordnung zum UiTree:** Jeder Fensterknoten, der `WindowSurface` meldet, muss sich eindeutig einem Applikations- oder Control-Knoten zuordnen lassen. Alias-Sichten (flach vs. gruppiert) verwenden dieselbe `RuntimeId`, ergänzen aber Ordnungsschlüssel, damit Dokumentsortierung und Aktionen reproduzierbar bleiben.
 - **Mock & Tests:** `platynui-platform-mock` und `platynui-provider-mock` liefern einfache Referenzimplementierungen für die Pattern-Aktionen. Sie dienen als Blaupause, bevor echte Plattformen angebunden werden, und stellen sicher, dass CLI-Befehle wie `window`, `pointer` und `keyboard` früh testbar bleiben. Der Provider hält dynamische Textpuffer (`append_text`, `replace_text`, `apply_keyboard_events`), so dass Tests Tastatureingaben inklusive Emojis oder IME-Strings simulieren und anschließend via XPath prüfen können.
 - **Offene Punkte:** Während der Implementierung prüfen wir je Plattform, ob die Accessibility-Schnittstelle alleine genügt oder ob ergänzende System-APIs zwingend sind. Erkenntnisse fließen in die Provider-Dokumentation und `docs/patterns.md` ein.

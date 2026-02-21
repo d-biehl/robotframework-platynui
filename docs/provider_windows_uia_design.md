@@ -131,3 +131,4 @@ Bekannte Grenzen/Nächste Schritte
 - Struktur‑/Property‑Events über UIA‑Eventhandler (Actor hält Message‑Pump).
 - Eigenes Caching (zeitlich/inhaltlich) im Provider statt UIA‑Cache API.
 - Erweiterte Rollen‑/Namespace‑Abbildung und zusätzliche Patterns.
+- **Virtuelle Desktops:** Die Behandlung virtueller Desktops (Fenster auf anderem Desktop erreichbar machen) liegt nicht im Provider, sondern in `platform-windows` via `WindowManager::ensure_window_accessible()` und `IVirtualDesktopManager` COM-API (→ `docs/virtual_desktop_switching.md`).
