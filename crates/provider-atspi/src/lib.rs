@@ -162,12 +162,12 @@ impl UiTreeProvider for AtspiProvider {
 
             let node = AtspiNode::new(conn.clone(), child, Some(&parent));
             // Seed caches directly — no additional D-Bus calls inside.
-            let _ = node.cached_child_count.set(Some(child_count));
-            let _ = node.interfaces.set(interfaces);
+            node.cached_child_count.set(Some(child_count));
+            node.interfaces.set(interfaces);
             let (ns, role_name) = node::map_role_with_interfaces(role, interfaces);
             let _ = node.namespace.set(ns);
             let _ = node.role.set(role_name);
-            let _ = node.cached_name.set(node_name.clone());
+            node.cached_name.set(node_name.clone());
 
             let elapsed = app_start.elapsed();
             trace!(
@@ -177,11 +177,11 @@ impl UiTreeProvider for AtspiProvider {
                 elapsed_ms = elapsed.as_millis() as u64,
                 "get_nodes: resolved app",
             );
-            if elapsed.as_millis() > 200 {
+            if elapsed.as_millis() > 1000 {
                 warn!(
                     app = %app_bus,
                     elapsed_ms = elapsed.as_millis() as u64,
-                    "get_nodes: SLOW app resolution (>200ms)",
+                    "get_nodes: SLOW app resolution (>1000ms)",
                 );
             }
 

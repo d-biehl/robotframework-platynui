@@ -58,6 +58,69 @@ pub(crate) fn block_on_timeout<F: std::future::Future>(future: F) -> Option<F::O
     result
 }
 
+/// Thread-safe cache cell that supports clearing via [`ClearableCell::clear`].
+///
+/// Unlike [`OnceCell`], stored values can be reset so that the next access
+/// re-queries the underlying data source.  Values are cloned on read to
+/// avoid holding the internal lock across potentially long D-Bus calls.
+pub(crate) struct ClearableCell<T>(Mutex<Option<T>>);
+
+impl<T> ClearableCell<T> {
+    /// Creates an empty (unset) cell.
+    pub(crate) fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+
+    /// Stores `value` if the cell is currently empty.  If the cell already
+    /// holds a value the call is a no-op (first-writer-wins semantics).
+    pub(crate) fn set(&self, value: T) {
+        let mut guard = self.0.lock().expect("ClearableCell lock poisoned");
+        if guard.is_none() {
+            *guard = Some(value);
+        }
+    }
+
+    /// Resets the cell to the empty state so that subsequent reads will
+    /// re-resolve the value.
+    pub(crate) fn clear(&self) {
+        *self.0.lock().expect("ClearableCell lock poisoned") = None;
+    }
+
+    /// Returns `true` if the cell currently holds a value.
+    pub(crate) fn is_set(&self) -> bool {
+        self.0.lock().map(|g| g.is_some()).unwrap_or(false)
+    }
+}
+
+impl<T: Clone> ClearableCell<T> {
+    /// Returns a clone of the stored value, or `None` if the cell is empty.
+    pub(crate) fn get(&self) -> Option<T> {
+        self.0.lock().ok()?.clone()
+    }
+
+    /// Returns the stored value (cloned), initialising it with `f()` first
+    /// if the cell is empty.  The initialiser runs without holding the lock
+    /// so that long-running D-Bus calls do not block other threads.
+    pub(crate) fn get_or_init(&self, f: impl FnOnce() -> T) -> T {
+        // Fast path: already cached.
+        {
+            let guard = self.0.lock().expect("ClearableCell lock poisoned");
+            if let Some(value) = guard.as_ref() {
+                return value.clone();
+            }
+        }
+        // Slow path: compute without holding the lock.
+        let value = f();
+        let mut guard = self.0.lock().expect("ClearableCell lock poisoned");
+        if let Some(existing) = guard.as_ref() {
+            // Another caller initialised it in the meantime.
+            return existing.clone();
+        }
+        *guard = Some(value.clone());
+        value
+    }
+}
+
 pub struct AtspiNode {
     conn: Arc<AccessibilityConnection>,
     obj: ObjectRefOwned,
@@ -66,14 +129,14 @@ pub struct AtspiNode {
     runtime_id: OnceCell<RuntimeId>,
     pub(crate) role: OnceCell<String>,
     pub(crate) namespace: OnceCell<Namespace>,
-    state: OnceCell<Option<StateSet>>,
-    pub(crate) interfaces: OnceCell<Option<InterfaceSet>>,
+    state: ClearableCell<Option<StateSet>>,
+    pub(crate) interfaces: ClearableCell<Option<InterfaceSet>>,
     /// Cached name resolved from the accessibility bus.
-    pub(crate) cached_name: OnceCell<Option<String>>,
+    pub(crate) cached_name: ClearableCell<Option<String>>,
     /// Cached child count (from AT-SPI `ChildCount` property).
-    pub(crate) cached_child_count: OnceCell<Option<i32>>,
+    pub(crate) cached_child_count: ClearableCell<Option<i32>>,
     /// Cached process ID resolved from D-Bus connection credentials.
-    cached_process_id: OnceCell<Option<u32>>,
+    cached_process_id: ClearableCell<Option<u32>>,
 }
 
 impl AtspiNode {
@@ -86,11 +149,11 @@ impl AtspiNode {
             runtime_id: OnceCell::new(),
             role: OnceCell::new(),
             namespace: OnceCell::new(),
-            state: OnceCell::new(),
-            interfaces: OnceCell::new(),
-            cached_name: OnceCell::new(),
-            cached_child_count: OnceCell::new(),
-            cached_process_id: OnceCell::new(),
+            state: ClearableCell::new(),
+            interfaces: ClearableCell::new(),
+            cached_name: ClearableCell::new(),
+            cached_child_count: ClearableCell::new(),
+            cached_process_id: ClearableCell::new(),
         });
         let arc: Arc<dyn UiNode> = node.clone();
         let _ = node.self_weak.set(Arc::downgrade(&arc));
@@ -115,11 +178,11 @@ impl AtspiNode {
             return;
         };
         // Resolve interfaces via the same proxy when not yet cached.
-        if self.interfaces.get().is_none() {
+        if !self.interfaces.is_set() {
             let ifaces = block_on_timeout(proxy.get_interfaces()).and_then(|r| r.ok());
-            let _ = self.interfaces.set(ifaces);
+            self.interfaces.set(ifaces);
         }
-        let interfaces = self.interfaces.get().copied().flatten();
+        let interfaces = self.interfaces.get().flatten();
         let role = block_on_timeout(proxy.get_role()).and_then(|r| r.ok()).unwrap_or(Role::Invalid);
         let (namespace, role_name) = map_role_with_interfaces(role, interfaces);
         let _ = self.namespace.set(namespace);
@@ -127,25 +190,19 @@ impl AtspiNode {
     }
 
     fn resolve_state(&self) -> Option<StateSet> {
-        self.state
-            .get_or_init(|| {
-                self.accessible().and_then(|proxy| block_on_timeout(proxy.get_state()).and_then(|r| r.ok()))
-            })
-            .as_ref()
-            .copied()
+        self.state.get_or_init(|| {
+            self.accessible().and_then(|proxy| block_on_timeout(proxy.get_state()).and_then(|r| r.ok()))
+        })
     }
 
     fn resolve_interfaces(&self) -> Option<InterfaceSet> {
-        self.interfaces
-            .get_or_init(|| {
-                self.accessible().and_then(|proxy| block_on_timeout(proxy.get_interfaces()).and_then(|r| r.ok()))
-            })
-            .as_ref()
-            .copied()
+        self.interfaces.get_or_init(|| {
+            self.accessible().and_then(|proxy| block_on_timeout(proxy.get_interfaces()).and_then(|r| r.ok()))
+        })
     }
 
     fn resolve_name(&self) -> Option<String> {
-        self.cached_name.get_or_init(|| resolve_name(self.conn.as_ref(), &self.obj)).clone()
+        self.cached_name.get_or_init(|| resolve_name(self.conn.as_ref(), &self.obj))
     }
 
     fn supports_component(&self) -> bool {
@@ -166,7 +223,7 @@ impl AtspiNode {
     /// Resolve the Unix process ID of the application owning this node's
     /// D-Bus bus name.  The result is cached in `cached_process_id`.
     fn resolve_process_id(&self) -> Option<u32> {
-        *self.cached_process_id.get_or_init(|| {
+        self.cached_process_id.get_or_init(|| {
             let bus_name = self.obj.name_as_str()?;
             let conn = self.conn.connection();
             block_on_timeout(async {
@@ -183,66 +240,6 @@ impl AtspiNode {
         let supports_component = interfaces.map(|ifaces| ifaces.contains(Interface::Component)).unwrap_or(false);
         let focusable = state.map(|s| s.contains(State::Focusable) || s.contains(State::Focused)).unwrap_or(false);
         supports_component && focusable
-    }
-
-    /// Pre-resolve commonly needed properties using a single proxy.
-    ///
-    /// This avoids repeated proxy builds + D-Bus roundtrips when the
-    /// inspector (or any consumer) queries `has_children`, `role`, `name`
-    /// etc. in quick succession.
-    fn resolve_basics(&self) {
-        let start = std::time::Instant::now();
-        let obj_path = self.obj.path_as_str().to_string();
-        let obj_bus = self.obj.name_as_str().unwrap_or("<unknown>").to_string();
-
-        let Some(proxy) = self.accessible() else {
-            let _ = self.role.set("Unknown".to_string());
-            let _ = self.namespace.set(Namespace::Control);
-            let _ = self.cached_child_count.set(None);
-            let _ = self.cached_name.set(None);
-            warn!(bus = %obj_bus, path = %obj_path, "resolve_basics: no proxy");
-            return;
-        };
-        // child_count
-        if self.cached_child_count.get().is_none() {
-            let count = block_on_timeout(proxy.child_count()).and_then(|r| r.ok());
-            let _ = self.cached_child_count.set(count);
-        }
-        // interfaces + role
-        if self.interfaces.get().is_none() {
-            let ifaces = block_on_timeout(proxy.get_interfaces()).and_then(|r| r.ok());
-            let _ = self.interfaces.set(ifaces);
-        }
-        if self.role.get().is_none() {
-            let interfaces = self.interfaces.get().copied().flatten();
-            let role = block_on_timeout(proxy.get_role()).and_then(|r| r.ok()).unwrap_or(Role::Invalid);
-            let (namespace, role_name) = map_role_with_interfaces(role, interfaces);
-            let _ = self.namespace.set(namespace);
-            let _ = self.role.set(role_name);
-        }
-        // name
-        if self.cached_name.get().is_none() {
-            let name = block_on_timeout(proxy.name()).and_then(|r| r.ok()).and_then(normalize_value);
-            let _ = self.cached_name.set(name);
-        }
-
-        let elapsed = start.elapsed();
-        trace!(
-            bus = %obj_bus,
-            path = %obj_path,
-            role = self.role.get().map(String::as_str).unwrap_or("?"),
-            name = self.cached_name.get().and_then(|n| n.as_deref()).unwrap_or(""),
-            elapsed_ms = elapsed.as_millis() as u64,
-            "resolve_basics",
-        );
-        if elapsed.as_millis() > 200 {
-            warn!(
-                bus = %obj_bus,
-                path = %obj_path,
-                elapsed_ms = elapsed.as_millis() as u64,
-                "resolve_basics: SLOW node (>200ms)",
-            );
-        }
     }
 }
 
@@ -308,12 +305,12 @@ impl UiNode for AtspiNode {
             elapsed_ms = get_children_elapsed.as_millis() as u64,
             "children: fetched child list",
         );
-        if get_children_elapsed.as_millis() > 200 {
+        if get_children_elapsed.as_millis() > 1000 {
             warn!(
                 bus = %parent_bus,
                 path = %parent_path,
                 elapsed_ms = get_children_elapsed.as_millis() as u64,
-                "children: SLOW get_children (>200ms)",
+                "children: SLOW get_children (>1000ms)",
             );
         }
 
@@ -323,12 +320,7 @@ impl UiNode for AtspiNode {
             if AtspiNode::is_null_object(&child) {
                 return None;
             }
-            let node = AtspiNode::new(conn.clone(), child, parent.as_ref());
-            // Pre-resolve child_count, interfaces, role, and name using
-            // a single proxy so that later has_children/label calls are
-            // satisfied from cache without extra D-Bus roundtrips.
-            node.resolve_basics();
-            Some(node as Arc<dyn UiNode>)
+            Some(AtspiNode::new(conn.clone(), child, parent.as_ref()) as Arc<dyn UiNode>)
         }))
     }
 
@@ -394,10 +386,11 @@ impl UiNode for AtspiNode {
     }
 
     fn invalidate(&self) {
-        // Clear cached data so the next access re-queries the bus.
-        // OnceCell does not support clearing, but we can document that
-        // invalidate is a best-effort operation. Full re-resolution happens
-        // when a new AtspiNode is created for the same object.
+        self.state.clear();
+        self.interfaces.clear();
+        self.cached_name.clear();
+        self.cached_child_count.clear();
+        self.cached_process_id.clear();
     }
 }
 
