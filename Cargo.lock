@@ -3968,8 +3968,8 @@ dependencies = [
  "atspi-proxies",
  "futures-lite",
  "inventory",
- "once_cell",
  "platynui-core",
+ "thiserror 2.0.18",
  "tracing",
  "zbus",
 ]

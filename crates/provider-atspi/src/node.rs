@@ -16,7 +16,6 @@ use atspi_proxies::table::TableProxy;
 use atspi_proxies::table_cell::TableCellProxy;
 use atspi_proxies::text::TextProxy;
 use atspi_proxies::value::ValueProxy;
-use once_cell::sync::OnceCell;
 use platynui_core::platform::{WindowId, window_managers};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{activation_target, application, common, element, focusable, window_surface};
@@ -25,86 +24,25 @@ use platynui_core::ui::{
     supported_patterns_value,
 };
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use tracing::{trace, warn};
 use zbus::proxy::CacheProperties;
 
+use crate::clearable_cell::ClearableCell;
+use crate::error::AtspiError;
 use crate::timeout::block_on_timeout_call;
 
 const NULL_PATH: &str = "/org/a11y/atspi/accessible/null";
 const TECHNOLOGY: &str = "AT-SPI2";
 
-/// Thread-safe cache cell that supports clearing via [`ClearableCell::clear`].
-///
-/// Unlike [`OnceCell`], stored values can be reset so that the next access
-/// re-queries the underlying data source.  Values are cloned on read to
-/// avoid holding the internal lock across potentially long D-Bus calls.
-pub(crate) struct ClearableCell<T>(Mutex<Option<T>>);
-
-impl<T> ClearableCell<T> {
-    /// Creates an empty (unset) cell.
-    pub(crate) fn new() -> Self {
-        Self(Mutex::new(None))
-    }
-
-    /// Stores `value` if the cell is currently empty.  If the cell already
-    /// holds a value the call is a no-op (first-writer-wins semantics).
-    pub(crate) fn set(&self, value: T) {
-        let mut guard = self.0.lock().expect("ClearableCell lock poisoned");
-        if guard.is_none() {
-            *guard = Some(value);
-        }
-    }
-
-    /// Resets the cell to the empty state so that subsequent reads will
-    /// re-resolve the value.
-    pub(crate) fn clear(&self) {
-        *self.0.lock().expect("ClearableCell lock poisoned") = None;
-    }
-
-    /// Returns `true` if the cell currently holds a value.
-    pub(crate) fn is_set(&self) -> bool {
-        self.0.lock().map(|g| g.is_some()).unwrap_or(false)
-    }
-}
-
-impl<T: Clone> ClearableCell<T> {
-    /// Returns a clone of the stored value, or `None` if the cell is empty.
-    pub(crate) fn get(&self) -> Option<T> {
-        self.0.lock().ok()?.clone()
-    }
-
-    /// Returns the stored value (cloned), initialising it with `f()` first
-    /// if the cell is empty.  The initialiser runs without holding the lock
-    /// so that long-running D-Bus calls do not block other threads.
-    pub(crate) fn get_or_init(&self, f: impl FnOnce() -> T) -> T {
-        // Fast path: already cached.
-        {
-            let guard = self.0.lock().expect("ClearableCell lock poisoned");
-            if let Some(value) = guard.as_ref() {
-                return value.clone();
-            }
-        }
-        // Slow path: compute without holding the lock.
-        let value = f();
-        let mut guard = self.0.lock().expect("ClearableCell lock poisoned");
-        if let Some(existing) = guard.as_ref() {
-            // Another caller initialised it in the meantime.
-            return existing.clone();
-        }
-        *guard = Some(value.clone());
-        value
-    }
-}
-
 pub struct AtspiNode {
     conn: Arc<AccessibilityConnection>,
     obj: ObjectRefOwned,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
-    self_weak: OnceCell<Weak<dyn UiNode>>,
-    runtime_id: OnceCell<RuntimeId>,
-    pub(crate) role: OnceCell<String>,
-    pub(crate) namespace: OnceCell<Namespace>,
+    self_weak: OnceLock<Weak<dyn UiNode>>,
+    runtime_id: OnceLock<RuntimeId>,
+    pub(crate) role: OnceLock<String>,
+    pub(crate) namespace: OnceLock<Namespace>,
     state: ClearableCell<Option<StateSet>>,
     pub(crate) interfaces: ClearableCell<Option<InterfaceSet>>,
     /// Cached name resolved from the accessibility bus.
@@ -121,10 +59,10 @@ impl AtspiNode {
             conn,
             obj,
             parent: Mutex::new(parent.map(Arc::downgrade)),
-            self_weak: OnceCell::new(),
-            runtime_id: OnceCell::new(),
-            role: OnceCell::new(),
-            namespace: OnceCell::new(),
+            self_weak: OnceLock::new(),
+            runtime_id: OnceLock::new(),
+            role: OnceLock::new(),
+            namespace: OnceLock::new(),
             state: ClearableCell::new(),
             interfaces: ClearableCell::new(),
             cached_name: ClearableCell::new(),
@@ -324,9 +262,7 @@ impl UiNode for AtspiNode {
                 }
                 let conn = self.conn.clone();
                 let obj = self.obj.clone();
-                let action = FocusableAction::new(move || {
-                    grab_focus(conn.as_ref(), &obj).map_err(platynui_core::ui::PatternError::new)
-                });
+                let action = FocusableAction::new(move || grab_focus(conn.as_ref(), &obj).map_err(Into::into));
                 Some(Arc::new(action) as Arc<dyn UiPattern>)
             }
             "WindowSurface" => {
@@ -338,18 +274,12 @@ impl UiNode for AtspiNode {
                 let weak3 = weak1.clone();
                 let pattern = WindowSurfaceActions::new()
                     .with_activate(move || {
-                        let node = weak1
-                            .as_ref()
-                            .and_then(Weak::upgrade)
-                            .ok_or_else(|| platynui_core::ui::PatternError::new("node dropped"))?;
-                        activate_window(node.as_ref()).map_err(platynui_core::ui::PatternError::new)
+                        let node = weak1.as_ref().and_then(Weak::upgrade).ok_or(AtspiError::NodeDropped)?;
+                        activate_window(node.as_ref()).map_err(Into::into)
                     })
                     .with_close(move || {
-                        let node = weak2
-                            .as_ref()
-                            .and_then(Weak::upgrade)
-                            .ok_or_else(|| platynui_core::ui::PatternError::new("node dropped"))?;
-                        close_window(node.as_ref()).map_err(platynui_core::ui::PatternError::new)
+                        let node = weak2.as_ref().and_then(Weak::upgrade).ok_or(AtspiError::NodeDropped)?;
+                        close_window(node.as_ref()).map_err(Into::into)
                     })
                     .with_accepts_user_input(move || {
                         let node = weak3.as_ref().and_then(Weak::upgrade);
@@ -359,6 +289,12 @@ impl UiNode for AtspiNode {
             }
             _ => None,
         }
+    }
+
+    fn is_valid(&self) -> bool {
+        // Cheap liveness probe: if we can still read the role, the D-Bus peer
+        // is alive.  Returns `false` for zombie nodes (e.g. crashed apps).
+        self.accessible().and_then(|proxy| block_on_timeout_call(proxy.get_role())).and_then(|r| r.ok()).is_some()
     }
 
     fn invalidate(&self) {
@@ -420,12 +356,12 @@ make_proxy!(table_cell_proxy, TableCellProxy);
 make_proxy!(text_proxy, TextProxy);
 make_proxy!(value_proxy, ValueProxy);
 
-fn grab_focus(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<(), String> {
-    let proxy = component_proxy(conn, obj).ok_or("component interface missing")?;
+fn grab_focus(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<(), AtspiError> {
+    let proxy = component_proxy(conn, obj).ok_or(AtspiError::InterfaceMissing("Component"))?;
     let ok = block_on_timeout_call(proxy.grab_focus())
-        .ok_or_else(|| "grab_focus timed out".to_string())?
-        .map_err(|e| e.to_string())?;
-    if ok { Ok(()) } else { Err("grab_focus returned false".to_string()) }
+        .ok_or(AtspiError::timeout("grab_focus"))?
+        .map_err(|e| AtspiError::dbus("grab_focus", e))?;
+    if ok { Ok(()) } else { Err(AtspiError::FocusFailed) }
 }
 
 /// Resolve the native window ID for this AT-SPI window node using the
@@ -434,23 +370,23 @@ fn grab_focus(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<()
 /// The node itself carries PID (via `native:ProcessId`) and window name
 /// (via `UiNode::name()`) so the platform-specific window manager can
 /// match the correct top-level window.
-fn resolve_window_id(node: &dyn UiNode) -> Result<WindowId, String> {
-    let wm = window_managers().next().ok_or("no WindowManager registered")?;
-    wm.resolve_window(node).map_err(|e| e.to_string())
+fn resolve_window_id(node: &dyn UiNode) -> Result<WindowId, AtspiError> {
+    let wm = window_managers().next().ok_or(AtspiError::NoWindowManager)?;
+    wm.resolve_window(node).map_err(|e| AtspiError::dbus("resolve_window", e))
 }
 
 /// Bring a window to the foreground via the registered [`WindowManager`].
-fn activate_window(node: &dyn UiNode) -> Result<(), String> {
+fn activate_window(node: &dyn UiNode) -> Result<(), AtspiError> {
     let wid = resolve_window_id(node)?;
-    let wm = window_managers().next().ok_or("no WindowManager registered")?;
-    wm.activate(wid).map_err(|e| e.to_string())
+    let wm = window_managers().next().ok_or(AtspiError::NoWindowManager)?;
+    wm.activate(wid).map_err(|e| AtspiError::dbus("activate_window", e))
 }
 
 /// Close a window via the registered [`WindowManager`].
-fn close_window(node: &dyn UiNode) -> Result<(), String> {
+fn close_window(node: &dyn UiNode) -> Result<(), AtspiError> {
     let wid = resolve_window_id(node)?;
-    let wm = window_managers().next().ok_or("no WindowManager registered")?;
-    wm.close(wid).map_err(|e| e.to_string())
+    let wm = window_managers().next().ok_or(AtspiError::NoWindowManager)?;
+    wm.close(wid).map_err(|e| AtspiError::dbus("close_window", e))
 }
 
 /// Check whether a window is the currently active (foreground) window.
@@ -728,7 +664,7 @@ struct AttrsIter {
     /// Pre-resolved role string (avoids re-querying D-Bus).
     role: String,
     /// Shared lazy-resolution context for standard attributes.
-    /// D-Bus calls are deferred until `.value()` and cached via `OnceCell`.
+    /// D-Bus calls are deferred until `.value()` and cached via `OnceLock`.
     ctx: Arc<LazyNodeData>,
     /// Cached process ID (only set for Application nodes).
     process_id: Option<u32>,
@@ -1052,7 +988,7 @@ impl Iterator for AttrsIter {
 
 /// Shared lazy-resolution context for standard attributes.
 ///
-/// D-Bus calls are deferred until first access and cached via `OnceCell`,
+/// D-Bus calls are deferred until first access and cached via `OnceLock`,
 /// so multiple attributes that need the same underlying data (e.g. state)
 /// share a single D-Bus roundtrip.
 struct LazyNodeData {
@@ -1061,10 +997,10 @@ struct LazyNodeData {
     role: String,
     /// Weak reference to the owning UiNode, used for window manager queries.
     owner: Option<Weak<dyn UiNode>>,
-    state: OnceCell<Option<StateSet>>,
-    extents: OnceCell<Option<Rect>>,
-    name: OnceCell<String>,
-    id: OnceCell<Option<String>>,
+    state: OnceLock<Option<StateSet>>,
+    extents: OnceLock<Option<Rect>>,
+    name: OnceLock<String>,
+    id: OnceLock<Option<String>>,
 }
 
 impl LazyNodeData {
@@ -1079,10 +1015,10 @@ impl LazyNodeData {
             obj,
             role,
             owner,
-            state: OnceCell::new(),
-            extents: OnceCell::new(),
-            name: OnceCell::new(),
-            id: OnceCell::new(),
+            state: OnceLock::new(),
+            extents: OnceLock::new(),
+            name: OnceLock::new(),
+            id: OnceLock::new(),
         }
     }
 
@@ -1636,5 +1572,231 @@ impl LazyNativeAttr {
             "Text" => fetch_str(proxy.text()),
             _ => UiValue::Null,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- normalize_value ----
+
+    #[test]
+    fn normalize_value_trims_whitespace() {
+        assert_eq!(normalize_value("  hello  ".to_string()), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn normalize_value_empty_returns_none() {
+        assert_eq!(normalize_value("".to_string()), None);
+        assert_eq!(normalize_value("   ".to_string()), None);
+    }
+
+    #[test]
+    fn normalize_value_preserves_inner_spaces() {
+        assert_eq!(normalize_value("hello world".to_string()), Some("hello world".to_string()));
+    }
+
+    // ---- pick_attr_value ----
+
+    #[test]
+    fn pick_attr_value_finds_first_matching_key() {
+        let attrs =
+            vec![("name".to_string(), "Name Value".to_string()), ("label".to_string(), "Label Value".to_string())];
+        assert_eq!(pick_attr_value(&attrs, &["name", "label"]), Some("Name Value".to_string()));
+    }
+
+    #[test]
+    fn pick_attr_value_case_insensitive() {
+        let attrs = vec![("NAME".to_string(), "upper".to_string())];
+        assert_eq!(pick_attr_value(&attrs, &["name"]), Some("upper".to_string()));
+    }
+
+    #[test]
+    fn pick_attr_value_skips_empty_values() {
+        let attrs = vec![("name".to_string(), "   ".to_string()), ("label".to_string(), "fallback".to_string())];
+        assert_eq!(pick_attr_value(&attrs, &["name", "label"]), Some("fallback".to_string()));
+    }
+
+    #[test]
+    fn pick_attr_value_returns_none_when_no_match() {
+        let attrs = vec![("other".to_string(), "value".to_string())];
+        assert_eq!(pick_attr_value(&attrs, &["name", "label"]), None);
+    }
+
+    #[test]
+    fn pick_attr_value_empty_attrs() {
+        let attrs: Vec<(String, String)> = vec![];
+        assert_eq!(pick_attr_value(&attrs, &["name"]), None);
+    }
+
+    // ---- map_role ----
+
+    #[test]
+    fn map_role_button() {
+        let (ns, name) = map_role(Role::Button);
+        assert_eq!(ns, Namespace::Control);
+        assert_eq!(name, "Button");
+    }
+
+    #[test]
+    fn map_role_application() {
+        let (ns, name) = map_role(Role::Application);
+        assert_eq!(ns, Namespace::App);
+        assert_eq!(name, "Application");
+    }
+
+    #[test]
+    fn map_role_invalid_maps_to_unknown() {
+        let (ns, name) = map_role(Role::Invalid);
+        assert_eq!(ns, Namespace::Control);
+        assert_eq!(name, "Unknown");
+    }
+
+    #[test]
+    fn map_role_list_item_is_item_namespace() {
+        let (ns, name) = map_role(Role::ListItem);
+        assert_eq!(ns, Namespace::Item);
+        assert_eq!(name, "ListItem");
+    }
+
+    #[test]
+    fn map_role_menu_item_is_item_namespace() {
+        let (ns, name) = map_role(Role::MenuItem);
+        assert_eq!(ns, Namespace::Item);
+        assert_eq!(name, "MenuItem");
+    }
+
+    #[test]
+    fn map_role_check_menu_item_maps_to_menu_item() {
+        let (ns, name) = map_role(Role::CheckMenuItem);
+        assert_eq!(ns, Namespace::Item);
+        assert_eq!(name, "MenuItem");
+    }
+
+    #[test]
+    fn map_role_page_tab_maps_to_tab_item() {
+        let (ns, name) = map_role(Role::PageTab);
+        assert_eq!(ns, Namespace::Item);
+        assert_eq!(name, "TabItem");
+    }
+
+    #[test]
+    fn map_role_page_tab_list_maps_to_tab() {
+        let (ns, name) = map_role(Role::PageTabList);
+        assert_eq!(ns, Namespace::Control);
+        assert_eq!(name, "Tab");
+    }
+
+    #[test]
+    fn map_role_tree_item_is_item_namespace() {
+        let (ns, name) = map_role(Role::TreeItem);
+        assert_eq!(ns, Namespace::Item);
+        assert_eq!(name, "TreeItem");
+    }
+
+    // ---- map_role_with_interfaces ----
+
+    #[test]
+    fn map_role_with_interfaces_application_interface_overrides() {
+        // Even if the role is not Application, the Application interface
+        // should force the App namespace.
+        let ifaces = InterfaceSet::new(Interface::Application);
+        let (ns, name) = map_role_with_interfaces(Role::Frame, Some(ifaces));
+        assert_eq!(ns, Namespace::App);
+        assert_eq!(name, "Application");
+    }
+
+    #[test]
+    fn map_role_with_interfaces_no_override_without_app() {
+        let ifaces = InterfaceSet::new(Interface::Component);
+        let (ns, name) = map_role_with_interfaces(Role::Button, Some(ifaces));
+        assert_eq!(ns, Namespace::Control);
+        assert_eq!(name, "Button");
+    }
+
+    #[test]
+    fn map_role_with_interfaces_none_falls_through() {
+        let (ns, name) = map_role_with_interfaces(Role::Dialog, None);
+        assert_eq!(ns, Namespace::Control);
+        assert_eq!(name, "Dialog");
+    }
+
+    // ---- helper value conversions ----
+
+    #[test]
+    fn attributes_object_skips_empty_keys() {
+        let attrs = vec![
+            ("key1".to_string(), "val1".to_string()),
+            ("  ".to_string(), "ignored".to_string()),
+            ("key2".to_string(), "val2".to_string()),
+        ];
+        let value = attributes_object(&attrs);
+        match value {
+            UiValue::Object(map) => {
+                assert_eq!(map.len(), 2);
+                assert!(map.contains_key("key1"));
+                assert!(map.contains_key("key2"));
+            }
+            other => panic!("expected UiValue::Object, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn interface_set_value_format() {
+        let ifaces = InterfaceSet::new(Interface::Accessible);
+        let value = interface_set_value(ifaces);
+        match value {
+            UiValue::Array(arr) => {
+                assert!(!arr.is_empty());
+            }
+            other => panic!("expected UiValue::Array, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn state_set_value_format() {
+        let mut state = StateSet::empty();
+        state.insert(State::Focused);
+        let value = state_set_value(state);
+        match value {
+            UiValue::Array(arr) => {
+                assert!(!arr.is_empty());
+            }
+            other => panic!("expected UiValue::Array, got {other:?}"),
+        }
+    }
+
+    // ---- AtspiError conversions ----
+
+    #[test]
+    fn atspi_error_to_provider_error() {
+        use platynui_core::provider::ProviderError;
+        let err = AtspiError::timeout("test");
+        let pe: ProviderError = err.into();
+        assert!(matches!(pe, ProviderError::CommunicationFailure { .. }));
+    }
+
+    #[test]
+    fn atspi_error_to_pattern_error() {
+        use platynui_core::ui::PatternError;
+        let err = AtspiError::InterfaceMissing("Component");
+        let pe: PatternError = err.into();
+        assert!(pe.message().contains("Component"));
+    }
+
+    #[test]
+    fn atspi_error_connection_becomes_init_failed() {
+        use platynui_core::provider::ProviderError;
+        let err = AtspiError::ConnectionFailed("refused".to_string());
+        let pe: ProviderError = err.into();
+        assert!(matches!(pe, ProviderError::InitializationFailed { .. }));
+    }
+
+    #[test]
+    fn atspi_error_dbus_helper() {
+        let err = AtspiError::dbus("proxy.name", "some D-Bus error");
+        assert!(err.to_string().contains("proxy.name"));
+        assert!(err.to_string().contains("some D-Bus error"));
     }
 }

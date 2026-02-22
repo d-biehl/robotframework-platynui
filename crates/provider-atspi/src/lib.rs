@@ -4,21 +4,22 @@
 //! Linux/X11 systems. Event streaming and full WindowSurface integration will
 //! follow in later phases.
 
+pub(crate) mod clearable_cell;
+pub(crate) mod error;
+
 mod connection;
 mod node;
 mod timeout;
 
 use crate::connection::connect_a11y_bus;
+use crate::error::AtspiError;
 use crate::node::AtspiNode;
 use atspi_common::Role;
 use atspi_connection::AccessibilityConnection;
 use atspi_proxies::accessible::AccessibleProxy;
-use once_cell::sync::{Lazy, OnceCell};
-use platynui_core::provider::{
-    ProviderDescriptor, ProviderError, ProviderErrorKind, ProviderKind, UiTreeProvider, UiTreeProviderFactory,
-};
+use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::ui::{TechnologyId, UiNode};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, OnceLock};
 use tracing::{trace, warn};
 use zbus::proxy::CacheProperties;
 
@@ -26,7 +27,7 @@ use crate::timeout::{block_on_timeout_call, block_on_timeout_init};
 
 pub const PROVIDER_ID: &str = "atspi";
 pub const PROVIDER_NAME: &str = "AT-SPI2";
-pub static TECHNOLOGY: Lazy<TechnologyId> = Lazy::new(|| TechnologyId::from("AT-SPI2"));
+pub static TECHNOLOGY: LazyLock<TechnologyId> = LazyLock::new(|| TechnologyId::from("AT-SPI2"));
 
 const REGISTRY_BUS: &str = "org.a11y.atspi.Registry";
 const ROOT_PATH: &str = "/org/a11y/atspi/accessible/root";
@@ -35,7 +36,7 @@ pub struct AtspiFactory;
 
 impl UiTreeProviderFactory for AtspiFactory {
     fn descriptor(&self) -> &ProviderDescriptor {
-        static DESCRIPTOR: Lazy<ProviderDescriptor> = Lazy::new(|| {
+        static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
             ProviderDescriptor::new(PROVIDER_ID, PROVIDER_NAME, TechnologyId::from("AT-SPI2"), ProviderKind::Native)
         });
         &DESCRIPTOR
@@ -48,22 +49,26 @@ impl UiTreeProviderFactory for AtspiFactory {
 
 pub struct AtspiProvider {
     descriptor: &'static ProviderDescriptor,
-    conn: OnceCell<Arc<AccessibilityConnection>>,
+    conn: OnceLock<Arc<AccessibilityConnection>>,
 }
 
 impl AtspiProvider {
     fn new() -> Self {
-        static DESCRIPTOR: Lazy<ProviderDescriptor> = Lazy::new(|| {
+        static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
             ProviderDescriptor::new(PROVIDER_ID, PROVIDER_NAME, TechnologyId::from("AT-SPI2"), ProviderKind::Native)
         });
-        Self { descriptor: &DESCRIPTOR, conn: OnceCell::new() }
+        Self { descriptor: &DESCRIPTOR, conn: OnceLock::new() }
     }
 
-    fn connection(&self) -> Result<Arc<AccessibilityConnection>, ProviderError> {
-        self.conn
-            .get_or_try_init(|| connect_a11y_bus().map(Arc::new))
-            .map(Arc::clone)
-            .map_err(|err| ProviderError::new(ProviderErrorKind::TreeUnavailable, err.to_string()))
+    fn connection(&self) -> Result<Arc<AccessibilityConnection>, AtspiError> {
+        if let Some(conn) = self.conn.get() {
+            return Ok(conn.clone());
+        }
+        let conn = Arc::new(connect_a11y_bus()?);
+        // Another thread may have initialised in the meantime — that's fine,
+        // we just discard our value and use the existing one.
+        let _ = self.conn.set(conn.clone());
+        Ok(self.conn.get().cloned().unwrap_or(conn))
     }
 }
 
@@ -81,27 +86,17 @@ impl UiTreeProvider for AtspiProvider {
             AccessibleProxy::builder(conn.connection())
                 .cache_properties(CacheProperties::No)
                 .destination(REGISTRY_BUS)
-                .map_err(|err| {
-                    ProviderError::new(ProviderErrorKind::CommunicationFailure, format!("registry destination: {err}"))
-                })?
+                .map_err(|err| AtspiError::dbus("registry destination", err))?
                 .path(ROOT_PATH)
-                .map_err(|err| {
-                    ProviderError::new(ProviderErrorKind::CommunicationFailure, format!("registry path: {err}"))
-                })?
+                .map_err(|err| AtspiError::dbus("registry path", err))?
                 .build(),
         )
-        .ok_or_else(|| {
-            ProviderError::new(ProviderErrorKind::CommunicationFailure, "registry proxy build timed out".to_string())
-        })?
-        .map_err(|err| ProviderError::new(ProviderErrorKind::CommunicationFailure, format!("registry proxy: {err}")))?;
+        .ok_or_else(|| AtspiError::timeout("registry proxy build"))?
+        .map_err(|err| AtspiError::dbus("registry proxy", err))?;
 
         let children = block_on_timeout_init(proxy.get_children())
-            .ok_or_else(|| {
-                ProviderError::new(ProviderErrorKind::CommunicationFailure, "registry children timed out".to_string())
-            })?
-            .map_err(|err| {
-                ProviderError::new(ProviderErrorKind::CommunicationFailure, format!("registry children: {err}"))
-            })?;
+            .ok_or_else(|| AtspiError::timeout("registry children"))?
+            .map_err(|err| AtspiError::dbus("registry children", err))?;
 
         let parent = Arc::clone(&parent);
         let conn = conn.clone();

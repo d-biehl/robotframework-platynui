@@ -26,7 +26,7 @@ trap cleanup EXIT INT TERM
 DISPLAYFD_FIFO="$XEPHYR_RUNTIME_DIR/displayfd"
 mkfifo "$DISPLAYFD_FIFO"
 
-Xephyr -displayfd 3 -ac -screen 1920x1080 -noreset -sw-cursor -dpi 192 \
+Xephyr -displayfd 3 -ac -screen 1920x1080 -noreset -sw-cursor -dpi 96 \
   3>"$DISPLAYFD_FIFO" &
 XEPHYR_PID=$!
 
@@ -56,7 +56,7 @@ XDG_RUNTIME_DIR="$XEPHYR_RUNTIME_DIR" \
 dbus-run-session -- bash -c '
   export DISPLAY=:'"$DISPLAY_NUM"'
   export XDG_SESSION_TYPE=x11
-  export XDG_CURRENT_DESKTOP=xephyr-test
+  export XDG_CURRENT_DESKTOP=openbox
 
   # Accessibility environment
   export NO_AT_BRIDGE=0
@@ -64,10 +64,12 @@ dbus-run-session -- bash -c '
   export GTK_A11Y=atspi
   export QT_ACCESSIBILITY=1
   export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
+  export GDK_BACKEND=x11
 
   export LANG=de_DE.UTF-8
   export LC_ALL=de_DE.UTF-8
 
+  echo "Session DISPLAY=$DISPLAY"
   echo "Session XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
   echo "Session DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
 
@@ -110,8 +112,9 @@ dbus-run-session -- bash -c '
     echo "WARNING: AT-SPI bus not available -- accessibility will not work" >&2
   fi
 
-  setxkbmap de -variant e2
+  setxkbmap de
 
-  exec openbox-session
+  # exec openbox-session
   # exec startplasma-x11
+  exec icewm-session
 '
