@@ -468,16 +468,16 @@ English summary: Extract window management into a cross-platform `WindowManager`
 - In `PlatformModule::initialize()` für Linux/X11 fehlt eine Prüfung auf EWMH-kompatiblen Fenstermanager.
 
 **Phase 1 – Core-Trait + Inventory-Registrierung:**
-- [ ] `WindowManager`-Trait in `platynui-core::platform` definieren:
+- [x] `WindowManager`-Trait in `platynui-core::platform` definieren:
   - `name() -> &'static str`
   - `resolve_window(&dyn UiNode) -> Result<WindowId, PlatformError>` – inspiziert native Attribute der UiNode
   - `bounds(WindowId) -> Result<Rect, PlatformError>` – echte Screen-Bounds vom WM
   - `is_active(WindowId) -> Result<bool, PlatformError>`
   - `activate(WindowId)`, `close(WindowId)`, `minimize(WindowId)`, `maximize(WindowId)`, `restore(WindowId)`, `move_to(WindowId, Point)`, `resize(WindowId, Size)`
   - `ensure_window_accessible(WindowId) -> Result<(), PlatformError>` – Default-Impl: No-Op. Stellt sicher, dass ein Fenster auf dem aktuellen virtuellen Desktop erreichbar ist (→ `docs/virtual_desktop_switching.md`).
-- [ ] `WindowId` als opaker Typ (`u64` intern, reicht für HWND, XID, Wayland surface IDs).
-- [ ] Registrierungsmakro `register_window_manager!` + Iterator `window_managers()`.
-- [ ] Mock-Implementierung in `platynui-platform-mock` für deterministische Tests.
+- [x] `WindowId` als opaker Typ (`u64` intern, reicht für HWND, XID, Wayland surface IDs).
+- [x] Registrierungsmakro `register_window_manager!` + Iterator `window_managers()`.
+- [x] Mock-Implementierung in `platynui-platform-mock` für deterministische Tests.
 
 **Phase 2 – X11/EWMH-Implementierung (platform-linux-x11):**
 - [ ] `ewmh.rs` aus `provider-atspi` nach `platform-linux-x11` migrieren und als `WindowManager` registrieren.
@@ -495,14 +495,14 @@ English summary: Extract window management into a cross-platform `WindowManager`
 - [ ] Tests: EWMH-Funktionalität über Mock oder Integration.
 
 **Phase 3 – Windows/Win32-Implementierung (platform-windows):**
-- [ ] `WindowManager` in `platform-windows` implementieren.
-- [ ] `resolve_window()`: liest `native:NativeWindowHandle` → HWND.
-- [ ] `bounds()`: `GetWindowRect(hwnd)` → Desktop-Koordinaten.
-- [ ] `is_active()`: `GetForegroundWindow() == hwnd`.
-- [ ] `activate()`: `SetForegroundWindow(hwnd)` + `ShowWindow(SW_RESTORE)` falls minimiert.
-- [ ] `close()`: `PostMessage(WM_CLOSE)`.
-- [ ] `minimize/maximize/restore()`: `ShowWindow(SW_MINIMIZE/SW_MAXIMIZE/SW_RESTORE)`.
-- [ ] `move_to/resize()`: `MoveWindow(hwnd, …)` oder `SetWindowPos(hwnd, …)`.
+- [x] `WindowManager` in `platform-windows` implementieren.
+- [x] `resolve_window()`: liest `native:NativeWindowHandle` → HWND (+ PID-Fallback via `EnumWindows`).
+- [x] `bounds()`: `GetWindowRect(hwnd)` → Desktop-Koordinaten.
+- [x] `is_active()`: `GetForegroundWindow() == hwnd`.
+- [x] `activate()`: `SetForegroundWindow(hwnd)` + `ShowWindow(SW_RESTORE)` falls minimiert + `AttachThreadInput`-Bypass für Foreground-Lock.
+- [x] `close()`: `PostMessageW(WM_CLOSE)`.
+- [x] `minimize/maximize/restore()`: `ShowWindow(SW_MINIMIZE/SW_MAXIMIZE/SW_RESTORE)`.
+- [x] `move_to/resize()`: `SetWindowPos(hwnd, …)`.
 - [ ] `ensure_window_accessible(WindowId)` implementieren:
   - `IVirtualDesktopManager::GetWindowDesktopId(hwnd)` → GUID des Fenster-Desktops.
   - Aktuellen Desktop ermitteln (Foreground-Window → `GetWindowDesktopId`).

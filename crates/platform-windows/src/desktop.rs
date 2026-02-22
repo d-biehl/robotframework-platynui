@@ -64,7 +64,7 @@ unsafe fn enumerate_monitors() -> Result<Vec<MonitorInfo>, PlatformError> {
         _hdc: HDC,
         _rc: *mut RECT,
         lparam: LPARAM,
-    ) -> BOOL {
+    ) -> windows::core::BOOL {
         unsafe {
             let list = &mut *(lparam.0 as *mut Vec<MonitorInfo>);
             let mut infoex: MONITORINFOEXW = MONITORINFOEXW {
@@ -73,7 +73,7 @@ unsafe fn enumerate_monitors() -> Result<Vec<MonitorInfo>, PlatformError> {
             };
             // Windows expects cbSize for MONITORINFO; using MONITORINFOEXW requires setting to its size
             infoex.monitorInfo.cbSize = size_of::<MONITORINFOEXW>() as u32;
-            if GetMonitorInfoW(hmonitor, &mut infoex as *mut MONITORINFOEXW as *mut MONITORINFO) == BOOL(0) {
+            if !GetMonitorInfoW(hmonitor, &mut infoex as *mut MONITORINFOEXW as *mut MONITORINFO).as_bool() {
                 return BOOL(1);
             }
             let r = infoex.monitorInfo.rcMonitor;
