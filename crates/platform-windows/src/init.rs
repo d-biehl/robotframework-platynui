@@ -20,6 +20,11 @@ impl PlatformModule for WindowsPlatform {
     fn initialize(&self) -> Result<(), PlatformError> {
         ensure_dpi_awareness()
     }
+
+    fn shutdown(&self) {
+        tracing::info!("Windows platform shutting down");
+        crate::highlight::shutdown_highlight();
+    }
 }
 
 static DPI_AWARENESS: OnceLock<Result<(), PlatformError>> = OnceLock::new();

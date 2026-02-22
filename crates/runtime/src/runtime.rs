@@ -672,6 +672,10 @@ impl Runtime {
         for provider in &self.providers {
             provider.shutdown();
         }
+        for module in platform_modules() {
+            tracing::debug!(module = module.name(), "shutting down platform module");
+            module.shutdown();
+        }
     }
 
     // refresh_desktop_nodes removed: DesktopNode streams children on-demand from providers

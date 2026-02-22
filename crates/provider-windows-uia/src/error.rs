@@ -13,6 +13,9 @@ pub enum UiaError {
 
     #[error("no clickable point available for element")]
     NoClickablePoint,
+
+    #[error("UIAutomation provider has been shut down")]
+    Shutdown,
 }
 
 impl UiaError {

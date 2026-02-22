@@ -11,6 +11,7 @@ mod connection;
 mod node;
 mod timeout;
 
+use crate::clearable_cell::ClearableCell;
 use crate::connection::connect_a11y_bus;
 use crate::error::AtspiError;
 use crate::node::AtspiNode;
@@ -19,8 +20,9 @@ use atspi_connection::AccessibilityConnection;
 use atspi_proxies::accessible::AccessibleProxy;
 use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::ui::{TechnologyId, UiNode};
-use std::sync::{Arc, LazyLock, OnceLock};
-use tracing::{trace, warn};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
+use tracing::{info, trace, warn};
 use zbus::proxy::CacheProperties;
 
 use crate::timeout::{block_on_timeout_call, block_on_timeout_init};
@@ -49,7 +51,8 @@ impl UiTreeProviderFactory for AtspiFactory {
 
 pub struct AtspiProvider {
     descriptor: &'static ProviderDescriptor,
-    conn: OnceLock<Arc<AccessibilityConnection>>,
+    conn: ClearableCell<Arc<AccessibilityConnection>>,
+    is_shutdown: AtomicBool,
 }
 
 impl AtspiProvider {
@@ -57,22 +60,28 @@ impl AtspiProvider {
         static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
             ProviderDescriptor::new(PROVIDER_ID, PROVIDER_NAME, TechnologyId::from("AT-SPI2"), ProviderKind::Native)
         });
-        Self { descriptor: &DESCRIPTOR, conn: OnceLock::new() }
+        Self { descriptor: &DESCRIPTOR, conn: ClearableCell::new(), is_shutdown: AtomicBool::new(false) }
     }
 
     fn connection(&self) -> Result<Arc<AccessibilityConnection>, AtspiError> {
-        if let Some(conn) = self.conn.get() {
-            return Ok(conn.clone());
+        if self.is_shutdown.load(Ordering::Acquire) {
+            return Err(AtspiError::Shutdown);
         }
-        let conn = Arc::new(connect_a11y_bus()?);
-        let _ = self.conn.set(conn.clone());
-        Ok(self.conn.get().cloned().unwrap_or(conn))
+        self.conn.get_or_try_init(|| Ok(Arc::new(connect_a11y_bus()?)))
     }
 }
 
 impl UiTreeProvider for AtspiProvider {
     fn descriptor(&self) -> &ProviderDescriptor {
         self.descriptor
+    }
+
+    fn shutdown(&self) {
+        if self.is_shutdown.swap(true, Ordering::AcqRel) {
+            return; // already shut down
+        }
+        info!("AT-SPI provider shutting down");
+        self.conn.clear();
     }
 
     fn get_nodes(

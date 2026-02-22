@@ -67,6 +67,24 @@ pub fn raw_walker() -> Result<IUIAutomationTreeWalker, crate::error::UiaError> {
 /// traversal: ProcessId, ControlType, IsControlElement, IsContentElement, AutomationId,
 /// and RuntimeId. Using BuildCache walker methods with this request fetches all properties
 /// in a single cross-process call per element rather than one call per property.
+/// Clears all thread-local COM singletons on the calling thread.
+///
+/// This releases the UIA handle, walker, and cache request so that COM
+/// resources are freed promptly during provider shutdown.  Subsequent calls
+/// to [`uia()`], [`raw_walker()`], or [`traversal_cache_request()`] will
+/// lazily re-create the singletons.
+pub fn clear_thread_local_singletons() {
+    UIA_SINGLETON.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+    RAW_WALKER.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+    TRAVERSAL_CACHE.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+}
+
 pub fn traversal_cache_request() -> Result<IUIAutomationCacheRequest, crate::error::UiaError> {
     let uia = uia()?;
     TRAVERSAL_CACHE.with(|cell| {

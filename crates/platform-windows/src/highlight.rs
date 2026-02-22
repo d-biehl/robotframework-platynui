@@ -1,5 +1,6 @@
 #![allow(clippy::too_many_arguments, clippy::upper_case_acronyms)]
 use std::mem::size_of;
+use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
@@ -27,6 +28,19 @@ static WINDOWS_HIGHLIGHT: WindowsHighlightProvider = WindowsHighlightProvider;
 
 register_highlight_provider!(&WINDOWS_HIGHLIGHT);
 
+/// Shuts down the highlight overlay thread by dropping the channel sender.
+///
+/// The background thread will receive a `Disconnected` error, destroy the
+/// overlay HWND, and exit.  Subsequent highlight requests will return an error.
+pub(crate) fn shutdown_highlight() {
+    if let Ok(mut guard) = OverlayController::global().lock()
+        && let Some(ctrl) = guard.take()
+    {
+        tracing::debug!("highlight overlay controller dropped \u{2014} thread will exit");
+        drop(ctrl);
+    }
+}
+
 pub struct WindowsHighlightProvider;
 
 impl HighlightProvider for WindowsHighlightProvider {
@@ -36,11 +50,11 @@ impl HighlightProvider for WindowsHighlightProvider {
         }
 
         let duration = request.duration;
-        OverlayController::global().show(&request.rects, duration)
+        OverlayController::with(|ctrl| ctrl.show(&request.rects, duration))
     }
 
     fn clear(&self) -> Result<(), PlatformError> {
-        OverlayController::global().clear()
+        OverlayController::with(|ctrl| ctrl.clear())
     }
 }
 
@@ -51,9 +65,22 @@ struct OverlayController {
 }
 
 impl OverlayController {
-    fn global() -> &'static Self {
-        static CTRL: OnceLock<OverlayController> = OnceLock::new();
-        CTRL.get_or_init(OverlayThread::spawn)
+    fn global() -> &'static Mutex<Option<Self>> {
+        static CTRL: OnceLock<Mutex<Option<OverlayController>>> = OnceLock::new();
+        CTRL.get_or_init(|| Mutex::new(Some(OverlayThread::spawn())))
+    }
+
+    fn with<F, R>(f: F) -> Result<R, PlatformError>
+    where
+        F: FnOnce(&Self) -> Result<R, PlatformError>,
+    {
+        let guard = Self::global()
+            .lock()
+            .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight lock poisoned"))?;
+        let ctrl = guard
+            .as_ref()
+            .ok_or_else(|| PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight has been shut down"))?;
+        f(ctrl)
     }
 
     fn show(&self, rects: &[Rect], duration: Option<Duration>) -> Result<(), PlatformError> {

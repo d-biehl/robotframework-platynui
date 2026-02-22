@@ -8,6 +8,7 @@ use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, U
 use platynui_core::register_provider;
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 
 pub const PROVIDER_ID: &str = "windows-uia";
@@ -130,10 +131,15 @@ impl UiTreeProviderFactory for WindowsUiaFactory {
     }
 }
 
-/// Minimal provider skeleton. On Windows this will drive a UIA actor. For now
-/// we return an empty iterator so the crate compiles across targets.
+/// Windows UIAutomation provider.
+///
+/// COM objects live in thread-local storage (see [`crate::com`]).  The
+/// `is_shutdown` flag prevents new queries after [`UiTreeProvider::shutdown`]
+/// has been called and triggers cleanup of the thread-local singletons on
+/// the calling thread.
 pub struct WindowsUiaProvider {
     descriptor: &'static ProviderDescriptor,
+    is_shutdown: AtomicBool,
 }
 
 impl WindowsUiaProvider {
@@ -147,7 +153,10 @@ impl WindowsUiaProvider {
             )
         });
 
-        Self { descriptor: &DESCRIPTOR }
+        Self {
+            descriptor: &DESCRIPTOR,
+            is_shutdown: AtomicBool::new(false),
+        }
     }
 }
 
@@ -156,10 +165,24 @@ impl UiTreeProvider for WindowsUiaProvider {
         self.descriptor
     }
 
+    fn shutdown(&self) {
+        if self.is_shutdown.swap(true, Ordering::AcqRel) {
+            return; // already shut down
+        }
+        tracing::info!("Windows UIAutomation provider shutting down");
+        crate::com::clear_thread_local_singletons();
+    }
+
     fn get_nodes(
         &self,
         parent: Arc<dyn UiNode>,
     ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
+        if self.is_shutdown.load(Ordering::Acquire) {
+            return Err(ProviderError::new(
+                ProviderErrorKind::CommunicationFailure,
+                crate::error::UiaError::Shutdown.to_string(),
+            ));
+        }
         let uia = crate::com::uia()
             .map_err(|e| ProviderError::new(ProviderErrorKind::CommunicationFailure, e.to_string()))?;
 

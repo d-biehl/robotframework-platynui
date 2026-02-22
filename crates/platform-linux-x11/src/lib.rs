@@ -73,6 +73,12 @@ mod init {
             info!("Linux X11 platform initialized");
             Ok(())
         }
+
+        fn shutdown(&self) {
+            info!("Linux X11 platform shutting down");
+            crate::highlight::shutdown_highlight();
+            crate::x11util::shutdown_connection();
+        }
     }
 
     static MODULE: LinuxX11Module = LinuxX11Module;

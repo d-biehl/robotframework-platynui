@@ -13,27 +13,69 @@ pub struct X11Handle {
     pub root: Window,
 }
 
-static X11: OnceLock<Mutex<X11Handle>> = OnceLock::new();
+static X11: OnceLock<Mutex<Option<X11Handle>>> = OnceLock::new();
 
-pub fn connection() -> Result<std::sync::MutexGuard<'static, X11Handle>, PlatformError> {
+pub fn connection() -> Result<X11Guard, PlatformError> {
     let disp = env::var("DISPLAY")
         .map_err(|_| PlatformError::new(PlatformErrorKind::UnsupportedPlatform, "X11 DISPLAY not set"))?;
 
-    if let Some(cell) = X11.get() {
-        return cell
-            .lock()
-            .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "x11 mutex poisoned"));
-    }
-    tracing::debug!(display = %disp, "establishing X11 connection");
-    let (conn, screen_num) =
-        connect_raw(&disp).map_err(|e| PlatformError::new(PlatformErrorKind::InitializationFailed, e))?;
-    let root = conn.setup().roots[screen_num].root;
-    tracing::info!(display = %disp, screen = screen_num, root, "X11 connection established");
-    let _ = X11.set(Mutex::new(X11Handle { conn, root }));
-    X11.get()
-        .expect("just initialised")
+    let cell = X11.get_or_init(|| {
+        tracing::debug!(display = %disp, "establishing X11 connection");
+        match connect_raw(&disp) {
+            Ok((conn, screen_num)) => {
+                let root = conn.setup().roots[screen_num].root;
+                tracing::info!(display = %disp, screen = screen_num, root, "X11 connection established");
+                Mutex::new(Some(X11Handle { conn, root }))
+            }
+            Err(err) => {
+                tracing::error!(display = %disp, %err, "X11 connection failed");
+                Mutex::new(None)
+            }
+        }
+    });
+
+    let guard = cell
         .lock()
-        .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "x11 mutex poisoned"))
+        .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "x11 mutex poisoned"))?;
+
+    if guard.is_none() {
+        return Err(PlatformError::new(
+            PlatformErrorKind::InitializationFailed,
+            "X11 connection not available (shutdown or failed to connect)",
+        ));
+    }
+
+    Ok(X11Guard(guard))
+}
+
+/// RAII guard that dereferences to [`X11Handle`].  Returned by [`connection()`].
+pub struct X11Guard(std::sync::MutexGuard<'static, Option<X11Handle>>);
+
+impl std::ops::Deref for X11Guard {
+    type Target = X11Handle;
+    fn deref(&self) -> &X11Handle {
+        // SAFETY: `connection()` only returns `X11Guard` when the `Option` is `Some`.
+        self.0.as_ref().expect("X11Guard created with None")
+    }
+}
+
+impl std::ops::DerefMut for X11Guard {
+    fn deref_mut(&mut self) -> &mut X11Handle {
+        self.0.as_mut().expect("X11Guard created with None")
+    }
+}
+
+/// Drops the shared X11 connection, closing the file descriptor to the
+/// X display server.  Subsequent calls to [`connection()`] will return an
+/// error.
+pub fn shutdown_connection() {
+    if let Some(cell) = X11.get()
+        && let Ok(mut guard) = cell.lock()
+        && let Some(handle) = guard.take()
+    {
+        tracing::debug!("X11 connection closed");
+        drop(handle);
+    }
 }
 
 pub fn root_window_from(handle: &X11Handle) -> Window {

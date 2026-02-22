@@ -68,6 +68,28 @@ impl<T: Clone> ClearableCell<T> {
         *guard = Some(value.clone());
         value
     }
+
+    /// Like [`get_or_init`](Self::get_or_init), but the initialiser may fail.
+    /// Returns the cached value when present, otherwise calls `f()` which may
+    /// return an error.  On success the value is cached for subsequent calls.
+    pub(crate) fn get_or_try_init<E>(&self, f: impl FnOnce() -> Result<T, E>) -> Result<T, E> {
+        // Fast path: already cached.
+        {
+            let guard = self.0.lock().expect("ClearableCell lock poisoned");
+            if let Some(value) = guard.as_ref() {
+                return Ok(value.clone());
+            }
+        }
+        // Slow path: compute without holding the lock.
+        let value = f()?;
+        let mut guard = self.0.lock().expect("ClearableCell lock poisoned");
+        if let Some(existing) = guard.as_ref() {
+            // Another caller initialised it in the meantime.
+            return Ok(existing.clone());
+        }
+        *guard = Some(value.clone());
+        Ok(value)
+    }
 }
 
 #[cfg(test)]
@@ -124,6 +146,25 @@ mod tests {
         cell.clear();
         let value = cell.get_or_init(|| 99);
         assert_eq!(value, 99);
+    }
+
+    #[test]
+    fn get_or_try_init_ok() {
+        let cell: ClearableCell<i32> = ClearableCell::new();
+        let result: Result<i32, &str> = cell.get_or_try_init(|| Ok(42));
+        assert_eq!(result, Ok(42));
+        // Cached on second call.
+        let result2: Result<i32, &str> = cell.get_or_try_init(|| Ok(99));
+        assert_eq!(result2, Ok(42));
+    }
+
+    #[test]
+    fn get_or_try_init_err() {
+        let cell: ClearableCell<i32> = ClearableCell::new();
+        let result: Result<i32, &str> = cell.get_or_try_init(|| Err("fail"));
+        assert_eq!(result, Err("fail"));
+        // Cell stays empty after error.
+        assert!(!cell.is_set());
     }
 
     #[test]

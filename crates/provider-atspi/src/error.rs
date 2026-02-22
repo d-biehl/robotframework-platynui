@@ -52,6 +52,10 @@ pub enum AtspiError {
     /// A focus request returned `false`.
     #[error("grab_focus returned false")]
     FocusFailed,
+
+    /// The provider has been shut down and can no longer service requests.
+    #[error("AT-SPI provider has been shut down")]
+    Shutdown,
 }
 
 impl AtspiError {
@@ -78,6 +82,7 @@ impl From<AtspiError> for ProviderError {
             AtspiError::NoWindowManager | AtspiError::NodeDropped | AtspiError::FocusFailed => {
                 ProviderErrorKind::UnsupportedOperation
             }
+            AtspiError::Shutdown => ProviderErrorKind::CommunicationFailure,
         };
         ProviderError::new(kind, err.to_string())
     }
