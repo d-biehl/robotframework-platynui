@@ -1,0 +1,13 @@
+# Clippy configuration for the PlatynUI workspace.
+#
+# This file lives at the workspace root and applies to all crates.
+
+# --- Disallowed types ---
+# Prefer std equivalents over once_cell. The once_cell crate was fully replaced
+# by std::sync::{OnceLock, LazyLock} which are stable since Rust 1.70 / 1.80.
+disallowed-types = [
+    { path = "once_cell::sync::Lazy",     reason = "Use std::sync::LazyLock instead (stable since Rust 1.80)" },
+    { path = "once_cell::sync::OnceCell",  reason = "Use std::sync::OnceLock instead (stable since Rust 1.70)" },
+    { path = "once_cell::unsync::Lazy",    reason = "Use std::cell::LazyCell instead (stable since Rust 1.80)" },
+    { path = "once_cell::unsync::OnceCell", reason = "Use std::cell::OnceCell instead (stable since Rust 1.70)" },
+]

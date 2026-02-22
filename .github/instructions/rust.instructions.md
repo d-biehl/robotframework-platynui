@@ -56,6 +56,7 @@ These instructions are based on [The Rust Book](https://doc.rust-lang.org/book/)
 - Don't overuse `clone()`, use borrowing instead of cloning unless ownership transfer is needed.
 - Avoid premature `collect()`, keep iterators lazy until you actually need the collection.
 - Avoid unnecessary allocations—prefer borrowing and zero-copy operations.
+- Before reaching for an external crate, check whether `std` already provides the functionality for the project's `rust-version`. Backport crates whose types are now in the standard library (e.g. `once_cell`, `lazy_static`) must not be used. This is enforced by `clippy::disallowed_types` and `clippy::non_std_lazy_statics` — see `clippy.toml` for the full list.
 
 ## Code Style and Formatting
 

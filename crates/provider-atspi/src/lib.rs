@@ -65,8 +65,6 @@ impl AtspiProvider {
             return Ok(conn.clone());
         }
         let conn = Arc::new(connect_a11y_bus()?);
-        // Another thread may have initialised in the meantime — that's fine,
-        // we just discard our value and use the existing one.
         let _ = self.conn.set(conn.clone());
         Ok(self.conn.get().cloned().unwrap_or(conn))
     }

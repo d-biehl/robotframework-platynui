@@ -4,7 +4,6 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use once_cell::sync::Lazy;
 use platynui_core::provider::ProviderError;
 use platynui_core::ui::attribute_names;
 use platynui_core::ui::identifiers::RuntimeId;
@@ -15,6 +14,7 @@ use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilde
 use platynui_xpath::model::{NodeKind, QName};
 use platynui_xpath::xdm::XdmAtomicValue;
 use platynui_xpath::{self, XdmNode};
+use std::sync::LazyLock;
 use thiserror::Error;
 
 const CONTROL_NS_URI: &str = "urn:platynui:control";
@@ -273,7 +273,7 @@ fn get_or_create_xdm_root(context: &Arc<dyn UiNode>, force_rebuild: bool, cache:
 
 /// Build the static context with PlatynUI namespaces configured.
 fn build_static_context() -> &'static platynui_xpath::engine::runtime::StaticContext {
-    static STATIC_CTX: Lazy<platynui_xpath::engine::runtime::StaticContext> = Lazy::new(|| {
+    static STATIC_CTX: LazyLock<platynui_xpath::engine::runtime::StaticContext> = LazyLock::new(|| {
         StaticContextBuilder::new()
             .with_default_element_namespace(CONTROL_NS_URI)
             .with_namespace("control", CONTROL_NS_URI)
@@ -705,8 +705,8 @@ struct AttributeData {
     qname: QName,
     // Lazy value provider (either direct source or derived component)
     value_kind: ValueKind,
-    value_cell: once_cell::sync::OnceCell<UiValue>,
-    typed_cell: once_cell::sync::OnceCell<Vec<XdmAtomicValue>>,
+    value_cell: std::sync::OnceLock<UiValue>,
+    typed_cell: std::sync::OnceLock<Vec<XdmAtomicValue>>,
 }
 
 // no StaticUiAttribute needed; attributes are sourced from provider or derived lazily
@@ -747,8 +747,8 @@ impl AttributeData {
             name,
             qname,
             value_kind: ValueKind::Source(source),
-            value_cell: once_cell::sync::OnceCell::new(),
-            typed_cell: once_cell::sync::OnceCell::new(),
+            value_cell: std::sync::OnceLock::new(),
+            typed_cell: std::sync::OnceLock::new(),
         }
     }
     fn new_rect_component(
@@ -776,8 +776,8 @@ impl AttributeData {
             name,
             qname,
             value_kind: ValueKind::RectComp { base, comp },
-            value_cell: once_cell::sync::OnceCell::new(),
-            typed_cell: once_cell::sync::OnceCell::new(),
+            value_cell: std::sync::OnceLock::new(),
+            typed_cell: std::sync::OnceLock::new(),
         }
     }
     fn new_point_component(
@@ -803,8 +803,8 @@ impl AttributeData {
             name,
             qname,
             value_kind: ValueKind::PointComp { base, comp },
-            value_cell: once_cell::sync::OnceCell::new(),
-            typed_cell: once_cell::sync::OnceCell::new(),
+            value_cell: std::sync::OnceLock::new(),
+            typed_cell: std::sync::OnceLock::new(),
         }
     }
     fn value(&self) -> UiValue {
@@ -1191,7 +1191,7 @@ impl UiNode for DummyNode {
         String::new()
     }
     fn runtime_id(&self) -> &RuntimeId {
-        static RID: once_cell::sync::OnceCell<RuntimeId> = once_cell::sync::OnceCell::new();
+        static RID: std::sync::OnceLock<RuntimeId> = std::sync::OnceLock::new();
         RID.get_or_init(|| RuntimeId::from("dummy"))
     }
     fn parent(&self) -> Option<std::sync::Weak<dyn UiNode>> {

@@ -111,13 +111,12 @@ mod tests {
     use crate::platform::{PlatformError, PlatformErrorKind};
     use crate::types::{Point, Rect, Size};
     use crate::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode};
-    use once_cell::sync::Lazy;
-    use std::sync::{Arc, Weak};
+    use std::sync::{Arc, LazyLock, Weak};
 
     /// Minimal UiNode stub for unit tests.
     struct MinimalStubNode;
 
-    static STUB_RUNTIME_ID: Lazy<RuntimeId> = Lazy::new(|| RuntimeId::from("stub"));
+    static STUB_RUNTIME_ID: LazyLock<RuntimeId> = LazyLock::new(|| RuntimeId::from("stub"));
 
     impl UiNode for MinimalStubNode {
         fn namespace(&self) -> Namespace {

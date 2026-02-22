@@ -753,10 +753,10 @@ fn evaluate_step(...) -> impl Iterator<...> { ... }
 **Auswirkung**: Signifikant für Anwendungen mit wiederholten Queries (UI-Automation, Batch-Verarbeitung, Datenpipelines).
 
 ```rust
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use dashmap::DashMap;
 
-static EXPR_CACHE: Lazy<DashMap<String, CompiledExpr>> = Lazy::new(DashMap::new);
+static EXPR_CACHE: LazyLock<DashMap<String, CompiledExpr>> = LazyLock::new(DashMap::new);
 
 pub fn compile_cached(xpath: &str) -> Result<&'static CompiledExpr> {
     EXPR_CACHE.entry(xpath.to_string())

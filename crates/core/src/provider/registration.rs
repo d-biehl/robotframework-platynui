@@ -121,7 +121,7 @@ mod tests {
 
     impl UiTreeProviderFactory for DummyFactory {
         fn descriptor(&self) -> &ProviderDescriptor {
-            static DESCRIPTOR: once_cell::sync::Lazy<ProviderDescriptor> = once_cell::sync::Lazy::new(|| {
+            static DESCRIPTOR: std::sync::LazyLock<ProviderDescriptor> = std::sync::LazyLock::new(|| {
                 ProviderDescriptor::new(
                     "dummy-factory",
                     "Dummy Factory",

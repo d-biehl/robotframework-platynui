@@ -99,6 +99,7 @@ Rust suite: ~1700 tests across all crates, runs in <15s. Prefer small, determini
 Python: Modify `pyproject.toml`, then ALWAYS `uv sync` (committing both the modified `pyproject.toml` and updated `uv.lock`).
 Rust: Add dependencies to the crate's own `Cargo.toml`; build to regenerate `Cargo.lock`. Do NOT use `[workspace.dependencies]` for `tracing` (maturin incompatibility). Never hand‑edit lock files.
 Avoid adding heavyweight dependencies without clear need; prefer standard library first.
+Before pulling in an external crate, check whether the functionality already exists in `std` for the workspace's `rust-version` (see `Cargo.toml`). Many popular crates (e.g. `once_cell`, `lazy_static`) were backports that are now superseded by stable `std` equivalents. Violations are caught by `clippy::disallowed_types` and `clippy::non_std_lazy_statics` (see `clippy.toml` for the full list).
 
 ## 10. Common Pitfalls / Remedies
 Missing ruff binary: use `uv run ruff check` (works without standalone install) or `uv tool install ruff` if needed globally.

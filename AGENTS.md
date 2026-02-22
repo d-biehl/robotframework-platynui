@@ -43,7 +43,7 @@ Generated artefacts such as `target/`, `.venv/`, `.vscode/`, build caches, and w
 
 ## Coding Style & Naming Conventions
 - Rust 2024 defaults: modules/files `snake_case`, types `CamelCase`, constants `SCREAMING_SNAKE_CASE`.
-- Workspace lints (enforced via root `Cargo.toml`): `unsafe_code = "forbid"`, `unused_must_use = "deny"`, `clippy::pedantic = "warn"`, `clippy::cargo = "warn"`. `rustfmt.toml` sets `max_width = 120`.
+- Workspace lints (enforced via root `Cargo.toml`): `unsafe_code = "forbid"`, `unused_must_use = "deny"`, `clippy::pedantic = "warn"`, `clippy::cargo = "warn"`, `clippy::disallowed_types = "deny"`, `clippy::non_std_lazy_statics = "deny"`. `rustfmt.toml` sets `max_width = 120`. Before adding an external crate, check whether `std` already provides the functionality for the workspace's `rust-version`. Backport crates whose types are now in `std` (e.g. `once_cell`, `lazy_static`) are forbidden — see `clippy.toml` for the full list.
 - Crate/package names in the Cargo workspace must start with `platynui-` in `Cargo.toml` (directory names may be shorter, e.g., `crates/runtime`). Exception: the Maturin-based Python native package lives outside the Cargo workspace and uses `platynui_native` to follow Python packaging conventions.
 - Error handling: Prefer `thiserror` for new error enums (see `crates/runtime/src/pointer.rs`); keep consistency with existing patterns in core/xpath/runtime.
 - XPath/Modeling: default namespace `control`, with additional `item`, `app`, and `native` as needed. Attributes use PascalCase (e.g., `Bounds`, `IsFocused`, `ActivationPoint`).

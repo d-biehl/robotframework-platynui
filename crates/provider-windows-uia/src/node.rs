@@ -2,7 +2,7 @@
 //!
 //! UiaNode reflects the current UIA state; no heavy provider‑side caches.
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex, Weak};
 // no name cache atomics needed
 
@@ -58,16 +58,16 @@ unsafe impl Sync for WaitForInputIdleChecker {}
 pub struct UiaNode {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
-    self_weak: once_cell::sync::OnceCell<Weak<dyn UiNode>>,
+    self_weak: std::sync::OnceLock<Weak<dyn UiNode>>,
     // Minimal identity caches required by trait return types
-    rid_cell: once_cell::sync::OnceCell<RuntimeId>,
+    rid_cell: std::sync::OnceLock<RuntimeId>,
     id_scope: crate::map::UiaIdScope,
     // Cached: does window/transform pattern exist? Avoids repeated COM calls.
-    has_window_surface: once_cell::sync::OnceCell<bool>,
+    has_window_surface: std::sync::OnceLock<bool>,
     // Cached namespace, control type, and automation id — avoid repeated cross-process COM calls.
-    ns_cell: once_cell::sync::OnceCell<Namespace>,
-    ct_cell: once_cell::sync::OnceCell<i32>,
-    id_cell: once_cell::sync::OnceCell<Option<String>>,
+    ns_cell: std::sync::OnceLock<Namespace>,
+    ct_cell: std::sync::OnceLock<i32>,
+    id_cell: std::sync::OnceLock<Option<String>>,
 }
 unsafe impl Send for UiaNode {}
 unsafe impl Sync for UiaNode {}
@@ -80,13 +80,13 @@ impl UiaNode {
         Arc::new(Self {
             elem,
             parent: Mutex::new(None),
-            self_weak: once_cell::sync::OnceCell::new(),
-            rid_cell: once_cell::sync::OnceCell::new(),
+            self_weak: std::sync::OnceLock::new(),
+            rid_cell: std::sync::OnceLock::new(),
             id_scope: scope,
-            has_window_surface: once_cell::sync::OnceCell::new(),
-            ns_cell: once_cell::sync::OnceCell::new(),
-            ct_cell: once_cell::sync::OnceCell::new(),
-            id_cell: once_cell::sync::OnceCell::new(),
+            has_window_surface: std::sync::OnceLock::new(),
+            ns_cell: std::sync::OnceLock::new(),
+            ct_cell: std::sync::OnceLock::new(),
+            id_cell: std::sync::OnceLock::new(),
         })
     }
     pub fn set_parent(&self, parent: &Arc<dyn UiNode>) {
@@ -434,7 +434,7 @@ impl ElementChildrenIter {
         Some(elem)
     }
 
-    /// Eagerly populate a UiaNode's OnceCell caches from the element's cached properties,
+    /// Eagerly populate a UiaNode's `OnceLock` caches from the element's cached properties,
     /// avoiding separate cross-process COM calls later.
     fn populate_cached_properties(node: &UiaNode) {
         let elem = &node.elem;
@@ -494,7 +494,7 @@ impl Iterator for ElementChildrenIter {
 }
 
 // Cache current process id once for the entire module; process id is stable for the process lifetime.
-static SELF_PID: Lazy<i32> = Lazy::new(|| std::process::id() as i32);
+static SELF_PID: LazyLock<i32> = LazyLock::new(|| std::process::id() as i32);
 
 struct RoleAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -1219,9 +1219,9 @@ pub struct ApplicationNode {
     pid: i32,
     root: windows::Win32::UI::Accessibility::IUIAutomationElement,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
-    self_weak: once_cell::sync::OnceCell<Weak<dyn UiNode>>,
-    rid_cell: once_cell::sync::OnceCell<RuntimeId>,
-    name_cell: once_cell::sync::OnceCell<String>,
+    self_weak: std::sync::OnceLock<Weak<dyn UiNode>>,
+    rid_cell: std::sync::OnceLock<RuntimeId>,
+    name_cell: std::sync::OnceLock<String>,
 }
 unsafe impl Send for ApplicationNode {}
 unsafe impl Sync for ApplicationNode {}
@@ -1236,9 +1236,9 @@ impl ApplicationNode {
             pid,
             root,
             parent: Mutex::new(Some(Arc::downgrade(parent))),
-            self_weak: once_cell::sync::OnceCell::new(),
-            rid_cell: once_cell::sync::OnceCell::new(),
-            name_cell: once_cell::sync::OnceCell::new(),
+            self_weak: std::sync::OnceLock::new(),
+            rid_cell: std::sync::OnceLock::new(),
+            name_cell: std::sync::OnceLock::new(),
         });
         let arc: Arc<dyn UiNode> = node.clone();
         let _ = node.self_weak.set(Arc::downgrade(&arc));

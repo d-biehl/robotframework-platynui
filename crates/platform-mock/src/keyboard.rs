@@ -1,5 +1,5 @@
-use once_cell::sync::Lazy;
 use platynui_core::platform::{KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent};
+use std::sync::LazyLock;
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -218,7 +218,7 @@ const NAMED_KEYS: &[NamedKey] = &[
     NamedKey { canonical: "F12", aliases: &["F12"] },
 ];
 
-static NAMED_LOOKUP: Lazy<Vec<(&'static str, KeyCode)>> = Lazy::new(|| {
+static NAMED_LOOKUP: LazyLock<Vec<(&'static str, KeyCode)>> = LazyLock::new(|| {
     NAMED_KEYS.iter().map(|entry| (entry.canonical, KeyCode::new(MockKeyCode::named(entry.canonical)))).collect()
 });
 
@@ -257,13 +257,13 @@ fn resolve_symbol_alias(input: &str) -> Option<KeyCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use once_cell::sync::Lazy;
     use platynui_core::platform::{KeyState, KeyboardEvent, keyboard_devices};
     use rstest::rstest;
+    use std::sync::LazyLock;
     use std::sync::Mutex;
 
     // Serialize tests that touch the global MOCK_KEYBOARD state to avoid races.
-    static TEST_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+    static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     #[rstest]
     fn keyboard_device_not_auto_registered() {

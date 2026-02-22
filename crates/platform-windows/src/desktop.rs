@@ -125,7 +125,7 @@ unsafe fn monitor_friendly_name(infoex: &MONITORINFOEXW) -> Option<String> {
     None
 }
 
-static FRIENDLY_NAMES: once_cell::sync::OnceCell<HashMap<String, String>> = once_cell::sync::OnceCell::new();
+static FRIENDLY_NAMES: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
 
 fn build_friendly_name_map() -> HashMap<String, String> {
     // Map from "\\\.\DISPLAYn" → "Friendly Monitor Name"

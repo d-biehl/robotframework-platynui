@@ -1,7 +1,7 @@
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use std::sync::LazyLock;
 
 /// Known namespaces within the PlatynUI document model.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -54,7 +54,7 @@ impl FromStr for Namespace {
     }
 }
 
-static PREFIX_LOOKUP: Lazy<HashMap<&'static str, Namespace>> = Lazy::new(|| {
+static PREFIX_LOOKUP: LazyLock<HashMap<&'static str, Namespace>> = LazyLock::new(|| {
     let mut map = HashMap::with_capacity(4);
     map.insert("control", Namespace::Control);
     map.insert("item", Namespace::Item);

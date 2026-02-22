@@ -1,8 +1,8 @@
 #![cfg(target_os = "windows")]
-use once_cell::sync::OnceCell;
 use platynui_core::types::Point as UiPoint;
 use platynui_core::types::Rect;
 use platynui_core::ui::UiValue;
+use std::sync::OnceLock;
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Foundation::POINT;
@@ -495,7 +495,7 @@ struct CategorizedCatalog {
 /// availability-check property. Any property ID not covered by a known
 /// pattern group is treated as a base property.
 fn categorized_catalog() -> &'static CategorizedCatalog {
-    static INSTANCE: OnceCell<CategorizedCatalog> = OnceCell::new();
+    static INSTANCE: OnceLock<CategorizedCatalog> = OnceLock::new();
     INSTANCE.get_or_init(|| {
         use std::collections::HashMap;
 
@@ -752,7 +752,7 @@ pub fn collect_native_properties(elem: &IUIAutomationElement) -> Vec<(String, Ui
 pub fn get_native_property_by_name(elem: &IUIAutomationElement, prop_name: &str) -> Option<(String, UiValue)> {
     use std::collections::HashMap;
 
-    static NAME_TO_ID: OnceCell<HashMap<String, UIA_PROPERTY_ID>> = OnceCell::new();
+    static NAME_TO_ID: OnceLock<HashMap<String, UIA_PROPERTY_ID>> = OnceLock::new();
     let map = NAME_TO_ID.get_or_init(|| {
         let mut m = HashMap::new();
         if let Ok(uia) = crate::com::uia() {

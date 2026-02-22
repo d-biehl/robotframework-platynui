@@ -3,18 +3,18 @@ use std::sync::Arc;
 // Windows UIAutomation provider: registers the UIA technology and streams root
 // children via the RawView walker (no FindAll/CacheRequest).
 
-use once_cell::sync::Lazy;
 use platynui_core::provider::ProviderErrorKind;
 use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::register_provider;
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
 pub const PROVIDER_ID: &str = "windows-uia";
 pub const PROVIDER_NAME: &str = "Windows UIAutomation";
-pub static TECHNOLOGY: Lazy<TechnologyId> = Lazy::new(|| TechnologyId::from("UIAutomation"));
+pub static TECHNOLOGY: LazyLock<TechnologyId> = LazyLock::new(|| TechnologyId::from("UIAutomation"));
 // Cache current process id once for the entire module; stable for process lifetime.
-static SELF_PID: Lazy<i32> = Lazy::new(|| std::process::id() as i32);
+static SELF_PID: LazyLock<i32> = LazyLock::new(|| std::process::id() as i32);
 
 // Streams root children (excluding this process), then one app:Application per PID.
 struct ElementAndAppIter {

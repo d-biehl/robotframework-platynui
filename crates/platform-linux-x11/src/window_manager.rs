@@ -6,12 +6,12 @@
 //! manage native windows without a direct `x11rb` dependency.
 
 use crate::x11util;
-use once_cell::sync::OnceCell;
 use platynui_core::platform::{PlatformError, PlatformErrorKind, WindowId, WindowManager};
 use platynui_core::register_window_manager;
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, UiNode};
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use tracing::{debug, trace, warn};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
@@ -38,7 +38,7 @@ struct EwmhAtoms {
     utf8_string: Atom,
 }
 
-static ATOMS: OnceCell<Mutex<EwmhAtoms>> = OnceCell::new();
+static ATOMS: OnceLock<Mutex<EwmhAtoms>> = OnceLock::new();
 
 fn intern(conn: &RustConnection, name: &[u8]) -> Result<Atom, PlatformError> {
     conn.intern_atom(false, name)
@@ -49,26 +49,33 @@ fn intern(conn: &RustConnection, name: &[u8]) -> Result<Atom, PlatformError> {
 }
 
 fn atoms() -> Result<std::sync::MutexGuard<'static, EwmhAtoms>, PlatformError> {
-    let cell = ATOMS.get_or_try_init(|| {
-        let guard = x11util::connection()?;
-        let conn = &guard.conn;
-        let a = EwmhAtoms {
-            net_client_list: intern(conn, b"_NET_CLIENT_LIST")?,
-            net_wm_pid: intern(conn, b"_NET_WM_PID")?,
-            net_active_window: intern(conn, b"_NET_ACTIVE_WINDOW")?,
-            net_close_window: intern(conn, b"_NET_CLOSE_WINDOW")?,
-            net_wm_state: intern(conn, b"_NET_WM_STATE")?,
-            net_wm_state_maximized_vert: intern(conn, b"_NET_WM_STATE_MAXIMIZED_VERT")?,
-            net_wm_state_maximized_horz: intern(conn, b"_NET_WM_STATE_MAXIMIZED_HORZ")?,
-            net_wm_state_hidden: intern(conn, b"_NET_WM_STATE_HIDDEN")?,
-            net_supporting_wm_check: intern(conn, b"_NET_SUPPORTING_WM_CHECK")?,
-            net_supported: intern(conn, b"_NET_SUPPORTED")?,
-            net_wm_name: intern(conn, b"_NET_WM_NAME")?,
-            utf8_string: intern(conn, b"UTF8_STRING")?,
-        };
-        Ok::<Mutex<EwmhAtoms>, PlatformError>(Mutex::new(a))
-    })?;
-    cell.lock().map_err(|_| PlatformError::new(PlatformErrorKind::OperationFailed, "EWMH atoms mutex poisoned"))
+    if let Some(cell) = ATOMS.get() {
+        return cell
+            .lock()
+            .map_err(|_| PlatformError::new(PlatformErrorKind::OperationFailed, "EWMH atoms mutex poisoned"));
+    }
+    let guard = x11util::connection()?;
+    let conn = &guard.conn;
+    let a = EwmhAtoms {
+        net_client_list: intern(conn, b"_NET_CLIENT_LIST")?,
+        net_wm_pid: intern(conn, b"_NET_WM_PID")?,
+        net_active_window: intern(conn, b"_NET_ACTIVE_WINDOW")?,
+        net_close_window: intern(conn, b"_NET_CLOSE_WINDOW")?,
+        net_wm_state: intern(conn, b"_NET_WM_STATE")?,
+        net_wm_state_maximized_vert: intern(conn, b"_NET_WM_STATE_MAXIMIZED_VERT")?,
+        net_wm_state_maximized_horz: intern(conn, b"_NET_WM_STATE_MAXIMIZED_HORZ")?,
+        net_wm_state_hidden: intern(conn, b"_NET_WM_STATE_HIDDEN")?,
+        net_supporting_wm_check: intern(conn, b"_NET_SUPPORTING_WM_CHECK")?,
+        net_supported: intern(conn, b"_NET_SUPPORTED")?,
+        net_wm_name: intern(conn, b"_NET_WM_NAME")?,
+        utf8_string: intern(conn, b"UTF8_STRING")?,
+    };
+    let _ = ATOMS.set(Mutex::new(a));
+    ATOMS
+        .get()
+        .expect("just initialised")
+        .lock()
+        .map_err(|_| PlatformError::new(PlatformErrorKind::OperationFailed, "EWMH atoms mutex poisoned"))
 }
 
 // ---------------------------------------------------------------------------

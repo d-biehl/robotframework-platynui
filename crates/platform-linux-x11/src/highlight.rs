@@ -1,11 +1,11 @@
 use crate::x11util::connect_raw;
-use once_cell::sync::OnceCell;
 use platynui_core::platform::{
     HighlightProvider, HighlightRequest, PlatformError, PlatformErrorKind, desktop_info_providers,
 };
 use platynui_core::register_highlight_provider;
 use platynui_core::types::Rect;
 use std::env;
+use std::sync::OnceLock;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -36,7 +36,7 @@ struct OverlayController {
 
 impl OverlayController {
     fn global() -> &'static Self {
-        static CTRL: OnceCell<OverlayController> = OnceCell::new();
+        static CTRL: OnceLock<OverlayController> = OnceLock::new();
         CTRL.get_or_init(OverlayThread::spawn)
     }
 

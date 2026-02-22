@@ -148,8 +148,7 @@ mod geometry_tests {
     use super::*;
     use crate::types::{Point, Rect};
     use crate::ui::{Namespace, UiAttribute};
-    use once_cell::sync::Lazy;
-    use std::sync::Arc;
+    use std::sync::{Arc, LazyLock};
 
     const ELEMENT_EXPECTATIONS: [AttributeExpectation; 1] =
         [AttributeExpectation::required(Namespace::Control, crate::ui::attribute_names::element::BOUNDS)];
@@ -214,8 +213,8 @@ mod geometry_tests {
         }
 
         fn runtime_id(&self) -> &crate::ui::identifiers::RuntimeId {
-            static RID: Lazy<crate::ui::identifiers::RuntimeId> =
-                Lazy::new(|| crate::ui::identifiers::RuntimeId::from("node"));
+            static RID: LazyLock<crate::ui::identifiers::RuntimeId> =
+                LazyLock::new(|| crate::ui::identifiers::RuntimeId::from("node"));
             &RID
         }
 

@@ -1,7 +1,7 @@
-use once_cell::sync::OnceCell;
 use platynui_core::platform::{PlatformError, PlatformErrorKind};
 use std::env;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::sync::mpsc;
 use std::time::Duration;
 use x11rb::connection::Connection;
@@ -13,21 +13,27 @@ pub struct X11Handle {
     pub root: Window,
 }
 
-static X11: OnceCell<Mutex<X11Handle>> = OnceCell::new();
+static X11: OnceLock<Mutex<X11Handle>> = OnceLock::new();
 
 pub fn connection() -> Result<std::sync::MutexGuard<'static, X11Handle>, PlatformError> {
     let disp = env::var("DISPLAY")
         .map_err(|_| PlatformError::new(PlatformErrorKind::UnsupportedPlatform, "X11 DISPLAY not set"))?;
 
-    let cell = X11.get_or_try_init(|| {
-        tracing::debug!(display = %disp, "establishing X11 connection");
-        let (conn, screen_num) =
-            connect_raw(&disp).map_err(|e| PlatformError::new(PlatformErrorKind::InitializationFailed, e))?;
-        let root = conn.setup().roots[screen_num].root;
-        tracing::info!(display = %disp, screen = screen_num, root, "X11 connection established");
-        Ok::<Mutex<X11Handle>, PlatformError>(Mutex::new(X11Handle { conn, root }))
-    })?;
-    cell.lock().map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "x11 mutex poisoned"))
+    if let Some(cell) = X11.get() {
+        return cell
+            .lock()
+            .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "x11 mutex poisoned"));
+    }
+    tracing::debug!(display = %disp, "establishing X11 connection");
+    let (conn, screen_num) =
+        connect_raw(&disp).map_err(|e| PlatformError::new(PlatformErrorKind::InitializationFailed, e))?;
+    let root = conn.setup().roots[screen_num].root;
+    tracing::info!(display = %disp, screen = screen_num, root, "X11 connection established");
+    let _ = X11.set(Mutex::new(X11Handle { conn, root }));
+    X11.get()
+        .expect("just initialised")
+        .lock()
+        .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "x11 mutex poisoned"))
 }
 
 pub fn root_window_from(handle: &X11Handle) -> Window {

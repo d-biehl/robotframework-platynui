@@ -29,7 +29,7 @@ mod init {
 
         fn initialize(&self) -> Result<(), PlatformError> {
             // Eagerly establish the shared X11 connection. This populates the
-            // OnceCell singleton in x11util so subsequent device calls don't
+            // OnceLock singleton in x11util so subsequent device calls don't
             // encounter a cold-start surprise.
             let guard = crate::x11util::connection()?;
 

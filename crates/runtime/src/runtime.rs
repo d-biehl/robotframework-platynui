@@ -1,7 +1,6 @@
-use once_cell::sync::OnceCell;
 use std::collections::BTreeMap;
 use std::sync::{
-    Arc, Mutex, Weak,
+    Arc, Mutex, OnceLock, Weak,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
@@ -757,7 +756,7 @@ struct DesktopNode {
     attributes: Vec<Arc<dyn UiAttribute>>,
     supported: Vec<PatternId>,
     providers: Vec<Arc<dyn UiTreeProvider>>,
-    self_weak: OnceCell<Weak<dyn UiNode>>,
+    self_weak: OnceLock<Weak<dyn UiNode>>,
 }
 
 impl DesktopNode {
@@ -804,7 +803,7 @@ impl DesktopNode {
             UiValue::Array(info.monitors.iter().map(monitor_to_value).collect()),
         ));
 
-        Arc::new(Self { info, attributes, supported, providers, self_weak: OnceCell::new() })
+        Arc::new(Self { info, attributes, supported, providers, self_weak: OnceLock::new() })
     }
 
     fn info(&self) -> &DesktopInfo {

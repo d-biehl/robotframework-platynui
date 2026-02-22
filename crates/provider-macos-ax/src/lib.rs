@@ -5,20 +5,20 @@
 //! `Runtime::new_with_factories(&[&MACOS_AX_FACTORY])`. The actual
 //! AXUIElement-backed implementation will be added incrementally.
 
-use once_cell::sync::Lazy;
 use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 pub const PROVIDER_ID: &str = "macos-ax";
 pub const PROVIDER_NAME: &str = "macOS Accessibility";
-pub static TECHNOLOGY: Lazy<TechnologyId> = Lazy::new(|| TechnologyId::from("AX"));
+pub static TECHNOLOGY: LazyLock<TechnologyId> = LazyLock::new(|| TechnologyId::from("AX"));
 
 pub struct MacOsAxFactory;
 
 impl UiTreeProviderFactory for MacOsAxFactory {
     fn descriptor(&self) -> &ProviderDescriptor {
-        static DESCRIPTOR: Lazy<ProviderDescriptor> = Lazy::new(|| {
+        static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
             ProviderDescriptor::new(PROVIDER_ID, PROVIDER_NAME, TechnologyId::from("AX"), ProviderKind::Native)
         });
         &DESCRIPTOR
@@ -35,7 +35,7 @@ struct MacOsAxProvider {
 
 impl MacOsAxProvider {
     fn new() -> Self {
-        static DESCRIPTOR: Lazy<ProviderDescriptor> = Lazy::new(|| {
+        static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
             ProviderDescriptor::new(PROVIDER_ID, PROVIDER_NAME, TechnologyId::from("AX"), ProviderKind::Native)
         });
         Self { descriptor: &DESCRIPTOR }
