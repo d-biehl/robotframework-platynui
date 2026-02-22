@@ -113,9 +113,10 @@ Codeaufteilung
 - `provider.rs`: Factory + `get_nodes(...)` für Desktop‑Kinder via `ElementChildrenIter` (Root‑Element → erster Desktop → dessen Kinder). Keine ControlView/FindAll.
 
 ## Fehlerabbildung & Shutdown
-- Interne UIA‑Aufrufe: typisierter `UiaError` (thiserror), u. a. `Api { context, message }`, `ComInit`, `Null`.
-- Provider‑Boundary: Abbildung auf `ProviderError`‑Varianten (z. B. `CommunicationFailure { context }`). Pattern‑Aufrufe melden `PatternError` mit klaren Meldungen.
-- Shutdown: Actor beendet, UIA‑Objekte freigegeben, `CoUninitialize` gerufen.
+- Interne UIA‑Aufrufe: typisierter `UiaError` (thiserror), u. a. `Api { context, message }`, `ComInit`, `Null`, `Shutdown`.
+- Provider‑Boundary: Abbildung auf `ProviderError`‑Varianten (z. B. `CommunicationFailure { context }`). Pattern‑Aufrufe melden `PatternError` mit klaren Meldungen.
+- Provider‑Shutdown (`UiTreeProvider::shutdown()`): `AtomicBool`‑Guard verhindert doppeltes Shutdown. COM thread‑lokale Singletons (`IUIAutomation`, `IUIAutomationTreeWalker`, `IUIAutomationCacheRequest`) werden per `clear_thread_local_singletons()` freigegeben. Nachfolgende `get_nodes()`‑Aufrufe liefern `UiaError::Shutdown`.
+- Plattform‑Shutdown (`PlatformModule::shutdown()`): Highlight‑Overlay‑Controller per `Mutex<Option<T>>::take()` droppen → `mpsc::Sender`-Drop beendet den Overlay‑Thread, der die HWND zerstört. Kein explizites `CoUninitialize` – COM wird prozessweit via Singletons gehalten und beim Prozessende aufgeräumt.
 
 ## Akzeptanzkriterien (Slice 1)
 - Build/Tests auf Windows erfolgreich; Provider registriert.

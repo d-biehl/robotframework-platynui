@@ -5,6 +5,7 @@ English summary: This plan scopes and phases the Linux/X11 enablement for Platyn
 Status: Draft (2025‑11‑05)
 Update (2026‑02‑03): Phase‑1 Geräte (DesktopInfo/Pointer/Screenshot/Highlight) implementiert; Keyboard + `PlatformModule::initialize()` offen; AT‑SPI Provider weiterhin Stub; CLI `query`/`snapshot` warten auf Phase 2.
 Update (2026‑02‑04): AT‑SPI Provider‑Grundgerüst umgesetzt (atspi‑connection, Rollen‑/Namespace‑Mapping inkl. `app`, Component‑gated Standard‑Attribute, Streaming‑Attribute, umfangreiche Native‑Interface‑Attribute). Events/WindowSurface/Tests bleiben offen.Update (2026‑02‑17): `PlatformModule::initialize()` implementiert. XInitThreads entfällt (x11rb nutzt `RustConnection`, kein libX11). Eager Connection + Extension‑Probing (XTEST kritisch, RANDR optional). Logging via `tracing`. Keyboard bleibt offen.
+Update (2026‑02‑22): `PlatformModule::shutdown()` implementiert. X11‑Connection und Highlight‑Thread werden beim Shutdown deterministisch freigegeben. `Mutex<Option<T>>`‑Pattern ermöglicht `take()` trotz `OnceLock`‑Statics. AT‑SPI Provider: `ClearableCell`‑basierte Connection mit `AtomicBool` Shutdown‑Guard.
 Owner: Runtime/Providers Team
 
 ---
@@ -91,6 +92,11 @@ Nicht‑Ziele (für den ersten Wurf)
   - Root‑Window `XGetImage` (RGBA) für Region; später optional XShm
 - [x] `HighlightProvider`
   - Override‑Redirect Segment‑Fenster (solid rot, Dash bei Clipping), `clear()` schließt Overlay; Timer im Provider‑Thread
+  - Overlay‑Controller nutzt `Mutex<Option<OverlayController>>` statt `OnceLock` direkt, damit `shutdown()` den Sender droppen und den Thread beenden kann
+- [x] `PlatformModule::shutdown()`
+  - Highlight‑Thread: Controller per `take()` droppen → Sender‑Drop → Thread empfängt `Disconnected`, zerstört Overlay‑Fenster, beendet sich
+  - X11‑Connection: Handle per `take()` droppen → FD zum X‑Server geschlossen
+  - Nachfolgende Zugriffe liefern klare Fehler statt stiller Neuverbindung
 - [ ] Unit‑Tests (so weit headless möglich):
   - Registrierung via `inventory` (keine echte Server‑Verbindung)
   - Konvertierungsfunktionen (Keynames/Buttons)
