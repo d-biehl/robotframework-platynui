@@ -114,7 +114,7 @@ pub struct WindowsUiaFactory;
 
 impl UiTreeProviderFactory for WindowsUiaFactory {
     fn descriptor(&self) -> &ProviderDescriptor {
-        static DESCRIPTOR: Lazy<ProviderDescriptor> = Lazy::new(|| {
+        static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
             ProviderDescriptor::new(
                 PROVIDER_ID,
                 PROVIDER_NAME,
@@ -138,7 +138,7 @@ pub struct WindowsUiaProvider {
 
 impl WindowsUiaProvider {
     fn new() -> Self {
-        static DESCRIPTOR: Lazy<ProviderDescriptor> = Lazy::new(|| {
+        static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
             ProviderDescriptor::new(
                 PROVIDER_ID,
                 PROVIDER_NAME,
