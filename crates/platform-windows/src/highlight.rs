@@ -77,9 +77,9 @@ impl OverlayController {
         let guard = Self::global()
             .lock()
             .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight lock poisoned"))?;
-        let ctrl = guard
-            .as_ref()
-            .ok_or_else(|| PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight has been shut down"))?;
+        let ctrl = guard.as_ref().ok_or_else(|| {
+            PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight has been shut down")
+        })?;
         f(ctrl)
     }
 

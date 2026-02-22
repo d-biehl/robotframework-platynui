@@ -8,8 +8,8 @@ use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, U
 use platynui_core::register_provider;
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub const PROVIDER_ID: &str = "windows-uia";
 pub const PROVIDER_NAME: &str = "Windows UIAutomation";
@@ -153,10 +153,7 @@ impl WindowsUiaProvider {
             )
         });
 
-        Self {
-            descriptor: &DESCRIPTOR,
-            is_shutdown: AtomicBool::new(false),
-        }
+        Self { descriptor: &DESCRIPTOR, is_shutdown: AtomicBool::new(false) }
     }
 }
 

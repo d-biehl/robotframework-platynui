@@ -34,9 +34,8 @@ pub fn connection() -> Result<X11Guard, PlatformError> {
         }
     });
 
-    let guard = cell
-        .lock()
-        .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "x11 mutex poisoned"))?;
+    let guard =
+        cell.lock().map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "x11 mutex poisoned"))?;
 
     if guard.is_none() {
         return Err(PlatformError::new(
