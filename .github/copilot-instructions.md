@@ -20,10 +20,9 @@ Rust crates (`crates/`):
   - `xpath` — XPath engine: parser/, compiler/, evaluator, runtime, functions, xdm
   - `runtime` — provider/device orchestration, XPath pipeline, focus/window actions
   - `cli` — CLI for queries, highlight, keyboard/pointer, diagnostics
-  - `server` — JSON-RPC façade (stub)
   - `link` — dynamic linking utilities for platform providers
   - `platform-{windows,linux-x11,macos,mock}` — OS device bundles, highlight/screenshot, desktop info
-  - `provider-{windows-uia,atspi,macos-ax,jsonrpc,mock}` — UiTreeProvider implementations
+  - `provider-{windows-uia,atspi,macos-ax,mock}` — UiTreeProvider implementations
   - `playground` — experiments, not API source
 
 Apps (`apps/`):

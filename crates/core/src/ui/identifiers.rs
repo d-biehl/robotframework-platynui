@@ -77,7 +77,7 @@ impl From<Arc<str>> for TechnologyId {
     }
 }
 
-/// Identifies capability patterns (see `docs/patterns.md`).
+/// Identifies capability patterns (see `docs/architecture.md` §6).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PatternId(Arc<str>);
 

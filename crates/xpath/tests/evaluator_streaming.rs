@@ -429,7 +429,7 @@ fn streaming_cancellation_triggers_error() {
 }
 
 // ============================================================================
-// Critical Streaming Tests (Priority 1 from xpath_streaming_analysis.md)
+// Critical Streaming Tests (Priority 1 from XPath streaming analysis)
 // ============================================================================
 
 /// Test that streaming stops after finding the first result.
@@ -470,7 +470,7 @@ fn streaming_early_termination_first_match() {
 ///
 /// **CURRENTLY DISABLED**: This test takes >60 seconds because the `1 to N`
 /// range operation currently materializes the entire sequence instead of
-/// streaming it. This is a known limitation documented in xpath_streaming_analysis.md
+/// streaming it. This is a known limitation (see docs/planning.md §6)
 /// and should be fixed as part of the "Range Streaming" optimization.
 ///
 /// **TODO**: Re-enable this test after implementing lazy range evaluation.

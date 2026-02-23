@@ -3971,10 +3971,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "platynui-provider-jsonrpc"
-version = "0.12.0-dev.5"
-
-[[package]]
 name = "platynui-provider-macos-ax"
 version = "0.12.0-dev.5"
 dependencies = [
@@ -4024,10 +4020,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
 ]
-
-[[package]]
-name = "platynui-server"
-version = "0.12.0-dev.5"
 
 [[package]]
 name = "platynui-xpath"

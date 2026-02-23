@@ -1,6 +1,6 @@
 //! Windows UIAutomation based UiTree provider.
 //!
-//! Design decisions and scope are documented in `docs/provider_windows_uia_design.md`.
+//! Design decisions and scope are documented in `docs/architecture.md` §10.2.
 //! This module provides a compilable skeleton that wires the provider factory
 //! and exposes lazy iterators for children/attributes. On non‑Windows targets,
 //! the crate builds as a no‑op. On Windows, the implementation will be

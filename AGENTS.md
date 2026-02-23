@@ -7,10 +7,9 @@ This workspace blends Rust crates and Python packages for the Robot Framework-fa
   - `crates/core` → crate `platynui-core` (shared traits/types: UiNode, UiAttribute, UiPattern, registries, platform traits)
   - `crates/xpath` → crate `platynui-xpath` (XPath evaluator, parser helpers, benches/tests)
   - `crates/runtime` → crate `platynui-runtime` (provider/device orchestration, XPath pipeline, focus/window actions)
-  - `crates/server` → crate `platynui-server` (JSON-RPC façade; currently a stub)
   - `crates/link` → crate `platynui-link` (dynamic linking utilities for platform providers)
   - `crates/platform-{windows,linux-x11,macos,mock}` → crates `platynui-platform-*` (OS device bundles, highlight/screenshot, desktop info)
-  - `crates/provider-{windows-uia,atspi,macos-ax,jsonrpc,mock}` → crates `platynui-provider-*` (UiTreeProvider implementations)
+  - `crates/provider-{windows-uia,atspi,macos-ax,mock}` → crates `platynui-provider-*` (UiTreeProvider implementations)
   - `crates/cli` → crate `platynui-cli` (CLI for queries, highlight, keyboard/pointer, diagnostics)
   - `crates/playground` → examples and dev experiments
   - `apps/inspector` → crate `platynui-inspector` (GUI inspector, Slint-based)

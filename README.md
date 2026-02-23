@@ -9,7 +9,7 @@ Cross-platform UI automation for Robot Framework. Early alpha stage.
 
 Install the pre-release packages from PyPI (explicit flags required):
 
-```pwsh
+```sh
 # CLI
 uv pip install --pre robotframework-platynui-cli
 pip install --pre robotframework-platynui-cli
@@ -21,9 +21,11 @@ pip install --pre robotframework-platynui-inspector
 uv tool install --prerelease allow robotframework-platynui-inspector
 ```
 
+> **Note:** The Robot Framework library package (`robotframework-PlatynUI`) is not yet published on PyPI. For local development, see `CONTRIBUTING.md`.
+
 Try it:
 
-```pwsh
+```sh
 platynui-cli list-providers
 platynui-cli info --format json
 platynui-cli keyboard list | head -n 20   # show first key names
@@ -55,13 +57,27 @@ We’re building PlatynUI to be:
 - Robot Framework‑first: a clean keyword library with simple Python packaging and installation.
 - Cross‑platform at the core: shared logic in Rust for performance, determinism, and safety; Python exposes the library to Robot Framework.
 - Query‑centric: an XPath 2.0‑inspired language tailored for desktop UIs with a streaming evaluator and predictable document‑order semantics.
-- Uniformly modeled: a single UI model with namespaces (control, item, app, native), typed attributes, and discoverable patterns (e.g., Focusable, WindowSurface, Invoke, Text).
-- Provider‑based: native OS providers (Windows UIA, Linux AT‑SPI, macOS AX) plus room for external providers (e.g., JSON‑RPC) and fast mock providers for tests.
-- Tooled for productivity: a CLI for diagnostics/automation, a GUI Inspector for exploring the tree and crafting queries, and a server façade later on.
+- Uniformly modeled: a single UI model with namespaces (control, item, app, native), typed attributes, and discoverable patterns (e.g., Focusable, WindowSurface, TextContent).
+- Provider‑based: native OS providers (Windows UIA, Linux AT‑SPI, macOS AX) plus fast mock providers for tests. External (out-of-process) providers are on the roadmap.
+- Tooled for productivity: a CLI for diagnostics/automation and a GUI Inspector for exploring the tree and crafting queries.
 - Reliability‑oriented: pointer/keyboard profiles, motion/acceleration and timing controls, highlighting and screenshots for feedback, and typed errors to reduce flakiness.
 - Extensible: hook points for custom providers and functions; as we leave preview, public APIs will stabilize.
 
 Expect differences to the original project’s API and keywords during the preview phase—capabilities converge, but names and behaviors may change as the new core matures.
+
+## Platform support
+
+| Component | Windows | Linux (X11) | macOS |
+|-----------|---------|-------------|-------|
+| UI tree provider | ✅ UIA | ✅ AT-SPI2 | ❌ stub |
+| Pointer | ✅ SendInput | ✅ XTest | ❌ stub |
+| Keyboard | ✅ SendInput | ❌ planned | ❌ stub |
+| Screenshot | ✅ GDI | ✅ XGetImage | ❌ stub |
+| Highlight | ✅ Layered window | ✅ Override-redirect | ❌ stub |
+| Window management | ✅ Win32 | ⚠️ partial (EWMH) | ❌ stub |
+| Inspector | ✅ | ✅ | ❌ |
+
+Wayland support is deferred; X11/XWayland is used on Linux. See `docs/planning.md` §4.4 for details.
 
 ## Package docs
 
@@ -69,14 +85,16 @@ Expect differences to the original project’s API and keywords during the previ
 - Inspector: `packages/inspector/README.md`
 - Native Python bindings: `packages/native/README.md`
 
-## Documentation (design notes)
+## Documentation
 
-- Architecture & Runtime Concept (German): `docs/architekturkonzept_runtime.md`
-- Implementation Plan (German): `docs/architekturkonzept_runtime_umsetzungsplan.md`
-- Pattern Catalogue (German): `docs/patterns.md`
-- Provider Checklist (draft): `docs/provider_checklist.md`
-- Windows UIA Provider – Design: `docs/provider_windows_uia_design.md`
-- Linux/X11 implementation plan: `docs/linux_x11_implementation_plan.md`
+- Architecture: `docs/architecture.md`
+- Planning & Roadmap: `docs/planning.md`
+- Windows Platform: `docs/platform-windows.md`
+- Linux Platform: `docs/platform-linux.md`
+- Python Bindings: `docs/python-bindings.md`
+- CLI Reference: `docs/cli.md`
+- Inspector: `docs/inspector.md`
+- Logging & Tracing: `.github/instructions/tracing.instructions.md`
 
 ## Contributing
 
