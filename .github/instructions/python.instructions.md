@@ -10,7 +10,7 @@ applyTo: '**/*.py'
 - Write clear and concise comments for each function.
 - Ensure functions have descriptive names and include type hints.
 - Provide docstrings following PEP 257 conventions.
-- Use the `typing` module for type annotations (e.g., `List[str]`, `Dict[str, int]`).
+- Use the python 3.10 style type hints (e.g., `list[int]` instead of `List[int]`). 
 - Break down complex functions into smaller, more manageable functions.
 
 ## General Instructions
