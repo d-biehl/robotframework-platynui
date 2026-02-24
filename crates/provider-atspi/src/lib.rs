@@ -22,10 +22,13 @@ use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, U
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
-use tracing::{info, trace, warn};
+use tracing::{debug, info, trace, warn};
 use zbus::proxy::CacheProperties;
 
 use crate::timeout::{block_on_timeout_call, block_on_timeout_init};
+
+/// Cache current process ID once; stable for the entire process lifetime.
+static SELF_PID: LazyLock<u32> = LazyLock::new(std::process::id);
 
 pub const PROVIDER_ID: &str = "atspi";
 pub const PROVIDER_NAME: &str = "AT-SPI2";
@@ -113,6 +116,22 @@ impl UiTreeProvider for AtspiProvider {
             }
             let app_bus = child.name_as_str().unwrap_or("<unknown>").to_string();
             let app_start = std::time::Instant::now();
+
+            // Resolve the PID of this application's D-Bus connection
+            // and skip it when it belongs to our own process.
+            let app_pid: Option<u32> = {
+                let bus_name = child.name_as_str()?;
+                let conn_inner = conn.connection().clone();
+                block_on_timeout_call(async {
+                    let dbus = zbus::fdo::DBusProxy::new(&conn_inner).await.ok()?;
+                    dbus.get_connection_unix_process_id(zbus::names::BusName::try_from(bus_name).ok()?).await.ok()
+                })
+                .flatten()
+            };
+            if app_pid == Some(*SELF_PID) {
+                debug!(app = %app_bus, pid = *SELF_PID, "skipped own process");
+                return None;
+            }
 
             // Build a single proxy per registered application and
             // pre-resolve the essential properties (child_count,
