@@ -23,7 +23,7 @@ This document tracks all open work items, decided-but-not-implemented designs, o
 - Runtime orchestration, provider registry, event pipeline
 - Windows platform (pointer, keyboard, screenshot, highlight, desktop info, window manager)
 - Windows UIA provider (COM/MTA, Raw View Walker, patterns, native properties)
-- Linux X11 platform (pointer, screenshot, highlight, desktop info)
+- Linux X11 platform (pointer, keyboard, screenshot, highlight, desktop info)
 - Linux AT-SPI2 provider (D-Bus, role mapping, Focusable pattern, component-gated attributes)
 - Mock platform and provider (full test infrastructure)
 - CLI with all major commands
@@ -35,7 +35,6 @@ This document tracks all open work items, decided-but-not-implemented designs, o
 ### Stubs / Not Yet Implemented
 - macOS platform (`crates/platform-macos`) — marker type only
 - macOS AX provider (`crates/provider-macos-ax`) — minimal factory, empty iterators
-- Linux X11 keyboard device
 - Event-driven cache invalidation
 
 ## 3. Decided Design — Not Yet Implemented
@@ -104,17 +103,15 @@ Idea: allow external processes to act as UI tree providers via a JSON-RPC-like p
 
 ### 4.1 Linux X11 — Remaining Items
 
-- [ ] **Keyboard device** (`platynui-platform-linux-x11`):
-  - Dependency: `xkbcommon-rs` for keymap/state management (Wayland-compatible API, works with X11 keymap)
-  - Key name resolution: `xkb_keymap_key_by_name()` for named keys → X11 keycode
-  - Unicode/character input: `xkb_state_key_get_utf8()` to verify mapping; for unmapped characters, use `xkb_keysym_from_name()` with XKB_KEYSYM_NO_FLAGS
-  - XTest injection: `XTestFakeKeyEvent(display, keycode, is_press, delay)` via `x11rb`
-  - Modifier handling: read current modifier state from `xkb_state`, compute required modifier mask for target keysym, inject modifier press/release around the key event
-  - Key naming: follow same conventions as Windows provider — no `XK_` prefix, PascalCase for named keys, case-insensitive lookup
-  - `known_key_names()`: enumerate from xkbcommon keymap + standard XF86 multimedia keys
+- [x] **Keyboard device** (`platynui-platform-linux-x11`):
+  - XTest injection (`FakeKeyEvent`) with keysym-to-keycode resolution via `GetKeyboardMapping`
+  - Named key table (~120 entries, case-insensitive): modifiers, function keys, navigation, numpad, symbol aliases
+  - Single-character resolution via keysym mapping with CapsLock-aware shift management
+  - Dynamic keycode remapping for characters outside the active layout via `ChangeKeyboardMapping`
+  - Control character mapping (`\n`→Return, `\t`→Tab, `\r`→Return, BS→Backspace, ESC→Escape, DEL→Delete)
   - Symbol aliases: `PLUS`, `MINUS`, `LESS`/`LT`, `GREATER`/`GT` (consistent with Windows/Mock)
-  - Error handling: `KeyboardError::UnsupportedKey` for keysyms not in current keymap
-  - `start_input()`/`end_input()`: no-op initially (future: IME consideration)
+  - `start_input()`: refreshes keyboard mapping at start of each input session
+  - No external dependency on `xkbcommon-rs` — uses pure `x11rb` `GetKeyboardMapping` instead
 - [x] **EWMH WindowManager migration**: moved `ewmh.rs` from `provider-atspi` to `platform-linux-x11` as `window_manager.rs`, registered as `WindowManager`
   - [x] `resolve_window()`: PID from parent chain `control:ProcessId` + `_NET_CLIENT_LIST` + `_NET_WM_PID` matching, disambiguate via `_NET_WM_NAME`
   - [x] EWMH support check in `PlatformModule::initialize()`: `_NET_SUPPORTING_WM_CHECK`, `_NET_SUPPORTED` atoms
@@ -488,7 +485,7 @@ Complete checklists from all work areas, including completed items for historica
 
 - [x] DesktopInfoProvider (XRandR, root fallback)
 - [x] Pointer via XTest
-- [ ] Keyboard via xkbcommon-rs + XTest
+- [x] Keyboard via XTest + `GetKeyboardMapping` (named keys, character input, CapsLock handling, dynamic remap, control chars)
 - [x] Screenshot via XGetImage
 - [x] Highlight via override-redirect segments
 - [x] `PlatformModule::initialize()` (eager connect, XTEST/RANDR checks)
