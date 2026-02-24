@@ -49,18 +49,49 @@ pub fn show_search_bar(
 ) -> Vec<ToolbarAction> {
     let mut actions = Vec::new();
 
-    egui::TopBottomPanel::top("search_bar").show(ctx, |ui| {
+    // Compute panel height dynamically based on number of text lines.
+    let num_lines = search_text.chars().filter(|&c| c == '\n').count() + 1;
+    let desired_rows = num_lines.clamp(1, 6);
+    // Approximate: line height ~18px, plus padding (4+4) and spacing.
+    let line_height = 18.0;
+    let ui_height = (desired_rows as f32 * line_height) + 16.0;
+
+    // Save text before TextEdit processes events so we can undo
+    // an unwanted newline insertion on plain Enter.
+    let text_before = search_text.clone();
+
+    egui::TopBottomPanel::top("search_bar").exact_height(ui_height).show(ctx, |ui| {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.label("\u{1F50D}");
+
             let text_edit = ui.add(
-                egui::TextEdit::singleline(search_text)
-                    .hint_text("XPath expression, e.g. //Window or //Button[@Name='OK']")
+                egui::TextEdit::multiline(search_text)
+                    .desired_rows(desired_rows)
+                    .hint_text("XPath expression (Shift+Enter for new line)")
                     .desired_width(ui.available_width() - 200.0),
             );
 
-            // Evaluate on Enter key press (only when not already searching)
-            if text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            // Plain Enter (without Shift) triggers search; Shift+Enter
+            // inserts a newline (default multiline behavior).
+            let enter_no_shift = text_edit.has_focus()
+                && ui.input(|i| {
+                    i.events.iter().any(|e| {
+                        matches!(
+                            e,
+                            egui::Event::Key {
+                                key: egui::Key::Enter,
+                                pressed: true,
+                                modifiers,
+                                ..
+                            } if !modifiers.shift
+                        )
+                    })
+                });
+
+            if enter_no_shift {
+                // Undo the newline that multiline TextEdit just inserted.
+                *search_text = text_before;
                 if is_searching {
                     actions.push(ToolbarAction::CancelSearch);
                 } else {
