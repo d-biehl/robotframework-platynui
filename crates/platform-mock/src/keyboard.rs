@@ -177,21 +177,38 @@ struct NamedKey {
 }
 
 const NAMED_KEYS: &[NamedKey] = &[
+    // ── Modifiers (generic) ──────────────────────────────────────────────────
     NamedKey { canonical: "Control", aliases: &["Control", "Ctrl"] },
+    NamedKey { canonical: "LControl", aliases: &["LControl", "LCtrl", "LeftControl", "LeftCtrl"] },
+    NamedKey { canonical: "RControl", aliases: &["RControl", "RCtrl", "RightControl", "RightCtrl"] },
     NamedKey { canonical: "Shift", aliases: &["Shift"] },
-    NamedKey { canonical: "Alt", aliases: &["Alt", "Menu"] },
+    NamedKey { canonical: "LShift", aliases: &["LShift", "LeftShift"] },
+    NamedKey { canonical: "RShift", aliases: &["RShift", "RightShift"] },
+    // Note: "Menu" is intentionally NOT an alias for Alt (Menu = context/Apps key on all platforms)
+    NamedKey { canonical: "Alt", aliases: &["Alt"] },
+    NamedKey { canonical: "LAlt", aliases: &["LAlt", "LMenu", "LeftAlt"] },
+    NamedKey { canonical: "RAlt", aliases: &["RAlt", "RMenu", "RightAlt", "AltGr"] },
     NamedKey { canonical: "Option", aliases: &["Option"] },
     NamedKey { canonical: "Command", aliases: &["Command", "Cmd"] },
-    NamedKey { canonical: "Windows", aliases: &["Windows", "Win"] },
-    NamedKey { canonical: "Super", aliases: &["Super"] },
+    NamedKey { canonical: "Windows", aliases: &["Windows", "Win", "Super"] },
+    NamedKey { canonical: "LWin", aliases: &["LWin", "LeftWin"] },
+    NamedKey { canonical: "RWin", aliases: &["RWin", "RightWin"] },
     NamedKey { canonical: "Meta", aliases: &["Meta"] },
+    // ── Context-menu key ─────────────────────────────────────────────────────
+    NamedKey { canonical: "Apps", aliases: &["Apps", "Menu"] },
+    // ── Text / editing ───────────────────────────────────────────────────────
     NamedKey { canonical: "Enter", aliases: &["Enter", "Return"] },
     NamedKey { canonical: "Escape", aliases: &["Escape", "Esc"] },
     NamedKey { canonical: "Space", aliases: &["Space"] },
     NamedKey { canonical: "Tab", aliases: &["Tab"] },
     NamedKey { canonical: "Backspace", aliases: &["Backspace"] },
     NamedKey { canonical: "Delete", aliases: &["Delete", "Del"] },
+    NamedKey { canonical: "Insert", aliases: &["Insert", "Ins"] },
+    // ── Lock keys ────────────────────────────────────────────────────────────
     NamedKey { canonical: "CapsLock", aliases: &["CapsLock"] },
+    NamedKey { canonical: "NumLock", aliases: &["NumLock"] },
+    NamedKey { canonical: "ScrollLock", aliases: &["ScrollLock"] },
+    // ── Navigation ───────────────────────────────────────────────────────────
     NamedKey { canonical: "ArrowUp", aliases: &["ArrowUp", "Up"] },
     NamedKey { canonical: "ArrowDown", aliases: &["ArrowDown", "Down"] },
     NamedKey { canonical: "ArrowLeft", aliases: &["ArrowLeft", "Left"] },
@@ -200,10 +217,10 @@ const NAMED_KEYS: &[NamedKey] = &[
     NamedKey { canonical: "End", aliases: &["End"] },
     NamedKey { canonical: "PageUp", aliases: &["PageUp", "PgUp"] },
     NamedKey { canonical: "PageDown", aliases: &["PageDown", "PgDn"] },
-    NamedKey { canonical: "Insert", aliases: &["Insert", "Ins"] },
+    // ── System ───────────────────────────────────────────────────────────────
     NamedKey { canonical: "PrintScreen", aliases: &["PrintScreen", "PrtSc"] },
     NamedKey { canonical: "Pause", aliases: &["Pause"] },
-    NamedKey { canonical: "ScrollLock", aliases: &["ScrollLock"] },
+    // ── Function keys F1–F24 ─────────────────────────────────────────────────
     NamedKey { canonical: "F1", aliases: &["F1"] },
     NamedKey { canonical: "F2", aliases: &["F2"] },
     NamedKey { canonical: "F3", aliases: &["F3"] },
@@ -216,6 +233,36 @@ const NAMED_KEYS: &[NamedKey] = &[
     NamedKey { canonical: "F10", aliases: &["F10"] },
     NamedKey { canonical: "F11", aliases: &["F11"] },
     NamedKey { canonical: "F12", aliases: &["F12"] },
+    NamedKey { canonical: "F13", aliases: &["F13"] },
+    NamedKey { canonical: "F14", aliases: &["F14"] },
+    NamedKey { canonical: "F15", aliases: &["F15"] },
+    NamedKey { canonical: "F16", aliases: &["F16"] },
+    NamedKey { canonical: "F17", aliases: &["F17"] },
+    NamedKey { canonical: "F18", aliases: &["F18"] },
+    NamedKey { canonical: "F19", aliases: &["F19"] },
+    NamedKey { canonical: "F20", aliases: &["F20"] },
+    NamedKey { canonical: "F21", aliases: &["F21"] },
+    NamedKey { canonical: "F22", aliases: &["F22"] },
+    NamedKey { canonical: "F23", aliases: &["F23"] },
+    NamedKey { canonical: "F24", aliases: &["F24"] },
+    // ── Numpad digits ────────────────────────────────────────────────────────
+    NamedKey { canonical: "Numpad0", aliases: &["Numpad0", "KP_0"] },
+    NamedKey { canonical: "Numpad1", aliases: &["Numpad1", "KP_1"] },
+    NamedKey { canonical: "Numpad2", aliases: &["Numpad2", "KP_2"] },
+    NamedKey { canonical: "Numpad3", aliases: &["Numpad3", "KP_3"] },
+    NamedKey { canonical: "Numpad4", aliases: &["Numpad4", "KP_4"] },
+    NamedKey { canonical: "Numpad5", aliases: &["Numpad5", "KP_5"] },
+    NamedKey { canonical: "Numpad6", aliases: &["Numpad6", "KP_6"] },
+    NamedKey { canonical: "Numpad7", aliases: &["Numpad7", "KP_7"] },
+    NamedKey { canonical: "Numpad8", aliases: &["Numpad8", "KP_8"] },
+    NamedKey { canonical: "Numpad9", aliases: &["Numpad9", "KP_9"] },
+    // ── Numpad operations ────────────────────────────────────────────────────
+    NamedKey { canonical: "NumpadAdd", aliases: &["NumpadAdd", "Add", "KP_Add"] },
+    NamedKey { canonical: "NumpadSubtract", aliases: &["NumpadSubtract", "Subtract", "KP_Subtract"] },
+    NamedKey { canonical: "NumpadMultiply", aliases: &["NumpadMultiply", "Multiply", "KP_Multiply"] },
+    NamedKey { canonical: "NumpadDivide", aliases: &["NumpadDivide", "Divide", "KP_Divide"] },
+    NamedKey { canonical: "NumpadDecimal", aliases: &["NumpadDecimal", "Decimal", "KP_Decimal"] },
+    NamedKey { canonical: "NumpadEnter", aliases: &["NumpadEnter", "KP_Enter"] },
 ];
 
 static NAMED_LOOKUP: LazyLock<Vec<(&'static str, KeyCode)>> = LazyLock::new(|| {

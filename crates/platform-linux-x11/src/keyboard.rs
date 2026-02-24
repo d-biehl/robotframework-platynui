@@ -158,6 +158,7 @@ const NAMED_KEYS: &[(&str, u32, bool)] = &[
     ("RMETA", XK_META_R, true),
     ("SUPER", XK_SUPER_L, true),
     ("WIN", XK_SUPER_L, true),
+    ("WINDOWS", XK_SUPER_L, true),
     ("LWIN", XK_SUPER_L, true),
     ("RWIN", XK_SUPER_R, true),
     ("HYPER", XK_HYPER_L, true),
@@ -266,6 +267,12 @@ const NAMED_KEYS: &[(&str, u32, bool)] = &[
     ("NUMPADDIVIDE", XK_KP_DIVIDE, false),
     ("NUMPADDECIMAL", XK_KP_DECIMAL, false),
     ("NUMPADENTER", XK_KP_ENTER, false),
+    // Short-form aliases matching Windows VK_ names for cross-platform consistency
+    ("ADD", XK_KP_ADD, false),
+    ("SUBTRACT", XK_KP_SUBTRACT, false),
+    ("MULTIPLY", XK_KP_MULTIPLY, false),
+    ("DIVIDE", XK_KP_DIVIDE, false),
+    ("DECIMAL", XK_KP_DECIMAL, false),
     ("KP_HOME", XK_KP_HOME, false),
     ("KP_LEFT", XK_KP_LEFT, false),
     ("KP_UP", XK_KP_UP, false),
@@ -735,9 +742,6 @@ impl KeyboardDevice for LinuxKeyboardDevice {
     fn known_key_names(&self) -> Vec<String> {
         let mut names: Vec<String> = named_key_table().keys().cloned().collect();
         for ch in 'A'..='Z' {
-            names.push(ch.to_string());
-        }
-        for ch in 'a'..='z' {
             names.push(ch.to_string());
         }
         for ch in '0'..='9' {

@@ -522,6 +522,27 @@ static VK_MAP: LazyLock<HashMap<String, KeyName>> = LazyLock::new(|| {
     // Windows key aliases
     alias("LEFTWIN", VK_LWIN);
     alias("RIGHTWIN", VK_RWIN);
+    alias("SUPER", VK_LWIN);
+
+    // Arrow key aliases (canonical cross-platform names)
+    alias("ARROWLEFT", VK_LEFT);
+    alias("ARROWRIGHT", VK_RIGHT);
+    alias("ARROWUP", VK_UP);
+    alias("ARROWDOWN", VK_DOWN);
+
+    // Numpad operation long-form aliases
+    alias("NUMPADADD", VK_ADD);
+    alias("NUMPADSUBTRACT", VK_SUBTRACT);
+    alias("NUMPADMULTIPLY", VK_MULTIPLY);
+    alias("NUMPADDIVIDE", VK_DIVIDE);
+    alias("NUMPADDECIMAL", VK_DECIMAL);
+    // Windows has no separate VK for NumpadEnter; VK_RETURN is functionally equivalent
+    alias("NUMPADENTER", VK_RETURN);
+
+    // Short canonical aliases missing from the VK_ strip pass
+    alias("SCROLLLOCK", VK_SCROLL);
+    alias("DEL", VK_DELETE);
+    alias("INS", VK_INSERT);
 
     // Normalize keys to uppercase for lookups
     let mut upper_map: HashMap<String, KeyName> = HashMap::new();

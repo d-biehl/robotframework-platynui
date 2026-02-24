@@ -126,6 +126,31 @@ Idea: allow external processes to act as UI tree providers via a JSON-RPC-like p
 - [ ] Screenshot performance: optional XShm acceleration
 - [ ] Highlight UX improvements (seamless, centered labels)
 
+### 4.1.1 Cross-Platform Keyboard Name Harmonization
+
+The keyboard user guide (`docs/keyboard-input.md`) defines a canonical set of key names that should work identically on all platforms. All gaps have been closed as of 2026-02-24.
+
+**Windows** (`crates/platform-windows/src/keyboard.rs`):
+- [x] `ArrowLeft`, `ArrowRight`, `ArrowUp`, `ArrowDown` (aliases for `Left`/`Right`/`Up`/`Down`)
+- [x] `NumpadAdd`, `NumpadSubtract`, `NumpadMultiply`, `NumpadDivide`, `NumpadDecimal` (aliases for `Add`/`Subtract`/etc.)
+- [x] `NumpadEnter` (mapped to `VK_RETURN` — Windows has no separate VK for numpad enter)
+- [x] `ScrollLock` (alias for `Scroll`)
+- [x] `Del`, `Ins` (aliases for `Delete`/`Insert`)
+- [x] `Super` (alias for `LWin`)
+
+**Linux X11** (`crates/platform-linux-x11/src/keyboard.rs`):
+- [x] `Add`, `Subtract`, `Multiply`, `Divide`, `Decimal` (short aliases for `NumpadAdd`/etc.)
+- [x] `Windows` (alias for `Super`)
+
+**Mock** (`crates/platform-mock/src/keyboard.rs`):
+- [x] Left/right modifier variants (`LCtrl`, `RCtrl`, `LShift`, `RShift`, `LAlt`, `RAlt`, `AltGr`, `LWin`, `RWin`)
+- [x] Numpad keys (`Numpad0`–`Numpad9`, `NumpadAdd`, `NumpadSubtract`, `NumpadMultiply`, `NumpadDivide`, `NumpadDecimal`, `NumpadEnter`)
+- [x] `F13`–`F24`
+- [x] `NumLock`
+
+**Semantic fix — `Menu` ambiguity:**
+- [x] Removed `Menu` as alias for `Alt`. Added `Apps`/`Menu` as the cross-platform context-menu key alias (consistent with Linux `XK_MENU` and Windows `VK_APPS`).
+
 ### 4.2 Windows — Remaining Items
 
 - [ ] Watch filters (`--namespace`, `--pattern`, `--runtime-id`) for CLI `watch`
