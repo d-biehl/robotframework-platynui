@@ -12,7 +12,7 @@ This workspace blends Rust crates and Python packages for the Robot Framework-fa
   - `crates/provider-{windows-uia,atspi,macos-ax,mock}` → crates `platynui-provider-*` (UiTreeProvider implementations)
   - `crates/cli` → crate `platynui-cli` (CLI for queries, highlight, keyboard/pointer, diagnostics)
   - `crates/playground` → examples and dev experiments
-  - `apps/inspector` → crate `platynui-inspector` (GUI inspector, Slint-based)
+  - `apps/inspector` → crate `platynui-inspector` (GUI inspector, egui-based)
 
 - Python/Robot workspace (`uv`):
   - `src/PlatynUI` → Robot Framework library entry (keywords module scaffold)

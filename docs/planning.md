@@ -27,7 +27,7 @@ This document tracks all open work items, decided-but-not-implemented designs, o
 - Linux AT-SPI2 provider (D-Bus, role mapping, Focusable pattern, component-gated attributes)
 - Mock platform and provider (full test infrastructure)
 - CLI with all major commands
-- Inspector GUI (Slint TreeView phases 1-4)
+- Inspector GUI (egui MVVM: tree view, properties, XPath search, highlighting)
 - Python bindings (core types, runtime, evaluation, pointer, keyboard, patterns)
 - Dynamic linking framework (`platynui-link`)
 - CI pipeline (Linux/Windows/macOS: build, test, format, lint, wheels)
@@ -175,9 +175,13 @@ See `docs/architecture.md` §8.5 for the full Wayland protocol assessment table.
 
 ### 5.1 Inspector
 
-- [ ] **Phase 5 — Properties sync**: `controller.rs` on `node-selected(id)` → fetch attributes → update properties panel. Debounce fast navigation. Error handling in property load.
-- [ ] **Phase 6 — Robustness & UX**: error placeholder retry, context menu emit + UI stub, keyboard repeat behavior, loading spinners, edge-case bounds testing.
-- [ ] **Phase 7 — Performance & refactor**: measurement with large trees (≥2k visible), incremental model updates (Insert/Remove vs set_vec), virtual scrolling, optional Slint file split.
+Remaining work:
+- [ ] **Performance**: measurement with large trees (≥2k visible nodes), virtual scrolling for tree rows
+- [ ] **Element Picker**: click-to-identify mode (click on screen element → reveal in tree)
+- [ ] **Keyboard repeat**: proper repeat rate for held arrow keys
+- [ ] **Loading states**: spinners for long-running child loads
+- [ ] **Filter/search in properties**: quick filter for attribute names
+- [ ] **Export**: copy XPath for selected node, export subtree as XML
 
 ### 5.2 CLI
 
@@ -613,50 +617,26 @@ Complete checklists from all work areas, including completed items for historica
 **Phase 6 — macOS (Future):**
 - [ ] `platform-macos`: `WindowManager` via AppKit/CoreGraphics
 
-### 10.30 Inspector TreeView
+### 10.30 Inspector (egui)
 
-**Phase 1 — Skeleton & Demo:** ✅
-- [x] TreeView + TreeRow components with Palette theming
-- [x] Public API (properties/callbacks/functions)
-- [x] Flat demo model
-- [x] Integration in app-window.slint
+**egui Implementation:** ✅
+- [x] MVVM architecture (Model/ViewModel/View separation)
+- [x] Tree panel: expand/collapse, keyboard navigation (Up/Down/Left/Right/Home/End/PageUp/PageDown)
+- [x] Properties panel: sortable columns (Name/Value/Type), read-only selectable text, context menu (Copy Name/Value/Type/Row)
+- [x] XPath search bar with results panel, click-to-reveal in tree
+- [x] UiNodeData with Mutex-based caching (id, label, children, has_children)
+- [x] Element highlighting on selection (1.5s via platform highlight provider)
+- [x] Role icons, invalid-node strikethrough, selection/focus indicators
+- [x] Context menu on tree rows (Refresh / Refresh Subtree)
+- [x] Always On Top toggle
+- [x] Tracing integration (--log-level CLI flag)
+- [x] No build.rs / no code generation
 
-**Phase 2 — Interaction:** ✅
-- [x] FocusScope + request_focus()
-- [x] Mouse: click row (selection), click disclosure (toggle)
-- [x] Keyboard: Up/Down/Home/End/PageUp/PageDown, Left/Right (expand/collapse)
-- [x] Scroll-into-view
-- [x] Events and programmatic API
-- [x] Selection/focus styling
-
-**Phase 3 — Adapter & ViewModel:** ✅
-- [x] TreeData trait (read-only interface)
-- [x] TreeViewAdapter trait (UI port)
-- [x] ViewModel (flattens to visible rows)
-- [x] Demo lazy loading
-- [x] Clean modularization
-
-**Phase 4 — UiNode Integration:** ✅
-- [x] UiNodeData: TreeData implementation
-- [x] UiNode as data source
-- [x] ID mapping (RuntimeId ↔ String)
-- [x] Lazy children/parent calls
-- [x] Error handling
-
-**Phase 5 — Properties Sync:** 🔄
-- [ ] controller.rs: selection → fetch attributes → update properties
-- [ ] Debounce fast navigation
-- [ ] Properties-view in app-window.slint
-- [ ] Error handling in property load
-
-**Phase 6 — Robustness & UX:**
-- [ ] Error placeholder retry
-- [ ] Context menu
+**Remaining:**
+- [ ] Performance measurement with large trees (≥2k visible nodes)
+- [ ] Virtual scrolling for tree rows
+- [ ] Element Picker (click-to-identify)
 - [ ] Keyboard repeat behavior
-- [ ] Loading states with spinners
-
-**Phase 7 — Performance & Refactor:**
-- [ ] Performance measurement (≥2k visible nodes)
-- [ ] Incremental model updates
-- [ ] Virtual scrolling
-- [ ] Optional Slint file split
+- [ ] Loading spinners
+- [ ] Filter in properties panel
+- [ ] Export (XPath for selected node, subtree as XML)

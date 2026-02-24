@@ -26,7 +26,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Install slint dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt install -y \
@@ -35,17 +35,9 @@ jobs:
             libxkbcommon-dev \
             libfontconfig-dev \
             clang \
-            libavcodec-dev \
-            libavformat-dev \
-            libavutil-dev \
-            libavfilter-dev \
-            libavdevice-dev \
             libasound2-dev \
             pkg-config \
-            libssl-dev \
-            qt6-base-dev \
-            qt6-tools-dev \
-            qmake6
+            libssl-dev
 
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
@@ -114,7 +106,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install slint dependencies (Linux)
+      - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -124,21 +116,13 @@ jobs:
             libxkbcommon-dev \
             libfontconfig-dev \
             clang \
-            libavcodec-dev \
-            libavformat-dev \
-            libavutil-dev \
-            libavfilter-dev \
-            libavdevice-dev \
             libasound2-dev \
             pkg-config \
-            libssl-dev \
-            qt6-base-dev \
-            qt6-tools-dev \
-            qmake6
+            libssl-dev
 
-      - name: Install slint dependencies (macOS)
+      - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install pkg-config ffmpeg
+        run: brew install pkg-config
 
       - run: git describe --tag
       - run: git describe --tag --long --first-parent --match "v[0-9]*"

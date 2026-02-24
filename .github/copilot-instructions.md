@@ -26,7 +26,7 @@ Rust crates (`crates/`):
   - `playground` — experiments, not API source
 
 Apps (`apps/`):
-  - `inspector` — GUI inspector (Slint-based)
+  - `inspector` — GUI inspector (egui-based)
 
 Python packages (`packages/`):
   - `native` — Maturin-based native Python package (bindings to core/runtime)

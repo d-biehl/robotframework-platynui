@@ -36,7 +36,7 @@ crates/
 └─ playground                # Development sandbox — playground
 
 apps/
-└─ inspector                 # GUI inspector (Slint) — platynui-inspector
+└─ inspector                 # GUI inspector (egui) — platynui-inspector
 
 packages/
 ├─ native                    # Python bindings (PyO3/maturin) — platynui_native
