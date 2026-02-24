@@ -53,6 +53,8 @@ pub struct TreeResponse {
     pub toggled: Option<usize>,
     /// Keyboard navigation action, if any (only when the tree has focus).
     pub navigate: Option<TreeNavigate>,
+    /// Approximate number of visible rows (for `PageUp`/`PageDown`).
+    pub page_size: usize,
 }
 
 // ── Widget builder ───────────────────────────────────────────────────────────
@@ -120,7 +122,7 @@ impl<'a, R: TreeRowData> TreeView<'a, R> {
 
     /// Render the tree view widget. Returns a [`TreeResponse`].
     pub fn show(mut self, ui: &mut egui::Ui) -> TreeResponse {
-        let mut response = TreeResponse { selected: None, toggled: None, navigate: None };
+        let mut response = TreeResponse { selected: None, toggled: None, navigate: None, page_size: 15 };
 
         // ── Stable IDs ───────────────────────────────────────────────────
         let tree_id = ui.id().with("tree_view");
@@ -221,6 +223,13 @@ impl<'a, R: TreeRowData> TreeView<'a, R> {
                 }
             }
         });
+
+        // ── Compute page size from visible area and row height ─────────
+        if let Some(first_rect) = row_rects.first() {
+            let row_h = first_rect.height().max(1.0);
+            let visible_h = scroll_output.inner_rect.height();
+            response.page_size = (visible_h / row_h).floor().max(1.0) as usize;
+        }
 
         // ── Single focusable + clickable widget ──────────────────────────
         // Sense::click() = CLICK | FOCUSABLE — makes the tree reachable

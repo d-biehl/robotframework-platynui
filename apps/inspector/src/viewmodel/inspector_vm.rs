@@ -9,6 +9,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
+/// Messages sent from the background reveal thread to the UI thread.
+enum RevealMsg {
+    /// The ancestor path has been pre-loaded; ready to expand + select.
+    Ready {
+        /// Runtime ID of the target node to reveal.
+        target_id: String,
+    },
+    /// Reveal was cancelled (a new reveal was started).
+    Cancelled,
+}
+
+/// State of an in-progress background reveal operation.
+struct ActiveReveal {
+    /// Receiver for the reveal result.
+    receiver: mpsc::Receiver<RevealMsg>,
+    /// Cancel flag shared with the background thread.
+    cancel_flag: Arc<AtomicBool>,
+}
+
 /// Messages sent from the background evaluation thread to the UI thread.
 pub enum SearchMsg {
     /// A single evaluation result item.
@@ -56,6 +75,8 @@ pub struct InspectorViewModel {
     pub results: Vec<SearchResultItem>,
     /// Status / error message for the results panel.
     pub result_status: Option<String>,
+    /// Focused row index in the results panel (keyboard cursor).
+    pub result_focused_index: usize,
     /// When true, the tree view should scroll to the focused row on the next frame.
     /// Consumed (set to false) after rendering.
     pub scroll_to_focused: bool,
@@ -63,6 +84,8 @@ pub struct InspectorViewModel {
     runtime: Arc<Runtime>,
     /// Currently active background search, if any.
     active_search: Option<ActiveSearch>,
+    /// Currently active background reveal (tree sync), if any.
+    active_reveal: Option<ActiveReveal>,
     /// Frame counter for spinner animation.
     spinner_frame: usize,
 }
@@ -84,9 +107,11 @@ impl InspectorViewModel {
             selected_label: String::new(),
             results: Vec::new(),
             result_status: None,
+            result_focused_index: 0,
             scroll_to_focused: false,
             runtime,
             active_search: None,
+            active_reveal: None,
             spinner_frame: 0,
         }
     }
@@ -182,17 +207,17 @@ impl InspectorViewModel {
         }
     }
 
-    /// Navigate up by a page (~15 rows).
-    pub fn navigate_page_up(&mut self) {
-        self.focused_index = self.focused_index.saturating_sub(15);
+    /// Navigate up by a page.
+    pub fn navigate_page_up(&mut self, page_size: usize) {
+        self.focused_index = self.focused_index.saturating_sub(page_size);
         self.select_node(self.focused_index);
     }
 
-    /// Navigate down by a page (~15 rows).
-    pub fn navigate_page_down(&mut self) {
+    /// Navigate down by a page.
+    pub fn navigate_page_down(&mut self, page_size: usize) {
         let count = self.tree.row_count();
         if count > 0 {
-            self.focused_index = (self.focused_index + 15).min(count - 1);
+            self.focused_index = (self.focused_index + page_size).min(count - 1);
             self.select_node(self.focused_index);
         }
     }
@@ -220,12 +245,14 @@ impl InspectorViewModel {
         if xpath.is_empty() {
             self.results.clear();
             self.result_status = None;
+            self.result_focused_index = 0;
             return;
         }
 
         // Clear previous results.
         self.results.clear();
         self.result_status = Some("Searching\u{2026}".to_string());
+        self.result_focused_index = 0;
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
         let (tx, rx) = mpsc::channel();
@@ -376,19 +403,153 @@ impl InspectorViewModel {
         self.active_search.is_some()
     }
 
-    /// When a result is clicked, reveal its node in the tree and select it.
+    /// When a result is selected, reveal its node in the tree (non-blocking).
+    ///
+    /// Spawns a background thread that pre-loads the ancestor path into the
+    /// `UiNodeData` cache (expensive AT-SPI / UIA calls).  Once ready, the
+    /// UI thread performs the cheap expand + rebuild + select.
+    ///
+    /// If a previous reveal is still in progress it is cancelled.
     pub fn reveal_and_select_result(&mut self, result_index: usize) {
+        // Cancel any in-flight reveal.
+        self.cancel_reveal();
+
         let item = match self.results.get(result_index) {
             Some(item) => item.clone(),
             None => return,
         };
 
-        if let Some(node) = item.ui_node() {
-            if let Some(tree_index) = self.tree.reveal_node(node) {
-                self.select_node(tree_index);
-            } else {
-                tracing::warn!("could not find node in tree after expanding ancestors");
+        let Some(target_node) = item.ui_node().cloned() else {
+            return;
+        };
+
+        let target_id = target_node.runtime_id().as_str().to_string();
+
+        // Quick path: node is already visible in the cached tree.
+        let root = Arc::clone(self.tree.root());
+        if self.tree.reveal_node_cached(&target_id) {
+            self.select_node_if_visible(&target_id);
+            return;
+        }
+
+        // Slow path: spawn background thread to pre-load ancestor caches.
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&cancel_flag);
+        let (tx, rx) = mpsc::channel();
+
+        std::thread::Builder::new()
+            .name("reveal-node".into())
+            .spawn(move || {
+                // Walk up the target node's parent chain to collect ancestor IDs.
+                let mut ancestors: Vec<String> = Vec::new();
+                let mut current: Option<Arc<dyn platynui_core::ui::UiNode>> = Some(target_node);
+                while let Some(n) = current {
+                    if flag.load(Ordering::Relaxed) {
+                        let _ = tx.send(RevealMsg::Cancelled);
+                        return;
+                    }
+                    if let Some(parent_weak) = n.parent() {
+                        if let Some(parent) = parent_weak.upgrade() {
+                            ancestors.push(parent.runtime_id().as_str().to_string());
+                            current = Some(parent);
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                // Ancestors are root→…→parent (reverse of collection order).
+                ancestors.reverse();
+
+                // Walk DOWN from the root UiNodeData, loading children one
+                // level at a time along the ancestor path.  This is
+                // O(path_length × avg_children_per_level) instead of
+                // O(path_length × tree_size) that `find_node_static` caused.
+                let mut cursor = Arc::clone(&root);
+                // If ancestors[0] matches root, skip it — we start there.
+                let start = if !ancestors.is_empty() && cursor.id() == ancestors[0] { 1 } else { 0 };
+
+                for ancestor_id in &ancestors[start..] {
+                    if flag.load(Ordering::Relaxed) {
+                        let _ = tx.send(RevealMsg::Cancelled);
+                        return;
+                    }
+                    // Calling .children() populates the Mutex cache (AT-SPI I/O).
+                    let children = cursor.children();
+                    if let Some(next) = children.into_iter().find(|c| c.id() == *ancestor_id) {
+                        cursor = next;
+                    } else {
+                        // Path diverged — tree structure may have changed.
+                        let _ = tx.send(RevealMsg::Cancelled);
+                        return;
+                    }
+                }
+
+                if flag.load(Ordering::Relaxed) {
+                    let _ = tx.send(RevealMsg::Cancelled);
+                    return;
+                }
+
+                // Load the target's parent's children so the target itself
+                // is in the cache when the UI thread runs find_and_expand.
+                let _ = cursor.children();
+
+                if flag.load(Ordering::Relaxed) {
+                    let _ = tx.send(RevealMsg::Cancelled);
+                } else {
+                    let _ = tx.send(RevealMsg::Ready { target_id });
+                }
+            })
+            .expect("failed to spawn reveal-node thread");
+
+        self.active_reveal = Some(ActiveReveal { receiver: rx, cancel_flag });
+    }
+
+    /// Helper: select a node if it's visible in the tree.
+    fn select_node_if_visible(&mut self, target_id: &str) {
+        if let Some(tree_index) = self.tree.rows().iter().position(|row| row.data.id() == target_id) {
+            self.select_node(tree_index);
+        } else {
+            tracing::warn!(target_id, "reveal_node: not found in visible rows after expand");
+        }
+    }
+
+    /// Poll the background reveal operation. Call this every frame.
+    pub fn poll_reveal(&mut self, ctx: &egui::Context) {
+        let Some(reveal) = &self.active_reveal else {
+            return;
+        };
+
+        match reveal.receiver.try_recv() {
+            Ok(RevealMsg::Ready { target_id }) => {
+                self.active_reveal = None;
+                // Now find_and_expand is cheap (children are cached).
+                if self.tree.reveal_node_cached(&target_id) {
+                    self.select_node_if_visible(&target_id);
+                } else {
+                    tracing::warn!(target_id, "reveal_node: not found after background preload");
+                }
             }
+            Ok(RevealMsg::Cancelled) => {
+                self.active_reveal = None;
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                // Still working — request repaint for next poll.
+                ctx.request_repaint();
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                // Thread exited without sending a message.
+                self.active_reveal = None;
+            }
+        }
+    }
+
+    /// Cancel the current background reveal, if any.
+    fn cancel_reveal(&mut self) {
+        if let Some(reveal) = self.active_reveal.take() {
+            reveal.cancel_flag.store(true, Ordering::Relaxed);
         }
     }
 }

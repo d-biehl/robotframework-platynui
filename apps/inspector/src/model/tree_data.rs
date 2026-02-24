@@ -175,10 +175,11 @@ impl UiNodeData {
         list
     }
 
-    /// Return only already-cached children without triggering accessibility loads.
-    /// Used for read-only tree searches where we don't want side effects.
-    pub fn cached_children(&self) -> Vec<Arc<UiNodeData>> {
-        self.children_cache.lock().unwrap().clone().unwrap_or_default()
+    /// Return already-cached children without triggering any I/O.
+    ///
+    /// Returns `None` if children have not been loaded yet.
+    pub fn cached_children(&self) -> Option<Vec<Arc<UiNodeData>>> {
+        self.children_cache.lock().unwrap().clone()
     }
 
     /// Whether the underlying node is still valid (not destroyed).

@@ -2,7 +2,6 @@
 
 use crate::model::tree_data::UiNodeData;
 use crate::view::tree_view::TreeRowData;
-use platynui_core::ui::UiNode;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -67,6 +66,11 @@ impl TreeViewModel {
     /// Snapshot of currently visible rows.
     pub fn rows(&self) -> &[VisibleRow] {
         &self.visible_rows
+    }
+
+    /// The root `UiNodeData` of the tree (for background operations).
+    pub fn root(&self) -> &Arc<UiNodeData> {
+        &self.root
     }
 
     /// Number of currently visible rows.
@@ -142,83 +146,37 @@ impl TreeViewModel {
         self.rebuild();
     }
 
-    /// Reveal a node by `UiNode` reference: search the `UiNodeData` tree,
-    /// expand all ancestors along the path, rebuild, and return its visible index.
+    /// Reveal a node by runtime ID using only already-cached children.
     ///
-    /// If the node isn't found in our cached tree, we walk up the result
-    /// node's parent chain to find the nearest cached ancestor, refresh that
-    /// ancestor's children, and retry.
-    pub fn reveal_node(&mut self, node: &Arc<dyn UiNode>) -> Option<usize> {
-        let target_id = node.runtime_id().as_str().to_string();
-
-        // 1st attempt: DFS through our cached UiNodeData tree.
+    /// Returns `true` if the node was found and all ancestors expanded.
+    /// This is the cheap counterpart to [`reveal_node`] — it never triggers
+    /// I/O.  Use it after a background thread has pre-populated the caches.
+    pub fn reveal_node_cached(&mut self, target_id: &str) -> bool {
         let root = Arc::clone(&self.root);
-        if self.find_and_expand(&root, &target_id) {
+        if self.find_and_expand(&root, target_id) {
             self.rebuild();
-            return self.visible_rows.iter().position(|row| row.data.id() == target_id);
+            true
+        } else {
+            false
         }
-
-        // 2nd attempt: Walk up the result node's parent chain to find the
-        // nearest ancestor that exists in our tree. Refresh that ancestor so
-        // its children get reloaded, then search again.
-        tracing::debug!(target_id, "reveal_node: not in cached tree, walking parent chain to refresh");
-
-        let mut ancestor_ids = Vec::new();
-        let mut current: Option<Arc<dyn UiNode>> = Some(Arc::clone(node));
-        while let Some(n) = current {
-            if let Some(parent_weak) = n.parent() {
-                if let Some(parent) = parent_weak.upgrade() {
-                    ancestor_ids.push(parent.runtime_id().as_str().to_string());
-                    current = Some(parent);
-                } else {
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-
-        // Walk ancestor_ids from bottom to top (closest parent first).
-        let root2 = Arc::clone(&self.root);
-        for ancestor_id in &ancestor_ids {
-            if let Some(tree_node) = Self::find_node(&root2, ancestor_id) {
-                tracing::debug!(ancestor_id, "reveal_node: found ancestor in tree, refreshing subtree");
-                tree_node.refresh_recursive();
-
-                let root3 = Arc::clone(&self.root);
-                if self.find_and_expand(&root3, &target_id) {
-                    self.rebuild();
-                    return self.visible_rows.iter().position(|row| row.data.id() == target_id);
-                }
-            }
-        }
-
-        tracing::warn!(target_id, "reveal_node: not found even after refreshing ancestors");
-        None
     }
 
-    /// Find a `UiNodeData` in the tree by runtime ID (DFS, read-only — only
-    /// searches already-cached children).
-    fn find_node(node: &Arc<UiNodeData>, target_id: &str) -> Option<Arc<UiNodeData>> {
-        if node.id() == target_id {
-            return Some(Arc::clone(node));
-        }
-        for child in node.cached_children() {
-            if let Some(found) = Self::find_node(&child, target_id) {
-                return Some(found);
-            }
-        }
-        None
-    }
-
-    /// DFS through the `UiNodeData` tree. If the target is found among the
-    /// descendants, this node is expanded and `true` is returned.
+    /// DFS through the `UiNodeData` tree using only cached children (no I/O).
+    ///
+    /// If the target is found among already-loaded descendants, this node is
+    /// expanded and `true` is returned.  Returns `false` immediately when a
+    /// node's children have not been loaded yet.
     fn find_and_expand(&mut self, node: &Arc<UiNodeData>, target_id: &str) -> bool {
         if node.id() == target_id {
             return true;
         }
 
-        for child in node.children() {
+        // Only walk children that are already cached — never trigger I/O.
+        let Some(children) = node.cached_children() else {
+            return false;
+        };
+
+        for child in children {
             if self.find_and_expand(&child, target_id) {
                 self.expanded.insert(node.id());
                 return true;

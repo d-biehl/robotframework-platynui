@@ -2,16 +2,12 @@
 
 use eframe::egui;
 
-use crate::model::tree_data::SearchResultItem;
-
-/// Actions emitted by the toolbar views.
+/// Actions emitted by the search toolbar.
 pub enum ToolbarAction {
     /// User pressed Enter in the search bar — evaluate XPath.
     EvaluateXPath,
     /// User clicked Stop — cancel running search.
     CancelSearch,
-    /// User clicked a result node — reveal in tree.
-    RevealResult(usize),
 }
 
 /// Render the application menu bar.
@@ -112,74 +108,6 @@ pub fn show_search_bar(
         });
         ui.add_space(4.0);
     });
-
-    actions
-}
-
-/// Render the bottom results panel. Returns actions if a result was clicked.
-pub fn show_results_panel(
-    ctx: &egui::Context,
-    results: &[SearchResultItem],
-    status: Option<&str>,
-) -> Vec<ToolbarAction> {
-    let mut actions = Vec::new();
-
-    egui::TopBottomPanel::bottom("results_panel")
-        .resizable(true)
-        .min_height(60.0)
-        .max_height(ctx.content_rect().height() * 0.6)
-        .default_height(120.0)
-        .show(ctx, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.horizontal(|ui| {
-                ui.strong("Results");
-                if let Some(status) = status {
-                    ui.separator();
-                    if status.starts_with("Error") {
-                        ui.colored_label(egui::Color32::from_rgb(255, 100, 100), status);
-                    } else {
-                        ui.colored_label(egui::Color32::from_gray(160), status);
-                    }
-                }
-            });
-            ui.separator();
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                if results.is_empty() && status.is_none() {
-                    ui.colored_label(
-                        egui::Color32::from_gray(120),
-                        "Enter an XPath expression and press Enter or click Search.",
-                    );
-                } else if results.is_empty() && status.is_some() {
-                    ui.colored_label(egui::Color32::from_gray(120), "No results.");
-                } else {
-                    for (i, result) in results.iter().enumerate() {
-                        let label_text = result.display_label();
-                        if result.is_node() {
-                            // Clickable result (node or attribute with owner node)
-                            let icon = match result {
-                                SearchResultItem::Node { .. } => "\u{1F517}",
-                                SearchResultItem::Attribute { .. } => "\u{1F4CE}",
-                                _ => "\u{2022}",
-                            };
-                            let response = ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(format!("{icon} {label_text}"))
-                                        .color(ui.visuals().hyperlink_color),
-                                )
-                                .sense(egui::Sense::click()),
-                            );
-                            if response.clicked() {
-                                actions.push(ToolbarAction::RevealResult(i));
-                            }
-                            response.on_hover_text("Click to reveal in tree");
-                        } else {
-                            // Non-clickable value result
-                            ui.label(format!("  {label_text}"));
-                        }
-                    }
-                }
-            });
-        });
 
     actions
 }

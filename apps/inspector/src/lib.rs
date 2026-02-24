@@ -30,7 +30,7 @@ use platynui_link::platynui_link_providers;
 use platynui_runtime::Runtime;
 use std::sync::Arc;
 
-use view::{properties, toolbar, tree_view};
+use view::{properties, results_panel, toolbar, tree_view};
 use viewmodel::inspector_vm::InspectorViewModel;
 
 // Link platform-specific providers (AT-SPI on Linux, UIA on Windows, AX on macOS)
@@ -119,18 +119,36 @@ impl eframe::App for InspectorApp {
         let search_actions =
             toolbar::show_search_bar(ctx, &mut self.vm.search_text, &mut self.vm.always_on_top, is_searching);
 
-        // View: Results Panel (bottom)
-        let result_actions = toolbar::show_results_panel(ctx, &self.vm.results, self.vm.result_status.as_deref());
-
-        // Poll background search for new results (drives the streaming pipeline).
-        self.vm.poll_search(ctx);
-
-        // Process toolbar actions
-        for action in search_actions.into_iter().chain(result_actions) {
+        // Process toolbar actions (must happen before poll so a new
+        // search is started before the first poll in the same frame).
+        for action in search_actions {
             match action {
                 toolbar::ToolbarAction::EvaluateXPath => self.vm.evaluate_xpath(),
                 toolbar::ToolbarAction::CancelSearch => self.vm.cancel_search(),
-                toolbar::ToolbarAction::RevealResult(i) => self.vm.reveal_and_select_result(i),
+            }
+        }
+
+        // Poll background search for new results BEFORE rendering the
+        // results panel so the count shown in the header and the status
+        // text are always consistent within a single frame.
+        self.vm.poll_search(ctx);
+
+        // Poll background reveal (tree sync) so the tree updates once
+        // the ancestor path is pre-loaded.
+        self.vm.poll_reveal(ctx);
+
+        // View: Results Panel (bottom)
+        let result_actions = results_panel::show_results_panel(
+            ctx,
+            &self.vm.results,
+            self.vm.result_status.as_deref(),
+            &mut self.vm.result_focused_index,
+        );
+
+        // Process result actions
+        for action in result_actions {
+            match action {
+                results_panel::ResultAction::Reveal(i) => self.vm.reveal_and_select_result(i),
             }
         }
 
@@ -184,8 +202,8 @@ impl eframe::App for InspectorApp {
                         tree_view::TreeNavigate::Right => self.vm.navigate_right(),
                         tree_view::TreeNavigate::Home => self.vm.navigate_home(),
                         tree_view::TreeNavigate::End => self.vm.navigate_end(),
-                        tree_view::TreeNavigate::PageUp => self.vm.navigate_page_up(),
-                        tree_view::TreeNavigate::PageDown => self.vm.navigate_page_down(),
+                        tree_view::TreeNavigate::PageUp => self.vm.navigate_page_up(response.page_size),
+                        tree_view::TreeNavigate::PageDown => self.vm.navigate_page_down(response.page_size),
                     }
                 }
             });
