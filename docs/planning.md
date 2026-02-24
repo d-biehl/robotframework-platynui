@@ -177,12 +177,12 @@ See `docs/architecture.md` §8.5 for the full Wayland protocol assessment table.
 
 Remaining work:
 - [x] **Streaming XPath search** (see §5.1.1 below)
-- [ ] **Performance**: measurement with large trees (≥2k visible nodes), virtual scrolling for tree rows
+- [x] **TreeView widget component** (see §5.1.2 below)
 - [ ] **Element Picker**: click-to-identify mode (click on screen element → reveal in tree)
-- [ ] **Keyboard repeat**: proper repeat rate for held arrow keys
-- [ ] **Loading states**: spinners for long-running child loads
-- [ ] **Filter/search in properties**: quick filter for attribute names
 - [ ] **Export**: copy XPath for selected node, export subtree as XML
+- [ ] **Performance**: measurement with large trees (≥2k visible nodes), virtual scrolling (part of TreeView widget)
+- [ ] **Async child loading**: non-blocking tree expansion for slow providers (AT-SPI2 D-Bus, large UIA trees)
+- [ ] **Filter/search in properties**: quick filter for attribute names
 
 #### 5.1.1 Streaming XPath Search — Design
 
@@ -274,6 +274,89 @@ GUI thread and makes the application unresponsive.
 - [x] Update toolbar: Stop button, spinner, `CancelSearch` action
 - [x] Wire `poll_search()` into `lib.rs` `update()`
 - [ ] Test with large trees and long-running XPath expressions
+
+#### 5.1.2 TreeView Widget Component — Design
+
+**Problem:** The current `show_tree()` is a free function tightly coupled to Inspector-specific
+types (`VisibleRow`, `TreeAction`). Keyboard navigation lives separately in `lib.rs`. This makes
+the tree neither reusable nor self-contained. Virtual scrolling — needed for large trees — would
+be best implemented inside the component itself.
+
+**Goal:** A generic, self-contained egui TreeView widget with:
+1. Reusable across different tree data sources (UI tree, file tree, XPath result tree)
+2. Built-in keyboard navigation (Up/Down/Left/Right/Home/End/PageUp/PageDown)
+3. Virtual scrolling for large trees (only visible rows rendered)
+4. Customizable icon/label rendering via callbacks
+
+**Design — Builder pattern with trait + response struct (Option B):**
+
+```rust
+/// Trait that tree data rows must implement.
+pub trait TreeRowData {
+    fn label(&self) -> &str;
+    fn depth(&self) -> usize;
+    fn has_children(&self) -> bool;
+    fn is_expanded(&self) -> bool;
+    fn is_valid(&self) -> bool;
+}
+
+/// Builder for the TreeView widget.
+pub struct TreeView<'a, R: TreeRowData> {
+    rows: &'a [R],
+    selected: Option<usize>,
+    focused: usize,
+    scroll_to_focused: bool,
+    icon_fn: Option<Box<dyn Fn(&R) -> &str + 'a>>,
+    context_menu_fn: Option<Box<dyn FnMut(&mut egui::Ui, usize) + 'a>>,
+}
+
+/// Response returned after rendering.
+pub struct TreeResponse {
+    /// Row that was clicked/selected, if any.
+    pub selected: Option<usize>,
+    /// Row whose expand/collapse was toggled, if any.
+    pub toggled: Option<usize>,
+    /// Keyboard navigation delta (consumed internally, reported for ViewModel sync).
+    pub navigate: Option<TreeNavigate>,
+}
+
+pub enum TreeNavigate {
+    Up, Down, Left, Right, Home, End, PageUp, PageDown,
+}
+```
+
+**Usage:**
+```rust
+let response = TreeView::new(&rows)
+    .selected(self.selected_index)
+    .focused(self.focused_index)
+    .scroll_to_focused(self.scroll_to_focused)
+    .icon(|row| role_icon(&row.label))
+    .context_menu(|ui, idx| { /* Refresh / Refresh Subtree */ })
+    .show(ui);
+
+if let Some(idx) = response.selected {
+    self.vm.select_node(idx);
+}
+```
+
+**Key design decisions:**
+- `TreeRowData` trait decouples from `VisibleRow` — any type implementing the trait works.
+- Icon mapping via callback (`icon_fn`) instead of hardcoded `role_icon()`.
+- Context menu via callback — Inspector-specific actions stay in Inspector code.
+- Keyboard handling moves INTO the widget (currently scattered in `lib.rs`).
+- Virtual scrolling: use known row height + scroll offset to compute visible range,
+  only iterate/render rows in that range. `scroll_to_me()` replaced by explicit offset calculation.
+- `TreeResponse` carries structured actions instead of `Vec<TreeAction>`.
+
+**Tasks:**
+- [x] Define `TreeRowData` trait and `TreeResponse` struct
+- [x] Implement `TreeView` builder with `show()` method
+- [x] Move keyboard navigation from `lib.rs` into the widget
+- [x] Implement virtual scrolling (fixed row height, visible range calculation)
+- [x] Implement `VisibleRow: TreeRowData` in Inspector
+- [x] Migrate Inspector `show_tree()` → `TreeView::new(...).show(ui)`
+- [x] Remove old `show_tree()` function and `TreeAction` enum
 
 ### 5.2 CLI
 
@@ -726,10 +809,9 @@ Complete checklists from all work areas, including completed items for historica
 - [x] Streaming XPath search: non-blocking background thread, mpsc streaming, cancel flag, spinner, Stop button (see §5.1.1)
 
 **Remaining:**
-- [ ] Performance measurement with large trees (≥2k visible nodes)
-- [ ] Virtual scrolling for tree rows
+- [x] TreeView widget component: generic, self-contained egui widget with built-in keyboard nav + virtual scrolling (see §5.1.2)
 - [ ] Element Picker (click-to-identify)
-- [ ] Keyboard repeat behavior
-- [ ] Loading spinners
+- [ ] Export (copy XPath for selected node, subtree as XML)
+- [ ] Performance measurement with large trees (≥2k visible nodes)
+- [ ] Async child loading (non-blocking tree expansion)
 - [ ] Filter in properties panel
-- [ ] Export (XPath for selected node, subtree as XML)

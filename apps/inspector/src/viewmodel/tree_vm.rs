@@ -1,6 +1,7 @@
 //! ViewModel: Flattened tree with expand/collapse state and keyboard navigation.
 
 use crate::model::tree_data::UiNodeData;
+use crate::view::tree_view::TreeRowData;
 use platynui_core::ui::UiNode;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -20,6 +21,28 @@ pub struct VisibleRow {
     pub is_valid: bool,
     /// Reference to the underlying node data.
     pub data: Arc<UiNodeData>,
+}
+
+impl TreeRowData for VisibleRow {
+    fn label(&self) -> &str {
+        &self.label
+    }
+
+    fn depth(&self) -> usize {
+        self.depth
+    }
+
+    fn has_children(&self) -> bool {
+        self.has_children
+    }
+
+    fn is_expanded(&self) -> bool {
+        self.is_expanded
+    }
+
+    fn is_valid(&self) -> bool {
+        self.is_valid
+    }
 }
 
 /// ViewModel that maintains a flattened list of visible rows based on expansion state.

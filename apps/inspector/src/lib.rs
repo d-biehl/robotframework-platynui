@@ -145,42 +145,47 @@ impl eframe::App for InspectorApp {
                 ui.strong("UI Elements");
                 ui.separator();
 
-                // Handle keyboard navigation only when no text widget has focus
-                let wants_keyboard = ctx.memory(|mem| mem.focused().is_some());
-                if !wants_keyboard {
-                    let events = ui.input(|i| i.events.clone());
-                    for event in &events {
-                        if let egui::Event::Key { key, pressed: true, .. } = event {
-                            match key {
-                                egui::Key::ArrowUp => self.vm.navigate_up(),
-                                egui::Key::ArrowDown => self.vm.navigate_down(),
-                                egui::Key::ArrowLeft => self.vm.navigate_left(),
-                                egui::Key::ArrowRight => self.vm.navigate_right(),
-                                egui::Key::Home => self.vm.navigate_home(),
-                                egui::Key::End => self.vm.navigate_end(),
-                                egui::Key::PageUp => self.vm.navigate_page_up(),
-                                egui::Key::PageDown => self.vm.navigate_page_down(),
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-
-                // View renders tree, returns actions
+                // View renders tree via TreeView widget, returns TreeResponse
                 let snapshot: Vec<_> = self.vm.tree.rows().to_vec();
                 let scroll = self.vm.scroll_to_focused;
-                let actions =
-                    tree_view::show_tree(ui, &snapshot, self.vm.selected_index, self.vm.focused_index, scroll);
+                let response = tree_view::TreeView::new(&snapshot)
+                    .selected(self.vm.selected_index)
+                    .focused(self.vm.focused_index)
+                    .scroll_to_focused(scroll)
+                    .context_menu(|ui, i| {
+                        let mut close = false;
+                        if ui.button("Refresh").clicked() {
+                            self.vm.refresh_row(i);
+                            close = true;
+                        }
+                        if ui.button("Refresh subtree").clicked() {
+                            self.vm.refresh_subtree(i);
+                            close = true;
+                        }
+                        close
+                    })
+                    .show(ui);
+
                 // Consume the scroll flag after rendering
                 self.vm.scroll_to_focused = false;
 
-                // Process actions back into ViewModel
-                for action in actions {
-                    match action {
-                        tree_view::TreeAction::Select(i) => self.vm.select_node(i),
-                        tree_view::TreeAction::Toggle(i) => self.vm.tree.toggle(i),
-                        tree_view::TreeAction::Refresh(i) => self.vm.refresh_row(i),
-                        tree_view::TreeAction::RefreshSubtree(i) => self.vm.refresh_subtree(i),
+                // Process TreeResponse back into ViewModel
+                if let Some(i) = response.selected {
+                    self.vm.select_node(i);
+                }
+                if let Some(i) = response.toggled {
+                    self.vm.tree.toggle(i);
+                }
+                if let Some(nav) = response.navigate {
+                    match nav {
+                        tree_view::TreeNavigate::Up => self.vm.navigate_up(),
+                        tree_view::TreeNavigate::Down => self.vm.navigate_down(),
+                        tree_view::TreeNavigate::Left => self.vm.navigate_left(),
+                        tree_view::TreeNavigate::Right => self.vm.navigate_right(),
+                        tree_view::TreeNavigate::Home => self.vm.navigate_home(),
+                        tree_view::TreeNavigate::End => self.vm.navigate_end(),
+                        tree_view::TreeNavigate::PageUp => self.vm.navigate_page_up(),
+                        tree_view::TreeNavigate::PageDown => self.vm.navigate_page_down(),
                     }
                 }
             });

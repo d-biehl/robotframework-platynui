@@ -83,16 +83,17 @@ pub fn show_properties(
 
     let available_height = ui.available_height();
 
-    TableBuilder::new(ui)
-        .auto_shrink([false, false])
-        .striped(true)
-        .resizable(true)
-        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-        .column(Column::auto().at_least(180.0)) // Name
-        .column(Column::remainder().at_least(200.0)) // Value
-        .column(Column::auto().at_least(80.0)) // Type
-        .min_scrolled_height(available_height)
-        .header(22.0, |mut header| {
+    egui::ScrollArea::horizontal().show(ui, |ui| {
+        TableBuilder::new(ui)
+            .auto_shrink([false, false])
+            .striped(true)
+            .resizable(true)
+            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+            .column(Column::auto().at_least(180.0)) // Name
+            .column(Column::remainder().at_least(200.0)) // Value
+            .column(Column::auto().at_least(80.0)) // Type
+            .min_scrolled_height(available_height)
+            .header(22.0, |mut header| {
             header.col(|ui| {
                 ui.strong("Name");
                 let resp = ui.interact(ui.max_rect(), ui.id().with("sort_name"), egui::Sense::click());
@@ -158,6 +159,7 @@ pub fn show_properties(
                 });
             }
         });
+    });
 }
 
 /// Context menu for a properties row with quick copy options.
