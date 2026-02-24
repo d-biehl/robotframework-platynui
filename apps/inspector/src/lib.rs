@@ -33,6 +33,19 @@ use std::sync::Arc;
 use view::{properties, results_panel, toolbar, tree_view};
 use viewmodel::inspector_vm::InspectorViewModel;
 
+/// Load the embedded application icon as [`egui::IconData`].
+///
+/// The PNG is compiled into the binary via `include_bytes!` and decoded at
+/// startup so every platform (Windows, macOS, Linux) gets a window icon
+/// without external files.
+fn load_icon() -> egui::IconData {
+    let png_bytes = include_bytes!("../assets/icon.png");
+    let image = image::load_from_memory(png_bytes).expect("Failed to decode embedded icon PNG");
+    let rgba = image.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    egui::IconData { rgba: rgba.into_raw(), width, height }
+}
+
 // Link platform-specific providers (AT-SPI on Linux, UIA on Windows, AX on macOS)
 platynui_link_providers!();
 
@@ -238,8 +251,12 @@ pub fn run() -> eframe::Result {
     let runtime = Runtime::new().expect("Failed to create PlatynUI runtime");
     let runtime = Arc::new(runtime);
 
+    let icon = load_icon();
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1100.0, 750.0]).with_title("PlatynUI Inspector"),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1100.0, 750.0])
+            .with_title("PlatynUI Inspector")
+            .with_icon(Arc::new(icon)),
         ..Default::default()
     };
 

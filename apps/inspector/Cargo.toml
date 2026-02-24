@@ -22,6 +22,7 @@ mock-provider = [
 eframe = "0.33"
 egui_extras = "0.33"
 clap = { version = "4", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
 
@@ -33,6 +34,9 @@ platynui-platform-mock = { path = "../../crates/platform-mock", optional = true 
 platynui-core = { path = "../../crates/core" }
 platynui-runtime = { path = "../../crates/runtime", default-features = false }
 platynui-link = { path = "../../crates/link" }
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+winresource = "0.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 platynui-platform-windows = { path = "../../crates/platform-windows" }

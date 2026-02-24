@@ -124,8 +124,7 @@ pub fn show_results_panel(
                                 *focused_index = focused_index.saturating_sub(page_rows);
                             }
                             egui::Key::PageDown => {
-                                *focused_index =
-                                    (*focused_index + page_rows).min(results.len().saturating_sub(1));
+                                *focused_index = (*focused_index + page_rows).min(results.len().saturating_sub(1));
                             }
                             egui::Key::Home => {
                                 *focused_index = 0;
