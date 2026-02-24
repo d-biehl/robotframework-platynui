@@ -20,26 +20,48 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Let Xephyr pick a free display number automatically via -displayfd.
-# Use a named pipe (FIFO) so that reading blocks until Xephyr writes,
-# avoiding race conditions with regular files and unflushed writes.
-DISPLAYFD_FIFO="$XEPHYR_RUNTIME_DIR/displayfd"
-mkfifo "$DISPLAYFD_FIFO"
-
-Xephyr -displayfd 3 -ac -screen 1920x1080 -noreset -sw-cursor -dpi 96 \
-  3>"$DISPLAYFD_FIFO" &
-XEPHYR_PID=$!
-
-# Read blocks until Xephyr writes the display number and closes the fd
-if ! read -r -t 10 DISPLAY_NUM < "$DISPLAYFD_FIFO"; then
-  echo "ERROR: Xephyr did not report a display number within 10s" >&2
-  exit 1
+# Detect WSL — -displayfd does not work reliably under WSL, so use a
+# fixed display number instead.
+IS_WSL=0
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  IS_WSL=1
 fi
-rm -f "$DISPLAYFD_FIFO"
 
-if [ -z "$DISPLAY_NUM" ] || ! kill -0 "$XEPHYR_PID" 2>/dev/null; then
-  echo "ERROR: Xephyr failed to start" >&2
-  exit 1
+if [ "$IS_WSL" -eq 1 ]; then
+  # WSL: use a fixed display number (99) since -displayfd is broken
+  DISPLAY_NUM=99
+  echo "WSL detected — using fixed display :$DISPLAY_NUM"
+
+  Xephyr ":$DISPLAY_NUM" -ac -screen 1920x1080 -noreset -sw-cursor -dpi 96 &
+  XEPHYR_PID=$!
+  sleep 1
+
+  if ! kill -0 "$XEPHYR_PID" 2>/dev/null; then
+    echo "ERROR: Xephyr failed to start on :$DISPLAY_NUM" >&2
+    exit 1
+  fi
+else
+  # Native Linux: let Xephyr pick a free display number via -displayfd.
+  # Use a named pipe (FIFO) so that reading blocks until Xephyr writes,
+  # avoiding race conditions with regular files and unflushed writes.
+  DISPLAYFD_FIFO="$XEPHYR_RUNTIME_DIR/displayfd"
+  mkfifo "$DISPLAYFD_FIFO"
+
+  Xephyr -displayfd 3 -ac -screen 1920x1080 -noreset -sw-cursor -dpi 96 \
+    3>"$DISPLAYFD_FIFO" &
+  XEPHYR_PID=$!
+
+  # Read blocks until Xephyr writes the display number and closes the fd
+  if ! read -r -t 10 DISPLAY_NUM < "$DISPLAYFD_FIFO"; then
+    echo "ERROR: Xephyr did not report a display number within 10s" >&2
+    exit 1
+  fi
+  rm -f "$DISPLAYFD_FIFO"
+
+  if [ -z "$DISPLAY_NUM" ] || ! kill -0 "$XEPHYR_PID" 2>/dev/null; then
+    echo "ERROR: Xephyr failed to start" >&2
+    exit 1
+  fi
 fi
 
 echo "Xephyr running on display :$DISPLAY_NUM (PID $XEPHYR_PID)"
