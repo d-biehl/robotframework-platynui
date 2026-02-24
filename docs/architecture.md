@@ -655,8 +655,8 @@ Context minimization before certain axes (`descendant*`, `following*`) removes o
 ### 9.4 Evaluation API
 
 - `evaluate(node: Option<Arc<dyn UiNode>>, xpath: &str, options)` — central interface. Without context (`None`), evaluation starts at the desktop.
-- `EvaluateOptions` supports `with_cache()` / `without_cache()` and `with_node_resolver(...)` for re-resolving context nodes by `RuntimeId`.
-- `evaluate_iter_owned(...)` returns an owned iterator (`EvaluationStream`) for FFI bindings (no borrowed references).
+- `EvaluateOptions` supports `with_cache()` / `without_cache()`, `with_node_resolver(...)` for re-resolving context nodes by `RuntimeId`, and `with_cancel_flag(Arc<AtomicBool>)` for cooperative cancellation (checked at each XPath axis step).
+- `evaluate_iter_owned(...)` returns an owned iterator (`EvaluationStream`) for FFI bindings (no borrowed references). `evaluate_iter_owned_cancellable(...)` adds a cancel flag for interruptible streaming evaluation.
 - Results are `EvaluationItem`: `Node`, `Attribute` (owner + name + value), or `Value` (`UiValue`).
 - `StaticContext` registers fixed prefixes: `control`, `item`, `app`, `native`.
 - `typed_value()` is mandatory and returns XDM-conformant atomics (`xs:boolean`, `xs:integer`, `xs:double`, `xs:string`). Complex structures (Rect, Point, Size) remain as JSON-encoded strings; their derived components (`Bounds.X`, etc.) are numeric atomics.

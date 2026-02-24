@@ -43,7 +43,7 @@ src/
 ### ViewModel Layer (`viewmodel/`)
 
 - **`TreeViewModel`** — Maintains a `HashSet<String>` of expanded node IDs and a flattened `Vec<VisibleRow>` of the currently visible tree. Supports `toggle`, `expand`, `collapse`, `reveal_node` (auto-expand ancestor chain), `refresh_row`, `refresh_subtree`.
-- **`InspectorViewModel`** — Top-level app state: owns `TreeViewModel`, `Runtime`, selection/focus indices, search text, results, properties cache. Provides keyboard navigation (Up/Down/Left/Right/Home/End/PageUp/PageDown), `evaluate_xpath()`, `reveal_and_select_result()`, and auto-highlight on selection.
+- **`InspectorViewModel`** — Top-level app state: owns `TreeViewModel`, `Runtime`, selection/focus indices, search text, results, properties cache. Provides keyboard navigation (Up/Down/Left/Right/Home/End/PageUp/PageDown), `evaluate_xpath()` (non-blocking, spawns background thread), `poll_search()` (drains streaming results each frame), `cancel_search()`, `reveal_and_select_result()`, and auto-highlight on selection.
 
 ### View Layer (`view/`)
 
@@ -51,13 +51,13 @@ All view functions are pure rendering — they read state and return action enum
 
 - **`tree_view::show_tree()`** — ScrollArea with indented rows, disclosure triangles, role icons, selection/focus indicators, context menu (Refresh / Refresh Subtree). Returns `Vec<TreeAction>`.
 - **`properties::show_properties()`** — `egui_extras::TableBuilder` with sortable columns (Name, Value, Type). Each cell is a read-only `TextEdit` for native text selection. Context menu: Copy Name/Value/Type/Row.
-- **`toolbar::show_menu_bar()`** / `show_search_bar()` / `show_results_panel()` — Menu bar, XPath search with Enter/Button, results list with click-to-reveal. Returns `Vec<ToolbarAction>`.
+- **`toolbar::show_menu_bar()`** / `show_search_bar()` / `show_results_panel()` — Menu bar, XPath search with Enter/Button (toggles to Stop while searching), results list with click-to-reveal. Returns `Vec<ToolbarAction>` (`EvaluateXPath`, `CancelSearch`, `RevealResult`).
 
 ## Features
 
 - **UI Tree** — Hierarchical tree with lazy child loading, expand/collapse, keyboard navigation, role icons, invalid-node strikethrough
 - **Properties Panel** — Sortable table with namespace:name, value, type columns; copy via context menu and native text selection
-- **XPath Search** — Expression evaluation with results panel; click to reveal node in tree
+- **XPath Search** — Non-blocking, streaming XPath evaluation with cancellation support. Results appear incrementally with a live spinner and elapsed time. Click any result to reveal the node in tree
 - **Element Highlighting** — Selected elements are highlighted on screen (1.5s) via platform highlight provider
 - **Always On Top** — Toggle to keep inspector above other windows
 - **Context Menu** — Refresh node or subtree from tree view

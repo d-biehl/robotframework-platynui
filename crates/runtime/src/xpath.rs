@@ -3,6 +3,7 @@ use platynui_core::ui::PatternId;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use platynui_core::provider::ProviderError;
 use platynui_core::ui::attribute_names;
@@ -68,11 +69,12 @@ pub struct EvaluateOptions {
     invalidate_before_eval: bool,
     resolver: Option<Arc<dyn NodeResolver>>,
     cache: Option<XdmCache>,
+    cancel_flag: Option<Arc<AtomicBool>>,
 }
 
 impl EvaluateOptions {
     pub fn new(desktop: Arc<dyn UiNode>) -> Self {
-        Self { desktop, invalidate_before_eval: false, resolver: None, cache: None }
+        Self { desktop, invalidate_before_eval: false, resolver: None, cache: None, cancel_flag: None }
     }
 
     pub fn desktop(&self) -> Arc<dyn UiNode> {
@@ -109,6 +111,15 @@ impl EvaluateOptions {
 
     pub fn cache(&self) -> Option<&XdmCache> {
         self.cache.as_ref()
+    }
+
+    pub fn with_cancel_flag(mut self, flag: Arc<AtomicBool>) -> Self {
+        self.cancel_flag = Some(flag);
+        self
+    }
+
+    pub fn cancel_flag(&self) -> Option<&Arc<AtomicBool>> {
+        self.cancel_flag.as_ref()
     }
 }
 
@@ -192,6 +203,9 @@ impl EvaluationStream {
         let compiled = compiler::compile_with_context(&xpath, static_ctx)?;
         let mut dyn_builder = DynamicContextBuilder::new();
         dyn_builder = dyn_builder.with_context_item(xdm_root);
+        if let Some(flag) = options.cancel_flag() {
+            dyn_builder = dyn_builder.with_cancel_flag(Arc::clone(flag));
+        }
         let dyn_ctx = dyn_builder.build();
 
         let stream = evaluator::evaluate_stream(&compiled, &dyn_ctx)?;
@@ -218,6 +232,9 @@ pub fn evaluate_iter(
     let compiled = compiler::compile_with_context(xpath, static_ctx)?;
     let mut dyn_builder = DynamicContextBuilder::new();
     dyn_builder = dyn_builder.with_context_item(xdm_root);
+    if let Some(flag) = options.cancel_flag() {
+        dyn_builder = dyn_builder.with_cancel_flag(Arc::clone(flag));
+    }
     let dyn_ctx = dyn_builder.build();
 
     let stream = evaluator::evaluate_stream(&compiled, &dyn_ctx)?;

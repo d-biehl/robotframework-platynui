@@ -8,6 +8,8 @@ use crate::model::tree_data::SearchResultItem;
 pub enum ToolbarAction {
     /// User pressed Enter in the search bar — evaluate XPath.
     EvaluateXPath,
+    /// User clicked Stop — cancel running search.
+    CancelSearch,
     /// User clicked a result node — reveal in tree.
     RevealResult(usize),
 }
@@ -37,7 +39,14 @@ pub fn show_menu_bar(ctx: &egui::Context) {
 }
 
 /// Render the search toolbar. Returns actions to process.
-pub fn show_search_bar(ctx: &egui::Context, search_text: &mut String, always_on_top: &mut bool) -> Vec<ToolbarAction> {
+///
+/// When `is_searching` is `true`, the Search button becomes a Stop button.
+pub fn show_search_bar(
+    ctx: &egui::Context,
+    search_text: &mut String,
+    always_on_top: &mut bool,
+    is_searching: bool,
+) -> Vec<ToolbarAction> {
     let mut actions = Vec::new();
 
     egui::TopBottomPanel::top("search_bar").show(ctx, |ui| {
@@ -50,13 +59,21 @@ pub fn show_search_bar(ctx: &egui::Context, search_text: &mut String, always_on_
                     .desired_width(ui.available_width() - 200.0),
             );
 
-            // Evaluate on Enter key press
+            // Evaluate on Enter key press (only when not already searching)
             if text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                actions.push(ToolbarAction::EvaluateXPath);
+                if is_searching {
+                    actions.push(ToolbarAction::CancelSearch);
+                } else {
+                    actions.push(ToolbarAction::EvaluateXPath);
+                }
             }
 
-            // Explicit search button
-            if ui.button("\u{25B6} Search").clicked() {
+            // Toggle Search / Stop button
+            if is_searching {
+                if ui.button("\u{23F9} Stop").clicked() {
+                    actions.push(ToolbarAction::CancelSearch);
+                }
+            } else if ui.button("\u{25B6} Search").clicked() {
                 actions.push(ToolbarAction::EvaluateXPath);
             }
 

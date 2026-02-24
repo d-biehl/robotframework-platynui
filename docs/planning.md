@@ -176,12 +176,104 @@ See `docs/architecture.md` §8.5 for the full Wayland protocol assessment table.
 ### 5.1 Inspector
 
 Remaining work:
+- [x] **Streaming XPath search** (see §5.1.1 below)
 - [ ] **Performance**: measurement with large trees (≥2k visible nodes), virtual scrolling for tree rows
 - [ ] **Element Picker**: click-to-identify mode (click on screen element → reveal in tree)
 - [ ] **Keyboard repeat**: proper repeat rate for held arrow keys
 - [ ] **Loading states**: spinners for long-running child loads
 - [ ] **Filter/search in properties**: quick filter for attribute names
 - [ ] **Export**: copy XPath for selected node, export subtree as XML
+
+#### 5.1.1 Streaming XPath Search — Design
+
+**Problem:** `evaluate_xpath()` calls `runtime.evaluate()` synchronously, which materializes
+ALL results before returning. For large trees or expensive XPath expressions, this blocks the
+GUI thread and makes the application unresponsive.
+
+**Goal:** Non-blocking, streaming XPath evaluation with:
+1. UI remains responsive during search
+2. Results appear incrementally as they are found
+3. Search can be cancelled at any time
+4. Live status display (elapsed time, result count, spinner)
+
+**Technical constraints:**
+- `EvaluationStream` is `!Send` (uses `Rc`-based XDM nodes internally) — evaluation must
+  happen entirely on the spawned thread, not moved back to the GUI thread.
+- `EvaluationItem` IS `Send` (contains `Arc<dyn UiNode>`, `UiValue`) — results can be sent
+  via `mpsc::channel` to the GUI thread.
+- `Runtime` is `Send + Sync` — can be cloned (`Arc<Runtime>`) and moved to the background thread.
+- `DynamicContextBuilder::with_cancel_flag(Arc<AtomicBool>)` already exists in the XPath engine
+  and is checked at each axis step.
+
+**Design:**
+
+1. **Runtime layer — Cancel flag plumbing:**
+   - Add `cancel_flag: Option<Arc<AtomicBool>>` to `EvaluateOptions`.
+   - Wire it into `EvaluationStream::new()` and `evaluate_iter()` via
+     `DynamicContextBuilder::with_cancel_flag()`.
+   - Add `Runtime::evaluate_iter_owned_cancellable(node, xpath, cancel_flag)` convenience method.
+
+2. **Inspector ViewModel — Background search types:**
+   ```rust
+   enum SearchMsg {
+       Result(EvaluationItem),
+       Done { elapsed: Duration },
+       Error(String),
+       Cancelled,
+   }
+
+   struct ActiveSearch {
+       receiver: mpsc::Receiver<SearchMsg>,
+       cancel_flag: Arc<AtomicBool>,
+       start: Instant,
+       count: usize,
+   }
+   ```
+
+3. **Inspector ViewModel — `evaluate_xpath()`:**
+   - Cancel any existing `ActiveSearch` (set `cancel_flag`, drop receiver).
+   - Clone `Arc<Runtime>`, clone XPath string.
+   - Create `Arc<AtomicBool>` cancel flag, create `mpsc::channel`.
+   - Spawn `std::thread::spawn` that:
+     a. Calls `EvaluationStream::new(None, xpath, options_with_cancel_flag)`
+     b. Iterates the stream, sending `SearchMsg::Result(item)` for each `Ok(item)`
+     c. On `Err`, sends `SearchMsg::Error(err.to_string())` and stops
+     d. After loop, sends `SearchMsg::Done { elapsed }` (or `Cancelled` if flag was set)
+   - Store `ActiveSearch` in ViewModel.
+
+4. **Inspector ViewModel — `poll_search()`:**
+   - Called every frame from `update()`.
+   - Drains up to 100 items per frame from `receiver` (debouncing).
+   - For each `SearchMsg::Result`: convert to `SearchResultItem`, append to `results`.
+   - For `SearchMsg::Done`: finalize `result_status` with count + elapsed time, clear `ActiveSearch`.
+   - For `SearchMsg::Error`: set `result_status` with error, clear `ActiveSearch`.
+   - For `SearchMsg::Cancelled`: set `result_status` "Search cancelled", clear `ActiveSearch`.
+   - Update `result_status` live: "Searching… N results (X.Xs)" while active.
+   - Call `ctx.request_repaint()` while search is active to keep UI polling.
+
+5. **Inspector ViewModel — `cancel_search()`:**
+   - Set `cancel_flag` to `true` (the XPath engine checks this at each axis step).
+   - The background thread will see the flag, stop iterating, and send `Cancelled`.
+
+6. **Toolbar UI changes (`toolbar.rs`):**
+   - While `ActiveSearch` is active: show `⏹ Stop` button instead of `▶ Search`.
+   - Add spinner character rotation (◐◓◑◒) to status line while searching.
+   - New `ToolbarAction::CancelSearch` variant.
+   - Auto-cancel: starting a new search while one is running cancels the previous one.
+
+7. **App wiring (`lib.rs`):**
+   - In `update()`, call `self.vm.poll_search(ctx)` before processing toolbar actions.
+   - `poll_search` calls `ctx.request_repaint()` when a search is active to drive continuous polling.
+
+**Tasks:**
+- [x] Add `cancel_flag` to `EvaluateOptions` + wire into `EvaluationStream::new()` / `evaluate_iter()`
+- [x] Add `Runtime::evaluate_iter_owned_cancellable()`
+- [x] Implement `SearchMsg`, `ActiveSearch` in inspector ViewModel
+- [x] Rewrite `evaluate_xpath()` to spawn background thread
+- [x] Implement `poll_search()` and `cancel_search()`
+- [x] Update toolbar: Stop button, spinner, `CancelSearch` action
+- [x] Wire `poll_search()` into `lib.rs` `update()`
+- [ ] Test with large trees and long-running XPath expressions
 
 ### 5.2 CLI
 
@@ -631,6 +723,7 @@ Complete checklists from all work areas, including completed items for historica
 - [x] Always On Top toggle
 - [x] Tracing integration (--log-level CLI flag)
 - [x] No build.rs / no code generation
+- [x] Streaming XPath search: non-blocking background thread, mpsc streaming, cancel flag, spinner, Stop button (see §5.1.1)
 
 **Remaining:**
 - [ ] Performance measurement with large trees (≥2k visible nodes)

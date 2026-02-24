@@ -2,10 +2,39 @@
 
 use crate::model::tree_data::{DisplayAttribute, SearchResultItem, UiNodeData};
 use crate::viewmodel::tree_vm::TreeViewModel;
+use eframe::egui;
 use platynui_core::platform::HighlightRequest;
-use platynui_runtime::Runtime;
-use std::sync::Arc;
-use std::time::Duration;
+use platynui_runtime::{EvaluationItem, Runtime};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
+use std::time::{Duration, Instant};
+
+/// Messages sent from the background evaluation thread to the UI thread.
+pub enum SearchMsg {
+    /// A single evaluation result item.
+    Result(EvaluationItem),
+    /// Evaluation completed successfully.
+    Done { elapsed: Duration },
+    /// Evaluation failed with an error.
+    Error(String),
+    /// Evaluation was cancelled by the user.
+    Cancelled,
+}
+
+/// State of an in-progress background XPath search.
+pub struct ActiveSearch {
+    /// Receiver for streaming results from the background thread.
+    receiver: mpsc::Receiver<SearchMsg>,
+    /// Cancel flag shared with the background thread and the XPath engine.
+    cancel_flag: Arc<AtomicBool>,
+    /// When the search was started (for elapsed time display).
+    start: Instant,
+    /// Number of results received so far.
+    count: usize,
+}
+
+/// Spinner characters for the search status animation.
+const SPINNER_CHARS: &[char] = &['◐', '◓', '◑', '◒'];
 
 /// Top-level ViewModel holding the complete inspector state.
 pub struct InspectorViewModel {
@@ -32,6 +61,10 @@ pub struct InspectorViewModel {
     pub scroll_to_focused: bool,
     /// PlatynUI runtime (kept alive for the entire application).
     runtime: Arc<Runtime>,
+    /// Currently active background search, if any.
+    active_search: Option<ActiveSearch>,
+    /// Frame counter for spinner animation.
+    spinner_frame: usize,
 }
 
 impl InspectorViewModel {
@@ -53,6 +86,8 @@ impl InspectorViewModel {
             result_status: None,
             scroll_to_focused: false,
             runtime,
+            active_search: None,
+            spinner_frame: 0,
         }
     }
 
@@ -172,32 +207,173 @@ impl InspectorViewModel {
         self.tree.refresh_subtree(index);
     }
 
-    /// Evaluate the current `search_text` as an XPath expression.
+    /// Evaluate the current `search_text` as an XPath expression (non-blocking).
+    ///
+    /// Cancels any in-progress search, then spawns a background thread that
+    /// streams results back via `mpsc::channel`. Call [`poll_search`] each frame
+    /// to drain incoming results into `self.results`.
     pub fn evaluate_xpath(&mut self) {
-        let xpath = self.search_text.trim();
+        // Cancel any running search first.
+        self.cancel_search();
+
+        let xpath = self.search_text.trim().to_string();
         if xpath.is_empty() {
             self.results.clear();
             self.result_status = None;
             return;
         }
 
-        let start = std::time::Instant::now();
-        match self.runtime.evaluate(None, xpath) {
-            Ok(items) => {
-                let count = items.len();
-                self.results = items.iter().map(SearchResultItem::from_evaluation_item).collect();
-                let elapsed = start.elapsed();
-                self.result_status = Some(format!(
-                    "{count} result{} ({:.1}ms)",
-                    if count == 1 { "" } else { "s" },
-                    elapsed.as_secs_f64() * 1000.0,
-                ));
-            }
-            Err(err) => {
-                self.results.clear();
-                self.result_status = Some(format!("Error: {err}"));
+        // Clear previous results.
+        self.results.clear();
+        self.result_status = Some("Searching\u{2026}".to_string());
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel();
+
+        let rt = Arc::clone(&self.runtime);
+        let flag = Arc::clone(&cancel_flag);
+
+        std::thread::Builder::new()
+            .name("xpath-search".into())
+            .spawn(move || {
+                let start = Instant::now();
+                let stream = rt.evaluate_iter_owned_cancellable(None, &xpath, Arc::clone(&flag));
+
+                match stream {
+                    Ok(iter) => {
+                        for item_result in iter {
+                            // Check cancel flag before sending (fast exit).
+                            if flag.load(Ordering::Relaxed) {
+                                let _ = tx.send(SearchMsg::Cancelled);
+                                return;
+                            }
+                            match item_result {
+                                Ok(item) => {
+                                    if tx.send(SearchMsg::Result(item)).is_err() {
+                                        // Receiver dropped (search cancelled from UI side).
+                                        return;
+                                    }
+                                }
+                                Err(err) => {
+                                    // Check if this error is actually a cancellation.
+                                    let msg = err.to_string();
+                                    if msg.contains("cancelled") && flag.load(Ordering::Relaxed) {
+                                        let _ = tx.send(SearchMsg::Cancelled);
+                                    } else {
+                                        let _ = tx.send(SearchMsg::Error(msg));
+                                    }
+                                    return;
+                                }
+                            }
+                        }
+                        // Check if cancelled during the final iteration.
+                        if flag.load(Ordering::Relaxed) {
+                            let _ = tx.send(SearchMsg::Cancelled);
+                        } else {
+                            let _ = tx.send(SearchMsg::Done { elapsed: start.elapsed() });
+                        }
+                    }
+                    Err(err) => {
+                        let _ = tx.send(SearchMsg::Error(err.to_string()));
+                    }
+                }
+            })
+            .expect("failed to spawn xpath-search thread");
+
+        self.active_search = Some(ActiveSearch { receiver: rx, cancel_flag, start: Instant::now(), count: 0 });
+    }
+
+    /// Poll the background search for new results. Call this every frame.
+    ///
+    /// Drains up to `batch_size` items per call to keep the UI responsive.
+    /// While a search is active, requests a repaint so the next frame polls again.
+    pub fn poll_search(&mut self, ctx: &egui::Context) {
+        let Some(search) = &mut self.active_search else {
+            return;
+        };
+
+        // Drain up to 100 items per frame.
+        let batch_size = 100;
+        let mut finished = false;
+
+        for _ in 0..batch_size {
+            match search.receiver.try_recv() {
+                Ok(SearchMsg::Result(item)) => {
+                    self.results.push(SearchResultItem::from_evaluation_item(&item));
+                    search.count += 1;
+                }
+                Ok(SearchMsg::Done { elapsed }) => {
+                    let count = search.count;
+                    self.result_status = Some(format!(
+                        "{count} result{} ({:.1}ms)",
+                        if count == 1 { "" } else { "s" },
+                        elapsed.as_secs_f64() * 1000.0,
+                    ));
+                    finished = true;
+                    break;
+                }
+                Ok(SearchMsg::Error(msg)) => {
+                    self.result_status = Some(format!("Error: {msg}"));
+                    finished = true;
+                    break;
+                }
+                Ok(SearchMsg::Cancelled) => {
+                    let count = search.count;
+                    let elapsed = search.start.elapsed();
+                    self.result_status = Some(format!(
+                        "Cancelled \u{2014} {count} result{} ({:.1}ms)",
+                        if count == 1 { "" } else { "s" },
+                        elapsed.as_secs_f64() * 1000.0,
+                    ));
+                    finished = true;
+                    break;
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    // Thread exited without sending Done/Error/Cancelled.
+                    let count = search.count;
+                    let elapsed = search.start.elapsed();
+                    self.result_status = Some(format!(
+                        "{count} result{} ({:.1}ms, stream ended)",
+                        if count == 1 { "" } else { "s" },
+                        elapsed.as_secs_f64() * 1000.0,
+                    ));
+                    finished = true;
+                    break;
+                }
             }
         }
+
+        if finished {
+            self.active_search = None;
+        } else {
+            // Update live status while search is in progress.
+            self.spinner_frame = self.spinner_frame.wrapping_add(1);
+            let spinner = SPINNER_CHARS[self.spinner_frame / 3 % SPINNER_CHARS.len()];
+            let count = search.count;
+            let elapsed = search.start.elapsed();
+            self.result_status = Some(format!(
+                "{spinner} Searching\u{2026} {count} result{} ({:.1}s)",
+                if count == 1 { "" } else { "s" },
+                elapsed.as_secs_f64(),
+            ));
+            // Request repaint so next frame continues polling.
+            ctx.request_repaint();
+        }
+    }
+
+    /// Cancel the current background search, if any.
+    pub fn cancel_search(&mut self) {
+        if let Some(search) = self.active_search.take() {
+            search.cancel_flag.store(true, Ordering::Relaxed);
+            // The background thread will detect the flag and send Cancelled.
+            // We drop the receiver so the thread's send will error out quickly.
+        }
+    }
+
+    /// Returns `true` if a background search is currently running.
+    pub fn is_searching(&self) -> bool {
+        self.active_search.is_some()
     }
 
     /// When a result is clicked, reveal its node in the tree and select it.

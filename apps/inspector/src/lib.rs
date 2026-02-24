@@ -115,15 +115,21 @@ impl eframe::App for InspectorApp {
         toolbar::show_menu_bar(ctx);
 
         // View: Search Bar
-        let search_actions = toolbar::show_search_bar(ctx, &mut self.vm.search_text, &mut self.vm.always_on_top);
+        let is_searching = self.vm.is_searching();
+        let search_actions =
+            toolbar::show_search_bar(ctx, &mut self.vm.search_text, &mut self.vm.always_on_top, is_searching);
 
         // View: Results Panel (bottom)
         let result_actions = toolbar::show_results_panel(ctx, &self.vm.results, self.vm.result_status.as_deref());
+
+        // Poll background search for new results (drives the streaming pipeline).
+        self.vm.poll_search(ctx);
 
         // Process toolbar actions
         for action in search_actions.into_iter().chain(result_actions) {
             match action {
                 toolbar::ToolbarAction::EvaluateXPath => self.vm.evaluate_xpath(),
+                toolbar::ToolbarAction::CancelSearch => self.vm.cancel_search(),
                 toolbar::ToolbarAction::RevealResult(i) => self.vm.reveal_and_select_result(i),
             }
         }

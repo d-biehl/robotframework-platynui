@@ -300,6 +300,24 @@ impl Runtime {
         crate::xpath::EvaluationStream::new(node, xpath.to_string(), self.evaluate_options())
     }
 
+    /// Create a streaming (lazy) evaluator with a cancellation flag.
+    ///
+    /// The returned `EvaluationStream` is `!Send` — it must be iterated on the
+    /// same thread that called this method. The `cancel_flag` is checked at each
+    /// axis step; setting it to `true` causes the iterator to yield an error and stop.
+    pub fn evaluate_iter_owned_cancellable(
+        &self,
+        node: Option<Arc<dyn UiNode>>,
+        xpath: &str,
+        cancel_flag: Arc<AtomicBool>,
+    ) -> Result<crate::xpath::EvaluationStream, EvaluateError> {
+        crate::xpath::EvaluationStream::new(
+            node,
+            xpath.to_string(),
+            self.evaluate_options().with_cancel_flag(cancel_flag),
+        )
+    }
+
     pub fn evaluate_single(
         &self,
         node: Option<Arc<dyn UiNode>>,
