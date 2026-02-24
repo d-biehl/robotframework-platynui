@@ -15,7 +15,18 @@ This document covers the Linux/X11-specific implementation details for PlatynUI:
 
 **Pointer**: XTest (`FakeMotion`, `FakeButtonEvent`). `QueryPointer` for current position. Buttons 1-3 (primary/middle/secondary), 8/9 (back/forward), 4-7 (scroll).
 
-**Keyboard**: Planned via `xkbcommon-rs` + XTest injection. Not yet implemented.
+**Keyboard**: XTest injection (`FakeKeyEvent`) with keysym-to-keycode resolution via `GetKeyboardMapping`. Named keys (modifiers, function keys, navigation, numpad) resolved from a static lookup table; single characters resolved via keysym mapping with CapsLock-aware shift management. Characters not present in the active keyboard layout are injected through dynamic remapping of a spare (unmapped) keycode via `ChangeKeyboardMapping`. Control characters encountered in text input (e.g. `\n`, `\t`) are mapped to their corresponding X11 TTY function keysyms:
+
+| Character | Code | X11 Keysym |
+|-----------|------|------------|
+| `\n` (LF) | U+000A | `XK_RETURN` |
+| `\r` (CR) | U+000D | `XK_RETURN` |
+| `\t` (TAB) | U+0009 | `XK_TAB` |
+| `\b` (BS) | U+0008 | `XK_BACKSPACE` |
+| ESC | U+001B | `XK_ESCAPE` |
+| DEL | U+007F | `XK_DELETE` |
+
+Other C0 control characters (U+0000–U+001F) have no standard keyboard equivalent and are not mapped.
 
 **Screenshot**: `XGetImage` returning RGBA. Optional XShm acceleration planned.
 
