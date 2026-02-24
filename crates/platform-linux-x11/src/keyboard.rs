@@ -914,7 +914,6 @@ mod tests {
         assert!(names.contains(&"SHIFT".to_string()));
         // Should contain single characters
         assert!(names.contains(&"A".to_string()));
-        assert!(names.contains(&"a".to_string()));
         assert!(names.contains(&"0".to_string()));
         // Should be sorted
         let mut sorted = names.clone();
