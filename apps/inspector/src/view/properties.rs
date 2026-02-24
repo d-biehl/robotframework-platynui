@@ -94,71 +94,71 @@ pub fn show_properties(
             .column(Column::auto().at_least(80.0)) // Type
             .min_scrolled_height(available_height)
             .header(22.0, |mut header| {
-            header.col(|ui| {
-                ui.strong("Name");
-                let resp = ui.interact(ui.max_rect(), ui.id().with("sort_name"), egui::Sense::click());
-                if resp.clicked() {
-                    sort_state.toggle(SortColumn::Name);
-                }
-            });
-            header.col(|ui| {
-                ui.strong("Value");
-                let resp = ui.interact(ui.max_rect(), ui.id().with("sort_value"), egui::Sense::click());
-                if resp.clicked() {
-                    sort_state.toggle(SortColumn::Value);
-                }
-            });
-            header.col(|ui| {
-                ui.strong("Type");
-                let resp = ui.interact(ui.max_rect(), ui.id().with("sort_type"), egui::Sense::click());
-                if resp.clicked() {
-                    sort_state.toggle(SortColumn::Type);
-                }
-            });
-        })
-        .body(|mut body| {
-            for &idx in &indices {
-                let attr = &attributes[idx];
-                let name_str = format!("{}:{}", attr.namespace, attr.name);
-                let row_str = format!("{}={}", name_str, attr.value);
-
-                body.row(20.0, |mut row| {
-                    // Column 0: Name (read-only selectable text)
-                    row.col(|ui| {
-                        let mut text = name_str.clone();
-                        let te = egui::TextEdit::singleline(&mut text)
-                            .desired_width(ui.available_width())
-                            .frame(false)
-                            .interactive(true);
-                        let resp = ui.add(te);
-                        show_row_context_menu(&resp, &name_str, &attr.value, &attr.value_type, &row_str);
-                    });
-
-                    // Column 1: Value (read-only selectable text)
-                    row.col(|ui| {
-                        let mut text = attr.value.clone();
-                        let te = egui::TextEdit::singleline(&mut text)
-                            .desired_width(ui.available_width())
-                            .frame(false)
-                            .interactive(true);
-                        let resp = ui.add(te);
-                        show_row_context_menu(&resp, &name_str, &attr.value, &attr.value_type, &row_str);
-                    });
-
-                    // Column 2: Type (read-only selectable text)
-                    row.col(|ui| {
-                        let mut text = attr.value_type.clone();
-                        let te = egui::TextEdit::singleline(&mut text)
-                            .desired_width(ui.available_width())
-                            .text_color(egui::Color32::from_gray(160))
-                            .frame(false)
-                            .interactive(true);
-                        let resp = ui.add(te);
-                        show_row_context_menu(&resp, &name_str, &attr.value, &attr.value_type, &row_str);
-                    });
+                header.col(|ui| {
+                    ui.strong("Name");
+                    let resp = ui.interact(ui.max_rect(), ui.id().with("sort_name"), egui::Sense::click());
+                    if resp.clicked() {
+                        sort_state.toggle(SortColumn::Name);
+                    }
                 });
-            }
-        });
+                header.col(|ui| {
+                    ui.strong("Value");
+                    let resp = ui.interact(ui.max_rect(), ui.id().with("sort_value"), egui::Sense::click());
+                    if resp.clicked() {
+                        sort_state.toggle(SortColumn::Value);
+                    }
+                });
+                header.col(|ui| {
+                    ui.strong("Type");
+                    let resp = ui.interact(ui.max_rect(), ui.id().with("sort_type"), egui::Sense::click());
+                    if resp.clicked() {
+                        sort_state.toggle(SortColumn::Type);
+                    }
+                });
+            })
+            .body(|mut body| {
+                for &idx in &indices {
+                    let attr = &attributes[idx];
+                    let name_str = format!("{}:{}", attr.namespace, attr.name);
+                    let row_str = format!("{}={}", name_str, attr.value);
+
+                    body.row(20.0, |mut row| {
+                        // Column 0: Name (read-only selectable text)
+                        row.col(|ui| {
+                            let mut text = name_str.clone();
+                            let te = egui::TextEdit::singleline(&mut text)
+                                .desired_width(ui.available_width())
+                                .frame(false)
+                                .interactive(true);
+                            let resp = ui.add(te);
+                            show_row_context_menu(&resp, &name_str, &attr.value, &attr.value_type, &row_str);
+                        });
+
+                        // Column 1: Value (read-only selectable text)
+                        row.col(|ui| {
+                            let mut text = attr.value.clone();
+                            let te = egui::TextEdit::singleline(&mut text)
+                                .desired_width(ui.available_width())
+                                .frame(false)
+                                .interactive(true);
+                            let resp = ui.add(te);
+                            show_row_context_menu(&resp, &name_str, &attr.value, &attr.value_type, &row_str);
+                        });
+
+                        // Column 2: Type (read-only selectable text)
+                        row.col(|ui| {
+                            let mut text = attr.value_type.clone();
+                            let te = egui::TextEdit::singleline(&mut text)
+                                .desired_width(ui.available_width())
+                                .text_color(egui::Color32::from_gray(160))
+                                .frame(false)
+                                .interactive(true);
+                            let resp = ui.add(te);
+                            show_row_context_menu(&resp, &name_str, &attr.value, &attr.value_type, &row_str);
+                        });
+                    });
+                }
+            });
     });
 }
 

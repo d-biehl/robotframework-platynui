@@ -84,14 +84,7 @@ pub struct TreeView<'a, R: TreeRowData> {
 impl<'a, R: TreeRowData> TreeView<'a, R> {
     /// Create a new tree view with the given rows.
     pub fn new(rows: &'a [R]) -> Self {
-        Self {
-            rows,
-            selected: None,
-            focused: 0,
-            scroll_to_focused: false,
-            indent_width: 16.0,
-            context_menu_fn: None,
-        }
+        Self { rows, selected: None, focused: 0, scroll_to_focused: false, indent_width: 16.0, context_menu_fn: None }
     }
 
     /// Set the currently selected row index.
@@ -186,8 +179,7 @@ impl<'a, R: TreeRowData> TreeView<'a, R> {
 
                         // ── Disclosure chevron ───────────────────────
                         let chevron_rect = if row.has_children() {
-                            let (rect, _) =
-                                ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                            let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
                             if ui.is_rect_visible(rect) {
                                 paint_chevron(ui, rect, row.is_expanded());
                             }
@@ -235,8 +227,7 @@ impl<'a, R: TreeRowData> TreeView<'a, R> {
         // via Tab/Shift+Tab and creates a real accesskit node.  This is
         // the ONLY click handler for the whole tree area; individual rows
         // have no click sense, so there is no overlap/stealing.
-        let tree_focus =
-            ui.interact(scroll_output.inner_rect, tree_id, egui::Sense::click());
+        let tree_focus = ui.interact(scroll_output.inner_rect, tree_id, egui::Sense::click());
 
         // Sense::click() is focusable via Tab but does NOT auto-focus on
         // click.  We must explicitly request focus on any click so that
@@ -251,8 +242,7 @@ impl<'a, R: TreeRowData> TreeView<'a, R> {
         {
             for (i, rect) in row_rects.iter().enumerate() {
                 if rect.contains(pos) {
-                    let on_chevron =
-                        chevron_rects[i].is_some_and(|cr| cr.contains(pos));
+                    let on_chevron = chevron_rects[i].is_some_and(|cr| cr.contains(pos));
                     if on_chevron {
                         response.toggled = Some(i);
                     } else {
@@ -323,11 +313,7 @@ impl<'a, R: TreeRowData> TreeView<'a, R> {
             ui.memory_mut(|mem| {
                 mem.set_focus_lock_filter(
                     tree_id,
-                    egui::EventFilter {
-                        horizontal_arrows: true,
-                        vertical_arrows: true,
-                        ..Default::default()
-                    },
+                    egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, ..Default::default() },
                 );
             });
         }
