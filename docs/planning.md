@@ -118,13 +118,13 @@ Idea: allow external processes to act as UI tree providers via a JSON-RPC-like p
   - [ ] `ensure_window_accessible()`: read `_NET_WM_DESKTOP`, switch via `_NET_CURRENT_DESKTOP` ClientMessage
 - [x] **Extended EWMH**: `_NET_WM_STATE` (minimize/maximize), `_NET_MOVERESIZE_WINDOW` (move/resize)
 - [x] **Provider migration** (`provider-atspi`): removed `ewmh.rs`, removed `x11rb` dependency, replaced window calls with `WindowManager` trait
-- [ ] **AT-SPI2 Application node attributes**: Implement process metadata attributes for Application nodes (parity with Windows UIA). Data source: `/proc/PID/` filesystem.
-  - [ ] `app:Name` — process name from `/proc/PID/comm` or `cmdline[0]`
-  - [ ] `app:ExecutablePath` — readlink `/proc/PID/exe`
-  - [ ] `app:CommandLine` — read `/proc/PID/cmdline` (NUL-separated → space-joined)
-  - [ ] `app:UserName` — `/proc/PID/status` Uid → `getpwuid_r(3)`
-  - [ ] `app:StartTime` — `/proc/PID/stat` field 22 (starttime in ticks) → ISO 8601
-  - [ ] `app:Architecture` — ELF header (`e_machine`) from `/proc/PID/exe`
+- [x] **AT-SPI2 Application node attributes**: Implement process metadata attributes for Application nodes (parity with Windows UIA). Data source: `/proc/PID/` filesystem.
+  - [x] `app:ProcessName` — process name from `/proc/PID/exe` stem or `/proc/PID/comm`
+  - [x] `app:ExecutablePath` — readlink `/proc/PID/exe`
+  - [x] `app:CommandLine` — read `/proc/PID/cmdline` (NUL-separated → space-joined)
+  - [x] `app:UserName` — `/proc/PID/status` Uid → `/etc/passwd` lookup
+  - [x] `app:StartTime` — `/proc/PID/stat` field 22 (starttime in ticks) → ISO 8601
+  - [x] `app:Architecture` — ELF header (`e_machine`) from `/proc/PID/exe`
 - [ ] **AT-SPI2 events**: `subscribe_events` implementation (D-Bus signal handling)
 - [ ] **AT-SPI2 tree verification**: confirm Application → Window → Control/Item structure
 - [ ] **Smoke tests**: desktop bounds, ActivationPoint, visibility/enable flags under X11
@@ -441,8 +441,8 @@ Deep analysis of the XPath crate revealed the following issues to address:
 ## 7. Quality & Process
 
 - [ ] Contract tests for providers & devices (pattern-specific attributes, desktop coordinates, RuntimeId sources)
-- [ ] Application node attribute parity: all providers should emit the same `app:*` metadata set (ProcessId already done everywhere; ProcessName/ExecutablePath/CommandLine/UserName/StartTime/Architecture missing on AT-SPI2 and Mock)
-- [x] Rename `application::NAME` → `application::PROCESS_NAME` (`"Name"` → `"ProcessName"`) — see §8.5 for rationale. Implemented for Windows UIA; Application nodes now emit both `control:Name` (display name, falls back to process name on Windows) and `app:ProcessName` (executable stem). AT-SPI2 and Mock pending.
+- [ ] Application node attribute parity: all providers should emit the same `app:*` metadata set (ProcessId already done everywhere; ProcessName/ExecutablePath/CommandLine/UserName/StartTime/Architecture implemented on Windows UIA and AT-SPI2; Mock pending)
+- [x] Rename `application::NAME` → `application::PROCESS_NAME` (`"Name"` → `"ProcessName"`) — see §8.5 for rationale. Implemented for Windows UIA and AT-SPI2; Application nodes now emit both `control:Name` (display name) and `app:ProcessName` (executable stem). Mock pending.
 - [ ] Release/versioning strategy (SemVer per crate? Workspace version?)
 - [ ] UiNode `Id` tests: core contract tests, provider smoke tests (UIA, AT-SPI, macOS)
 - [x] `Id` mapping for Windows UIA (`AutomationId`)

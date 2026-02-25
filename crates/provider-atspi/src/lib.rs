@@ -9,6 +9,7 @@ pub(crate) mod error;
 
 mod connection;
 mod node;
+mod process;
 mod timeout;
 
 use crate::clearable_cell::ClearableCell;

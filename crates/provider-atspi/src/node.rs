@@ -934,7 +934,13 @@ impl Iterator for AttrsIter {
                     }
                 }
                 12 => self.process_id.map(|pid| Arc::new(ProcessIdAttr { pid }) as Arc<dyn UiAttribute>),
-                13 => {
+                13 => self.process_id.map(|pid| Arc::new(AppProcessNameAttr { pid }) as Arc<dyn UiAttribute>),
+                14 => self.process_id.map(|pid| Arc::new(AppExecutablePathAttr { pid }) as Arc<dyn UiAttribute>),
+                15 => self.process_id.map(|pid| Arc::new(AppCommandLineAttr { pid }) as Arc<dyn UiAttribute>),
+                16 => self.process_id.map(|pid| Arc::new(AppUserNameAttr { pid }) as Arc<dyn UiAttribute>),
+                17 => self.process_id.map(|pid| Arc::new(AppStartTimeAttr { pid }) as Arc<dyn UiAttribute>),
+                18 => self.process_id.map(|pid| Arc::new(AppArchitectureAttr { pid }) as Arc<dyn UiAttribute>),
+                19 => {
                     if self.is_window_surface {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -945,7 +951,7 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                14 => {
+                20 => {
                     if self.is_window_surface {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -976,7 +982,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 15 {
+                    if self.idx > 21 {
                         return None;
                     }
                     continue;
@@ -1250,6 +1256,121 @@ impl UiAttribute for ProcessIdAttr {
 
     fn value(&self) -> UiValue {
         UiValue::from(self.pid as i64)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Application-specific attribute types (app:* namespace)
+//
+// These mirror the Windows UIA Application node attributes, reading
+// process metadata from the Linux `/proc` filesystem.
+// ---------------------------------------------------------------------------
+
+struct AppProcessNameAttr {
+    pid: u32,
+}
+
+impl UiAttribute for AppProcessNameAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+
+    fn name(&self) -> &str {
+        application::PROCESS_NAME
+    }
+
+    fn value(&self) -> UiValue {
+        crate::process::query_process_name(self.pid).map(UiValue::from).unwrap_or(UiValue::from(""))
+    }
+}
+
+struct AppExecutablePathAttr {
+    pid: u32,
+}
+
+impl UiAttribute for AppExecutablePathAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+
+    fn name(&self) -> &str {
+        application::EXECUTABLE_PATH
+    }
+
+    fn value(&self) -> UiValue {
+        crate::process::query_executable_path(self.pid).map(UiValue::from).unwrap_or(UiValue::from(""))
+    }
+}
+
+struct AppCommandLineAttr {
+    pid: u32,
+}
+
+impl UiAttribute for AppCommandLineAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+
+    fn name(&self) -> &str {
+        application::COMMAND_LINE
+    }
+
+    fn value(&self) -> UiValue {
+        crate::process::query_command_line(self.pid).map(UiValue::from).unwrap_or(UiValue::Null)
+    }
+}
+
+struct AppUserNameAttr {
+    pid: u32,
+}
+
+impl UiAttribute for AppUserNameAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+
+    fn name(&self) -> &str {
+        application::USER_NAME
+    }
+
+    fn value(&self) -> UiValue {
+        crate::process::query_user_name(self.pid).map(UiValue::from).unwrap_or(UiValue::from(""))
+    }
+}
+
+struct AppStartTimeAttr {
+    pid: u32,
+}
+
+impl UiAttribute for AppStartTimeAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+
+    fn name(&self) -> &str {
+        application::START_TIME
+    }
+
+    fn value(&self) -> UiValue {
+        crate::process::query_start_time(self.pid).map(UiValue::from).unwrap_or(UiValue::from(""))
+    }
+}
+
+struct AppArchitectureAttr {
+    pid: u32,
+}
+
+impl UiAttribute for AppArchitectureAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::App
+    }
+
+    fn name(&self) -> &str {
+        application::ARCHITECTURE
+    }
+
+    fn value(&self) -> UiValue {
+        crate::process::query_architecture(self.pid).map(UiValue::from).unwrap_or(UiValue::from("unknown"))
     }
 }
 
