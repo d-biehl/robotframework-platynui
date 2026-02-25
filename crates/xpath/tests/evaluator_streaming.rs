@@ -728,9 +728,7 @@ fn streaming_position_lt_one_is_empty() {
     assert!(results.is_empty());
 
     // Also verify on nodes
-    let document = doc()
-        .child(elem("root").child(elem("a")).child(elem("b")).child(elem("c")))
-        .build();
+    let document = doc().child(elem("root").child(elem("a")).child(elem("b")).child(elem("c"))).build();
     let root = document.children().next().unwrap();
     let ctx2 = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
     let stream2 = evaluate_stream_expr::<N>("child::*[position() < 1]", &ctx2).expect("stream eval");
@@ -965,9 +963,8 @@ fn streaming_following_sibling_positional() {
 /// `preceding-sibling::*[1]` — first of the preceding siblings.
 #[rstest]
 fn streaming_preceding_sibling_first() {
-    let document = doc()
-        .child(elem("root").child(elem("a")).child(elem("b")).child(elem("c")).child(elem("d")))
-        .build();
+    let document =
+        doc().child(elem("root").child(elem("a")).child(elem("b")).child(elem("c")).child(elem("d"))).build();
     let root = document.children().next().unwrap();
     let ctx = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
 
@@ -1111,17 +1108,12 @@ fn streaming_position_quad_nested() {
 fn streaming_position_eq_zero_is_empty() {
     let ctx = DynamicContextBuilder::<N>::default().build();
     let expr = "(1 to 10)[position() = 0]";
-    let results: Vec<_> = evaluate_stream_expr::<N>(expr, &ctx)
-        .expect("stream eval")
-        .iter()
-        .collect::<Result<Vec<_>, _>>()
-        .expect("ok");
+    let results: Vec<_> =
+        evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval").iter().collect::<Result<Vec<_>, _>>().expect("ok");
     assert!(results.is_empty());
 
     // Also on nodes
-    let document = doc()
-        .child(elem("root").child(elem("a")).child(elem("b")))
-        .build();
+    let document = doc().child(elem("root").child(elem("a")).child(elem("b"))).build();
     let root = document.children().next().unwrap();
     let ctx2 = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
     let results2: Vec<_> = evaluate_stream_expr::<N>("child::*[position() = 0]", &ctx2)
@@ -1137,11 +1129,8 @@ fn streaming_position_eq_zero_is_empty() {
 fn streaming_position_eq_negative_is_empty() {
     let ctx = DynamicContextBuilder::<N>::default().build();
     let expr = "(1 to 10)[position() = -1]";
-    let results: Vec<_> = evaluate_stream_expr::<N>(expr, &ctx)
-        .expect("stream eval")
-        .iter()
-        .collect::<Result<Vec<_>, _>>()
-        .expect("ok");
+    let results: Vec<_> =
+        evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval").iter().collect::<Result<Vec<_>, _>>().expect("ok");
     assert!(results.is_empty());
 }
 
@@ -1166,11 +1155,8 @@ fn streaming_position_ge_zero_matches_all() {
 fn streaming_position_le_zero_is_empty() {
     let ctx = DynamicContextBuilder::<N>::default().build();
     let expr = "(1 to 10)[position() <= 0]";
-    let results: Vec<_> = evaluate_stream_expr::<N>(expr, &ctx)
-        .expect("stream eval")
-        .iter()
-        .collect::<Result<Vec<_>, _>>()
-        .expect("ok");
+    let results: Vec<_> =
+        evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval").iter().collect::<Result<Vec<_>, _>>().expect("ok");
     assert!(results.is_empty());
 }
 
@@ -1195,11 +1181,8 @@ fn streaming_position_gt_negative_matches_all() {
 fn streaming_literal_zero_predicate_is_empty() {
     let ctx = DynamicContextBuilder::<N>::default().build();
     let expr = "(1 to 10)[0]";
-    let results: Vec<_> = evaluate_stream_expr::<N>(expr, &ctx)
-        .expect("stream eval")
-        .iter()
-        .collect::<Result<Vec<_>, _>>()
-        .expect("ok");
+    let results: Vec<_> =
+        evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval").iter().collect::<Result<Vec<_>, _>>().expect("ok");
     assert!(results.is_empty());
 }
 
@@ -1208,11 +1191,8 @@ fn streaming_literal_zero_predicate_is_empty() {
 fn streaming_literal_negative_predicate_is_empty() {
     let ctx = DynamicContextBuilder::<N>::default().build();
     let expr = "(1 to 10)[-1]";
-    let results: Vec<_> = evaluate_stream_expr::<N>(expr, &ctx)
-        .expect("stream eval")
-        .iter()
-        .collect::<Result<Vec<_>, _>>()
-        .expect("ok");
+    let results: Vec<_> =
+        evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval").iter().collect::<Result<Vec<_>, _>>().expect("ok");
     assert!(results.is_empty());
 }
 

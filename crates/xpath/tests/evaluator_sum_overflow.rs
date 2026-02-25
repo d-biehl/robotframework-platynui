@@ -23,11 +23,7 @@ fn sum_large_integers_overflows_foar0002() {
     // Two values of ~5e18 each → sum ~1e19 > i64::MAX
     let expr = format!("fn:sum(({0}, {0}))", i64::MAX / 2 + 1);
     let err = evaluate_expr::<N>(&expr, &c).unwrap_err();
-    assert_eq!(
-        err.code_enum(),
-        ErrorCode::FOAR0002,
-        "expected FOAR0002 for integer overflow in sum, got: {err}"
-    );
+    assert_eq!(err.code_enum(), ErrorCode::FOAR0002, "expected FOAR0002 for integer overflow in sum, got: {err}");
 }
 
 #[rstest]

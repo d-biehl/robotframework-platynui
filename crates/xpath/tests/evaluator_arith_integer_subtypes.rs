@@ -69,18 +69,12 @@ fn unsigned_byte_plus_unsigned_byte() {
 
 #[rstest]
 fn non_negative_integer_plus_positive_integer() {
-    assert_eq!(
-        eval_i64("xs:nonNegativeInteger(3) + xs:positiveInteger(7)"),
-        10
-    );
+    assert_eq!(eval_i64("xs:nonNegativeInteger(3) + xs:positiveInteger(7)"), 10);
 }
 
 #[rstest]
 fn non_positive_integer_plus_negative_integer() {
-    assert_eq!(
-        eval_i64("xs:nonPositiveInteger(-5) + xs:negativeInteger(-3)"),
-        -8
-    );
+    assert_eq!(eval_i64("xs:nonPositiveInteger(-5) + xs:negativeInteger(-3)"), -8);
 }
 
 // --- Cross-subtype arithmetic ---
