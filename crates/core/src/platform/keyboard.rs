@@ -123,14 +123,15 @@ pub struct KeyboardSettings {
 
 impl Default for KeyboardSettings {
     fn default() -> Self {
+        // Tuned for ~240 WPM — fast test automation that still looks human-ish.
         Self {
-            press_delay: Duration::from_millis(35),
-            release_delay: Duration::from_millis(25),
-            between_keys_delay: Duration::from_millis(40),
-            chord_press_delay: Duration::from_millis(45),
-            chord_release_delay: Duration::from_millis(45),
-            after_sequence_delay: Duration::from_millis(75),
-            after_text_delay: Duration::from_millis(20),
+            press_delay: Duration::from_millis(25),
+            release_delay: Duration::from_millis(5),
+            between_keys_delay: Duration::from_millis(20),
+            chord_press_delay: Duration::from_millis(12),
+            chord_release_delay: Duration::from_millis(12),
+            after_sequence_delay: Duration::from_millis(30),
+            after_text_delay: Duration::from_millis(15),
         }
     }
 }

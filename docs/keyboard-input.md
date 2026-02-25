@@ -296,7 +296,61 @@ The first parameter (`descriptor`) specifies the target element. PlatynUI automa
 
 ## 11. Adjusting Timing
 
-PlatynUI inserts small pauses between key events so applications can process the input reliably. The defaults work well for most cases.
+PlatynUI inserts small pauses between key events so applications can process the input reliably. The defaults are tuned for fast test automation (~240 WPM) while keeping events spaced enough for applications to handle them correctly.
+
+### Default Timing Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `press_delay` | 25 ms | How long a key is held down |
+| `release_delay` | 5 ms | Pause after releasing a key |
+| `between_keys_delay` | 20 ms | Pause between consecutive keystrokes |
+| `chord_press_delay` | 12 ms | Pause between pressing keys in a combination (e.g. Ctrl+C) |
+| `chord_release_delay` | 12 ms | Pause between releasing keys in a combination |
+| `after_sequence_delay` | 30 ms | Pause after a complete key sequence |
+| `after_text_delay` | 15 ms | Pause after typing plain text |
+
+The total time per keystroke is `press_delay + release_delay + between_keys_delay` = 50 ms, which corresponds to roughly 240 WPM.
+
+### Reference: Human Typing Speed Profiles
+
+The table below shows realistic timing values for different typing speeds, based on keystroke dynamics research:
+
+- [Monrose & Rubin (2000): "Keystroke dynamics as a biometric for authentication"](http://www1.cs.columbia.edu/4180/hw/keystroke.pdf)
+- [Robinson et al. (1998): "Computer user verification using login string keystroke dynamics"](https://doi.org/10.1109/3468.661150)
+- [Feit, Weir & Oulasvirta (2016): "How We Type: Movement Strategies and Performance in Everyday Typing" (CHI 2016)](https://userinterfaces.aalto.fi/how-we-type/)
+
+Use these as a guide when adjusting timings to simulate human-like input.
+
+#### Average typist (~50 WPM)
+
+| Parameter | Value |
+|-----------|-------|
+| `press_delay` | 100 ms |
+| `release_delay` | 15 ms |
+| `between_keys_delay` | 125 ms |
+| `chord_press_delay` | 50 ms |
+| `chord_release_delay` | 50 ms |
+| `after_sequence_delay` | 150 ms |
+| `after_text_delay` | 75 ms |
+
+#### Fast typist (~120 WPM)
+
+| Parameter | Value |
+|-----------|-------|
+| `press_delay` | 50 ms |
+| `release_delay` | 10 ms |
+| `between_keys_delay` | 40 ms |
+| `chord_press_delay` | 25 ms |
+| `chord_release_delay` | 25 ms |
+| `after_sequence_delay` | 60 ms |
+| `after_text_delay` | 30 ms |
+
+#### Test automation default (~240 WPM)
+
+Same as the defaults listed above. Twice as fast as a fast human typist, but still with realistic pauses between events.
+
+### Overriding Timing
 
 If typing feels too slow, or an application drops characters, you can adjust the timing:
 
