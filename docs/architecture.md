@@ -291,7 +291,7 @@ pub trait WindowSurfacePattern: UiPattern {
 | **ItemContainer** | — | — |
 | **WindowSurface** | — | IsMinimized, IsMaximized, IsTopmost, SupportsMove, SupportsResize |
 | **DialogSurface** | — | DialogResult |
-| **Application** | ProcessId | ProcessName, ExecutablePath, CommandLine |
+| **Application** | ProcessId | ProcessName, ExecutablePath, CommandLine |  <!-- Note: ProcessName is the executable stem; `control:Name` (display name) is inherited from the common attribute set. On Windows, `control:Name` falls back to ProcessName since UIA has no separate app display name. On AT-SPI2, `control:Name` = Accessible.Name (display name). See planning.md §8.5. -->
 | **Highlightable** | — | — |
 | **Annotatable** | — | — |
 
@@ -418,8 +418,12 @@ pub trait WindowSurfacePattern: UiPattern {
 | Attribute | UIA | AT-SPI2 | macOS AX |
 |-----------|-----|---------|----------|
 | ProcessId | CurrentProcessId | D-Bus peer credentials | AXPid (via kAXPIDAttribute) |
-| ProcessName | Executable filename (without .exe) | /proc/PID/cmdline or D-Bus | NSRunningApplication.localizedName |
+| ProcessName | Executable filename (without .exe) | /proc/PID/comm or cmdline[0] | NSRunningApplication.localizedName |
 | ExecutablePath | OpenProcess + QueryFullProcessImageName | /proc/PID/exe | NSRunningApplication.executableURL |
+| CommandLine | QueryProcessCommandLine (NtQueryInformationProcess) | /proc/PID/cmdline | — |
+| UserName | Process token → LookupAccountSid | /proc/PID/status Uid → getpwuid | — |
+| StartTime | GetProcessTimes → ISO 8601 | /proc/PID/stat field 22 (ticks → ISO 8601) | — |
+| Architecture | IsWow64Process2 / PE header | ELF e_machine from /proc/PID/exe | — |
 
 ## 7. Provider Infrastructure
 

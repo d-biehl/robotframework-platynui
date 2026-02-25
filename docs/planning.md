@@ -118,6 +118,13 @@ Idea: allow external processes to act as UI tree providers via a JSON-RPC-like p
   - [ ] `ensure_window_accessible()`: read `_NET_WM_DESKTOP`, switch via `_NET_CURRENT_DESKTOP` ClientMessage
 - [x] **Extended EWMH**: `_NET_WM_STATE` (minimize/maximize), `_NET_MOVERESIZE_WINDOW` (move/resize)
 - [x] **Provider migration** (`provider-atspi`): removed `ewmh.rs`, removed `x11rb` dependency, replaced window calls with `WindowManager` trait
+- [ ] **AT-SPI2 Application node attributes**: Implement process metadata attributes for Application nodes (parity with Windows UIA). Data source: `/proc/PID/` filesystem.
+  - [ ] `app:Name` — process name from `/proc/PID/comm` or `cmdline[0]`
+  - [ ] `app:ExecutablePath` — readlink `/proc/PID/exe`
+  - [ ] `app:CommandLine` — read `/proc/PID/cmdline` (NUL-separated → space-joined)
+  - [ ] `app:UserName` — `/proc/PID/status` Uid → `getpwuid_r(3)`
+  - [ ] `app:StartTime` — `/proc/PID/stat` field 22 (starttime in ticks) → ISO 8601
+  - [ ] `app:Architecture` — ELF header (`e_machine`) from `/proc/PID/exe`
 - [ ] **AT-SPI2 events**: `subscribe_events` implementation (D-Bus signal handling)
 - [ ] **AT-SPI2 tree verification**: confirm Application → Window → Control/Item structure
 - [ ] **Smoke tests**: desktop bounds, ActivationPoint, visibility/enable flags under X11
@@ -434,9 +441,13 @@ Deep analysis of the XPath crate revealed the following issues to address:
 ## 7. Quality & Process
 
 - [ ] Contract tests for providers & devices (pattern-specific attributes, desktop coordinates, RuntimeId sources)
+- [ ] Application node attribute parity: all providers should emit the same `app:*` metadata set (ProcessId already done everywhere; ProcessName/ExecutablePath/CommandLine/UserName/StartTime/Architecture missing on AT-SPI2 and Mock)
+- [x] Rename `application::NAME` → `application::PROCESS_NAME` (`"Name"` → `"ProcessName"`) — see §8.5 for rationale. Implemented for Windows UIA; Application nodes now emit both `control:Name` (display name, falls back to process name on Windows) and `app:ProcessName` (executable stem). AT-SPI2 and Mock pending.
 - [ ] Release/versioning strategy (SemVer per crate? Workspace version?)
 - [ ] UiNode `Id` tests: core contract tests, provider smoke tests (UIA, AT-SPI, macOS)
-- [ ] `Id` mapping for AT-SPI2 (`accessible_id`) and macOS AX (`AXIdentifier`)
+- [x] `Id` mapping for Windows UIA (`AutomationId`)
+- [x] `Id` mapping for AT-SPI2 (`accessible_id`)
+- [ ] `Id` mapping for macOS AX (`AXIdentifier`)
 - [ ] CLI/Python example queries for `Id` documented
 
 ## 8. Open Design Questions
@@ -447,10 +458,11 @@ Status legend: **NEW** = not yet discussed, **DISCUSSED** = considered but no de
 2. **UIA event scope** — `TreeScope_Subtree` from Desktop or specific context node? — **DISCUSSED** (see §3.1 open questions)
 3. **macOS Space switching** — system setting detection for `kAXRaiseAction` implicit switch? — **DEFERRED** (macOS platform not yet implemented)
 4. **Windows AUMID as Application Id** — prefer over process name? Via `SHGetPropertyStoreForWindow(hwnd)` → `PKEY_AppUserModel_ID`? — **NEW**
-5. **Python custom exception hierarchy** — extend beyond current set? — **NEW**
-6. **Provider event subscription in Python** — how to expose? — **DEFERRED** (event pipeline not yet exposed to Python)
-7. **Pattern versioning** — needed? How to handle evolution? — **DEFERRED** (premature during preview phase)
-8. **Coordinate system consistency** — DPI/scaling/multi-monitor edge cases? — **DISCUSSED** (Per-Monitor-V2 on Windows done; Linux/macOS TBD)
+5. **Application `Name` → `ProcessName` rename** — **DECIDED**: Rename `application::NAME` (`"Name"`) to `application::PROCESS_NAME` (`"ProcessName"`) in core constants and all providers. Rationale: AT-SPI2 `Accessible.Name` on Application nodes returns the display name (e.g. "Firefox"), which collides with using the same `Name` attribute for the process executable stem. After rename: `control:Name` = UI display name (from `Accessible.Name` / UIA `NameProperty`), `app:ProcessName` = executable filename without extension (from `/proc/PID/comm` on Linux, `QueryFullProcessImageName` stem on Windows). On Windows, where no separate display name exists for Application nodes, `control:Name` falls back to `ProcessName`. Affects: `crates/core/src/ui/attributes.rs`, `crates/provider-windows-uia/src/node.rs`, `crates/provider-atspi/src/node.rs` (when Application attrs are added), mock provider, architecture.md pattern catalog, Python bindings docs.
+6. **Python custom exception hierarchy** — extend beyond current set? — **NEW**
+7. **Provider event subscription in Python** — how to expose? — **DEFERRED** (event pipeline not yet exposed to Python)
+8. **Pattern versioning** — needed? How to handle evolution? — **DEFERRED** (premature during preview phase)
+9. **Coordinate system consistency** — DPI/scaling/multi-monitor edge cases? — **DISCUSSED** (Per-Monitor-V2 on Windows done; Linux/macOS TBD)
 
 ## 9. Backlog & Explorations
 
@@ -719,6 +731,7 @@ Complete checklists from all work areas, including completed items for historica
 - [x] AT-SPI2 provider: D-Bus integration, RuntimeId, role mapping, streaming attributes
 - [x] AT-SPI2: component-gated attributes, Focusable pattern
 - [x] AT-SPI2: native interface attributes
+- [ ] AT-SPI2: Application node attributes (Name, ExecutablePath, CommandLine, UserName, StartTime, Architecture via `/proc/PID/`)
 - [ ] AT-SPI2: tree structure verification
 - [ ] AT-SPI2 supplementary tests
 - [ ] Wayland mediation crate planning
@@ -778,7 +791,7 @@ Complete checklists from all work areas, including completed items for historica
 **Provider:**
 - [x] Windows/UIA: `AutomationId` → `control:Id`
 - [x] Windows/ApplicationNode: `id()` returns process name
-- [ ] AT-SPI2: map `accessible_id` if available
+- [x] AT-SPI2: map `accessible_id` if available
 - [ ] macOS/AX: map `AXIdentifier` if available
 - [ ] Application nodes: platform-appropriate stable identifier
 - [ ] Windows option: evaluate AUMID as application Id

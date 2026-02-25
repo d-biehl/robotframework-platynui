@@ -6,10 +6,10 @@ This document covers the Python/PyO3 bindings for PlatynUI (`platynui_native`). 
 
 ## Architecture
 
-Single native wheel `platynui_native` built with PyO3 + maturin:
+Single native wheel `platynui_native` built with PyO3 + maturin. All types are registered in a single flat module (`platynui_native._native`), re-exported via `platynui_native`:
 
-- `platynui_native.core` — Types: `Point`, `Size`, `Rect`, `PatternId`, `RuntimeId`, `TechnologyId`, `Namespace` enum, `attribute_names()`. All implement `__eq__`/`__ne__`/`__hash__`.
-- `platynui_native.runtime` — `Runtime`, `UiNode`, pattern wrappers (`Focusable`, `WindowSurface`), pointer/keyboard APIs, evaluation iterators.
+- Core types: `Point`, `Size`, `Rect`, `PatternId`, `RuntimeId`, `TechnologyId`, `Namespace` enum. All implement `__eq__`/`__ne__`/`__hash__`.
+- Runtime types: `Runtime`, `UiNode`, pattern wrappers (`Focusable`, `WindowSurface`), pointer/keyboard APIs, evaluation iterators.
 
 ## Type Conversion
 
@@ -34,7 +34,17 @@ Single native wheel `platynui_native` built with PyO3 + maturin:
 
 ## Exceptions
 
-Custom Python exceptions: `EvaluationError`, `ProviderError`, `PointerError`, `KeyboardError`, `PatternError`.
+All custom exceptions inherit from `PlatynUiError` (which extends `Exception`):
+
+| Exception | Description |
+|-----------|-------------|
+| `PlatynUiError` | Base exception for all PlatynUI errors |
+| `EvaluationError` | XPath evaluation failures |
+| `ProviderError` | UI tree provider errors |
+| `PointerError` | Pointer/mouse operation failures |
+| `KeyboardError` | Keyboard input failures |
+| `PatternError` | Pattern action failures (focus, window, etc.) |
+| `AttributeNotFoundError` | Requested attribute does not exist on node |
 
 ## Build & Distribution
 
