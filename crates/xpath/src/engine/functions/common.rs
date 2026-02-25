@@ -1047,18 +1047,22 @@ pub(super) fn node_deep_equal<N: crate::model::XdmNode>(
             if ns_a != ns_b {
                 return Ok(false);
             }
-            // Children ordered
-            let ca: Vec<N> = a.children().collect();
-            let cb: Vec<N> = b.children().collect();
-            if ca.len() != cb.len() {
-                return Ok(false);
-            }
-            for (child_a, child_b) in ca.iter().zip(cb.iter()) {
-                if !node_deep_equal(child_a, child_b, coll)? {
-                    return Ok(false);
+            // Children — compare element-by-element in streaming fashion to avoid
+            // materializing both child lists. We zip the two iterators and check for
+            // any trailing elements after one side is exhausted.
+            let mut iter_a = a.children();
+            let mut iter_b = b.children();
+            loop {
+                match (iter_a.next(), iter_b.next()) {
+                    (Some(child_a), Some(child_b)) => {
+                        if !node_deep_equal(&child_a, &child_b, coll)? {
+                            return Ok(false);
+                        }
+                    }
+                    (None, None) => return Ok(true),
+                    _ => return Ok(false), // different lengths
                 }
             }
-            Ok(true)
         }
     }
 }

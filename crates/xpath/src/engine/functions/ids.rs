@@ -73,10 +73,9 @@ fn find_elements_with_id<N: 'static + crate::model::XdmNode + Clone>(
     let root = topmost_ancestor(start);
     let mut stack: Vec<N> = vec![root.clone()];
     while let Some(node) = stack.pop() {
-        let children: Vec<N> = node.children().collect();
-        for c in children.into_iter().rev() {
-            stack.push(c);
-        }
+        let mark = stack.len();
+        stack.extend(node.children());
+        stack[mark..].reverse();
         if matches!(node.kind(), crate::model::NodeKind::Element) {
             let mut has_match = false;
             for a in node.attributes() {
@@ -189,10 +188,9 @@ pub(super) fn idref_fn<N: 'static + crate::model::XdmNode + Clone>(
     let mut out: XdmSequence<N> = Vec::new();
     let mut stack: Vec<N> = vec![root.clone()];
     while let Some(node) = stack.pop() {
-        let children: Vec<N> = node.children().collect();
-        for c in children.into_iter().rev() {
-            stack.push(c);
-        }
+        let mark = stack.len();
+        stack.extend(node.children());
+        stack[mark..].reverse();
         if matches!(node.kind(), crate::model::NodeKind::Element) {
             for a in node.attributes() {
                 if let Some(q) = a.name() {

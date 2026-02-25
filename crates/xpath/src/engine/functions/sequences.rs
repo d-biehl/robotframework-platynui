@@ -102,10 +102,10 @@ pub(super) fn reverse_stream<N: 'static + crate::model::XdmNode + Clone>(
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     // Materialize the stream (reverse requires random access)
-    let items: Vec<XdmItem<N>> = args[0].iter().collect::<Result<Vec<_>, _>>()?;
-    // Reverse and return as stream
-    let reversed: Vec<XdmItem<N>> = items.into_iter().rev().collect();
-    Ok(XdmSequenceStream::from_vec(reversed))
+    let mut items: Vec<XdmItem<N>> = args[0].iter().collect::<Result<Vec<_>, _>>()?;
+    // Reverse in-place to avoid a second allocation
+    items.reverse();
+    Ok(XdmSequenceStream::from_vec(items))
 }
 
 /// Stream-based subsequence() implementation.
