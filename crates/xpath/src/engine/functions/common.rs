@@ -499,10 +499,18 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
         SumState::None => XdmAtomicValue::Integer(0),
         SumState::Numeric { kind, use_int, int_acc, dec_acc } => {
             if use_int && matches!(kind, NumericKind::Integer) {
-                XdmAtomicValue::Integer(int_acc as i64)
+                let v: i64 = int_acc
+                    .try_into()
+                    .map_err(|_| Error::from_code(ErrorCode::FOAR0002, "integer overflow in sum"))?;
+                XdmAtomicValue::Integer(v)
             } else {
                 match kind {
-                    NumericKind::Integer => XdmAtomicValue::Integer(int_acc as i64),
+                    NumericKind::Integer => {
+                        let v: i64 = int_acc
+                            .try_into()
+                            .map_err(|_| Error::from_code(ErrorCode::FOAR0002, "integer overflow in sum"))?;
+                        XdmAtomicValue::Integer(v)
+                    }
                     NumericKind::Decimal => XdmAtomicValue::Decimal(dec_acc),
                     NumericKind::Float => {
                         use rust_decimal::prelude::ToPrimitive;

@@ -73,6 +73,33 @@ pub enum XdmAtomicValue {
     Notation(String),
 }
 
+impl XdmAtomicValue {
+    /// Extract the integer value as `i128`, if this is any integer subtype.
+    ///
+    /// Returns `None` for non-integer types (decimal, float, double, string, etc.).
+    pub fn as_i128(&self) -> Option<i128> {
+        use XdmAtomicValue::*;
+        Some(match self {
+            Integer(i) | Long(i) | NonPositiveInteger(i) | NegativeInteger(i) => *i as i128,
+            Int(i) => *i as i128,
+            Short(i) => *i as i128,
+            Byte(i) => *i as i128,
+            UnsignedLong(i) | NonNegativeInteger(i) | PositiveInteger(i) => *i as i128,
+            UnsignedInt(i) => *i as i128,
+            UnsignedShort(i) => *i as i128,
+            UnsignedByte(i) => *i as i128,
+            _ => return None,
+        })
+    }
+
+    /// Returns `true` if this value is any integer subtype
+    /// (`xs:integer`, `xs:long`, `xs:int`, `xs:short`, `xs:byte`,
+    /// `xs:unsigned*`, `xs:nonPositiveInteger`, etc.).
+    pub fn is_integer(&self) -> bool {
+        self.as_i128().is_some()
+    }
+}
+
 /// XPath Data Model sequence type (standard Vec-based).
 pub type XdmSequence<N> = Vec<XdmItem<N>>;
 
@@ -669,5 +696,145 @@ impl<'a, N: XdmNode> fmt::Display for PrettyNodeSeq<'a, N> {
             write!(f, "{}", PrettyNodeItem(item))?;
         }
         write!(f, "]")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::XdmAtomicValue;
+
+    // --- as_i128() tests ---
+
+    #[test]
+    fn as_i128_integer() {
+        assert_eq!(XdmAtomicValue::Integer(42).as_i128(), Some(42));
+    }
+
+    #[test]
+    fn as_i128_integer_negative() {
+        assert_eq!(XdmAtomicValue::Integer(-100).as_i128(), Some(-100));
+    }
+
+    #[test]
+    fn as_i128_long() {
+        assert_eq!(XdmAtomicValue::Long(i64::MAX).as_i128(), Some(i64::MAX as i128));
+    }
+
+    #[test]
+    fn as_i128_int() {
+        assert_eq!(XdmAtomicValue::Int(i32::MIN).as_i128(), Some(i32::MIN as i128));
+    }
+
+    #[test]
+    fn as_i128_short() {
+        assert_eq!(XdmAtomicValue::Short(i16::MAX).as_i128(), Some(i16::MAX as i128));
+    }
+
+    #[test]
+    fn as_i128_byte() {
+        assert_eq!(XdmAtomicValue::Byte(i8::MIN).as_i128(), Some(i8::MIN as i128));
+    }
+
+    #[test]
+    fn as_i128_unsigned_long() {
+        assert_eq!(XdmAtomicValue::UnsignedLong(u64::MAX).as_i128(), Some(u64::MAX as i128));
+    }
+
+    #[test]
+    fn as_i128_unsigned_int() {
+        assert_eq!(XdmAtomicValue::UnsignedInt(u32::MAX).as_i128(), Some(u32::MAX as i128));
+    }
+
+    #[test]
+    fn as_i128_unsigned_short() {
+        assert_eq!(XdmAtomicValue::UnsignedShort(u16::MAX).as_i128(), Some(u16::MAX as i128));
+    }
+
+    #[test]
+    fn as_i128_unsigned_byte() {
+        assert_eq!(XdmAtomicValue::UnsignedByte(u8::MAX).as_i128(), Some(u8::MAX as i128));
+    }
+
+    #[test]
+    fn as_i128_non_positive_integer() {
+        assert_eq!(XdmAtomicValue::NonPositiveInteger(-5).as_i128(), Some(-5));
+    }
+
+    #[test]
+    fn as_i128_negative_integer() {
+        assert_eq!(XdmAtomicValue::NegativeInteger(-1).as_i128(), Some(-1));
+    }
+
+    #[test]
+    fn as_i128_non_negative_integer() {
+        assert_eq!(XdmAtomicValue::NonNegativeInteger(0).as_i128(), Some(0));
+    }
+
+    #[test]
+    fn as_i128_positive_integer() {
+        assert_eq!(XdmAtomicValue::PositiveInteger(1).as_i128(), Some(1));
+    }
+
+    #[test]
+    fn as_i128_decimal_returns_none() {
+        assert_eq!(XdmAtomicValue::Decimal(rust_decimal::Decimal::ONE).as_i128(), None);
+    }
+
+    #[test]
+    fn as_i128_float_returns_none() {
+        assert_eq!(XdmAtomicValue::Float(1.0).as_i128(), None);
+    }
+
+    #[test]
+    fn as_i128_double_returns_none() {
+        assert_eq!(XdmAtomicValue::Double(1.0).as_i128(), None);
+    }
+
+    #[test]
+    fn as_i128_string_returns_none() {
+        assert_eq!(XdmAtomicValue::String("42".into()).as_i128(), None);
+    }
+
+    #[test]
+    fn as_i128_boolean_returns_none() {
+        assert_eq!(XdmAtomicValue::Boolean(true).as_i128(), None);
+    }
+
+    // --- is_integer() tests ---
+
+    #[test]
+    fn is_integer_true_for_all_subtypes() {
+        let integer_values = vec![
+            XdmAtomicValue::Integer(0),
+            XdmAtomicValue::Long(0),
+            XdmAtomicValue::Int(0),
+            XdmAtomicValue::Short(0),
+            XdmAtomicValue::Byte(0),
+            XdmAtomicValue::UnsignedLong(0),
+            XdmAtomicValue::UnsignedInt(0),
+            XdmAtomicValue::UnsignedShort(0),
+            XdmAtomicValue::UnsignedByte(0),
+            XdmAtomicValue::NonPositiveInteger(0),
+            XdmAtomicValue::NegativeInteger(-1),
+            XdmAtomicValue::NonNegativeInteger(0),
+            XdmAtomicValue::PositiveInteger(1),
+        ];
+        for val in &integer_values {
+            assert!(val.is_integer(), "{val:?} should be integer");
+        }
+    }
+
+    #[test]
+    fn is_integer_false_for_non_integer_types() {
+        let non_integer_values: Vec<XdmAtomicValue> = vec![
+            XdmAtomicValue::Decimal(rust_decimal::Decimal::ZERO),
+            XdmAtomicValue::Float(0.0),
+            XdmAtomicValue::Double(0.0),
+            XdmAtomicValue::String("0".into()),
+            XdmAtomicValue::Boolean(false),
+        ];
+        for val in &non_integer_values {
+            assert!(!val.is_integer(), "{val:?} should not be integer");
+        }
     }
 }

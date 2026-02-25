@@ -555,20 +555,13 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
 
     fn integer_from_atomic(&self, atom: &XdmAtomicValue, target: &str) -> Result<i128, Error> {
         use XdmAtomicValue::*;
+
+        // Handle all integer subtypes via centralized as_i128()
+        if let Some(v) = atom.as_i128() {
+            return Ok(v);
+        }
+
         match atom {
-            Integer(v) => Ok(*v as i128),
-            Long(v) => Ok(*v as i128),
-            Int(v) => Ok(*v as i128),
-            Short(v) => Ok(*v as i128),
-            Byte(v) => Ok(*v as i128),
-            NonPositiveInteger(v) => Ok(*v as i128),
-            NegativeInteger(v) => Ok(*v as i128),
-            UnsignedLong(v) => Ok(*v as i128),
-            UnsignedInt(v) => Ok(*v as i128),
-            UnsignedShort(v) => Ok(*v as i128),
-            UnsignedByte(v) => Ok(*v as i128),
-            NonNegativeInteger(v) => Ok(*v as i128),
-            PositiveInteger(v) => Ok(*v as i128),
             Decimal(d) => {
                 use rust_decimal::prelude::ToPrimitive;
                 self.float_to_integer(d.to_f64().unwrap_or(f64::NAN), target)

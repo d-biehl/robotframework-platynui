@@ -413,6 +413,24 @@ From the XPath streaming analysis:
 - [ ] Memory profiling and benchmark suite
 - [ ] Persistent XPath caching & snapshot layer (if performance demands)
 
+### 6.1 XPath Correctness & Quality Sweep
+
+Deep analysis of the XPath crate revealed the following issues to address:
+
+**Bugs (Correctness)**
+- [x] `classify()` misses 12 integer subtypes — arithmetic on `xs:long`, `xs:short`, `xs:byte`, `xs:unsigned*` etc. fails with "non-numeric operand" → fixed: all 13 integer subtypes now handled in `classify()` (`crates/xpath/src/engine/evaluator/numeric.rs`)
+- [x] `index_of_stream` leaks memory via `Box::leak(uri.into_boxed_str())` → fixed: use owned `String` with `.as_deref()`, no leak (`crates/xpath/src/engine/functions/sequences.rs`)
+- [x] `sum_default` casts `i128 → i64` without overflow check → fixed: use `try_into()` with `FOAR0002` error on overflow (`crates/xpath/src/engine/functions/common.rs`)
+- [x] `fn:trace()` discards label entirely → fixed: emit via `tracing::debug!` with label and value fields (`crates/xpath/src/engine/functions/diagnostics.rs`)
+
+**Performance**
+- [x] `map_cmp()` allocates via `format!("{:?}", op)` + string match → fixed: added `From<&GeneralComp>` and `From<&ValueComp>` impls on `ComparisonOp`, removed `map_cmp` method (`crates/xpath/src/compiler/ir.rs`, `crates/xpath/src/compiler/mod.rs`)
+- [x] 13-arm integer subtype matches duplicated ~10× → fixed: added `XdmAtomicValue::as_i128()` and `is_integer()` methods, simplified `a_as_i128()`, `classify_numeric()`, `numeric_key()`, `integer_from_atomic()` (`crates/xpath/src/xdm/mod.rs` + 3 consumers)
+- [x] `itertools` imported only for `.join()` → fixed: replaced with `Vec::join`, removed `itertools` dependency (`Cargo.toml`, `strings.rs`)
+
+**Code Quality**
+- [x] ~20 constructor functions repeat identical boilerplate → fixed: extracted `materialize_singleton()` helper, applied to all 20 constructors (~100 lines eliminated) (`crates/xpath/src/engine/functions/constructors.rs`)
+
 ## 7. Quality & Process
 
 - [ ] Contract tests for providers & devices (pattern-specific attributes, desktop coordinates, RuntimeId sources)

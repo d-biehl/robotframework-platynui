@@ -258,19 +258,15 @@ pub(super) fn index_of_stream<N: 'static + crate::model::XdmNode + Clone>(
     let seq: XdmSequence<N> = args[0].materialize()?;
     let search: XdmSequence<N> = args[1].materialize()?;
 
-    let collation_uri: Option<&str> = if args.len() == 3 {
+    let collation_uri_owned: Option<String> = if args.len() == 3 {
         let uri_items: Vec<XdmItem<N>> = args[2].iter().collect::<Result<Vec<_>, _>>()?;
         let uri = super::common::item_to_string(&uri_items);
-        if uri.is_empty() {
-            None
-        } else {
-            Some(Box::leak(uri.into_boxed_str())) // Leak for 'static lifetime
-        }
+        if uri.is_empty() { None } else { Some(uri) }
     } else {
         None
     };
 
-    let result = super::common::index_of_default(ctx, &seq, &search, collation_uri)?;
+    let result = super::common::index_of_default(ctx, &seq, &search, collation_uri_owned.as_deref())?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 

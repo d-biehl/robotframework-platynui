@@ -271,13 +271,13 @@ impl<'a> Compiler<'a> {
             E::GeneralComparison { left, op, right } => {
                 self.lower_expr(left)?;
                 self.lower_expr(right)?;
-                self.emit(ir::OpCode::CompareGeneral(self.map_cmp(op)));
+                self.emit(ir::OpCode::CompareGeneral(op.into()));
                 Ok(())
             }
             E::ValueComparison { left, op, right } => {
                 self.lower_expr(left)?;
                 self.lower_expr(right)?;
-                self.emit(ir::OpCode::CompareValue(self.map_cmp(op)));
+                self.emit(ir::OpCode::CompareValue(op.into()));
                 Ok(())
             }
             E::NodeComparison { left, op, right } => {
@@ -692,23 +692,6 @@ impl<'a> Compiler<'a> {
             },
             K::SchemaElement(q) => ir::NodeTestIR::KindSchemaElement(self.to_expanded(q)),
             K::SchemaAttribute(q) => ir::NodeTestIR::KindSchemaAttribute(self.to_expanded(q)),
-        }
-    }
-
-    fn map_cmp<T>(&self, op: &T) -> ir::ComparisonOp
-    where
-        T: std::fmt::Debug,
-    {
-        // op is either GeneralComp or ValueComp with same set
-        // map via string, safe due to same names
-        match format!("{:?}", op).as_str() {
-            "Eq" => ir::ComparisonOp::Eq,
-            "Ne" => ir::ComparisonOp::Ne,
-            "Lt" => ir::ComparisonOp::Lt,
-            "Le" => ir::ComparisonOp::Le,
-            "Gt" => ir::ComparisonOp::Gt,
-            "Ge" => ir::ComparisonOp::Ge,
-            _ => ir::ComparisonOp::Eq,
         }
     }
 

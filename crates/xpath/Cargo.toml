@@ -30,7 +30,6 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 string_cache = "0.9"
 compact_str = "0.9"
 lru = "0.16"
-itertools = "0.14"
 
 [dev-dependencies]
 rstest = "0.26"

@@ -209,6 +209,34 @@ pub enum ComparisonOp {
     Ge,
 }
 
+impl From<&crate::parser::ast::GeneralComp> for ComparisonOp {
+    fn from(op: &crate::parser::ast::GeneralComp) -> Self {
+        use crate::parser::ast::GeneralComp;
+        match op {
+            GeneralComp::Eq => Self::Eq,
+            GeneralComp::Ne => Self::Ne,
+            GeneralComp::Lt => Self::Lt,
+            GeneralComp::Le => Self::Le,
+            GeneralComp::Gt => Self::Gt,
+            GeneralComp::Ge => Self::Ge,
+        }
+    }
+}
+
+impl From<&crate::parser::ast::ValueComp> for ComparisonOp {
+    fn from(op: &crate::parser::ast::ValueComp) -> Self {
+        use crate::parser::ast::ValueComp;
+        match op {
+            ValueComp::Eq => Self::Eq,
+            ValueComp::Ne => Self::Ne,
+            ValueComp::Lt => Self::Lt,
+            ValueComp::Le => Self::Le,
+            ValueComp::Gt => Self::Gt,
+            ValueComp::Ge => Self::Ge,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum QuantifierKind {
     Some,

@@ -1,7 +1,6 @@
 use super::common::{as_string, item_to_string, normalize_space_default, substring_default, to_number};
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
-use itertools::Itertools;
 use std::collections::{HashMap, hash_map::Entry};
 
 /// Stream-based string() implementation.
@@ -304,13 +303,14 @@ pub(super) fn string_join_stream<N: 'static + crate::model::XdmNode + Clone>(
 
     // Stream the first argument and join efficiently
     let items: Vec<XdmItem<N>> = args[0].iter().collect::<Result<Vec<_>, _>>()?;
-    let joined = items
+    let parts: Vec<String> = items
         .iter()
         .map(|it| match it {
             XdmItem::Atomic(a) => as_string(a),
             XdmItem::Node(n) => n.string_value(),
         })
-        .join(&sep);
+        .collect();
+    let joined = parts.join(&sep);
 
     Ok(XdmSequenceStream::from_item(XdmItem::Atomic(XdmAtomicValue::String(joined))))
 }

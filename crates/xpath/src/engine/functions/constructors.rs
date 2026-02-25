@@ -8,6 +8,22 @@ use crate::util::temporal::{parse_g_day, parse_g_month, parse_g_month_day, parse
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
 use base64::Engine as _;
 
+/// Materialize a single-argument stream, returning `Ok(None)` for empty
+/// sequences and `Err` if more than one item is present. This eliminates
+/// the 3-line boilerplate shared by all `xs:*` constructor functions.
+fn materialize_singleton<N: 'static + crate::model::XdmNode + Clone>(
+    args: &[XdmSequenceStream<N>],
+) -> Result<Option<String>, Error> {
+    let seq: XdmSequence<N> = args[0].materialize()?;
+    if seq.is_empty() {
+        return Ok(None);
+    }
+    if seq.len() > 1 {
+        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
+    }
+    Ok(Some(item_to_string(&seq)))
+}
+
 pub(super) fn integer_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
@@ -26,45 +42,29 @@ pub(super) fn xs_string_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let result = vec![XdmItem::Atomic(XdmAtomicValue::String(item_to_string(&seq)))];
-    Ok(XdmSequenceStream::from_vec(result))
+    };
+    Ok(XdmSequenceStream::from_item(XdmItem::Atomic(XdmAtomicValue::String(s))))
 }
 
 pub(super) fn xs_untyped_atomic_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
-    let result = vec![XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s))];
-    Ok(XdmSequenceStream::from_vec(result))
+    };
+    Ok(XdmSequenceStream::from_item(XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s))))
 }
 
 pub(super) fn xs_boolean_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     let v = match s.as_str() {
         "true" | "1" => true,
         "false" | "0" => false,
@@ -78,14 +78,9 @@ pub(super) fn xs_integer_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     let s_trim = s.trim();
     if s_trim.is_empty() {
         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:integer"));
@@ -105,14 +100,10 @@ pub(super) fn xs_decimal_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq).trim().to_string();
+    };
+    let s = s.trim().to_string();
     if s.eq_ignore_ascii_case("nan") || s.eq_ignore_ascii_case("inf") || s.eq_ignore_ascii_case("-inf") {
         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"));
     }
@@ -128,14 +119,10 @@ pub(super) fn xs_double_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq).trim().to_string();
+    };
+    let s = s.trim().to_string();
     let v = match s.as_str() {
         "NaN" => f64::NAN,
         "INF" => f64::INFINITY,
@@ -150,14 +137,10 @@ pub(super) fn xs_float_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq).trim().to_string();
+    };
+    let s = s.trim().to_string();
     let v = match s.as_str() {
         "NaN" => f32::NAN,
         "INF" => f32::INFINITY,
@@ -172,14 +155,10 @@ pub(super) fn xs_any_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = collapse_whitespace(&item_to_string(&seq));
+    };
+    let s = collapse_whitespace(&s);
     let result = vec![XdmItem::Atomic(XdmAtomicValue::AnyUri(s))];
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -188,14 +167,9 @@ pub(super) fn xs_qname_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     let (prefix_opt, local) =
         parse_qname_lexical(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:QName"))?;
     let ns_uri = match prefix_opt.as_deref() {
@@ -214,14 +188,9 @@ pub(super) fn xs_base64_binary_stream<N: 'static + crate::model::XdmNode + Clone
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(raw) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let raw = item_to_string(&seq);
+    };
     let norm: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
     if base64::engine::general_purpose::STANDARD.decode(&norm).is_err() {
         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:base64Binary"));
@@ -234,14 +203,9 @@ pub(super) fn xs_hex_binary_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(raw) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let raw = item_to_string(&seq);
+    };
     let norm: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
     if !norm.len().is_multiple_of(2) || !norm.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:hexBinary"));
@@ -254,14 +218,9 @@ pub(super) fn xs_datetime_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     let result = match crate::util::temporal::parse_date_time_lex(&s) {
         Ok((d, t, tz)) => {
             let dt = crate::util::temporal::build_naive_datetime(d, t, tz);
@@ -276,14 +235,9 @@ pub(super) fn xs_date_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     let result = match crate::util::temporal::parse_date_lex(&s) {
         Ok((d, tz)) => vec![XdmItem::Atomic(XdmAtomicValue::Date { date: d, tz })],
         Err(_) => return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:date")),
@@ -295,14 +249,9 @@ pub(super) fn xs_time_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     let result = match crate::util::temporal::parse_time_lex(&s) {
         Ok((t, tz)) => vec![XdmItem::Atomic(XdmAtomicValue::Time { time: t, tz })],
         Err(_) => return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:time")),
@@ -314,14 +263,9 @@ pub(super) fn xs_duration_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     let (months_opt, secs_opt) = parse_duration_lexical(&s)?;
     let value = match (months_opt, secs_opt) {
         (Some(m), None) => XdmAtomicValue::YearMonthDuration(m),
@@ -338,14 +282,9 @@ pub(super) fn xs_day_time_duration_stream<N: 'static + crate::model::XdmNode + C
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     let secs = parse_day_time_duration_secs(&s)
         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:dayTimeDuration"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs))];
@@ -356,14 +295,9 @@ pub(super) fn xs_g_year_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     let (year, tz) = parse_g_year(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYear"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::GYear { year, tz })];
     Ok(XdmSequenceStream::from_vec(result))
@@ -373,14 +307,9 @@ pub(super) fn xs_g_year_month_stream<N: 'static + crate::model::XdmNode + Clone>
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     let (year, month, tz) =
         parse_g_year_month(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYearMonth"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::GYearMonth { year, month, tz })];
@@ -391,14 +320,9 @@ pub(super) fn xs_g_month_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     let (month, tz) = parse_g_month(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonth"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::GMonth { month, tz })];
     Ok(XdmSequenceStream::from_vec(result))
@@ -408,14 +332,9 @@ pub(super) fn xs_g_month_day_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     let (month, day, tz) =
         parse_g_month_day(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonthDay"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::GMonthDay { month, day, tz })];
@@ -426,14 +345,9 @@ pub(super) fn xs_g_day_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     let (day, tz) = parse_g_day(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gDay"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::GDay { day, tz })];
     Ok(XdmSequenceStream::from_vec(result))
@@ -443,14 +357,9 @@ pub(super) fn xs_year_month_duration_stream<N: 'static + crate::model::XdmNode +
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     let months = parse_year_month_duration_months(&s)
         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:yearMonthDuration"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(months))];
@@ -569,14 +478,10 @@ pub(super) fn xs_normalized_string_stream<N: 'static + crate::model::XdmNode + C
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = replace_whitespace(&item_to_string(&seq));
+    };
+    let s = replace_whitespace(&s);
     let result = vec![XdmItem::Atomic(XdmAtomicValue::NormalizedString(s))];
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -585,14 +490,10 @@ pub(super) fn xs_token_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = collapse_whitespace(&item_to_string(&seq));
+    };
+    let s = collapse_whitespace(&s);
     let result = vec![XdmItem::Atomic(XdmAtomicValue::Token(s))];
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -601,14 +502,10 @@ pub(super) fn xs_language_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = collapse_whitespace(&item_to_string(&seq));
+    };
+    let s = collapse_whitespace(&s);
     if !is_valid_language(&s) {
         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:language"));
     }
@@ -674,14 +571,9 @@ pub(super) fn xs_notation_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    if seq.is_empty() {
+    let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
-    }
-    if seq.len() > 1 {
-        return Err(Error::from_code(ErrorCode::FORG0006, "constructor expects at most one item"));
-    }
-    let s = item_to_string(&seq);
+    };
     if parse_qname_lexical(&s).is_err() {
         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:NOTATION"));
     }

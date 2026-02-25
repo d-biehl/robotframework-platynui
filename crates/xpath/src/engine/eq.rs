@@ -287,20 +287,13 @@ fn duration_key(a: &XdmAtomicValue) -> Option<DurationKey> {
 
 fn numeric_key(a: &XdmAtomicValue) -> Option<NumericKey> {
     use XdmAtomicValue::*;
+
+    // Handle all integer subtypes via centralized as_i128()
+    if let Some(i) = a.as_i128() {
+        return Some(NumericKey::Integer(i));
+    }
+
     Some(match a {
-        Integer(i) => NumericKey::Integer(*i as i128),
-        Long(i) => NumericKey::Integer(*i as i128),
-        Int(i) => NumericKey::Integer(*i as i128),
-        Short(i) => NumericKey::Integer(*i as i128),
-        Byte(i) => NumericKey::Integer(*i as i128),
-        UnsignedLong(i) => NumericKey::Integer(*i as i128),
-        UnsignedInt(i) => NumericKey::Integer(*i as i128),
-        UnsignedShort(i) => NumericKey::Integer(*i as i128),
-        UnsignedByte(i) => NumericKey::Integer(*i as i128),
-        NonPositiveInteger(i) => NumericKey::Integer(*i as i128),
-        NegativeInteger(i) => NumericKey::Integer(*i as i128),
-        NonNegativeInteger(i) => NumericKey::Integer(*i as i128),
-        PositiveInteger(i) => NumericKey::Integer(*i as i128),
         Decimal(d) => {
             let dk = canonicalize_decimal(d);
             if dk.scale == 0 { NumericKey::Integer(dk.mantissa) } else { NumericKey::Decimal(dk) }
@@ -309,7 +302,7 @@ fn numeric_key(a: &XdmAtomicValue) -> Option<NumericKey> {
         Float(f) => NumericKey::Float(float_norm(*f)),
         Double(d) if d.is_nan() => return None,
         Double(d) => NumericKey::Double(double_norm(*d)),
-        Boolean(b) => NumericKey::Integer(if *b { 1 } else { 0 }), // boolean numeric casting context
+        Boolean(b) => NumericKey::Integer(if *b { 1 } else { 0 }),
         UntypedAtomic(s) => {
             if let Ok(parsed) = s.parse::<f64>() {
                 if parsed.is_nan() {

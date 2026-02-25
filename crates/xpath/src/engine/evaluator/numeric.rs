@@ -34,12 +34,29 @@ impl NumKind {
 }
 
 /// Classify an XDM atomic value into a [`NumKind`], if it is numeric.
+///
+/// Handles all 13 integer subtypes (`xs:long`, `xs:short`, `xs:byte`,
+/// `xs:unsigned*`, etc.) by promoting them to `i64` for arithmetic.
 pub(crate) fn classify(v: &XdmAtomicValue) -> Option<NumKind> {
+    use XdmAtomicValue::*;
     match v {
-        XdmAtomicValue::Integer(i) => Some(NumKind::Int(*i)),
-        XdmAtomicValue::Decimal(d) => Some(NumKind::Dec(*d)),
-        XdmAtomicValue::Float(f) => Some(NumKind::Float(*f)),
-        XdmAtomicValue::Double(d) => Some(NumKind::Double(*d)),
+        Integer(i) | Long(i) | NonPositiveInteger(i) | NegativeInteger(i) => Some(NumKind::Int(*i)),
+        Int(i) => Some(NumKind::Int(*i as i64)),
+        Short(i) => Some(NumKind::Int(*i as i64)),
+        Byte(i) => Some(NumKind::Int(*i as i64)),
+        UnsignedInt(i) => Some(NumKind::Int(*i as i64)),
+        UnsignedShort(i) => Some(NumKind::Int(*i as i64)),
+        UnsignedByte(i) => Some(NumKind::Int(*i as i64)),
+        UnsignedLong(i) | NonNegativeInteger(i) | PositiveInteger(i) => {
+            // u64 may overflow i64; clamp via try_into so arithmetic on
+            // huge unsigned values still works (falls back to None only if
+            // truly out of range, but i64::MAX = 9.2e18 which covers most
+            // practical cases).
+            Some(NumKind::Int((*i).try_into().ok()?))
+        }
+        Decimal(d) => Some(NumKind::Dec(*d)),
+        Float(f) => Some(NumKind::Float(*f)),
+        Double(d) => Some(NumKind::Double(*d)),
         _ => None,
     }
 }
@@ -109,20 +126,13 @@ impl NumericKind {
 /// representation. Returns `None` for non-numeric types.
 pub(crate) fn classify_numeric(a: &XdmAtomicValue) -> Result<Option<(NumericKind, f64)>, Error> {
     use XdmAtomicValue::*;
+
+    // Handle all integer subtypes via centralized as_i128()
+    if let Some(i) = a.as_i128() {
+        return Ok(Some((NumericKind::Integer, i as f64)));
+    }
+
     Ok(match a {
-        Integer(i) => Some((NumericKind::Integer, *i as f64)),
-        Long(i) => Some((NumericKind::Integer, *i as f64)),
-        Int(i) => Some((NumericKind::Integer, *i as f64)),
-        Short(i) => Some((NumericKind::Integer, *i as f64)),
-        Byte(i) => Some((NumericKind::Integer, *i as f64)),
-        UnsignedLong(i) => Some((NumericKind::Integer, *i as f64)),
-        UnsignedInt(i) => Some((NumericKind::Integer, *i as f64)),
-        UnsignedShort(i) => Some((NumericKind::Integer, *i as f64)),
-        UnsignedByte(i) => Some((NumericKind::Integer, *i as f64)),
-        NonPositiveInteger(i) => Some((NumericKind::Integer, *i as f64)),
-        NegativeInteger(i) => Some((NumericKind::Integer, *i as f64)),
-        NonNegativeInteger(i) => Some((NumericKind::Integer, *i as f64)),
-        PositiveInteger(i) => Some((NumericKind::Integer, *i as f64)),
         Decimal(d) => {
             use rust_decimal::prelude::ToPrimitive;
             Some((NumericKind::Decimal, d.to_f64().unwrap_or(0.0)))
@@ -143,29 +153,15 @@ pub(crate) fn classify_numeric(a: &XdmAtomicValue) -> Result<Option<(NumericKind
 }
 
 /// Extract an integer value as `i128` from an XDM atomic, if possible.
+///
+/// Delegates to [`XdmAtomicValue::as_i128()`] for all integer subtypes,
+/// and additionally handles `Boolean` (true → 1, false → 0).
 pub(crate) fn a_as_i128(a: &XdmAtomicValue) -> Option<i128> {
-    use XdmAtomicValue::*;
-    Some(match a {
-        Integer(i) => *i as i128,
-        Long(i) => *i as i128,
-        Int(i) => *i as i128,
-        Short(i) => *i as i128,
-        Byte(i) => *i as i128,
-        UnsignedLong(i) => *i as i128,
-        UnsignedInt(i) => *i as i128,
-        UnsignedShort(i) => *i as i128,
-        UnsignedByte(i) => *i as i128,
-        NonPositiveInteger(i) => *i as i128,
-        NegativeInteger(i) => *i as i128,
-        NonNegativeInteger(i) => *i as i128,
-        PositiveInteger(i) => *i as i128,
-        Boolean(b) => {
-            if *b {
-                1
-            } else {
-                0
-            }
-        }
-        _ => return None,
-    })
+    if let Some(v) = a.as_i128() {
+        return Some(v);
+    }
+    if let XdmAtomicValue::Boolean(b) = a {
+        return Some(if *b { 1 } else { 0 });
+    }
+    None
 }
