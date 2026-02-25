@@ -468,15 +468,10 @@ fn streaming_early_termination_first_match() {
 /// XPath 2.0 allows: `1 to 999999999` - this should NOT materialize
 /// the full range if we only take the first few items.
 ///
-/// **CURRENTLY DISABLED**: This test takes >60 seconds because the `1 to N`
-/// range operation currently materializes the entire sequence instead of
-/// streaming it. This is a known limitation (see docs/planning.md §6)
-/// and should be fixed as part of the "Range Streaming" optimization.
-///
-/// **TODO**: Re-enable this test after implementing lazy range evaluation.
-/// See Priority 2 or 3 optimizations in the streaming roadmap.
+/// The range operation uses a lazy `RangeCursor` and the predicate
+/// `[position() < 11]` is recognized as a fast positional predicate
+/// with early termination — once position exceeds 10, the cursor stops.
 #[rstest]
-#[ignore = "Range (1 to N) currently materializes instead of streaming - takes >60s"]
 fn streaming_infinite_sequence_early_exit() {
     let ctx = DynamicContextBuilder::<N>::default().build();
 
@@ -572,4 +567,797 @@ fn streaming_memory_efficient_large_tree() {
     }
 
     // If this completes without excessive memory usage, streaming is working
+}
+
+// ============================================================================
+// Positional Predicate Fast-Path & Early-Termination Tests
+// ============================================================================
+
+/// `position() <= K` on a large range — early termination must kick in.
+/// Without early termination this would iterate all 999_999_999 items.
+#[rstest]
+fn streaming_position_le_early_termination() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 999999999)[position() <= 5]";
+    let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval succeeds");
+
+    let results: Vec<i64> = stream
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(results, vec![1, 2, 3, 4, 5]);
+}
+
+/// `position() < K` on nodes — verifies fast-path recognition and early termination.
+#[rstest]
+fn streaming_position_lt_on_nodes() {
+    let mut root_builder = elem("root");
+    for idx in 1..=100 {
+        root_builder = root_builder.child(elem("item").child(text(&format!("{idx}"))));
+    }
+    let document = doc().child(root_builder).build();
+    let root = document.children().next().unwrap();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
+
+    let expr = "child::item[position() < 4]";
+    let via_stream: Vec<String> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<String> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec!["1", "2", "3"]);
+    assert_eq!(via_stream, via_eager);
+}
+
+/// `position() > K` — fast-path (PositionGe) skips early items.
+/// No early termination possible, but avoids full VM evaluation per item.
+#[rstest]
+fn streaming_position_gt_on_range() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 10)[position() > 7]";
+    let via_stream: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<i64> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec![8, 9, 10]);
+    assert_eq!(via_stream, via_eager);
+}
+
+/// `position() >= K` — fast-path (PositionGe) on nodes.
+#[rstest]
+fn streaming_position_ge_on_nodes() {
+    let mut root_builder = elem("root");
+    for idx in 1..=8 {
+        root_builder = root_builder.child(elem("item").child(text(&format!("{idx}"))));
+    }
+    let document = doc().child(root_builder).build();
+    let root = document.children().next().unwrap();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
+
+    let expr = "child::item[position() >= 6]";
+    let via_stream: Vec<String> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<String> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec!["6", "7", "8"]);
+    assert_eq!(via_stream, via_eager);
+}
+
+/// `position() > K` on nodes — streaming matches eager.
+#[rstest]
+fn streaming_position_gt_on_nodes() {
+    let mut root_builder = elem("root");
+    for idx in 1..=5 {
+        root_builder = root_builder.child(elem("item").child(text(&format!("{idx}"))));
+    }
+    let document = doc().child(root_builder).build();
+    let root = document.children().next().unwrap();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
+
+    let expr = "child::item[position() > 3]";
+    let via_stream: Vec<String> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<String> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec!["4", "5"]);
+    assert_eq!(via_stream, via_eager);
+}
+
+/// Edge case: `position() < 1` — nothing can satisfy this, result must be empty.
+#[rstest]
+fn streaming_position_lt_one_is_empty() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 100)[position() < 1]";
+    let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval succeeds");
+    let results: Vec<_> = stream.iter().collect::<Result<Vec<_>, _>>().expect("ok");
+    assert!(results.is_empty());
+
+    // Also verify on nodes
+    let document = doc()
+        .child(elem("root").child(elem("a")).child(elem("b")).child(elem("c")))
+        .build();
+    let root = document.children().next().unwrap();
+    let ctx2 = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
+    let stream2 = evaluate_stream_expr::<N>("child::*[position() < 1]", &ctx2).expect("stream eval");
+    let results2: Vec<_> = stream2.iter().collect::<Result<Vec<_>, _>>().expect("ok");
+    assert!(results2.is_empty());
+}
+
+/// Edge case: `position() >= 1` — matches everything (identity filter).
+#[rstest]
+fn streaming_position_ge_one_matches_all() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 5)[position() >= 1]";
+    let results: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(results, vec![1, 2, 3, 4, 5]);
+}
+
+/// Edge case: `position() > 0` — matches everything (position starts at 1).
+#[rstest]
+fn streaming_position_gt_zero_matches_all() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(10 to 14)[position() > 0]";
+    let results: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(results, vec![10, 11, 12, 13, 14]);
+}
+
+/// Windowing/slicing: combine `position() >= K` and `position() <= M`.
+/// This is a common pattern for paging/windowed access.
+#[rstest]
+fn streaming_position_window_slice() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 20)[position() >= 5][position() <= 3]";
+    // First predicate: positions 5..=20 (16 items: 5,6,...,20)
+    // Second predicate on the filtered sequence: positions 1,2,3 of (5,6,...,20) → 5,6,7
+    let via_stream: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<i64> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec![5, 6, 7]);
+    assert_eq!(via_stream, via_eager);
+}
+
+/// Windowing with `<` and `>` operators combined.
+#[rstest]
+fn streaming_position_window_lt_gt() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 10)[position() > 2][position() < 6]";
+    // First predicate: positions >2 from (1..=10) → items 3,4,5,6,7,8,9,10
+    // Second predicate: positions <6 from the filtered → first 5 items → 3,4,5,6,7
+    let via_stream: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<i64> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec![3, 4, 5, 6, 7]);
+    assert_eq!(via_stream, via_eager);
+}
+
+/// `position() = K` (Exact) — early termination after finding the match.
+#[rstest]
+fn streaming_position_exact_early_termination() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    // On a huge range, picking exactly position 3 must complete instantly.
+    let expr = "(1 to 999999999)[position() = 3]";
+    let results: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(results, vec![3]);
+}
+
+/// `[1]` (First) — early termination after first item on huge range.
+#[rstest]
+fn streaming_first_predicate_early_termination() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 999999999)[1]";
+    let results: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(results, vec![1]);
+}
+
+// ---------------------------------------------------------------------------
+// PositionGe fast-path on large ranges (no early termination, but fast-path
+// evaluation avoids VM overhead per item).
+// ---------------------------------------------------------------------------
+
+/// `position() >= K` on a moderate range — fast-path avoids VM evaluation.
+#[rstest]
+fn streaming_position_ge_on_large_range() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 10000)[position() >= 9995]";
+    let via_stream: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<i64> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec![9995, 9996, 9997, 9998, 9999, 10000]);
+    assert_eq!(via_stream, via_eager);
+}
+
+/// `position() > K` on a moderate range — fast-path via `PositionGe(K+1)`.
+#[rstest]
+fn streaming_position_gt_on_large_range() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 10000)[position() > 9997]";
+    let via_stream: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<i64> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec![9998, 9999, 10000]);
+    assert_eq!(via_stream, via_eager);
+}
+
+// ---------------------------------------------------------------------------
+// Sibling axes with positional predicates (streaming vs. eager).
+// ---------------------------------------------------------------------------
+
+/// `following-sibling::*[position() <= 2]` — positional predicate on sibling axis.
+#[rstest]
+fn streaming_following_sibling_positional() {
+    let document = doc()
+        .child(elem("root").child(elem("a")).child(elem("b")).child(elem("c")).child(elem("d")).child(elem("e")))
+        .build();
+    let root = document.children().next().unwrap();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
+
+    // Navigate to the second child ("b") first, then query following-sibling
+    let b_items = evaluate_expr::<N>("child::b", &ctx).expect("find b");
+    let b_node = match &b_items[0] {
+        I::Node(n) => n.clone(),
+        other => panic!("expected node, got {other:?}"),
+    };
+    let ctx_b = DynamicContextBuilder::default().with_context_item(I::Node(b_node)).build();
+
+    let expr = "following-sibling::*[position() <= 2]";
+    let via_stream: Vec<String> = evaluate_stream_expr::<N>(expr, &ctx_b)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.name().unwrap().local,
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<String> = evaluate_expr::<N>(expr, &ctx_b)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Node(n) => n.name().unwrap().local,
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec!["c", "d"]);
+    assert_eq!(via_stream, via_eager);
+}
+
+/// `preceding-sibling::*[1]` — first of the preceding siblings.
+#[rstest]
+fn streaming_preceding_sibling_first() {
+    let document = doc()
+        .child(elem("root").child(elem("a")).child(elem("b")).child(elem("c")).child(elem("d")))
+        .build();
+    let root = document.children().next().unwrap();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
+
+    let d_items = evaluate_expr::<N>("child::d", &ctx).expect("find d");
+    let d_node = match &d_items[0] {
+        I::Node(n) => n.clone(),
+        other => panic!("expected node, got {other:?}"),
+    };
+    let ctx_d = DynamicContextBuilder::default().with_context_item(I::Node(d_node)).build();
+
+    let expr = "preceding-sibling::*[1]";
+    let via_stream: Vec<String> = evaluate_stream_expr::<N>(expr, &ctx_d)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.name().unwrap().local,
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<String> = evaluate_expr::<N>(expr, &ctx_d)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Node(n) => n.name().unwrap().local,
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec!["c"]);
+    assert_eq!(via_stream, via_eager);
+}
+
+/// `following-sibling::*[position() > 1]` — skip the first following sibling.
+#[rstest]
+fn streaming_following_sibling_position_gt() {
+    let document = doc()
+        .child(elem("root").child(elem("a")).child(elem("b")).child(elem("c")).child(elem("d")).child(elem("e")))
+        .build();
+    let root = document.children().next().unwrap();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
+
+    let a_items = evaluate_expr::<N>("child::a", &ctx).expect("find a");
+    let a_node = match &a_items[0] {
+        I::Node(n) => n.clone(),
+        other => panic!("expected node, got {other:?}"),
+    };
+    let ctx_a = DynamicContextBuilder::default().with_context_item(I::Node(a_node)).build();
+
+    let expr = "following-sibling::*[position() > 1]";
+    let via_stream: Vec<String> = evaluate_stream_expr::<N>(expr, &ctx_a)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.name().unwrap().local,
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<String> = evaluate_expr::<N>(expr, &ctx_a)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Node(n) => n.name().unwrap().local,
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+
+    // a's following siblings: b, c, d, e → position > 1 → c, d, e
+    assert_eq!(via_stream, vec!["c", "d", "e"]);
+    assert_eq!(via_stream, via_eager);
+}
+
+// ---------------------------------------------------------------------------
+// Nested / chained positional predicates (triple predicate).
+// ---------------------------------------------------------------------------
+
+/// Triple chained predicates: `[position() > 3][position() <= 5][2]`.
+#[rstest]
+fn streaming_position_triple_nested() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 100)[position() > 3][position() <= 5][2]";
+    // Step 1: position() > 3 from (1..=100) → items 4,5,6,...,100 (97 items)
+    // Step 2: position() <= 5 from those → items 4,5,6,7,8
+    // Step 3: [2] from those → item 5
+    let via_stream: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<i64> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec![5]);
+    assert_eq!(via_stream, via_eager);
+}
+
+/// Quadruple nested: `[position() >= 10][position() > 5][position() <= 3][1]`.
+#[rstest]
+fn streaming_position_quad_nested() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 50)[position() >= 10][position() > 5][position() <= 3][1]";
+    // Step 1: >= 10 → items 10,11,...,50 (41 items)
+    // Step 2: > 5 → items 15,16,...,50 (36 items)
+    // Step 3: <= 3 → items 15,16,17
+    // Step 4: [1] → item 15
+    let via_stream: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<i64> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec![15]);
+    assert_eq!(via_stream, via_eager);
+}
+
+// ---------------------------------------------------------------------------
+// Negative, zero, and boundary values for position predicates.
+// ---------------------------------------------------------------------------
+
+/// `position() = 0` — no XPath position is 0, result must be empty.
+#[rstest]
+fn streaming_position_eq_zero_is_empty() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 10)[position() = 0]";
+    let results: Vec<_> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .collect::<Result<Vec<_>, _>>()
+        .expect("ok");
+    assert!(results.is_empty());
+
+    // Also on nodes
+    let document = doc()
+        .child(elem("root").child(elem("a")).child(elem("b")))
+        .build();
+    let root = document.children().next().unwrap();
+    let ctx2 = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
+    let results2: Vec<_> = evaluate_stream_expr::<N>("child::*[position() = 0]", &ctx2)
+        .expect("stream eval")
+        .iter()
+        .collect::<Result<Vec<_>, _>>()
+        .expect("ok");
+    assert!(results2.is_empty());
+}
+
+/// `position() = -1` — negative position, always empty.
+#[rstest]
+fn streaming_position_eq_negative_is_empty() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 10)[position() = -1]";
+    let results: Vec<_> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .collect::<Result<Vec<_>, _>>()
+        .expect("ok");
+    assert!(results.is_empty());
+}
+
+/// `position() >= 0` — matches everything (position starts at 1, 1 >= 0 is true).
+#[rstest]
+fn streaming_position_ge_zero_matches_all() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 5)[position() >= 0]";
+    let results: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(results, vec![1, 2, 3, 4, 5]);
+}
+
+/// `position() <= 0` — nothing can satisfy, result empty.
+#[rstest]
+fn streaming_position_le_zero_is_empty() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 10)[position() <= 0]";
+    let results: Vec<_> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .collect::<Result<Vec<_>, _>>()
+        .expect("ok");
+    assert!(results.is_empty());
+}
+
+/// `position() > -5` — always true, matches everything.
+#[rstest]
+fn streaming_position_gt_negative_matches_all() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(10 to 14)[position() > -5]";
+    let results: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(results, vec![10, 11, 12, 13, 14]);
+}
+
+/// `[0]` — numeric literal 0 as predicate, always empty (no position 0).
+#[rstest]
+fn streaming_literal_zero_predicate_is_empty() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 10)[0]";
+    let results: Vec<_> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .collect::<Result<Vec<_>, _>>()
+        .expect("ok");
+    assert!(results.is_empty());
+}
+
+/// `[-1]` — negative literal predicate, always empty.
+#[rstest]
+fn streaming_literal_negative_predicate_is_empty() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 10)[-1]";
+    let results: Vec<_> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .collect::<Result<Vec<_>, _>>()
+        .expect("ok");
+    assert!(results.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// `last()`-based predicates — these are NOT fast-path candidates, but
+// verify correctness of streaming with `last()` across different patterns.
+// ---------------------------------------------------------------------------
+
+/// `position() = last()` — selects the last item.
+#[rstest]
+fn streaming_position_eq_last_on_range() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 10)[position() = last()]";
+    let via_stream: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<i64> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec![10]);
+    assert_eq!(via_stream, via_eager);
+}
+
+/// `position() < last()` — selects all but the last item.
+#[rstest]
+fn streaming_position_lt_last_on_range() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 5)[position() < last()]";
+    let via_stream: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<i64> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec![1, 2, 3, 4]);
+    assert_eq!(via_stream, via_eager);
+}
+
+/// `position() < last()` on nodes — all except last child.
+#[rstest]
+fn streaming_position_lt_last_on_nodes() {
+    let document = doc()
+        .child(
+            elem("root")
+                .child(elem("item").child(text("a")))
+                .child(elem("item").child(text("b")))
+                .child(elem("item").child(text("c")))
+                .child(elem("item").child(text("d"))),
+        )
+        .build();
+    let root = document.children().next().unwrap();
+    let ctx = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
+
+    let expr = "child::item[position() < last()]";
+    let via_stream: Vec<String> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<String> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Node(n) => n.string_value(),
+            other => panic!("expected node, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec!["a", "b", "c"]);
+    assert_eq!(via_stream, via_eager);
+}
+
+/// `last()` as sole predicate — selects the last item (equivalent to `[position() = last()]`).
+#[rstest]
+fn streaming_last_predicate_on_range() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 7)[last()]";
+    let via_stream: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<i64> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec![7]);
+    assert_eq!(via_stream, via_eager);
+}
+
+/// `position() <= last() - 2` — all except last two items.
+#[rstest]
+fn streaming_position_le_last_minus_two() {
+    let ctx = DynamicContextBuilder::<N>::default().build();
+    let expr = "(1 to 8)[position() <= last() - 2]";
+    let via_stream: Vec<i64> = evaluate_stream_expr::<N>(expr, &ctx)
+        .expect("stream eval")
+        .iter()
+        .map(|res| match res.expect("ok") {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+    let via_eager: Vec<i64> = evaluate_expr::<N>(expr, &ctx)
+        .expect("eager eval")
+        .into_iter()
+        .map(|item| match item {
+            I::Atomic(A::Integer(i)) => i,
+            other => panic!("expected integer, got {other:?}"),
+        })
+        .collect();
+
+    assert_eq!(via_stream, vec![1, 2, 3, 4, 5, 6]);
+    assert_eq!(via_stream, via_eager);
 }

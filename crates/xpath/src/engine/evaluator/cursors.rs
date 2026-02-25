@@ -954,6 +954,7 @@ impl<N: 'static + XdmNode + Clone> PredicateCursor<N> {
             PredicateFastKind::First => return Ok(pos == 1),
             PredicateFastKind::Exact(k) => return Ok(pos == k),
             PredicateFastKind::PositionLe(k) => return Ok(pos <= k),
+            PredicateFastKind::PositionGe(k) => return Ok(pos >= k),
             PredicateFastKind::None => {}
         }
         self.vm.with_vm(|vm| {
@@ -981,6 +982,16 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for PredicateCursor<N> {
                 Ok(item) => {
                     let pos = self.position + 1;
                     self.position = pos;
+
+                    // Early termination: if the positional predicate can never
+                    // match again, stop iterating immediately.
+                    match self.fast_kind {
+                        PredicateFastKind::First if pos > 1 => return None,
+                        PredicateFastKind::Exact(k) if pos > k => return None,
+                        PredicateFastKind::PositionLe(k) if pos > k => return None,
+                        _ => {}
+                    }
+
                     match self.evaluate_predicate(&item, pos, last) {
                         Ok(true) => return Some(Ok(item)),
                         Ok(false) => continue,
@@ -1018,7 +1029,8 @@ enum PredicateFastKind {
     None,
     First,             // [1] or position()=1
     Exact(usize),      // [K] or position()=K
-    PositionLe(usize), // position() <= K (common in slices)
+    PositionLe(usize), // position() <= K or position() < K+1 (common in slices)
+    PositionGe(usize), // position() >= K or position() > K-1
 }
 
 fn classify_predicate_fast(code: &InstrSeq) -> PredicateFastKind {
@@ -1058,6 +1070,9 @@ fn classify_predicate_fast(code: &InstrSeq) -> PredicateFastKind {
                         return if k == 1 { PredicateFastKind::First } else { PredicateFastKind::Exact(k) };
                     }
                     ComparisonOp::Le => return PredicateFastKind::PositionLe(k),
+                    ComparisonOp::Lt if k > 1 => return PredicateFastKind::PositionLe(k - 1),
+                    ComparisonOp::Ge => return PredicateFastKind::PositionGe(k),
+                    ComparisonOp::Gt => return PredicateFastKind::PositionGe(k + 1),
                     _ => {}
                 }
             } else if k == 1 {
