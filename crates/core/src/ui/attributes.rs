@@ -127,7 +127,7 @@ pub mod pattern {
 
     pub mod application {
         pub const PROCESS_ID: &str = "ProcessId";
-        pub const NAME: &str = "Name";
+        pub const PROCESS_NAME: &str = "ProcessName";
         pub const EXECUTABLE_PATH: &str = "ExecutablePath";
         pub const COMMAND_LINE: &str = "CommandLine";
         pub const USER_NAME: &str = "UserName";

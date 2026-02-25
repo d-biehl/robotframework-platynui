@@ -851,6 +851,49 @@ impl UiAttribute for NativePropAttr {
 // ---------------------------------------------------------------------------
 // Application attribute types and iterator (module-level, lazy values)
 
+struct AppRoleAttr;
+impl UiAttribute for AppRoleAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        platynui_core::ui::attribute_names::common::ROLE
+    }
+    fn value(&self) -> UiValue {
+        UiValue::from("Application")
+    }
+}
+
+/// `control:Name` for Application nodes.
+///
+/// Windows UIA has no separate display name for applications, so this
+/// falls back to the process executable stem (same value as
+/// `app:ProcessName`).
+struct AppDisplayNameAttr {
+    pid: i32,
+}
+impl UiAttribute for AppDisplayNameAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        platynui_core::ui::attribute_names::common::NAME
+    }
+    fn value(&self) -> UiValue {
+        if let Some(handle) = crate::map::open_process_query(self.pid) {
+            if let Some(path) = crate::map::query_executable_path(handle) {
+                let _ = unsafe { CloseHandle(handle) };
+                if let Some(stem) = std::path::Path::new(&path).file_stem() {
+                    return UiValue::from(stem.to_string_lossy().to_string());
+                }
+            } else {
+                let _ = unsafe { CloseHandle(handle) };
+            }
+        }
+        UiValue::from("")
+    }
+}
+
 struct AppRuntimeIdAttr {
     rid: String,
 }
@@ -881,15 +924,15 @@ impl UiAttribute for AppProcessIdAttr {
     }
 }
 
-struct AppNameAttr {
+struct AppProcessNameAttr {
     pid: i32,
 }
-impl UiAttribute for AppNameAttr {
+impl UiAttribute for AppProcessNameAttr {
     fn namespace(&self) -> Namespace {
-        Namespace::Control
+        Namespace::App
     }
     fn name(&self) -> &str {
-        platynui_core::ui::attribute_names::application::NAME
+        platynui_core::ui::attribute_names::application::PROCESS_NAME
     }
     fn value(&self) -> UiValue {
         if let Some(handle) = crate::map::open_process_query(self.pid) {
@@ -1039,9 +1082,11 @@ impl Iterator for AppAttrsIter {
     type Item = Arc<dyn UiAttribute>;
     fn next(&mut self) -> Option<Self::Item> {
         let item = match self.idx {
-            0 => Some(Arc::new(AppRuntimeIdAttr { rid: self.rid.clone() }) as Arc<dyn UiAttribute>),
-            // 1: optional developer Id (delegates to node.id())
-            1 => {
+            0 => Some(Arc::new(AppRoleAttr) as Arc<dyn UiAttribute>),
+            1 => Some(Arc::new(AppDisplayNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            2 => Some(Arc::new(AppRuntimeIdAttr { rid: self.rid.clone() }) as Arc<dyn UiAttribute>),
+            // 3: optional developer Id (delegates to node.id())
+            3 => {
                 let present = self.owner.as_ref().and_then(|w| w.upgrade()).and_then(|n| n.id()).is_some();
                 if present {
                     Some(Arc::new(IdAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>)
@@ -1049,13 +1094,13 @@ impl Iterator for AppAttrsIter {
                     None
                 }
             }
-            2 => Some(Arc::new(AppProcessIdAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            3 => Some(Arc::new(AppNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            4 => Some(Arc::new(AppExecutablePathAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            5 => Some(Arc::new(AppCommandLineAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            6 => Some(Arc::new(AppUserNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            7 => Some(Arc::new(AppStartTimeAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            8 => Some(Arc::new(AppArchitectureAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            4 => Some(Arc::new(AppProcessIdAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            5 => Some(Arc::new(AppProcessNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            6 => Some(Arc::new(AppExecutablePathAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            7 => Some(Arc::new(AppCommandLineAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            8 => Some(Arc::new(AppUserNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            9 => Some(Arc::new(AppStartTimeAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            10 => Some(Arc::new(AppArchitectureAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
             _ => None,
         };
         self.idx = self.idx.saturating_add(1);
