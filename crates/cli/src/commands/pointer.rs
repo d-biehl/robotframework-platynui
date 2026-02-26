@@ -214,6 +214,18 @@ struct OverrideArgs {
     speed_factor: Option<f64>,
     #[arg(long = "acceleration", value_enum)]
     acceleration: Option<AccelerationKind>,
+    #[arg(long = "steps-per-pixel")]
+    steps_per_pixel: Option<f64>,
+    #[arg(long = "curve-amplitude")]
+    curve_amplitude: Option<f64>,
+    #[arg(long = "overshoot-ratio")]
+    overshoot_ratio: Option<f64>,
+    #[arg(long = "overshoot-settle-steps")]
+    overshoot_settle_steps: Option<u32>,
+    #[arg(long = "jitter-amplitude")]
+    jitter_amplitude: Option<f64>,
+    #[arg(long = "jitter-frequency")]
+    jitter_frequency: Option<f64>,
 }
 
 pub fn run(runtime: &Runtime, args: &PointerArgs) -> CliResult<String> {
@@ -482,6 +494,24 @@ fn build_overrides(args: &OverrideArgs) -> CliResult<Option<PointerOverrides>> {
             MotionKind::Jitter => PointerMotionMode::Jitter,
         };
         overrides = overrides.motion_mode(mode);
+    }
+    if let Some(steps) = args.steps_per_pixel {
+        overrides = overrides.steps_per_pixel(steps);
+    }
+    if let Some(amplitude) = args.curve_amplitude {
+        overrides = overrides.curve_amplitude(amplitude);
+    }
+    if let Some(ratio) = args.overshoot_ratio {
+        overrides = overrides.overshoot_ratio(ratio);
+    }
+    if let Some(steps) = args.overshoot_settle_steps {
+        overrides = overrides.overshoot_settle_steps(steps);
+    }
+    if let Some(amplitude) = args.jitter_amplitude {
+        overrides = overrides.jitter_amplitude(amplitude);
+    }
+    if let Some(frequency) = args.jitter_frequency {
+        overrides = overrides.jitter_frequency(frequency);
     }
 
     if overrides == PointerOverrides::default() { Ok(None) } else { Ok(Some(overrides)) }

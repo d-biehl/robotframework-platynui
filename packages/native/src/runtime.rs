@@ -1538,6 +1538,7 @@ impl PyPointerOverrides {
         overshoot_settle_steps=None,
         curve_amplitude=None,
         jitter_amplitude=None,
+        jitter_frequency=None,
         ensure_move_position=None,
         ensure_move_threshold=None,
         ensure_move_timeout_ms=None,
@@ -1563,6 +1564,7 @@ impl PyPointerOverrides {
         overshoot_settle_steps: Option<u32>,
         curve_amplitude: Option<f64>,
         jitter_amplitude: Option<f64>,
+        jitter_frequency: Option<f64>,
         ensure_move_position: Option<bool>,
         ensure_move_threshold: Option<f64>,
         ensure_move_timeout_ms: Option<f64>,
@@ -1587,6 +1589,7 @@ impl PyPointerOverrides {
             overshoot_settle_steps,
             curve_amplitude,
             jitter_amplitude,
+            jitter_frequency,
             ensure_move_position,
             ensure_move_threshold,
             ensure_move_timeout_ms,
@@ -1698,6 +1701,11 @@ impl PyPointerOverrides {
     /// Returns the amplitude of random jitter applied during motion.
     fn jitter_amplitude(&self) -> Option<f64> {
         self.inner.jitter_amplitude
+    }
+    #[getter]
+    /// Returns the number of full sine-wave cycles during jitter motion.
+    fn jitter_frequency(&self) -> Option<f64> {
+        self.inner.jitter_frequency
     }
     #[getter]
     /// Returns whether the runtime verifies that pointer moves end at the requested position.
@@ -1908,6 +1916,7 @@ impl PyPointerProfile {
         overshoot_settle_steps=None,
         curve_amplitude=None,
         jitter_amplitude=None,
+        jitter_frequency=None,
         after_move_delay_ms=None,
         after_input_delay_ms=None,
         press_release_delay_ms=None,
@@ -1932,6 +1941,7 @@ impl PyPointerProfile {
         overshoot_settle_steps: Option<u32>,
         curve_amplitude: Option<f64>,
         jitter_amplitude: Option<f64>,
+        jitter_frequency: Option<f64>,
         after_move_delay_ms: Option<f64>,
         after_input_delay_ms: Option<f64>,
         press_release_delay_ms: Option<f64>,
@@ -1972,6 +1982,9 @@ impl PyPointerProfile {
         }
         if let Some(v) = jitter_amplitude {
             inner.jitter_amplitude = v;
+        }
+        if let Some(v) = jitter_frequency {
+            inner.jitter_frequency = v;
         }
         if let Some(ms) = after_move_delay_ms {
             inner.after_move_delay = duration_from_millis(ms);
@@ -2080,6 +2093,12 @@ impl PyPointerProfile {
     /// Returns the amplitude of random jitter during motion.
     fn jitter_amplitude(&self) -> f64 {
         self.inner.jitter_amplitude
+    }
+
+    #[getter]
+    /// Returns the number of full sine-wave cycles during jitter motion.
+    fn jitter_frequency(&self) -> f64 {
+        self.inner.jitter_frequency
     }
 
     #[getter]
@@ -2293,6 +2312,7 @@ pub struct PointerOverridesInput {
     pub overshoot_settle_steps: Option<u32>,
     pub curve_amplitude: Option<f64>,
     pub jitter_amplitude: Option<f64>,
+    pub jitter_frequency: Option<f64>,
     pub ensure_move_position: Option<bool>,
     pub ensure_move_threshold: Option<f64>,
     pub ensure_move_timeout_ms: Option<f64>,
@@ -2325,6 +2345,7 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerOverridesInput {
             overshoot_settle_steps: dict_get(d, "overshoot_settle_steps").and_then(|v| v.extract().ok()),
             curve_amplitude: dict_get(d, "curve_amplitude").and_then(|v| v.extract().ok()),
             jitter_amplitude: dict_get(d, "jitter_amplitude").and_then(|v| v.extract().ok()),
+            jitter_frequency: dict_get(d, "jitter_frequency").and_then(|v| v.extract().ok()),
             ensure_move_position: dict_get(d, "ensure_move_position").and_then(|v| v.extract().ok()),
             ensure_move_threshold: dict_get(d, "ensure_move_threshold").and_then(|v| v.extract().ok()),
             ensure_move_timeout_ms: dict_get(d, "ensure_move_timeout_ms").and_then(|v| v.extract().ok()),
@@ -2378,6 +2399,9 @@ impl From<PointerOverridesInput> for runtime_rs::PointerOverrides {
         }
         if let Some(amplitude) = s.jitter_amplitude {
             ov = ov.jitter_amplitude(amplitude);
+        }
+        if let Some(frequency) = s.jitter_frequency {
+            ov = ov.jitter_frequency(frequency);
         }
         if let Some(flag) = s.ensure_move_position {
             ov = ov.ensure_move_position(flag);
@@ -2491,6 +2515,7 @@ pub struct PointerProfileInput {
     pub overshoot_settle_steps: Option<u32>,
     pub curve_amplitude: Option<f64>,
     pub jitter_amplitude: Option<f64>,
+    pub jitter_frequency: Option<f64>,
     pub after_move_delay_ms: Option<f64>,
     pub after_input_delay_ms: Option<f64>,
     pub press_release_delay_ms: Option<f64>,
@@ -2522,6 +2547,7 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerProfileInput {
             overshoot_settle_steps: dict_get(d, "overshoot_settle_steps").and_then(|v| v.extract().ok()),
             curve_amplitude: dict_get(d, "curve_amplitude").and_then(|v| v.extract().ok()),
             jitter_amplitude: dict_get(d, "jitter_amplitude").and_then(|v| v.extract().ok()),
+            jitter_frequency: dict_get(d, "jitter_frequency").and_then(|v| v.extract().ok()),
             after_move_delay_ms: dict_get(d, "after_move_delay_ms").and_then(|v| v.extract().ok()),
             after_input_delay_ms: dict_get(d, "after_input_delay_ms").and_then(|v| v.extract().ok()),
             press_release_delay_ms: dict_get(d, "press_release_delay_ms").and_then(|v| v.extract().ok()),
@@ -2574,6 +2600,9 @@ impl PointerProfileInput {
         }
         if let Some(v) = self.jitter_amplitude {
             profile.jitter_amplitude = v;
+        }
+        if let Some(v) = self.jitter_frequency {
+            profile.jitter_frequency = v;
         }
         if let Some(ms) = self.after_move_delay_ms {
             profile.after_move_delay = duration_from_millis(ms);

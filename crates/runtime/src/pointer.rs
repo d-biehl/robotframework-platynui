@@ -36,6 +36,7 @@ pub struct PointerProfile {
     pub overshoot_settle_steps: u32,
     pub curve_amplitude: f64,
     pub jitter_amplitude: f64,
+    pub jitter_frequency: f64,
     pub after_move_delay: Duration,
     pub after_input_delay: Duration,
     pub press_release_delay: Duration,
@@ -58,10 +59,11 @@ impl PointerProfile {
             max_move_duration: Duration::from_millis(600),
             speed_factor: 1.0,
             acceleration_profile: PointerAccelerationProfile::SmoothStep,
-            overshoot_ratio: 0.08,
+            overshoot_ratio: 0.20,
             overshoot_settle_steps: 3,
-            curve_amplitude: 4.0,
-            jitter_amplitude: 1.5,
+            curve_amplitude: 40.0,
+            jitter_amplitude: 8.0,
+            jitter_frequency: 6.0,
             after_move_delay: Duration::from_millis(40),
             after_input_delay: Duration::from_millis(35),
             press_release_delay: Duration::from_millis(50),
@@ -114,6 +116,7 @@ pub struct PointerOverrides {
     pub overshoot_settle_steps: Option<u32>,
     pub curve_amplitude: Option<f64>,
     pub jitter_amplitude: Option<f64>,
+    pub jitter_frequency: Option<f64>,
     pub ensure_move_position: Option<bool>,
     pub ensure_move_threshold: Option<f64>,
     pub ensure_move_timeout: Option<Duration>,
@@ -192,6 +195,11 @@ impl PointerOverrides {
 
     pub fn jitter_amplitude(mut self, amplitude: f64) -> Self {
         self.jitter_amplitude = Some(amplitude);
+        self
+    }
+
+    pub fn jitter_frequency(mut self, frequency: f64) -> Self {
+        self.jitter_frequency = Some(frequency);
         self
     }
 
@@ -675,6 +683,9 @@ impl<'a> EffectiveProfile<'a> {
             if let Some(amplitude) = overrides.jitter_amplitude {
                 profile.jitter_amplitude = amplitude;
             }
+            if let Some(frequency) = overrides.jitter_frequency {
+                profile.jitter_frequency = frequency;
+            }
             if let Some(flag) = overrides.ensure_move_position {
                 profile.ensure_move_position = flag;
             }
@@ -805,7 +816,9 @@ fn generate_path(start: Point, target: Point, profile: &PointerProfile) -> Vec<P
         PointerMotionMode::Linear | PointerMotionMode::Direct => generate_linear_path(start, target, steps),
         PointerMotionMode::Bezier => generate_bezier_path(start, target, steps, profile.curve_amplitude),
         PointerMotionMode::Overshoot => generate_overshoot_path(start, target, steps, profile),
-        PointerMotionMode::Jitter => generate_jitter_path(start, target, steps, profile.jitter_amplitude),
+        PointerMotionMode::Jitter => {
+            generate_jitter_path(start, target, steps, profile.jitter_amplitude, profile.jitter_frequency)
+        }
     }
 }
 
@@ -851,15 +864,20 @@ fn generate_overshoot_path(start: Point, target: Point, steps: usize, profile: &
     path
 }
 
-fn generate_jitter_path(start: Point, target: Point, steps: usize, amplitude: f64) -> Vec<Point> {
+fn generate_jitter_path(start: Point, target: Point, steps: usize, amplitude: f64, frequency: f64) -> Vec<Point> {
     let direction = direction_vector(start, target);
     let perpendicular = (-direction.1, direction.0);
+    // Frequency controls how many full sine-wave cycles occur along the path.
+    // An envelope (sin of π·t) tapers the wobble to zero at start and end so the
+    // pointer departs and arrives cleanly.
+    let cycles = frequency.max(0.5);
     let mut path = Vec::with_capacity(steps);
     for index in 1..=steps {
         let t = index as f64 / steps as f64;
         let base_x = start.x() + (target.x() - start.x()) * t;
         let base_y = start.y() + (target.y() - start.y()) * t;
-        let jitter = (t * PI).sin() * amplitude;
+        let envelope = (t * PI).sin();
+        let jitter = (t * cycles * 2.0 * PI).sin() * amplitude * envelope;
         let x = base_x + perpendicular.0 * jitter;
         let y = base_y + perpendicular.1 * jitter;
         path.push(Point::new(x, y));

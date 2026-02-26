@@ -177,6 +177,7 @@ class _PointerOverridesDict(TypedDict, total=False):
     overshoot_settle_steps: int
     curve_amplitude: float
     jitter_amplitude: float
+    jitter_frequency: float
     ensure_move_position: bool
     ensure_move_threshold: float
     ensure_move_timeout_ms: float
@@ -198,6 +199,7 @@ class _PointerProfileDict(TypedDict, total=False):
     overshoot_settle_steps: int
     curve_amplitude: float
     jitter_amplitude: float
+    jitter_frequency: float
     after_move_delay_ms: float
     after_input_delay_ms: float
     press_release_delay_ms: float
@@ -418,6 +420,7 @@ class PointerOverrides:
         overshoot_settle_steps: int | None = ...,
         curve_amplitude: float | None = ...,
         jitter_amplitude: float | None = ...,
+        jitter_frequency: float | None = ...,
         ensure_move_position: bool | None = ...,
         ensure_move_threshold: float | None = ...,
         ensure_move_timeout_ms: float | None = ...,
@@ -460,6 +463,8 @@ class PointerOverrides:
     def curve_amplitude(self) -> float | None: ...
     @property
     def jitter_amplitude(self) -> float | None: ...
+    @property
+    def jitter_frequency(self) -> float | None: ...
     @property
     def ensure_move_position(self) -> bool | None: ...
     @property
@@ -530,6 +535,7 @@ class PointerProfile:
         overshoot_settle_steps: int | None = ...,
         curve_amplitude: float | None = ...,
         jitter_amplitude: float | None = ...,
+        jitter_frequency: float | None = ...,
         after_move_delay_ms: float | None = ...,
         after_input_delay_ms: float | None = ...,
         press_release_delay_ms: float | None = ...,
@@ -563,6 +569,8 @@ class PointerProfile:
     def curve_amplitude(self) -> float: ...
     @property
     def jitter_amplitude(self) -> float: ...
+    @property
+    def jitter_frequency(self) -> float: ...
     @property
     def after_move_delay_ms(self) -> float: ...
     @property

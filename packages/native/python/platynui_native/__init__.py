@@ -25,7 +25,6 @@ from ._native import (
     Point,
     PointerAccelerationProfile,
     PointerButton,
-    PointerButtonLike,
     PointerError,
     PointerMotionMode,
     PointerOverrides,
@@ -73,7 +72,7 @@ SizeLike: TypeAlias = Size | tuple[float, float] | _SizeDict | _SizeShortDict
 RectLike: TypeAlias = Rect | tuple[float, float, float, float] | _RectDict
 OriginLike: TypeAlias = Literal['desktop'] | PointLike | RectLike
 ScrollDeltaLike: TypeAlias = tuple[float, float]
-
+PointerButtonLike: TypeAlias = PointerButton | int
 
 class _PointerOverridesDict(TypedDict, total=False):
     origin: OriginLike
@@ -93,6 +92,7 @@ class _PointerOverridesDict(TypedDict, total=False):
     overshoot_settle_steps: int
     curve_amplitude: float
     jitter_amplitude: float
+    jitter_frequency: float
     ensure_move_position: bool
     ensure_move_threshold: float
     ensure_move_timeout_ms: float
@@ -116,6 +116,7 @@ class _PointerProfileDict(TypedDict, total=False):
     overshoot_settle_steps: int
     curve_amplitude: float
     jitter_amplitude: float
+    jitter_frequency: float
     after_move_delay_ms: float
     after_input_delay_ms: float
     press_release_delay_ms: float
