@@ -629,7 +629,6 @@ class KeyboardSettings:
 
 __all__ = [
     'AttributeNotFoundError',
-    'ButtonLike',
     'EvaluatedAttribute',
     # Exceptions
     'EvaluationError',
@@ -652,6 +651,7 @@ __all__ = [
     'Point',
     'PointerAccelerationProfile',
     'PointerButton',
+    'PointerButtonLike',
     'PointerError',
     'PointerMotionMode',
     # Overrides
