@@ -186,7 +186,7 @@ class _PointerOverridesDict(TypedDict, total=False):
 class _PointerSettingsDict(TypedDict, total=False):
     double_click_time_ms: float
     double_click_size: SizeLike
-    default_button: ButtonLike
+    default_button: PointerButtonLike
 
 class _PointerProfileDict(TypedDict, total=False):
     motion: PointerMotionMode
@@ -244,7 +244,7 @@ class PointerButton(_enum.IntEnum):
     MIDDLE = 2
     RIGHT = 3
 
-ButtonLike = int | PointerButton
+PointerButtonLike: TypeAlias = int | PointerButton
 
 class PointerMotionMode(_enum.IntEnum):
     DIRECT = 0
@@ -360,33 +360,33 @@ class Runtime:
     def pointer_click(
         self,
         point: PointLike | None = ...,
-        button: ButtonLike | None = ...,
+        button: PointerButtonLike | None = ...,
         overrides: PointerOverridesLike | None = ...,
     ) -> None: ...
     def pointer_multi_click(
         self,
         point: PointLike | None = ...,
         clicks: int = 2,
-        button: ButtonLike | None = ...,
+        button: PointerButtonLike | None = ...,
         overrides: PointerOverridesLike | None = ...,
     ) -> None: ...
     def pointer_drag(
         self,
         start: PointLike,
         end: PointLike,
-        button: ButtonLike | None = ...,
+        button: PointerButtonLike | None = ...,
         overrides: PointerOverridesLike | None = ...,
     ) -> None: ...
     def pointer_press(
         self,
         point: PointLike | None = ...,
-        button: ButtonLike | None = ...,
+        button: PointerButtonLike | None = ...,
         overrides: PointerOverridesLike | None = ...,
     ) -> None: ...
     def pointer_release(
         self,
         point: PointLike | None = ...,
-        button: ButtonLike | None = ...,
+        button: PointerButtonLike | None = ...,
         overrides: PointerOverridesLike | None = ...,
     ) -> None: ...
     def pointer_scroll(self, delta: ScrollDeltaLike, overrides: PointerOverridesLike | None = ...) -> None: ...
@@ -506,7 +506,7 @@ class PointerSettings:
         *,
         double_click_time_ms: float | None = ...,
         double_click_size: SizeLike | None = ...,
-        default_button: ButtonLike | None = ...,
+        default_button: PointerButtonLike | None = ...,
     ) -> None: ...
     @classmethod
     def from_like(cls, value: PointerSettingsLike) -> PointerSettings: ...

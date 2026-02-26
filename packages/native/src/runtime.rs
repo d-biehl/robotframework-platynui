@@ -675,7 +675,16 @@ impl PyRuntime {
     /// Replaces the pointer defaults that future actions will use.
     #[pyo3(signature = (settings), text_signature = "(self, settings)")]
     fn set_pointer_settings(&self, settings: PointerSettingsLike) -> PyResult<()> {
-        self.inner.set_pointer_settings(settings.into());
+        match settings {
+            PointerSettingsLike::Class(c) => {
+                self.inner.set_pointer_settings(c.inner.clone());
+            }
+            PointerSettingsLike::Dict(d) => {
+                let mut merged = self.inner.pointer_settings();
+                d.apply_to(&mut merged);
+                self.inner.set_pointer_settings(merged);
+            }
+        }
         Ok(())
     }
 
@@ -688,7 +697,16 @@ impl PyRuntime {
     /// Sets the pointer movement profile that subsequent pointer operations will use.
     #[pyo3(signature = (profile), text_signature = "(self, profile)")]
     fn set_pointer_profile(&self, profile: PointerProfileLike) -> PyResult<()> {
-        self.inner.set_pointer_profile(profile.into());
+        match profile {
+            PointerProfileLike::Class(c) => {
+                self.inner.set_pointer_profile(c.inner.clone());
+            }
+            PointerProfileLike::Dict(d) => {
+                let mut merged = self.inner.pointer_profile();
+                d.apply_to(&mut merged);
+                self.inner.set_pointer_profile(merged);
+            }
+        }
         Ok(())
     }
 
@@ -701,7 +719,16 @@ impl PyRuntime {
     /// Replaces the keyboard timing defaults for subsequent keyboard input.
     #[pyo3(signature = (settings), text_signature = "(self, settings)")]
     fn set_keyboard_settings(&self, settings: KeyboardSettingsLike) -> PyResult<()> {
-        self.inner.set_keyboard_settings(settings.into());
+        match settings {
+            KeyboardSettingsLike::Class(c) => {
+                self.inner.set_keyboard_settings(c.inner.clone());
+            }
+            KeyboardSettingsLike::Dict(d) => {
+                let mut merged = self.inner.keyboard_settings();
+                d.apply_to(&mut merged);
+                self.inner.set_keyboard_settings(merged);
+            }
+        }
         Ok(())
     }
 
@@ -2419,16 +2446,22 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerSettingsInput {
 impl From<PointerSettingsInput> for runtime_rs::PointerSettings {
     fn from(input: PointerSettingsInput) -> Self {
         let mut settings = runtime_rs::PointerSettings::default();
-        if let Some(ms) = input.double_click_time_ms {
+        input.apply_to(&mut settings);
+        settings
+    }
+}
+
+impl PointerSettingsInput {
+    fn apply_to(self, settings: &mut runtime_rs::PointerSettings) {
+        if let Some(ms) = self.double_click_time_ms {
             settings.double_click_time = duration_from_millis(ms);
         }
-        if let Some(SizeInput(size)) = input.double_click_size {
+        if let Some(SizeInput(size)) = self.double_click_size {
             settings.double_click_size = size;
         }
-        if let Some(button) = input.default_button {
+        if let Some(button) = self.default_button {
             settings.default_button = button.into();
         }
-        settings
     }
 }
 
@@ -2508,70 +2541,76 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerProfileInput {
 impl From<PointerProfileInput> for runtime_rs::PointerProfile {
     fn from(input: PointerProfileInput) -> Self {
         let mut profile = runtime_rs::PointerProfile::named_default();
-        if let Some(mode) = input.motion {
+        input.apply_to(&mut profile);
+        profile
+    }
+}
+
+impl PointerProfileInput {
+    fn apply_to(self, profile: &mut runtime_rs::PointerProfile) {
+        if let Some(mode) = self.motion {
             profile.mode = mode.into();
         }
-        if let Some(v) = input.steps_per_pixel {
+        if let Some(v) = self.steps_per_pixel {
             profile.steps_per_pixel = v;
         }
-        if let Some(ms) = input.max_move_duration_ms {
+        if let Some(ms) = self.max_move_duration_ms {
             profile.max_move_duration = duration_from_millis(ms);
         }
-        if let Some(v) = input.speed_factor {
+        if let Some(v) = self.speed_factor {
             profile.speed_factor = v;
         }
-        if let Some(accel) = input.acceleration_profile {
+        if let Some(accel) = self.acceleration_profile {
             profile.acceleration_profile = accel.into();
         }
-        if let Some(v) = input.overshoot_ratio {
+        if let Some(v) = self.overshoot_ratio {
             profile.overshoot_ratio = v;
         }
-        if let Some(v) = input.overshoot_settle_steps {
+        if let Some(v) = self.overshoot_settle_steps {
             profile.overshoot_settle_steps = v;
         }
-        if let Some(v) = input.curve_amplitude {
+        if let Some(v) = self.curve_amplitude {
             profile.curve_amplitude = v;
         }
-        if let Some(v) = input.jitter_amplitude {
+        if let Some(v) = self.jitter_amplitude {
             profile.jitter_amplitude = v;
         }
-        if let Some(ms) = input.after_move_delay_ms {
+        if let Some(ms) = self.after_move_delay_ms {
             profile.after_move_delay = duration_from_millis(ms);
         }
-        if let Some(ms) = input.after_input_delay_ms {
+        if let Some(ms) = self.after_input_delay_ms {
             profile.after_input_delay = duration_from_millis(ms);
         }
-        if let Some(ms) = input.press_release_delay_ms {
+        if let Some(ms) = self.press_release_delay_ms {
             profile.press_release_delay = duration_from_millis(ms);
         }
-        if let Some(ms) = input.after_click_delay_ms {
+        if let Some(ms) = self.after_click_delay_ms {
             profile.after_click_delay = duration_from_millis(ms);
         }
-        if let Some(ms) = input.before_next_click_delay_ms {
+        if let Some(ms) = self.before_next_click_delay_ms {
             profile.before_next_click_delay = duration_from_millis(ms);
         }
-        if let Some(ms) = input.multi_click_delay_ms {
+        if let Some(ms) = self.multi_click_delay_ms {
             profile.multi_click_delay = duration_from_millis(ms);
         }
-        if let Some(flag) = input.ensure_move_position {
+        if let Some(flag) = self.ensure_move_position {
             profile.ensure_move_position = flag;
         }
-        if let Some(v) = input.ensure_move_threshold {
+        if let Some(v) = self.ensure_move_threshold {
             profile.ensure_move_threshold = v;
         }
-        if let Some(ms) = input.ensure_move_timeout_ms {
+        if let Some(ms) = self.ensure_move_timeout_ms {
             profile.ensure_move_timeout = duration_from_millis(ms);
         }
-        if let Some((h, v)) = input.scroll_step {
+        if let Some((h, v)) = self.scroll_step {
             profile.scroll_step = core_rs::platform::ScrollDelta::new(h, v);
         }
-        if let Some(ms) = input.scroll_delay_ms {
+        if let Some(ms) = self.scroll_delay_ms {
             profile.scroll_delay = duration_from_millis(ms);
         }
-        if let Some(us) = input.move_time_per_pixel_us {
+        if let Some(us) = self.move_time_per_pixel_us {
             profile.move_time_per_pixel = duration_from_micros(us);
         }
-        profile
     }
 }
 
@@ -2621,28 +2660,34 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for KeyboardSettingsInput {
 impl From<KeyboardSettingsInput> for core_rs::platform::KeyboardSettings {
     fn from(input: KeyboardSettingsInput) -> Self {
         let mut settings = core_rs::platform::KeyboardSettings::default();
-        if let Some(ms) = input.press_delay_ms {
+        input.apply_to(&mut settings);
+        settings
+    }
+}
+
+impl KeyboardSettingsInput {
+    fn apply_to(self, settings: &mut core_rs::platform::KeyboardSettings) {
+        if let Some(ms) = self.press_delay_ms {
             settings.press_delay = duration_from_millis(ms);
         }
-        if let Some(ms) = input.release_delay_ms {
+        if let Some(ms) = self.release_delay_ms {
             settings.release_delay = duration_from_millis(ms);
         }
-        if let Some(ms) = input.between_keys_delay_ms {
+        if let Some(ms) = self.between_keys_delay_ms {
             settings.between_keys_delay = duration_from_millis(ms);
         }
-        if let Some(ms) = input.chord_press_delay_ms {
+        if let Some(ms) = self.chord_press_delay_ms {
             settings.chord_press_delay = duration_from_millis(ms);
         }
-        if let Some(ms) = input.chord_release_delay_ms {
+        if let Some(ms) = self.chord_release_delay_ms {
             settings.chord_release_delay = duration_from_millis(ms);
         }
-        if let Some(ms) = input.after_sequence_delay_ms {
+        if let Some(ms) = self.after_sequence_delay_ms {
             settings.after_sequence_delay = duration_from_millis(ms);
         }
-        if let Some(ms) = input.after_text_delay_ms {
+        if let Some(ms) = self.after_text_delay_ms {
             settings.after_text_delay = duration_from_millis(ms);
         }
-        settings
     }
 }
 

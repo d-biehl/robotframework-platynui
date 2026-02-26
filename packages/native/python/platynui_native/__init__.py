@@ -25,6 +25,7 @@ from ._native import (
     Point,
     PointerAccelerationProfile,
     PointerButton,
+    PointerButtonLike,
     PointerError,
     PointerMotionMode,
     PointerOverrides,
@@ -70,8 +71,8 @@ class _RectDict(TypedDict):
 PointLike: TypeAlias = Point | tuple[float, float] | _PointDict
 SizeLike: TypeAlias = Size | tuple[float, float] | _SizeDict | _SizeShortDict
 RectLike: TypeAlias = Rect | tuple[float, float, float, float] | _RectDict
-OriginLike = Literal['desktop'] | PointLike | RectLike
-ScrollDeltaLike = tuple[float, float]
+OriginLike: TypeAlias = Literal['desktop'] | PointLike | RectLike
+ScrollDeltaLike: TypeAlias = tuple[float, float]
 
 
 class _PointerOverridesDict(TypedDict, total=False):
@@ -102,7 +103,7 @@ class _PointerOverridesDict(TypedDict, total=False):
 class _PointerSettingsDict(TypedDict, total=False):
     double_click_time_ms: float
     double_click_size: SizeLike
-    default_button: PointerButton
+    default_button: PointerButtonLike
 
 
 class _PointerProfileDict(TypedDict, total=False):
@@ -152,8 +153,8 @@ class _KeyboardOverridesDict(TypedDict, total=False):
 PointerOverridesLike: TypeAlias = PointerOverrides | _PointerOverridesDict
 PointerSettingsLike: TypeAlias = PointerSettings | _PointerSettingsDict
 PointerProfileLike: TypeAlias = PointerProfile | _PointerProfileDict
-KeyboardSettingsLike: TypeAlias = KeyboardSettings | _KeyboardSettingsDict
 KeyboardOverridesLike: TypeAlias = KeyboardOverrides | _KeyboardOverridesDict
+KeyboardSettingsLike: TypeAlias = KeyboardSettings | _KeyboardSettingsDict
 
 Primitive = bool | int | float | str | None
 JSONLike = dict[str, Any] | list[Any]

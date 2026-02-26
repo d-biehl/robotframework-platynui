@@ -7,9 +7,14 @@ from typing import Any, Literal, cast
 
 from platynui_native import (
     EvaluatedAttribute,
+    KeyboardOverridesLike,
+    KeyboardSettingsLike,
     Point,
     PointerButton,
+    PointerButtonLike,
     PointerOverridesLike,
+    PointerProfileLike,
+    PointerSettingsLike,
     Rect,
     RectLike,
     Runtime,
@@ -135,12 +140,39 @@ class BareMetal(OurDynamicCore):
 
     """
 
-    def __init__(self, *, use_mock: bool = False, auto_activate: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        keyboard_settings: KeyboardSettingsLike | None = None,
+        pointer_settings: PointerSettingsLike | None = None,
+        pointer_profile: PointerProfileLike | None = None,
+        use_mock: bool = False,
+        auto_activate: bool = True,
+    ) -> None:
         super().__init__([])
         self._screenshot_counter = 1
         self.use_mock = use_mock
         self.auto_activate = auto_activate
         self.query_settings = QuerySettings(30, 0.1, False)
+        self._keyboard_settings = keyboard_settings
+        self._pointer_settings = pointer_settings
+        self._pointer_profile = pointer_profile
+
+    def _create_runtime(self) -> Runtime:
+        """Create and return the PlatynUI runtime instance.
+
+        This method is called lazily when the `runtime` property is accessed for the first time.
+        It allows for deferred initialization of the runtime, which can be beneficial for
+        performance and resource management, especially if the library is imported but not
+        immediately used.
+
+        Returns:
+            Runtime: An instance of the PlatynUI runtime, either a real one or a mock based on configuration.
+        """
+        if self.use_mock:
+            return Runtime.new_with_mock()
+
+        return Runtime()
 
     @cached_property
     def runtime(self) -> Runtime:
@@ -149,10 +181,15 @@ class BareMetal(OurDynamicCore):
         The runtime bridges this Robot Framework library with the native PlatynUI engine,
         enabling XPath-like queries and actions against the UI tree.
         """
-        if self.use_mock:
-            return Runtime.new_with_mock()
+        runtime = self._create_runtime()
 
-        return Runtime()
+        if self._keyboard_settings is not None:
+            runtime.set_keyboard_settings(self._keyboard_settings)
+        if self._pointer_settings is not None:
+            runtime.set_pointer_settings(self._pointer_settings)
+        if self._pointer_profile is not None:
+            runtime.set_pointer_profile(self._pointer_profile)
+        return runtime
 
     @cached_property
     def _screenshot_path(self) -> Path:
@@ -318,7 +355,7 @@ class BareMetal(OurDynamicCore):
         self,
         descriptor: UiNodeDescriptor | None = None,
         *,
-        button: PointerButton | int = PointerButton.LEFT,
+        button: PointerButtonLike = PointerButton.LEFT,
         x: float | None = None,
         y: float | None = None,
         overrides: PointerOverridesLike | None = None,
@@ -356,7 +393,7 @@ class BareMetal(OurDynamicCore):
         descriptor: UiNodeDescriptor | None = None,
         *,
         clicks: int = 2,
-        button: PointerButton | int = PointerButton.LEFT,
+        button: PointerButtonLike = PointerButton.LEFT,
         x: float | None = None,
         y: float | None = None,
         overrides: PointerOverridesLike | None = None,
@@ -394,7 +431,7 @@ class BareMetal(OurDynamicCore):
         self,
         descriptor: UiNodeDescriptor | None = None,
         *,
-        button: PointerButton | int = PointerButton.LEFT,
+        button: PointerButtonLike = PointerButton.LEFT,
         x: float | None = None,
         y: float | None = None,
         overrides: PointerOverridesLike | None = None,
@@ -429,7 +466,7 @@ class BareMetal(OurDynamicCore):
         self,
         descriptor: UiNodeDescriptor | None = None,
         *,
-        button: PointerButton | int = PointerButton.LEFT,
+        button: PointerButtonLike = PointerButton.LEFT,
         x: float | None = None,
         y: float | None = None,
         overrides: PointerOverridesLike | None = None,
@@ -639,9 +676,7 @@ class BareMetal(OurDynamicCore):
 
     @keyword
     def keyboard_type(
-        self,
-        descriptor: UiNodeDescriptor | None,
-        text: str,
+        self, descriptor: UiNodeDescriptor | None, text: str, *, overrides: KeyboardOverridesLike | None = None
     ) -> None:
         r"""Type a sequence of characters and/or keys.
 
@@ -663,13 +698,15 @@ class BareMetal(OurDynamicCore):
         if descriptor is not None:
             target_node = descriptor()
             self.runtime.focus(target_node)
-        self.runtime.keyboard_type(text)
+        self.runtime.keyboard_type(text, overrides=overrides)
 
     @keyword
     def keyboard_press(
         self,
         descriptor: UiNodeDescriptor | None,
         text: str,
+        *,
+        overrides: KeyboardOverridesLike | None = None,
     ) -> None:
         """Press (and hold) keys according to a sequence.
 
@@ -688,13 +725,15 @@ class BareMetal(OurDynamicCore):
         if descriptor is not None:
             target_node = descriptor()
             self.runtime.focus(target_node)
-        self.runtime.keyboard_press(text)
+        self.runtime.keyboard_press(text, overrides=overrides)
 
     @keyword
     def keyboard_release(
         self,
         descriptor: UiNodeDescriptor | None,
         text: str,
+        *,
+        overrides: KeyboardOverridesLike | None = None,
     ) -> None:
         """Release keys according to a sequence.
 
@@ -713,7 +752,7 @@ class BareMetal(OurDynamicCore):
         if descriptor is not None:
             target_node = descriptor()
             self.runtime.focus(target_node)
-        self.runtime.keyboard_release(text)
+        self.runtime.keyboard_release(text, overrides=overrides)
 
     @keyword
     def take_screenshot(
