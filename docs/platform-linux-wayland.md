@@ -1,10 +1,10 @@
 # Platform Linux Wayland – Feasibility Study
 
-> **Status:** Research / Planning  
-> **Date:** 2026-02-25  
+> **Status:** Research / Planning
+> **Date:** 2026-02-26
 > **Crate:** `crates/platform-linux-wayland` (planned)
 
-This document captures the current state of Wayland protocol support, compositor landscape, Rust ecosystem, and implementation strategies for the `platform-linux-wayland` crate. It serves as both a reference and a decision guide for implementation.
+This document captures the current state (Feb 2026) of Wayland protocol support, compositor landscape, Rust ecosystem, and implementation strategies for the `platform-linux-wayland` crate. It serves as both a reference and a decision guide for implementation.
 
 ---
 
@@ -36,9 +36,9 @@ PlatynUI's X11 platform implementation (`platform-linux-x11`) relies on X11-spec
 
 Key challenges under Wayland:
 - **No global coordinate space** — clients don't know their absolute screen position.
-- **No client-to-client input injection** — by design, for security.
-- **No equivalent to EWMH** — window management is compositor-specific.
-- **Protocol fragmentation** — critical protocols are either unstable, compositor-specific, or still being standardized.
+- **No client-to-client input injection** — by design, for security. Addressed by libei (supported by GNOME 45+, KDE Plasma 6.1+) and uinput.
+- **No equivalent to EWMH** — window management is compositor-specific. The `ext-foreign-toplevel-list-v1` standard (staging) covers listing; management operations remain fragmented.
+- **Protocol standardization in progress** — critical `ext-*` protocols have reached staging in wayland-protocols (screenshots, toplevel list, clipboard), but layer-shell is not yet standardized and Mutter implements none of these `ext-*` protocols.
 
 ---
 
@@ -75,6 +75,33 @@ The following traits from `platynui-core` must be implemented (see [crates/core/
 - **`Component::ScrollTo`** and **`Component::GrabFocus`** work at toolkit level.
 
 **Impact on PlatynUI:** The `WindowManager::window_bounds()` and `WindowManager::move_to()` / `resize()` methods cannot use AT-SPI data for screen-absolute coordinates under Wayland. The `ActivationPoint` calculation in the runtime must fall back to window-relative coordinates plus compositor-provided window position (if available via foreign-toplevel protocols).
+
+### Broader Wayland Accessibility Landscape
+
+The limitations above are not unique to PlatynUI. The Wayland accessibility situation is widely recognized as problematic ([reddit discussion, May 2025](https://www.reddit.com/r/linux/comments/1kkuafo/wayland_an_accessibility_nightmare/)). Key issues affecting the entire ecosystem:
+
+- **No standardized system-wide input simulation** — Wayland's security model intentionally prevents it. libei is the emerging solution but is not yet universally supported.
+- **No cursor position tracking API** — assistive technologies that need to monitor cursor position (dwell clickers, eye-tracking tools) have no Wayland-native solution.
+- **No screen coordinate exposure** — neither AT-SPI under Wayland nor the draft Newton protocol expose screen-absolute coordinates for accessible objects.
+- **Compositor fragmentation** — each compositor implements a different subset of accessibility-relevant protocols, forcing tools to maintain multiple backends.
+
+#### Newton Project (Wayland-Native Accessibility)
+
+[Newton](https://blogs.gnome.org/a11y/2024/06/18/update-on-newton-the-wayland-native-accessibility-project/) is a GNOME-led project (funded by the Sovereign Tech Fund) to replace AT-SPI with a Wayland-native accessibility architecture. Key design points:
+
+- **Push-based model:** Toolkits push accessibility tree updates through a [draft Wayland protocol](https://gitlab.freedesktop.org/mwcampbell/wayland-protocols/tree/accessibility), synchronized with surface commits.
+- **Compositor as mediator:** The compositor passes tree updates from apps to ATs via file descriptor passing — apps cannot claim focus or bypass the compositor.
+- **Sandboxing-friendly:** Newton-enabled apps work inside Flatpak sandboxes without the AT-SPI bus exception.
+- **AccessKit integration:** GTK 4 apps use [AccessKit](https://github.com/AccessKit/accesskit) for the toolkit side, which also enables accessibility on Windows and macOS.
+- **AT protocol via D-Bus:** Assistive technologies connect to the compositor via D-Bus (not Wayland), making it easy to restrict access from sandboxed apps.
+
+**Current status (as of Jun 2024, last public update):**
+- Orca screen reader basically usable with GTK 4 apps (Nautilus, Text Editor, Podcasts, Fractal).
+- Keyboard commands, mouse review, flat review working.
+- **Not yet working:** Screen coordinates for accessible objects, synthesized mouse events on Wayland, explore-by-touch, overlay drawing for AT cursors.
+- **Not yet upstream** — draft protocol not accepted into wayland-protocols. Matt Campbell's GNOME Foundation contract ended; continuation uncertain.
+
+**Impact on PlatynUI:** Newton is not yet usable for UI automation (no screen coordinates, no mouse synthesis, not upstream). However, it represents the long-term direction. If Newton's Wayland protocol is adopted, PlatynUI could eventually use it instead of AT-SPI for Wayland-native applications. The AccessKit integration is particularly interesting — it could provide a more reliable accessibility tree than AT-SPI for GTK 4 apps. **Monitor this project closely.**
 
 ---
 
@@ -120,11 +147,11 @@ Protocol-based input injection through the compositor. Requires compositor suppo
 | Aspect | Detail |
 |---|---|
 | **Mechanism** | Client connects to EIS (Emulated Input Server) in the compositor via a portal or direct socket |
-| **Compositor support** | Mutter (GNOME 45+), KWin (KDE 6.1+), Sway (via [sway-libei fork](https://github.com/tytan652/sway-libei)), Weston (planned) |
+| **Compositor support** | Mutter (GNOME 45+), KWin (KDE Plasma 6.1+), Sway (via [sway-libei fork](https://github.com/tytan652/sway-libei)), Weston (planned) |
 | **Portal integration** | [`org.freedesktop.portal.InputCapture`](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.InputCapture.html) and [`org.freedesktop.portal.RemoteDesktop`](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html) |
 | **Permissions** | Via xdg-desktop-portal (user consent dialog or test token) |
-| **Rust crate** | [`reis`](https://crates.io/crates/reis) (Rust bindings for libei) |
-| **Maturity** | Actively developed, API stabilizing; best long-term bet |
+| **Rust crate** | [`reis`](https://crates.io/crates/reis) 0.6.1 — pure Rust libei/libeis implementation; EI client + EIS server; `tokio` and `calloop` async integration |
+| **Maturity** | Actively developed, API maturing (0.6.1 is 8th release); best long-term bet for GNOME and KDE |
 
 ### 4.4. Recommendation
 
@@ -132,9 +159,9 @@ Protocol-based input injection through the compositor. Requires compositor suppo
 |---|---|---|---|---|
 | **uinput** | ✅ | ❌ | ❌ | ⚠️ |
 | **wlr-protocols** | ❌ | ✅ | ✅ | ⚠️ |
-| **libei** | ⚠️ (growing) | ✅ | ✅ | ✅ |
+| **libei** | ⚠️ (GNOME, KDE, Sway-fork) | ✅ | ✅ | ✅ |
 
-**Recommended strategy:** Start with **uinput** for universal coverage (CI headless environments typically run as root or have `/dev/uinput` access), then add **libei** as the preferred path for desktop sessions. The wlr-protocols can serve as a middle layer for wlroots-based compositors.
+**Recommended strategy:** Start with **uinput** for universal coverage (CI headless environments typically run as root or have `/dev/uinput` access), then add **libei** as the preferred path for desktop sessions. With `reis` 0.6.1 providing a mature, pure-Rust libei/libeis implementation with `tokio` integration, the libei path is production-viable. The wlr-protocols can serve as a middle layer for wlroots-based compositors.
 
 ---
 
@@ -142,18 +169,19 @@ Protocol-based input injection through the compositor. Requires compositor suppo
 
 ### 5.1. ext-image-copy-capture-v1 (Standard)
 
-The [ext-image-copy-capture-v1](https://wayland.app/protocols/ext-image-copy-capture-v1) protocol is the emerging standard for screen capture under Wayland.
+The [ext-image-copy-capture-v1](https://wayland.app/protocols/ext-image-copy-capture-v1) protocol is the established standard for screen capture under Wayland (staging since wayland-protocols 1.37, Aug 2024).
 
 - **Source selection:** via [ext-image-capture-source-v1](https://wayland.app/protocols/ext-image-capture-source-v1) — supports output (monitor), toplevel (window), or workspace capture.
-- **Compositor support:** KWin, Sway (0.41+), Mir, Hyprland, cosmic-comp, niri, Weston (partial).
+- **Compositor support:** KWin, Sway (1.11+), Mir, Hyprland, cosmic-comp, niri, Weston (partial).
 - **Buffer types:** `wl_shm` (CPU-accessible), DMA-BUF (GPU-accessible).
+- **Adoption:** Broad — only Mutter (GNOME) and labwc do not support it yet.
 
 ### 5.2. wlr-screencopy-unstable-v1 (Legacy)
 
 The [wlr-screencopy-unstable-v1](https://wayland.app/protocols/wlr-screencopy-unstable-v1) protocol is the older wlroots-specific approach.
 
 - **Compositor support:** Sway, Hyprland, wlroots-based compositors.
-- **Status:** Being superseded by `ext-image-copy-capture-v1`; Sway 0.41+ supports both.
+- **Status:** Superseded by `ext-image-copy-capture-v1`. Sway 1.11+ supports both but the standard protocol is preferred. Legacy-only for older wlroots (<0.19).
 - **Limitation:** Output-level only (full monitor), no per-window capture.
 
 ### 5.3. xdg-desktop-portal Screenshot
@@ -166,7 +194,7 @@ The [org.freedesktop.portal.Screenshot](https://flatpak.github.io/xdg-desktop-po
 
 ### 5.4. Recommendation
 
-Use **ext-image-copy-capture-v1** as primary (widest support, standard), fall back to **wlr-screencopy** for older wlroots, and **portal** as last resort.
+Use **ext-image-copy-capture-v1** as primary — it has broad adoption (KWin, Sway 1.11+, Hyprland, Mir, cosmic-comp, niri) and is the clear standard. Fall back to **wlr-screencopy** only for older wlroots-based compositors predating v0.19, and **portal** as last resort for Mutter/GNOME (which still does not implement `ext-image-copy-capture`).
 
 ---
 
@@ -196,11 +224,11 @@ The [wlr-foreign-toplevel-management-unstable-v1](https://wayland.app/protocols/
 
 ### 6.2. ext-foreign-toplevel-list-v1 (Read-Only)
 
-The [ext-foreign-toplevel-list-v1](https://wayland.app/protocols/ext-foreign-toplevel-list-v1) protocol provides a read-only list of toplevel windows.
+The [ext-foreign-toplevel-list-v1](https://wayland.app/protocols/ext-foreign-toplevel-list-v1) protocol provides a standardized read-only list of toplevel windows (staging since wayland-protocols 1.36, Apr 2024).
 
 - **Information:** `title`, `app_id`, `identifier`
 - **No management operations** — list and observe only.
-- **Compositor support:** KWin, Sway, Hyprland, cosmic-comp, niri.
+- **Compositor support:** KWin, Sway (1.10+), Hyprland, cosmic-comp, niri.
 
 ### 6.3. Compositor-Specific IPC
 
@@ -246,8 +274,8 @@ The [wlr-layer-shell-unstable-v1](https://wayland.app/protocols/wlr-layer-shell-
 
 The [ext-layer-shell-v1](https://wayland.app/protocols/ext-layer-shell-v1) protocol is the standardized version.
 
-- **Compositor support:** KWin (KDE 6.x), cosmic-comp, niri.
-- **Status:** Newer standard; growing adoption.
+- **Compositor support:** KWin (KDE Plasma 6.2+), cosmic-comp, niri.
+- **Status:** Implemented by several compositors, but **not yet accepted into wayland-protocols** (as of Feb 2026). Adoption is growing independently of formal standardization. `wlr-layer-shell-unstable-v1` remains the primary option for wlroots-based compositors.
 
 ### 7.3. Recommendation
 
@@ -278,6 +306,8 @@ Additionally, [`xdg_output_manager`](https://wayland.app/protocols/xdg-output-un
 
 ## 9. Wayland Protocol Landscape
 
+> **Current versions:** wayland-protocols **1.47** (Dec 2025), Wayland core **1.24.0** (Jul 2025).
+
 ### 9.1. Stable / Core Protocols
 
 | Protocol | Purpose | Part of |
@@ -294,7 +324,8 @@ Additionally, [`xdg_output_manager`](https://wayland.app/protocols/xdg-output-un
 | [`ext-image-copy-capture-v1`](https://wayland.app/protocols/ext-image-copy-capture-v1) | Screenshot / screen capture | Staging — wide adoption |
 | [`ext-image-capture-source-v1`](https://wayland.app/protocols/ext-image-capture-source-v1) | Capture source selection | Staging — pairs with above |
 | [`ext-foreign-toplevel-list-v1`](https://wayland.app/protocols/ext-foreign-toplevel-list-v1) | Read-only toplevel list | Staging |
-| [`ext-layer-shell-v1`](https://wayland.app/protocols/ext-layer-shell-v1) | Layer surfaces (overlay) | Staging |
+| [`ext-data-control-v1`](https://wayland.app/protocols/ext-data-control-v1) | Clipboard access (read/write) | Staging (since wayland-protocols 1.45) |
+| `ext-layer-shell-v1` | Layer surfaces (overlay) | Implemented by KWin, niri, cosmic, but **not yet in wayland-protocols** |
 | [`zwp_virtual_keyboard_v1`](https://wayland.app/protocols/virtual-keyboard-unstable-v1) | Virtual keyboard input | Unstable |
 
 ### 9.3. wlroots-Specific Protocols
@@ -320,19 +351,27 @@ Additionally, [`xdg_output_manager`](https://wayland.app/protocols/xdg-output-un
 
 Support for protocols relevant to UI automation (as of early 2026):
 
+> **Current compositor versions:** Sway 1.11 (Jun 2025), Hyprland 0.45+, KWin 6.4.3 / KDE Plasma 6.6 (Feb 2026), Mutter 49.2 / GNOME 49 (Nov 2025), Weston 15.0.0 (Feb 2026), labwc 0.8+, niri 25.x, Mir 2.x, cosmic-comp (beta, Pop!_OS 24.04 LTS).
+
 | Protocol | Sway | Hyprland | KWin | Mutter | Weston | labwc | niri | Mir | cosmic |
 |---|---|---|---|---|---|---|---|---|---|
-| `ext-image-copy-capture-v1` | ✅ (0.41+) | ✅ | ✅ | ❌ | ⚠️ | ❌ | ✅ | ✅ | ✅ |
+| `ext-image-copy-capture-v1` | ✅ (1.11+) | ✅ | ✅ | ❌ | ⚠️ | ❌ | ✅ | ✅ | ✅ |
+| `ext-data-control-v1` | ✅ (1.11+) | ❓ | ❓ | ❌ | ❌ | ❓ | ❓ | ❓ | ✅ |
 | `wlr-screencopy-v1` | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ✅ |
 | `wlr-foreign-toplevel-mgmt` | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| `ext-foreign-toplevel-list` | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
+| `ext-foreign-toplevel-list` | ✅ (1.10+) | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
 | `wlr-layer-shell-v1` | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
 | `ext-layer-shell-v1` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
 | `zwlr_virtual_pointer_v1` | ✅ | ✅ | ❌ | ❌ | ⚠️ | ✅ | ❌ | ✅ | ❌ |
-| `zwp_virtual_keyboard_v1` | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| `zwp_virtual_keyboard_v1` | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | libei (EIS) | [Fork](https://github.com/tytan652/sway-libei) | ❌ | ✅ (6.1+) | ✅ (45+) | ❌ | ❌ | ❌ | ❌ | ❌ |
 
-**Key insight:** No single protocol set covers all compositors. Mutter (GNOME) is the most restrictive — it only supports libei and portals.
+**Key insights:**
+- No single protocol set covers all compositors. Mutter (GNOME) is the most restrictive — it only supports libei and portals.
+- **KWin** (KDE) is the most cooperative desktop compositor for UI automation — it supports `ext-image-copy-capture`, `ext-foreign-toplevel-list`, `ext-layer-shell`, **and** libei. KDE Plasma 6.2+ added full Sticky Keys support, 6.4+ added pointer-keys via numpad and improved screen reader usability.
+- **cosmic-comp** (System76/Pop!_OS) has the broadest protocol coverage of any compositor — it supports both `wlr-*` and `ext-*` variants for screenshots, toplevel management, layer-shell, data-control, and virtual keyboard. Built on Smithay (Rust), it includes built-in accessibility features (zoom, color filters). However, it does not yet support libei or `zwlr_virtual_pointer`. As Pop!_OS 24.04 LTS ships with COSMIC, it is becoming a relevant target desktop.
+- **Mutter** (GNOME) relies exclusively on portals and libei. However, GNOME 48+ improved Orca accessibility on Wayland, and GNOME 49 enhanced Remote Desktop capabilities.
+- **Sway 1.11+** supports all standard `ext-*` protocols — no fallback to wlr-specific protocols needed.
 
 ---
 
@@ -342,29 +381,30 @@ For automated testing in CI, a headless-capable compositor is essential.
 
 ### 11.1. Weston (Current Choice)
 
-[Weston](https://gitlab.freedesktop.org/wayland/weston) is the Wayland reference compositor.
+[Weston](https://gitlab.freedesktop.org/wayland/weston) is the Wayland reference compositor (**v15.0.0**, Feb 2026). Note: Weston has dropped the "reference compositor" designation in recent releases.
 
 - **Backends:** `headless-backend.so` (no display), `wayland-backend.so` (nested), `x11-backend.so` (in X11 window), `drm-backend.so` (hardware).
 - **Already configured:** see [`scripts/startwaylandsession.sh`](../scripts/startwaylandsession.sh)
-- **Protocol support:** Limited — no `wlr-foreign-toplevel`, no `wlr-layer-shell`, no `ext-image-copy-capture`.
+- **Protocol support:** Limited — no `wlr-foreign-toplevel`, no `wlr-layer-shell`, no `ext-image-copy-capture`. Versions 14 and 15 did not add any of these critical protocols.
 - **Best for:** Basic Wayland session setup, AT-SPI testing, application launching.
 
 ### 11.2. Sway
 
-[Sway](https://github.com/swaywm/sway) is a wlroots-based tiling compositor with excellent protocol support.
+[Sway](https://github.com/swaywm/sway) is a wlroots-based tiling compositor with excellent protocol support (**v1.11**, Jun 2025; based on wlroots 0.19).
 
 - **Headless mode:** `WLR_BACKENDS=headless sway` (via wlroots backend).
 - **Virtual outputs:** `swaymsg create_output` to add virtual monitors.
-- **Protocol support:** Richest of any compositor — supports nearly all wlr and ext protocols.
+- **Protocol support:** Richest of any compositor — supports nearly all wlr and ext protocols. Sway 1.10 added `ext-foreign-toplevel-list-v1`; Sway 1.11 added `ext-image-copy-capture-v1`, `ext-data-control-v1`, and security-context metadata in IPC.
 - **IPC:** Full window management via [i3-compatible IPC](https://i3wm.org/docs/ipc.html).
 - **Best for:** Comprehensive testing with full window management.
 
 ### 11.3. Mutter (GNOME)
 
-[Mutter](https://gitlab.gnome.org/GNOME/mutter) is GNOME's compositor.
+[Mutter](https://gitlab.gnome.org/GNOME/mutter) is GNOME's compositor (**Mutter 49.2** / GNOME 49, Nov 2025; GNOME 50 planned for Mar 2026).
 
-- **Headless mode:** `mutter --headless --virtual-monitor 1920x1080` (GNOME 45+).
-- **Protocol support:** Minimal custom protocols; relies on portals and libei.
+- **Headless mode:** `mutter --headless --virtual-monitor 1920x1080` (since GNOME 45).
+- **Protocol support:** Minimal custom protocols; relies on portals and libei. Does not implement `ext-image-copy-capture`, `ext-foreign-toplevel-list`, or any layer-shell protocol.
+- **Accessibility:** GNOME 48 fixed Orca screen reader shortcuts on Wayland (Caps Lock modifier) and enabled accessible web content in Flatpak. GNOME 49 added enhanced Remote Desktop with multitouch input forwarding and relative mouse input.
 - **Best for:** Testing GNOME-specific applications, portal-based workflows.
 
 ### 11.4. labwc
@@ -375,21 +415,55 @@ For automated testing in CI, a headless-capable compositor is essential.
 - **Protocol support:** Good wlr protocol coverage, lightweight footprint.
 - **Best for:** Lightweight CI testing environments.
 
-### 11.5. Cage
+### 11.5. cosmic-comp (COSMIC Desktop)
+
+[cosmic-comp](https://github.com/pop-os/cosmic-comp) is System76's Smithay-based compositor for the [COSMIC desktop environment](https://system76.com/cosmic), shipping with Pop!_OS 24.04 LTS (beta as of Sep 2025).
+
+- **Built with:** [Smithay](https://github.com/Smithay/smithay) (Rust), MSRV 1.90, Rust 2024 edition — same toolchain as PlatynUI.
+- **Protocol support:** Exceptionally broad — supports both `wlr-*` and `ext-*` protocol families:
+  - Screenshots: `ext-image-copy-capture-v1` + `wlr-screencopy`
+  - Toplevel: `ext-foreign-toplevel-list` + `wlr-foreign-toplevel-management` (with activate, close, maximize, minimize, move-to-workspace)
+  - Layer shell: `wlr-layer-shell` + `ext-layer-shell`
+  - Data control: `ext-data-control` + `wlr-data-control`
+  - Input: `zwp_virtual_keyboard` (but **no** `zwlr_virtual_pointer`, **no** libei)
+- **Accessibility:** Built-in zoom (`accessibility_zoom`) and color filters (inversion, color blindness). `A11yState` and `A11yKeyboardMonitorState` in compositor state. Screen reader toggle shortcut added recently.
+- **Headless mode:** Not explicitly documented. Backends include X11, Winit, and KMS — no dedicated headless backend, but Winit backend may work for testing.
+- **License:** GPL-3.0 — note: this may affect whether PlatynUI can link against cosmic-comp code directly.
+- **Relevance:** As Pop!_OS gains market share, COSMIC becomes a third major desktop target alongside GNOME and KDE. Its Smithay/Rust foundation makes it architecturally close to PlatynUI.
+
+### 11.6. Cage
 
 [cage](https://github.com/cage-kiosk/cage) is a kiosk compositor (runs a single application fullscreen).
 
 - **Headless mode:** Via wlroots backends.
 - **Use case:** Single-app testing scenarios.
 
-### 11.6. Recommendation
+### 11.7. Custom Test Compositor (Future Option)
+
+A purpose-built Wayland compositor for PlatynUI's CI testing could address limitations of all existing compositors. Built with [Smithay](https://github.com/Smithay/smithay) (Rust Wayland compositor library, already a transitive dependency via `eframe`/`egui`), it would implement exactly the protocols PlatynUI needs:
+
+- **All required protocols** in one compositor (ext-image-copy-capture, ext-foreign-toplevel-list, wlr-foreign-toplevel-management, layer-shell, virtual pointer/keyboard, EIS via `reis`).
+- **Test-control IPC** — a side-channel for tests to set window positions, query compositor state, control timing deterministically.
+- **Window bounds exposure** — the compositor knows window positions; it can provide them without IPC hacks.
+- **No GPU required** — headless-only, CPU rendering, fast startup (<50ms).
+- **Estimated effort:** ~2-4K LoC, 2-3 weeks initial development.
+
+This would complement (not replace) testing against real compositors. It fills the gap between `platform-mock` (no protocol at all) and real compositors (non-deterministic, limited control).
+
+### 11.8. Recommendation
+
+CI testing should prioritize the compositors that PlatynUI's users actually run:
 
 | Use Case | Compositor | Reason |
 |---|---|---|
-| **CI primary** | Sway (headless) | Best protocol coverage, IPC for window mgmt |
-| **CI simple** | Weston (headless) | Already configured, reference compositor |
-| **GNOME testing** | Mutter (headless) | Portal/libei testing |
-| **Lightweight CI** | labwc (headless) | Simple, fast startup |
+| **CI primary** | Mutter (headless) | GNOME is the most common Linux desktop; validates portal/libei path |
+| **CI secondary** | Weston (headless) | Reference implementation; already configured; validates basic Wayland |
+| **CI extended** | KWin (headless) | KDE is the second most common desktop; validates ext-* protocols + libei |
+| **CI extended** | cosmic-comp | Growing Pop!_OS user base; broadest dual-protocol coverage (wlr + ext) |
+| **Protocol testing** | Sway (headless) | Useful for validating wlr-* protocol clients in isolation |
+| **Future** | Custom compositor | Deterministic protocol-level testing (see §11.7) |
+
+**Rationale:** Sway is a niche tiling WM used by a small community. While it has excellent protocol support, testing primarily against Sway would validate protocols that real users' desktops (GNOME, KDE, COSMIC) may not support. Mutter, KWin, and cosmic-comp should be the primary CI targets because they represent the actual user base.
 
 ---
 
@@ -399,18 +473,18 @@ For automated testing in CI, a headless-capable compositor is essential.
 
 | Crate | Version | Purpose | Link |
 |---|---|---|---|
-| [`wayland-client`](https://crates.io/crates/wayland-client) | 0.31 | Core Wayland client library | [Docs](https://docs.rs/wayland-client) |
-| [`wayland-protocols`](https://crates.io/crates/wayland-protocols) | 0.32 | Stable + staging protocol bindings | [Docs](https://docs.rs/wayland-protocols) |
-| [`wayland-protocols-wlr`](https://crates.io/crates/wayland-protocols-wlr) | 0.3 | wlroots-specific protocol bindings | [Docs](https://docs.rs/wayland-protocols-wlr) |
-| [`smithay-client-toolkit`](https://crates.io/crates/smithay-client-toolkit) | 0.19 | High-level toolkit (layer-shell, SHM, etc.) | [Docs](https://docs.rs/smithay-client-toolkit) |
+| [`wayland-client`](https://crates.io/crates/wayland-client) | 0.31.12 | Core Wayland client library | [Docs](https://docs.rs/wayland-client) |
+| [`wayland-protocols`](https://crates.io/crates/wayland-protocols) | 0.32.10 | Stable + staging protocol bindings | [Docs](https://docs.rs/wayland-protocols) |
+| [`wayland-protocols-wlr`](https://crates.io/crates/wayland-protocols-wlr) | 0.3.10 | wlroots-specific protocol bindings | [Docs](https://docs.rs/wayland-protocols-wlr) |
+| [`smithay-client-toolkit`](https://crates.io/crates/smithay-client-toolkit) | 0.20.0 | High-level toolkit (layer-shell, SHM, etc.); Rust Edition 2024 | [Docs](https://docs.rs/smithay-client-toolkit) |
 
 ### 12.2. Input
 
-| Crate | Purpose | Link |
-|---|---|---|
-| [`evdev`](https://crates.io/crates/evdev) | uinput virtual device creation (pure Rust) | [Docs](https://docs.rs/evdev) |
-| [`reis`](https://crates.io/crates/reis) | libei client bindings (Rust) | [Docs](https://docs.rs/reis) |
-| [`xkbcommon`](https://crates.io/crates/xkbcommon) | Keymap handling (needed for virtual keyboard) | [Docs](https://docs.rs/xkbcommon) |
+| Crate | Version | Purpose | Link |
+|---|---|---|---|
+| [`evdev`](https://crates.io/crates/evdev) | | uinput virtual device creation (pure Rust) | [Docs](https://docs.rs/evdev) |
+| [`reis`](https://crates.io/crates/reis) | 0.6.1 | Pure Rust libei/libeis protocol; EI client (`reis::ei`) + EIS server (`reis::eis`); high-level event/request API; `tokio` and `calloop` async features; 7.7K SLoC; MIT license. Repo: [`ids1024/reis`](https://github.com/ids1024/reis) | [Docs](https://docs.rs/reis) |
+| [`xkbcommon`](https://crates.io/crates/xkbcommon) | | Keymap handling (needed for virtual keyboard) | [Docs](https://docs.rs/xkbcommon) |
 
 ### 12.3. System / IPC
 
@@ -498,39 +572,45 @@ This would allow a single platform registration that handles both X11 and Waylan
 
 ### Phase 1: Foundation (MVP)
 
-**Goal:** Basic automation under Sway/wlroots headless.
+**Goal:** Basic automation under Mutter and Weston headless — targeting the most common user desktop (GNOME) and the reference implementation from day one.
 
 | Component | Implementation | Effort |
 |---|---|---|
-| `PlatformModule` | `wayland-client` connection, protocol negotiation | S |
+| `PlatformModule` | `wayland-client` connection, protocol negotiation via `wl_registry` | S |
 | `DesktopInfoProvider` | `wl_output` enumeration | S |
-| `PointerDevice` | uinput via `evdev` crate | M |
+| `PointerDevice` | uinput via `evdev` crate (universal, works on all compositors) | M |
 | `KeyboardDevice` | uinput via `evdev` crate | M |
-| `ScreenshotProvider` | `ext-image-copy-capture-v1` | M |
-| `WindowManager` (partial) | `wlr-foreign-toplevel-management` | M |
-| CI setup | Sway headless in `startwaylandsession.sh` | S |
+| `PointerDevice` + `KeyboardDevice` (libei) | `reis` 0.6.1 crate integration — required for Mutter/GNOME (only input path) | L |
+| `ScreenshotProvider` (portal) | `org.freedesktop.portal.Screenshot` via `zbus` — works on Mutter | M |
+| `WindowManager` (minimal) | AT-SPI PID matching + limited D-Bus (Mutter) | M |
+| CI setup (Mutter) | `mutter --headless --virtual-monitor 1920x1080` | S |
+| CI setup (Weston) | Existing `startwaylandsession.sh` — reference implementation baseline | S |
 
-### Phase 2: Enrichment
+**Rationale:** GNOME/Mutter is the most restrictive compositor but also the most common desktop. By targeting it first, we solve the hardest problems early (portal-only screenshots, libei-only input). Weston provides a reference baseline. uinput serves as universal fallback for CI environments where libei portals are unavailable.
 
-**Goal:** Highlight overlays, libei support, broader compositor coverage.
+### Phase 2: KDE & Standard Protocols
 
-| Component | Implementation | Effort |
-|---|---|---|
-| `HighlightProvider` | `wlr-layer-shell` + `tiny-skia` rendering | M |
-| `PointerDevice` + `KeyboardDevice` (libei) | `reis` crate integration | L |
-| `ScreenshotProvider` (fallback) | `wlr-screencopy` for older wlroots | S |
-| `WindowManager` (Sway IPC) | Full bounds/move/resize via Sway IPC | M |
-
-### Phase 3: Broad Desktop Support
-
-**Goal:** GNOME, KDE, and portal-based workflows.
+**Goal:** KWin support via standard `ext-*` protocols, highlight overlays.
 
 | Component | Implementation | Effort |
 |---|---|---|
-| `ScreenshotProvider` (portal) | `org.freedesktop.portal.Screenshot` via `zbus` | M |
-| `HighlightProvider` (ext) | `ext-layer-shell-v1` for KWin | S |
-| Platform mediation crate | `platform-linux` routing X11/Wayland | L |
-| Mutter/KWin CI testing | Additional CI matrix entries | M |
+| `ScreenshotProvider` (ext) | `ext-image-copy-capture-v1` — standard protocol, supported by KWin, Sway, Hyprland, niri, cosmic | M |
+| `WindowManager` (ext) | `ext-foreign-toplevel-list-v1` (standard) + `wlr-foreign-toplevel-management` (management ops) | M |
+| `HighlightProvider` | `ext-layer-shell-v1` for KWin + `wlr-layer-shell` for wlroots-based + `tiny-skia` rendering | M |
+| `WindowManager` (KWin IPC) | Window bounds/move/resize via KWin D-Bus scripting API | M |
+| CI setup (KWin) | KWin headless testing | M |
+
+### Phase 3: Broad Coverage & Test Infrastructure
+
+**Goal:** Full compositor coverage, platform mediation, custom test compositor.
+
+| Component | Implementation | Effort |
+|---|---|---|
+| `ScreenshotProvider` (legacy) | `wlr-screencopy` fallback for older wlroots (<0.19) | S |
+| `WindowManager` (compositor IPC) | Sway i3-IPC, Hyprland hyprctl for bounds/move/resize | M |
+| Platform mediation crate | `platform-linux` routing X11/Wayland per-application (§13) | L |
+| Custom test compositor | Smithay-based, all required protocols, test-control IPC (§11.7) | L |
+| CI matrix | Sway headless (protocol validation), labwc (lightweight) | S |
 
 **Effort legend:** S = small (1-2 days), M = medium (3-5 days), L = large (1-2 weeks).
 
@@ -538,12 +618,15 @@ This would allow a single platform registration that handles both X11 and Waylan
 
 ## 16. Open Questions
 
-1. **Window bounds under Wayland:** Accept `None` from `WindowManager::window_bounds()` or implement compositor-specific IPC backends?
-2. **libei maturity:** Is the `reis` crate production-ready? Does libei's API still have breaking changes?
-3. **uinput permissions in CI:** Docker containers and GitHub Actions runners — is `/dev/uinput` typically accessible?
-4. **Highlight without coordinates:** If we can't know window screen position, should highlights be rendered as image overlays in screenshots rather than live compositor overlays?
-5. **Compositor selection for CI:** Should we standardize on Sway instead of Weston for better protocol coverage?
-6. **Mixed session routing:** How should the runtime decide per-application whether to use X11 or Wayland platform when XWayland is available?
+1. **Window bounds under Wayland:** Accept `None` from `WindowManager::window_bounds()` or implement compositor-specific IPC backends? Currently leaning toward compositor IPC (KWin D-Bus, Sway i3-IPC, Hyprland hyprctl) as opt-in backends, with `None` as the default. A custom test compositor (§11.7) could solve this for CI.
+2. **reis API stability:** `reis` 0.6.1 is the 8th release with significant API changes between versions. Before integrating, verify the 0.6.x API is stable enough for production use. This is now **Phase 1 critical** since Mutter requires libei as the only input path.
+3. **uinput permissions in CI:** Docker containers and GitHub Actions runners — is `/dev/uinput` typically accessible? Needs testing with actual CI runners. uinput is the universal fallback when libei portals are unavailable.
+4. **Highlight without coordinates:** If we can't know window screen position, should highlights be rendered as image overlays in screenshots rather than live compositor overlays? Compositor IPC can provide window geometry for KWin/Sway/Hyprland, leaving only Mutter without a solution.
+5. **Mutter headless + portals:** Does `mutter --headless` properly support xdg-desktop-portal for screenshots and libei for input injection? Test tokens may be needed to bypass consent dialogs in CI. Needs validation.
+6. **Mixed session routing:** How should the runtime decide per-application whether to use X11 or Wayland platform when XWayland is available? See §13 for the proposed detection algorithm.
+7. **Mutter protocol gap:** Mutter/GNOME still does not implement `ext-image-copy-capture`, `ext-foreign-toplevel-list`, or layer-shell protocols. Portal-based fallbacks remain the only option for GNOME. Monitor whether GNOME 50+ adds any of these.
+8. **Newton project status:** The Newton Wayland-native accessibility project (§3) has had no public updates since Jun 2024. The draft Wayland accessibility protocol is not accepted into wayland-protocols. Monitor whether this project continues and whether it could eventually replace AT-SPI for Wayland-native apps.
+9. **Custom test compositor scope:** Should the custom compositor (§11.7) be a standalone binary or a library that tests can embed in-process? The latter would enable true unit-test-level protocol testing but is more complex.
 
 ---
 
@@ -566,11 +649,18 @@ This would allow a single platform registration that handles both X11 and Waylan
 - [Mir (Canonical display server)](https://github.com/canonical/mir)
 - [cosmic-comp (System76 compositor)](https://github.com/pop-os/cosmic-comp)
 
+### Accessibility
+- [Newton — Wayland-native accessibility project (GNOME blog, Jun 2024)](https://blogs.gnome.org/a11y/2024/06/18/update-on-newton-the-wayland-native-accessibility-project/)
+- [Draft Wayland accessibility protocol (Matt Campbell)](https://gitlab.freedesktop.org/mwcampbell/wayland-protocols/tree/accessibility)
+- [AccessKit (cross-platform accessibility toolkit)](https://github.com/AccessKit/accesskit)
+- ["Wayland: An Accessibility Nightmare" (reddit discussion, May 2025)](https://www.reddit.com/r/linux/comments/1kkuafo/wayland_an_accessibility_nightmare/)
+
 ### Tools & Libraries
 - [ydotool (uinput-based input automation)](https://github.com/ReimuNotMoe/ydotool)
 - [wtype (Wayland keyboard input)](https://github.com/atx/wtype)
 - [wlrctl (wlroots window management)](https://git.sr.ht/~brocellous/wlrctl)
 - [AT-SPI2 (accessibility)](https://gitlab.gnome.org/GNOME/at-spi2-core)
+- [Smithay (Rust Wayland compositor library)](https://github.com/Smithay/smithay)
 
 ### Rust Crates
 - [wayland-client](https://crates.io/crates/wayland-client) — Wayland client library
