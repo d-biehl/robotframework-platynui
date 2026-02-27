@@ -36,7 +36,7 @@ PlatynUI's X11 platform implementation (`platform-linux-x11`) relies on X11-spec
 
 Key challenges under Wayland:
 - **No global coordinate space** — clients don't know their absolute screen position.
-- **No client-to-client input injection** — by design, for security. Addressed by libei (supported by GNOME 45+, KDE Plasma 6.1+) and uinput.
+- **No client-to-client input injection** — by design, for security. Addressed by libei (GNOME 45+, KDE Plasma 6.1+) and wlr virtual-pointer/keyboard protocols (wlroots-based compositors).
 - **No equivalent to EWMH** — window management is compositor-specific. The `ext-foreign-toplevel-list-v1` standard (staging) covers listing; management operations remain fragmented.
 - **Protocol standardization in progress** — critical `ext-*` protocols have reached staging in wayland-protocols (screenshots, toplevel list, clipboard), but layer-shell is not yet standardized and Mutter implements none of these `ext-*` protocols.
 
@@ -49,8 +49,8 @@ The following traits from `platynui-core` must be implemented (see [crates/core/
 | Trait | X11 Mechanism | Wayland Equivalent | Feasibility |
 |---|---|---|---|
 | `PlatformModule` | `x11rb` connection | `wayland-client` connection | ✅ Straightforward |
-| `PointerDevice` | XTest `XTestFakeMotionEvent/ButtonEvent` | uinput / `zwlr_virtual_pointer_v1` / libei | ✅ Multiple options |
-| `KeyboardDevice` | XTest `XTestFakeKeyEvent` + XKB | uinput / `zwp_virtual_keyboard_v1` / libei | ✅ Multiple options |
+| `PointerDevice` | XTest `XTestFakeMotionEvent/ButtonEvent` | libei / `zwlr_virtual_pointer_v1` | ✅ libei (GNOME, KDE) + wlr (wlroots) |
+| `KeyboardDevice` | XTest `XTestFakeKeyEvent` + XKB | libei / `zwp_virtual_keyboard_v1` | ✅ libei (GNOME, KDE) + wlr (wlroots) |
 | `ScreenshotProvider` | `XGetImage` | `ext-image-copy-capture-v1` / `wlr-screencopy` | ✅ Well-supported |
 | `HighlightProvider` | Override-redirect X11 window | `wlr-layer-shell-v1` / `ext-layer-shell-v1` | ⚠️ Compositor-dependent |
 | `DesktopInfoProvider` | XRandR | `wl_output` (core protocol) | ✅ Built-in |
@@ -155,13 +155,22 @@ Protocol-based input injection through the compositor. Requires compositor suppo
 
 ### 4.4. Recommendation
 
-| Approach | Universal | Clean API | No Root | Long-term |
-|---|---|---|---|---|
-| **uinput** | ✅ | ❌ | ❌ | ⚠️ |
-| **wlr-protocols** | ❌ | ✅ | ✅ | ⚠️ |
-| **libei** | ⚠️ (GNOME, KDE, Sway-fork) | ✅ | ✅ | ✅ |
+| Approach | GNOME + KDE | wlroots | Clean API | No Root | Long-term |
+|---|---|---|---|---|---|
+| **libei** | ✅ (only path for Mutter) | ⚠️ (Sway-fork only) | ✅ | ✅ | ✅ |
+| **wlr-protocols** | ❌ | ✅ | ✅ | ✅ | ⚠️ |
+| **uinput** | ❌ (bypasses compositor) | ✅ | ❌ | ❌ | ❌ |
 
-**Recommended strategy:** Start with **uinput** for universal coverage (CI headless environments typically run as root or have `/dev/uinput` access), then add **libei** as the preferred path for desktop sessions. With `reis` 0.6.1 providing a mature, pure-Rust libei/libeis implementation with `tokio` integration, the libei path is production-viable. The wlr-protocols can serve as a middle layer for wlroots-based compositors.
+**Decision:** Use **libei** as the primary input path and **wlr virtual-pointer/keyboard protocols** for wlroots-based compositors. No uinput.
+
+**Rationale:**
+- Mutter (GNOME) requires libei as its *only* input mechanism — there is no alternative.
+- KWin (KDE Plasma 6.1+) also supports libei — together these cover the two most common Linux desktops.
+- wlroots-based compositors (Sway, Hyprland, labwc, niri) support `zwlr_virtual_pointer_v1` / `zwp_virtual_keyboard_v1` natively — no need for a kernel-level bypass.
+- `reis` 0.6.1 provides a mature, pure-Rust libei/libeis implementation with `tokio` and `calloop` async integration.
+- uinput requires root/`input` group, bypasses the compositor entirely (no window targeting), and is a workaround rather than a real integration. The compositors we target all have proper input emulation APIs.
+
+> **Note:** §4.1 documents uinput for reference (it is the mechanism behind ydotool). We intentionally do not use it — the maintenance burden of a third input backend is not justified when libei + wlr-protocols cover all target compositors.
 
 ---
 
@@ -200,11 +209,13 @@ Use **ext-image-copy-capture-v1** as primary — it has broad adoption (KWin, Sw
 
 ## 6. Window Management
 
-This is the most challenging area. Wayland has **no equivalent to X11's EWMH** for programmatic window management.
+This is the most challenging area. Wayland has **no equivalent to X11's EWMH** for programmatic window management. PlatynUI's `WindowManager` trait (see [`crates/core/src/platform/window_manager.rs`](../crates/core/src/platform/window_manager.rs)) requires 10 methods. Under Wayland, **7 of 10** are solvable via standard protocols; the remaining 3 (`bounds`, `move_to`, `resize`) require compositor-specific IPC.
 
-### 6.1. wlr-foreign-toplevel-management-unstable-v1
+### 6.1. Available Protocols
 
-The [wlr-foreign-toplevel-management-unstable-v1](https://wayland.app/protocols/wlr-foreign-toplevel-management-unstable-v1) protocol provides limited window management.
+#### wlr-foreign-toplevel-management-unstable-v1
+
+The [wlr-foreign-toplevel-management-unstable-v1](https://wayland.app/protocols/wlr-foreign-toplevel-management-unstable-v1) protocol provides window lifecycle management.
 
 **Supported operations:**
 - `activate` — bring window to front
@@ -222,7 +233,7 @@ The [wlr-foreign-toplevel-management-unstable-v1](https://wayland.app/protocols/
 
 **Compositor support:** Sway, Hyprland, wlroots-based, Mir, cosmic-comp, niri, labwc.
 
-### 6.2. ext-foreign-toplevel-list-v1 (Read-Only)
+#### ext-foreign-toplevel-list-v1 (Read-Only)
 
 The [ext-foreign-toplevel-list-v1](https://wayland.app/protocols/ext-foreign-toplevel-list-v1) protocol provides a standardized read-only list of toplevel windows (staging since wayland-protocols 1.36, Apr 2024).
 
@@ -230,30 +241,109 @@ The [ext-foreign-toplevel-list-v1](https://wayland.app/protocols/ext-foreign-top
 - **No management operations** — list and observe only.
 - **Compositor support:** KWin, Sway (1.10+), Hyprland, cosmic-comp, niri.
 
-### 6.3. Compositor-Specific IPC
+### 6.2. Compositor-Specific IPC for Full Window Control
 
-Some compositors expose their own IPC for window management:
+No Wayland protocol exposes window bounds or allows move/resize. The only path to these capabilities is compositor-specific IPC:
 
-| Compositor | IPC | Capabilities |
-|---|---|---|
-| **Sway** | [swaymsg / i3 IPC](https://github.com/swaywm/sway/wiki) | Full: move, resize, focus, layout, scratchpad |
-| **Hyprland** | [hyprctl](https://wiki.hyprland.org/Configuring/Using-hyprctl/) | Full: move, resize, focus, workspaces |
-| **KWin** | [KWin scripting / D-Bus](https://develop.kde.org/docs/plasma/kwin/api/) | Full via D-Bus or JavaScript scripting |
-| **Mutter** | Limited D-Bus | Minimal |
+| Compositor | IPC Mechanism | bounds | move_to | resize | Rust Integration |
+|---|---|---|---|---|---|
+| **KWin** | [D-Bus `org.kde.KWin`](https://develop.kde.org/docs/plasma/kwin/api/) | ✅ | ✅ | ✅ | `zbus` (already in workspace) |
+| **Sway** | [i3 IPC](https://github.com/swaywm/sway/wiki) (Unix socket, JSON) | ✅ | ✅ | ✅ | [`swayipc`](https://crates.io/crates/swayipc) or raw socket + serde |
+| **Hyprland** | [hyprctl](https://wiki.hyprland.org/Configuring/Using-hyprctl/) (Unix socket, JSON) | ✅ | ✅ | ✅ | [`hyprland`](https://crates.io/crates/hyprland) or raw socket + serde |
+| **Mutter** | Limited D-Bus | ❌ | ❌ | ❌ | No viable API — see §6.5 |
+| **cosmic-comp** | No public IPC (yet) | ❌ | ❌ | ❌ | May add IPC in future releases |
+
+### 6.3. Implementation Strategy: Two-Layer Architecture
+
+```
+WindowManager (Wayland)
+├── Protocol Layer (standard — all compositors)
+│   ├── wlr-foreign-toplevel-management → activate, close, minimize, maximize, restore
+│   ├── ext-foreign-toplevel-list → resolve_window (title/app_id matching)
+│   └── AT-SPI PID matching → resolve_window (fallback)
+│
+└── Compositor IPC Layer (pluggable — per compositor)
+    ├── KWinIpcBackend    → bounds, move_to, resize  (D-Bus)
+    ├── SwayIpcBackend    → bounds, move_to, resize  (i3 IPC socket)
+    ├── HyprlandIpcBackend → bounds, move_to, resize  (hyprctl socket)
+    └── (none for Mutter) → bounds/move_to/resize return PlatformError::NotSupported
+```
+
+**Runtime detection:** On initialization, the `WindowManager` probes which compositor is running (via `wl_registry` globals + environment variables like `SWAYSOCK`, `HYPRLAND_INSTANCE_SIGNATURE`, or D-Bus name `org.kde.KWin`). It loads the matching IPC backend. If no IPC backend is available, `bounds`/`move_to`/`resize` return `PlatformError::NotSupported`.
+
+**Trait compatibility:** The existing `WindowManager` trait returns `Result<T, PlatformError>` for all methods. No trait changes are needed — the Wayland implementation returns `Err(PlatformError::not_supported("bounds not available on this compositor"))` when no IPC backend is loaded. The `WindowSurfacePattern` in `provider-atspi` already handles errors gracefully and propagates them to the Python/RF layer.
 
 ### 6.4. Impact on `WindowManager` Trait
 
-| Method | Feasibility | Mechanism |
-|---|---|---|
-| `resolve_window()` | ✅ | `wlr-foreign-toplevel` + AT-SPI PID matching |
-| `is_active()` | ✅ | `wlr-foreign-toplevel` state events |
-| `activate()` | ✅ | `wlr-foreign-toplevel` activate request |
-| `close()` | ✅ | `wlr-foreign-toplevel` close request |
-| `minimize()` / `restore()` | ✅ | `wlr-foreign-toplevel` set/unset minimized |
-| `maximize()` | ✅ | `wlr-foreign-toplevel` set/unset maximized |
-| `window_bounds()` | ❌ | **Not available** — must return `None` or use compositor IPC |
-| `move_to()` | ❌ | **Not available** — compositor IPC only |
-| `resize()` | ❌ | **Not available** — compositor IPC only |
+| Method | Protocol Layer | Compositor IPC Layer | Net Result |
+|---|---|---|---|
+| `resolve_window()` | ✅ `ext-foreign-toplevel-list` + AT-SPI PID | — | ✅ All compositors |
+| `is_active()` | ✅ `wlr-foreign-toplevel` state events | — | ✅ All compositors |
+| `activate()` | ✅ `wlr-foreign-toplevel` activate | — | ✅ All compositors |
+| `close()` | ✅ `wlr-foreign-toplevel` close | — | ✅ All compositors |
+| `minimize()` / `restore()` | ✅ `wlr-foreign-toplevel` set/unset | — | ✅ All compositors |
+| `maximize()` | ✅ `wlr-foreign-toplevel` set/unset | — | ✅ All compositors |
+| `bounds()` | ❌ | ✅ KWin, Sway, Hyprland | ⚠️ Not on Mutter/cosmic |
+| `move_to()` | ❌ | ✅ KWin, Sway, Hyprland | ⚠️ Not on Mutter/cosmic |
+| `resize()` | ❌ | ✅ KWin, Sway, Hyprland | ⚠️ Not on Mutter/cosmic |
+
+**Coverage:** KWin + Sway + Hyprland account for the vast majority of Wayland desktops other than GNOME. Together with Mutter (7 of 10 methods), this gives >95% of Linux desktops at least basic window management, and KDE/Sway/Hyprland users get full parity with X11.
+
+### 6.5. The Mutter Problem and `ActivationPoint`
+
+Mutter (GNOME) provides no window geometry API for external processes. This means `bounds()`, `move_to()`, and `resize()` are genuinely unsupported on GNOME Wayland. However, the impact on PlatynUI's core automation workflow is manageable:
+
+**Why `bounds()` matters for automation:**
+
+The runtime uses `ActivationPoint` (from AT-SPI `Bounds`) to calculate absolute screen coordinates for pointer clicks. The pointer subsystem (see [`crates/runtime/src/pointer.rs`](../crates/runtime/src/pointer.rs)) supports three `PointOrigin` modes:
+- `Desktop` — absolute screen coordinates
+- `Bounds(Rect)` — relative to an element's bounding rectangle
+- `Absolute(Point)` — offset from an anchor point
+
+Under X11, AT-SPI `GetExtents(SCREEN)` returns screen-absolute coordinates → `PointOrigin::Desktop` works.
+Under Wayland, AT-SPI `GetExtents(SCREEN)` returns `(0, 0)` for the window origin → the element's absolute position is unknown.
+
+**Mutter workaround — focus-based pointer injection via libei:**
+
+The key insight: **we don't need to know the window's screen position to click on an element inside it.** libei injects input events through the compositor, which routes them to the focused surface. Combined with AT-SPI window-relative coordinates, this enables a focus-based automation flow:
+
+1. **`activate()`** — bring target window to front (works via `wlr-foreign-toplevel` or D-Bus on Mutter)
+2. **AT-SPI `GetExtents(WINDOW)`** — returns the element's position *relative to its own window* (this works under Wayland!)
+3. **libei absolute pointer move** — move the pointer to an absolute screen position. Since the window is focused and (typically) placed by the compositor, we can combine window-relative coordinates with either:
+   - **Heuristic:** Assume the window is centered/maximized (works for simple CI scenarios)
+   - **Screenshot correlation:** Take a screenshot of the focused window via portal, compare with AT-SPI-reported element positions to derive the window's screen offset
+   - **Accept reduced precision:** For tests where exact positioning isn't critical, the runtime logs a warning and clicks relative to the monitor center
+
+4. **`move_to()` / `resize()`** — return `PlatformError::NotSupported` with clear error message
+
+**Implementation in the runtime:**
+
+The `ActivationPoint` resolution in [`crates/runtime/src/xpath.rs`](../crates/runtime/src/xpath.rs) already reads the element's `Bounds` attribute. Under Wayland, the `provider-atspi` crate would provide `Bounds` from `GetExtents(WINDOW)` instead of `GetExtents(SCREEN)`:
+
+```rust
+// In provider-atspi, when running under Wayland:
+// - Use GetExtents(WINDOW) for Bounds attribute → window-relative coords
+// - Store the coordinate type so the runtime knows it's relative
+//
+// In the runtime pointer logic:
+// - If Bounds are window-relative, use PointOrigin::Bounds with the window's
+//   screen position (from compositor IPC) or fall back to the focused
+//   window position
+```
+
+The `PointOrigin::Bounds(Rect)` already supports this pattern — the `Rect` serves as the coordinate origin. Under Wayland, this Rect would be `Rect::new(window_x, window_y, 0.0, 0.0)` (where `window_x/y` comes from compositor IPC or is `(0, 0)` as fallback on Mutter).
+
+### 6.6. Recommendation
+
+| Compositor | Window Lifecycle | bounds/move/resize | Pointer Click Strategy |
+|---|---|---|---|
+| **KWin** | `wlr-foreign-toplevel` (if available) or D-Bus | D-Bus IPC → full support | Standard: screen-absolute via IPC bounds |
+| **Sway** | `wlr-foreign-toplevel` | i3 IPC → full support | Standard: screen-absolute via IPC bounds |
+| **Hyprland** | `wlr-foreign-toplevel` | hyprctl IPC → full support | Standard: screen-absolute via IPC bounds |
+| **Mutter** | D-Bus limited (activate, close) + AT-SPI actions | ❌ not available | Focus-based: activate → window-relative AT-SPI coords + libei |
+| **cosmic-comp** | `wlr-foreign-toplevel` | ❌ (no IPC yet) | Focus-based (same as Mutter) |
+
+**Priority:** Start with KWin + Sway IPC backends (covers KDE + tiling WM users with full functionality). Mutter's focus-based approach requires no compositor IPC — it works with what's already available (AT-SPI + libei). This means even the Phase 1 MVP can support pointer clicks on GNOME.
 
 ---
 
@@ -482,7 +572,7 @@ CI testing should prioritize the compositors that PlatynUI's users actually run:
 
 | Crate | Version | Purpose | Link |
 |---|---|---|---|
-| [`evdev`](https://crates.io/crates/evdev) | | uinput virtual device creation (pure Rust) | [Docs](https://docs.rs/evdev) |
+| [`evdev`](https://crates.io/crates/evdev) | | Linux evdev input device access (pure Rust). Not used for input injection (see §4.4) but may be useful for input monitoring/diagnostics. | [Docs](https://docs.rs/evdev) |
 | [`reis`](https://crates.io/crates/reis) | 0.6.1 | Pure Rust libei/libeis protocol; EI client (`reis::ei`) + EIS server (`reis::eis`); high-level event/request API; `tokio` and `calloop` async features; 7.7K SLoC; MIT license. Repo: [`ids1024/reis`](https://github.com/ids1024/reis) | [Docs](https://docs.rs/reis) |
 | [`xkbcommon`](https://crates.io/crates/xkbcommon) | | Keymap handling (needed for virtual keyboard) | [Docs](https://docs.rs/xkbcommon) |
 
@@ -499,6 +589,47 @@ CI testing should prioritize the compositors that PlatynUI's users actually run:
 |---|---|---|
 | [`tiny-skia`](https://crates.io/crates/tiny-skia) | CPU-based 2D rendering (draw rectangles into SHM buffer) | [Docs](https://docs.rs/tiny-skia) |
 | [`softbuffer`](https://crates.io/crates/softbuffer) | Software-rendered frame buffer display | [Docs](https://docs.rs/softbuffer) |
+
+### 12.5. Diagnostic & Development Tools (CLI)
+
+These command-line tools are useful during development, debugging, and CI validation to inspect the running compositor's capabilities.
+
+| Tool | Package | Purpose |
+|---|---|---|
+| [`wayland-info`](https://gitlab.freedesktop.org/wayland/wayland-utils) | `wayland-utils` | Lists all Wayland globals (= registered protocol interfaces) with name and version. The primary tool for verifying which protocols a compositor supports. |
+| [`wlr-randr`](https://sr.ht/~emersion/wlr-randr/) | `wlr-randr` | Monitor configuration (resolution, position, scale, transform) on wlroots-based compositors. Similar to `xrandr` for X11. |
+| [`wlrctl`](https://git.sr.ht/~brocellous/wlrctl) | `wlrctl` | Window management and input via wlr-foreign-toplevel and virtual-keyboard/pointer protocols. Useful for scripting and testing protocol interactions. |
+| [`wev`](https://git.sr.ht/~sircmpwn/wev) | `wev` | Wayland event viewer — displays all input events (keyboard, pointer, touch) received by a surface. The Wayland equivalent of X11's `xev`. |
+| [`wl-clipboard`](https://github.com/bugaevc/wl-clipboard) | `wl-clipboard` | Clipboard access (`wl-copy`, `wl-paste`) via `wl_data_device` or `ext-data-control`. |
+
+**Installation:**
+
+```bash
+# Debian / Ubuntu
+sudo apt install wayland-utils wev wl-clipboard
+
+# Fedora
+sudo dnf install wayland-utils wev wl-clipboard
+
+# Arch
+sudo pacman -S wayland-utils wev wl-clipboard
+```
+
+**Example: Checking compositor protocol support**
+
+```bash
+$ wayland-info | grep -E 'interface:.*zwlr_|interface:.*ext_|interface:.*zwp_|interface:.*ei_'
+interface: 'zwlr_virtual_pointer_manager_v1', version: 1, name: 42
+interface: 'zwp_virtual_keyboard_manager_v1', version: 1, name: 43
+interface: 'zwlr_foreign_toplevel_manager_v1', version: 3, name: 44
+interface: 'ext_image_copy_capture_manager_v1', version: 1, name: 45
+interface: 'ext_foreign_toplevel_list_v1', version: 1, name: 46
+...
+```
+
+This output directly maps to the protocols in §10 (Compositor Support Matrix). In CI, `wayland-info` can validate that the headless compositor under test actually advertises the expected protocols before running the test suite.
+
+**Programmatic equivalent:** PlatynUI's runtime performs the same protocol discovery via `wl_registry` global enumeration during compositor connection (see §6.3 and §14). The `wayland-info` output is the human-readable version of what the runtime sees.
 
 ---
 
@@ -539,18 +670,18 @@ AT-SPI provides no direct attribute indicating whether an application uses Wayla
 │  Device    │  Device    │  Provider  │  Provider  │
 ├────────────┴────────────┴────────────┴────────────┤
 │              Backend Selection Layer              │
-├─────────────┬───────────────┬─────────────────────┤
-│   uinput    │  wlr-proto    │      libei          │
-│  (evdev)    │ (wayland-cl)  │     (reis)          │
-│  [fallback] │ [wlroots]     │ [GNOME/KDE]         │
-└─────────────┴───────────────┴─────────────────────┘
+├──────────────────────────┬────────────────────────┤
+│         libei            │      wlr-proto         │
+│         (reis)           │     (wayland-cl)       │
+│   [GNOME + KDE]          │     [wlroots]          │
+└──────────────────────────┴────────────────────────┘
 ```
 
-**Runtime detection:** On `initialize()`, the crate probes the compositor for supported protocols via `wl_registry`. Based on available globals, it selects the best backend for each capability:
+**Runtime detection:** On `initialize()`, the crate probes the compositor for supported protocols via `wl_registry` and checks for EIS availability. Based on the results, it selects the best backend for each capability:
 
-1. Check for `zwlr_virtual_pointer_v1` → use wlr pointer
-2. Check for EIS socket / portal → use libei
-3. Fall back to uinput
+1. Check for EIS socket / portal → use **libei** (covers GNOME + KDE)
+2. Check for `zwlr_virtual_pointer_v1` / `zwp_virtual_keyboard_v1` → use **wlr protocols** (covers wlroots-based compositors)
+3. If neither is available → return error (compositor does not support input emulation)
 
 ### 14.2. Mediation Crate (platform-linux)
 
@@ -578,15 +709,15 @@ This would allow a single platform registration that handles both X11 and Waylan
 |---|---|---|
 | `PlatformModule` | `wayland-client` connection, protocol negotiation via `wl_registry` | S |
 | `DesktopInfoProvider` | `wl_output` enumeration | S |
-| `PointerDevice` | uinput via `evdev` crate (universal, works on all compositors) | M |
-| `KeyboardDevice` | uinput via `evdev` crate | M |
-| `PointerDevice` + `KeyboardDevice` (libei) | `reis` 0.6.1 crate integration — required for Mutter/GNOME (only input path) | L |
+| `PointerDevice` + `KeyboardDevice` (libei) | `reis` 0.6.1 crate integration — input path for Mutter + KWin | L |
+| `PointerDevice` + `KeyboardDevice` (wlr) | `zwlr_virtual_pointer_v1` + `zwp_virtual_keyboard_v1` — input path for wlroots-based compositors | M |
 | `ScreenshotProvider` (portal) | `org.freedesktop.portal.Screenshot` via `zbus` — works on Mutter | M |
-| `WindowManager` (minimal) | AT-SPI PID matching + limited D-Bus (Mutter) | M |
+| `WindowManager` (protocol layer) | `wlr-foreign-toplevel-management` + `ext-foreign-toplevel-list` + AT-SPI PID matching → activate, close, minimize, maximize, restore, resolve_window, is_active | M |
+| `WindowManager` (Mutter focus-based) | activate via D-Bus/AT-SPI + pointer clicks use window-relative AT-SPI coords + libei (no compositor IPC needed — see §6.5) | M |
 | CI setup (Mutter) | `mutter --headless --virtual-monitor 1920x1080` | S |
 | CI setup (Weston) | Existing `startwaylandsession.sh` — reference implementation baseline | S |
 
-**Rationale:** GNOME/Mutter is the most restrictive compositor but also the most common desktop. By targeting it first, we solve the hardest problems early (portal-only screenshots, libei-only input). Weston provides a reference baseline. uinput serves as universal fallback for CI environments where libei portals are unavailable.
+**Rationale:** GNOME/Mutter is the most restrictive compositor but also the most common desktop. By targeting it first with **libei**, we invest in the freedesktop.org standard from day one. `reis` 0.6.1 is mature enough for production use. libei also covers KWin (Phase 2), so no additional input backend is needed there. For wlroots-based compositors (Sway, Hyprland, labwc), the wlr virtual-pointer/keyboard protocols provide clean, compositor-level input injection without root permissions.
 
 ### Phase 2: KDE & Standard Protocols
 
@@ -597,7 +728,8 @@ This would allow a single platform registration that handles both X11 and Waylan
 | `ScreenshotProvider` (ext) | `ext-image-copy-capture-v1` — standard protocol, supported by KWin, Sway, Hyprland, niri, cosmic | M |
 | `WindowManager` (ext) | `ext-foreign-toplevel-list-v1` (standard) + `wlr-foreign-toplevel-management` (management ops) | M |
 | `HighlightProvider` | `ext-layer-shell-v1` for KWin + `wlr-layer-shell` for wlroots-based + `tiny-skia` rendering | M |
-| `WindowManager` (KWin IPC) | Window bounds/move/resize via KWin D-Bus scripting API | M |
+| `WindowManager` (KWin IPC) | Window bounds/move/resize via KWin D-Bus scripting API (see §6.2) | M |
+| `WindowManager` (Sway IPC) | Window bounds/move/resize via i3 IPC socket (see §6.2) | M |
 | CI setup (KWin) | KWin headless testing | M |
 
 ### Phase 3: Broad Coverage & Test Infrastructure
@@ -607,7 +739,7 @@ This would allow a single platform registration that handles both X11 and Waylan
 | Component | Implementation | Effort |
 |---|---|---|
 | `ScreenshotProvider` (legacy) | `wlr-screencopy` fallback for older wlroots (<0.19) | S |
-| `WindowManager` (compositor IPC) | Sway i3-IPC, Hyprland hyprctl for bounds/move/resize | M |
+| `WindowManager` (compositor IPC) | Hyprland hyprctl for bounds/move/resize (see §6.2) | S |
 | Platform mediation crate | `platform-linux` routing X11/Wayland per-application (§13) | L |
 | Custom test compositor | Smithay-based, all required protocols, test-control IPC (§11.7) | L |
 | CI matrix | Sway headless (protocol validation), labwc (lightweight) | S |
@@ -618,15 +750,15 @@ This would allow a single platform registration that handles both X11 and Waylan
 
 ## 16. Open Questions
 
-1. **Window bounds under Wayland:** Accept `None` from `WindowManager::window_bounds()` or implement compositor-specific IPC backends? Currently leaning toward compositor IPC (KWin D-Bus, Sway i3-IPC, Hyprland hyprctl) as opt-in backends, with `None` as the default. A custom test compositor (§11.7) could solve this for CI.
-2. **reis API stability:** `reis` 0.6.1 is the 8th release with significant API changes between versions. Before integrating, verify the 0.6.x API is stable enough for production use. This is now **Phase 1 critical** since Mutter requires libei as the only input path.
-3. **uinput permissions in CI:** Docker containers and GitHub Actions runners — is `/dev/uinput` typically accessible? Needs testing with actual CI runners. uinput is the universal fallback when libei portals are unavailable.
-4. **Highlight without coordinates:** If we can't know window screen position, should highlights be rendered as image overlays in screenshots rather than live compositor overlays? Compositor IPC can provide window geometry for KWin/Sway/Hyprland, leaving only Mutter without a solution.
-5. **Mutter headless + portals:** Does `mutter --headless` properly support xdg-desktop-portal for screenshots and libei for input injection? Test tokens may be needed to bypass consent dialogs in CI. Needs validation.
-6. **Mixed session routing:** How should the runtime decide per-application whether to use X11 or Wayland platform when XWayland is available? See §13 for the proposed detection algorithm.
-7. **Mutter protocol gap:** Mutter/GNOME still does not implement `ext-image-copy-capture`, `ext-foreign-toplevel-list`, or layer-shell protocols. Portal-based fallbacks remain the only option for GNOME. Monitor whether GNOME 50+ adds any of these.
-8. **Newton project status:** The Newton Wayland-native accessibility project (§3) has had no public updates since Jun 2024. The draft Wayland accessibility protocol is not accepted into wayland-protocols. Monitor whether this project continues and whether it could eventually replace AT-SPI for Wayland-native apps.
-9. **Custom test compositor scope:** Should the custom compositor (§11.7) be a standalone binary or a library that tests can embed in-process? The latter would enable true unit-test-level protocol testing but is more complex.
+1. **Window bounds on Mutter:** The focus-based pointer strategy (§6.5) works for clicking on elements, but some scenarios may need true screen-absolute element bounds (e.g., highlight overlays, screenshot cropping, drag-and-drop across windows). Possible approaches: (a) screenshot correlation — take portal screenshot, pattern-match to derive window position, (b) accept degraded functionality on GNOME, (c) monitor whether GNOME 50+ adds an `ext-foreign-toplevel` extension with geometry. Currently accepting (b) with (a) as a future enhancement.
+2. **reis API stability:** `reis` 0.6.1 is the 8th release with significant API changes between versions. As the sole libei backend, API stability is critical. Pin to 0.6.x and evaluate the API surface used by PlatynUI. Consider wrapping `reis` behind a thin internal abstraction layer to isolate against future breaking changes.
+3. **Mutter headless + libei + portals in CI:** Does `mutter --headless` provide a functional EIS endpoint for libei-based input injection and xdg-desktop-portal for screenshots — both without user consent dialogs? Test tokens via `org.freedesktop.portal.RemoteDesktop` may be needed. Needs validation with actual CI runners.
+4. **Highlight without coordinates:** If we can't know window screen position (Mutter, cosmic), should highlights be rendered as image overlays in screenshots rather than live compositor overlays? Compositor IPC provides window geometry for KWin/Sway/Hyprland. On Mutter, software overlay on a captured screenshot or no highlight are the options.
+5. **Mixed session routing:** How should the runtime decide per-application whether to use X11 or Wayland platform when XWayland is available? See §13 for the proposed detection algorithm.
+6. **Mutter protocol gap:** Mutter/GNOME still does not implement `ext-image-copy-capture`, `ext-foreign-toplevel-list`, or layer-shell protocols. Portal-based fallbacks remain the only option for GNOME. Monitor whether GNOME 50+ adds any of these.
+7. **Newton project status:** The Newton Wayland-native accessibility project (§3) has had no public updates since Jun 2024. The draft Wayland accessibility protocol is not accepted into wayland-protocols. Monitor whether this project continues and whether it could eventually replace AT-SPI for Wayland-native apps.
+8. **Custom test compositor scope:** Should the custom compositor (§11.7) be a standalone binary or a library that tests can embed in-process? The latter would enable true unit-test-level protocol testing but is more complex.
+9. **AT-SPI `GetExtents` coordinate mode switching:** The `provider-atspi` crate currently uses `GetExtents(SCREEN)`. Under Wayland, it should use `GetExtents(WINDOW)` and combine with window position from compositor IPC (or `(0, 0)` fallback). This requires detecting Wayland vs X11 inside the provider — see §13 for the proposed detection algorithm.
 
 ---
 
@@ -656,6 +788,10 @@ This would allow a single platform registration that handles both X11 and Waylan
 - ["Wayland: An Accessibility Nightmare" (reddit discussion, May 2025)](https://www.reddit.com/r/linux/comments/1kkuafo/wayland_an_accessibility_nightmare/)
 
 ### Tools & Libraries
+- [wayland-info / wayland-utils (protocol inspector)](https://gitlab.freedesktop.org/wayland/wayland-utils)
+- [wev (Wayland event viewer)](https://git.sr.ht/~sircmpwn/wev)
+- [wlr-randr (monitor configuration)](https://sr.ht/~emersion/wlr-randr/)
+- [wl-clipboard (clipboard access)](https://github.com/bugaevc/wl-clipboard)
 - [ydotool (uinput-based input automation)](https://github.com/ReimuNotMoe/ydotool)
 - [wtype (Wayland keyboard input)](https://github.com/atx/wtype)
 - [wlrctl (wlroots window management)](https://git.sr.ht/~brocellous/wlrctl)

@@ -15,11 +15,11 @@ Library    PlatynUI.BareMetal
 ...    after_text_delay_ms=0
 
 &{POINTER_PROFILE}
-...    speed_factor=0.10
+#...    speed_factor=0.10
 ...    acceleration_profile=EASE_OUT
 ...    motion=JITTER
 ...    jitter_amplitude=100.0
-...    max_move_duration_ms=5000
+#...    max_move_duration_ms=5000
 
 
 *** Test Cases ***

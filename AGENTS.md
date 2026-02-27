@@ -60,6 +60,7 @@ Generated artefacts such as `target/`, `.venv/`, `.vscode/`, build caches, and w
 - Rust: Place integration tests under `tests/` in each crate (e.g., `crates/xpath/tests`); use `rstest` for fixtures and parameterization. Name files `test_<feature>.rs`. Extend coverage when changing parsers/evaluators or runtime APIs.
 - CLI: Keep parsing and command behavior covered (see `crates/cli/src/lib.rs` and command modules). Use the `mock-provider` feature to exercise input stacks deterministically.
 - Mock Providers: Do NOT auto-register in inventory. Use factory directly in Rust tests (`MOCK_PROVIDER_FACTORY.create()`) or explicit handles in Python (`Runtime.new_with_providers([MOCK_PROVIDER])`).
+- **Mock-Provider Feature (`mock-provider`):** The mock provider is gated behind a Cargo feature. Rust `[dev-dependencies]` include it unconditionally, so `cargo test` / `cargo nextest run` works without flags. For Python/RF mock tests, the native package must be built with the feature enabled: `uv run maturin develop -m packages/native/Cargo.toml --features mock-provider`. Without it, `Runtime.new_with_mock()` raises `ProviderError`. The BareMetal RF library uses `use_mock=${true}` which calls `new_with_mock()` internally.
 - Python: `packages/native/tests` uses `pytest`. For Robot Framework, start acceptance-style suites near `src/PlatynUI` and document temporary run steps in PRs until a formal runner lands.
 
 ## Commit & Pull Request Guidelines

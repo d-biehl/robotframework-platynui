@@ -93,6 +93,7 @@ Python: Keep 3.10+; minimal dependencies. Use ruff to satisfy formatting/lint; a
 
 ## 8. Testing Notes
 Rust suite: ~1700 tests across all crates, runs in <15s. Prefer small, deterministic Rust tests. If adding Python tests: use `pytest` (already in dev deps), run via `uv run pytest`.
+Mock-Provider Feature: The mock provider (`platynui-provider-mock` + `platynui-platform-mock`) is gated behind the Cargo feature `mock-provider`. Rust `[dev-dependencies]` include mock crates unconditionally — `cargo test` works without extra flags. For Python/RF mock tests, the native package MUST be built with the feature: `uv run maturin develop -m packages/native/Cargo.toml --features mock-provider`. Without it, `Runtime.new_with_mock()` (used by `PlatynUI.BareMetal` with `use_mock=True`) raises `ProviderError`.
 
 ## 9. Dependency & Version Management
 Python: Modify `pyproject.toml`, then ALWAYS `uv sync` (committing both the modified `pyproject.toml` and updated `uv.lock`).
