@@ -38,7 +38,8 @@ jobs:
             libasound2-dev \
             pkg-config \
             libssl-dev \
-            libudev-dev
+            libudev-dev \
+            libseat-dev
 
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
