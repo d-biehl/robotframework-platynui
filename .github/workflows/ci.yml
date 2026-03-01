@@ -37,7 +37,8 @@ jobs:
             clang \
             libasound2-dev \
             pkg-config \
-            libssl-dev
+            libssl-dev \
+            libudev-dev
 
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
