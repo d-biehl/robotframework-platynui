@@ -1,0 +1,83 @@
+[package]
+name = "platynui-wayland-compositor"
+version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Smithay-based Wayland compositor for PlatynUI integration testing"
+
+[dependencies]
+# Wayland compositor framework
+smithay = { version = "0.7", default-features = false, features = [
+    "wayland_frontend",
+    "desktop",
+    "renderer_glow",
+    "backend_winit",
+    "backend_drm",
+    "backend_gbm",
+    "backend_libinput",
+    "backend_session_libseat",
+    "backend_udev",
+    "xwayland",
+] }
+
+# Event loop
+calloop = "0.14"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "fmt",
+    "env-filter",
+] }
+
+# Compositor UI (titlebar text, buttons, future panel)
+egui = { version = "0.33", default-features = false, features = ["default_fonts"] }
+
+# egui → glow renderer (GPU-accelerated titlebar rendering)
+egui_glow = { version = "0.33", default-features = false }
+
+# Screenshot encoding
+png = "0.18"
+
+# Configuration file
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+# Signal handling
+signal-hook = "0.3"
+
+# Cannot inherit workspace lints because the workspace uses unsafe_code = "forbid"
+# and this crate needs unsafe for std::env::set_var (Edition 2024).
+# All workspace lint settings are replicated here with unsafe_code downgraded to "deny".
+[lints.rust]
+unsafe_code = "deny"
+unused_must_use = "deny"
+unused_crate_dependencies = "warn"
+missing_docs = "allow"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+cargo_common_metadata = "allow"
+multiple_crate_versions = "allow"
+nursery = { level = "allow", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+disallowed_types = "deny"
+non_std_lazy_statics = "deny"
+
+[lib]
+name = "platynui_wayland_compositor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "platynui-wayland-compositor"
+path = "src/main.rs"

@@ -1,0 +1,27 @@
+[package]
+name = "platynui-wayland-compositor-ctl"
+version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "CLI tool for controlling the PlatynUI Wayland compositor"
+readme = "README.md"
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# JSON parsing (minimal — we only need to pretty-print responses)
+serde_json = "1"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "platynui-wayland-compositor-ctl"
+path = "src/main.rs"

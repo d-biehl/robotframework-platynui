@@ -1,0 +1,24 @@
+[package]
+name = "platynui-test-app-egui"
+version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "egui test application for PlatynUI integration and functional testing"
+
+[dependencies]
+eframe = "0.33"
+clap = { version = "4", features = ["derive"] }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "fmt",
+    "env-filter",
+] }
+
+[lints]
+workspace = true
