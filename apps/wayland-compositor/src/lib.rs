@@ -38,6 +38,7 @@ pub mod child;
 mod client;
 pub mod config;
 mod control;
+mod cursor;
 pub mod decorations;
 mod environment;
 mod focus;
@@ -74,11 +75,11 @@ pub struct CompositorArgs {
     pub backend: Backend,
 
     /// Width of the virtual output in pixels.
-    #[arg(long, default_value_t = 1280)]
+    #[arg(long, default_value_t = 1920)]
     pub width: u32,
 
     /// Height of the virtual output in pixels.
-    #[arg(long, default_value_t = 800)]
+    #[arg(long, default_value_t = 1080)]
     pub height: u32,
 
     /// Wayland socket name (auto-selected if not specified).
@@ -153,6 +154,19 @@ pub struct CompositorArgs {
     #[arg(long, default_value = "horizontal")]
     pub output_layout: multi_output::OutputLayout,
 
+    /// Scale factor for virtual outputs (e.g. `1.0`, `1.5`, `2.0`).
+    /// Applied to all outputs created via `--outputs`. For per-output
+    /// scale, use the TOML configuration file.
+    #[arg(long, default_value_t = 1.0)]
+    pub scale: f64,
+
+    /// Scale factor for the winit preview window (e.g. `0.5` to halve the
+    /// window size). Only affects the winit backend window dimensions and
+    /// rendering resolution — Wayland clients still see the real output
+    /// scale/mode. Useful to fit large multi-output setups on screen.
+    #[arg(long, default_value_t = 1.0)]
+    pub window_scale: f64,
+
     /// Restrict privileged protocol access to a whitelist of app IDs.
     /// Comma-separated list (e.g. `org.kde.kate,org.gnome.Calculator`).
     /// When not set, all clients have full access (test compositor default).
@@ -163,6 +177,15 @@ pub struct CompositorArgs {
     /// Essential for CI pipelines: compositor starts → app starts → tests run → compositor exits.
     #[arg(long)]
     pub exit_with_child: bool,
+
+    /// Render the mouse cursor as a software element in the frame buffer.
+    ///
+    /// By default (winit backend), the host window cursor is used and is not
+    /// part of the rendered frame. With `--software-cursor`, the cursor is
+    /// composited into every frame — making it visible in screencopy tools
+    /// (wayvnc, grim) and screenshots.
+    #[arg(long)]
+    pub software_cursor: bool,
 
     /// Child program and arguments to launch after compositor readiness.
     /// Specify after `--` (e.g. `-- gtk4-demo` or `-- python -m pytest tests/`).

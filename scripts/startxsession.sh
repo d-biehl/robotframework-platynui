@@ -32,7 +32,7 @@ if [ "$IS_WSL" -eq 1 ]; then
   DISPLAY_NUM=99
   echo "WSL detected — using fixed display :$DISPLAY_NUM"
 
-  Xephyr ":$DISPLAY_NUM" -ac -screen 1920x1080 -noreset -sw-cursor -dpi 96 &
+  Xephyr ":$DISPLAY_NUM" -ac -screen 1920x1080 -noreset -sw-cursor -dpi 480 &
   XEPHYR_PID=$!
   sleep 1
 
@@ -95,17 +95,37 @@ dbus-run-session -- bash -c '
   echo "Session XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
   echo "Session DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
 
+  # ---- AT-SPI accessibility bus setup ----
+  #
+  # The at-spi-bus-launcher creates a private dbus-daemon for accessibility.
+  # Its auto-activation service file uses --use-gnome-session which fails in
+  # our isolated session.  We override it with a local service file.
+
+  # Override the Registry service file to remove --use-gnome-session
+  A11Y_SERVICES_DIR="$XDG_RUNTIME_DIR/at-spi-services/dbus-1/accessibility-services"
+  mkdir -p "$A11Y_SERVICES_DIR"
+  cat > "$A11Y_SERVICES_DIR/org.a11y.atspi.Registry.service" <<A11Y_EOF
+[D-BUS Service]
+Name=org.a11y.atspi.Registry
+Exec=/usr/lib/at-spi2-registryd
+A11Y_EOF
+
+  # Prepend our override directory to XDG_DATA_DIRS so the AT-SPI bus daemon
+  # finds our service file before the system one.
+  export XDG_DATA_DIRS="$XDG_RUNTIME_DIR/at-spi-services:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
   # Start AT-SPI bus launcher with --launch-immediately to bypass the
   # gsettings/IsEnabled check (no GNOME settings daemon in this session)
   # and --a11y=1 to force accessibility on.
   /usr/lib/at-spi-bus-launcher --launch-immediately --a11y=1 &
+  AT_SPI_LAUNCHER_PID=$!
 
   # Wait until org.a11y.Bus is available on the session bus
   ATSPI_READY=0
   for i in $(seq 1 50); do
     if dbus-send --session --dest=org.a11y.Bus --print-reply \
          /org/a11y/bus org.a11y.Bus.GetAddress >/dev/null 2>&1; then
-      echo "AT-SPI bus ready after $((i * 100))ms"
+      echo "AT-SPI bus launcher ready after $((i * 100))ms"
       ATSPI_READY=1
       break
     fi
@@ -113,7 +133,11 @@ dbus-run-session -- bash -c '
   done
 
   if [ "$ATSPI_READY" -eq 0 ]; then
-    echo "WARNING: AT-SPI bus did not become ready within 5s" >&2
+    echo "WARNING: AT-SPI bus launcher did not become ready within 5s" >&2
+    echo "         at-spi-bus-launcher PID $AT_SPI_LAUNCHER_PID" >&2
+    if ! kill -0 "$AT_SPI_LAUNCHER_PID" 2>/dev/null; then
+      echo "         Process is no longer running!" >&2
+    fi
   fi
 
   # Extract the AT-SPI accessibility bus address
@@ -123,13 +147,32 @@ dbus-run-session -- bash -c '
 
   if [ -n "$AT_SPI_ADDR" ]; then
     echo "AT-SPI accessibility bus at: $AT_SPI_ADDR"
+    export AT_SPI_BUS_ADDRESS="$AT_SPI_ADDR"
 
     # Start the registry daemon on the AT-SPI accessibility bus.
-    # The inline env var sets DBUS_SESSION_BUS_ADDRESS only for registryd
-    # without clobbering the session bus for the rest of the script.
     DBUS_SESSION_BUS_ADDRESS="$AT_SPI_ADDR" /usr/lib/at-spi2-registryd &
-    sleep 0.2
-    echo "AT-SPI registryd started"
+    REGISTRYD_PID=$!
+
+    # Wait until org.a11y.atspi.Registry is actually available on the AT-SPI bus.
+    REGISTRY_READY=0
+    for i in $(seq 1 50); do
+      if DBUS_SESSION_BUS_ADDRESS="$AT_SPI_ADDR" \
+         dbus-send --session --dest=org.a11y.atspi.Registry --print-reply \
+           /org/a11y/atspi/accessible/root org.freedesktop.DBus.Peer.Ping \
+           >/dev/null 2>&1; then
+        echo "AT-SPI registryd ready after $((i * 100))ms"
+        REGISTRY_READY=1
+        break
+      fi
+      sleep 0.1
+    done
+
+    if [ "$REGISTRY_READY" -eq 0 ]; then
+      echo "WARNING: AT-SPI registryd did not become ready within 5s" >&2
+      if ! kill -0 "$REGISTRYD_PID" 2>/dev/null; then
+        echo "         registryd (PID $REGISTRYD_PID) is no longer running!" >&2
+      fi
+    fi
   else
     echo "WARNING: AT-SPI bus not available -- accessibility will not work" >&2
   fi

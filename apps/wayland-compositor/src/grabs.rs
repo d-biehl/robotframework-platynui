@@ -15,7 +15,92 @@ use smithay::{
     utils::{Logical, Point, Size},
 };
 
-use crate::{decorations::Focus, state::State};
+use crate::{decorations::Focus, input::BTN_LEFT, state::State};
+
+/// Minimum window width during interactive resize (logical pixels).
+const MIN_WINDOW_WIDTH: i32 = 100;
+/// Minimum window height during interactive resize (logical pixels).
+const MIN_WINDOW_HEIGHT: i32 = 50;
+
+/// Implement the gesture pass-through methods of [`PointerGrab`] for a grab type.
+///
+/// All gesture events are simply forwarded to the underlying pointer handle,
+/// which is the correct behaviour for grabs that only care about motion/button.
+macro_rules! impl_grab_gesture_passthrough {
+    () => {
+        fn gesture_swipe_begin(
+            &mut self,
+            data: &mut State,
+            handle: &mut PointerInnerHandle<'_, State>,
+            event: &GestureSwipeBeginEvent,
+        ) {
+            handle.gesture_swipe_begin(data, event);
+        }
+
+        fn gesture_swipe_update(
+            &mut self,
+            data: &mut State,
+            handle: &mut PointerInnerHandle<'_, State>,
+            event: &GestureSwipeUpdateEvent,
+        ) {
+            handle.gesture_swipe_update(data, event);
+        }
+
+        fn gesture_swipe_end(
+            &mut self,
+            data: &mut State,
+            handle: &mut PointerInnerHandle<'_, State>,
+            event: &GestureSwipeEndEvent,
+        ) {
+            handle.gesture_swipe_end(data, event);
+        }
+
+        fn gesture_pinch_begin(
+            &mut self,
+            data: &mut State,
+            handle: &mut PointerInnerHandle<'_, State>,
+            event: &GesturePinchBeginEvent,
+        ) {
+            handle.gesture_pinch_begin(data, event);
+        }
+
+        fn gesture_pinch_update(
+            &mut self,
+            data: &mut State,
+            handle: &mut PointerInnerHandle<'_, State>,
+            event: &GesturePinchUpdateEvent,
+        ) {
+            handle.gesture_pinch_update(data, event);
+        }
+
+        fn gesture_pinch_end(
+            &mut self,
+            data: &mut State,
+            handle: &mut PointerInnerHandle<'_, State>,
+            event: &GesturePinchEndEvent,
+        ) {
+            handle.gesture_pinch_end(data, event);
+        }
+
+        fn gesture_hold_begin(
+            &mut self,
+            data: &mut State,
+            handle: &mut PointerInnerHandle<'_, State>,
+            event: &GestureHoldBeginEvent,
+        ) {
+            handle.gesture_hold_begin(data, event);
+        }
+
+        fn gesture_hold_end(
+            &mut self,
+            data: &mut State,
+            handle: &mut PointerInnerHandle<'_, State>,
+            event: &GestureHoldEndEvent,
+        ) {
+            handle.gesture_hold_end(data, event);
+        }
+    };
+}
 
 /// Compute the Y coordinate of the restored window so that the cursor stays
 /// inside the titlebar.
@@ -127,8 +212,12 @@ impl PointerGrab<State> for MoveSurfaceGrab {
                     data.pre_maximize_positions.remove(idx);
                 }
 
-                let _ = x11.set_maximized(false);
-                let _ = x11.configure(None);
+                if let Err(err) = x11.set_maximized(false) {
+                    tracing::warn!(%err, "failed to unmaximize X11 window during drag");
+                }
+                if let Err(err) = x11.configure(None) {
+                    tracing::warn!(%err, "failed to configure X11 window during drag");
+                }
 
                 let restored_width = f64::from((max_state.width / 2).max(1));
                 let new_x = (pointer_x - restored_width * ratio) as i32;
@@ -149,8 +238,32 @@ impl PointerGrab<State> for MoveSurfaceGrab {
         }
 
         let delta = event.location - self.start_data.location;
-        let new_location = self.initial_window_location + Point::from((delta.x as i32, delta.y as i32));
-        data.space.map_element(self.window.clone(), new_location, true);
+        let prev_location = self.start_data.location;
+
+        // Always update the grab anchor to the current pointer position so
+        // that the next frame's delta is just the frame-to-frame motion.
+        // This converts the grab from "absolute" (initial + total_delta)
+        // to "incremental" (position += frame_delta) which is mathematically
+        // equivalent for continuous motion but crucial for dead-zone handling.
+        self.start_data = GrabStartData {
+            focus: self.start_data.focus.clone(),
+            button: self.start_data.button,
+            location: event.location,
+        };
+
+        // Only move the window when the pointer is on a valid output AND
+        // was on a valid output in the previous frame.  This prevents:
+        // - Dragging windows into dead zones (L-shaped multi-monitor gaps)
+        // - A sudden jump when transitioning from dead zone back to an
+        //   output (the transition frame's delta would span the entire zone)
+        let on_output = data.point_in_any_output(event.location);
+        let was_on_output = data.point_in_any_output(prev_location);
+
+        if on_output && was_on_output {
+            let new_location = self.initial_window_location + Point::from((delta.x as i32, delta.y as i32));
+            self.initial_window_location = new_location;
+            data.space.map_element(self.window.clone(), new_location, true);
+        }
     }
 
     fn relative_motion(
@@ -180,77 +293,7 @@ impl PointerGrab<State> for MoveSurfaceGrab {
         handle.frame(data);
     }
 
-    fn gesture_swipe_begin(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GestureSwipeBeginEvent,
-    ) {
-        handle.gesture_swipe_begin(data, event);
-    }
-
-    fn gesture_swipe_update(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GestureSwipeUpdateEvent,
-    ) {
-        handle.gesture_swipe_update(data, event);
-    }
-
-    fn gesture_swipe_end(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GestureSwipeEndEvent,
-    ) {
-        handle.gesture_swipe_end(data, event);
-    }
-
-    fn gesture_pinch_begin(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GesturePinchBeginEvent,
-    ) {
-        handle.gesture_pinch_begin(data, event);
-    }
-
-    fn gesture_pinch_update(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GesturePinchUpdateEvent,
-    ) {
-        handle.gesture_pinch_update(data, event);
-    }
-
-    fn gesture_pinch_end(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GesturePinchEndEvent,
-    ) {
-        handle.gesture_pinch_end(data, event);
-    }
-
-    fn gesture_hold_begin(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GestureHoldBeginEvent,
-    ) {
-        handle.gesture_hold_begin(data, event);
-    }
-
-    fn gesture_hold_end(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GestureHoldEndEvent,
-    ) {
-        handle.gesture_hold_end(data, event);
-    }
+    impl_grab_gesture_passthrough!();
 
     fn start_data(&self) -> &GrabStartData<State> {
         &self.start_data
@@ -283,7 +326,7 @@ pub fn handle_move_request(
 
     let start_data = pointer.grab_start_data().unwrap_or_else(|| GrabStartData {
         focus: None,
-        button: 0x110, // BTN_LEFT
+        button: BTN_LEFT,
         location: pointer.current_location(),
     });
 
@@ -372,19 +415,17 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
         }
 
         // Enforce minimum size
-        let min_w = 100;
-        let min_h = 50;
-        if new_w < min_w {
+        if new_w < MIN_WINDOW_WIDTH {
             if new_x != self.initial_window_location.x {
-                new_x -= min_w - new_w;
+                new_x -= MIN_WINDOW_WIDTH - new_w;
             }
-            new_w = min_w;
+            new_w = MIN_WINDOW_WIDTH;
         }
-        if new_h < min_h {
+        if new_h < MIN_WINDOW_HEIGHT {
             if new_y != self.initial_window_location.y {
-                new_y -= min_h - new_h;
+                new_y -= MIN_WINDOW_HEIGHT - new_h;
             }
-            new_h = min_h;
+            new_h = MIN_WINDOW_HEIGHT;
         }
 
         if let Some(toplevel) = self.window.toplevel() {
@@ -396,8 +437,11 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
         }
 
         // X11 windows: resize via X11 configure request
-        if let Some(x11) = self.window.x11_surface() {
-            let _ = x11.configure(smithay::utils::Rectangle::new((new_x, new_y).into(), (new_w, new_h).into()));
+        if let Some(x11) = self.window.x11_surface()
+            && let Err(err) =
+                x11.configure(smithay::utils::Rectangle::new((new_x, new_y).into(), (new_w, new_h).into()))
+        {
+            tracing::warn!(%err, "failed to configure X11 window during resize");
         }
 
         data.space.map_element(self.window.clone(), (new_x, new_y), true);
@@ -426,8 +470,10 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
             }
 
             // X11: send a final configure with the current geometry
-            if let Some(x11) = self.window.x11_surface() {
-                let _ = x11.configure(None);
+            if let Some(x11) = self.window.x11_surface()
+                && let Err(err) = x11.configure(None)
+            {
+                tracing::warn!(%err, "failed to configure X11 window after resize");
             }
 
             handle.unset_grab(self, data, event.serial, event.time, true);
@@ -442,77 +488,7 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
         handle.frame(data);
     }
 
-    fn gesture_swipe_begin(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GestureSwipeBeginEvent,
-    ) {
-        handle.gesture_swipe_begin(data, event);
-    }
-
-    fn gesture_swipe_update(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GestureSwipeUpdateEvent,
-    ) {
-        handle.gesture_swipe_update(data, event);
-    }
-
-    fn gesture_swipe_end(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GestureSwipeEndEvent,
-    ) {
-        handle.gesture_swipe_end(data, event);
-    }
-
-    fn gesture_pinch_begin(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GesturePinchBeginEvent,
-    ) {
-        handle.gesture_pinch_begin(data, event);
-    }
-
-    fn gesture_pinch_update(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GesturePinchUpdateEvent,
-    ) {
-        handle.gesture_pinch_update(data, event);
-    }
-
-    fn gesture_pinch_end(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GesturePinchEndEvent,
-    ) {
-        handle.gesture_pinch_end(data, event);
-    }
-
-    fn gesture_hold_begin(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GestureHoldBeginEvent,
-    ) {
-        handle.gesture_hold_begin(data, event);
-    }
-
-    fn gesture_hold_end(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        event: &GestureHoldEndEvent,
-    ) {
-        handle.gesture_hold_end(data, event);
-    }
+    impl_grab_gesture_passthrough!();
 
     fn start_data(&self) -> &GrabStartData<State> {
         &self.start_data
@@ -539,7 +515,7 @@ pub fn handle_resize_request(
 
     let start_data = pointer.grab_start_data().unwrap_or_else(|| GrabStartData {
         focus: None,
-        button: 0x110, // BTN_LEFT
+        button: BTN_LEFT,
         location: pointer.current_location(),
     });
 

@@ -3,7 +3,6 @@
 //! Uses `smithay::backend::winit` with a GL renderer to display client surfaces
 //! in a desktop window. Useful for interactive testing and debugging.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use smithay::{
@@ -12,15 +11,14 @@ use smithay::{
         winit::{self, WinitEvent, WinitGraphicsBackend},
     },
     reexports::{
-        calloop::{EventLoop, Interest, Mode, PostAction, generic::Generic},
+        calloop::EventLoop,
         wayland_server::Display,
         winit::{platform::pump_events::PumpStatus, window::CursorIcon},
     },
     utils::{Physical, Size},
-    wayland::socket::ListeningSocketSource,
 };
 
-use crate::{CompositorArgs, client::ClientState, config::CompositorConfig, state::State};
+use crate::{CompositorArgs, config::CompositorConfig, state::State};
 
 /// The winit backend renders via OpenGL, which has a Y-up coordinate system.
 /// Wayland uses Y-down. `Flipped180` compensates for this mismatch so that
@@ -42,12 +40,7 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     let (mut backend, mut winit_evt): (WinitGraphicsBackend<GlowRenderer>, _) = winit::init()?;
 
     // Create the listening socket
-    let listening_socket = if let Some(ref name) = args.socket_name {
-        ListeningSocketSource::with_name(name)?
-    } else {
-        ListeningSocketSource::new_auto()?
-    };
-    let socket_name = listening_socket.socket_name().to_string_lossy().into_owned();
+    let (listening_socket, socket_name) = super::create_listening_socket(args)?;
 
     // Use the CLI-specified size as the per-output resolution. For single
     // output this matches the winit window; for multi-output each virtual
@@ -55,12 +48,6 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     let output_size: Size<i32, Physical> = (args.width.cast_signed(), args.height.cast_signed()).into();
     let timeout = if args.timeout > 0 { Some(Duration::from_secs(args.timeout)) } else { None };
 
-    // Register the Display as a calloop event source so that client messages
-    // are processed *immediately* when data arrives on the fd, rather than
-    // being deferred to a manual `dispatch_clients()` once per frame.
-    // Both smithay's smallvil and cosmic-comp use this pattern — it is
-    // essential for responsive popup/grab handling because GTK4 and Qt do
-    // blocking `wl_display_roundtrip()` calls during popup creation.
     let mut state = State::new(
         display.handle(),
         event_loop.handle(),
@@ -71,10 +58,13 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
         crate::resolve_xkb_config(args),
         args.outputs,
         args.output_layout,
+        args.scale,
         crate::security::SecurityPolicy::from_args(args.restrict_protocols.as_deref()),
         config,
     );
     state.backend_name = "winit";
+    state.window_scale = args.window_scale;
+    state.software_cursor = args.software_cursor;
 
     // Pre-initialize the screenshot renderer with a shared EGL context so
     // that screenshots can access the main renderer's GL textures (titlebar
@@ -84,104 +74,63 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
         Err(err) => tracing::warn!(%err, "failed to create shared screenshot renderer, will use standalone"),
     }
 
-    event_loop.handle().insert_source(Generic::new(display, Interest::READ, Mode::Level), |_, display, state| {
-        // SAFETY: the Display is owned by calloop for its entire lifetime;
-        // we never drop it while calloop references it.  This pattern is
-        // used by smithay's own smallvil example and cosmic-comp.
-        #[allow(unsafe_code)]
-        let result = unsafe { display.get_mut().dispatch_clients(state) };
-        match result {
-            Ok(_) => Ok(PostAction::Continue),
-            Err(err) => {
-                tracing::error!(%err, "I/O error dispatching Wayland clients");
-                state.running = false;
-                Err(err)
-            }
-        }
-    })?;
+    // Register Wayland display + listening socket + set WAYLAND_DISPLAY
+    super::register_wayland_sources(&event_loop.handle(), display, listening_socket, &socket_name)?;
 
-    // Accept new client connections
-    event_loop.handle().insert_source(listening_socket, |client_stream, (), state| {
-        if let Err(err) = state.display_handle.insert_client(client_stream, Arc::new(ClientState::default())) {
-            tracing::warn!(%err, "failed to insert new client");
-        }
-    })?;
-
-    // Set WAYLAND_DISPLAY for child processes
-    crate::environment::set_wayland_display(&socket_name);
-
-    // Register signal handlers
-    let shutdown = crate::signals::ShutdownFlag::register()?;
-
-    // Register watchdog timer if requested
-    if let Some(duration) = timeout {
-        crate::signals::register_watchdog(&event_loop.handle(), duration)?;
-    }
-
-    // Start XWayland if requested — readiness notification is deferred until XWayland is ready
-    let xwayland_requested = args.xwayland;
-
-    if args.xwayland {
-        // Store readiness parameters — they will be used when XWayland signals ready
-        state.print_env = args.print_env;
-        state.ready_fd = args.ready_fd;
-        state.exit_with_child = args.exit_with_child;
-        state.child_command.clone_from(&args.child_command);
-        state.xwayland_shell_state =
-            Some(smithay::wayland::xwayland_shell::XWaylandShellState::new::<State>(&state.display_handle));
-        state.start_xwayland();
-    }
-
-    // Set up test-control IPC socket (enabled by default, before readiness
-    // notification so PLATYNUI_CONTROL_SOCKET is available for --print-env
-    // and child processes)
-    if !args.no_control_socket {
-        match crate::control::setup_control_socket(&event_loop.handle(), &socket_name) {
-            Ok(control_path) => crate::environment::set_control_socket_env(&control_path),
-            Err(err) => tracing::warn!(%err, "failed to set up control socket"),
-        }
-    }
-
-    // Notify readiness and spawn child immediately if XWayland is not requested
-    if !xwayland_requested {
-        crate::ready::notify_ready(&socket_name, args.ready_fd, args.print_env);
-        state.exit_with_child = args.exit_with_child;
-        state.child_command.clone_from(&args.child_command);
-        state.spawn_child_if_requested();
-    }
+    // Register signal handlers, watchdog, XWayland, control socket, readiness
+    let shutdown = super::setup_services(&event_loop.handle(), &mut state, args, timeout)?;
 
     // Use a static damage tracker with Flipped180 to compensate for GL's
     // inverted Y-axis. We keep the output itself at Transform::Normal so
     // clients see the correct orientation.
-    // With multi-output, the tracker covers the entire combined output area
+    // With multi-output, the tracker covers the entire combined physical area
     // so windows on any output are rendered correctly.
-    let combined_geo = state.combined_output_geometry();
-    let tracker_size: Size<i32, Physical> = (combined_geo.size.w, combined_geo.size.h).into();
+    //
+    // When --window-scale is active, both the winit window and the rendering
+    // are scaled down proportionally.  Wayland clients still see the real
+    // output scale/mode.
+    let tracker_size = state.render_size();
 
-    // Resize the winit window to the combined output area so all virtual
-    // monitors are visible when --outputs > 1.
-    if combined_geo.size.w != output_size.w || combined_geo.size.h != output_size.h {
+    // Resize the winit window to the render area so all virtual
+    // monitors are visible when --outputs > 1 or --window-scale is set.
+    if tracker_size.w != output_size.w || tracker_size.h != output_size.h {
         use smithay::reexports::winit::dpi::PhysicalSize;
-        let _ = backend.window().request_inner_size(PhysicalSize::new(
-            combined_geo.size.w.unsigned_abs(),
-            combined_geo.size.h.unsigned_abs(),
-        ));
+        let _ = backend
+            .window()
+            .request_inner_size(PhysicalSize::new(tracker_size.w.unsigned_abs(), tracker_size.h.unsigned_abs()));
         tracing::info!(
-            width = combined_geo.size.w,
-            height = combined_geo.size.h,
+            width = tracker_size.w,
+            height = tracker_size.h,
+            window_scale = state.window_scale,
             outputs = state.outputs.len(),
-            "resized winit window for multi-output",
+            "resized winit window for multi-output/window-scale",
         );
     }
 
-    let mut damage_tracker = OutputDamageTracker::new(tracker_size, 1.0, WINIT_RENDER_TRANSFORM);
+    let render_scale = state.max_output_scale() * state.window_scale;
+    let mut damage_tracker = OutputDamageTracker::new(tracker_size, render_scale, WINIT_RENDER_TRANSFORM);
 
     tracing::info!(backend = "winit", socket = %socket_name, "event loop starting");
 
-    // Main event loop
     while state.running && !shutdown.is_set() {
-        // Collect winit events without borrowing state in the closure
+        // Dispatch calloop sources FIRST: process pending client messages,
+        // accept new connections, and fire timers/watchdog.  This ensures
+        // clients get prompt responses even when render_frame() blocks on
+        // GPU vsync.  Without this, roundtrip latency can grow to seconds
+        // because the renderer's eglSwapBuffers delays all client dispatch.
+        event_loop.dispatch(Some(Duration::from_millis(1)), &mut state)?;
+        state.space.refresh();
+        state.popup_manager.cleanup();
+
+        // Flush responses from the dispatch above so clients (especially
+        // GTK-based ones like waybar that do blocking roundtrips during
+        // init) don't stall waiting for our reply.
+        if let Err(err) = state.display_handle.flush_clients() {
+            tracing::warn!(%err, "failed to flush Wayland clients (pre-render)");
+        }
+
         let mut close_requested = false;
+        let mut focus_lost = false;
         let mut input_events = Vec::new();
         let mut new_size: Option<Size<i32, Physical>> = None;
 
@@ -189,7 +138,12 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
             WinitEvent::Resized { size, .. } => {
                 new_size = Some(size);
             }
-            WinitEvent::Focus(_) | WinitEvent::Redraw => {}
+            WinitEvent::Focus(focused) => {
+                if !focused {
+                    focus_lost = true;
+                }
+            }
+            WinitEvent::Redraw => {}
             WinitEvent::Input(input) => {
                 input_events.push(input);
             }
@@ -203,19 +157,69 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
             break;
         }
 
-        // Process collected input events
+        // When the host window loses focus, release any keys that are still
+        // pressed.  The host WM (e.g. GNOME) intercepts combos like Alt+Tab
+        // and swallows the release events.  Releasing immediately ensures
+        // Wayland clients see clean modifier state right away.
+        if focus_lost {
+            crate::input::release_all_pressed_inputs(&mut state);
+        }
+
         for input in input_events {
             crate::input::process_input_event(&mut state, input);
         }
 
-        // Handle output resize
         if let Some(size) = new_size {
-            let mode = smithay::output::Mode { size, refresh: 60_000 };
-            state.output.change_current_state(Some(mode), None, None, None);
-            // Recalculate damage tracker for the (possibly multi-output) combined area.
-            let combined = state.combined_output_geometry();
-            let tracker_size: Size<i32, Physical> = (combined.size.w, combined.size.h).into();
-            damage_tracker = OutputDamageTracker::new(tracker_size, 1.0, WINIT_RENDER_TRANSFORM);
+            if state.outputs.len() > 1 {
+                // Multi-output: resize the monitors on the right/bottom edges
+                // so the combined layout fills the new window exactly.  This
+                // keeps the pointer mapping consistent (logical layout always
+                // spans the full window).
+                state.resize_edge_outputs(size);
+                state.reconfigure_windows_for_outputs();
+            } else {
+                // Single output: resize changes the virtual monitor resolution.
+                // Derive the output mode from the window size, inverting
+                // window_scale so that render_size() == window_size.
+                let ws = state.window_scale.max(f64::EPSILON);
+                #[allow(clippy::cast_possible_truncation)]
+                let mode_size: Size<i32, Physical> =
+                    ((f64::from(size.w) / ws).round() as i32, (f64::from(size.h) / ws).round() as i32).into();
+                let mode = smithay::output::Mode { size: mode_size, refresh: crate::state::DEFAULT_REFRESH_MHTZ };
+                state.output.change_current_state(Some(mode), None, None, None);
+            }
+            let tracker_size = state.render_size();
+            let render_scale = state.max_output_scale() * state.window_scale;
+            damage_tracker = OutputDamageTracker::new(tracker_size, render_scale, WINIT_RENDER_TRANSFORM);
+        }
+
+        // Handle output configuration changes from wlr-output-management
+        // (e.g. wlr-randr --scale 2). Rebuild the damage tracker and
+        // reconfigure maximized/fullscreen windows for the new viewport.
+        if state.output_config_changed {
+            state.output_config_changed = false;
+
+            // Notify output management clients (e.g. kanshi) about the change.
+            crate::handlers::output_management::notify_output_config_changed(&mut state);
+
+            state.reconfigure_windows_for_outputs();
+
+            let new_render = state.render_size();
+            {
+                use smithay::reexports::winit::dpi::PhysicalSize;
+                let _ = backend
+                    .window()
+                    .request_inner_size(PhysicalSize::new(new_render.w.unsigned_abs(), new_render.h.unsigned_abs()));
+            }
+            let new_scale = state.max_output_scale() * state.window_scale;
+            damage_tracker = OutputDamageTracker::new(new_render, new_scale, WINIT_RENDER_TRANSFORM);
+
+            tracing::debug!(
+                w = new_render.w,
+                h = new_render.h,
+                scale = new_scale,
+                "rebuilt damage tracker after output configuration change",
+            );
         }
 
         // Always render so clients receive frame callbacks.  Without
@@ -223,24 +227,10 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
         // won't update their display and input appears to be broken.
         render_frame(&mut backend, &mut damage_tracker, &mut state);
 
-        // Dispatch calloop sources: the Display source reads client messages
-        // and calls `dispatch_clients()` when data arrives; the socket
-        // listener accepts new connections; timers/watchdog fire.
-        event_loop.dispatch(Some(Duration::from_millis(1)), &mut state)?;
-
-        // Refresh the space *before* flushing so that `wl_surface.enter`
-        // events (sent by `output_update` inside `Window::refresh`) are
-        // included in the same flush as configure / sync-callback events.
-        // This is critical because GTK4 needs the output enter to determine
-        // the scale factor before rendering a popup surface.
-        state.space.refresh();
-        state.popup_manager.cleanup();
-
-        // Flush all queued events to clients.  This sends protocol events
-        // (configure, frame callbacks, input events) that were queued during
-        // this iteration.
+        // Final flush after rendering: sends frame callbacks and any
+        // events generated during the render pass.
         if let Err(err) = state.display_handle.flush_clients() {
-            tracing::warn!(%err, "failed to flush Wayland clients");
+            tracing::warn!(%err, "failed to flush Wayland clients (post-render)");
         }
     }
 
@@ -276,9 +266,15 @@ fn render_frame(
         //
         // Uses the GlowRenderer path: titlebars are GPU-resident
         // TextureRenderElements (no pixel readback).
-        let render_elements = crate::render::collect_render_elements(renderer, state, &output);
+        let render_elements = crate::render::collect_render_elements(renderer, state, &output, state.software_cursor);
 
-        match damage_tracker.render_output(renderer, &mut framebuffer, 0, &render_elements, [0.1, 0.1, 0.1, 1.0]) {
+        match damage_tracker.render_output(
+            renderer,
+            &mut framebuffer,
+            0,
+            &render_elements,
+            crate::state::BACKGROUND_COLOR,
+        ) {
             Ok(result) => result.damage.cloned(),
             Err(err) => {
                 tracing::warn!(%err, "render_output failed");
@@ -295,8 +291,16 @@ fn render_frame(
     // Determine effective cursor: compositor overrides (SSD resize/move) take
     // priority, then the client-requested cursor (via wp-cursor-shape or
     // wl_pointer.set_cursor), then default.
+    //
+    // When software_cursor is enabled, the cursor is composited into the
+    // frame buffer (by collect_render_elements), so we always hide the host
+    // cursor to avoid a double-cursor effect.  This is necessary for
+    // screencopy/VNC scenarios where the host cursor is invisible.
     let compositor_cursor = state.compositor_cursor_shape;
-    if compositor_cursor == crate::decorations::CursorShape::Default {
+    if state.software_cursor {
+        // All cursor shapes are rendered as software elements — hide host cursor.
+        backend.window().set_cursor_visible(false);
+    } else if compositor_cursor == crate::decorations::CursorShape::Default {
         // Client-requested cursor (app hover states: text beam, pointer hand, etc.)
         use smithay::input::pointer::CursorImageStatus;
         match &state.cursor_status {
@@ -332,15 +336,5 @@ fn render_frame(
     }
 
     // Send frame callbacks to clients — use the output each window is on.
-    let now = state.frame_clock_now();
-    for window in state.space.elements() {
-        let win_output = state
-            .output_at_point({
-                let loc = state.space.element_location(window).unwrap_or_default();
-                let size = window.geometry().size;
-                (f64::from(loc.x + size.w / 2), f64::from(loc.y + size.h / 2)).into()
-            })
-            .clone();
-        window.send_frame(&win_output, now, Some(Duration::ZERO), |_, _| Some(win_output.clone()));
-    }
+    state.send_frame_callbacks();
 }

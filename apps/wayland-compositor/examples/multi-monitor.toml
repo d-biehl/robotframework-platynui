@@ -1,0 +1,54 @@
+# Example: 3-monitor setup with mixed resolutions and scaling
+#
+# Layout (logical coordinates):
+#
+#   ┌──────────────────┬─────────────────────────┐
+#   │                  │                         │
+#   │   Left (1080p)   │   Right (1440p @ 1.5x)  │
+#   │   1920 × 1080    │   2560 × 1440           │
+#   │   scale 1.0      │   logical: 1707 × 960   │
+#   │                  │                         │
+#   │                  ├─────────────────────────┤
+#   │                  │                         │
+#   └──────────────────┤   Bottom-Right (4K @ 2x) │
+#                      │   3840 × 2160           │
+#                      │   logical: 1920 × 1080  │
+#                      │                         │
+#                      └─────────────────────────┘
+#
+# The x/y positions are in *logical* coordinates (physical pixels / scale).
+#
+# Left monitor:   1920 / 1.0 = 1920 logical width
+# Right monitor:  starts at x = 1920, y = 0
+#                 2560 / 1.5 ≈ 1707 logical width, 1440 / 1.5 = 960 logical height
+# Bottom-right:   starts at x = 1920, y = 960 (below the right monitor)
+#
+# Tip: The combined physical area is large (7254×4080).  Use --window-scale
+# to fit the preview on screen:
+#
+#   platynui-wayland-compositor --backend winit --window-scale 0.25 \
+#       --config examples/multi-monitor.toml
+
+# ── Left: Full-HD, no scaling ────────────────────────────────────────
+[[output]]
+width  = 1920
+height = 1080
+x      = 0
+y      = 0
+scale  = 1.0
+
+# ── Right: QHD with 1.5× scaling ────────────────────────────────────
+[[output]]
+width  = 2560
+height = 1440
+x      = 1920
+y      = 0
+scale  = 1.5
+
+# ── Bottom-Right: 4K with 2× scaling (below the right monitor) ──────
+[[output]]
+width  = 3840
+height = 2160
+x      = 1920
+y      = 960
+scale  = 2.0

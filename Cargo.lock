@@ -3226,11 +3226,13 @@ dependencies = [
  "egui_glow",
  "png",
  "serde",
+ "serde_json",
  "signal-hook",
  "smithay",
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
+ "xcursor",
 ]
 
 [[package]]

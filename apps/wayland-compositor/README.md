@@ -103,8 +103,8 @@ because it needs exclusive DRM master access to the GPU. Options:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--backend <headless\|winit\|drm>` | `headless` | Rendering backend |
-| `--width <px>` | `1280` | Virtual output width |
-| `--height <px>` | `800` | Virtual output height |
+| `--width <px>` | `1920` | Virtual output width |
+| `--height <px>` | `1080` | Virtual output height |
 | `--socket-name <name>` | auto | Wayland socket name |
 | `--log-level <level>` | `warn` | Log level (error/warn/info/debug/trace) |
 | `--ready-fd <N>` | — | Write `READY\n` to file descriptor N |
@@ -114,6 +114,8 @@ because it needs exclusive DRM master access to the GPU. Options:
 | `--control-socket` | `false` | Enable test-control IPC socket |
 | `--outputs <N>` | `1` | Number of virtual monitors |
 | `--output-layout <horizontal\|vertical>` | `horizontal` | Multi-monitor arrangement |
+| `--scale <factor>` | `1.0` | Scale factor for virtual outputs. Applied to all outputs created via `--outputs`. For per-output scale, use the TOML configuration file. |
+| `--window-scale <factor>` | `1.0` | Scale the winit preview window (e.g. `0.5` to halve). Only affects rendering resolution, not client-visible output scale. Useful to fit large multi-output setups on screen. |
 | `--restrict-protocols <ids>` | — | Comma-separated app-ID whitelist for privileged protocols |
 | `--config <path>` | — | Path to TOML configuration file (see [Configuration File](#configuration-file)) |
 | `--exit-with-child` | `false` | Shut down compositor when the child program exits |

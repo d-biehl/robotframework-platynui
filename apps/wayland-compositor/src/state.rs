@@ -1,13 +1,16 @@
 //! Compositor state — central struct holding all protocol states and runtime data.
 
+use std::collections::HashMap;
+
 use smithay::{
-    delegate_compositor, delegate_cursor_shape, delegate_data_device, delegate_dmabuf, delegate_fractional_scale,
-    delegate_idle_notify, delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit, delegate_output,
-    delegate_pointer_constraints, delegate_presentation, delegate_primary_selection, delegate_relative_pointer,
-    delegate_seat, delegate_security_context, delegate_session_lock, delegate_shm, delegate_single_pixel_buffer,
-    delegate_text_input_manager, delegate_viewporter, delegate_xdg_activation, delegate_xdg_decoration,
-    delegate_xdg_foreign, delegate_xdg_shell,
-    desktop::{PopupManager, Space, Window},
+    delegate_compositor, delegate_content_type, delegate_cursor_shape, delegate_data_control, delegate_data_device,
+    delegate_dmabuf, delegate_fractional_scale, delegate_idle_notify, delegate_input_method_manager,
+    delegate_keyboard_shortcuts_inhibit, delegate_layer_shell, delegate_output, delegate_pointer_constraints,
+    delegate_presentation, delegate_primary_selection, delegate_relative_pointer, delegate_seat,
+    delegate_security_context, delegate_session_lock, delegate_shm, delegate_single_pixel_buffer,
+    delegate_text_input_manager, delegate_viewporter, delegate_virtual_keyboard_manager, delegate_xdg_activation,
+    delegate_xdg_decoration, delegate_xdg_foreign, delegate_xdg_shell,
+    desktop::{PopupManager, Space, Window, layer_map_for_output},
     input::{Seat, SeatState, keyboard::XkbConfig, pointer::CursorImageStatus},
     output::{Output, PhysicalProperties, Subpixel},
     reexports::{
@@ -17,8 +20,10 @@ use smithay::{
     utils::{Clock, Logical, Monotonic, Physical, Point, Rectangle, Size},
     wayland::{
         compositor::CompositorState,
+        content_type::ContentTypeState,
         cursor_shape::CursorShapeManagerState,
         dmabuf::DmabufState,
+        foreign_toplevel_list::{ForeignToplevelHandle, ForeignToplevelListState},
         fractional_scale::{FractionalScaleHandler, FractionalScaleManagerState},
         idle_notify::IdleNotifierState,
         input_method::InputMethodManagerState,
@@ -28,13 +33,19 @@ use smithay::{
         presentation::PresentationState,
         relative_pointer::RelativePointerManagerState,
         security_context::SecurityContextState,
-        selection::{data_device::DataDeviceState, primary_selection::PrimarySelectionState},
+        selection::{
+            data_device::DataDeviceState, primary_selection::PrimarySelectionState, wlr_data_control::DataControlState,
+        },
         session_lock::SessionLockManagerState,
-        shell::xdg::{XdgShellState, decoration::XdgDecorationState},
+        shell::{
+            wlr_layer::WlrLayerShellState,
+            xdg::{XdgShellState, decoration::XdgDecorationState},
+        },
         shm::ShmState,
         single_pixel_buffer::SinglePixelBufferState,
         text_input::TextInputManagerState,
         viewporter::ViewporterState,
+        virtual_keyboard::VirtualKeyboardManagerState,
         xdg_activation::XdgActivationState,
         xdg_foreign::XdgForeignState,
     },
@@ -43,8 +54,21 @@ use smithay::{
 /// Saved state for a fullscreen window: (window, previous position, previous pending size).
 type PreFullscreenState = (Window, Point<i32, Logical>, Option<Size<i32, Logical>>);
 
+/// POSIX `CLOCK_MONOTONIC` clock ID for the Wayland presentation protocol.
+const CLOCK_MONOTONIC: u32 = 1;
+/// Initial delay before keyboard key repeat starts (milliseconds).
+const KEY_REPEAT_DELAY_MS: i32 = 200;
+/// Number of key repeats per second once repeat has started.
+const KEY_REPEAT_RATE: i32 = 25;
+
+/// Default output refresh rate in millihertz (60 Hz).
+pub const DEFAULT_REFRESH_MHTZ: i32 = 60_000;
+
+/// Default background clear color (dark grey, fully opaque).
+pub const BACKGROUND_COLOR: [f32; 4] = [0.1, 0.1, 0.1, 1.0];
+
 /// Central compositor state holding all Wayland protocol states and runtime data.
-#[allow(dead_code, clippy::struct_field_names)]
+#[allow(clippy::struct_field_names, clippy::struct_excessive_bools)]
 pub struct State {
     // -- Core protocol states --
     pub compositor_state: CompositorState,
@@ -74,6 +98,38 @@ pub struct State {
     pub security_context_state: SecurityContextState,
     pub cursor_shape_state: CursorShapeManagerState,
 
+    // -- Phase 3: Automation protocols --
+    pub layer_shell_state: WlrLayerShellState,
+    pub data_control_state: DataControlState,
+    pub content_type_state: ContentTypeState,
+    pub virtual_keyboard_state: VirtualKeyboardManagerState,
+    pub virtual_pointer_global: smithay::reexports::wayland_server::backend::GlobalId,
+    pub output_management_global: smithay::reexports::wayland_server::backend::GlobalId,
+
+    /// Weak references to all bound output management instances.
+    ///
+    /// Used to send `finished` events on old head/mode objects and re-send
+    /// updated state when outputs are reconfigured (e.g. via `wlr-randr`).
+    pub output_managers: Vec<smithay::reexports::wayland_server::Weak<
+        smithay::reexports::wayland_protocols_wlr::output_management::v1::server::zwlr_output_manager_v1::ZwlrOutputManagerV1,
+    >>,
+
+    // -- Screencopy protocol --
+    pub screencopy_globals: (
+        smithay::reexports::wayland_server::backend::GlobalId,
+        smithay::reexports::wayland_server::backend::GlobalId,
+        smithay::reexports::wayland_server::backend::GlobalId,
+    ),
+    /// Pending frame capture state, keyed by frame object ID.
+    pub pending_captures:
+        HashMap<smithay::reexports::wayland_server::backend::ObjectId, crate::handlers::screencopy::PendingCapture>,
+
+    // -- Foreign-toplevel protocols --
+    pub wlr_foreign_toplevel_state: crate::handlers::foreign_toplevel::WlrForeignToplevelManagerState,
+    pub ext_foreign_toplevel_list_state: smithay::wayland::foreign_toplevel_list::ForeignToplevelListState,
+    /// Ext-foreign-toplevel handle per window (for title / `app_id` updates).
+    pub ext_toplevel_handles: Vec<(Window, ForeignToplevelHandle)>,
+
     // -- Window management --
     pub space: Space<Window>,
     pub popup_manager: PopupManager,
@@ -90,8 +146,14 @@ pub struct State {
     pub cursor_status: CursorImageStatus,
     pub pointer_location: Point<f64, Logical>,
 
+    /// Currently physically pressed pointer buttons (tracked for focus-loss cleanup).
+    pub pressed_buttons: Vec<u32>,
+
     /// Compositor-driven cursor shape (for SSD resize borders, title bar).
     pub compositor_cursor_shape: crate::decorations::CursorShape,
+
+    /// Cursor theme state for rendering xcursor images (Named/Default cursors).
+    pub cursor_theme: crate::cursor::CursorThemeState,
 
     /// Pre-maximize window positions — restored when unmaximizing.
     pub pre_maximize_positions: Vec<(Window, Point<i32, Logical>)>,
@@ -103,8 +165,20 @@ pub struct State {
     /// Stores the window and its last position for restoring.
     pub minimized_windows: Vec<(Window, Point<i32, Logical>)>,
 
+    /// The last window that had keyboard focus.
+    /// Used to send foreign-toplevel deactivation state updates on focus change.
+    pub last_focused_window: Option<Window>,
+
     /// Last titlebar click time — used to detect double-clicks for maximize toggle.
     pub last_titlebar_click: Option<std::time::Instant>,
+
+    /// Titlebar button that is currently pressed (deferred until release).
+    ///
+    /// Standard UI behaviour: button actions fire on mouse *release*, not
+    /// press.  This lets the user cancel by moving the pointer away before
+    /// releasing.  Only Close / Maximize / Minimize are deferred; `TitleBar`
+    /// (move / double-click) still triggers on press.
+    pub pressed_titlebar_button: Option<(Window, crate::decorations::DecorationClick)>,
 
     /// Open right-click context menu on an SSD titlebar (if any).
     pub context_menu: Option<crate::decorations::TitlebarContextMenu>,
@@ -169,6 +243,24 @@ pub struct State {
 
     // -- DRM backend --
     pub drm_backend: Option<crate::backend::drm::DrmBackendState>,
+
+    /// Flag set by output-management apply (wlr-randr) to signal that the
+    /// winit event loop should rebuild its damage tracker and reconfigure
+    /// windows for the new output dimensions.
+    pub output_config_changed: bool,
+
+    /// Preview scale for the winit backend window.
+    ///
+    /// Scales down both the window size and the rendering resolution so that
+    /// large multi-output setups fit on screen.  Wayland clients still see
+    /// the real output scale/mode.  Default `1.0` (no scaling).
+    pub window_scale: f64,
+
+    /// Whether to render the cursor as a software element in the frame buffer.
+    ///
+    /// When `true`, the xcursor theme image is composited into every frame.
+    /// When `false`, Named cursors are delegated to the host windowing system.
+    pub software_cursor: bool,
 }
 
 impl State {
@@ -192,6 +284,7 @@ impl State {
         xkb_config: XkbConfig<'_>,
         output_count: u32,
         output_layout: crate::multi_output::OutputLayout,
+        output_scale: f64,
         security_policy: crate::security::SecurityPolicy,
         config: crate::config::CompositorConfig,
     ) -> Self {
@@ -233,8 +326,7 @@ impl State {
         let pointer_constraints_state = PointerConstraintsState::new::<Self>(&dh);
         let relative_pointer_state = RelativePointerManagerState::new::<Self>(&dh);
         let single_pixel_buffer_state = SinglePixelBufferState::new::<Self>(&dh);
-        // Clock ID 1 = CLOCK_MONOTONIC (matching our Clock<Monotonic>)
-        let presentation_state = PresentationState::new::<Self>(&dh, 1);
+        let presentation_state = PresentationState::new::<Self>(&dh, CLOCK_MONOTONIC);
         let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
         let text_input_state = TextInputManagerState::new::<Self>(&dh);
         // Input method access is gated by the security policy when restrictive.
@@ -250,17 +342,40 @@ impl State {
         let security_context_state = SecurityContextState::new::<Self, _>(&dh, |_| true);
         let cursor_shape_state = CursorShapeManagerState::new::<Self>(&dh);
 
-        // Create a single seat
+        // Phase 3: Automation protocols
+        let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
+        let data_control_state = DataControlState::new::<Self, _>(&dh, Some(&primary_selection_state), |_| true);
+        let content_type_state = ContentTypeState::new::<Self>(&dh);
+        let virtual_keyboard_state = {
+            let restrict = security_policy.is_restrictive();
+            VirtualKeyboardManagerState::new::<Self, _>(&dh, move |_| !restrict)
+        };
+        let virtual_pointer_global = {
+            let restrict = security_policy.is_restrictive();
+            crate::handlers::virtual_pointer::init_virtual_pointer_manager(&dh, move |_| !restrict)
+        };
+        let output_management_global = {
+            let restrict = security_policy.is_restrictive();
+            crate::handlers::output_management::init_output_management(&dh, move |_| !restrict)
+        };
+        let screencopy_globals = {
+            let restrict = security_policy.is_restrictive();
+            crate::handlers::screencopy::init_screencopy(&dh, move |_| !restrict)
+        };
+
+        // Foreign-toplevel protocols
+        let wlr_foreign_toplevel_state =
+            crate::handlers::foreign_toplevel::WlrForeignToplevelManagerState::new::<Self>(&dh);
+        let ext_foreign_toplevel_list_state = ForeignToplevelListState::new::<Self>(&dh);
+
         let mut seat = seat_state.new_wl_seat(&dh, "seat0");
-        seat.add_keyboard(xkb_config, 200, 25).expect("Failed to add keyboard to seat");
+        seat.add_keyboard(xkb_config, KEY_REPEAT_DELAY_MS, KEY_REPEAT_RATE).expect("Failed to add keyboard to seat");
         seat.add_pointer();
 
-        // Create the output(s)
         let mut space = Space::default();
 
         // Priority: [[output]] config sections > --outputs/--width/--height CLI flags
         let (output, outputs) = if !config.output.is_empty() {
-            // Config-file output definitions override CLI flags
             let configs: Vec<crate::multi_output::OutputConfig> = config
                 .output
                 .iter()
@@ -268,8 +383,9 @@ impl State {
                 .map(|(i, cfg)| crate::multi_output::OutputConfig {
                     name: format!("PLATYNUI-{}", i + 1),
                     size: (cfg.width.cast_signed(), cfg.height.cast_signed()).into(),
-                    refresh: 60_000,
+                    refresh: DEFAULT_REFRESH_MHTZ,
                     position: (cfg.x, cfg.y),
+                    scale: if cfg.scale > 0.0 { cfg.scale } else { 1.0 },
                 })
                 .collect();
             let outputs = crate::multi_output::create_outputs(&configs, &dh, &mut space);
@@ -287,8 +403,13 @@ impl State {
                 },
             );
 
-            let mode = smithay::output::Mode { size: output_size, refresh: 60_000 };
-            output.change_current_state(Some(mode), None, None, Some((0, 0).into()));
+            let mode = smithay::output::Mode { size: output_size, refresh: DEFAULT_REFRESH_MHTZ };
+            let scale_opt = if output_scale > 0.0 && (output_scale - 1.0).abs() > f64::EPSILON {
+                Some(smithay::output::Scale::Fractional(output_scale))
+            } else {
+                None
+            };
+            output.change_current_state(Some(mode), None, scale_opt, Some((0, 0).into()));
             output.set_preferred(mode);
             output.create_global::<Self>(&dh);
             space.map_output(&output, (0, 0));
@@ -302,6 +423,7 @@ impl State {
                 output_size.w.unsigned_abs(),
                 output_size.h.unsigned_abs(),
                 output_layout,
+                output_scale,
             );
             let outputs = crate::multi_output::create_outputs(&configs, &dh, &mut space);
             let primary = outputs[0].clone();
@@ -333,6 +455,18 @@ impl State {
             xdg_foreign_state,
             security_context_state,
             cursor_shape_state,
+            layer_shell_state,
+            data_control_state,
+            content_type_state,
+            virtual_keyboard_state,
+            virtual_pointer_global,
+            output_management_global,
+            output_managers: Vec::new(),
+            screencopy_globals,
+            pending_captures: HashMap::new(),
+            wlr_foreign_toplevel_state,
+            ext_foreign_toplevel_list_state,
+            ext_toplevel_handles: Vec::new(),
             space,
             popup_manager: PopupManager::default(),
             display_handle: dh,
@@ -341,11 +475,15 @@ impl State {
             seat,
             cursor_status: CursorImageStatus::default_named(),
             pointer_location: (0.0, 0.0).into(),
+            pressed_buttons: Vec::new(),
             compositor_cursor_shape: crate::decorations::CursorShape::Default,
+            cursor_theme: crate::cursor::CursorThemeState::new(),
             pre_maximize_positions: Vec::new(),
             pre_fullscreen_states: Vec::new(),
             minimized_windows: Vec::new(),
+            last_focused_window: None,
             last_titlebar_click: None,
+            pressed_titlebar_button: None,
             context_menu: None,
             output,
             outputs,
@@ -367,6 +505,9 @@ impl State {
             xwayland: None,
             xwayland_shell_state: None,
             drm_backend: None,
+            output_config_changed: false,
+            window_scale: 1.0,
+            software_cursor: false,
         }
     }
 
@@ -382,6 +523,28 @@ impl State {
         {
             tracing::error!(%err, "failed to register child exit monitor");
         }
+    }
+
+    /// Get the keyboard handle from the seat.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the seat has no keyboard capability.  This should never
+    /// happen because `State::new()` unconditionally adds a keyboard.
+    #[must_use]
+    pub fn keyboard(&self) -> smithay::input::keyboard::KeyboardHandle<Self> {
+        self.seat.get_keyboard().expect("seat has no keyboard capability")
+    }
+
+    /// Get the pointer handle from the seat.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the seat has no pointer capability.  This should never
+    /// happen because `State::new()` unconditionally adds a pointer.
+    #[must_use]
+    pub fn pointer(&self) -> smithay::input::pointer::PointerHandle<Self> {
+        self.seat.get_pointer().expect("seat has no pointer capability")
     }
 
     /// Compute the combined bounding box of all outputs in the compositor space.
@@ -411,6 +574,196 @@ impl State {
         }
     }
 
+    /// Compute the combined physical pixel size needed for all outputs.
+    ///
+    /// For mixed-scale setups, iterates each output individually to compute its
+    /// physical extent (logical position × scale + mode size) and returns the
+    /// bounding box in physical pixels.  For uniform-scale setups, this reduces
+    /// to `combined_logical × scale`.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn combined_physical_size(&self) -> Size<i32, Physical> {
+        let max_scale = self.max_output_scale();
+        let combined = self.combined_output_geometry();
+        let w = (f64::from(combined.size.w) * max_scale).ceil() as i32;
+        let h = (f64::from(combined.size.h) * max_scale).ceil() as i32;
+        (w, h).into()
+    }
+
+    /// Return the maximum scale factor across all outputs.
+    ///
+    /// When rendering all outputs into a single framebuffer (winit backend),
+    /// every element must use this scale so that the physical pixel positions
+    /// match.  Using a per-output scale would create a non-linear mapping
+    /// between the framebuffer and logical coordinates, breaking pointer
+    /// hit-testing after the first window move.
+    #[must_use]
+    pub fn max_output_scale(&self) -> f64 {
+        self.outputs.iter().map(|o| o.current_scale().fractional_scale()).fold(1.0_f64, f64::max)
+    }
+
+    /// Compute the render size for the winit preview window.
+    ///
+    /// Applies [`window_scale`](Self::window_scale) to the combined physical
+    /// size.  When `window_scale == 1.0` this returns the same value as
+    /// [`combined_physical_size`](Self::combined_physical_size).
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn render_size(&self) -> Size<i32, Physical> {
+        let full = self.combined_physical_size();
+        if (self.window_scale - 1.0).abs() <= f64::EPSILON {
+            return full;
+        }
+        let w = (f64::from(full.w) * self.window_scale).ceil() as i32;
+        let h = (f64::from(full.h) * self.window_scale).ceil() as i32;
+        (w, h).into()
+    }
+
+    /// Resize outputs that sit on the bounding-box edges to match a new window
+    /// size, so that the combined layout fills the winit window exactly.
+    ///
+    /// Outputs touching the **right** edge of the current bounding box get their
+    /// width adjusted; outputs touching the **bottom** edge get their height
+    /// adjusted.  Corner outputs (both right and bottom) get both.  Interior
+    /// outputs and those only on the left/top edges stay untouched.
+    ///
+    /// This keeps pointer mapping consistent: the logical layout always fills
+    /// the winit window, so `position_transformed(logical_size)` is correct.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn resize_edge_outputs(&mut self, new_window_size: Size<i32, Physical>) {
+        // Minimum logical size for an output (don't shrink below this).
+        const MIN_LOGICAL: f64 = 100.0;
+
+        let bbox = self.combined_output_geometry();
+        if bbox.size.w <= 0 || bbox.size.h <= 0 {
+            return;
+        }
+
+        let max_scale = self.max_output_scale();
+        let ws = (self.window_scale * max_scale).max(f64::EPSILON);
+
+        // Derive the new logical bounding box size from the window's physical pixels.
+        let new_logical_w = f64::from(new_window_size.w) / ws;
+        let new_logical_h = f64::from(new_window_size.h) / ws;
+        let delta_w = new_logical_w - f64::from(bbox.size.w);
+        let delta_h = new_logical_h - f64::from(bbox.size.h);
+
+        // Nothing to do if the size didn't meaningfully change.
+        if delta_w.abs() < 0.5 && delta_h.abs() < 0.5 {
+            return;
+        }
+
+        let right_edge = bbox.loc.x + bbox.size.w;
+        let bottom_edge = bbox.loc.y + bbox.size.h;
+
+        for output in &self.outputs {
+            let Some(geo) = self.space.output_geometry(output) else {
+                continue;
+            };
+            let scale = output.current_scale().fractional_scale();
+            let mode = output.current_mode().unwrap_or(smithay::output::Mode {
+                size: (geo.size.w, geo.size.h).into(),
+                refresh: DEFAULT_REFRESH_MHTZ,
+            });
+
+            let mut logical_w = f64::from(mode.size.w) / scale;
+            let mut logical_h = f64::from(mode.size.h) / scale;
+
+            let touches_right = geo.loc.x + geo.size.w == right_edge;
+            let touches_bottom = geo.loc.y + geo.size.h == bottom_edge;
+
+            if touches_right && delta_w.abs() >= 0.5 {
+                logical_w = (logical_w + delta_w).max(MIN_LOGICAL);
+            }
+            if touches_bottom && delta_h.abs() >= 0.5 {
+                logical_h = (logical_h + delta_h).max(MIN_LOGICAL);
+            }
+
+            if !touches_right && !touches_bottom {
+                continue;
+            }
+
+            let new_phys_w = (logical_w * scale).round() as i32;
+            let new_phys_h = (logical_h * scale).round() as i32;
+            if new_phys_w == mode.size.w && new_phys_h == mode.size.h {
+                continue;
+            }
+
+            let new_mode = smithay::output::Mode { size: (new_phys_w, new_phys_h).into(), refresh: mode.refresh };
+            output.change_current_state(Some(new_mode), None, None, None);
+            output.set_preferred(new_mode);
+
+            tracing::debug!(
+                name = output.name(),
+                old_w = mode.size.w,
+                old_h = mode.size.h,
+                new_w = new_phys_w,
+                new_h = new_phys_h,
+                "resized edge output for window resize",
+            );
+        }
+    }
+
+    /// Re-arrange all layer maps after output mode/scale changes.
+    ///
+    /// This recalculates the layout of every layer surface (panels, bars,
+    /// docks) on every output and sends updated configure events.  Must be
+    /// called whenever output modes or scales change so that layer surfaces
+    /// get the correct dimensions and exclusive zones are updated.
+    pub fn rearrange_layer_maps(&self) {
+        for output in &self.outputs {
+            let mut map = layer_map_for_output(output);
+            map.arrange();
+            // Send pending configure to every layer surface on this output
+            for layer in map.layers() {
+                layer.layer_surface().send_pending_configure();
+            }
+        }
+    }
+
+    /// Reconfigure maximized and fullscreen windows for the current output dimensions.
+    ///
+    /// Called after output configuration changes (scale, mode, position) to
+    /// adjust window sizes and positions to the new logical viewport.
+    /// Also re-arranges layer maps so panels/bars adapt to the new sizes.
+    pub fn reconfigure_windows_for_outputs(&mut self) {
+        use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+
+        // Re-arrange layer surfaces first so that usable_geometry (which
+        // queries the layer map's non_exclusive_zone) is up to date.
+        self.rearrange_layer_maps();
+
+        let windows: Vec<Window> = self.space.elements().cloned().collect();
+
+        for window in &windows {
+            let Some(toplevel) = window.toplevel() else {
+                continue;
+            };
+
+            let (is_maximized, is_fullscreen) = toplevel.with_pending_state(|s| {
+                (s.states.contains(xdg_toplevel::State::Maximized), s.states.contains(xdg_toplevel::State::Fullscreen))
+            });
+
+            if is_fullscreen {
+                let output_geo = self.output_geometry_for_window(window);
+                toplevel.with_pending_state(|s| {
+                    s.size = Some(output_geo.size);
+                });
+                self.space.map_element(window.clone(), output_geo.loc, true);
+                toplevel.send_configure();
+            } else if is_maximized {
+                let usable_geo = self.usable_geometry_for_window(window);
+                let y_offset =
+                    if crate::decorations::window_has_ssd(window) { crate::decorations::TITLEBAR_HEIGHT } else { 0 };
+                toplevel.with_pending_state(|s| {
+                    s.size = Some((usable_geo.size.w, usable_geo.size.h - crate::decorations::TITLEBAR_HEIGHT).into());
+                });
+                self.space.map_element(window.clone(), (usable_geo.loc.x, usable_geo.loc.y + y_offset), true);
+                toplevel.send_configure();
+            }
+        }
+    }
+
     /// Find the output whose geometry contains the given point.
     ///
     /// Falls back to the primary output if no output contains the point.
@@ -434,27 +787,149 @@ impl State {
         &self.output
     }
 
-    /// Return the output geometry that best contains the given window.
+    /// Return the output that best contains the given window.
     ///
     /// Uses the window's center point to determine which output it belongs to.
     /// Falls back to the primary output if the window is not mapped.
     #[must_use]
-    pub fn output_geometry_for_window(&self, window: &Window) -> Rectangle<i32, Logical> {
-        let output = if let Some(loc) = self.space.element_location(window) {
+    pub fn output_for_window(&self, window: &Window) -> &Output {
+        if let Some(loc) = self.space.element_location(window) {
             let size = window.geometry().size;
             let center = Point::from((f64::from(loc.x + size.w / 2), f64::from(loc.y + size.h / 2)));
             self.output_at_point(center)
         } else {
             &self.output
-        };
+        }
+    }
 
-        self.space.output_geometry(output).unwrap_or_default()
+    /// Return the full output geometry that best contains the given window.
+    ///
+    /// This is the **total** output area including regions reserved by layer
+    /// surfaces (panels, bars).  Use [`usable_geometry_for_window`](Self::usable_geometry_for_window)
+    /// for maximize / tiling where windows should avoid layer surface zones.
+    #[must_use]
+    pub fn output_geometry_for_window(&self, window: &Window) -> Rectangle<i32, Logical> {
+        self.space.output_geometry(self.output_for_window(window)).unwrap_or_default()
+    }
+
+    /// Return the usable output area for the given window, accounting for
+    /// exclusive zones claimed by layer surfaces (panels, bars, docks).
+    ///
+    /// The returned rectangle is in global logical coordinates.  Use this
+    /// for maximize and window-tiling operations so windows don't overlap
+    /// bars or panels.
+    #[must_use]
+    pub fn usable_geometry_for_window(&self, window: &Window) -> Rectangle<i32, Logical> {
+        let output = self.output_for_window(window);
+        self.usable_geometry_for_output(output)
+    }
+
+    /// Return the usable output area for the given output, accounting for
+    /// exclusive zones claimed by layer surfaces.
+    ///
+    /// The returned rectangle is in global logical coordinates.
+    #[must_use]
+    pub fn usable_geometry_for_output(&self, output: &Output) -> Rectangle<i32, Logical> {
+        let output_origin = self.space.output_geometry(output).map_or_else(Point::default, |g| g.loc);
+        let map = layer_map_for_output(output);
+        let mut zone = map.non_exclusive_zone();
+        drop(map);
+        // non_exclusive_zone is output-local; translate to global coords.
+        zone.loc += output_origin;
+        zone
     }
 
     /// Return the current time for frame callbacks.
     #[must_use]
     pub fn frame_clock_now(&self) -> std::time::Duration {
         self.clock.now().into()
+    }
+
+    /// Send frame callbacks to all mapped windows and layer surfaces.
+    ///
+    /// Each window receives a callback from the output its centre lies on.
+    /// Layer surfaces receive callbacks from their associated output.
+    /// Without frame callbacks, clients that block on the next frame
+    /// (like GTK4 during popup creation) would hang indefinitely.
+    pub fn send_frame_callbacks(&self) {
+        let now = self.frame_clock_now();
+        for window in self.space.elements() {
+            let output = self
+                .output_at_point({
+                    let loc = self.space.element_location(window).unwrap_or_default();
+                    let size = window.geometry().size;
+                    (f64::from(loc.x + size.w / 2), f64::from(loc.y + size.h / 2)).into()
+                })
+                .clone();
+            window.send_frame(&output, now, Some(std::time::Duration::ZERO), |_, _| Some(output.clone()));
+        }
+
+        for output in &self.outputs {
+            let map = smithay::desktop::layer_map_for_output(output);
+            for layer_surface in map.layers() {
+                layer_surface.send_frame(output, now, Some(std::time::Duration::ZERO), |_, _| Some(output.clone()));
+            }
+        }
+    }
+
+    /// Refresh the space, clean up popups, and flush pending client events.
+    ///
+    /// Call at the end of each event loop iteration to ensure
+    /// `wl_surface.enter` events are included in the same flush.
+    pub fn flush_and_refresh(&mut self) {
+        self.space.refresh();
+        self.popup_manager.cleanup();
+
+        if let Err(err) = self.display_handle.flush_clients() {
+            tracing::warn!(%err, "failed to flush Wayland clients");
+        }
+    }
+
+    /// Test whether a logical point lies inside any output.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn point_in_any_output(&self, point: Point<f64, Logical>) -> bool {
+        let ix = point.x as i32;
+        let iy = point.y as i32;
+        self.outputs.iter().any(|o| {
+            self.space
+                .output_geometry(o)
+                .is_some_and(|g| ix >= g.loc.x && ix < g.loc.x + g.size.w && iy >= g.loc.y && iy < g.loc.y + g.size.h)
+        })
+    }
+
+    /// Clamp a point to the nearest location that is inside an output.
+    ///
+    /// If the point already lies within an output it is returned unchanged.
+    /// Otherwise the nearest point on the closest output boundary is used.
+    /// This prevents the pointer from sitting in dead zones between
+    /// non-rectangular output layouts (e.g. L-shaped multi-monitor).
+    #[must_use]
+    pub fn clamp_to_outputs(&self, point: Point<f64, Logical>) -> Point<f64, Logical> {
+        if self.point_in_any_output(point) {
+            return point;
+        }
+
+        // Find the closest point on any output rectangle.
+        let mut best = point;
+        let mut best_dist = f64::MAX;
+
+        for output in &self.outputs {
+            let Some(geo) = self.space.output_geometry(output) else {
+                continue;
+            };
+            let clamped_x = point.x.clamp(f64::from(geo.loc.x), f64::from(geo.loc.x + geo.size.w) - 1.0);
+            let clamped_y = point.y.clamp(f64::from(geo.loc.y), f64::from(geo.loc.y + geo.size.h) - 1.0);
+            let dx = point.x - clamped_x;
+            let dy = point.y - clamped_y;
+            let dist = dx * dx + dy * dy;
+            if dist < best_dist {
+                best_dist = dist;
+                best = (clamped_x, clamped_y).into();
+            }
+        }
+
+        best
     }
 }
 
@@ -502,3 +977,7 @@ delegate_session_lock!(State);
 delegate_xdg_foreign!(State);
 delegate_security_context!(State);
 delegate_cursor_shape!(State);
+delegate_layer_shell!(State);
+delegate_data_control!(State);
+delegate_content_type!(State);
+delegate_virtual_keyboard_manager!(State);

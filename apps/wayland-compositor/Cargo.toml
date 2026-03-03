@@ -48,8 +48,12 @@ egui_glow = { version = "0.33", default-features = false }
 # Screenshot encoding
 png = "0.18"
 
+# Cursor theme loading (xcursor images for screencopy / software cursor)
+xcursor = "0.3"
+
 # Configuration file
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 toml = "0.8"
 
 # Signal handling

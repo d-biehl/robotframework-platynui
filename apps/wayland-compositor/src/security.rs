@@ -20,8 +20,8 @@
 use std::collections::HashSet;
 
 use smithay::desktop::Window;
-use smithay::wayland::compositor;
-use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
+
+use crate::handlers::foreign_toplevel;
 
 /// Security policy for privileged protocol access.
 #[derive(Debug)]
@@ -122,26 +122,12 @@ impl SecurityPolicy {
         }
 
         for window in windows {
-            if let Some(app_id) = get_window_app_id(window.as_ref())
-                && self.is_allowed(&app_id)
-            {
+            let app_id = foreign_toplevel::window_app_id(window.as_ref());
+            if !app_id.is_empty() && self.is_allowed(&app_id) {
                 return true;
             }
         }
 
         false
     }
-}
-
-/// Extract the `app_id` from a window's toplevel surface data.
-fn get_window_app_id(window: &Window) -> Option<String> {
-    window.toplevel().and_then(|t| {
-        compositor::with_states(t.wl_surface(), |states| {
-            states
-                .data_map
-                .get::<XdgToplevelSurfaceData>()
-                .and_then(|data| data.lock().ok())
-                .and_then(|data| data.app_id.clone())
-        })
-    })
 }

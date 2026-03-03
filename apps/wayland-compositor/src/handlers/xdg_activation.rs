@@ -29,13 +29,12 @@ impl XdgActivationHandler for State {
         _token_data: XdgActivationTokenData,
         surface: WlSurface,
     ) {
-        // Find the window owning this surface and raise it
         let window = self.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == surface)).cloned();
 
         if let Some(window) = window {
             self.space.raise_element(&window, true);
             let serial = smithay::utils::SERIAL_COUNTER.next_serial();
-            let keyboard = self.seat.get_keyboard().unwrap();
+            let keyboard = self.keyboard();
             keyboard.set_focus(self, Some(crate::focus::KeyboardFocusTarget::Window(window)), serial);
         }
     }

@@ -21,7 +21,9 @@ pub fn notify_ready(socket_name: &str, ready_fd: Option<i32>, print_env: bool) {
         let path = format!("/dev/fd/{fd}");
         match std::fs::OpenOptions::new().write(true).open(&path) {
             Ok(mut file) => {
-                let _ = writeln!(file, "READY");
+                if let Err(err) = writeln!(file, "READY") {
+                    tracing::warn!(fd, %err, "failed to write READY to notification fd");
+                }
             }
             Err(err) => {
                 tracing::warn!(fd, %err, "failed to write readiness notification to fd");

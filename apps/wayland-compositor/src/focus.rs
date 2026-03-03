@@ -8,7 +8,7 @@ use std::borrow::Cow;
 
 use smithay::{
     backend::input::KeyState,
-    desktop::{PopupKind, Window},
+    desktop::{LayerSurface, PopupKind, Window},
     input::{
         Seat,
         keyboard::{KeyboardTarget, KeysymHandle, ModifiersState},
@@ -33,6 +33,8 @@ pub enum KeyboardFocusTarget {
     Window(Window),
     /// A popup surface (needed for popup grabs).
     Popup(Box<PopupKind>),
+    /// A layer surface (panels, overlays, lock screens).
+    LayerSurface(LayerSurface),
 }
 
 /// Target for pointer focus.
@@ -56,6 +58,7 @@ impl IsAlive for KeyboardFocusTarget {
         match self {
             Self::Window(w) => w.alive(),
             Self::Popup(p) => p.alive(),
+            Self::LayerSurface(l) => l.alive(),
         }
     }
 }
@@ -76,6 +79,7 @@ impl WaylandFocus for KeyboardFocusTarget {
         match self {
             Self::Window(w) => w.wl_surface(),
             Self::Popup(p) => Some(Cow::Borrowed(p.wl_surface())),
+            Self::LayerSurface(l) => Some(Cow::Borrowed(l.wl_surface())),
         }
     }
 
@@ -83,6 +87,7 @@ impl WaylandFocus for KeyboardFocusTarget {
         match self {
             Self::Window(w) => w.same_client_as(object_id),
             Self::Popup(p) => p.wl_surface().id().same_client_as(object_id),
+            Self::LayerSurface(l) => l.wl_surface().id().same_client_as(object_id),
         }
     }
 }
@@ -129,11 +134,18 @@ impl From<PopupKind> for KeyboardFocusTarget {
     }
 }
 
+impl From<LayerSurface> for KeyboardFocusTarget {
+    fn from(l: LayerSurface) -> Self {
+        Self::LayerSurface(l)
+    }
+}
+
 impl From<KeyboardFocusTarget> for PointerFocusTarget {
     fn from(target: KeyboardFocusTarget) -> Self {
         match target {
             KeyboardFocusTarget::Window(w) => Self::Window(w),
             KeyboardFocusTarget::Popup(p) => Self::Surface(p.wl_surface().clone()),
+            KeyboardFocusTarget::LayerSurface(l) => Self::Surface(l.wl_surface().clone()),
         }
     }
 }
@@ -153,6 +165,9 @@ macro_rules! delegate_to_surface {
             }
             Self::Popup(p) => {
                 <WlSurface as KeyboardTarget<State>>::$method(p.wl_surface(), $($arg),*);
+            }
+            Self::LayerSurface(l) => {
+                <WlSurface as KeyboardTarget<State>>::$method(l.wl_surface(), $($arg),*);
             }
         }
     };

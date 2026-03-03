@@ -5,12 +5,13 @@ use smithay::{
         AbsolutePositionEvent, Axis, ButtonState, Event, InputBackend, InputEvent, KeyState, KeyboardKeyEvent,
         PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
     },
-    desktop::{Window, WindowSurfaceType},
+    desktop::{Window, WindowSurfaceType, layer_map_for_output},
     input::{
         keyboard::FilterResult,
         pointer::{AxisFrame, ButtonEvent, MotionEvent},
     },
-    utils::{Logical, Point, SERIAL_COUNTER, Serial},
+    utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Serial},
+    wayland::shell::wlr_layer::Layer as WlrLayer,
 };
 
 use crate::{
@@ -18,6 +19,17 @@ use crate::{
     focus::PointerFocusTarget,
     state::State,
 };
+
+/// Linux input event code for the left mouse button (`BTN_LEFT`).
+pub(crate) const BTN_LEFT: u32 = 0x110;
+/// Linux input event code for the right mouse button (`BTN_RIGHT`).
+const BTN_RIGHT: u32 = 0x111;
+/// Maximum elapsed time between two clicks to count as a double-click.
+const DOUBLE_CLICK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(400);
+/// Logical scroll pixels per discrete scroll notch.
+const SCROLL_PIXELS_PER_NOTCH: f64 = 3.0;
+/// High-resolution scroll units per discrete notch (v120 standard).
+const V120_UNITS_PER_NOTCH: f64 = 120.0;
 
 /// Process input events from any backend.
 pub fn process_input_event<B: InputBackend>(state: &mut State, event: InputEvent<B>) {
@@ -29,7 +41,42 @@ pub fn process_input_event<B: InputBackend>(state: &mut State, event: InputEvent
         }
         InputEvent::PointerButton { event } => handle_pointer_button::<B>(state, &event),
         InputEvent::PointerAxis { event } => handle_pointer_axis::<B>(state, &event),
-        _ => {}
+        _ => {
+            tracing::debug!("unhandled input event (touch, tablet, gesture, or device hotplug)");
+        }
+    }
+}
+
+/// Release all currently pressed keys and pointer buttons.
+///
+/// Called when the winit host window loses focus.  The host window manager
+/// (e.g. GNOME Shell) intercepts key combos like Alt+Tab, swallowing the
+/// release events.  Releasing immediately on focus-loss ensures Wayland
+/// clients inside the compositor see correct modifier/button state right
+/// away instead of remaining stuck until focus returns.
+pub fn release_all_pressed_inputs(state: &mut State) {
+    // --- Keyboard keys ---
+    let keyboard = state.keyboard();
+    let pressed_keys = keyboard.pressed_keys();
+    if !pressed_keys.is_empty() {
+        tracing::info!(count = pressed_keys.len(), "releasing stuck keys on focus loss");
+        for key_code in pressed_keys {
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.input::<(), _>(state, key_code, KeyState::Released, serial, 0, |_, _, _| FilterResult::Forward);
+        }
+    }
+
+    // --- Pointer buttons ---
+    let pressed_buttons: Vec<u32> = state.pressed_buttons.drain(..).collect();
+    if !pressed_buttons.is_empty() {
+        tracing::info!(count = pressed_buttons.len(), "releasing stuck pointer buttons on focus loss");
+        let pointer = state.pointer();
+        for button in pressed_buttons {
+            let serial = SERIAL_COUNTER.next_serial();
+            pointer.button(state, &ButtonEvent { serial, time: 0, button, state: ButtonState::Released });
+        }
+        let pointer = state.pointer();
+        pointer.frame(state);
     }
 }
 
@@ -39,7 +86,7 @@ fn handle_keyboard<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEve
     let key_code = event.key_code();
     let key_state: KeyState = event.state();
 
-    let keyboard = state.seat.get_keyboard().unwrap();
+    let keyboard = state.keyboard();
     tracing::debug!(key_code = key_code.raw(), ?key_state, "keyboard event");
     keyboard.input::<(), _>(state, key_code, key_state, serial, time, |_, _, _| FilterResult::Forward);
 }
@@ -53,7 +100,7 @@ fn handle_pointer_motion<B: InputBackend>(state: &mut State, event: &B::PointerM
     update_cursor_shape(state);
 
     let under = surface_under(state);
-    let pointer = state.seat.get_pointer().unwrap();
+    let pointer = state.pointer();
     pointer.motion(state, under, &MotionEvent { location: state.pointer_location, serial, time: event.time_msec() });
     pointer.frame(state);
 }
@@ -64,21 +111,43 @@ fn handle_pointer_motion_absolute<B: InputBackend>(state: &mut State, event: &B:
     // Use combined output bounds so absolute events span all monitors.
     let combined_geo = state.combined_output_geometry();
     let pos = event.position_transformed(combined_geo.size);
+    // For absolute events (winit backend), the host cursor IS the truth.
+    // Do NOT clamp to outputs — doing so would create a disconnect between
+    // the visual host cursor and the logical pointer position, breaking
+    // subsequent interactions (e.g. can't click on a window a second time).
+    // Dead-zone handling for windows is done in the move grab instead.
     state.pointer_location = (pos.x + f64::from(combined_geo.loc.x), pos.y + f64::from(combined_geo.loc.y)).into();
 
     update_cursor_shape(state);
 
     let under = surface_under(state);
     tracing::trace!(x = pos.x, y = pos.y, has_target = under.is_some(), "pointer motion absolute",);
-    let pointer = state.seat.get_pointer().unwrap();
+    let pointer = state.pointer();
     pointer.motion(state, under, &MotionEvent { location: state.pointer_location, serial, time: event.time_msec() });
     pointer.frame(state);
 }
 
 fn handle_pointer_button<B: InputBackend>(state: &mut State, event: &B::PointerButtonEvent) {
-    let serial = SERIAL_COUNTER.next_serial();
     let button = event.button_code();
     let button_state = event.state();
+    let time = event.time_msec();
+    process_pointer_button(state, button, button_state, time);
+}
+
+/// Core pointer button logic shared by backend input events and virtual
+/// pointer (VNC / remote input).
+///
+/// Handles decoration hit-testing, window focus/raise, titlebar buttons,
+/// context menus, and forwarding the event to the Wayland seat.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn process_pointer_button(state: &mut State, button: u32, button_state: ButtonState, time: u32) {
+    // Track pressed buttons for focus-loss cleanup.
+    match button_state {
+        ButtonState::Pressed => state.pressed_buttons.push(button),
+        ButtonState::Released => state.pressed_buttons.retain(|&b| b != button),
+    }
+
+    let serial = SERIAL_COUNTER.next_serial();
 
     tracing::debug!(
         button,
@@ -113,7 +182,7 @@ fn handle_pointer_button<B: InputBackend>(state: &mut State, event: &B::PointerB
             // fall through to normal handling so the click reaches the target.
         }
 
-        let pointer = state.seat.get_pointer().unwrap();
+        let pointer = state.pointer();
         if !pointer.is_grabbed() {
             // Unified front-to-back hit test — the first window whose full
             // bounds contain the pointer owns the click.  This prevents
@@ -121,7 +190,7 @@ fn handle_pointer_button<B: InputBackend>(state: &mut State, event: &B::PointerB
             // a background window's decorations.
             match decorations::pointer_hit_test(&state.space, state.pointer_location) {
                 PointerHitResult::Ssd(window, focus) if focus.is_resize() => {
-                    let keyboard = state.seat.get_keyboard().unwrap();
+                    let keyboard = state.keyboard();
                     keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(window.clone())), serial);
                     state.space.raise_element(&window, true);
                     crate::grabs::handle_resize_request(state, &state.seat.clone(), &window, focus, serial);
@@ -129,7 +198,6 @@ fn handle_pointer_button<B: InputBackend>(state: &mut State, event: &B::PointerB
                 }
                 PointerHitResult::Ssd(window, Focus::Header) => {
                     // Right-click on the header → open context menu
-                    const BTN_RIGHT: u32 = 0x111;
                     if button == BTN_RIGHT {
                         open_titlebar_context_menu(state, &window, serial);
                         return;
@@ -141,52 +209,85 @@ fn handle_pointer_button<B: InputBackend>(state: &mut State, event: &B::PointerB
                     let deco_click =
                         decorations::titlebar_button_hit_test(state.pointer_location, titlebar_loc, client_size)
                             .unwrap_or(decorations::DecorationClick::TitleBar);
-                    handle_decoration_click(state, &window, deco_click, serial, button);
+
+                    // Buttons (Close/Maximize/Minimize): defer action to
+                    // release so the user can cancel by moving the pointer
+                    // away.  TitleBar (move / double-click) triggers
+                    // immediately on press.
+                    match deco_click {
+                        decorations::DecorationClick::Close
+                        | decorations::DecorationClick::Maximize
+                        | decorations::DecorationClick::Minimize => {
+                            // Focus + raise immediately so the window feels
+                            // responsive, but defer the actual action.
+                            let keyboard = state.keyboard();
+                            keyboard.set_focus(
+                                state,
+                                Some(crate::focus::KeyboardFocusTarget::Window(window.clone())),
+                                serial,
+                            );
+                            state.space.raise_element(&window, true);
+                            state.pressed_titlebar_button = Some((window, deco_click));
+                        }
+                        decorations::DecorationClick::TitleBar => {
+                            handle_decoration_click(state, &window, deco_click, serial, button);
+                        }
+                    }
                     return;
                 }
                 PointerHitResult::Ssd(_, _) => {
-                    // Unreachable — all Focus variants are either resize or Header.
+                    // Exhaustive: all Focus variants are covered above (resize guard + Header).
                 }
                 PointerHitResult::ClientArea(window, _window_loc) => {
                     tracing::debug!("pointer button press — setting keyboard focus");
-                    let keyboard = state.seat.get_keyboard().unwrap();
+                    let keyboard = state.keyboard();
                     keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(window.clone())), serial);
                     state.space.raise_element(&window, true);
                 }
                 PointerHitResult::Empty => {
-                    // If there are minimized windows and no visible window was
-                    // clicked, restore the most recently minimized one.
-                    if let Some((window, pos)) = state.minimized_windows.pop() {
-                        state.space.map_element(window.clone(), pos, true);
-                        let keyboard = state.seat.get_keyboard().unwrap();
-                        keyboard.set_focus(
-                            state,
-                            Some(crate::focus::KeyboardFocusTarget::Window(window.clone())),
-                            serial,
-                        );
-                        state.space.raise_element(&window, true);
-                        tracing::debug!("restored minimized window");
-                    } else {
-                        tracing::debug!("pointer button press — no window under cursor");
-                    }
+                    tracing::debug!("pointer button press — no window under cursor");
                 }
             }
         }
     }
 
-    let pointer = state.seat.get_pointer().unwrap();
-    pointer.button(state, &ButtonEvent { button, state: button_state, serial, time: event.time_msec() });
+    // -- Button release: execute deferred titlebar button action ---------------
+    if button_state == ButtonState::Released
+        && let Some((window, pending_click)) = state.pressed_titlebar_button.take()
+    {
+        // Only fire the action if the pointer is still over the *same*
+        // button.  If the user moved the pointer away, the click is
+        // cancelled — standard UI behaviour.
+        let still_over_same = (|| {
+            let window_loc = state.space.element_location(&window)?;
+            let client_size = window.geometry().size;
+            let titlebar_loc = window_loc - Point::from((0, decorations::TITLEBAR_HEIGHT));
+            decorations::titlebar_button_hit_test(state.pointer_location, titlebar_loc, client_size)
+        })()
+        .is_some_and(|hit| hit == pending_click);
+
+        if still_over_same {
+            handle_decoration_click(state, &window, pending_click, serial, button);
+        }
+        // Either way, the pending state is consumed (already taken above).
+        // Don't forward this release to the client — it was decoration-only.
+        return;
+    }
+
+    let pointer = state.pointer();
+    pointer.button(state, &ButtonEvent { button, state: button_state, serial, time });
     pointer.frame(state);
 }
 
 #[allow(clippy::cast_possible_truncation)]
 fn handle_pointer_axis<B: InputBackend>(state: &mut State, event: &B::PointerAxisEvent) {
     let source = event.source();
-    let horizontal_amount = event
-        .amount(Axis::Horizontal)
-        .unwrap_or_else(|| event.amount_v120(Axis::Horizontal).unwrap_or(0.0) * 3.0 / 120.0);
-    let vertical_amount =
-        event.amount(Axis::Vertical).unwrap_or_else(|| event.amount_v120(Axis::Vertical).unwrap_or(0.0) * 3.0 / 120.0);
+    let horizontal_amount = event.amount(Axis::Horizontal).unwrap_or_else(|| {
+        event.amount_v120(Axis::Horizontal).unwrap_or(0.0) * SCROLL_PIXELS_PER_NOTCH / V120_UNITS_PER_NOTCH
+    });
+    let vertical_amount = event.amount(Axis::Vertical).unwrap_or_else(|| {
+        event.amount_v120(Axis::Vertical).unwrap_or(0.0) * SCROLL_PIXELS_PER_NOTCH / V120_UNITS_PER_NOTCH
+    });
 
     let mut frame = AxisFrame::new(event.time_msec()).source(source);
 
@@ -203,7 +304,7 @@ fn handle_pointer_axis<B: InputBackend>(state: &mut State, event: &B::PointerAxi
         }
     }
 
-    let pointer = state.seat.get_pointer().unwrap();
+    let pointer = state.pointer();
     pointer.axis(state, frame);
     pointer.frame(state);
 }
@@ -215,7 +316,7 @@ fn handle_pointer_axis<B: InputBackend>(state: &mut State, event: &B::PointerAxi
 /// directly to a cursor shape via [`Focus::cursor_shape()`].  Because the
 /// hit-test iterates front-to-back, a foreground CSD window correctly blocks
 /// resize-cursor detection on background SSD windows.
-fn update_cursor_shape(state: &mut State) {
+pub(crate) fn update_cursor_shape(state: &mut State) {
     // Don't override cursor during an active grab (move/resize in progress)
     if state.seat.get_pointer().is_some_and(|p| p.is_grabbed()) {
         return;
@@ -227,13 +328,13 @@ fn update_cursor_shape(state: &mut State) {
     };
 }
 
-/// Clamp the pointer location to the combined output bounds.
-fn clamp_pointer_location(state: &mut State) {
-    let bounds = state.combined_output_geometry();
-    state.pointer_location.x =
-        state.pointer_location.x.clamp(f64::from(bounds.loc.x), f64::from(bounds.loc.x + bounds.size.w) - 1.0);
-    state.pointer_location.y =
-        state.pointer_location.y.clamp(f64::from(bounds.loc.y), f64::from(bounds.loc.y + bounds.size.h) - 1.0);
+/// Clamp the pointer location to the actual output coverage area.
+///
+/// For non-rectangular multi-monitor layouts (e.g. L-shaped), the pointer
+/// is snapped to the nearest output boundary rather than the rectangular
+/// bounding box.  This prevents the cursor from entering dead zones.
+pub(crate) fn clamp_pointer_location(state: &mut State) {
+    state.pointer_location = state.clamp_to_outputs(state.pointer_location);
 }
 
 /// Handle a click on a window decoration element.
@@ -250,7 +351,7 @@ fn handle_decoration_click(
     tracing::debug!(?click, "decoration click");
 
     // Raise and focus the window
-    let keyboard = state.seat.get_keyboard().unwrap();
+    let keyboard = state.keyboard();
     keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(window.clone())), serial);
     state.space.raise_element(window, true);
 
@@ -261,51 +362,20 @@ fn handle_decoration_click(
             if let Some(toplevel) = window.toplevel() {
                 toplevel.send_close();
             }
-            if let Some(x11) = window.x11_surface() {
-                let _ = x11.close();
+            if let Some(x11) = window.x11_surface()
+                && let Err(err) = x11.close()
+            {
+                tracing::warn!(%err, "failed to close X11 window");
             }
         }
         DecorationClick::Maximize => {
             if let Some(toplevel) = window.toplevel() {
                 let is_maximized = toplevel.current_state().states.contains(xdg_toplevel::State::Maximized);
                 if is_maximized {
-                    // Unmaximize — restore the saved position and remove the maximized state
-                    let restore_pos = state
-                        .pre_maximize_positions
-                        .iter()
-                        .position(|(w, _)| w == window)
-                        .map(|i| state.pre_maximize_positions.remove(i).1);
-
-                    toplevel.with_pending_state(|s| {
-                        s.states.unset(xdg_toplevel::State::Maximized);
-                        s.size = None;
-                    });
-
-                    if let Some(pos) = restore_pos {
-                        state.space.map_element(window.clone(), pos, true);
-                    }
+                    crate::handlers::xdg_shell::do_unmaximize(state, toplevel);
                 } else {
-                    // Save the current position before maximizing
-                    if let Some(current_loc) = state.space.element_location(window) {
-                        state.pre_maximize_positions.retain(|(w, _)| w != window);
-                        state.pre_maximize_positions.push((window.clone(), current_loc));
-                    }
-
-                    // Maximize — set to output size minus titlebar
-                    let output_geo = state.output_geometry_for_window(window);
-                    toplevel.with_pending_state(|s| {
-                        s.states.set(xdg_toplevel::State::Maximized);
-                        s.size =
-                            Some((output_geo.size.w, output_geo.size.h - crate::decorations::TITLEBAR_HEIGHT).into());
-                    });
-                    // Move to the output's top-left (below titlebar)
-                    state.space.map_element(
-                        window.clone(),
-                        (output_geo.loc.x, output_geo.loc.y + crate::decorations::TITLEBAR_HEIGHT),
-                        true,
-                    );
+                    crate::handlers::xdg_shell::do_maximize(state, toplevel);
                 }
-                toplevel.send_configure();
             }
             if window.toplevel().is_none()
                 && let Some(x11) = window.x11_surface()
@@ -314,29 +384,15 @@ fn handle_decoration_click(
             }
         }
         DecorationClick::Minimize => {
-            // Save the window's current position and unmap it from the space.
-            let pos = state.space.element_location(window).unwrap_or_default();
-            state.minimized_windows.push((window.clone(), pos));
-            state.space.unmap_elem(window);
-
-            // Move keyboard focus to the next visible window (if any).
-            let next_window = state.space.elements().next_back().cloned();
-            if let Some(next) = next_window {
-                let keyboard = state.seat.get_keyboard().unwrap();
-                keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(next.clone())), serial);
-                state.space.raise_element(&next, true);
-            } else {
-                let keyboard = state.seat.get_keyboard().unwrap();
-                keyboard.set_focus(state, Option::<crate::focus::KeyboardFocusTarget>::None, serial);
-            }
-
+            // Minimize the window, move focus, and notify foreign-toplevel clients.
+            crate::handlers::foreign_toplevel::minimize_window(state, window);
             tracing::debug!("window minimized");
         }
         DecorationClick::TitleBar => {
             // Double-click on titlebar toggles maximize.
             let now = std::time::Instant::now();
             let is_double_click =
-                state.last_titlebar_click.is_some_and(|last| now.duration_since(last).as_millis() < 400);
+                state.last_titlebar_click.is_some_and(|last| now.duration_since(last) < DOUBLE_CLICK_TIMEOUT);
 
             if is_double_click {
                 state.last_titlebar_click = None;
@@ -365,9 +421,13 @@ fn maximize_x11_window(state: &mut State, window: &Window, x11: &smithay::xwayla
             .position(|(w, _)| w == window)
             .map(|i| state.pre_maximize_positions.remove(i).1);
 
-        let _ = x11.set_maximized(false);
+        if let Err(err) = x11.set_maximized(false) {
+            tracing::warn!(%err, "failed to unmaximize X11 window");
+        }
         // configure(None) lets the client choose its own size again
-        let _ = x11.configure(None);
+        if let Err(err) = x11.configure(None) {
+            tracing::warn!(%err, "failed to configure X11 window after unmaximize");
+        }
 
         if let Some(pos) = restore_pos {
             state.space.map_element(window.clone(), pos, true);
@@ -379,18 +439,22 @@ fn maximize_x11_window(state: &mut State, window: &Window, x11: &smithay::xwayla
             state.pre_maximize_positions.push((window.clone(), current_loc));
         }
 
-        // Maximize to output size minus titlebar
-        let output_geo = state.output_geometry_for_window(window);
+        // Maximize to usable area minus titlebar
+        let usable_geo = state.usable_geometry_for_window(window);
         let max_size =
-            smithay::utils::Size::from((output_geo.size.w, output_geo.size.h - crate::decorations::TITLEBAR_HEIGHT));
-        let _ = x11.set_maximized(true);
-        let _ = x11.configure(smithay::utils::Rectangle::new(
-            (output_geo.loc.x, output_geo.loc.y + crate::decorations::TITLEBAR_HEIGHT).into(),
+            smithay::utils::Size::from((usable_geo.size.w, usable_geo.size.h - crate::decorations::TITLEBAR_HEIGHT));
+        if let Err(err) = x11.set_maximized(true) {
+            tracing::warn!(%err, "failed to maximize X11 window");
+        }
+        if let Err(err) = x11.configure(smithay::utils::Rectangle::new(
+            (usable_geo.loc.x, usable_geo.loc.y + crate::decorations::TITLEBAR_HEIGHT).into(),
             max_size,
-        ));
+        )) {
+            tracing::warn!(%err, "failed to configure X11 window for maximize");
+        }
         state.space.map_element(
             window.clone(),
-            (output_geo.loc.x, output_geo.loc.y + crate::decorations::TITLEBAR_HEIGHT),
+            (usable_geo.loc.x, usable_geo.loc.y + crate::decorations::TITLEBAR_HEIGHT),
             true,
         );
     }
@@ -398,15 +462,27 @@ fn maximize_x11_window(state: &mut State, window: &Window, x11: &smithay::xwayla
 
 /// Find the surface under the current pointer location.
 ///
-/// Uses the unified [`pointer_hit_test`](decorations::pointer_hit_test) to
-/// determine which window owns the pointer position.  If the point falls on
-/// an SSD decoration area (title bar or resize border), returns `None` so
-/// that the client does not receive pointer events for compositor-owned
-/// regions.
+/// Hit-test order (front to back):
+/// 1. Overlay layer surfaces
+/// 2. Top layer surfaces
+/// 3. Windows (with SSD decoration handling)
+/// 4. Bottom layer surfaces
+/// 5. Background layer surfaces
 ///
 /// For client-area hits, resolves the specific `WlSurface` (subsurface, popup,
 /// or toplevel) under the cursor.
-fn surface_under(state: &State) -> Option<(PointerFocusTarget, Point<f64, Logical>)> {
+pub(crate) fn surface_under(state: &State) -> Option<(PointerFocusTarget, Point<f64, Logical>)> {
+    let output = state.output_at_point(state.pointer_location);
+    let output_geo = state.space.output_geometry(output).unwrap_or_default();
+
+    // Check Overlay and Top layer surfaces first (above windows)
+    if let Some(hit) = layer_surface_under(output, output_geo, state.pointer_location, WlrLayer::Overlay)
+        .or_else(|| layer_surface_under(output, output_geo, state.pointer_location, WlrLayer::Top))
+    {
+        return Some(hit);
+    }
+
+    // Check windows (existing SSD-aware hit-test)
     match decorations::pointer_hit_test(&state.space, state.pointer_location) {
         PointerHitResult::ClientArea(window, render_loc) => {
             let point_in_window = state.pointer_location - render_loc.to_f64();
@@ -426,22 +502,55 @@ fn surface_under(state: &State) -> Option<(PointerFocusTarget, Point<f64, Logica
                     surface_global_y = surface_global.y,
                     "surface_under: resolved surface",
                 );
-                Some((PointerFocusTarget::Surface(surface), surface_global.to_f64()))
-            } else {
-                tracing::trace!(
-                    pointer_x = state.pointer_location.x,
-                    pointer_y = state.pointer_location.y,
-                    render_loc_x = render_loc.x,
-                    render_loc_y = render_loc.y,
-                    "surface_under: fallback to window target",
-                );
-                Some((PointerFocusTarget::Window(window), render_loc.to_f64()))
+                return Some((PointerFocusTarget::Surface(surface), surface_global.to_f64()));
             }
+            tracing::trace!(
+                pointer_x = state.pointer_location.x,
+                pointer_y = state.pointer_location.y,
+                render_loc_x = render_loc.x,
+                render_loc_y = render_loc.y,
+                "surface_under: fallback to window target",
+            );
+            return Some((PointerFocusTarget::Window(window), render_loc.to_f64()));
         }
-        // SSD decoration areas (title bar, resize border) or empty space
-        // → no client surface should receive pointer events.
-        _ => None,
+        PointerHitResult::Ssd(_, _) => {
+            // SSD decoration areas — compositor handles these, no client surface.
+            return None;
+        }
+        PointerHitResult::Empty => {}
     }
+
+    // Check Bottom and Background layer surfaces (below windows)
+    if let Some(hit) = layer_surface_under(output, output_geo, state.pointer_location, WlrLayer::Bottom)
+        .or_else(|| layer_surface_under(output, output_geo, state.pointer_location, WlrLayer::Background))
+    {
+        return Some(hit);
+    }
+
+    None
+}
+
+/// Hit-test a specific layer on the given output.
+///
+/// Returns the focus target and global surface location if a layer surface
+/// under the pointer is found on the requested layer.
+fn layer_surface_under(
+    output: &smithay::output::Output,
+    output_geo: Rectangle<i32, Logical>,
+    pointer: Point<f64, Logical>,
+    layer: WlrLayer,
+) -> Option<(PointerFocusTarget, Point<f64, Logical>)> {
+    let map = layer_map_for_output(output);
+    // Convert pointer to output-local coordinates
+    let point_in_output = pointer - output_geo.loc.to_f64();
+    let layer_surface = map.layer_under(layer, point_in_output)?;
+    let layer_geo = map.layer_geometry(layer_surface)?;
+
+    let point_in_layer = point_in_output - layer_geo.loc.to_f64();
+    let (surface, surface_offset) = layer_surface.surface_under(point_in_layer, WindowSurfaceType::ALL)?;
+
+    let surface_global = output_geo.loc + layer_geo.loc + surface_offset;
+    Some((PointerFocusTarget::Surface(surface), surface_global.to_f64()))
 }
 
 /// Open a right-click context menu on a window's SSD titlebar.
@@ -450,7 +559,7 @@ fn open_titlebar_context_menu(state: &mut State, window: &Window, serial: Serial
     use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 
     // Raise and focus the window
-    let keyboard = state.seat.get_keyboard().unwrap();
+    let keyboard = state.keyboard();
     keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(window.clone())), serial);
     state.space.raise_element(window, true);
 

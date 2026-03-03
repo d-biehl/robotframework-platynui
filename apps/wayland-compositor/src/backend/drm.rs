@@ -21,8 +21,12 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
+
+/// Event loop dispatch timeout — one frame period at ~60 FPS.
+const FRAME_DISPATCH_TIMEOUT: Duration = Duration::from_millis(16);
+/// Linux `ENODEV` errno value, returned when an input device cannot be opened.
+const ENODEV: i32 = 19;
 
 use smithay::{
     backend::{
@@ -42,16 +46,15 @@ use smithay::{
     },
     output::{Mode as OutputMode, Output, PhysicalProperties, Subpixel},
     reexports::{
-        calloop::{EventLoop, Interest, Mode as CalloopMode, PostAction, generic::Generic},
+        calloop::EventLoop,
         drm::control::{self, Device as ControlDevice, connector, crtc},
         input::Libinput,
         wayland_server::Display,
     },
     utils::{Buffer as BufferCoords, Physical, Size},
-    wayland::socket::ListeningSocketSource,
 };
 
-use crate::{CompositorArgs, client::ClientState, config::CompositorConfig, state::State};
+use crate::{CompositorArgs, config::CompositorConfig, state::State};
 
 /// Per-output rendering state for a DRM connector.
 pub struct DrmOutputState {
@@ -103,13 +106,7 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     })?;
     tracing::info!(seat = session.seat(), "libseat session opened");
 
-    // Create the listening socket
-    let listening_socket = if let Some(ref name) = args.socket_name {
-        ListeningSocketSource::with_name(name)?
-    } else {
-        ListeningSocketSource::new_auto()?
-    };
-    let socket_name = listening_socket.socket_name().to_string_lossy().into_owned();
+    let (listening_socket, socket_name) = super::create_listening_socket(args)?;
 
     // Use a default output size — actual size comes from connected monitors
     let default_size: Size<i32, Physical> = (args.width.cast_signed(), args.height.cast_signed()).into();
@@ -125,37 +122,14 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
         crate::resolve_xkb_config(args),
         args.outputs,
         args.output_layout,
+        args.scale,
         crate::security::SecurityPolicy::from_args(args.restrict_protocols.as_deref()),
         config,
     );
     state.backend_name = "drm";
 
-    // Register the Display as a calloop event source
-    event_loop.handle().insert_source(
-        Generic::new(display, Interest::READ, CalloopMode::Level),
-        |_, display, state| {
-            #[allow(unsafe_code)]
-            let result = unsafe { display.get_mut().dispatch_clients(state) };
-            match result {
-                Ok(_) => Ok(PostAction::Continue),
-                Err(err) => {
-                    tracing::error!(%err, "I/O error dispatching Wayland clients");
-                    state.running = false;
-                    Err(err)
-                }
-            }
-        },
-    )?;
-
-    // Accept new client connections
-    event_loop.handle().insert_source(listening_socket, |client_stream, (), state| {
-        if let Err(err) = state.display_handle.insert_client(client_stream, Arc::new(ClientState::default())) {
-            tracing::warn!(%err, "failed to insert new client");
-        }
-    })?;
-
-    // Set WAYLAND_DISPLAY for child processes
-    crate::environment::set_wayland_display(&socket_name);
+    // Register Wayland display + listening socket + set WAYLAND_DISPLAY
+    super::register_wayland_sources(&event_loop.handle(), display, listening_socket, &socket_name)?;
 
     // Initialize libinput for keyboard/mouse/touch input
     let mut libinput_context = Libinput::new_with_udev(LibseatInterface(session.clone()));
@@ -191,10 +165,25 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
         if state.drm_backend.is_none() {
             match initialize_drm_device(&mut session, &event_loop, &state, path) {
                 Ok(backend_state) => {
-                    // Map DRM-discovered outputs into the compositor space
+                    // Map DRM-discovered outputs side-by-side (horizontal layout).
+                    // Each output is placed to the right of the previous one.
+                    let mut next_x: i32 = 0;
                     for output_state in backend_state.outputs.values() {
-                        state.space.map_output(&output_state.output, (0, 0));
+                        // Set the protocol-level position so clients know the
+                        // output location in global coordinate space.
+                        output_state.output.change_current_state(None, None, None, Some((next_x, 0).into()));
+                        state.space.map_output(&output_state.output, (next_x, 0));
                         state.outputs.push(output_state.output.clone());
+
+                        // Advance the x position by this output's logical width.
+                        let mode = output_state.output.current_mode().unwrap_or(smithay::output::Mode {
+                            size: (1920, 1080).into(),
+                            refresh: crate::state::DEFAULT_REFRESH_MHTZ,
+                        });
+                        let scale = output_state.output.current_scale().fractional_scale();
+                        #[allow(clippy::cast_possible_truncation)]
+                        let logical_w = (f64::from(mode.size.w) / scale).round() as i32;
+                        next_x += logical_w;
                     }
                     if let Some(first) = backend_state.outputs.values().next() {
                         state.output = first.output.clone();
@@ -227,49 +216,27 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
         }
     })?;
 
-    // Register signal handlers
-    let shutdown = crate::signals::ShutdownFlag::register()?;
-
-    if let Some(duration) = timeout {
-        crate::signals::register_watchdog(&event_loop.handle(), duration)?;
-    }
-
-    // Start XWayland if requested — readiness notification is deferred until XWayland is ready
-    let xwayland_requested = args.xwayland;
-
-    if args.xwayland {
-        state.print_env = args.print_env;
-        state.ready_fd = args.ready_fd;
-        state.exit_with_child = args.exit_with_child;
-        state.child_command.clone_from(&args.child_command);
-        state.xwayland_shell_state =
-            Some(smithay::wayland::xwayland_shell::XWaylandShellState::new::<State>(&state.display_handle));
-        state.start_xwayland();
-    }
-
-    // Set up test-control IPC socket (enabled by default, before readiness
-    // notification so PLATYNUI_CONTROL_SOCKET is available for --print-env
-    // and child processes)
-    if !args.no_control_socket {
-        match crate::control::setup_control_socket(&event_loop.handle(), &socket_name) {
-            Ok(control_path) => crate::environment::set_control_socket_env(&control_path),
-            Err(err) => tracing::warn!(%err, "failed to set up control socket"),
-        }
-    }
-
-    // Notify readiness and spawn child immediately if XWayland is not requested
-    if !xwayland_requested {
-        crate::ready::notify_ready(&socket_name, args.ready_fd, args.print_env);
-        state.exit_with_child = args.exit_with_child;
-        state.child_command.clone_from(&args.child_command);
-        state.spawn_child_if_requested();
-    }
+    // Register signal handlers, watchdog, XWayland, control socket, readiness
+    let shutdown = super::setup_services(&event_loop.handle(), &mut state, args, timeout)?;
 
     tracing::info!(backend = "drm", socket = %socket_name, "event loop starting");
 
     // Main event loop
     while state.running && !shutdown.is_set() {
-        event_loop.dispatch(Some(Duration::from_millis(16)), &mut state)?;
+        event_loop.dispatch(Some(FRAME_DISPATCH_TIMEOUT), &mut state)?;
+
+        // Handle output configuration changes from wlr-output-management.
+        // Reconfigure maximized/fullscreen windows for new logical dimensions.
+        // NOTE: DRM mode changes would need hardware reconfiguration — not yet
+        // implemented; only scale/position changes take effect immediately.
+        if state.output_config_changed {
+            state.output_config_changed = false;
+
+            // Notify output management clients (e.g. kanshi) about the change.
+            crate::handlers::output_management::notify_output_config_changed(&mut state);
+
+            state.reconfigure_windows_for_outputs();
+        }
 
         // Render on each DRM output (only when the session is active).
         // We temporarily take the backend out of state to avoid a double
@@ -281,25 +248,8 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
             state.drm_backend = Some(backend);
         }
 
-        // Send frame callbacks — use the output each window is on.
-        let now = state.frame_clock_now();
-        for window in state.space.elements() {
-            let output = state
-                .output_at_point({
-                    let loc = state.space.element_location(window).unwrap_or_default();
-                    let size = window.geometry().size;
-                    (f64::from(loc.x + size.w / 2), f64::from(loc.y + size.h / 2)).into()
-                })
-                .clone();
-            window.send_frame(&output, now, Some(Duration::ZERO), |_, _| Some(output.clone()));
-        }
-
-        state.space.refresh();
-        state.popup_manager.cleanup();
-
-        if let Err(err) = state.display_handle.flush_clients() {
-            tracing::warn!(%err, "failed to flush Wayland clients");
-        }
+        state.send_frame_callbacks();
+        state.flush_and_refresh();
     }
 
     tracing::info!("compositor shutting down");
@@ -330,12 +280,12 @@ fn render_drm_outputs(backend: &mut DrmBackendState, state: &mut State) {
         }
 
         let output = output_state.output.clone();
-        let render_elements = crate::render::collect_render_elements(&mut backend.renderer, state, &output);
+        let render_elements = crate::render::collect_render_elements(&mut backend.renderer, state, &output, true);
 
         match output_state.drm_compositor.render_frame::<_, _>(
             &mut backend.renderer,
             &render_elements,
-            [0.1, 0.1, 0.1, 1.0],
+            crate::state::BACKGROUND_COLOR,
             FrameFlags::DEFAULT,
         ) {
             Ok(result) => {
@@ -364,8 +314,7 @@ impl ::smithay::reexports::input::LibinputInterface for LibseatInterface {
         let oflags = OFlags::from_bits_truncate(flags.unsigned_abs());
         self.0.open(path, oflags).map_err(|err| {
             tracing::warn!(%err, ?path, "failed to open input device");
-            // ENODEV = 19 on Linux
-            19
+            ENODEV
         })
     }
 
@@ -419,7 +368,9 @@ fn initialize_drm_device(
             if let Some(ref mut backend) = state.drm_backend
                 && let Some(output_state) = backend.outputs.get_mut(&crtc)
             {
-                output_state.drm_compositor.frame_submitted().ok();
+                if let Err(err) = output_state.drm_compositor.frame_submitted() {
+                    tracing::warn!(?crtc, %err, "frame_submitted failed");
+                }
                 output_state.pending_frame = false;
             }
         }

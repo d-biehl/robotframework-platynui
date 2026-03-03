@@ -221,32 +221,26 @@ fn execute_command(cli: &Cli, stream: &UnixStream) -> Result<(), Box<dyn std::er
 
 /// Build the JSON command string for a given CLI command.
 fn build_command_json(command: &Command) -> String {
-    match command {
-        Command::Status | Command::Ping => r#"{"command":"status"}"#.to_string(),
-        Command::ListWindows => r#"{"command":"list_windows"}"#.to_string(),
-        Command::GetWindow { window } => {
-            format!(r#"{{"command":"get_window",{}}}"#, window_selector_json(window))
-        }
-        Command::Focus { window } => {
-            format!(r#"{{"command":"focus_window",{}}}"#, window_selector_json(window))
-        }
-        Command::Close { window } => {
-            format!(r#"{{"command":"close_window",{}}}"#, window_selector_json(window))
-        }
-        Command::Screenshot { .. } => r#"{"command":"screenshot"}"#.to_string(),
-        Command::Shutdown => r#"{"command":"shutdown"}"#.to_string(),
-    }
+    let value = match command {
+        Command::Status | Command::Ping => serde_json::json!({"command": "status"}),
+        Command::ListWindows => serde_json::json!({"command": "list_windows"}),
+        Command::GetWindow { window } => window_command_json("get_window", window),
+        Command::Focus { window } => window_command_json("focus_window", window),
+        Command::Close { window } => window_command_json("close_window", window),
+        Command::Screenshot { .. } => serde_json::json!({"command": "screenshot"}),
+        Command::Shutdown => serde_json::json!({"command": "shutdown"}),
+    };
+    value.to_string()
 }
 
-/// Convert a window identifier string to JSON selector fields.
+/// Build a JSON command with a window selector (id, `app_id`, or title).
 ///
 /// Numeric values → `"id":<n>`, strings → `"app_id":"...","title":"..."`.
-fn window_selector_json(window: &str) -> String {
+fn window_command_json(command: &str, window: &str) -> serde_json::Value {
     if let Ok(id) = window.parse::<u64>() {
-        format!(r#""id":{id}"#)
+        serde_json::json!({"command": command, "id": id})
     } else {
-        let escaped = window.replace('\\', "\\\\").replace('"', "\\\"");
-        format!(r#""app_id":"{escaped}","title":"{escaped}""#)
+        serde_json::json!({"command": command, "app_id": window, "title": window})
     }
 }
 

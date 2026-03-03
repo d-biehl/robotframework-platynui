@@ -29,35 +29,58 @@ pub enum OutputLayout {
 pub struct OutputConfig {
     /// Name of the output (e.g. "PLATYNUI-1").
     pub name: String,
-    /// Resolution in pixels.
+    /// Resolution in pixels (physical).
     pub size: Size<i32, Physical>,
     /// Refresh rate in millihertz.
     pub refresh: i32,
-    /// Position in the global coordinate space (set during layout).
+    /// Position in the global logical coordinate space.
     pub position: (i32, i32),
+    /// Scale factor (e.g. `1.0`, `1.5`, `2.0`). Default: `1.0`.
+    pub scale: f64,
 }
 
-/// Create output configurations for `count` monitors.
+/// Create output configurations for `count` monitors with the given scale.
 ///
-/// All outputs share the same resolution (from the CLI `--width`/`--height`).
-/// They are arranged according to `layout`.
+/// All outputs share the same resolution (from the CLI `--width`/`--height`) and
+/// scale factor (`--scale`).  Positions use **logical** coordinates: each output
+/// occupies `width/scale × height/scale` logical pixels, so adjacent outputs tile
+/// without gaps regardless of the scale factor.
 ///
 /// # Panics
 ///
 /// Panics if `width` or `height` exceed `i32::MAX`, or if `count` exceeds `i32::MAX`.
 #[must_use]
-pub fn create_output_configs(count: u32, width: u32, height: u32, layout: OutputLayout) -> Vec<OutputConfig> {
+#[allow(clippy::cast_possible_truncation)]
+pub fn create_output_configs(
+    count: u32,
+    width: u32,
+    height: u32,
+    layout: OutputLayout,
+    scale: f64,
+) -> Vec<OutputConfig> {
     let w = i32::try_from(width).expect("width exceeds i32::MAX");
     let h = i32::try_from(height).expect("height exceeds i32::MAX");
+    let effective_scale = if scale > 0.0 { scale } else { 1.0 };
+
+    // Logical size per output — the space each output occupies in the
+    // compositor's logical coordinate system.
+    let logical_w = (f64::from(w) / effective_scale).round() as i32;
+    let logical_h = (f64::from(h) / effective_scale).round() as i32;
 
     (0..count)
         .map(|i| {
             let idx = i32::try_from(i).expect("output count exceeds i32::MAX");
             let position = match layout {
-                OutputLayout::Horizontal => (idx * w, 0),
-                OutputLayout::Vertical => (0, idx * h),
+                OutputLayout::Horizontal => (idx * logical_w, 0),
+                OutputLayout::Vertical => (0, idx * logical_h),
             };
-            OutputConfig { name: format!("PLATYNUI-{}", i + 1), size: (w, h).into(), refresh: 60_000, position }
+            OutputConfig {
+                name: format!("PLATYNUI-{}", i + 1),
+                size: (w, h).into(),
+                refresh: crate::state::DEFAULT_REFRESH_MHTZ,
+                position,
+                scale: effective_scale,
+            }
         })
         .collect()
 }
@@ -82,7 +105,8 @@ pub fn create_outputs(configs: &[OutputConfig], dh: &DisplayHandle, space: &mut 
             );
 
             let mode = Mode { size: cfg.size, refresh: cfg.refresh };
-            output.change_current_state(Some(mode), None, None, Some(cfg.position.into()));
+            let scale = if cfg.scale > 0.0 { Some(smithay::output::Scale::Fractional(cfg.scale)) } else { None };
+            output.change_current_state(Some(mode), None, scale, Some(cfg.position.into()));
             output.set_preferred(mode);
             output.create_global::<State>(dh);
 
@@ -94,6 +118,7 @@ pub fn create_outputs(configs: &[OutputConfig], dh: &DisplayHandle, space: &mut 
                 y = cfg.position.1,
                 width = cfg.size.w,
                 height = cfg.size.h,
+                scale = cfg.scale,
                 "output created",
             );
 

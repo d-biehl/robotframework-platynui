@@ -14,6 +14,9 @@ use calloop::{
     timer::{TimeoutAction, Timer},
 };
 
+/// How often to check whether the child process has exited.
+const CHILD_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
 use crate::state::State;
 
 /// Spawn the child program with the compositor's environment.
@@ -59,33 +62,28 @@ pub fn monitor_child_exit(
     loop_handle: &LoopHandle<'static, State>,
     child: Child,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Check every 100ms — fast enough for CI, negligible overhead.
-    let timer = Timer::from_duration(std::time::Duration::from_millis(100));
+    // Check periodically — fast enough for CI, negligible overhead.
+    let timer = Timer::from_duration(CHILD_POLL_INTERVAL);
 
     loop_handle
         .insert_source(timer, {
             let mut child = child;
-            move |_deadline, (), state| {
-                match child.try_wait() {
-                    Ok(Some(status)) => {
-                        if status.success() {
-                            tracing::info!(code = 0, "child program exited successfully");
-                        } else {
-                            let code = status.code().unwrap_or(-1);
-                            tracing::warn!(code, "child program exited with error");
-                        }
-                        state.running = false;
-                        TimeoutAction::Drop
+            move |_deadline, (), state| match child.try_wait() {
+                Ok(Some(status)) => {
+                    if status.success() {
+                        tracing::info!(code = 0, "child program exited successfully");
+                    } else {
+                        let code = status.code().unwrap_or(-1);
+                        tracing::warn!(code, "child program exited with error");
                     }
-                    Ok(None) => {
-                        // Still running — check again shortly.
-                        TimeoutAction::ToDuration(std::time::Duration::from_millis(100))
-                    }
-                    Err(err) => {
-                        tracing::error!(%err, "failed to check child process status");
-                        state.running = false;
-                        TimeoutAction::Drop
-                    }
+                    state.running = false;
+                    TimeoutAction::Drop
+                }
+                Ok(None) => TimeoutAction::ToDuration(CHILD_POLL_INTERVAL),
+                Err(err) => {
+                    tracing::error!(%err, "failed to check child process status");
+                    state.running = false;
+                    TimeoutAction::Drop
                 }
             }
         })

@@ -29,23 +29,22 @@ use smithay::{
 /// Height of the title bar in logical pixels.
 pub const TITLEBAR_HEIGHT: i32 = 30;
 
-/// Width of each window button (close, maximize, minimize) in logical pixels.
-const BUTTON_WIDTH: i32 = 30;
-
-/// Padding between buttons in logical pixels.
-const BUTTON_PADDING: i32 = 4;
-
 /// Width of the invisible resize border around windows in logical pixels.
 pub const RESIZE_BORDER: i32 = 8;
 
 /// Visible border width around the window frame in logical pixels.
 const BORDER_WIDTH: i32 = 2;
 
-/// Border color for unfocused windows.
-const BORDER_COLOR: [f32; 4] = [0.35, 0.35, 0.40, 1.0];
-
-/// Border color for the focused window.
-const BORDER_COLOR_FOCUSED: [f32; 4] = [0.45, 0.50, 0.70, 1.0];
+/// Titlebar button width in logical pixels.
+pub(crate) const TITLEBAR_BTN_WIDTH: f64 = 26.0;
+/// Titlebar button height in logical pixels.
+pub(crate) const TITLEBAR_BTN_HEIGHT: f64 = 18.0;
+/// Gap between titlebar buttons in logical pixels.
+pub(crate) const TITLEBAR_BTN_GAP: f64 = 2.0;
+/// Right padding after the last titlebar button in logical pixels.
+pub(crate) const TITLEBAR_BTN_RIGHT_PAD: f64 = 6.0;
+/// Brightness increase (0–255) applied to button colors on hover.
+pub(crate) const HOVER_LIGHTEN_AMOUNT: u8 = 35;
 
 /// Check if a window should have server-side decorations.
 ///
@@ -121,8 +120,9 @@ pub struct TitlebarContextMenu {
 impl TitlebarContextMenu {
     /// Menu width in logical pixels.
     pub const WIDTH: i32 = 180;
-    /// Menu height in logical pixels (3 items × 26 + separator 9 + padding 2×4).
-    pub const HEIGHT: i32 = 95;
+    /// Menu height in logical pixels (items + separator + vertical padding).
+    #[allow(clippy::cast_possible_truncation)]
+    pub const HEIGHT: i32 = (Self::ITEM_HEIGHT * 3.0 + Self::SEPARATOR_HEIGHT + Self::PADDING_Y * 2.0) as i32;
 
     const ITEM_HEIGHT: f64 = 26.0;
     const PADDING_Y: f64 = 4.0;
@@ -276,26 +276,24 @@ impl Focus {
         }
     }
 
-    /// Convert a resize variant to the xdg\_toplevel `ResizeEdge` protocol enum.
+    /// Convert to an XDG resize edge.
     ///
-    /// # Panics
-    ///
-    /// Panics if called on `Focus::Header` (not a resize edge).
+    /// Returns `None` for `Focus::Header` which is not a resize edge.
     #[must_use]
     pub fn to_xdg_resize_edge(
         self,
-    ) -> smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge {
+    ) -> Option<smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge> {
         use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge as E;
         match self {
-            Self::ResizeTop => E::Top,
-            Self::ResizeBottom => E::Bottom,
-            Self::ResizeLeft => E::Left,
-            Self::ResizeRight => E::Right,
-            Self::ResizeTopLeft => E::TopLeft,
-            Self::ResizeTopRight => E::TopRight,
-            Self::ResizeBottomLeft => E::BottomLeft,
-            Self::ResizeBottomRight => E::BottomRight,
-            Self::Header => panic!("Focus::Header is not a resize edge"),
+            Self::ResizeTop => Some(E::Top),
+            Self::ResizeBottom => Some(E::Bottom),
+            Self::ResizeLeft => Some(E::Left),
+            Self::ResizeRight => Some(E::Right),
+            Self::ResizeTopLeft => Some(E::TopLeft),
+            Self::ResizeTopRight => Some(E::TopRight),
+            Self::ResizeBottomLeft => Some(E::BottomLeft),
+            Self::ResizeBottomRight => Some(E::BottomRight),
+            Self::Header => None,
         }
     }
 }
@@ -335,8 +333,11 @@ impl From<Focus> for CursorShape {
 /// Result of pointer hit-testing against all windows (front-to-back).
 #[derive(Debug, Clone)]
 pub enum PointerHitResult {
+    /// Pointer hit a server-side decoration zone (titlebar or resize border).
     Ssd(Window, Focus),
+    /// Pointer hit the client content area of a window.
     ClientArea(Window, Point<i32, Logical>),
+    /// No window under the pointer.
     Empty,
 }
 
@@ -382,6 +383,10 @@ pub fn pointer_hit_test(space: &smithay::desktop::Space<Window>, point: Point<f6
 }
 
 /// Hit-test within the title bar header to determine which button was clicked.
+///
+/// The button positions must match the egui layout in [`build_titlebar_ui`]:
+/// right-to-left with 6 px right padding, 26×18 px buttons, 2 px gap between
+/// them, centred vertically in the 30 px high title bar.
 #[must_use]
 pub fn titlebar_button_hit_test(
     point: Point<f64, Logical>,
@@ -400,18 +405,35 @@ pub fn titlebar_button_hit_test(
         return None;
     }
 
-    let close_x = w - f64::from(BUTTON_WIDTH + BUTTON_PADDING);
-    if x >= close_x {
+    // Button geometry — shared with ui.rs `build_titlebar_ui`.
+    let btn_w = TITLEBAR_BTN_WIDTH;
+    let btn_h = TITLEBAR_BTN_HEIGHT;
+    let btn_gap = TITLEBAR_BTN_GAP;
+    let right_pad = TITLEBAR_BTN_RIGHT_PAD;
+    let btn_y = (f64::from(TITLEBAR_HEIGHT) - btn_h) / 2.0;
+
+    // Vertical check — only match when inside the button row height.
+    if y < btn_y || y >= btn_y + btn_h {
+        // Still in the titlebar, just not on a button → drag area.
+        return Some(DecorationClick::TitleBar);
+    }
+
+    // Right-to-left: Close, Maximize, Minimize.
+    let close_right = w - right_pad;
+    let close_left = close_right - btn_w;
+    if x >= close_left && x < close_right {
         return Some(DecorationClick::Close);
     }
 
-    let maximize_x = close_x - f64::from(BUTTON_WIDTH + BUTTON_PADDING);
-    if x >= maximize_x {
+    let max_right = close_left - btn_gap;
+    let max_left = max_right - btn_w;
+    if x >= max_left && x < max_right {
         return Some(DecorationClick::Maximize);
     }
 
-    let minimize_x = maximize_x - f64::from(BUTTON_WIDTH + BUTTON_PADDING);
-    if x >= minimize_x {
+    let min_right = max_left - btn_gap;
+    let min_left = min_right - btn_w;
+    if x >= min_left && x < min_right {
         return Some(DecorationClick::Minimize);
     }
 
@@ -447,7 +469,7 @@ pub fn render_decorations(
         hovered_button,
     );
 
-    let borders = render_borders(physical_loc, physical_size, window_geo, scale, focused);
+    let borders = render_borders(physical_loc, physical_size, window_geo, scale, focused, theme);
     (borders, titlebar_element)
 }
 
@@ -477,13 +499,14 @@ fn render_borders(
     window_geo: Size<i32, Logical>,
     scale: f64,
     focused: bool,
+    theme: &crate::config::ThemeConfig,
 ) -> Vec<SolidColorRenderElement> {
     let bw = (f64::from(BORDER_WIDTH) * scale) as i32;
     if bw <= 0 {
         return Vec::new();
     }
 
-    let border_color = if focused { BORDER_COLOR_FOCUSED } else { BORDER_COLOR };
+    let border_color = if focused { theme.active_border_rgba() } else { theme.inactive_border_rgba() };
     let frame_x = physical_loc.x;
     let frame_y = physical_loc.y;
     let frame_w = physical_size.w;

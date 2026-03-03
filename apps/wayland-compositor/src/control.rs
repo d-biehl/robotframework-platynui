@@ -26,15 +26,65 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 
-use smithay::backend::renderer::damage::OutputDamageTracker;
-use smithay::backend::renderer::gles::GlesTexture;
-use smithay::backend::renderer::{Bind, ExportMem, Offscreen};
+use serde::{Deserialize, Serialize};
 use smithay::desktop::Window;
-use smithay::utils::{Physical, Size, Transform};
-use smithay::wayland::compositor;
-use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
+use smithay::utils::{Physical, Size};
 
+use crate::handlers::foreign_toplevel;
 use crate::state::State;
+
+// ---------------------------------------------------------------------------
+// Protocol types
+// ---------------------------------------------------------------------------
+
+/// Incoming IPC request (deserialized from JSON).
+#[derive(Deserialize)]
+struct Request {
+    command: Option<String>,
+    #[serde(default)]
+    id: Option<u64>,
+    #[serde(default)]
+    app_id: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+}
+
+/// Window information returned in IPC responses.
+#[derive(Serialize)]
+struct WindowInfo {
+    id: usize,
+    title: String,
+    app_id: String,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    focused: bool,
+    maximized: bool,
+    fullscreen: bool,
+}
+
+/// Minimized window information.
+#[derive(Serialize)]
+struct MinimizedWindowInfo {
+    id: String,
+    title: String,
+    app_id: String,
+    x: i32,
+    y: i32,
+}
+
+/// Output information.
+#[derive(Serialize)]
+struct OutputInfo {
+    index: usize,
+    name: String,
+    width: i32,
+    height: i32,
+    x: i32,
+    y: i32,
+    scale: f64,
+}
 
 /// Path to the control socket, derived from `$XDG_RUNTIME_DIR` and socket name.
 pub fn control_socket_path(socket_name: &str) -> PathBuf {
@@ -52,7 +102,6 @@ pub fn setup_control_socket(
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let path = control_socket_path(socket_name);
 
-    // Remove stale socket if it exists
     if path.exists() {
         std::fs::remove_file(&path)?;
     }
@@ -62,7 +111,6 @@ pub fn setup_control_socket(
 
     tracing::info!(path = %path.display(), "control socket listening");
 
-    // Register with calloop using a Generic source
     loop_handle.insert_source(
         calloop::generic::Generic::new(listener, calloop::Interest::READ, calloop::Mode::Level),
         |_, listener, state| {
@@ -121,51 +169,61 @@ fn handle_client(stream: UnixStream, state: &mut State) -> Result<(), Box<dyn st
 
 /// Process a single JSON command and return a JSON response string.
 fn process_command(input: &str, state: &mut State) -> String {
-    // Simple JSON parsing without external dependencies.
-    // We parse the "command" field manually.
-    let input = input.trim();
+    let request: Request = match serde_json::from_str(input.trim()) {
+        Ok(req) => req,
+        Err(_) => {
+            return serde_json::json!({"status": "error", "message": "invalid JSON"}).to_string();
+        }
+    };
 
-    let command = extract_json_string(input, "command");
-    let id = extract_json_u64(input, "id");
-    let app_id = extract_json_string(input, "app_id");
-    let title = extract_json_string(input, "title");
-
-    match command.as_deref() {
+    let response = match request.command.as_deref() {
         Some("ping" | "status") => build_status_response(state),
 
         Some("shutdown") => {
             state.running = false;
-            r#"{"status":"ok","message":"shutting down"}"#.to_string()
+            serde_json::json!({"status": "ok", "message": "shutting down"})
         }
 
         Some("list_windows") => {
             let windows = list_windows(state);
             let minimized = list_minimized_windows(state);
-            format!(r#"{{"status":"ok","windows":{windows},"minimized":{minimized}}}"#)
+            serde_json::json!({"status": "ok", "windows": windows, "minimized": minimized})
         }
 
-        Some("get_window") => match resolve_window_selector(state, id, app_id.as_deref(), title.as_deref()) {
-            Some(info) => format!(r#"{{"status":"ok","window":{info}}}"#),
-            None => r#"{"status":"error","message":"window not found"}"#.to_string(),
-        },
+        Some("get_window") => {
+            match resolve_window_selector(state, request.id, request.app_id.as_deref(), request.title.as_deref()) {
+                Some(info) => serde_json::json!({"status": "ok", "window": info}),
+                None => serde_json::json!({"status": "error", "message": "window not found"}),
+            }
+        }
 
         Some("close_window") => {
-            match resolve_and_act_on_window(state, id, app_id.as_deref(), title.as_deref(), |state, idx| {
-                close_window(state, idx)
-            }) {
-                Some((t, a)) => format!(r#"{{"status":"ok","message":"close sent","title":"{t}","app_id":"{a}"}}"#),
-                None => r#"{"status":"error","message":"window not found"}"#.to_string(),
+            match resolve_and_act_on_window(
+                state,
+                request.id,
+                request.app_id.as_deref(),
+                request.title.as_deref(),
+                |state, idx| close_window(state, idx),
+            ) {
+                Some((t, a)) => {
+                    serde_json::json!({"status": "ok", "message": "close sent", "title": t, "app_id": a})
+                }
+                None => serde_json::json!({"status": "error", "message": "window not found"}),
             }
         }
 
         Some("focus_window") => {
-            match resolve_and_act_on_window(state, id, app_id.as_deref(), title.as_deref(), |state, idx| {
-                focus_window(state, idx)
-            }) {
+            match resolve_and_act_on_window(
+                state,
+                request.id,
+                request.app_id.as_deref(),
+                request.title.as_deref(),
+                focus_window,
+            ) {
                 Some((t, a)) => {
-                    format!(r#"{{"status":"ok","message":"window focused","title":"{t}","app_id":"{a}"}}"#)
+                    serde_json::json!({"status": "ok", "message": "window focused", "title": t, "app_id": a})
                 }
-                None => r#"{"status":"error","message":"window not found"}"#.to_string(),
+                None => serde_json::json!({"status": "error", "message": "window not found"}),
             }
         }
 
@@ -178,57 +236,60 @@ fn process_command(input: &str, state: &mut State) -> String {
                 let phys_w = (f64::from(combined.size.w) * max_scale).ceil() as i32;
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let phys_h = (f64::from(combined.size.h) * max_scale).ceil() as i32;
-                format!(
-                    r#"{{"status":"ok","format":"png","width":{phys_w},"height":{phys_h},"scale":{max_scale},"data":"{base64_png}"}}"#,
-                )
+                serde_json::json!({
+                    "status": "ok",
+                    "format": "png",
+                    "width": phys_w,
+                    "height": phys_h,
+                    "scale": max_scale,
+                    "data": base64_png,
+                })
             }
             Err(err) => {
-                format!(r#"{{"status":"error","message":"screenshot failed: {err}"}}"#)
+                serde_json::json!({"status": "error", "message": format!("screenshot failed: {err}")})
             }
         },
 
-        Some(cmd) => {
-            format!(r#"{{"status":"error","message":"unknown command: {cmd}"}}"#)
-        }
+        Some(cmd) => serde_json::json!({"status": "error", "message": format!("unknown command: {cmd}")}),
 
-        None => r#"{"status":"error","message":"missing or invalid command field"}"#.to_string(),
-    }
+        None => serde_json::json!({"status": "error", "message": "missing or invalid command field"}),
+    };
+
+    response.to_string()
 }
 
 /// Build the JSON response for the `status` command.
-fn build_status_response(state: &State) -> String {
-    let uptime_secs = state.start_time.elapsed().as_secs();
-    let version = env!("CARGO_PKG_VERSION");
-    let backend = state.backend_name;
-    let window_count = state.space.elements().count();
-    let minimized_count = state.minimized_windows.len();
-    let socket = &state.socket_name;
-    let xwayland = state.xwayland.is_some();
-
-    // Build outputs array
-    let outputs: Vec<String> = state
+fn build_status_response(state: &State) -> serde_json::Value {
+    let outputs: Vec<OutputInfo> = state
         .outputs
         .iter()
         .enumerate()
         .map(|(i, o)| {
-            let name = o.name();
             let mode = o.current_mode().unwrap_or(smithay::output::Mode { size: (0, 0).into(), refresh: 0 });
-            let scale = o.current_scale().fractional_scale();
             let loc = state.space.output_geometry(o).map(|g| g.loc).unwrap_or_default();
-            format!(
-                r#"{{"index":{i},"name":"{name}","width":{w},"height":{h},"x":{x},"y":{y},"scale":{scale}}}"#,
-                w = mode.size.w,
-                h = mode.size.h,
-                x = loc.x,
-                y = loc.y,
-            )
+            OutputInfo {
+                index: i,
+                name: o.name(),
+                width: mode.size.w,
+                height: mode.size.h,
+                x: loc.x,
+                y: loc.y,
+                scale: o.current_scale().fractional_scale(),
+            }
         })
         .collect();
 
-    format!(
-        r#"{{"status":"ok","version":"{version}","backend":"{backend}","uptime_secs":{uptime_secs},"socket":"{socket}","xwayland":{xwayland},"windows":{window_count},"minimized":{minimized_count},"outputs":[{outputs}]}}"#,
-        outputs = outputs.join(","),
-    )
+    serde_json::json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "backend": state.backend_name,
+        "uptime_secs": state.start_time.elapsed().as_secs(),
+        "socket": state.socket_name,
+        "xwayland": state.xwayland.is_some(),
+        "windows": state.space.elements().count(),
+        "minimized": state.minimized_windows.len(),
+        "outputs": outputs,
+    })
 }
 
 /// Resolve a window by `id` (index), `app_id` (exact match), or `title` (substring match).
@@ -240,14 +301,14 @@ fn resolve_window_selector(
     id: Option<u64>,
     app_id: Option<&str>,
     title: Option<&str>,
-) -> Option<String> {
+) -> Option<WindowInfo> {
     if let Some(id) = id {
         return get_window_info(state, id);
     }
     if let Some(app_id_query) = app_id {
         for (idx, window) in state.space.elements().enumerate() {
-            if window_app_id(window) == app_id_query {
-                return Some(format_window_info(state, idx, window));
+            if foreign_toplevel::window_app_id(window) == app_id_query {
+                return Some(build_window_info(state, idx, window));
             }
         }
         // Fall through to title matching
@@ -255,8 +316,8 @@ fn resolve_window_selector(
     if let Some(title_query) = title {
         let query_lower = title_query.to_lowercase();
         for (idx, window) in state.space.elements().enumerate() {
-            if window_title(window).to_lowercase().contains(&query_lower) {
-                return Some(format_window_info(state, idx, window));
+            if foreign_toplevel::window_title(window).to_lowercase().contains(&query_lower) {
+                return Some(build_window_info(state, idx, window));
             }
         }
     }
@@ -273,8 +334,8 @@ fn resolve_and_act_on_window(
 ) -> Option<(String, String)> {
     let resolved_idx = resolve_window_index(state, id, app_id, title)?;
     let window = state.space.elements().nth(resolved_idx)?;
-    let t = window_title(window);
-    let a = window_app_id(window);
+    let t = foreign_toplevel::window_title(window);
+    let a = foreign_toplevel::window_app_id(window);
     if action(state, resolved_idx as u64) { Some((t, a)) } else { None }
 }
 
@@ -287,7 +348,7 @@ fn resolve_window_index(state: &State, id: Option<u64>, app_id: Option<&str>, ti
     }
     if let Some(app_id_query) = app_id {
         for (idx, window) in state.space.elements().enumerate() {
-            if window_app_id(window) == app_id_query {
+            if foreign_toplevel::window_app_id(window) == app_id_query {
                 return Some(idx);
             }
         }
@@ -296,7 +357,7 @@ fn resolve_window_index(state: &State, id: Option<u64>, app_id: Option<&str>, ti
     if let Some(title_query) = title {
         let query_lower = title_query.to_lowercase();
         for (idx, window) in state.space.elements().enumerate() {
-            if window_title(window).to_lowercase().contains(&query_lower) {
+            if foreign_toplevel::window_title(window).to_lowercase().contains(&query_lower) {
                 return Some(idx);
             }
         }
@@ -330,58 +391,50 @@ fn is_focused(state: &State, window: &Window) -> bool {
     })
 }
 
-/// Format window info as a JSON object, including state flags.
-fn format_window_info(state: &State, idx: usize, window: &Window) -> String {
-    let title = window_title(window);
-    let app_id = window_app_id(window);
+/// Format window info as a typed struct for serialization.
+fn build_window_info(state: &State, idx: usize, window: &Window) -> WindowInfo {
     let loc = state.space.element_location(window).unwrap_or_default();
     let geo = window.geometry();
-    let focused = is_focused(state, window);
-    let maximized = is_maximized(window);
-    let fullscreen = is_fullscreen(window);
-
-    format!(
-        r#"{{"id":{idx},"title":"{title}","app_id":"{app_id}","x":{x},"y":{y},"width":{w},"height":{h},"focused":{focused},"maximized":{maximized},"fullscreen":{fullscreen}}}"#,
-        x = loc.x,
-        y = loc.y,
-        w = geo.size.w,
-        h = geo.size.h,
-    )
+    WindowInfo {
+        id: idx,
+        title: foreign_toplevel::window_title(window),
+        app_id: foreign_toplevel::window_app_id(window),
+        x: loc.x,
+        y: loc.y,
+        width: geo.size.w,
+        height: geo.size.h,
+        focused: is_focused(state, window),
+        maximized: is_maximized(window),
+        fullscreen: is_fullscreen(window),
+    }
 }
 
-/// List all mapped windows as a JSON array string.
-fn list_windows(state: &State) -> String {
-    let entries: Vec<String> =
-        state.space.elements().enumerate().map(|(idx, window)| format_window_info(state, idx, window)).collect();
-
-    format!("[{}]", entries.join(","))
+/// List all mapped windows as typed structs.
+fn list_windows(state: &State) -> Vec<WindowInfo> {
+    state.space.elements().enumerate().map(|(idx, window)| build_window_info(state, idx, window)).collect()
 }
 
-/// List minimized windows as a JSON array string.
-fn list_minimized_windows(state: &State) -> String {
-    let entries: Vec<String> = state
+/// List minimized windows as typed structs.
+fn list_minimized_windows(state: &State) -> Vec<MinimizedWindowInfo> {
+    state
         .minimized_windows
         .iter()
         .enumerate()
-        .map(|(idx, (window, pos))| {
-            let title = window_title(window);
-            let app_id = window_app_id(window);
-            format!(
-                r#"{{"id":"minimized_{idx}","title":"{title}","app_id":"{app_id}","x":{x},"y":{y}}}"#,
-                x = pos.x,
-                y = pos.y,
-            )
+        .map(|(idx, (window, pos))| MinimizedWindowInfo {
+            id: format!("minimized_{idx}"),
+            title: foreign_toplevel::window_title(window),
+            app_id: foreign_toplevel::window_app_id(window),
+            x: pos.x,
+            y: pos.y,
         })
-        .collect();
-
-    format!("[{}]", entries.join(","))
+        .collect()
 }
 
 /// Get info about a specific window by index.
-fn get_window_info(state: &State, id: u64) -> Option<String> {
+fn get_window_info(state: &State, id: u64) -> Option<WindowInfo> {
     let id = usize::try_from(id).ok()?;
     let (idx, window) = state.space.elements().enumerate().nth(id)?;
-    Some(format_window_info(state, idx, window))
+    Some(build_window_info(state, idx, window))
 }
 
 /// Send close to a window by index.
@@ -404,89 +457,13 @@ fn focus_window(state: &mut State, id: u64) -> bool {
     let window = state.space.elements().nth(id).cloned();
     if let Some(window) = window {
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
-        let keyboard = state.seat.get_keyboard().unwrap();
+        let keyboard = state.keyboard();
         keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(window.clone())), serial);
         state.space.raise_element(&window, true);
         true
     } else {
         false
     }
-}
-
-/// Get the title of a window.
-fn window_title(window: &Window) -> String {
-    window
-        .toplevel()
-        .and_then(|t| {
-            compositor::with_states(t.wl_surface(), |states| {
-                states
-                    .data_map
-                    .get::<XdgToplevelSurfaceData>()
-                    .and_then(|data| data.lock().ok())
-                    .and_then(|data| data.title.clone())
-            })
-        })
-        .unwrap_or_default()
-        .replace('"', "\\\"")
-}
-
-/// Get the `app_id` of a window.
-fn window_app_id(window: &Window) -> String {
-    window
-        .toplevel()
-        .and_then(|t| {
-            compositor::with_states(t.wl_surface(), |states| {
-                states
-                    .data_map
-                    .get::<XdgToplevelSurfaceData>()
-                    .and_then(|data| data.lock().ok())
-                    .and_then(|data| data.app_id.clone())
-            })
-        })
-        .unwrap_or_default()
-        .replace('"', "\\\"")
-}
-
-// -- Simple JSON field extraction (no serde dependency needed) --
-
-/// Extract a string value for a given key from a JSON object string.
-fn extract_json_string(json: &str, key: &str) -> Option<String> {
-    let pattern = format!(r#""{key}""#);
-    let key_pos = json.find(&pattern)?;
-    let after_key = &json[key_pos + pattern.len()..];
-    // Skip whitespace and colon
-    let after_colon = after_key.trim_start().strip_prefix(':')?;
-    let after_colon = after_colon.trim_start();
-    // Must start with a quote
-    let after_quote = after_colon.strip_prefix('"')?;
-    // Find the closing quote (handle escaped quotes)
-    let mut chars = after_quote.chars();
-    let mut result = String::new();
-    let mut escaped = false;
-    for ch in &mut chars {
-        if escaped {
-            result.push(ch);
-            escaped = false;
-        } else if ch == '\\' {
-            escaped = true;
-        } else if ch == '"' {
-            return Some(result);
-        } else {
-            result.push(ch);
-        }
-    }
-    None
-}
-
-/// Extract a `u64` value for a given key from a JSON object string.
-fn extract_json_u64(json: &str, key: &str) -> Option<u64> {
-    let pattern = format!(r#""{key}""#);
-    let key_pos = json.find(&pattern)?;
-    let after_key = &json[key_pos + pattern.len()..];
-    let after_colon = after_key.trim_start().strip_prefix(':')?.trim_start();
-    // Parse digits
-    let num_str: String = after_colon.chars().take_while(char::is_ascii_digit).collect();
-    num_str.parse().ok()
 }
 
 // -- Screenshot implementation --
@@ -529,85 +506,31 @@ fn take_screenshot(state: &mut crate::state::State) -> Result<String, String> {
 
     // Temporarily take the renderer to avoid borrow conflicts with `state`
     // (collect_render_elements needs `&mut renderer` and `&mut state`).
-    let mut renderer = state.screenshot_renderer.take().unwrap();
+    let mut renderer = state.screenshot_renderer.take().expect("screenshot renderer was just initialized above");
 
-    let result = take_screenshot_impl(&mut renderer, state, width, height, max_scale);
+    // Scale logical dimensions to physical pixels.
+    #[allow(clippy::cast_possible_truncation)]
+    let phys_w = (f64::from(width) * max_scale).ceil() as i32;
+    #[allow(clippy::cast_possible_truncation)]
+    let phys_h = (f64::from(height) * max_scale).ceil() as i32;
+    let size: Size<i32, Physical> = (phys_w, phys_h).into();
+    let output = state.output.clone();
+
+    let result =
+        crate::render::render_to_pixels(&mut renderer, state, &output, size, max_scale, true).and_then(|pixel_data| {
+            // Abgr8888 in DRM fourcc = GL's RGBA byte order → already R, G, B, A in memory.
+            let w = u32::try_from(phys_w).map_err(|e| format!("width: {e}"))?;
+            let h = u32::try_from(phys_h).map_err(|e| format!("height: {e}"))?;
+
+            // Encode as PNG and base64 for JSON transport
+            let png_data = encode_png(&pixel_data, w, h).map_err(|e| format!("PNG encode: {e}"))?;
+            Ok(base64_encode(&png_data))
+        });
 
     // Put the renderer back for reuse
     state.screenshot_renderer = Some(renderer);
 
     result
-}
-
-/// Inner screenshot implementation using a [`GlowRenderer`](smithay::backend::renderer::glow::GlowRenderer).
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn take_screenshot_impl(
-    renderer: &mut smithay::backend::renderer::glow::GlowRenderer,
-    state: &mut crate::state::State,
-    width: i32,
-    height: i32,
-    scale: f64,
-) -> Result<String, String> {
-    use smithay::backend::allocator::Fourcc as DrmFourcc;
-    use smithay::utils::Rectangle;
-
-    // Scale logical dimensions to physical pixels.
-    let phys_w = (f64::from(width) * scale).ceil() as i32;
-    let phys_h = (f64::from(height) * scale).ceil() as i32;
-
-    let size: Size<i32, Physical> = (phys_w, phys_h).into();
-    let buffer_size: Size<i32, smithay::utils::Buffer> = (phys_w, phys_h).into();
-
-    // Lazy-init the screenshot titlebar painter on the screenshot renderer's
-    // GL context.  VAOs are per-context in OpenGL — they are NOT shared even
-    // when contexts share textures via EGLContext::new_shared.  Using the main
-    // titlebar renderer here would cause GL_INVALID_OPERATION on glBindVertexArray.
-    if !state.screenshot_titlebar_renderer.is_glow_initialized() {
-        state.screenshot_titlebar_renderer.init_glow(renderer);
-    }
-
-    // Create offscreen GL texture (Abgr8888 for GL compatibility)
-    let mut texture: GlesTexture =
-        renderer.create_buffer(DrmFourcc::Abgr8888, buffer_size).map_err(|e| format!("create_buffer: {e}"))?;
-
-    // Bind the texture as render target
-    let mut framebuffer = renderer.bind(&mut texture).map_err(|e| format!("bind: {e}"))?;
-
-    // Swap in the screenshot titlebar renderer (with its own VAO on this GL
-    // context) so that collect_render_elements paints egui titlebars using
-    // the correct context.
-    std::mem::swap(&mut state.titlebar_renderer, &mut state.screenshot_titlebar_renderer);
-
-    // Collect render elements
-    let output = state.output.clone();
-    let render_elements = crate::render::collect_render_elements(renderer, state, &output);
-
-    // Swap back so the main render loop keeps its own titlebar renderer.
-    std::mem::swap(&mut state.titlebar_renderer, &mut state.screenshot_titlebar_renderer);
-
-    // Render into the offscreen buffer using damage tracker
-    let mut damage_tracker = OutputDamageTracker::new(size, scale, Transform::Normal);
-    damage_tracker
-        .render_output(renderer, &mut framebuffer, 0, &render_elements, [0.1, 0.1, 0.1, 1.0])
-        .map_err(|e| format!("render_output: {e}"))?;
-
-    // Read back pixels
-    let region = Rectangle::from_size(buffer_size);
-    let mapping = renderer
-        .copy_framebuffer(&framebuffer, region, DrmFourcc::Abgr8888)
-        .map_err(|e| format!("copy_framebuffer: {e}"))?;
-
-    let pixel_data = renderer.map_texture(&mapping).map_err(|e| format!("map_texture: {e}"))?;
-
-    // Abgr8888 in DRM fourcc = GL's RGBA byte order → already R, G, B, A in memory.
-    let w = u32::try_from(phys_w).map_err(|e| format!("width: {e}"))?;
-    let h = u32::try_from(phys_h).map_err(|e| format!("height: {e}"))?;
-
-    // Encode as PNG (pixel data is already RGBA)
-    let png_data = encode_png(pixel_data, w, h).map_err(|e| format!("PNG encode: {e}"))?;
-
-    // base64-encode the PNG for JSON transport
-    Ok(base64_encode(&png_data))
 }
 
 /// Encode RGBA pixel data as a PNG using the `png` crate.
@@ -659,48 +582,6 @@ fn base64_encode(data: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn extract_string_simple() {
-        let json = r#"{"command": "ping"}"#;
-        assert_eq!(extract_json_string(json, "command").as_deref(), Some("ping"));
-    }
-
-    #[test]
-    fn extract_string_with_spaces() {
-        let json = r#"{ "command" : "list_windows" }"#;
-        assert_eq!(extract_json_string(json, "command").as_deref(), Some("list_windows"));
-    }
-
-    #[test]
-    fn extract_string_escaped_quote() {
-        let json = r#"{"title": "hello \"world\""}"#;
-        assert_eq!(extract_json_string(json, "title").as_deref(), Some(r#"hello "world""#));
-    }
-
-    #[test]
-    fn extract_string_missing_key() {
-        let json = r#"{"command": "ping"}"#;
-        assert_eq!(extract_json_string(json, "missing"), None);
-    }
-
-    #[test]
-    fn extract_u64_simple() {
-        let json = r#"{"command": "get_window", "id": 42}"#;
-        assert_eq!(extract_json_u64(json, "id"), Some(42));
-    }
-
-    #[test]
-    fn extract_u64_missing() {
-        let json = r#"{"command": "list_windows"}"#;
-        assert_eq!(extract_json_u64(json, "id"), None);
-    }
-
-    #[test]
-    fn extract_u64_zero() {
-        let json = r#"{"id": 0}"#;
-        assert_eq!(extract_json_u64(json, "id"), Some(0));
-    }
 
     #[test]
     fn base64_encode_empty() {

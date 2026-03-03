@@ -23,6 +23,20 @@ use smithay::{
 
 use crate::state::State;
 
+/// Find the smithay `Window` in the space that wraps a given [`X11Surface`].
+fn find_x11_window(state: &State, surface: &X11Surface) -> Option<Window> {
+    state.space.elements().find(|w| w.x11_surface().is_some_and(|x| x.window_id() == surface.window_id())).cloned()
+}
+
+/// Remove an X11 window from the space and close its foreign-toplevel handles.
+fn remove_x11_window(state: &mut State, surface: &X11Surface) {
+    if let Some(element) = find_x11_window(state, surface) {
+        crate::handlers::foreign_toplevel::close_toplevel(state, &element);
+        state.pre_fullscreen_states.retain(|(w, _, _)| w != &element);
+        state.space.unmap_elem(&element);
+    }
+}
+
 /// Optional `XWayland` state, present only when `XWayland` is running.
 pub struct XWaylandState {
     /// The X11 window manager connection.
@@ -42,7 +56,6 @@ impl State {
     /// # Panics
     ///
     /// Panics if the `XWayland` client handle was not stored before the ready event.
-    #[allow(clippy::too_many_lines)]
     pub fn start_xwayland(&mut self) {
         let (xwayland, client) = match XWayland::spawn(
             &self.display_handle,
@@ -144,12 +157,13 @@ impl XwmHandler for State {
             "X11 window map request",
         );
 
-        // Grant the map request
-        window.set_mapped(true).ok();
+        if let Err(err) = window.set_mapped(true) {
+            tracing::warn!(%err, "failed to set X11 window as mapped");
+        }
 
-        // Wrap in a smithay Window and map into the space
         let smithay_window = Window::new_x11_window(window);
-        crate::workspace::map_window(&mut self.space, smithay_window.clone());
+        let usable_origin = self.usable_geometry_for_output(&self.output.clone()).loc;
+        crate::workspace::map_window(&mut self.space, smithay_window.clone(), usable_origin);
 
         // X11 windows that get SSD need their position shifted down for the title bar.
         // (Wayland windows get this in XdgDecorationHandler::new_decoration, but X11
@@ -157,8 +171,11 @@ impl XwmHandler for State {
         if crate::decorations::window_has_ssd(&smithay_window)
             && let Some(loc) = self.space.element_location(&smithay_window)
         {
-            self.space.map_element(smithay_window, (loc.x, loc.y + crate::decorations::TITLEBAR_HEIGHT), false);
+            self.space.map_element(smithay_window.clone(), (loc.x, loc.y + crate::decorations::TITLEBAR_HEIGHT), false);
         }
+
+        // Announce to foreign-toplevel protocols
+        crate::handlers::foreign_toplevel::announce_new_toplevel(self, &smithay_window);
     }
 
     fn map_window_notify(&mut self, _xwm: XwmId, _window: X11Surface) {
@@ -168,38 +185,18 @@ impl XwmHandler for State {
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, window: X11Surface) {
         // Override-redirect windows (menus, tooltips) — map them directly
         let smithay_window = Window::new_x11_window(window);
-        crate::workspace::map_window(&mut self.space, smithay_window);
+        let usable_origin = self.usable_geometry_for_output(&self.output.clone()).loc;
+        crate::workspace::map_window(&mut self.space, smithay_window, usable_origin);
     }
 
     fn unmapped_window(&mut self, _xwm: XwmId, window: X11Surface) {
         tracing::debug!(title = window.title(), "X11 window unmapped");
-
-        // Find and remove the window from our space
-        let element = self
-            .space
-            .elements()
-            .find(|w| w.x11_surface().is_some_and(|x| x.window_id() == window.window_id()))
-            .cloned();
-
-        if let Some(element) = element {
-            self.pre_fullscreen_states.retain(|(w, _, _)| w != &element);
-            self.space.unmap_elem(&element);
-        }
+        remove_x11_window(self, &window);
     }
 
     fn destroyed_window(&mut self, _xwm: XwmId, window: X11Surface) {
         tracing::debug!(title = window.title(), "X11 window destroyed");
-
-        let element = self
-            .space
-            .elements()
-            .find(|w| w.x11_surface().is_some_and(|x| x.window_id() == window.window_id()))
-            .cloned();
-
-        if let Some(element) = element {
-            self.pre_fullscreen_states.retain(|(w, _, _)| w != &element);
-            self.space.unmap_elem(&element);
-        }
+        remove_x11_window(self, &window);
     }
 
     fn configure_request(
@@ -219,8 +216,11 @@ impl XwmHandler for State {
         let new_w = w.unwrap_or(geo.size.w.unsigned_abs());
         let new_h = h.unwrap_or(geo.size.h.unsigned_abs());
 
-        let _ =
-            window.configure(Rectangle::new((new_x, new_y).into(), (new_w.cast_signed(), new_h.cast_signed()).into()));
+        if let Err(err) =
+            window.configure(Rectangle::new((new_x, new_y).into(), (new_w.cast_signed(), new_h.cast_signed()).into()))
+        {
+            tracing::warn!(%err, "failed to configure X11 window");
+        }
     }
 
     fn configure_notify(
@@ -231,24 +231,13 @@ impl XwmHandler for State {
         _above: Option<X11Window>,
     ) {
         // Update the window position in our space if it was reconfigured
-        let element = self
-            .space
-            .elements()
-            .find(|w| w.x11_surface().is_some_and(|x| x.window_id() == window.window_id()))
-            .cloned();
-
-        if let Some(element) = element {
+        if let Some(element) = find_x11_window(self, &window) {
             self.space.map_element(element, geometry.loc, true);
         }
     }
 
     fn resize_request(&mut self, _xwm: XwmId, window: X11Surface, _button: u32, resize_edge: ResizeEdge) {
-        let Some(element) = self
-            .space
-            .elements()
-            .find(|w| w.x11_surface().is_some_and(|x| x.window_id() == window.window_id()))
-            .cloned()
-        else {
+        let Some(element) = find_x11_window(self, &window) else {
             return;
         };
 
@@ -264,36 +253,26 @@ impl XwmHandler for State {
         };
 
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.keyboard();
         keyboard.set_focus(self, Some(crate::focus::KeyboardFocusTarget::Window(element.clone())), serial);
         self.space.raise_element(&element, true);
         crate::grabs::handle_resize_request(self, &self.seat.clone(), &element, edge, serial);
     }
 
     fn move_request(&mut self, _xwm: XwmId, window: X11Surface, _button: u32) {
-        let Some(element) = self
-            .space
-            .elements()
-            .find(|w| w.x11_surface().is_some_and(|x| x.window_id() == window.window_id()))
-            .cloned()
-        else {
+        let Some(element) = find_x11_window(self, &window) else {
             return;
         };
 
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.keyboard();
         keyboard.set_focus(self, Some(crate::focus::KeyboardFocusTarget::Window(element.clone())), serial);
         self.space.raise_element(&element, true);
         crate::grabs::handle_move_request(self, &self.seat.clone(), &element, serial);
     }
 
     fn fullscreen_request(&mut self, _xwm: XwmId, window: X11Surface) {
-        let Some(element) = self
-            .space
-            .elements()
-            .find(|w| w.x11_surface().is_some_and(|x| x.window_id() == window.window_id()))
-            .cloned()
-        else {
+        let Some(element) = find_x11_window(self, &window) else {
             return;
         };
 
@@ -306,20 +285,19 @@ impl XwmHandler for State {
         self.pre_fullscreen_states.push((element.clone(), current_loc, current_size));
 
         // Set fullscreen and resize to output dimensions.
-        let _ = window.set_fullscreen(true);
-        let _ = window.configure(output_geo);
+        if let Err(err) = window.set_fullscreen(true) {
+            tracing::warn!(%err, "failed to set X11 window fullscreen");
+        }
+        if let Err(err) = window.configure(output_geo) {
+            tracing::warn!(%err, "failed to configure X11 window for fullscreen");
+        }
         self.space.map_element(element, output_geo.loc, true);
 
         tracing::debug!(output_w = output_geo.size.w, output_h = output_geo.size.h, "X11 window set to fullscreen",);
     }
 
     fn unfullscreen_request(&mut self, _xwm: XwmId, window: X11Surface) {
-        let Some(element) = self
-            .space
-            .elements()
-            .find(|w| w.x11_surface().is_some_and(|x| x.window_id() == window.window_id()))
-            .cloned()
-        else {
+        let Some(element) = find_x11_window(self, &window) else {
             return;
         };
 
@@ -330,11 +308,15 @@ impl XwmHandler for State {
             .position(|(w, _, _)| w == &element)
             .map(|i| self.pre_fullscreen_states.remove(i));
 
-        let _ = window.set_fullscreen(false);
+        if let Err(err) = window.set_fullscreen(false) {
+            tracing::warn!(%err, "failed to unset X11 window fullscreen");
+        }
 
         if let Some((_, pos, size)) = saved {
-            if let Some(size) = size {
-                let _ = window.configure(Rectangle::new(pos, size));
+            if let Some(size) = size
+                && let Err(err) = window.configure(Rectangle::new(pos, size))
+            {
+                tracing::warn!(%err, "failed to configure X11 window after unfullscreen");
             }
             self.space.map_element(element, pos, true);
         }

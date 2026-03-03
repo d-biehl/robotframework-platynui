@@ -37,6 +37,6 @@ impl SessionLockHandler for State {
     }
 
     fn new_surface(&mut self, _surface: LockSurface, _output: WlOutput) {
-        // Track the lock surface for the given output
+        // No-op: per-output lock surface tracking not yet implemented.
     }
 }

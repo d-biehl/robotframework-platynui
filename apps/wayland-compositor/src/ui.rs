@@ -20,7 +20,10 @@ use smithay::backend::renderer::{Bind, Frame, Offscreen, Renderer};
 use smithay::utils::{Buffer as BufferCoords, Physical, Point, Rectangle, Size, Transform};
 
 use crate::config::ThemeConfig;
-use crate::decorations::DecorationClick;
+use crate::decorations::{
+    DecorationClick, HOVER_LIGHTEN_AMOUNT, TITLEBAR_BTN_GAP, TITLEBAR_BTN_HEIGHT, TITLEBAR_BTN_RIGHT_PAD,
+    TITLEBAR_BTN_WIDTH,
+};
 
 /// Manages an [`egui::Context`] and renders titlebars via glow GPU rendering.
 ///
@@ -45,7 +48,15 @@ struct CachedRenderBuffer {
     height: i32,
 }
 
+/// Selects which [`CachedRenderBuffer`] slot to use for rendering.
+#[derive(Clone, Copy)]
+enum BufferSlot {
+    Titlebar,
+    ContextMenu,
+}
+
 impl TitlebarRenderer {
+    /// Create a new titlebar renderer with the given font family and size.
     pub fn new(font_family: &str, font_size: f32) -> Self {
         let ctx = egui::Context::default();
 
@@ -115,73 +126,14 @@ impl TitlebarRenderer {
         let buf_w = width.cast_signed().checked_mul(int_scale)?;
         let buf_h = height.cast_signed().checked_mul(int_scale)?;
 
-        if buf_w <= 0 || buf_h <= 0 {
-            return None;
-        }
-
-        let GlowState { painter, render_buffer, .. } = self.glow_state.as_mut()?;
-
-        #[allow(clippy::cast_precision_loss)]
-        let pixels_per_point = int_scale as f32;
-        let max_tex_side = painter.max_texture_side();
-        let elapsed = self.start_time.elapsed().as_secs_f64();
-        let raw_input = make_raw_input(buf_w, buf_h, pixels_per_point, elapsed, Some(max_tex_side));
-
         let (bg, text_color, close_fill, max_fill, min_fill) = compute_button_colors(theme, focused, hovered_button);
         let title_owned = title.to_string();
-        let full_output = self.ctx.run(raw_input, |ctx| {
+
+        self.render_egui_element(renderer, loc, buf_w, buf_h, int_scale, BufferSlot::Titlebar, |ctx| {
             build_titlebar_ui(ctx, &title_owned, bg, text_color, close_fill, max_fill, min_fill);
-        });
-        let clipped = self.ctx.tessellate(full_output.shapes, pixels_per_point);
-
-        let needs_recreate = render_buffer.as_ref().is_none_or(|rb| rb.width != buf_w || rb.height != buf_h);
-
-        if needs_recreate {
-            let buf_size: Size<i32, BufferCoords> = (buf_w, buf_h).into();
-            let render_texture = renderer
-                .create_buffer(Fourcc::Abgr8888, buf_size)
-                .map_err(|err| tracing::warn!(%err, "failed to create titlebar GPU texture"))
-                .ok()?;
-            *render_buffer = Some(CachedRenderBuffer {
-                buffer: TextureRenderBuffer::from_texture(
-                    renderer,
-                    render_texture,
-                    int_scale,
-                    Transform::Flipped180,
-                    None,
-                ),
-                width: buf_w,
-                height: buf_h,
-            });
-        }
-
-        let cached = render_buffer.as_mut()?;
-
-        let draw_result = cached.buffer.render().draw(|tex| {
-            let mut fb = renderer.bind(tex)?;
-            let phys_size: Size<i32, Physical> = (buf_w, buf_h).into();
-            {
-                let mut frame = renderer.render(&mut fb, phys_size, Transform::Normal)?;
-                frame.clear([0.0, 0.0, 0.0, 0.0].into(), &[Rectangle::new((0, 0).into(), phys_size)])?;
-                painter.paint_and_update_textures(
-                    [buf_w as u32, buf_h as u32],
-                    pixels_per_point,
-                    &clipped,
-                    &full_output.textures_delta,
-                );
-            }
-
-            let damage: Rectangle<i32, BufferCoords> = Rectangle::new((0, 0).into(), (buf_w, buf_h).into());
-            Result::<_, GlesError>::Ok(vec![damage])
-        });
-
-        if let Err(ref err) = draw_result {
-            tracing::warn!(%err, "GPU titlebar render failed");
-            return None;
-        }
-
-        Some(TextureRenderElement::from_texture_render_buffer(loc, &cached.buffer, None, None, None, Kind::Unspecified))
+        })
     }
+
     /// Render a titlebar context menu as a GPU-resident [`TextureRenderElement`].
     ///
     /// Returns `None` if the glow painter is not initialised or dimensions are zero.
@@ -201,37 +153,61 @@ impl TitlebarRenderer {
         let buf_w = TitlebarContextMenu::WIDTH.checked_mul(int_scale)?;
         let buf_h = TitlebarContextMenu::HEIGHT.checked_mul(int_scale)?;
 
-        if buf_w <= 0 || buf_h <= 0 {
-            return None;
-        }
-
-        let GlowState { painter, menu_render_buffer, .. } = self.glow_state.as_mut()?;
-
-        #[allow(clippy::cast_precision_loss)]
-        let pixels_per_point = int_scale as f32;
-        let max_tex_side = painter.max_texture_side();
-        let elapsed = self.start_time.elapsed().as_secs_f64();
-        let raw_input = make_raw_input(buf_w, buf_h, pixels_per_point, elapsed, Some(max_tex_side));
-
         let bg = theme_color(&theme.titlebar_background_focused);
         let text_color = theme_color(&theme.titlebar_text);
         let hover_bg = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 30);
         let border_color = egui::Color32::from_gray(80);
 
-        let full_output = self.ctx.run(raw_input, |ctx| {
+        self.render_egui_element(renderer, loc, buf_w, buf_h, int_scale, BufferSlot::ContextMenu, |ctx| {
             build_context_menu_ui(ctx, is_maximized, hovered_item, bg, text_color, hover_bg, border_color);
-        });
+        })
+    }
+
+    /// Shared GPU rendering pipeline for egui-based UI elements.
+    ///
+    /// Runs the egui layout closure, tessellates the output, and renders into
+    /// a cached [`TextureRenderBuffer`].  The buffer is recreated only when
+    /// the dimensions change.
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation, clippy::too_many_arguments)]
+    fn render_egui_element(
+        &mut self,
+        renderer: &mut GlowRenderer,
+        loc: Point<f64, Physical>,
+        buf_w: i32,
+        buf_h: i32,
+        int_scale: i32,
+        slot: BufferSlot,
+        ui_fn: impl FnMut(&egui::Context),
+    ) -> Option<TextureRenderElement<GlesTexture>> {
+        if buf_w <= 0 || buf_h <= 0 {
+            return None;
+        }
+
+        let glow = self.glow_state.as_mut()?;
+
+        #[allow(clippy::cast_precision_loss)]
+        let pixels_per_point = int_scale as f32;
+        let max_tex_side = glow.painter.max_texture_side();
+        let elapsed = self.start_time.elapsed().as_secs_f64();
+        let raw_input = make_raw_input(buf_w, buf_h, pixels_per_point, elapsed, Some(max_tex_side));
+
+        let full_output = self.ctx.run(raw_input, ui_fn);
         let clipped = self.ctx.tessellate(full_output.shapes, pixels_per_point);
 
-        let needs_recreate = menu_render_buffer.as_ref().is_none_or(|rb| rb.width != buf_w || rb.height != buf_h);
+        let cached_slot = match slot {
+            BufferSlot::Titlebar => &mut glow.render_buffer,
+            BufferSlot::ContextMenu => &mut glow.menu_render_buffer,
+        };
+
+        let needs_recreate = cached_slot.as_ref().is_none_or(|rb| rb.width != buf_w || rb.height != buf_h);
 
         if needs_recreate {
             let buf_size: Size<i32, BufferCoords> = (buf_w, buf_h).into();
             let render_texture = renderer
                 .create_buffer(Fourcc::Abgr8888, buf_size)
-                .map_err(|err| tracing::warn!(%err, "failed to create context menu GPU texture"))
+                .map_err(|err| tracing::warn!(%err, "failed to create egui GPU texture"))
                 .ok()?;
-            *menu_render_buffer = Some(CachedRenderBuffer {
+            *cached_slot = Some(CachedRenderBuffer {
                 buffer: TextureRenderBuffer::from_texture(
                     renderer,
                     render_texture,
@@ -244,7 +220,7 @@ impl TitlebarRenderer {
             });
         }
 
-        let cached = menu_render_buffer.as_mut()?;
+        let cached = cached_slot.as_mut()?;
 
         let draw_result = cached.buffer.render().draw(|tex| {
             let mut fb = renderer.bind(tex)?;
@@ -252,7 +228,7 @@ impl TitlebarRenderer {
             {
                 let mut frame = renderer.render(&mut fb, phys_size, Transform::Normal)?;
                 frame.clear([0.0, 0.0, 0.0, 0.0].into(), &[Rectangle::new((0, 0).into(), phys_size)])?;
-                painter.paint_and_update_textures(
+                glow.painter.paint_and_update_textures(
                     [buf_w as u32, buf_h as u32],
                     pixels_per_point,
                     &clipped,
@@ -265,7 +241,7 @@ impl TitlebarRenderer {
         });
 
         if let Err(ref err) = draw_result {
-            tracing::warn!(%err, "GPU context menu render failed");
+            tracing::warn!(%err, "GPU egui render failed");
             return None;
         }
 
@@ -280,6 +256,7 @@ impl Drop for GlowState {
 }
 
 /// Build the egui titlebar UI layout (background, title text, window buttons).
+#[allow(clippy::cast_possible_truncation)]
 fn build_titlebar_ui(
     ctx: &egui::Context,
     title: &str,
@@ -298,10 +275,10 @@ fn build_titlebar_ui(
 
             // Push buttons to the right
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(6.0);
-                ui.spacing_mut().item_spacing.x = 2.0;
+                ui.add_space(TITLEBAR_BTN_RIGHT_PAD as f32);
+                ui.spacing_mut().item_spacing.x = TITLEBAR_BTN_GAP as f32;
 
-                let btn_size = egui::vec2(26.0, 18.0);
+                let btn_size = egui::vec2(TITLEBAR_BTN_WIDTH as f32, TITLEBAR_BTN_HEIGHT as f32);
 
                 // Close button (rightmost)
                 ui.add(
@@ -346,7 +323,12 @@ fn compute_button_colors(
 
     let hover_tint = |base: egui::Color32| -> egui::Color32 {
         let [r, g, b, a] = base.to_array();
-        egui::Color32::from_rgba_unmultiplied(r.saturating_add(35), g.saturating_add(35), b.saturating_add(35), a)
+        egui::Color32::from_rgba_unmultiplied(
+            r.saturating_add(HOVER_LIGHTEN_AMOUNT),
+            g.saturating_add(HOVER_LIGHTEN_AMOUNT),
+            b.saturating_add(HOVER_LIGHTEN_AMOUNT),
+            a,
+        )
     };
 
     let close_fill = if hovered_button == Some(DecorationClick::Close) { hover_tint(close_base) } else { close_base };

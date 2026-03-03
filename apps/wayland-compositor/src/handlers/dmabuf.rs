@@ -21,6 +21,8 @@ impl DmabufHandler for State {
     ) {
         // For the test compositor, we accept all dmabufs.
         // A real compositor would attempt renderer import here.
-        let _ = notifier.successful::<State>();
+        if let Err(err) = notifier.successful::<State>() {
+            tracing::warn!(%err, "failed to signal successful dmabuf import");
+        }
     }
 }
