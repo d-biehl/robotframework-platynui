@@ -21,4 +21,4 @@ thiserror = "2.0"
 
 [dev-dependencies]
 rstest = "0.26.1"
-serial_test = "3.3"
+serial_test = "3.4"

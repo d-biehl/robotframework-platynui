@@ -88,7 +88,7 @@ Rust ↔ Python boundary changes: confine to `packages/native/`. Don’t mix bin
 
 ## 7. Style & Conventions
 Rust: Edition 2024. Follow existing naming (snake_case functions, PascalCase types). Keep generics bounds consistent with existing node trait patterns. Use `cargo fix` for trivial warnings. Use `serde` for (de)serialization—do NOT add alternate JSON libs. `rustfmt.toml` sets `max_width = 120`.
-Workspace lints (enforced via `Cargo.toml`): `unsafe_code = "forbid"`, `unused_must_use = "deny"`, `clippy::pedantic = "warn"`.
+Workspace lints (enforced via `Cargo.toml`): `unsafe_code = "deny"`, `unused_must_use = "deny"`, `clippy::pedantic = "warn"`. If `unsafe` is unavoidable (FFI, shared memory), add `#[allow(unsafe_code)]` at the narrowest scope with a `// SAFETY:` comment.
 Python: Keep 3.10+; minimal dependencies. Use ruff to satisfy formatting/lint; avoid introducing black/isort separately (ruff already covers). Type hints optional but if added ensure mypy passes.
 
 ## 8. Testing Notes

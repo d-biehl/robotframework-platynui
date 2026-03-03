@@ -636,7 +636,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 - **egui für Compositor-UI**: `egui` 0.33 + `egui_glow` 0.33 für Compositor-Titlebars. GPU-residenter Render-Pfad inspiriert von smithay-egui. Immediate-Mode-API vereinfacht UI-Implementierung. Echte Fonts mit Antialiasing und Unicode-Support.
 - **Konsolidierung auf `GlowRenderer`**: Alle Render-Pfade (Winit, DRM, Headless, Screenshots) nutzen ausschließlich `GlowRenderer`. `PixmanRenderer` komplett entfernt. Software-Rendering bei Bedarf via `LIBGL_ALWAYS_SOFTWARE=1` (Mesa llvmpipe). DRM-Backend nutzt EGL-on-GBM. Screenshot-Format: Abgr8888 (GL-native RGBA-Byte-Order).
 - **Einfaches Stacking-WM**: Kein Tiling, keine Workspaces — reicht für Test-Szenarien
-- **`ironrdp-server`** (RDP) + **`rustvncserver`** (VNC): Pure Rust, Safe APIs, Apache-2.0, `unsafe_code = "forbid"`-kompatibel
+- **`ironrdp-server`** (RDP) + **`rustvncserver`** (VNC): Pure Rust, Safe APIs, Apache-2.0, `unsafe_code = "deny"`-kompatibel
 - **Keine optionalen Cargo Features**: Alle Backends (Winit, DRM, Headless) und XWayland werden bedingungslos kompiliert — weniger Komplexität, keine `#[cfg]`-Guards
 - **Breite Protokoll-Abdeckung in Phase 1**: Alle gängigen Kompatibilitäts-Protokolle sofort verdrahten — verhindert mysteriöse App-Fehler
 - **Multi-Monitor ab Phase 2**: `--outputs N` ermöglicht Multi-Monitor-Testszenarien
