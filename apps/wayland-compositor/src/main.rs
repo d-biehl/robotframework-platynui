@@ -1,22 +1,23 @@
 //! `PlatynUI` Wayland Compositor binary entry point.
 //!
 //! This is a thin wrapper that delegates to [`platynui_wayland_compositor::run`].
+//!
+//! This binary only builds on Linux.
 
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    eprintln!("platynui-wayland-compositor is only supported on Linux");
+    std::process::exit(1);
+}
+
+#[cfg(target_os = "linux")]
 // Dependencies used by the library crate, acknowledged here for the binary crate.
-use calloop as _;
-use clap as _;
-use egui as _;
-use egui_glow as _;
-use png as _;
-use serde as _;
-use serde_json as _;
-use signal_hook as _;
-use smithay as _;
-use toml as _;
-use tracing as _;
-use tracing_subscriber as _;
-use xcursor as _;
+use {
+    calloop as _, clap as _, egui as _, egui_glow as _, png as _, serde as _, serde_json as _, signal_hook as _,
+    smithay as _, toml as _, tracing as _, tracing_subscriber as _, xcursor as _,
+};
 
+#[cfg(target_os = "linux")]
 fn main() {
     if let Err(error) = platynui_wayland_compositor::run() {
         eprintln!("Compositor exited with error: {error}");

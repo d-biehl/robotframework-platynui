@@ -9,9 +9,9 @@ documentation.workspace = true
 repository.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Smithay-based Wayland compositor for PlatynUI integration testing"
+description = "Wayland compositor for UI test automation with PlatynUI on Linux (Wayland and X11 applications)"
 
-[dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 # Wayland compositor framework
 smithay = { version = "0.7", default-features = false, features = [
     "wayland_frontend",

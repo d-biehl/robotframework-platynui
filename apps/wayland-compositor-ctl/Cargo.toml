@@ -12,7 +12,7 @@ license.workspace = true
 description = "CLI tool for controlling the PlatynUI Wayland compositor"
 readme = "README.md"
 
-[dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 # CLI
 clap = { version = "4", features = ["derive"] }
 

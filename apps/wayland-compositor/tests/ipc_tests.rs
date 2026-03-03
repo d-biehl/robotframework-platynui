@@ -13,6 +13,8 @@
 //! The tests require EGL support (hardware GPU or `LIBGL_ALWAYS_SOFTWARE=1`).
 //! They are skipped gracefully if the compositor cannot start.
 
+// This entire test suite only applies to Linux (Wayland compositor).
+#![cfg(target_os = "linux")]
 // Suppress unused-crate-dependency warnings — integration test inherits library deps.
 #![allow(unused_crate_dependencies)]
 

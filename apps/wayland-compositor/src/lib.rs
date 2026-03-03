@@ -1,37 +1,12 @@
-//! `PlatynUI` Wayland Compositor — Smithay-based Wayland compositor for integration testing.
+//! PlatynUI Wayland Compositor — a controlled display server for automated UI testing on Linux.
 //!
-//! A minimal but feature-complete Wayland compositor designed to host GUI applications
-//! during automated testing. Supports headless and windowed (nested) operation modes.
+//! Provides a Wayland compositor environment where GTK, Qt, and X11 applications can run
+//! under reproducible conditions. Supports headless (CI), nested (development), and
+//! bare-metal (DRM) operation modes.
 //!
-//! # Architecture
-//!
-//! ```text
-//! src/
-//! ├── main.rs              ← Binary entry point
-//! ├── lib.rs               ← Library entry (CLI, tracing, run function)
-//! ├── state.rs             ← CompositorState struct + initialization
-//! ├── config.rs            ← TOML configuration file support
-//! ├── child.rs             ← Child program spawning + exit monitoring
-//! ├── client.rs            ← Per-client data (ClientState)
-//! ├── focus.rs             ← Focus target types for input routing
-//! ├── workspace.rs         ← Window management (desktop::Space wrapper)
-//! ├── input.rs             ← Keyboard + pointer event processing
-//! ├── render.rs            ← Rendering pipeline
-//! ├── signals.rs           ← SIGTERM/SIGINT handling + watchdog timer
-//! ├── ready.rs             ← Readiness notification for CI
-//! ├── environment.rs       ← Socket setup + environment variables
-//! ├── handlers/            ← Wayland protocol handler implementations
-//! │   ├── compositor.rs    ← wl_compositor + wl_subcompositor
-//! │   ├── shm.rs           ← wl_shm buffer management
-//! │   ├── output.rs        ← wl_output + xdg-output-manager
-//! │   ├── seat.rs          ← wl_seat (keyboard, pointer, touch)
-//! │   ├── xdg_shell.rs     ← xdg_shell toplevels + popups
-//! │   ├── decoration.rs    ← xdg-decoration (CSD)
-//! │   └── selection.rs     ← Data device + primary selection (clipboard)
-//! └── backend/             ← Backend abstraction
-//!     ├── headless.rs      ← Off-screen rendering (EGL on render node)
-//!     └── winit.rs         ← Nested compositor in a window
-//! ```
+//! This crate only builds on Linux.
+
+#![cfg(target_os = "linux")]
 
 mod backend;
 pub mod child;
