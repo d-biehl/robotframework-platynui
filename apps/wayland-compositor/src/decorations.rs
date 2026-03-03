@@ -343,6 +343,11 @@ pub enum PointerHitResult {
 
 /// Front-to-back pointer hit-test.  The first window whose bounds contain
 /// the pointer owns the point (no click-through).
+///
+/// For SSD windows, the bounds include both the decoration area (titlebar +
+/// resize borders) and the popup bounding box.  Popups often extend beyond
+/// the window's client area (e.g. dropdown menus, submenus) — without the
+/// bbox check those regions would be unreachable by the pointer.
 #[must_use]
 pub fn pointer_hit_test(space: &smithay::desktop::Space<Window>, point: Point<f64, Logical>) -> PointerHitResult {
     for window in space.elements().rev() {
@@ -353,25 +358,40 @@ pub fn pointer_hit_test(space: &smithay::desktop::Space<Window>, point: Point<f6
         if window_has_ssd(window) {
             let client_size = window.geometry().size;
 
-            // Quick bounds check: is the point within the extended SSD area?
+            // SSD decoration bounds (titlebar + resize borders around client area).
             let border = f64::from(RESIZE_BORDER);
-            let top = f64::from(window_loc.y) - f64::from(TITLEBAR_HEIGHT) - border;
-            let left = f64::from(window_loc.x) - border;
-            let bottom = f64::from(window_loc.y + client_size.h) + border;
-            let right = f64::from(window_loc.x + client_size.w) + border;
+            let ssd_top = f64::from(window_loc.y) - f64::from(TITLEBAR_HEIGHT) - border;
+            let ssd_left = f64::from(window_loc.x) - border;
+            let ssd_bottom = f64::from(window_loc.y + client_size.h) + border;
+            let ssd_right = f64::from(window_loc.x + client_size.w) + border;
+            let in_ssd =
+                point.x >= ssd_left && point.x <= ssd_right && point.y >= ssd_top && point.y <= ssd_bottom;
 
-            if point.x < left || point.x > right || point.y < top || point.y > bottom {
+            // Popup bounding box — SpaceElement::bbox() delegates to
+            // bbox_with_popups() which includes XDG popup geometry tracked
+            // by the PopupManager.
+            let bbox = space.element_bbox(window).unwrap_or_default();
+            let in_bbox = bbox.to_f64().contains(point);
+
+            if !in_ssd && !in_bbox {
                 continue;
             }
 
-            // This SSD window's full bounds contain the pointer — it owns the point.
-            match Focus::under(point, window_loc, client_size) {
-                Some(focus) => return PointerHitResult::Ssd(window.clone(), focus),
-                None => return PointerHitResult::ClientArea(window.clone(), window_loc),
+            // If the point is inside the SSD decoration area, apply the
+            // normal SSD logic (titlebar buttons, resize edges, client area).
+            if in_ssd {
+                match Focus::under(point, window_loc, client_size) {
+                    Some(focus) => return PointerHitResult::Ssd(window.clone(), focus),
+                    None => return PointerHitResult::ClientArea(window.clone(), window_loc),
+                }
             }
+
+            // Point is inside the popup bounding box but outside the SSD
+            // decoration area — this is a popup extending beyond the window.
+            return PointerHitResult::ClientArea(window.clone(), window_loc);
         }
 
-        // CSD window — full bounding box (including shadows/resize handles).
+        // CSD window — full bounding box (including shadows/resize handles/popups).
         let bbox = window.bbox();
         let bbox_rect = Rectangle::new((window_loc.x + bbox.loc.x, window_loc.y + bbox.loc.y).into(), bbox.size);
         if bbox_rect.to_f64().contains(point) {

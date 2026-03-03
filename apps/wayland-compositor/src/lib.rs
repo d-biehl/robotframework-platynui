@@ -1,4 +1,4 @@
-//! PlatynUI Wayland Compositor — a controlled display server for automated UI testing on Linux.
+//! `PlatynUI` Wayland Compositor — a controlled display server for automated UI testing on Linux.
 //!
 //! Provides a Wayland compositor environment where GTK, Qt, and X11 applications can run
 //! under reproducible conditions. Supports headless (CI), nested (development), and
