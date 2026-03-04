@@ -32,6 +32,7 @@ fn find_x11_window(state: &State, surface: &X11Surface) -> Option<Window> {
 fn remove_x11_window(state: &mut State, surface: &X11Surface) {
     if let Some(element) = find_x11_window(state, surface) {
         crate::handlers::foreign_toplevel::close_toplevel(state, &element);
+        state.pre_maximize_positions.retain(|(w, _, _)| w != &element);
         state.pre_fullscreen_states.retain(|(w, _, _)| w != &element);
         state.space.unmap_elem(&element);
     }
@@ -311,6 +312,73 @@ impl XwmHandler for State {
         keyboard.set_focus(self, Some(crate::focus::KeyboardFocusTarget::Window(element.clone())), serial);
         self.space.raise_element(&element, true);
         crate::grabs::handle_move_request(self, &self.seat.clone(), &element, serial);
+    }
+
+    fn maximize_request(&mut self, _xwm: XwmId, window: X11Surface) {
+        let Some(element) = find_x11_window(self, &window) else {
+            return;
+        };
+
+        if window.is_maximized() {
+            tracing::debug!(title = window.title(), "X11 maximize_request: already maximized");
+            return;
+        }
+
+        // Save current position and size before maximizing.
+        let current_loc = self.space.element_location(&element).unwrap_or_default();
+        let current_size = Some(window.geometry().size);
+        self.pre_maximize_positions.retain(|(w, _, _)| w != &element);
+        self.pre_maximize_positions.push((element.clone(), current_loc, current_size));
+
+        // Maximize to usable area minus titlebar.
+        let usable_geo = self.usable_geometry_for_window(&element);
+        let y_offset = if crate::decorations::window_has_ssd(&element) { crate::decorations::TITLEBAR_HEIGHT } else { 0 };
+        let max_size = smithay::utils::Size::from((usable_geo.size.w, usable_geo.size.h - y_offset));
+
+        if let Err(err) = window.set_maximized(true) {
+            tracing::warn!(%err, "failed to maximize X11 window");
+        }
+        if let Err(err) =
+            window.configure(Rectangle::new((usable_geo.loc.x, usable_geo.loc.y + y_offset).into(), max_size))
+        {
+            tracing::warn!(%err, "failed to configure X11 window for maximize");
+        }
+        self.space.map_element(element, (usable_geo.loc.x, usable_geo.loc.y + y_offset), true);
+
+        tracing::debug!(title = window.title(), "X11 window maximized via _NET_WM_STATE");
+    }
+
+    fn unmaximize_request(&mut self, _xwm: XwmId, window: X11Surface) {
+        let Some(element) = find_x11_window(self, &window) else {
+            return;
+        };
+
+        if !window.is_maximized() {
+            tracing::debug!(title = window.title(), "X11 unmaximize_request: not maximized");
+            return;
+        }
+
+        // Restore saved position and size.
+        let saved = self
+            .pre_maximize_positions
+            .iter()
+            .position(|(w, _, _)| w == &element)
+            .map(|i| self.pre_maximize_positions.remove(i));
+
+        if let Err(err) = window.set_maximized(false) {
+            tracing::warn!(%err, "failed to unmaximize X11 window");
+        }
+
+        if let Some((_, pos, size)) = saved {
+            if let Err(err) = window.configure(size.map(|s| Rectangle::new(pos, s))) {
+                tracing::warn!(%err, "failed to configure X11 window after unmaximize");
+            }
+            self.space.map_element(element, pos, true);
+        } else if let Err(err) = window.configure(None) {
+            tracing::warn!(%err, "failed to configure X11 window after unmaximize");
+        }
+
+        tracing::debug!(title = window.title(), "X11 window unmaximized via _NET_WM_STATE");
     }
 
     fn fullscreen_request(&mut self, _xwm: XwmId, window: X11Surface) {

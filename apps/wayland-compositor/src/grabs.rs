@@ -172,14 +172,16 @@ impl PointerGrab<State> for MoveSurfaceGrab {
 
             // --- Wayland toplevel ---
             if let Some(toplevel) = self.window.toplevel() {
-                // Consume the saved pre-maximize position entry (no longer needed).
-                if let Some(idx) = data.pre_maximize_positions.iter().position(|(w, _)| w == &self.window) {
-                    data.pre_maximize_positions.remove(idx);
-                }
+                // Consume the saved pre-maximize state entry (no longer needed).
+                let saved = data
+                    .pre_maximize_positions
+                    .iter()
+                    .position(|(w, _, _)| w == &self.window)
+                    .map(|i| data.pre_maximize_positions.remove(i));
 
                 toplevel.with_pending_state(|s| {
                     s.states.unset(xdg_toplevel::State::Maximized);
-                    s.size = None;
+                    s.size = saved.as_ref().and_then(|(_, _, size)| *size);
                 });
                 toplevel.send_configure();
 
@@ -207,22 +209,30 @@ impl PointerGrab<State> for MoveSurfaceGrab {
 
             // --- X11 ---
             if let Some(x11) = self.window.x11_surface() {
-                // Consume the saved pre-maximize position entry (no longer needed).
-                if let Some(idx) = data.pre_maximize_positions.iter().position(|(w, _)| w == &self.window) {
-                    data.pre_maximize_positions.remove(idx);
-                }
+                // Consume the saved pre-maximize state entry and use its size.
+                let saved = data
+                    .pre_maximize_positions
+                    .iter()
+                    .position(|(w, _, _)| w == &self.window)
+                    .map(|i| data.pre_maximize_positions.remove(i));
+                let saved_size = saved.and_then(|(_, _, s)| s);
 
                 if let Err(err) = x11.set_maximized(false) {
                     tracing::warn!(%err, "failed to unmaximize X11 window during drag");
                 }
-                if let Err(err) = x11.configure(None) {
-                    tracing::warn!(%err, "failed to configure X11 window during drag");
-                }
 
-                let restored_width = f64::from((max_state.width / 2).max(1));
+                // Use the saved pre-maximize width if available, otherwise heuristic.
+                let restored_width = saved_size
+                    .map_or_else(|| f64::from((max_state.width / 2).max(1)), |s| f64::from(s.w.max(1)));
+                let restored_size = saved_size
+                    .unwrap_or_else(|| smithay::utils::Size::from((restored_width as i32, max_state.width / 2)));
                 let new_x = (pointer_x - restored_width * ratio) as i32;
                 let new_y = unmaximize_y(event.location.y, &self.window);
                 let new_loc: Point<i32, Logical> = (new_x, new_y).into();
+
+                if let Err(err) = x11.configure(smithay::utils::Rectangle::new(new_loc, restored_size)) {
+                    tracing::warn!(%err, "failed to configure X11 window during drag");
+                }
 
                 data.space.map_element(self.window.clone(), new_loc, true);
                 self.initial_window_location = new_loc;

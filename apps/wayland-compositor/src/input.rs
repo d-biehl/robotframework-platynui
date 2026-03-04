@@ -504,29 +504,33 @@ fn handle_decoration_click(
 /// resize the window, mirroring the Wayland xdg-toplevel maximize logic.
 fn maximize_x11_window(state: &mut State, window: &Window, x11: &smithay::xwayland::X11Surface) {
     if x11.is_maximized() {
-        // Unmaximize — restore saved position
-        let restore_pos = state
+        // Unmaximize — restore saved position and size
+        let saved = state
             .pre_maximize_positions
             .iter()
-            .position(|(w, _)| w == window)
-            .map(|i| state.pre_maximize_positions.remove(i).1);
+            .position(|(w, _, _)| w == window)
+            .map(|i| state.pre_maximize_positions.remove(i));
 
         if let Err(err) = x11.set_maximized(false) {
             tracing::warn!(%err, "failed to unmaximize X11 window");
         }
-        // configure(None) lets the client choose its own size again
-        if let Err(err) = x11.configure(None) {
-            tracing::warn!(%err, "failed to configure X11 window after unmaximize");
-        }
 
-        if let Some(pos) = restore_pos {
+        if let Some((_, pos, size)) = saved {
+            if let Err(err) = x11.configure(size.map(|s| smithay::utils::Rectangle::new(pos, s))) {
+                tracing::warn!(%err, "failed to configure X11 window after unmaximize");
+            }
             state.space.map_element(window.clone(), pos, true);
+        } else {
+            // No saved state — let the client choose its own size
+            if let Err(err) = x11.configure(None) {
+                tracing::warn!(%err, "failed to configure X11 window after unmaximize");
+            }
         }
     } else {
-        // Save current position
+        // Save current position and size
         if let Some(current_loc) = state.space.element_location(window) {
-            state.pre_maximize_positions.retain(|(w, _)| w != window);
-            state.pre_maximize_positions.push((window.clone(), current_loc));
+            state.pre_maximize_positions.retain(|(w, _, _)| w != window);
+            state.pre_maximize_positions.push((window.clone(), current_loc, Some(x11.geometry().size)));
         }
 
         // Maximize to usable area minus titlebar

@@ -51,6 +51,8 @@ use smithay::{
     },
 };
 
+/// Saved state for a maximized window: (window, previous position, previous size).
+type PreMaximizeState = (Window, Point<i32, Logical>, Option<Size<i32, Logical>>);
 /// Saved state for a fullscreen window: (window, previous position, previous pending size).
 type PreFullscreenState = (Window, Point<i32, Logical>, Option<Size<i32, Logical>>);
 
@@ -155,8 +157,8 @@ pub struct State {
     /// Cursor theme state for rendering xcursor images (Named/Default cursors).
     pub cursor_theme: crate::cursor::CursorThemeState,
 
-    /// Pre-maximize window positions — restored when unmaximizing.
-    pub pre_maximize_positions: Vec<(Window, Point<i32, Logical>)>,
+    /// Pre-maximize window states — restored when unmaximizing.
+    pub pre_maximize_positions: Vec<PreMaximizeState>,
 
     /// Pre-fullscreen window states — restored when leaving fullscreen.
     pub pre_fullscreen_states: Vec<PreFullscreenState>,

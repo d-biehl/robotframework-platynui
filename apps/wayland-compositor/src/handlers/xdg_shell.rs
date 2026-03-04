@@ -325,7 +325,7 @@ impl XdgShellHandler for State {
 
             self.space.unmap_elem(window);
             // Clean up compositor-side state for this window
-            self.pre_maximize_positions.retain(|(w, _)| w != window);
+            self.pre_maximize_positions.retain(|(w, _, _)| w != window);
             self.pre_fullscreen_states.retain(|(w, _, _)| w != window);
             self.minimized_windows.retain(|(w, _)| w != window);
         } else {
@@ -512,10 +512,11 @@ pub fn do_maximize(state: &mut State, surface: &ToplevelSurface) {
         return;
     };
 
-    // Save the current position before maximizing.
+    // Save the current position and pending size before maximizing.
     if let Some(current_loc) = state.space.element_location(&window) {
-        state.pre_maximize_positions.retain(|(w, _)| w != &window);
-        state.pre_maximize_positions.push((window.clone(), current_loc));
+        let current_size = surface.with_pending_state(|s| s.size);
+        state.pre_maximize_positions.retain(|(w, _, _)| w != &window);
+        state.pre_maximize_positions.push((window.clone(), current_loc, current_size));
     }
 
     let usable_geo = state.usable_geometry_for_window(&window);
@@ -552,19 +553,19 @@ pub fn do_unmaximize(state: &mut State, surface: &ToplevelSurface) {
         return;
     };
 
-    // Restore saved position.
-    let restore_pos = state
+    // Restore saved position and size.
+    let saved = state
         .pre_maximize_positions
         .iter()
-        .position(|(w, _)| w == &window)
-        .map(|i| state.pre_maximize_positions.remove(i).1);
+        .position(|(w, _, _)| w == &window)
+        .map(|i| state.pre_maximize_positions.remove(i));
 
     surface.with_pending_state(|s| {
         s.states.unset(xdg_toplevel::State::Maximized);
-        s.size = None;
+        s.size = saved.as_ref().and_then(|(_, _, size)| *size);
     });
 
-    if let Some(pos) = restore_pos {
+    if let Some((_, pos, _)) = saved {
         state.space.map_element(window, pos, true);
     }
 
