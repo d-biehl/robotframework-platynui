@@ -39,7 +39,9 @@ jobs:
             pkg-config \
             libssl-dev \
             libudev-dev \
-            libseat-dev
+            libseat-dev \
+            libinput-dev \
+            libgbm-dev 
 
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
@@ -120,7 +122,11 @@ jobs:
             clang \
             libasound2-dev \
             pkg-config \
-            libssl-dev
+            libssl-dev \
+            libudev-dev \
+            libseat-dev \
+            libinput-dev \
+            libgbm-dev 
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
