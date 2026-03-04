@@ -785,23 +785,69 @@ fn perform_cursor_capture(
     };
 
     // Get the current cursor icon.
-    let (icon, time) = match &state.cursor_status {
-        CursorImageStatus::Named(icon) => (*icon, state.start_time.elapsed()),
-        CursorImageStatus::Surface(_) | CursorImageStatus::Hidden => {
-            // Surface cursors and hidden cursors: fill with transparent pixels.
-            if let Err(err) = fill_shm_transparent(buffer, &buf_info, expected_size) {
-                tracing::warn!(err, "screencopy: cursor capture failed (transparent fill)");
-                frame.failed(ext_image_copy_capture_frame_v1::FailureReason::Unknown);
+    //
+    // The compositor may override the client cursor for SSD interactions
+    // (resize borders, move grab, etc.).  This override takes priority,
+    // mirroring the same logic used in the main render pipeline.
+    let compositor_override = crate::render::compositor_cursor_icon(state.compositor_cursor_shape);
+
+    let (icon, time) = if let Some(override_icon) = compositor_override {
+        (override_icon, state.start_time.elapsed())
+    } else {
+        match &state.cursor_status {
+            CursorImageStatus::Named(icon) => (*icon, state.start_time.elapsed()),
+            CursorImageStatus::Surface(surface) => {
+                // Surface cursors (e.g. from XWayland/X11 clients that set cursors
+                // via wl_pointer.set_cursor): render the cursor surface through the
+                // GL pipeline and copy the resulting pixels into the capture buffer.
+                use smithay::input::pointer::CursorImageSurfaceData;
+                use smithay::wayland::compositor as wl_compositor;
+
+                let surface = surface.clone();
+                let hotspot = wl_compositor::with_states(&surface, |states| {
+                    states
+                        .data_map
+                        .get::<CursorImageSurfaceData>()
+                        .map(|d| d.lock().expect("mutex poisoned").hotspot)
+                        .unwrap_or_default()
+                });
+
+                match render_cursor_surface_to_pixels(state, &surface, expected_size) {
+                    Ok(pixel_data) => {
+                        if let Err(err) = copy_pixels_to_shm(buffer, &buf_info, &pixel_data, expected_size) {
+                            tracing::warn!(err, "screencopy: cursor surface capture failed (shm copy)");
+                            frame.failed(ext_image_copy_capture_frame_v1::FailureReason::Unknown);
+                            return;
+                        }
+                        if let Some(cs) = cursor_session.and_then(|w| w.upgrade().ok()) {
+                            cs.hotspot(hotspot.x, hotspot.y);
+                        }
+                    }
+                    Err(err) => {
+                        tracing::debug!(err, "screencopy: cursor surface render failed, filling transparent");
+                        if let Err(err) = fill_shm_transparent(buffer, &buf_info, expected_size) {
+                            tracing::warn!(err, "screencopy: cursor capture failed (transparent fill)");
+                            frame.failed(ext_image_copy_capture_frame_v1::FailureReason::Unknown);
+                            return;
+                        }
+                    }
+                }
+                send_frame_metadata(state, frame, expected_size);
                 return;
             }
-            // For hidden cursor, send leave on the cursor session.
-            if matches!(state.cursor_status, CursorImageStatus::Hidden)
-                && let Some(cs) = cursor_session.and_then(|w| w.upgrade().ok())
-            {
-                cs.leave();
+            CursorImageStatus::Hidden => {
+                // Hidden cursor: fill with transparent pixels and send leave.
+                if let Err(err) = fill_shm_transparent(buffer, &buf_info, expected_size) {
+                    tracing::warn!(err, "screencopy: cursor capture failed (transparent fill)");
+                    frame.failed(ext_image_copy_capture_frame_v1::FailureReason::Unknown);
+                    return;
+                }
+                if let Some(cs) = cursor_session.and_then(|w| w.upgrade().ok()) {
+                    cs.leave();
+                }
+                send_frame_metadata(state, frame, expected_size);
+                return;
             }
-            send_frame_metadata(state, frame, expected_size);
-            return;
         }
     };
 
@@ -831,6 +877,77 @@ fn perform_cursor_capture(
 
     send_frame_metadata(state, frame, expected_size);
     tracing::trace!(width = cursor_data.width, height = cursor_data.height, "screencopy: cursor frame captured");
+}
+
+/// Render a cursor surface (e.g. from `XWayland` clients) into a pixel buffer.
+///
+/// Uses the shared offscreen GL renderer to composit the surface tree into a
+/// small texture, then reads back the pixels in ABGR8888 format (same as
+/// [`render_source_to_pixels`]).
+fn render_cursor_surface_to_pixels(
+    state: &mut State,
+    surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    size: Size<i32, Physical>,
+) -> Result<Vec<u8>, String> {
+    use smithay::backend::allocator::Fourcc as DrmFourcc;
+    use smithay::backend::renderer::damage::OutputDamageTracker;
+    use smithay::backend::renderer::element::surface::{
+        WaylandSurfaceRenderElement, render_elements_from_surface_tree,
+    };
+    use smithay::backend::renderer::gles::GlesTexture;
+    use smithay::backend::renderer::glow::GlowRenderer;
+    use smithay::backend::renderer::{Bind, ExportMem, Offscreen};
+    use smithay::utils::Scale;
+
+    // Lazily initialize the offscreen renderer (shared with screenshot capture).
+    if state.screenshot_renderer.is_none() {
+        state.screenshot_renderer = Some(
+            crate::backend::create_offscreen_glow_renderer()
+                .map_err(|e| format!("failed to create offscreen renderer: {e}"))?,
+        );
+    }
+
+    let mut renderer = state.screenshot_renderer.take().expect("screenshot renderer was just initialized above");
+
+    let buffer_size: Size<i32, smithay::utils::Buffer> = (size.w, size.h).into();
+
+    let mut texture: GlesTexture = renderer
+        .create_buffer(DrmFourcc::Abgr8888, buffer_size)
+        .map_err(|e| format!("create_buffer: {e}"))?;
+    let mut framebuffer = renderer.bind(&mut texture).map_err(|e| format!("bind: {e}"))?;
+
+    // Render the cursor surface at origin with scale 1.
+    let scale = Scale::from(1.0);
+    let cursor_elements: Vec<WaylandSurfaceRenderElement<GlowRenderer>> =
+        render_elements_from_surface_tree(
+            &mut renderer,
+            surface,
+            (0, 0),
+            scale,
+            1.0,
+            smithay::backend::renderer::element::Kind::Cursor,
+        );
+
+    let elements: Vec<crate::render::CompositorRenderElement> = cursor_elements
+        .into_iter()
+        .map(crate::render::CompositorRenderElement::Surface)
+        .collect();
+
+    // Render into the offscreen texture with transparent clear colour.
+    let mut damage_tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
+    damage_tracker
+        .render_output(&mut renderer, &mut framebuffer, 0, &elements, [0.0, 0.0, 0.0, 0.0])
+        .map_err(|e| format!("render_output: {e}"))?;
+
+    // Read back rendered pixels.
+    let region = Rectangle::from_size(buffer_size);
+    let mapping = renderer
+        .copy_framebuffer(&framebuffer, region, DrmFourcc::Abgr8888)
+        .map_err(|e| format!("copy_framebuffer: {e}"))?;
+    let pixel_data = renderer.map_texture(&mapping).map_err(|e| format!("map_texture: {e}"))?;
+
+    state.screenshot_renderer = Some(renderer);
+    Ok(pixel_data.to_vec())
 }
 
 /// Send common frame metadata (transform, damage, presentation time, ready).

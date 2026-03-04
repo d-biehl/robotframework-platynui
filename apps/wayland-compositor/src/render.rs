@@ -271,7 +271,7 @@ pub fn collect_render_elements(
     };
     if draw_cursor && cursor_on_this_output {
         // Check if the compositor wants to override the cursor (SSD interactions).
-        let compositor_override = compositor_cursor_shape_to_icon(state.compositor_cursor_shape);
+        let compositor_override = compositor_cursor_icon(state.compositor_cursor_shape);
 
         if let Some(override_icon) = compositor_override {
             // Compositor-driven cursor (resize borders, move grab, etc.)
@@ -325,7 +325,10 @@ pub fn collect_render_elements(
 ///
 /// Returns `None` for `CursorShape::Default` (no compositor override — use
 /// the client cursor) and `Some(icon)` for all SSD interaction shapes.
-fn compositor_cursor_shape_to_icon(shape: decorations::CursorShape) -> Option<CursorIcon> {
+///
+/// Public so that the screencopy cursor session can apply the same override
+/// logic as the main render pipeline.
+pub fn compositor_cursor_icon(shape: decorations::CursorShape) -> Option<CursorIcon> {
     match shape {
         decorations::CursorShape::Default => None,
         decorations::CursorShape::Move => Some(CursorIcon::Move),
