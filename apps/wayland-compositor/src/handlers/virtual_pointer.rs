@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use smithay::{
     backend::input::{Axis, AxisSource},
     input::pointer::{AxisFrame, MotionEvent},
+    output::Output,
     reexports::{
         wayland_protocols_wlr::virtual_pointer::v1::server::{
             zwlr_virtual_pointer_manager_v1::{self, ZwlrVirtualPointerManagerV1},
@@ -75,10 +76,16 @@ impl Dispatch<ZwlrVirtualPointerManagerV1, ()> for State {
             zwlr_virtual_pointer_manager_v1::Request::CreateVirtualPointer { seat: _, id } => {
                 data_init.init(id, VirtualPointerUserData::default());
             }
-            zwlr_virtual_pointer_manager_v1::Request::CreateVirtualPointerWithOutput { seat: _, output: _, id } => {
-                // We ignore the output hint — our compositor routes pointer
-                // events through the combined output geometry regardless.
-                data_init.init(id, VirtualPointerUserData::default());
+            zwlr_virtual_pointer_manager_v1::Request::CreateVirtualPointerWithOutput { seat: _, output, id } => {
+                // Resolve the wl_output to our internal Output so that
+                // motion_absolute maps coordinates to that specific output
+                // rather than the full combined geometry.  This is critical
+                // for tools like wayvnc that capture a single output.
+                let bound_output = output.as_ref().and_then(Output::from_resource);
+                if bound_output.is_some() {
+                    tracing::debug!(?bound_output, "virtual pointer bound to output");
+                }
+                data_init.init(id, VirtualPointerUserData::new(bound_output));
             }
             zwlr_virtual_pointer_manager_v1::Request::Destroy => {}
             _ => {
@@ -92,17 +99,28 @@ impl Dispatch<ZwlrVirtualPointerManagerV1, ()> for State {
 // Per-pointer user data — accumulates axis state between frames
 // ---------------------------------------------------------------------------
 
-/// Pending axis state accumulated between `axis*` requests and the `frame`
-/// request that flushes them.
+/// Per-pointer user data — stores the (optional) bound output and
+/// accumulates axis state between frames.
 pub struct VirtualPointerUserData {
+    /// The output this virtual pointer is bound to (set via
+    /// `CreateVirtualPointerWithOutput`).  When present,
+    /// `motion_absolute` maps coordinates to this output's geometry
+    /// instead of the full combined geometry.
+    bound_output: Option<Output>,
     /// Pending axis frame (built up by `axis`, `axis_source`, `axis_stop`,
     /// `axis_discrete` and flushed on `frame`).
     pending_axis: Mutex<Option<PendingAxisFrame>>,
 }
 
+impl VirtualPointerUserData {
+    fn new(bound_output: Option<Output>) -> Self {
+        Self { bound_output, pending_axis: Mutex::new(None) }
+    }
+}
+
 impl Default for VirtualPointerUserData {
     fn default() -> Self {
-        Self { pending_axis: Mutex::new(None) }
+        Self::new(None)
     }
 }
 
@@ -138,7 +156,7 @@ impl Dispatch<ZwlrVirtualPointerV1, VirtualPointerUserData> for State {
                 handle_motion(state, time, dx, dy);
             }
             zwlr_virtual_pointer_v1::Request::MotionAbsolute { time, x, y, x_extent, y_extent } => {
-                handle_motion_absolute(state, time, x, y, x_extent, y_extent);
+                handle_motion_absolute(state, data, time, x, y, x_extent, y_extent);
             }
             zwlr_virtual_pointer_v1::Request::Button { time, button, state: btn_state } => {
                 handle_button(state, time, button, btn_state);
@@ -194,8 +212,21 @@ fn handle_motion(state: &mut State, time: u32, dx: f64, dy: f64) {
 }
 
 /// Absolute pointer motion — coordinates normalised by extent.
+///
+/// When the virtual pointer is bound to a specific output (via
+/// `CreateVirtualPointerWithOutput`), coordinates are mapped to that
+/// output's geometry.  Otherwise they map to the full combined geometry
+/// of all outputs.
 #[allow(clippy::cast_possible_truncation)]
-fn handle_motion_absolute(state: &mut State, time: u32, x: u32, y: u32, x_extent: u32, y_extent: u32) {
+fn handle_motion_absolute(
+    state: &mut State,
+    data: &VirtualPointerUserData,
+    time: u32,
+    x: u32,
+    y: u32,
+    x_extent: u32,
+    y_extent: u32,
+) {
     if x_extent == 0 || y_extent == 0 {
         tracing::warn!(x_extent, y_extent, "virtual pointer: ignoring motion with zero extent");
         return;
@@ -203,13 +234,20 @@ fn handle_motion_absolute(state: &mut State, time: u32, x: u32, y: u32, x_extent
     tracing::trace!(time, x, y, x_extent, y_extent, "virtual pointer: motion absolute");
 
     let serial = SERIAL_COUNTER.next_serial();
-    let combined_geo = state.combined_output_geometry();
 
-    // Map [0, extent) → [0, combined_size)
-    let abs_x = f64::from(x) / f64::from(x_extent) * f64::from(combined_geo.size.w);
-    let abs_y = f64::from(y) / f64::from(y_extent) * f64::from(combined_geo.size.h);
+    // Use the bound output's geometry when available, falling back to the
+    // full combined geometry for unbound virtual pointers.
+    let geo = data
+        .bound_output
+        .as_ref()
+        .and_then(|o| state.space.output_geometry(o))
+        .unwrap_or_else(|| state.combined_output_geometry());
 
-    state.pointer_location = (abs_x + f64::from(combined_geo.loc.x), abs_y + f64::from(combined_geo.loc.y)).into();
+    // Map [0, extent) → [0, output_size)
+    let abs_x = f64::from(x) / f64::from(x_extent) * f64::from(geo.size.w);
+    let abs_y = f64::from(y) / f64::from(y_extent) * f64::from(geo.size.h);
+
+    state.pointer_location = (abs_x + f64::from(geo.loc.x), abs_y + f64::from(geo.loc.y)).into();
 
     crate::input::update_cursor_shape(state);
 
