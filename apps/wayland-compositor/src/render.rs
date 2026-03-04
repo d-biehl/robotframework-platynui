@@ -58,17 +58,23 @@ pub fn collect_render_elements(
 ) -> Vec<CompositorRenderElement> {
     let mut elements: Vec<CompositorRenderElement> = Vec::new();
 
-    // For single-output, use that output's scale.  For multi-output in a
-    // single framebuffer (winit), we MUST use the max scale across all
-    // outputs.  The framebuffer is sized at `logical_bbox * max_scale`,
-    // so every element must be positioned and sized at the same scale for
-    // the physical pixel positions to match the pointer mapping (which
-    // divides physical cursor position by the same max_scale).
-    // Using the primary output's scale when it differs from max_scale
-    // creates a mismatch: elements render at the wrong position and
-    // subsequent clicks don't find them.
-    let output_scale =
-        if state.outputs.len() > 1 { state.max_output_scale() } else { output.current_scale().fractional_scale() };
+    // Per-output rendering (DRM): each output has its own framebuffer, so
+    // elements are positioned in output-local coordinates, only this
+    // output's layer surfaces are rendered, and the output's own scale is
+    // used.
+    //
+    // Combined-framebuffer rendering (winit): all outputs share a single
+    // buffer, so elements use global coordinates, all outputs' layer
+    // surfaces are included, and the maximum scale across outputs is used
+    // to keep positioning consistent.
+    let per_output = state.backend_name == "drm";
+
+    let output_scale = if !per_output && state.outputs.len() > 1 {
+        // Winit combined framebuffer: use max scale so all elements align.
+        state.max_output_scale()
+    } else {
+        output.current_scale().fractional_scale()
+    };
     let output_geo = state.space.output_geometry(output).unwrap_or_default();
     // Apply window_scale for winit preview: shrinks the rendering so that
     // large multi-output setups fit in a smaller host window.  For headless
@@ -83,18 +89,27 @@ pub fn collect_render_elements(
     });
 
     // --- Overlay layer surfaces (topmost, above even context menu) ---
-    // In multi-output mode, render layer surfaces from ALL outputs so that
-    // panels/bars on non-primary outputs are visible in the combined
-    // framebuffer.  For single-output this is equivalent to the old code.
-    for o in &state.outputs {
-        let o_geo = state.space.output_geometry(o).unwrap_or_default();
-        render_layer_surfaces(&mut elements, renderer, o, o_geo, scale, WlrLayer::Overlay);
+    // Per-output: only this output's layers at output-local coordinates.
+    // Combined: all outputs' layers at global coordinates.
+    if per_output {
+        let local_geo = Rectangle::from_size(output_geo.size);
+        render_layer_surfaces(&mut elements, renderer, output, local_geo, scale, WlrLayer::Overlay);
+    } else {
+        for o in &state.outputs {
+            let o_geo = state.space.output_geometry(o).unwrap_or_default();
+            render_layer_surfaces(&mut elements, renderer, o, o_geo, scale, WlrLayer::Overlay);
+        }
     }
 
     // --- Top layer surfaces (above windows, below overlay) ---
-    for o in &state.outputs {
-        let o_geo = state.space.output_geometry(o).unwrap_or_default();
-        render_layer_surfaces(&mut elements, renderer, o, o_geo, scale, WlrLayer::Top);
+    if per_output {
+        let local_geo = Rectangle::from_size(output_geo.size);
+        render_layer_surfaces(&mut elements, renderer, output, local_geo, scale, WlrLayer::Top);
+    } else {
+        for o in &state.outputs {
+            let o_geo = state.space.output_geometry(o).unwrap_or_default();
+            render_layer_surfaces(&mut elements, renderer, o, o_geo, scale, WlrLayer::Top);
+        }
     }
 
     // Iterate windows front-to-back (.rev() because elements() is back-to-front).
@@ -102,6 +117,21 @@ pub fn collect_render_elements(
         let Some(window_loc) = state.space.element_location(window) else {
             continue;
         };
+
+        // Per-output rendering: skip windows that don't overlap this output.
+        // The SSD titlebar extends above the window, so include it in the
+        // visibility check.
+        if per_output {
+            let titlebar_extra = if decorations::window_has_ssd(window) { decorations::TITLEBAR_HEIGHT } else { 0 };
+            let win_geo = window.geometry();
+            let win_rect = Rectangle::new(
+                (window_loc.x, window_loc.y - titlebar_extra).into(),
+                (win_geo.size.w, win_geo.size.h + titlebar_extra).into(),
+            );
+            if !output_geo.overlaps(win_rect) {
+                continue;
+            }
+        }
 
         let loc_in_output = window_loc - output_geo.loc;
         let physical_loc = loc_in_output.to_physical_precise_round(scale);
@@ -116,22 +146,32 @@ pub fn collect_render_elements(
             let focused =
                 focused_wl_surface.as_ref().is_some_and(|fs| window.wl_surface().is_some_and(|ws| *ws == *fs));
 
-            let titlebar_loc: Point<i32, Logical> = (window_loc.x, window_loc.y - decorations::TITLEBAR_HEIGHT).into();
+            let titlebar_loc: Point<i32, Logical> =
+                (loc_in_output.x, loc_in_output.y - decorations::TITLEBAR_HEIGHT).into();
             let client_size = window.geometry().size;
 
             let title = window_title(window);
 
-            let hovered_button =
-                decorations::titlebar_button_hit_test(state.pointer_location, titlebar_loc, client_size).filter(
-                    |click| {
-                        matches!(
-                            click,
-                            decorations::DecorationClick::Close
-                                | decorations::DecorationClick::Maximize
-                                | decorations::DecorationClick::Minimize
-                        )
-                    },
-                );
+            // For per-output (DRM) rendering, convert pointer to output-local
+            // coordinates so the hit test matches the output-local titlebar_loc.
+            let pointer_for_hit_test = if per_output {
+                Point::from((
+                    state.pointer_location.x - f64::from(output_geo.loc.x),
+                    state.pointer_location.y - f64::from(output_geo.loc.y),
+                ))
+            } else {
+                state.pointer_location
+            };
+
+            let hovered_button = decorations::titlebar_button_hit_test(pointer_for_hit_test, titlebar_loc, client_size)
+                .filter(|click| {
+                    matches!(
+                        click,
+                        decorations::DecorationClick::Close
+                            | decorations::DecorationClick::Maximize
+                            | decorations::DecorationClick::Minimize
+                    )
+                });
 
             let (deco_elements, titlebar_element) = decorations::render_decorations(
                 renderer,
@@ -154,7 +194,9 @@ pub fn collect_render_elements(
     // --- Context menu overlay (on top of everything) ---
     if let Some(ref menu) = state.context_menu {
         // Dismiss the menu if the window is no longer in the space.
-        if state.space.element_location(&menu.window).is_some() {
+        let menu_visible =
+            state.space.element_location(&menu.window).is_some() && (!per_output || output_geo.contains(menu.position));
+        if menu_visible {
             let hovered_item = menu.item_at(state.pointer_location);
             let menu_loc = menu.position - output_geo.loc;
             #[allow(clippy::cast_possible_truncation)]
@@ -182,21 +224,32 @@ pub fn collect_render_elements(
     }
 
     // --- Bottom layer surfaces (below windows, above background) ---
-    for o in &state.outputs {
-        let o_geo = state.space.output_geometry(o).unwrap_or_default();
-        render_layer_surfaces(&mut elements, renderer, o, o_geo, scale, WlrLayer::Bottom);
+    if per_output {
+        let local_geo = Rectangle::from_size(output_geo.size);
+        render_layer_surfaces(&mut elements, renderer, output, local_geo, scale, WlrLayer::Bottom);
+    } else {
+        for o in &state.outputs {
+            let o_geo = state.space.output_geometry(o).unwrap_or_default();
+            render_layer_surfaces(&mut elements, renderer, o, o_geo, scale, WlrLayer::Bottom);
+        }
     }
 
-    // Draw subtle separator lines between outputs (behind all windows).
-    if state.outputs.len() > 1 {
+    // Draw subtle separator lines between virtual outputs (winit only).
+    // DRM outputs have physical bezels — no software separators needed.
+    if !per_output && state.outputs.len() > 1 {
         elements
             .extend(render_output_separators(state, render_scale).into_iter().map(CompositorRenderElement::Decoration));
     }
 
     // --- Background layer surfaces (lowest, wallpapers) ---
-    for o in &state.outputs {
-        let o_geo = state.space.output_geometry(o).unwrap_or_default();
-        render_layer_surfaces(&mut elements, renderer, o, o_geo, scale, WlrLayer::Background);
+    if per_output {
+        let local_geo = Rectangle::from_size(output_geo.size);
+        render_layer_surfaces(&mut elements, renderer, output, local_geo, scale, WlrLayer::Background);
+    } else {
+        for o in &state.outputs {
+            let o_geo = state.space.output_geometry(o).unwrap_or_default();
+            render_layer_surfaces(&mut elements, renderer, o, o_geo, scale, WlrLayer::Background);
+        }
     }
 
     // --- Cursor rendering (software cursor, on top of everything) ---
@@ -205,11 +258,18 @@ pub fn collect_render_elements(
     //   - screencopy: controlled by client's `paint_cursors` option
     //   - IPC screenshots: always true
     //
+    // Per-output: only render the cursor on the output it's actually on.
+    //
     // Compositor-driven cursor shapes (SSD resize borders, move grabs) take
     // priority over client-requested cursors.  When compositor_cursor_shape
     // is not Default, we render the corresponding xcursor theme icon instead
     // of whatever the client set via wl_pointer.set_cursor / wp-cursor-shape.
-    if draw_cursor {
+    let cursor_on_this_output = !per_output || {
+        #[allow(clippy::cast_possible_truncation)]
+        let ptr: Point<i32, Logical> = (state.pointer_location.x as i32, state.pointer_location.y as i32).into();
+        output_geo.contains(ptr)
+    };
+    if draw_cursor && cursor_on_this_output {
         // Check if the compositor wants to override the cursor (SSD interactions).
         let compositor_override = compositor_cursor_shape_to_icon(state.compositor_cursor_shape);
 

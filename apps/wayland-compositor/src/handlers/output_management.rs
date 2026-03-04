@@ -413,6 +413,22 @@ fn handle_apply_or_test(
     let disabled = data.disabled_heads.lock().expect("mutex poisoned");
 
     if apply {
+        // For DRM backend: activate outputs that need a CRTC before mapping.
+        // Do this before configuring modes/positions so the DRM compositor exists.
+        if let Some(ref mut backend) = state.drm_backend {
+            for cfg in head_configs.iter() {
+                if let Some(conn) = backend.connector_for_output(&cfg.output)
+                    && let Err(err) = backend.activate_output(conn)
+                {
+                    tracing::warn!(
+                        output = cfg.output.name(),
+                        %err,
+                        "output management: failed to activate DRM output",
+                    );
+                }
+            }
+        }
+
         // Apply enabled-head configurations.
         for cfg in head_configs.iter() {
             let mode = cfg.custom_mode.or(cfg.mode).unwrap_or_else(|| {
@@ -427,10 +443,14 @@ fn handle_apply_or_test(
 
             cfg.output.change_current_state(Some(mode), transform, scale, position);
 
-            // If position changed, remap in the space.
-            if let Some((x, y)) = cfg.position {
-                state.space.map_output(&cfg.output, (x, y));
-            }
+            // (Re-)map the output in the space.  If the client supplied a
+            // position, use that; otherwise use the output's current
+            // protocol-level position (preserves the last known layout).
+            let loc = cfg.position.unwrap_or_else(|| {
+                let p = cfg.output.current_location();
+                (p.x, p.y)
+            });
+            state.space.map_output(&cfg.output, loc);
 
             tracing::info!(
                 output = cfg.output.name(),
@@ -443,9 +463,17 @@ fn handle_apply_or_test(
             );
         }
 
-        // Handle disabled heads — unmap from space.
+        // Handle disabled heads — unmap from space and release DRM hardware.
         for output in disabled.iter() {
             state.space.unmap_output(output);
+
+            // For DRM backend: deactivate hardware (release CRTC).
+            if let Some(ref mut backend) = state.drm_backend
+                && let Some(conn) = backend.connector_for_output(output)
+            {
+                backend.deactivate_output(conn);
+            }
+
             tracing::info!(output = output.name(), "output management: disabled output");
         }
 

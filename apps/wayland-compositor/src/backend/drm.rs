@@ -56,27 +56,140 @@ use smithay::{
 
 use crate::{CompositorArgs, config::CompositorConfig, state::State};
 
-/// Per-output rendering state for a DRM connector.
-pub struct DrmOutputState {
+/// Active scanout state for a DRM output that has a CRTC assigned.
+pub struct ActiveDrmCompositor {
+    /// The CRTC driving this output.
+    pub(crate) crtc: crtc::Handle,
     /// The DRM compositor that manages scanout for this output.
     pub(crate) drm_compositor:
         DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>,
-    /// The Smithay output object for this connector.
-    pub(crate) output: Output,
     /// Whether a frame has been queued and we're waiting for `VBlank`.
     pub(crate) pending_frame: bool,
 }
 
+/// Per-output state for a DRM connector.
+///
+/// Every connected connector gets a `DrmOutputState` and a Smithay [`Output`]
+/// object (visible to wlr-randr).  When the GPU has fewer CRTCs than
+/// connected monitors, some outputs start with `compositor: None` (disabled)
+/// and can be activated later by freeing a CRTC from another output.
+pub struct DrmOutputState {
+    /// The Smithay output object for this connector.
+    pub(crate) output: Output,
+    /// Active compositor — `None` when the output is disabled (no CRTC).
+    pub(crate) compositor: Option<ActiveDrmCompositor>,
+}
+
 /// Per-GPU rendering state.
 pub struct DrmBackendState {
-    /// DRM device (retained for lifetime + VT switching).
-    pub(crate) _drm_device: DrmDevice,
-    /// Per-output rendering state, keyed by CRTC handle.
-    pub(crate) outputs: HashMap<crtc::Handle, DrmOutputState>,
+    /// DRM device — needed for creating surfaces when activating outputs.
+    pub(crate) drm_device: DrmDevice,
+    /// GBM device — needed for allocators when activating outputs.
+    pub(crate) gbm_device: GbmDevice<DrmDeviceFd>,
+    /// Hardware cursor size (from DRM device capabilities).
+    pub(crate) cursor_size: Size<u32, BufferCoords>,
+    /// All connected outputs, keyed by connector handle.
+    pub(crate) outputs: HashMap<connector::Handle, DrmOutputState>,
     /// `GlowRenderer` (EGL on GBM — GPU-accelerated or Mesa llvmpipe).
     pub(crate) renderer: GlowRenderer,
+    /// libseat session — used for VT switching (`Ctrl+Alt+F<n>`).
+    pub(crate) session: LibSeatSession,
     /// Whether the session is currently active (false when VT-switched away).
     pub(crate) session_active: bool,
+}
+
+impl DrmBackendState {
+    /// Activate a disabled output by assigning it a free CRTC.
+    ///
+    /// Returns `Ok(())` if the output was successfully activated or was already
+    /// active.  Returns an error if no CRTC is available or hardware setup fails.
+    pub fn activate_output(&mut self, conn: connector::Handle) -> Result<(), Box<dyn std::error::Error>> {
+        // Check if already active.
+        {
+            let output_state = self.outputs.get(&conn).ok_or("unknown connector")?;
+            if output_state.compositor.is_some() {
+                return Ok(()); // already active
+            }
+        }
+
+        // Re-query connector info for DRM modes.
+        let conn_info = self.drm_device.get_connector(conn, false).map_err(|e| format!("get_connector: {e}"))?;
+        let res_handles = self.drm_device.resource_handles().map_err(|e| format!("resource_handles: {e}"))?;
+
+        // Find a free CRTC.
+        let crtc = find_crtc_for_connector(&self.drm_device, &res_handles, &conn_info, &self.outputs)
+            .ok_or("no available CRTC — disable another output first")?;
+
+        // Match the output's current Smithay mode to a DRM mode.
+        let output = self.outputs.get(&conn).expect("checked above").output.clone();
+        let smithay_mode = output.current_mode().ok_or("output has no current mode")?;
+
+        let drm_modes = conn_info.modes();
+        let drm_mode = drm_modes
+            .iter()
+            .find(|m| {
+                i32::from(m.size().0) == smithay_mode.size.w
+                    && i32::from(m.size().1) == smithay_mode.size.h
+                    && m.vrefresh().min(i32::MAX as u32).cast_signed() * 1000 == smithay_mode.refresh
+            })
+            // Fallback: match size only (refresh may differ due to rounding).
+            .or_else(|| {
+                drm_modes.iter().find(|m| {
+                    i32::from(m.size().0) == smithay_mode.size.w && i32::from(m.size().1) == smithay_mode.size.h
+                })
+            })
+            .or_else(|| drm_modes.first())
+            .copied()
+            .ok_or("no DRM mode available")?;
+
+        // Create hardware resources.
+        let surface = self.drm_device.create_surface(crtc, drm_mode, &[conn])?;
+        let allocator = GbmAllocator::new(self.gbm_device.clone(), GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT);
+        let exporter = GbmFramebufferExporter::new(self.gbm_device.clone(), None);
+        let color_formats = [DrmFourcc::Argb8888, DrmFourcc::Xrgb8888];
+        let renderer_formats: Vec<DrmFormat> = [DrmFourcc::Argb8888, DrmFourcc::Xrgb8888]
+            .iter()
+            .map(|code| DrmFormat { code: *code, modifier: DrmModifier::Linear })
+            .collect();
+
+        let drm_compositor = DrmCompositor::new(
+            &output,
+            surface,
+            None,
+            allocator,
+            exporter,
+            color_formats,
+            renderer_formats,
+            self.cursor_size,
+            Some(self.gbm_device.clone()),
+        )
+        .map_err(|e| format!("DrmCompositor::new: {e}"))?;
+
+        let output_state = self.outputs.get_mut(&conn).expect("checked above");
+        output_state.compositor = Some(ActiveDrmCompositor { crtc, drm_compositor, pending_frame: false });
+
+        tracing::info!(output = output.name(), ?crtc, "DRM output activated");
+        Ok(())
+    }
+
+    /// Deactivate an output, releasing its CRTC for use by another output.
+    pub fn deactivate_output(&mut self, conn: connector::Handle) {
+        if let Some(output_state) = self.outputs.get_mut(&conn)
+            && let Some(active) = output_state.compositor.take()
+        {
+            tracing::info!(
+                output = output_state.output.name(),
+                crtc = ?active.crtc,
+                "DRM output deactivated — CRTC released",
+            );
+        }
+    }
+
+    /// Find the connector handle for an output by matching names.
+    pub fn connector_for_output(&self, output: &Output) -> Option<connector::Handle> {
+        let name = output.name();
+        self.outputs.iter().find(|(_, o)| o.output.name() == name).map(|(conn, _)| *conn)
+    }
 }
 
 /// Run the compositor on real hardware using DRM/KMS.
@@ -120,7 +233,7 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
         default_size,
         timeout,
         crate::resolve_xkb_config(args),
-        args.outputs,
+        0, // DRM backend discovers real hardware outputs
         args.output_layout,
         args.scale,
         crate::security::SecurityPolicy::from_args(args.restrict_protocols.as_deref()),
@@ -165,28 +278,56 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
         if state.drm_backend.is_none() {
             match initialize_drm_device(&mut session, &event_loop, &state, path) {
                 Ok(backend_state) => {
-                    // Map DRM-discovered outputs side-by-side (horizontal layout).
-                    // Each output is placed to the right of the previous one.
-                    let mut next_x: i32 = 0;
+                    // Apply the CLI --scale to DRM outputs if specified.
+                    let cli_scale = if args.scale > 0.0 && (args.scale - 1.0).abs() > f64::EPSILON {
+                        Some(smithay::output::Scale::Fractional(args.scale))
+                    } else {
+                        None
+                    };
+
+                    // Map DRM-discovered outputs according to the --output-layout.
+                    // Default: horizontal (side by side, left to right).
+                    // Only active outputs (with a CRTC) are mapped into the space;
+                    // disabled outputs are still added to state.outputs so wlr-randr
+                    // can see and potentially enable them.
+                    let mut next_pos: i32 = 0;
                     for output_state in backend_state.outputs.values() {
-                        // Set the protocol-level position so clients know the
-                        // output location in global coordinate space.
-                        output_state.output.change_current_state(None, None, None, Some((next_x, 0).into()));
-                        state.space.map_output(&output_state.output, (next_x, 0));
+                        // Always register the output so wlr-randr sees it.
                         state.outputs.push(output_state.output.clone());
 
-                        // Advance the x position by this output's logical width.
+                        // Only map active (CRTC-assigned) outputs into the space.
+                        if output_state.compositor.is_none() {
+                            continue;
+                        }
+
+                        let position = match args.output_layout {
+                            crate::multi_output::OutputLayout::Horizontal => (next_pos, 0),
+                            crate::multi_output::OutputLayout::Vertical => (0, next_pos),
+                        };
+
+                        output_state.output.change_current_state(None, None, cli_scale, Some(position.into()));
+                        state.space.map_output(&output_state.output, position);
+
+                        // Advance the position by this output's logical extent.
                         let mode = output_state.output.current_mode().unwrap_or(smithay::output::Mode {
                             size: (1920, 1080).into(),
                             refresh: crate::state::DEFAULT_REFRESH_MHTZ,
                         });
                         let scale = output_state.output.current_scale().fractional_scale();
                         #[allow(clippy::cast_possible_truncation)]
-                        let logical_w = (f64::from(mode.size.w) / scale).round() as i32;
-                        next_x += logical_w;
+                        let extent = match args.output_layout {
+                            crate::multi_output::OutputLayout::Horizontal => {
+                                (f64::from(mode.size.w) / scale).round() as i32
+                            }
+                            crate::multi_output::OutputLayout::Vertical => {
+                                (f64::from(mode.size.h) / scale).round() as i32
+                            }
+                        };
+                        next_pos += extent;
                     }
-                    if let Some(first) = backend_state.outputs.values().next() {
-                        state.output = first.output.clone();
+                    // Use the first active output as the primary output.
+                    if let Some(first_active) = backend_state.outputs.values().find(|o| o.compositor.is_some()) {
+                        state.output = first_active.output.clone();
                     }
                     // Pre-initialize the screenshot renderer with a shared EGL
                     // context so screenshots see the main renderer's GL objects.
@@ -256,33 +397,42 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     Ok(())
 }
 
-/// Render one frame on each DRM output.
+/// Render one frame on each active DRM output.
 ///
-/// For each CRTC with a `DrmCompositor`, renders all compositor elements
-/// (windows + decorations), then queues the frame for scanout.  Frames are
-/// skipped when a previous frame is still pending (waiting for `VBlank`).
+/// For each output with an active `DrmCompositor`, renders all compositor
+/// elements (windows + decorations), then queues the frame for scanout.
+/// Frames are skipped when a previous frame is still pending (`VBlank`).
 fn render_drm_outputs(backend: &mut DrmBackendState, state: &mut State) {
-    let crtc_handles: Vec<crtc::Handle> = backend.outputs.keys().copied().collect();
-
     // Lazy-init the glow-based titlebar painter on the first frame.
     if !state.titlebar_renderer.is_glow_initialized() {
         state.titlebar_renderer.init_glow(&mut backend.renderer);
     }
 
-    for crtc in crtc_handles {
-        let Some(output_state) = backend.outputs.get_mut(&crtc) else {
+    let conn_handles: Vec<connector::Handle> = backend.outputs.keys().copied().collect();
+
+    for conn in conn_handles {
+        let Some(output_state) = backend.outputs.get_mut(&conn) else {
             continue;
         };
 
+        let Some(ref mut active) = output_state.compositor else {
+            continue; // disabled output — no CRTC
+        };
+
         // Skip if we're still waiting for VBlank on a previous frame
-        if output_state.pending_frame {
+        if active.pending_frame {
             continue;
         }
 
+        // Skip outputs that were unmapped from the space.
         let output = output_state.output.clone();
+        if state.space.output_geometry(&output).is_none() {
+            continue;
+        }
+
         let render_elements = crate::render::collect_render_elements(&mut backend.renderer, state, &output, true);
 
-        match output_state.drm_compositor.render_frame::<_, _>(
+        match active.drm_compositor.render_frame::<_, _>(
             &mut backend.renderer,
             &render_elements,
             crate::state::BACKGROUND_COLOR,
@@ -290,15 +440,15 @@ fn render_drm_outputs(backend: &mut DrmBackendState, state: &mut State) {
         ) {
             Ok(result) => {
                 if !result.is_empty {
-                    if let Err(err) = output_state.drm_compositor.queue_frame(()) {
-                        tracing::warn!(%err, ?crtc, "failed to queue DRM frame");
+                    if let Err(err) = active.drm_compositor.queue_frame(()) {
+                        tracing::warn!(%err, crtc = ?active.crtc, "failed to queue DRM frame");
                     } else {
-                        output_state.pending_frame = true;
+                        active.pending_frame = true;
                     }
                 }
             }
             Err(err) => {
-                tracing::warn!(?err, ?crtc, "DRM render_frame failed");
+                tracing::warn!(?err, crtc = ?active.crtc, "DRM render_frame failed");
             }
         }
     }
@@ -365,13 +515,17 @@ fn initialize_drm_device(
     event_loop.handle().insert_source(drm_notifier, |event, _metadata, state| match event {
         DrmEvent::VBlank(crtc) => {
             tracing::trace!(?crtc, "VBlank");
-            if let Some(ref mut backend) = state.drm_backend
-                && let Some(output_state) = backend.outputs.get_mut(&crtc)
-            {
-                if let Err(err) = output_state.drm_compositor.frame_submitted() {
-                    tracing::warn!(?crtc, %err, "frame_submitted failed");
+            if let Some(ref mut backend) = state.drm_backend {
+                let output_state =
+                    backend.outputs.values_mut().find(|o| o.compositor.as_ref().is_some_and(|a| a.crtc == crtc));
+                if let Some(output_state) = output_state
+                    && let Some(ref mut active) = output_state.compositor
+                {
+                    if let Err(err) = active.drm_compositor.frame_submitted() {
+                        tracing::warn!(?crtc, %err, "frame_submitted failed");
+                    }
+                    active.pending_frame = false;
                 }
-                output_state.pending_frame = false;
             }
         }
         DrmEvent::Error(err) => {
@@ -392,15 +546,17 @@ fn initialize_drm_device(
 
     for conn_handle in res_handles.connectors() {
         let conn_info = drm_device.get_connector(*conn_handle, false).map_err(|e| format!("get_connector: {e}"))?;
+        let iface = conn_info.interface();
+        let output_name = format!("{}-{}", iface.as_str(), conn_info.interface_id());
 
         if conn_info.state() != connector::State::Connected {
-            tracing::debug!(?conn_handle, state = ?conn_info.state(), "skipping disconnected connector");
+            tracing::debug!(name = output_name, state = ?conn_info.state(), "skipping disconnected connector");
             continue;
         }
 
         let modes = conn_info.modes();
         if modes.is_empty() {
-            tracing::warn!(?conn_handle, "connected connector has no modes");
+            tracing::warn!(name = output_name, "connected connector has no modes");
             continue;
         }
 
@@ -412,23 +568,24 @@ fn initialize_drm_device(
             .copied()
             .ok_or("no mode available")?;
 
-        // Find a suitable CRTC for this connector
-        let crtc_handle = find_crtc_for_connector(&drm_device, &res_handles, &conn_info, &outputs);
-        let Some(crtc) = crtc_handle else {
-            tracing::warn!(?conn_handle, "no available CRTC for connector");
-            continue;
+        // Map DRM subpixel geometry to Smithay's enum.
+        let subpixel = match conn_info.subpixel() {
+            connector::SubPixel::HorizontalRgb => Subpixel::HorizontalRgb,
+            connector::SubPixel::HorizontalBgr => Subpixel::HorizontalBgr,
+            connector::SubPixel::VerticalRgb => Subpixel::VerticalRgb,
+            connector::SubPixel::VerticalBgr => Subpixel::VerticalBgr,
+            connector::SubPixel::None => Subpixel::None,
+            _ => Subpixel::Unknown,
         };
 
-        // Create the DRM surface for this CRTC + connector + mode
-        let surface: DrmSurface = drm_device.create_surface(crtc, mode, &[*conn_handle])?;
+        // Read EDID for manufacturer + model name (falls back to "Unknown").
+        let edid_info = read_edid_info(&drm_device, *conn_handle);
+        let (make, model_name) = match edid_info {
+            Some(ref info) => (info.make.clone(), info.model.clone()),
+            None => ("Unknown".to_string(), "Unknown".to_string()),
+        };
 
-        // Create the GBM allocator and framebuffer exporter
-        let allocator = GbmAllocator::new(gbm_device.clone(), GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT);
-        let exporter = GbmFramebufferExporter::new(gbm_device.clone(), None);
-
-        // Build the Smithay output
-        let iface = conn_info.interface();
-        let output_name = format!("{}-{}", iface.as_str(), conn_info.interface_id());
+        // Build the Smithay output with the real connector name.
         let phys_size = conn_info.size().unwrap_or((0, 0));
         let output = Output::new(
             output_name.clone(),
@@ -436,54 +593,196 @@ fn initialize_drm_device(
                 #[allow(clippy::cast_possible_truncation)]
                 size: (phys_size.0.min(i32::MAX as u32).cast_signed(), phys_size.1.min(i32::MAX as u32).cast_signed())
                     .into(),
-                subpixel: Subpixel::Unknown,
-                make: "PlatynUI".to_string(),
-                model: "DRM Output".to_string(),
+                subpixel,
+                make,
+                model: model_name,
             },
         );
 
-        let output_mode = OutputMode {
+        // Register all modes from the connector so wlr-randr can list them.
+        let preferred_mode = OutputMode {
             size: (i32::from(mode.size().0), i32::from(mode.size().1)).into(),
             refresh: mode.vrefresh().min(i32::MAX as u32).cast_signed() * 1000,
         };
-        output.change_current_state(Some(output_mode), None, None, None);
-        output.set_preferred(output_mode);
+        for drm_mode in modes {
+            let output_mode = OutputMode {
+                size: (i32::from(drm_mode.size().0), i32::from(drm_mode.size().1)).into(),
+                refresh: drm_mode.vrefresh().min(i32::MAX as u32).cast_signed() * 1000,
+            };
+            output.add_mode(output_mode);
+        }
+        output.change_current_state(Some(preferred_mode), None, None, None);
+        output.set_preferred(preferred_mode);
         output.create_global::<State>(&state.display_handle);
 
-        // Create the DRM compositor for this output
-        let color_formats = [DrmFourcc::Argb8888, DrmFourcc::Xrgb8888];
-        let drm_compositor = DrmCompositor::new(
-            &output,
-            surface,
-            None,
-            allocator,
-            exporter,
-            color_formats,
-            renderer_formats.clone(),
-            cursor_size,
-            Some(gbm_device.clone()),
-        )
-        .map_err(|e| format!("DrmCompositor::new for {output_name}: {e}"))?;
+        // Find a suitable CRTC for this connector.
+        // If no CRTC is available (more monitors than GPU CRTCs), the output is
+        // still registered as a Wayland global (visible in wlr-randr) but starts
+        // disabled — it can be activated later by freeing a CRTC from another output.
+        let crtc_handle = find_crtc_for_connector(&drm_device, &res_handles, &conn_info, &outputs);
 
-        tracing::info!(
-            name = output_name,
-            ?crtc,
-            mode_w = mode.size().0,
-            mode_h = mode.size().1,
-            refresh = mode.vrefresh(),
-            "DRM output initialized",
-        );
+        let compositor = if let Some(crtc) = crtc_handle {
+            // Create the DRM surface for this CRTC + connector + mode
+            let surface: DrmSurface = drm_device.create_surface(crtc, mode, &[*conn_handle])?;
 
-        outputs.insert(crtc, DrmOutputState { drm_compositor, output, pending_frame: false });
+            let allocator = GbmAllocator::new(gbm_device.clone(), GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT);
+            let exporter = GbmFramebufferExporter::new(gbm_device.clone(), None);
+            let color_formats = [DrmFourcc::Argb8888, DrmFourcc::Xrgb8888];
+
+            let drm_compositor = DrmCompositor::new(
+                &output,
+                surface,
+                None,
+                allocator,
+                exporter,
+                color_formats,
+                renderer_formats.clone(),
+                cursor_size,
+                Some(gbm_device.clone()),
+            )
+            .map_err(|e| format!("DrmCompositor::new for {output_name}: {e}"))?;
+
+            tracing::info!(
+                name = output_name,
+                ?crtc,
+                make = edid_info.as_ref().map_or("Unknown", |i| &i.make),
+                model = edid_info.as_ref().map_or("Unknown", |i| &i.model),
+                mode_w = mode.size().0,
+                mode_h = mode.size().1,
+                refresh = mode.vrefresh(),
+                "DRM output initialized (active)",
+            );
+
+            Some(ActiveDrmCompositor { crtc, drm_compositor, pending_frame: false })
+        } else {
+            tracing::info!(
+                name = output_name,
+                make = edid_info.as_ref().map_or("Unknown", |i| &i.make),
+                model = edid_info.as_ref().map_or("Unknown", |i| &i.model),
+                mode_w = mode.size().0,
+                mode_h = mode.size().1,
+                refresh = mode.vrefresh(),
+                "DRM output detected (disabled — no CRTC available)",
+            );
+            None
+        };
+
+        outputs.insert(*conn_handle, DrmOutputState { output, compositor });
     }
 
     if outputs.is_empty() {
         return Err("no connected DRM outputs found".into());
     }
 
-    tracing::info!(?path, ?node, outputs = outputs.len(), "DRM device initialized");
+    let active_count = outputs.values().filter(|o| o.compositor.is_some()).count();
+    tracing::info!(
+        ?path,
+        ?node,
+        total = outputs.len(),
+        active = active_count,
+        disabled = outputs.len() - active_count,
+        "DRM device initialized",
+    );
 
-    Ok(DrmBackendState { _drm_device: drm_device, outputs, renderer, session_active: true })
+    Ok(DrmBackendState {
+        drm_device,
+        gbm_device,
+        cursor_size,
+        outputs,
+        renderer,
+        session: session.clone(),
+        session_active: true,
+    })
+}
+
+/// EDID-derived monitor identification.
+struct EdidInfo {
+    /// 3-letter PNP manufacturer ID (e.g. "DEL" for Dell, "SAM" for Samsung).
+    make: String,
+    /// Human-readable monitor name from EDID descriptor (e.g. "DELL U2723QE").
+    model: String,
+}
+
+/// Read and parse the EDID blob from a DRM connector to extract manufacturer
+/// and model name.
+///
+/// Returns `None` if the EDID property is missing, the blob is too short, or
+/// the header signature is invalid.
+fn read_edid_info(device: &DrmDevice, conn_handle: connector::Handle) -> Option<EdidInfo> {
+    let props = device.get_properties(conn_handle).ok()?;
+    let (handles, values) = props.as_props_and_values();
+
+    // Find the "EDID" property.
+    let edid_blob_id = handles.iter().zip(values.iter()).find_map(|(handle, value)| {
+        let info = device.get_property(*handle).ok()?;
+        if info.name().to_str() == Ok("EDID") { Some(*value) } else { None }
+    })?;
+
+    if edid_blob_id == 0 {
+        return None;
+    }
+
+    let edid = device.get_property_blob(edid_blob_id).ok()?;
+    parse_edid(&edid)
+}
+
+/// Parse raw EDID bytes into manufacturer + model name.
+fn parse_edid(edid: &[u8]) -> Option<EdidInfo> {
+    // Minimum EDID block is 128 bytes.
+    if edid.len() < 128 {
+        return None;
+    }
+
+    // Validate EDID header: 00 FF FF FF FF FF FF 00
+    if edid[0..8] != [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00] {
+        return None;
+    }
+
+    // Manufacturer ID: bytes 8-9, three 5-bit letters (A=1 .. Z=26).
+    let mfg_raw = u16::from_be_bytes([edid[8], edid[9]]);
+    let c1 = ((mfg_raw >> 10) & 0x1F) as u8;
+    let c2 = ((mfg_raw >> 5) & 0x1F) as u8;
+    let c3 = (mfg_raw & 0x1F) as u8;
+    let make = if (1..=26).contains(&c1) && (1..=26).contains(&c2) && (1..=26).contains(&c3) {
+        let s: String = [c1 + b'A' - 1, c2 + b'A' - 1, c3 + b'A' - 1].iter().map(|&b| b as char).collect();
+        s
+    } else {
+        "Unknown".to_string()
+    };
+
+    // Scan the four 18-byte descriptor blocks (starting at byte 54) for a
+    // Monitor Name descriptor (tag 0xFC in byte 3).
+    let mut model = String::new();
+    for i in 0..4 {
+        let base = 54 + i * 18;
+        if base + 18 > edid.len() {
+            break;
+        }
+        // Descriptor blocks that are not detailed timing have bytes 0-1 == 0.
+        if edid[base] != 0 || edid[base + 1] != 0 {
+            continue;
+        }
+        // Byte 3 is the tag: 0xFC = Monitor Name.
+        if edid[base + 3] == 0xFC {
+            // Name is in bytes 5..18, padded with 0x0A (newline) / spaces.
+            model = edid[base + 5..base + 18]
+                .iter()
+                .take_while(|&&b| b != 0x0A && b != 0x00)
+                .map(|&b| b as char)
+                .collect::<String>()
+                .trim()
+                .to_string();
+            break;
+        }
+    }
+
+    if model.is_empty() {
+        // Fallback: use the product code from bytes 10-11.
+        let product = u16::from_le_bytes([edid[10], edid[11]]);
+        model = format!("0x{product:04X}");
+    }
+
+    Some(EdidInfo { make, model })
 }
 
 /// Find an available CRTC for a connector that isn't already claimed.
@@ -495,13 +794,17 @@ fn find_crtc_for_connector(
     device: &DrmDevice,
     res_handles: &control::ResourceHandles,
     conn_info: &connector::Info,
-    used_crtcs: &HashMap<crtc::Handle, DrmOutputState>,
+    used_outputs: &HashMap<connector::Handle, DrmOutputState>,
 ) -> Option<crtc::Handle> {
+    // Collect CRTCs that are already assigned to active outputs.
+    let used_crtcs: Vec<crtc::Handle> =
+        used_outputs.values().filter_map(|o| o.compositor.as_ref().map(|a| a.crtc)).collect();
+
     // Try the CRTC already associated with the current encoder
     if let Some(enc_handle) = conn_info.current_encoder()
         && let Ok(enc) = device.get_encoder(enc_handle)
         && let Some(crtc) = enc.crtc()
-        && !used_crtcs.contains_key(&crtc)
+        && !used_crtcs.contains(&crtc)
     {
         return Some(crtc);
     }
@@ -510,7 +813,7 @@ fn find_crtc_for_connector(
     for enc_handle in conn_info.encoders() {
         if let Ok(enc) = device.get_encoder(*enc_handle) {
             for crtc in res_handles.filter_crtcs(enc.possible_crtcs()) {
-                if !used_crtcs.contains_key(&crtc) {
+                if !used_crtcs.contains(&crtc) {
                     return Some(crtc);
                 }
             }

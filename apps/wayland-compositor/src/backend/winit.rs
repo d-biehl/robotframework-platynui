@@ -186,7 +186,15 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
                 let mode_size: Size<i32, Physical> =
                     ((f64::from(size.w) / ws).round() as i32, (f64::from(size.h) / ws).round() as i32).into();
                 let mode = smithay::output::Mode { size: mode_size, refresh: crate::state::DEFAULT_REFRESH_MHTZ };
+                // Remove stale modes so wlr-randr doesn't accumulate one
+                // entry per resize event.  Keep only the new current mode.
+                for old in state.output.modes() {
+                    if old != mode {
+                        state.output.delete_mode(old);
+                    }
+                }
                 state.output.change_current_state(Some(mode), None, None, None);
+                state.output.set_preferred(mode);
             }
             let tracker_size = state.render_size();
             let render_scale = state.max_output_scale() * state.window_scale;

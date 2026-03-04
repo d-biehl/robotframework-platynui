@@ -246,9 +246,7 @@ impl XwmHandler for State {
                 if let Err(err) = window.configure(geo) {
                     tracing::warn!(%err, "failed to ack X11 configure request");
                 }
-            } else if let Err(err) =
-                window.configure(Rectangle::new(geo.loc, (new_w, new_h).into()))
-            {
+            } else if let Err(err) = window.configure(Rectangle::new(geo.loc, (new_w, new_h).into())) {
                 tracing::warn!(%err, "failed to configure X11 window resize");
             }
         } else {

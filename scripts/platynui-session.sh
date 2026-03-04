@@ -1,6 +1,6 @@
 #!/bin/bash
 set -u
 
+wayvnc &
 
-alacritty &
-wayvnc 
+alacritty

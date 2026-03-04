@@ -374,8 +374,28 @@ impl State {
 
         let mut space = Space::default();
 
-        // Priority: [[output]] config sections > --outputs/--width/--height CLI flags
-        let (output, outputs) = if !config.output.is_empty() {
+        // Priority: [[output]] config sections > --outputs/--width/--height CLI flags.
+        // output_count == 0 means the backend discovers its own outputs (e.g.
+        // DRM for real hardware monitors) — skip virtual output creation.
+        let (output, outputs) = if output_count == 0 {
+            // Backend-managed outputs (e.g. DRM).  Create a dummy placeholder
+            // for `state.output`; the backend will overwrite it and populate
+            // `state.outputs` with real hardware outputs.
+            let output = Output::new(
+                "placeholder".to_string(),
+                PhysicalProperties {
+                    size: (0, 0).into(),
+                    subpixel: Subpixel::Unknown,
+                    make: "PlatynUI".to_string(),
+                    model: "Placeholder".to_string(),
+                },
+            );
+            let mode = smithay::output::Mode { size: output_size, refresh: DEFAULT_REFRESH_MHTZ };
+            output.change_current_state(Some(mode), None, None, None);
+            output.set_preferred(mode);
+            // No Wayland global, no space mapping — the backend adds real outputs.
+            (output, Vec::new())
+        } else if !config.output.is_empty() {
             let configs: Vec<crate::multi_output::OutputConfig> = config
                 .output
                 .iter()
@@ -690,6 +710,13 @@ impl State {
             }
 
             let new_mode = smithay::output::Mode { size: (new_phys_w, new_phys_h).into(), refresh: mode.refresh };
+            // Remove stale modes so wlr-randr doesn't accumulate one
+            // entry per resize event.  Keep only the new current mode.
+            for old in output.modes() {
+                if old != new_mode {
+                    output.delete_mode(old);
+                }
+            }
             output.change_current_state(Some(new_mode), None, None, None);
             output.set_preferred(new_mode);
 

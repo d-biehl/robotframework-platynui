@@ -307,9 +307,7 @@ impl PointerGrab<State> for MoveSurfaceGrab {
             && let Some(loc) = data.space.element_location(&self.window)
         {
             let size = x11.geometry().size;
-            if let Err(err) =
-                x11.configure(smithay::utils::Rectangle::new(loc, size))
-            {
+            if let Err(err) = x11.configure(smithay::utils::Rectangle::new(loc, size)) {
                 tracing::warn!(%err, "failed to configure X11 window after move");
             }
         }
@@ -515,9 +513,7 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
             && let Some(loc) = data.space.element_location(&self.window)
         {
             let size = x11.geometry().size;
-            if let Err(err) =
-                x11.configure(smithay::utils::Rectangle::new(loc, size))
-            {
+            if let Err(err) = x11.configure(smithay::utils::Rectangle::new(loc, size)) {
                 tracing::warn!(%err, "failed to configure X11 window after resize");
             }
         }

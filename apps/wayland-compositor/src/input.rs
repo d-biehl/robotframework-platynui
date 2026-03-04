@@ -84,6 +84,8 @@ pub fn release_all_pressed_inputs(state: &mut State) {
 }
 
 fn handle_keyboard<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
+    use smithay::backend::session::Session;
+
     let serial = SERIAL_COUNTER.next_serial();
     let time = Event::time_msec(event);
     let key_code = event.key_code();
@@ -91,7 +93,28 @@ fn handle_keyboard<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEve
 
     let keyboard = state.keyboard();
     tracing::debug!(key_code = key_code.raw(), ?key_state, "keyboard event");
-    keyboard.input::<(), _>(state, key_code, key_state, serial, time, |_, _, _| FilterResult::Forward);
+    keyboard.input::<(), _>(state, key_code, key_state, serial, time, |data, _modifiers, handle| {
+        // Intercept VT switching keysyms (Ctrl+Alt+F1..F12) on the DRM backend.
+        // XKB produces XF86_Switch_VT_<n> keysyms (0x1008_FE01..0x1008_FE0C)
+        // when Ctrl+Alt+F<n> is pressed — we forward these to libseat.
+        const XF86_SWITCH_VT_1: u32 = 0x1008_FE01;
+        const XF86_SWITCH_VT_12: u32 = 0x1008_FE0C;
+
+        let sym = handle.modified_sym();
+        if (XF86_SWITCH_VT_1..=XF86_SWITCH_VT_12).contains(&sym.raw()) {
+            if let Some(ref mut backend) = data.drm_backend {
+                #[allow(clippy::cast_possible_wrap)]
+                let vt = (sym.raw() - XF86_SWITCH_VT_1 + 1) as i32;
+                tracing::info!(vt, "switching VT");
+                if let Err(err) = backend.session.change_vt(vt) {
+                    tracing::warn!(%err, vt, "failed to switch VT");
+                }
+            }
+            return FilterResult::Intercept(());
+        }
+
+        FilterResult::Forward
+    });
 }
 
 fn handle_pointer_motion<B: InputBackend>(state: &mut State, event: &B::PointerMotionEvent) {
@@ -384,11 +407,7 @@ fn bridge_x11_pointer_grab(state: &mut State, button: u32, serial: Serial, time:
     }
 
     // Find the non-override-redirect X11 window that owns the grab.
-    let parent = state
-        .space
-        .elements()
-        .find(|w| w.x11_surface().is_some_and(|x| !x.is_override_redirect()))
-        .cloned();
+    let parent = state.space.elements().find(|w| w.x11_surface().is_some_and(|x| !x.is_override_redirect())).cloned();
 
     let Some(parent) = parent else { return false };
     let Some(wl_surface) = parent.wl_surface().map(Cow::into_owned) else {
@@ -403,10 +422,7 @@ fn bridge_x11_pointer_grab(state: &mut State, button: u32, serial: Serial, time:
         Some((PointerFocusTarget::Surface(wl_surface), window_loc)),
         &MotionEvent { location: loc, serial, time },
     );
-    pointer.button(
-        state,
-        &ButtonEvent { button, state: ButtonState::Pressed, serial, time },
-    );
+    pointer.button(state, &ButtonEvent { button, state: ButtonState::Pressed, serial, time });
     pointer.frame(state);
     true
 }
