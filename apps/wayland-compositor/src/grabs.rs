@@ -222,8 +222,8 @@ impl PointerGrab<State> for MoveSurfaceGrab {
                 }
 
                 // Use the saved pre-maximize width if available, otherwise heuristic.
-                let restored_width = saved_size
-                    .map_or_else(|| f64::from((max_state.width / 2).max(1)), |s| f64::from(s.w.max(1)));
+                let restored_width =
+                    saved_size.map_or_else(|| f64::from((max_state.width / 2).max(1)), |s| f64::from(s.w.max(1)));
                 let restored_size = saved_size
                     .unwrap_or_else(|| smithay::utils::Size::from((restored_width as i32, max_state.width / 2)));
                 let new_x = (pointer_x - restored_width * ratio) as i32;

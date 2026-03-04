@@ -819,14 +819,12 @@ impl State {
                         0
                     };
                     let max_size = Size::from((usable_geo.size.w, usable_geo.size.h - y_offset));
-                    if let Err(err) = x11.configure(Rectangle::new(
-                        (usable_geo.loc.x, usable_geo.loc.y + y_offset).into(),
-                        max_size,
-                    )) {
+                    if let Err(err) =
+                        x11.configure(Rectangle::new((usable_geo.loc.x, usable_geo.loc.y + y_offset).into(), max_size))
+                    {
                         tracing::warn!(%err, "failed to reconfigure maximized X11 window");
                     }
-                    self.space
-                        .map_element(window.clone(), (usable_geo.loc.x, usable_geo.loc.y + y_offset), true);
+                    self.space.map_element(window.clone(), (usable_geo.loc.x, usable_geo.loc.y + y_offset), true);
                 }
             }
         }

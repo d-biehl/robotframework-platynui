@@ -911,27 +911,23 @@ fn render_cursor_surface_to_pixels(
 
     let buffer_size: Size<i32, smithay::utils::Buffer> = (size.w, size.h).into();
 
-    let mut texture: GlesTexture = renderer
-        .create_buffer(DrmFourcc::Abgr8888, buffer_size)
-        .map_err(|e| format!("create_buffer: {e}"))?;
+    let mut texture: GlesTexture =
+        renderer.create_buffer(DrmFourcc::Abgr8888, buffer_size).map_err(|e| format!("create_buffer: {e}"))?;
     let mut framebuffer = renderer.bind(&mut texture).map_err(|e| format!("bind: {e}"))?;
 
     // Render the cursor surface at origin with scale 1.
     let scale = Scale::from(1.0);
-    let cursor_elements: Vec<WaylandSurfaceRenderElement<GlowRenderer>> =
-        render_elements_from_surface_tree(
-            &mut renderer,
-            surface,
-            (0, 0),
-            scale,
-            1.0,
-            smithay::backend::renderer::element::Kind::Cursor,
-        );
+    let cursor_elements: Vec<WaylandSurfaceRenderElement<GlowRenderer>> = render_elements_from_surface_tree(
+        &mut renderer,
+        surface,
+        (0, 0),
+        scale,
+        1.0,
+        smithay::backend::renderer::element::Kind::Cursor,
+    );
 
-    let elements: Vec<crate::render::CompositorRenderElement> = cursor_elements
-        .into_iter()
-        .map(crate::render::CompositorRenderElement::Surface)
-        .collect();
+    let elements: Vec<crate::render::CompositorRenderElement> =
+        cursor_elements.into_iter().map(crate::render::CompositorRenderElement::Surface).collect();
 
     // Render into the offscreen texture with transparent clear colour.
     let mut damage_tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);

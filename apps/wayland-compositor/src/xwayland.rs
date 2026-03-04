@@ -332,7 +332,8 @@ impl XwmHandler for State {
 
         // Maximize to usable area minus titlebar.
         let usable_geo = self.usable_geometry_for_window(&element);
-        let y_offset = if crate::decorations::window_has_ssd(&element) { crate::decorations::TITLEBAR_HEIGHT } else { 0 };
+        let y_offset =
+            if crate::decorations::window_has_ssd(&element) { crate::decorations::TITLEBAR_HEIGHT } else { 0 };
         let max_size = smithay::utils::Size::from((usable_geo.size.w, usable_geo.size.h - y_offset));
 
         if let Err(err) = window.set_maximized(true) {
