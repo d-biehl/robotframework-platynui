@@ -364,8 +364,7 @@ pub fn pointer_hit_test(space: &smithay::desktop::Space<Window>, point: Point<f6
             let ssd_left = f64::from(window_loc.x) - border;
             let ssd_bottom = f64::from(window_loc.y + client_size.h) + border;
             let ssd_right = f64::from(window_loc.x + client_size.w) + border;
-            let in_ssd =
-                point.x >= ssd_left && point.x <= ssd_right && point.y >= ssd_top && point.y <= ssd_bottom;
+            let in_ssd = point.x >= ssd_left && point.x <= ssd_right && point.y >= ssd_top && point.y <= ssd_bottom;
 
             // Popup bounding box — SpaceElement::bbox() delegates to
             // bbox_with_popups() which includes XDG popup geometry tracked

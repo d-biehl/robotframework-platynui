@@ -547,10 +547,24 @@ fn layer_surface_under(
     let layer_geo = map.layer_geometry(layer_surface)?;
 
     let point_in_layer = point_in_output - layer_geo.loc.to_f64();
-    let (surface, surface_offset) = layer_surface.surface_under(point_in_layer, WindowSurfaceType::ALL)?;
+    if let Some((surface, surface_offset)) = layer_surface.surface_under(point_in_layer, WindowSurfaceType::ALL) {
+        let surface_global = output_geo.loc + layer_geo.loc + surface_offset;
+        return Some((PointerFocusTarget::Surface(surface), surface_global.to_f64()));
+    }
 
-    let surface_global = output_geo.loc + layer_geo.loc + surface_offset;
-    Some((PointerFocusTarget::Surface(surface), surface_global.to_f64()))
+    tracing::trace!(
+        pointer_x = pointer.x,
+        pointer_y = pointer.y,
+        layer_geo_x = layer_geo.loc.x,
+        layer_geo_y = layer_geo.loc.y,
+        layer_geo_w = layer_geo.size.w,
+        layer_geo_h = layer_geo.size.h,
+        point_in_layer_x = point_in_layer.x,
+        point_in_layer_y = point_in_layer.y,
+        ?layer,
+        "layer_surface_under: layer_under found surface but surface_under returned None",
+    );
+    None
 }
 
 /// Open a right-click context menu on a window's SSD titlebar.

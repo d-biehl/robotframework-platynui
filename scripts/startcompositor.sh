@@ -184,6 +184,7 @@ export GTK_A11Y=atspi
 export QT_ACCESSIBILITY=1
 export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
 export GDK_BACKEND=wayland
+export QT_QPA_PLATFORM=wayland
 
 export LANG=de_DE.UTF-8
 export LC_ALL=de_DE.UTF-8

@@ -1,6 +1,6 @@
 //! `xdg_shell` handler — toplevels + popups + fullscreen.
 
-use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+use smithay::reexports::wayland_protocols::xdg::shell::server::{xdg_positioner, xdg_toplevel};
 use smithay::{
     desktop::{PopupKind, Window, find_popup_root_surface, get_popup_toplevel_coords, layer_map_for_output},
     input::Seat,
@@ -260,16 +260,44 @@ impl XdgShellHandler for State {
     }
 
     fn reposition_request(&mut self, surface: PopupSurface, positioner: PositionerState, token: u32) {
+        let requested_geo = positioner.get_geometry();
+        tracing::debug!(
+            token,
+            req_x = requested_geo.loc.x,
+            req_y = requested_geo.loc.y,
+            req_w = requested_geo.size.w,
+            req_h = requested_geo.size.h,
+            constraint_adj = ?positioner.constraint_adjustment,
+            "reposition_request: received",
+        );
+
         surface.with_pending_state(|state| {
-            state.geometry = positioner.get_geometry();
+            state.geometry = requested_geo;
             state.positioner = positioner;
         });
         unconstrain_popup(&surface, self);
+
+        let final_geo = surface.with_pending_state(|s| s.geometry);
+        tracing::debug!(
+            token,
+            final_x = final_geo.loc.x,
+            final_y = final_geo.loc.y,
+            final_w = final_geo.size.w,
+            final_h = final_geo.size.h,
+            size_changed = final_geo.size != requested_geo.size,
+            "reposition_request: sending repositioned",
+        );
+
         // `send_repositioned` internally calls `send_configure_internal` which
         // sends both the `repositioned` event and the `configure` event,
         // bypassing the reactive/already-configured checks that
         // `send_configure()` enforces.  No separate configure call needed.
         surface.send_repositioned(token);
+    }
+
+    fn popup_destroyed(&mut self, surface: PopupSurface) {
+        let geo = surface.with_pending_state(|s| s.geometry);
+        tracing::debug!(geo_w = geo.size.w, geo_h = geo.size.h, "popup destroyed",);
     }
 
     fn maximize_request(&mut self, surface: ToplevelSurface) {
@@ -350,6 +378,11 @@ pub(crate) fn find_popup_parent_output<'a>(surface: &PopupSurface, state: &'a St
 ///
 /// Supports both window-parented popups and layer-surface-parented popups
 /// (e.g. ironbar panel menus).
+///
+/// The constraint rectangle must be in **popup-parent-relative coordinates**
+/// (same coordinate system as the returned geometry from
+/// `get_unconstrained_geometry`).  We compute this by taking the full output
+/// rectangle and transforming it into the parent surface's local space.
 pub(crate) fn unconstrain_popup(surface: &PopupSurface, state: &State) {
     let Ok(root_surface) = find_popup_root_surface(&PopupKind::from(surface.clone())) else {
         return;
@@ -365,27 +398,38 @@ pub(crate) fn unconstrain_popup(surface: &PopupSurface, state: &State) {
         .find(|w| w.wl_surface().is_some_and(|s| *s == root_surface))
         .and_then(|w| state.space.element_location(w).map(|loc| (w.clone(), loc)))
     {
-        // Window-parented popup — use the window's output.
-        let window_geo_offset = window.geometry().loc;
-        let window_origin = window_loc + window_geo_offset;
+        // Window-parented popup — constraint rect is the output area
+        // expressed relative to the popup's parent surface geometry.
         let output = state.output_for_window(&window);
-        let output_rect = state.space.output_geometry(output).unwrap_or_default();
-        let target: Rectangle<i32, Logical> =
-            Rectangle::new(output_rect.loc - window_origin - popup_chain_offset, output_rect.size);
+        let output_geo = state.space.output_geometry(output).unwrap_or_default();
+
+        // Window's global origin (element_location is already the geometry origin).
+        let window_global = window_loc;
+        let mut target: Rectangle<i32, Logical> = Rectangle::new(output_geo.loc, output_geo.size);
+        target.loc -= window_global;
+        target.loc -= popup_chain_offset;
 
         tracing::debug!(
             target_x = target.loc.x,
             target_y = target.loc.y,
             target_w = target.size.w,
             target_h = target.size.h,
-            window_x = window_origin.x,
-            window_y = window_origin.y,
             chain_x = popup_chain_offset.x,
             chain_y = popup_chain_offset.y,
             "unconstrain_popup: window parent constraint rect",
         );
 
         let geometry = surface.with_pending_state(|s| s.positioner.get_unconstrained_geometry(target));
+        let orig_geo = surface.with_pending_state(|s| s.geometry);
+        if geometry.size != orig_geo.size {
+            tracing::debug!(
+                orig_w = orig_geo.size.w,
+                orig_h = orig_geo.size.h,
+                new_w = geometry.size.w,
+                new_h = geometry.size.h,
+                "unconstrain_popup: window popup size changed",
+            );
+        }
         surface.with_pending_state(|s| {
             s.geometry = geometry;
         });
@@ -400,25 +444,48 @@ pub(crate) fn unconstrain_popup(surface: &PopupSurface, state: &State) {
             drop(map);
 
             let output_geo = state.space.output_geometry(output).unwrap_or_default();
-            // Layer geometry is output-local; translate to global coords.
-            let layer_origin = output_geo.loc + layer_geo.loc;
-            let target: Rectangle<i32, Logical> =
-                Rectangle::new(output_geo.loc - layer_origin - popup_chain_offset, output_geo.size);
+            // The output rectangle relative to the layer surface's coordinate
+            // system: start from the full output size at (0,0) and shift by the
+            // layer surface's position within the output.
+            let mut target: Rectangle<i32, Logical> = Rectangle::from_size(output_geo.size);
+            target.loc -= layer_geo.loc;
+            target.loc -= popup_chain_offset;
 
             tracing::debug!(
                 target_x = target.loc.x,
                 target_y = target.loc.y,
                 target_w = target.size.w,
                 target_h = target.size.h,
-                layer_x = layer_origin.x,
-                layer_y = layer_origin.y,
                 chain_x = popup_chain_offset.x,
                 chain_y = popup_chain_offset.y,
-                output = output.name(),
-                "unconstrain_popup: layer surface parent constraint rect",
+                "unconstrain_popup: layer parent constraint rect",
             );
 
-            let geometry = surface.with_pending_state(|s| s.positioner.get_unconstrained_geometry(target));
+            let geometry = surface.with_pending_state(|s| {
+                // For layer-surface popups, skip ResizeX/ResizeY constraints.
+                // GTK4's GtkPopover destroys the popup when the compositor
+                // configures a size much smaller than the content's natural
+                // size (the Popover can't layout its children and closes).
+                // This commonly happens with ironbar menus whose sub-menu
+                // content is taller than the screen.  Skipping resize lets
+                // the popup extend off-screen; the compositor clips it at
+                // the output edge, while the client keeps its full layout.
+                let mut pos = s.positioner;
+                pos.constraint_adjustment.remove(
+                    xdg_positioner::ConstraintAdjustment::ResizeX | xdg_positioner::ConstraintAdjustment::ResizeY,
+                );
+                pos.get_unconstrained_geometry(target)
+            });
+            let orig_geo = surface.with_pending_state(|s| s.geometry);
+            if geometry.size != orig_geo.size {
+                tracing::debug!(
+                    orig_w = orig_geo.size.w,
+                    orig_h = orig_geo.size.h,
+                    new_w = geometry.size.w,
+                    new_h = geometry.size.h,
+                    "unconstrain_popup: layer popup size changed",
+                );
+            }
             surface.with_pending_state(|s| {
                 s.geometry = geometry;
             });

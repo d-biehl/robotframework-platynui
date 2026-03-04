@@ -57,17 +57,6 @@ impl CompositorHandler for State {
         // Safety net: ensure popup gets its initial configure even if new_popup
         // didn't send one (e.g. because the parent wasn't set yet at that point).
         if let Some(popup) = self.popup_manager.find_popup(surface) {
-            if let PopupKind::Xdg(ref xdg) = popup {
-                let geo = xdg.with_pending_state(|s| s.geometry);
-                tracing::debug!(
-                    geo_x = geo.loc.x,
-                    geo_y = geo.loc.y,
-                    geo_w = geo.size.w,
-                    geo_h = geo.size.h,
-                    initial_sent = xdg.is_initial_configure_sent(),
-                    "commit: popup surface state",
-                );
-            }
             ensure_popup_initial_configure(&popup);
         }
 

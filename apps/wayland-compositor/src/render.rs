@@ -331,8 +331,10 @@ fn render_layer_surfaces(
         // Layer surface geometry is relative to the output; convert to global
         // physical coordinates for rendering.
         let loc = (geo.loc + output_geo.loc).to_physical_precise_round(scale);
+
         let surface_elements: Vec<WaylandSurfaceRenderElement<GlowRenderer>> =
             layer_surface.render_elements(renderer, loc, scale, 1.0);
+
         elements.extend(surface_elements.into_iter().map(CompositorRenderElement::Surface));
     }
 }

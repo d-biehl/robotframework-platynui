@@ -1,6 +1,6 @@
 ## Plan: PlatynUI Wayland Compositor + Platform-Crate (Final, priorisiert)
 
-**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~12.350 LoC) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1), dann SSD + XWayland + DRM + Test-Control (Phase 2), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen), dann Härtung & Code-Qualität (Phase 3a: Code-Review-Findings, Unwrap-Eliminierung, Protokoll-Korrektheit), dann verbleibende Automation-Protokolle (Phase 3b: libei, optionale Stubs), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
+**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~12.350 LoC, 1874 Tests) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann verbleibende Automation-Protokolle (Phase 3b: libei, optionale Stubs — **nächster Schritt**), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
 
 ---
 
@@ -242,13 +242,22 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 ---
 
-### Phase 3: Automation-Protokolle (~2.100 LoC, ~2–3 Wochen) 🔧 IN PROGRESS
+### Phase 3: Automation-Protokolle (~2.100 LoC, ~2–3 Wochen) ✅ DONE (Core Steps)
 
 *Ziel: Alle Wayland-Protokolle, die PlatynUI und externe Tools (wayvnc, waybar, wl-clipboard, wlr-randr) brauchen, sind im Compositor verfügbar. Nach dieser Phase kann man mit `wayvnc` auf den Compositor zugreifen, mit `waybar` ein externes Panel nutzen, und Clipboard programmatisch lesen/schreiben.*
 
 > **Status (2026-03-03):** Steps 14 (Multi-Monitor-Enhancements), 15, 16, 18, 19 (inkl. echte CursorSessions für wayvnc VNC Cursor Pseudo-Encoding), 19b, 19c, 19e (Content-Type) abgeschlossen. ~12.350 LoC gesamt, 21 Compositor-Tests (13 JSON-Parsing-Unit-Tests entfielen durch Serde-Migration in Phase 3a, Step 19f).
 > Verbleibende Feature-Steps werden in Phase 3b fortgeführt; ein umfassendes Code-Review hat
 > zahlreiche Code-Smells identifiziert, die in Phase 3a (Härtung) adressiert werden.
+>
+> **Status (2026-07-19):** Alle Core-Steps (14, 15, 16, 18, 19, 19b, 19c) und Phase 3a (19f–19z)
+> abgeschlossen. ~12.350 LoC, 1874 Tests. Zusätzlich erledigt (nicht im Plan als Steps):
+> - Linux-Only-Gating: Alle Dependencies und Entry-Points in wayland-compositor und
+>   wayland-compositor-ctl sind `cfg(target_os = "linux")`-gated.
+> - Lint-Zentralisierung: Per-Crate Lint-Overrides entfernt, workspace-weite Lints gelten.
+> - README-Restrukturierung: Beide READMEs von technischer Referenz zu Projekt-Überblick
+>   umgeschrieben. Technische Details nach `docs/usage.md` und `docs/configuration.md` verschoben.
+> - compositor-ctl: Implementierung in eigenes `app.rs`-Modul extrahiert.
 >
 > **Hinweis Foreign-Toplevel + ironbar (2026-03-03):** Umfangreiche Überarbeitung von Step 16
 > (foreign_toplevel.rs, seat.rs, input.rs). Korrekte Integration mit ironbar (Taskbar-Client):
@@ -565,7 +574,8 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 *Ziel: Nutzbar ohne mündliches Wissen — jeder Entwickler/CI-Engineer kann den Compositor einsetzen.*
 
-36a. **README** (`apps/wayland-compositor/README.md`): Überblick, Architektur-Diagramm (ASCII), Quick-Start (Build + Run), alle CLI-Flags dokumentiert, Beispiele für jeden Backend-Modus (headless, winit, drm), VNC/RDP-Verbindungsanleitung, Test-Control-IPC-Protokoll-Referenz (JSON-Kommandos), Environment-Variablen.
+36a. 🔧 **README** (`apps/wayland-compositor/README.md`): ~~Überblick, Architektur-Diagramm (ASCII), Quick-Start (Build + Run), alle CLI-Flags dokumentiert, Beispiele für jeden Backend-Modus (headless, winit, drm), VNC/RDP-Verbindungsanleitung, Test-Control-IPC-Protokoll-Referenz (JSON-Kommandos), Environment-Variablen.~~
+    **Teilweise erledigt:** README umgeschrieben als Projekt-Überblick (Why?, Features, Quick Start, CI Usage, Doku-Links). Technische Details nach `docs/usage.md` (Backends, CLI-Flags, CI-Patterns) und `docs/configuration.md` (TOML-Referenz) verschoben. Compositor-ctl README ebenfalls überarbeitet. **Offen:** Architektur-Diagramm, VNC/RDP-Anleitung, vollständige IPC-Protokoll-Referenz (kommt in Phase 5/7).
 
 36b. **Architektur-Doku** (`docs/compositor.md`): Tiefergehende Dokumentation — Modul-Übersicht, Protokoll-Matrix (welches Protokoll wo implementiert, Version), Rendering-Pipeline, Input-Routing-Diagramm (alle Input-Quellen: Wayland-Seat, VNC, RDP, EIS, Virtual-Pointer → Smithay Input-Stack), Frame-Lifecycle, Multi-Monitor-Setup.
 
