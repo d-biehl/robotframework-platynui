@@ -750,11 +750,16 @@ impl State {
         }
     }
 
-    /// Reconfigure maximized and fullscreen windows for the current output dimensions.
+    /// Reconfigure windows for the current output dimensions.
     ///
     /// Called after output configuration changes (scale, mode, position) to
     /// adjust window sizes and positions to the new logical viewport.
     /// Also re-arranges layer maps so panels/bars adapt to the new sizes.
+    ///
+    /// - **Maximized / fullscreen** windows are resized to fill the new output.
+    /// - **Normal (floating)** windows are clamped so that at least the
+    ///   titlebar (or a minimum strip) remains visible, ensuring the user
+    ///   can always grab and reposition the window.
     pub fn reconfigure_windows_for_outputs(&mut self) {
         use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 
@@ -823,6 +828,110 @@ impl State {
                     self.space
                         .map_element(window.clone(), (usable_geo.loc.x, usable_geo.loc.y + y_offset), true);
                 }
+            }
+        }
+
+        // --- Clamp normal (floating) windows into the visible area ---
+        //
+        // After maximized/fullscreen windows have been resized, ensure that
+        // every remaining window has at least its titlebar (or a minimum
+        // strip) within the combined output bounds so the user can still
+        // reach it.  Windows are repositioned but never resized.
+        self.clamp_floating_windows_to_outputs();
+    }
+
+    /// Move floating windows so they remain reachable after output changes.
+    ///
+    /// Maximized and fullscreen windows are skipped (already handled).
+    /// For every other window the position is clamped so that at least the
+    /// titlebar stays visible within the combined output bounding box.
+    fn clamp_floating_windows_to_outputs(&mut self) {
+        use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+
+        let bbox = self.combined_output_geometry();
+        if bbox.size.w <= 0 || bbox.size.h <= 0 {
+            return;
+        }
+
+        // Minimum number of pixels that must remain visible on each axis.
+        // Using the titlebar height ensures the user can always grab the
+        // window to drag it back.
+        let min_visible = crate::decorations::TITLEBAR_HEIGHT;
+
+        let windows: Vec<Window> = self.space.elements().cloned().collect();
+
+        for window in &windows {
+            // Skip maximized / fullscreen Wayland toplevels.
+            if let Some(toplevel) = window.toplevel() {
+                let dominated = toplevel.with_pending_state(|s| {
+                    s.states.contains(xdg_toplevel::State::Maximized)
+                        || s.states.contains(xdg_toplevel::State::Fullscreen)
+                });
+                if dominated {
+                    continue;
+                }
+            }
+
+            // Skip maximized / fullscreen X11 windows.
+            if let Some(x11) = window.x11_surface()
+                && (x11.is_maximized() || x11.is_fullscreen())
+            {
+                continue;
+            }
+
+            let Some(loc) = self.space.element_location(window) else {
+                continue;
+            };
+
+            let win_size = window.geometry().size;
+            let has_ssd = crate::decorations::window_has_ssd(window);
+            let titlebar_h = if has_ssd { crate::decorations::TITLEBAR_HEIGHT } else { 0 };
+
+            // The visual top of the window includes the titlebar drawn above
+            // the element location.
+            let visual_w = win_size.w;
+            let visual_h = win_size.h + titlebar_h;
+
+            let mut new_x = loc.x;
+            let mut new_y = loc.y;
+
+            // Horizontal: ensure at least `min_visible` pixels of the window
+            // are inside the bounding box.
+            // If the window is too far to the right, pull it left.
+            if new_x > bbox.loc.x + bbox.size.w - min_visible {
+                new_x = bbox.loc.x + bbox.size.w - min_visible;
+            }
+            // If the window is too far to the left, pull it right.
+            if new_x + visual_w < bbox.loc.x + min_visible {
+                new_x = bbox.loc.x + min_visible - visual_w;
+            }
+
+            // Vertical: keep the titlebar (or top strip) visible.
+            // Too far down — at least the top edge must be within bounds.
+            let visual_new_top = new_y - titlebar_h;
+            if visual_new_top > bbox.loc.y + bbox.size.h - min_visible {
+                new_y = bbox.loc.y + bbox.size.h - min_visible + titlebar_h;
+            }
+            // Too far up — at least the titlebar must peek out from the top.
+            if visual_new_top + visual_h < bbox.loc.y + min_visible {
+                new_y = bbox.loc.y + min_visible - visual_h + titlebar_h;
+            }
+
+            if new_x != loc.x || new_y != loc.y {
+                self.space.map_element(window.clone(), (new_x, new_y), false);
+
+                // For X11 windows, also update the X11 surface geometry.
+                if let Some(x11) = window.x11_surface() {
+                    let _ = x11.configure(Rectangle::new((new_x, new_y).into(), win_size));
+                }
+
+                tracing::debug!(
+                    old_x = loc.x,
+                    old_y = loc.y,
+                    new_x,
+                    new_y,
+                    "clamped floating window into visible area",
+                );
             }
         }
     }
