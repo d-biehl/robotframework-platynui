@@ -765,30 +765,64 @@ impl State {
         let windows: Vec<Window> = self.space.elements().cloned().collect();
 
         for window in &windows {
-            let Some(toplevel) = window.toplevel() else {
+            // --- Wayland toplevel ---
+            if let Some(toplevel) = window.toplevel() {
+                let (is_maximized, is_fullscreen) = toplevel.with_pending_state(|s| {
+                    (
+                        s.states.contains(xdg_toplevel::State::Maximized),
+                        s.states.contains(xdg_toplevel::State::Fullscreen),
+                    )
+                });
+
+                if is_fullscreen {
+                    let output_geo = self.output_geometry_for_window(window);
+                    toplevel.with_pending_state(|s| {
+                        s.size = Some(output_geo.size);
+                    });
+                    self.space.map_element(window.clone(), output_geo.loc, true);
+                    toplevel.send_configure();
+                } else if is_maximized {
+                    let usable_geo = self.usable_geometry_for_window(window);
+                    let y_offset = if crate::decorations::window_has_ssd(window) {
+                        crate::decorations::TITLEBAR_HEIGHT
+                    } else {
+                        0
+                    };
+                    toplevel.with_pending_state(|s| {
+                        s.size =
+                            Some((usable_geo.size.w, usable_geo.size.h - crate::decorations::TITLEBAR_HEIGHT).into());
+                    });
+                    self.space.map_element(window.clone(), (usable_geo.loc.x, usable_geo.loc.y + y_offset), true);
+                    toplevel.send_configure();
+                }
                 continue;
-            };
+            }
 
-            let (is_maximized, is_fullscreen) = toplevel.with_pending_state(|s| {
-                (s.states.contains(xdg_toplevel::State::Maximized), s.states.contains(xdg_toplevel::State::Fullscreen))
-            });
-
-            if is_fullscreen {
-                let output_geo = self.output_geometry_for_window(window);
-                toplevel.with_pending_state(|s| {
-                    s.size = Some(output_geo.size);
-                });
-                self.space.map_element(window.clone(), output_geo.loc, true);
-                toplevel.send_configure();
-            } else if is_maximized {
-                let usable_geo = self.usable_geometry_for_window(window);
-                let y_offset =
-                    if crate::decorations::window_has_ssd(window) { crate::decorations::TITLEBAR_HEIGHT } else { 0 };
-                toplevel.with_pending_state(|s| {
-                    s.size = Some((usable_geo.size.w, usable_geo.size.h - crate::decorations::TITLEBAR_HEIGHT).into());
-                });
-                self.space.map_element(window.clone(), (usable_geo.loc.x, usable_geo.loc.y + y_offset), true);
-                toplevel.send_configure();
+            // --- X11 (XWayland) ---
+            if let Some(x11) = window.x11_surface() {
+                if x11.is_fullscreen() {
+                    let output_geo = self.output_geometry_for_window(window);
+                    if let Err(err) = x11.configure(output_geo) {
+                        tracing::warn!(%err, "failed to reconfigure fullscreen X11 window");
+                    }
+                    self.space.map_element(window.clone(), output_geo.loc, true);
+                } else if x11.is_maximized() {
+                    let usable_geo = self.usable_geometry_for_window(window);
+                    let y_offset = if crate::decorations::window_has_ssd(window) {
+                        crate::decorations::TITLEBAR_HEIGHT
+                    } else {
+                        0
+                    };
+                    let max_size = Size::from((usable_geo.size.w, usable_geo.size.h - y_offset));
+                    if let Err(err) = x11.configure(Rectangle::new(
+                        (usable_geo.loc.x, usable_geo.loc.y + y_offset).into(),
+                        max_size,
+                    )) {
+                        tracing::warn!(%err, "failed to reconfigure maximized X11 window");
+                    }
+                    self.space
+                        .map_element(window.clone(), (usable_geo.loc.x, usable_geo.loc.y + y_offset), true);
+                }
             }
         }
     }

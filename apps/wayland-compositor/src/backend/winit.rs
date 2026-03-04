@@ -176,7 +176,6 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
                 // keeps the pointer mapping consistent (logical layout always
                 // spans the full window).
                 state.resize_edge_outputs(size);
-                state.reconfigure_windows_for_outputs();
             } else {
                 // Single output: resize changes the virtual monitor resolution.
                 // Derive the output mode from the window size, inverting
@@ -196,6 +195,7 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
                 state.output.change_current_state(Some(mode), None, None, None);
                 state.output.set_preferred(mode);
             }
+            state.reconfigure_windows_for_outputs();
             let tracker_size = state.render_size();
             let render_scale = state.max_output_scale() * state.window_scale;
             damage_tracker = OutputDamageTracker::new(tracker_size, render_scale, WINIT_RENDER_TRANSFORM);
