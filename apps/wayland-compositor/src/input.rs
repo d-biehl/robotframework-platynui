@@ -1,5 +1,7 @@
 //! Input event processing — keyboard and pointer.
 
+use std::borrow::Cow;
+
 use smithay::{
     backend::input::{
         AbsolutePositionEvent, Axis, ButtonState, Event, InputBackend, InputEvent, KeyState, KeyboardKeyEvent,
@@ -11,7 +13,8 @@ use smithay::{
         pointer::{AxisFrame, ButtonEvent, MotionEvent},
     },
     utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Serial},
-    wayland::shell::wlr_layer::Layer as WlrLayer,
+    wayland::{seat::WaylandFocus, shell::wlr_layer::Layer as WlrLayer},
+    xwayland::X11Surface,
 };
 
 use crate::{
@@ -182,6 +185,12 @@ pub(crate) fn process_pointer_button(state: &mut State, button: u32, button_stat
             // fall through to normal handling so the click reaches the target.
         }
 
+        // Bridge X11 pointer grabs across SSD / empty-desktop areas.
+        // See `bridge_x11_pointer_grab` for the architectural rationale.
+        if bridge_x11_pointer_grab(state, button, serial, time) {
+            return;
+        }
+
         let pointer = state.pointer();
         if !pointer.is_grabbed() {
             // Unified front-to-back hit test — the first window whose full
@@ -335,6 +344,71 @@ pub(crate) fn update_cursor_shape(state: &mut State) {
 /// bounding box.  This prevents the cursor from entering dead zones.
 pub(crate) fn clamp_pointer_location(state: &mut State) {
     state.pointer_location = state.clamp_to_outputs(state.pointer_location);
+}
+
+/// Returns `true` if any X11 override-redirect windows (menus, tooltips,
+/// dropdowns) are currently mapped in the space.
+fn has_x11_override_redirect_windows(state: &State) -> bool {
+    state.space.elements().any(|w| w.x11_surface().is_some_and(X11Surface::is_override_redirect))
+}
+
+/// Bridge an X11 pointer grab across an SSD / empty-desktop gap.
+///
+/// # Background
+///
+/// In native X11, when a client holds an active pointer grab (as toolkits do
+/// for menus), the X server delivers **every** button press to the grab owner
+/// regardless of where on screen the click lands.  In the Wayland model,
+/// `XWayland` only receives events that arrive via `wl_pointer` — which
+/// requires an active pointer focus on a Wayland surface.
+///
+/// In compositors that use CSD (Client-Side Decorations), every pixel of the
+/// screen is covered by a `wl_surface`, so the click always reaches some
+/// client and `XWayland` sees it via its grab.  However, our compositor uses
+/// SSD (Server-Side Decorations): the titlebar, resize borders, and empty
+/// desktop have **no** `wl_surface`.  When the pointer is over one of these
+/// areas, `surface_under()` returns `None` and `wl_pointer` has no focus
+/// target — the click is consumed by the compositor and never reaches
+/// `XWayland`.
+///
+/// This function bridges that gap: when an X11 pointer grab is likely active
+/// (detected by the presence of override-redirect windows), it temporarily
+/// sets `wl_pointer` focus to the grab-owner's surface and sends the button
+/// press.  `XWayland` translates this into the X11 grab event the toolkit
+/// expects, and the menu loop exits normally.
+///
+/// Returns `true` when a bridge was performed (consumes the click).
+fn bridge_x11_pointer_grab(state: &mut State, button: u32, serial: Serial, time: u32) -> bool {
+    if !has_x11_override_redirect_windows(state) {
+        return false;
+    }
+
+    // Find the non-override-redirect X11 window that owns the grab.
+    let parent = state
+        .space
+        .elements()
+        .find(|w| w.x11_surface().is_some_and(|x| !x.is_override_redirect()))
+        .cloned();
+
+    let Some(parent) = parent else { return false };
+    let Some(wl_surface) = parent.wl_surface().map(Cow::into_owned) else {
+        return false;
+    };
+    let window_loc = state.space.element_location(&parent).unwrap_or_default().to_f64();
+    let loc = state.pointer_location;
+
+    let pointer = state.pointer();
+    pointer.motion(
+        state,
+        Some((PointerFocusTarget::Surface(wl_surface), window_loc)),
+        &MotionEvent { location: loc, serial, time },
+    );
+    pointer.button(
+        state,
+        &ButtonEvent { button, state: ButtonState::Pressed, serial, time },
+    );
+    pointer.frame(state);
+    true
 }
 
 /// Handle a click on a window decoration element.

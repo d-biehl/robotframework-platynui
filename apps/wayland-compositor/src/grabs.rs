@@ -299,7 +299,21 @@ impl PointerGrab<State> for MoveSurfaceGrab {
         &self.start_data
     }
 
-    fn unset(&mut self, _data: &mut State) {}
+    fn unset(&mut self, data: &mut State) {
+        // After a move, tell X11 clients their new position so they can
+        // calculate correct screen coordinates for override-redirect
+        // windows (menus, tooltips).
+        if let Some(x11) = self.window.x11_surface()
+            && let Some(loc) = data.space.element_location(&self.window)
+        {
+            let size = x11.geometry().size;
+            if let Err(err) =
+                x11.configure(smithay::utils::Rectangle::new(loc, size))
+            {
+                tracing::warn!(%err, "failed to configure X11 window after move");
+            }
+        }
+    }
 }
 
 /// Try to start a window move grab. Returns `true` if the grab was initiated.
@@ -494,7 +508,20 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
         &self.start_data
     }
 
-    fn unset(&mut self, _data: &mut State) {}
+    fn unset(&mut self, data: &mut State) {
+        // After a resize, tell X11 clients their new position/size so they
+        // have consistent screen coordinates for popup placement.
+        if let Some(x11) = self.window.x11_surface()
+            && let Some(loc) = data.space.element_location(&self.window)
+        {
+            let size = x11.geometry().size;
+            if let Err(err) =
+                x11.configure(smithay::utils::Rectangle::new(loc, size))
+            {
+                tracing::warn!(%err, "failed to configure X11 window after resize");
+            }
+        }
+    }
 }
 
 /// Try to start a window resize grab. Returns `true` if the grab was initiated.

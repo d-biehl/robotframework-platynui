@@ -174,6 +174,20 @@ impl XwmHandler for State {
             self.space.map_element(smithay_window.clone(), (loc.x, loc.y + crate::decorations::TITLEBAR_HEIGHT), false);
         }
 
+        // Tell the X11 client its actual compositor position so it can
+        // calculate correct screen coordinates for override-redirect
+        // windows (menus, tooltips, dropdowns).  Without this, the client
+        // still thinks it is at its initial (often 0,0) position and any
+        // popup it opens ends up in the wrong place.
+        if let Some(x11) = smithay_window.x11_surface()
+            && let Some(loc) = self.space.element_location(&smithay_window)
+        {
+            let size = x11.geometry().size;
+            if let Err(err) = x11.configure(Rectangle::new(loc, size)) {
+                tracing::warn!(%err, "failed to configure X11 window position after mapping");
+            }
+        }
+
         // Announce to foreign-toplevel protocols
         crate::handlers::foreign_toplevel::announce_new_toplevel(self, &smithay_window);
     }
@@ -183,10 +197,18 @@ impl XwmHandler for State {
     }
 
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, window: X11Surface) {
-        // Override-redirect windows (menus, tooltips) — map them directly
+        // Override-redirect windows (menus, tooltips, dropdowns) set their own
+        // position in X11 screen coordinates — honour that instead of cascading.
+        let geo = window.geometry();
+        tracing::debug!(
+            x = geo.loc.x,
+            y = geo.loc.y,
+            w = geo.size.w,
+            h = geo.size.h,
+            "mapping override-redirect X11 window at its requested position",
+        );
         let smithay_window = Window::new_x11_window(window);
-        let usable_origin = self.usable_geometry_for_output(&self.output.clone()).loc;
-        crate::workspace::map_window(&mut self.space, smithay_window, usable_origin);
+        self.space.map_element(smithay_window, geo.loc, false);
     }
 
     fn unmapped_window(&mut self, _xwm: XwmId, window: X11Surface) {
@@ -209,17 +231,39 @@ impl XwmHandler for State {
         h: Option<u32>,
         _reorder: Option<Reorder>,
     ) {
-        // Honor the client's configure request for position/size
         let geo = window.geometry();
-        let new_x = x.unwrap_or(geo.loc.x);
-        let new_y = y.unwrap_or(geo.loc.y);
-        let new_w = w.unwrap_or(geo.size.w.unsigned_abs());
-        let new_h = h.unwrap_or(geo.size.h.unsigned_abs());
+        let is_mapped = find_x11_window(self, &window).is_some();
 
-        if let Err(err) =
-            window.configure(Rectangle::new((new_x, new_y).into(), (new_w.cast_signed(), new_h.cast_signed()).into()))
-        {
-            tracing::warn!(%err, "failed to configure X11 window");
+        if is_mapped && !window.is_override_redirect() {
+            // Mapped regular windows: allow resize but preserve the compositor-
+            // managed position.  Letting the client move itself would desync
+            // the Space element location and break popup coordinate math.
+            let new_w = w.map_or(geo.size.w, u32::cast_signed);
+            let new_h = h.map_or(geo.size.h, u32::cast_signed);
+
+            if (new_w, new_h) == (geo.size.w, geo.size.h) {
+                // Ack with current state — no change.
+                if let Err(err) = window.configure(geo) {
+                    tracing::warn!(%err, "failed to ack X11 configure request");
+                }
+            } else if let Err(err) =
+                window.configure(Rectangle::new(geo.loc, (new_w, new_h).into()))
+            {
+                tracing::warn!(%err, "failed to configure X11 window resize");
+            }
+        } else {
+            // Unmapped windows and override-redirect windows: grant whatever
+            // the client requests (they manage their own position).
+            let new_x = x.unwrap_or(geo.loc.x);
+            let new_y = y.unwrap_or(geo.loc.y);
+            let new_w = w.unwrap_or(geo.size.w.unsigned_abs());
+            let new_h = h.unwrap_or(geo.size.h.unsigned_abs());
+
+            if let Err(err) = window
+                .configure(Rectangle::new((new_x, new_y).into(), (new_w.cast_signed(), new_h.cast_signed()).into()))
+            {
+                tracing::warn!(%err, "failed to configure X11 window");
+            }
         }
     }
 
