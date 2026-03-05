@@ -30,8 +30,8 @@ pest_derive = "2.8"
 
 
 [dev-dependencies]
-inventory = "0.3.21"
-rstest = "0.26.1"
+inventory = "0.3"
+rstest = "0.26"
 platynui-platform-mock = { path = "../platform-mock" }
 platynui-provider-mock = { path = "../provider-mock" }
 serial_test = "3.4"

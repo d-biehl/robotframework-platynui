@@ -1,6 +1,6 @@
 ## Plan: PlatynUI Wayland Compositor + Platform-Crate (Final, priorisiert)
 
-**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~14.000 LoC, 1874 Tests, 43 Protokoll-Globals) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann Bugfixes & Window-Management-Verbesserungen (Phase 3a+ ✅), dann verbleibende Automation-Protokolle (Phase 3b: Tier 1+2+3 + Stubs komplett, libei noch offen — **nächster Schritt**), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
+**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~14.000 LoC, 1874 Tests, 43 Protokoll-Globals) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann Bugfixes & Window-Management-Verbesserungen (Phase 3a+ ✅), dann verbleibende Automation-Protokolle (Phase 3b: Tier 1+2+3 + Stubs komplett, libei + Test-Client noch offen — **nächster Schritt**), dann Desktop-Integration & Projekt-Tooling (Phase 3c ✅: Winit-Fenster, App-IDs, `.desktop`-Dateien, Justfile), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
 
 ---
 
@@ -507,13 +507,46 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 > Tier 3 komplett (3 Protokolle: toplevel-icon mit Pixel-Rendering in SSD-Titlebars,
 > toplevel-tag mit In-Memory-Speicherung, ext-foreign-toplevel-list via smithay delegate).
 > ext-data-control-v1 implementiert (standardisierte Version parallel zu wlr-data-control).
-> Verbleibend: 1× EIS (Step 17).
+> Verbleibend: EIS-Server (Step 17) + eigenständiger Test-Client (Step 17b).
 > 3 Protokolle bewusst nicht implementiert (`drm-lease`, `drm-syncobj`, `kde-decoration`).
 > ~14.000 LoC, 43 Protokolle, 1874 Tests.
 
-**Bestehende Feature-Schritte:**
+**Bestehende Feature-Schritte (Reihenfolge: Test-Client zuerst, dann EIS-Server):**
 
-17. **EIS-Server / libei** (`src/eis.rs`): Via `reis::eis` — EIS-Endpoint erstellen, Capabilities (pointer_absolute, keyboard) advertisieren, Input-Events empfangen und in Smithay-Stack injizieren. Socket unter `$XDG_RUNTIME_DIR/eis-platynui`. Enables: Input-Injection über libei im Platform-Crate, Ökosystem-kompatibel mit Mutter/KWin. (~300 LoC)
+> **Begründung der Reihenfolge:** Der Test-Client (17b) wird *vor* dem EIS-Server (17) implementiert. Damit können wir libei zuerst gegen existierende Compositors (Mutter/KWin) validieren — Handshake, Capabilities, Keymap, Input-Injection verstehen und debuggen — bevor wir unseren eigenen EIS-Server schreiben. Der Test-Client dient dann auch direkt als Testharness für Step 17.
+
+17b. **Eigenständiger EIS-Test-Client** (`apps/eis-test-client/`): Separates Binary zum Testen und Debuggen von EIS-Servern — funktioniert mit Mutter (GNOME), KWin (KDE), und später unserem Compositor:
+    - **Crate:** `apps/eis-test-client/` mit eigenem `Cargo.toml`. Deps: `reis`, `clap`, `xkbcommon`, `tracing`, `tracing-subscriber`, `zbus` (für Portal-Zugang zu Mutter/KWin).
+    - **Verbindungsmodi:**
+      - Portal: `--portal` → `org.freedesktop.portal.RemoteDesktop.CreateSession()` + `ConnectToEIS()` via `zbus` → bekommt FD zurück (Mutter, KWin). Interaktiver Dialog oder `--portal-restore-token` für headless.
+      - Direkt: `--socket <path>` → `ei::Context` über Unix-Socket (unser Compositor, Sway-Fork)
+      - Env: Default verbindet zu `$LIBEI_SOCKET` oder `$XDG_RUNTIME_DIR/eis-0`
+    - **Kommandos (clap Subcommands):**
+      - `probe` — Verbinden, Handshake durchführen, Seat/Capabilities/Regions/Keymap ausgeben und trennen. Diagnostik-Tool.
+      - `move-to <x> <y>` — Absolute Pointer-Bewegung
+      - `move-by <dx> <dy>` — Relative Pointer-Bewegung
+      - `click [left|right|middle]` — Button press + release
+      - `scroll <dx> <dy>` — Scroll-Event
+      - `key <keyname>` — Taste drücken + loslassen (XKB-Name-Lookup über Keymap)
+      - `type <text>` — Text tippen (Keymap-basiert: Zeichen → Keysym → Keycode + Modifier)
+      - `sequence` — Mehrere Aktionen hintereinander: `move-to 500 300 click left type "Hello"`
+    - **Diagnostik-Output:** `--verbose` zeigt alle EI-Protokoll-Messages (nutzt `REIS_DEBUG` intern).
+    - **Portal-Support für Mutter/KWin:** Der Client verhandelt eine RemoteDesktop-Session über D-Bus Portal, ruft `ConnectToEIS()` auf und nutzt den zurückgegebenen FD als Transport. Damit funktioniert er out-of-the-box mit GNOME 45+ und KDE 6.1+.
+    (~400–500 LoC)
+
+17. **EIS-Server / libei** (`src/eis.rs`): Via `reis::eis` (Feature `calloop`) — vollständiger EIS-Server im Compositor. Erfahrungen aus Step 17b (Test-Client gegen Mutter/KWin) fließen direkt ein:
+    - **Socket:** `$XDG_RUNTIME_DIR/eis-platynui`, `eis::Listener::bind()` + `EisListenerSource` in calloop Event-Loop
+    - **Handshake:** Version-Negotiation, `context_type = sender` akzeptieren, Interface-Versionen aushandeln
+    - **Seat + Capabilities:** Ein Seat mit allen Input-Capabilities: `ei_pointer` (relativ), `ei_pointer_absolute` (absolut mit Regions), `ei_button`, `ei_scroll`, `ei_keyboard`, `ei_touchscreen`
+    - **Device-Lifecycle:** Device erstellen → `done` → `resumed` (sofort, kein Pause-Grund im Test-Compositor). Minimal-Pause/Resume: Protokoll-Pflicht erfüllt, aber nie aktiv pausiert.
+    - **XKB-Keymap-Propagation:** Bei Keyboard-Capability die aktive Smithay-Keymap als memfd/tmpfile exportieren und per `ei_keyboard.keymap(fd, size)` an Client senden. Ohne Keymap ist Keyboard-Support sinnlos für reale Tests.
+    - **Regions:** Für `ei_pointer_absolute` — eine Region pro Output mit korrektem Offset/Size/Scale. Mappt Client-Koordinaten auf Smithay-globale Koordinaten.
+    - **Input-Injection:** Empfangene `ei_pointer.motion_relative`, `ei_pointer_absolute.motion_absolute`, `ei_button.button`, `ei_scroll.scroll`/`scroll_discrete`, `ei_keyboard.key`, `ei_touchscreen.*` Events in Smithay `InputBackend`-Events umwandeln und in den Input-Stack injizieren.
+    - **Frame-Handling:** Events erst bei `ei_device.frame` verarbeiten (atomare Gruppierung).
+    - **Single-Client:** Für V1 reicht ein gleichzeitiger Client. Multi-Client bei Bedarf nachrüsten (~100 LoC Mehraufwand: `HashMap<ClientId, EisClientState>`).
+    - **Deps:** `reis = { version = "0.6", features = ["calloop"] }` in `apps/wayland-compositor/Cargo.toml`
+    - **Testbarkeit:** Der Test-Client aus Step 17b dient als primäres Testmittel — `eis-test-client --socket $XDG_RUNTIME_DIR/eis-platynui probe` validiert den Handshake.
+    Enables: Input-Injection über libei im Platform-Crate, Ökosystem-kompatibel mit Mutter/KWin. (~500–600 LoC)
 
 19d. ~~*(Optional)* **Legacy-Screencopy**~~ — Übersprungen. `ext-image-copy-capture` deckt alle benötigten Tools ab (wayvnc, grim aktuelle Versionen). `wlr-screencopy-v1` wird nicht implementiert.
 
@@ -566,7 +599,60 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 **Meilenstein 3b (Zwischenstand):** ✅ Tier 1 komplett (commit-timing, fifo, idle-inhibit, xdg-dialog, system-bell, alpha-modifier). ✅ Tier 2 komplett (xwayland-shell, xwayland-keyboard-grab, pointer-gestures, tablet-v2, pointer-warp-v1). ✅ tearing-control + toplevel-drag als Stubs (manuelles GlobalDispatch/Dispatch, smithay 0.7 bietet keine Abstraktion). ✅ Tier 3 komplett (toplevel-icon, toplevel-tag, ext-foreign-toplevel-list). ✅ ext-data-control-v1 (standardisierte Clipboard-Kontrolle). ✅ 43 Protokoll-Globals, ~14.000 LoC, 1874 Tests. Alle gängigen GTK4/Qt/Chromium-Protokolle werden unterstützt — keine Protokoll-Warnungen bei Standard-Apps.
 
-**Meilenstein 3b (Ziel):** Zusätzlich: libei-Input funktioniert (Step 17). `WAYLAND_DISPLAY=... platynui-cli query "//control:*"` (über wlr-foreign-toplevel) listet Fenster. Virtual-Pointer/Keyboard und libei-Input funktionieren.
+**Meilenstein 3b (Ziel):** Zusätzlich: libei-Input funktioniert (Step 17) — EIS-Server akzeptiert Clients, alle Input-Capabilities (pointer, pointer_absolute, button, scroll, keyboard, touchscreen) werden advertisiert und in Smithay injiziert. XKB-Keymap wird an Clients propagiert. Eigenständiger Test-Client (Step 17b) kann sich per Socket (eigener Compositor) oder Portal (Mutter/KWin) verbinden und Input emulieren. `ei-debug-events` zeigt korrekten Handshake und Device-Konfiguration. `WAYLAND_DISPLAY=... platynui-cli query "//control:*"` (über wlr-foreign-toplevel) listet Fenster.
+
+---
+
+### Phase 3c: Desktop-Integration & Projekt-Tooling ✅ ERLEDIGT
+
+*Ziel: Winit-Backend-Fenster korrekt in GNOME/KDE integriert (Titel, CSD-Theme, Dark Mode, Icon, App-ID). Einheitliche `org.platynui.*` App-IDs über alle Binaries. Freedesktop `.desktop`-Dateien für Icon-Auflösung. Justfile als Projekt-Task-Runner.*
+
+> **Status (2026-03-05):** Alle Steps abgeschlossen. Build/Clippy/27 Tests sauber.
+
+**Winit-Fenster-Verbesserungen:**
+
+19aj. ✅ **Winit-Fenster-Anpassung** (`src/backend/winit.rs`, `Cargo.toml`): Smithays `winit::init()` setzt hartcodiert `.with_title("Smithay")` und 1280×800. Umstellung auf `winit::init_from_attributes()` mit vollständiger `WindowAttributes`-Kette:
+  - `.with_title("PlatynUI Wayland Compositor")` — korrekter Fenstertitel
+  - `.with_name("org.platynui.compositor", "platynui-wayland-compositor")` — Wayland `app_id` auf `xdg_toplevel`, damit GNOME/KDE das Fenster einer `.desktop`-Datei zuordnen können
+  - `.with_theme(detect_system_theme())` — System-Dark/Light-Mode respektieren
+  - `.with_window_icon(load_icon())` — eingebettetes PNG-Icon (funktioniert auf X11, No-Op auf Wayland)
+  (~30 LoC)
+
+19ak. ✅ **Adwaita CSD-Theming** (`Cargo.toml`, `src/lib.rs`): Smithay aktiviert winit mit `default-features = false`, daher fehlt `wayland-csd-adwaita` — CSD-Titlebar ist hässlicher Fallback. Fix: direkte `winit = { version = "0.30", features = ["wayland-csd-adwaita"] }` Dependency für Cargo Feature-Unification. `use winit as _;` in lib.rs für `unused-crate-dependencies`-Lint. Ergebnis: sctk-adwaita 0.10.1 rendert Adwaita-konforme CSD. (~5 LoC)
+
+19al. ✅ **System-Theme-Erkennung via zbus** (`src/backend/winit.rs`, `Cargo.toml`, `src/main.rs`): sctk-adwaita's eingebaute Auto-Detection nutzt `dbus-send` mit 100ms Timeout, der unter GNOME oft still fehlschlägt → Fallback auf Light-Theme. Eigene `detect_system_theme()` über zbus (blocking API):
+  - `zbus::blocking::Connection::session()` → `call_method("org.freedesktop.portal.Desktop", ..., "Read", &("org.freedesktop.appearance", "color-scheme"))` → Deserialisierung `v v u` → `1=Dark, 2=Light, _=None`
+  - Dependency: `zbus = { version = "5", features = ["blocking-api"] }` (bereits im Projekt via provider-atspi).
+  (~40 LoC)
+
+19am. ✅ **Eingebettetes Window-Icon** (`src/backend/winit.rs`, `apps/wayland-compositor/assets/icon.png`): `load_icon()` — `include_bytes!("../../assets/icon.png")` → `png::Decoder` → `Icon::from_rgba()`. Icon ist 256×256 RGBA PNG (kopiert von Inspector). Unter Wayland ist `set_window_icon()` ein No-Op — Desktop-Environments lösen Icons über `app_id` + `.desktop`-Datei auf. (~20 LoC)
+
+**App-ID-Standardisierung:**
+
+19an. ✅ **Einheitliche `org.platynui.*` App-IDs** (3 Binaries):
+  - Compositor: `org.platynui.compositor` (in `winit.rs` via `.with_name()`)
+  - Inspector: `org.platynui.inspector` (in `apps/inspector/src/lib.rs` via `.with_app_id()`)
+  - Test-App: `org.platynui.test.egui` (in `apps/test-app-egui/src/main.rs`, Default-Wert des `--app-id` CLI-Flags)
+  (~10 LoC)
+
+**Desktop-Dateien:**
+
+19ao. ✅ **Freedesktop `.desktop`-Dateien** (`assets/org.platynui.compositor.desktop`, `assets/org.platynui.inspector.desktop`): Freedesktop-konforme Desktop-Entries für beide Binaries. Compositor: `NoDisplay=true` (Entwickler-Tool, nicht im App-Menü). Inspector: `StartupNotify=true`, `Categories=Development`. Icon-Referenzen (`Icon=org.platynui.compositor` / `org.platynui.inspector`) zeigen auf hicolor-Theme-Icons die per `just install-desktop` installiert werden. (~20 Zeilen)
+
+**Projekt-Tooling:**
+
+19ap. ✅ **Justfile** (`justfile`, `docs/development.md`, `CONTRIBUTING.md`): `just` als Projekt-Task-Runner eingeführt. Recipes:
+  - **Bootstrap:** `just bootstrap` (uv sync)
+  - **Build:** `just build`, `just build-native [features]`, `just build-cli`, `just build-inspector`
+  - **Check:** `just fmt`, `just fmt-check`, `just clippy`, `just ruff`, `just mypy`, `just check`
+  - **Test:** `just test`, `just test-crate <crate>`, `just test-python`
+  - **Desktop-Integration:** `just install-desktop` (`.desktop` + Icons → `$XDG_DATA_HOME`), `just uninstall-desktop`, `just update-icon-cache`
+  - **CI:** `just pre-commit` (bootstrap + fmt + build + clippy + test + ruff)
+  - `docs/development.md` dokumentiert alle Recipes mit Installationsanleitung
+  - `CONTRIBUTING.md` verweist auf `just` und `docs/development.md`
+  (~113 Zeilen justfile, ~95 Zeilen docs/development.md)
+
+**Meilenstein 3c:** ✅ Winit-Fenster zeigt korrekten Titel, Adwaita-CSD, System-Theme und Icon. Alle Binaries nutzen `org.platynui.*` App-IDs. `.desktop`-Dateien für KDE/GNOME-Icon-Auflösung. `just install-desktop` installiert Desktop-Dateien und Icons nach `$XDG_DATA_HOME`. Justfile als zentraler Task-Runner mit Doku.
 
 ---
 
@@ -705,7 +791,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 - Phase 3: `platynui-cli` kann Fenster listen und Input senden. Screenshots via ext-image-copy-capture inkl. CursorSessions. `waybar`/ironbar laufen via Layer-Shell. `wayvnc` funktioniert als externer VNC-Server (Frame + Cursor Dual-Capture). Clipboard via `wl-copy`/`wl-paste` (data-control). Multi-Monitor dynamisch konfigurierbar (output-management).
 - Phase 3a: ✅ ERLEDIGT. Control-Socket JSON via typisierter `serde`-Structs (19f). ~595 Zeilen Code-Duplikation eliminiert (19f₂). Kommentar-Review (19f₃). Focus-Loss Input Release (19f₄). Software-Cursor für SSD-Resize (19f₅). Session-Scripts AT-SPI-Fix (19f₆). Steps 19g–19z komplett: Protokoll-Korrektheit (Screencopy, Output-Management), Unwrap-Eliminierung, Error-Handling, Tracing, Dead Code, Magic Numbers, DRM Multi-Monitor-Positionierung. 1874 Tests grün.
 - Phase 3a+: ✅ ERLEDIGT. Popup-Korrekturen (SSD, Layer-Shell, X11), VNC-Cursor-Rendering, Virtual-Pointer-Mapping, DRM Multi-Monitor-Overhaul, X11-Maximize-Größenwiederherstellung, Output-Resize-Reconfigure, Floating-Fenster-Clamping. ~14.500 LoC, 1874 Tests grün.
-- Phase 3b: ✅ Tier 1 + Tier 2 + Tier 3 komplett (15 Protokolle, 43 Globals). ✅ tearing-control + toplevel-drag Stubs. ✅ Tier 3: toplevel-icon (volle Pixel-Pipeline mit SSD-Titlebar-Rendering), toplevel-tag (In-Memory-Speicherung), ext-foreign-toplevel-list (bereits in Phase 3). ✅ ext-data-control-v1 (standardisierte Clipboard-Kontrolle parallel zu wlr-data-control). libei-Input noch offen (Step 17).
+- Phase 3b: ✅ Tier 1 + Tier 2 + Tier 3 komplett (15 Protokolle, 43 Globals). ✅ tearing-control + toplevel-drag Stubs. ✅ Tier 3: toplevel-icon (volle Pixel-Pipeline mit SSD-Titlebar-Rendering), toplevel-tag (In-Memory-Speicherung), ext-foreign-toplevel-list (bereits in Phase 3). ✅ ext-data-control-v1 (standardisierte Clipboard-Kontrolle parallel zu wlr-data-control). libei-Input noch offen (Step 17: EIS-Server mit allen Input-Capabilities + XKB-Keymap, Step 17b: eigenständiger Test-Client mit Portal-Support für Mutter/KWin).
 - Phase 4: `cargo nextest run -p platynui-platform-linux-wayland` — alle Traits getestet, Koordinaten-Transformation korrekt für Wayland-native und XWayland-Apps
 - Phase 5: VNC/RDP eingebaut — Headless-Debugging ohne externe Tools möglich
 - Phase 6: `cargo nextest run --all` — gesamte Suite grün, inkl. Wayland-Tests. CI-Scripts funktionieren.
