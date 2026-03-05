@@ -120,6 +120,8 @@ pub struct State {
     pub xdg_system_bell_state: XdgSystemBellState,
     pub pointer_gestures_state: PointerGesturesState,
     pub tablet_manager_state: TabletManagerState,
+    pub tearing_control_global: smithay::reexports::wayland_server::backend::GlobalId,
+    pub toplevel_drag_global: smithay::reexports::wayland_server::backend::GlobalId,
 
     // -- Phase 3: Automation protocols --
     pub layer_shell_state: WlrLayerShellState,
@@ -377,6 +379,8 @@ impl State {
         let xdg_system_bell_state = XdgSystemBellState::new::<Self>(&dh);
         let pointer_gestures_state = PointerGesturesState::new::<Self>(&dh);
         let tablet_manager_state = TabletManagerState::new::<Self>(&dh);
+        let tearing_control_global = crate::handlers::tearing_control::init_tearing_control(&dh);
+        let toplevel_drag_global = crate::handlers::toplevel_drag::init_toplevel_drag(&dh);
 
         // Phase 3: Automation protocols
         let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
@@ -524,6 +528,8 @@ impl State {
             xdg_system_bell_state,
             pointer_gestures_state,
             tablet_manager_state,
+            tearing_control_global,
+            toplevel_drag_global,
             layer_shell_state,
             data_control_state,
             content_type_state,

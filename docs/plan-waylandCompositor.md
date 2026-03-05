@@ -1,6 +1,6 @@
 ## Plan: PlatynUI Wayland Compositor + Platform-Crate (Final, priorisiert)
 
-**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~14.500 LoC, 1874 Tests) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann Bugfixes & Window-Management-Verbesserungen (Phase 3a+ ✅), dann verbleibende Automation-Protokolle (Phase 3b: libei, optionale Stubs — **nächster Schritt**), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
+**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~13.900 LoC, 1874 Tests) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann Bugfixes & Window-Management-Verbesserungen (Phase 3a+ ✅), dann verbleibende Automation-Protokolle (Phase 3b: Tier 1+2 + Stubs komplett, libei noch offen — **nächster Schritt**), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
 
 ---
 
@@ -498,11 +498,15 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 > **Protokoll-Gap-Analyse (2026-03-05, aktualisiert):** 38 implementierte Protokoll-Globals
 > (37 `delegate_*!()`-Makros + 1 manuelles `GlobalDispatch`: pointer-warp-v1).
-> Verbleibende 6: 3× Tier 3 (toplevel-icon, toplevel-tag,
-> ext-foreign-toplevel-list), 2× noch offen (tearing-control, toplevel-drag), 1× EIS (Step 17).
+> Tier 1 komplett (6 Protokolle: commit-timing, fifo, idle-inhibit, xdg-dialog, system-bell,
+> alpha-modifier). Tier 2 komplett (5 Protokolle: xwayland-shell, xwayland-keyboard-grab,
+> pointer-gestures, tablet-v2, pointer-warp-v1).
+> tearing-control + toplevel-drag als Stubs implementiert (Step 19e).
+> Verbleibende 3: 1× EIS (Step 17),
+> 3× Tier 3 optional (toplevel-icon, toplevel-tag, ext-foreign-toplevel-list).
 > 4 Protokolle bewusst nicht implementiert (`drm-lease`, `drm-syncobj`, `kde-decoration`,
-> `ext-data-control`). Tier 1 + Tier 2 komplett (11 Protokolle).
-> ~13.800 LoC, 38 Protokolle, 1874 Tests.
+> `ext-data-control`).
+> ~13.900 LoC, 40 Protokolle, 1874 Tests.
 
 **Bestehende Feature-Schritte:**
 
@@ -510,9 +514,9 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 19d. ~~*(Optional)* **Legacy-Screencopy**~~ — Übersprungen. `ext-image-copy-capture` deckt alle benötigten Tools ab (wayvnc, grim aktuelle Versionen). `wlr-screencopy-v1` wird nicht implementiert.
 
-19e. *(Optional, Rest)* **App-Kompatibilitäts-Stubs** (`src/handlers/tearing_control.rs`, `src/handlers/toplevel_drag.rs`): No-Op-Stubs für Protokolle die viele Apps abfragen:
-    - `wp-tearing-control-v1` — Tearing-Hint für Games. No-Op-Stub verhindert Protocol-Warnungen. (~15 LoC)
-    - `xdg-toplevel-drag-v1` — Tab-Detach in Browsern (Firefox/Chromium), Drag-aus-Fenster. Wird zunehmend adoptiert. (~80 LoC)
+19e. ✅ **App-Kompatibilitäts-Stubs** (`src/handlers/tearing_control.rs`, `src/handlers/toplevel_drag.rs`): Manuelle `GlobalDispatch`/`Dispatch`-Implementierungen (smithay 0.7 hat keine High-Level-Abstraktion) für Protokolle die viele Apps abfragen:
+    - ✅ `wp-tearing-control-v1` — Tearing-Hint für Games. No-Op-Stub: `set_presentation_hint` wird akzeptiert aber ignoriert (Compositor nutzt immer vsync). Verhindert Protokoll-Warnungen bei Chromium/Games. (~100 LoC)
+    - ✅ `xdg-toplevel-drag-v1` — Tab-Detach in Browsern (Firefox/Chromium), Drag-aus-Fenster. Stub: `attach` wird akzeptiert und geloggt, aber die Window-during-Drag-Logik ist noch nicht implementiert. (~105 LoC)
 
 **Tier 1 — Triviale Delegates mit hohem App-Kompatibilitäts-Nutzen** (~90 LoC) ✅:
 
@@ -556,7 +560,9 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 > **Hinweis wayvnc:** `wayvnc` funktioniert bereits als externer VNC-Server (braucht `wlr-layer-shell` + `ext-image-copy-capture` + `zwlr_virtual_pointer` — alle in Phase 3 abgeschlossen). Befehl: `WAYLAND_DISPLAY=... wayvnc 0.0.0.0 5900`. Die verbleibenden Steps (EIS, Legacy-Screencopy, Stubs) sind Erweiterungen, keine Voraussetzung für wayvnc.
 
-**Meilenstein 3b:** `WAYLAND_DISPLAY=... platynui-cli query "//control:*"` (über wlr-foreign-toplevel) listet Fenster. Virtual-Pointer/Keyboard und libei-Input funktionieren. Screenshot via ext-image-copy-capture. `waybar` (extern) funktioniert via Layer-Shell. `wayvnc` kann sich verbinden und die Session anzeigen + fernsteuern. Clipboard über `wl-copy`/`wl-paste` lesbar/schreibbar. Multi-Monitor per `wlr-randr` dynamisch konfigurierbar. Alle gängigen GTK4/Qt/Chromium-Protokolle (commit-timing, fifo, idle-inhibit, xdg-dialog, alpha-modifier) werden unterstützt — keine Protokoll-Warnungen bei Standard-Apps.
+**Meilenstein 3b (Zwischenstand):** ✅ Tier 1 komplett (commit-timing, fifo, idle-inhibit, xdg-dialog, system-bell, alpha-modifier). ✅ Tier 2 komplett (xwayland-shell, xwayland-keyboard-grab, pointer-gestures, tablet-v2, pointer-warp-v1). ✅ tearing-control + toplevel-drag als Stubs (manuelles GlobalDispatch/Dispatch, smithay 0.7 bietet keine Abstraktion). ✅ 40 Protokoll-Globals, ~13.900 LoC, 1874 Tests. Alle gängigen GTK4/Qt/Chromium-Protokolle werden unterstützt — keine Protokoll-Warnungen bei Standard-Apps.
+
+**Meilenstein 3b (Ziel):** Zusätzlich: libei-Input funktioniert (Step 17). `WAYLAND_DISPLAY=... platynui-cli query "//control:*"` (über wlr-foreign-toplevel) listet Fenster. Virtual-Pointer/Keyboard und libei-Input funktionieren.
 
 ---
 
@@ -695,7 +701,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 - Phase 3: `platynui-cli` kann Fenster listen und Input senden. Screenshots via ext-image-copy-capture inkl. CursorSessions. `waybar`/ironbar laufen via Layer-Shell. `wayvnc` funktioniert als externer VNC-Server (Frame + Cursor Dual-Capture). Clipboard via `wl-copy`/`wl-paste` (data-control). Multi-Monitor dynamisch konfigurierbar (output-management).
 - Phase 3a: ✅ ERLEDIGT. Control-Socket JSON via typisierter `serde`-Structs (19f). ~595 Zeilen Code-Duplikation eliminiert (19f₂). Kommentar-Review (19f₃). Focus-Loss Input Release (19f₄). Software-Cursor für SSD-Resize (19f₅). Session-Scripts AT-SPI-Fix (19f₆). Steps 19g–19z komplett: Protokoll-Korrektheit (Screencopy, Output-Management), Unwrap-Eliminierung, Error-Handling, Tracing, Dead Code, Magic Numbers, DRM Multi-Monitor-Positionierung. 1874 Tests grün.
 - Phase 3a+: ✅ ERLEDIGT. Popup-Korrekturen (SSD, Layer-Shell, X11), VNC-Cursor-Rendering, Virtual-Pointer-Mapping, DRM Multi-Monitor-Overhaul, X11-Maximize-Größenwiederherstellung, Output-Resize-Reconfigure, Floating-Fenster-Clamping. ~14.500 LoC, 1874 Tests grün.
-- Phase 3b: libei-Input funktioniert. Optionale Stubs (Tearing-Control, Toplevel-Drag) verdrahtet.
+- Phase 3b: ✅ Tier 1 + Tier 2 komplett (11 Protokolle). ✅ tearing-control + toplevel-drag Stubs (40 Globals). libei-Input funktioniert (Step 17). Optionale Tier-3-Protokolle (toplevel-icon, toplevel-tag, ext-foreign-toplevel-list).
 - Phase 4: `cargo nextest run -p platynui-platform-linux-wayland` — alle Traits getestet, Koordinaten-Transformation korrekt für Wayland-native und XWayland-Apps
 - Phase 5: VNC/RDP eingebaut — Headless-Debugging ohne externe Tools möglich
 - Phase 6: `cargo nextest run --all` — gesamte Suite grün, inkl. Wayland-Tests. CI-Scripts funktionieren.

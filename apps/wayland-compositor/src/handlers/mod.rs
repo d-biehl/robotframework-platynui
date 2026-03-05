@@ -26,6 +26,8 @@ pub mod pointer_warp;
 pub mod screencopy;
 pub mod security_context;
 pub mod session_lock;
+pub mod tearing_control;
+pub mod toplevel_drag;
 pub mod single_pixel_buffer;
 pub mod text_input;
 pub mod viewporter;
