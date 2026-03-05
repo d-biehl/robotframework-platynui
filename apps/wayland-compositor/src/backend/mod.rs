@@ -206,6 +206,10 @@ pub fn setup_services(
         state.xwayland_shell_state = Some(smithay::wayland::xwayland_shell::XWaylandShellState::new::<
             crate::state::State,
         >(&state.display_handle));
+        state.xwayland_keyboard_grab_state =
+            Some(smithay::wayland::xwayland_keyboard_grab::XWaylandKeyboardGrabState::new::<crate::state::State>(
+                &state.display_handle,
+            ));
         state.start_xwayland();
     }
 

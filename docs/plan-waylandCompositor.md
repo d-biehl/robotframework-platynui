@@ -492,18 +492,17 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 ---
 
-### Phase 3b: Verbleibende Automation-Protokolle & Zusätzliche Protokoll-Unterstützung (~600–900 LoC) ⬜ OFFEN
+### Phase 3b: Verbleibende Automation-Protokolle & Zusätzliche Protokoll-Unterstützung (~600–900 LoC) 🔧 IN ARBEIT
 
 *Ziel: Restliche Protokoll-Features aus der ursprünglichen Phase 3 abschließen. Zusätzlich alle in smithay 0.7.0 verfügbaren Protokolle verdrahten, die für App-Kompatibilität und flüssigen Betrieb sinnvoll sind. Der Compositor soll gängige GTK4/Qt/Chromium/Firefox-Apps ohne Protokoll-Warnungen unterstützen.*
 
-> **Protokoll-Gap-Analyse (2026-03-03):** Vergleich der 27 implementierten `delegate_*!()`-Makros
-> mit den 44 in smithay 0.7.0 verfügbaren Delegates ergibt 17 fehlende Protokolle. Davon sind
-> 6 als Tier 1 (trivial, hoher Nutzen), 4 als Tier 2 (moderat), 3 als Tier 3 (niedrig/optional)
-> eingestuft. 4 Protokolle (`drm-lease`, `drm-syncobj`, `kde-decoration`, `ext-data-control`)
-> werden bewusst nicht implementiert (VR-Hardware, Hardware-nah, KDE-spezifisch, Duplikat).
-> `pointer-warp-v1` existiert nicht in smithay/Wayland-Standards — Pointer-Warping wird unter
-> Wayland bewusst vermieden (Security-Model); stattdessen `zwlr_virtual_pointer_v1` mit absoluten
-> Koordinaten (bereits implementiert).
+> **Protokoll-Gap-Analyse (2026-03-05, aktualisiert):** 37 implementierte `delegate_*!()`-Makros
+> von 44 in smithay 0.7.0 verfügbaren. Verbleibende 7: 3× Tier 3 (toplevel-icon, toplevel-tag,
+> ext-foreign-toplevel-list), 2× noch offen (tearing-control, toplevel-drag), 1× EIS (Step 17),
+> 1× ext-foreign-toplevel-list (optional).
+> 4 Protokolle bewusst nicht implementiert (`drm-lease`, `drm-syncobj`, `kde-decoration`,
+> `ext-data-control`). Tier 1 + Tier 2 komplett (10 Protokolle).
+> ~13.700 LoC, 37 Delegates, 1874 Tests.
 
 **Bestehende Feature-Schritte:**
 
@@ -529,15 +528,15 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 19e₇. ✅ **`wp-alpha-modifier-v1`** (`delegate_alpha_modifier!()`): Subsurface-Opacity — Client kann die Transparenz einzelner Subsurfaces steuern ohne Alpha im Buffer anzupassen. Manche Compositing-Szenarien brauchen es. Smithay liefert `AlphaModifierState`. (~15 LoC)
 
-**Tier 2 — Moderate Protokoll-Erweiterungen** (~110 LoC):
+**Tier 2 — Moderate Protokoll-Erweiterungen** (~110 LoC) ✅:
 
-19e₈. **`xwayland-shell-v1`** (`delegate_xwayland_shell!()`): Besseres Surface-Mapping zwischen X11-Windows und Wayland-Surfaces. Unser Compositor hat bereits XWayland-Support — dieses Protokoll verbessert die Zuordnung und vermeidet Race-Conditions beim Surface-Matching. Smithay liefert `XWaylandShellState`. (~30 LoC)
+19e₈. ✅ **`xwayland-shell-v1`** (`delegate_xwayland_shell!()`): Bereits in Phase 3 implementiert. Besseres Surface-Mapping zwischen X11-Windows und Wayland-Surfaces. Lazy-Init zusammen mit XWayland-Start. Handler in `xwayland.rs` mit `XWaylandShellHandler::xwayland_shell_state()` + `surface_associated()`. (~30 LoC)
 
-19e₉. **`xwayland-keyboard-grab`** (`delegate_xwayland_keyboard_grab!()`): Erlaubt X11-Apps exklusive Keyboard-Grabs (z.B. für Shortcuts). Verbessert Kompatibilität von X11-Apps die unter XWayland laufen. Smithay liefert `XWaylandKeyboardGrabState`. (~20 LoC)
+19e₉. ✅ **`xwayland-keyboard-grab`** (`delegate_xwayland_keyboard_grab!()`): Erlaubt X11-Apps exklusive Keyboard-Grabs (Shortcuts, VMs). Lazy-Init zusammen mit XWayland-Start. `XWaylandKeyboardGrabHandler::keyboard_focus_for_xsurface()` sucht in `space.elements()` das Window dessen X11-Surface die angefragte `WlSurface` hat und gibt es als `KeyboardFocusTarget` zurück. (~15 LoC)
 
-19e₁₀. **`pointer-gestures-v1`** (`delegate_pointer_gestures!()`): Touchpad-Gesten (Swipe, Pinch, Hold) an Clients weiterleiten. Relevant für Desktop-Apps mit Gestensteuerung. Smithay liefert `PointerGesturesState`. (~20 LoC)
+19e₁₀. ✅ **`pointer-gestures-v1`** (`delegate_pointer_gestures!()`): Touchpad-Gesten (Swipe, Pinch, Hold) an Clients weiterleiten. Delegate-only, kein Handler-Trait — smithay routet Gesten-Events über `PointerHandle` automatisch. Smithay liefert `PointerGesturesState`. (~5 LoC)
 
-19e₁₁. **`tablet-v2`** (`delegate_tablet_manager!()`): Drawing-Tablet-Unterstützung (Wacom etc.) — Pressure, Tilt, Button-Events. Relevant wenn Zeichen-Apps (GIMP, Krita) getestet werden sollen. Smithay liefert `TabletManagerState`. (~40 LoC)
+19e₁₁. ✅ **`tablet-v2`** (`delegate_tablet_manager!()`): Drawing-Tablet-Unterstützung (Wacom etc.) — Pressure, Tilt, Button-Events. `TabletSeatHandler` war bereits für `cursor-shape` implementiert (leerer Default-Impl). State-Init + Delegate-Makro ergänzt. (~5 LoC)
 
 **Tier 3 — Niedrig / Optional** (~40 LoC):
 

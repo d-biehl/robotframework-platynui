@@ -6,11 +6,12 @@ use smithay::{
     delegate_alpha_modifier, delegate_commit_timing, delegate_compositor, delegate_content_type, delegate_cursor_shape,
     delegate_data_control, delegate_data_device, delegate_dmabuf, delegate_fifo, delegate_fractional_scale,
     delegate_idle_inhibit, delegate_idle_notify, delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit,
-    delegate_layer_shell, delegate_output, delegate_pointer_constraints, delegate_presentation,
-    delegate_primary_selection, delegate_relative_pointer, delegate_seat, delegate_security_context,
-    delegate_session_lock, delegate_shm, delegate_single_pixel_buffer, delegate_text_input_manager,
-    delegate_viewporter, delegate_virtual_keyboard_manager, delegate_xdg_activation, delegate_xdg_decoration,
-    delegate_xdg_dialog, delegate_xdg_foreign, delegate_xdg_shell, delegate_xdg_system_bell,
+    delegate_layer_shell, delegate_output, delegate_pointer_constraints, delegate_pointer_gestures,
+    delegate_presentation, delegate_primary_selection, delegate_relative_pointer, delegate_seat,
+    delegate_security_context, delegate_session_lock, delegate_shm, delegate_single_pixel_buffer,
+    delegate_tablet_manager, delegate_text_input_manager, delegate_viewporter, delegate_virtual_keyboard_manager,
+    delegate_xdg_activation, delegate_xdg_decoration, delegate_xdg_dialog, delegate_xdg_foreign, delegate_xdg_shell,
+    delegate_xdg_system_bell,
     desktop::{PopupManager, Space, Window, layer_map_for_output},
     input::{Seat, SeatState, keyboard::XkbConfig, pointer::CursorImageStatus},
     output::{Output, PhysicalProperties, Subpixel},
@@ -35,6 +36,7 @@ use smithay::{
         keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState,
         output::{OutputHandler, OutputManagerState},
         pointer_constraints::PointerConstraintsState,
+        pointer_gestures::PointerGesturesState,
         presentation::PresentationState,
         relative_pointer::RelativePointerManagerState,
         security_context::SecurityContextState,
@@ -48,6 +50,7 @@ use smithay::{
         },
         shm::ShmState,
         single_pixel_buffer::SinglePixelBufferState,
+        tablet_manager::TabletManagerState,
         text_input::TextInputManagerState,
         viewporter::ViewporterState,
         virtual_keyboard::VirtualKeyboardManagerState,
@@ -115,6 +118,8 @@ pub struct State {
     pub idle_inhibit_surfaces: HashSet<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
     pub xdg_dialog_state: XdgDialogState,
     pub xdg_system_bell_state: XdgSystemBellState,
+    pub pointer_gestures_state: PointerGesturesState,
+    pub tablet_manager_state: TabletManagerState,
 
     // -- Phase 3: Automation protocols --
     pub layer_shell_state: WlrLayerShellState,
@@ -237,6 +242,7 @@ pub struct State {
     // -- XWayland --
     pub xwayland: Option<crate::xwayland::XWaylandState>,
     pub xwayland_shell_state: Option<smithay::wayland::xwayland_shell::XWaylandShellState>,
+    pub xwayland_keyboard_grab_state: Option<smithay::wayland::xwayland_keyboard_grab::XWaylandKeyboardGrabState>,
 
     // -- UI rendering --
     pub titlebar_renderer: crate::ui::TitlebarRenderer,
@@ -368,6 +374,8 @@ impl State {
         let idle_inhibit_surfaces = HashSet::new();
         let xdg_dialog_state = XdgDialogState::new::<Self>(&dh);
         let xdg_system_bell_state = XdgSystemBellState::new::<Self>(&dh);
+        let pointer_gestures_state = PointerGesturesState::new::<Self>(&dh);
+        let tablet_manager_state = TabletManagerState::new::<Self>(&dh);
 
         // Phase 3: Automation protocols
         let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
@@ -509,6 +517,8 @@ impl State {
             idle_inhibit_surfaces,
             xdg_dialog_state,
             xdg_system_bell_state,
+            pointer_gestures_state,
+            tablet_manager_state,
             layer_shell_state,
             data_control_state,
             content_type_state,
@@ -558,6 +568,7 @@ impl State {
             child_command: Vec::new(),
             xwayland: None,
             xwayland_shell_state: None,
+            xwayland_keyboard_grab_state: None,
             drm_backend: None,
             output_config_changed: false,
             window_scale: 1.0,
@@ -1239,3 +1250,5 @@ delegate_fifo!(State);
 delegate_idle_inhibit!(State);
 delegate_xdg_dialog!(State);
 delegate_xdg_system_bell!(State);
+delegate_pointer_gestures!(State);
+delegate_tablet_manager!(State);

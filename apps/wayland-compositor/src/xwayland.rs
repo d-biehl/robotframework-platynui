@@ -13,6 +13,7 @@ use smithay::{
     utils::{Logical, Rectangle},
     wayland::{
         selection::SelectionTarget,
+        xwayland_keyboard_grab::XWaylandKeyboardGrabHandler,
         xwayland_shell::{XWaylandShellHandler, XWaylandShellState},
     },
     xwayland::{
@@ -133,6 +134,22 @@ impl XWaylandShellHandler for State {
 }
 
 smithay::delegate_xwayland_shell!(State);
+
+// -- XWaylandKeyboardGrabHandler --
+
+impl XWaylandKeyboardGrabHandler for State {
+    fn keyboard_focus_for_xsurface(
+        &self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) -> Option<crate::focus::KeyboardFocusTarget> {
+        self.space.elements().find_map(|window| {
+            let dominated = window.x11_surface()?.wl_surface()?;
+            (dominated == *surface).then(|| crate::focus::KeyboardFocusTarget::Window(window.clone()))
+        })
+    }
+}
+
+smithay::delegate_xwayland_keyboard_grab!(State);
 
 // -- XwmHandler --
 
