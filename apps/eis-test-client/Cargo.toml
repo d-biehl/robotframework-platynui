@@ -1,0 +1,45 @@
+[package]
+name = "platynui-eis-test-client"
+version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Standalone EIS test client for validating the EI protocol against compositors"
+readme = "README.md"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# EI protocol
+reis = "0.6"
+enumflags2 = "0.7"
+rustix = { version = "1", features = ["event"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# XDG Desktop Portal (D-Bus)
+zbus = { version = "5", features = ["blocking-api"] }
+
+# Line editing for interactive mode
+reedline = "0.40"
+
+# Error handling
+anyhow = "1"
+
+# Tracing
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "fmt",
+    "env-filter",
+] }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "platynui-eis-test-client"
+path = "src/main.rs"

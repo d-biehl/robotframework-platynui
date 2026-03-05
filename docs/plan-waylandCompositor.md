@@ -1,6 +1,6 @@
 ## Plan: PlatynUI Wayland Compositor + Platform-Crate (Final, priorisiert)
 
-**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~14.000 LoC, 1874 Tests, 43 Protokoll-Globals) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann Bugfixes & Window-Management-Verbesserungen (Phase 3a+ ✅), dann verbleibende Automation-Protokolle (Phase 3b: Tier 1+2+3 + Stubs komplett, libei + Test-Client noch offen — **nächster Schritt**), dann Desktop-Integration & Projekt-Tooling (Phase 3c ✅: Winit-Fenster, App-IDs, `.desktop`-Dateien, Justfile), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
+**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~14.000 LoC, 1874 Tests, 43 Protokoll-Globals) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann Bugfixes & Window-Management-Verbesserungen (Phase 3a+ ✅), dann verbleibende Automation-Protokolle (Phase 3b: Tier 1+2+3 + Stubs komplett, EIS-Test-Client komplett ✅ mit Human-readable Keys + Shortcuts + Touch-Support, Erkenntnisse in `docs/eis-libei.md` — EIS-Server noch offen, **nächster Schritt**), dann Desktop-Integration & Projekt-Tooling (Phase 3c ✅: Winit-Fenster, App-IDs, `.desktop`-Dateien, Justfile), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
 
 ---
 
@@ -496,7 +496,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 *Ziel: Restliche Protokoll-Features aus der ursprünglichen Phase 3 abschließen. Zusätzlich alle in smithay 0.7.0 verfügbaren Protokolle verdrahten, die für App-Kompatibilität und flüssigen Betrieb sinnvoll sind. Der Compositor soll gängige GTK4/Qt/Chromium/Firefox-Apps ohne Protokoll-Warnungen unterstützen.*
 
-> **Protokoll-Gap-Analyse (2026-03-05, aktualisiert):** 43 implementierte Protokoll-Globals
+> **Protokoll-Gap-Analyse (2026-03-05, aktualisiert 2026-03-05):** 43 implementierte Protokoll-Globals
 > (37 `delegate_*!()`-Makros + 6 manuelle `GlobalDispatch`: pointer-warp-v1, tearing-control,
 > toplevel-drag, toplevel-icon, toplevel-tag, virtual-pointer; plus wlr-foreign-toplevel,
 > output-management, screencopy via eigene State-Inits).
@@ -507,32 +507,52 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 > Tier 3 komplett (3 Protokolle: toplevel-icon mit Pixel-Rendering in SSD-Titlebars,
 > toplevel-tag mit In-Memory-Speicherung, ext-foreign-toplevel-list via smithay delegate).
 > ext-data-control-v1 implementiert (standardisierte Version parallel zu wlr-data-control).
-> Verbleibend: EIS-Server (Step 17) + eigenständiger Test-Client (Step 17b).
+> **EIS-Test-Client (Step 17b) komplett** — validiert gegen GNOME/Mutter. ~1.600 LoC (portal.rs + app.rs + main.rs).
+> Portal-Restore-Token (`persist_mode=2`) für dauerhafte Berechtigungen.
+> reis-Bug Workaround (manueller EiEventConverter statt EiConvertEventIterator).
+> Interaktiver REPL-Modus (reedline) mit Semikolon-getrennten Multi-Kommandos.
+> Human-readable Key-Names (~80 Einträge: Buchstaben, Zahlen, F-Tasten, Navigation, Modifier, Sonderzeichen)
+> + Shortcut-Syntax (`ctrl+a`, `alt+f4`, `ctrl+shift+delete`) mit korrekter Modifier-Sequenzierung.
+> Touch-Kommandos (tap, touch-down, touch-move, touch-up) für Touchscreen-Capability.
+> 12 CLI-Subcommands + 10 interaktive Kommandos.
+> Erkenntnisse dokumentiert in `docs/eis-libei.md`.
+> Verbleibend: EIS-Server (Step 17).
 > 3 Protokolle bewusst nicht implementiert (`drm-lease`, `drm-syncobj`, `kde-decoration`).
-> ~14.000 LoC, 43 Protokolle, 1874 Tests.
+> ~14.000 LoC Compositor + ~1.600 LoC Test-Client, 43 Protokolle, 1874 Tests.
 
 **Bestehende Feature-Schritte (Reihenfolge: Test-Client zuerst, dann EIS-Server):**
 
 > **Begründung der Reihenfolge:** Der Test-Client (17b) wird *vor* dem EIS-Server (17) implementiert. Damit können wir libei zuerst gegen existierende Compositors (Mutter/KWin) validieren — Handshake, Capabilities, Keymap, Input-Injection verstehen und debuggen — bevor wir unseren eigenen EIS-Server schreiben. Der Test-Client dient dann auch direkt als Testharness für Step 17.
 
-17b. **Eigenständiger EIS-Test-Client** (`apps/eis-test-client/`): Separates Binary zum Testen und Debuggen von EIS-Servern — funktioniert mit Mutter (GNOME), KWin (KDE), und später unserem Compositor:
-    - **Crate:** `apps/eis-test-client/` mit eigenem `Cargo.toml`. Deps: `reis`, `clap`, `xkbcommon`, `tracing`, `tracing-subscriber`, `zbus` (für Portal-Zugang zu Mutter/KWin).
-    - **Verbindungsmodi:**
-      - Portal: `--portal` → `org.freedesktop.portal.RemoteDesktop.CreateSession()` + `ConnectToEIS()` via `zbus` → bekommt FD zurück (Mutter, KWin). Interaktiver Dialog oder `--portal-restore-token` für headless.
+17b. ✅ **Eigenständiger EIS-Test-Client** (`apps/eis-test-client/`): Separates Binary zum Testen und Debuggen von EIS-Servern — funktioniert mit Mutter (GNOME), KWin (KDE), und später unserem Compositor:
+    - **Crate:** `apps/eis-test-client/` mit eigenem `Cargo.toml`. Deps: `reis 0.6`, `enumflags2 0.7`, `rustix 1` (event), `clap 4`, `zbus 5` (blocking-api), `reedline 0.40`, `anyhow 1`, `tracing 0.1`, `tracing-subscriber 0.3`. Alle Dependencies sind `cfg(target_os = "linux")`-gated.
+    - **Verbindungsmodi (3 Pfade):**
+      - Portal: `--portal` → `org.freedesktop.portal.RemoteDesktop` (`CreateSession` → `SelectDevices` → `Start` → `ConnectToEIS`) via `zbus` blocking API. Portal-Berechtigungs-Dialog wird bei erstem Start angezeigt; danach wird ein **Restore-Token** gespeichert (`~/.local/share/platynui/eis-restore-token`) und bei nachfolgenden Starts automatisch verwendet (`persist_mode=2`, xdg-desktop-portal v2). Funktioniert mit GNOME 43+ und KDE Plasma 5.27+.
       - Direkt: `--socket <path>` → `ei::Context` über Unix-Socket (unser Compositor, Sway-Fork)
-      - Env: Default verbindet zu `$LIBEI_SOCKET` oder `$XDG_RUNTIME_DIR/eis-0`
-    - **Kommandos (clap Subcommands):**
-      - `probe` — Verbinden, Handshake durchführen, Seat/Capabilities/Regions/Keymap ausgeben und trennen. Diagnostik-Tool.
-      - `move-to <x> <y>` — Absolute Pointer-Bewegung
-      - `move-by <dx> <dy>` — Relative Pointer-Bewegung
-      - `click [left|right|middle]` — Button press + release
+      - Env: Default verbindet zu `$LIBEI_SOCKET` (Pfad absolut oder relativ zu `$XDG_RUNTIME_DIR`)
+    - **Kommandos (12 clap Subcommands):**
+      - `probe` — Verbinden, Handshake durchführen, Connection-Info (Context-Type, Handshake-Serial, negotiated Interfaces), Seat/Capabilities/Regions/Keymap ausgeben und trennen. 500ms Grace-Period nach letztem Event. Diagnostik-Tool.
+      - `move-to <x> <y>` — Absolute Pointer-Bewegung (erfordert `PointerAbsolute`-Capability — Mutter bietet das nicht an, klarer Fehler mit verfügbaren Devices)
+      - `move-by <dx> <dy>` — Relative Pointer-Bewegung (✅ gegen Mutter getestet, funktioniert)
+      - `click [left|right|middle]` — Button press + 20ms Pause + release (korrekte Press/Release-Semantik, `BTN_LEFT`=0x110, `BTN_RIGHT`=0x111, `BTN_MIDDLE`=0x112)
       - `scroll <dx> <dy>` — Scroll-Event
-      - `key <keyname>` — Taste drücken + loslassen (XKB-Name-Lookup über Keymap)
-      - `type <text>` — Text tippen (Keymap-basiert: Zeichen → Keysym → Keycode + Modifier)
-      - `sequence` — Mehrere Aktionen hintereinander: `move-to 500 300 click left type "Hello"`
-    - **Diagnostik-Output:** `--verbose` zeigt alle EI-Protokoll-Messages (nutzt `REIS_DEBUG` intern).
-    - **Portal-Support für Mutter/KWin:** Der Client verhandelt eine RemoteDesktop-Session über D-Bus Portal, ruft `ConnectToEIS()` auf und nutzt den zurückgegebenen FD als Transport. Damit funktioniert er out-of-the-box mit GNOME 45+ und KDE 6.1+.
-    (~400–500 LoC)
+      - `key <spec>` — Key-Name, Shortcut oder raw Keycode. Human-readable Namen: `a`–`z`, `0`–`9`, `f1`–`f12`, `enter`, `escape`, `space`, `tab`, `backspace`, Pfeiltasten, Modifier, Sonderzeichen. Shortcuts: `ctrl+a`, `alt+f4`, `ctrl+shift+delete` — Modifier werden in Reihenfolge gedrückt, Taste gedrückt+losgelassen, Modifier in umgekehrter Reihenfolge losgelassen. Raw-Keycodes als Fallback (z.B. `30`).
+      - `tap <x> <y>` — Touch-Tap (down + 20ms Pause + up) an Position, Touch-ID 0
+      - `touch-down [--id N] <x> <y>` — Touchpoint an Position setzen (für Gesten)
+      - `touch-move [--id N] <x> <y>` — Aktiven Touchpoint bewegen
+      - `touch-up [--id N]` — Touchpoint loslassen
+      - `interactive` — REPL-Modus: einmal verbinden, einmal Permission-Dialog bestätigen, dann beliebig viele Kommandos eingeben. `reedline`-basierter Zeileneditor (Cursor-Tasten, History, Ctrl+C/Ctrl+D). Unterstützt Semikolon-getrennte Mehrfach-Kommandos (`move-by 100 0; click; key ctrl+a`). 10 Kommandos: `move-by`, `move-to`, `click`, `scroll`, `key`, `tap`, `touch-down`, `touch-move`, `touch-up`, `keys` (verfügbare Key-Namen anzeigen), `probe`, `help`, `quit`.
+      - `reset-token` — Gespeicherten Portal-Restore-Token löschen (erzwingt neuen Permission-Dialog beim nächsten Start)
+    - **EI-Protokoll-Handshake:** Manueller `EiEventConverter` statt `EiConvertEventIterator` (Workaround für [reis Bug](https://github.com/ids1024/reis): Iterator ruft `poll_readable()` vor dem Drain bereits gepufferter Events auf → hängt). Context-Type: Sender. `BitFlags::all()` für Seat-Binding (Mutter erstellt kein Device wenn nur eine einzelne Capability gebunden wird). 5s Timeout für Device-Erkennung.
+    - **Key-Name-System:** `KEY_MAP` mit ~80 Einträgen (Buchstaben a–z, Zahlen 0–9, F1–F12, Navigation, Editing, Modifier, Sonderzeichen, Lock-Tasten, Misc). `MODIFIER_NAMES` mit allen Modifier-Aliassen (ctrl/control/lctrl/rctrl/leftctrl, shift/lshift/rshift, alt/altgr/ralt, super/meta/win). `key_name_to_code()` mit Raw-Number-Fallback. `parse_key_spec()` für `+`-getrennte Shortcuts → `(modifier_codes[], key_code)`. `send_key_combo()`: Modifier down in Reihenfolge → Key down → Key up → Modifier up in umgekehrter Reihenfolge, jeweils mit separatem Frame+Flush+20ms Pause. `print_key_names()` gruppierte Anzeige (Letters, Numbers, F-Keys, Navigation, Editing, Modifiers, Other, Symbols).
+    - **Touch-Unterstützung:** `send_touch_tap()`: `down(touchid, x, y)` → frame → flush → 20ms → `up(touchid)` → frame → `stop_emulating` → flush → 50ms. Separate Frames sind EI-Protokoll-Pflicht für Touch down/motion/up. `parse_touch_args()` für interaktiven Modus (optionale Touch-ID, Default 0). Vier Touch-Kommandos: tap, touch-down, touch-move, touch-up.
+    - **Press/Release-Semantik:** Eigene `send_press_release()`-Funktion: `start_emulating` → press → frame → flush → 20ms Pause → release → frame → `stop_emulating` → flush → 50ms Settle-Time. Die 20ms Pause zwischen Press und Release ist nötig damit der Compositor die Events als separate Aktionen registriert.
+    - **Tracing:** Log-Level via `--log-level` (error/warn/info/debug/trace), `RUST_LOG` Env-Var (Vorrang), oder `PLATYNUI_LOG_LEVEL` Env-Var. Output auf stderr.
+    - **Architektur:** 3 Quelldateien:
+      - `main.rs` — Linux-Gate (`#[cfg(not(target_os = "linux"))]` Compile-Error) (~24 LoC)
+      - `portal.rs` — XDG Desktop Portal D-Bus-Integration (zbus-generierte Proxies, `connect_via_portal()` mit Restore-Token-Support) (~204 LoC)
+      - `app.rs` — CLI-Parsing, Tracing-Init, EI-Handshake, Key-Name-System, Touch-Support, alle Kommando-Implementierungen (~1.360 LoC)
+    (~1.600 LoC gesamt)
 
 17. **EIS-Server / libei** (`src/eis.rs`): Via `reis::eis` (Feature `calloop`) — vollständiger EIS-Server im Compositor. Erfahrungen aus Step 17b (Test-Client gegen Mutter/KWin) fließen direkt ein:
     - **Socket:** `$XDG_RUNTIME_DIR/eis-platynui`, `eis::Listener::bind()` + `EisListenerSource` in calloop Event-Loop
@@ -597,9 +617,9 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 > **Hinweis wayvnc:** `wayvnc` funktioniert bereits als externer VNC-Server (braucht `wlr-layer-shell` + `ext-image-copy-capture` + `zwlr_virtual_pointer` — alle in Phase 3 abgeschlossen). Befehl: `WAYLAND_DISPLAY=... wayvnc 0.0.0.0 5900`. Die verbleibenden Steps (EIS, Legacy-Screencopy, Stubs) sind Erweiterungen, keine Voraussetzung für wayvnc.
 
-**Meilenstein 3b (Zwischenstand):** ✅ Tier 1 komplett (commit-timing, fifo, idle-inhibit, xdg-dialog, system-bell, alpha-modifier). ✅ Tier 2 komplett (xwayland-shell, xwayland-keyboard-grab, pointer-gestures, tablet-v2, pointer-warp-v1). ✅ tearing-control + toplevel-drag als Stubs (manuelles GlobalDispatch/Dispatch, smithay 0.7 bietet keine Abstraktion). ✅ Tier 3 komplett (toplevel-icon, toplevel-tag, ext-foreign-toplevel-list). ✅ ext-data-control-v1 (standardisierte Clipboard-Kontrolle). ✅ 43 Protokoll-Globals, ~14.000 LoC, 1874 Tests. Alle gängigen GTK4/Qt/Chromium-Protokolle werden unterstützt — keine Protokoll-Warnungen bei Standard-Apps.
+**Meilenstein 3b (Zwischenstand):** ✅ Tier 1 komplett (commit-timing, fifo, idle-inhibit, xdg-dialog, system-bell, alpha-modifier). ✅ Tier 2 komplett (xwayland-shell, xwayland-keyboard-grab, pointer-gestures, tablet-v2, pointer-warp-v1). ✅ tearing-control + toplevel-drag als Stubs (manuelles GlobalDispatch/Dispatch, smithay 0.7 bietet keine Abstraktion). ✅ Tier 3 komplett (toplevel-icon, toplevel-tag, ext-foreign-toplevel-list). ✅ ext-data-control-v1 (standardisierte Clipboard-Kontrolle). ✅ EIS-Test-Client (Step 17b): eigenständiges Binary `platynui-eis-test-client` mit Portal-Support (GNOME/KDE), Restore-Token-Persistenz, 12 Subcommands (probe, move-to, move-by, click, scroll, key, tap, touch-down, touch-move, touch-up, interactive, reset-token), Human-readable Key-Names (~80 Einträge) + Shortcut-Syntax (ctrl+a, alt+f4), Touch-Unterstützung (tap + Gesten-Primitives), interaktiver REPL-Modus (reedline, 10 Kommandos), reis-Bug-Workaround, ~1.600 LoC. Erkenntnisse dokumentiert in `docs/eis-libei.md`. ✅ 43 Protokoll-Globals, ~14.000 LoC Compositor + ~1.600 LoC Test-Client, 1874 Tests. Alle gängigen GTK4/Qt/Chromium-Protokolle werden unterstützt — keine Protokoll-Warnungen bei Standard-Apps.
 
-**Meilenstein 3b (Ziel):** Zusätzlich: libei-Input funktioniert (Step 17) — EIS-Server akzeptiert Clients, alle Input-Capabilities (pointer, pointer_absolute, button, scroll, keyboard, touchscreen) werden advertisiert und in Smithay injiziert. XKB-Keymap wird an Clients propagiert. Eigenständiger Test-Client (Step 17b) kann sich per Socket (eigener Compositor) oder Portal (Mutter/KWin) verbinden und Input emulieren. `ei-debug-events` zeigt korrekten Handshake und Device-Konfiguration. `WAYLAND_DISPLAY=... platynui-cli query "//control:*"` (über wlr-foreign-toplevel) listet Fenster.
+**Meilenstein 3b (Ziel):** Zusätzlich: libei-Input funktioniert (Step 17) — EIS-Server akzeptiert Clients, alle Input-Capabilities (pointer, pointer_absolute, button, scroll, keyboard, touchscreen) werden advertisiert und in Smithay injiziert. XKB-Keymap wird an Clients propagiert. ✅ Eigenständiger Test-Client (Step 17b) kann sich per Socket (eigener Compositor) oder Portal (Mutter/KWin) verbinden und Input emulieren — Human-readable Key-Names, Shortcut-Syntax, Touch-Kommandos, interaktiver REPL-Modus. `ei-debug-events` zeigt korrekten Handshake und Device-Konfiguration. `WAYLAND_DISPLAY=... platynui-cli query "//control:*"` (über wlr-foreign-toplevel) listet Fenster.
 
 ---
 
@@ -791,7 +811,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 - Phase 3: `platynui-cli` kann Fenster listen und Input senden. Screenshots via ext-image-copy-capture inkl. CursorSessions. `waybar`/ironbar laufen via Layer-Shell. `wayvnc` funktioniert als externer VNC-Server (Frame + Cursor Dual-Capture). Clipboard via `wl-copy`/`wl-paste` (data-control). Multi-Monitor dynamisch konfigurierbar (output-management).
 - Phase 3a: ✅ ERLEDIGT. Control-Socket JSON via typisierter `serde`-Structs (19f). ~595 Zeilen Code-Duplikation eliminiert (19f₂). Kommentar-Review (19f₃). Focus-Loss Input Release (19f₄). Software-Cursor für SSD-Resize (19f₅). Session-Scripts AT-SPI-Fix (19f₆). Steps 19g–19z komplett: Protokoll-Korrektheit (Screencopy, Output-Management), Unwrap-Eliminierung, Error-Handling, Tracing, Dead Code, Magic Numbers, DRM Multi-Monitor-Positionierung. 1874 Tests grün.
 - Phase 3a+: ✅ ERLEDIGT. Popup-Korrekturen (SSD, Layer-Shell, X11), VNC-Cursor-Rendering, Virtual-Pointer-Mapping, DRM Multi-Monitor-Overhaul, X11-Maximize-Größenwiederherstellung, Output-Resize-Reconfigure, Floating-Fenster-Clamping. ~14.500 LoC, 1874 Tests grün.
-- Phase 3b: ✅ Tier 1 + Tier 2 + Tier 3 komplett (15 Protokolle, 43 Globals). ✅ tearing-control + toplevel-drag Stubs. ✅ Tier 3: toplevel-icon (volle Pixel-Pipeline mit SSD-Titlebar-Rendering), toplevel-tag (In-Memory-Speicherung), ext-foreign-toplevel-list (bereits in Phase 3). ✅ ext-data-control-v1 (standardisierte Clipboard-Kontrolle parallel zu wlr-data-control). libei-Input noch offen (Step 17: EIS-Server mit allen Input-Capabilities + XKB-Keymap, Step 17b: eigenständiger Test-Client mit Portal-Support für Mutter/KWin).
+- Phase 3b: ✅ Tier 1 + Tier 2 + Tier 3 komplett (15 Protokolle, 43 Globals). ✅ tearing-control + toplevel-drag Stubs. ✅ Tier 3: toplevel-icon (volle Pixel-Pipeline mit SSD-Titlebar-Rendering), toplevel-tag (In-Memory-Speicherung), ext-foreign-toplevel-list (bereits in Phase 3). ✅ ext-data-control-v1 (standardisierte Clipboard-Kontrolle parallel zu wlr-data-control). ✅ EIS-Test-Client (Step 17b): `platynui-eis-test-client` mit Portal-Support (Mutter/KWin), Restore-Token-Persistenz (`persist_mode=2`), 12 Subcommands (inkl. Touch + Human-readable Keys + Shortcuts), interaktiver REPL-Modus (reedline, 10 Kommandos), reis-Bug-Workaround (manueller EiEventConverter), ~1.600 LoC. Gegen GNOME/Mutter validiert: move-by, click, key, scroll funktionieren. Erkenntnisse in `docs/eis-libei.md` dokumentiert. libei-Input noch offen (Step 17: EIS-Server mit allen Input-Capabilities + XKB-Keymap).
 - Phase 4: `cargo nextest run -p platynui-platform-linux-wayland` — alle Traits getestet, Koordinaten-Transformation korrekt für Wayland-native und XWayland-Apps
 - Phase 5: VNC/RDP eingebaut — Headless-Debugging ohne externe Tools möglich
 - Phase 6: `cargo nextest run --all` — gesamte Suite grün, inkl. Wayland-Tests. CI-Scripts funktionieren.
