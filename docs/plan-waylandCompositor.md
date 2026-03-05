@@ -1,12 +1,12 @@
 ## Plan: PlatynUI Wayland Compositor + Platform-Crate (Final, priorisiert)
 
-**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~12.350 LoC, 1874 Tests) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann verbleibende Automation-Protokolle (Phase 3b: libei, optionale Stubs — **nächster Schritt**), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
+**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~14.500 LoC, 1874 Tests) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann Bugfixes & Window-Management-Verbesserungen (Phase 3a+ ✅), dann verbleibende Automation-Protokolle (Phase 3b: libei, optionale Stubs — **nächster Schritt**), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
 
 ---
 
-**Steps**
+**Schritte**
 
-### Phase 1: Lauffähiger Minimal-Compositor (~1.500 LoC, ~1 Woche) ✅ DONE
+### Phase 1: Lauffähiger Minimal-Compositor (~1.500 LoC, ~1 Woche) ✅ ERLEDIGT
 
 *Ziel: Fenster öffnen sich, Tastatur/Maus funktioniert, Clipboard geht — eine GTK/Qt-App kann darin laufen.*
 
@@ -74,7 +74,7 @@ Verhindert Race-Conditions in CI-Scripts die den Compositor starten und sofort T
 
 ---
 
-### Phase 2: SSD + XWayland + DRM + Test-Control (~1.400 LoC, ~1.5 Wochen) ✅ DONE
+### Phase 2: SSD + XWayland + DRM + Test-Control (~1.400 LoC, ~1.5 Wochen) ✅ ERLEDIGT
 
 *Ziel: Fenster haben Titelleisten mit Schließen/Maximieren/Minimieren, X11-Apps laufen via XWayland, DRM-Backend für echte Hardware, Test-Control-IPC für CI, Multi-Monitor-Support.*
 
@@ -97,9 +97,11 @@ Verhindert Race-Conditions in CI-Scripts die den Compositor starten und sofort T
 > leere Desktop-Fläche = Restore" wurde entfernt — Minimize/Restore läuft ausschließlich
 > über Protokoll-Requests (Taskbar) oder SSD-Buttons.
 >
-> **Hinweis Maximize:** Maximize speichert die Fenster-Position in `state.pre_maximize_positions`
-> vor dem Maximieren. Unmaximize (erneuter Klick auf Maximize-Button) stellt die
-> ursprüngliche Position wieder her.
+> **Hinweis Maximize:** Maximize speichert die Fenster-Position **und -Größe** in `state.pre_maximize_positions`
+> (Typ `PreMaximizeState = (Window, Point, Option<Size>)`) vor dem Maximieren. Unmaximize
+> (erneuter Klick auf Maximize-Button) stellt Position und Größe wieder her. Für X11/XWayland
+> sind `XwmHandler::maximize_request()` und `unmaximize_request()` implementiert, sodass
+> X11-Apps über `_NET_WM_STATE` korrekt maximieren/wiederherstellen.
 >
 > **Hinweis Screenshot Multi-Output:** `take_screenshot()` in `control.rs` übergibt den Primary
 > Output an `collect_render_elements()`. Da `collect_render_elements` alle Fenster im Space
@@ -134,7 +136,7 @@ Verhindert Race-Conditions in CI-Scripts die den Compositor starten und sofort T
 
 ---
 
-### Phase 2b: Härtung & Verfeinerung (~650 LoC, ~3–4 Tage) ✅ COMPLETE
+### Phase 2b: Härtung & Verfeinerung (~650 LoC, ~3–4 Tage) ✅ ERLEDIGT
 
 *Ziel: Offene TODOs und bekannte Einschränkungen aus Phase 2 beheben, bevor neue Features hinzukommen.*
 
@@ -242,7 +244,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 ---
 
-### Phase 3: Automation-Protokolle (~2.100 LoC, ~2–3 Wochen) ✅ DONE (Core Steps)
+### Phase 3: Automation-Protokolle (~2.100 LoC, ~2–3 Wochen) ✅ ERLEDIGT (Kern-Steps)
 
 *Ziel: Alle Wayland-Protokolle, die PlatynUI und externe Tools (wayvnc, waybar, wl-clipboard, wlr-randr) brauchen, sind im Compositor verfügbar. Nach dieser Phase kann man mit `wayvnc` auf den Compositor zugreifen, mit `waybar` ein externes Panel nutzen, und Clipboard programmatisch lesen/schreiben.*
 
@@ -251,7 +253,8 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 > zahlreiche Code-Smells identifiziert, die in Phase 3a (Härtung) adressiert werden.
 >
 > **Status (2026-07-19):** Alle Core-Steps (14, 15, 16, 18, 19, 19b, 19c) und Phase 3a (19f–19z)
-> abgeschlossen. ~12.350 LoC, 1874 Tests. Zusätzlich erledigt (nicht im Plan als Steps):
+> abgeschlossen. Phase 3a+ (19aa–19ai, Bugfixes & Window-Management) ebenfalls abgeschlossen.
+> ~14.500 LoC, 1874 Tests. Zusätzlich erledigt (nicht im Plan als Steps):
 > - Linux-Only-Gating: Alle Dependencies und Entry-Points in wayland-compositor und
 >   wayland-compositor-ctl sind `cfg(target_os = "linux")`-gated.
 > - Lint-Zentralisierung: Per-Crate Lint-Overrides entfernt, workspace-weite Lints gelten.
@@ -307,11 +310,11 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 19c. ✅ **Output-Management** (`src/handlers/output_management.rs`): `wlr-output-management-v1` (v4) — Outputs zur Laufzeit konfigurieren (Resolution, Position, Scale, Transform, Enable/Disable). Manuell implementiert (kein smithay Built-in): GlobalDispatch/Dispatch für Manager, Head, Mode, Configuration, ConfigurationHead. Arc<Mutex>-basiertes Shared-State für ConfigHead↔Configuration-Kommunikation. Serial-basierte Invalidierung, security-policy-gefiltertes Global. Enables: `wlr-randr`/`kanshi`, dynamische Multi-Monitor-Tests ohne Compositor-Neustart. (~568 LoC)
 
-**Meilenstein 3 (Automation-Protokolle, abgeschlossene Steps):** Virtual-Pointer/Keyboard-Input funktioniert. Screenshot via ext-image-copy-capture inkl. CursorSessions für wayvnc. `waybar`/ironbar (extern) funktionieren via Layer-Shell. `wayvnc` kann sich verbinden und die Session anzeigen + fernsteuern (Frame + Cursor Dual-Capture). Clipboard über `wl-copy`/`wl-paste` lesbar/schreibbar. Multi-Monitor per `wlr-randr` dynamisch konfigurierbar. Multi-Monitor-Enhancements (Mixed-Scale-Rendering, Dead-Zone-Handling, Edge-Output-Resize, Monitor-Rahmen, Layer-Surface-Rendering für alle Outputs) sind stabil.
+**Meilenstein 3 (Automation-Protokolle, abgeschlossene Schritte):** Virtual-Pointer/Keyboard-Input funktioniert. Screenshot via ext-image-copy-capture inkl. CursorSessions für wayvnc. `waybar`/ironbar (extern) funktionieren via Layer-Shell. `wayvnc` kann sich verbinden und die Session anzeigen + fernsteuern (Frame + Cursor Dual-Capture). Clipboard über `wl-copy`/`wl-paste` lesbar/schreibbar. Multi-Monitor per `wlr-randr` dynamisch konfigurierbar. Multi-Monitor-Enhancements (Mixed-Scale-Rendering, Dead-Zone-Handling, Edge-Output-Resize, Monitor-Rahmen, Layer-Surface-Rendering für alle Outputs) sind stabil.
 
 ---
 
-### Phase 3a: Härtung & Code-Qualität (~500 LoC Änderungen, ~3–5 Tage) ✅ DONE
+### Phase 3a: Härtung & Code-Qualität (~500 LoC Änderungen, ~3–5 Tage) ✅ ERLEDIGT
 
 *Ziel: Alle im Code-Review (2026-03-03) identifizierten Code-Smells, Bugs und Protokoll-Verletzungen sind behoben. Keine bare `.unwrap()` mehr, konsistentes Error-Handling, vollständiges Tracing, Dead Code entfernt. Die Codebasis ist bereit für weitere Feature-Arbeit ohne dass technische Schulden mitgeschleppt werden.*
 
@@ -427,7 +430,69 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 ---
 
-### Phase 3b: Verbleibende Automation-Protokolle & Zusätzliche Protokoll-Unterstützung (~600–900 LoC) ⬜ TODO
+### Phase 3a+: Bugfixes & Window-Management-Verbesserungen (~600 LoC, ~3 Tage) ✅ ERLEDIGT
+
+*Ziel: Praxistests mit wayvnc/VNC, DRM-Multi-Monitor und XWayland haben mehrere Edge-Cases in Popup-Handling, Cursor-Rendering, Input-Mapping und Window-Management aufgedeckt. Diese Phase adressiert alle gefundenen Probleme.*
+
+> **Status (2026-03-05):** Alle Steps komplett. ~14.500 LoC, 1874 Tests. DRM-Backend komplett
+> überarbeitet für Multi-Monitor. VNC (wayvnc) funktioniert fehlerfrei inkl. Cursor und
+> Keyboard-Layout. Popup-Handling und X11-Kompatibilität deutlich verbessert.
+> Window-Management: Maximize/Unmaximize/Resize mit korrekter Größenwiederherstellung,
+> Floating-Fenster werden bei Output-Resize in den sichtbaren Bereich geclampt.
+
+**Popup- & Input-Korrekturen:**
+
+19aa. ✅ **Popup-Constraining für SSD und Layer-Shell** (`src/handlers/xdg_shell.rs`): Popup-Positionierung korrigiert — Popups die über SSD-Fenster-Grenzen hinausragen wurden nicht korrekt beschnitten. Constraining berücksichtigt jetzt Titlebar-Offset bei SSD-Fenstern. Layer-Shell-Popups nutzen Output-Geometrie statt fehlender Fenster-Geometrie. Pointer-Events an Popups die über SSD-Window-Bounds hinausragen werden korrekt geroutet. (~80 LoC)
+
+19ab. ✅ **X11-Popup-Positionierung** (`src/xwayland.rs`): X11-Override-Redirect-Windows (Menüs, Tooltips, Dropdowns) wurden oft falsch positioniert. Fix: Korrekte Koordinaten-Transformation von X11-Rootfenster-Koordinaten zu Wayland-Space. Menü-Dismissal bei Klick außerhalb verbessert. (~60 LoC)
+
+19ac. ✅ **Virtual-Pointer Koordinaten-Mapping** (`src/handlers/virtual_pointer.rs`): `zwlr_virtual_pointer_v1` absolute Motion-Events wurden 1:1 als Pixel-Koordinaten interpretiert, ohne Berücksichtigung der Output-Geometrie des gebundenen Outputs. Fix: Koordinaten werden auf den korrekten Output gemappt (Position-Offset + Skalierung), sodass wayvnc-Pointer-Input bei Multi-Monitor und Output-Offsets korrekt funktioniert. (~30 LoC)
+
+**VNC-/Cursor-Korrekturen:**
+
+19ad. ✅ **VNC-Cursor-Rendering** (`src/handlers/screencopy.rs`, `src/render.rs`): Zwei VNC-Cursor-Probleme behoben:
+  - **Cursor verschwindet über X11-Apps:** `CursorImageStatus::Surface` wurde in Screencopy-Frames nicht gerendert — nur Named-Cursors und der Host-Cursor waren sichtbar. Fix: Surface-Cursor werden jetzt in den Screencopy-Frame eingezeichnet.
+  - **SSD-Resize-Cursors fehlen im VNC:** `compositor_cursor_shape` (Resize-Pfeile an Fensterrändern) wurde im Screencopy-Pfad ignoriert. Fix: Compositor-Cursor-Shape wird als xcursor-Icon in den Frame gerendert, mit gleicher Shape-Zuordnung wie im Winit-Host-Cursor-Pfad.
+  - `compositor_cursor_icon()` (vorher `compositor_cursor_icon_pub`) als öffentliche Hilfsfunktion extrahiert für Wiederverwendung im Screencopy-Pfad.
+  (~80 LoC)
+
+19ae. ✅ **Keyboard-Layout in VNC-Session** (`scripts/platynui-session.sh`): `XKB_DEFAULT_LAYOUT` wird jetzt in der Session-Script gesetzt, damit wayvnc-Input korrekt gemappt wird. Ohne: VNC-Keyboard-Input nutzte US-Layout statt des konfigurierten Layouts. (~5 LoC)
+
+**DRM-Backend-Überarbeitung:**
+
+19af. ✅ **DRM Multi-Monitor-Overhaul** (`src/backend/drm.rs`): Komplette Überarbeitung des DRM-Backends für robusten Multi-Monitor-Betrieb auf echter Hardware:
+  - **5-Monitor-Support:** Output-Restructuring mit `DrmOutputState`-Struct pro Connector. Korrekte EDID-Parsing für Monitor-Namen und physische Größen.
+  - **VT-Switching:** Session-Pause/Resume Handler für sauberes VT-Switching (`Ctrl+Alt+F1..F12`). DRM-Rendering wird bei inaktiver Session pausiert, Surfaces bei Resume neu gerendert.
+  - **Titlebar/Decoration-Rendering:** DRM-Backend nutzt jetzt den gleichen egui-GPU-Pipeline wie Winit — Titlebars werden korrekt auf DRM-Outputs gerendert.
+  - **Winit Mode Accumulation Bug:** Output-Modes wurden bei jedem Resize akkumuliert statt ersetzt. Fix: Stale Modes werden vor dem Setzen des neuen Modes gelöscht.
+  (~300 LoC)
+
+**Window-Management:**
+
+19ag. ✅ **X11-Maximize-Größenwiederherstellung** (`src/state.rs`, `src/xwayland.rs`, `src/handlers/xdg_shell.rs`, `src/input.rs`, `src/grabs.rs`): `pre_maximize_positions` speicherte nur die Position, nicht die Fenstergröße. Beim Unmaximize wurde die Größe nicht wiederhergestellt — das Fenster behielt die maximierte Breite/Höhe. Fix:
+  - `PreMaximizeState`-Typ erweitert um `Option<Size<i32, Logical>>` (3-Tupel statt 2-Tupel).
+  - XwmHandler `maximize_request()` und `unmaximize_request()` implementiert (vorher fehlend — X11-Apps' `_NET_WM_STATE`-Requests wurden ignoriert).
+  - `remove_x11_window()` räumt `pre_maximize_positions` auf (Memory-Leak-Fix).
+  - Alle Konsumenten aktualisiert: state.rs, xdg_shell.rs, input.rs, grabs.rs, xwayland.rs.
+  (~120 LoC)
+
+19ah. ✅ **Maximierte Fenster bei Output-Resize anpassen** (`src/backend/winit.rs`, `src/state.rs`): Beim Verkleinern/Vergrößern des Winit-Fensters (Single-Output-Modus) wurde `reconfigure_windows_for_outputs()` nicht aufgerufen — maximierte Fenster behielten die alte Größe. Fix:
+  - `reconfigure_windows_for_outputs()` wird jetzt nach BEIDEN Resize-Branches aufgerufen (Single-Output und Multi-Output).
+  - `reconfigure_windows_for_outputs()` erweitert um X11-Window-Handling: X11-Fenster mit `is_maximized()` oder `is_fullscreen()` werden jetzt auch per `x11.configure()` reconfigured (vorher: nur Wayland-Toplevels).
+  (~60 LoC)
+
+19ai. ✅ **Floating-Fenster bei Output-Verkleinerung clampen** (`src/state.rs`): Wenn der Output kleiner wird (Winit-Window-Resize, wlr-randr-Änderung), konnten normale Floating-Fenster komplett außerhalb des sichtbaren Bereichs landen — unerreichbar für den Nutzer. Fix:
+  - `clamp_floating_windows_to_outputs()` wird am Ende von `reconfigure_windows_for_outputs()` aufgerufen.
+  - Maximierte/Fullscreen-Fenster werden übersprungen (bereits separat behandelt).
+  - Jedes Floating-Fenster wird so repositioniert, dass mindestens `TITLEBAR_HEIGHT` Pixel auf jeder Achse sichtbar bleiben — analog zu GNOME/Mutter und KDE/KWin.
+  - Fenster werden nur verschoben, nie verkleinert. X11-Fenster werden zusätzlich via `x11.configure()` benachrichtigt.
+  (~80 LoC)
+
+**Meilenstein 3a+:** ✅ **ABGESCHLOSSEN.** Popup-Handling für SSD, Layer-Shell und X11 korrekt. VNC via wayvnc fehlerfrei (Cursor-Rendering, Pointer-Mapping, Keyboard-Layout). DRM-Backend für Multi-Monitor komplett überarbeitet (5 Outputs, EDID, VT-Switching). X11-Maximize speichert und stellt Fenstergröße wieder her. Maximierte Fenster passen sich bei Output-Resize an (Wayland + X11). Floating-Fenster werden bei Output-Verkleinerung in den sichtbaren Bereich geclampt. ~14.500 LoC, 1874 Tests grün.
+
+---
+
+### Phase 3b: Verbleibende Automation-Protokolle & Zusätzliche Protokoll-Unterstützung (~600–900 LoC) ⬜ OFFEN
 
 *Ziel: Restliche Protokoll-Features aus der ursprünglichen Phase 3 abschließen. Zusätzlich alle in smithay 0.7.0 verfügbaren Protokolle verdrahten, die für App-Kompatibilität und flüssigen Betrieb sinnvoll sind. Der Compositor soll gängige GTK4/Qt/Chromium/Firefox-Apps ohne Protokoll-Warnungen unterstützen.*
 
@@ -440,29 +505,29 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 > Wayland bewusst vermieden (Security-Model); stattdessen `zwlr_virtual_pointer_v1` mit absoluten
 > Koordinaten (bereits implementiert).
 
-**Bestehende Feature-Steps:**
+**Bestehende Feature-Schritte:**
 
 17. **EIS-Server / libei** (`src/eis.rs`): Via `reis::eis` — EIS-Endpoint erstellen, Capabilities (pointer_absolute, keyboard) advertisieren, Input-Events empfangen und in Smithay-Stack injizieren. Socket unter `$XDG_RUNTIME_DIR/eis-platynui`. Enables: Input-Injection über libei im Platform-Crate, Ökosystem-kompatibel mit Mutter/KWin. (~300 LoC)
 
-19d. *(Optional)* **Legacy-Screencopy** (`src/handlers/screencopy_legacy.rs`): `wlr-screencopy-v1` — ältere Screencopy-API für Tools die `ext-image-copy-capture` noch nicht unterstützen (ältere `grim`-Versionen, manche wayvnc-Builds). Smithay hat Building Blocks. Safety-Net, kann übersprungen werden wenn `ext-image-copy-capture` ausreicht. (~200 LoC)
+19d. ~~*(Optional)* **Legacy-Screencopy**~~ — Übersprungen. `ext-image-copy-capture` deckt alle benötigten Tools ab (wayvnc, grim aktuelle Versionen). `wlr-screencopy-v1` wird nicht implementiert.
 
 19e. *(Optional, Rest)* **App-Kompatibilitäts-Stubs** (`src/handlers/tearing_control.rs`, `src/handlers/toplevel_drag.rs`): No-Op-Stubs für Protokolle die viele Apps abfragen:
     - `wp-tearing-control-v1` — Tearing-Hint für Games. No-Op-Stub verhindert Protocol-Warnungen. (~15 LoC)
     - `xdg-toplevel-drag-v1` — Tab-Detach in Browsern (Firefox/Chromium), Drag-aus-Fenster. Wird zunehmend adoptiert. (~80 LoC)
 
-**Tier 1 — Triviale Delegates mit hohem App-Kompatibilitäts-Nutzen** (~90 LoC):
+**Tier 1 — Triviale Delegates mit hohem App-Kompatibilitäts-Nutzen** (~90 LoC) ✅:
 
-19e₂. **`wp-commit-timing-v1`** (`delegate_commit_timing!()`): Frame-perfect Timing — Client sendet Timestamp wann der nächste Commit sichtbar sein soll. GTK4 und Mesa nutzen es für flüssige Animationen. Companion zu `fifo-v1`. Smithay liefert `CommitTimingManagerState`. (~15 LoC)
+19e₂. ✅ **`wp-commit-timing-v1`** (`delegate_commit_timing!()`): Frame-perfect Timing — Client sendet Timestamp wann der nächste Commit sichtbar sein soll. GTK4 und Mesa nutzen es für flüssige Animationen. Companion zu `fifo-v1`. Smithay liefert `CommitTimingManagerState`. (~15 LoC)
 
-19e₃. **`wp-fifo-v1`** (`delegate_fifo!()`): FIFO-Scheduling — Compositor blocked den Client bis der vorherige Frame tatsächlich auf dem Display ist. Verhindert Frame-Drops bei vsync-sensitiven Apps. GTK4 nutzt es. Smithay liefert `FifoManagerState`. (~15 LoC)
+19e₃. ✅ **`wp-fifo-v1`** (`delegate_fifo!()`): FIFO-Scheduling — Compositor blocked den Client bis der vorherige Frame tatsächlich auf dem Display ist. Verhindert Frame-Drops bei vsync-sensitiven Apps. GTK4 nutzt es. Smithay liefert `FifoManagerState`. (~15 LoC)
 
-19e₄. **`zwp-idle-inhibit-v1`** (`delegate_idle_inhibit!()`): Video-Player und Präsentations-Apps verhindern Screensaver/DPMS. Fast jede Media-App fragt es ab. Smithay liefert `IdleInhibitManagerState`. (~15 LoC)
+19e₄. ✅ **`zwp-idle-inhibit-v1`** (`delegate_idle_inhibit!()`): Video-Player und Präsentations-Apps verhindern Screensaver/DPMS. Fast jede Media-App fragt es ab. Smithay liefert `IdleInhibitManagerState`. Handler trackt aktive Inhibitoren in `HashSet<WlSurface>` auf `State` und ruft `set_is_inhibited()` auf `IdleNotifierState` — bei `inhibit()` wird `true` gesetzt, bei `uninhibit()` nur `false` wenn kein Inhibitor mehr aktiv ist. Zusätzlich ruft `process_input_event()` jetzt `notify_activity()` auf, damit Idle-Timer bei jeder Benutzeraktion zurückgesetzt werden. (~30 LoC)
 
-19e₅. **`xdg-dialog-v1`** (`delegate_xdg_dialog!()`): Modale Dialoge — Client signalisiert einem Toplevel dass es modal zu einem anderen ist. Compositor kann korrektes Stacking erzwingen. GTK4 und Qt nutzen es zunehmend. Smithay liefert `XdgDialogState`. (~20 LoC)
+19e₅. ✅ **`xdg-dialog-v1`** (`delegate_xdg_dialog!()`): Modale Dialoge — Client signalisiert einem Toplevel dass es modal zu einem anderen ist. Compositor erzwingt korrektes Stacking: `find_modal_child()` auf `State` sucht rekursiv modale Kinder, `focus_and_raise()` in `input.rs` leitet Fokus auf das modale Kind um. SSD-Aktionen (Resize, Close, Maximize, Minimize) auf dem Elternfenster werden blockiert wenn ein modaler Dialog offen ist. Bei `modal_changed(true)` wird der Dialog sofort angehoben und fokussiert. Auch `activate_window()` (foreign-toplevel/Taskbar) respektiert die modale Kette. (~80 LoC)
 
-19e₆. **`xdg-system-bell-v1`** (`delegate_xdg_system_bell!()`): System-Bell-Notification. Trivial, kein State nötig — einfach das Event loggen. Terminal-Emulatoren und viele GTK-Apps nutzen es. (~10 LoC)
+19e₆. ✅ **`xdg-system-bell-v1`** (`delegate_xdg_system_bell!()`): System-Bell-Notification. Trivial, kein State nötig — einfach das Event loggen. Terminal-Emulatoren und viele GTK-Apps nutzen es. (~10 LoC)
 
-19e₇. **`wp-alpha-modifier-v1`** (`delegate_alpha_modifier!()`): Subsurface-Opacity — Client kann die Transparenz einzelner Subsurfaces steuern ohne Alpha im Buffer anzupassen. Manche Compositing-Szenarien brauchen es. Smithay liefert `AlphaModifierState`. (~15 LoC)
+19e₇. ✅ **`wp-alpha-modifier-v1`** (`delegate_alpha_modifier!()`): Subsurface-Opacity — Client kann die Transparenz einzelner Subsurfaces steuern ohne Alpha im Buffer anzupassen. Manche Compositing-Szenarien brauchen es. Smithay liefert `AlphaModifierState`. (~15 LoC)
 
 **Tier 2 — Moderate Protokoll-Erweiterungen** (~110 LoC):
 
@@ -494,7 +559,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 ---
 
-### Phase 4: Platform-Crate (`crates/platform-linux-wayland/`, ~2.000 LoC, ~2 Wochen) ⬜ TODO
+### Phase 4: Platform-Crate (`crates/platform-linux-wayland/`, ~2.000 LoC, ~2 Wochen) ⬜ OFFEN
 
 *Ziel: PlatynUI kann unter Wayland Fenster finden, Input injizieren, Screenshots machen und Highlight-Overlays anzeigen.*
 
@@ -531,7 +596,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 ---
 
-### Phase 5: Eingebauter VNC/RDP-Server (~500 LoC, ~1 Woche) ⬜ TODO
+### Phase 5: Eingebauter VNC/RDP-Server (~500 LoC, ~1 Woche) ⬜ OFFEN
 
 *Ziel: Compositor ist direkt per VNC/RDP erreichbar — kein externer wayvnc nötig. Essenziell zum Debuggen von Headless-CI-Sessions: Tester kann sich remote verbinden und sehen was passiert.*
 
@@ -547,7 +612,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 ---
 
-### Phase 6: Integration + CI (~1 Woche) ⬜ TODO
+### Phase 6: Integration + CI (~1 Woche) ⬜ OFFEN
 
 *Ziel: PlatynUI-Gesamtsystem funktioniert unter Wayland — Provider, Platform-Crate, Compositor und CI-Pipeline sind integriert.*
 
@@ -570,7 +635,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 ---
 
-### Phase 7: Dokumentation (~1–2 Tage) ⬜ TODO
+### Phase 7: Dokumentation (~1–2 Tage) ⬜ OFFEN
 
 *Ziel: Nutzbar ohne mündliches Wissen — jeder Entwickler/CI-Engineer kann den Compositor einsetzen.*
 
@@ -587,7 +652,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 ---
 
-### Phase 8: Portal + PipeWire (optional, ~800 LoC, ~1 Woche) ⬜ TODO
+### Phase 8: Portal + PipeWire (optional, ~800 LoC, ~1 Woche) ⬜ OFFEN
 
 *Ziel: Standard-Linux-Desktop-Integration — Portal-API für Drittanbieter-Tools (obs-studio, GNOME-Screenshot), PipeWire für Screen-Sharing. Optional weil der eigene Compositor + libei den Hauptanwendungsfall bereits abdeckt.*
 
@@ -602,7 +667,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 ---
 
-### Phase 9: Eingebautes Panel + App-Launcher (optional, ~400 LoC, ~2–3 Tage) ⬜ TODO
+### Phase 9: Eingebautes Panel + App-Launcher (optional, ~400 LoC, ~2–3 Tage) ⬜ OFFEN
 
 *Ziel: Self-contained Desktop-Erlebnis — Fenster-Liste, App-Starter, Uhr. Nicht für CI nötig (waybar via Layer-Shell reicht), aber nice-to-have für interaktive Nutzung.*
 
@@ -620,14 +685,15 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 ---
 
-**Verification**
+**Verifikation**
 
 - Nach jeder Phase: `cargo build --all --all-targets` + `cargo clippy --workspace --all-targets -- -D warnings` + `cargo nextest run --all --no-fail-fast`
 - Phase 1: ✅ GTK4-App läuft im Compositor (nested via Winit), HiDPI/Fractional-Scale korrekt, Pointer-Constraints funktionieren, Keyboard-Shortcuts-Inhibit testbar, Graceful Shutdown via SIGTERM
 - Phase 2: Fenster haben SSD-Titelleisten mit Close/Maximize/Minimize. XWayland-Apps laufen. DRM-Modus auf TTY funktioniert. Test-IPC ermöglicht Screenshot und Fenster-Kontrolle. Multi-Monitor mit 2+ Outputs funktioniert.
 - Phase 2b: ✅ Config-Datei (`compositor.toml`) mit Font/Theme/Keyboard/Output-Structs. ✅ GPU-residente egui-Titlebars mit Hover-Highlighting. ✅ Child-Programm-Start nach `--`. ✅ Konsolidierung auf `GlowRenderer` (`PixmanRenderer` entfernt). ✅ Fullscreen-Support (Wayland + X11, SSD-Unterdrückung). ✅ Maximize via Protokoll + Doppelklick auf SSD-Titelleiste. ✅ Unmaximize-on-Drag (proportionale Cursor-Positionierung, SSD/CSD-aware Y-Positioning). ✅ Titelleisten-Kontextmenü (Rechtsklick → Minimize/Maximize/Close). ✅ `[[output]]`-Config → per-Output-Geometrie. ✅ Client-Cursor-Surface composited. ✅ Screenshot per-Output-Scale korrekt. ✅ `platynui-wayland-compositor-ctl` CLI-Tool (7 Subcommands). ✅ IPC-Protokoll dokumentiert. ✅ IPC-Tests grün (11 Unit + 17 Integration mit Client-Window-Tests). ✅ egui Test-App (`platynui-test-app-egui`): Wayland-Client mit breiter Widget-Palette + AccessKit/AT-SPI-Accessibility. ✅ `PLATYNUI_TEST_BACKEND=winit` für sichtbare Test-Ausführung.
 - Phase 3: `platynui-cli` kann Fenster listen und Input senden. Screenshots via ext-image-copy-capture inkl. CursorSessions. `waybar`/ironbar laufen via Layer-Shell. `wayvnc` funktioniert als externer VNC-Server (Frame + Cursor Dual-Capture). Clipboard via `wl-copy`/`wl-paste` (data-control). Multi-Monitor dynamisch konfigurierbar (output-management).
-- Phase 3a: ✅ DONE. Control-Socket JSON via typisierter `serde`-Structs (19f). ~595 Zeilen Code-Duplikation eliminiert (19f₂). Kommentar-Review (19f₃). Focus-Loss Input Release (19f₄). Software-Cursor für SSD-Resize (19f₅). Session-Scripts AT-SPI-Fix (19f₆). Steps 19g–19z komplett: Protokoll-Korrektheit (Screencopy, Output-Management), Unwrap-Eliminierung, Error-Handling, Tracing, Dead Code, Magic Numbers, DRM Multi-Monitor-Positionierung. 1874 Tests grün.
+- Phase 3a: ✅ ERLEDIGT. Control-Socket JSON via typisierter `serde`-Structs (19f). ~595 Zeilen Code-Duplikation eliminiert (19f₂). Kommentar-Review (19f₃). Focus-Loss Input Release (19f₄). Software-Cursor für SSD-Resize (19f₅). Session-Scripts AT-SPI-Fix (19f₆). Steps 19g–19z komplett: Protokoll-Korrektheit (Screencopy, Output-Management), Unwrap-Eliminierung, Error-Handling, Tracing, Dead Code, Magic Numbers, DRM Multi-Monitor-Positionierung. 1874 Tests grün.
+- Phase 3a+: ✅ ERLEDIGT. Popup-Korrekturen (SSD, Layer-Shell, X11), VNC-Cursor-Rendering, Virtual-Pointer-Mapping, DRM Multi-Monitor-Overhaul, X11-Maximize-Größenwiederherstellung, Output-Resize-Reconfigure, Floating-Fenster-Clamping. ~14.500 LoC, 1874 Tests grün.
 - Phase 3b: libei-Input funktioniert. Optionale Stubs (Tearing-Control, Toplevel-Drag) verdrahtet.
 - Phase 4: `cargo nextest run -p platynui-platform-linux-wayland` — alle Traits getestet, Koordinaten-Transformation korrekt für Wayland-native und XWayland-Apps
 - Phase 5: VNC/RDP eingebaut — Headless-Debugging ohne externe Tools möglich
@@ -636,7 +702,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 - Phase 8: *(optional)* Portal `ConnectToEIS()` liefert FD, ScreenCast via PipeWire
 - Phase 9: *(optional)* Eingebautes Panel als Alternative zu waybar
 
-**Decisions**
+**Entscheidungen**
 
 - **Reihenfolge smithay-fertig → SSD + Backends → Automation-Protokolle → Härtung → Rest-Protokolle → Platform-Crate → VNC/RDP → Rest**: Core-Protokolle zuerst (Phase 1), dann SSD + XWayland + DRM + Test-Control (Phase 2), dann die PlatynUI-kritischen Automation-Protokolle (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen), dann Härtung & Code-Qualität (Phase 3a: alle Code-Review-Findings, bevor technische Schulden sich akkumulieren), dann verbleibende Protokolle (Phase 3b: libei, optionale Stubs), dann das Platform-Crate (Phase 4) das diese Protokolle nutzt, dann eingebauter VNC/RDP (Phase 5) für Headless-Debugging. Panel, Portal/PipeWire und Doku kommen bei Bedarf.
 - **Panel auf unbestimmt verschoben**: Das eingebaute Panel (Taskbar, Launcher, Uhr) ist für PlatynUI's Kernmission — UI-Automation in CI — nicht nötig. `waybar` via Layer-Shell (Phase 3) deckt interaktive Nutzung ab. Interim-Minimize (Klick auf Desktop = Restore) ist für CI ausreichend.
@@ -669,7 +735,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 - **Benchmarks** *(optional)*: Frame-Time, Protokoll-Throughput, Screenshot-Latenz — kann jederzeit nachgerüstet werden
 - **Data-Control in Phase 3**: `wlr-data-control-v1` ermöglicht Clipboard-Zugriff ohne Fenster-Fokus — essentiell für UI-Automation (Copy/Paste testen, Clipboard-Inhalt verifizieren). Smithay hat `delegate_data_control!()`, trivial zu verdrahten.
 - **Output-Management in Phase 3**: `wlr-output-management-v1` ermöglicht dynamische Multi-Monitor-Konfiguration zur Laufzeit. Standard-Tooling (`wlr-randr`, `kanshi`) funktioniert damit. Nützlicher als nur statische `--outputs`/`[[output]]` Config.
-- **Legacy-Screencopy optional**: `wlr-screencopy-v1` als Fallback nur wenn `ext-image-copy-capture` nicht für alle benötigten Tools ausreicht. Kann übersprungen werden.
+- **Legacy-Screencopy übersprungen**: `wlr-screencopy-v1` wird nicht implementiert — `ext-image-copy-capture` deckt alle benötigten Tools ab (wayvnc, grim).
 - **Tearing-Control + Content-Type als No-Op-Stubs**: `wp-tearing-control-v1` und `wp-content-type-hint-v1` sind triviale No-Op-Handler (~15 LoC je), verhindern aber "unsupported protocol"-Warnungen bei vielen Apps. Standard bei Sway/Hyprland.
 - **xdg-toplevel-drag für Browser-Kompatibilität**: Tab-Detach in Firefox/Chromium nutzt `xdg-toplevel-drag-v1`. Wird zunehmend adoptiert, zukunftssicher.
 - **Zukunftsidee: Multi-Window Winit-Backend für Multi-Monitor**: Aktuell rendert das Winit-Backend alle Outputs in ein einzelnes Host-Fenster. Bei gemischten Scales (z.B. 1.0 + 2.0) muss ein einheitlicher `max_scale` für das gesamte Framebuffer verwendet werden — niedrig skalierte Outputs werden hochskaliert, Pointer-Mapping ist linear statt per-Output. Eine sauberere Architektur wäre ein separates Winit-Fenster pro Output: jedes Fenster rendert seinen Output mit eigenem Scale und eigenem `OutputDamageTracker`. Pointer-Mapping wird trivial (pro Fenster lokal). Smithays `WinitGraphicsBackend` unterstützt nur ein einzelnes Fenster; die Implementierung erfordert einen Custom-Backend (~300–400 LoC) mit eigenem `winit::EventLoop`, je einem `winit::Window` + `GlowRenderer` pro Output, und Pointer-Event-Routing anhand des aktiven Fensters. Vorteil: pixelgenaues Rendering bei gemischten Scales, natürliches Drag-and-Drop zwischen Fenstern, unabhängige Positionierung der Preview-Fenster auf dem Host-Desktop. Aufwand: mittelhoch, nicht blocking für CI-Workflows (Headless-Backend hat keine Scale-Probleme).

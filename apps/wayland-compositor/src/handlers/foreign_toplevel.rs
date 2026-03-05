@@ -30,7 +30,6 @@ use smithay::{
     wayland::{
         compositor,
         foreign_toplevel_list::{ForeignToplevelListHandler, ForeignToplevelListState},
-        seat::WaylandFocus,
         shell::xdg::XdgToplevelSurfaceData,
     },
 };
@@ -579,17 +578,10 @@ fn activate_window(state: &mut State, window: &Window) {
         state.space.map_element(win.clone(), pos, true);
     }
 
-    // Raise and focus — this triggers `focus_changed` which updates
-    // foreign-toplevel state and X11 activated flags.
-    state.space.raise_element(window, true);
-    if window.wl_surface().is_some() {
-        let keyboard = state.keyboard();
-        keyboard.set_focus(
-            state,
-            Some(crate::focus::KeyboardFocusTarget::from(window.clone())),
-            smithay::utils::SERIAL_COUNTER.next_serial(),
-        );
-    }
+    // Raise and focus — modal redirect handled by focus_and_raise.
+    // This triggers `focus_changed` which updates foreign-toplevel state
+    // and X11 activated flags.
+    crate::input::focus_and_raise(state, window, smithay::utils::SERIAL_COUNTER.next_serial());
 }
 
 /// Close a window via its protocol surface.

@@ -1,15 +1,16 @@
 //! Compositor state — central struct holding all protocol states and runtime data.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use smithay::{
-    delegate_compositor, delegate_content_type, delegate_cursor_shape, delegate_data_control, delegate_data_device,
-    delegate_dmabuf, delegate_fractional_scale, delegate_idle_notify, delegate_input_method_manager,
-    delegate_keyboard_shortcuts_inhibit, delegate_layer_shell, delegate_output, delegate_pointer_constraints,
-    delegate_presentation, delegate_primary_selection, delegate_relative_pointer, delegate_seat,
-    delegate_security_context, delegate_session_lock, delegate_shm, delegate_single_pixel_buffer,
-    delegate_text_input_manager, delegate_viewporter, delegate_virtual_keyboard_manager, delegate_xdg_activation,
-    delegate_xdg_decoration, delegate_xdg_foreign, delegate_xdg_shell,
+    delegate_alpha_modifier, delegate_commit_timing, delegate_compositor, delegate_content_type, delegate_cursor_shape,
+    delegate_data_control, delegate_data_device, delegate_dmabuf, delegate_fifo, delegate_fractional_scale,
+    delegate_idle_inhibit, delegate_idle_notify, delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit,
+    delegate_layer_shell, delegate_output, delegate_pointer_constraints, delegate_presentation,
+    delegate_primary_selection, delegate_relative_pointer, delegate_seat, delegate_security_context,
+    delegate_session_lock, delegate_shm, delegate_single_pixel_buffer, delegate_text_input_manager,
+    delegate_viewporter, delegate_virtual_keyboard_manager, delegate_xdg_activation, delegate_xdg_decoration,
+    delegate_xdg_dialog, delegate_xdg_foreign, delegate_xdg_shell, delegate_xdg_system_bell,
     desktop::{PopupManager, Space, Window, layer_map_for_output},
     input::{Seat, SeatState, keyboard::XkbConfig, pointer::CursorImageStatus},
     output::{Output, PhysicalProperties, Subpixel},
@@ -19,12 +20,16 @@ use smithay::{
     },
     utils::{Clock, Logical, Monotonic, Physical, Point, Rectangle, Size},
     wayland::{
+        alpha_modifier::AlphaModifierState,
+        commit_timing::CommitTimingManagerState,
         compositor::CompositorState,
         content_type::ContentTypeState,
         cursor_shape::CursorShapeManagerState,
         dmabuf::DmabufState,
+        fifo::FifoManagerState,
         foreign_toplevel_list::{ForeignToplevelHandle, ForeignToplevelListState},
         fractional_scale::{FractionalScaleHandler, FractionalScaleManagerState},
+        idle_inhibit::IdleInhibitManagerState,
         idle_notify::IdleNotifierState,
         input_method::InputMethodManagerState,
         keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState,
@@ -39,7 +44,7 @@ use smithay::{
         session_lock::SessionLockManagerState,
         shell::{
             wlr_layer::WlrLayerShellState,
-            xdg::{XdgShellState, decoration::XdgDecorationState},
+            xdg::{XdgShellState, decoration::XdgDecorationState, dialog::XdgDialogState},
         },
         shm::ShmState,
         single_pixel_buffer::SinglePixelBufferState,
@@ -48,6 +53,7 @@ use smithay::{
         virtual_keyboard::VirtualKeyboardManagerState,
         xdg_activation::XdgActivationState,
         xdg_foreign::XdgForeignState,
+        xdg_system_bell::XdgSystemBellState,
     },
 };
 
@@ -99,6 +105,16 @@ pub struct State {
     pub xdg_foreign_state: XdgForeignState,
     pub security_context_state: SecurityContextState,
     pub cursor_shape_state: CursorShapeManagerState,
+
+    // -- Phase 3b: Additional protocol support --
+    pub alpha_modifier_state: AlphaModifierState,
+    pub commit_timing_state: CommitTimingManagerState,
+    pub fifo_state: FifoManagerState,
+    pub idle_inhibit_state: IdleInhibitManagerState,
+    /// Surfaces that currently hold an idle inhibitor.
+    pub idle_inhibit_surfaces: HashSet<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
+    pub xdg_dialog_state: XdgDialogState,
+    pub xdg_system_bell_state: XdgSystemBellState,
 
     // -- Phase 3: Automation protocols --
     pub layer_shell_state: WlrLayerShellState,
@@ -344,6 +360,15 @@ impl State {
         let security_context_state = SecurityContextState::new::<Self, _>(&dh, |_| true);
         let cursor_shape_state = CursorShapeManagerState::new::<Self>(&dh);
 
+        // Phase 3b: Additional protocol support
+        let alpha_modifier_state = AlphaModifierState::new::<Self>(&dh);
+        let commit_timing_state = CommitTimingManagerState::new::<Self>(&dh);
+        let fifo_state = FifoManagerState::new::<Self>(&dh);
+        let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
+        let idle_inhibit_surfaces = HashSet::new();
+        let xdg_dialog_state = XdgDialogState::new::<Self>(&dh);
+        let xdg_system_bell_state = XdgSystemBellState::new::<Self>(&dh);
+
         // Phase 3: Automation protocols
         let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
         let data_control_state = DataControlState::new::<Self, _>(&dh, Some(&primary_selection_state), |_| true);
@@ -477,6 +502,13 @@ impl State {
             xdg_foreign_state,
             security_context_state,
             cursor_shape_state,
+            alpha_modifier_state,
+            commit_timing_state,
+            fifo_state,
+            idle_inhibit_state,
+            idle_inhibit_surfaces,
+            xdg_dialog_state,
+            xdg_system_bell_state,
             layer_shell_state,
             data_control_state,
             content_type_state,
@@ -1101,6 +1133,54 @@ impl State {
 
         best
     }
+
+    /// Find a modal dialog child of the given window.
+    ///
+    /// Walks all mapped windows checking whether any is modal (via
+    /// `xdg-dialog-v1`) and has `window`'s surface as its xdg parent.
+    /// Returns the **topmost** modal child if one exists, following the
+    /// chain recursively (a modal of a modal returns the leaf).
+    ///
+    /// GNOME/Mutter behaviour: attempting to focus a window that has a
+    /// modal child should focus the modal instead.
+    #[must_use]
+    pub fn find_modal_child(&self, window: &Window) -> Option<Window> {
+        use smithay::wayland::compositor;
+        use smithay::wayland::seat::WaylandFocus;
+        use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
+
+        let parent_surface = window.wl_surface()?;
+
+        // Search all mapped windows for one whose parent is `window` and is modal.
+        let modal = self
+            .space
+            .elements()
+            .find(|w| {
+                let Some(toplevel) = w.toplevel() else { return false };
+                // Check parent matches
+                let Some(parent) = toplevel.parent() else { return false };
+                if parent != *parent_surface {
+                    return false;
+                }
+                // Check if this toplevel is modal
+                compositor::with_states(toplevel.wl_surface(), |states| {
+                    states
+                        .data_map
+                        .get::<XdgToplevelSurfaceData>()
+                        .is_some_and(|data| data.lock().ok().is_some_and(|d| d.modal))
+                })
+            })
+            .cloned();
+
+        // Follow the chain: if the modal itself has a modal child, return that instead.
+        if let Some(ref m) = modal
+            && let Some(deeper) = self.find_modal_child(m)
+        {
+            return Some(deeper);
+        }
+
+        modal
+    }
 }
 
 // -- Handler trait implementations --
@@ -1151,3 +1231,11 @@ delegate_layer_shell!(State);
 delegate_data_control!(State);
 delegate_content_type!(State);
 delegate_virtual_keyboard_manager!(State);
+
+// Phase 3b: Additional protocol support
+delegate_alpha_modifier!(State);
+delegate_commit_timing!(State);
+delegate_fifo!(State);
+delegate_idle_inhibit!(State);
+delegate_xdg_dialog!(State);
+delegate_xdg_system_bell!(State);

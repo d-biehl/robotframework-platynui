@@ -36,6 +36,10 @@ const V120_UNITS_PER_NOTCH: f64 = 120.0;
 
 /// Process input events from any backend.
 pub fn process_input_event<B: InputBackend>(state: &mut State, event: InputEvent<B>) {
+    // Notify idle-notifier about user activity so idle timers reset.
+    let seat = state.seat.clone();
+    state.idle_notify_state.notify_activity(&seat);
+
     match event {
         InputEvent::Keyboard { event } => handle_keyboard::<B>(state, &event),
         InputEvent::PointerMotion { event } => handle_pointer_motion::<B>(state, &event),
@@ -222,6 +226,11 @@ pub(crate) fn process_pointer_button(state: &mut State, button: u32, button_stat
             // a background window's decorations.
             match decorations::pointer_hit_test(&state.space, state.pointer_location) {
                 PointerHitResult::Ssd(window, focus) if focus.is_resize() => {
+                    // Modal child blocks resize on parent.
+                    if state.find_modal_child(&window).is_some() {
+                        focus_and_raise(state, &window, serial);
+                        return;
+                    }
                     let keyboard = state.keyboard();
                     keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(window.clone())), serial);
                     state.space.raise_element(&window, true);
@@ -229,6 +238,14 @@ pub(crate) fn process_pointer_button(state: &mut State, button: u32, button_stat
                     return;
                 }
                 PointerHitResult::Ssd(window, Focus::Header) => {
+                    // Modal child blocks ALL header interactions on the parent:
+                    // move, resize-via-double-click, context menu, close/max/min buttons.
+                    // Redirect focus to the modal child and do nothing else.
+                    if state.find_modal_child(&window).is_some() {
+                        focus_and_raise(state, &window, serial);
+                        return;
+                    }
+
                     // Right-click on the header → open context menu
                     if button == BTN_RIGHT {
                         open_titlebar_context_menu(state, &window, serial);
@@ -272,9 +289,7 @@ pub(crate) fn process_pointer_button(state: &mut State, button: u32, button_stat
                 }
                 PointerHitResult::ClientArea(window, _window_loc) => {
                     tracing::debug!("pointer button press — setting keyboard focus");
-                    let keyboard = state.keyboard();
-                    keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(window.clone())), serial);
-                    state.space.raise_element(&window, true);
+                    focus_and_raise(state, &window, serial);
                 }
                 PointerHitResult::Empty => {
                     tracing::debug!("pointer button press — no window under cursor");
@@ -440,7 +455,8 @@ fn handle_decoration_click(
 
     tracing::debug!(?click, "decoration click");
 
-    // Raise and focus the window
+    // Raise and focus the window.  The caller already blocks this path
+    // when the window has a modal child, so no redirect needed here.
     let keyboard = state.keyboard();
     keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(window.clone())), serial);
     state.space.raise_element(window, true);
@@ -666,7 +682,8 @@ fn layer_surface_under(
 fn open_titlebar_context_menu(state: &mut State, window: &Window, serial: Serial) {
     use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 
-    // Raise and focus the window
+    // Raise and focus the window.  The caller already blocks this path
+    // when the window has a modal child, so no redirect needed here.
     let keyboard = state.keyboard();
     keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(window.clone())), serial);
     state.space.raise_element(window, true);
@@ -683,4 +700,29 @@ fn open_titlebar_context_menu(state: &mut State, window: &Window, serial: Serial
 
     state.context_menu = Some(decorations::TitlebarContextMenu { window: window.clone(), position, is_maximized });
     tracing::debug!(?position, is_maximized, "opened titlebar context menu");
+}
+
+/// Focus and raise a window, respecting modal dialog relationships.
+///
+/// If the target window has a modal child (via `xdg-dialog-v1`), focus is
+/// redirected to the modal child instead — matching GNOME/Mutter behaviour
+/// where a parent behind a modal dialog cannot be brought to the front.
+/// The parent is still raised, but below the modal.
+///
+/// Returns the window that actually received focus (either the original
+/// or the redirected modal child).
+pub(crate) fn focus_and_raise(state: &mut State, window: &Window, serial: Serial) -> Window {
+    let target = state.find_modal_child(window).unwrap_or_else(|| window.clone());
+
+    let keyboard = state.keyboard();
+    keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(target.clone())), serial);
+
+    // Raise parent first, then modal on top — ensures correct stacking.
+    if &target != window {
+        tracing::debug!("focus redirected from parent to modal child");
+        state.space.raise_element(window, true);
+    }
+    state.space.raise_element(&target, true);
+
+    target
 }
