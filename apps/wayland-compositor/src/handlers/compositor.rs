@@ -4,8 +4,9 @@ use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
     desktop::{PopupKind, layer_map_for_output},
     reexports::wayland_server::{Client, protocol::wl_surface::WlSurface},
+    utils::Transform,
     wayland::{
-        compositor::{CompositorClientState, CompositorHandler},
+        compositor::{CompositorClientState, CompositorHandler, send_surface_state, with_states},
         seat::WaylandFocus,
     },
 };
@@ -34,6 +35,17 @@ impl CompositorHandler for State {
 
         // Process pending buffer state for renderers
         on_commit_buffer_handler::<Self>(surface);
+
+        // Send preferred buffer scale/transform (wl_compositor v6).
+        // Determine the output scale from the window's output, falling back
+        // to the primary output for layer surfaces, popups, etc.
+        let scale = self.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == *surface)).map_or_else(
+            || self.output.current_scale().integer_scale(),
+            |w| self.output_for_window(w).current_scale().integer_scale(),
+        );
+        with_states(surface, |data| {
+            send_surface_state(surface, data, scale, Transform::Normal);
+        });
 
         // If this surface belongs to a mapped window, handle the commit
         let window = self.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == *surface)).cloned();

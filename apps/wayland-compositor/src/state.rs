@@ -318,7 +318,7 @@ impl State {
         let clock = Clock::new();
 
         // Core protocols
-        let compositor_state = CompositorState::new::<Self>(&dh);
+        let compositor_state = CompositorState::new_v6::<Self>(&dh);
         let shm_state = {
             use smithay::reexports::wayland_server::protocol::wl_shm::Format as ShmFormat;
             ShmState::new::<Self>(
