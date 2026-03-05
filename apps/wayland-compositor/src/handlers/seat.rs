@@ -18,6 +18,8 @@ impl SeatHandler for State {
     }
 
     fn focus_changed(&mut self, _seat: &Seat<Self>, focused: Option<&Self::KeyboardFocus>) {
+        tracing::debug!(?focused, "keyboard focus changed");
+
         // Notify foreign-toplevel clients about activated state changes so
         // that taskbars (ironbar) can correctly distinguish between focused
         // and background windows and choose the right action (activate vs.

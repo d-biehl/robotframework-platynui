@@ -4,8 +4,11 @@
 //! that compositor keyboard shortcuts be disabled, so all key events are
 //! forwarded to the client.
 
-use smithay::wayland::keyboard_shortcuts_inhibit::{
-    KeyboardShortcutsInhibitHandler, KeyboardShortcutsInhibitState, KeyboardShortcutsInhibitor,
+use smithay::{
+    reexports::wayland_server::Resource,
+    wayland::keyboard_shortcuts_inhibit::{
+        KeyboardShortcutsInhibitHandler, KeyboardShortcutsInhibitState, KeyboardShortcutsInhibitor,
+    },
 };
 
 use crate::state::State;
@@ -15,11 +18,20 @@ impl KeyboardShortcutsInhibitHandler for State {
         &mut self.keyboard_shortcuts_inhibit_state
     }
 
-    fn new_inhibitor(&mut self, _inhibitor: KeyboardShortcutsInhibitor) {
-        // Accept all inhibitors in the test compositor
+    fn new_inhibitor(&mut self, inhibitor: KeyboardShortcutsInhibitor) {
+        // Accept and activate all inhibitors in the test compositor so the
+        // client receives the `active` event and knows shortcuts are forwarded.
+        tracing::debug!(
+            surface = ?inhibitor.wl_surface().id(),
+            "activating keyboard shortcuts inhibitor",
+        );
+        inhibitor.activate();
     }
 
-    fn inhibitor_destroyed(&mut self, _inhibitor: KeyboardShortcutsInhibitor) {
-        // Nothing to clean up
+    fn inhibitor_destroyed(&mut self, inhibitor: KeyboardShortcutsInhibitor) {
+        tracing::debug!(
+            surface = ?inhibitor.wl_surface().id(),
+            "keyboard shortcuts inhibitor destroyed",
+        );
     }
 }

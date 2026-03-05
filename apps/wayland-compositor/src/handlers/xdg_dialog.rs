@@ -10,6 +10,7 @@
 //! [`focus_and_raise`](crate::input::focus_and_raise) and
 //! [`State::find_modal_child`](crate::state::State::find_modal_child)).
 
+use smithay::reexports::wayland_server::Resource;
 use smithay::wayland::shell::xdg::{ToplevelSurface, dialog::XdgDialogHandler};
 
 use crate::state::State;
@@ -34,6 +35,11 @@ impl XdgDialogHandler for State {
                 let serial = smithay::utils::SERIAL_COUNTER.next_serial();
                 let keyboard = self.keyboard();
                 keyboard.set_focus(self, Some(crate::focus::KeyboardFocusTarget::Window(window)), serial);
+            } else {
+                tracing::warn!(
+                    surface = ?toplevel.wl_surface().id(),
+                    "modal dialog surface not found in space",
+                );
             }
         }
     }

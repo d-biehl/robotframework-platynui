@@ -10,6 +10,7 @@
 //! the window's position to leave room for the title bar.
 
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode;
+use smithay::reexports::wayland_server::Resource;
 use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::shell::xdg::{ToplevelSurface, decoration::XdgDecorationHandler};
 
@@ -17,6 +18,11 @@ use crate::state::State;
 
 impl XdgDecorationHandler for State {
     fn new_decoration(&mut self, toplevel: ToplevelSurface) {
+        tracing::debug!(
+            surface = ?toplevel.wl_surface().id(),
+            "new decoration — requesting server-side decorations",
+        );
+
         // Request server-side decorations so the compositor renders title bars.
         toplevel.with_pending_state(|state| {
             state.decoration_mode = Some(Mode::ServerSide);
@@ -34,6 +40,12 @@ impl XdgDecorationHandler for State {
     }
 
     fn request_mode(&mut self, toplevel: ToplevelSurface, mode: Mode) {
+        tracing::debug!(
+            surface = ?toplevel.wl_surface().id(),
+            ?mode,
+            "client requested decoration mode",
+        );
+
         // Read the previous mode so we can adjust the window position on
         // SSD ↔ CSD transitions.
         let was_ssd = toplevel.with_pending_state(|state| {
@@ -55,6 +67,11 @@ impl XdgDecorationHandler for State {
     }
 
     fn unset_mode(&mut self, toplevel: ToplevelSurface) {
+        tracing::debug!(
+            surface = ?toplevel.wl_surface().id(),
+            "decoration mode unset — falling back to server-side",
+        );
+
         let was_ssd = toplevel.with_pending_state(|state| {
             let was = state.decoration_mode == Some(Mode::ServerSide);
             state.decoration_mode = Some(Mode::ServerSide);

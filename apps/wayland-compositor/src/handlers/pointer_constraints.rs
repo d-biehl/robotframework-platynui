@@ -6,24 +6,39 @@
 
 use smithay::{
     input::pointer::PointerHandle,
-    reexports::wayland_server::protocol::wl_surface::WlSurface,
+    reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface},
     utils::{Logical, Point},
-    wayland::pointer_constraints::PointerConstraintsHandler,
+    wayland::pointer_constraints::{PointerConstraintsHandler, with_pointer_constraint},
 };
 
 use crate::state::State;
 
 impl PointerConstraintsHandler for State {
-    fn new_constraint(&mut self, _surface: &WlSurface, _pointer: &PointerHandle<Self>) {
-        // Accept all constraints in the test compositor
+    fn new_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
+        // Immediately activate all constraints in the test compositor so
+        // clients receive the `locked`/`confined` event.
+        with_pointer_constraint(surface, pointer, |constraint| {
+            if let Some(constraint) = constraint {
+                tracing::debug!(
+                    surface = ?surface.id(),
+                    active = constraint.is_active(),
+                    "activating pointer constraint",
+                );
+                constraint.activate();
+            }
+        });
     }
 
     fn cursor_position_hint(
         &mut self,
-        _surface: &WlSurface,
+        surface: &WlSurface,
         _pointer: &PointerHandle<Self>,
-        _location: Point<f64, Logical>,
+        location: Point<f64, Logical>,
     ) {
-        // Acknowledge position hints but don't act on them
+        tracing::trace!(
+            surface = ?surface.id(),
+            ?location,
+            "pointer constraint cursor position hint",
+        );
     }
 }
