@@ -127,6 +127,7 @@ pub struct State {
     pub content_type_state: ContentTypeState,
     pub virtual_keyboard_state: VirtualKeyboardManagerState,
     pub virtual_pointer_global: smithay::reexports::wayland_server::backend::GlobalId,
+    pub pointer_warp_global: smithay::reexports::wayland_server::backend::GlobalId,
     pub output_management_global: smithay::reexports::wayland_server::backend::GlobalId,
 
     /// Weak references to all bound output management instances.
@@ -389,6 +390,10 @@ impl State {
             let restrict = security_policy.is_restrictive();
             crate::handlers::virtual_pointer::init_virtual_pointer_manager(&dh, move |_| !restrict)
         };
+        let pointer_warp_global = {
+            let restrict = security_policy.is_restrictive();
+            crate::handlers::pointer_warp::init_pointer_warp(&dh, move |_| !restrict)
+        };
         let output_management_global = {
             let restrict = security_policy.is_restrictive();
             crate::handlers::output_management::init_output_management(&dh, move |_| !restrict)
@@ -524,6 +529,7 @@ impl State {
             content_type_state,
             virtual_keyboard_state,
             virtual_pointer_global,
+            pointer_warp_global,
             output_management_global,
             output_managers: Vec::new(),
             screencopy_globals,

@@ -22,6 +22,7 @@ pub mod idle_notify;
 pub mod keyboard_shortcuts_inhibit;
 pub mod output_management;
 pub mod pointer_constraints;
+pub mod pointer_warp;
 pub mod screencopy;
 pub mod security_context;
 pub mod session_lock;

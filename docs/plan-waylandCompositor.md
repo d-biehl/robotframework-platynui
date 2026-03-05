@@ -496,13 +496,13 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 *Ziel: Restliche Protokoll-Features aus der ursprünglichen Phase 3 abschließen. Zusätzlich alle in smithay 0.7.0 verfügbaren Protokolle verdrahten, die für App-Kompatibilität und flüssigen Betrieb sinnvoll sind. Der Compositor soll gängige GTK4/Qt/Chromium/Firefox-Apps ohne Protokoll-Warnungen unterstützen.*
 
-> **Protokoll-Gap-Analyse (2026-03-05, aktualisiert):** 37 implementierte `delegate_*!()`-Makros
-> von 44 in smithay 0.7.0 verfügbaren. Verbleibende 7: 3× Tier 3 (toplevel-icon, toplevel-tag,
-> ext-foreign-toplevel-list), 2× noch offen (tearing-control, toplevel-drag), 1× EIS (Step 17),
-> 1× ext-foreign-toplevel-list (optional).
+> **Protokoll-Gap-Analyse (2026-03-05, aktualisiert):** 38 implementierte Protokoll-Globals
+> (37 `delegate_*!()`-Makros + 1 manuelles `GlobalDispatch`: pointer-warp-v1).
+> Verbleibende 6: 3× Tier 3 (toplevel-icon, toplevel-tag,
+> ext-foreign-toplevel-list), 2× noch offen (tearing-control, toplevel-drag), 1× EIS (Step 17).
 > 4 Protokolle bewusst nicht implementiert (`drm-lease`, `drm-syncobj`, `kde-decoration`,
-> `ext-data-control`). Tier 1 + Tier 2 komplett (10 Protokolle).
-> ~13.700 LoC, 37 Delegates, 1874 Tests.
+> `ext-data-control`). Tier 1 + Tier 2 komplett (11 Protokolle).
+> ~13.800 LoC, 38 Protokolle, 1874 Tests.
 
 **Bestehende Feature-Schritte:**
 
@@ -538,13 +538,15 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 19e₁₁. ✅ **`tablet-v2`** (`delegate_tablet_manager!()`): Drawing-Tablet-Unterstützung (Wacom etc.) — Pressure, Tilt, Button-Events. `TabletSeatHandler` war bereits für `cursor-shape` implementiert (leerer Default-Impl). State-Init + Delegate-Makro ergänzt. (~5 LoC)
 
+19e₁₂. ✅ **`pointer-warp-v1`** (manuelles `GlobalDispatch`/`Dispatch`): Client-requested Pointer-Warping — Accessibility-Tools, Remote-Desktop und App-Drag-Operationen können den Mauszeiger auf eine Surface-relative Position bewegen. Smithay 0.7 bietet noch keine High-Level-Abstraktion, daher manuelle Implementierung über `wayland-protocols 0.32` Bindings (`wp_pointer_warp_v1`). Handler rechnet Surface-lokale in globale Koordinaten um und sendet Motion-Event über `PointerHandle`. Security-Policy-Filter via `can_view`. (~120 LoC)
+
 **Tier 3 — Niedrig / Optional** (~40 LoC):
 
-19e₁₂. *(Optional)* **`xdg-toplevel-icon-v1`** (`delegate_xdg_toplevel_icon!()`): Custom Window-Icons — Clients können eigene Icons für ihre Toplevel-Surfaces setzen. Kaum relevant für Testing, aber trivial zu verdrahten. (~15 LoC)
+19e₁₃. *(Optional)* **`xdg-toplevel-icon-v1`** (`delegate_xdg_toplevel_icon!()`): Custom Window-Icons — Clients können eigene Icons für ihre Toplevel-Surfaces setzen. Kaum relevant für Testing, aber trivial zu verdrahten. (~15 LoC)
 
-19e₁₃. *(Optional)* **`xdg-toplevel-tag-v1`** (`delegate_xdg_toplevel_tag!()`): Window-Tags — Clients können Toplevel-Surfaces für Virtual-Desktop-Zuordnung taggen. Kaum relevant, aber trivial. (~15 LoC)
+19e₁₄. *(Optional)* **`xdg-toplevel-tag-v1`** (`delegate_xdg_toplevel_tag!()`): Window-Tags — Clients können Toplevel-Surfaces für Virtual-Desktop-Zuordnung taggen. Kaum relevant, aber trivial. (~15 LoC)
 
-19e₁₄. *(Optional)* **`ext-foreign-toplevel-list-v1`** (`delegate_foreign_toplevel_list!()`): Ext-Version der Foreign-Toplevel-Liste — wir haben bereits `wlr-foreign-toplevel-management-v1` manuell implementiert. Die ext-Version ist read-only (keine activate/close/minimize), kann aber als Ergänzung für Clients dienen die nur die ext-Version unterstützen. (~15 LoC)
+19e₁₅. *(Optional)* **`ext-foreign-toplevel-list-v1`** (`delegate_foreign_toplevel_list!()`): Ext-Version der Foreign-Toplevel-Liste — wir haben bereits `wlr-foreign-toplevel-management-v1` manuell implementiert. Die ext-Version ist read-only (keine activate/close/minimize), kann aber als Ergänzung für Clients dienen die nur die ext-Version unterstützen. (~15 LoC)
 
 **Bewusst nicht implementiert:**
 - `drm-lease-v1` — VR-Headset-Lease, nicht relevant für UI-Automation
