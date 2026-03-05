@@ -115,6 +115,7 @@ impl TitlebarRenderer {
         renderer: &mut GlowRenderer,
         loc: Point<f64, Physical>,
         title: &str,
+        icon: Option<&crate::handlers::toplevel_icon::ToplevelIconPixels>,
         focused: bool,
         width: u32,
         height: u32,
@@ -128,9 +129,10 @@ impl TitlebarRenderer {
 
         let (bg, text_color, close_fill, max_fill, min_fill) = compute_button_colors(theme, focused, hovered_button);
         let title_owned = title.to_string();
+        let icon_cloned = icon.cloned();
 
         self.render_egui_element(renderer, loc, buf_w, buf_h, int_scale, BufferSlot::Titlebar, |ctx| {
-            build_titlebar_ui(ctx, &title_owned, bg, text_color, close_fill, max_fill, min_fill);
+            build_titlebar_ui(ctx, &title_owned, icon_cloned.as_ref(), bg, text_color, close_fill, max_fill, min_fill);
         })
     }
 
@@ -255,11 +257,12 @@ impl Drop for GlowState {
     }
 }
 
-/// Build the egui titlebar UI layout (background, title text, window buttons).
-#[allow(clippy::cast_possible_truncation)]
+/// Build the egui titlebar UI layout (background, optional icon, title text, window buttons).
+#[allow(clippy::cast_possible_truncation, clippy::too_many_arguments)]
 fn build_titlebar_ui(
     ctx: &egui::Context,
     title: &str,
+    icon: Option<&crate::handlers::toplevel_icon::ToplevelIconPixels>,
     bg: egui::Color32,
     text_color: egui::Color32,
     close_fill: egui::Color32,
@@ -269,8 +272,23 @@ fn build_titlebar_ui(
     let frame = egui::Frame::NONE.fill(bg).inner_margin(egui::Margin::ZERO);
     egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
         ui.horizontal_centered(|ui| {
-            // Left padding + title text
+            // Left padding
             ui.add_space(8.0);
+
+            // Toplevel icon (if pixel data was provided via xdg-toplevel-icon-v1)
+            if let Some(px) = icon {
+                let tex_id = format!("toplevel-icon-{}x{}", px.width, px.height);
+                let texture = ctx.load_texture(
+                    &tex_id,
+                    egui::ColorImage::from_rgba_unmultiplied([px.width as usize, px.height as usize], &px.rgba),
+                    egui::TextureOptions::LINEAR,
+                );
+                let icon_size = egui::vec2(16.0, 16.0);
+                ui.image(egui::load::SizedTexture::new(texture.id(), icon_size));
+                ui.add_space(4.0);
+            }
+
+            // Title text
             ui.label(egui::RichText::new(title).color(text_color).size(13.0));
 
             // Push buttons to the right

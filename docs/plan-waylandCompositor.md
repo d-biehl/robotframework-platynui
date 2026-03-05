@@ -1,6 +1,6 @@
 ## Plan: PlatynUI Wayland Compositor + Platform-Crate (Final, priorisiert)
 
-**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~13.900 LoC, 1874 Tests) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann Bugfixes & Window-Management-Verbesserungen (Phase 3a+ ✅), dann verbleibende Automation-Protokolle (Phase 3b: Tier 1+2 + Stubs komplett, libei noch offen — **nächster Schritt**), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
+**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~14.000 LoC, 1874 Tests, 42 Protokoll-Globals) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann Bugfixes & Window-Management-Verbesserungen (Phase 3a+ ✅), dann verbleibende Automation-Protokolle (Phase 3b: Tier 1+2+3 + Stubs komplett, libei noch offen — **nächster Schritt**), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
 
 ---
 
@@ -496,17 +496,20 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 *Ziel: Restliche Protokoll-Features aus der ursprünglichen Phase 3 abschließen. Zusätzlich alle in smithay 0.7.0 verfügbaren Protokolle verdrahten, die für App-Kompatibilität und flüssigen Betrieb sinnvoll sind. Der Compositor soll gängige GTK4/Qt/Chromium/Firefox-Apps ohne Protokoll-Warnungen unterstützen.*
 
-> **Protokoll-Gap-Analyse (2026-03-05, aktualisiert):** 38 implementierte Protokoll-Globals
-> (37 `delegate_*!()`-Makros + 1 manuelles `GlobalDispatch`: pointer-warp-v1).
+> **Protokoll-Gap-Analyse (2026-03-05, aktualisiert):** 42 implementierte Protokoll-Globals
+> (36 `delegate_*!()`-Makros + 6 manuelle `GlobalDispatch`: pointer-warp-v1, tearing-control,
+> toplevel-drag, toplevel-icon, toplevel-tag, virtual-pointer; plus wlr-foreign-toplevel,
+> output-management, screencopy via eigene State-Inits).
 > Tier 1 komplett (6 Protokolle: commit-timing, fifo, idle-inhibit, xdg-dialog, system-bell,
 > alpha-modifier). Tier 2 komplett (5 Protokolle: xwayland-shell, xwayland-keyboard-grab,
 > pointer-gestures, tablet-v2, pointer-warp-v1).
 > tearing-control + toplevel-drag als Stubs implementiert (Step 19e).
-> Verbleibende 3: 1× EIS (Step 17),
-> 3× Tier 3 optional (toplevel-icon, toplevel-tag, ext-foreign-toplevel-list).
+> Tier 3 komplett (3 Protokolle: toplevel-icon mit Pixel-Rendering in SSD-Titlebars,
+> toplevel-tag mit In-Memory-Speicherung, ext-foreign-toplevel-list via smithay delegate).
+> Verbleibend: 1× EIS (Step 17).
 > 4 Protokolle bewusst nicht implementiert (`drm-lease`, `drm-syncobj`, `kde-decoration`,
 > `ext-data-control`).
-> ~13.900 LoC, 40 Protokolle, 1874 Tests.
+> ~14.000 LoC, 42 Protokolle, 1874 Tests.
 
 **Bestehende Feature-Schritte:**
 
@@ -544,13 +547,13 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 19e₁₂. ✅ **`pointer-warp-v1`** (manuelles `GlobalDispatch`/`Dispatch`): Client-requested Pointer-Warping — Accessibility-Tools, Remote-Desktop und App-Drag-Operationen können den Mauszeiger auf eine Surface-relative Position bewegen. Smithay 0.7 bietet noch keine High-Level-Abstraktion, daher manuelle Implementierung über `wayland-protocols 0.32` Bindings (`wp_pointer_warp_v1`). Handler rechnet Surface-lokale in globale Koordinaten um und sendet Motion-Event über `PointerHandle`. Security-Policy-Filter via `can_view`. (~120 LoC)
 
-**Tier 3 — Niedrig / Optional** (~40 LoC):
+**Tier 3 — Niedrig / Optional** (~370 LoC) ✅:
 
-19e₁₃. *(Optional)* **`xdg-toplevel-icon-v1`** (`delegate_xdg_toplevel_icon!()`): Custom Window-Icons — Clients können eigene Icons für ihre Toplevel-Surfaces setzen. Kaum relevant für Testing, aber trivial zu verdrahten. (~15 LoC)
+19e₁₃. ✅ **`xdg-toplevel-icon-v1`** (manuelles `GlobalDispatch`/`Dispatch`, `src/handlers/toplevel_icon.rs`): Custom Window-Icons — Clients setzen per SHM-Buffer Pixel-Icons für Toplevel-Surfaces. Volle Implementierung: `IconBuilder` akkumuliert `set_name`/`add_buffer`, behält den größten Buffer. `read_icon_buffer()` liest ARGB8888-SHM-Buffer und konvertiert zu RGBA. Icons werden in `state.toplevel_icons` (`HashMap<ObjectId, ToplevelIconPixels>`) gespeichert und als 16×16 egui-Textur links vom Titel in SSD-Titlebars gerendert. Named Icons (XDG Icon Theme) werden geloggt aber nicht aufgelöst (kein Theme-Loader). (~245 LoC)
 
-19e₁₄. *(Optional)* **`xdg-toplevel-tag-v1`** (`delegate_xdg_toplevel_tag!()`): Window-Tags — Clients können Toplevel-Surfaces für Virtual-Desktop-Zuordnung taggen. Kaum relevant, aber trivial. (~15 LoC)
+19e₁₄. ✅ **`xdg-toplevel-tag-v1`** (manuelles `GlobalDispatch`/`Dispatch`, `src/handlers/toplevel_tag.rs`): Persistent Toplevel Identification — Clients setzen untranslated Tags (z.B. `"main window"`, `"settings"`) und translated Descriptions für Toplevels. Dient als Identifizierungsmechanismus damit Compositors Window-Eigenschaften (Position, Größe, Regeln) über Session-Restarts hinweg anwenden können. Tags und Descriptions werden pro Toplevel in `state.toplevel_tags` (`HashMap<ObjectId, ToplevelTagInfo>`) in-memory gespeichert (keine Persistierung — Test-Compositor). (~106 LoC)
 
-19e₁₅. *(Optional)* **`ext-foreign-toplevel-list-v1`** (`delegate_foreign_toplevel_list!()`): Ext-Version der Foreign-Toplevel-Liste — wir haben bereits `wlr-foreign-toplevel-management-v1` manuell implementiert. Die ext-Version ist read-only (keine activate/close/minimize), kann aber als Ergänzung für Clients dienen die nur die ext-Version unterstützen. (~15 LoC)
+19e₁₅. ✅ **`ext-foreign-toplevel-list-v1`** (`delegate_foreign_toplevel_list!()`, bereits in Phase 3 implementiert): Ext-Version der Foreign-Toplevel-Liste — read-only (keine activate/close/minimize), ergänzt `wlr-foreign-toplevel-management-v1`. Handles in `state.ext_toplevel_handles` mit diffbasierter Title/App-ID-Weiterleitung bei surface-commits. (~15 LoC)
 
 **Bewusst nicht implementiert:**
 - `drm-lease-v1` — VR-Headset-Lease, nicht relevant für UI-Automation
@@ -701,7 +704,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 - Phase 3: `platynui-cli` kann Fenster listen und Input senden. Screenshots via ext-image-copy-capture inkl. CursorSessions. `waybar`/ironbar laufen via Layer-Shell. `wayvnc` funktioniert als externer VNC-Server (Frame + Cursor Dual-Capture). Clipboard via `wl-copy`/`wl-paste` (data-control). Multi-Monitor dynamisch konfigurierbar (output-management).
 - Phase 3a: ✅ ERLEDIGT. Control-Socket JSON via typisierter `serde`-Structs (19f). ~595 Zeilen Code-Duplikation eliminiert (19f₂). Kommentar-Review (19f₃). Focus-Loss Input Release (19f₄). Software-Cursor für SSD-Resize (19f₅). Session-Scripts AT-SPI-Fix (19f₆). Steps 19g–19z komplett: Protokoll-Korrektheit (Screencopy, Output-Management), Unwrap-Eliminierung, Error-Handling, Tracing, Dead Code, Magic Numbers, DRM Multi-Monitor-Positionierung. 1874 Tests grün.
 - Phase 3a+: ✅ ERLEDIGT. Popup-Korrekturen (SSD, Layer-Shell, X11), VNC-Cursor-Rendering, Virtual-Pointer-Mapping, DRM Multi-Monitor-Overhaul, X11-Maximize-Größenwiederherstellung, Output-Resize-Reconfigure, Floating-Fenster-Clamping. ~14.500 LoC, 1874 Tests grün.
-- Phase 3b: ✅ Tier 1 + Tier 2 komplett (11 Protokolle). ✅ tearing-control + toplevel-drag Stubs (40 Globals). libei-Input funktioniert (Step 17). Optionale Tier-3-Protokolle (toplevel-icon, toplevel-tag, ext-foreign-toplevel-list).
+- Phase 3b: ✅ Tier 1 + Tier 2 + Tier 3 komplett (14 Protokolle, 42 Globals). ✅ tearing-control + toplevel-drag Stubs. ✅ Tier 3: toplevel-icon (volle Pixel-Pipeline mit SSD-Titlebar-Rendering), toplevel-tag (In-Memory-Speicherung), ext-foreign-toplevel-list (bereits in Phase 3). libei-Input noch offen (Step 17).
 - Phase 4: `cargo nextest run -p platynui-platform-linux-wayland` — alle Traits getestet, Koordinaten-Transformation korrekt für Wayland-native und XWayland-Apps
 - Phase 5: VNC/RDP eingebaut — Headless-Debugging ohne externe Tools möglich
 - Phase 6: `cargo nextest run --all` — gesamte Suite grün, inkl. Wayland-Tests. CI-Scripts funktionieren.

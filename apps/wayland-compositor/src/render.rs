@@ -16,6 +16,7 @@ use smithay::backend::renderer::glow::GlowRenderer;
 use smithay::desktop::layer_map_for_output;
 use smithay::input::pointer::{CursorIcon, CursorImageStatus, CursorImageSurfaceData};
 use smithay::output::Output;
+use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Size};
 use smithay::wayland::compositor;
 use smithay::wayland::seat::WaylandFocus;
@@ -173,6 +174,9 @@ pub fn collect_render_elements(
                     )
                 });
 
+            // Look up a toplevel icon set via xdg-toplevel-icon-v1.
+            let icon = window.wl_surface().and_then(|s| state.toplevel_icons.get(&s.id()));
+
             let (deco_elements, titlebar_element) = decorations::render_decorations(
                 renderer,
                 &mut state.titlebar_renderer,
@@ -181,6 +185,7 @@ pub fn collect_render_elements(
                 render_scale,
                 focused,
                 &title,
+                icon,
                 &state.config.theme,
                 hovered_button,
             );

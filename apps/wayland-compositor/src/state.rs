@@ -122,6 +122,22 @@ pub struct State {
     pub tablet_manager_state: TabletManagerState,
     pub tearing_control_global: smithay::reexports::wayland_server::backend::GlobalId,
     pub toplevel_drag_global: smithay::reexports::wayland_server::backend::GlobalId,
+    pub toplevel_icon_global: smithay::reexports::wayland_server::backend::GlobalId,
+    pub toplevel_tag_global: smithay::reexports::wayland_server::backend::GlobalId,
+    /// Per-toplevel icon pixel data set via `xdg-toplevel-icon-v1`.
+    ///
+    /// Keyed by the `ObjectId` of the toplevel's `wl_surface`.
+    pub toplevel_icons: HashMap<
+        smithay::reexports::wayland_server::backend::ObjectId,
+        crate::handlers::toplevel_icon::ToplevelIconPixels,
+    >,
+    /// Per-toplevel tag and description set via `xdg-toplevel-tag-v1`.
+    ///
+    /// Keyed by the `ObjectId` of the toplevel's `wl_surface`.
+    pub toplevel_tags: HashMap<
+        smithay::reexports::wayland_server::backend::ObjectId,
+        crate::handlers::toplevel_tag::ToplevelTagInfo,
+    >,
 
     // -- Phase 3: Automation protocols --
     pub layer_shell_state: WlrLayerShellState,
@@ -381,6 +397,8 @@ impl State {
         let tablet_manager_state = TabletManagerState::new::<Self>(&dh);
         let tearing_control_global = crate::handlers::tearing_control::init_tearing_control(&dh);
         let toplevel_drag_global = crate::handlers::toplevel_drag::init_toplevel_drag(&dh);
+        let toplevel_icon_global = crate::handlers::toplevel_icon::init_toplevel_icon(&dh);
+        let toplevel_tag_global = crate::handlers::toplevel_tag::init_toplevel_tag(&dh);
 
         // Phase 3: Automation protocols
         let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
@@ -530,6 +548,10 @@ impl State {
             tablet_manager_state,
             tearing_control_global,
             toplevel_drag_global,
+            toplevel_icon_global,
+            toplevel_tag_global,
+            toplevel_icons: HashMap::new(),
+            toplevel_tags: HashMap::new(),
             layer_shell_state,
             data_control_state,
             content_type_state,

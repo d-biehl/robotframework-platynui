@@ -30,6 +30,8 @@ pub mod single_pixel_buffer;
 pub mod tearing_control;
 pub mod text_input;
 pub mod toplevel_drag;
+pub mod toplevel_icon;
+pub mod toplevel_tag;
 pub mod viewporter;
 pub mod virtual_keyboard;
 pub mod virtual_pointer;

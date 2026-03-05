@@ -469,6 +469,7 @@ pub fn render_decorations(
     scale: f64,
     focused: bool,
     title: &str,
+    icon: Option<&crate::handlers::toplevel_icon::ToplevelIconPixels>,
     theme: &crate::config::ThemeConfig,
     hovered_button: Option<DecorationClick>,
 ) -> (Vec<SolidColorRenderElement>, Option<TextureRenderElement<GlesTexture>>) {
@@ -480,6 +481,7 @@ pub fn render_decorations(
         renderer,
         (f64::from(physical_loc.x), f64::from(physical_loc.y)).into(),
         title,
+        icon,
         focused,
         window_geo.w.unsigned_abs(),
         TITLEBAR_HEIGHT.unsigned_abs(),
