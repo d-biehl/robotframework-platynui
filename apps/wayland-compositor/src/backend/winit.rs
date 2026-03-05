@@ -13,7 +13,10 @@ use smithay::{
     reexports::{
         calloop::EventLoop,
         wayland_server::Display,
-        winit::{platform::pump_events::PumpStatus, window::CursorIcon},
+        winit::{
+            platform::{pump_events::PumpStatus, wayland::WindowAttributesExtWayland},
+            window::{CursorIcon, Icon, Theme, WindowAttributes},
+        },
     },
     utils::{Physical, Size},
 };
@@ -37,7 +40,18 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
 
     // Initialize the winit backend with GlowRenderer (wraps GlesRenderer,
     // provides glow::Context for GPU-accelerated egui titlebar rendering).
-    let (mut backend, mut winit_evt): (WinitGraphicsBackend<GlowRenderer>, _) = winit::init()?;
+    // The Wayland app-name sets the `app_id` on the xdg_toplevel so that
+    // GNOME/KDE can match the window to a .desktop file for icon + grouping.
+    // Theme: prefer system setting; sctk-adwaita's auto-detection uses
+    // dbus-send with a 100ms timeout that silently fails → force dark/light
+    // based on the XDG Desktop Portal color-scheme setting.
+    let attributes = WindowAttributes::default()
+        .with_title("PlatynUI Wayland Compositor")
+        .with_name("org.platynui.compositor", "platynui-wayland-compositor")
+        .with_theme(detect_system_theme())
+        .with_window_icon(load_icon());
+    let (mut backend, mut winit_evt): (WinitGraphicsBackend<GlowRenderer>, _) =
+        winit::init_from_attributes(attributes)?;
 
     // Create the listening socket
     let (listening_socket, socket_name) = super::create_listening_socket(args)?;
@@ -345,4 +359,54 @@ fn render_frame(
 
     // Send frame callbacks to clients — use the output each window is on.
     state.send_frame_callbacks();
+}
+
+/// Load the embedded application icon as a winit [`Icon`].
+///
+/// The PNG is compiled into the binary via `include_bytes!` and decoded at
+/// startup.  Returns `None` if decoding fails (non-fatal — the window
+/// simply has no icon).
+fn load_icon() -> Option<Icon> {
+    let png_bytes = include_bytes!("../../assets/icon.png");
+    let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
+    let mut reader = decoder.read_info().ok()?;
+    let buf_size = reader.output_buffer_size()?;
+    let mut buf = vec![0u8; buf_size];
+    let info = reader.next_frame(&mut buf).ok()?;
+    buf.truncate(info.buffer_size());
+    Icon::from_rgba(buf, info.width, info.height).ok()
+}
+
+/// Detect the system color scheme via the XDG Desktop Portal.
+///
+/// Queries `org.freedesktop.portal.Settings.Read` for the
+/// `org.freedesktop.appearance` / `color-scheme` key using zbus.
+/// Returns `Some(Theme::Dark)` if dark mode is active, `Some(Theme::Light)`
+/// if light mode is active, or `None` if the preference cannot be determined
+/// (lets `sctk-adwaita` fall back to its own auto-detection).
+fn detect_system_theme() -> Option<Theme> {
+    let connection = zbus::blocking::Connection::session().ok()?;
+    let reply = connection
+        .call_method(
+            Some("org.freedesktop.portal.Desktop"),
+            "/org/freedesktop/portal/desktop",
+            Some("org.freedesktop.portal.Settings"),
+            "Read",
+            &("org.freedesktop.appearance", "color-scheme"),
+        )
+        .ok()?;
+
+    // The reply body is `v v u` (variant of variant of uint32).
+    let body = reply.body();
+    let outer: zbus::zvariant::Value<'_> = body.deserialize().ok()?;
+    let inner: zbus::zvariant::Value<'_> = outer.downcast_ref().ok()?;
+    let scheme: u32 = inner.downcast_ref().ok()?;
+
+    // XDG Portal color-scheme values:
+    //   0 = no preference, 1 = prefer dark, 2 = prefer light
+    match scheme {
+        1 => Some(Theme::Dark),
+        2 => Some(Theme::Light),
+        _ => None,
+    }
 }

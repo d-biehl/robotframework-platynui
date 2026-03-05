@@ -39,6 +39,12 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
     "env-filter",
 ] }
 
+# Winit CSD — enable Adwaita-themed client-side decorations for GNOME/Wayland
+winit = { version = "0.30", default-features = false, features = ["wayland-csd-adwaita"] }
+
+# D-Bus — XDG Desktop Portal queries (color-scheme detection)
+zbus = { version = "5", features = ["blocking-api"] }
+
 # Compositor UI (titlebar text, buttons, future panel)
 egui = { version = "0.33", default-features = false, features = ["default_fonts"] }
 

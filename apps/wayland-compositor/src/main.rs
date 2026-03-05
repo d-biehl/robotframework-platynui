@@ -14,7 +14,7 @@ fn main() {
 // Dependencies used by the library crate, acknowledged here for the binary crate.
 use {
     calloop as _, clap as _, egui as _, egui_glow as _, png as _, serde as _, serde_json as _, signal_hook as _,
-    smithay as _, toml as _, tracing as _, tracing_subscriber as _, xcursor as _,
+    smithay as _, toml as _, tracing as _, tracing_subscriber as _, winit as _, xcursor as _, zbus as _,
 };
 
 #[cfg(target_os = "linux")]

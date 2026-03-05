@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=PlatynUI Inspector
+Comment=GUI inspector for UI automation element trees
+Exec=platynui-inspector
+Icon=org.platynui.inspector
+Categories=Development;
+StartupNotify=true
+Terminal=false

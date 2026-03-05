@@ -8,6 +8,10 @@
 
 #![cfg(target_os = "linux")]
 
+// Direct dependency solely for Cargo feature unification —
+// enables `wayland-csd-adwaita` (Adwaita-themed CSD for GNOME/Wayland).
+use winit as _;
+
 mod backend;
 pub mod child;
 mod client;

@@ -33,7 +33,7 @@ use eframe::egui;
 #[command(about = "egui test application for PlatynUI integration and functional testing")]
 struct Cli {
     /// Application ID (Wayland `app_id` / X11 `WM_CLASS`).
-    #[arg(long, default_value = "com.platynui.test.egui")]
+    #[arg(long, default_value = "org.platynui.test.egui")]
     app_id: String,
 
     /// Window title.

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=PlatynUI Wayland Compositor
+Comment=Wayland compositor for UI test automation with PlatynUI
+Exec=platynui-wayland-compositor
+Icon=org.platynui.compositor
+Categories=Development;System;
+StartupNotify=false
+Terminal=false
+NoDisplay=true

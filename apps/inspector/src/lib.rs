@@ -256,6 +256,7 @@ pub fn run() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 750.0])
             .with_title("PlatynUI Inspector")
+            .with_app_id("org.platynui.inspector")
             .with_icon(Arc::new(icon)),
         ..Default::default()
     };
