@@ -30,12 +30,20 @@ This creates `.venv` and installs dev tools (ruff, mypy, maturin, robotframework
 
 ## 4) Dev workflow (green-before-merge)
 
-Run these in the repo root before pushing:
+We use [just](https://github.com/casey/just) as a task runner. Run `just` (no arguments) to see all available recipes. See [docs/development.md](docs/development.md) for details and installation instructions.
 
-```pwsh
+Quick pre-push check:
+
+```bash
+just pre-commit
+```
+
+Or run the steps individually:
+
+```bash
 uv sync --dev --all-packages --all-extras
 cargo build --all --all-targets
-cargo test --all --no-fail-fast
+cargo nextest run --all --no-fail-fast
 uv run ruff check
 # Optional when you add hints
 uv run mypy .
