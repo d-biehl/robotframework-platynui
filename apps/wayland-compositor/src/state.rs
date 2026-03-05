@@ -4,7 +4,8 @@ use std::collections::{HashMap, HashSet};
 
 use smithay::{
     delegate_alpha_modifier, delegate_commit_timing, delegate_compositor, delegate_content_type, delegate_cursor_shape,
-    delegate_data_control, delegate_data_device, delegate_dmabuf, delegate_fifo, delegate_fractional_scale,
+    delegate_data_control, delegate_data_device, delegate_dmabuf, delegate_ext_data_control, delegate_fifo,
+    delegate_fractional_scale,
     delegate_idle_inhibit, delegate_idle_notify, delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit,
     delegate_layer_shell, delegate_output, delegate_pointer_constraints, delegate_pointer_gestures,
     delegate_presentation, delegate_primary_selection, delegate_relative_pointer, delegate_seat,
@@ -41,7 +42,10 @@ use smithay::{
         relative_pointer::RelativePointerManagerState,
         security_context::SecurityContextState,
         selection::{
-            data_device::DataDeviceState, primary_selection::PrimarySelectionState, wlr_data_control::DataControlState,
+            data_device::DataDeviceState,
+            ext_data_control::DataControlState as ExtDataControlState,
+            primary_selection::PrimarySelectionState,
+            wlr_data_control::DataControlState,
         },
         session_lock::SessionLockManagerState,
         shell::{
@@ -142,6 +146,7 @@ pub struct State {
     // -- Phase 3: Automation protocols --
     pub layer_shell_state: WlrLayerShellState,
     pub data_control_state: DataControlState,
+    pub ext_data_control_state: ExtDataControlState,
     pub content_type_state: ContentTypeState,
     pub virtual_keyboard_state: VirtualKeyboardManagerState,
     pub virtual_pointer_global: smithay::reexports::wayland_server::backend::GlobalId,
@@ -403,6 +408,7 @@ impl State {
         // Phase 3: Automation protocols
         let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
         let data_control_state = DataControlState::new::<Self, _>(&dh, Some(&primary_selection_state), |_| true);
+        let ext_data_control_state = ExtDataControlState::new::<Self, _>(&dh, Some(&primary_selection_state), |_| true);
         let content_type_state = ContentTypeState::new::<Self>(&dh);
         let virtual_keyboard_state = {
             let restrict = security_policy.is_restrictive();
@@ -554,6 +560,7 @@ impl State {
             toplevel_tags: HashMap::new(),
             layer_shell_state,
             data_control_state,
+            ext_data_control_state,
             content_type_state,
             virtual_keyboard_state,
             virtual_pointer_global,
@@ -1274,6 +1281,7 @@ delegate_security_context!(State);
 delegate_cursor_shape!(State);
 delegate_layer_shell!(State);
 delegate_data_control!(State);
+delegate_ext_data_control!(State);
 delegate_content_type!(State);
 delegate_virtual_keyboard_manager!(State);
 

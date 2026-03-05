@@ -1,6 +1,6 @@
 ## Plan: PlatynUI Wayland Compositor + Platform-Crate (Final, priorisiert)
 
-**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~14.000 LoC, 1874 Tests, 42 Protokoll-Globals) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann Bugfixes & Window-Management-Verbesserungen (Phase 3a+ ✅), dann verbleibende Automation-Protokolle (Phase 3b: Tier 1+2+3 + Stubs komplett, libei noch offen — **nächster Schritt**), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
+**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~14.000 LoC, 1874 Tests, 43 Protokoll-Globals) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann Bugfixes & Window-Management-Verbesserungen (Phase 3a+ ✅), dann verbleibende Automation-Protokolle (Phase 3b: Tier 1+2+3 + Stubs komplett, libei noch offen — **nächster Schritt**), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
 
 ---
 
@@ -496,8 +496,8 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 *Ziel: Restliche Protokoll-Features aus der ursprünglichen Phase 3 abschließen. Zusätzlich alle in smithay 0.7.0 verfügbaren Protokolle verdrahten, die für App-Kompatibilität und flüssigen Betrieb sinnvoll sind. Der Compositor soll gängige GTK4/Qt/Chromium/Firefox-Apps ohne Protokoll-Warnungen unterstützen.*
 
-> **Protokoll-Gap-Analyse (2026-03-05, aktualisiert):** 42 implementierte Protokoll-Globals
-> (36 `delegate_*!()`-Makros + 6 manuelle `GlobalDispatch`: pointer-warp-v1, tearing-control,
+> **Protokoll-Gap-Analyse (2026-03-05, aktualisiert):** 43 implementierte Protokoll-Globals
+> (37 `delegate_*!()`-Makros + 6 manuelle `GlobalDispatch`: pointer-warp-v1, tearing-control,
 > toplevel-drag, toplevel-icon, toplevel-tag, virtual-pointer; plus wlr-foreign-toplevel,
 > output-management, screencopy via eigene State-Inits).
 > Tier 1 komplett (6 Protokolle: commit-timing, fifo, idle-inhibit, xdg-dialog, system-bell,
@@ -506,10 +506,10 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 > tearing-control + toplevel-drag als Stubs implementiert (Step 19e).
 > Tier 3 komplett (3 Protokolle: toplevel-icon mit Pixel-Rendering in SSD-Titlebars,
 > toplevel-tag mit In-Memory-Speicherung, ext-foreign-toplevel-list via smithay delegate).
+> ext-data-control-v1 implementiert (standardisierte Version parallel zu wlr-data-control).
 > Verbleibend: 1× EIS (Step 17).
-> 4 Protokolle bewusst nicht implementiert (`drm-lease`, `drm-syncobj`, `kde-decoration`,
-> `ext-data-control`).
-> ~14.000 LoC, 42 Protokolle, 1874 Tests.
+> 3 Protokolle bewusst nicht implementiert (`drm-lease`, `drm-syncobj`, `kde-decoration`).
+> ~14.000 LoC, 43 Protokolle, 1874 Tests.
 
 **Bestehende Feature-Schritte:**
 
@@ -559,11 +559,12 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 - `drm-lease-v1` — VR-Headset-Lease, nicht relevant für UI-Automation
 - `drm-syncobj-v1` — Explicit GPU sync, Hardware-nah, nicht relevant
 - `kde-decoration` — KDE-spezifisch, wir nutzen `xdg-decoration`
-- `ext-data-control-v1` — Duplikat zu `wlr-data-control-v1` (bereits implementiert)
+
+19e₁₆. ✅ **`ext-data-control-v1`** (`delegate_ext_data_control!()`, `src/handlers/data_control.rs`): Standardisierte Clipboard-Kontrolle — funktional identisch zu `wlr-data-control-v1`, aber als offizielle Staging-Version in wayland-protocols. Mutter und `KWin` implementieren diese Version. Beide Protokolle werden parallel angeboten. Smithay liefert `ext_data_control::DataControlState` + `DataControlHandler`. (~15 LoC)
 
 > **Hinweis wayvnc:** `wayvnc` funktioniert bereits als externer VNC-Server (braucht `wlr-layer-shell` + `ext-image-copy-capture` + `zwlr_virtual_pointer` — alle in Phase 3 abgeschlossen). Befehl: `WAYLAND_DISPLAY=... wayvnc 0.0.0.0 5900`. Die verbleibenden Steps (EIS, Legacy-Screencopy, Stubs) sind Erweiterungen, keine Voraussetzung für wayvnc.
 
-**Meilenstein 3b (Zwischenstand):** ✅ Tier 1 komplett (commit-timing, fifo, idle-inhibit, xdg-dialog, system-bell, alpha-modifier). ✅ Tier 2 komplett (xwayland-shell, xwayland-keyboard-grab, pointer-gestures, tablet-v2, pointer-warp-v1). ✅ tearing-control + toplevel-drag als Stubs (manuelles GlobalDispatch/Dispatch, smithay 0.7 bietet keine Abstraktion). ✅ 40 Protokoll-Globals, ~13.900 LoC, 1874 Tests. Alle gängigen GTK4/Qt/Chromium-Protokolle werden unterstützt — keine Protokoll-Warnungen bei Standard-Apps.
+**Meilenstein 3b (Zwischenstand):** ✅ Tier 1 komplett (commit-timing, fifo, idle-inhibit, xdg-dialog, system-bell, alpha-modifier). ✅ Tier 2 komplett (xwayland-shell, xwayland-keyboard-grab, pointer-gestures, tablet-v2, pointer-warp-v1). ✅ tearing-control + toplevel-drag als Stubs (manuelles GlobalDispatch/Dispatch, smithay 0.7 bietet keine Abstraktion). ✅ Tier 3 komplett (toplevel-icon, toplevel-tag, ext-foreign-toplevel-list). ✅ ext-data-control-v1 (standardisierte Clipboard-Kontrolle). ✅ 43 Protokoll-Globals, ~14.000 LoC, 1874 Tests. Alle gängigen GTK4/Qt/Chromium-Protokolle werden unterstützt — keine Protokoll-Warnungen bei Standard-Apps.
 
 **Meilenstein 3b (Ziel):** Zusätzlich: libei-Input funktioniert (Step 17). `WAYLAND_DISPLAY=... platynui-cli query "//control:*"` (über wlr-foreign-toplevel) listet Fenster. Virtual-Pointer/Keyboard und libei-Input funktionieren.
 
@@ -704,7 +705,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 - Phase 3: `platynui-cli` kann Fenster listen und Input senden. Screenshots via ext-image-copy-capture inkl. CursorSessions. `waybar`/ironbar laufen via Layer-Shell. `wayvnc` funktioniert als externer VNC-Server (Frame + Cursor Dual-Capture). Clipboard via `wl-copy`/`wl-paste` (data-control). Multi-Monitor dynamisch konfigurierbar (output-management).
 - Phase 3a: ✅ ERLEDIGT. Control-Socket JSON via typisierter `serde`-Structs (19f). ~595 Zeilen Code-Duplikation eliminiert (19f₂). Kommentar-Review (19f₃). Focus-Loss Input Release (19f₄). Software-Cursor für SSD-Resize (19f₅). Session-Scripts AT-SPI-Fix (19f₆). Steps 19g–19z komplett: Protokoll-Korrektheit (Screencopy, Output-Management), Unwrap-Eliminierung, Error-Handling, Tracing, Dead Code, Magic Numbers, DRM Multi-Monitor-Positionierung. 1874 Tests grün.
 - Phase 3a+: ✅ ERLEDIGT. Popup-Korrekturen (SSD, Layer-Shell, X11), VNC-Cursor-Rendering, Virtual-Pointer-Mapping, DRM Multi-Monitor-Overhaul, X11-Maximize-Größenwiederherstellung, Output-Resize-Reconfigure, Floating-Fenster-Clamping. ~14.500 LoC, 1874 Tests grün.
-- Phase 3b: ✅ Tier 1 + Tier 2 + Tier 3 komplett (14 Protokolle, 42 Globals). ✅ tearing-control + toplevel-drag Stubs. ✅ Tier 3: toplevel-icon (volle Pixel-Pipeline mit SSD-Titlebar-Rendering), toplevel-tag (In-Memory-Speicherung), ext-foreign-toplevel-list (bereits in Phase 3). libei-Input noch offen (Step 17).
+- Phase 3b: ✅ Tier 1 + Tier 2 + Tier 3 komplett (15 Protokolle, 43 Globals). ✅ tearing-control + toplevel-drag Stubs. ✅ Tier 3: toplevel-icon (volle Pixel-Pipeline mit SSD-Titlebar-Rendering), toplevel-tag (In-Memory-Speicherung), ext-foreign-toplevel-list (bereits in Phase 3). ✅ ext-data-control-v1 (standardisierte Clipboard-Kontrolle parallel zu wlr-data-control). libei-Input noch offen (Step 17).
 - Phase 4: `cargo nextest run -p platynui-platform-linux-wayland` — alle Traits getestet, Koordinaten-Transformation korrekt für Wayland-native und XWayland-Apps
 - Phase 5: VNC/RDP eingebaut — Headless-Debugging ohne externe Tools möglich
 - Phase 6: `cargo nextest run --all` — gesamte Suite grün, inkl. Wayland-Tests. CI-Scripts funktionieren.
