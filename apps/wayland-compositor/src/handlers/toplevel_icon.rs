@@ -44,9 +44,8 @@ pub struct ToplevelIconPixels {
 /// the icon is applied to a toplevel via `set_icon`.
 #[derive(Debug, Default)]
 struct IconBuilder {
-    /// Named icon (from XDG icon theme) — stored but not resolved.
-    #[allow(dead_code)]
-    name: Option<String>,
+    // TODO: Implement XDG icon theme lookup to resolve named icons.
+    // name: Option<String>,
     /// Best pixel buffer seen so far (highest resolution).
     best_pixels: Option<ToplevelIconPixels>,
 }
@@ -137,9 +136,7 @@ impl Dispatch<XdgToplevelIconV1, Mutex<IconBuilder>> for State {
         match request {
             xdg_toplevel_icon_v1::Request::SetName { icon_name } => {
                 tracing::debug!(icon_name, "toplevel icon name set (not resolved — no icon theme loader)");
-                if let Ok(mut builder) = data.lock() {
-                    builder.name = Some(icon_name);
-                }
+                // TODO: Resolve icon_name via XDG icon theme and store in builder.best_pixels.
             }
             xdg_toplevel_icon_v1::Request::AddBuffer { buffer, scale } => {
                 if let Some(pixels) = read_icon_buffer(&buffer) {
