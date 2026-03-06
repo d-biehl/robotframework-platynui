@@ -165,6 +165,9 @@ fn handle_eis_bind(bind: &reis::request::Bind, connection: &Connection, state: &
         old_device.remove();
     }
 
+    // Get the compositor's active XKB keymap for propagation to EIS clients.
+    let keymap_string = compositor_keymap_string(state);
+
     // Capture shared borrows for the `before_done` closure (runs synchronously).
     let outputs = &state.outputs;
     let space = &state.space;
@@ -174,7 +177,7 @@ fn handle_eis_bind(bind: &reis::request::Bind, connection: &Connection, state: &
         if device.has_capability(reis::request::DeviceCapability::PointerAbsolute) {
             send_regions(device, outputs, space);
         }
-        send_keymap_if_available(device);
+        send_keymap_to_device(device, keymap_string.as_deref());
     });
 
     device.resumed();
@@ -201,27 +204,36 @@ fn send_regions(
     }
 }
 
-/// Try to send the XKB keymap via a tempfile fd.
+/// Get the compositor's active XKB keymap as a string.
 ///
-/// Creates a default keymap matching the compositor's key handling. If the
-/// keymap can't be created, the device proceeds without one.
-fn send_keymap_if_available(device: &Device) {
+/// Uses `with_xkb_state` to access the keymap that was configured via
+/// `compositor.toml` / CLI flags / `XKB_DEFAULT_*` env vars.
+fn compositor_keymap_string(state: &mut State) -> Option<String> {
+    let keyboard = state.keyboard();
+    keyboard.with_xkb_state(state, |xkb_context| {
+        let xkb = xkb_context.xkb().lock().ok()?;
+        // SAFETY: The keymap reference does not outlive this closure scope.
+        #[allow(unsafe_code)]
+        let keymap = unsafe { xkb.keymap() };
+        Some(keymap.get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1))
+    })
+}
+
+/// Send the XKB keymap to the EIS keyboard device via a tempfile fd.
+fn send_keymap_to_device(device: &Device, keymap_string: Option<&str>) {
     let Some(eis_keyboard) = device.interface::<eis::Keyboard>() else {
         return;
     };
 
-    let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
-    let Some(keymap) = xkb::Keymap::new_from_names(&context, "", "", "", "", None, xkb::KEYMAP_COMPILE_NO_FLAGS) else {
-        tracing::warn!("failed to create XKB keymap for EIS");
+    let Some(keymap_str) = keymap_string else {
+        tracing::warn!("no keymap available for EIS device");
         return;
     };
-
-    let keymap_string = keymap.get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1);
 
     match tempfile::tempfile() {
         Ok(mut file) => {
             use std::io::Write;
-            let keymap_bytes = keymap_string.as_bytes();
+            let keymap_bytes = keymap_str.as_bytes();
             if let Err(err) = file.write_all(keymap_bytes) {
                 tracing::warn!(%err, "failed to write keymap to tempfile");
                 return;
@@ -334,16 +346,18 @@ fn handle_eis_keyboard_key(key: &reis::request::KeyboardKey, state: &mut State) 
     keyboard.input::<(), _>(state, keycode, key_state, serial, time, |_, _, _| FilterResult::Forward);
 }
 
+// TODO: Inject touch events into Smithay's input stack (similar to keyboard/pointer).
+// Requires creating a TouchHandle or using the seat's touch interface.
 fn handle_eis_touch_down(touch: &reis::request::TouchDown) {
-    tracing::debug!(touch_id = touch.touch_id, x = touch.x, y = touch.y, "EIS touch down (stub)");
+    tracing::debug!(touch_id = touch.touch_id, x = touch.x, y = touch.y, "EIS touch down (not yet injected into Smithay)");
 }
 
 fn handle_eis_touch_motion(touch: &reis::request::TouchMotion) {
-    tracing::debug!(touch_id = touch.touch_id, x = touch.x, y = touch.y, "EIS touch motion (stub)");
+    tracing::debug!(touch_id = touch.touch_id, x = touch.x, y = touch.y, "EIS touch motion (not yet injected into Smithay)");
 }
 
 fn handle_eis_touch_up(touch: &reis::request::TouchUp) {
-    tracing::debug!(touch_id = touch.touch_id, "EIS touch up (stub)");
+    tracing::debug!(touch_id = touch.touch_id, "EIS touch up (not yet injected into Smithay)");
 }
 
 // ---------------------------------------------------------------------------
