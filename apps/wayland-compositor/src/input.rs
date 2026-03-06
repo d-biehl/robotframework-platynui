@@ -1,16 +1,17 @@
-//! Input event processing — keyboard and pointer.
+//! Input event processing — keyboard, pointer, and touch.
 
 use std::borrow::Cow;
 
 use smithay::{
     backend::input::{
         AbsolutePositionEvent, Axis, ButtonState, Event, InputBackend, InputEvent, KeyState, KeyboardKeyEvent,
-        PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
+        PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, TouchEvent as BackendTouchEvent,
     },
     desktop::{Window, WindowSurfaceType, layer_map_for_output},
     input::{
         keyboard::FilterResult,
         pointer::{AxisFrame, ButtonEvent, MotionEvent},
+        touch::{DownEvent as TouchDownEvent, MotionEvent as TouchMotionEvent, UpEvent as TouchUpEvent},
     },
     utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Serial},
     wayland::{seat::WaylandFocus, shell::wlr_layer::Layer as WlrLayer},
@@ -18,7 +19,7 @@ use smithay::{
 };
 
 use crate::{
-    decorations::{self, CursorShape, Focus, PointerHitResult},
+    decorations::{self, CursorShape, DecorationClick, Focus, PointerHitResult},
     focus::PointerFocusTarget,
     state::State,
 };
@@ -48,8 +49,12 @@ pub fn process_input_event<B: InputBackend>(state: &mut State, event: InputEvent
         }
         InputEvent::PointerButton { event } => handle_pointer_button::<B>(state, &event),
         InputEvent::PointerAxis { event } => handle_pointer_axis::<B>(state, &event),
+        InputEvent::TouchDown { event } => handle_touch_down::<B>(state, &event),
+        InputEvent::TouchMotion { event } => handle_touch_motion::<B>(state, &event),
+        InputEvent::TouchUp { event } => handle_touch_up::<B>(state, &event),
+        InputEvent::TouchFrame { .. } => {}
         _ => {
-            tracing::debug!("unhandled input event (touch, tablet, gesture, or device hotplug)");
+            tracing::debug!("unhandled input event (tablet, gesture, or device hotplug)");
         }
     }
 }
@@ -356,6 +361,174 @@ fn handle_pointer_axis<B: InputBackend>(state: &mut State, event: &B::PointerAxi
     pointer.frame(state);
 }
 
+// ---------------------------------------------------------------------------
+// Touch
+// ---------------------------------------------------------------------------
+
+fn handle_touch_down<B: InputBackend>(state: &mut State, event: &B::TouchDownEvent) {
+    // Touch events are absolute — use combined output bounds (like pointer
+    // absolute events) so that touches span all monitors correctly.
+    let combined_geo = state.combined_output_geometry();
+    let pos = event.position_transformed(combined_geo.size);
+    let location = (pos.x + f64::from(combined_geo.loc.x), pos.y + f64::from(combined_geo.loc.y)).into();
+    let slot = event.slot();
+    process_touch_down(state, location, slot, event.time_msec());
+}
+
+fn handle_touch_motion<B: InputBackend>(state: &mut State, event: &B::TouchMotionEvent) {
+    let combined_geo = state.combined_output_geometry();
+    let pos = event.position_transformed(combined_geo.size);
+    let location = (pos.x + f64::from(combined_geo.loc.x), pos.y + f64::from(combined_geo.loc.y)).into();
+    let slot = event.slot();
+    process_touch_motion(state, location, slot, event.time_msec());
+}
+
+/// Core touch-motion logic shared by backend input events and EIS.
+///
+/// Updates the tracked position of a deferred SSD button interaction
+/// (if the slot matches) and forwards the event to the Wayland client.
+pub(crate) fn process_touch_motion(
+    state: &mut State,
+    location: Point<f64, Logical>,
+    slot: smithay::backend::input::TouchSlot,
+    time: u32,
+) {
+    // Keep the deferred SSD-button position up to date so touch-up can
+    // verify the finger is still over the same button.
+    if let Some((_, _, tracked_slot, ref mut tracked_pos)) = state.touch_ssd_button
+        && tracked_slot == slot
+    {
+        *tracked_pos = location;
+    }
+
+    let focus = surface_under_point(state, location);
+    let touch = state.touch();
+    touch.motion(state, focus, &TouchMotionEvent { slot, location, time });
+    touch.frame(state);
+}
+
+fn handle_touch_up<B: InputBackend>(state: &mut State, event: &B::TouchUpEvent) {
+    let slot = event.slot();
+    process_touch_up(state, slot, event.time_msec());
+}
+
+/// Core touch-down logic shared by backend input events and EIS.
+///
+/// When the touch lands on an SSD area (titlebar, resize border, buttons),
+/// the compositor handles the interaction directly — mirroring the pointer
+/// button-press SSD logic.  Otherwise the event is forwarded to the Wayland
+/// client surface under the touch point.
+pub(crate) fn process_touch_down(
+    state: &mut State,
+    location: Point<f64, Logical>,
+    slot: smithay::backend::input::TouchSlot,
+    time: u32,
+) {
+    let serial = SERIAL_COUNTER.next_serial();
+    let focus = surface_under_point(state, location);
+
+    // If there is a client surface, forward the event and return.
+    if focus.is_some() {
+        // Touch on a client surface — also set keyboard focus
+        if let Some(PointerHitResult::ClientArea(window, _)) =
+            Some(decorations::pointer_hit_test(&state.space, location))
+                .filter(|r| matches!(r, PointerHitResult::ClientArea(..)))
+        {
+            focus_and_raise(state, &window, serial);
+        }
+
+        let touch = state.touch();
+        touch.down(state, focus, &TouchDownEvent { slot, location, serial, time });
+        touch.frame(state);
+        return;
+    }
+
+    // No client surface — check SSD areas.
+    match decorations::pointer_hit_test(&state.space, location) {
+        PointerHitResult::Ssd(window, ssd_focus) if ssd_focus.is_resize() => {
+            // Modal child blocks resize on parent.
+            if state.find_modal_child(&window).is_some() {
+                focus_and_raise(state, &window, serial);
+                return;
+            }
+            let keyboard = state.keyboard();
+            keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(window.clone())), serial);
+            state.space.raise_element(&window, true);
+            crate::grabs::handle_touch_resize_request(state, &window, ssd_focus, location, slot, serial);
+        }
+        PointerHitResult::Ssd(window, Focus::Header) => {
+            if state.find_modal_child(&window).is_some() {
+                focus_and_raise(state, &window, serial);
+                return;
+            }
+
+            let window_loc = state.space.element_location(&window).unwrap_or_default();
+            let client_size = window.geometry().size;
+            let titlebar_loc = window_loc - Point::from((0, decorations::TITLEBAR_HEIGHT));
+            let deco_click = decorations::titlebar_button_hit_test(location, titlebar_loc, client_size)
+                .unwrap_or(DecorationClick::TitleBar);
+
+            match deco_click {
+                DecorationClick::Close | DecorationClick::Maximize | DecorationClick::Minimize => {
+                    // Defer action to touch-up (user can cancel by moving finger away).
+                    let keyboard = state.keyboard();
+                    keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(window.clone())), serial);
+                    state.space.raise_element(&window, true);
+                    state.touch_ssd_button = Some((window, deco_click, slot, location));
+                }
+                DecorationClick::TitleBar => {
+                    // Focus + raise, then start a touch move grab.
+                    let keyboard = state.keyboard();
+                    keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(window.clone())), serial);
+                    state.space.raise_element(&window, true);
+                    crate::grabs::handle_touch_move_request(state, &window, location, slot, serial);
+                }
+            }
+        }
+        PointerHitResult::Ssd(_, _) => {
+            // Exhaustive: all Focus variants are covered above.
+        }
+        PointerHitResult::ClientArea(..) | PointerHitResult::Empty => {
+            // No SSD hit — forward as a touch on empty space (focus: None).
+            let touch = state.touch();
+            touch.down(state, None, &TouchDownEvent { slot, location, serial, time });
+            touch.frame(state);
+        }
+    }
+}
+
+/// Core touch-up logic shared by backend input events and EIS.
+///
+/// Handles deferred SSD button actions (close/maximize/minimize) — the button
+/// fires on touch-up if the finger is still over the same button.
+pub(crate) fn process_touch_up(state: &mut State, slot: smithay::backend::input::TouchSlot, time: u32) {
+    let serial = SERIAL_COUNTER.next_serial();
+
+    // Deferred SSD button action (mirrors pointer's pressed_titlebar_button).
+    // Only consume the pending state when the *same* touch slot is lifted.
+    if state.touch_ssd_button.as_ref().is_some_and(|(_, _, s, _)| *s == slot) {
+        let (window, pending_click, _, last_pos) = state.touch_ssd_button.take().unwrap();
+        // Only fire the action if the finger is still over the *same*
+        // button — matching pointer release behaviour.
+        let still_over_same = (|| {
+            let window_loc = state.space.element_location(&window)?;
+            let client_size = window.geometry().size;
+            let titlebar_loc = window_loc - Point::from((0, decorations::TITLEBAR_HEIGHT));
+            decorations::titlebar_button_hit_test(last_pos, titlebar_loc, client_size)
+        })()
+        .is_some_and(|hit| hit == pending_click);
+
+        if still_over_same {
+            handle_decoration_click(state, &window, pending_click, serial, BTN_LEFT);
+        }
+        return;
+    }
+
+    let touch = state.touch();
+    touch.up(state, &TouchUpEvent { slot, serial, time });
+    touch.frame(state);
+}
+
 /// Update the compositor's cursor shape based on what the pointer hovers over.
 ///
 /// Uses the unified [`pointer_hit_test`](decorations::pointer_hit_test) to
@@ -582,26 +755,34 @@ fn maximize_x11_window(state: &mut State, window: &Window, x11: &smithay::xwayla
 /// For client-area hits, resolves the specific `WlSurface` (subsurface, popup,
 /// or toplevel) under the cursor.
 pub(crate) fn surface_under(state: &State) -> Option<(PointerFocusTarget, Point<f64, Logical>)> {
-    let output = state.output_at_point(state.pointer_location);
+    surface_under_point(state, state.pointer_location)
+}
+
+/// Find the surface under the given point in global compositor coordinates.
+pub(crate) fn surface_under_point(
+    state: &State,
+    location: Point<f64, Logical>,
+) -> Option<(PointerFocusTarget, Point<f64, Logical>)> {
+    let output = state.output_at_point(location);
     let output_geo = state.space.output_geometry(output).unwrap_or_default();
 
     // Check Overlay and Top layer surfaces first (above windows)
-    if let Some(hit) = layer_surface_under(output, output_geo, state.pointer_location, WlrLayer::Overlay)
-        .or_else(|| layer_surface_under(output, output_geo, state.pointer_location, WlrLayer::Top))
+    if let Some(hit) = layer_surface_under(output, output_geo, location, WlrLayer::Overlay)
+        .or_else(|| layer_surface_under(output, output_geo, location, WlrLayer::Top))
     {
         return Some(hit);
     }
 
     // Check windows (existing SSD-aware hit-test)
-    match decorations::pointer_hit_test(&state.space, state.pointer_location) {
+    match decorations::pointer_hit_test(&state.space, location) {
         PointerHitResult::ClientArea(window, render_loc) => {
-            let point_in_window = state.pointer_location - render_loc.to_f64();
+            let point_in_window = location - render_loc.to_f64();
 
             if let Some((surface, surface_offset)) = window.surface_under(point_in_window, WindowSurfaceType::ALL) {
                 let surface_global = render_loc + surface_offset;
                 tracing::trace!(
-                    pointer_x = state.pointer_location.x,
-                    pointer_y = state.pointer_location.y,
+                    location_x = location.x,
+                    location_y = location.y,
                     render_loc_x = render_loc.x,
                     render_loc_y = render_loc.y,
                     in_window_x = point_in_window.x,
@@ -615,8 +796,8 @@ pub(crate) fn surface_under(state: &State) -> Option<(PointerFocusTarget, Point<
                 return Some((PointerFocusTarget::Surface(surface), surface_global.to_f64()));
             }
             tracing::trace!(
-                pointer_x = state.pointer_location.x,
-                pointer_y = state.pointer_location.y,
+                location_x = location.x,
+                location_y = location.y,
                 render_loc_x = render_loc.x,
                 render_loc_y = render_loc.y,
                 "surface_under: fallback to window target",
@@ -631,8 +812,8 @@ pub(crate) fn surface_under(state: &State) -> Option<(PointerFocusTarget, Point<
     }
 
     // Check Bottom and Background layer surfaces (below windows)
-    if let Some(hit) = layer_surface_under(output, output_geo, state.pointer_location, WlrLayer::Bottom)
-        .or_else(|| layer_surface_under(output, output_geo, state.pointer_location, WlrLayer::Background))
+    if let Some(hit) = layer_surface_under(output, output_geo, location, WlrLayer::Bottom)
+        .or_else(|| layer_surface_under(output, output_geo, location, WlrLayer::Background))
     {
         return Some(hit);
     }

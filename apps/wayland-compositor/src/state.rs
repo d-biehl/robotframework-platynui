@@ -230,6 +230,15 @@ pub struct State {
     /// (move / double-click) still triggers on press.
     pub pressed_titlebar_button: Option<(Window, crate::decorations::DecorationClick)>,
 
+    /// Active touch interaction with an SSD area (titlebar buttons).
+    ///
+    /// When a touch-down lands on an SSD button (Close/Maximize/Minimize),
+    /// the action is deferred until touch-up — same as pointer buttons.
+    /// Stores `(window, button, initiating slot, last-known touch position)`
+    /// so that touch-up can verify the finger is still over the same button.
+    pub touch_ssd_button:
+        Option<(Window, crate::decorations::DecorationClick, smithay::backend::input::TouchSlot, Point<f64, Logical>)>,
+
     /// Open right-click context menu on an SSD titlebar (if any).
     pub context_menu: Option<crate::decorations::TitlebarContextMenu>,
 
@@ -442,6 +451,7 @@ impl State {
         let mut seat = seat_state.new_wl_seat(&dh, "seat0");
         seat.add_keyboard(xkb_config, KEY_REPEAT_DELAY_MS, KEY_REPEAT_RATE).expect("Failed to add keyboard to seat");
         seat.add_pointer();
+        seat.add_touch();
 
         let mut space = Space::default();
 
@@ -594,6 +604,7 @@ impl State {
             last_focused_window: None,
             last_titlebar_click: None,
             pressed_titlebar_button: None,
+            touch_ssd_button: None,
             context_menu: None,
             output,
             outputs,
@@ -656,6 +667,17 @@ impl State {
     #[must_use]
     pub fn pointer(&self) -> smithay::input::pointer::PointerHandle<Self> {
         self.seat.get_pointer().expect("seat has no pointer capability")
+    }
+
+    /// Get the touch handle from the seat.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the seat has no touch capability.  This should never
+    /// happen because `State::new()` unconditionally adds touch.
+    #[must_use]
+    pub fn touch(&self) -> smithay::input::touch::TouchHandle<Self> {
+        self.seat.get_touch().expect("seat has no touch capability")
     }
 
     /// Compute the combined bounding box of all outputs in the compositor space.

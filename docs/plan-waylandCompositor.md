@@ -700,6 +700,52 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 ---
 
+### Phase 3d: Touch-Input & SSD-Touch-Interaktion (~385 LoC) ✅ ERLEDIGT
+
+*Ziel: Vollständige Touchscreen-Unterstützung im Compositor — Touch-Events werden korrekt an Clients weitergeleitet, SSD-Fensterdekorationen (Move, Resize, Close/Maximize/Minimize-Buttons) reagieren auf Touch-Gesten mit dem gleichen Verhalten wie Pointer-Input. Multi-Slot-Isolation und korrekte Koordinaten-Transformation über alle Input-Quellen (Backend + EIS).*
+
+> **Status (2025-07-04):** Alle Steps abgeschlossen. Clippy clean, 27 Tests sauber.
+
+**Touch-Grundlagen:**
+
+19aq. ✅ **Touch-Capability am Seat** (`src/state.rs`): `seat.add_touch()` in `State::new()` direkt nach `add_keyboard()` und `add_pointer()`. Helper-Methode `touch() → TouchHandle<Self>` analog zu `pointer()`. (~8 LoC)
+
+19ar. ✅ **Backend-Touch-Handler** (`src/input.rs`): `handle_touch_down()`, `handle_touch_motion()`, `handle_touch_up()` — generische Handler für `InputBackend`-Events. Koordinaten-Transformation über `combined_output_geometry()` (gleich wie `handle_pointer_motion_absolute`) — Touch-Events sind absolut und umspannen alle Monitore, unabhängig von der Mausposition. (~24 LoC)
+
+19as. ✅ **EIS-Touch-Handler** (`src/eis.rs`): `handle_eis_touch_down()`, `handle_eis_touch_motion()`, `handle_eis_touch_up()` — delegieren an die gleichen `process_touch_*()` Shared-Funktionen wie die Backend-Handler. `TouchSlot` wird aus `touch_id` konstruiert. Einheitliches Verhalten für Backend und libei-Input. (~26 LoC)
+
+19at. ✅ **Shared Touch-Processing** (`src/input.rs`): `process_touch_down()`, `process_touch_motion()`, `process_touch_up()` als `pub(crate)` Funktionen — zentrale Touch-Logik, genutzt von Backend- und EIS-Handlern. (~129 LoC)
+  - `process_touch_down()` (~83 LoC): Hit-Test via `surface_under_point()` → Client-Surface (Keyboard-Fokus setzen + `touch.down()`), SSD-Resize-Region (`handle_touch_resize_request()`), SSD-Titlebar-Buttons (Close/Max/Min → deferred in `touch_ssd_button`), SSD-Titlebar (`handle_touch_move_request()`), leerer Bereich (`touch.down(focus=None)`).
+  - `process_touch_motion()` (~19 LoC): Aktualisiert Position in `touch_ssd_button` falls Slot übereinstimmt. Hit-Test + `touch.motion()`.
+  - `process_touch_up()` (~27 LoC): Prüft ob Slot zum deferred SSD-Button passt → nur der initiierende Finger löst die Button-Aktion aus. Hit-Test gegen `titlebar_button_hit_test()` verifiziert dass der Finger noch über dem gleichen Button ist (analog zu Pointer-Release-Verhalten). Sonst `touch.up()`.
+
+19au. ✅ **`surface_under_point()` Refactoring** (`src/input.rs`): Zentraler Hit-Test extrahiert als `pub(crate)` Funktion — Overlay/Top-Layer → Windows (SSD-aware) → Bottom/Background-Layer. Subsurface/Popup/Toplevel-Auflösung. Wird von allen Touch- und Pointer-Handlern genutzt. (~50 LoC)
+
+**SSD-Touch-Grabs:**
+
+19av. ✅ **`TouchMoveSurfaceGrab`** (`src/grabs.rs`): Touch-Move-Grab für SSD-Titelleisten-Drag — analog zu `MoveSurfaceGrab` für Pointer. (~100 LoC)
+  - Tracking nur des initiierenden Slots (zusätzliche Touch-Punkte werden ignoriert)
+  - **Inkrementelle Deltas mit Re-Anchoring**: `start_data.location` wird nach jedem Frame auf `event.location` aktualisiert → Frame-zu-Frame-Delta statt kumulativer Drift vom Grab-Start. Verhindert Fenstersprünge bei Rückkehr aus Dead-Zones in L-förmigen Multi-Monitor-Setups.
+  - **Dual-Output-Check**: Fenster wird nur bewegt wenn sowohl aktuelle als auch vorherige Position auf einem gültigen Output liegen (`on_output && was_on_output`). Analoges Muster zum Pointer-`MoveSurfaceGrab`.
+  - X11-Client-Konfiguration bei Grab-Ende (`up()` + `unset()`).
+
+19aw. ✅ **`TouchResizeSurfaceGrab`** (`src/grabs.rs`): Touch-Resize-Grab für SSD-Resize-Regionen — analog zu `ResizeSurfaceGrab` für Pointer. (~141 LoC)
+  - Tracking nur des initiierenden Slots
+  - Alle 12 Resize-Richtungen (8 Ecken + 4 Kanten) via `Focus`-Enum-Matching
+  - Minimum-Size-Constraints
+  - `Resizing`-State auf `xdg_toplevel` setzen/entfernen
+  - X11-Surface-Konfiguration mit finalem `Rectangle`
+
+19ax. ✅ **Touch-Grab-Einstiegspunkte** (`src/grabs.rs`): `handle_touch_move_request()` und `handle_touch_resize_request()` — erstellen `TouchGrabStartData` und setzen den Grab via `touch.set_grab()`. (~34 LoC)
+
+**Deferred SSD-Button-Aktionen:**
+
+19ay. ✅ **`touch_ssd_button` State** (`src/state.rs`): `Option<(Window, DecorationClick, TouchSlot, Point<f64, Logical>)>` — speichert bei Touch-Down auf SSD-Buttons: Fenster, Button-Typ, initiierenden Slot und kontinuierlich aktualisierte Finger-Position. Button-Aktion wird erst bei Touch-Up ausgelöst (nach Slot- und Position-Verifikation). Analoges Pattern zu `pressed_titlebar_button` für Pointer. (~4 LoC)
+
+**Meilenstein 3d:** ✅ Touch-Events werden korrekt an Wayland-Clients weitergeleitet. SSD-Fensterdekorationen reagieren auf Touch: Titelleisten-Drag (Move), Rand-Drag (Resize), Close/Maximize/Minimize-Buttons mit deferred Action + Slot-Verifikation. Multi-Slot-Isolation: nur der initiierende Finger steuert Grabs und Button-Aktionen. Koordinaten-Transformation korrekt über alle Input-Quellen. Dead-Zone-Schutz bei Multi-Monitor-Move. ~385 LoC über 4 Dateien (input.rs, grabs.rs, eis.rs, state.rs).
+
+---
+
 ### Phase 4: Platform-Crate (`crates/platform-linux-wayland/`, ~2.000 LoC, ~2 Wochen) ⬜ OFFEN
 
 *Ziel: PlatynUI kann unter Wayland Fenster finden, Input injizieren, Screenshots machen und Highlight-Overlays anzeigen.*
@@ -836,6 +882,8 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 - Phase 3a: ✅ ERLEDIGT. Control-Socket JSON via typisierter `serde`-Structs (19f). ~595 Zeilen Code-Duplikation eliminiert (19f₂). Kommentar-Review (19f₃). Focus-Loss Input Release (19f₄). Software-Cursor für SSD-Resize (19f₅). Session-Scripts AT-SPI-Fix (19f₆). Steps 19g–19z komplett: Protokoll-Korrektheit (Screencopy, Output-Management), Unwrap-Eliminierung, Error-Handling, Tracing, Dead Code, Magic Numbers, DRM Multi-Monitor-Positionierung. 1883 Tests grün.
 - Phase 3a+: ✅ ERLEDIGT. Popup-Korrekturen (SSD, Layer-Shell, X11), VNC-Cursor-Rendering, Virtual-Pointer-Mapping, DRM Multi-Monitor-Overhaul, X11-Maximize-Größenwiederherstellung, Output-Resize-Reconfigure, Floating-Fenster-Clamping. ~14.500 LoC, 1883 Tests grün.
 - Phase 3b: ✅ Tier 1 + Tier 2 + Tier 3 komplett (15 Protokolle, 43 Globals). ✅ tearing-control + toplevel-drag Stubs. ✅ Tier 3: toplevel-icon (volle Pixel-Pipeline mit SSD-Titlebar-Rendering), toplevel-tag (In-Memory-Speicherung), ext-foreign-toplevel-list (bereits in Phase 3). ✅ ext-data-control-v1 (standardisierte Clipboard-Kontrolle parallel zu wlr-data-control). ✅ EIS-Test-Client (Step 17b): `platynui-eis-test-client` mit Portal-Support (Mutter/KWin), Restore-Token-Persistenz (`persist_mode=2`), 13 Subcommands (inkl. Touch + Human-readable Keys + Shortcuts + **type-text**), interaktiver REPL-Modus (reedline, 14 Kommandos inkl. type-text), reis-Bug-Workaround (manueller EiEventConverter), ~1.780 LoC. ✅ `platynui-xkb-util` Crate (~506 LoC, 9 Tests): XKB-Reverse-Lookup (`KeymapLookup`: char→keycode+modifiers), `KeyAction` enum (`Simple`/`Compose`), Compose-Table-Support (Dead-Keys für Akzente/Sonderzeichen). ✅ EIS-Server (Step 17, ~370 LoC): Vollständiger EIS-Server mit allen Input-Capabilities (pointer, pointer_absolute, button, scroll, keyboard, touchscreen), XKB-Keymap-Propagation, Regions, Single-Client. ✅ Performance-Optimierung: Press/Release-Gap 20ms→2ms, Settle-Time 50ms→10ms, Modifier-Batching (~10× schneller). Gegen GNOME/Mutter validiert: move-by, click, key, scroll, type-text funktionieren. Erkenntnisse in `docs/eis-libei.md` dokumentiert. 1883 Tests grün.
+- Phase 3c: ✅ ERLEDIGT. Winit-Fenster-Verbesserungen (Titel, Adwaita-CSD, System-Theme via zbus, eingebettetes Icon). Einheitliche `org.platynui.*` App-IDs. `.desktop`-Dateien + `just install-desktop`. Justfile als Task-Runner (~113 Zeilen) + `docs/development.md` (~95 Zeilen).
+- Phase 3d: ✅ ERLEDIGT. Vollständige Touchscreen-Unterstützung: `seat.add_touch()`, Backend- + EIS-Touch-Handler mit shared `process_touch_*()` Funktionen, `surface_under_point()` Refactoring, `TouchMoveSurfaceGrab` (inkrementelle Deltas + Dead-Zone-Schutz) + `TouchResizeSurfaceGrab` (12 Resize-Richtungen), deferred SSD-Button-Aktionen mit Slot-Verifikation + Position-Tracking. Koordinaten via `combined_output_geometry()` (nicht Pointer-abhängig). Multi-Slot-Isolation. ~385 LoC über 4 Dateien, 27 Tests grün.
 - Phase 4: `cargo nextest run -p platynui-platform-linux-wayland` — alle Traits getestet, Koordinaten-Transformation korrekt für Wayland-native und XWayland-Apps
 - Phase 5: VNC/RDP eingebaut — Headless-Debugging ohne externe Tools möglich
 - Phase 6: `cargo nextest run --all` — gesamte Suite grün, inkl. Wayland-Tests. CI-Scripts funktionieren.

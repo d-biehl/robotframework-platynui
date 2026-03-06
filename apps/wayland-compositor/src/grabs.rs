@@ -1,6 +1,7 @@
-//! Pointer grabs for interactive window move and resize.
+//! Pointer and touch grabs for interactive window move and resize.
 
 use smithay::{
+    backend::input::TouchSlot,
     desktop::Window,
     input::{
         SeatHandler,
@@ -10,9 +11,13 @@ use smithay::{
             GestureSwipeEndEvent, GestureSwipeUpdateEvent, GrabStartData, MotionEvent, PointerGrab, PointerInnerHandle,
             RelativeMotionEvent,
         },
+        touch::{
+            DownEvent as TouchDownEvent, GrabStartData as TouchGrabStartData, MotionEvent as TouchMotionEvent,
+            OrientationEvent, ShapeEvent, TouchGrab, TouchInnerHandle, UpEvent as TouchUpEvent,
+        },
     },
     reexports::wayland_protocols::xdg::shell::server::xdg_toplevel,
-    utils::{Logical, Point, Size},
+    utils::{Logical, Point, Serial, Size},
 };
 
 use crate::{decorations::Focus, input::BTN_LEFT, state::State};
@@ -565,4 +570,310 @@ pub fn handle_resize_request(
 
     pointer.set_grab(data, grab, serial, GrabFocus::Clear);
     true
+}
+
+// ===========================================================================
+// Touch grabs
+// ===========================================================================
+
+/// A touch grab that moves a window interactively.
+///
+/// Initiated when touch-down lands on an SSD titlebar.  The window follows
+/// the touch point until touch-up ends the grab.
+pub struct TouchMoveSurfaceGrab {
+    pub start_data: TouchGrabStartData<State>,
+    pub window: Window,
+    pub initial_window_location: Point<i32, Logical>,
+}
+
+impl TouchGrab<State> for TouchMoveSurfaceGrab {
+    fn down(
+        &mut self,
+        _data: &mut State,
+        _handle: &mut TouchInnerHandle<'_, State>,
+        _focus: Option<(<State as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
+        _event: &TouchDownEvent,
+        _seq: Serial,
+    ) {
+        // Additional touch points during a move grab are ignored.
+    }
+
+    fn up(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, event: &TouchUpEvent, _seq: Serial) {
+        // End the grab when the initiating touch slot is lifted.
+        if event.slot == self.start_data.slot {
+            // Tell X11 clients their final position.
+            if let Some(x11) = self.window.x11_surface()
+                && let Some(loc) = data.space.element_location(&self.window)
+            {
+                let size = x11.geometry().size;
+                if let Err(err) = x11.configure(smithay::utils::Rectangle::new(loc, size)) {
+                    tracing::warn!(%err, "failed to configure X11 window after touch move");
+                }
+            }
+            handle.unset_grab(self, data);
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn motion(
+        &mut self,
+        data: &mut State,
+        handle: &mut TouchInnerHandle<'_, State>,
+        _focus: Option<(<State as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
+        event: &TouchMotionEvent,
+        seq: Serial,
+    ) {
+        handle.motion(data, None, event, seq);
+
+        // Only track the initiating slot.
+        if event.slot != self.start_data.slot {
+            return;
+        }
+
+        let delta = event.location - self.start_data.location;
+        let prev_location = self.start_data.location;
+
+        // Re-anchor so the next frame's delta is frame-to-frame only
+        // (same as the pointer move grab — crucial for dead-zone handling).
+        self.start_data = TouchGrabStartData { focus: None, slot: self.start_data.slot, location: event.location };
+
+        // Only move when both the current and previous touch position are
+        // on a valid output.  This prevents jumps when dragging across
+        // dead zones in L-shaped multi-monitor layouts.
+        let on_output = data.point_in_any_output(event.location);
+        let was_on_output = data.point_in_any_output(prev_location);
+
+        if on_output && was_on_output {
+            let new_location = self.initial_window_location + Point::from((delta.x as i32, delta.y as i32));
+            self.initial_window_location = new_location;
+            data.space.map_element(self.window.clone(), new_location, true);
+        }
+    }
+
+    fn frame(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, seq: Serial) {
+        handle.frame(data, seq);
+    }
+
+    fn cancel(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, seq: Serial) {
+        handle.cancel(data, seq);
+    }
+
+    fn shape(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, event: &ShapeEvent, seq: Serial) {
+        handle.shape(data, event, seq);
+    }
+
+    fn orientation(
+        &mut self,
+        data: &mut State,
+        handle: &mut TouchInnerHandle<'_, State>,
+        event: &OrientationEvent,
+        seq: Serial,
+    ) {
+        handle.orientation(data, event, seq);
+    }
+
+    fn start_data(&self) -> &TouchGrabStartData<State> {
+        &self.start_data
+    }
+
+    fn unset(&mut self, _data: &mut State) {}
+}
+
+/// A touch grab that resizes a window interactively.
+///
+/// Initiated when touch-down lands on an SSD resize border.  The window is
+/// resized by tracking the delta from the initial touch position.
+pub struct TouchResizeSurfaceGrab {
+    pub start_data: TouchGrabStartData<State>,
+    pub window: Window,
+    pub focus: Focus,
+    pub initial_window_location: Point<i32, Logical>,
+    pub initial_window_size: Size<i32, Logical>,
+}
+
+impl TouchGrab<State> for TouchResizeSurfaceGrab {
+    fn down(
+        &mut self,
+        _data: &mut State,
+        _handle: &mut TouchInnerHandle<'_, State>,
+        _focus: Option<(<State as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
+        _event: &TouchDownEvent,
+        _seq: Serial,
+    ) {
+        // Additional touch points during a resize grab are ignored.
+    }
+
+    fn up(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, event: &TouchUpEvent, _seq: Serial) {
+        if event.slot == self.start_data.slot {
+            // Remove resizing state.
+            if let Some(toplevel) = self.window.toplevel() {
+                toplevel.with_pending_state(|s| {
+                    s.states.unset(xdg_toplevel::State::Resizing);
+                });
+                toplevel.send_configure();
+            }
+            if let Some(x11) = self.window.x11_surface()
+                && let Err(err) = x11.configure(None)
+            {
+                tracing::warn!(%err, "failed to configure X11 window after touch resize");
+            }
+            handle.unset_grab(self, data);
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn motion(
+        &mut self,
+        data: &mut State,
+        handle: &mut TouchInnerHandle<'_, State>,
+        _focus: Option<(<State as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
+        event: &TouchMotionEvent,
+        seq: Serial,
+    ) {
+        handle.motion(data, None, event, seq);
+
+        if event.slot != self.start_data.slot {
+            return;
+        }
+
+        let delta = event.location - self.start_data.location;
+        let dx = delta.x as i32;
+        let dy = delta.y as i32;
+
+        let (mut new_w, mut new_h) = (self.initial_window_size.w, self.initial_window_size.h);
+        let (mut new_x, mut new_y) = (self.initial_window_location.x, self.initial_window_location.y);
+
+        match self.focus {
+            Focus::ResizeLeft | Focus::ResizeTopLeft | Focus::ResizeBottomLeft => {
+                new_w -= dx;
+                new_x += dx;
+            }
+            Focus::ResizeRight | Focus::ResizeTopRight | Focus::ResizeBottomRight => {
+                new_w += dx;
+            }
+            _ => {}
+        }
+
+        match self.focus {
+            Focus::ResizeTop | Focus::ResizeTopLeft | Focus::ResizeTopRight => {
+                new_h -= dy;
+                new_y += dy;
+            }
+            Focus::ResizeBottom | Focus::ResizeBottomLeft | Focus::ResizeBottomRight => {
+                new_h += dy;
+            }
+            _ => {}
+        }
+
+        if new_w < MIN_WINDOW_WIDTH {
+            if new_x != self.initial_window_location.x {
+                new_x -= MIN_WINDOW_WIDTH - new_w;
+            }
+            new_w = MIN_WINDOW_WIDTH;
+        }
+        if new_h < MIN_WINDOW_HEIGHT {
+            if new_y != self.initial_window_location.y {
+                new_y -= MIN_WINDOW_HEIGHT - new_h;
+            }
+            new_h = MIN_WINDOW_HEIGHT;
+        }
+
+        if let Some(toplevel) = self.window.toplevel() {
+            toplevel.with_pending_state(|s| {
+                s.states.set(xdg_toplevel::State::Resizing);
+                s.size = Some(Size::from((new_w, new_h)));
+            });
+            toplevel.send_configure();
+        }
+
+        if let Some(x11) = self.window.x11_surface()
+            && let Err(err) =
+                x11.configure(smithay::utils::Rectangle::new((new_x, new_y).into(), (new_w, new_h).into()))
+        {
+            tracing::warn!(%err, "failed to configure X11 window during touch resize");
+        }
+
+        data.space.map_element(self.window.clone(), (new_x, new_y), true);
+    }
+
+    fn frame(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, seq: Serial) {
+        handle.frame(data, seq);
+    }
+
+    fn cancel(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, seq: Serial) {
+        handle.cancel(data, seq);
+    }
+
+    fn shape(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, event: &ShapeEvent, seq: Serial) {
+        handle.shape(data, event, seq);
+    }
+
+    fn orientation(
+        &mut self,
+        data: &mut State,
+        handle: &mut TouchInnerHandle<'_, State>,
+        event: &OrientationEvent,
+        seq: Serial,
+    ) {
+        handle.orientation(data, event, seq);
+    }
+
+    fn start_data(&self) -> &TouchGrabStartData<State> {
+        &self.start_data
+    }
+
+    fn unset(&mut self, data: &mut State) {
+        if let Some(x11) = self.window.x11_surface()
+            && let Some(loc) = data.space.element_location(&self.window)
+        {
+            let size = x11.geometry().size;
+            if let Err(err) = x11.configure(smithay::utils::Rectangle::new(loc, size)) {
+                tracing::warn!(%err, "failed to configure X11 window after touch resize");
+            }
+        }
+    }
+}
+
+/// Start a touch move grab on the given window.
+pub fn handle_touch_move_request(
+    data: &mut State,
+    window: &Window,
+    location: Point<f64, Logical>,
+    slot: TouchSlot,
+    serial: Serial,
+) {
+    let initial_window_location = data.space.element_location(window).unwrap_or_default();
+
+    let start_data = TouchGrabStartData { focus: None, slot, location };
+
+    let grab = TouchMoveSurfaceGrab { start_data, window: window.clone(), initial_window_location };
+
+    let touch = data.touch();
+    touch.set_grab(data, grab, serial);
+}
+
+/// Start a touch resize grab on the given window.
+pub fn handle_touch_resize_request(
+    data: &mut State,
+    window: &Window,
+    focus: Focus,
+    location: Point<f64, Logical>,
+    slot: TouchSlot,
+    serial: Serial,
+) {
+    let initial_window_location = data.space.element_location(window).unwrap_or_default();
+    let initial_window_size = window.geometry().size;
+
+    let start_data = TouchGrabStartData { focus: None, slot, location };
+
+    let grab = TouchResizeSurfaceGrab {
+        start_data,
+        window: window.clone(),
+        focus,
+        initial_window_location,
+        initial_window_size,
+    };
+
+    let touch = data.touch();
+    touch.set_grab(data, grab, serial);
 }

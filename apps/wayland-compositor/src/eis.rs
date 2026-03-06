@@ -13,7 +13,7 @@ use reis::calloop::{EisListenerSource, EisRequestSource, EisRequestSourceEvent};
 use reis::eis;
 use reis::enumflags2::BitFlags;
 use reis::request::{Connection, Device, EisRequest};
-use smithay::backend::input::{ButtonState, KeyState};
+use smithay::backend::input::{ButtonState, KeyState, TouchSlot};
 use smithay::input::keyboard::{FilterResult, xkb};
 use smithay::input::pointer::{AxisFrame, MotionEvent};
 use smithay::utils::{Point, SERIAL_COUNTER};
@@ -140,9 +140,9 @@ fn handle_eis_request(request: &EisRequest, connection: &Connection, state: &mut
         EisRequest::ScrollDiscrete(s) => handle_eis_scroll_discrete(s, state),
         EisRequest::ScrollStop(s) => handle_eis_scroll_stop(s, state),
         EisRequest::KeyboardKey(k) => handle_eis_keyboard_key(k, state),
-        EisRequest::TouchDown(t) => handle_eis_touch_down(t),
-        EisRequest::TouchMotion(t) => handle_eis_touch_motion(t),
-        EisRequest::TouchUp(t) => handle_eis_touch_up(t),
+        EisRequest::TouchDown(t) => handle_eis_touch_down(t, state),
+        EisRequest::TouchMotion(t) => handle_eis_touch_motion(t, state),
+        EisRequest::TouchUp(t) => handle_eis_touch_up(t, state),
         EisRequest::DeviceStartEmulating(_)
         | EisRequest::DeviceStopEmulating(_)
         | EisRequest::Frame(_)
@@ -346,18 +346,33 @@ fn handle_eis_keyboard_key(key: &reis::request::KeyboardKey, state: &mut State) 
     keyboard.input::<(), _>(state, keycode, key_state, serial, time, |_, _, _| FilterResult::Forward);
 }
 
-// TODO: Inject touch events into Smithay's input stack (similar to keyboard/pointer).
-// Requires creating a TouchHandle or using the seat's touch interface.
-fn handle_eis_touch_down(touch: &reis::request::TouchDown) {
-    tracing::debug!(touch_id = touch.touch_id, x = touch.x, y = touch.y, "EIS touch down (not yet injected into Smithay)");
+fn handle_eis_touch_down(touch: &reis::request::TouchDown, state: &mut State) {
+    let location = Point::from((f64::from(touch.x), f64::from(touch.y)));
+    let time = eis_time_to_msec(touch.time);
+    let slot = TouchSlot::from(Some(touch.touch_id));
+
+    tracing::debug!(touch_id = touch.touch_id, x = touch.x, y = touch.y, "EIS touch down");
+
+    input::process_touch_down(state, location, slot, time);
 }
 
-fn handle_eis_touch_motion(touch: &reis::request::TouchMotion) {
-    tracing::debug!(touch_id = touch.touch_id, x = touch.x, y = touch.y, "EIS touch motion (not yet injected into Smithay)");
+fn handle_eis_touch_motion(touch: &reis::request::TouchMotion, state: &mut State) {
+    let location = Point::from((f64::from(touch.x), f64::from(touch.y)));
+    let time = eis_time_to_msec(touch.time);
+    let slot = TouchSlot::from(Some(touch.touch_id));
+
+    tracing::trace!(touch_id = touch.touch_id, x = touch.x, y = touch.y, "EIS touch motion");
+
+    input::process_touch_motion(state, location, slot, time);
 }
 
-fn handle_eis_touch_up(touch: &reis::request::TouchUp) {
-    tracing::debug!(touch_id = touch.touch_id, "EIS touch up (not yet injected into Smithay)");
+fn handle_eis_touch_up(touch: &reis::request::TouchUp, state: &mut State) {
+    let time = eis_time_to_msec(touch.time);
+    let slot = TouchSlot::from(Some(touch.touch_id));
+
+    tracing::debug!(touch_id = touch.touch_id, "EIS touch up");
+
+    input::process_touch_up(state, slot, time);
 }
 
 // ---------------------------------------------------------------------------
