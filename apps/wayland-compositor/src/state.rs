@@ -150,6 +150,12 @@ pub struct State {
     pub pointer_warp_global: smithay::reexports::wayland_server::backend::GlobalId,
     pub output_management_global: smithay::reexports::wayland_server::backend::GlobalId,
 
+    // -- EIS (Emulated Input Server) --
+    /// The virtual device created for the active EIS client (if any).
+    pub eis_client_device: Option<reis::request::Device>,
+    /// Calloop registration token for the active EIS client's request source.
+    pub eis_client_token: Option<smithay::reexports::calloop::RegistrationToken>,
+
     /// Weak references to all bound output management instances.
     ///
     /// Used to send `finished` events on old head/mode objects and re-send
@@ -563,6 +569,8 @@ impl State {
             virtual_pointer_global,
             pointer_warp_global,
             output_management_global,
+            eis_client_device: None,
+            eis_client_token: None,
             output_managers: Vec::new(),
             screencopy_globals,
             pending_captures: HashMap::new(),

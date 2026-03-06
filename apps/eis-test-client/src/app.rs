@@ -40,6 +40,14 @@ struct Cli {
     #[arg(long = "log-level", value_enum, global = true)]
     log_level: Option<LogLevel>,
 
+    /// XKB keyboard layout for text typing (default: from EIS device keymap, then `XKB_DEFAULT_LAYOUT`, then `us`).
+    #[arg(long = "keyboard-layout", global = true)]
+    keyboard_layout: Option<String>,
+
+    /// XKB keyboard variant (e.g. `nodeadkeys`, `intl`).
+    #[arg(long = "keyboard-variant", global = true)]
+    keyboard_variant: Option<String>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -94,6 +102,13 @@ enum Command {
         /// Key name (e.g. `a`, `enter`, `f4`), shortcut (`ctrl+a`, `alt+f4`,
         /// `ctrl+shift+delete`), or raw evdev keycode (`30`).
         key: String,
+    },
+
+    /// Type a text string by mapping each character to its keycode + modifiers
+    /// via XKB reverse lookup. Requires a matching XKB layout (e.g. `de` for umlauts).
+    TypeText {
+        /// The text to type.
+        text: String,
     },
 
     /// Tap at a position (touch down + up).
@@ -226,6 +241,10 @@ fn execute(cli: &Cli) -> anyhow::Result<()> {
             let device = find_device(&connection, &context, &mut converter, DeviceCapability::Keyboard)?;
             send_key_combo(&connection, &device, &modifiers, keycode)
         }
+        Command::TypeText { text } => {
+            let device = find_device(&connection, &context, &mut converter, DeviceCapability::Keyboard)?;
+            send_text(&connection, &device, text, cli.keyboard_layout.as_deref(), cli.keyboard_variant.as_deref())
+        }
         Command::Tap { x, y } => {
             let device = find_device(&connection, &context, &mut converter, DeviceCapability::Touch)?;
             send_touch_tap(&connection, &device, 0, *x, *y)
@@ -251,7 +270,13 @@ fn execute(cli: &Cli) -> anyhow::Result<()> {
                 Ok(())
             })
         }
-        Command::Interactive => cmd_interactive(&connection, &context, &mut converter),
+        Command::Interactive => cmd_interactive(
+            &connection,
+            &context,
+            &mut converter,
+            cli.keyboard_layout.as_deref(),
+            cli.keyboard_variant.as_deref(),
+        ),
         Command::ResetToken => unreachable!("handled before connect"),
     }
 }
@@ -517,7 +542,7 @@ fn send_input(
 
 /// Minimum delay between a press and release event so the compositor
 /// registers the pair as a distinct press-then-release.
-const PRESS_RELEASE_GAP: Duration = Duration::from_millis(20);
+const PRESS_RELEASE_GAP: Duration = Duration::from_millis(2);
 
 /// Send a press/release pair: press → frame → flush → pause → release → frame.
 fn send_press_release(
@@ -587,6 +612,8 @@ fn cmd_interactive(
     connection: &reis::event::Connection,
     context: &ei::Context,
     converter: &mut EiEventConverter,
+    keyboard_layout: Option<&str>,
+    keyboard_variant: Option<&str>,
 ) -> anyhow::Result<()> {
     let devices = wait_for_devices(connection, context, converter)?;
     if devices.is_empty() {
@@ -619,7 +646,9 @@ fn cmd_interactive(
                     if matches!(parts[0], "quit" | "exit" | "q") {
                         break 'repl;
                     }
-                    if let Err(e) = dispatch_interactive(&parts, &devices, connection) {
+                    if let Err(e) =
+                        dispatch_interactive(&parts, &devices, connection, keyboard_layout, keyboard_variant)
+                    {
                         eprintln!("error: {e:#}");
                     }
                 }
@@ -657,17 +686,21 @@ fn capability_list(dev: &reis::event::Device) -> String {
 
 fn print_interactive_help() {
     println!("Commands: move-by <dx> <dy> | move-to <x> <y> | click [left|right|middle]");
-    println!("          scroll <dx> <dy> | key <name|code> | tap <x> <y>");
-    println!("          touch-down [id] <x> <y> | touch-move [id] <x> <y> | touch-up [id]");
-    println!("          probe | keys | quit");
+    println!("          scroll <dx> <dy> | key <name|code> | type-text <text>");
+    println!("          tap <x> <y> | touch-down [id] <x> <y> | touch-move [id] <x> <y>");
+    println!("          touch-up [id] | probe | keys | quit");
     println!("Key examples: key a | key enter | key ctrl+a | key alt+f4 | key 30");
+    println!("Type example: type-text Hello World  (uses XKB layout for char→key mapping)");
 }
 
 /// Parse and execute a single interactive command line.
+#[allow(clippy::too_many_lines)]
 fn dispatch_interactive(
     parts: &[&str],
     devices: &[reis::event::Device],
     connection: &reis::event::Connection,
+    keyboard_layout: Option<&str>,
+    keyboard_variant: Option<&str>,
 ) -> anyhow::Result<()> {
     match parts[0] {
         "move-by" => {
@@ -715,6 +748,17 @@ fn dispatch_interactive(
                 .find(|d| d.has_capability(DeviceCapability::Keyboard))
                 .ok_or_else(|| anyhow!("no device with Keyboard capability"))?;
             send_key_combo(connection, dev, &modifiers, keycode)
+        }
+        "type-text" | "type" => {
+            if parts.len() < 2 {
+                return Err(anyhow!("usage: type-text <text>  (e.g. type-text Hello)"));
+            }
+            let text = parts[1..].join(" ");
+            let dev = devices
+                .iter()
+                .find(|d| d.has_capability(DeviceCapability::Keyboard))
+                .ok_or_else(|| anyhow!("no device with Keyboard capability"))?;
+            send_text(connection, dev, &text, keyboard_layout, keyboard_variant)
         }
         "tap" => {
             let (x, y) = parse_f32_pair(parts, "tap <x> <y>")?;
@@ -1198,6 +1242,155 @@ fn send_key_combo(
     std::thread::sleep(Duration::from_millis(50));
 
     tracing::info!("key combo sent successfully");
+    Ok(())
+}
+
+/// Try to build a [`KeymapLookup`] from the keymap attached to the EIS keyboard device.
+///
+/// Returns `None` if the device has no keymap or the keymap cannot be parsed.
+fn device_keymap_lookup(device: &reis::event::Device) -> Option<platynui_xkb_util::KeymapLookup> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let keymap = device.keymap()?;
+    let size = keymap.size as usize;
+    if size == 0 {
+        tracing::debug!("device keymap has zero size");
+        return None;
+    }
+
+    // Read the keymap string from the fd.
+    let mut file = std::fs::File::from(keymap.fd.try_clone().ok()?);
+    file.seek(SeekFrom::Start(0)).ok()?;
+
+    let mut buf = vec![0u8; size];
+    file.read_exact(&mut buf).ok()?;
+
+    // The keymap may be null-terminated.
+    let text = if buf.last() == Some(&0) { &buf[..buf.len() - 1] } else { &buf[..] };
+    let keymap_str = std::str::from_utf8(text).ok()?;
+
+    match platynui_xkb_util::KeymapLookup::from_string(keymap_str) {
+        Ok(lookup) => {
+            tracing::info!(entries = lookup.len(), "using EIS device keymap for reverse lookup");
+            Some(lookup)
+        }
+        Err(err) => {
+            tracing::warn!(%err, "failed to parse device keymap, falling back to layout name");
+            None
+        }
+    }
+}
+
+/// Type a text string by sending the appropriate key press/release sequences.
+///
+/// Uses XKB reverse lookup to find the keycode + modifiers for each character.
+fn send_text(
+    connection: &reis::event::Connection,
+    device: &reis::event::Device,
+    text: &str,
+    layout: Option<&str>,
+    variant: Option<&str>,
+) -> anyhow::Result<()> {
+    use platynui_xkb_util::xkb;
+    use platynui_xkb_util::{KeyAction, KeyCombination, KeymapLookup, modifier_bit};
+
+    let lookup = if layout.is_none() && variant.is_none() {
+        // Try the keymap from the EIS keyboard device first.
+        device_keymap_lookup(device)
+    } else {
+        None
+    };
+
+    let (lookup, source) = if let Some(lk) = lookup {
+        (lk, String::from("device"))
+    } else {
+        // Fall back to layout name: CLI flag → env var → "us".
+        let env_layout = std::env::var("XKB_DEFAULT_LAYOUT").ok();
+        let layout = layout.or(env_layout.as_deref()).unwrap_or("us");
+
+        let env_variant = std::env::var("XKB_DEFAULT_VARIANT").ok();
+        let variant = variant.or(env_variant.as_deref()).unwrap_or("");
+
+        let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+        let keymap = xkb::Keymap::new_from_names(&context, "", "", layout, variant, None, xkb::KEYMAP_COMPILE_NO_FLAGS)
+            .ok_or_else(|| anyhow!("failed to create XKB keymap for layout '{layout}' variant '{variant}'"))?;
+
+        let source = if variant.is_empty() { layout.to_owned() } else { format!("{layout}({variant})") };
+        (KeymapLookup::new(&keymap), source)
+    };
+
+    tracing::debug!(source, entries = lookup.len(), "XKB reverse lookup built");
+
+    let last_serial = connection.serial();
+    let device_proxy = device.device();
+    let kbd = device.interface::<ei::Keyboard>().expect("capability checked");
+
+    device_proxy.start_emulating(last_serial, 1);
+
+    let send_combo = |combo: &KeyCombination| -> anyhow::Result<()> {
+        let evdev_code = KeymapLookup::evdev_keycode(combo);
+
+        // Determine which modifier keys to press.
+        let mut mod_keys: Vec<u32> = Vec::new();
+        if combo.modifiers & modifier_bit::SHIFT != 0 {
+            mod_keys.push(42); // KEY_LEFTSHIFT
+        }
+        if combo.modifiers & modifier_bit::LEVEL3_SHIFT != 0 {
+            mod_keys.push(100); // KEY_RIGHTALT (AltGr)
+        }
+
+        // Press all modifiers in one frame.
+        if !mod_keys.is_empty() {
+            for &m in &mod_keys {
+                kbd.key(m, ei::keyboard::KeyState::Press);
+            }
+            device_proxy.frame(last_serial, timestamp_us());
+            connection.flush().context("flush failed")?;
+            std::thread::sleep(PRESS_RELEASE_GAP);
+        }
+
+        // Press + release the character key (separate frames).
+        kbd.key(evdev_code, ei::keyboard::KeyState::Press);
+        device_proxy.frame(last_serial, timestamp_us());
+        connection.flush().context("flush failed")?;
+        std::thread::sleep(PRESS_RELEASE_GAP);
+
+        kbd.key(evdev_code, ei::keyboard::KeyState::Released);
+        device_proxy.frame(last_serial, timestamp_us());
+        connection.flush().context("flush failed")?;
+
+        // Release all modifiers in one frame.
+        if !mod_keys.is_empty() {
+            std::thread::sleep(PRESS_RELEASE_GAP);
+            for &m in mod_keys.iter().rev() {
+                kbd.key(m, ei::keyboard::KeyState::Released);
+            }
+            device_proxy.frame(last_serial, timestamp_us());
+            connection.flush().context("flush failed")?;
+        }
+
+        Ok(())
+    };
+
+    for ch in text.chars() {
+        let action = lookup
+            .lookup(ch)
+            .ok_or_else(|| anyhow!("cannot type '{ch}': no key combination found (keymap source: {source})"))?;
+
+        match action {
+            KeyAction::Simple(combo) => send_combo(combo)?,
+            KeyAction::Compose { dead_key, base_key } => {
+                send_combo(dead_key)?;
+                send_combo(base_key)?;
+            }
+        }
+    }
+
+    device_proxy.stop_emulating(last_serial);
+    connection.flush().context("flush failed")?;
+    std::thread::sleep(Duration::from_millis(10));
+
+    tracing::info!(chars = text.len(), "text typed successfully");
     Ok(())
 }
 

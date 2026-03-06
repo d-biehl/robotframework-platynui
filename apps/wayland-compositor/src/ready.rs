@@ -14,6 +14,9 @@ pub fn notify_ready(socket_name: &str, ready_fd: Option<i32>, print_env: bool) {
         if let Ok(control) = std::env::var("PLATYNUI_CONTROL_SOCKET") {
             println!("PLATYNUI_CONTROL_SOCKET={control}");
         }
+        if let Ok(eis) = std::env::var("LIBEI_SOCKET") {
+            println!("LIBEI_SOCKET={eis}");
+        }
     }
 
     if let Some(fd) = ready_fd {

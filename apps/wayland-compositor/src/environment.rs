@@ -52,3 +52,13 @@ pub fn set_control_socket_env(path: &std::path::Path) {
     }
     tracing::debug!(path = %path.display(), "PLATYNUI_CONTROL_SOCKET set");
 }
+
+/// Export `LIBEI_SOCKET` so child processes (and test tools) can find the EIS endpoint.
+#[allow(unsafe_code)]
+pub fn set_eis_socket_env(path: &std::path::Path) {
+    // SAFETY: Called during single-threaded startup before any client connections.
+    unsafe {
+        std::env::set_var("LIBEI_SOCKET", path);
+    }
+    tracing::debug!(path = %path.display(), "LIBEI_SOCKET set");
+}

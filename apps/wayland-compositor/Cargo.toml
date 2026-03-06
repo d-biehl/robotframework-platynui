@@ -29,6 +29,10 @@ smithay = { version = "0.7", default-features = false, features = [
 # Event loop
 calloop = "0.14"
 
+# EI protocol (libei/libeis) — input emulation server
+reis = { version = "0.6", features = ["calloop"] }
+tempfile = "3"
+
 # CLI
 clap = { version = "4", features = ["derive"] }
 

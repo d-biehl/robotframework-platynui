@@ -222,6 +222,14 @@ pub fn setup_services(
         }
     }
 
+    // Set up EIS server for libei input emulation.
+    if !args.no_eis {
+        match crate::eis::setup_eis_server(handle) {
+            Ok(eis_path) => crate::environment::set_eis_socket_env(&eis_path),
+            Err(err) => tracing::warn!(%err, "failed to set up EIS server"),
+        }
+    }
+
     // Notify readiness and spawn child immediately if XWayland is not requested
     if !xwayland_requested {
         crate::ready::notify_ready(&state.socket_name, args.ready_fd, args.print_env);

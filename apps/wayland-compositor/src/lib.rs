@@ -19,6 +19,7 @@ pub mod config;
 mod control;
 mod cursor;
 pub mod decorations;
+mod eis;
 mod environment;
 mod focus;
 mod grabs;
@@ -124,6 +125,12 @@ pub struct CompositorArgs {
     /// and its path is exported as `PLATYNUI_CONTROL_SOCKET` for child processes and tools.
     #[arg(long)]
     pub no_control_socket: bool,
+
+    /// Disable the EIS (Emulated Input Server) for libei input emulation.
+    /// By default, an EIS socket is created and its path is exported as
+    /// `LIBEI_SOCKET` for child processes and test tools.
+    #[arg(long)]
+    pub no_eis: bool,
 
     /// Number of virtual outputs (monitors) to create. Default: 1.
     #[arg(long, default_value_t = 1)]

@@ -30,6 +30,9 @@ reedline = "0.40"
 # Error handling
 anyhow = "1"
 
+# XKB reverse lookup (char → keycode + modifiers)
+platynui-xkb-util = { path = "../../crates/xkb-util" }
+
 # Tracing
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = [

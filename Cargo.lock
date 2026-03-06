@@ -3161,6 +3161,7 @@ dependencies = [
  "anyhow",
  "clap",
  "enumflags2",
+ "platynui-xkb-util",
  "reedline",
  "reis",
  "rustix 1.1.4",
@@ -3324,10 +3325,12 @@ dependencies = [
  "egui",
  "egui_glow",
  "png",
+ "reis",
  "serde",
  "serde_json",
  "signal-hook 0.4.3",
  "smithay",
+ "tempfile",
  "toml 1.0.4+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
@@ -3342,6 +3345,14 @@ version = "0.12.0-dev.5"
 dependencies = [
  "clap",
  "serde_json",
+]
+
+[[package]]
+name = "platynui-xkb-util"
+version = "0.12.0-dev.5"
+dependencies = [
+ "tracing",
+ "xkbcommon 0.9.0",
 ]
 
 [[package]]
@@ -3811,6 +3822,7 @@ version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2aee09758db35e73eb1398c6ef321973ce7f4aad86573ba08c1c8ef98d350b46"
 dependencies = [
+ "calloop 0.14.4",
  "enumflags2",
  "log",
  "rustix 1.1.4",
@@ -4273,7 +4285,7 @@ dependencies = [
  "wayland-server",
  "winit",
  "x11rb",
- "xkbcommon",
+ "xkbcommon 0.8.0",
 ]
 
 [[package]]
@@ -4795,9 +4807,9 @@ dependencies = [
 
 [[package]]
 name = "unicase"
-version = "2.9.0"
+version = "2.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbc4bc3a9f746d862c45cb89d705aa10f187bb96c76001afab07a0d35ce60142"
+checksum = "75b844d17643ee918803943289730bec8aac480150456169e647ed0b576ba539"
 
 [[package]]
 name = "unicode-ident"
@@ -6174,6 +6186,16 @@ checksum = "8d66ca9352cbd4eecbbc40871d8a11b4ac8107cfc528a6e14d7c19c69d0e1ac9"
 dependencies = [
  "libc",
  "memmap2",
+ "xkeysym",
+]
+
+[[package]]
+name = "xkbcommon"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7a974f48060a14e95705c01f24ad9c3345022f4d97441b8a36beb7ed5c4a02d"
+dependencies = [
+ "libc",
  "xkeysym",
 ]
 
