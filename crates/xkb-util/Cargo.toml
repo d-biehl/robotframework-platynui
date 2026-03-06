@@ -16,5 +16,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-xkbcommon = { version = "0.9", default-features = false }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+xkbcommon = { version = "0.9", default-features = false }
