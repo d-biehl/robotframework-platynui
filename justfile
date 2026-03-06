@@ -3,8 +3,8 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-# XDG data directory for local installs
-xdg_data_home := env("XDG_DATA_HOME", env("HOME") / ".local" / "share")
+# XDG data directory for local installs (only meaningful on Linux)
+xdg_data_home := if os() == "linux" { env("XDG_DATA_HOME", env("HOME") / ".local" / "share") } else { "" }
 
 # ─── Default ────────────────────────────────────────────────────────────────────
 
@@ -78,30 +78,37 @@ test-python:
 # ─── Desktop Integration ────────────────────────────────────────────────────────
 
 # Install .desktop files and icons into XDG directories
+[linux]
 install-desktop: (_install-desktop-files) (_install-icons)
     @echo "Desktop files and icons installed to {{ xdg_data_home }}"
     @echo "Run 'just update-icon-cache' if icons don't appear immediately."
 
 # Uninstall .desktop files and icons from XDG directories
+[linux]
 uninstall-desktop: (_uninstall-desktop-files) (_uninstall-icons)
     @echo "Desktop files and icons removed from {{ xdg_data_home }}"
 
 # Update the icon cache (run after install/uninstall)
+[linux]
 update-icon-cache:
     gtk-update-icon-cache -f -t "{{ xdg_data_home }}/icons/hicolor" 2>/dev/null || true
 
+[linux]
 _install-desktop-files:
     install -Dm644 assets/org.platynui.compositor.desktop "{{ xdg_data_home }}/applications/org.platynui.compositor.desktop"
     install -Dm644 assets/org.platynui.inspector.desktop  "{{ xdg_data_home }}/applications/org.platynui.inspector.desktop"
 
+[linux]
 _install-icons:
     install -Dm644 apps/wayland-compositor/assets/icon.png "{{ xdg_data_home }}/icons/hicolor/256x256/apps/org.platynui.compositor.png"
     install -Dm644 apps/inspector/assets/icon.png          "{{ xdg_data_home }}/icons/hicolor/256x256/apps/org.platynui.inspector.png"
 
+[linux]
 _uninstall-desktop-files:
     rm -f "{{ xdg_data_home }}/applications/org.platynui.compositor.desktop"
     rm -f "{{ xdg_data_home }}/applications/org.platynui.inspector.desktop"
 
+[linux]
 _uninstall-icons:
     rm -f "{{ xdg_data_home }}/icons/hicolor/256x256/apps/org.platynui.compositor.png"
     rm -f "{{ xdg_data_home }}/icons/hicolor/256x256/apps/org.platynui.inspector.png"
