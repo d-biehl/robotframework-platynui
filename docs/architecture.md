@@ -33,10 +33,15 @@ crates/
 ├─ platform-mock             # Mock devices for testing — platynui-platform-mock
 ├─ provider-mock             # Mock UI tree provider — platynui-provider-mock
 ├─ cli                       # CLI tool — platynui-cli
+├─ xkb-util                  # Linux xkbcommon key mapping — platynui-xkb-util
 └─ playground                # Development sandbox — playground
 
 apps/
-└─ inspector                 # GUI inspector (egui) — platynui-inspector
+├─ inspector                 # GUI inspector (egui) — platynui-inspector
+├─ wayland-compositor        # Wayland compositor for testing — platynui-wayland-compositor
+├─ wayland-compositor-ctl    # CLI control for compositor — platynui-wayland-compositor-ctl
+├─ test-app-egui             # egui test app (accessibility) — platynui-test-app-egui
+└─ eis-test-client           # EIS/libei protocol validator — platynui-eis-test-client
 
 packages/
 ├─ native                    # Python bindings (PyO3/maturin) — platynui_native

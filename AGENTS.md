@@ -11,8 +11,13 @@ This workspace blends Rust crates and Python packages for the Robot Framework-fa
   - `crates/platform-{windows,linux-x11,macos,mock}` → crates `platynui-platform-*` (OS device bundles, highlight/screenshot, desktop info)
   - `crates/provider-{windows-uia,atspi,macos-ax,mock}` → crates `platynui-provider-*` (UiTreeProvider implementations)
   - `crates/cli` → crate `platynui-cli` (CLI for queries, highlight, keyboard/pointer, diagnostics)
+  - `crates/xkb-util` → crate `platynui-xkb-util` (Linux-only xkbcommon key mapping and reverse lookup)
   - `crates/playground` → examples and dev experiments
   - `apps/inspector` → crate `platynui-inspector` (GUI inspector, egui-based)
+  - `apps/wayland-compositor` → crate `platynui-wayland-compositor` (Smithay-based Wayland compositor for testing)
+  - `apps/wayland-compositor-ctl` → crate `platynui-wayland-compositor-ctl` (CLI control tool for the compositor)
+  - `apps/test-app-egui` → crate `platynui-test-app-egui` (egui test application with accessibility support)
+  - `apps/eis-test-client` → crate `platynui-eis-test-client` (standalone EIS/libei protocol validator)
 
 - Python/Robot workspace (`uv`):
   - `src/PlatynUI` → Robot Framework library entry (keywords module scaffold)

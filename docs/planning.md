@@ -731,7 +731,7 @@ Complete checklists from all work areas, including completed items for historica
 - [x] AT-SPI2 provider: D-Bus integration, RuntimeId, role mapping, streaming attributes
 - [x] AT-SPI2: component-gated attributes, Focusable pattern
 - [x] AT-SPI2: native interface attributes
-- [ ] AT-SPI2: Application node attributes (Name, ExecutablePath, CommandLine, UserName, StartTime, Architecture via `/proc/PID/`)
+- [x] AT-SPI2: Application node attributes (Name, ExecutablePath, CommandLine, UserName, StartTime, Architecture via `/proc/PID/`)
 - [ ] AT-SPI2: tree structure verification
 - [ ] AT-SPI2 supplementary tests
 - [ ] Wayland mediation crate planning
@@ -743,7 +743,8 @@ Complete checklists from all work areas, including completed items for historica
 - [x] CLI pointer commands with element descriptions
 - [ ] CLI `dump-node`
 - [ ] Script integration / CLI ergonomics
-- [ ] Inspector: tree view, property panel, XPath editor, element picker, highlight
+- [x] Inspector: tree view, property panel, XPath search, highlighting
+- [ ] Inspector: element picker, export (copy XPath, subtree XML)
 - [ ] Example workflows documented
 
 #### CLI `snapshot`

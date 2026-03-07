@@ -23,10 +23,15 @@ Rust crates (`crates/`):
   - `link` — dynamic linking utilities for platform providers
   - `platform-{windows,linux-x11,macos,mock}` — OS device bundles, highlight/screenshot, desktop info
   - `provider-{windows-uia,atspi,macos-ax,mock}` — UiTreeProvider implementations
+  - `xkb-util` — Linux-only xkbcommon key mapping and reverse lookup utilities
   - `playground` — experiments, not API source
 
 Apps (`apps/`):
   - `inspector` — GUI inspector (egui-based)
+  - `wayland-compositor` — Smithay-based Wayland compositor for testing (headless/winit/DRM, EIS, XWayland)
+  - `wayland-compositor-ctl` — CLI control tool for the running compositor via Unix socket
+  - `test-app-egui` — egui test application with accessibility (AccessKit), used for compositor + PlatynUI tests
+  - `eis-test-client` — standalone EIS/libei protocol validator
 
 Python packages (`packages/`):
   - `native` — Maturin-based native Python package (bindings to core/runtime)
