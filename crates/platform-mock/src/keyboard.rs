@@ -195,6 +195,8 @@ const NAMED_KEYS: &[NamedKey] = &[
     NamedKey { canonical: "LWin", aliases: &["LWin", "LeftWin"] },
     NamedKey { canonical: "RWin", aliases: &["RWin", "RightWin"] },
     NamedKey { canonical: "Meta", aliases: &["Meta"] },
+    NamedKey { canonical: "LMeta", aliases: &["LMeta"] },
+    NamedKey { canonical: "RMeta", aliases: &["RMeta"] },
     // ── Context-menu key ─────────────────────────────────────────────────────
     NamedKey { canonical: "Apps", aliases: &["Apps", "Menu"] },
     // ── Text / editing ───────────────────────────────────────────────────────
@@ -219,8 +221,9 @@ const NAMED_KEYS: &[NamedKey] = &[
     NamedKey { canonical: "PageUp", aliases: &["PageUp", "PgUp"] },
     NamedKey { canonical: "PageDown", aliases: &["PageDown", "PgDn"] },
     // ── System ───────────────────────────────────────────────────────────────
-    NamedKey { canonical: "PrintScreen", aliases: &["PrintScreen", "PrtSc"] },
-    NamedKey { canonical: "Pause", aliases: &["Pause"] },
+    NamedKey { canonical: "PrintScreen", aliases: &["PrintScreen", "Print", "PrtSc", "SysRq", "SysReq"] },
+    NamedKey { canonical: "Pause", aliases: &["Pause", "Break"] },
+    NamedKey { canonical: "Help", aliases: &["Help"] },
     // ── Function keys F1–F24 ─────────────────────────────────────────────────
     NamedKey { canonical: "F1", aliases: &["F1"] },
     NamedKey { canonical: "F2", aliases: &["F2"] },

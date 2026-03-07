@@ -544,6 +544,38 @@ static VK_MAP: LazyLock<HashMap<String, KeyName>> = LazyLock::new(|| {
     alias("DEL", VK_DELETE);
     alias("INS", VK_INSERT);
 
+    // Meta aliases (cross-platform: Meta = Windows/Super key)
+    alias("META", VK_LWIN);
+    alias("LMETA", VK_LWIN);
+    alias("RMETA", VK_RWIN);
+
+    // Fix MENU: cross-platform convention maps MENU to the context-menu key (Apps),
+    // not to Alt (VK_MENU). Override the entry created by ins!(VK_MENU).
+    alias("MENU", VK_APPS);
+
+    // Numpad KP_ aliases (cross-platform, matching X11/Wayland naming)
+    alias("KP_0", VK_NUMPAD0);
+    alias("KP_1", VK_NUMPAD1);
+    alias("KP_2", VK_NUMPAD2);
+    alias("KP_3", VK_NUMPAD3);
+    alias("KP_4", VK_NUMPAD4);
+    alias("KP_5", VK_NUMPAD5);
+    alias("KP_6", VK_NUMPAD6);
+    alias("KP_7", VK_NUMPAD7);
+    alias("KP_8", VK_NUMPAD8);
+    alias("KP_9", VK_NUMPAD9);
+    alias("KP_ENTER", VK_RETURN);
+    alias("KP_ADD", VK_ADD);
+    alias("KP_SUBTRACT", VK_SUBTRACT);
+    alias("KP_MULTIPLY", VK_MULTIPLY);
+    alias("KP_DIVIDE", VK_DIVIDE);
+    alias("KP_DECIMAL", VK_DECIMAL);
+
+    // System key aliases
+    alias("SYSRQ", VK_SNAPSHOT);
+    alias("SYSREQ", VK_SNAPSHOT);
+    alias("BREAK", VK_PAUSE);
+
     // Normalize keys to uppercase for lookups
     let mut upper_map: HashMap<String, KeyName> = HashMap::new();
     for (k, v) in m.into_iter() {
