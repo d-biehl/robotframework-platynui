@@ -22,7 +22,7 @@ bootstrap:
 
 # Build all Rust crates
 build:
-    cargo build --all --all-targets
+    cargo build --workspace --all-targets
 
 # Build native Python package (with optional features)
 build-native *FEATURES:
@@ -35,6 +35,19 @@ build-cli:
 # Build Inspector Python package
 build-inspector:
     uv run maturin develop -m packages/inspector/Cargo.toml --uv
+
+# Build all Python packages (native + CLI + Inspector)
+build-all-python: build-native build-cli build-inspector
+
+# Build native Python package with mock-provider feature
+build-native-mock:
+    uv run maturin develop -m packages/native/Cargo.toml --uv --features mock-provider
+
+# ─── Documentation ──────────────────────────────────────────────────────────────
+
+# Build Rust API documentation
+doc:
+    cargo doc --workspace --no-deps --exclude platynui-cli-bin --exclude platynui-inspector-bin
 
 # ─── Check ──────────────────────────────────────────────────────────────────────
 
@@ -65,7 +78,7 @@ check: fmt clippy ruff
 
 # Run all Rust tests
 test:
-    cargo nextest run --all --no-fail-fast
+    cargo nextest run --workspace --no-fail-fast
 
 # Run tests for a specific crate
 test-crate crate:
@@ -74,6 +87,9 @@ test-crate crate:
 # Run Python tests
 test-python:
     uv run pytest
+
+# Run all tests (Rust + Python)
+test-all: test test-python
 
 # ─── Desktop Integration ────────────────────────────────────────────────────────
 

@@ -524,7 +524,7 @@ pub enum ErrorCode {
 /// - Use `Error::code_enum()` for structured handling instead of matching raw strings.
 impl ErrorCode {
     /// Returns the QName (ExpandedName) for this spec-defined error code.
-    /// Namespace: http://www.w3.org/2005/xqt-errors
+    /// Namespace: <http://www.w3.org/2005/xqt-errors>
     pub fn qname(&self) -> ExpandedName {
         ExpandedName {
             ns_uri: Some(ERR_NS.to_string()),

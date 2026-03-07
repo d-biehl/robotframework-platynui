@@ -1245,7 +1245,7 @@ fn send_key_combo(
     Ok(())
 }
 
-/// Try to build a [`KeymapLookup`] from the keymap attached to the EIS keyboard device.
+/// Try to build a [`KeymapLookup`](platynui_xkb_util::KeymapLookup) from the keymap attached to the EIS keyboard device.
 ///
 /// Returns `None` if the device has no keymap or the keymap cannot be parsed.
 fn device_keymap_lookup(device: &reis::event::Device) -> Option<platynui_xkb_util::KeymapLookup> {

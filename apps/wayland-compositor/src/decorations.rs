@@ -403,7 +403,7 @@ pub fn pointer_hit_test(space: &smithay::desktop::Space<Window>, point: Point<f6
 
 /// Hit-test within the title bar header to determine which button was clicked.
 ///
-/// The button positions must match the egui layout in [`build_titlebar_ui`]:
+/// The button positions must match the egui layout in `build_titlebar_ui`:
 /// right-to-left with 6 px right padding, 26×18 px buttons, 2 px gap between
 /// them, centred vertically in the 30 px high title bar.
 #[must_use]

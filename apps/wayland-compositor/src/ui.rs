@@ -3,7 +3,7 @@
 //! Inspired by [smithay-egui](https://github.com/Smithay/smithay-egui).
 //!
 //! egui meshes are rendered directly into a GPU-resident
-//! [`TextureRenderBuffer`](smithay::backend::renderer::element::texture::TextureRenderBuffer)
+//! [`TextureRenderBuffer`]
 //! via smithay's offscreen API — no pixel readback.
 //!
 //! For environments without a hardware GPU, set `LIBGL_ALWAYS_SOFTWARE=1` to

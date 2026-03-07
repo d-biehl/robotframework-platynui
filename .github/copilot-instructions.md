@@ -52,11 +52,11 @@ Effect: creates/refreshes `.venv`, installs dev tools (ruff, mypy, maturin, robo
 ## 5. Core Command Sequences
 Build (Rust all targets):
 ```bash
-cargo build --all --all-targets
+cargo build --workspace --all-targets
 ```
 Test (Rust):
 ```bash
-cargo nextest run --all --no-fail-fast
+cargo nextest run --workspace --no-fail-fast
 ```
 Format (Rust):
 ```bash
@@ -78,9 +78,9 @@ uv run mypy .
 ALWAYS run (in order) before submitting PR changes that touch Rust code:
 1. `uv sync --dev --all-packages --all-groups --all-extras`
 2. `cargo fmt --all`
-3. `cargo build --all --all-targets`
+3. `cargo build --workspace --all-targets`
 4. `cargo clippy --workspace --all-targets -- -D warnings`
-5. `cargo nextest run --all --no-fail-fast`
+5. `cargo nextest run --workspace --no-fail-fast`
 6. `uv run ruff check` (if Python touched)
 7. (Optional) `uv run mypy .` (if type hints added)
 
@@ -124,9 +124,9 @@ Only search when: a referenced symbol/path here is missing; a documented command
 1. Update code & tests.
 2. `uv sync --dev --all-packages --all-groups --all-extras`
 3. `cargo fmt --all`
-4. `cargo build --all --all-targets`
+4. `cargo build --workspace --all-targets`
 5. `cargo clippy --workspace --all-targets -- -D warnings`
-6. `cargo nextest run --all --no-fail-fast`
+6. `cargo nextest run --workspace --no-fail-fast`
 7. `uv run ruff check` (if Python changed — clean output)
 8. (Optional) `uv run mypy .` (if type hints added)
 9. Remove accidental debug prints / unwraps.
