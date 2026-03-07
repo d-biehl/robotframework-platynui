@@ -93,11 +93,10 @@ fn with_ei_device(
     let guard = crate::wayland_util::connection()?;
     drop(guard);
 
-    let mut session = crate::eis::establish_session("platynui-wayland-pointer")
-        .map_err(|e| to_pf(format!("EIS session: {e}")))?;
+    let mut session =
+        crate::eis::establish_session("platynui-wayland-pointer").map_err(|e| to_pf(format!("EIS session: {e}")))?;
 
-    let device = crate::eis::find_device(&mut session, required)
-        .map_err(|e| to_pf(format!("EIS device: {e}")))?;
+    let device = crate::eis::find_device(&mut session, required).map_err(|e| to_pf(format!("EIS device: {e}")))?;
 
     action(&session.connection, &device)
 }

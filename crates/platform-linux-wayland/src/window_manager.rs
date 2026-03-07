@@ -144,11 +144,7 @@ fn detect_via_peercred() -> Option<CompositorKind> {
 
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").ok()?;
     let display = std::env::var("WAYLAND_DISPLAY").ok()?;
-    let path = if display.starts_with('/') {
-        display
-    } else {
-        format!("{runtime_dir}/{display}")
-    };
+    let path = if display.starts_with('/') { display } else { format!("{runtime_dir}/{display}") };
 
     let stream = UnixStream::connect(&path).ok()?;
     let cred = rustix::net::sockopt::socket_peercred(stream.as_fd()).ok()?;

@@ -1,12 +1,11 @@
 use input_event_codes::{
-    KEY_BACKSPACE, KEY_CAPSLOCK, KEY_COMPOSE, KEY_DELETE, KEY_DOWN, KEY_END, KEY_ENTER, KEY_ESC, KEY_F1, KEY_F10,
-    KEY_F11, KEY_F12, KEY_F13, KEY_F14, KEY_F15, KEY_F16, KEY_F17, KEY_F18, KEY_F19, KEY_F2, KEY_F20, KEY_F21,
-    KEY_F22, KEY_F23, KEY_F24, KEY_F3, KEY_F4, KEY_F5, KEY_F6, KEY_F7, KEY_F8, KEY_F9, KEY_HELP, KEY_HOME,
-    KEY_INSERT, KEY_KP0, KEY_KP1, KEY_KP2, KEY_KP3, KEY_KP4, KEY_KP5, KEY_KP6, KEY_KP7, KEY_KP8, KEY_KP9,
-    KEY_KPASTERISK, KEY_KPDOT, KEY_KPENTER, KEY_KPMINUS, KEY_KPPLUS, KEY_KPSLASH, KEY_LEFT, KEY_LEFTALT,
-    KEY_LEFTCTRL, KEY_LEFTMETA, KEY_LEFTSHIFT, KEY_NUMLOCK, KEY_PAGEDOWN, KEY_PAGEUP, KEY_PAUSE,
-    KEY_RIGHT, KEY_RIGHTALT, KEY_RIGHTCTRL, KEY_RIGHTMETA, KEY_RIGHTSHIFT, KEY_SCROLLLOCK, KEY_SPACE, KEY_SYSRQ,
-    KEY_TAB, KEY_UP,
+    KEY_BACKSPACE, KEY_CAPSLOCK, KEY_COMPOSE, KEY_DELETE, KEY_DOWN, KEY_END, KEY_ENTER, KEY_ESC, KEY_F1, KEY_F2,
+    KEY_F3, KEY_F4, KEY_F5, KEY_F6, KEY_F7, KEY_F8, KEY_F9, KEY_F10, KEY_F11, KEY_F12, KEY_F13, KEY_F14, KEY_F15,
+    KEY_F16, KEY_F17, KEY_F18, KEY_F19, KEY_F20, KEY_F21, KEY_F22, KEY_F23, KEY_F24, KEY_HELP, KEY_HOME, KEY_INSERT,
+    KEY_KP0, KEY_KP1, KEY_KP2, KEY_KP3, KEY_KP4, KEY_KP5, KEY_KP6, KEY_KP7, KEY_KP8, KEY_KP9, KEY_KPASTERISK,
+    KEY_KPDOT, KEY_KPENTER, KEY_KPMINUS, KEY_KPPLUS, KEY_KPSLASH, KEY_LEFT, KEY_LEFTALT, KEY_LEFTCTRL, KEY_LEFTMETA,
+    KEY_LEFTSHIFT, KEY_NUMLOCK, KEY_PAGEDOWN, KEY_PAGEUP, KEY_PAUSE, KEY_RIGHT, KEY_RIGHTALT, KEY_RIGHTCTRL,
+    KEY_RIGHTMETA, KEY_RIGHTSHIFT, KEY_SCROLLLOCK, KEY_SPACE, KEY_SYSRQ, KEY_TAB, KEY_UP,
 };
 use platynui_core::platform::{
     KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, PlatformError, PlatformErrorKind,
@@ -235,9 +234,7 @@ impl KeyboardDevice for WaylandKeyboardDevice {
         };
 
         with_ei_keyboard(|connection, device| {
-            let kbd = device
-                .interface::<ei::Keyboard>()
-                .ok_or_else(|| to_kb("device missing Keyboard interface"))?;
+            let kbd = device.interface::<ei::Keyboard>().ok_or_else(|| to_kb("device missing Keyboard interface"))?;
 
             let serial = connection.serial();
             let device_proxy = device.device();

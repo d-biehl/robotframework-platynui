@@ -111,9 +111,8 @@ fn connect_via_portal(client_name: &str) -> Result<EiSession, String> {
         portal.create_session(&options).map_err(|e| format!("CreateSession: {e}"))?;
         let results = wait_for_response(&mut signals)?;
 
-        let handle_val = results
-            .get("session_handle")
-            .ok_or_else(|| "portal did not return session_handle".to_string())?;
+        let handle_val =
+            results.get("session_handle").ok_or_else(|| "portal did not return session_handle".to_string())?;
 
         let session_path: String = handle_val.clone().try_into().or_else(|_| -> Result<String, String> {
             let path: OwnedObjectPath = handle_val
@@ -139,9 +138,7 @@ fn connect_via_portal(client_name: &str) -> Result<EiSession, String> {
             ("persist_mode", Value::from(2u32)),
         ]);
 
-        portal
-            .select_devices(&session_handle.as_ref(), &options)
-            .map_err(|e| format!("SelectDevices: {e}"))?;
+        portal.select_devices(&session_handle.as_ref(), &options).map_err(|e| format!("SelectDevices: {e}"))?;
         wait_for_response(&mut signals)?;
     }
 
@@ -152,16 +149,13 @@ fn connect_via_portal(client_name: &str) -> Result<EiSession, String> {
 
         let options = HashMap::from([("handle_token", Value::from(token))]);
 
-        portal
-            .start(&session_handle.as_ref(), "", &options)
-            .map_err(|e| format!("Start: {e}"))?;
+        portal.start(&session_handle.as_ref(), "", &options).map_err(|e| format!("Start: {e}"))?;
         wait_for_response(&mut signals)?;
     }
 
     // Step 4: ConnectToEIS
-    let fd = portal
-        .connect_to_eis(&session_handle.as_ref(), &HashMap::new())
-        .map_err(|e| format!("ConnectToEIS: {e}"))?;
+    let fd =
+        portal.connect_to_eis(&session_handle.as_ref(), &HashMap::new()).map_err(|e| format!("ConnectToEIS: {e}"))?;
 
     let std_fd: std::os::fd::OwnedFd = fd.into();
     let stream = UnixStream::from(std_fd);
@@ -177,7 +171,8 @@ fn connect_via_socket(client_name: &str) -> Result<EiSession, String> {
     let socket_path = resolve_ei_socket()?;
     tracing::debug!(path = %socket_path.display(), "connecting to EIS via socket");
 
-    let stream = UnixStream::connect(&socket_path).map_err(|e| format!("EIS connect to {}: {e}", socket_path.display()))?;
+    let stream =
+        UnixStream::connect(&socket_path).map_err(|e| format!("EIS connect to {}: {e}", socket_path.display()))?;
 
     let session = handshake(stream, client_name, None)?;
 
@@ -192,8 +187,7 @@ fn resolve_ei_socket() -> Result<PathBuf, String> {
     })?;
 
     if std::path::Path::new(&path).is_relative() {
-        let runtime_dir =
-            std::env::var("XDG_RUNTIME_DIR").map_err(|_| "XDG_RUNTIME_DIR not set".to_string())?;
+        let runtime_dir = std::env::var("XDG_RUNTIME_DIR").map_err(|_| "XDG_RUNTIME_DIR not set".to_string())?;
         Ok(PathBuf::from(runtime_dir).join(&path))
     } else {
         Ok(PathBuf::from(path))
@@ -213,12 +207,7 @@ fn handshake(stream: UnixStream, client_name: &str, portal_guard: Option<Connect
     // Drain events buffered during the handshake.
     dispatch_buffered(&context, &mut converter)?;
 
-    Ok(EiSession {
-        context,
-        converter,
-        connection,
-        _portal_guard: portal_guard,
-    })
+    Ok(EiSession { context, converter, connection, _portal_guard: portal_guard })
 }
 
 // ---------------------------------------------------------------------------
@@ -226,10 +215,7 @@ fn handshake(stream: UnixStream, client_name: &str, portal_guard: Option<Connect
 // ---------------------------------------------------------------------------
 
 /// Wait for a resumed EIS device with the given capability.
-pub fn find_device(
-    session: &mut EiSession,
-    required: DeviceCapability,
-) -> Result<reis::event::Device, String> {
+pub fn find_device(session: &mut EiSession, required: DeviceCapability) -> Result<reis::event::Device, String> {
     const TIMEOUT: Duration = Duration::from_secs(5);
     let deadline = Instant::now() + TIMEOUT;
 
@@ -301,10 +287,7 @@ fn try_read_and_dispatch(
     loop {
         let timeout = deadline.map(|dl| {
             let remaining = dl.saturating_duration_since(Instant::now());
-            Timespec {
-                tv_sec: remaining.as_secs().cast_signed(),
-                tv_nsec: i64::from(remaining.subsec_nanos()),
-            }
+            Timespec { tv_sec: remaining.as_secs().cast_signed(), tv_nsec: i64::from(remaining.subsec_nanos()) }
         });
 
         if let Some(ref ts) = timeout
@@ -330,10 +313,7 @@ fn try_read_and_dispatch(
 /// Current timestamp in microseconds for EI frame events.
 #[expect(clippy::cast_possible_truncation)]
 pub fn timestamp_us() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_micros() as u64
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_micros() as u64
 }
 
 // ---------------------------------------------------------------------------
@@ -342,9 +322,7 @@ pub fn timestamp_us() -> u64 {
 
 /// Derives the predicted Request object path for a given `handle_token`.
 fn request_object_path(connection: &Connection, handle_token: &str) -> Result<String, String> {
-    let unique_name = connection
-        .unique_name()
-        .ok_or_else(|| "D-Bus connection has no unique name".to_string())?;
+    let unique_name = connection.unique_name().ok_or_else(|| "D-Bus connection has no unique name".to_string())?;
     let sender = unique_name.as_str().trim_start_matches(':').replace('.', "_");
     Ok(format!("/org/freedesktop/portal/desktop/request/{sender}/{handle_token}"))
 }
@@ -360,16 +338,12 @@ fn subscribe_response(connection: &Connection, handle_token: &str) -> Result<Res
         .build()
         .map_err(|e| format!("Request proxy build: {e}"))?;
 
-    request_proxy
-        .receive_response()
-        .map_err(|e| format!("subscribe to Response signal: {e}"))
+    request_proxy.receive_response().map_err(|e| format!("subscribe to Response signal: {e}"))
 }
 
 /// Wait for the portal `Response` signal and return the results dictionary.
 fn wait_for_response(signals: &mut ResponseIterator) -> Result<HashMap<String, OwnedValue>, String> {
-    let signal = signals
-        .next()
-        .ok_or_else(|| "Response signal stream ended unexpectedly".to_string())?;
+    let signal = signals.next().ok_or_else(|| "Response signal stream ended unexpectedly".to_string())?;
 
     let args = signal.args().map_err(|e| format!("parse Response args: {e}"))?;
 
