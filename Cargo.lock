@@ -3227,6 +3227,7 @@ dependencies = [
  "platynui-core",
  "rstest",
  "serial_test",
+ "tracing",
 ]
 
 [[package]]

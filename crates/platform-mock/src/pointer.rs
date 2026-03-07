@@ -2,6 +2,7 @@ use platynui_core::platform::{PlatformError, PointerButton, PointerDevice, Scrol
 use platynui_core::types::{Point, Size};
 use std::sync::Mutex;
 use std::time::Duration;
+use tracing::debug;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PointerLogEntry {
@@ -49,25 +50,25 @@ impl PointerDevice for MockPointerDevice {
         let mut state = self.state.lock().unwrap();
         state.position = (point.x(), point.y());
         state.push(PointerLogEntry::Move(point));
-        println!("mock-pointer: move to ({:.1}, {:.1})", point.x(), point.y());
+        debug!(x = point.x(), y = point.y(), "mock-pointer: move");
         Ok(())
     }
 
     fn press(&self, button: PointerButton) -> Result<(), PlatformError> {
         self.state.lock().unwrap().push(PointerLogEntry::Press(button));
-        println!("mock-pointer: press {button:?}");
+        debug!(?button, "mock-pointer: press");
         Ok(())
     }
 
     fn release(&self, button: PointerButton) -> Result<(), PlatformError> {
         self.state.lock().unwrap().push(PointerLogEntry::Release(button));
-        println!("mock-pointer: release {button:?}");
+        debug!(?button, "mock-pointer: release");
         Ok(())
     }
 
     fn scroll(&self, delta: ScrollDelta) -> Result<(), PlatformError> {
         self.state.lock().unwrap().push(PointerLogEntry::Scroll(delta));
-        println!("mock-pointer: scroll (h={:.1}, v={:.1})", delta.horizontal, delta.vertical);
+        debug!(h = delta.horizontal, v = delta.vertical, "mock-pointer: scroll");
         Ok(())
     }
 

@@ -64,14 +64,12 @@ static PREFIX_LOOKUP: LazyLock<HashMap<&'static str, Namespace>> = LazyLock::new
 });
 
 /// Resolve a namespace prefix (``None`` or empty string selects the default namespace).
-pub fn resolve_namespace(prefix: Option<&str>) -> Namespace {
+///
+/// Returns ``None`` when the prefix is not a known namespace.
+pub fn resolve_namespace(prefix: Option<&str>) -> Option<Namespace> {
     match prefix {
-        None => Namespace::Control,
-        Some("") => Namespace::Control,
-        Some(p) => match PREFIX_LOOKUP.get(p) {
-            Some(ns) => *ns,
-            None => panic!("unknown namespace prefix: {}", p),
-        },
+        None | Some("") => Some(Namespace::Control),
+        Some(p) => PREFIX_LOOKUP.get(p).copied(),
     }
 }
 
@@ -93,7 +91,12 @@ mod tests {
     #[case(Some("app"), Namespace::App)]
     #[case(Some("native"), Namespace::Native)]
     fn resolve_namespace_handles_known_prefixes(#[case] input: Option<&'static str>, #[case] expected: Namespace) {
-        assert_eq!(resolve_namespace(input), expected);
+        assert_eq!(resolve_namespace(input), Some(expected));
+    }
+
+    #[test]
+    fn resolve_namespace_returns_none_for_unknown_prefix() {
+        assert_eq!(resolve_namespace(Some("bogus")), None);
     }
 
     #[test]

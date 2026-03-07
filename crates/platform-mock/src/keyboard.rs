@@ -1,6 +1,7 @@
 use platynui_core::platform::{KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent};
 use std::sync::LazyLock;
 use std::sync::Mutex;
+use tracing::debug;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyboardLogEntry {
@@ -91,7 +92,7 @@ impl KeyboardDevice for MockKeyboardDevice {
         }
         state.started = true;
         state.push(KeyboardLogEntry::StartInput);
-        println!("mock-keyboard: start");
+        debug!("mock-keyboard: start");
         Ok(())
     }
 
@@ -106,11 +107,11 @@ impl KeyboardDevice for MockKeyboardDevice {
         let name = mock.display_name();
         match event.state {
             KeyState::Press => {
-                println!("mock-keyboard: press {name}");
+                debug!(key = %name, "mock-keyboard: press");
                 state.push(KeyboardLogEntry::Press(name));
             }
             KeyState::Release => {
-                println!("mock-keyboard: release {name}");
+                debug!(key = %name, "mock-keyboard: release");
                 state.push(KeyboardLogEntry::Release(name));
             }
         }
@@ -124,7 +125,7 @@ impl KeyboardDevice for MockKeyboardDevice {
         }
         state.started = false;
         state.push(KeyboardLogEntry::EndInput);
-        println!("mock-keyboard: end");
+        debug!("mock-keyboard: end");
         Ok(())
     }
 
