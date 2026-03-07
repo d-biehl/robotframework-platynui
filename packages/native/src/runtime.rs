@@ -86,10 +86,7 @@ impl PyNode {
     #[pyo3(signature = (name, namespace=None), text_signature = "(self, name, namespace=None)")]
     fn attribute(&self, name: &str, namespace: Option<&str>, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let ns = core_rs::ui::resolve_namespace(namespace).ok_or_else(|| {
-            pyo3::exceptions::PyValueError::new_err(format!(
-                "unknown namespace: {:?}",
-                namespace.unwrap_or("")
-            ))
+            pyo3::exceptions::PyValueError::new_err(format!("unknown namespace: {:?}", namespace.unwrap_or("")))
         })?;
         match self.inner.attribute(ns, name) {
             Some(attr) => ui_value_to_py(py, &attr.value()),

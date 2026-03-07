@@ -107,13 +107,6 @@ impl<'a, R: TreeRowData> TreeView<'a, R> {
         self
     }
 
-    /// Set the per-level indentation width (default: 16.0).
-    #[allow(dead_code)]
-    pub fn indent_width(mut self, width: f32) -> Self {
-        self.indent_width = width;
-        self
-    }
-
     /// Provide a context menu builder. Return `true` if the menu should close.
     pub fn context_menu(mut self, f: impl FnMut(&mut egui::Ui, usize) -> bool + 'a) -> Self {
         self.context_menu_fn = Some(Box::new(f));

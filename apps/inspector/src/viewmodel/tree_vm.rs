@@ -140,12 +140,6 @@ impl TreeViewModel {
         self.rebuild();
     }
 
-    /// Force rebuild (e.g. after external data changes).
-    #[allow(dead_code)]
-    pub fn force_rebuild(&mut self) {
-        self.rebuild();
-    }
-
     /// Reveal a node by runtime ID using only already-cached children.
     ///
     /// Returns `true` if the node was found and all ancestors expanded.

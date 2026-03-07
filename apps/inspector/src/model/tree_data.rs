@@ -16,9 +16,6 @@ pub enum SearchResultItem {
     Node {
         /// Human-readable label (role + name).
         label: String,
-        /// Runtime ID for tree lookup.
-        #[allow(dead_code)]
-        runtime_id: String,
         /// Reference to the underlying node.
         node: Arc<dyn UiNode>,
     },
@@ -48,8 +45,7 @@ impl SearchResultItem {
                 } else {
                     format!("{} \"{}\"", node.role(), escaped)
                 };
-                let runtime_id = node.runtime_id().as_str().to_string();
-                Self::Node { label, runtime_id, node: Arc::clone(node) }
+                Self::Node { label, node: Arc::clone(node) }
             }
             EvaluationItem::Attribute(attr) => {
                 let (val_str, _) = format_ui_value(&attr.value);

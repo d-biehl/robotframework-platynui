@@ -100,8 +100,11 @@ fn push_down_predicates(instrs: &mut Vec<OpCode>) {
 
         if should_merge {
             // Extract predicates from ApplyPredicates
-            let new_preds =
-                if let OpCode::ApplyPredicates(preds) = &instrs[i + 1] { preds.clone() } else { unreachable!("guard confirmed ApplyPredicates at i+1") };
+            let new_preds = if let OpCode::ApplyPredicates(preds) = &instrs[i + 1] {
+                preds.clone()
+            } else {
+                unreachable!("guard confirmed ApplyPredicates at i+1")
+            };
 
             // Check if we can safely push down
             let (axis, test, existing_preds) = if let OpCode::AxisStep(a, t, p) = &instrs[i] {

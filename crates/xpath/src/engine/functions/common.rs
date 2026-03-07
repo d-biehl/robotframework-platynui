@@ -290,47 +290,6 @@ pub(super) fn round_half_to_even_default<N: crate::model::XdmNode>(
     }
 }
 
-// Default implementation for subsequence($seq,$start[,$len])
-#[allow(dead_code)]
-pub(super) fn subsequence_default<N: crate::model::XdmNode + Clone>(
-    seq: &XdmSequence<N>,
-    start_raw: f64,
-    len_raw_opt: Option<f64>,
-) -> Result<XdmSequence<N>, Error> {
-    if start_raw.is_nan() {
-        return Ok(vec![]);
-    }
-    if start_raw.is_infinite() && start_raw.is_sign_positive() {
-        return Ok(vec![]);
-    }
-    let start_rounded = round_half_to_even_f64(start_raw);
-    if let Some(len_raw) = len_raw_opt {
-        if len_raw.is_nan() || len_raw <= 0.0 {
-            return Ok(vec![]);
-        }
-        let len_rounded = round_half_to_even_f64(len_raw);
-        if len_rounded <= 0.0 {
-            return Ok(vec![]);
-        }
-        let total = seq.len() as isize;
-        let first_pos: isize = if start_rounded < 1.0 { 1 } else { start_rounded as isize };
-        let last_pos = first_pos + len_rounded as isize - 1;
-        if first_pos > total {
-            return Ok(vec![]);
-        }
-        let last_pos = last_pos.min(total);
-        let from_index = (first_pos - 1).max(0) as usize;
-        let to_index_exclusive = last_pos as usize;
-        Ok(seq.iter().skip(from_index).take(to_index_exclusive - from_index).cloned().collect())
-    } else {
-        if start_rounded <= 1.0 {
-            return Ok(seq.clone());
-        }
-        let from_index = (start_rounded as isize - 1).max(0) as usize;
-        Ok(seq.iter().skip(from_index).cloned().collect())
-    }
-}
-
 // Default for deep-equal 2|3-arity
 pub(super) fn deep_equal_default<N: crate::model::XdmNode>(
     ctx: &CallCtx<N>,
