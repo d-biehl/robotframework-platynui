@@ -25,7 +25,7 @@ clap = { version = "4", features = ["derive"] }
 zbus = { version = "5", features = ["blocking-api"] }
 
 # Line editing for interactive mode
-reedline = "0.40"
+reedline = "0.46"
 
 # Error handling
 anyhow = "1"
