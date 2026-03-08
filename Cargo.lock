@@ -2083,7 +2083,7 @@ dependencies = [
  "byteorder-lite",
  "moxcms",
  "num-traits",
- "png 0.18.1",
+ "png",
  "tiff",
 ]
 
@@ -2110,12 +2110,6 @@ dependencies = [
  "libc",
  "udev",
 ]
-
-[[package]]
-name = "input-event-codes"
-version = "6.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d437b85b6856c30525a380e2de28d630cd2f03b4eec8e8a043d71d7e223792dd"
 
 [[package]]
 name = "input-sys"
@@ -3130,7 +3124,7 @@ dependencies = [
  "platynui-provider-mock",
  "platynui-provider-windows-uia",
  "platynui-runtime",
- "png 0.18.1",
+ "png",
  "quick-xml 0.39.2",
  "rstest",
  "serde",
@@ -3210,27 +3204,6 @@ dependencies = [
 [[package]]
 name = "platynui-link"
 version = "0.12.0-dev.5"
-
-[[package]]
-name = "platynui-platform-linux-wayland"
-version = "0.12.0-dev.5"
-dependencies = [
- "enumflags2",
- "input-event-codes",
- "inventory",
- "platynui-core",
- "platynui-xkb-util",
- "reis",
- "rustix 1.1.4",
- "tiny-skia",
- "tracing",
- "wayland-backend",
- "wayland-client",
- "wayland-protocols",
- "wayland-protocols-wlr",
- "xkbcommon 0.8.0",
- "zbus",
-]
 
 [[package]]
 name = "platynui-platform-linux-x11"
@@ -3352,7 +3325,7 @@ dependencies = [
  "clap",
  "egui",
  "egui_glow",
- "png 0.18.1",
+ "png",
  "reis",
  "serde",
  "serde_json",
@@ -3419,7 +3392,7 @@ dependencies = [
  "platynui-provider-mock",
  "platynui-provider-windows-uia",
  "platynui-runtime",
- "png 0.18.1",
+ "png",
  "pyo3",
 ]
 
@@ -3439,19 +3412,6 @@ dependencies = [
  "platynui-runtime",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "png"
-version = "0.17.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82151a2fc869e011c153adc57cf2789ccb8d9906ce52c0b39a6b5697749d7526"
-dependencies = [
- "bitflags 1.3.2",
- "crc32fast",
- "fdeflate",
- "flate2",
- "miniz_oxide",
 ]
 
 [[package]]
@@ -4635,7 +4595,6 @@ dependencies = [
  "bytemuck",
  "cfg-if",
  "log",
- "png 0.17.16",
  "tiny-skia-path",
 ]
 
