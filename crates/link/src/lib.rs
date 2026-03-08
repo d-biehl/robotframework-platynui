@@ -17,7 +17,7 @@ macro_rules! platynui_link_os_providers {
 
         #[cfg(all(not(test), target_os = "linux"))]
         const _: () = {
-            use platynui_platform_linux_x11 as _;
+            use platynui_platform_linux as _;
             use platynui_provider_atspi as _;
         };
 

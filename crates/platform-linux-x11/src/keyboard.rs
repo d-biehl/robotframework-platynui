@@ -15,7 +15,6 @@ use crate::x11util::{X11Handle, connection, root_window_from};
 use platynui_core::platform::{
     KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, PlatformError, PlatformErrorKind,
 };
-use platynui_core::register_keyboard_device;
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex, OnceLock};
 use tracing::{debug, trace};
@@ -827,9 +826,6 @@ fn to_kb<E: std::fmt::Display>(e: E) -> KeyboardError {
 // ---------------------------------------------------------------------------
 //  Registration
 // ---------------------------------------------------------------------------
-
-static KBD: LinuxKeyboardDevice = LinuxKeyboardDevice;
-register_keyboard_device!(&KBD);
 
 // ---------------------------------------------------------------------------
 //  Tests

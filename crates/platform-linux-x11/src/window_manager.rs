@@ -7,7 +7,6 @@
 
 use crate::x11util;
 use platynui_core::platform::{PlatformError, PlatformErrorKind, WindowId, WindowManager};
-use platynui_core::register_window_manager;
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, UiNode};
 use std::sync::Mutex;
@@ -263,7 +262,7 @@ fn pid_from_attr(node: &dyn UiNode) -> Option<u32> {
 //  WindowManager implementation
 // ---------------------------------------------------------------------------
 
-struct X11EwmhWindowManager;
+pub struct X11EwmhWindowManager;
 
 impl WindowManager for X11EwmhWindowManager {
     fn name(&self) -> &'static str {
@@ -417,10 +416,6 @@ impl WindowManager for X11EwmhWindowManager {
 // ---------------------------------------------------------------------------
 //  Registration
 // ---------------------------------------------------------------------------
-
-static PROVIDER: X11EwmhWindowManager = X11EwmhWindowManager;
-
-register_window_manager!(&PROVIDER);
 
 // ---------------------------------------------------------------------------
 //  EWMH WM detection — called during PlatformModule::initialize()

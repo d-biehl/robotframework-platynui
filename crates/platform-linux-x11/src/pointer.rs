@@ -1,6 +1,5 @@
 use crate::x11util::{X11Handle, connection, root_window_from};
 use platynui_core::platform::{PlatformError, PlatformErrorKind, PointerButton, PointerDevice, ScrollDelta};
-use platynui_core::register_pointer_device;
 use platynui_core::types::Point;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::ConnectionExt as _;
@@ -90,7 +89,3 @@ fn to_pf<E: std::fmt::Display>(e: E) -> PlatformError {
     // Pointer failures after a successful connect are operational.
     PlatformError::new(PlatformErrorKind::OperationFailed, format!("x11: {e}"))
 }
-
-static DEVICE: LinuxPointerDevice = LinuxPointerDevice;
-
-register_pointer_device!(&DEVICE);

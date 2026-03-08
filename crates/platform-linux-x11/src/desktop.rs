@@ -1,6 +1,5 @@
 use crate::x11util::{connection, root_window_from};
 use platynui_core::platform::{DesktopInfo, DesktopInfoProvider, MonitorInfo, PlatformError};
-use platynui_core::register_desktop_info_provider;
 use platynui_core::types::Rect;
 use platynui_core::ui::{DESKTOP_RUNTIME_ID, RuntimeId, TechnologyId};
 use std::env;
@@ -89,9 +88,6 @@ fn to_pf<E: std::fmt::Display>(e: E) -> PlatformError {
         format!("x11: {e}"),
     )
 }
-
-static DESKTOP: LinuxDesktopInfo = LinuxDesktopInfo;
-register_desktop_info_provider!(&DESKTOP);
 
 fn monitors_via_randr<C: x11rb::connection::Connection>(conn: &C, root: u32) -> Result<Vec<MonitorInfo>, String> {
     // Try RANDR 1.5 get_monitors first

@@ -44,7 +44,7 @@ platynui-platform-windows = { path = "../platform-windows" }
 platynui-provider-windows-uia = { path = "../provider-windows-uia" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-platynui-platform-linux-x11 = { path = "../platform-linux-x11" }
+platynui-platform-linux = { path = "../platform-linux" }
 platynui-provider-atspi = { path = "../provider-atspi" }
 
 [target.'cfg(target_os = "macos")'.dependencies]

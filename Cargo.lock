@@ -3148,7 +3148,7 @@ dependencies = [
  "owo-colors",
  "platynui-core",
  "platynui-link",
- "platynui-platform-linux-x11",
+ "platynui-platform-linux",
  "platynui-platform-macos",
  "platynui-platform-mock",
  "platynui-platform-windows",
@@ -3159,7 +3159,7 @@ dependencies = [
  "platynui-runtime",
  "png",
  "quick-xml 0.39.2",
- "rstest",
+ "rstest 0.26.1",
  "serde",
  "serde_json",
  "serial_test",
@@ -3181,7 +3181,7 @@ version = "0.12.0-dev.5"
 dependencies = [
  "bitflags 2.11.0",
  "inventory",
- "rstest",
+ "rstest 0.26.1",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -3213,7 +3213,7 @@ dependencies = [
  "image",
  "platynui-core",
  "platynui-link",
- "platynui-platform-linux-x11",
+ "platynui-platform-linux",
  "platynui-platform-macos",
  "platynui-platform-mock",
  "platynui-platform-windows",
@@ -3239,10 +3239,20 @@ name = "platynui-link"
 version = "0.12.0-dev.5"
 
 [[package]]
-name = "platynui-platform-linux-x11"
+name = "platynui-platform-linux"
 version = "0.12.0-dev.5"
 dependencies = [
  "inventory",
+ "platynui-core",
+ "platynui-platform-linux-x11",
+ "rstest 0.25.0",
+ "tracing",
+]
+
+[[package]]
+name = "platynui-platform-linux-x11"
+version = "0.12.0-dev.5"
+dependencies = [
  "platynui-core",
  "tracing",
  "x11rb",
@@ -3258,7 +3268,7 @@ version = "0.12.0-dev.5"
 dependencies = [
  "inventory",
  "platynui-core",
- "rstest",
+ "rstest 0.26.1",
  "serial_test",
  "tracing",
 ]
@@ -3304,7 +3314,7 @@ dependencies = [
  "inventory",
  "platynui-core",
  "quick-xml 0.39.2",
- "rstest",
+ "rstest 0.26.1",
  "serde",
  "serial_test",
  "thiserror 2.0.18",
@@ -3332,7 +3342,7 @@ dependencies = [
  "platynui-platform-mock",
  "platynui-provider-mock",
  "platynui-xpath",
- "rstest",
+ "rstest 0.26.1",
  "rust_decimal",
  "serde_json",
  "serial_test",
@@ -3400,7 +3410,7 @@ dependencies = [
  "lru",
  "pest",
  "pest_derive",
- "rstest",
+ "rstest 0.26.1",
  "rust_decimal",
  "smallvec",
  "string_cache",
@@ -3416,7 +3426,7 @@ version = "0.12.0-dev.5"
 dependencies = [
  "platynui-core",
  "platynui-link",
- "platynui-platform-linux-x11",
+ "platynui-platform-linux",
  "platynui-platform-macos",
  "platynui-platform-mock",
  "platynui-platform-windows",
@@ -3436,7 +3446,7 @@ dependencies = [
  "anyhow",
  "platynui-core",
  "platynui-link",
- "platynui-platform-linux-x11",
+ "platynui-platform-linux",
  "platynui-platform-macos",
  "platynui-platform-windows",
  "platynui-provider-atspi",
@@ -3915,13 +3925,43 @@ dependencies = [
 
 [[package]]
 name = "rstest"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fc39292f8613e913f7df8fa892b8944ceb47c247b78e1b1ae2f09e019be789d"
+dependencies = [
+ "futures-timer",
+ "futures-util",
+ "rstest_macros 0.25.0",
+ "rustc_version",
+]
+
+[[package]]
+name = "rstest"
 version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5a3193c063baaa2a95a33f03035c8a72b83d97a54916055ba22d35ed3839d49"
 dependencies = [
  "futures-timer",
  "futures-util",
- "rstest_macros",
+ "rstest_macros 0.26.1",
+]
+
+[[package]]
+name = "rstest_macros"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f168d99749d307be9de54d23fd226628d99768225ef08f6ffb52e0182a27746"
+dependencies = [
+ "cfg-if",
+ "glob",
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "relative-path",
+ "rustc_version",
+ "syn 2.0.117",
+ "unicode-ident",
 ]
 
 [[package]]

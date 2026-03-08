@@ -1,6 +1,6 @@
 ## Plan: PlatynUI Wayland Compositor + Platform-Crate (Final, priorisiert)
 
-**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~14.500 LoC, 1883 Tests, 43 Protokoll-Globals) + Wayland Platform-Crate (`crates/platform-linux-wayland/`). Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann Bugfixes & Window-Management-Verbesserungen (Phase 3a+ ✅), dann verbleibende Automation-Protokolle (Phase 3b ✅: Tier 1+2+3 + Stubs komplett, EIS-Server komplett mit Keyboard/Pointer/Touch/Regions/XKB-Keymap, EIS-Test-Client komplett mit `type-text` + Compose-Support + XKB-Reverse-Lookup, Erkenntnisse in `docs/eis-libei.md`), dann Desktop-Integration & Projekt-Tooling (Phase 3c ✅: Winit-Fenster, App-IDs, `.desktop`-Dateien, Justfile), dann das Platform-Crate (Phase 4), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
+**TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~15.000 LoC, 1884 Tests, 43 Protokoll-Globals) + Wayland Platform-Crate (`crates/platform-linux-wayland/`) + PlatynUI GNOME Shell Extension. Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann Bugfixes & Window-Management-Verbesserungen (Phase 3a+ ✅), dann verbleibende Automation-Protokolle (Phase 3b ✅: Tier 1+2+3 + Stubs komplett, EIS-Server komplett mit Keyboard/Pointer/Touch/Regions/XKB-Keymap, EIS-Test-Client komplett mit `type-text` + Compose-Support + XKB-Reverse-Lookup, Erkenntnisse in `docs/eis-libei.md`), dann Desktop-Integration & Projekt-Tooling (Phase 3c ✅: Winit-Fenster, App-IDs, `.desktop`-Dateien, Justfile), dann Touch-Input & SSD-Touch-Interaktion (Phase 3d ✅: Touch-Handler, Touch-Grabs, deferred SSD-Buttons, Multi-Slot-Isolation), dann Platform-Linux-Mediator (Phase 3e ✅: `crates/platform-linux/` als delegierender Mediator mit Laufzeit-Session-Erkennung, einmaliger Backend-Auflösung in `initialize()` via `Resolved`-Struct, Wayland fällt vorerst auf X11 zurück, Sub-Platforms als Libraries ohne Selbstregistrierung), dann das Wayland-Platform-Crate (Phase 4: Compositor-Typ-basierte Backend-Selektion, Compositor-spezifische IPC-Backends für KWin/Mutter/PlatynUI (Sway/Hyprland IPC optional), PlatynUI GNOME Shell Extension für Mutter, WindowManager liefert Fenster-Positionen an AT-SPI-Provider), dann eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
 
 ---
 
@@ -564,7 +564,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
     (~1.780 LoC gesamt)
 
 17c. ✅ **XKB-Reverse-Lookup Crate** (`crates/xkb-util/`): Eigenständiges Crate `platynui-xkb-util` für XKB-basierten Reverse-Lookup (Zeichen → Keycode + Modifiers). Wird vom EIS-Test-Client (Step 17b, `type-text`) direkt genutzt und ist für das zukünftige Platform-Crate (Phase 4) vorbereitet:
-    - **Crate:** `crates/xkb-util/` mit eigenem `Cargo.toml`. Deps: `xkbcommon = "0.9"` (C-Bindings via `xkbcommon-sys`), `tracing = "0.1"`.
+    - **Crate:** `crates/xkb-util/` mit eigenem `Cargo.toml`. Deps: `xkbcommon = "0.9"` (C-Bindings via `xkbcommon-sys`, `cfg(target_os = "linux")`-gated), `tracing = "0.1"`. Modul und Re-Exports sind `#[cfg(target_os = "linux")]`-gated — Crate kompiliert als leeres Crate auf Windows/macOS.
     - **`KeyAction` enum:** Zentrale Abstraktion für die Eingabe eines Zeichens:
       - `KeyAction::Simple(KeyCombination)` — Einzelne Taste mit optionalen Modifiern (Shift, AltGr etc.)
       - `KeyAction::Compose { dead_key: KeyCombination, base_key: KeyCombination }` — Zwei-Schritt Compose-Sequenz (Dead-Key + Base-Key, z.B. `dead_grave` + `a` → `à`)
@@ -704,7 +704,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 *Ziel: Vollständige Touchscreen-Unterstützung im Compositor — Touch-Events werden korrekt an Clients weitergeleitet, SSD-Fensterdekorationen (Move, Resize, Close/Maximize/Minimize-Buttons) reagieren auf Touch-Gesten mit dem gleichen Verhalten wie Pointer-Input. Multi-Slot-Isolation und korrekte Koordinaten-Transformation über alle Input-Quellen (Backend + EIS).*
 
-> **Status (2025-07-04):** Alle Steps abgeschlossen. Clippy clean, 27 Tests sauber.
+> **Status (2026-03-06):** Alle Steps abgeschlossen. Clippy clean, 27 Tests sauber.
 
 **Touch-Grundlagen:**
 
@@ -746,40 +746,423 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 ---
 
-### Phase 4: Platform-Crate (`crates/platform-linux-wayland/`, ~2.000 LoC, ~2 Wochen) ⬜ OFFEN
+### Phase 3e: Platform-Linux Mediator (`crates/platform-linux/`, ~350 LoC) ✅ ERLEDIGT
 
-*Ziel: PlatynUI kann unter Wayland Fenster finden, Input injizieren, Screenshots machen und Highlight-Overlays anzeigen.*
+> **Status (2026-03-08):** Komplett implementiert. Session-Erkennung, delegierender Mediator mit `Resolved`-Struct (einmalige Backend-Auflösung in `initialize()`, 7 `&'static dyn Trait`-Referenzen gecacht in `Mutex<Option<Resolved>>`). Wayland-Sessions fallen vorerst mit Warning auf X11 zurück. Sub-Platforms als Libraries ohne Selbstregistrierung. Alle Consumers (CLI, Inspector, Python Bindings, Link, Playground) auf `platynui-platform-linux` umgestellt. Build/Clippy/Fmt clean, 1885 Tests grün. Dokumentation in `docs/architecture.md` §3 und `docs/platform-linux.md` §0 aktualisiert.
 
-20. **Crate anlegen** — Deps: `platynui-core`, `inventory`, `tracing`, `wayland-client`, `wayland-protocols` (Feature `staging`), `wayland-protocols-wlr`, `reis` (EI-Client), `xkbcommon`, `egui`, `smithay-egui`. Alles `#[cfg(target_os = "linux")]`.
+*Ziel: Ein delegierendes `platform-linux` Crate erkennt zur Laufzeit ob X11 oder Wayland und leitet alle Platform-Trait-Aufrufe an das richtige Sub-Platform-Crate weiter. Die Runtime und das Core-Crate bleiben unverändert.*
 
-21. **Connection + Protocol-Negotiation** (`src/lib.rs`, `src/connection.rs`): `WaylandPlatformModule` — Wayland-Display-Verbindung, `wl_registry` Scan → `ProtocolCapabilities`. `register_platform_module!()`. Erkennung des Session-Typs via `$XDG_SESSION_TYPE` und `/proc/{pid}/environ` (`GDK_BACKEND`, `QT_QPA_PLATFORM`) um pro App zu ermitteln ob sie unter Wayland-nativ oder XWayland läuft. (~250 LoC)
+**Problem:** `initialize_platform_modules()` in der Runtime iteriert **alle** per `inventory` registrierten Module und bricht beim ersten Fehler ab (`?`-Operator). Geräte werden via `pointer_devices().next()` ausgewählt — einfach das erste registrierte. Wenn sowohl `platform-linux-x11` als auch `platform-linux-wayland` sich selbst registrieren, würde auf einer reinen Wayland-Session das X11-Modul beim `initialize()` fehlschlagen (kein `$DISPLAY`), und umgekehrt.
 
-22. **Pointer** (`src/pointer.rs`): `WaylandPointerDevice` — Fallback-Kette:
-    - `reis::ei` → EIS-Server (Mutter, KWin, eigener Compositor)
-    - `zwlr_virtual_pointer_v1` (Sway, Hyprland, eigener Compositor)
-    - `register_pointer_device!()` (~300 LoC)
+**Lösung: Delegierender Mediator mit ZST-Delegation** — Die Sub-Platform-Crates (`platform-linux-x11`, zukünftig `platform-linux-wayland`) registrieren sich **nicht** selbst im `inventory`. Sie exportieren ihre Device-Typen als öffentliche Zero-Sized Structs (ZSTs) — keine `pub static` Instanzen. Ein neues `platform-linux` Crate:
+1. Registriert **ein** `PlatformModule` im `inventory`
+2. Registriert **einen Satz** delegierender Wrapper-Devices
+3. Erkennt den Session-Typ zur Laufzeit in `initialize()`
+4. Konstruiert Sub-Platform-ZSTs **inline am Call-Site** und delegiert — kein Objekt existiert länger als der einzelne Aufruf
 
-23. **Keyboard** (`src/keyboard.rs`): `WaylandKeyboardDevice` — gleiche Fallback-Kette (libei / wlr-virtual). XKB-Keymap via `xkbcommon`. `register_keyboard_device!()` (~300 LoC)
+**Design-Entscheidung: `Resolved`-Struct mit einmaliger Auflösung** — `initialize()` erkennt den Session-Typ, baut ein `Resolved`-Struct mit 7 `&'static dyn Trait`-Referenzen (eine pro Platform-Trait) auf und cacht es in `Mutex<Option<Resolved>>`. Alle Wrapper-Devices greifen direkt auf das gecachte `Resolved` zu — kein erneutes Session-Matching, kein `?` für die Auflösung. Wayland-Sessions fallen vorerst mit `tracing::warn!` auf X11 zurück, bis das Wayland-Platform-Crate existiert. Sub-Platform-Device-Structs bleiben ZSTs (Unit-Structs ohne Felder), werden aber als `&'static dyn Trait`-Referenzen im `Resolved`-Struct gehalten.
 
-24. **Window Manager** (`src/window_manager.rs`): Zwei-Schicht-Architektur:
-    - Protokoll: `wlr-foreign-toplevel-management-v1` + `ext-foreign-toplevel-list-v1`, PID-Matching mit AT-SPI
-    - Compositor-IPC (pluggable): Mutter (D-Bus), Sway (`swayipc`), KWin (D-Bus), PlatynUI-Compositor (Control-Socket)
-    - `register_window_manager!()` (~400 LoC)
+**Session-Erkennung** (Prioritätskette, gecacht in `Mutex<Option<SessionType>>`):
+1. `$XDG_SESSION_TYPE` → `"wayland"` | `"x11"` (autoritativste Quelle)
+2. `$WAYLAND_DISPLAY` gesetzt → Wayland
+3. `$DISPLAY` gesetzt → X11
+4. Keines → `PlatformError`
 
-25. **Desktop Info** (`src/desktop.rs`): `wl_output` + `xdg_output_manager`. `register_desktop_info_provider!()` (~150 LoC)
+Hinweis: XWayland auf einer Wayland-Session setzt **beide** Variablen (`$DISPLAY` + `$WAYLAND_DISPLAY`), aber `$XDG_SESSION_TYPE=wayland` — daher hat Schritt 1 Vorrang. Platform-Level Input-Injection nutzt immer das native Session-Protokoll (Wayland→EIS, X11→XTEST). `OnceLock::get_or_try_init` ist bis Rust 1.93 unstable — daher `Mutex<Option<SessionType>>` als Cache.
 
-26. **Screenshot** (`src/screenshot.rs`): `ext-image-copy-capture-v1` primär, Compositor-IPC Fallback. `register_screenshot_provider!()` (~250 LoC)
+19e₁. ✅ **Crate anlegen** (`crates/platform-linux/Cargo.toml`): Deps: `platynui-core`, `platynui-platform-linux-x11`, `inventory`, `tracing`. Alles `#[cfg(target_os = "linux")]`. Später kommt `platynui-platform-linux-wayland` als weitere Dependency dazu.
 
-27. **Highlight** (`src/highlight.rs`): `wlr-layer-shell-v1` / `ext-layer-shell-v1` + egui-Rendering (farbige semi-transparente Rechtecke als Overlay). Command-Channel (Show/Clear). `register_highlight_provider!()` (~300 LoC)
+19e₂. ✅ **Session-Erkennung** (`src/session.rs`): `SessionType` enum (`X11`, `Wayland`), `detect_session_type() → Result<SessionType, PlatformError>`, `Mutex<Option<SessionType>>` Cache mit Prozess-Lifetime. Unit-Tests für alle Umgebungsvariablen-Kombinationen. (~80 LoC)
 
-27b. **Koordinaten-Transformation** (`src/coordinates.rs`): Unter Wayland liefert AT-SPI `GetExtents(WINDOW)` nur fenster-relative Koordinaten. Dieses Modul kombiniert:
-- Window-Position vom `WindowManager` (via `wlr-foreign-toplevel` oder Compositor-IPC)
-- Relative Koordinaten von AT-SPI `GetExtents(WINDOW)`
-→ Absolute Screen-Koordinaten für `PointerDevice::move_to()` und `ScreenshotProvider::capture()`. Transparente Umrechnung, sodass der Rest des Platform-Crates nur mit absoluten Koordinaten arbeitet. (~100 LoC)
+19e₃. ✅ **PlatformModule-Implementierung** (`src/lib.rs`): `LinuxModule` — `initialize()` erkennt Session-Typ, baut `Resolved`-Struct mit 7 `&'static dyn Trait`-Referenzen, cacht es in `Mutex<Option<Resolved>>`, delegiert dann an `r.module.initialize()`. Wayland fällt vorerst mit `tracing::warn!` auf X11 zurück. `shutdown()` delegiert analog. `register_platform_module!(&MODULE)`. (~80 LoC)
 
-27c. **Wayland/XWayland-Erkennung pro App** (`src/session_detect.rs`): Liest `/proc/{pid}/environ` der Ziel-App um `GDK_BACKEND=wayland`, `QT_QPA_PLATFORM=wayland`, `MOZ_ENABLE_WAYLAND=1` etc. zu prüfen. Entscheidet ob AT-SPI `GetExtents(SCREEN)` (XWayland-App, Koordinaten stimmen) oder `GetExtents(WINDOW)` + Fenster-Offset (Wayland-native App) verwendet wird. (~80 LoC)
+19e₄. ✅ **Delegierende Wrapper-Devices**: Je ein `struct LinuxPointer`, `LinuxKeyboard`, `LinuxDesktopInfo`, `LinuxHighlight`, `LinuxScreenshot`, `LinuxWindowManager` — jede Trait-Methode greift auf `resolved().field.method()` zu (panicked nur wenn `initialize()` nicht aufgerufen wurde — Programmierfehler). Registrierung via `register_*_device!()`. `use`-Aliases für Lesbarkeit (`use ... as X11Pointer`). (~250 LoC)
 
-**Meilenstein 4:** `cargo nextest run -p platynui-platform-linux-wayland` — alle Traits getestet. Pointer/Keyboard-Input über libei und wlr-virtual funktioniert. Fenster-Liste via Foreign-Toplevel. Screenshots via ext-image-copy-capture. Highlight-Overlays via Layer-Shell. Koordinaten-Transformation korrekt für Wayland-native und XWayland-Apps.
+19e₅. ✅ **Refactoring `platform-linux-x11`**: Alle `register_*_device!()` Makros und `pub static` Instanzen entfernt. Module (`init`, `pointer`, `keyboard`, `desktop`, `screenshot`, `highlight`, `window_manager`) als `pub mod` exportiert. Device-Structs als `pub struct` sichtbar. `inventory`-Dependency entfernt. Das Crate funktioniert als reine Library ohne Selbstregistrierung. (~60 LoC Änderungen)
+
+19e₆. ✅ **Consumer-Crates aktualisieren**: Link-Crate, CLI, Inspector, Python Bindings (`packages/native`), Playground — alle von `platynui-platform-linux-x11` auf `platynui-platform-linux` umgestellt. Provider (`platynui-provider-atspi`) bleibt unverändert — wird für beide Sessions genutzt.
+
+**Meilenstein 3e:** ✅ `cargo nextest run --workspace` — 1885 Tests grün. Build + Clippy clean. Runtime initialisiert auf X11-Session identisch wie vorher, nur über den Mediator geroutet. Auf Wayland-Session: `SessionType::Wayland` erkannt, Warning geloggt, Fallback auf X11-Backend (funktioniert über XWayland). Doku aktualisiert (`docs/architecture.md`, `docs/platform-linux.md`).
+
+---
+
+### Phase 4: Wayland-Platform-Crate (`crates/platform-linux-wayland/`, ~4.000 LoC + ~300 LoC GJS, ~4 Wochen) ⬜ OFFEN
+
+*Ziel: PlatynUI kann unter Wayland Fenster finden, Input injizieren, Screenshots machen und Highlight-Overlays anzeigen — auf GNOME/Mutter, KDE/KWin, wlroots-basierten Compositors (Sway, Hyprland) und dem eigenen PlatynUI-Compositor.*
+
+**Herausforderung:** Im Gegensatz zu X11 (ein universelles API: XTEST + EWMH + RANDR) bietet Wayland **keine** einheitliche Automation-API. Jeder Compositor unterstützt unterschiedliche Protokoll-Kombinationen für Input-Injection, Screenshots, Fenster-Management und Overlays. Besonders problematisch:
+- **Fenster-Positionen** sind unter Wayland ein bewusstes Design-Gap (Clients kennen ihre globale Position nicht). Compositor-spezifisches IPC nötig.
+- **GNOME/Mutter** unterstützt weder Layer-Shell (für Highlights) noch liefert `Shell.Introspect` Fenster-Positionen (nur width/height, kein x/y). Lösung: eigene PlatynUI GNOME Shell Extension.
+- **`ext-layer-shell-v1`** existiert noch nicht (Stand 2026-03) — nur `wlr-layer-shell-v1` auf wlroots-Compositors.
+
+**Lösung: Compositor-Erkennung zuerst, dann direkte Backend-Instanziierung** — Beim `initialize()` wird zuerst der Compositor-Typ über `SO_PEERCRED` auf dem Wayland-Socket ermittelt. Der Compositor-Typ bestimmt dann direkt, welche Backends für Input, Screenshots, WindowManager und Highlight instanziiert werden — ohne blinde Protokoll-Probing-Phase. Jeder Backend-Konstruktor kann bei Verbindungsfehlern graceful auf den nächsten Fallback wechseln. GNOME/Mutter nutzt eine eigene Shell Extension die per D-Bus kommuniziert.
+
+**Protokoll-Matrix** (was gibt es wo):
+
+| Capability | Standard-Protokoll | wlroots/Sway/Hyprland/COSMIC | Mutter/GNOME | KWin/Plasma | PlatynUI-Compositor |
+|---|---|---|---|---|---|
+| **Input** | EIS/libei | ✅ + `zwlr-virtual-*` | ✅ (45+) via Portal | Portal RemoteDesktop → EIS | ✅ + `zwlr-virtual-*` |
+| **Output-Screenshot** | `ext-image-copy-capture` | ✅ + `wlr-screencopy` | Portal ScreenCast | `ext-image-copy-capture` / Portal ScreenCast | ✅ + `wlr-screencopy` |
+| **Window-Screenshot** | `ext-image-capture-source` (per-toplevel) | ✅ (`wlr-screencopy` + Region-Crop) | Portal ScreenCast (WINDOW) / GNOME Extension | `ext-image-copy-capture` / Portal ScreenCast (WINDOW) | ✅ + `wlr-screencopy` |
+| **Fenster-Liste** | `ext-foreign-toplevel-list` | ✅ + `wlr-foreign-toplevel-mgmt` | `Shell.Introspect` (kein x/y!) / GNOME Extension | KWin Scripting D-Bus | ✅ + `wlr-foreign-toplevel-mgmt` + Control-Socket |
+| **Fenster-Position** | *(keiner — Wayland-Design: Clients kennen ihre Position nicht!)* | Sway: i3-IPC `GET_TREE` / Hyprland: `hyprctl -j clients` / COSMIC: *unklar, ggf. ext-foreign-toplevel + D-Bus* | GNOME Extension (`Meta.Window.get_frame_rect()`) | KWin Scripting D-Bus | Control-Socket |
+| **Fenster-Aktionen** | *(keiner)* | `wlr-foreign-toplevel-mgmt` | GNOME Extension | KWin Scripting D-Bus | `wlr-foreign-toplevel-mgmt` + Control-Socket |
+| **Highlight** | *(keiner — `ext-layer-shell` existiert noch nicht!)* | `wlr-layer-shell` (COSMIC: `cosmic-ext-layer-shell`) | GNOME Extension (St.Widget Overlay) | `workspace.showOutline(QRect)` via D-Bus | `wlr-layer-shell` |
+| **Desktop/Output** | `wl_output` + `xdg-output` | ✅ | ✅ | ✅ | ✅ |
+
+> **Wichtige Erkenntnisse aus der Recherche:**
+> - `ext-layer-shell-v1` existiert **noch nicht** (nur `wlr-layer-shell-v1` bei wlroots-Compositors). Mutter/KWin unterstützen kein Layer-Shell.
+> - `org.gnome.Shell.Introspect.GetWindows()` liefert **nur width/height, KEIN x/y** — für Positionen braucht GNOME eine eigene Shell Extension oder AT-SPI `GetExtents(SCREEN)`.
+> - KWin hat `workspace.showOutline(QRect)` + `hideOutline()` via KWin Scripting D-Bus API — Compositor-Level Highlighting ohne Layer-Shell!
+> - AT-SPI `GetExtents(SCREEN)` liefert unter Wayland für **Wayland-native Apps keine korrekten globalen Koordinaten** — der AT-SPI-Provider im Toolkit kennt die Fensterposition nicht (Wayland-Design). Deshalb braucht das Platform-Crate einen WindowManager, der die Positionen via Compositor-IPC ermittelt und dem AT-SPI-Provider zur Verfügung stellt.
+> - Portal RemoteDesktop: `restore_token` ist **single-use** — nach Verwendung wird ein neuer Token zurückgegeben, der gespeichert werden muss.
+> - Portal ScreenCast unterstützt `WINDOW` als Source-Typ (Bitmask 2) — per-Window-Capture ohne Compositor-spezifisches Protokoll.
+> - `ext-image-capture-source-v1` unterstützt **per-Toplevel-Capture** via `ext_foreign_toplevel_image_capture_source_manager_v1`.
+>
+> **KWin/Plasma eigene Wayland-Protokolle** (`plasma-wayland-protocols`) — **evaluiert, nicht implementiert:**
+> KWin exponiert `org_kde_kwin_fake_input` (v6, Input-Injection), `zkde_screencast_unstable_v1` (v5, PipeWire-Screencasting) und `org_kde_plasma_window_management` (v20, Fenster-Management). Nach Analyse kein Mehrwert gegenüber Portal + D-Bus: (1) `fake_input` spart nur initialen Consent-Dialog, Portal mit `restore_token` ist gleichwertig; (2) `zkde_screencast` wird intern vom Portal ScreenCast gewrapped, `ext-image-copy-capture` ist der bessere Standard; (3) `plasma_window_management` hat single-client-binding — in Desktop-Sessions nicht nutzbar da plasmashell den Slot belegt. KWin Scripting D-Bus deckt alles ab. ~470 LoC eingespart. Bei Bedarf nachrüstbar.
+>
+> **Mutter/GNOME eigene Wayland-Protokolle:**
+> - Mutter exponiert **keine vergleichbaren Custom-Wayland-Protokolle** für Clients. Stattdessen D-Bus-Interfaces (`org.gnome.Mutter.ScreenCast`, `org.gnome.Mutter.RemoteDesktop`, `org.gnome.Shell.Introspect`, `org.gnome.Shell.Screenshot`). Bestätigt: GNOME Shell Extension ist der richtige Ansatz für Mutter.
+
+**Crate-Struktur** (modulare Backend-Architektur):
+```
+crates/platform-linux-wayland/src/
+  lib.rs                  # pub fn initialize()/shutdown(), pub static Devices
+  connection.rs           # Wayland-Display + wl_registry Scan
+  capabilities.rs         # CompositorType Erkennung (SO_PEERCRED) + Backend-Instanziierung
+  coordinates.rs          # Window-relative → absolute Koordinaten-Transformation
+  app_detect.rs           # Per-App Wayland/XWayland-Erkennung
+
+  input/
+    mod.rs                # InputBackend trait + Selektion
+    eis.rs                # EIS direkt (reis) — eigener Compositor, neuere wlroots
+    portal.rs             # Portal RemoteDesktop → ConnectToEIS() — Mutter, KWin, Portal-Fallback
+    virtual_input.rs      # zwlr-virtual-pointer/keyboard — wlroots-Fallback
+
+  screenshot/
+    mod.rs                # ScreenshotBackend trait
+    image_copy.rs         # ext-image-copy-capture-v1 + ext-image-capture-source (per-Toplevel)
+    wlr_screencopy.rs     # wlr-screencopy-unstable-v1 + capture_output_region() — legacy wlroots
+    portal.rs             # Portal Screenshot (URI) + Portal ScreenCast (WINDOW source)
+    gnome_extension.rs    # PlatynUI GNOME Shell Extension → CaptureWindow(id)
+
+  window_manager/
+    mod.rs                # WaylandWindowManager (impl WindowManager) + CompositorBackend trait
+    ext_foreign.rs        # ext-foreign-toplevel-list-v1 (read-only Liste, keine Positionen)
+    wlr_foreign.rs        # wlr-foreign-toplevel-management-v1 (Liste + Aktionen, keine Positionen)
+    gnome_extension.rs    # PlatynUI GNOME Extension → volle Geometrie + Aktionen (Mutter)
+    platynui_ipc.rs       # Control-Socket IPC (eigener Compositor)
+    kwin_dbus.rs          # org.kde.KWin.Scripting → volle Geometrie + Aktionen (primär in Plasma-Sessions)
+    sway_ipc.rs           # *(optional, später)* i3-IPC GET_TREE → volle Geometrie (rect: x,y,w,h)
+    hyprland_ipc.rs       # *(optional, später)* hyprctl -j clients → volle Geometrie + Window-Management
+
+  highlight/
+    mod.rs                # HighlightBackend trait
+    layer_shell.rs        # wlr-layer-shell-v1 — Overlay auf eigenem Layer (wlroots)
+    kwin_outline.rs       # KWin workspace.showOutline(QRect) via D-Bus
+    gnome_extension.rs    # PlatynUI GNOME Extension → St.Widget Compositor-Overlay
+    overlay_window.rs     # Letzter Fallback: XWayland-Overlay-Fenster (fragile Z-Order)
+
+  desktop.rs              # wl_output + xdg-output (universal, kein Fallback nötig)
+```
+
+#### Phase 4a: Fundament (~800 LoC)
+
+20. **Crate anlegen** — Deps: `platynui-core`, `tracing`, `wayland-client`, `wayland-protocols` (Feature `staging`), `wayland-protocols-wlr`, `reis` (EI-Client), `platynui-xkb-util`, `zbus` (D-Bus für Mutter/KWin-IPC + Portal), `egui`, `egui_glow`, `pipewire` (für Portal-ScreenCast Frame-Reads). Alles `#[cfg(target_os = "linux")]`. **Keine** `inventory`-Dependency — das Crate registriert sich nicht selbst, sondern exportiert `pub static` Devices und `pub fn initialize()/shutdown()` für den `platform-linux` Mediator.
+
+21. **Connection + Compositor-Erkennung** (`src/connection.rs`, `src/capabilities.rs`):
+
+    `pub fn initialize()` — Wayland-Display-Verbindung, dann sofort Compositor-Typ-Erkennung via `SO_PEERCRED`. Der Compositor-Typ bestimmt direkt die Backend-Strategie für alle Devices:
+
+    ```rust
+    enum CompositorType {
+        Mutter,     // → GNOME Extension, Portal-first für Input
+        PlatynUI,   // → Control-Socket, alle Protokolle
+        KWin,       // → KWin Scripting D-Bus, Portal für Input + Screenshots
+        Cosmic,     // → wlr-Protokolle + cosmic-ext-*, iced/D-Bus (Positions-IPC noch unklar)
+        Sway,       // → wlr-Protokolle (i3-IPC GET_TREE optional, später)
+        Hyprland,   // → wlr-Protokolle (hyprctl IPC optional, später)
+        Unknown,    // → nur Standard-Protokolle + Portal + AT-SPI
+    }
+    ```
+
+    **Backend-Instanziierung basierend auf CompositorType:**
+    ```rust
+    fn create_backends(compositor: CompositorType, conn: &WaylandConnection) -> Backends {
+        match compositor {
+            Mutter => Backends {
+                input:          PortalInput::new(),        // Portal RemoteDesktop → ConnectToEIS()
+                screenshot:     GnomeExtScreenshot::new()  // GNOME Extension CaptureWindow
+                                .or(PortalScreencast::new()),
+                window_manager: GnomeExtWindowManager::new(), // Extension: Meta.Window.get_frame_rect()
+                highlight:      GnomeExtHighlight::new(),    // Extension: St.Widget Overlay
+            },
+            PlatynUI => Backends {
+                input:          EisInput::new()            // EIS direkt
+                                .or(WlrVirtualInput::new(conn)),
+                screenshot:     ExtImageCopyCapture::new(conn), // ext-image-copy-capture
+                window_manager: PlatynUISocket::new(),     // Control-Socket
+                highlight:      LayerShellHighlight::new(conn), // wlr-layer-shell
+            },
+            KWin => Backends {
+                input:          PortalInput::new(),        // Portal RemoteDesktop → ConnectToEIS()
+                screenshot:     ExtImageCopyCapture::new(conn) // ext-image-copy-capture (KWin 6.1+)
+                                .or(PortalScreencast::new()) // Portal ScreenCast (WINDOW)
+                                .or(PortalScreenshot::new()),
+                window_manager: KWinDbus::new(),           // org.kde.KWin Scripting D-Bus
+                highlight:      KWinOutline::new(),        // workspace.showOutline(QRect)
+            },
+            Sway | Hyprland | Cosmic | Unknown => Backends {
+                input:          EisInput::new()            // EIS direkt (wenn Socket vorhanden)
+                                .or(WlrVirtualInput::new(conn)) // wlr-virtual-pointer/keyboard
+                                .or(PortalInput::new()),   // Portal als letzter Fallback
+                screenshot:     ExtImageCopyCapture::new(conn) // ext-image-copy-capture
+                                .or(WlrScreencopy::new(conn)) // wlr-screencopy (Legacy)
+                                .or(PortalScreencast::new()),
+                window_manager: WlrForeignToplevel::new(conn)  // Aktionen, keine Positionen
+                                .or(ExtForeignToplevel::new(conn)), // Read-only Liste
+                highlight:      LayerShellHighlight::new(conn) // wlr-layer-shell
+                                .or(XWaylandOverlay::new()),   // XWayland-Fallback
+            },
+        }
+    }
+    ```
+
+    **Vorteil:** Kein blindes Probing von 15+ Capabilities. Der Compositor-Typ (kostengünstig via `SO_PEERCRED` ermittelt) bestimmt direkt, welche Backends instanziiert werden. Jeder Backend-Konstruktor verbindet sich zu seinem Protokoll/D-Bus-Service und liefert `Err` wenn nicht verfügbar — der `.or()`-Fallback wählt dann die nächste Alternative. Die `wl_registry`-Globals werden im Hintergrund beim Wayland-Roundtrip gesammelt und stehen den Wayland-Protokoll-Backends (ext-image-copy-capture, wlr-screencopy, wlr-layer-shell, etc.) direkt zur Verfügung.
+    **Compositor-Typ-Erkennung** via `SO_PEERCRED` auf dem Wayland-Socket:
+    
+    Die zuverlässigste Methode ist, den **Prozess hinter dem Wayland-Socket** zu identifizieren. Da wir bereits eine Wayland-Verbindung haben (sonst gäbe es kein Wayland-Platform-Crate), können wir:
+    1. `getsockopt(wayland_fd, SOL_SOCKET, SO_PEERCRED)` → `ucred { pid, uid, gid }` des Compositor-Prozesses
+    2. `std::fs::read_link(format!("/proc/{pid}/exe"))` → Binary-Pfad (z.B. `/usr/bin/mutter`, `/usr/bin/sway`)
+    3. Binary-Name → `CompositorType` Mapping:
+    
+    ```rust
+    fn detect_compositor(wayland_fd: RawFd) -> CompositorType {
+        // 1. Primär: Compositor-Binary über Wayland-Socket identifizieren
+        let peer_pid = getsockopt_peercred(wayland_fd).pid;
+        let exe = std::fs::read_link(format!("/proc/{peer_pid}/exe"))
+            .ok()
+            .and_then(|p| p.file_name()?.to_str().map(String::from));
+        
+        if let Some(compositor) = match exe.as_deref() {
+            Some("mutter" | "gnome-shell")          => Some(Mutter),
+            Some("platynui-wayland-compositor")      => Some(PlatynUI),
+            Some("kwin_wayland")                     => Some(KWin),
+            Some("cosmic-comp")                      => Some(Cosmic),
+            Some("sway")                             => Some(Sway),
+            Some(e) if e.starts_with("Hyprland")     => Some(Hyprland),
+            _ => None,
+        } {
+            return compositor;
+        }
+        
+        // 2. Fallback: Env-Variablen (z.B. in Containern ohne /proc-Zugriff,
+        //    oder bei unbekanntem Binary-Namen)
+        if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
+            for part in desktop.split(':') {
+                match part.trim().to_uppercase().as_str() {
+                    "GNOME"    => return Mutter,
+                    "KDE"      => return KWin,
+                    "COSMIC"   => return Cosmic,
+                    "SWAY"     => return Sway,
+                    "HYPRLAND" => return Hyprland,
+                    "PLATYNUI" => return PlatynUI,
+                    _ => {}
+                }
+            }
+        }
+        
+        Unknown
+    }
+    ```
+    
+    **Primär:** `SO_PEERCRED` auf dem Wayland-Socket → PID → `/proc/<pid>/exe` → Binary-Name. 100% zuverlässig, ein Syscall + ein Readlink.
+    **Fallback:** `$XDG_CURRENT_DESKTOP` für Fälle in denen `/proc` nicht verfügbar ist (Container, Sandboxes) oder der Binary-Name unbekannt ist (Custom-Builds, Forks). (~250 LoC)
+
+21b. **Koordinaten-Transformation** (`src/coordinates.rs`): **Kernproblem:** Unter Wayland liefert AT-SPI `GetExtents(SCREEN)` für Wayland-native Apps **keine korrekten globalen Koordinaten**. Der AT-SPI-Provider im Toolkit (z.B. GTK, Qt) kennt die globale Fensterposition nicht, weil Wayland-Clients ihre Position bewusst nicht erfahren. Das bedeutet:
+    - `GetExtents(SCREEN)` gibt für Wayland-native Apps nur **fenster-relative** Koordinaten zurück (als wären sie `GetExtents(WINDOW)`)
+    - `GetExtents(SCREEN)` für **XWayland-Apps** funktioniert korrekt (X11-Kontext hat globale Positionen)
+    
+    **Lösung:** Die `WaylandWindowManager`-Implementierung des `platynui_core::platform::WindowManager`-Traits (Phase 4d) liefert via `bounds(WindowId) → Rect` die Fenster-Position vom Compositor. Dieses Modul kombiniert:
+    - **Window-Position** von `WindowManager::bounds()` (via KWin Scripting, GNOME Extension, PlatynUI Control-Socket; später optional: Sway GET_TREE, Hyprland hyprctl)
+    - **Element-Offset** von AT-SPI `GetExtents(WINDOW)` (relativ zum Fenster — das funktioniert immer korrekt)
+    → **Absolute Screen-Koordinaten** für `PointerDevice::move_to()`, `ScreenshotProvider::capture()` und `UiNode::bounds()`.
+    
+    Diese Koordinaten werden auch dem AT-SPI-Provider zur Verfügung gestellt, damit `UiAttribute::Bounds` korrekte Werte enthält. (~100 LoC)
+
+21c. **App-Erkennung Wayland/XWayland** (`src/app_detect.rs`): Liest `/proc/{pid}/environ` der Ziel-App um `GDK_BACKEND=wayland`, `QT_QPA_PLATFORM=wayland`, `MOZ_ENABLE_WAYLAND=1` etc. zu prüfen. Entscheidet ob die App unter Wayland-nativ läuft (Fenster-Offset-Korrektur nötig) oder unter XWayland (AT-SPI `GetExtents(SCREEN)` direkt nutzbar). (~80 LoC)
+
+21d. **Desktop Info** (`src/desktop.rs`): `wl_output` + `xdg_output_manager` — universell auf allen Compositors verfügbar, kein Fallback nötig. `pub static DESKTOP_INFO`. (~150 LoC)
+
+#### Phase 4b: Input-Backends (~600 LoC)
+
+*Priorisierte Fallback-Kette je nach Compositor: PlatynUI+wlroots → EIS direkt → `zwlr-virtual` / Mutter+KWin → Portal RemoteDesktop → EIS*
+
+22. **Input-Backend-Trait** (`src/input/mod.rs`): Internes `InputBackend` trait. Backend-Instanziierung passiert in `create_backends()` basierend auf `CompositorType`. `pub static POINTER` und `pub static KEYBOARD` delegieren an das gewählte Backend. (~80 LoC)
+
+22a. **EIS-Backend** (`src/input/eis.rs`): `reis`-basierter EI-Client. Verbindet zum EIS-Socket in `$XDG_RUNTIME_DIR`. Pointer (absolute + relative Bewegung, Buttons, Scroll), Keyboard (Keycodes, XKB-Keymap via `platynui-xkb-util`). Priorisiert auf PlatynUI-Compositor und neueren wlroots-Versionen mit nativem EIS-Socket. (~200 LoC)
+
+22b. **Portal-Backend** (`src/input/portal.rs`): `zbus`-Client für `org.freedesktop.portal.RemoteDesktop`. `CreateSession` → `SelectDevices(keyboard+pointer+touchscreen)` → `Start` → `ConnectToEIS()` → EIS-FD → gleiche `reis`-Logik wie 22a. Token-Persistierung (`persist_mode=2`) um Consent-Dialog nach erstem Mal zu vermeiden. **Wichtig:** `restore_token` ist **single-use** — nach jeder Verwendung wird ein neuer Token in der Response zurückgegeben, der sofort gespeichert werden muss. Token-Storage: `$XDG_DATA_HOME/platynui/portal_tokens.json`. Primärer Pfad für Mutter und KWin. (~200 LoC)
+
+22c. **Virtual-Input-Backend** (`src/input/virtual_input.rs`): `zwlr-virtual-pointer-v1` + `zwlr-virtual-keyboard-v1`. Fallback für wlroots-Compositors ohne EIS-Socket. (~120 LoC)
+
+#### Phase 4c: Screenshot-Backends (~720 LoC)
+
+*Priorisierte Fallback-Kette je nach Compositor: wlroots+KWin → `ext-image-copy-capture` → `wlr-screencopy` → Portal / Mutter → GNOME Extension → Portal ScreenCast*
+
+23. **Screenshot-Backend-Trait** (`src/screenshot/mod.rs`): Internes `ScreenshotBackend` trait mit zwei Methoden: `capture_output(output)` (ganzer Bildschirm) und `capture_window(toplevel)` (einzelnes Fenster). `pub static SCREENSHOT` delegiert. (~80 LoC)
+
+23a. **ext-image-copy-capture** (`src/screenshot/image_copy.rs`): `ext-image-copy-capture-v1` — werdender Standard. **Output-Capture** via `ext_image_copy_capture_manager_v1`. **Per-Toplevel-Capture** via `ext-image-capture-source-v1` + `ext_foreign_toplevel_image_capture_source_manager_v1` — erfasst ein einzelnes Fenster direkt, ohne Region-Crop. Optionale Cursor-Session. Bester Pfad für wlroots-Compositors und PlatynUI-Compositor. (~220 LoC)
+
+23b. **wlr-screencopy** (`src/screenshot/wlr_screencopy.rs`): `wlr-screencopy-unstable-v1` — Fallback für ältere wlroots-Versionen. `capture_output()` für ganzen Bildschirm, `capture_output_region(output, x, y, w, h)` für Fenster-Screenshots via Bounding-Box aus dem ToplevelBackend. (~150 LoC)
+
+23c. **Portal-Screenshot** (`src/screenshot/portal.rs`): Zwei Pfade:
+    - **Portal ScreenCast** mit `source_type = WINDOW` (Bitmask 2): Per-Window-Capture via PipeWire-Stream. Funktioniert auf Mutter + KWin. `SelectSources(types=WINDOW)` → `Start` → PipeWire Node-ID → Frame lesen. (~150 LoC)
+    - **Portal Screenshot**: `org.freedesktop.portal.Screenshot.Screenshot()` → gibt Datei-URI zurück. Einfachster Pfad aber nur ganzer Bildschirm, kein per-Window. Letzter Fallback. (~60 LoC)
+
+23d. **GNOME Extension-Screenshot** (`src/screenshot/gnome_extension.rs`): PlatynUI GNOME Shell Extension → `CaptureWindow(window_id)` via D-Bus. Nutzt Mutter's internen Screenshot-Mechanismus (`Shell.Screenshot`). Nur auf GNOME/Mutter wenn Extension installiert. (~60 LoC)
+
+#### Phase 4d: WindowManager-Backends (~800 LoC, +300 LoC optional)
+
+*Ziel: Da AT-SPI unter Wayland für Wayland-native Apps **keine Fenster-Positionen** liefern kann (Wayland-Design: Clients kennen ihre globale Position nicht), braucht das Platform-Crate eine Implementierung des existierenden `platynui_core::platform::WindowManager`-Traits. Diese Implementierung ermittelt Fenster-Positionen via Compositor-IPC und stellt sie dem AT-SPI-Provider zur Verfügung — genau wie `X11EwmhWindowManager` in `platform-linux-x11` es für X11 tut.*
+
+*Der `WindowManager`-Trait (`crates/core/src/platform/window_manager.rs`) definiert bereits die vollständige Schnittstelle: `resolve_window(&dyn UiNode) → WindowId`, `bounds(WindowId) → Rect`, `is_active()`, `activate()`, `close()`, `minimize()`, `maximize()`, `restore()`, `move_to()`, `resize()`. Der `provider-atspi` konsumiert ihn bereits via `window_managers().next()`. Es wird **kein neuer Trait definiert** — nur eine neue Implementierung.*
+
+*Priorisierte Fallback-Kette für das interne CompositorBackend: Compositor-spezifisches IPC (volle Geometrie + Aktionen) → wlr-foreign-toplevel (Aktionen, keine Positionen) → ext-foreign-toplevel-list (nur Liste). Erster Schritt: GNOME Extension, PlatynUI Control-Socket, KWin D-Bus + wlr-foreign-toplevel + ext-foreign-toplevel. Sway IPC und Hyprland IPC kommen optional später. COSMIC Desktop nutzt zunächst die generischen wlr-Backends.*
+
+24. **WaylandWindowManager** (`src/window_manager/mod.rs`): Implementiert `platynui_core::platform::WindowManager`. Intern delegiert an ein `CompositorBackend`-Trait:
+    ```rust
+    /// Internes Backend-Trait — Implementierungsdetail, nicht öffentlich.
+    trait CompositorBackend: Send + Sync {
+        fn resolve_window(&self, pid: u32, app_id: &str, title: &str) -> Result<WindowId>;
+        fn bounds(&self, id: WindowId) -> Result<Rect>;
+        fn is_active(&self, id: WindowId) -> Result<bool>;
+        fn activate(&self, id: WindowId) -> Result<()>;
+        fn close(&self, id: WindowId) -> Result<()>;
+        fn minimize(&self, id: WindowId) -> Result<()>;
+        fn maximize(&self, id: WindowId) -> Result<()>;
+        fn restore(&self, id: WindowId) -> Result<()>;
+        fn move_to(&self, id: WindowId, position: Point) -> Result<()>;
+        fn resize(&self, id: WindowId, size: Size) -> Result<()>;
+    }
+
+    pub struct WaylandWindowManager {
+        backend: Box<dyn CompositorBackend>,
+    }
+
+    impl platynui_core::platform::WindowManager for WaylandWindowManager {
+        fn name(&self) -> &'static str { "Wayland" }
+        fn resolve_window(&self, node: &dyn UiNode) -> Result<WindowId> {
+            // Extrahiert PID + app_id + Titel aus dem UiNode
+            // (analog zu X11: dort PID + _NET_WM_NAME)
+            let (pid, app_id, title) = extract_window_hints(node);
+            self.backend.resolve_window(pid, &app_id, &title)
+        }
+        fn bounds(&self, id: WindowId) -> Result<Rect> { self.backend.bounds(id) }
+        // ... alle weiteren Methoden delegieren an self.backend
+    }
+    ```
+    Backend-Selektion in `create_backends()`: Basierend auf `CompositorType` wird das passende `CompositorBackend` instanziiert. `resolve_window()` extrahiert PID/app_id/Titel aus dem `UiNode` (analog zu X11, wo PID + `_NET_WM_NAME` genutzt wird).
+    
+    **Registrierung:** Via `register_window_manager!()` Macro — oder, falls der `platform-linux` Mediator die Registrierung übernimmt, als `pub static WAYLAND_WINDOW_MANAGER` exportiert. (~120 LoC)
+
+24a. **wlr-foreign-toplevel** (`src/window_manager/wlr_foreign.rs`): `wlr-foreign-toplevel-management-v1` — Fenster-Liste + Aktionen (Activate + Close + Maximize + Minimize + Fullscreen). **Positionen nicht verfügbar** (Protokoll-Limitation). Auf wlroots-Compositors (Sway, Hyprland, COSMIC) liefert `wlr-foreign-toplevel` zunächst Aktionen ohne Positionen — Compositor-spezifisches IPC für volle Geometrie ist optional und kann später nachgerüstet werden. (~180 LoC)
+
+24b. **ext-foreign-toplevel** (`src/window_manager/ext_foreign.rs`): `ext-foreign-toplevel-list-v1` — nur read-only Fenster-Liste (App-ID, Titel). Keine Aktionen, keine Positionen. Verwendet als Ergänzung wenn kein anderer Lister verfügbar. (~100 LoC)
+
+24c. **GNOME Extension** (`src/window_manager/gnome_extension.rs`): PlatynUI GNOME Shell Extension via D-Bus (`org.platynui.GnomeHelper`). Bietet **alles auf Mutter**: Fenster-Liste mit **vollständiger Geometrie** (`Meta.Window.get_frame_rect()` → x, y, width, height), Activate, Close, Maximize, Minimize. Primärer und einziger Pfad für Mutter — ohne Extension sind unter GNOME **keine Fenster-Positionen verfügbar** (Shell.Introspect hat kein x/y, Shell.Eval ist ab GNOME 45+ eingeschränkt). (~150 LoC)
+
+24d. **PlatynUI Control-Socket** (`src/window_manager/platynui_ipc.rs`): JSON-IPC via Unix-Socket. Direkter Zugriff auf Fenster-Liste, Positionen, Geometrie, Activate/Close/Maximize/Minimize. Bester und vollständigster Pfad für den eigenen Compositor. (~100 LoC)
+
+24e. **KWin D-Bus** (`src/window_manager/kwin_dbus.rs`): `org.kde.KWin` D-Bus API:
+    - **Positionen:** `getWindowInfo(uuid)` → JSON mit `x`, `y`, `width`, `height`, `frameGeometry`, `clientGeometry`. Alternativ: KWin Scripting API (`KWin::Window.pos`, `.x`, `.y`, `.width`, `.height`, `.frameGeometry`).
+    - **Aktionen:** `workspace.activeWindow`, Window-Properties (read-write `frameGeometry`, `closeWindow()`, `setMaximize(vert, horiz)`).
+    Offiziell supportete KWin-API. (~150 LoC)
+
+**Optional (später):**
+
+24f. **Sway IPC** *(optional)* (`src/window_manager/sway_ipc.rs`): i3-kompatibles IPC über Unix-Socket. `GET_TREE` (Typ 4) liefert vollständigen Layout-Baum — jeder Knoten hat `rect` mit **absoluten Display-Koordinaten** (x, y, width, height), `window_rect` (relativ im Container), `app_id`, `name`, `pid`, `focused`, `type`. Node-Matching via app_id/pid für Fenster-Identifikation. Events: `window` (new/close/focus/title/move). Binäres i3-Protokoll mit Magic-Bytes + Länge + Typ. (~150 LoC)
+
+24g. **Hyprland IPC** *(optional)* (`src/window_manager/hyprland_ipc.rs`): Zwei Unix-Sockets in `$XDG_RUNTIME_DIR/hypr/{instance}/`:
+    - `.socket.sock` (Commands): `hyprctl -j clients` → JSON-Array aller Fenster mit **vollständiger Geometrie** (position, size, class, title, pid, workspace, floating, fullscreen). `hyprctl -j activewindow` für aktives Fenster. `hyprctl -j monitors` für Monitor-Info.
+    - `.socket2.sock` (Events): `openwindow`, `closewindow`, `activewindow`, `movewindow`, `windowtitle`, `fullscreen` etc.
+    - Aktionen via Dispatcher: `focuswindow address:0x...`, `closewindow address:0x...`, `movewindowpixel exact X Y,address:0x...`, `resizewindowpixel exact W H,address:0x...`.
+    Window-Addressing: by class regex, title regex, pid, address. `--batch` für mehrere Kommandos. (~150 LoC)
+
+> **Hinweis:** Sway, Hyprland und COSMIC nutzen wlr-Protokolle (`wlr-foreign-toplevel` für Aktionen, `wlr-layer-shell` für Highlight, `zwlr-virtual-pointer/keyboard` für Input). Im ersten Schritt funktioniert PlatynUI auf diesen Compositors über die generischen wlr-Backends (24a) — ohne Fenster-Positionen, was für viele Test-Szenarien ausreicht. Compositor-spezifisches IPC für volle Geometrie kann bei Bedarf nachgerüstet werden.
+>
+> **COSMIC Desktop** (System76): Basiert auf `cosmic-comp` (Smithay-basiert, iced-Toolkit). Unterstützt `wlr-foreign-toplevel`, `wlr-layer-shell` (als `cosmic-ext-layer-shell`), `ext-foreign-toplevel-list`, EIS/Portal. Für Fenster-Positionen gibt es noch kein dokumentiertes IPC — ggf. `cosmic-toplevel-info-unstable-v1` oder D-Bus. COSMIC fällt initial in die gleiche Kategorie wie Sway/Hyprland: wlr-Backends für Aktionen, Positionen ggf. erst mit dediziertem Backend.
+
+> **Zusammenspiel WindowManager ↔ AT-SPI:** Der AT-SPI-Provider (`platynui-provider-atspi`) ruft bereits `window_managers().next()` auf und nutzt `resolve_window()` + `bounds()` + `activate()` — daran ändert sich nichts. Unter Wayland liefert die neue `WaylandWindowManager`-Implementierung die Fenster-Positionen via Compositor-IPC (statt via EWMH wie auf X11). Das Koordinaten-Modul (21b) kombiniert `WindowManager::bounds()` mit AT-SPI `GetExtents(WINDOW)` zu absoluten Screen-Koordinaten. Ohne registrierten WindowManager (z.B. unbekannter Compositor) fallen die Positionen auf (0,0) zurück und eine `warn!`-Meldung wird geloggt.
+
+#### Phase 4e: Highlight-Backends (~500 LoC)
+
+*Priorisierte Fallback-Kette: Layer-Shell → KWin showOutline → GNOME Extension → XWayland-Overlay → kein Highlight (warn)*
+
+25. **Highlight-Backend-Trait** (`src/highlight/mod.rs`): Internes `HighlightBackend` trait (`show(rect, color, thickness)`, `hide()`, `is_available() → bool`) + Selektion. `pub static HIGHLIGHT` delegiert. (~60 LoC)
+
+25a. **Layer-Shell** (`src/highlight/layer_shell.rs`): `wlr-layer-shell-v1` + egui-Rendering (farbige semi-transparente Rechtecke als Overlay auf `top`-Layer, `exclusive_zone = 0`, Keyboard-Interaktivität = None). Command-Channel (Show/Hide/Clear). Bester Pfad — funktioniert auf wlroots-Compositors (Sway, Hyprland) + PlatynUI-Compositor. **Hinweis:** `ext-layer-shell-v1` existiert noch nicht (Stand 2026-03) — nur `wlr-layer-shell-v1` verfügbar. (~200 LoC)
+
+25b. **KWin Outline** (`src/highlight/kwin_outline.rs`): `org.kde.KWin` Scripting API via D-Bus: `workspace.showOutline(QRect { x, y, width, height })` zeichnet einen Compositor-Level Outline an beliebiger Position, `workspace.hideOutline()` entfernt ihn. Kein Layer-Shell nötig — KWin hat diese Funktionalität eingebaut (wird intern für Snap-Assist und Window-Placement verwendet). Vorteile: korrekte Z-Order (über allen Fenstern), kein Fokus-Wechsel, offizielle API. Primärer Highlight-Pfad für KDE/Plasma. (~80 LoC)
+
+25c. **GNOME Extension Highlight** (`src/highlight/gnome_extension.rs`): PlatynUI GNOME Shell Extension via D-Bus (`org.platynui.GnomeHelper.ShowHighlight(x, y, w, h, color, thickness)` + `HideHighlight()`). Extension erzeugt ein `St.Widget` mit CSS-Styling (`border: Npx solid color; background: rgba(...)`) und fügt es zu `global.window_group` hinzu — liegt über allen Fenstern im Compositor. Korrekte Z-Order, kein Fokus-Wechsel. Primärer Highlight-Pfad für GNOME/Mutter. (~80 LoC)
+
+25d. **XWayland-Overlay** (`src/highlight/overlay_window.rs`): Letzter Fallback: XWayland-Fenster als undekoriertes, semi-transparentes Overlay. Einschränkungen: Z-Order **nicht garantiert** (kann hinter anderen Fenstern landen), verursacht Fokus-Wechsel, braucht WM-spezifische Hints (`_NET_WM_WINDOW_TYPE_DOCK`). Nur als Notlösung für unbekannte Compositors oder wenn Extension/showOutline nicht verfügbar. (~140 LoC)
+
+> **Design-Entscheidung:** Wenn kein Highlight-Backend verfügbar ist (z.B. unbekannter Compositor ohne Layer-Shell/Extension), wird **kein Fehler** geworfen sondern eine `warn!`-Meldung geloggt. Highlight ist eine Debug-/Diagnose-Hilfe, kein kritisches Feature — fehlende Highlights sollen Tests nicht blockieren.
+
+#### Phase 4f: Integration (~200 LoC)
+
+20b. **Mediator-Integration** (`crates/platform-linux/`): `platynui-platform-linux-wayland` als Dependency zum Mediator hinzufügen. `SessionType::Wayland`-Arme in `initialize()`, `shutdown()` und allen Wrapper-Devices mit Delegation an die Wayland-Exports befüllen. (~100 LoC Änderungen am Mediator)
+
+20c. **Tests** (`crates/platform-linux-wayland/tests/`): Backend-Selektion mit Mock-Capabilities testen. Integration-Tests gegen den eigenen PlatynUI-Compositor (alle Pfade: EIS, wlr-virtual, ext-image-copy-capture, wlr-foreign-toplevel, Layer-Shell). (~100 LoC)
+
+#### Phase 4g: PlatynUI GNOME Shell Extension (~300 LoC GJS)
+
+*Ziel: Eigene GNOME Shell Extension die alle drei Lücken auf Mutter schließt — Fenster-Positionen, Compositor-Level Highlights und per-Window Screenshots. Kleine, fokussierte Extension (~200–400 Zeilen GJS) mit D-Bus-Interface für die Kommunikation mit dem Rust Platform-Crate.*
+
+> **Motivation:** GNOME/Mutter hat kein Layer-Shell, `Shell.Introspect` liefert kein x/y, und `Shell.Eval` ist ab GNOME 45+ eingeschränkt. Eine eigene Extension hat **vollen Zugriff auf die Meta/Clutter/St JavaScript API** im Compositor-Prozess und löst alle drei Probleme sauber.
+
+26a. **Extension-Struktur** (`platynui-gnome-extension/`):
+    ```
+    platynui-gnome-extension/
+    ├── metadata.json          # UUID: platynui@platynui.org, GNOME-Versionen (45, 46, 47, 48)
+    ├── extension.js           # Hauptlogik: D-Bus Service registrieren, enable()/disable()
+    ├── dbus.js               # D-Bus Interface-Definition (org.platynui.GnomeHelper)
+    └── highlight.js          # St.Widget Management für Overlays
+    ```
+
+26b. **D-Bus Interface** (`org.platynui.GnomeHelper`):
+    ```
+    org.platynui.GnomeHelper
+    ├── GetWindows() → a{sv}[]           # Alle Fenster: id, app_id, title, x, y, width, height, focused, maximized
+    ├── GetWindowGeometry(id: u) → (iiuu) # x, y, width, height für ein Fenster
+    ├── ActivateWindow(id: u)             # Fenster fokussieren + raise
+    ├── CloseWindow(id: u)                # Fenster schließen
+    ├── ShowHighlight(x: i, y: i, w: u, h: u, color: s, thickness: u)
+    ├── HideHighlight()
+    ├── CaptureWindow(id: u) → s          # Screenshot → Datei-Pfad (temp) via Shell.Screenshot
+    ├── GetDesktopSize() → (uu)           # Gesamte Desktop-Größe
+    └── Version → s                       # Protokoll-Version für Kompatibilitäts-Checks
+    ```
+
+26c. **Interna** (GJS-Implementierung):
+    - **Fenster-Liste:** `global.get_window_actors()` → `actor.get_meta_window()` → `Meta.Window`: `get_frame_rect()` (x, y, width, height), `get_wm_class()`, `get_title()`, `get_pid()`, `is_hidden()`, `has_focus()`.
+    - **Highlighting:** `new St.Widget({ style: 'border: ...', x, y, width, height })` → `global.window_group.add_child(widget)`. Liegt über allen Fenstern. `HideHighlight()` entfernt das Widget.
+    - **Screenshots:** `Shell.Screenshot.new()` → `screenshot_window(meta_window, { include_frame: true })`. Alternative: `screenshot_area(x, y, w, h)` für Region-Capture.
+    - **Window-Aktionen:** `meta_window.activate(timestamp)`, `meta_window.delete(timestamp)`, `meta_window.maximize(Meta.MaximizeFlags.BOTH)`, `meta_window.unmaximize(Meta.MaximizeFlags.BOTH)`.
+
+26d. **Auto-Installation im Platform-Crate** (`src/gnome_extension.rs`): Beim `initialize()` auf GNOME/Mutter prüfen ob Extension installiert + aktiviert ist. Falls nicht:
+    1. Extension-Dateien nach `$XDG_DATA_HOME/gnome-shell/extensions/platynui@platynui.org/` kopieren (eingebettet als `include_bytes!()` oder aus Paket-Assets).
+    2. `gnome-extensions enable platynui@platynui.org` ausführen.
+    3. Bei Bedarf: Hinweis loggen dass ein Session-Restart nötig sein kann (GNOME 40+ auf Wayland: Extension-Installation benötigt manchmal Restart).
+    4. D-Bus-Service `org.platynui.GnomeHelper` proben — wenn erreichbar, Extension ist aktiv.
+    Fallback wenn Extension nicht aktivierbar: Positionen nicht verfügbar (Fenster-relative Koordinaten via AT-SPI `GetExtents(WINDOW)`, aber keine globalen Offsets), kein Highlight, Portal ScreenCast für Screenshots. (~80 LoC Rust)
+
+26e. **GNOME-Versions-Kompatibilität**: Extension deklariert unterstützte Versionen in `metadata.json`. Bei Major-GNOME-Releases (z.B. 46→47) können API-Änderungen nötig sein — Extension ist bewusst minimal gehalten um Brüche zu minimieren. Die D-Bus-Schnittstelle ist stabil (eigenes Protokoll), nur die GJS-Interna müssen ggf. angepasst werden.
+
+**Meilenstein 4:** `cargo nextest run -p platynui-platform-linux-wayland` — alle Backend-Traits getestet. Compositor-Typ-Erkennung (SO_PEERCRED) ermittelt Compositor (Mutter/KWin/Sway/Hyprland/COSMIC/PlatynUI) und wählt korrekte Backends. Input (EIS + Portal + wlr-virtual), Screenshots (ext-image-copy-capture + ext-image-capture-source + wlr-screencopy + Portal ScreenCast/WINDOW + GNOME Extension), WindowManager liefert Fenster-Positionen via Compositor-IPC (KWin Scripting + GNOME Extension + PlatynUI Control-Socket; Sway/Hyprland IPC optional später) an Koordinaten-Modul → AT-SPI-Provider hat korrekte absolute Koordinaten. Fenster-Aktionen (wlr-foreign + Compositor-IPC). Highlight (Layer-Shell + KWin showOutline + GNOME Extension + XWayland-Overlay-Fallback) funktionieren. Koordinaten-Transformation korrekt für Wayland-native und XWayland-Apps. Integration mit dem `platform-linux` Mediator: Wayland-Session wird automatisch erkannt und alle Aufrufe korrekt an das gewählte Backend delegiert.
 
 ---
 
@@ -803,7 +1186,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 *Ziel: PlatynUI-Gesamtsystem funktioniert unter Wayland — Provider, Platform-Crate, Compositor und CI-Pipeline sind integriert.*
 
-31. **Link-Crate** (`crates/link/src/lib.rs`): `platynui_link_os_providers!()` Linux-Arm erweitern — beide Platform-Crates (X11 + Wayland) linken. Laufzeit-Mediation via `$XDG_SESSION_TYPE` in `PlatformModule::initialize()`.
+31. **Link-Crate** — Bereits in Phase 3e aktualisiert: Linux-Arm linkt `platynui_platform_linux` (den Mediator) statt direkt `platynui_platform_linux_x11`. Der Mediator zieht transitiv das passende Sub-Platform-Crate. Hier nur noch verifizieren, dass die Integration end-to-end korrekt funktioniert (Runtime → Link → Mediator → Wayland-Platform → EIS/Screencopy/etc.).
 
 32. **AT-SPI Provider** (`crates/provider-atspi/src/node.rs`): `GetExtents(WINDOW)` statt `SCREEN` unter Wayland.
 
@@ -884,7 +1267,8 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 - Phase 3b: ✅ Tier 1 + Tier 2 + Tier 3 komplett (15 Protokolle, 43 Globals). ✅ tearing-control + toplevel-drag Stubs. ✅ Tier 3: toplevel-icon (volle Pixel-Pipeline mit SSD-Titlebar-Rendering), toplevel-tag (In-Memory-Speicherung), ext-foreign-toplevel-list (bereits in Phase 3). ✅ ext-data-control-v1 (standardisierte Clipboard-Kontrolle parallel zu wlr-data-control). ✅ EIS-Test-Client (Step 17b): `platynui-eis-test-client` mit Portal-Support (Mutter/KWin), Restore-Token-Persistenz (`persist_mode=2`), 13 Subcommands (inkl. Touch + Human-readable Keys + Shortcuts + **type-text**), interaktiver REPL-Modus (reedline, 14 Kommandos inkl. type-text), reis-Bug-Workaround (manueller EiEventConverter), ~1.780 LoC. ✅ `platynui-xkb-util` Crate (~506 LoC, 9 Tests): XKB-Reverse-Lookup (`KeymapLookup`: char→keycode+modifiers), `KeyAction` enum (`Simple`/`Compose`), Compose-Table-Support (Dead-Keys für Akzente/Sonderzeichen). ✅ EIS-Server (Step 17, ~370 LoC): Vollständiger EIS-Server mit allen Input-Capabilities (pointer, pointer_absolute, button, scroll, keyboard, touchscreen), XKB-Keymap-Propagation, Regions, Single-Client. ✅ Performance-Optimierung: Press/Release-Gap 20ms→2ms, Settle-Time 50ms→10ms, Modifier-Batching (~10× schneller). Gegen GNOME/Mutter validiert: move-by, click, key, scroll, type-text funktionieren. Erkenntnisse in `docs/eis-libei.md` dokumentiert. 1883 Tests grün.
 - Phase 3c: ✅ ERLEDIGT. Winit-Fenster-Verbesserungen (Titel, Adwaita-CSD, System-Theme via zbus, eingebettetes Icon). Einheitliche `org.platynui.*` App-IDs. `.desktop`-Dateien + `just install-desktop`. Justfile als Task-Runner (~113 Zeilen) + `docs/development.md` (~95 Zeilen).
 - Phase 3d: ✅ ERLEDIGT. Vollständige Touchscreen-Unterstützung: `seat.add_touch()`, Backend- + EIS-Touch-Handler mit shared `process_touch_*()` Funktionen, `surface_under_point()` Refactoring, `TouchMoveSurfaceGrab` (inkrementelle Deltas + Dead-Zone-Schutz) + `TouchResizeSurfaceGrab` (12 Resize-Richtungen), deferred SSD-Button-Aktionen mit Slot-Verifikation + Position-Tracking. Koordinaten via `combined_output_geometry()` (nicht Pointer-abhängig). Multi-Slot-Isolation. ~385 LoC über 4 Dateien, 27 Tests grün.
-- Phase 4: `cargo nextest run -p platynui-platform-linux-wayland` — alle Traits getestet, Koordinaten-Transformation korrekt für Wayland-native und XWayland-Apps
+- Phase 3e: ✅ ERLEDIGT. `crates/platform-linux/` Mediator (~350 LoC, `lib.rs` + `session.rs`) — delegiert an X11 (oder zukünftig Wayland) basierend auf `$XDG_SESSION_TYPE`/`$WAYLAND_DISPLAY`/`$DISPLAY`. `Resolved`-Struct mit 7 `&'static dyn Trait`-Referenzen, einmalig in `initialize()` befüllt, gecacht in `Mutex<Option<Resolved>>`. Wayland fällt vorerst auf X11 zurück. `platform-linux-x11` refactored: Selbstregistrierung + `inventory`-Dep entfernt, Module + Structs `pub` exportiert. Alle Consumers (Link, CLI, Inspector, Native, Playground) auf `platform-linux` umgestellt. Doku aktualisiert (`docs/architecture.md` §3, `docs/platform-linux.md` §0). 1885 Tests grün.
+- Phase 4: `cargo nextest run -p platynui-platform-linux-wayland` — alle Backend-Traits getestet. Compositor-Typ-Erkennung (SO_PEERCRED) ermittelt Compositor (Mutter/KWin/Sway/Hyprland/COSMIC/PlatynUI) und wählt korrekte Backends. Input (EIS/Portal/wlr-virtual), WindowManager liefert Fenster-Positionen via Compositor-IPC (KWin Scripting / GNOME Extension / PlatynUI Control-Socket; Sway/Hyprland IPC optional später) → Koordinaten-Modul kombiniert mit AT-SPI `GetExtents(WINDOW)` → korrekte absolute Koordinaten. Screenshots (ext-image-copy-capture + per-Toplevel / wlr-screencopy / Portal ScreenCast WINDOW / GNOME Extension). Highlight (Layer-Shell / KWin showOutline / GNOME Extension / XWayland-Overlay). GNOME Extension auto-installiert und über D-Bus erreichbar. Mediator-Integration: Wayland-Session automatisch erkannt.
 - Phase 5: VNC/RDP eingebaut — Headless-Debugging ohne externe Tools möglich
 - Phase 6: `cargo nextest run --all` — gesamte Suite grün, inkl. Wayland-Tests. CI-Scripts funktionieren.
 - Phase 7: Alle READMEs und Architektur-Doku geschrieben.
@@ -893,7 +1277,15 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 **Entscheidungen**
 
-- **Reihenfolge smithay-fertig → SSD + Backends → Automation-Protokolle → Härtung → Rest-Protokolle → Platform-Crate → VNC/RDP → Rest**: Core-Protokolle zuerst (Phase 1), dann SSD + XWayland + DRM + Test-Control (Phase 2), dann die PlatynUI-kritischen Automation-Protokolle (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen), dann Härtung & Code-Qualität (Phase 3a: alle Code-Review-Findings, bevor technische Schulden sich akkumulieren), dann verbleibende Protokolle (Phase 3b: libei, optionale Stubs), dann das Platform-Crate (Phase 4) das diese Protokolle nutzt, dann eingebauter VNC/RDP (Phase 5) für Headless-Debugging. Panel, Portal/PipeWire und Doku kommen bei Bedarf.
+- **Reihenfolge smithay-fertig → SSD + Backends → Automation-Protokolle → Härtung → Rest-Protokolle → Platform-Mediator → Platform-Crate → VNC/RDP → Rest**: Core-Protokolle zuerst (Phase 1), dann SSD + XWayland + DRM + Test-Control (Phase 2), dann die PlatynUI-kritischen Automation-Protokolle (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen), dann Härtung & Code-Qualität (Phase 3a: alle Code-Review-Findings, bevor technische Schulden sich akkumulieren), dann verbleibende Protokolle (Phase 3b: libei, optionale Stubs), dann der Platform-Linux-Mediator (Phase 3e) als Voraussetzung für Multi-Platform-Linux, dann das Wayland-Platform-Crate (Phase 4) das diese Protokolle nutzt, dann eingebauter VNC/RDP (Phase 5) für Headless-Debugging. Panel, Portal/PipeWire und Doku kommen bei Bedarf.
+- **Platform-Linux Mediator-Architektur** (`crates/platform-linux/`): Linux kann entweder eine X11- oder eine Wayland-Session haben. Statt beide Sub-Platform-Crates sich selbst per `inventory` registrieren zu lassen (was bei `initialize_platform_modules()` zum Fehler führt, da diese Funktion beim ersten Fehler abbricht), gibt es ein delegierendes Mediator-Crate. Architektur:
+  - Sub-Platform-Crates (`platform-linux-x11`, `platform-linux-wayland`) exportieren Device-Typen als öffentliche ZSTs (keine `pub static` Instanzen, keine `pub fn initialize()`), registrieren sich **nicht** im `inventory`
+  - `platform-linux` registriert **ein** PlatformModule + **einen Satz** Wrapper-Devices
+  - `initialize()` erkennt Session-Typ zur Laufzeit (`$XDG_SESSION_TYPE` > `$WAYLAND_DISPLAY` > `$DISPLAY`), baut `Resolved`-Struct mit 7 `&'static dyn Trait`-Referenzen, cacht in `Mutex<Option<Resolved>>`. Wayland fällt vorerst auf X11 zurück.
+  - Wrapper-Devices greifen direkt auf das gecachte `Resolved`-Struct zu — kein erneutes Session-Matching, kein `?` für die Auflösung (panicked nur bei Programmierfehler: Zugriff vor `initialize()`)
+  - Link-Crate linkt `platynui_platform_linux` (Mediator) statt direkt `platynui_platform_linux_x11`
+  - Runtime und Core bleiben **unverändert** — der Mediator ist aus deren Sicht ein normales Platform-Modul
+  - Provider (`platynui-provider-atspi`) bleibt für beide Sessions identisch
 - **Panel auf unbestimmt verschoben**: Das eingebaute Panel (Taskbar, Launcher, Uhr) ist für PlatynUI's Kernmission — UI-Automation in CI — nicht nötig. `waybar` via Layer-Shell (Phase 3) deckt interaktive Nutzung ab. Interim-Minimize (Klick auf Desktop = Restore) ist für CI ausreichend.
 - **wayvnc als Sofort-Lösung**: Nach Phase 3 kann `wayvnc` als externer VNC-Server genutzt werden (braucht `wlr-layer-shell` + `ext-image-copy-capture` + `zwlr_virtual_pointer`). Eingebauter VNC/RDP kommt erst in Phase 5 — bis dahin sind externe Tools verfügbar.
 - **libei vor Portal**: EIS-Server (libei) wird direkt im Compositor implementiert (Phase 3), unabhängig vom Portal-Backend. Das Platform-Crate kann libei direkt nutzen. Portal (D-Bus + `ConnectToEIS()`) ist nur ein Wrapper und kommt optional in Phase 8.
@@ -924,7 +1316,28 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 - **Benchmarks** *(optional)*: Frame-Time, Protokoll-Throughput, Screenshot-Latenz — kann jederzeit nachgerüstet werden
 - **Data-Control in Phase 3**: `wlr-data-control-v1` ermöglicht Clipboard-Zugriff ohne Fenster-Fokus — essentiell für UI-Automation (Copy/Paste testen, Clipboard-Inhalt verifizieren). Smithay hat `delegate_data_control!()`, trivial zu verdrahten.
 - **Output-Management in Phase 3**: `wlr-output-management-v1` ermöglicht dynamische Multi-Monitor-Konfiguration zur Laufzeit. Standard-Tooling (`wlr-randr`, `kanshi`) funktioniert damit. Nützlicher als nur statische `--outputs`/`[[output]]` Config.
-- **Legacy-Screencopy übersprungen**: `wlr-screencopy-v1` wird nicht implementiert — `ext-image-copy-capture` deckt alle benötigten Tools ab (wayvnc, grim).
+- **Legacy-Screencopy übersprungen** *(im Compositor)*: `wlr-screencopy-v1` wird im eigenen Compositor nicht implementiert — `ext-image-copy-capture` deckt alle benötigten Tools ab (wayvnc, grim). **Im Platform-Crate** wird `wlr-screencopy` allerdings als Fallback-Backend berücksichtigt, da ältere wlroots-Compositors (Sway <1.10) nur dieses Protokoll unterstützen.
 - **Tearing-Control + Content-Type als No-Op-Stubs**: `wp-tearing-control-v1` und `wp-content-type-hint-v1` sind triviale No-Op-Handler (~15 LoC je), verhindern aber "unsupported protocol"-Warnungen bei vielen Apps. Standard bei Sway/Hyprland.
+- **Compositor-Typ-first statt Capability-Probing**: Statt 15+ Booleans blind zu proben (`ProtocolCapabilities`), wird zuerst der Compositor-Typ via `SO_PEERCRED` auf dem Wayland-Socket ermittelt (ein Syscall + ein Readlink). Der Compositor-Typ bestimmt dann direkt, welche Backends instanziiert werden (`create_backends()` mit `match compositor`). Jeder Backend-Konstruktor verbindet sich zu seinem Protokoll/D-Bus-Service und liefert `Err` wenn nicht verfügbar — `.or()`-Chaining wählt den Fallback. Vorteile:
+  - Kein blindes Probing von Globals die nie gebraucht werden (z.B. kein wlr-screencopy-Check auf Mutter)
+  - Compositor-Typ ist sofort verfügbar, bevor überhaupt ein `wl_registry` Roundtrip passiert
+  - Klarer, lesbarer Code: `match compositor { Mutter => ..., KWin => ..., ... }` statt `if caps.has_X && caps.has_Y && !caps.has_Z`
+  - `wl_registry`-Globals werden trotzdem beim Wayland-Roundtrip gesammelt und stehen den Wayland-Protokoll-Backends zur Verfügung — aber die **Entscheidung** welche Backends instanziiert werden, kommt vom Compositor-Typ
+  - Neue Compositors = neuer Match-Arm, keine Änderung an bestehenden Backends
+  - Fallback-Env (`$XDG_CURRENT_DESKTOP`) für Container/Sandboxes ohne `/proc`-Zugriff
+- **PlatynUI GNOME Shell Extension**: Eigene GNOME Shell Extension (`platynui@platynui.org`, ~200–400 Zeilen GJS) als Lösung für alle drei Lücken auf Mutter/GNOME:
+  - **Problem:** GNOME hat kein Layer-Shell (Highlight unmöglich), `Shell.Introspect` hat kein x/y (Positionen unbekannt), `Shell.Eval` ist ab GNOME 45+ eingeschränkt.
+  - **Lösung:** Extension läuft im Mutter-Compositor-Prozess mit vollem Zugriff auf Meta/Clutter/St JavaScript API. Registriert D-Bus Interface `org.platynui.GnomeHelper` mit Methoden für Fenster-Liste (volle Geometrie via `Meta.Window.get_frame_rect()`), Highlight (`St.Widget` Overlay auf `global.window_group`), Screenshots (`Shell.Screenshot`) und Window-Aktionen.
+  - **Auto-Installation:** Platform-Crate prüft beim Init ob Extension installiert und aktiv ist. Falls nicht: kopiert Extension nach `$XDG_DATA_HOME/gnome-shell/extensions/` und aktiviert via `gnome-extensions enable`. Graceful Fallback auf AT-SPI/Portal wenn Extension nicht verfügbar.
+  - **Versions-Kompatibilität:** Extension unterstützt GNOME 45–48 via `metadata.json`. D-Bus-Interface ist stabil; nur GJS-Interna müssen bei Major-Releases ggf. angepasst werden.
+  - **Sprache:** GJS (GNOME JavaScript), nicht Rust. Extension ist bewusst minimal (~200–400 Zeilen) um Wartungsaufwand und API-Bruch-Risiko zu minimieren.
+- **AT-SPI liefert unter Wayland keine Fenster-Positionen**: AT-SPI `GetExtents(SCREEN)` gibt für Wayland-native Apps **nur fenster-relative Koordinaten** zurück, weil der AT-SPI-Provider im Toolkit (GTK, Qt) die globale Fensterposition nicht kennt (Wayland-Design: Clients erfahren ihre Position nicht). Deshalb braucht das Platform-Crate einen **WindowManager**, der die Fenster-Positionen via Compositor-IPC ermittelt (KWin Scripting, GNOME Extension, PlatynUI Control-Socket; Sway/Hyprland IPC optional später). Das Koordinaten-Modul kombiniert dann `WindowManager::bounds()` (globale Fenster-Position) + AT-SPI `GetExtents(WINDOW)` (Element-Offset relativ zum Fenster) → korrekte absolute Screen-Koordinaten. XWayland-Apps sind davon nicht betroffen (X11-Kontext hat globale Positionen).
+- **KWin `showOutline` für Highlights**: KWin hat `workspace.showOutline(QRect { x, y, width, height })` + `workspace.hideOutline()` in der KWin Scripting API — zeichnet einen Compositor-Level Outline an beliebiger Position (wird intern für Snap-Assist und Window-Placement verwendet). Kein Layer-Shell nötig, korrekte Z-Order, kein Fokus-Wechsel. Offiziell supportete API.
+- **KWin/Plasma eigene Wayland-Protokolle — evaluiert, nicht implementiert**: KWin exponiert über `plasma-wayland-protocols` drei Custom-Wayland-Protokolle: `org_kde_kwin_fake_input` (v6, Input), `zkde_screencast_unstable_v1` (v5, Screencasting), `org_kde_plasma_window_management` (v20, Fenster-Management). Nach Analyse kein Mehrwert für PlatynUI: (1) `fake_input` spart nur den initialen Consent-Dialog — Portal mit `restore_token` + `persist_mode=2` ist gleichwertig; (2) `zkde_screencast` wird intern vom Portal ScreenCast gewrapped, `ext-image-copy-capture` ist der bessere Standard; (3) `plasma_window_management` hat single-client-binding ("only one client can bind") — `plasmashell` belegt den Slot in jeder normalen Plasma-Session, das Protokoll ist im Hauptanwendungsfall nicht nutzbar. KWin Scripting D-Bus + Portal decken alles ab. ~470 LoC eingespart. Bei Bedarf nachträglich implementierbar (~120 LoC für `fake_input` als einfachster Kandidat).
+  Mutter exponiert **keine vergleichbaren Custom-Wayland-Protokolle** — auf GNOME läuft alles über D-Bus-Interfaces und unsere GNOME Shell Extension.
+- **Portal `restore_token` ist single-use**: Portal RemoteDesktop/ScreenCast `restore_token` ist ein Einmal-Token. Nach jeder Verwendung wird ein **neuer** Token in der Response zurückgegeben, der sofort persistent gespeichert werden muss. Token-Storage: `$XDG_DATA_HOME/platynui/portal_tokens.json`. `persist_mode=2` (persistent across sessions) minimiert Consent-Dialoge.
+- **`org.gnome.Shell.Introspect` hat KEIN x/y**: Entgegen früherer Annahme liefert `Shell.Introspect.GetWindows()` nur `width` und `height` — **keine Position** (x/y). Für Positionen auf GNOME/Mutter wird die PlatynUI GNOME Extension oder AT-SPI `GetExtents(SCREEN)` genutzt.
+- **`ext-layer-shell-v1` existiert noch nicht**: Anders als `wlr-layer-shell-v1` (von wlroots-Compositors unterstützt) gibt es `ext-layer-shell-v1` als wayland-protocols Extension noch nicht (Stand 2026-03). Nur `wlr-layer-shell-v1` ist verfügbar — auf Sway, Hyprland, PlatynUI-Compositor. Mutter und KWin unterstützen weder `wlr-` noch `ext-layer-shell`.
+- **WindowManager ist der existierende Core-Trait**: Das Wayland-Platform-Crate implementiert den bestehenden `platynui_core::platform::WindowManager`-Trait (definiert in `crates/core/src/platform/window_manager.rs`), genau wie `X11EwmhWindowManager` in `platform-linux-x11`. Der Trait definiert bereits `resolve_window(&dyn UiNode) → WindowId`, `bounds(WindowId) → Rect`, `is_active()`, `activate()`, `close()`, `minimize()`, `maximize()`, `restore()`, `move_to()`, `resize()`. Der `provider-atspi` konsumiert ihn bereits via `window_managers().next()`. Es wird **kein neues Trait erfunden** — nur eine neue `WaylandWindowManager`-Implementierung, die intern an Compositor-spezifische `CompositorBackend`s delegiert (KWin D-Bus, GNOME Extension, PlatynUI Control-Socket; Sway i3-IPC und Hyprland IPC optional später). `resolve_window()` extrahiert PID + app_id + Titel aus dem `UiNode` (analog zu X11, wo PID + `_NET_WM_NAME` genutzt wird) und matcht gegen die Compositor-Fensterliste.
 - **xdg-toplevel-drag für Browser-Kompatibilität**: Tab-Detach in Firefox/Chromium nutzt `xdg-toplevel-drag-v1`. Wird zunehmend adoptiert, zukunftssicher.
 - **Zukunftsidee: Multi-Window Winit-Backend für Multi-Monitor**: Aktuell rendert das Winit-Backend alle Outputs in ein einzelnes Host-Fenster. Bei gemischten Scales (z.B. 1.0 + 2.0) muss ein einheitlicher `max_scale` für das gesamte Framebuffer verwendet werden — niedrig skalierte Outputs werden hochskaliert, Pointer-Mapping ist linear statt per-Output. Eine sauberere Architektur wäre ein separates Winit-Fenster pro Output: jedes Fenster rendert seinen Output mit eigenem Scale und eigenem `OutputDamageTracker`. Pointer-Mapping wird trivial (pro Fenster lokal). Smithays `WinitGraphicsBackend` unterstützt nur ein einzelnes Fenster; die Implementierung erfordert einen Custom-Backend (~300–400 LoC) mit eigenem `winit::EventLoop`, je einem `winit::Window` + `GlowRenderer` pro Output, und Pointer-Event-Routing anhand des aktiven Fensters. Vorteil: pixelgenaues Rendering bei gemischten Scales, natürliches Drag-and-Drop zwischen Fenstern, unabhängige Positionierung der Preview-Fenster auf dem Host-Desktop. Aufwand: mittelhoch, nicht blocking für CI-Workflows (Headless-Backend hat keine Scale-Probleme).

@@ -27,6 +27,7 @@ crates/
 ├─ platform-windows          # Windows devices — platynui-platform-windows
 ├─ provider-windows-uia      # UIA provider — platynui-provider-windows-uia
 ├─ platform-linux-x11        # Linux/X11 devices — platynui-platform-linux-x11
+├─ platform-linux            # Linux session mediator — platynui-platform-linux
 ├─ provider-atspi            # AT-SPI2 provider — platynui-provider-atspi
 ├─ platform-macos            # macOS devices (stub) — platynui-platform-macos
 ├─ provider-macos-ax         # macOS AX provider (stub) — platynui-provider-macos-ax
@@ -110,15 +111,37 @@ All extensions register via `inventory`-based macros. The runtime discovers them
 - Applications (CLI, Python extension) bind platform/provider crates via `cfg(target_os = ...)`.
 - Tests link mock crates explicitly: `const _: () = { use platynui_platform_mock as _; use platynui_provider_mock as _; };`
 
-### Planned: Linux Mediation Crate
+### Linux Session Mediator (`platynui-platform-linux`)
 
-Currently, Linux uses `platynui-platform-linux-x11` directly. For future Wayland support, the plan is a mediation crate `platynui-platform-linux` that bundles both `platform-linux-x11` and `platform-linux-wayland` and performs **runtime** session detection via `$XDG_SESSION_TYPE`:
+On Linux the display server (X11 vs Wayland) is a **runtime** property — the one exception to the "build-time platform selection" rule. The mediator crate `platynui-platform-linux` handles this:
 
-- `x11` → delegate to X11 platform devices
-- `wayland` → delegate to Wayland platform devices
-- Fallback: attempt X11 first (XWayland compatibility)
+**Architecture.** The mediator registers a single set of wrapper devices via `inventory`. Each wrapper delegates every trait method to the correct sub-platform backend based on the detected session type. The sub-platform crates (`platform-linux-x11`, later `platform-linux-wayland`) do **not** self-register — they are plain libraries consumed by the mediator.
 
-This is the one exception to the "build-time platform selection" rule: on Linux, the display server is a runtime property. The mediation crate is registered via the same `inventory`-based mechanism.
+**Session detection** (`session.rs`). Cached for the process lifetime via `Mutex<Option<SessionType>>`:
+
+1. `$XDG_SESSION_TYPE` → `"wayland"` | `"x11"` (most authoritative — `XWayland` sets both `$DISPLAY` and `$WAYLAND_DISPLAY` but `$XDG_SESSION_TYPE=wayland`)
+2. `$WAYLAND_DISPLAY` present → Wayland
+3. `$DISPLAY` present → X11
+4. None → `PlatformError::UnsupportedPlatform`
+
+**Delegation pattern.** Sub-platform device types are zero-sized structs (ZSTs). The mediator constructs them inline at each call site — no long-lived statics:
+
+```rust
+use platynui_platform_linux_x11::pointer::LinuxPointerDevice as X11Pointer;
+
+impl PointerDevice for LinuxPointer {
+    fn position(&self) -> Result<Point, PlatformError> {
+        match session_type()? {
+            SessionType::X11 => X11Pointer.position(),
+            s @ SessionType::Wayland => Err(unsupported_session(s)),
+        }
+    }
+}
+```
+
+This keeps each sub-platform as a standalone library with no global state requirements; the mediator owns the registration and routing responsibility.
+
+**Consumers.** All downstream crates (CLI, Inspector, Python bindings, link) depend on `platynui-platform-linux` — never on a sub-platform directly.
 
 ### Provider Modes
 

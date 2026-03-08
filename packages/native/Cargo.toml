@@ -38,7 +38,7 @@ platynui-platform-windows = { path = "../../crates/platform-windows" }
 platynui-provider-windows-uia = { path = "../../crates/provider-windows-uia" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-platynui-platform-linux-x11 = { path = "../../crates/platform-linux-x11" }
+platynui-platform-linux = { path = "../../crates/platform-linux" }
 platynui-provider-atspi = { path = "../../crates/provider-atspi" }
 
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -1,6 +1,6 @@
 [package]
-description = "Linux X11 platform backend for PlatynUI"
-name = "platynui-platform-linux-x11"
+description = "Linux platform mediator for PlatynUI — delegates to X11 or Wayland sub-platform at runtime"
+name = "platynui-platform-linux"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true
@@ -14,5 +14,12 @@ rust-version.workspace = true
 
 [dependencies]
 platynui-core = { path = "../core" }
+platynui-platform-linux-x11 = { path = "../platform-linux-x11" }
+inventory = "0.3"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
-x11rb = { version = "0.13", features = ["xtest", "xfixes", "randr", "shape"] }
+
+[dev-dependencies]
+rstest = "0.25"
+
+[lints]
+workspace = true

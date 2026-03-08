@@ -2,7 +2,6 @@ use crate::x11util::connect_raw;
 use platynui_core::platform::{
     HighlightProvider, HighlightRequest, PlatformError, PlatformErrorKind, desktop_info_providers,
 };
-use platynui_core::register_highlight_provider;
 use platynui_core::types::Rect;
 use std::env;
 use std::sync::Mutex;
@@ -27,9 +26,6 @@ impl HighlightProvider for LinuxHighlightProvider {
         OverlayController::with(|ctrl| ctrl.clear())
     }
 }
-
-static HIGHLIGHT: LinuxHighlightProvider = LinuxHighlightProvider;
-register_highlight_provider!(&HIGHLIGHT);
 
 /// Shuts down the highlight overlay thread by dropping the channel sender.
 ///

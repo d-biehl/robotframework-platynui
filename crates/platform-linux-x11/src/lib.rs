@@ -14,13 +14,12 @@
 //! `Mutex<X11Handle>` wrapper in `x11util`.
 
 #[cfg(target_os = "linux")]
-mod init {
+pub mod init {
     use platynui_core::platform::{PlatformError, PlatformErrorKind, PlatformModule};
-    use platynui_core::register_platform_module;
     use tracing::{debug, info, warn};
     use x11rb::protocol::xproto::ConnectionExt as _;
 
-    struct LinuxX11Module;
+    pub struct LinuxX11Module;
 
     impl PlatformModule for LinuxX11Module {
         fn name(&self) -> &'static str {
@@ -80,26 +79,21 @@ mod init {
             crate::x11util::shutdown_connection();
         }
     }
-
-    static MODULE: LinuxX11Module = LinuxX11Module;
-
-    // Register the platform module so the runtime can initialize it at startup.
-    register_platform_module!(&MODULE);
 }
 
 // Phase 1 devices (minimal implementations)
 #[cfg(target_os = "linux")]
-mod desktop;
+pub mod desktop;
 #[cfg(target_os = "linux")]
-mod highlight;
+pub mod highlight;
 #[cfg(target_os = "linux")]
-mod keyboard;
+pub mod keyboard;
 #[cfg(target_os = "linux")]
-mod pointer;
+pub mod pointer;
 #[cfg(target_os = "linux")]
-mod screenshot;
+pub mod screenshot;
 #[cfg(target_os = "linux")]
-mod window_manager;
+pub mod window_manager;
 #[cfg(target_os = "linux")]
 mod x11util;
 

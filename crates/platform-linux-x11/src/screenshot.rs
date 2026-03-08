@@ -2,7 +2,6 @@ use crate::x11util::{connection, root_window_from};
 use platynui_core::platform::{
     PixelFormat, PlatformError, PlatformErrorKind, Screenshot, ScreenshotProvider, ScreenshotRequest,
 };
-use platynui_core::register_screenshot_provider;
 use x11rb::protocol::xproto::{ConnectionExt as _, ImageFormat};
 
 pub struct LinuxScreenshot;
@@ -46,6 +45,3 @@ fn to_pf<E: std::fmt::Display>(e: E) -> PlatformError {
     // Screenshot failures after connect are operational.
     PlatformError::new(PlatformErrorKind::OperationFailed, format!("x11: {e}"))
 }
-
-static SHOT: LinuxScreenshot = LinuxScreenshot;
-register_screenshot_provider!(&SHOT);
