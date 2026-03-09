@@ -1,6 +1,6 @@
 [package]
-description = "Linux platform mediator for PlatynUI — delegates to X11 or Wayland sub-platform at runtime"
-name = "platynui-platform-linux"
+description = "Linux Wayland platform backend for PlatynUI"
+name = "platynui-platform-linux-wayland"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true
@@ -12,12 +12,13 @@ authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-[dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 platynui-core = { path = "../core" }
-platynui-platform-linux-x11 = { path = "../platform-linux-x11" }
-platynui-platform-linux-wayland = { path = "../platform-linux-wayland" }
-inventory = "0.3"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+rustix = { version = "1", features = ["net"] }
 
 [dev-dependencies]
 rstest = "0.25"

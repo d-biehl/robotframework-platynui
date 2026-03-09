@@ -2,7 +2,7 @@
 //!
 //! Detects the display session type (X11 or Wayland) at runtime and delegates
 //! all platform trait calls to the appropriate sub-platform crate. The
-//! sub-platform crates (`platform-linux-x11`, later `platform-linux-wayland`)
+//! sub-platform crates (`platform-linux-x11`, `platform-linux-wayland`)
 //! do **not** register themselves via `inventory`; instead this mediator
 //! registers a single set of wrapper devices that route at runtime.
 
@@ -36,6 +36,14 @@ mod mediator {
     use platynui_platform_linux_x11::pointer::LinuxPointerDevice as X11Pointer;
     use platynui_platform_linux_x11::screenshot::LinuxScreenshot as X11Screenshot;
     use platynui_platform_linux_x11::window_manager::X11EwmhWindowManager as X11WindowManager;
+
+    use platynui_platform_linux_wayland::desktop::WaylandDesktopInfo as WlDesktop;
+    use platynui_platform_linux_wayland::highlight::WaylandHighlightProvider as WlHighlight;
+    use platynui_platform_linux_wayland::init::WaylandModule as WlModule;
+    use platynui_platform_linux_wayland::keyboard::WaylandKeyboardDevice as WlKeyboard;
+    use platynui_platform_linux_wayland::pointer::WaylandPointerDevice as WlPointer;
+    use platynui_platform_linux_wayland::screenshot::WaylandScreenshot as WlScreenshot;
+    use platynui_platform_linux_wayland::window_manager::WaylandWindowManager as WlWindowManager;
 
     // -----------------------------------------------------------------------
     //  One-time session resolution
@@ -81,18 +89,28 @@ mod mediator {
         fn initialize(&self) -> Result<(), PlatformError> {
             let session = session_type()?;
 
-            if session == SessionType::Wayland {
-                tracing::warn!("Wayland session detected but not yet supported — falling back to X11");
-            }
-
-            let r = Resolved {
-                module: &X11Module,
-                pointer: &X11Pointer,
-                keyboard: &X11Keyboard,
-                desktop: &X11Desktop,
-                screenshot: &X11Screenshot,
-                highlight: &X11Highlight,
-                window_manager: &X11WindowManager,
+            let r = match session {
+                SessionType::Wayland => {
+                    tracing::info!("Wayland session detected — using Wayland platform backends");
+                    Resolved {
+                        module: &WlModule,
+                        pointer: &WlPointer,
+                        keyboard: &WlKeyboard,
+                        desktop: &WlDesktop,
+                        screenshot: &WlScreenshot,
+                        highlight: &WlHighlight,
+                        window_manager: &WlWindowManager,
+                    }
+                }
+                SessionType::X11 => Resolved {
+                    module: &X11Module,
+                    pointer: &X11Pointer,
+                    keyboard: &X11Keyboard,
+                    desktop: &X11Desktop,
+                    screenshot: &X11Screenshot,
+                    highlight: &X11Highlight,
+                    window_manager: &X11WindowManager,
+                },
             };
             *RESOLVED.lock().expect("resolved platform lock poisoned") = Some(r);
             r.module.initialize()

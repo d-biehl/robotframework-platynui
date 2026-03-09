@@ -3244,9 +3244,23 @@ version = "0.12.0-dev.5"
 dependencies = [
  "inventory",
  "platynui-core",
+ "platynui-platform-linux-wayland",
  "platynui-platform-linux-x11",
  "rstest 0.25.0",
  "tracing",
+]
+
+[[package]]
+name = "platynui-platform-linux-wayland"
+version = "0.12.0-dev.5"
+dependencies = [
+ "platynui-core",
+ "rstest 0.25.0",
+ "rustix 1.1.4",
+ "tracing",
+ "wayland-client",
+ "wayland-protocols",
+ "wayland-protocols-wlr",
 ]
 
 [[package]]
