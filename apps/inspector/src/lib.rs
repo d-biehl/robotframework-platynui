@@ -107,23 +107,21 @@ fn init_tracing(cli_level: Option<LogLevel>) {
 struct InspectorApp {
     vm: InspectorViewModel,
     properties_sort: properties::PropertiesSortState,
+    prev_always_on_top: Option<bool>,
 }
 
 impl InspectorApp {
     fn new(runtime: Arc<Runtime>) -> Self {
-        Self { vm: InspectorViewModel::new(runtime), properties_sort: properties::PropertiesSortState::default() }
+        Self {
+            vm: InspectorViewModel::new(runtime),
+            properties_sort: properties::PropertiesSortState::default(),
+            prev_always_on_top: None,
+        }
     }
 }
 
 impl eframe::App for InspectorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Apply "Always On Top" setting
-        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(if self.vm.always_on_top {
-            egui::WindowLevel::AlwaysOnTop
-        } else {
-            egui::WindowLevel::Normal
-        }));
-
         // View: Menu Bar
         toolbar::show_menu_bar(ctx);
 
@@ -131,6 +129,19 @@ impl eframe::App for InspectorApp {
         let is_searching = self.vm.is_searching();
         let search_actions =
             toolbar::show_search_bar(ctx, &mut self.vm.search_text, &mut self.vm.always_on_top, is_searching);
+
+        // Apply "Always On Top" setting only when it changes to avoid
+        // flooding the window manager with _NET_WM_STATE requests every frame.
+        // Must run after toolbar rendering so checkbox changes take effect
+        // in the same frame.
+        if self.prev_always_on_top != Some(self.vm.always_on_top) {
+            self.prev_always_on_top = Some(self.vm.always_on_top);
+            ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(if self.vm.always_on_top {
+                egui::WindowLevel::AlwaysOnTop
+            } else {
+                egui::WindowLevel::Normal
+            }));
+        }
 
         // Process toolbar actions (must happen before poll so a new
         // search is started before the first poll in the same frame).
