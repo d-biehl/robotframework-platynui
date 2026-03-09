@@ -3,93 +3,28 @@
 //! Connects to the compositor via `wayland-client`, performs an initial
 //! roundtrip to enumerate globals (including `wl_output` and optionally
 //! `zxdg_output_manager_v1`), and stores it all in process-global state.
+//!
+//! After initialization a background event loop monitors the Wayland
+//! socket for output changes (hot-plug, resolution, scaling, layout) and
+//! automatically updates the desktop output state via
+//! [`crate::desktop::set_outputs`].
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 use platynui_core::platform::{PlatformError, PlatformErrorKind};
-use tracing::{debug, warn};
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
+use tracing::{debug, info, warn};
 use wayland_client::protocol::wl_output::{self, WlOutput};
 use wayland_client::protocol::wl_registry::{self, WlRegistry};
-use wayland_client::{Connection, Dispatch, QueueHandle, globals::GlobalListContents};
+use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, globals::GlobalListContents};
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_v1::{self, ZxdgOutputV1};
 
 use crate::capabilities::CompositorType;
-
-// ---------------------------------------------------------------------------
-//  Per-output collected state
-// ---------------------------------------------------------------------------
-
-/// Information collected from `wl_output` and optionally `zxdg_output_v1` events.
-#[derive(Debug, Clone, Default)]
-pub struct OutputInfo {
-    /// Physical position in compositor-global coordinates.
-    pub x: i32,
-    pub y: i32,
-    /// Current mode dimensions (hardware pixels).
-    pub width: i32,
-    pub height: i32,
-    /// Scale factor advertised by the compositor.
-    pub scale: i32,
-    /// Output transform (rotation/flip) from `wl_output.geometry`.
-    pub transform: Option<wl_output::Transform>,
-    /// Human-readable name (from `wl_output.name` since v4 or `zxdg_output_v1.name`).
-    pub name: Option<String>,
-    /// Human-readable description.
-    pub description: Option<String>,
-    /// Logical position from `xdg-output` (preferred over geometry x/y).
-    pub logical_x: Option<i32>,
-    pub logical_y: Option<i32>,
-    /// Logical size from `xdg-output`.
-    pub logical_width: Option<i32>,
-    pub logical_height: Option<i32>,
-}
-
-impl OutputInfo {
-    /// Whether the output transform involves a 90° or 270° rotation,
-    /// which swaps width and height.
-    fn is_rotated(&self) -> bool {
-        matches!(
-            self.transform,
-            Some(
-                wl_output::Transform::_90
-                    | wl_output::Transform::_270
-                    | wl_output::Transform::Flipped90
-                    | wl_output::Transform::Flipped270
-            )
-        )
-    }
-
-    /// Effective position — prefers xdg-output logical, falls back to `wl_output` geometry.
-    #[must_use]
-    pub fn effective_x(&self) -> i32 {
-        self.logical_x.unwrap_or(self.x)
-    }
-
-    #[must_use]
-    pub fn effective_y(&self) -> i32 {
-        self.logical_y.unwrap_or(self.y)
-    }
-
-    /// Effective size — prefers xdg-output logical, falls back to mode / scale
-    /// (accounting for output transform).
-    #[must_use]
-    pub fn effective_width(&self) -> i32 {
-        self.logical_width.unwrap_or_else(|| {
-            let hw = if self.is_rotated() { self.height } else { self.width };
-            if self.scale > 0 { hw / self.scale } else { hw }
-        })
-    }
-
-    #[must_use]
-    pub fn effective_height(&self) -> i32 {
-        self.logical_height.unwrap_or_else(|| {
-            let hw = if self.is_rotated() { self.width } else { self.height };
-            if self.scale > 0 { hw / self.scale } else { hw }
-        })
-    }
-}
+use crate::desktop::OutputInfo;
 
 // ---------------------------------------------------------------------------
 //  Dispatch state — collects globals + output info
@@ -99,9 +34,26 @@ impl OutputInfo {
 struct RegistryState {
     outputs: HashMap<u32, (WlOutput, OutputInfo)>,
     xdg_output_manager: Option<ZxdgOutputManagerV1>,
+    compositor: CompositorType,
+    /// When `true`, `wl_output.done` and `global_remove` events trigger a
+    /// live rebuild of the desktop output state. Stays `false` during the
+    /// initial enumeration roundtrips to avoid wasteful D-Bus calls.
+    live: bool,
 }
 
-// -- Dispatch: WlRegistry (handles dynamic global additions after init) --
+impl RegistryState {
+    /// Rebuild the sorted output list, enrich via D-Bus, and update the
+    /// global desktop state. Only called when [`Self::live`] is `true`.
+    fn rebuild_and_update_outputs(&self) {
+        let mut outputs: Vec<OutputInfo> = self.outputs.values().map(|(_, o)| o.clone()).collect();
+        outputs.sort_by_key(|o| (o.effective_x(), o.effective_y()));
+        crate::desktop::display_config::enrich_outputs(self.compositor, &mut outputs);
+        info!(count = outputs.len(), "desktop outputs updated (live)");
+        crate::desktop::set_outputs(outputs);
+    }
+}
+
+// -- Dispatch: WlRegistry (handles dynamic global additions/removals) --
 
 impl Dispatch<WlRegistry, GlobalListContents> for RegistryState {
     fn event(
@@ -116,10 +68,14 @@ impl Dispatch<WlRegistry, GlobalListContents> for RegistryState {
         // (they are consumed during its internal roundtrip). This handler only
         // fires for globals added/removed *after* initialization. Initial
         // binding is done in `connect_and_enumerate()` via `GlobalList`.
-        if let wl_registry::Event::Global { name, interface, version } = event {
-            match interface.as_str() {
+        match event {
+            wl_registry::Event::Global { name, interface, version } => match interface.as_str() {
                 "wl_output" => {
                     let output = registry.bind::<WlOutput, _, _>(name, version.min(4), qh, name);
+                    // Request xdg_output for the new output if manager is available.
+                    if let Some(ref mgr) = state.xdg_output_manager {
+                        let _xdg_out = mgr.get_xdg_output(&output, qh, name);
+                    }
                     state.outputs.insert(name, (output, OutputInfo { scale: 1, ..OutputInfo::default() }));
                     debug!(global_name = name, "bound wl_output (dynamic)");
                 }
@@ -129,7 +85,16 @@ impl Dispatch<WlRegistry, GlobalListContents> for RegistryState {
                     debug!(global_name = name, "bound zxdg_output_manager_v1 (dynamic)");
                 }
                 _ => {}
+            },
+            wl_registry::Event::GlobalRemove { name } => {
+                if state.outputs.remove(&name).is_some() {
+                    info!(global_name = name, "wl_output removed (hot-unplug)");
+                    if state.live {
+                        state.rebuild_and_update_outputs();
+                    }
+                }
             }
+            _ => {}
         }
     }
 }
@@ -145,6 +110,16 @@ impl Dispatch<WlOutput, u32> for RegistryState {
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
+        // Handle Done early — triggers a full output rebuild without holding
+        // a mutable borrow on the individual OutputInfo.
+        if matches!(event, wl_output::Event::Done) {
+            debug!(global_name, "wl_output.done");
+            if state.live {
+                state.rebuild_and_update_outputs();
+            }
+            return;
+        }
+
         let Some((_, info)) = state.outputs.get_mut(global_name) else { return };
         match event {
             wl_output::Event::Geometry { x, y, transform, .. } => {
@@ -172,10 +147,7 @@ impl Dispatch<WlOutput, u32> for RegistryState {
             wl_output::Event::Description { description } => {
                 info.description = Some(description);
             }
-            wl_output::Event::Done => {
-                debug!(global_name, ?info, "wl_output.done");
-            }
-            _ => {}
+            _ => {} // Done handled above
         }
     }
 }
@@ -233,28 +205,42 @@ impl Dispatch<ZxdgOutputV1, u32> for RegistryState {
 }
 
 // ---------------------------------------------------------------------------
-//  Global state
+//  Global state + event loop session
 // ---------------------------------------------------------------------------
+
+/// Opaque handle returned by [`connect_and_enumerate`] carrying the event
+/// queue and dispatch state. Passed to [`set_global_and_start`] to launch
+/// the background event loop.
+pub(crate) struct WaylandSession {
+    event_queue: EventQueue<RegistryState>,
+    state: RegistryState,
+    // GlobalList must stay alive so that the WlRegistry proxy (and its
+    // dispatch mapping) remains valid for ongoing Global/GlobalRemove events.
+    globals: wayland_client::globals::GlobalList,
+}
 
 /// Process-global Wayland state populated during
 /// [`crate::init::WaylandModule::initialize`].
 struct WaylandGlobal {
     conn: Connection,
     compositor: CompositorType,
-    outputs: Vec<OutputInfo>,
+    shutdown: Arc<AtomicBool>,
 }
 
 static GLOBAL: Mutex<Option<WaylandGlobal>> = Mutex::new(None);
 
-/// Connect to the Wayland display server and enumerate outputs.
+/// Connect to the Wayland display server, detect the compositor, and
+/// enumerate outputs.
 ///
-/// Uses `registry_queue_init` to discover globals, then binds all `wl_output`
-/// instances and (if available) `zxdg_output_v1` to collect monitor data.
+/// Returns the connection, detected compositor type, initial output
+/// snapshot, and an opaque [`WaylandSession`] that carries the event queue
+/// for subsequent live monitoring via [`set_global_and_start`].
 ///
 /// # Errors
 ///
 /// Returns `PlatformError` if the Wayland display connection or roundtrip fails.
-pub fn connect_and_enumerate() -> Result<(Connection, Vec<OutputInfo>), PlatformError> {
+pub(crate) fn connect_and_enumerate()
+-> Result<(Connection, CompositorType, Vec<OutputInfo>, WaylandSession), PlatformError> {
     let conn = Connection::connect_to_env().map_err(|e| {
         PlatformError::new(
             PlatformErrorKind::InitializationFailed,
@@ -262,12 +248,14 @@ pub fn connect_and_enumerate() -> Result<(Connection, Vec<OutputInfo>), Platform
         )
     })?;
 
+    let compositor = crate::capabilities::detect_compositor(&conn);
+
     let (globals, mut eq) = wayland_client::globals::registry_queue_init::<RegistryState>(&conn).map_err(|e| {
         PlatformError::new(PlatformErrorKind::InitializationFailed, format!("Wayland registry init failed: {e}"))
     })?;
 
     let qh = eq.handle();
-    let mut state = RegistryState { outputs: HashMap::new(), xdg_output_manager: None };
+    let mut state = RegistryState { outputs: HashMap::new(), xdg_output_manager: None, compositor, live: false };
 
     // registry_queue_init's internal roundtrip populates GlobalList but does NOT
     // forward initial Global events to our Dispatch<WlRegistry> handler. We must
@@ -312,42 +300,154 @@ pub fn connect_and_enumerate() -> Result<(Connection, Vec<OutputInfo>), Platform
         warn!("zxdg_output_manager_v1 not available — using wl_output geometry/mode for monitor info");
     }
 
-    // Keep globals (holds the WlRegistry) alive — drop would not affect the objects already bound,
-    // but retaining it is cleaner.
-    drop(globals);
-
-    let outputs: Vec<OutputInfo> = state.outputs.into_values().map(|(_, info)| info).collect();
+    // Clone the initial output snapshot (the originals stay in the state for
+    // the live event loop).
+    let mut outputs: Vec<OutputInfo> = state.outputs.values().map(|(_, o)| o.clone()).collect();
+    outputs.sort_by_key(|o| (o.effective_x(), o.effective_y()));
     debug!(count = outputs.len(), "outputs enumerated");
 
-    Ok((conn, outputs))
+    let session = WaylandSession { event_queue: eq, state, globals };
+
+    Ok((conn, compositor, outputs, session))
 }
 
-/// Store connection, compositor type, and output info for global access.
+/// Store the connection in global state and start the background event
+/// loop that monitors for output changes (hot-plug, resolution, scaling).
+///
+/// The `session` carries the event queue and dispatch state produced by
+/// [`connect_and_enumerate`]. Once started, the event loop automatically
+/// calls [`crate::desktop::set_outputs`] whenever outputs change.
 ///
 /// # Panics
 ///
-/// Panics if the internal mutex is poisoned.
-pub fn set_global(conn: Connection, compositor: CompositorType, outputs: Vec<OutputInfo>) {
+/// Panics if the internal mutex is poisoned or if the dispatch thread
+/// cannot be spawned.
+pub(crate) fn set_global_and_start(conn: Connection, compositor: CompositorType, mut session: WaylandSession) {
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_clone = shutdown.clone();
+    let conn_clone = conn.clone();
+
+    // Enable live output rebuilds now that initial setup is complete.
+    session.state.live = true;
+
+    thread::Builder::new()
+        .name("wayland-events".to_string())
+        .spawn(move || dispatch_loop(&conn_clone, session.event_queue, session.state, session.globals, &shutdown_clone))
+        .expect("failed to spawn Wayland event loop thread");
+
     let mut guard = GLOBAL.lock().expect("wayland global mutex poisoned");
-    *guard = Some(WaylandGlobal { conn, compositor, outputs });
+    *guard = Some(WaylandGlobal { conn, compositor, shutdown });
 }
 
-/// Clear global state during shutdown.
+/// Signal the event loop to stop and clear global state.
+///
+/// The dispatch thread will exit on the next poll timeout (≤500 ms) or
+/// immediately if it is currently idle. The thread is not joined — it is
+/// lightweight and safe to abandon at process exit.
 ///
 /// # Panics
 ///
 /// Panics if the internal mutex is poisoned.
 pub fn clear_global() {
     let mut guard = GLOBAL.lock().expect("wayland global mutex poisoned");
-    *guard = None;
+    if let Some(g) = guard.take() {
+        g.shutdown.store(true, Ordering::Relaxed);
+    }
 }
+
+// ---------------------------------------------------------------------------
+//  Background event loop
+// ---------------------------------------------------------------------------
+
+/// Background loop that polls the Wayland socket and dispatches events to
+/// the [`RegistryState`] handlers.
+///
+/// Uses `prepare_read` + `poll` + `read` + `dispatch_pending` so we can
+/// check the `shutdown` flag between iterations without blocking
+/// indefinitely.
+fn dispatch_loop(
+    conn: &Connection,
+    mut eq: EventQueue<RegistryState>,
+    mut state: RegistryState,
+    _globals: wayland_client::globals::GlobalList,
+    shutdown: &AtomicBool,
+) {
+    debug!("Wayland event loop started");
+
+    loop {
+        if shutdown.load(Ordering::Relaxed) {
+            break;
+        }
+
+        // prepare_read returns None when events are already buffered.
+        if let Some(guard) = conn.prepare_read() {
+            // Poll the Wayland fd with a 500 ms timeout so we can
+            // periodically check the shutdown flag.
+            let fd = guard.connection_fd();
+            let mut pfd = [PollFd::new(&fd, PollFlags::IN)];
+            let timeout = Timespec { tv_sec: 0, tv_nsec: 500_000_000 };
+            match poll(&mut pfd, Some(&timeout)) {
+                Ok(0) => {
+                    // Timeout — no data. Drop the guard (cancels read)
+                    // and loop back to check the shutdown flag.
+                    drop(guard);
+                    continue;
+                }
+                Ok(_) => {
+                    // Data available — read it into the event queue's
+                    // internal buffer.
+                    if let Err(e) = guard.read() {
+                        if !shutdown.load(Ordering::Relaxed) {
+                            warn!(error = %e, "Wayland socket read error");
+                        }
+                        break;
+                    }
+                }
+                Err(e) => {
+                    // EINTR is harmless — retry on next iteration.
+                    if e == rustix::io::Errno::INTR {
+                        drop(guard);
+                        continue;
+                    }
+                    if !shutdown.load(Ordering::Relaxed) {
+                        warn!(error = %e, "poll error on Wayland fd");
+                    }
+                    break;
+                }
+            }
+        }
+        // else: Events already buffered — dispatch below handles them.
+
+        // Dispatch all pending events to the RegistryState handlers.
+        if let Err(e) = eq.dispatch_pending(&mut state) {
+            if !shutdown.load(Ordering::Relaxed) {
+                warn!(error = %e, "Wayland dispatch error");
+            }
+            break;
+        }
+
+        // Flush outgoing requests (e.g. xdg_output bindings for hot-plugged outputs).
+        if let Err(e) = conn.flush() {
+            if !shutdown.load(Ordering::Relaxed) {
+                warn!(error = %e, "Wayland flush error");
+            }
+            break;
+        }
+    }
+
+    debug!("Wayland event loop exiting");
+}
+
+// ---------------------------------------------------------------------------
+//  Accessors
+// ---------------------------------------------------------------------------
 
 /// Access the global Wayland state.
 ///
 /// # Panics
 ///
-/// Panics if called before [`set_global`] (i.e. before platform initialization)
-/// or if the internal mutex is poisoned.
+/// Panics if called before [`set_global_and_start`] (i.e. before platform
+/// initialization) or if the internal mutex is poisoned.
 #[allow(dead_code)]
 pub fn with_global<F, R>(f: F) -> R
 where
@@ -358,13 +458,13 @@ where
     f(&g.conn, g.compositor)
 }
 
-/// Access the collected output info.
+/// Return the detected compositor type.
 ///
 /// # Panics
 ///
-/// Panics if called before [`set_global`] or if the mutex is poisoned.
-pub fn outputs() -> Vec<OutputInfo> {
+/// Panics if called before [`set_global_and_start`] or if the mutex is poisoned.
+pub fn compositor() -> CompositorType {
     let guard = GLOBAL.lock().expect("wayland global mutex poisoned");
     let g = guard.as_ref().expect("Wayland platform not initialized — call initialize() first");
-    g.outputs.clone()
+    g.compositor
 }

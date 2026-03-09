@@ -829,7 +829,7 @@ Hinweis: XWayland auf einer Wayland-Session setzt **beide** Variablen (`$DISPLAY
 ```
 crates/platform-linux-wayland/src/
   lib.rs                  # pub fn initialize()/shutdown(), pub static Devices
-  connection.rs           # Wayland-Display + wl_registry Scan
+  connection.rs           # Wayland-Display + wl_registry Scan + Background Event Loop
   capabilities.rs         # CompositorType Erkennung (SO_PEERCRED) + Backend-Instanziierung
   coordinates.rs          # Window-relative → absolute Koordinaten-Transformation
   app_detect.rs           # Per-App Wayland/XWayland-Erkennung
@@ -864,7 +864,10 @@ crates/platform-linux-wayland/src/
     gnome_extension.rs    # PlatynUI GNOME Extension → St.Widget Compositor-Overlay
     overlay_window.rs     # Letzter Fallback: XWayland-Overlay-Fenster (fragile Z-Order)
 
-  desktop.rs              # wl_output + xdg-output (universal, kein Fallback nötig)
+  desktop/
+    mod.rs                # WaylandDesktopInfo (impl DesktopInfoProvider) + physische Koordinaten + Output-Storage
+    output_info.rs        # OutputInfo Datenmodell (wl_output + xdg-output + D-Bus Enrichment)
+    display_config.rs     # Compositor-spezifische D-Bus Enrichment (Mutter, KWin)
 ```
 
 #### Phase 4a: Fundament (~800 LoC) 🔄 IN ARBEIT
@@ -993,7 +996,7 @@ crates/platform-linux-wayland/src/
 
 21c. **App-Erkennung Wayland/XWayland** (`src/app_detect.rs`): Liest `/proc/{pid}/environ` der Ziel-App um `GDK_BACKEND=wayland`, `QT_QPA_PLATFORM=wayland`, `MOZ_ENABLE_WAYLAND=1` etc. zu prüfen. Entscheidet ob die App unter Wayland-nativ läuft (Fenster-Offset-Korrektur nötig) oder unter XWayland (AT-SPI `GetExtents(SCREEN)` direkt nutzbar). (~80 LoC)
 
-21d. ✅ **Desktop Info** (`src/desktop.rs`, `src/connection.rs`): Echte Monitor-Enumeration via `wl_output` + `xdg_output_manager_v1`. `connect_and_enumerate()` macht `registry_queue_init` + zwei Roundtrips: (1) sammelt `wl_output`-Globals (Geometry, Mode, Scale, Name, Description) und bindet `zxdg_output_manager_v1`, (2) sammelt logische Koordinaten/Größe/Name/Description via `zxdg_output_v1`. `OutputInfo`-Struct mit `effective_*()` Methoden (bevorzugt xdg-output logisch, Fallback auf wl_output geometry/mode÷scale). `WaylandDesktopInfo` liest gesammelte Outputs und berechnet Union-Bounds. `wayland-protocols` Feature `unstable` für xdg-output. ~280 LoC `connection.rs` + ~65 LoC `desktop.rs`.
+21d. ✅ **Desktop Info** (`src/desktop/`, `src/connection.rs`): Echte Monitor-Enumeration via `wl_output` + `xdg_output_manager_v1`. `connect_and_enumerate()` macht `registry_queue_init` + zwei Roundtrips: (1) sammelt `wl_output`-Globals (Geometry, Mode, Scale, Name, Description) und bindet `zxdg_output_manager_v1`, (2) sammelt logische Koordinaten/Größe/Name/Description via `zxdg_output_v1`. `OutputInfo`-Struct (in `desktop/output_info.rs`) mit `effective_*()` Methoden (bevorzugt xdg-output logisch, Fallback auf wl_output geometry/mode÷scale). Output-Speicherung im `desktop`-Modul (nicht in connection). Compositor-spezifische D-Bus Enrichment (`desktop/display_config.rs`) für fraktionales Scaling + Primary-Erkennung (Mutter `GetCurrentState()`, KWin `primaryOutputName`). Physische Pixel-Koordinaten aus logischem Layout berechnet. Desktop-Name mit Compositor: `Wayland Desktop (Mutter)`. **Background Event Loop** in `connection.rs`: Nach Init läuft ein Dispatch-Thread (`prepare_read` + `poll` + `dispatch_pending`) der auf `wl_output`-Änderungen (Auflösung, Scaling, Geometry), `wl_registry.global` (Hot-Plug) und `wl_registry.global_remove` (Unplug) lauscht. Bei Änderungen werden die Outputs automatisch neu enriched und via `desktop::set_outputs()` aktualisiert.
 
 #### Phase 4b: Input-Backends (~600 LoC)
 

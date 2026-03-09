@@ -65,7 +65,7 @@ impl MonitorSummary {
 
 fn render_info_text(desktop: &DesktopSummary) -> String {
     let mut output = String::new();
-    let _ = writeln!(&mut output, "Desktop: {} [{}]", desktop.name, desktop.technology);
+    let _ = writeln!(&mut output, "Desktop: {}", desktop.name);
     let _ = writeln!(&mut output, "RuntimeId: {}", desktop.runtime_id);
     let _ = writeln!(&mut output, "OS: {} {}", desktop.os_name, desktop.os_version);
     let _ = writeln!(&mut output, "Bounds: {}", desktop.bounds);

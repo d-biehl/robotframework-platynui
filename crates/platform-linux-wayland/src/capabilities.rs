@@ -30,6 +30,20 @@ pub enum CompositorType {
     Unknown,
 }
 
+impl std::fmt::Display for CompositorType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PlatynUi => f.write_str("PlatynUI"),
+            Self::Mutter => f.write_str("Mutter"),
+            Self::KWin => f.write_str("KWin"),
+            Self::Hyprland => f.write_str("Hyprland"),
+            Self::Sway => f.write_str("Sway"),
+            Self::Wlroots => f.write_str("wlroots"),
+            Self::Unknown => f.write_str("Unknown"),
+        }
+    }
+}
+
 /// Best-effort detection of the running Wayland compositor.
 ///
 /// Strategy:

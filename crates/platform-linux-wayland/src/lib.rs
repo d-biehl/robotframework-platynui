@@ -44,17 +44,19 @@ pub mod init {
         }
 
         fn initialize(&self) -> Result<(), PlatformError> {
-            let (conn, outputs) = connection::connect_and_enumerate()?;
-            let compositor = crate::capabilities::detect_compositor(&conn);
+            let (conn, compositor, mut outputs, session) = connection::connect_and_enumerate()?;
+            crate::desktop::display_config::enrich_outputs(compositor, &mut outputs);
             info!(?compositor, output_count = outputs.len(), "Wayland platform initialized");
 
-            connection::set_global(conn, compositor, outputs);
+            crate::desktop::set_outputs(outputs);
+            connection::set_global_and_start(conn, compositor, session);
 
             Ok(())
         }
 
         fn shutdown(&self) {
             connection::clear_global();
+            crate::desktop::clear_outputs();
         }
     }
 }

@@ -18,7 +18,8 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
-rustix = { version = "1", features = ["net"] }
+rustix = { version = "1", features = ["event", "net"] }
+zbus = { version = "5", features = ["blocking-api"] }
 
 [dev-dependencies]
 rstest = "0.25"
