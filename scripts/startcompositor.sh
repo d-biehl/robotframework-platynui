@@ -13,7 +13,7 @@ set -u
 #
 # Environment variables:
 #   PLATYNUI_BACKEND       Override backend (default: auto-detect)
-#   PLATYNUI_LOG_LEVEL     Log level for the compositor (default: debug)
+#   PLATYNUI_LOG_LEVEL     Log level for the compositor (default: error)
 #   PLATYNUI_EXTRA_ARGS    Additional arguments for the compositor
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -65,10 +65,10 @@ fi
 if [[ -z "$BACKEND" ]]; then
   if [[ -n "${WAYLAND_DISPLAY:-}" ]] || [[ -n "${DISPLAY:-}" ]]; then
     BACKEND="winit"
-    echo "Display detected — using winit backend"
+    echo "Display detected — using winit backend" >&2
   else
     BACKEND="headless"
-    echo "No display detected — using headless backend"
+    echo "No display detected — using headless backend" >&2
   fi
 fi
 
@@ -90,7 +90,7 @@ trap cleanup EXIT INT TERM
 
 # Under WSL, XWayland does not work reliably.
 if grep -qi microsoft /proc/version 2>/dev/null; then
-  echo "WSL detected — XWayland will be disabled"
+  echo "WSL detected — XWayland will be disabled" >&2
   XWAYLAND=0
 fi
 
@@ -104,22 +104,13 @@ if [[ "$BACKEND" == "winit" ]] && [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
     ln -sf "$PARENT_WAYLAND_SOCKET" "$SESSION_RUNTIME_DIR/$WAYLAND_DISPLAY"
     [[ -e "${PARENT_WAYLAND_SOCKET}.lock" ]] && \
       ln -sf "${PARENT_WAYLAND_SOCKET}.lock" "$SESSION_RUNTIME_DIR/${WAYLAND_DISPLAY}.lock"
-    echo "Symlinked parent Wayland socket into session runtime dir"
+    echo "Symlinked parent Wayland socket into session runtime dir" >&2
   else
     echo "WARNING: Parent Wayland socket not found at $PARENT_WAYLAND_SOCKET" >&2
     echo "         Falling back to headless backend" >&2
     BACKEND="headless"
   fi
 fi
-
-# ---------------------------------------------------------------------------
-# Configure xdg-desktop-portal with GTK backend
-# ---------------------------------------------------------------------------
-mkdir -p "$SESSION_RUNTIME_DIR/xdg-desktop-portal"
-cat > "$SESSION_RUNTIME_DIR/xdg-desktop-portal/portals.conf" <<'EOF'
-[preferred]
-default=gtk
-EOF
 
 # ---------------------------------------------------------------------------
 # Build compositor args
@@ -147,15 +138,15 @@ COMPOSITOR_ARGS+=("${COMPOSITOR_EXTRA_ARGS[@]}")
 COMPOSITOR_ARGS+=(--)
 COMPOSITOR_ARGS+=("${SESSION_CMD[@]}")
 
-LOG_LEVEL="${PLATYNUI_LOG_LEVEL:-debug}"
+LOG_LEVEL="${PLATYNUI_LOG_LEVEL:-error}"
 
-echo "=== PlatynUI Compositor Session ==="
-echo "Backend:          $BACKEND"
-echo "XWayland:         $XWAYLAND"
-echo "Runtime dir:      $SESSION_RUNTIME_DIR"
-echo "Session command:  ${SESSION_CMD[*]}"
-echo "Log level:        $LOG_LEVEL"
-echo "===================================="
+echo "=== PlatynUI Compositor Session ===" >&2
+echo "Backend:          $BACKEND" >&2
+echo "XWayland:         $XWAYLAND" >&2
+echo "Runtime dir:      $SESSION_RUNTIME_DIR" >&2
+echo "Session command:  ${SESSION_CMD[*]}" >&2
+echo "Log level:        $LOG_LEVEL" >&2
+echo "====================================" >&2
 
 # ---------------------------------------------------------------------------
 # Write the inner session bootstrap script to a temp file.
@@ -170,12 +161,19 @@ cat > "$INNER_SCRIPT" <<INNER_EOF
 #!/bin/bash
 set -u
 
+# Track background PIDs for cleanup
+BG_PIDS=()
+
+cleanup_inner() {
+  for pid in "\${BG_PIDS[@]}"; do
+    kill "\$pid" 2>/dev/null
+  done
+  wait 2>/dev/null
+}
+trap cleanup_inner EXIT INT TERM
+
 export XDG_SESSION_TYPE=wayland
 export XDG_CURRENT_DESKTOP=platynui
-
-# Portal configuration
-export GTK_USE_PORTAL=1
-export XDG_DESKTOP_PORTAL_DIR="\$XDG_RUNTIME_DIR/xdg-desktop-portal"
 
 # Accessibility environment
 export NO_AT_BRIDGE=0
@@ -189,106 +187,12 @@ export QT_QPA_PLATFORM=wayland
 export LANG=de_DE.UTF-8
 export LC_ALL=de_DE.UTF-8
 
-echo "Session XDG_RUNTIME_DIR=\$XDG_RUNTIME_DIR"
-echo "Session DBUS_SESSION_BUS_ADDRESS=\$DBUS_SESSION_BUS_ADDRESS"
-
-# ---- AT-SPI accessibility bus setup ----
-#
-# The at-spi-bus-launcher creates a private dbus-daemon for accessibility.
-# Its auto-activation service file uses --use-gnome-session which fails in
-# our isolated session.  We override it with a local service file, start the
-# bus launcher, then verify the registryd is reachable before proceeding.
-
-# Override the Registry service file to remove --use-gnome-session which
-# fails in a non-GNOME session.
-A11Y_SERVICES_DIR="\$XDG_RUNTIME_DIR/at-spi-services/dbus-1/accessibility-services"
-mkdir -p "\$A11Y_SERVICES_DIR"
-cat > "\$A11Y_SERVICES_DIR/org.a11y.atspi.Registry.service" <<A11Y_EOF
-[D-BUS Service]
-Name=org.a11y.atspi.Registry
-Exec=/usr/lib/at-spi2-registryd
-A11Y_EOF
-
-# Prepend our override directory to XDG_DATA_DIRS so the AT-SPI bus daemon
-# finds our service file before the system one.
-export XDG_DATA_DIRS="\$XDG_RUNTIME_DIR/at-spi-services:\${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-
-# Start AT-SPI bus launcher with --launch-immediately to bypass the
-# gsettings/IsEnabled check and --a11y=1 to force accessibility on.
-/usr/lib/at-spi-bus-launcher --launch-immediately --a11y=1 &
-AT_SPI_LAUNCHER_PID=\$!
-
-# Wait until org.a11y.Bus is available on the session bus
-ATSPI_READY=0
-for i in \$(seq 1 50); do
-  if dbus-send --session --dest=org.a11y.Bus --print-reply \\
-       /org/a11y/bus org.a11y.Bus.GetAddress >/dev/null 2>&1; then
-    echo "AT-SPI bus launcher ready after \$((i * 100))ms"
-    ATSPI_READY=1
-    break
-  fi
-  sleep 0.1
-done
-
-if [ "\$ATSPI_READY" -eq 0 ]; then
-  echo "WARNING: AT-SPI bus launcher did not become ready within 5s" >&2
-  echo "         at-spi-bus-launcher PID \$AT_SPI_LAUNCHER_PID" >&2
-  if ! kill -0 "\$AT_SPI_LAUNCHER_PID" 2>/dev/null; then
-    echo "         Process is no longer running!" >&2
-  fi
-fi
-
-# Extract the AT-SPI accessibility bus address
-AT_SPI_ADDR=\$(dbus-send --session --dest=org.a11y.Bus --print-reply \\
-  /org/a11y/bus org.a11y.Bus.GetAddress 2>/dev/null \\
-  | grep string | head -1 | sed 's/.*"\(.*\)"/\1/')
-
-if [ -n "\$AT_SPI_ADDR" ]; then
-  echo "AT-SPI accessibility bus at: \$AT_SPI_ADDR"
-  export AT_SPI_BUS_ADDRESS="\$AT_SPI_ADDR"
-
-  # Start the registry daemon on the AT-SPI accessibility bus.
-  DBUS_SESSION_BUS_ADDRESS="\$AT_SPI_ADDR" /usr/lib/at-spi2-registryd &
-  REGISTRYD_PID=\$!
-
-  # Wait until org.a11y.atspi.Registry is actually available on the AT-SPI bus.
-  # This replaces the fragile 'sleep 0.2' and prevents race conditions where
-  # clients connect before the registryd has finished initialising.
-  REGISTRY_READY=0
-  for i in \$(seq 1 50); do
-    if DBUS_SESSION_BUS_ADDRESS="\$AT_SPI_ADDR" \\
-       dbus-send --session --dest=org.a11y.atspi.Registry --print-reply \\
-         /org/a11y/atspi/accessible/root org.freedesktop.DBus.Peer.Ping \\
-         >/dev/null 2>&1; then
-      echo "AT-SPI registryd ready after \$((i * 100))ms"
-      REGISTRY_READY=1
-      break
-    fi
-    sleep 0.1
-  done
-
-  if [ "\$REGISTRY_READY" -eq 0 ]; then
-    echo "WARNING: AT-SPI registryd did not become ready within 5s" >&2
-    if ! kill -0 "\$REGISTRYD_PID" 2>/dev/null; then
-      echo "         registryd (PID \$REGISTRYD_PID) is no longer running!" >&2
-    fi
-  fi
-else
-  echo "WARNING: AT-SPI bus not available — accessibility will not work" >&2
-fi
-
-# Start xdg-desktop-portal with the GTK backend
-if command -v xdg-desktop-portal >/dev/null 2>&1; then
-  /usr/libexec/xdg-desktop-portal-gtk &
-  xdg-desktop-portal &
-  echo "xdg-desktop-portal started with GTK backend"
-else
-  echo "WARNING: xdg-desktop-portal not found — portals unavailable" >&2
-fi
+echo "Session XDG_RUNTIME_DIR=\$XDG_RUNTIME_DIR" >&2
+echo "Session DBUS_SESSION_BUS_ADDRESS=\$DBUS_SESSION_BUS_ADDRESS" >&2
 
 # Launch the PlatynUI compositor via cargo run
 cd ${PROJECT_DIR@Q}
-exec cargo run -p platynui-wayland-compositor -- \\
+cargo run -p platynui-wayland-compositor -- \\
   --log-level ${LOG_LEVEL@Q} \\
   $SERIALIZED_ARGS
 INNER_EOF
@@ -304,4 +208,4 @@ unset QT_IM_MODULE
 unset QT_IM_MODULES
 
 XDG_RUNTIME_DIR="$SESSION_RUNTIME_DIR" \
-  exec dbus-run-session -- "$INNER_SCRIPT"
+  dbus-run-session -- "$INNER_SCRIPT"
