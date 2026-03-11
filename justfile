@@ -49,11 +49,15 @@ build-inspector:
 build-inspector-wheel *ARGS:
     uv run maturin build --release {{ if os() == "linux" { "--zig --compatibility manylinux_2_38" } else { "" } }} -m packages/inspector/Cargo.toml -o dist {{ ARGS }}
 
+# Build release wheel for robotframework-PlatynUI package
+build-platynui-wheel:
+    uv build --wheel -o dist
+
 # Build all Python packages (native + CLI + Inspector)
 build-all-python: build-native build-cli build-inspector
 
 # Build all release wheels
-build-all-wheels: build-native-wheel build-cli-wheel build-inspector-wheel
+build-all-wheels: build-platynui-wheel build-native-wheel build-cli-wheel build-inspector-wheel
 
 # Build native Python package with mock-provider feature
 build-native-mock:
