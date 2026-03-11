@@ -31,7 +31,7 @@ build-native *FEATURES:
 
 # Build release wheel for native Python package
 build-native-wheel *ARGS:
-    uv run maturin build --release --zig --compatibility manylinux_2_38 -m packages/native/Cargo.toml -o dist {{ ARGS }}
+    uv run maturin build --release {{ if os() == "linux" { "--zig --compatibility manylinux_2_38" } else { "" } }} -m packages/native/Cargo.toml -o dist {{ ARGS }}
 
 # Build CLI Python package
 build-cli:
@@ -39,7 +39,7 @@ build-cli:
 
 # Build release wheel for CLI Python package
 build-cli-wheel *ARGS:
-    uv run maturin build --release --zig --compatibility manylinux_2_38 -m packages/cli/Cargo.toml -o dist {{ ARGS }}
+    uv run maturin build --release {{ if os() == "linux" { "--zig --compatibility manylinux_2_38" } else { "" } }} -m packages/cli/Cargo.toml -o dist {{ ARGS }}
 
 # Build Inspector Python package
 build-inspector:
@@ -47,7 +47,7 @@ build-inspector:
 
 # Build release wheel for Inspector Python package
 build-inspector-wheel *ARGS:
-    uv run maturin build --release --zig --compatibility manylinux_2_38 -m packages/inspector/Cargo.toml -o dist {{ ARGS }}
+    uv run maturin build --release {{ if os() == "linux" { "--zig --compatibility manylinux_2_38" } else { "" } }} -m packages/inspector/Cargo.toml -o dist {{ ARGS }}
 
 # Build all Python packages (native + CLI + Inspector)
 build-all-python: build-native build-cli build-inspector
