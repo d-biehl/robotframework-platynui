@@ -106,7 +106,7 @@ test-crate crate:
 
 # Run Python tests (builds native package with mock-provider first)
 test-python: build-native-mock
-    uv run pytest
+    uv run pytest -v --tb=short --maxfail=3
 
 # Run all tests (Rust + Python)
 test-all: test test-python

@@ -59,40 +59,37 @@ jobs:
         with:
           cache-all-crates: true
 
-      - name: Install cargo-nextest
+      - name: Install tools (nextest, just)
         uses: taiki-e/install-action@v2
         with:
-          tool: nextest
+          tool: nextest,just
 
-      - name: Rust format check
-        run: cargo fmt --all -- --check
+      - name: Bootstrap environment
+        run: just bootstrap
 
-      - name: Rust clippy (deny warnings)
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Check Rust formatting
+        run: just fmt-check
 
-      - name: Build (Rust)
-        run: cargo build --all --all-targets
+      - name: Lint Rust (clippy)
+        run: just clippy
 
-      - name: Test (Rust - nextest)
-        run: cargo nextest run --workspace --no-fail-fast
+      - name: Build Rust workspace
+        run: just build
 
-      - name: Clean rust build artifacts
+      - name: Run Rust tests
+        run: just test
+
+      - name: Clean Rust build artifacts
         run: cargo clean
 
-      - name: sync Python environment (uv)
-        run: uv sync --dev --all-packages --all-groups
+      - name: Lint Python (ruff)
+        run: just ruff
 
-      - name: build runtime with maturin (via uv)
-        run: uv run maturin develop -m packages/native/Cargo.toml --features mock-provider --uv
+      - name: Type-check Python (mypy)
+        run: just mypy
 
-      - name: Python lint (ruff)
-        run: uv run ruff check
-
-      - name: Python type check (mypy) [optional]
-        run: uv run mypy .
-
-      - name: Python tests (pytest)
-        run: uv run --no-sync pytest -v --tb=short --maxfail=5
+      - name: Run Python tests
+        run: just test-python
 
   # ── Linux manylinux wheels (container-based) ──────────────────────────────────
 
@@ -123,6 +120,10 @@ jobs:
 
       - name: Update changelog
         run: uv run scripts/update-changelog.py
+
+
+      - name: Bootstrap environment
+        run: just bootstrap
 
       - name: Build native wheel
         uses: PyO3/maturin-action@v1
@@ -211,6 +212,10 @@ jobs:
 
       - name: Update changelog
         run: uv run scripts/update-changelog.py
+
+
+      - name: Bootstrap environment
+        run: just bootstrap
 
       - name: Build native wheel (platynui-native)
         run: just build-native-wheel
