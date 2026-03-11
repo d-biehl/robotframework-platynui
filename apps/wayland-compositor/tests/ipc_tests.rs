@@ -583,3 +583,25 @@ fn ipc_screenshot_with_client() {
     let _ = app.kill();
     shutdown_compositor(&socket_path, child);
 }
+
+#[test]
+fn ipc_get_pointer_position() {
+    let Some((child, socket_name)) = start_compositor("pointer_pos") else {
+        return;
+    };
+
+    let Some(socket_path) = wait_for_socket(&socket_name, Duration::from_secs(10)) else {
+        eprintln!("skipping: control socket did not appear");
+        return;
+    };
+
+    let response = send_command(&socket_path, r#"{"command": "get_pointer_position"}"#)
+        .expect("failed to send get_pointer_position");
+    assert!(response.contains(r#""status":"ok"#), "unexpected response: {response}");
+    // Response must contain numeric x and y fields.
+    let value: serde_json::Value = serde_json::from_str(&response).expect("invalid JSON");
+    assert!(value.get("x").and_then(serde_json::Value::as_f64).is_some(), "missing x: {response}");
+    assert!(value.get("y").and_then(serde_json::Value::as_f64).is_some(), "missing y: {response}");
+
+    shutdown_compositor(&socket_path, child);
+}

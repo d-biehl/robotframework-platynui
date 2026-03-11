@@ -11,7 +11,7 @@ second
     Take Screenshot
 
 third
-    Pointer Move To    ${None}    x=0    y=0
+    Pointer Move To    ${None}    x=1    y=1
     Pointer Move To    ${None}    x=1920    y=1080
     Pointer Move To    ${None}    x=0    y=1080
     Pointer Move To    ${None}    x=1920    y=0
@@ -22,6 +22,12 @@ third
     # wSleep    2s
     Highlight    .
     Sleep    2s
+    Keyboard Type    ${None}    <Escape>
+    Pointer Click    ${None}    x=500    y=500
+    Keyboard Type    ${None}    <Control+A Delete>
+    FOR    ${_}    IN RANGE    20
+        Keyboard Type    ${None}    Hallo Welt yzöäü `àś\nWas geht!!!!
+    END
 
 call node
     ${node}=    BM.Query    .

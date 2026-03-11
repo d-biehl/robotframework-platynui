@@ -23,11 +23,12 @@ pub mod connection;
 #[cfg(target_os = "linux")]
 pub mod desktop;
 
+#[cfg(target_os = "linux")]
+pub mod input;
+
 // Protocols used in later phases — suppress unused-crate-dependencies for now.
 #[cfg(test)]
 use rstest as _;
-#[cfg(target_os = "linux")]
-use wayland_protocols_wlr as _;
 
 #[cfg(target_os = "linux")]
 pub mod init {
@@ -51,17 +52,21 @@ pub mod init {
             crate::desktop::set_outputs(outputs);
             connection::set_global_and_start(conn, compositor, session);
 
+            // Initialize input backends based on detected compositor.
+            crate::input::initialize(compositor);
+
             Ok(())
         }
 
         fn shutdown(&self) {
+            crate::input::shutdown();
             connection::clear_global();
             crate::desktop::clear_outputs();
         }
     }
 }
 
-// Stub modules — full implementations come in Phase 4b–4e.
+// Stub modules — full implementations come in Phase 4c–4e.
 
 #[cfg(target_os = "linux")]
 pub mod highlight {
@@ -81,51 +86,16 @@ pub mod highlight {
     }
 }
 
+/// Keyboard device backed by the active input backend (EIS, Portal, or virtual-input).
 #[cfg(target_os = "linux")]
 pub mod keyboard {
-    use platynui_core::platform::{KeyCode, KeyboardDevice, KeyboardError, KeyboardEvent};
-
-    pub struct WaylandKeyboardDevice;
-
-    impl KeyboardDevice for WaylandKeyboardDevice {
-        fn key_to_code(&self, name: &str) -> Result<KeyCode, KeyboardError> {
-            Err(KeyboardError::UnsupportedKey(name.to_string()))
-        }
-
-        fn send_key_event(&self, _event: KeyboardEvent) -> Result<(), KeyboardError> {
-            Err(KeyboardError::NotReady)
-        }
-    }
+    pub use crate::input::WaylandKeyboardDevice;
 }
 
+/// Pointer device backed by the active input backend (EIS, Portal, or virtual-input).
 #[cfg(target_os = "linux")]
 pub mod pointer {
-    use platynui_core::platform::{PlatformError, PlatformErrorKind, PointerButton, PointerDevice, ScrollDelta};
-    use platynui_core::types::Point;
-
-    pub struct WaylandPointerDevice;
-
-    impl PointerDevice for WaylandPointerDevice {
-        fn position(&self) -> Result<Point, PlatformError> {
-            Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "Wayland pointer not yet implemented"))
-        }
-
-        fn move_to(&self, _point: Point) -> Result<(), PlatformError> {
-            Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "Wayland pointer not yet implemented"))
-        }
-
-        fn press(&self, _button: PointerButton) -> Result<(), PlatformError> {
-            Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "Wayland pointer not yet implemented"))
-        }
-
-        fn release(&self, _button: PointerButton) -> Result<(), PlatformError> {
-            Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "Wayland pointer not yet implemented"))
-        }
-
-        fn scroll(&self, _delta: ScrollDelta) -> Result<(), PlatformError> {
-            Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "Wayland pointer not yet implemented"))
-        }
-    }
+    pub use crate::input::WaylandPointerDevice;
 }
 
 #[cfg(target_os = "linux")]

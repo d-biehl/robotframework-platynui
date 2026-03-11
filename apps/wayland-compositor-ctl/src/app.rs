@@ -60,6 +60,9 @@ enum Command {
 
     /// Request a graceful compositor shutdown.
     Shutdown,
+
+    /// Get the current pointer (cursor) position.
+    PointerPosition,
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +200,7 @@ fn build_command_json(command: &Command) -> String {
         Command::Close { window } => window_command_json("close_window", window),
         Command::Screenshot { .. } => serde_json::json!({"command": "screenshot"}),
         Command::Shutdown => serde_json::json!({"command": "shutdown"}),
+        Command::PointerPosition => serde_json::json!({"command": "get_pointer_position"}),
     };
     value.to_string()
 }
@@ -304,6 +308,16 @@ fn handle_response(cli: &Cli, response: &serde_json::Value) -> Result<(), Box<dy
                 println!("{}", serde_json::to_string_pretty(response)?);
             } else {
                 println!("{} Compositor is shutting down", s.yellow_bold("\u{26a0}"));
+            }
+        }
+
+        Command::PointerPosition => {
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(response)?);
+            } else {
+                let x = response.get("x").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+                let y = response.get("y").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+                println!("{x},{y}");
             }
         }
     }

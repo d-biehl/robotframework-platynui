@@ -16,6 +16,6 @@ source "$SCRIPT_DIR/setup-atspi.sh"
 # VNC clients send correctly-mapped keycodes.
 export XKB_DEFAULT_LAYOUT="${XKB_DEFAULT_LAYOUT:-de}"
 
-wayvnc -g -k de &
+# wayvnc -g -k de &
 
 alacritty

@@ -19,18 +19,29 @@
 //! - `{"command": "close_window", "id"|"app_id"|"title": ...}` → send close to a window
 //! - `{"command": "focus_window", "id"|"app_id"|"title": ...}` → focus a window
 //! - `{"command": "screenshot"}` → capture the current frame (base64 PNG)
+//! - `{"command": "get_pointer_position"}` → current pointer coordinates (`x`, `y`)
+//! - `{"command": "key_event", "key": <evdev_code>, "state": "press"|"release"}` → inject a keyboard event
+//! - `{"command": "pointer_move_to", "x": <f64>, "y": <f64>}` → move pointer to absolute position
+//! - `{"command": "pointer_button", "button": <evdev_code>, "state": "press"|"release"}` → inject pointer button
+//! - `{"command": "pointer_scroll", "dx": <f64>, "dy": <f64>}` → inject scroll event
+//! - `{"command": "get_keymap"}` → current XKB keymap string
 //! - `{"command": "ping"}` → alias for `status`
 //! - `{"command": "shutdown"}` → request compositor shutdown
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Write};
+use std::os::fd::AsFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use smithay::backend::input::{AxisSource, ButtonState, KeyState};
 use smithay::desktop::Window;
-use smithay::utils::{Physical, Size};
+use smithay::input::keyboard::{FilterResult, xkb};
+use smithay::input::pointer::{AxisFrame, MotionEvent};
+use smithay::utils::{Physical, Point, SERIAL_COUNTER, Size};
 
 use crate::handlers::foreign_toplevel;
+use crate::input;
 use crate::state::State;
 
 // ---------------------------------------------------------------------------
@@ -47,6 +58,27 @@ struct Request {
     app_id: Option<String>,
     #[serde(default)]
     title: Option<String>,
+    /// Evdev keycode for `key_event`.
+    #[serde(default)]
+    key: Option<u32>,
+    /// `"press"` or `"release"` for `key_event` / `pointer_button`.
+    #[serde(default)]
+    state: Option<String>,
+    /// X coordinate for `pointer_move_to`.
+    #[serde(default)]
+    x: Option<f64>,
+    /// Y coordinate for `pointer_move_to`.
+    #[serde(default)]
+    y: Option<f64>,
+    /// Evdev button code for `pointer_button`.
+    #[serde(default)]
+    button: Option<u32>,
+    /// Horizontal scroll delta for `pointer_scroll`.
+    #[serde(default)]
+    dx: Option<f64>,
+    /// Vertical scroll delta for `pointer_scroll`.
+    #[serde(default)]
+    dy: Option<f64>,
 }
 
 /// Window information returned in IPC responses.
@@ -86,6 +118,21 @@ struct OutputInfo {
     scale: f64,
 }
 
+/// A connected control client with a per-connection read buffer.
+///
+/// Registered as a non-blocking calloop event source so the compositor
+/// event loop is never blocked waiting for client data.
+struct ControlClient {
+    stream: UnixStream,
+    buf: Vec<u8>,
+}
+
+impl AsFd for ControlClient {
+    fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        self.stream.as_fd()
+    }
+}
+
 /// Path to the control socket, derived from `$XDG_RUNTIME_DIR` and socket name.
 pub fn control_socket_path(socket_name: &str) -> PathBuf {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
@@ -114,12 +161,12 @@ pub fn setup_control_socket(
     loop_handle.insert_source(
         calloop::generic::Generic::new(listener, calloop::Interest::READ, calloop::Mode::Level),
         |_, listener, state| {
-            // Accept all pending connections
+            // Accept all pending connections.
             loop {
                 match listener.accept() {
                     Ok((stream, _addr)) => {
-                        if let Err(err) = handle_client(stream, state) {
-                            tracing::warn!(%err, "error handling control client");
+                        if let Err(err) = register_control_client(stream, state) {
+                            tracing::warn!(%err, "failed to register control client");
                         }
                     }
                     Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => break,
@@ -136,43 +183,78 @@ pub fn setup_control_socket(
     Ok(path)
 }
 
-/// Handle a single control client connection.
+/// Register an accepted client stream as a non-blocking calloop event source.
 ///
-/// Reads commands line by line and sends responses.
-fn handle_client(stream: UnixStream, state: &mut State) -> Result<(), Box<dyn std::error::Error>> {
-    #![allow(clippy::needless_pass_by_value)] // UnixStream needs ownership for set_* calls
-    stream.set_nonblocking(false)?;
-    stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
-    stream.set_write_timeout(Some(std::time::Duration::from_secs(5)))?;
-
-    let reader = BufReader::new(&stream);
-    let mut writer = &stream;
-
-    for line in reader.lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => break,
-            Err(err) => return Err(err.into()),
-        };
-
-        if line.trim().is_empty() {
-            continue;
-        }
-
-        let response = process_command(&line, state);
-        writeln!(writer, "{response}")?;
-        writer.flush()?;
-    }
-
+/// Each client connection gets its own event source so the compositor event
+/// loop is never blocked waiting for client data. The source is automatically
+/// removed when the client disconnects or a fatal I/O error occurs.
+fn register_control_client(stream: UnixStream, state: &mut State) -> std::io::Result<()> {
+    stream.set_nonblocking(true)?;
+    let client = ControlClient { stream, buf: Vec::with_capacity(1024) };
+    let source = calloop::generic::Generic::new(client, calloop::Interest::READ, calloop::Mode::Level);
+    state
+        .loop_handle
+        .insert_source(source, |_, client, state| {
+            // SAFETY: We only read from the stream and modify the buffer;
+            // the file descriptor (calloop event source) is never replaced.
+            #[allow(unsafe_code)]
+            let client = unsafe { client.get_mut() };
+            Ok(handle_client_data(client, state))
+        })
+        .map_err(std::io::Error::other)?;
     Ok(())
 }
 
+/// Handle readable data from a control client.
+///
+/// Reads available bytes into the client's buffer, processes complete
+/// newline-terminated JSON lines, and sends responses. Returns
+/// [`calloop::PostAction::Remove`] on EOF or fatal I/O errors to deregister
+/// the source.
+fn handle_client_data(client: &mut ControlClient, state: &mut State) -> calloop::PostAction {
+    // Read all available data.
+    let mut tmp = [0u8; 4096];
+    loop {
+        match client.stream.read(&mut tmp) {
+            Ok(0) => return calloop::PostAction::Remove, // EOF
+            Ok(n) => client.buf.extend_from_slice(&tmp[..n]),
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(err) => {
+                tracing::debug!(%err, "control client read error");
+                return calloop::PostAction::Remove;
+            }
+        }
+    }
+
+    // Process complete newline-terminated lines.
+    while let Some(pos) = client.buf.iter().position(|&b| b == b'\n') {
+        let line_bytes: Vec<u8> = client.buf.drain(..=pos).collect();
+        let line = String::from_utf8_lossy(&line_bytes);
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let response = process_command(line, state);
+        if let Some(response) = response
+            && let Err(err) = writeln!(client.stream, "{response}")
+        {
+            tracing::debug!(%err, "control client write error");
+            return calloop::PostAction::Remove;
+        }
+    }
+
+    calloop::PostAction::Continue
+}
+
 /// Process a single JSON command and return a JSON response string.
-fn process_command(input: &str, state: &mut State) -> String {
+///
+/// Returns `None` for fire-and-forget input injection commands that need
+/// no client acknowledgement (key, pointer, scroll events).
+fn process_command(input: &str, state: &mut State) -> Option<String> {
     let request: Request = match serde_json::from_str(input.trim()) {
         Ok(req) => req,
         Err(_) => {
-            return serde_json::json!({"status": "error", "message": "invalid JSON"}).to_string();
+            return Some(serde_json::json!({"status": "error", "message": "invalid JSON"}).to_string());
         }
     };
 
@@ -227,6 +309,15 @@ fn process_command(input: &str, state: &mut State) -> String {
             }
         }
 
+        Some("get_pointer_position") => {
+            let loc = state.pointer_location;
+            serde_json::json!({"status": "ok", "x": loc.x, "y": loc.y})
+        }
+
+        Some("key_event" | "pointer_move_to" | "pointer_button" | "pointer_scroll" | "get_keymap") => {
+            return process_input_command(request.command.as_deref().unwrap_or_default(), &request, state);
+        }
+
         Some("screenshot") => match take_screenshot(state) {
             Ok(base64_png) => {
                 let combined = state.combined_output_geometry();
@@ -255,7 +346,152 @@ fn process_command(input: &str, state: &mut State) -> String {
         None => serde_json::json!({"status": "error", "message": "missing or invalid command field"}),
     };
 
-    response.to_string()
+    Some(response.to_string())
+}
+
+// ---------------------------------------------------------------------------
+//  Input command dispatch
+// ---------------------------------------------------------------------------
+
+/// Process input-related commands (key, pointer, scroll, keymap).
+///
+/// Returns `None` for fire-and-forget injection commands (no response sent
+/// to the client) and `Some(response)` for query commands (`get_keymap`).
+fn process_input_command(command: &str, request: &Request, state: &mut State) -> Option<String> {
+    match command {
+        "key_event" => {
+            let Some(key) = request.key else {
+                return Some(serde_json::json!({"status": "error", "message": "missing 'key' field"}).to_string());
+            };
+            let pressed = match request.state.as_deref() {
+                Some("press") => true,
+                Some("release") => false,
+                _ => {
+                    return Some(
+                        serde_json::json!({"status": "error", "message": "'state' must be 'press' or 'release'"})
+                            .to_string(),
+                    );
+                }
+            };
+            inject_key_event(state, key, pressed);
+            None
+        }
+
+        "pointer_move_to" => {
+            let Some(x) = request.x else {
+                return Some(serde_json::json!({"status": "error", "message": "missing 'x' field"}).to_string());
+            };
+            let Some(y) = request.y else {
+                return Some(serde_json::json!({"status": "error", "message": "missing 'y' field"}).to_string());
+            };
+            inject_pointer_move(state, x, y);
+            None
+        }
+
+        "pointer_button" => {
+            let Some(button) = request.button else {
+                return Some(serde_json::json!({"status": "error", "message": "missing 'button' field"}).to_string());
+            };
+            let pressed = match request.state.as_deref() {
+                Some("press") => true,
+                Some("release") => false,
+                _ => {
+                    return Some(
+                        serde_json::json!({"status": "error", "message": "'state' must be 'press' or 'release'"})
+                            .to_string(),
+                    );
+                }
+            };
+            inject_pointer_button(state, button, pressed);
+            None
+        }
+
+        "pointer_scroll" => {
+            let dx = request.dx.unwrap_or(0.0);
+            let dy = request.dy.unwrap_or(0.0);
+            inject_pointer_scroll(state, dx, dy);
+            None
+        }
+
+        "get_keymap" => match get_keymap_string(state) {
+            Some(keymap) => Some(serde_json::json!({"status": "ok", "keymap": keymap}).to_string()),
+            None => Some(serde_json::json!({"status": "error", "message": "keymap not available"}).to_string()),
+        },
+
+        _ => Some(
+            serde_json::json!({"status": "error", "message": format!("unknown input command: {command}")}).to_string(),
+        ),
+    }
+}
+
+// ---------------------------------------------------------------------------
+//  Input injection helpers
+// ---------------------------------------------------------------------------
+
+/// Get the current compositor time in milliseconds (for smithay event timestamps).
+#[allow(clippy::cast_possible_truncation)]
+fn current_time_msec(state: &State) -> u32 {
+    state.start_time.elapsed().as_millis() as u32
+}
+
+/// Inject a keyboard key press or release via the smithay input stack.
+fn inject_key_event(state: &mut State, evdev_key: u32, pressed: bool) {
+    let key_state = if pressed { KeyState::Pressed } else { KeyState::Released };
+    let serial = SERIAL_COUNTER.next_serial();
+    let time = current_time_msec(state);
+    // Evdev scancodes → XKB keycodes are offset by +8.
+    let keycode = smithay::input::keyboard::Keycode::new(evdev_key + 8);
+    let keyboard = state.keyboard();
+    keyboard.input::<(), _>(state, keycode, key_state, serial, time, |_, _, _| FilterResult::Forward);
+}
+
+/// Inject an absolute pointer move via the smithay input stack.
+fn inject_pointer_move(state: &mut State, x: f64, y: f64) {
+    let serial = SERIAL_COUNTER.next_serial();
+    state.pointer_location = Point::from((x, y));
+    input::clamp_pointer_location(state);
+    input::update_cursor_shape(state);
+
+    let under = input::surface_under(state);
+    let time = current_time_msec(state);
+    let pointer = state.pointer();
+    pointer.motion(state, under, &MotionEvent { location: state.pointer_location, serial, time });
+    pointer.frame(state);
+}
+
+/// Inject a pointer button press or release via the smithay input stack.
+fn inject_pointer_button(state: &mut State, button: u32, pressed: bool) {
+    let button_state = if pressed { ButtonState::Pressed } else { ButtonState::Released };
+    let time = current_time_msec(state);
+    input::process_pointer_button(state, button, button_state, time);
+}
+
+/// Inject a scroll event via the smithay input stack.
+#[allow(clippy::cast_possible_truncation)]
+fn inject_pointer_scroll(state: &mut State, dx: f64, dy: f64) {
+    let time = current_time_msec(state);
+    let mut frame = AxisFrame::new(time).source(AxisSource::Finger);
+    if dx != 0.0 {
+        frame = frame.value(smithay::backend::input::Axis::Horizontal, dx);
+    }
+    if dy != 0.0 {
+        frame = frame.value(smithay::backend::input::Axis::Vertical, dy);
+    }
+    let pointer = state.pointer();
+    pointer.axis(state, frame);
+    pointer.frame(state);
+}
+
+/// Get the compositor's active XKB keymap as a string.
+fn get_keymap_string(state: &mut State) -> Option<String> {
+    let keyboard = state.keyboard();
+    keyboard.with_xkb_state(state, |xkb_context| {
+        let xkb_state = xkb_context.xkb().lock().ok()?;
+        // SAFETY: The keymap reference does not outlive this closure scope.
+        #[allow(unsafe_code)]
+        let keymap = unsafe { xkb_state.keymap() };
+        Some(keymap.get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1))
+    })
 }
 
 /// Build the JSON response for the `status` command.

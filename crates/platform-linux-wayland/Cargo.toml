@@ -14,11 +14,16 @@ rust-version.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 platynui-core = { path = "../core" }
+platynui-xkb-util = { path = "../xkb-util" }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
-rustix = { version = "1", features = ["event", "net"] }
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+reis = "0.6"
+enumflags2 = "0.7"
+rustix = { version = "1", features = ["event", "fs", "net"] }
+serde_json = "1"
 zbus = { version = "5", features = ["blocking-api"] }
 
 [dev-dependencies]

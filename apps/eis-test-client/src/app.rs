@@ -163,7 +163,6 @@ pub fn run() -> ExitCode {
     let cli = Cli::parse();
     init_tracing(cli.log_level);
 
-    // Handle reset-token before trying to connect
     if matches!(cli.command, Command::ResetToken) {
         return match cmd_reset_token() {
             Ok(()) => ExitCode::SUCCESS,
@@ -304,7 +303,6 @@ fn connect(cli: &Cli) -> anyhow::Result<(UnixStream, Option<portal::PortalGuard>
         return stream.map(|s| (s, None));
     }
 
-    // Fall back to LIBEI_SOCKET environment variable
     tracing::info!("connecting via LIBEI_SOCKET environment variable");
     let path = std::env::var("LIBEI_SOCKET").map_err(|_| anyhow!("LIBEI_SOCKET not set; use --portal or --socket"))?;
     let full_path = if std::path::Path::new(&path).is_relative() {
@@ -337,7 +335,6 @@ fn cmd_probe(
     /// Grace period after last new event before we stop waiting.
     const PROBE_GRACE: Duration = Duration::from_millis(500);
 
-    // Print connection / handshake info
     println!("Connection:");
     println!("  Context type: Sender");
     println!("  Handshake serial: {handshake_serial}");
@@ -357,7 +354,6 @@ fn cmd_probe(
 
     tracing::debug!("probe: waiting for events");
     loop {
-        // Drain already-queued high-level events
         while let Some(event) = converter.next_event() {
             tracing::debug!(?event, "probe: received event");
             match event {
@@ -389,14 +385,12 @@ fn cmd_probe(
             }
         }
 
-        // If we have a deadline and it has passed, we're done
         if let Some(dl) = deadline
             && Instant::now() >= dl
         {
             break;
         }
 
-        // Wait for new data (with timeout if we already saw events)
         match try_read_and_dispatch(context, converter, deadline) {
             Ok(true) => {}      // got data, keep processing
             Ok(false) => break, // timeout expired
@@ -947,7 +941,6 @@ fn try_read_and_dispatch(
             Timespec { tv_sec: remaining.as_secs().cast_signed(), tv_nsec: i64::from(remaining.subsec_nanos()) }
         });
 
-        // If deadline already passed, return immediately
         if let Some(ref ts) = timeout
             && ts.tv_sec == 0
             && ts.tv_nsec == 0
@@ -1155,7 +1148,6 @@ fn key_name_to_code(name: &str) -> anyhow::Result<u32> {
             return Ok(code);
         }
     }
-    // Try raw numeric code
     lower
         .parse::<u32>()
         .map_err(|_| anyhow!("unknown key: {name}  (type 'keys' in interactive mode to list available names)"))
@@ -1194,7 +1186,6 @@ fn send_key_combo(
     keycode: u32,
 ) -> anyhow::Result<()> {
     if modifiers.is_empty() {
-        // Simple single key — use existing press/release
         return send_press_release(
             connection,
             device,
@@ -1203,14 +1194,12 @@ fn send_key_combo(
         );
     }
 
-    // Shortcut: modifiers down → key down → key up → modifiers up (reverse)
     let last_serial = connection.serial();
     let device_proxy = device.device();
     let kbd = device.interface::<ei::Keyboard>().expect("checked");
 
     device_proxy.start_emulating(last_serial, 1);
 
-    // Press modifiers
     for &m in modifiers {
         kbd.key(m, ei::keyboard::KeyState::Press);
         device_proxy.frame(last_serial, timestamp_us());
@@ -1218,7 +1207,6 @@ fn send_key_combo(
         std::thread::sleep(PRESS_RELEASE_GAP);
     }
 
-    // Press + release the main key
     kbd.key(keycode, ei::keyboard::KeyState::Press);
     device_proxy.frame(last_serial, timestamp_us());
     connection.flush().context("flush failed")?;
@@ -1229,7 +1217,6 @@ fn send_key_combo(
     connection.flush().context("flush failed")?;
     std::thread::sleep(PRESS_RELEASE_GAP);
 
-    // Release modifiers in reverse order
     for &m in modifiers.iter().rev() {
         kbd.key(m, ei::keyboard::KeyState::Released);
         device_proxy.frame(last_serial, timestamp_us());
@@ -1258,7 +1245,6 @@ fn device_keymap_lookup(device: &reis::event::Device) -> Option<platynui_xkb_uti
         return None;
     }
 
-    // Read the keymap string from the fd.
     let mut file = std::fs::File::from(keymap.fd.try_clone().ok()?);
     file.seek(SeekFrom::Start(0)).ok()?;
 
@@ -1292,14 +1278,9 @@ fn send_text(
     variant: Option<&str>,
 ) -> anyhow::Result<()> {
     use platynui_xkb_util::xkb;
-    use platynui_xkb_util::{KeyAction, KeyCombination, KeymapLookup, modifier_bit};
+    use platynui_xkb_util::{KeyAction, KeyCombination, KeymapLookup};
 
-    let lookup = if layout.is_none() && variant.is_none() {
-        // Try the keymap from the EIS keyboard device first.
-        device_keymap_lookup(device)
-    } else {
-        None
-    };
+    let lookup = if layout.is_none() && variant.is_none() { device_keymap_lookup(device) } else { None };
 
     let (lookup, source) = if let Some(lk) = lookup {
         (lk, String::from("device"))
@@ -1328,18 +1309,9 @@ fn send_text(
     device_proxy.start_emulating(last_serial, 1);
 
     let send_combo = |combo: &KeyCombination| -> anyhow::Result<()> {
-        let evdev_code = KeymapLookup::evdev_keycode(combo);
+        let evdev_code = combo.evdev_keycode();
+        let mod_keys = combo.modifier_keycodes();
 
-        // Determine which modifier keys to press.
-        let mut mod_keys: Vec<u32> = Vec::new();
-        if combo.modifiers & modifier_bit::SHIFT != 0 {
-            mod_keys.push(42); // KEY_LEFTSHIFT
-        }
-        if combo.modifiers & modifier_bit::LEVEL3_SHIFT != 0 {
-            mod_keys.push(100); // KEY_RIGHTALT (AltGr)
-        }
-
-        // Press all modifiers in one frame.
         if !mod_keys.is_empty() {
             for &m in &mod_keys {
                 kbd.key(m, ei::keyboard::KeyState::Press);
@@ -1349,7 +1321,6 @@ fn send_text(
             std::thread::sleep(PRESS_RELEASE_GAP);
         }
 
-        // Press + release the character key (separate frames).
         kbd.key(evdev_code, ei::keyboard::KeyState::Press);
         device_proxy.frame(last_serial, timestamp_us());
         connection.flush().context("flush failed")?;
@@ -1359,7 +1330,6 @@ fn send_text(
         device_proxy.frame(last_serial, timestamp_us());
         connection.flush().context("flush failed")?;
 
-        // Release all modifiers in one frame.
         if !mod_keys.is_empty() {
             std::thread::sleep(PRESS_RELEASE_GAP);
             for &m in mod_keys.iter().rev() {

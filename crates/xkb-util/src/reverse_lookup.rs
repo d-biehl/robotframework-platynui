@@ -16,6 +16,36 @@ pub struct KeyCombination {
     pub modifiers: u32,
 }
 
+/// Evdev keycode for the left Shift key.
+const KEY_LEFTSHIFT: u32 = 42;
+/// Evdev keycode for the right Alt key (`AltGr` / ISO Level3 Shift).
+const KEY_RIGHTALT: u32 = 100;
+
+impl KeyCombination {
+    /// Returns the evdev keycode (XKB keycode − 8).
+    #[must_use]
+    pub fn evdev_keycode(&self) -> u32 {
+        self.keycode.raw() - 8
+    }
+
+    /// Returns the evdev keycodes for modifier keys that must be held
+    /// while pressing this key combination.
+    ///
+    /// Currently maps Shift → `KEY_LEFTSHIFT` (42) and
+    /// Level3 Shift (`AltGr`) → `KEY_RIGHTALT` (100).
+    #[must_use]
+    pub fn modifier_keycodes(&self) -> Vec<u32> {
+        let mut keys = Vec::new();
+        if self.modifiers & modifier_bit::SHIFT != 0 {
+            keys.push(KEY_LEFTSHIFT);
+        }
+        if self.modifiers & modifier_bit::LEVEL3_SHIFT != 0 {
+            keys.push(KEY_RIGHTALT);
+        }
+        keys
+    }
+}
+
 /// How to type a character on the keyboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyAction {
@@ -184,6 +214,17 @@ impl KeymapLookup {
         }
 
         tracing::debug!(entries = map.len(), "built XKB reverse lookup table");
+
+        // Post-processing: Alias '\n' (LF) to the same action as '\r' (CR).
+        //
+        // The XKB keymap maps XK_Linefeed → '\n' and XK_Return → '\r' as
+        // separate keysyms.  In practice, users expect '\n' to produce the
+        // Enter key (Return, evdev 28), not the rarely-used Linefeed key
+        // (evdev 101).  Override the mapping so both characters use Return.
+        if let Some(&action) = map.get(&'\r') {
+            map.insert('\n', action);
+        }
+
         Self { map, mod_index_to_bit }
     }
 
@@ -213,9 +254,11 @@ impl KeymapLookup {
     }
 
     /// Returns the evdev keycode (XKB keycode − 8) for a `KeyCombination`.
+    ///
+    /// Prefer [`KeyCombination::evdev_keycode()`] instead.
     #[must_use]
     pub fn evdev_keycode(combo: &KeyCombination) -> u32 {
-        combo.keycode.raw() - 8
+        combo.evdev_keycode()
     }
 
     /// Returns human-readable modifier names for a modifier mask.
@@ -498,5 +541,49 @@ mod tests {
             }
             // (Silently pass if compose table is not available in test env.)
         }
+    }
+
+    #[test]
+    fn lookup_control_chars_us() {
+        let keymap = make_keymap("us", "");
+        let lookup = KeymapLookup::new(&keymap);
+
+        // '\n' (newline) and '\r' (carriage return) → Return/Enter key (evdev 28).
+        let combo = expect_simple(lookup.lookup('\n').expect("'\\n' not found"));
+        assert_eq!(combo.evdev_keycode(), 28, "'\\n' should map to evdev KEY_ENTER (28)");
+        assert_eq!(combo.modifiers, 0, "'\\n' should need no modifiers");
+
+        let combo = expect_simple(lookup.lookup('\r').expect("'\\r' not found"));
+        assert_eq!(combo.evdev_keycode(), 28, "'\\r' should map to evdev KEY_ENTER (28)");
+
+        // '\t' (tab) → Tab key (evdev 15).
+        let combo = expect_simple(lookup.lookup('\t').expect("'\\t' not found"));
+        assert_eq!(combo.evdev_keycode(), 15, "'\\t' should map to evdev KEY_TAB (15)");
+        assert_eq!(combo.modifiers, 0, "'\\t' should need no modifiers");
+
+        // '\u{08}' (backspace) → Backspace key (evdev 14).
+        let combo = expect_simple(lookup.lookup('\u{08}').expect("'\\u{08}' (BS) not found"));
+        assert_eq!(combo.evdev_keycode(), 14, "BS should map to evdev KEY_BACKSPACE (14)");
+
+        // '\u{1b}' (escape) → Escape key (evdev 1).
+        let combo = expect_simple(lookup.lookup('\u{1b}').expect("'\\u{1b}' (ESC) not found"));
+        assert_eq!(combo.evdev_keycode(), 1, "ESC should map to evdev KEY_ESC (1)");
+
+        // '\u{7f}' (DEL) → Delete key (evdev 111).
+        let combo = expect_simple(lookup.lookup('\u{7f}').expect("'\\u{7f}' (DEL) not found"));
+        assert_eq!(combo.evdev_keycode(), 111, "DEL should map to evdev KEY_DELETE (111)");
+    }
+
+    #[test]
+    fn lookup_control_chars_german() {
+        // Control characters should work regardless of keyboard layout.
+        let keymap = make_keymap("de", "");
+        let lookup = KeymapLookup::new(&keymap);
+
+        let combo = expect_simple(lookup.lookup('\n').expect("'\\n' not found on de layout"));
+        assert_eq!(combo.evdev_keycode(), 28);
+
+        let combo = expect_simple(lookup.lookup('\t').expect("'\\t' not found on de layout"));
+        assert_eq!(combo.evdev_keycode(), 15);
     }
 }

@@ -3254,12 +3254,17 @@ dependencies = [
 name = "platynui-platform-linux-wayland"
 version = "0.12.0-dev.5"
 dependencies = [
+ "enumflags2",
  "platynui-core",
+ "platynui-xkb-util",
+ "reis",
  "rstest 0.25.0",
  "rustix 1.1.4",
+ "serde_json",
  "tracing",
  "wayland-client",
  "wayland-protocols",
+ "wayland-protocols-misc",
  "wayland-protocols-wlr",
  "zbus",
 ]
