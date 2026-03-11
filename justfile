@@ -100,8 +100,8 @@ test:
 test-crate crate:
     cargo nextest run -p {{ crate }} --no-fail-fast
 
-# Run Python tests
-test-python:
+# Run Python tests (builds native package with mock-provider first)
+test-python: build-native-mock
     uv run pytest
 
 # Run all tests (Rust + Python)
