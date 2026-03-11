@@ -104,6 +104,8 @@ pub struct KeymapLookup {
     map: HashMap<char, KeyAction>,
     /// Modifier index → bit mapping discovered from the specific keymap.
     mod_index_to_bit: HashMap<ModIndex, u32>,
+    /// Human-readable name of the layout used to build this table (e.g. "English (US)").
+    layout_name: String,
 }
 
 impl KeymapLookup {
@@ -112,10 +114,24 @@ impl KeymapLookup {
     /// This is the preferred constructor when you receive a keymap string from
     /// an external source (e.g. an EIS keyboard device or a Wayland compositor).
     ///
+    /// Only the first layout (group 0) is scanned.  Use
+    /// [`from_string_for_layout`](Self::from_string_for_layout) when you need
+    /// a specific layout.
+    ///
     /// # Errors
     ///
     /// Returns an error if the keymap string cannot be parsed.
     pub fn from_string(keymap_string: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::from_string_for_layout(keymap_string, 0)
+    }
+
+    /// Build the reverse lookup table from an XKB keymap string for a specific
+    /// layout (group index).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the keymap string cannot be parsed.
+    pub fn from_string_for_layout(keymap_string: &str, layout: u32) -> Result<Self, Box<dyn std::error::Error>> {
         let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
         let keymap = xkb::Keymap::new_from_string(
             &context,
@@ -124,13 +140,25 @@ impl KeymapLookup {
             xkb::KEYMAP_COMPILE_NO_FLAGS,
         )
         .ok_or("failed to parse XKB keymap string")?;
-        Ok(Self::new(&keymap))
+        Ok(Self::new_for_layout(&keymap, layout))
     }
 
     /// Build the reverse lookup table for the given keymap.
     ///
+    /// Only the first layout (group 0) is scanned.  Use
+    /// [`new_for_layout`](Self::new_for_layout) when you need a specific layout.
+    #[must_use]
+    pub fn new(keymap: &Keymap) -> Self {
+        Self::new_for_layout(keymap, 0)
+    }
+
+    /// Build the reverse lookup table for a specific layout (group index).
+    ///
     /// For each character that can be produced by a key + modifier combination in the
-    /// keymap, stores the preferred (fewest modifiers) way to type it.
+    /// given layout, stores the preferred (fewest modifiers) way to type it.
+    ///
+    /// If the keymap has fewer layouts than `layout + 1`, this falls back to
+    /// layout 0.
     ///
     /// Uses `key_get_mods_for_level` to query the exact modifier masks from XKB
     /// rather than guessing from the level index, so all key types (four-level,
@@ -140,7 +168,10 @@ impl KeymapLookup {
     /// using the system compose table (via libxkbcommon's compose API).
     /// When no compose table is available, dead keys and composed characters
     /// are silently omitted from the lookup.
-    pub fn new(keymap: &Keymap) -> Self {
+    #[must_use]
+    pub fn new_for_layout(keymap: &Keymap, layout: u32) -> Self {
+        let target_layout = if layout < keymap.num_layouts() { layout } else { 0 };
+        let layout_name = keymap.layout_get_name(target_layout).to_owned();
         let mod_index_to_bit = discover_mod_bits(keymap);
         let mut map: HashMap<char, KeyAction> = HashMap::new();
 
@@ -148,48 +179,54 @@ impl KeymapLookup {
         let mut dead_syms: HashMap<u32, (Keysym, KeyCombination)> = HashMap::new();
         let mut base_syms: HashMap<u32, (Keysym, KeyCombination)> = HashMap::new();
 
-        // Phase 1: Scan all keys and collect simple entries + dead/base keysyms.
+        // Phase 1: Scan the target layout for all keys.
         keymap.key_for_each(|km, keycode| {
-            let num_layouts = km.num_layouts_for_key(keycode);
-            for layout in 0..num_layouts {
-                let num_levels = km.num_levels_for_key(keycode, layout);
-                for level in 0..num_levels {
-                    let syms = km.key_get_syms_by_level(keycode, layout, level);
+            // Clamp to the key's available groups (matching XKB group-clamping
+            // behaviour).  Keys like Space often define only one group even in
+            // multi-layout keymaps — skipping them would leave basic characters
+            // unmapped for secondary layouts.
+            let key_layouts = km.num_layouts_for_key(keycode);
+            if key_layouts == 0 {
+                return;
+            }
+            let layout = target_layout.min(key_layouts - 1);
+            let num_levels = km.num_levels_for_key(keycode, layout);
+            for level in 0..num_levels {
+                let syms = km.key_get_syms_by_level(keycode, layout, level);
 
-                    let mut masks_buf = [ModMask::default(); 16];
-                    let num_masks = km.key_get_mods_for_level(keycode, layout, level, &mut masks_buf);
-                    let masks = &masks_buf[..num_masks];
+                let mut masks_buf = [ModMask::default(); 16];
+                let num_masks = km.key_get_mods_for_level(keycode, layout, level, &mut masks_buf);
+                let masks = &masks_buf[..num_masks];
 
-                    for &sym in syms {
-                        let modifiers = masks
-                            .iter()
-                            .filter_map(|&xkb_mask| xkb_mask_to_bits(xkb_mask, &mod_index_to_bit))
-                            .min_by_key(|bits| bits.count_ones())
-                            .unwrap_or(0);
+                for &sym in syms {
+                    let modifiers = masks
+                        .iter()
+                        .filter_map(|&xkb_mask| xkb_mask_to_bits(xkb_mask, &mod_index_to_bit))
+                        .min_by_key(|bits| bits.count_ones())
+                        .unwrap_or(0);
 
-                        let combo = KeyCombination { keycode, layout, level, modifiers };
+                    let combo = KeyCombination { keycode, layout, level, modifiers };
 
-                        if is_dead_keysym(sym) {
-                            dead_syms
-                                .entry(sym.raw())
-                                .and_modify(|(_, existing)| {
-                                    if is_preferred_combo(&combo, existing) {
-                                        *existing = combo;
-                                    }
-                                })
-                                .or_insert((sym, combo));
-                        } else if let Some(ch) = keysym_to_char(sym) {
-                            base_syms
-                                .entry(sym.raw())
-                                .and_modify(|(_, existing)| {
-                                    if is_preferred_combo(&combo, existing) {
-                                        *existing = combo;
-                                    }
-                                })
-                                .or_insert((sym, combo));
+                    if is_dead_keysym(sym) {
+                        dead_syms
+                            .entry(sym.raw())
+                            .and_modify(|(_, existing)| {
+                                if is_preferred_combo(&combo, existing) {
+                                    *existing = combo;
+                                }
+                            })
+                            .or_insert((sym, combo));
+                    } else if let Some(ch) = keysym_to_char(sym) {
+                        base_syms
+                            .entry(sym.raw())
+                            .and_modify(|(_, existing)| {
+                                if is_preferred_combo(&combo, existing) {
+                                    *existing = combo;
+                                }
+                            })
+                            .or_insert((sym, combo));
 
-                            insert_if_preferred(&mut map, ch, KeyAction::Simple(combo));
-                        }
+                        insert_if_preferred(&mut map, ch, KeyAction::Simple(combo));
                     }
                 }
             }
@@ -225,7 +262,14 @@ impl KeymapLookup {
             map.insert('\n', action);
         }
 
-        Self { map, mod_index_to_bit }
+        Self { map, mod_index_to_bit, layout_name }
+    }
+
+    /// The human-readable name of the layout this table was built for
+    /// (e.g. "English (US)", "German").
+    #[must_use]
+    pub fn layout_name(&self) -> &str {
+        &self.layout_name
     }
 
     /// Look up how to type `ch` on this keymap.
@@ -585,5 +629,68 @@ mod tests {
 
         let combo = expect_simple(lookup.lookup('\t').expect("'\\t' not found on de layout"));
         assert_eq!(combo.evdev_keycode(), 15);
+    }
+
+    #[test]
+    fn multi_layout_uses_active_group() {
+        // Combined de,us keymap — verify that each layout produces correct keycodes.
+        let keymap = make_keymap("de,us", "");
+        assert!(keymap.num_layouts() >= 2, "expected at least 2 layouts");
+
+        // Layout 0 = German: 'y' = evdev 44, 'z' = evdev 21 (QWERTZ).
+        let lookup_de = KeymapLookup::new_for_layout(&keymap, 0);
+        let y_de = expect_simple(lookup_de.lookup('y').expect("'y' not found in de"));
+        let z_de = expect_simple(lookup_de.lookup('z').expect("'z' not found in de"));
+        assert_eq!(y_de.evdev_keycode(), 44, "de: 'y' should be evdev 44");
+        assert_eq!(z_de.evdev_keycode(), 21, "de: 'z' should be evdev 21");
+
+        // Layout 1 = US: 'y' = evdev 21, 'z' = evdev 44 (QWERTY).
+        let lookup_us = KeymapLookup::new_for_layout(&keymap, 1);
+        let y_us = expect_simple(lookup_us.lookup('y').expect("'y' not found in us"));
+        let z_us = expect_simple(lookup_us.lookup('z').expect("'z' not found in us"));
+        assert_eq!(y_us.evdev_keycode(), 21, "us: 'y' should be evdev 21");
+        assert_eq!(z_us.evdev_keycode(), 44, "us: 'z' should be evdev 44");
+
+        // Default (new()) should use layout 0 = German.
+        let lookup_default = KeymapLookup::new(&keymap);
+        let y_default = expect_simple(lookup_default.lookup('y').expect("'y' not found in default"));
+        assert_eq!(y_default.evdev_keycode(), 44, "default should match layout 0 (de)");
+    }
+
+    #[test]
+    fn from_string_for_layout_roundtrip() {
+        let keymap = make_keymap("de,us", "");
+        let keymap_string = keymap.get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1);
+
+        // Layout 1 = US: 'y' should be evdev 21.
+        let lookup = KeymapLookup::from_string_for_layout(&keymap_string, 1).expect("from_string_for_layout failed");
+        let y = expect_simple(lookup.lookup('y').expect("'y' not found"));
+        assert_eq!(y.evdev_keycode(), 21, "us: 'y' should be evdev 21");
+    }
+
+    #[test]
+    fn layout_out_of_range_falls_back_to_zero() {
+        // If the requested layout exceeds the keymap's layout count, fall back to 0.
+        let keymap = make_keymap("us", "");
+        let lookup = KeymapLookup::new_for_layout(&keymap, 99);
+        let y = expect_simple(lookup.lookup('y').expect("'y' not found"));
+        assert_eq!(y.evdev_keycode(), 21, "fallback to layout 0: 'y' = evdev 21");
+    }
+
+    #[test]
+    fn multi_layout_secondary_group_includes_common_keys() {
+        // Keys like Space, Enter, Tab often define fewer groups than the
+        // keymap total.  They must still be present when scanning a
+        // secondary layout (group clamping).
+        let keymap = make_keymap("de,us", "");
+        let lookup_us = KeymapLookup::new_for_layout(&keymap, 1);
+
+        assert!(lookup_us.lookup(' ').is_some(), "space must be mapped in layout 1");
+        assert!(lookup_us.lookup('\n').is_some(), "'\\n' (Enter) must be mapped in layout 1");
+        assert!(lookup_us.lookup('\t').is_some(), "'\\t' (Tab) must be mapped in layout 1");
+        assert!(lookup_us.lookup('\r').is_some(), "'\\r' (Return) must be mapped in layout 1");
+
+        let space = expect_simple(lookup_us.lookup(' ').unwrap());
+        assert_eq!(space.evdev_keycode(), 57, "space should be evdev 57");
     }
 }

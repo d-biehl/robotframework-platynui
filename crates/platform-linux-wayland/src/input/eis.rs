@@ -64,6 +64,11 @@ struct EisState {
     scroll: Option<reis::event::Device>,
     /// Keymap lookup for text/named-key resolution.
     keymap_lookup: Option<platynui_xkb_util::KeymapLookup>,
+    /// Raw keymap string received from the EIS server (needed to rebuild
+    /// the lookup when the active layout group changes).
+    keymap_string: Option<String>,
+    /// Currently active layout group (from `KeyboardModifiers` events).
+    active_group: u32,
     /// Monotonic timestamp epoch.
     epoch: Instant,
     /// Shadow position — updated on every `pointer_move_to`.
@@ -119,6 +124,8 @@ impl EisBackend {
             button: None,
             scroll: None,
             keymap_lookup: None,
+            keymap_string: None,
+            active_group: 0,
             epoch: Instant::now(),
             last_position: None,
             compositor_type,
@@ -146,16 +153,24 @@ impl InputBackend for EisBackend {
             return Ok(KeyCode::new(EisKeyCode::Raw(code)));
         }
 
-        let guard = self.inner.lock().expect("EIS state mutex poisoned");
-        if let Some(ref lookup) = guard.keymap_lookup
-            && let Some(ch) = name.chars().next()
-            && name.chars().count() == 1
-            && let Some(action) = lookup.lookup(ch)
-        {
-            return Ok(KeyCode::new(EisKeyCode::Action(*action)));
+        let mut guard = self.inner.lock().expect("EIS state mutex poisoned");
+        // Check for layout changes from the compositor before resolving.
+        poll_group_changes(&mut guard);
+        if let Some(ref lookup) = guard.keymap_lookup {
+            if let Some(ch) = name.chars().next()
+                && name.chars().count() == 1
+                && let Some(action) = lookup.lookup(ch)
+            {
+                return Ok(KeyCode::new(EisKeyCode::Action(*action)));
+            }
+            return Err(KeyboardError::UnsupportedKey(format!(
+                "'{name}' is not available in the active keyboard layout '{}' (group {}, backend EIS)",
+                lookup.layout_name(),
+                guard.active_group,
+            )));
         }
 
-        Err(KeyboardError::UnsupportedKey(name.to_string()))
+        Err(KeyboardError::UnsupportedKey(format!("'{name}' (no keymap available, backend EIS)")))
     }
 
     fn start_input(&self) -> Result<(), KeyboardError> {
@@ -475,6 +490,12 @@ fn wait_for_devices(state: &mut EisState) -> Result<(), PlatformError> {
                     assign_device(state, &dev.device);
                     grace_deadline = Some(Instant::now() + grace);
                 }
+                EiEvent::KeyboardModifiers(ref mods) => {
+                    if mods.group != state.active_group {
+                        debug!(old_group = state.active_group, new_group = mods.group, "EIS layout group changed");
+                        update_active_group(state, mods.group);
+                    }
+                }
                 EiEvent::Disconnected(ref disc) => {
                     warn!(reason = ?disc.reason, "EIS disconnected during device discovery");
                     break;
@@ -513,8 +534,12 @@ fn wait_for_devices(state: &mut EisState) -> Result<(), PlatformError> {
 /// Assign a device to the appropriate slot(s) based on capabilities.
 fn assign_device(state: &mut EisState, device: &reis::event::Device) {
     if device.has_capability(DeviceCapability::Keyboard) && state.keyboard.is_none() {
+        if state.keymap_string.is_none() {
+            state.keymap_string = read_device_keymap_string(device);
+        }
         if state.keymap_lookup.is_none() {
-            state.keymap_lookup = device_keymap_lookup(device);
+            state.keymap_lookup =
+                state.keymap_string.as_deref().and_then(|s| build_keymap_lookup(s, state.active_group));
         }
         state.keyboard = Some(device.clone());
     }
@@ -530,7 +555,7 @@ fn assign_device(state: &mut EisState, device: &reis::event::Device) {
 }
 
 /// Try to build a keymap lookup from the device's keymap FD.
-fn device_keymap_lookup(device: &reis::event::Device) -> Option<platynui_xkb_util::KeymapLookup> {
+fn read_device_keymap_string(device: &reis::event::Device) -> Option<String> {
     use std::io::{Read, Seek, SeekFrom};
 
     let keymap = device.keymap()?;
@@ -545,16 +570,50 @@ fn device_keymap_lookup(device: &reis::event::Device) -> Option<platynui_xkb_uti
     file.read_exact(&mut buf).ok()?;
 
     let text = if buf.last() == Some(&0) { &buf[..buf.len() - 1] } else { &buf[..] };
-    let keymap_str = std::str::from_utf8(text).ok()?;
+    std::str::from_utf8(text).ok().map(str::to_string)
+}
 
-    match platynui_xkb_util::KeymapLookup::from_string(keymap_str) {
+/// Build a `KeymapLookup` for the given layout group from a keymap string.
+fn build_keymap_lookup(keymap_str: &str, group: u32) -> Option<platynui_xkb_util::KeymapLookup> {
+    match platynui_xkb_util::KeymapLookup::from_string_for_layout(keymap_str, group) {
         Ok(lookup) => {
-            info!(entries = lookup.len(), "using EIS device keymap for key resolution");
+            info!(entries = lookup.len(), group, "using EIS device keymap for key resolution");
             Some(lookup)
         }
         Err(err) => {
             warn!(%err, "failed to parse EIS device keymap");
             None
+        }
+    }
+}
+
+/// Update the active layout group and rebuild the keymap lookup.
+fn update_active_group(state: &mut EisState, new_group: u32) {
+    state.active_group = new_group;
+    if let Some(ref keymap_str) = state.keymap_string {
+        state.keymap_lookup = build_keymap_lookup(keymap_str, new_group);
+    }
+}
+
+/// Non-blocking poll for `KeyboardModifiers` events from the compositor.
+///
+/// Drains any pending events and updates the active layout group if the
+/// compositor signals a change (e.g. the user switched keyboard layout).
+fn poll_group_changes(state: &mut EisState) {
+    // Non-blocking read: check if data is available on the EIS socket.
+    let mut pfd = [PollFd::new(&state.context, PollFlags::IN)];
+    let poll_result = poll(&mut pfd, Some(&Timespec { tv_sec: 0, tv_nsec: 0 }));
+    if poll_result.is_ok_and(|n| n > 0) {
+        let _ = state.context.read();
+        let _ = dispatch_buffered(&state.context, &mut state.converter);
+    }
+
+    while let Some(event) = state.converter.next_event() {
+        if let EiEvent::KeyboardModifiers(ref mods) = event
+            && mods.group != state.active_group
+        {
+            debug!(old_group = state.active_group, new_group = mods.group, "EIS layout group changed");
+            update_active_group(state, mods.group);
         }
     }
 }

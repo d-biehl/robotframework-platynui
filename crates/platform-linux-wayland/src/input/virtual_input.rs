@@ -88,6 +88,8 @@ struct VirtualInputDispatch {
     output_height: u32,
     /// XKB keymap string received from the compositor's seat keyboard.
     seat_keymap: Option<String>,
+    /// Active layout group received from the compositor's seat keyboard.
+    seat_group: u32,
 }
 
 impl VirtualInputBackend {
@@ -136,7 +138,7 @@ impl VirtualInputBackend {
                 let vk = mgr.create_virtual_keyboard(seat, &qh, ());
                 debug!("created virtual keyboard");
 
-                match load_and_upload_keymap(&vk, dispatch.seat_keymap.as_deref()) {
+                match load_and_upload_keymap(&vk, dispatch.seat_keymap.as_deref(), dispatch.seat_group) {
                     Ok((lookup, xkb_state)) => (Some(vk), Some(lookup), Some(SendState(xkb_state))),
                     Err(e) => {
                         warn!(%e, "failed to load/upload XKB keymap, keyboard will use raw codes only");
@@ -223,15 +225,17 @@ impl InputBackend for VirtualInputBackend {
         }
 
         let guard = self.inner.lock().expect("virtual-input mutex poisoned");
-        if let Some(ref lookup) = guard.keymap_lookup
-            && let Some(ch) = name.chars().next()
-            && name.chars().count() == 1
-            && let Some(action) = lookup.lookup(ch)
-        {
-            return Ok(KeyCode::new(VirtualKeyCode::Action(*action)));
+        if let Some(ref lookup) = guard.keymap_lookup {
+            if let Some(ch) = name.chars().next()
+                && name.chars().count() == 1
+                && let Some(action) = lookup.lookup(ch)
+            {
+                return Ok(KeyCode::new(VirtualKeyCode::Action(*action)));
+            }
+            return Err(KeyboardError::UnsupportedKey(format!("{name} (active layout: '{}')", lookup.layout_name(),)));
         }
 
-        Err(KeyboardError::UnsupportedKey(name.to_string()))
+        Err(KeyboardError::UnsupportedKey(format!("{name} (no keymap available, backend virtual-input)")))
     }
 
     fn send_key_event(&self, event: KeyboardEvent) -> Result<(), KeyboardError> {
@@ -435,8 +439,9 @@ impl Dispatch<WlKeyboard, ()> for VirtualInputDispatch {
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
-        // We only care about the keymap event — it tells us the compositor's
-        // active XKB keymap so we can reuse it for the virtual keyboard.
+        // We care about keymap and modifiers events — the keymap tells us
+        // the compositor's active XKB keymap, and the modifiers event tells us
+        // the currently active layout group.
         if let wl_keyboard::Event::Keymap { format, fd, size } = event {
             if format != wayland_client::WEnum::Value(wl_keyboard::KeymapFormat::XkbV1) {
                 return;
@@ -450,6 +455,12 @@ impl Dispatch<WlKeyboard, ()> for VirtualInputDispatch {
                     warn!("failed to read seat keymap from compositor FD");
                 }
             }
+        } else if let wl_keyboard::Event::Modifiers {
+            mods_depressed: _, mods_latched: _, mods_locked: _, group, ..
+        } = event
+        {
+            debug!(group, "received seat keyboard group from compositor");
+            state.seat_group = group;
         }
     }
 }
@@ -527,6 +538,7 @@ fn bind_globals(
         output_width: 0,
         output_height: 0,
         seat_keymap: None,
+        seat_group: 0,
     };
 
     if let Ok(mgr) = globals.bind::<ZwlrVirtualPointerManagerV1, _, _>(qh, 1..=2, ()) {
@@ -575,6 +587,7 @@ fn bind_globals(
 fn load_and_upload_keymap(
     vk: &ZwpVirtualKeyboardV1,
     seat_keymap: Option<&str>,
+    seat_group: u32,
 ) -> Result<(KeymapLookup, xkb::State), PlatformError> {
     let keymap_string = if let Some(km) = seat_keymap {
         debug!("using compositor seat keymap for virtual keyboard");
@@ -608,7 +621,7 @@ fn load_and_upload_keymap(
     vk.keymap(wl_keyboard::KeymapFormat::XkbV1.into(), file.as_fd(), size);
     debug!(size, "uploaded XKB keymap to virtual keyboard");
 
-    let lookup = KeymapLookup::from_string(&keymap_string).map_err(|e| {
+    let lookup = KeymapLookup::from_string_for_layout(&keymap_string, seat_group).map_err(|e| {
         PlatformError::new(PlatformErrorKind::InitializationFailed, format!("failed to build keymap lookup: {e}"))
     })?;
     info!(entries = lookup.len(), "virtual keyboard keymap ready");

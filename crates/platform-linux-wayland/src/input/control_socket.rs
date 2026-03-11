@@ -189,15 +189,20 @@ impl InputBackend for ControlSocketBackend {
         }
 
         let guard = self.inner.lock().expect("control socket state mutex poisoned");
-        if let Some(ref lookup) = guard.keymap_lookup
-            && let Some(ch) = name.chars().next()
-            && name.chars().count() == 1
-            && let Some(action) = lookup.lookup(ch)
-        {
-            return Ok(KeyCode::new(ControlKeyCode::Action(*action)));
+        if let Some(ref lookup) = guard.keymap_lookup {
+            if let Some(ch) = name.chars().next()
+                && name.chars().count() == 1
+                && let Some(action) = lookup.lookup(ch)
+            {
+                return Ok(KeyCode::new(ControlKeyCode::Action(*action)));
+            }
+            return Err(KeyboardError::UnsupportedKey(format!(
+                "'{name}' is not available in the active keyboard layout '{}' (backend control-socket)",
+                lookup.layout_name(),
+            )));
         }
 
-        Err(KeyboardError::UnsupportedKey(name.to_string()))
+        Err(KeyboardError::UnsupportedKey(format!("{name} (no keymap available, backend control-socket)")))
     }
 
     fn send_key_event(&self, event: KeyboardEvent) -> Result<(), KeyboardError> {

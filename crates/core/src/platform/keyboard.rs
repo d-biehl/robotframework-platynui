@@ -83,8 +83,8 @@ impl fmt::Display for KeyboardError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             KeyboardError::Platform(err) => write!(f, "platform error: {err}"),
-            KeyboardError::UnsupportedKey(name) => {
-                write!(f, "unsupported key '{name}' for this keyboard provider")
+            KeyboardError::UnsupportedKey(msg) => {
+                write!(f, "unsupported key: {msg}")
             }
             KeyboardError::InputInProgress => {
                 write!(f, "a keyboard input sequence is already active")

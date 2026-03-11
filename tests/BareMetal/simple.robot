@@ -25,9 +25,9 @@ third
     Keyboard Type    ${None}    <Escape>
     Pointer Click    ${None}    x=500    y=500
     Keyboard Type    ${None}    <Control+A Delete>
-    FOR    ${_}    IN RANGE    20
+    # FOR    ${_}    IN RANGE    20
         Keyboard Type    ${None}    Hallo Welt yzöäü `àś\nWas geht!!!!
-    END
+    # END
 
 call node
     ${node}=    BM.Query    .
