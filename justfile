@@ -2,6 +2,7 @@
 # See docs/development.md for details.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
 # XDG data directory for local installs (only meaningful on Linux)
 xdg_data_home := if os() == "linux" { env("XDG_DATA_HOME", env("HOME") / ".local" / "share") } else { "" }
