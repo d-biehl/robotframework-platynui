@@ -1,10 +1,18 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#   "gitpython>=3.1.45",
+#   "semantic-version>=2.10.0",
+#   "git-cliff>=2.10.1",
+# ]
+# ///
 import contextlib
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
-if __name__ == "__main__" and not __package__:
+if __name__ == '__main__' and not __package__:
     file = Path(__file__).resolve()
     parent, top = file.parent, file.parents[1]
 
@@ -14,7 +22,7 @@ if __name__ == "__main__" and not __package__:
     with contextlib.suppress(ValueError):
         sys.path.remove(str(parent))
 
-    __package__ = "scripts"
+    __package__ = 'scripts'
 
 
 from scripts.tools import get_version
@@ -22,31 +30,31 @@ from scripts.tools import get_version
 
 def run(title: str, *args: Any, **kwargs: Any) -> None:
     try:
-        print(f"running {title}")
+        print(f'running {title}')
         subprocess.run(*args, **kwargs)
     except (SystemExit, KeyboardInterrupt):
         raise
     except BaseException as e:
-        print(f"{title} failed: {e}", file=sys.stderr)
+        print(f'{title} failed: {e}', file=sys.stderr)
 
 
 def main() -> None:
     current_version = get_version()
     if current_version.prerelease:
         run(
-            "create changelog",
-            "git-cliff -o CHANGELOG.md",
+            'create changelog',
+            'git-cliff -o CHANGELOG.md',
             shell=True,
             timeout=600,
         )
     else:
         run(
-            "create changelog",
-            f"git-cliff --bump -t v{current_version} -o CHANGELOG.md",
+            'create changelog',
+            f'git-cliff --bump -t v{current_version} -o CHANGELOG.md',
             shell=True,
             timeout=600,
         )
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
