@@ -94,46 +94,98 @@ jobs:
       - name: Python tests (pytest)
         run: uv run --no-sync pytest -v --tb=short --maxfail=5
 
-  build-wheels:
-    name: Build Python wheels (tags)
-    needs: build-and-test
+  # ── Linux manylinux wheels (container-based) ──────────────────────────────────
 
-    runs-on: ${{ matrix.os }}
+  build-wheels-linux:
+    name: Build wheels (Linux ${{ matrix.target }})
+    needs: build-and-test
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-
+        target: [x86_64]
+        # Add aarch64 when cross-compilation is needed:
+        # target: [x86_64, aarch64]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt install -y \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxkbcommon-dev \
-            libfontconfig-dev \
-            clang \
-            libasound2-dev \
-            pkg-config \
-            libssl-dev \
-            libudev-dev \
-            libseat-dev \
-            libinput-dev \
-            libgbm-dev 
+      - name: Set up Python and uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.10"
+          enable-cache: true
+
+      - name: update versions from git
+        run: uv run scripts/update-git-versions.py
+
+      - name: update changelog
+        run: uv run scripts/update-changelog.py
+
+      - name: Build native wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: 2_28
+          args: --release -m packages/native/Cargo.toml -o dist
+          before-script-linux: |
+            yum install -y libxkbcommon-devel libxcb-devel fontconfig-devel \
+              alsa-lib-devel openssl-devel systemd-devel libinput-devel \
+              mesa-libgbm-devel libseat-devel clang pkg-config
+
+      - name: Build CLI wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: 2_28
+          args: --release -m packages/cli/Cargo.toml -o dist
+          before-script-linux: |
+            yum install -y libxkbcommon-devel libxcb-devel fontconfig-devel \
+              alsa-lib-devel openssl-devel systemd-devel libinput-devel \
+              mesa-libgbm-devel libseat-devel clang pkg-config
+
+      - name: Build Inspector wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: 2_28
+          args: --release -m packages/inspector/Cargo.toml -o dist
+          before-script-linux: |
+            yum install -y libxkbcommon-devel libxcb-devel fontconfig-devel \
+              alsa-lib-devel openssl-devel systemd-devel libinput-devel \
+              mesa-libgbm-devel libseat-devel clang pkg-config
+
+      - name: Build PlatynUI pure-Python wheel
+        run: uv build --wheel -o dist
+
+      - name: Upload wheels artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  # ── macOS / Windows wheels ─────────────────────────────────────────────────────
+
+  build-wheels-host:
+    name: Build wheels (${{ matrix.os }})
+    needs: build-and-test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
         run: brew install pkg-config
-
-      - run: git describe --tag
-      - run: git describe --tag --long --first-parent --match "v[0-9]*"
 
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
@@ -155,12 +207,27 @@ jobs:
       - name: update changelog
         run: uv run scripts/update-changelog.py
 
-      - name: build wheels
-        run: uv build --all-packages --wheel
+      - name: Build native wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          args: --release -m packages/native/Cargo.toml -o dist
+
+      - name: Build CLI wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          args: --release -m packages/cli/Cargo.toml -o dist
+
+      - name: Build Inspector wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          args: --release -m packages/inspector/Cargo.toml -o dist
+
+      - name: Build PlatynUI pure-Python wheel
+        run: uv build --wheel -o dist
 
       - name: Upload wheels artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ runner.os }}
+          name: wheels-${{ matrix.os }}
           path: dist/*.whl
           if-no-files-found: error
