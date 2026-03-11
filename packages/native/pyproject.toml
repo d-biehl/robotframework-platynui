@@ -44,6 +44,7 @@ build-backend = "maturin"
 module-name = "platynui_native._native"
 python-source = "python"
 features = ["pyo3/extension-module", "pyo3/abi3-py310"]
+auditwheel = "skip"
 
 [tool.uv]
 cache-keys = [
@@ -54,4 +55,4 @@ cache-keys = [
 # config-settings = { build-args = '--profile=dev' }
 
 [dependency-groups]
-dev = ["maturin>=1.9.6"]
+dev = ["maturin[patchelf]>=1.9.6"]

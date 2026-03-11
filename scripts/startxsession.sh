@@ -32,7 +32,7 @@ if [ "$IS_WSL" -eq 1 ]; then
   DISPLAY_NUM=99
   echo "WSL detected — using fixed display :$DISPLAY_NUM"
 
-  Xephyr ":$DISPLAY_NUM" -ac -screen 1920x1080 -noreset -sw-cursor -dpi 480 &
+  Xephyr ":$DISPLAY_NUM" -ac -screen 1920x1080 -noreset -sw-cursor -dpi 192 &
   XEPHYR_PID=$!
   sleep 1
 
@@ -47,7 +47,7 @@ else
   DISPLAYFD_FIFO="$XEPHYR_RUNTIME_DIR/displayfd"
   mkfifo "$DISPLAYFD_FIFO"
 
-  Xephyr -displayfd 3 -ac -screen 1920x1080 -noreset -sw-cursor -dpi 96 \
+  Xephyr -displayfd 3 -ac -screen 1920x1080 -noreset -sw-cursor -dpi 192 \
     3>"$DISPLAYFD_FIFO" &
   XEPHYR_PID=$!
 

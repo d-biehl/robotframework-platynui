@@ -33,13 +33,14 @@ Source = "https://github.com/imbus/robotframework-PlatynUI"
 [tool.maturin]
 module-name = "platynui-inspector"
 bindings = "bin"
+auditwheel = "skip"
 
 [build-system]
 requires = ["maturin>=1.9,<2.0"]
 build-backend = "maturin"
 
 [dependency-groups]
-dev = ["maturin>=1.9.6"]
+dev = ["maturin[patchelf]>=1.9.6"]
 
 [tool.uv]
 cache-keys = [

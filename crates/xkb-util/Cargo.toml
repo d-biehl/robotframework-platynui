@@ -15,6 +15,9 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[build-dependencies]
+pkg-config = "0.3"
+
 [dependencies]
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 

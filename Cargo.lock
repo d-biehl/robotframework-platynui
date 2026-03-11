@@ -3415,6 +3415,7 @@ dependencies = [
 name = "platynui-xkb-util"
 version = "0.12.0-dev.6"
 dependencies = [
+ "pkg-config",
  "tracing",
  "xkbcommon 0.9.0",
 ]

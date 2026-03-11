@@ -28,16 +28,31 @@ build:
 build-native *FEATURES:
     uv run maturin develop -m packages/native/Cargo.toml --uv {{ if FEATURES != "" { "--features " + FEATURES } else { "" } }}
 
+# Build release wheel for native Python package
+build-native-wheel *ARGS:
+    uv run maturin build --release --zig --compatibility manylinux_2_38 -m packages/native/Cargo.toml -o dist {{ ARGS }}
+
 # Build CLI Python package
 build-cli:
     uv run maturin develop -m packages/cli/Cargo.toml --uv
+
+# Build release wheel for CLI Python package
+build-cli-wheel *ARGS:
+    uv run maturin build --release --zig --compatibility manylinux_2_38 -m packages/cli/Cargo.toml -o dist {{ ARGS }}
 
 # Build Inspector Python package
 build-inspector:
     uv run maturin develop -m packages/inspector/Cargo.toml --uv
 
+# Build release wheel for Inspector Python package
+build-inspector-wheel *ARGS:
+    uv run maturin build --release --zig --compatibility manylinux_2_38 -m packages/inspector/Cargo.toml -o dist {{ ARGS }}
+
 # Build all Python packages (native + CLI + Inspector)
 build-all-python: build-native build-cli build-inspector
+
+# Build all release wheels
+build-all-wheels: build-native-wheel build-cli-wheel build-inspector-wheel
 
 # Build native Python package with mock-provider feature
 build-native-mock:
