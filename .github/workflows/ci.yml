@@ -128,7 +128,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          manylinux: 2_28
+          manylinux: 2_34
           args: --release -m packages/native/Cargo.toml -o dist
           before-script-linux: |
             yum install -y libxkbcommon-devel libxcb-devel fontconfig-devel \
@@ -139,7 +139,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          manylinux: 2_28
+          manylinux: 2_34
           args: --release -m packages/cli/Cargo.toml -o dist
           before-script-linux: |
             yum install -y libxkbcommon-devel libxcb-devel fontconfig-devel \
@@ -150,7 +150,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          manylinux: 2_28
+          manylinux: 2_34
           args: --release -m packages/inspector/Cargo.toml -o dist
           before-script-linux: |
             yum install -y libxkbcommon-devel libxcb-devel fontconfig-devel \
