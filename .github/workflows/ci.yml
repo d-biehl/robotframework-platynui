@@ -118,6 +118,29 @@ jobs:
           python-version: "3.10"
           enable-cache: true
 
+      # System deps + Rust on the host are needed because `uv build --wheel`
+      # for the pure-Python package resolves platynui-native as a workspace
+      # dependency and compiles it outside the manylinux container.
+      - name: Install system dependencies (host)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libfontconfig-dev \
+            clang \
+            libasound2-dev \
+            pkg-config \
+            libssl-dev \
+            libudev-dev \
+            libseat-dev \
+            libinput-dev \
+            libgbm-dev
+
+      - name: Set up Rust toolchain (host)
+        uses: dtolnay/rust-toolchain@stable
+
       - name: update versions from git
         run: uv run scripts/update-git-versions.py
 
