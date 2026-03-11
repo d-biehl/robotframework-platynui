@@ -638,7 +638,7 @@ wheels = [
 
 [[package]]
 name = "platynui-cli"
-version = "0.12.0.dev6"
+version = "0.12.0.dev7"
 source = { editable = "packages/cli" }
 
 [package.dev-dependencies]
@@ -653,7 +653,7 @@ dev = [{ name = "maturin", extras = ["patchelf"], specifier = ">=1.9.6" }]
 
 [[package]]
 name = "platynui-inspector"
-version = "0.12.0.dev6"
+version = "0.12.0.dev7"
 source = { editable = "packages/inspector" }
 
 [package.dev-dependencies]
@@ -668,7 +668,7 @@ dev = [{ name = "maturin", extras = ["patchelf"], specifier = ">=1.9.6" }]
 
 [[package]]
 name = "platynui-native"
-version = "0.12.0.dev6"
+version = "0.12.0.dev7"
 source = { editable = "packages/native" }
 
 [package.optional-dependencies]
@@ -947,7 +947,7 @@ wheels = [
 
 [[package]]
 name = "robotframework-platynui"
-version = "0.12.0.dev6"
+version = "0.12.0.dev7"
 source = { editable = "." }
 dependencies = [
     { name = "platynui-native" },

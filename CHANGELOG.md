@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 - **BareMetal:** Convert duration from seconds to milliseconds for highlight method ([9f3d1c7](https://github.com/imbus/robotframework-PlatynUI/commit/9f3d1c7f350ce9dcd100dd42becf1767bde52a95))
 - **atspi:** Standardize namespace handling in AttrsIter ([a7b3827](https://github.com/imbus/robotframework-PlatynUI/commit/a7b382709a085a2596f4d6cb3b19ed5ad73553ab))
+- **build:** Add pkg-config dependency and build script for xkbcommon ([22adba3](https://github.com/imbus/robotframework-PlatynUI/commit/22adba3ae93e83736bf5655b88648d29f4b7f1e5))
 - **ci:** Add libinput and libgbm dependencies for Linux builds ([8d77718](https://github.com/imbus/robotframework-PlatynUI/commit/8d77718dcf3d6c362ec437450b4a207bfeed8c26))
 - **compositor:** Reconfigure maximized windows on winit resize ([f2f377c](https://github.com/imbus/robotframework-PlatynUI/commit/f2f377ce224b7a3c06d09f292ea2bcebfa8e8a24))
 
