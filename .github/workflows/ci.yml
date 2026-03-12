@@ -41,7 +41,7 @@ jobs:
             libudev-dev \
             libseat-dev \
             libinput-dev \
-            libgbm-dev 
+            libgbm-dev
 
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
@@ -93,39 +93,17 @@ jobs:
 
   # ── Linux manylinux wheels (container-based) ──────────────────────────────────
 
-  build-wheels-linux:
-    name: Build wheels (Linux ${{ matrix.target }})
+  build-wheels:
+    name: Build wheels
     needs: build-and-test
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [x86_64]
-        # Add aarch64 when cross-compilation is needed:
-        # target: [x86_64, aarch64]
+
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt install -y \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxkbcommon-dev \
-            libfontconfig-dev \
-            clang \
-            libasound2-dev \
-            pkg-config \
-            libssl-dev \
-            libudev-dev \
-            libseat-dev \
-            libinput-dev \
-            libgbm-dev 
-            
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -146,6 +124,54 @@ jobs:
       - name: Update changelog
         run: uv run scripts/update-changelog.py
 
+      - name: Bootstrap environment
+        run: just bootstrap
+
+      - name: Build PlatynUI pure-Python wheel
+        run: just build-platynui-wheel
+
+      - name: Upload wheels artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  build-wheels-linux:
+    name: Build wheels (Linux ${{ matrix.target }})
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64]
+        # Add aarch64 when cross-compilation is needed:
+        # target: [x86_64, aarch64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python and uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.10"
+          enable-cache: true
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Update versions from git
+        run: uv run scripts/update-git-versions.py
+
+      - name: Update changelog
+        run: uv run scripts/update-changelog.py
 
       - name: Bootstrap environment
         run: just bootstrap
@@ -176,9 +202,6 @@ jobs:
           args: --release -m packages/inspector/Cargo.toml -o dist
           before-script-linux: |
             yum install -y libxkbcommon-devel
-
-      - name: Build PlatynUI pure-Python wheel
-        run: uv build --wheel -o dist
 
       - name: Upload wheels artifact
         uses: actions/upload-artifact@v7
@@ -232,7 +255,6 @@ jobs:
       - name: Update changelog
         run: uv run scripts/update-changelog.py
 
-
       - name: Bootstrap environment
         run: just bootstrap
 
@@ -244,9 +266,6 @@ jobs:
 
       - name: Build Inspector wheel (platynui-inspector)
         run: just build-inspector-wheel
-
-      - name: Build PlatynUI pure-Python wheel
-        run: just build-platynui-wheel
 
       - name: Upload wheels artifact
         uses: actions/upload-artifact@v7
