@@ -72,7 +72,7 @@ dev = [
     "git-cliff>=2.10.1",
     "mypy>=1.17.1",
     "pytest>=8.4.2",
-    "robotframework-robocop<8.0.0",
+    "robotframework-robocop>=8.0.0",
     "ruff>=0.12.11",
     "semantic-version>=2.10.0",
     "robotcode[runner]>=2.0.0",

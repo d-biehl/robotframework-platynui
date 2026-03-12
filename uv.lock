@@ -791,16 +791,16 @@ wheels = [
 
 [[package]]
 name = "robotcode"
-version = "2.2.0"
+version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "robotcode-core" },
     { name = "robotcode-plugin" },
     { name = "robotcode-robot" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/49/81/61f8e42e00c912c32f148bdf39b23d208f2c83d73d23834e7c7c82119910/robotcode-2.2.0.tar.gz", hash = "sha256:69cc824e32321dbe3a247def91342eda8b7b6484d251f507ed4d03d2073d5f6a", size = 79686, upload-time = "2026-01-02T01:39:51.136Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9d/cc/a47af48b65bb3437bac849c315768f7794cf30815663e9c6ffbb95d91dcc/robotcode-2.3.0.tar.gz", hash = "sha256:f843384f211b748de24269777ece5eea559bd98daa2189fe1c4973666bdbe723", size = 79888, upload-time = "2026-03-12T19:14:01.964Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a3/02/fb118f1680f24f90a1afb4dc9bbd29dddb9399c2b0d5172ad8df74fba936/robotcode-2.2.0-py3-none-any.whl", hash = "sha256:cacc05343592b73809b83d49e1089d516c462e4fb39932b4fb94a238985afea9", size = 18170, upload-time = "2026-01-02T01:39:54.831Z" },
+    { url = "https://files.pythonhosted.org/packages/1f/61/052fc4c28d2b90418c916acaba72795b105d7e348c154ad8ad1e6295ea5d/robotcode-2.3.0-py3-none-any.whl", hash = "sha256:26fa2697147b0143bb23315c1f1dd595b13133d4c88813b3572057faade5d17e", size = 18170, upload-time = "2026-03-12T19:13:51.343Z" },
 ]
 
 [package.optional-dependencies]
@@ -810,31 +810,31 @@ runner = [
 
 [[package]]
 name = "robotcode-core"
-version = "2.2.0"
+version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0e/37/61bcae8d14ffdcb963b2fd60023dd8080b840eb50104f13320a5cbc71106/robotcode_core-2.2.0.tar.gz", hash = "sha256:2048786979f86d4b9485859f6afc6d659dab5c7e37d436f92defb6179eb69c2a", size = 73219, upload-time = "2026-01-02T01:40:06.172Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0d/b3/1b40b8b99682968a2ba1ac1b9b4aa920c5519b7e87a3b57833fede380184/robotcode_core-2.3.0.tar.gz", hash = "sha256:1f69949b27f3ba71cf5f26dd2cbcb807dd014e053a3aef08c72a34bc02c92b66", size = 73223, upload-time = "2026-03-12T19:14:02.939Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b1/f6/cc7576ef8efed30c6f4a83de2c2cb2a876b1897f6c81c9036b6230faf169/robotcode_core-2.2.0-py3-none-any.whl", hash = "sha256:9ee799b6e7a9c025112b393b03ac47c1deb385a6413842dbdb3aa52be6e9b60e", size = 80260, upload-time = "2026-01-02T01:40:00.692Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/53/dce95b039b83748625936301d3528e8887be0240b7845a3976666b8e6941/robotcode_core-2.3.0-py3-none-any.whl", hash = "sha256:fff91db00b6292f3e9d1a621b4bd1a5df176f33bf05a9c2bc2a9553265906617", size = 80257, upload-time = "2026-03-12T19:13:50.128Z" },
 ]
 
 [[package]]
 name = "robotcode-modifiers"
-version = "2.2.0"
+version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "robotframework" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bf/53/a1c093c0a303d1a1dd4c752c77a4ae8e93c7b4007dc594b5aa292fc12a9b/robotcode_modifiers-2.2.0.tar.gz", hash = "sha256:750887791f03a93f9d9851f61fb8820e8eb0aad8339aee5d899971fff6e8b9aa", size = 4658, upload-time = "2026-01-02T01:39:55.521Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ac/cc/31a77a870ac750866a8b5fb55a1572cd085525fb96d205b215417f9225a7/robotcode_modifiers-2.3.0.tar.gz", hash = "sha256:fe4d6962dc17d43282727c421dc0de241b386aff81fadd2e2a7e63c1b492b455", size = 4658, upload-time = "2026-03-12T19:13:48.237Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fe/a0/d39e4db4f90b1ba4badc5e6d29fcefd312293622c248fb76bbc9cfbe1a34/robotcode_modifiers-2.2.0-py3-none-any.whl", hash = "sha256:e2fbba4a8cd45b3d9f1255962e883f06c2a0531faf602117b15d1ff3c297d495", size = 3183, upload-time = "2026-01-02T01:40:02.691Z" },
+    { url = "https://files.pythonhosted.org/packages/be/39/92f3f3c4ec1a601c1fcadb3ad18d4dd7c8b700da35d01b730e7b3f375669/robotcode_modifiers-2.3.0-py3-none-any.whl", hash = "sha256:ab7507ab9ed158c1e73180fdf3cb471f56a1af50a8f4b61ba70f896bf9f1d415", size = 3184, upload-time = "2026-03-12T19:13:56.062Z" },
 ]
 
 [[package]]
 name = "robotcode-plugin"
-version = "2.2.0"
+version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -842,14 +842,14 @@ dependencies = [
     { name = "pluggy" },
     { name = "tomli-w" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/da/5f/354259170e64ef3b2526c7789f023099357d73b01b261bf5db62e40f8bd3/robotcode_plugin-2.2.0.tar.gz", hash = "sha256:ec1e2806077ec41fd4ee6bbd5edba236770c37a36858897ae8ea8685c684ac73", size = 10209, upload-time = "2026-01-02T01:39:47.297Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bc/2e/23a40834b37a37abd277ceb0362abc647468a757b4e621eb0b7854a20789/robotcode_plugin-2.3.0.tar.gz", hash = "sha256:1aeaf9ca78c56022bd83330c1d0b004ddc4841d33ef0bcaec190fbb64ed36c41", size = 10209, upload-time = "2026-03-12T19:14:05.207Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1f/02/6237c375f1c145ce53f3c5e6b48dd0ba5e7682a50a036df13a3218110b61/robotcode_plugin-2.2.0-py3-none-any.whl", hash = "sha256:1bf5a8c9f7d64b8ab441a0a9fde74a8d2128f080511fd5acc89482f15fa52ffb", size = 10143, upload-time = "2026-01-02T01:39:48.301Z" },
+    { url = "https://files.pythonhosted.org/packages/0b/a5/a78764f73a6871c386493443481f9cbb31dc970d15dd6f7b0552c4872ce3/robotcode_plugin-2.3.0-py3-none-any.whl", hash = "sha256:316a82414de18202daf9fd04b161a6503b13ed7488fa4708f0e528490438e49e", size = 10145, upload-time = "2026-03-12T19:14:07.895Z" },
 ]
 
 [[package]]
 name = "robotcode-robot"
-version = "2.2.0"
+version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "platformdirs" },
@@ -857,14 +857,14 @@ dependencies = [
     { name = "robotframework" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/88/6e/bde75e4bf985f7575fd6aa47e421bc98b79ad5ea5653e2af2ac17cf9be18/robotcode_robot-2.2.0.tar.gz", hash = "sha256:2ddcef526a501f5fac459a2a450dd1a5eb4c6298c21805da8810a838e5739c26", size = 94492, upload-time = "2026-01-02T01:39:56.573Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/1a/62faea6805e021319df23f56bd1394dac1d897331dc20b8166e9bea71103/robotcode_robot-2.3.0.tar.gz", hash = "sha256:cc68592f0de45700497592c3897fc29f164d7d78f68622f50e53e4265ea82b61", size = 94497, upload-time = "2026-03-12T19:13:57.021Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/14/77/cce0c4b79cff5700425012a68a50402ae2ae4b772fbc79d5a7a114e5af25/robotcode_robot-2.2.0-py3-none-any.whl", hash = "sha256:48042824df22dd24ae5336e1bc686d7ebfbf1f3fd53592a0565e16a39150ea08", size = 103474, upload-time = "2026-01-02T01:39:46.035Z" },
+    { url = "https://files.pythonhosted.org/packages/51/1b/da9fd330e8fc19454b399f490d086e6857e2668900972146e435235c2da8/robotcode_robot-2.3.0-py3-none-any.whl", hash = "sha256:ee1b265f93e271ee9f6179168b2411e32b95b0bf6c21fb5ed718ed3fdaea5806", size = 103474, upload-time = "2026-03-12T19:13:59.26Z" },
 ]
 
 [[package]]
 name = "robotcode-runner"
-version = "2.2.0"
+version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "robotcode" },
@@ -873,9 +873,9 @@ dependencies = [
     { name = "robotcode-robot" },
     { name = "robotframework" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cd/a3/d4186ebec91a3a083a6106a0616cb391d8b7ef39e6ec1a2398873067dfa1/robotcode_runner-2.2.0.tar.gz", hash = "sha256:3a9a584a2563b95fe66bae332653f7652a5e46c851de043fde8d35a16bade43f", size = 14333, upload-time = "2026-01-02T01:39:52.26Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1c/d5/1d0678e364651be68fe3788046563024a2e5a5a8943f793fd36da519ffe3/robotcode_runner-2.3.0.tar.gz", hash = "sha256:8b9a617adacb43b5cf12230873230fd669a08e3551d66f52b0bc691f5d9e9125", size = 14337, upload-time = "2026-03-12T19:14:03.586Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/08/47/daf1273e099acdfca351fc3a0042cfb2e9be65571951d649fbff93edb638/robotcode_runner-2.2.0-py3-none-any.whl", hash = "sha256:0796224dbc12f4cee0ebc6faf27870321a4e372a9b437ed0927a53f9f87f84e2", size = 18327, upload-time = "2026-01-02T01:39:54.165Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/cd/f183111c89cf9b6c0442408f115484c6320628e9798755be0490f8df288a/robotcode_runner-2.3.0-py3-none-any.whl", hash = "sha256:72076318210320a6246ec17bab4888943ba81e288695470e23f797199363af76", size = 18331, upload-time = "2026-03-12T19:14:00.113Z" },
 ]
 
 [[package]]
@@ -957,7 +957,7 @@ dev = [
     { name = "mypy", specifier = ">=1.17.1" },
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "robotcode", extras = ["runner"], specifier = ">=2.0.0" },
-    { name = "robotframework-robocop", specifier = "<8.0.0" },
+    { name = "robotframework-robocop", specifier = ">=8.0.0" },
     { name = "ruff", specifier = ">=0.12.11" },
     { name = "semantic-version", specifier = ">=2.10.0" },
 ]
@@ -973,7 +973,7 @@ wheels = [
 
 [[package]]
 name = "robotframework-robocop"
-version = "7.2.0"
+version = "8.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jinja2" },
@@ -985,11 +985,12 @@ dependencies = [
     { name = "robotframework" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "tomli-w" },
-    { name = "typer-slim" },
+    { name = "typer" },
+    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/46/74/aaa0d8614d1b105dd93ae4e349beb82ae2217bbae43b3f8f7e27ba82114a/robotframework_robocop-7.2.0.tar.gz", hash = "sha256:20482f6cf0578558be8bca0a7655c74973d78deb33cbe71163bb7e2eec046b3d", size = 935618, upload-time = "2026-01-02T11:05:20.479Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/52/65/ed491246f1b07e0de5ab62889db36eca44250869fa2fe9d804acacebe690/robotframework_robocop-8.2.2.tar.gz", hash = "sha256:190a43720372696dbd8ca65c14a208ad573589d17a69bc035f34c1a8ec12f6aa", size = 975549, upload-time = "2026-02-27T11:46:29.006Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/aa/84/c919389a580698da070a794543952ca02d89d90ac49f56d98de41a51326f/robotframework_robocop-7.2.0-py3-none-any.whl", hash = "sha256:4ed807f49d8ddb64c40a013fa3f200b90c3e40b3d4ce4ae8ec3f045424967126", size = 301779, upload-time = "2026-01-02T11:05:18.975Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/43/b6320ec70b4535693bc19ec72042a3649390c6f923b7c2dd4aa513abb821/robotframework_robocop-8.2.2-py3-none-any.whl", hash = "sha256:0bd598b4933918e6380f661d006bdcc453d4369ab41d7eeaacb0da996a40f81e", size = 326919, upload-time = "2026-02-27T11:46:27.651Z" },
 ]
 
 [[package]]
@@ -1114,18 +1115,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f5/24/cb09efec5cc954f7f9b930bf8279447d24618bb6758d4f6adf2574c41780/typer-0.24.1.tar.gz", hash = "sha256:e39b4732d65fbdcde189ae76cf7cd48aeae72919dea1fdfc16593be016256b45", size = 118613, upload-time = "2026-02-21T16:54:40.609Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4a/91/48db081e7a63bb37284f9fbcefda7c44c277b18b0e13fbc36ea2335b71e6/typer-0.24.1-py3-none-any.whl", hash = "sha256:112c1f0ce578bfb4cab9ffdabc68f031416ebcc216536611ba21f04e9aa84c9e", size = 56085, upload-time = "2026-02-21T16:54:41.616Z" },
-]
-
-[[package]]
-name = "typer-slim"
-version = "0.24.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "typer" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a7/a7/e6aecc4b4eb59598829a3b5076a93aff291b4fdaa2ded25efc4e1f4d219c/typer_slim-0.24.0.tar.gz", hash = "sha256:f0ed36127183f52ae6ced2ecb2521789995992c521a46083bfcdbb652d22ad34", size = 4776, upload-time = "2026-02-16T22:08:51.2Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a7/24/5480c20380dfd18cf33d14784096dca45a24eae6102e91d49a718d3b6855/typer_slim-0.24.0-py3-none-any.whl", hash = "sha256:d5d7ee1ee2834d5020c7c616ed5e0d0f29b9a4b1dd283bdebae198ec09778d0e", size = 3394, upload-time = "2026-02-16T22:08:49.92Z" },
 ]
 
 [[package]]
