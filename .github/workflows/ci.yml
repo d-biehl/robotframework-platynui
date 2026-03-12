@@ -110,9 +110,6 @@ jobs:
           python-version: "3.10"
           enable-cache: true
 
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Install just
         uses: taiki-e/install-action@v2
         with:
@@ -133,7 +130,7 @@ jobs:
       - name: Upload wheels artifact
         uses: actions/upload-artifact@v7
         with:
-          name: wheels-linux-${{ matrix.target }}
+          name: wheels-pure-python
           path: dist/*.whl
           if-no-files-found: error
 
@@ -164,9 +161,6 @@ jobs:
         with:
           python-version: "3.10"
           enable-cache: true
-
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
 
       - name: Install just
         uses: taiki-e/install-action@v2
@@ -290,6 +284,7 @@ jobs:
         run: uv run scripts/update-git-versions.py
 
       - name: Update changelog
+        if: matrix.os != 'windows-11-arm'
         run: uv run scripts/update-changelog.py
 
       - name: Bootstrap environment
