@@ -140,30 +140,24 @@ jobs:
   build-wheels-linux:
     name: Build wheels (Linux ${{ matrix.target }})
     needs: build-and-test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: x86_64
+            os: ubuntu-latest
             manylinux: 2_34
             container: quay.io/pypa/manylinux_2_34_x86_64:latest
-            setup-qemu: false
           - target: aarch64
+            os: ubuntu-24.04-arm
             manylinux: 2_34
             container: quay.io/pypa/manylinux_2_34_aarch64:latest
-            setup-qemu: true
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      - name: Set up QEMU
-        if: matrix.setup-qemu
-        uses: docker/setup-qemu-action@v4
-        with:
-          platforms: arm64
 
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
@@ -194,7 +188,7 @@ jobs:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           container: ${{ matrix.container }}
-          args: --release -m packages/native/Cargo.toml -o dist
+          args: --release -m packages/native/Cargo.toml -o dist -i python3.10
           before-script-linux: |
             yum install -y libxkbcommon-devel
 
