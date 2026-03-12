@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |
@@ -100,7 +100,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -155,13 +155,13 @@ jobs:
             setup-qemu: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up QEMU
         if: matrix.setup-qemu
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
         with:
           platforms: arm64
 
@@ -237,7 +237,7 @@ jobs:
         os: [macos-latest, windows-latest, windows-11-arm]
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -263,6 +263,15 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: just
+
+      - name: Add Rust tool bin directories to PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
+          if (Test-Path $cargoBin) {
+            $cargoBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
 
       - name: Update versions from git
         run: uv run scripts/update-git-versions.py
