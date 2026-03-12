@@ -144,9 +144,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [x86_64]
+        # target: [x86_64]
         # Add aarch64 when cross-compilation is needed:
-        # target: [x86_64, aarch64]
+        target: [x86_64, aarch64]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
