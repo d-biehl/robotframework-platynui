@@ -17,7 +17,7 @@ default:
 
 # Bootstrap the full development environment
 bootstrap:
-    uv sync --dev --all-packages --all-groups --all-extras
+    uv sync --dev --all-packages --all-groups --all-extras --no-install-workspace 
 
 # ─── Build ──────────────────────────────────────────────────────────────────────
 
