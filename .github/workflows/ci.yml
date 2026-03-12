@@ -144,14 +144,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # target: [x86_64]
-        # Add aarch64 when cross-compilation is needed:
-        target: [x86_64, aarch64]
+        include:
+          - target: x86_64
+            manylinux: 2_34
+            container: quay.io/pypa/manylinux_2_34_x86_64:latest
+            setup-qemu: false
+          - target: aarch64
+            manylinux: 2_34
+            container: quay.io/pypa/manylinux_2_34_aarch64:latest
+            setup-qemu: true
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      - name: Set up QEMU
+        if: matrix.setup-qemu
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
 
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
@@ -180,7 +192,8 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          manylinux: 2_34
+          manylinux: ${{ matrix.manylinux }}
+          container: ${{ matrix.container }}
           args: --release -m packages/native/Cargo.toml -o dist
           before-script-linux: |
             yum install -y libxkbcommon-devel
@@ -189,7 +202,8 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          manylinux: 2_34
+          manylinux: ${{ matrix.manylinux }}
+          container: ${{ matrix.container }}
           args: --release -m packages/cli/Cargo.toml -o dist
           before-script-linux: |
             yum install -y libxkbcommon-devel
@@ -198,7 +212,8 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          manylinux: 2_34
+          manylinux: ${{ matrix.manylinux }}
+          container: ${{ matrix.container }}
           args: --release -m packages/inspector/Cargo.toml -o dist
           before-script-linux: |
             yum install -y libxkbcommon-devel
@@ -219,7 +234,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [macos-latest, windows-latest, windows-11-arm]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
