@@ -109,12 +109,29 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt install -y \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libfontconfig-dev \
+            clang \
+            libasound2-dev \
+            pkg-config \
+            libssl-dev \
+            libudev-dev \
+            libseat-dev \
+            libinput-dev \
+            libgbm-dev 
+            
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.10"
           enable-cache: true
-          
+
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
