@@ -95,7 +95,7 @@ jobs:
 
   build-wheels-linux:
     name: Build wheels (Linux ${{ matrix.target }})
-    needs: build-and-test
+    # needs: build-and-test
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -157,9 +157,7 @@ jobs:
           manylinux: 2_34
           args: --release -m packages/native/Cargo.toml -o dist
           before-script-linux: |
-            yum install -y libxkbcommon-devel libxcb-devel fontconfig-devel \
-              alsa-lib-devel openssl-devel systemd-devel libinput-devel \
-              mesa-libgbm-devel libseat-devel clang pkg-config
+            yum install -y libxkbcommon-devel
 
       - name: Build CLI wheel
         uses: PyO3/maturin-action@v1
@@ -168,9 +166,7 @@ jobs:
           manylinux: 2_34
           args: --release -m packages/cli/Cargo.toml -o dist
           before-script-linux: |
-            yum install -y libxkbcommon-devel libxcb-devel fontconfig-devel \
-              alsa-lib-devel openssl-devel systemd-devel libinput-devel \
-              mesa-libgbm-devel libseat-devel clang pkg-config
+            yum install -y libxkbcommon-devel
 
       - name: Build Inspector wheel
         uses: PyO3/maturin-action@v1
@@ -179,9 +175,7 @@ jobs:
           manylinux: 2_34
           args: --release -m packages/inspector/Cargo.toml -o dist
           before-script-linux: |
-            yum install -y libxkbcommon-devel libxcb-devel fontconfig-devel \
-              alsa-lib-devel openssl-devel systemd-devel libinput-devel \
-              mesa-libgbm-devel libseat-devel clang pkg-config
+            yum install -y libxkbcommon-devel
 
       - name: Build PlatynUI pure-Python wheel
         run: uv build --wheel -o dist
