@@ -114,6 +114,14 @@ jobs:
         with:
           python-version: "3.10"
           enable-cache: true
+          
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
 
       - name: Update versions from git
         run: uv run scripts/update-git-versions.py
