@@ -40,7 +40,7 @@ requires = ["maturin>=1.9,<2.0"]
 build-backend = "maturin"
 
 [dependency-groups]
-dev = ["maturin[patchelf]>=1.9.6"]
+dev = ["maturin>=1.9.6"]
 
 [tool.uv]
 cache-keys = [
