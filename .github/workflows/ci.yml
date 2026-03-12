@@ -187,7 +187,7 @@ jobs:
         run: uv build --wheel -o dist
 
       - name: Upload wheels artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-linux-${{ matrix.target }}
           path: dist/*.whl
@@ -255,7 +255,7 @@ jobs:
         run: just build-platynui-wheel
 
       - name: Upload wheels artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-${{ matrix.os }}
           path: dist/*.whl
