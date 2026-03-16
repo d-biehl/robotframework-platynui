@@ -222,7 +222,6 @@ pub(crate) struct WaylandSession {
 /// Process-global Wayland state populated during
 /// [`crate::init::WaylandModule::initialize`].
 struct WaylandGlobal {
-    conn: Connection,
     compositor: CompositorType,
     shutdown: Arc<AtomicBool>,
     event_thread: JoinHandle<()>,
@@ -333,18 +332,19 @@ pub(crate) fn set_global_and_start(conn: Connection, compositor: CompositorType,
 
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
-    let conn_clone = conn.clone();
 
     // Enable live output rebuilds now that initial setup is complete.
     session.state.live = true;
 
+    // Move conn into the thread — Connection is Arc-based, so the display
+    // stays open as long as the thread runs.
     let event_thread = thread::Builder::new()
         .name("wayland-events".to_string())
-        .spawn(move || dispatch_loop(&conn_clone, session.event_queue, session.state, session.globals, &shutdown_clone))
+        .spawn(move || dispatch_loop(&conn, session.event_queue, session.state, session.globals, &shutdown_clone))
         .expect("failed to spawn Wayland event loop thread");
 
     let mut guard = GLOBAL.lock().expect("wayland global mutex poisoned");
-    *guard = Some(WaylandGlobal { conn, compositor, shutdown, event_thread });
+    *guard = Some(WaylandGlobal { compositor, shutdown, event_thread });
 }
 
 /// Signal the event loop to stop and clear global state.
@@ -469,22 +469,6 @@ fn dispatch_loop(
 // ---------------------------------------------------------------------------
 //  Accessors
 // ---------------------------------------------------------------------------
-
-/// Access the global Wayland state.
-///
-/// # Panics
-///
-/// Panics if called before [`set_global_and_start`] (i.e. before platform
-/// initialization) or if the internal mutex is poisoned.
-#[allow(dead_code)]
-pub fn with_global<F, R>(f: F) -> R
-where
-    F: FnOnce(&Connection, CompositorType) -> R,
-{
-    let guard = GLOBAL.lock().expect("wayland global mutex poisoned");
-    let g = guard.as_ref().expect("Wayland platform not initialized — call initialize() first");
-    f(&g.conn, g.compositor)
-}
 
 /// Return the detected compositor type.
 ///
