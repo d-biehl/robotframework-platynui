@@ -47,15 +47,19 @@ fn compile_inner(expr: &str, static_ctx: &StaticContext) -> Result<ir::CompiledX
     c.lower_expr(&ast)?;
     let instrs = optimizer::optimize(ir::InstrSeq(c.code));
     let source = expr.to_string();
-    let cache_entry = Arc::new(instrs.clone());
+    let cache_entry = Arc::new(instrs);
 
     static_ctx
         .compile_cache
         .lock()
         .map_err(|_| Error::from_code(ErrorCode::FOER0000, "compile cache lock poisoned"))?
-        .put(source.clone(), cache_entry);
+        .put(source.clone(), Arc::clone(&cache_entry));
 
-    Ok(ir::CompiledXPath { instrs, static_ctx: Arc::new(static_ctx.clone()), source })
+    Ok(ir::CompiledXPath {
+        instrs: Arc::unwrap_or_clone(cache_entry),
+        static_ctx: Arc::new(static_ctx.clone()),
+        source,
+    })
 }
 
 struct Compiler<'a> {
