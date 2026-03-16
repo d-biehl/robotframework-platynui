@@ -98,17 +98,11 @@ class UiNodeDescriptor:
 
         return result
 
-    cache: dict[str, 'UiNodeDescriptor'] = {}
-
     @staticmethod
     def convert(value: str | UiNode, library: 'BareMetal') -> 'UiNodeDescriptor':
         if isinstance(value, UiNode):
             return UiNodeDescriptor(value, None, library)
-        if value in UiNodeDescriptor.cache:
-            return UiNodeDescriptor.cache[value]
-        descriptor = UiNodeDescriptor(None, value, library)
-        UiNodeDescriptor.cache[value] = descriptor
-        return descriptor
+        return library._descriptor_from_query(value)
 
 
 PLATYNUI_ROOT_DESCRIPTOR = (
@@ -157,6 +151,16 @@ class BareMetal(OurDynamicCore):
         self._keyboard_settings = keyboard_settings
         self._pointer_settings = pointer_settings
         self._pointer_profile = pointer_profile
+        self._descriptor_cache: dict[str, UiNodeDescriptor] = {}
+
+    def _descriptor_from_query(self, query: str) -> UiNodeDescriptor:
+        descriptor = self._descriptor_cache.get(query)
+        if descriptor is not None:
+            return descriptor
+
+        descriptor = UiNodeDescriptor(None, query, self)
+        self._descriptor_cache[query] = descriptor
+        return descriptor
 
     def _create_runtime(self) -> Runtime:
         """Create and return the PlatynUI runtime instance.
