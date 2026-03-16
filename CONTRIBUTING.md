@@ -6,6 +6,8 @@ Thanks for helping build PlatynUI! This guide describes how to get set up, our c
 
 - Rust: Stable toolchain (repo developed with rustc/cargo ~1.90). Install via rustup.
 - Python: 3.10+ and uv ≥ 0.8.15. Do not use pip directly in this repo.
+- [just](https://github.com/casey/just): Task runner for common dev workflows. Install with `cargo install just`, `brew install just`, or your system package manager.
+- [git-cliff](https://git-cliff.org): Changelog generator. Install with `cargo install git-cliff`, `cargo binstall git-cliff`, or `brew install git-cliff`.
 - Tools: cargo, uv, and (recommended) GPG for signed commits.
 
 Bootstrap once:

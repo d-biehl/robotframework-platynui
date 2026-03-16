@@ -110,10 +110,10 @@ jobs:
           python-version: "3.10"
           enable-cache: true
 
-      - name: Install just
+      - name: Install tools (just, git-cliff)
         uses: taiki-e/install-action@v2
         with:
-          tool: just
+          tool: just,git-cliff
 
       - name: Update versions from git
         run: uv run scripts/update-git-versions.py
@@ -162,10 +162,10 @@ jobs:
           python-version: "3.10"
           enable-cache: true
 
-      - name: Install just
+      - name: Install tools (just, git-cliff)
         uses: taiki-e/install-action@v2
         with:
-          tool: just
+          tool: just,git-cliff
 
       - name: Update versions from git
         run: uv run scripts/update-git-versions.py
@@ -229,10 +229,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install system dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: brew install pkg-config
-
       - name: Set up Python (Windows ARM)
         if: matrix.os == 'windows-11-arm'
         uses: actions/setup-python@v6
@@ -266,10 +262,10 @@ jobs:
         with:
           cache-all-crates: true
 
-      - name: Install just
+      - name: Install tools (just, git-cliff)
         uses: taiki-e/install-action@v2
         with:
-          tool: just
+          tool: just,git-cliff
 
       - name: Add Rust tool bin directories to PATH (Windows)
         if: runner.os == 'Windows'
@@ -284,7 +280,6 @@ jobs:
         run: uv run scripts/update-git-versions.py
 
       - name: Update changelog
-        if: matrix.os != 'windows-11-arm'
         run: uv run scripts/update-changelog.py
 
       - name: Bootstrap environment

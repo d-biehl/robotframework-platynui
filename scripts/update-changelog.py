@@ -3,7 +3,6 @@
 # dependencies = [
 #   "gitpython>=3.1.45",
 #   "semantic-version>=2.10.0",
-#   "git-cliff>=2.10.1",
 # ]
 # ///
 import contextlib
