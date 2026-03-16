@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::thread::{self, JoinHandle};
 
 use platynui_core::platform::{PlatformError, PlatformErrorKind};
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
@@ -225,6 +225,7 @@ struct WaylandGlobal {
     conn: Connection,
     compositor: CompositorType,
     shutdown: Arc<AtomicBool>,
+    event_thread: JoinHandle<()>,
 }
 
 static GLOBAL: Mutex<Option<WaylandGlobal>> = Mutex::new(None);
@@ -323,6 +324,13 @@ pub(crate) fn connect_and_enumerate()
 /// Panics if the internal mutex is poisoned or if the dispatch thread
 /// cannot be spawned.
 pub(crate) fn set_global_and_start(conn: Connection, compositor: CompositorType, mut session: WaylandSession) {
+    if let Some(previous) = {
+        let mut guard = GLOBAL.lock().expect("wayland global mutex poisoned");
+        guard.take()
+    } {
+        stop_global(previous);
+    }
+
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
     let conn_clone = conn.clone();
@@ -330,20 +338,19 @@ pub(crate) fn set_global_and_start(conn: Connection, compositor: CompositorType,
     // Enable live output rebuilds now that initial setup is complete.
     session.state.live = true;
 
-    thread::Builder::new()
+    let event_thread = thread::Builder::new()
         .name("wayland-events".to_string())
         .spawn(move || dispatch_loop(&conn_clone, session.event_queue, session.state, session.globals, &shutdown_clone))
         .expect("failed to spawn Wayland event loop thread");
 
     let mut guard = GLOBAL.lock().expect("wayland global mutex poisoned");
-    *guard = Some(WaylandGlobal { conn, compositor, shutdown });
+    *guard = Some(WaylandGlobal { conn, compositor, shutdown, event_thread });
 }
 
 /// Signal the event loop to stop and clear global state.
 ///
-/// The dispatch thread will exit on the next poll timeout (≤500 ms) or
-/// immediately if it is currently idle. The thread is not joined — it is
-/// lightweight and safe to abandon at process exit.
+/// The dispatch thread is joined before returning so that no stale output
+/// updates can race with a subsequent re-initialization or shutdown.
 ///
 /// # Panics
 ///
@@ -351,7 +358,28 @@ pub(crate) fn set_global_and_start(conn: Connection, compositor: CompositorType,
 pub fn clear_global() {
     let mut guard = GLOBAL.lock().expect("wayland global mutex poisoned");
     if let Some(g) = guard.take() {
-        g.shutdown.store(true, Ordering::Relaxed);
+        drop(guard);
+        stop_global(g);
+    }
+}
+
+fn stop_global(global: WaylandGlobal) {
+    global.shutdown.store(true, Ordering::Relaxed);
+
+    match global.event_thread.join() {
+        Ok(()) => {
+            debug!(?global.compositor, "Wayland event loop joined");
+        }
+        Err(payload) => {
+            let panic_message = if let Some(message) = payload.downcast_ref::<&str>() {
+                *message
+            } else if let Some(message) = payload.downcast_ref::<String>() {
+                message.as_str()
+            } else {
+                "unknown panic payload"
+            };
+            warn!(?global.compositor, panic_message, "Wayland event loop thread panicked during shutdown");
+        }
     }
 }
 
