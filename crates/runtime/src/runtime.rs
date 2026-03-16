@@ -197,7 +197,7 @@ impl Runtime {
     pub fn new() -> Result<Self, ProviderError> {
         let platform_guard = PlatformModulesLease::acquire()?;
         let registry = ProviderRegistry::discover();
-        Self::from_registry_with_platforms(registry, None, platform_guard)
+        Self::from_registry_with_platforms(registry, None, Some(platform_guard))
     }
 
     /// Builds a Runtime that only includes providers with the given `ids`.
@@ -205,7 +205,7 @@ impl Runtime {
     pub fn new_with_provider_ids(ids: &[&str]) -> Result<Self, ProviderError> {
         let platform_guard = PlatformModulesLease::acquire()?;
         let registry = ProviderRegistry::discover().filter_by_ids(ids);
-        Self::from_registry_with_platforms(registry, None, platform_guard)
+        Self::from_registry_with_platforms(registry, None, Some(platform_guard))
     }
 
     /// Builds a Runtime from an explicit list of provider factories.
@@ -213,7 +213,7 @@ impl Runtime {
     pub fn new_with_factories(factories: &[&'static dyn UiTreeProviderFactory]) -> Result<Self, ProviderError> {
         let platform_guard = PlatformModulesLease::acquire()?;
         let registry = ProviderRegistry::with_factories(factories);
-        Self::from_registry_with_platforms(registry, None, platform_guard)
+        Self::from_registry_with_platforms(registry, None, Some(platform_guard))
     }
 
     /// Builds a Runtime from factories plus explicit platform provider overrides.
@@ -221,7 +221,11 @@ impl Runtime {
         factories: &[&'static dyn UiTreeProviderFactory],
         platforms: PlatformOverrides,
     ) -> Result<Self, ProviderError> {
-        let platform_guard = PlatformModulesLease::acquire()?;
+        let platform_guard = if platform_overrides_require_global_modules(&platforms) {
+            Some(PlatformModulesLease::acquire()?)
+        } else {
+            None
+        };
         let registry = ProviderRegistry::with_factories(factories);
         Self::from_registry_with_platforms(registry, Some(platforms), platform_guard)
     }
@@ -229,7 +233,7 @@ impl Runtime {
     fn from_registry_with_platforms(
         registry: ProviderRegistry,
         platforms: Option<PlatformOverrides>,
-        platform_guard: PlatformModulesLease,
+        platform_guard: Option<PlatformModulesLease>,
     ) -> Result<Self, ProviderError> {
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
         let provider_instances = registry.instantiate_all()?;
@@ -303,7 +307,7 @@ impl Runtime {
             registry,
             providers,
             dispatcher,
-            platform_guard: Some(platform_guard),
+            platform_guard,
             desktop: {
                 let node = DesktopNode::new(desktop, providers_for_desktop);
                 DesktopNode::init_self(&node);
@@ -822,6 +826,14 @@ impl Runtime {
     }
 }
 
+fn platform_overrides_require_global_modules(platforms: &PlatformOverrides) -> bool {
+    platforms.desktop_info.is_none()
+        || platforms.highlight.is_none()
+        || platforms.screenshot.is_none()
+        || platforms.pointer.is_none()
+        || platforms.keyboard.is_none()
+}
+
 impl Drop for Runtime {
     fn drop(&mut self) {
         // Ensure providers and dispatcher are shut down exactly once.
@@ -1208,6 +1220,36 @@ mod tests {
 
         assert_eq!(TEST_LEASE_INITIALIZE_COUNT.load(Ordering::SeqCst), 1);
         assert_eq!(TEST_LEASE_SHUTDOWN_COUNT.load(Ordering::SeqCst), 1);
+
+        let state = PLATFORM_MODULES_STATE.lock().expect("platform state lock");
+        assert_eq!(state.active_runtimes, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn explicit_platform_overrides_do_not_initialize_global_modules() {
+        TEST_LEASE_INITIALIZE_COUNT.store(0, Ordering::SeqCst);
+        TEST_LEASE_SHUTDOWN_COUNT.store(0, Ordering::SeqCst);
+
+        let runtime = Runtime::new_with_factories_and_platforms(
+            &[&platynui_provider_mock::MOCK_PROVIDER_FACTORY],
+            PlatformOverrides {
+                desktop_info: Some(&platynui_platform_mock::MOCK_PLATFORM),
+                highlight: Some(&platynui_platform_mock::MOCK_HIGHLIGHT),
+                screenshot: Some(&platynui_platform_mock::MOCK_SCREENSHOT),
+                pointer: Some(&platynui_platform_mock::MOCK_POINTER),
+                keyboard: Some(&platynui_platform_mock::MOCK_KEYBOARD),
+            },
+        )
+        .expect("runtime initializes with explicit platforms");
+
+        assert_eq!(TEST_LEASE_INITIALIZE_COUNT.load(Ordering::SeqCst), 0);
+        assert_eq!(TEST_LEASE_SHUTDOWN_COUNT.load(Ordering::SeqCst), 0);
+
+        drop(runtime);
+
+        assert_eq!(TEST_LEASE_INITIALIZE_COUNT.load(Ordering::SeqCst), 0);
+        assert_eq!(TEST_LEASE_SHUTDOWN_COUNT.load(Ordering::SeqCst), 0);
 
         let state = PLATFORM_MODULES_STATE.lock().expect("platform state lock");
         assert_eq!(state.active_runtimes, 0);
