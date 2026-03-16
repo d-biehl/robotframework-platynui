@@ -137,6 +137,7 @@ impl Default for KeyboardSettings {
 }
 
 /// Per-call overrides that tweak keyboard timings.
+#[must_use]
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct KeyboardOverrides {
     pub press_delay: Option<Duration>,

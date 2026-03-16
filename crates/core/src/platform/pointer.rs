@@ -13,6 +13,7 @@ pub enum PointerButton {
 }
 
 /// Scroll delta expressed in desktop coordinates.
+#[must_use]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScrollDelta {
     pub horizontal: f64,

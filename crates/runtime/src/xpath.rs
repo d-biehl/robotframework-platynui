@@ -67,6 +67,7 @@ pub trait NodeResolver: Send + Sync {
 }
 
 #[derive(Clone)]
+#[must_use]
 pub struct EvaluateOptions {
     desktop: Arc<dyn UiNode>,
     invalidate_before_eval: bool,

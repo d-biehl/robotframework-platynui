@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter, Result};
 use super::Point;
 use super::Size;
 
+#[must_use]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Rect {
     x: f64,

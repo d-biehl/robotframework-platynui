@@ -25,6 +25,7 @@ impl Default for PointerSettings {
     }
 }
 
+#[must_use]
 #[derive(Clone, Debug, PartialEq)]
 pub struct PointerProfile {
     pub mode: PointerMotionMode,
@@ -101,6 +102,7 @@ impl Default for PointerProfile {
     }
 }
 
+#[must_use]
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct PointerOverrides {
     pub origin: Option<PointOrigin>,

@@ -235,6 +235,7 @@ impl FocusablePattern for FocusableAction {
 }
 
 /// Configurable window-surface implementation used in tests and default runtime wiring.
+#[must_use]
 pub struct WindowSurfaceActions {
     activate: ActionHandler,
     minimize: ActionHandler,

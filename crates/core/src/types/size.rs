@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter, Result};
 use std::ops::{Add, Div, Mul, Sub};
 
+#[must_use]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Size {
     width: f64,

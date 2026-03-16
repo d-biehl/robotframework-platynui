@@ -3,6 +3,7 @@ use crate::types::Rect;
 use std::time::Duration;
 
 /// Request structure describing one or more regions that should be highlighted on screen.
+#[must_use]
 #[derive(Clone, Debug, PartialEq)]
 pub struct HighlightRequest {
     /// One or more bounding boxes in desktop coordinates.

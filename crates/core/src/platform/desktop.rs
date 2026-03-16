@@ -4,6 +4,7 @@ use crate::ui::RuntimeId;
 use crate::ui::identifiers::TechnologyId;
 
 /// Describes a single monitor attached to the current desktop session.
+#[must_use]
 #[derive(Clone, Debug, PartialEq)]
 pub struct MonitorInfo {
     /// Stable identifier provided by the platform (may equal the OS display name).
