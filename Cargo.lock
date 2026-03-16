@@ -3364,6 +3364,7 @@ dependencies = [
  "platynui-xpath",
  "rstest 0.26.1",
  "rust_decimal",
+ "rustix 1.1.4",
  "serde_json",
  "serial_test",
  "thiserror 2.0.18",

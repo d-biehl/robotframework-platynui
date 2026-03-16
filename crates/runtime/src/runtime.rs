@@ -747,16 +747,26 @@ fn initialize_platform_modules() -> Result<(), ProviderError> {
 fn fallback_desktop_info() -> DesktopInfo {
     tracing::warn!("using fallback desktop info — no DesktopInfoProvider available");
     let os_name = std::env::consts::OS;
-    let os_version = std::env::consts::ARCH;
+    let os_version = fallback_os_version();
     DesktopInfo {
         runtime_id: RuntimeId::from(DESKTOP_RUNTIME_ID),
         name: format!("Fallback Desktop ({os_name})"),
         technology: TechnologyId::from("Fallback"),
         bounds: Rect::new(0.0, 0.0, 1920.0, 1080.0),
         os_name: os_name.into(),
-        os_version: os_version.into(),
+        os_version,
         monitors: Vec::new(),
     }
+}
+
+#[cfg(unix)]
+fn fallback_os_version() -> String {
+    rustix::system::uname().release().to_string_lossy().into_owned()
+}
+
+#[cfg(not(unix))]
+fn fallback_os_version() -> String {
+    String::new()
 }
 
 fn default_pointer_sleep(duration: Duration) {

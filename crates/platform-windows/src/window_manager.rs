@@ -96,6 +96,17 @@ fn pid_from_attr(node: &dyn UiNode) -> Option<u32> {
 ///
 /// Uses `EnumWindows` to iterate all top-level windows and matches on PID.
 /// When multiple windows match, the first visible one wins.
+///
+/// TODO(windows): Replace this PID-based fallback with real top-level window
+/// resolution for a `UiNode`.
+///
+/// The intended behaviour is to resolve the actual top-level window that owns
+/// the node, not merely any visible top-level window from the same process.
+/// On Windows many controls may already expose `native:NativeWindowHandle`, so
+/// the remaining fallback path should prefer walking from the node to its
+/// top-level window ancestor or otherwise using UIA-backed window semantics.
+/// The current PID-only heuristic is too coarse for multi-window processes and
+/// can target the wrong sibling window.
 fn find_hwnd_for_pid(pid: u32) -> Result<HWND, PlatformError> {
     struct EnumData {
         target_pid: u32,
@@ -142,6 +153,9 @@ impl WindowManager for Win32WindowManager {
         }
 
         // Fallback: enumerate windows by PID.
+        // TODO(windows): Replace this with real top-level window resolution for
+        // the UiNode. PID matching is only a coarse last resort and can select
+        // the wrong window for multi-window processes.
         if let Some(pid) = extract_pid(node) {
             let hwnd = find_hwnd_for_pid(pid)?;
             debug!(pid, hwnd = hwnd.0 as usize, "resolved WindowId via PID enumeration");

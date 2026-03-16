@@ -103,10 +103,14 @@ impl DesktopInfoProvider for WaylandDesktopInfo {
             technology: TechnologyId::from("Wayland"),
             bounds,
             os_name: env::consts::OS.to_string(),
-            os_version: env::consts::ARCH.to_string(),
+            os_version: linux_os_version(),
             monitors,
         })
     }
+}
+
+fn linux_os_version() -> String {
+    rustix::system::uname().release().to_string_lossy().into_owned()
 }
 
 // ---------------------------------------------------------------------------
