@@ -23,7 +23,7 @@ pub enum KeyboardCommand {
 
 #[derive(Args)]
 pub struct KeyboardTypeArgs {
-    #[arg(value_name = "SEQUENCE", help = "Keyboard sequenz inkl. Text, z. B. <Ctrl+A>Hallo")]
+    #[arg(value_name = "SEQUENCE", help = "Keyboard sequence including text, e.g. <Ctrl+A>Hello")]
     pub sequence: String,
 
     #[command(flatten)]
@@ -32,7 +32,7 @@ pub struct KeyboardTypeArgs {
 
 #[derive(Args)]
 pub struct KeyboardSequenceArgs {
-    #[arg(value_name = "SEQUENCE", help = "Keyboard sequence im <Ctrl+Alt+T>-Format.")]
+    #[arg(value_name = "SEQUENCE", help = "Keyboard sequence in <Ctrl+Alt+T> format.")]
     pub sequence: String,
 
     #[command(flatten)]
