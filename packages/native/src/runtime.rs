@@ -1,7 +1,4 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use pyo3::IntoPyObject;
 use pyo3::exceptions::{PyException, PyTypeError};
@@ -18,26 +15,6 @@ use crate::core::{PyNamespace, PyPoint, PyRect, PySize, py_namespace_from_inner}
 use platynui_core::ui::FocusablePattern as _;
 
 use pyo3::prelude::PyRef;
-
-static NEXT_CACHE_ID: AtomicU64 = AtomicU64::new(1);
-
-thread_local! {
-    static CACHE_MAP: RefCell<HashMap<u64, runtime_rs::XdmCache>> = RefCell::new(HashMap::new());
-}
-
-fn with_cache<R>(cache_id: u64, f: impl FnOnce(&runtime_rs::XdmCache) -> R) -> R {
-    CACHE_MAP.with(|map| {
-        let mut map = map.borrow_mut();
-        let cache = map.entry(cache_id).or_insert_with(runtime_rs::XdmCache::new);
-        f(cache)
-    })
-}
-
-fn remove_cache(cache_id: u64) {
-    CACHE_MAP.with(|map| {
-        map.borrow_mut().remove(&cache_id);
-    });
-}
 
 // ---------------- Node wrapper ----------------
 
@@ -512,8 +489,13 @@ impl PyWindowSurface {
 ///
 #[pyclass(name = "Runtime", module = "platynui_native")]
 pub struct PyRuntime {
-    inner: runtime_rs::Runtime,
-    cache_id: u64,
+    inner: Mutex<runtime_rs::Runtime>,
+}
+
+impl PyRuntime {
+    fn runtime(&self) -> PyResult<MutexGuard<'_, runtime_rs::Runtime>> {
+        self.inner.lock().map_err(|_| PyException::new_err("runtime mutex poisoned"))
+    }
 }
 
 #[pymethods]
@@ -522,7 +504,7 @@ impl PyRuntime {
     /// Creates a runtime that discovers platform providers automatically.
     fn new() -> PyResult<Self> {
         runtime_rs::Runtime::new()
-            .map(|inner| Self { inner, cache_id: NEXT_CACHE_ID.fetch_add(1, Ordering::Relaxed) })
+            .map(|inner| Self { inner: Mutex::new(inner) })
             .map_err(map_provider_err)
     }
 
@@ -546,7 +528,7 @@ impl PyRuntime {
                 keyboard: Some(&platynui_platform_mock::MOCK_KEYBOARD),
             };
             return runtime_rs::Runtime::new_with_factories_and_platforms(&factories, platforms)
-                .map(|inner| Self { inner, cache_id: NEXT_CACHE_ID.fetch_add(1, Ordering::Relaxed) })
+                .map(|inner| Self { inner: Mutex::new(inner) })
                 .map_err(map_provider_err);
         }
         #[cfg(not(feature = "mock-provider"))]
@@ -572,8 +554,9 @@ impl PyRuntime {
             },
             None => None,
         };
-        let items = with_cache(self.cache_id, |cache| self.inner.evaluate_cached(node_arc, xpath, cache))
-            .map_err(map_eval_err)?;
+        let runtime = self.runtime()?;
+        let cache = runtime_rs::XdmCache::new();
+        let items = runtime.evaluate_cached(node_arc, xpath, &cache).map_err(map_eval_err)?;
         let out = PyList::empty(py);
         for item in items {
             out.append(evaluation_item_to_py(py, &item)?)?;
@@ -597,8 +580,9 @@ impl PyRuntime {
             None => None,
         };
 
-        let item = with_cache(self.cache_id, |cache| self.inner.evaluate_single_cached(node_arc, xpath, cache))
-            .map_err(map_eval_err)?;
+        let runtime = self.runtime()?;
+        let cache = runtime_rs::XdmCache::new();
+        let item = runtime.evaluate_single_cached(node_arc, xpath, &cache).map_err(map_eval_err)?;
 
         match item {
             Some(it) => evaluation_item_to_py(py, &it),
@@ -612,15 +596,13 @@ impl PyRuntime {
     /// dispose its resources later when Python garbage collection drops the
     /// last reference.
     fn shutdown(&mut self) {
-        self.inner.shutdown();
+        if let Ok(mut runtime) = self.inner.lock() {
+            runtime.shutdown();
+        }
     }
 
     fn clear_cache(&self) {
-        CACHE_MAP.with(|map| {
-            if let Some(cache) = map.borrow().get(&self.cache_id) {
-                cache.clear();
-            }
-        });
+        let _ = self;
     }
 
     /// Evaluates an XPath expression and returns a lazy iterator over the results.
@@ -641,8 +623,9 @@ impl PyRuntime {
             None => None,
         };
 
-        let stream = with_cache(self.cache_id, |cache| self.inner.evaluate_iter_owned_cached(node_arc, xpath, cache))
-            .map_err(map_eval_err)?;
+        let runtime = self.runtime()?;
+        let cache = runtime_rs::XdmCache::new();
+        let stream = runtime.evaluate_iter_owned_cached(node_arc, xpath, &cache).map_err(map_eval_err)?;
         Py::new(py, PyEvaluationIterator { iter: Some(Box::new(stream)) })
     }
 
@@ -652,7 +635,8 @@ impl PyRuntime {
     /// associated ``technology`` identifier, and the provider ``kind``.
     fn providers(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let list = PyList::empty(py);
-        for provider in self.inner.providers() {
+        let runtime = self.runtime()?;
+        for provider in runtime.providers() {
             let desc = provider.descriptor();
             let dict = PyDict::new(py);
             dict.set_item("id", desc.id)?;
@@ -671,20 +655,22 @@ impl PyRuntime {
     /// Returns the current pointer defaults as a :class:`PointerSettings` instance.
     #[pyo3(text_signature = "(self)")]
     fn pointer_settings(&self, py: Python<'_>) -> PyResult<Py<PyPointerSettings>> {
-        Py::new(py, PyPointerSettings::from(self.inner.pointer_settings()))
+        let runtime = self.runtime()?;
+        Py::new(py, PyPointerSettings::from(runtime.pointer_settings()))
     }
 
     /// Replaces the pointer defaults that future actions will use.
     #[pyo3(signature = (settings), text_signature = "(self, settings)")]
     fn set_pointer_settings(&self, settings: PointerSettingsLike) -> PyResult<()> {
+        let runtime = self.runtime()?;
         match settings {
             PointerSettingsLike::Class(c) => {
-                self.inner.set_pointer_settings(c.inner.clone());
+                runtime.set_pointer_settings(c.inner.clone());
             }
             PointerSettingsLike::Dict(d) => {
-                let mut merged = self.inner.pointer_settings();
+                let mut merged = runtime.pointer_settings();
                 d.apply_to(&mut merged);
-                self.inner.set_pointer_settings(merged);
+                runtime.set_pointer_settings(merged);
             }
         }
         Ok(())
@@ -693,20 +679,22 @@ impl PyRuntime {
     /// Returns the active pointer movement profile as :class:`PointerProfile`.
     #[pyo3(text_signature = "(self)")]
     fn pointer_profile(&self, py: Python<'_>) -> PyResult<Py<PyPointerProfile>> {
-        Py::new(py, PyPointerProfile::from(self.inner.pointer_profile()))
+        let runtime = self.runtime()?;
+        Py::new(py, PyPointerProfile::from(runtime.pointer_profile()))
     }
 
     /// Sets the pointer movement profile that subsequent pointer operations will use.
     #[pyo3(signature = (profile), text_signature = "(self, profile)")]
     fn set_pointer_profile(&self, profile: PointerProfileLike) -> PyResult<()> {
+        let runtime = self.runtime()?;
         match profile {
             PointerProfileLike::Class(c) => {
-                self.inner.set_pointer_profile(c.inner.clone());
+                runtime.set_pointer_profile(c.inner.clone());
             }
             PointerProfileLike::Dict(d) => {
-                let mut merged = self.inner.pointer_profile();
+                let mut merged = runtime.pointer_profile();
                 d.apply_to(&mut merged);
-                self.inner.set_pointer_profile(merged);
+                runtime.set_pointer_profile(merged);
             }
         }
         Ok(())
@@ -715,20 +703,22 @@ impl PyRuntime {
     /// Returns the keyboard timing defaults as :class:`KeyboardSettings`.
     #[pyo3(text_signature = "(self)")]
     fn keyboard_settings(&self, py: Python<'_>) -> PyResult<Py<PyKeyboardSettings>> {
-        Py::new(py, PyKeyboardSettings::from(self.inner.keyboard_settings()))
+        let runtime = self.runtime()?;
+        Py::new(py, PyKeyboardSettings::from(runtime.keyboard_settings()))
     }
 
     /// Replaces the keyboard timing defaults for subsequent keyboard input.
     #[pyo3(signature = (settings), text_signature = "(self, settings)")]
     fn set_keyboard_settings(&self, settings: KeyboardSettingsLike) -> PyResult<()> {
+        let runtime = self.runtime()?;
         match settings {
             KeyboardSettingsLike::Class(c) => {
-                self.inner.set_keyboard_settings(c.inner.clone());
+                runtime.set_keyboard_settings(c.inner.clone());
             }
             KeyboardSettingsLike::Dict(d) => {
-                let mut merged = self.inner.keyboard_settings();
+                let mut merged = runtime.keyboard_settings();
                 d.apply_to(&mut merged);
-                self.inner.set_keyboard_settings(merged);
+                runtime.set_keyboard_settings(merged);
             }
         }
         Ok(())
@@ -737,7 +727,8 @@ impl PyRuntime {
     /// Returns the top-level window that contains ``node``.
     #[pyo3(signature = (node), text_signature = "(self, node)")]
     fn top_level_window_for(&self, py: Python<'_>, node: PyRef<'_, PyNode>) -> PyResult<Option<Py<PyNode>>> {
-        match self.inner.top_level_window_for(&node.inner) {
+        let runtime = self.runtime()?;
+        match runtime.top_level_window_for(&node.inner) {
             Some(window) => Ok(Some(Py::new(py, PyNode { inner: window })?)),
             None => Ok(None),
         }
@@ -748,7 +739,8 @@ impl PyRuntime {
     /// Returns the current pointer position as a :class:`Point`.
     #[pyo3(text_signature = "(self)")]
     fn pointer_position(&self, py: Python<'_>) -> PyResult<Py<PyPoint>> {
-        let p = self.inner.pointer_position().map_err(map_pointer_err)?;
+        let runtime = self.runtime()?;
+        let p = runtime.pointer_position().map_err(map_pointer_err)?;
         Py::new(py, PyPoint::from(p))
     }
 
@@ -762,7 +754,8 @@ impl PyRuntime {
     ) -> PyResult<Py<PyPoint>> {
         let p: core_rs::types::Point = point.0;
         let ov = overrides.map(Into::into);
-        let new_pos = self.inner.pointer_move_to(p, ov).map_err(map_pointer_err)?;
+        let runtime = self.runtime()?;
+        let new_pos = runtime.pointer_move_to(p, ov).map_err(map_pointer_err)?;
         Py::new(py, PyPoint::from(new_pos))
     }
 
@@ -780,7 +773,8 @@ impl PyRuntime {
         let p: Option<core_rs::types::Point> = point.map(|r| r.0);
         let btn = button.map(|b| b.into());
         let ov = overrides.map(Into::into);
-        self.inner.pointer_click(p, btn, ov).map_err(map_pointer_err)?;
+        let runtime = self.runtime()?;
+        runtime.pointer_click(p, btn, ov).map_err(map_pointer_err)?;
         Ok(())
     }
 
@@ -796,7 +790,8 @@ impl PyRuntime {
         let p: Option<core_rs::types::Point> = point.map(|r| r.0);
         let btn = button.map(|b| b.into());
         let ov = overrides.map(Into::into);
-        self.inner.pointer_multi_click(p, btn, clicks, ov).map_err(map_pointer_err)?;
+        let runtime = self.runtime()?;
+        runtime.pointer_multi_click(p, btn, clicks, ov).map_err(map_pointer_err)?;
         Ok(())
     }
 
@@ -813,7 +808,8 @@ impl PyRuntime {
         let e: core_rs::types::Point = end.0;
         let btn = button.map(|b| b.into());
         let ov = overrides.map(Into::into);
-        self.inner.pointer_drag(s, e, btn, ov).map_err(map_pointer_err)?;
+        let runtime = self.runtime()?;
+        runtime.pointer_drag(s, e, btn, ov).map_err(map_pointer_err)?;
         Ok(())
     }
 
@@ -828,7 +824,8 @@ impl PyRuntime {
         let p = point.map(|r| r.0);
         let btn = button.map(|b| b.into());
         let ov = overrides.map(Into::into);
-        self.inner.pointer_press(p, btn, ov).map_err(map_pointer_err)?;
+        let runtime = self.runtime()?;
+        runtime.pointer_press(p, btn, ov).map_err(map_pointer_err)?;
         Ok(())
     }
 
@@ -843,7 +840,8 @@ impl PyRuntime {
         let p: Option<core_rs::types::Point> = point.map(|r| r.0);
         let btn = button.map(|b| b.into());
         let ov = overrides.map(Into::into);
-        self.inner.pointer_release(p, btn, ov).map_err(map_pointer_err)?;
+        let runtime = self.runtime()?;
+        runtime.pointer_release(p, btn, ov).map_err(map_pointer_err)?;
         Ok(())
     }
 
@@ -854,7 +852,8 @@ impl PyRuntime {
             ScrollLike::Tuple((h, v)) => (h, v),
         };
         let ov = overrides.map(Into::into);
-        self.inner.pointer_scroll(core_rs::platform::ScrollDelta::new(h, v), ov).map_err(map_pointer_err)?;
+        let runtime = self.runtime()?;
+        runtime.pointer_scroll(core_rs::platform::ScrollDelta::new(h, v), ov).map_err(map_pointer_err)?;
         Ok(())
     }
 
@@ -864,7 +863,8 @@ impl PyRuntime {
     #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
     fn keyboard_type(&self, sequence: &str, overrides: Option<KeyboardOverridesLike>) -> PyResult<()> {
         let ov = overrides.map(Into::into);
-        self.inner.keyboard_type(sequence, ov).map_err(map_keyboard_err)?;
+        let runtime = self.runtime()?;
+        runtime.keyboard_type(sequence, ov).map_err(map_keyboard_err)?;
         Ok(())
     }
 
@@ -872,7 +872,8 @@ impl PyRuntime {
     #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
     fn keyboard_press(&self, sequence: &str, overrides: Option<KeyboardOverridesLike>) -> PyResult<()> {
         let ov = overrides.map(Into::into);
-        self.inner.keyboard_press(sequence, ov).map_err(map_keyboard_err)?;
+        let runtime = self.runtime()?;
+        runtime.keyboard_press(sequence, ov).map_err(map_keyboard_err)?;
         Ok(())
     }
 
@@ -880,14 +881,16 @@ impl PyRuntime {
     #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
     fn keyboard_release(&self, sequence: &str, overrides: Option<KeyboardOverridesLike>) -> PyResult<()> {
         let ov = overrides.map(Into::into);
-        self.inner.keyboard_release(sequence, ov).map_err(map_keyboard_err)?;
+        let runtime = self.runtime()?;
+        runtime.keyboard_release(sequence, ov).map_err(map_keyboard_err)?;
         Ok(())
     }
 
     /// Returns the list of key names recognised by the active keyboard device.
     #[pyo3(text_signature = "(self)")]
     fn keyboard_known_key_names(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let names = self.inner.keyboard_known_key_names().map_err(|e| PyException::new_err(e.to_string()))?;
+        let runtime = self.runtime()?;
+        let names = runtime.keyboard_known_key_names().map_err(|e| PyException::new_err(e.to_string()))?;
         let list = PyList::new(py, names)?;
         Ok(list.unbind())
     }
@@ -896,19 +899,22 @@ impl PyRuntime {
 
     /// Returns the desktop root node.
     fn desktop_node(&self, py: Python<'_>) -> PyResult<Py<PyNode>> {
-        let node = self.inner.desktop_node();
+        let runtime = self.runtime()?;
+        let node = runtime.desktop_node();
         Py::new(py, PyNode { inner: node })
     }
 
     /// Returns a dictionary describing the desktop (bounds, monitors, platform names).
     fn desktop_info(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let info = self.inner.desktop_info();
+        let runtime = self.runtime()?;
+        let info = runtime.desktop_info();
         desktop_info_to_py(py, info)
     }
 
     /// Sets focus to ``node``.
     fn focus(&self, node: PyRef<'_, PyNode>) -> PyResult<()> {
-        self.inner.focus(&node.inner).map_err(map_focus_err)?;
+        let runtime = self.runtime()?;
+        runtime.focus(&node.inner).map_err(map_focus_err)?;
         Ok(())
     }
 
@@ -918,13 +924,14 @@ impl PyRuntime {
     /// for the window to become input ready if the platform reports readiness.
     #[pyo3(signature = (node, wait_ms=None), text_signature = "(self, node, wait_ms=None)")]
     fn bring_to_front(&self, node: PyRef<'_, PyNode>, wait_ms: Option<f64>) -> PyResult<()> {
+        let runtime = self.runtime()?;
         match wait_ms {
             Some(ms) => {
                 let dur = std::time::Duration::from_millis(ms.max(0.0) as u64);
-                self.inner.bring_to_front_and_wait(&node.inner, dur).map_err(map_bring_err)?;
+                runtime.bring_to_front_and_wait(&node.inner, dur).map_err(map_bring_err)?;
             }
             None => {
-                self.inner.bring_to_front(&node.inner).map_err(map_bring_err)?;
+                runtime.bring_to_front(&node.inner).map_err(map_bring_err)?;
             }
         }
         Ok(())
@@ -958,13 +965,15 @@ impl PyRuntime {
         if let Some(ms) = duration_ms {
             req = req.with_duration(std::time::Duration::from_millis(ms as u64));
         }
-        self.inner.highlight(&req).map_err(map_platform_err)?;
+        let runtime = self.runtime()?;
+        runtime.highlight(&req).map_err(map_platform_err)?;
         Ok(())
     }
 
     /// Clears a previously shown highlight overlay when supported by the platform.
     fn clear_highlight(&self) -> PyResult<()> {
-        self.inner.clear_highlight().map_err(map_platform_err)?;
+        let runtime = self.runtime()?;
+        runtime.clear_highlight().map_err(map_platform_err)?;
         Ok(())
     }
 
@@ -980,7 +989,8 @@ impl PyRuntime {
         }
         let request =
             rect.map(|r| ScreenshotRequest::with_region(r.0)).unwrap_or_else(ScreenshotRequest::entire_display);
-        let shot = self.inner.screenshot(&request).map_err(map_platform_err)?;
+        let runtime = self.runtime()?;
+        let shot = runtime.screenshot(&request).map_err(map_platform_err)?;
         let encoded = encode_png(&shot)?;
         let pybytes = pyo3::types::PyBytes::new(py, &encoded);
         Ok(pybytes.into_pyobject(py)?.unbind().into_any())
@@ -1501,12 +1511,6 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerAccelerationInput {
 impl From<PointerAccelerationInput> for core_rs::platform::PointerAccelerationProfile {
     fn from(value: PointerAccelerationInput) -> Self {
         value.0
-    }
-}
-
-impl Drop for PyRuntime {
-    fn drop(&mut self) {
-        remove_cache(self.cache_id);
     }
 }
 

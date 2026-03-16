@@ -38,6 +38,7 @@ pub struct Runtime {
     registry: ProviderRegistry,
     providers: Vec<Arc<dyn UiTreeProvider>>,
     dispatcher: Arc<ProviderEventDispatcher>,
+    platform_guard: Option<PlatformModulesLease>,
     desktop: Arc<DesktopNode>,
     highlight: Option<&'static dyn HighlightProvider>,
     screenshot: Option<&'static dyn ScreenshotProvider>,
@@ -120,28 +121,98 @@ pub struct PlatformOverrides {
     pub keyboard: Option<&'static dyn KeyboardDevice>,
 }
 
+#[derive(Default)]
+struct PlatformModulesState {
+    active_runtimes: usize,
+}
+
+static PLATFORM_MODULES_STATE: Mutex<PlatformModulesState> = Mutex::new(PlatformModulesState { active_runtimes: 0 });
+
+struct PlatformModulesLease {
+    active: bool,
+}
+
+impl PlatformModulesLease {
+    fn acquire() -> Result<Self, ProviderError> {
+        let modules: Vec<_> = platform_modules().collect();
+        let mut state = PLATFORM_MODULES_STATE.lock().expect("platform module state mutex poisoned");
+
+        if state.active_runtimes == 0 {
+            let mut initialized_modules: Vec<&'static dyn platynui_core::platform::PlatformModule> = Vec::new();
+            for module in &modules {
+                tracing::debug!(module = module.name(), "initializing platform module");
+                if let Err(err) = module.initialize() {
+                    tracing::error!(module = module.name(), %err, "platform module initialization failed");
+                    for initialized in initialized_modules.into_iter().rev() {
+                        tracing::debug!(module = initialized.name(), "rolling back platform module initialization");
+                        initialized.shutdown();
+                    }
+                    return Err(ProviderError::new(
+                        ProviderErrorKind::InitializationFailed,
+                        format!("platform module `{}` failed to initialize: {err}", module.name()),
+                    ));
+                }
+                initialized_modules.push(*module);
+            }
+        }
+
+        state.active_runtimes += 1;
+        Ok(Self { active: true })
+    }
+
+    fn release(&mut self) {
+        if !self.active {
+            return;
+        }
+
+        let modules: Vec<_> = platform_modules().collect();
+        let mut state = PLATFORM_MODULES_STATE.lock().expect("platform module state mutex poisoned");
+        if state.active_runtimes == 0 {
+            self.active = false;
+            return;
+        }
+
+        state.active_runtimes -= 1;
+        let should_shutdown = state.active_runtimes == 0;
+        self.active = false;
+
+        if should_shutdown {
+            for module in modules {
+                tracing::debug!(module = module.name(), "shutting down platform module");
+                module.shutdown();
+            }
+        }
+    }
+}
+
+impl Drop for PlatformModulesLease {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
 impl Runtime {
     /// Discovers all registered providers, instantiates them and prepares the event pipeline.
     pub fn new() -> Result<Self, ProviderError> {
-        initialize_platform_modules()?;
+        let platform_guard = PlatformModulesLease::acquire()?;
         let registry = ProviderRegistry::discover();
-        Self::from_registry_with_platforms(registry, None)
+        Self::from_registry_with_platforms(registry, None, platform_guard)
     }
 
     /// Builds a Runtime that only includes providers with the given `ids`.
     /// This is useful for tests to restrict the active providers deterministically.
     pub fn new_with_provider_ids(ids: &[&str]) -> Result<Self, ProviderError> {
-        initialize_platform_modules()?;
+        let platform_guard = PlatformModulesLease::acquire()?;
         let registry = ProviderRegistry::discover().filter_by_ids(ids);
-        Self::from_registry_with_platforms(registry, None)
+        Self::from_registry_with_platforms(registry, None, platform_guard)
     }
 
     /// Builds a Runtime from an explicit list of provider factories.
     /// No inventory discovery is performed.
     pub fn new_with_factories(factories: &[&'static dyn UiTreeProviderFactory]) -> Result<Self, ProviderError> {
-        initialize_platform_modules()?;
+        let platform_guard = PlatformModulesLease::acquire()?;
         let registry = ProviderRegistry::with_factories(factories);
-        Self::from_registry_with_platforms(registry, None)
+        Self::from_registry_with_platforms(registry, None, platform_guard)
     }
 
     /// Builds a Runtime from factories plus explicit platform provider overrides.
@@ -149,14 +220,15 @@ impl Runtime {
         factories: &[&'static dyn UiTreeProviderFactory],
         platforms: PlatformOverrides,
     ) -> Result<Self, ProviderError> {
-        initialize_platform_modules()?;
+        let platform_guard = PlatformModulesLease::acquire()?;
         let registry = ProviderRegistry::with_factories(factories);
-        Self::from_registry_with_platforms(registry, Some(platforms))
+        Self::from_registry_with_platforms(registry, Some(platforms), platform_guard)
     }
 
     fn from_registry_with_platforms(
         registry: ProviderRegistry,
         platforms: Option<PlatformOverrides>,
+        platform_guard: PlatformModulesLease,
     ) -> Result<Self, ProviderError> {
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
         let provider_instances = registry.instantiate_all()?;
@@ -230,6 +302,7 @@ impl Runtime {
             registry,
             providers,
             dispatcher,
+            platform_guard: Some(platform_guard),
             desktop: {
                 let node = DesktopNode::new(desktop, providers_for_desktop);
                 DesktopNode::init_self(&node);
@@ -690,9 +763,8 @@ impl Runtime {
         for provider in &self.providers {
             provider.shutdown();
         }
-        for module in platform_modules() {
-            tracing::debug!(module = module.name(), "shutting down platform module");
-            module.shutdown();
+        if let Some(mut platform_guard) = self.platform_guard.take() {
+            platform_guard.release();
         }
     }
 
@@ -728,20 +800,6 @@ fn build_desktop_info() -> Result<DesktopInfo, PlatformError> {
 
 fn map_desktop_error(err: PlatformError) -> ProviderError {
     ProviderError::new(ProviderErrorKind::InitializationFailed, format!("desktop initialization failed: {err}"))
-}
-
-fn initialize_platform_modules() -> Result<(), ProviderError> {
-    for module in platform_modules() {
-        tracing::debug!(module = module.name(), "initializing platform module");
-        module.initialize().map_err(|err| {
-            tracing::error!(module = module.name(), %err, "platform module initialization failed");
-            ProviderError::new(
-                ProviderErrorKind::InitializationFailed,
-                format!("platform module `{}` failed to initialize: {err}", module.name()),
-            )
-        })?;
-    }
-    Ok(())
 }
 
 fn fallback_desktop_info() -> DesktopInfo {
@@ -1014,6 +1072,28 @@ mod tests {
     static TEST_PLATFORM: TestInitOrderPlatform = TestInitOrderPlatform;
     register_platform_module!(&TEST_PLATFORM);
 
+    static TEST_LEASE_INITIALIZE_COUNT: LazyLock<AtomicUsize> = LazyLock::new(|| AtomicUsize::new(0));
+    static TEST_LEASE_SHUTDOWN_COUNT: LazyLock<AtomicUsize> = LazyLock::new(|| AtomicUsize::new(0));
+
+    struct TestLeasePlatform;
+    impl PlatformModule for TestLeasePlatform {
+        fn name(&self) -> &'static str {
+            "test-runtime-platform-lease"
+        }
+
+        fn initialize(&self) -> Result<(), PlatformError> {
+            TEST_LEASE_INITIALIZE_COUNT.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn shutdown(&self) {
+            TEST_LEASE_SHUTDOWN_COUNT.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    static TEST_LEASE_PLATFORM: TestLeasePlatform = TestLeasePlatform;
+    register_platform_module!(&TEST_LEASE_PLATFORM);
+
     struct InitOrderProviderFactory;
     impl UiTreeProviderFactory for InitOrderProviderFactory {
         fn descriptor(&self) -> &'static ProviderDescriptor {
@@ -1066,6 +1146,34 @@ mod tests {
     fn platform_init_happens_before_provider_instantiation() {
         // The assertions happen inside the provider factory `create()`.
         let _runtime = Runtime::new_with_factories(&[&INIT_ORDER_PROVIDER]).expect("runtime initializes");
+    }
+
+    #[test]
+    #[serial]
+    fn platform_modules_remain_active_until_last_runtime_is_released() {
+        TEST_LEASE_INITIALIZE_COUNT.store(0, Ordering::SeqCst);
+        TEST_LEASE_SHUTDOWN_COUNT.store(0, Ordering::SeqCst);
+
+        {
+            let mut first = Runtime::new_with_factories(&[]).expect("first runtime initializes");
+            let second = Runtime::new_with_factories(&[]).expect("second runtime initializes");
+
+            assert_eq!(TEST_LEASE_INITIALIZE_COUNT.load(Ordering::SeqCst), 1);
+            assert_eq!(TEST_LEASE_SHUTDOWN_COUNT.load(Ordering::SeqCst), 0);
+
+            first.shutdown();
+
+            assert_eq!(TEST_LEASE_INITIALIZE_COUNT.load(Ordering::SeqCst), 1);
+            assert_eq!(TEST_LEASE_SHUTDOWN_COUNT.load(Ordering::SeqCst), 0);
+
+            drop(second);
+        }
+
+        assert_eq!(TEST_LEASE_INITIALIZE_COUNT.load(Ordering::SeqCst), 1);
+        assert_eq!(TEST_LEASE_SHUTDOWN_COUNT.load(Ordering::SeqCst), 1);
+
+        let state = PLATFORM_MODULES_STATE.lock().expect("platform state lock");
+        assert_eq!(state.active_runtimes, 0);
     }
 
     #[test]
