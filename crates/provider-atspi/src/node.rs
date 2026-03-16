@@ -33,6 +33,7 @@ use crate::error::AtspiError;
 use crate::timeout::block_on_timeout_call;
 
 const NULL_PATH: &str = "/org/a11y/atspi/accessible/null";
+const ALT_NULL_PATH: &str = "/org/a11y/atspi/null";
 const TECHNOLOGY: &str = "AT-SPI2";
 
 pub struct AtspiNode {
@@ -75,7 +76,8 @@ impl AtspiNode {
     }
 
     pub fn is_null_object(obj: &ObjectRefOwned) -> bool {
-        obj.path_as_str() == NULL_PATH
+        let path = obj.path_as_str();
+        path == NULL_PATH || path == ALT_NULL_PATH
     }
 
     fn accessible(&self) -> Option<AccessibleProxy<'_>> {

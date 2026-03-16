@@ -19,7 +19,5 @@ atspi-common = { version = "0.13", default-features = false }
 atspi-connection = { version = "0.13", default-features = false }
 atspi-proxies = "0.13"
 zbus = "5"
-futures-lite = "2"
-async-io = "2"
 thiserror = "2.0"
 tracing = { version = "0.1", default-features = false, features = ["std"] }

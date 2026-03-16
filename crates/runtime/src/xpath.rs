@@ -342,9 +342,18 @@ impl RuntimeXdmNode {
 
     fn element(node: Arc<dyn UiNode>) -> Self {
         let runtime_id = node.runtime_id().clone();
+        tracing::trace!(
+            runtime_id = %runtime_id,
+            "RuntimeXdmNode::element: resolving namespace/role",
+        );
         let namespace = node.namespace();
         let role = node.role().to_string();
         let order_key = node.doc_order_key();
+        tracing::trace!(
+            runtime_id = %runtime_id,
+            role = %role,
+            "RuntimeXdmNode::element: resolved",
+        );
         RuntimeXdmNode::Element(ElementData::new(node, runtime_id, namespace, role, order_key))
     }
 

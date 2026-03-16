@@ -1,8 +1,9 @@
 //! Unified timeout helpers for blocking on async D-Bus futures.
 //!
 //! Every async D-Bus call in this crate runs through [`block_on_timeout`] which
-//! races the future against an [`async_io::Timer`].  Three pre-defined
-//! durations cover the typical call-site categories:
+//! polls the future in a loop with a deadline enforced by
+//! [`std::thread::park_timeout`].  Three pre-defined durations cover the
+//! typical call-site categories:
 //!
 //! | Constant            | Duration | Use case                                   |
 //! |---------------------|----------|--------------------------------------------|
@@ -10,8 +11,11 @@
 //! | [`TIMEOUT_INIT`]    | 5 s      | One-off calls during provider startup      |
 //! | [`TIMEOUT_CONNECT`] | 10 s     | A11y bus connection establishment           |
 
-use futures_lite::future::block_on;
-use std::time::Duration;
+use std::future::Future;
+use std::pin::pin;
+use std::sync::Arc;
+use std::task::{Context, Wake};
+use std::time::{Duration, Instant};
 use tracing::warn;
 
 /// Timeout for individual D-Bus property reads (per-node calls).
@@ -24,28 +28,50 @@ pub(crate) const TIMEOUT_INIT: Duration = Duration::from_secs(5);
 /// Generous timeout for the initial accessibility bus connection.
 pub(crate) const TIMEOUT_CONNECT: Duration = Duration::from_secs(10);
 
+/// Waker that unparks a specific thread.
+struct ThreadWake(std::thread::Thread);
+
+impl Wake for ThreadWake {
+    fn wake(self: Arc<Self>) {
+        self.0.unpark();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.unpark();
+    }
+}
+
 /// Execute a future with a timeout.
 ///
 /// Returns `Some(output)` on success or `None` if the future does not complete
 /// within `timeout`.  A `warn!` is emitted on every timeout so slow or
 /// unresponsive applications are visible in logs.
-pub(crate) fn block_on_timeout<F: std::future::Future>(future: F, timeout: Duration) -> Option<F::Output> {
-    let start = std::time::Instant::now();
-    let result = block_on(async {
-        futures_lite::future::or(async { Some(future.await) }, async {
-            async_io::Timer::after(timeout).await;
-            None
-        })
-        .await
-    });
-    if result.is_none() {
-        warn!(
-            elapsed_ms = start.elapsed().as_millis() as u64,
-            timeout_ms = timeout.as_millis() as u64,
-            "D-Bus call timed out",
-        );
+///
+/// The timeout is enforced by [`std::thread::park_timeout`], making it
+/// independent of any async reactor.
+pub(crate) fn block_on_timeout<F: Future>(future: F, timeout: Duration) -> Option<F::Output> {
+    let start = Instant::now();
+    let waker = Arc::new(ThreadWake(std::thread::current())).into();
+    let mut cx = Context::from_waker(&waker);
+    let mut future = pin!(future);
+
+    loop {
+        match future.as_mut().poll(&mut cx) {
+            std::task::Poll::Ready(val) => return Some(val),
+            std::task::Poll::Pending => {
+                let elapsed = start.elapsed();
+                if elapsed >= timeout {
+                    warn!(
+                        elapsed_ms = elapsed.as_millis() as u64,
+                        timeout_ms = timeout.as_millis() as u64,
+                        "D-Bus call timed out",
+                    );
+                    return None;
+                }
+                std::thread::park_timeout(timeout - elapsed);
+            }
+        }
     }
-    result
 }
 
 /// Convenience wrapper: [`block_on_timeout`] with [`TIMEOUT_CALL`] (1 s).

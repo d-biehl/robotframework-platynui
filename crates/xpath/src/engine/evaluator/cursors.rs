@@ -69,16 +69,14 @@ enum AxisState<N> {
         initialized: bool,
     },
     // Depth-first traversal for descendant/descendant-or-self using document-order successors.
-    // `last` holds the last emitted node in pre-order; the next candidate is its doc_successor.
-    // We stop once we reach the first node after the anchor's subtree (precomputed boundary).
+    // `last` holds the last emitted node in pre-order; the next candidate is its
+    // doc_successor *within* the anchor's subtree. Stops lazily when the walk-up
+    // reaches the anchor — no eager full-subtree traversal needed.
     Descend {
         anchor: N,
         last: Option<N>,
         include_self: bool,
         started: bool,
-        // First node after the subtree rooted at `anchor` (doc_successor(last_descendant(anchor)))
-        // If None, there is no node after the subtree in this document.
-        after: Option<N>,
     },
     // Parent/ancestor chains
     Parent {
@@ -152,20 +150,12 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             AxisIR::Parent => AxisState::Parent { done: false },
             AxisIR::Ancestor => AxisState::Ancestors { current: self.node.parent(), include_self: false },
             AxisIR::AncestorOrSelf => AxisState::Ancestors { current: Some(self.node.clone()), include_self: true },
-            AxisIR::Descendant => AxisState::Descend {
-                anchor: self.node.clone(),
-                last: None,
-                include_self: false,
-                started: false,
-                after: None,
-            },
-            AxisIR::DescendantOrSelf => AxisState::Descend {
-                anchor: self.node.clone(),
-                last: None,
-                include_self: true,
-                started: false,
-                after: None,
-            },
+            AxisIR::Descendant => {
+                AxisState::Descend { anchor: self.node.clone(), last: None, include_self: false, started: false }
+            }
+            AxisIR::DescendantOrSelf => {
+                AxisState::Descend { anchor: self.node.clone(), last: None, include_self: true, started: false }
+            }
             AxisIR::FollowingSibling => AxisState::FollowingSiblingIter { current: None, initialized: false },
             AxisIR::PrecedingSibling => AxisState::PrecedingSiblingIter { current: None, initialized: false },
             AxisIR::Following => AxisState::Following { anchor: None, next: None, initialized: false },
@@ -273,12 +263,9 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                     Ok(None)
                 }
             }
-            AxisState::Descend { anchor, last, include_self, started, after } => {
+            AxisState::Descend { anchor, last, include_self, started } => {
                 if !*started {
                     *started = true;
-                    // Precompute boundary: node after the subtree rooted at `anchor`.
-                    let end = Self::last_descendant_in_doc(anchor.clone());
-                    *after = Self::doc_successor(&end);
                     if *include_self {
                         let n = self.node.clone();
                         *last = Some(n.clone());
@@ -293,14 +280,10 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                         }
                     }
                 }
-                // Advance to the next document-order successor; stop when reaching boundary `after`.
+                // Advance to the next document-order successor *within* the
+                // anchor's subtree. Stops when the walk-up reaches the anchor.
                 if let Some(prev) = last.take() {
-                    if let Some(succ) = Self::doc_successor(&prev) {
-                        if let Some(a) = after.as_ref()
-                            && &succ == a
-                        {
-                            return Ok(None);
-                        }
+                    if let Some(succ) = Self::doc_successor_within(&prev, anchor) {
                         *last = Some(succ.clone());
                         return Ok(Some(succ));
                     }
@@ -338,9 +321,11 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             AxisState::Following { anchor, next, initialized } => {
                 if !*initialized {
                     *initialized = true;
-                    let start = Self::last_descendant_in_doc(self.node.clone());
-                    *anchor = Some(start.clone());
-                    *next = Self::doc_successor(&start);
+                    // First node after the context node's subtree: walk up
+                    // ancestors until one has a following sibling — avoids
+                    // eagerly traversing the entire subtree.
+                    *next = Self::first_node_after_subtree(&self.node);
+                    *anchor = next.clone();
                 }
                 while let Some(n) = next.take() {
                     *anchor = Some(n.clone());
@@ -805,6 +790,43 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             cur = p;
         }
         None
+    }
+    /// Like [`Self::doc_successor`] but confined to the subtree rooted at
+    /// `anchor`. Returns `None` when the walk-up reaches `anchor`, avoiding
+    /// an eager full-subtree traversal to precompute a boundary node.
+    fn doc_successor_within(node: &N, anchor: &N) -> Option<N> {
+        if let Some(c) = Self::first_child_in_doc(node) {
+            return Some(c);
+        }
+        let mut cur = node.clone();
+        loop {
+            if cur == *anchor {
+                return None;
+            }
+            if let Some(sib) = Self::next_sibling_in_doc(&cur) {
+                return Some(sib);
+            }
+            match cur.parent() {
+                Some(p) => cur = p,
+                None => return None,
+            }
+        }
+    }
+    /// Return the first node in document order that follows the entire
+    /// subtree rooted at `node`. Equivalent to
+    /// `doc_successor(last_descendant(node))` but without traversing the
+    /// subtree — walks ancestors until one has a following sibling.
+    fn first_node_after_subtree(node: &N) -> Option<N> {
+        let mut cur = node.clone();
+        loop {
+            if let Some(sib) = Self::next_sibling_in_doc(&cur) {
+                return Some(sib);
+            }
+            match cur.parent() {
+                Some(p) => cur = p,
+                None => return None,
+            }
+        }
     }
     fn prev_sibling_in_doc(node: &N) -> Option<N> {
         let parent = node.parent()?;
