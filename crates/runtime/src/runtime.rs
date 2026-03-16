@@ -44,6 +44,7 @@ pub struct Runtime {
     screenshot: Option<&'static dyn ScreenshotProvider>,
     pointer: Option<&'static dyn PointerDevice>,
     pointer_engine: Mutex<Option<PointerEngine<'static>>>,
+    xpath_cache: Mutex<crate::xpath::XdmCache>,
     pointer_settings: Mutex<PointerSettings>,
     pointer_profile: Mutex<PointerProfile>,
     keyboard: Option<&'static dyn KeyboardDevice>,
@@ -312,6 +313,7 @@ impl Runtime {
             screenshot,
             pointer,
             pointer_engine: Mutex::new(pointer_engine),
+            xpath_cache: Mutex::new(crate::xpath::XdmCache::new()),
             pointer_settings: Mutex::new(pointer_settings),
             pointer_profile: Mutex::new(pointer_profile),
             keyboard,
@@ -413,6 +415,23 @@ impl Runtime {
         evaluate(node, xpath, self.evaluate_options().with_cache(cache.clone()))
     }
 
+    fn shared_xpath_cache(&self) -> crate::xpath::XdmCache {
+        self.xpath_cache.lock().expect("xpath cache mutex poisoned").clone()
+    }
+
+    pub fn clear_cache(&self) {
+        self.xpath_cache.lock().expect("xpath cache mutex poisoned").clear();
+    }
+
+    pub fn evaluate_runtime_cached(
+        &self,
+        node: Option<Arc<dyn UiNode>>,
+        xpath: &str,
+    ) -> Result<Vec<EvaluationItem>, EvaluateError> {
+        let cache = self.shared_xpath_cache();
+        self.evaluate_cached(node, xpath, &cache)
+    }
+
     pub fn evaluate_iter_cached(
         &self,
         node: Option<Arc<dyn UiNode>>,
@@ -431,6 +450,15 @@ impl Runtime {
         crate::xpath::EvaluationStream::new(node, xpath.to_string(), self.evaluate_options().with_cache(cache.clone()))
     }
 
+    pub fn evaluate_iter_owned_runtime_cached(
+        &self,
+        node: Option<Arc<dyn UiNode>>,
+        xpath: &str,
+    ) -> Result<crate::xpath::EvaluationStream, EvaluateError> {
+        let cache = self.shared_xpath_cache();
+        self.evaluate_iter_owned_cached(node, xpath, &cache)
+    }
+
     pub fn evaluate_single_cached(
         &self,
         node: Option<Arc<dyn UiNode>>,
@@ -443,6 +471,15 @@ impl Runtime {
             Some(Err(e)) => Err(e),
             None => Ok(None),
         }
+    }
+
+    pub fn evaluate_single_runtime_cached(
+        &self,
+        node: Option<Arc<dyn UiNode>>,
+        xpath: &str,
+    ) -> Result<Option<EvaluationItem>, EvaluateError> {
+        let cache = self.shared_xpath_cache();
+        self.evaluate_single_cached(node, xpath, &cache)
     }
 
     pub fn focus(&self, node: &Arc<dyn UiNode>) -> Result<(), FocusError> {

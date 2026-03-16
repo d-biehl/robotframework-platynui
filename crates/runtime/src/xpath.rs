@@ -1,9 +1,8 @@
 //
 use platynui_core::ui::PatternId;
-use std::cell::{Cell, RefCell};
-use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use platynui_core::provider::ProviderError;
 use platynui_core::ui::attribute_names;
@@ -25,24 +24,28 @@ const NATIVE_NS_URI: &str = "urn:platynui:native";
 
 type NodeIterator = Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>;
 type AttributeIterator = Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send>;
-type NodeIteratorCell = Rc<RefCell<Option<NodeIterator>>>;
-type AttributeIteratorCell = Rc<RefCell<Option<AttributeIterator>>>;
+type NodeIteratorCell = Arc<Mutex<Option<NodeIterator>>>;
+type AttributeIteratorCell = Arc<Mutex<Option<AttributeIterator>>>;
+type NodeCacheCell = Arc<Mutex<Vec<RuntimeXdmNode>>>;
+type ParentCacheCell = Arc<Mutex<Option<Option<RuntimeXdmNode>>>>;
+type SharedFlag = Arc<AtomicBool>;
 
 /// Cross-evaluation XDM tree cache.
 ///
-/// `Clone` but `!Send` — must stay on the evaluation thread.
+/// `Clone + Send + Sync` so a single runtime-owned cache can be shared across
+/// threads while still preserving explicit invalidation semantics.
 #[derive(Clone)]
 pub struct XdmCache {
-    inner: Rc<RefCell<Option<(RuntimeId, RuntimeXdmNode)>>>,
+    inner: Arc<Mutex<Option<(RuntimeId, RuntimeXdmNode)>>>,
 }
 
 impl XdmCache {
     pub fn new() -> Self {
-        Self { inner: Rc::new(RefCell::new(None)) }
+        Self { inner: Arc::new(Mutex::new(None)) }
     }
 
     pub fn clear(&self) {
-        self.inner.borrow_mut().take();
+        self.inner.lock().expect("xdm cache mutex poisoned").take();
     }
 }
 
@@ -54,7 +57,7 @@ impl Default for XdmCache {
 
 impl std::fmt::Debug for XdmCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let has_entry = self.inner.borrow().is_some();
+        let has_entry = self.inner.lock().expect("xdm cache mutex poisoned").is_some();
         f.debug_struct("XdmCache").field("cached", &has_entry).finish()
     }
 }
@@ -268,7 +271,7 @@ fn get_or_create_xdm_root(context: &Arc<dyn UiNode>, force_rebuild: bool, cache:
         return RuntimeXdmNode::from_node(Arc::clone(context));
     };
 
-    let mut slot = cache.inner.borrow_mut();
+    let mut slot = cache.inner.lock().expect("xdm cache mutex poisoned");
 
     if !force_rebuild {
         let context_id = context.runtime_id();
@@ -359,20 +362,22 @@ impl RuntimeXdmNode {
     fn prepare_for_evaluation(&self) {
         match self {
             RuntimeXdmNode::Document(doc) => {
-                doc.attrs_cache.borrow_mut().clear();
-                doc.attrs_finished.set(false);
-                *doc.attrs_inner.borrow_mut() = None;
-                doc.children_validated.set(false);
-                for child in doc.children_cache.borrow().iter() {
+                doc.attrs_cache.lock().expect("document attrs cache mutex poisoned").clear();
+                doc.attrs_finished.store(false, Ordering::Release);
+                *doc.attrs_inner.lock().expect("document attrs iterator mutex poisoned") = None;
+                doc.children_validated.store(false, Ordering::Release);
+                let children = doc.children_cache.lock().expect("document children cache mutex poisoned").clone();
+                for child in &children {
                     child.prepare_for_evaluation();
                 }
             }
             RuntimeXdmNode::Element(elem) => {
-                elem.attrs_cache.borrow_mut().clear();
-                elem.attrs_finished.set(false);
-                *elem.attrs_inner.borrow_mut() = None;
-                elem.children_validated.set(false);
-                for child in elem.children_cache.borrow().iter() {
+                elem.attrs_cache.lock().expect("element attrs cache mutex poisoned").clear();
+                elem.attrs_finished.store(false, Ordering::Release);
+                *elem.attrs_inner.lock().expect("element attrs iterator mutex poisoned") = None;
+                elem.children_validated.store(false, Ordering::Release);
+                let children = elem.children_cache.lock().expect("element children cache mutex poisoned").clone();
+                for child in &children {
                     child.prepare_for_evaluation();
                 }
             }
@@ -460,7 +465,7 @@ impl XdmNode for RuntimeXdmNode {
         match self {
             RuntimeXdmNode::Document(_) => None,
             RuntimeXdmNode::Element(elem) => {
-                if let Some(cached) = elem.parent_cache.borrow().as_ref() {
+                if let Some(cached) = elem.parent_cache.lock().expect("parent cache mutex poisoned").as_ref() {
                     return cached.clone();
                 }
                 let computed: Option<RuntimeXdmNode> = match elem.node.parent() {
@@ -470,7 +475,7 @@ impl XdmNode for RuntimeXdmNode {
                     },
                     None => Some(RuntimeXdmNode::document(elem.node.clone())),
                 };
-                *elem.parent_cache.borrow_mut() = Some(computed.clone());
+                *elem.parent_cache.lock().expect("parent cache mutex poisoned") = Some(computed.clone());
                 computed
             }
             RuntimeXdmNode::Attribute(attr) => Some(RuntimeXdmNode::from_node(attr.owner.clone())),
@@ -480,40 +485,62 @@ impl XdmNode for RuntimeXdmNode {
     fn children(&self) -> Self::Children<'_> {
         match self {
             RuntimeXdmNode::Document(doc) => {
-                if !doc.children_validated.get() {
-                    if doc.children_cache.borrow().iter().any(|c| !c.is_valid()) {
-                        doc.children_cache.borrow_mut().clear();
-                        doc.children_finished.set(false);
-                        *doc.children_inner.borrow_mut() = Some(doc.root.children());
+                if !doc.children_validated.load(Ordering::Acquire) {
+                    let has_invalid = doc
+                        .children_cache
+                        .lock()
+                        .expect("document children cache mutex poisoned")
+                        .iter()
+                        .any(|c| !c.is_valid());
+                    if has_invalid {
+                        doc.children_cache.lock().expect("document children cache mutex poisoned").clear();
+                        doc.children_finished.store(false, Ordering::Release);
+                        *doc.children_inner.lock().expect("document children iterator mutex poisoned") =
+                            Some(doc.root.children());
                     }
-                    doc.children_validated.set(true);
+                    doc.children_validated.store(true, Ordering::Release);
                 }
-                if doc.children_inner.borrow().is_none() && !doc.children_finished.get() {
-                    *doc.children_inner.borrow_mut() = Some(doc.root.children());
+                let needs_init = {
+                    doc.children_inner.lock().expect("document children iterator mutex poisoned").is_none()
+                        && !doc.children_finished.load(Ordering::Acquire)
+                };
+                if needs_init {
+                    *doc.children_inner.lock().expect("document children iterator mutex poisoned") = Some(doc.root.children());
                 }
                 NodeChildrenIter::from_shared(
-                    Rc::clone(&doc.children_inner),
-                    Rc::clone(&doc.children_cache),
-                    Rc::clone(&doc.children_finished),
+                    Arc::clone(&doc.children_inner),
+                    Arc::clone(&doc.children_cache),
+                    Arc::clone(&doc.children_finished),
                 )
                 .with_parent_node(self.clone())
             }
             RuntimeXdmNode::Element(elem) => {
-                if !elem.children_validated.get() {
-                    if elem.children_cache.borrow().iter().any(|c| !c.is_valid()) {
-                        elem.children_cache.borrow_mut().clear();
-                        elem.children_finished.set(false);
-                        *elem.children_inner.borrow_mut() = Some(elem.node.children());
+                if !elem.children_validated.load(Ordering::Acquire) {
+                    let has_invalid = elem
+                        .children_cache
+                        .lock()
+                        .expect("element children cache mutex poisoned")
+                        .iter()
+                        .any(|c| !c.is_valid());
+                    if has_invalid {
+                        elem.children_cache.lock().expect("element children cache mutex poisoned").clear();
+                        elem.children_finished.store(false, Ordering::Release);
+                        *elem.children_inner.lock().expect("element children iterator mutex poisoned") =
+                            Some(elem.node.children());
                     }
-                    elem.children_validated.set(true);
+                    elem.children_validated.store(true, Ordering::Release);
                 }
-                if elem.children_inner.borrow().is_none() && !elem.children_finished.get() {
-                    *elem.children_inner.borrow_mut() = Some(elem.node.children());
+                let needs_init = {
+                    elem.children_inner.lock().expect("element children iterator mutex poisoned").is_none()
+                        && !elem.children_finished.load(Ordering::Acquire)
+                };
+                if needs_init {
+                    *elem.children_inner.lock().expect("element children iterator mutex poisoned") = Some(elem.node.children());
                 }
                 NodeChildrenIter::from_shared(
-                    Rc::clone(&elem.children_inner),
-                    Rc::clone(&elem.children_cache),
-                    Rc::clone(&elem.children_finished),
+                    Arc::clone(&elem.children_inner),
+                    Arc::clone(&elem.children_cache),
+                    Arc::clone(&elem.children_finished),
                 )
                 .with_parent_node(self.clone())
             }
@@ -524,25 +551,33 @@ impl XdmNode for RuntimeXdmNode {
     fn attributes(&self) -> Self::Attributes<'_> {
         match self {
             RuntimeXdmNode::Document(doc) => {
-                if doc.attrs_inner.borrow().is_none() && !doc.attrs_finished.get() {
-                    *doc.attrs_inner.borrow_mut() = Some(doc.root.attributes());
+                let needs_init = {
+                    doc.attrs_inner.lock().expect("document attrs iterator mutex poisoned").is_none()
+                        && !doc.attrs_finished.load(Ordering::Acquire)
+                };
+                if needs_init {
+                    *doc.attrs_inner.lock().expect("document attrs iterator mutex poisoned") = Some(doc.root.attributes());
                 }
                 NodeAttributeIter::from_shared(
                     doc.root.clone(),
-                    Rc::clone(&doc.attrs_inner),
-                    Rc::clone(&doc.attrs_cache),
-                    Rc::clone(&doc.attrs_finished),
+                    Arc::clone(&doc.attrs_inner),
+                    Arc::clone(&doc.attrs_cache),
+                    Arc::clone(&doc.attrs_finished),
                 )
             }
             RuntimeXdmNode::Element(elem) => {
-                if elem.attrs_inner.borrow().is_none() && !elem.attrs_finished.get() {
-                    *elem.attrs_inner.borrow_mut() = Some(elem.node.attributes());
+                let needs_init = {
+                    elem.attrs_inner.lock().expect("element attrs iterator mutex poisoned").is_none()
+                        && !elem.attrs_finished.load(Ordering::Acquire)
+                };
+                if needs_init {
+                    *elem.attrs_inner.lock().expect("element attrs iterator mutex poisoned") = Some(elem.node.attributes());
                 }
                 NodeAttributeIter::from_shared(
                     elem.node.clone(),
-                    Rc::clone(&elem.attrs_inner),
-                    Rc::clone(&elem.attrs_cache),
-                    Rc::clone(&elem.attrs_finished),
+                    Arc::clone(&elem.attrs_inner),
+                    Arc::clone(&elem.attrs_cache),
+                    Arc::clone(&elem.attrs_finished),
                 )
             }
             RuntimeXdmNode::Attribute(_) => NodeAttributeIter::empty(),
@@ -645,12 +680,12 @@ struct DocumentData {
     root: Arc<dyn UiNode>,
     runtime_id: RuntimeId,
     children_inner: NodeIteratorCell,
-    children_cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
-    children_finished: Rc<Cell<bool>>,
-    children_validated: Cell<bool>,
+    children_cache: NodeCacheCell,
+    children_finished: SharedFlag,
+    children_validated: SharedFlag,
     attrs_inner: AttributeIteratorCell,
-    attrs_cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
-    attrs_finished: Rc<Cell<bool>>,
+    attrs_cache: NodeCacheCell,
+    attrs_finished: SharedFlag,
 }
 
 impl DocumentData {
@@ -658,13 +693,13 @@ impl DocumentData {
         Self {
             root,
             runtime_id,
-            children_inner: Rc::new(RefCell::new(None)),
-            children_cache: Rc::new(RefCell::new(Vec::new())),
-            children_finished: Rc::new(Cell::new(false)),
-            children_validated: Cell::new(false),
-            attrs_inner: Rc::new(RefCell::new(None)),
-            attrs_cache: Rc::new(RefCell::new(Vec::new())),
-            attrs_finished: Rc::new(Cell::new(false)),
+            children_inner: Arc::new(Mutex::new(None)),
+            children_cache: Arc::new(Mutex::new(Vec::new())),
+            children_finished: Arc::new(AtomicBool::new(false)),
+            children_validated: Arc::new(AtomicBool::new(false)),
+            attrs_inner: Arc::new(Mutex::new(None)),
+            attrs_cache: Arc::new(Mutex::new(Vec::new())),
+            attrs_finished: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -677,13 +712,13 @@ struct ElementData {
     qname: QName,
     order_key: Option<u64>,
     children_inner: NodeIteratorCell,
-    children_cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
-    children_finished: Rc<Cell<bool>>,
-    children_validated: Cell<bool>,
+    children_cache: NodeCacheCell,
+    children_finished: SharedFlag,
+    children_validated: SharedFlag,
     attrs_inner: AttributeIteratorCell,
-    attrs_cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
-    attrs_finished: Rc<Cell<bool>>,
-    parent_cache: Rc<RefCell<Option<Option<RuntimeXdmNode>>>>,
+    attrs_cache: NodeCacheCell,
+    attrs_finished: SharedFlag,
+    parent_cache: ParentCacheCell,
 }
 
 impl ElementData {
@@ -701,14 +736,14 @@ impl ElementData {
             role,
             qname,
             order_key,
-            children_inner: Rc::new(RefCell::new(None)),
-            children_cache: Rc::new(RefCell::new(Vec::new())),
-            children_finished: Rc::new(Cell::new(false)),
-            children_validated: Cell::new(false),
-            attrs_inner: Rc::new(RefCell::new(None)),
-            attrs_cache: Rc::new(RefCell::new(Vec::new())),
-            attrs_finished: Rc::new(Cell::new(false)),
-            parent_cache: Rc::new(RefCell::new(None)),
+            children_inner: Arc::new(Mutex::new(None)),
+            children_cache: Arc::new(Mutex::new(Vec::new())),
+            children_finished: Arc::new(AtomicBool::new(false)),
+            children_validated: Arc::new(AtomicBool::new(false)),
+            attrs_inner: Arc::new(Mutex::new(None)),
+            attrs_cache: Arc::new(Mutex::new(Vec::new())),
+            attrs_finished: Arc::new(AtomicBool::new(false)),
+            parent_cache: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -1002,14 +1037,14 @@ fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
 
 struct NodeChildrenIter<'a> {
     inner: NodeIteratorCell,
-    cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
-    finished: Rc<Cell<bool>>,
+    cache: NodeCacheCell,
+    finished: SharedFlag,
     pos: usize,
     _marker: std::marker::PhantomData<&'a ()>,
     parent_node: Option<RuntimeXdmNode>,
 }
 impl<'a> NodeChildrenIter<'a> {
-    fn from_shared(inner: NodeIteratorCell, cache: Rc<RefCell<Vec<RuntimeXdmNode>>>, finished: Rc<Cell<bool>>) -> Self {
+    fn from_shared(inner: NodeIteratorCell, cache: NodeCacheCell, finished: SharedFlag) -> Self {
         Self { inner, cache, finished, pos: 0, _marker: std::marker::PhantomData, parent_node: None }
     }
     fn with_parent_node(mut self, parent: RuntimeXdmNode) -> Self {
@@ -1018,9 +1053,9 @@ impl<'a> NodeChildrenIter<'a> {
     }
     fn empty() -> Self {
         Self {
-            inner: Rc::new(RefCell::new(None)),
-            cache: Rc::new(RefCell::new(Vec::new())),
-            finished: Rc::new(Cell::new(true)),
+            inner: Arc::new(Mutex::new(None)),
+            cache: Arc::new(Mutex::new(Vec::new())),
+            finished: Arc::new(AtomicBool::new(true)),
             pos: 0,
             _marker: std::marker::PhantomData,
             parent_node: None,
@@ -1031,7 +1066,7 @@ impl<'a> Iterator for NodeChildrenIter<'a> {
     type Item = RuntimeXdmNode;
     fn next(&mut self) -> Option<Self::Item> {
         {
-            let cache = self.cache.borrow();
+            let cache = self.cache.lock().expect("children cache mutex poisoned");
             if self.pos < cache.len() {
                 let item = cache[self.pos].clone();
                 drop(cache);
@@ -1039,10 +1074,10 @@ impl<'a> Iterator for NodeChildrenIter<'a> {
                 return Some(item);
             }
         }
-        if self.finished.get() {
+        if self.finished.load(Ordering::Acquire) {
             return None;
         }
-        let mut inner_borrow = self.inner.borrow_mut();
+        let mut inner_borrow = self.inner.lock().expect("children iterator mutex poisoned");
         match inner_borrow.as_mut() {
             Some(iter) => {
                 if let Some(owner) = iter.next() {
@@ -1054,18 +1089,18 @@ impl<'a> Iterator for NodeChildrenIter<'a> {
                     if let RuntimeXdmNode::Element(elem) = &mut node
                         && let Some(parent) = self.parent_node.as_ref()
                     {
-                        *elem.parent_cache.borrow_mut() = Some(Some(parent.clone()));
+                        *elem.parent_cache.lock().expect("parent cache mutex poisoned") = Some(Some(parent.clone()));
                     }
-                    self.cache.borrow_mut().push(node.clone());
+                    self.cache.lock().expect("children cache mutex poisoned").push(node.clone());
                     self.pos += 1;
                     Some(node)
                 } else {
-                    self.finished.set(true);
+                    self.finished.store(true, Ordering::Release);
                     None
                 }
             }
             None => {
-                self.finished.set(true);
+                self.finished.store(true, Ordering::Release);
                 None
             }
         }
@@ -1075,8 +1110,8 @@ impl<'a> Iterator for NodeChildrenIter<'a> {
 struct NodeAttributeIter<'a> {
     owner: Arc<dyn UiNode>,
     inner: AttributeIteratorCell,
-    cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
-    finished: Rc<Cell<bool>>,
+    cache: NodeCacheCell,
+    finished: SharedFlag,
     pos: usize,
     _marker: std::marker::PhantomData<&'a ()>,
 }
@@ -1084,17 +1119,17 @@ impl<'a> NodeAttributeIter<'a> {
     fn from_shared(
         owner: Arc<dyn UiNode>,
         inner: AttributeIteratorCell,
-        cache: Rc<RefCell<Vec<RuntimeXdmNode>>>,
-        finished: Rc<Cell<bool>>,
+        cache: NodeCacheCell,
+        finished: SharedFlag,
     ) -> Self {
         Self { owner, inner, cache, finished, pos: 0, _marker: std::marker::PhantomData }
     }
     fn empty() -> Self {
         Self {
             owner: Arc::new(DummyNode),
-            inner: Rc::new(RefCell::new(None)),
-            cache: Rc::new(RefCell::new(Vec::new())),
-            finished: Rc::new(Cell::new(true)),
+            inner: Arc::new(Mutex::new(None)),
+            cache: Arc::new(Mutex::new(Vec::new())),
+            finished: Arc::new(AtomicBool::new(true)),
             pos: 0,
             _marker: std::marker::PhantomData,
         }
@@ -1104,7 +1139,7 @@ impl<'a> Iterator for NodeAttributeIter<'a> {
     type Item = RuntimeXdmNode;
     fn next(&mut self) -> Option<Self::Item> {
         {
-            let cache = self.cache.borrow();
+            let cache = self.cache.lock().expect("attribute cache mutex poisoned");
             if self.pos < cache.len() {
                 let item = cache[self.pos].clone();
                 drop(cache);
@@ -1112,17 +1147,17 @@ impl<'a> Iterator for NodeAttributeIter<'a> {
                 return Some(item);
             }
         }
-        if self.finished.get() {
+        if self.finished.load(Ordering::Acquire) {
             return None;
         }
-        let mut inner_borrow = self.inner.borrow_mut();
+        let mut inner_borrow = self.inner.lock().expect("attribute iterator mutex poisoned");
         let iter = inner_borrow.as_mut()?;
         if let Some(attr) = iter.next() {
             let ns = attr.namespace();
             let base_name = attr.name().to_string();
             let src = attr.clone();
             {
-                let mut cache = self.cache.borrow_mut();
+                let mut cache = self.cache.lock().expect("attribute cache mutex poisoned");
                 cache.push(RuntimeXdmNode::Attribute(AttributeData::new_from_source(
                     self.owner.clone(),
                     ns,
@@ -1179,7 +1214,7 @@ impl<'a> Iterator for NodeAttributeIter<'a> {
             // Return the just-pushed item at current position (should exist)
             let idx = self.pos;
             {
-                let cache = self.cache.borrow();
+                let cache = self.cache.lock().expect("attribute cache mutex poisoned");
                 if idx < cache.len() {
                     let it = cache[idx].clone();
                     self.pos += 1;
@@ -1187,10 +1222,10 @@ impl<'a> Iterator for NodeAttributeIter<'a> {
                 }
             }
             // Fallback: inconsistent state — mark finished
-            self.finished.set(true);
+            self.finished.store(true, Ordering::Release);
             None
         } else {
-            self.finished.set(true);
+            self.finished.store(true, Ordering::Release);
             None
         }
     }

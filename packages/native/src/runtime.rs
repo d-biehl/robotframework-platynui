@@ -555,8 +555,7 @@ impl PyRuntime {
             None => None,
         };
         let runtime = self.runtime()?;
-        let cache = runtime_rs::XdmCache::new();
-        let items = runtime.evaluate_cached(node_arc, xpath, &cache).map_err(map_eval_err)?;
+        let items = runtime.evaluate_runtime_cached(node_arc, xpath).map_err(map_eval_err)?;
         let out = PyList::empty(py);
         for item in items {
             out.append(evaluation_item_to_py(py, &item)?)?;
@@ -581,8 +580,7 @@ impl PyRuntime {
         };
 
         let runtime = self.runtime()?;
-        let cache = runtime_rs::XdmCache::new();
-        let item = runtime.evaluate_single_cached(node_arc, xpath, &cache).map_err(map_eval_err)?;
+        let item = runtime.evaluate_single_runtime_cached(node_arc, xpath).map_err(map_eval_err)?;
 
         match item {
             Some(it) => evaluation_item_to_py(py, &it),
@@ -602,7 +600,9 @@ impl PyRuntime {
     }
 
     fn clear_cache(&self) {
-        let _ = self;
+        if let Ok(runtime) = self.runtime() {
+            runtime.clear_cache();
+        }
     }
 
     /// Evaluates an XPath expression and returns a lazy iterator over the results.
@@ -624,8 +624,7 @@ impl PyRuntime {
         };
 
         let runtime = self.runtime()?;
-        let cache = runtime_rs::XdmCache::new();
-        let stream = runtime.evaluate_iter_owned_cached(node_arc, xpath, &cache).map_err(map_eval_err)?;
+        let stream = runtime.evaluate_iter_owned_runtime_cached(node_arc, xpath).map_err(map_eval_err)?;
         Py::new(py, PyEvaluationIterator { iter: Some(Box::new(stream)) })
     }
 

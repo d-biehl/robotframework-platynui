@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Test new Runtime methods: evaluate_single() and providers()."""
 
+import threading
+
 from platynui_native import Runtime, UiNode
 
 
@@ -55,6 +57,34 @@ def test_evaluate_iter(rt_mock_platform: Runtime) -> None:
     empty_iter = rt_mock_platform.evaluate_iter('//NonExistentElement')
     empty_results = list(empty_iter)
     assert len(empty_results) == 0
+
+
+def test_runtime_can_clear_cache_across_threads(rt_mock_platform: Runtime) -> None:
+    """Verify that the same Runtime remains usable across threads with cache invalidation."""
+
+    first = rt_mock_platform.evaluate_single('/')
+    assert isinstance(first, UiNode)
+
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            worker_result = rt_mock_platform.evaluate_single('/')
+            assert isinstance(worker_result, UiNode)
+            rt_mock_platform.clear_cache()
+            worker_result = rt_mock_platform.evaluate_single('/')
+            assert isinstance(worker_result, UiNode)
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    thread.join()
+
+    assert errors == []
+
+    after_clear = rt_mock_platform.evaluate_single('/')
+    assert isinstance(after_clear, UiNode)
 
 
 if __name__ == '__main__':
