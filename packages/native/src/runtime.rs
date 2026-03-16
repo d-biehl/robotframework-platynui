@@ -887,7 +887,7 @@ impl PyRuntime {
     #[pyo3(text_signature = "(self)")]
     fn keyboard_known_key_names(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let runtime = self.runtime()?;
-        let names = runtime.keyboard_known_key_names().map_err(|e| PyException::new_err(e.to_string()))?;
+        let names = runtime.keyboard_known_key_names().map_err(|e| KeyboardError::new_err(e.to_string()))?;
         let list = PyList::new(py, names)?;
         Ok(list.unbind())
     }
