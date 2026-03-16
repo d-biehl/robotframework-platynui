@@ -20,10 +20,6 @@ class OurDynamicCore(DynamicCore):
                 return f'{source}:{lineno}'
             if isinstance(source, str):
                 return source
-            if isinstance(lineno, int):
-                return f':{lineno}'
 
-        fallback = super().get_keyword_source(keyword_name)
-        if fallback is None or isinstance(fallback, str):
-            return fallback
-        return str(fallback)
+        fallback: str | None = super().get_keyword_source(keyword_name)
+        return fallback
