@@ -1,8 +1,8 @@
 //
 use platynui_core::ui::PatternId;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use platynui_core::provider::ProviderError;
 use platynui_core::ui::attribute_names;
@@ -505,7 +505,8 @@ impl XdmNode for RuntimeXdmNode {
                         && !doc.children_finished.load(Ordering::Acquire)
                 };
                 if needs_init {
-                    *doc.children_inner.lock().expect("document children iterator mutex poisoned") = Some(doc.root.children());
+                    *doc.children_inner.lock().expect("document children iterator mutex poisoned") =
+                        Some(doc.root.children());
                 }
                 NodeChildrenIter::from_shared(
                     Arc::clone(&doc.children_inner),
@@ -535,7 +536,8 @@ impl XdmNode for RuntimeXdmNode {
                         && !elem.children_finished.load(Ordering::Acquire)
                 };
                 if needs_init {
-                    *elem.children_inner.lock().expect("element children iterator mutex poisoned") = Some(elem.node.children());
+                    *elem.children_inner.lock().expect("element children iterator mutex poisoned") =
+                        Some(elem.node.children());
                 }
                 NodeChildrenIter::from_shared(
                     Arc::clone(&elem.children_inner),
@@ -556,7 +558,8 @@ impl XdmNode for RuntimeXdmNode {
                         && !doc.attrs_finished.load(Ordering::Acquire)
                 };
                 if needs_init {
-                    *doc.attrs_inner.lock().expect("document attrs iterator mutex poisoned") = Some(doc.root.attributes());
+                    *doc.attrs_inner.lock().expect("document attrs iterator mutex poisoned") =
+                        Some(doc.root.attributes());
                 }
                 NodeAttributeIter::from_shared(
                     doc.root.clone(),
@@ -571,7 +574,8 @@ impl XdmNode for RuntimeXdmNode {
                         && !elem.attrs_finished.load(Ordering::Acquire)
                 };
                 if needs_init {
-                    *elem.attrs_inner.lock().expect("element attrs iterator mutex poisoned") = Some(elem.node.attributes());
+                    *elem.attrs_inner.lock().expect("element attrs iterator mutex poisoned") =
+                        Some(elem.node.attributes());
                 }
                 NodeAttributeIter::from_shared(
                     elem.node.clone(),

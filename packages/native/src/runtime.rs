@@ -503,9 +503,7 @@ impl PyRuntime {
     #[new]
     /// Creates a runtime that discovers platform providers automatically.
     fn new() -> PyResult<Self> {
-        runtime_rs::Runtime::new()
-            .map(|inner| Self { inner: Mutex::new(inner) })
-            .map_err(map_provider_err)
+        runtime_rs::Runtime::new().map(|inner| Self { inner: Mutex::new(inner) }).map_err(map_provider_err)
     }
 
     // ---------------- Static builder (mock only) ----------------
