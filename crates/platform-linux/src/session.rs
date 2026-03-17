@@ -3,7 +3,7 @@
 //! Determines at runtime whether we are on an X11 or Wayland session so that
 //! the mediator can delegate to the correct sub-platform crate.
 
-use platynui_core::platform::{PlatformError, PlatformErrorKind};
+use platynui_core::platform::PlatformError;
 use std::sync::Mutex;
 
 /// The type of display session detected at runtime.
@@ -45,10 +45,13 @@ fn detect_session_type() -> Result<SessionType, PlatformError> {
     }
 
     // 4. Cannot determine
-    Err(PlatformError::new(
-        PlatformErrorKind::UnsupportedPlatform,
-        "cannot detect Linux session type: neither $XDG_SESSION_TYPE, $WAYLAND_DISPLAY, nor $DISPLAY is set",
-    ))
+    Err(PlatformError::UnsupportedPlatform {
+        platform: "Linux desktop session",
+        details: Some(
+            "cannot detect the session type because XDG_SESSION_TYPE, WAYLAND_DISPLAY, and DISPLAY are all unset"
+                .into(),
+        ),
+    })
 }
 
 static SESSION: Mutex<Option<SessionType>> = Mutex::new(None);

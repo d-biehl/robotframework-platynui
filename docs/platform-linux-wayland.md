@@ -264,12 +264,12 @@ WindowManager (Wayland)
     ├── KWinIpcBackend    → bounds, move_to, resize  (D-Bus)
     ├── SwayIpcBackend    → bounds, move_to, resize  (i3 IPC socket)
     ├── HyprlandIpcBackend → bounds, move_to, resize  (hyprctl socket)
-    └── (none for Mutter) → bounds/move_to/resize return PlatformError::NotSupported
+    └── (none for Mutter) → bounds/move_to/resize return `PlatformError::CapabilityUnavailable`
 ```
 
-**Runtime detection:** On initialization, the `WindowManager` probes which compositor is running (via `wl_registry` globals + environment variables like `SWAYSOCK`, `HYPRLAND_INSTANCE_SIGNATURE`, or D-Bus name `org.kde.KWin`). It loads the matching IPC backend. If no IPC backend is available, `bounds`/`move_to`/`resize` return `PlatformError::NotSupported`.
+  **Runtime detection:** On initialization, the `WindowManager` probes which compositor is running (via `wl_registry` globals + environment variables like `SWAYSOCK`, `HYPRLAND_INSTANCE_SIGNATURE`, or D-Bus name `org.kde.KWin`). It loads the matching IPC backend. If no IPC backend is available, `bounds`/`move_to`/`resize` return `PlatformError::CapabilityUnavailable`.
 
-**Trait compatibility:** The existing `WindowManager` trait returns `Result<T, PlatformError>` for all methods. No trait changes are needed — the Wayland implementation returns `Err(PlatformError::not_supported("bounds not available on this compositor"))` when no IPC backend is loaded. The `WindowSurfacePattern` in `provider-atspi` already handles errors gracefully and propagates them to the Python/RF layer.
+  **Trait compatibility:** The existing `WindowManager` trait returns `Result<T, PlatformError>` for all methods. No trait changes are needed — the Wayland implementation returns `Err(PlatformError::CapabilityUnavailable { capability: "Wayland window manager", details: Some("not yet implemented".into()) })` when no backend is available. The `WindowSurfacePattern` in `provider-atspi` already handles errors gracefully and propagates them to the Python/RF layer.
 
 ### 6.4. Impact on `WindowManager` Trait
 
@@ -312,7 +312,7 @@ The key insight: **we don't need to know the window's screen position to click o
    - **Screenshot correlation:** Take a screenshot of the focused window via portal, compare with AT-SPI-reported element positions to derive the window's screen offset
    - **Accept reduced precision:** For tests where exact positioning isn't critical, the runtime logs a warning and clicks relative to the monitor center
 
-4. **`move_to()` / `resize()`** — return `PlatformError::NotSupported` with clear error message
+4. **`move_to()` / `resize()`** — return `PlatformError::CapabilityUnavailable` with clear details
 
 **Implementation in the runtime:**
 

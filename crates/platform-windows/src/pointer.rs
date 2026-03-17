@@ -2,9 +2,7 @@ use std::mem::size_of;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use platynui_core::platform::{
-    PlatformError, PlatformErrorKind, PointerButton, PointerDevice, ScrollDelta, register_pointer_device,
-};
+use platynui_core::platform::{PlatformError, PointerButton, PointerDevice, ScrollDelta, register_pointer_device};
 use platynui_core::types::{Point, Size};
 use windows::Win32::Foundation::GetLastError;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -93,10 +91,10 @@ fn press_flags(button: PointerButton) -> Result<(MOUSE_EVENT_FLAGS, u32), Platfo
         PointerButton::Middle => Ok((MOUSEEVENTF_MIDDLEDOWN, 0)),
         PointerButton::Other(1) => Ok((MOUSEEVENTF_XDOWN, u32::from(XBUTTON1))),
         PointerButton::Other(2) => Ok((MOUSEEVENTF_XDOWN, u32::from(XBUTTON2))),
-        PointerButton::Other(code) => Err(PlatformError::new(
-            PlatformErrorKind::CapabilityUnavailable,
-            format!("unsupported XButton code {code}"),
-        )),
+        PointerButton::Other(code) => Err(PlatformError::CapabilityUnavailable {
+            capability: "Windows XButton press",
+            details: Some(format!("unsupported code {code}")),
+        }),
     }
 }
 
@@ -107,10 +105,10 @@ fn release_flags(button: PointerButton) -> Result<(MOUSE_EVENT_FLAGS, u32), Plat
         PointerButton::Middle => Ok((MOUSEEVENTF_MIDDLEUP, 0)),
         PointerButton::Other(1) => Ok((MOUSEEVENTF_XUP, u32::from(XBUTTON1))),
         PointerButton::Other(2) => Ok((MOUSEEVENTF_XUP, u32::from(XBUTTON2))),
-        PointerButton::Other(code) => Err(PlatformError::new(
-            PlatformErrorKind::CapabilityUnavailable,
-            format!("unsupported XButton code {code}"),
-        )),
+        PointerButton::Other(code) => Err(PlatformError::CapabilityUnavailable {
+            capability: "Windows XButton release",
+            details: Some(format!("unsupported code {code}")),
+        }),
     }
 }
 
@@ -121,11 +119,11 @@ fn scroll_data(delta: f64) -> u32 {
 
 fn last_error(context: &str) -> PlatformError {
     let code = unsafe { GetLastError() };
-    PlatformError::new(PlatformErrorKind::CapabilityUnavailable, format!("{context} failed: {code:?}"))
+    PlatformError::CapabilityUnavailable { capability: context, details: Some(format!("failed: {code:?}")) }
 }
 
 fn win_error(context: &str, err: Error) -> PlatformError {
-    PlatformError::new(PlatformErrorKind::CapabilityUnavailable, format!("{context} failed: {err:?}"))
+    PlatformError::CapabilityUnavailable { capability: context, details: Some(format!("failed: {err:?}")) }
 }
 
 static DEVICE: OnceLock<WindowsPointerDevice> = OnceLock::new();

@@ -5,7 +5,7 @@
 //! [`ProviderError`] and [`PatternError`] so call-sites can use `?` without
 //! ad-hoc string formatting.
 
-use platynui_core::provider::{ProviderError, ProviderErrorKind};
+use platynui_core::provider::ProviderError;
 use platynui_core::ui::PatternError;
 use thiserror::Error;
 
@@ -73,18 +73,20 @@ impl AtspiError {
 
 impl From<AtspiError> for ProviderError {
     fn from(err: AtspiError) -> Self {
-        let kind = match &err {
-            AtspiError::ConnectionFailed(_) => ProviderErrorKind::InitializationFailed,
-            AtspiError::Timeout { .. } | AtspiError::DBus { .. } => ProviderErrorKind::CommunicationFailure,
-            AtspiError::ProxyUnavailable(_) | AtspiError::InterfaceMissing(_) => {
-                ProviderErrorKind::CommunicationFailure
+        let message = Some(err.to_string());
+        match err {
+            AtspiError::ConnectionFailed(_) => {
+                ProviderError::InitializationFailed { provider: "atspi", details: message }
             }
+            AtspiError::Timeout { .. }
+            | AtspiError::DBus { .. }
+            | AtspiError::ProxyUnavailable(_)
+            | AtspiError::InterfaceMissing(_)
+            | AtspiError::Shutdown => ProviderError::CommunicationFailure { channel: "atspi", details: message },
             AtspiError::NoWindowManager | AtspiError::NodeDropped | AtspiError::FocusFailed => {
-                ProviderErrorKind::UnsupportedOperation
+                ProviderError::UnsupportedOperation { operation: "atspi operation", details: message }
             }
-            AtspiError::Shutdown => ProviderErrorKind::CommunicationFailure,
-        };
-        ProviderError::new(kind, err.to_string())
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use platynui_core::platform::{PlatformError, PlatformErrorKind, PlatformModule};
+use platynui_core::platform::{PlatformError, PlatformModule};
 use platynui_core::register_platform_module;
 use windows::Win32::Foundation::ERROR_ACCESS_DENIED;
 use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
@@ -47,10 +47,10 @@ fn set_dpi_awareness() -> Result<(), PlatformError> {
                     Ok(())
                 } else {
                     tracing::error!(?err, "SetProcessDpiAwarenessContext failed");
-                    Err(PlatformError::new(
-                        PlatformErrorKind::CapabilityUnavailable,
-                        format!("SetProcessDpiAwarenessContext failed: {err:?}"),
-                    ))
+                    Err(PlatformError::CapabilityUnavailable {
+                        capability: "DPI awareness",
+                        details: Some(format!("SetProcessDpiAwarenessContext failed: {err:?}")),
+                    })
                 }
             }
         }

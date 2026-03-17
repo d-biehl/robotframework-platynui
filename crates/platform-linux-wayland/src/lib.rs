@@ -100,22 +100,23 @@ pub mod pointer {
 
 #[cfg(target_os = "linux")]
 pub mod screenshot {
-    use platynui_core::platform::{
-        PlatformError, PlatformErrorKind, Screenshot, ScreenshotProvider, ScreenshotRequest,
-    };
+    use platynui_core::platform::{PlatformError, Screenshot, ScreenshotProvider, ScreenshotRequest};
 
     pub struct WaylandScreenshot;
 
     impl ScreenshotProvider for WaylandScreenshot {
         fn capture(&self, _request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
-            Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "Wayland screenshot not yet implemented"))
+            Err(PlatformError::CapabilityUnavailable {
+                capability: "Wayland screenshot provider",
+                details: Some("not yet implemented".into()),
+            })
         }
     }
 }
 
 #[cfg(target_os = "linux")]
 pub mod window_manager {
-    use platynui_core::platform::{PlatformError, PlatformErrorKind, WindowId, WindowManager};
+    use platynui_core::platform::{PlatformError, WindowId, WindowManager};
     use platynui_core::types::{Point, Rect, Size};
     use platynui_core::ui::UiNode;
 
@@ -127,73 +128,73 @@ pub mod window_manager {
         }
 
         fn resolve_window(&self, _node: &dyn UiNode) -> Result<WindowId, PlatformError> {
-            Err(PlatformError::new(
-                PlatformErrorKind::CapabilityUnavailable,
-                "Wayland window manager not yet implemented",
-            ))
+            Err(PlatformError::CapabilityUnavailable {
+                capability: "Wayland window manager",
+                details: Some("not yet implemented".into()),
+            })
         }
 
         fn bounds(&self, _id: WindowId) -> Result<Rect, PlatformError> {
-            Err(PlatformError::new(
-                PlatformErrorKind::CapabilityUnavailable,
-                "Wayland window manager not yet implemented",
-            ))
+            Err(PlatformError::CapabilityUnavailable {
+                capability: "Wayland window manager",
+                details: Some("not yet implemented".into()),
+            })
         }
 
         fn is_active(&self, _id: WindowId) -> Result<bool, PlatformError> {
-            Err(PlatformError::new(
-                PlatformErrorKind::CapabilityUnavailable,
-                "Wayland window manager not yet implemented",
-            ))
+            Err(PlatformError::CapabilityUnavailable {
+                capability: "Wayland window manager",
+                details: Some("not yet implemented".into()),
+            })
         }
 
         fn activate(&self, _id: WindowId) -> Result<(), PlatformError> {
-            Err(PlatformError::new(
-                PlatformErrorKind::CapabilityUnavailable,
-                "Wayland window manager not yet implemented",
-            ))
+            Err(PlatformError::CapabilityUnavailable {
+                capability: "Wayland window manager",
+                details: Some("not yet implemented".into()),
+            })
         }
 
         fn close(&self, _id: WindowId) -> Result<(), PlatformError> {
-            Err(PlatformError::new(
-                PlatformErrorKind::CapabilityUnavailable,
-                "Wayland window manager not yet implemented",
-            ))
+            Err(PlatformError::CapabilityUnavailable {
+                capability: "Wayland window manager",
+                details: Some("not yet implemented".into()),
+            })
         }
 
         fn minimize(&self, _id: WindowId) -> Result<(), PlatformError> {
-            Err(PlatformError::new(
-                PlatformErrorKind::CapabilityUnavailable,
-                "Wayland window manager not yet implemented",
-            ))
+            Err(PlatformError::CapabilityUnavailable {
+                capability: "Wayland window manager",
+                details: Some("not yet implemented".into()),
+            })
         }
 
         fn maximize(&self, _id: WindowId) -> Result<(), PlatformError> {
-            Err(PlatformError::new(
-                PlatformErrorKind::CapabilityUnavailable,
-                "Wayland window manager not yet implemented",
-            ))
+            Err(PlatformError::CapabilityUnavailable {
+                capability: "Wayland window manager",
+                details: Some("not yet implemented".into()),
+            })
         }
 
         fn restore(&self, _id: WindowId) -> Result<(), PlatformError> {
-            Err(PlatformError::new(
-                PlatformErrorKind::CapabilityUnavailable,
-                "Wayland window manager not yet implemented",
-            ))
+            Err(PlatformError::CapabilityUnavailable {
+                capability: "Wayland window manager",
+                details: Some("not yet implemented".into()),
+            })
         }
 
         fn move_to(&self, _id: WindowId, _position: Point) -> Result<(), PlatformError> {
-            Err(PlatformError::new(
-                PlatformErrorKind::CapabilityUnavailable,
-                "Wayland window manager not yet implemented",
-            ))
+            Err(PlatformError::CapabilityUnavailable {
+                capability: "Wayland window manager",
+                details: Some("not yet implemented".into()),
+            })
         }
 
         fn resize(&self, _id: WindowId, _size: Size) -> Result<(), PlatformError> {
-            Err(PlatformError::new(
-                PlatformErrorKind::CapabilityUnavailable,
-                "Wayland window manager not yet implemented",
-            ))
+            Err(PlatformError::CapabilityUnavailable {
+                capability: "Wayland window manager",
+                details: Some("not yet implemented".into()),
+            })
         }
     }
 }

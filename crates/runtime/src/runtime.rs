@@ -7,13 +7,12 @@ use std::time::Duration;
 
 use platynui_core::platform::{
     DesktopInfo, DesktopInfoProvider, HighlightProvider, HighlightRequest, KeyboardDevice, KeyboardError,
-    KeyboardOverrides, KeyboardProfile, MonitorInfo, PlatformError, PlatformErrorKind, PointerButton, PointerDevice,
-    Screenshot, ScreenshotProvider, ScreenshotRequest, ScrollDelta, desktop_info_providers, highlight_providers,
-    keyboard_devices, platform_modules, pointer_devices, screenshot_providers,
+    KeyboardOverrides, KeyboardProfile, MonitorInfo, PlatformError, PointerButton, PointerDevice, Screenshot,
+    ScreenshotProvider, ScreenshotRequest, ScrollDelta, desktop_info_providers, highlight_providers, keyboard_devices,
+    platform_modules, pointer_devices, screenshot_providers,
 };
 use platynui_core::provider::{
-    ProviderError, ProviderErrorKind, ProviderEvent, ProviderEventKind, ProviderEventListener, UiTreeProvider,
-    UiTreeProviderFactory,
+    ProviderError, ProviderEvent, ProviderEventKind, ProviderEventListener, UiTreeProvider, UiTreeProviderFactory,
 };
 use platynui_core::types::{Point, Rect};
 use platynui_core::ui::attribute_names;
@@ -148,10 +147,10 @@ impl PlatformModulesLease {
                         tracing::debug!(module = initialized.name(), "rolling back platform module initialization");
                         initialized.shutdown();
                     }
-                    return Err(ProviderError::new(
-                        ProviderErrorKind::InitializationFailed,
-                        format!("platform module `{}` failed to initialize: {err}", module.name()),
-                    ));
+                    return Err(ProviderError::InitializationFailed {
+                        provider: "runtime",
+                        details: Some(format!("platform module `{}` failed to initialize: {err}", module.name())),
+                    });
                 }
                 initialized_modules.push(*module);
             }
@@ -585,7 +584,10 @@ impl Runtime {
     pub fn highlight(&self, request: &HighlightRequest) -> Result<(), PlatformError> {
         match self.highlight {
             Some(provider) => provider.highlight(request),
-            None => Err(PlatformError::new(PlatformErrorKind::UnsupportedPlatform, "no HighlightProvider registered")),
+            None => Err(PlatformError::UnsupportedPlatform {
+                platform: "highlight provider registry",
+                details: Some("no HighlightProvider registered".into()),
+            }),
         }
     }
 
@@ -593,7 +595,10 @@ impl Runtime {
     pub fn clear_highlight(&self) -> Result<(), PlatformError> {
         match self.highlight {
             Some(provider) => provider.clear(),
-            None => Err(PlatformError::new(PlatformErrorKind::UnsupportedPlatform, "no HighlightProvider registered")),
+            None => Err(PlatformError::UnsupportedPlatform {
+                platform: "highlight provider registry",
+                details: Some("no HighlightProvider registered".into()),
+            }),
         }
     }
 
@@ -601,7 +606,10 @@ impl Runtime {
     pub fn screenshot(&self, request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
         match self.screenshot {
             Some(provider) => provider.capture(request),
-            None => Err(PlatformError::new(PlatformErrorKind::UnsupportedPlatform, "no ScreenshotProvider registered")),
+            None => Err(PlatformError::UnsupportedPlatform {
+                platform: "screenshot provider registry",
+                details: Some("no ScreenshotProvider registered".into()),
+            }),
         }
     }
 
@@ -848,7 +856,7 @@ fn build_desktop_info() -> Result<DesktopInfo, PlatformError> {
 }
 
 fn map_desktop_error(err: PlatformError) -> ProviderError {
-    ProviderError::new(ProviderErrorKind::InitializationFailed, format!("desktop initialization failed: {err}"))
+    ProviderError::InitializationFailed { provider: "desktop", details: Some(err.to_string()) }
 }
 
 fn fallback_desktop_info() -> DesktopInfo {

@@ -1,5 +1,5 @@
 use crate::x11util::{X11Handle, connection, root_window_from};
-use platynui_core::platform::{PlatformError, PlatformErrorKind, PointerButton, PointerDevice, ScrollDelta};
+use platynui_core::platform::{PlatformError, PointerButton, PointerDevice, ScrollDelta};
 use platynui_core::types::Point;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::ConnectionExt as _;
@@ -64,10 +64,10 @@ fn send_button(button: PointerButton, press: bool) -> Result<(), PlatformError> 
         PointerButton::Other(1) => 8,
         PointerButton::Other(2) => 9,
         PointerButton::Other(n) => {
-            return Err(PlatformError::new(
-                PlatformErrorKind::CapabilityUnavailable,
-                format!("unsupported X button code Other({n})"),
-            ));
+            return Err(PlatformError::CapabilityUnavailable {
+                capability: "X11 pointer button",
+                details: Some(format!("unsupported Other({n})")),
+            });
         }
     };
     with_conn(|guard| send_raw_button(guard, code, press))
@@ -87,5 +87,5 @@ fn with_conn<T>(f: impl FnOnce(&X11Handle) -> Result<T, PlatformError>) -> Resul
 
 fn to_pf<E: std::fmt::Display>(e: E) -> PlatformError {
     // Pointer failures after a successful connect are operational.
-    PlatformError::new(PlatformErrorKind::OperationFailed, format!("x11: {e}"))
+    PlatformError::OperationFailed { operation: "x11 pointer", details: Some(e.to_string()) }
 }

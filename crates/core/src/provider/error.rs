@@ -1,66 +1,48 @@
+use std::error::Error;
 use std::fmt::{Display, Formatter};
-use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Context(pub Option<String>);
-
-impl Display for Context {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if let Some(s) = &self.0 { write!(f, ": {s}") } else { Ok(()) }
-    }
-}
-
-/// Fully-typed provider error with variants for common failure classes.
-///
-/// For back-compat with existing code, the helper constructors `new/simple`
-/// remain and map a `ProviderErrorKind` + optional message onto variants.
-#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ProviderError {
-    #[error("provider initialization failed{context}")]
-    InitializationFailed { context: Context },
+    InitializationFailed { provider: &'static str, details: Option<String> },
 
-    #[error("unsupported provider operation{context}")]
-    UnsupportedOperation { context: Context },
+    UnsupportedOperation { operation: &'static str, details: Option<String> },
 
-    #[error("provider communication failure{context}")]
-    CommunicationFailure { context: Context },
+    CommunicationFailure { channel: &'static str, details: Option<String> },
 
-    #[error("invalid argument for provider{context}")]
-    InvalidArgument { context: Context },
+    InvalidArgument { argument: &'static str, details: Option<String> },
 
-    #[error("provider tree unavailable{context}")]
-    TreeUnavailable { context: Context },
+    TreeUnavailable { provider: &'static str, details: Option<String> },
 }
 
-impl ProviderError {
-    pub fn new(kind: ProviderErrorKind, message: impl Into<String>) -> Self {
-        let context = Context(Some(message.into()));
-        match kind {
-            ProviderErrorKind::InitializationFailed => Self::InitializationFailed { context },
-            ProviderErrorKind::UnsupportedOperation => Self::UnsupportedOperation { context },
-            ProviderErrorKind::CommunicationFailure => Self::CommunicationFailure { context },
-            ProviderErrorKind::InvalidArgument => Self::InvalidArgument { context },
-            ProviderErrorKind::TreeUnavailable => Self::TreeUnavailable { context },
-        }
-    }
-
-    pub fn simple(kind: ProviderErrorKind) -> Self {
-        match kind {
-            ProviderErrorKind::InitializationFailed => Self::InitializationFailed { context: Context(None) },
-            ProviderErrorKind::UnsupportedOperation => Self::UnsupportedOperation { context: Context(None) },
-            ProviderErrorKind::CommunicationFailure => Self::CommunicationFailure { context: Context(None) },
-            ProviderErrorKind::InvalidArgument => Self::InvalidArgument { context: Context(None) },
-            ProviderErrorKind::TreeUnavailable => Self::TreeUnavailable { context: Context(None) },
+impl Display for ProviderError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InitializationFailed { provider, details } => {
+                write!(f, "provider initialization failed for {provider}")?;
+                write_details(f, details)
+            }
+            Self::UnsupportedOperation { operation, details } => {
+                write!(f, "unsupported provider operation: {operation}")?;
+                write_details(f, details)
+            }
+            Self::CommunicationFailure { channel, details } => {
+                write!(f, "provider communication failure on {channel}")?;
+                write_details(f, details)
+            }
+            Self::InvalidArgument { argument, details } => {
+                write!(f, "invalid provider argument: {argument}")?;
+                write_details(f, details)
+            }
+            Self::TreeUnavailable { provider, details } => {
+                write!(f, "provider tree unavailable for {provider}")?;
+                write_details(f, details)
+            }
         }
     }
 }
 
-/// Categorises provider failures.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProviderErrorKind {
-    InitializationFailed,
-    UnsupportedOperation,
-    CommunicationFailure,
-    InvalidArgument,
-    TreeUnavailable,
+impl Error for ProviderError {}
+
+fn write_details(f: &mut Formatter<'_>, details: &Option<String>) -> std::fmt::Result {
+    if let Some(details) = details { write!(f, ": {details}") } else { Ok(()) }
 }

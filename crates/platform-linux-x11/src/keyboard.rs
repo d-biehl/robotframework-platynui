@@ -12,9 +12,7 @@
 //! - Dynamic keycode remapping for characters outside the active layout
 
 use crate::x11util::{X11Handle, connection, root_window_from};
-use platynui_core::platform::{
-    KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, PlatformError, PlatformErrorKind,
-};
+use platynui_core::platform::{KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, PlatformError};
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex, OnceLock};
 use tracing::{debug, trace};
@@ -455,7 +453,10 @@ fn keyboard_state() -> &'static Mutex<KeyboardState> {
 /// The resulting `KeymapInfo` is stored in global state for reuse.
 fn ensure_keymap() -> Result<(), KeyboardError> {
     let mut state = keyboard_state().lock().map_err(|_| {
-        KeyboardError::Platform(PlatformError::new(PlatformErrorKind::OperationFailed, "keyboard state lock poisoned"))
+        KeyboardError::Platform(PlatformError::OperationFailed {
+            operation: "x11 keyboard state lock",
+            details: Some("poisoned".into()),
+        })
     })?;
 
     if state.keymap.is_some() {
@@ -642,10 +643,10 @@ impl KeyboardDevice for LinuxKeyboardDevice {
         ensure_keymap()?;
 
         let state = keyboard_state().lock().map_err(|_| {
-            KeyboardError::Platform(PlatformError::new(
-                PlatformErrorKind::OperationFailed,
-                "keyboard state lock poisoned",
-            ))
+            KeyboardError::Platform(PlatformError::OperationFailed {
+                operation: "x11 keyboard state lock",
+                details: Some("poisoned".into()),
+            })
         })?;
         let keymap = state.keymap.as_ref().ok_or(KeyboardError::NotReady)?;
 
@@ -691,10 +692,10 @@ impl KeyboardDevice for LinuxKeyboardDevice {
         drop(guard);
 
         let mut state = keyboard_state().lock().map_err(|_| {
-            KeyboardError::Platform(PlatformError::new(
-                PlatformErrorKind::OperationFailed,
-                "keyboard state lock poisoned",
-            ))
+            KeyboardError::Platform(PlatformError::OperationFailed {
+                operation: "x11 keyboard state lock",
+                details: Some("poisoned".into()),
+            })
         })?;
         state.keymap = Some(keymap);
         debug!("keyboard input session started — keymap refreshed");
@@ -709,10 +710,10 @@ impl KeyboardDevice for LinuxKeyboardDevice {
         // Read keymap info without holding the lock during X11 calls.
         let (shift_keycode, spare_keycode, keysyms_per_keycode) = {
             let state = keyboard_state().lock().map_err(|_| {
-                KeyboardError::Platform(PlatformError::new(
-                    PlatformErrorKind::OperationFailed,
-                    "keyboard state lock poisoned",
-                ))
+                KeyboardError::Platform(PlatformError::OperationFailed {
+                    operation: "x11 keyboard state lock",
+                    details: Some("poisoned".into()),
+                })
             })?;
             let km = state.keymap.as_ref().ok_or(KeyboardError::NotReady)?;
             (km.shift_keycode, km.spare_keycode, km.keysyms_per_keycode)
@@ -820,7 +821,7 @@ impl LinuxKeyboardDevice {
 // ---------------------------------------------------------------------------
 
 fn to_kb<E: std::fmt::Display>(e: E) -> KeyboardError {
-    KeyboardError::Platform(PlatformError::new(PlatformErrorKind::OperationFailed, format!("x11 keyboard: {e}")))
+    KeyboardError::Platform(PlatformError::OperationFailed { operation: "x11 keyboard", details: Some(e.to_string()) })
 }
 
 // ---------------------------------------------------------------------------

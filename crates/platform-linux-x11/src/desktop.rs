@@ -83,10 +83,10 @@ impl DesktopInfoProvider for LinuxDesktopInfo {
 
 fn to_pf<E: std::fmt::Display>(e: E) -> PlatformError {
     // Desktop queries past connect are operational (e.g., RANDR unavailable).
-    platynui_core::platform::PlatformError::new(
-        platynui_core::platform::PlatformErrorKind::OperationFailed,
-        format!("x11: {e}"),
-    )
+    platynui_core::platform::PlatformError::OperationFailed {
+        operation: "x11 desktop query",
+        details: Some(e.to_string()),
+    }
 }
 
 fn monitors_via_randr<C: x11rb::connection::Connection>(conn: &C, root: u32) -> Result<Vec<MonitorInfo>, String> {

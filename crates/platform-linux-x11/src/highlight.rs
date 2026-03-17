@@ -1,7 +1,5 @@
 use crate::x11util::connect_raw;
-use platynui_core::platform::{
-    HighlightProvider, HighlightRequest, PlatformError, PlatformErrorKind, desktop_info_providers,
-};
+use platynui_core::platform::{HighlightProvider, HighlightRequest, PlatformError, desktop_info_providers};
 use platynui_core::types::Rect;
 use std::env;
 use std::sync::Mutex;
@@ -55,25 +53,29 @@ impl OverlayController {
     where
         F: FnOnce(&Self) -> Result<R, PlatformError>,
     {
-        let guard = Self::global()
-            .lock()
-            .map_err(|_| PlatformError::new(PlatformErrorKind::OperationFailed, "highlight lock poisoned"))?;
-        let ctrl = guard
-            .as_ref()
-            .ok_or_else(|| PlatformError::new(PlatformErrorKind::OperationFailed, "highlight has been shut down"))?;
+        let guard = Self::global().lock().map_err(|_| PlatformError::OperationFailed {
+            operation: "x11 highlight lock",
+            details: Some("poisoned".into()),
+        })?;
+        let ctrl = guard.as_ref().ok_or_else(|| PlatformError::OperationFailed {
+            operation: "x11 highlight controller",
+            details: Some("shut down".into()),
+        })?;
         f(ctrl)
     }
 
     fn show(&self, rects: &[Rect], duration: Option<Duration>) -> Result<(), PlatformError> {
-        self.tx
-            .send(Command::Show { rects: rects.to_vec(), duration })
-            .map_err(|_| PlatformError::new(PlatformErrorKind::OperationFailed, "highlight thread stopped"))
+        self.tx.send(Command::Show { rects: rects.to_vec(), duration }).map_err(|_| PlatformError::OperationFailed {
+            operation: "x11 highlight thread",
+            details: Some("stopped".into()),
+        })
     }
 
     fn clear(&self) -> Result<(), PlatformError> {
-        self.tx
-            .send(Command::Clear)
-            .map_err(|_| PlatformError::new(PlatformErrorKind::OperationFailed, "highlight thread stopped"))
+        self.tx.send(Command::Clear).map_err(|_| PlatformError::OperationFailed {
+            operation: "x11 highlight thread",
+            details: Some("stopped".into()),
+        })
     }
 }
 

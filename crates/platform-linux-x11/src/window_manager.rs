@@ -6,7 +6,7 @@
 //! manage native windows without a direct `x11rb` dependency.
 
 use crate::x11util;
-use platynui_core::platform::{PlatformError, PlatformErrorKind, WindowId, WindowManager};
+use platynui_core::platform::{PlatformError, WindowId, WindowManager};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, UiNode};
 use std::sync::Mutex;
@@ -41,17 +41,24 @@ static ATOMS: OnceLock<Mutex<EwmhAtoms>> = OnceLock::new();
 
 fn intern(conn: &RustConnection, name: &[u8]) -> Result<Atom, PlatformError> {
     conn.intern_atom(false, name)
-        .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("intern_atom request: {e}")))?
+        .map_err(|e| PlatformError::OperationFailed {
+            operation: "x11 intern_atom request",
+            details: Some(e.to_string()),
+        })?
         .reply()
         .map(|r| r.atom)
-        .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("intern_atom reply: {e}")))
+        .map_err(|e| PlatformError::OperationFailed {
+            operation: "x11 intern_atom reply",
+            details: Some(e.to_string()),
+        })
 }
 
 fn atoms() -> Result<std::sync::MutexGuard<'static, EwmhAtoms>, PlatformError> {
     if let Some(cell) = ATOMS.get() {
-        return cell
-            .lock()
-            .map_err(|_| PlatformError::new(PlatformErrorKind::OperationFailed, "EWMH atoms mutex poisoned"));
+        return cell.lock().map_err(|_| PlatformError::OperationFailed {
+            operation: "ewmh atoms lock",
+            details: Some("poisoned".into()),
+        });
     }
     let guard = x11util::connection()?;
     let conn = &guard.conn;
@@ -74,7 +81,7 @@ fn atoms() -> Result<std::sync::MutexGuard<'static, EwmhAtoms>, PlatformError> {
         .get()
         .expect("just initialised")
         .lock()
-        .map_err(|_| PlatformError::new(PlatformErrorKind::OperationFailed, "EWMH atoms mutex poisoned"))
+        .map_err(|_| PlatformError::OperationFailed { operation: "ewmh atoms lock", details: Some("poisoned".into()) })
 }
 
 // ---------------------------------------------------------------------------
@@ -84,9 +91,15 @@ fn atoms() -> Result<std::sync::MutexGuard<'static, EwmhAtoms>, PlatformError> {
 fn get_client_list(conn: &RustConnection, root: Window, net_client_list: Atom) -> Result<Vec<Window>, PlatformError> {
     let reply = conn
         .get_property(false, root, net_client_list, AtomEnum::WINDOW, 0, u32::MAX)
-        .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("_NET_CLIENT_LIST: {e}")))?
+        .map_err(|e| PlatformError::OperationFailed {
+            operation: "read _NET_CLIENT_LIST",
+            details: Some(e.to_string()),
+        })?
         .reply()
-        .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("_NET_CLIENT_LIST reply: {e}")))?;
+        .map_err(|e| PlatformError::OperationFailed {
+            operation: "read _NET_CLIENT_LIST reply",
+            details: Some(e.to_string()),
+        })?;
     Ok(reply.value32().map(|iter| iter.collect()).unwrap_or_default())
 }
 
@@ -143,7 +156,10 @@ fn find_xid_for_pid(pid: u32, window_name: Option<&str>) -> Result<Window, Platf
     match candidates.len() {
         0 => {
             warn!(pid, "no X11 window found for PID");
-            Err(PlatformError::new(PlatformErrorKind::OperationFailed, format!("no X11 window found for PID {pid}")))
+            Err(PlatformError::OperationFailed {
+                operation: "resolve X11 window by PID",
+                details: Some(format!("no window found for PID {pid}")),
+            })
         }
         1 => {
             debug!(pid, xid = candidates[0], "resolved XID for PID");
@@ -210,12 +226,12 @@ fn send_client_message(
     let event = ClientMessageEvent::new(32, win, message_type, data);
     let mask = EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY;
     conn.send_event(false, root, mask, event)
-        .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("send_event: {e}")))?;
+        .map_err(|e| PlatformError::OperationFailed { operation: "x11 send_event", details: Some(e.to_string()) })?;
     Ok(())
 }
 
 fn flush(conn: &RustConnection) -> Result<(), PlatformError> {
-    conn.flush().map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("x11 flush: {e}")))
+    conn.flush().map_err(|e| PlatformError::OperationFailed { operation: "x11 flush", details: Some(e.to_string()) })
 }
 
 // ---------------------------------------------------------------------------
@@ -271,7 +287,7 @@ impl WindowManager for X11EwmhWindowManager {
 
     fn resolve_window(&self, node: &dyn UiNode) -> Result<WindowId, PlatformError> {
         let pid = extract_pid(node)
-            .ok_or_else(|| PlatformError::new(PlatformErrorKind::OperationFailed, "cannot extract PID from UiNode"))?;
+            .ok_or(PlatformError::OperationFailed { operation: "extract PID from UiNode", details: None })?;
 
         // Use the node's accessible name for window title matching when
         // multiple windows share the same PID.
@@ -289,9 +305,15 @@ impl WindowManager for X11EwmhWindowManager {
         let geom = x11
             .conn
             .get_geometry(xid)
-            .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("get_geometry: {e}")))?
+            .map_err(|e| PlatformError::OperationFailed {
+                operation: "x11 get_geometry",
+                details: Some(e.to_string()),
+            })?
             .reply()
-            .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("get_geometry reply: {e}")))?;
+            .map_err(|e| PlatformError::OperationFailed {
+                operation: "x11 get_geometry reply",
+                details: Some(e.to_string()),
+            })?;
         let coords = x11.conn.translate_coordinates(xid, x11.root, 0, 0).ok().and_then(|c| c.reply().ok());
         let (wx, wy) =
             coords.map(|c| (f64::from(c.dst_x), f64::from(c.dst_y))).unwrap_or((f64::from(geom.x), f64::from(geom.y)));
@@ -305,10 +327,14 @@ impl WindowManager for X11EwmhWindowManager {
         let reply = x11
             .conn
             .get_property(false, x11.root, atoms.net_active_window, AtomEnum::WINDOW, 0, 1)
-            .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("_NET_ACTIVE_WINDOW: {e}")))?
+            .map_err(|e| PlatformError::OperationFailed {
+                operation: "read _NET_ACTIVE_WINDOW",
+                details: Some(e.to_string()),
+            })?
             .reply()
-            .map_err(|e| {
-                PlatformError::new(PlatformErrorKind::OperationFailed, format!("_NET_ACTIVE_WINDOW reply: {e}"))
+            .map_err(|e| PlatformError::OperationFailed {
+                operation: "read _NET_ACTIVE_WINDOW reply",
+                details: Some(e.to_string()),
             })?;
         let active_xid = reply.value32().and_then(|mut iter| iter.next()).unwrap_or(0);
         Ok(active_xid == xid)
@@ -395,9 +421,10 @@ impl WindowManager for X11EwmhWindowManager {
         debug!(xid, x = position.x(), y = position.y(), "EWMH move_to");
         let x11 = x11util::connection()?;
         let aux = ConfigureWindowAux::new().x(position.x() as i32).y(position.y() as i32);
-        x11.conn
-            .configure_window(xid, &aux)
-            .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("configure_window: {e}")))?;
+        x11.conn.configure_window(xid, &aux).map_err(|e| PlatformError::OperationFailed {
+            operation: "x11 configure_window move",
+            details: Some(e.to_string()),
+        })?;
         flush(&x11.conn)
     }
 
@@ -406,9 +433,10 @@ impl WindowManager for X11EwmhWindowManager {
         debug!(xid, w = size.width(), h = size.height(), "EWMH resize");
         let x11 = x11util::connection()?;
         let aux = ConfigureWindowAux::new().width(size.width() as u32).height(size.height() as u32);
-        x11.conn
-            .configure_window(xid, &aux)
-            .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("configure_window: {e}")))?;
+        x11.conn.configure_window(xid, &aux).map_err(|e| PlatformError::OperationFailed {
+            operation: "x11 configure_window resize",
+            details: Some(e.to_string()),
+        })?;
         flush(&x11.conn)
     }
 }
@@ -434,10 +462,14 @@ pub fn check_ewmh_wm_support() -> Result<bool, PlatformError> {
     let child_reply = x11
         .conn
         .get_property(false, x11.root, atoms.net_supporting_wm_check, AtomEnum::WINDOW, 0, 1)
-        .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("_NET_SUPPORTING_WM_CHECK: {e}")))?
+        .map_err(|e| PlatformError::OperationFailed {
+            operation: "read _NET_SUPPORTING_WM_CHECK",
+            details: Some(e.to_string()),
+        })?
         .reply()
-        .map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("_NET_SUPPORTING_WM_CHECK reply: {e}"))
+        .map_err(|e| PlatformError::OperationFailed {
+            operation: "read _NET_SUPPORTING_WM_CHECK reply",
+            details: Some(e.to_string()),
         })?;
 
     let Some(child_xid) = child_reply.value32().and_then(|mut iter| iter.next()) else {

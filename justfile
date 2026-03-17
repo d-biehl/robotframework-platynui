@@ -92,7 +92,8 @@ mypy:
     uv run mypy .
 
 # Run all checks (format, clippy, ruff)
-check: fmt clippy ruff
+check: fmt clippy ruff mypy
+    @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────────────────────────────
 
@@ -152,5 +153,5 @@ _uninstall-icons:
 # ─── Full CI Sequence ───────────────────────────────────────────────────────────
 
 # Run the full pre-commit check sequence
-pre-commit: bootstrap fmt build clippy test ruff
-    @echo "All checks passed."
+pre-commit: bootstrap check test-all
+    @echo "Pre-commit checks passed. Ready to commit!"

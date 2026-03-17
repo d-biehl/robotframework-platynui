@@ -20,8 +20,7 @@ pub mod virtual_input;
 use std::sync::Mutex;
 
 use platynui_core::platform::{
-    KeyCode, KeyboardDevice, KeyboardError, KeyboardEvent, PlatformError, PlatformErrorKind, PointerButton,
-    PointerDevice, ScrollDelta,
+    KeyCode, KeyboardDevice, KeyboardError, KeyboardEvent, PlatformError, PointerButton, PointerDevice, ScrollDelta,
 };
 use platynui_core::types::Point;
 use tracing::{debug, info, warn};
@@ -255,35 +254,35 @@ impl PointerDevice for WaylandPointerDevice {
     fn position(&self) -> Result<Point, PlatformError> {
         try_with_backend(
             |b| b.pointer_position(),
-            || PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "no input backend available"),
+            || PlatformError::CapabilityUnavailable { capability: "input backend", details: None },
         )
     }
 
     fn move_to(&self, point: Point) -> Result<(), PlatformError> {
         try_with_backend(
             |b| b.pointer_move_to(point),
-            || PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "no input backend available"),
+            || PlatformError::CapabilityUnavailable { capability: "input backend", details: None },
         )
     }
 
     fn press(&self, button: PointerButton) -> Result<(), PlatformError> {
         try_with_backend(
             |b| b.pointer_press(button),
-            || PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "no input backend available"),
+            || PlatformError::CapabilityUnavailable { capability: "input backend", details: None },
         )
     }
 
     fn release(&self, button: PointerButton) -> Result<(), PlatformError> {
         try_with_backend(
             |b| b.pointer_release(button),
-            || PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "no input backend available"),
+            || PlatformError::CapabilityUnavailable { capability: "input backend", details: None },
         )
     }
 
     fn scroll(&self, delta: ScrollDelta) -> Result<(), PlatformError> {
         try_with_backend(
             |b| b.pointer_scroll(delta),
-            || PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "no input backend available"),
+            || PlatformError::CapabilityUnavailable { capability: "input backend", details: None },
         )
     }
 }

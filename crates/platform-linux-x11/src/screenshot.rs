@@ -1,7 +1,5 @@
 use crate::x11util::{connection, root_window_from};
-use platynui_core::platform::{
-    PixelFormat, PlatformError, PlatformErrorKind, Screenshot, ScreenshotProvider, ScreenshotRequest,
-};
+use platynui_core::platform::{PixelFormat, PlatformError, Screenshot, ScreenshotProvider, ScreenshotRequest};
 use x11rb::protocol::xproto::{ConnectionExt as _, ImageFormat};
 
 pub struct LinuxScreenshot;
@@ -26,10 +24,10 @@ impl ScreenshotProvider for LinuxScreenshot {
         let depth = reply.depth;
         if depth != 24 && depth != 32 {
             tracing::error!(depth, "unsupported X11 image depth for screenshot");
-            return Err(PlatformError::new(
-                PlatformErrorKind::UnsupportedPlatform,
-                format!("unsupported image depth {depth}"),
-            ));
+            return Err(PlatformError::UnsupportedPlatform {
+                platform: "X11 screenshot depth",
+                details: Some(format!("unsupported depth {depth}")),
+            });
         }
         let mut pixels = reply.data;
         // Ensure alpha is fully opaque to avoid artifacts from undefined padding/alpha bits in 24/32bpp.
@@ -43,5 +41,5 @@ impl ScreenshotProvider for LinuxScreenshot {
 
 fn to_pf<E: std::fmt::Display>(e: E) -> PlatformError {
     // Screenshot failures after connect are operational.
-    PlatformError::new(PlatformErrorKind::OperationFailed, format!("x11: {e}"))
+    PlatformError::OperationFailed { operation: "x11 screenshot", details: Some(e.to_string()) }
 }

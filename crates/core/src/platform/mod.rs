@@ -9,7 +9,7 @@ mod screenshot;
 mod window_manager;
 
 pub use desktop::{DesktopInfo, DesktopInfoProvider, DesktopInfoRegistration, MonitorInfo, desktop_info_providers};
-pub use error::{PlatformError, PlatformErrorKind};
+pub use error::PlatformError;
 pub use highlight::{HighlightProvider, HighlightRegistration, HighlightRequest, highlight_providers};
 pub use keyboard::{
     KeyCode, KeyCodeError, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, KeyboardOverrides, KeyboardProfile,

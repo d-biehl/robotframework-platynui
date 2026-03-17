@@ -95,7 +95,7 @@ macro_rules! register_pointer_device {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platform::{PlatformError, PlatformErrorKind};
+    use crate::platform::PlatformError;
     use crate::types::{Point, Size};
     use rstest::rstest;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -121,7 +121,7 @@ mod tests {
         }
 
         fn press(&self, _button: PointerButton) -> Result<(), PlatformError> {
-            Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "press"))
+            Err(PlatformError::CapabilityUnavailable { capability: "pointer press", details: Some("press".into()) })
         }
 
         fn release(&self, _button: PointerButton) -> Result<(), PlatformError> {

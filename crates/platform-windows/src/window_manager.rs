@@ -14,7 +14,7 @@
 //!    Application node), we enumerate top-level windows with `EnumWindows` and
 //!    match by PID.
 
-use platynui_core::platform::{PlatformError, PlatformErrorKind, WindowId, WindowManager};
+use platynui_core::platform::{PlatformError, WindowId, WindowManager};
 use platynui_core::register_window_manager;
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, UiNode, UiValue};
@@ -129,8 +129,9 @@ fn find_hwnd_for_pid(pid: u32) -> Result<HWND, PlatformError> {
     // (by returning FALSE). We ignore that — the result is in `data`.
     let _ = unsafe { EnumWindows(Some(callback), LPARAM(&raw mut data as isize)) };
 
-    data.result.ok_or_else(|| {
-        PlatformError::new(PlatformErrorKind::OperationFailed, format!("no visible window found for PID {pid}"))
+    data.result.ok_or_else(|| PlatformError::OperationFailed {
+        operation: "resolve visible window by PID",
+        details: Some(format!("no window found for PID {pid}")),
     })
 }
 
@@ -162,17 +163,17 @@ impl WindowManager for Win32WindowManager {
             return Ok(id_from_hwnd(hwnd));
         }
 
-        Err(PlatformError::new(
-            PlatformErrorKind::OperationFailed,
-            "cannot resolve window: no NativeWindowHandle or ProcessId available on node",
-        ))
+        Err(PlatformError::OperationFailed {
+            operation: "resolve window from node",
+            details: Some("NativeWindowHandle and ProcessId are both unavailable".into()),
+        })
     }
 
     fn bounds(&self, id: WindowId) -> Result<Rect, PlatformError> {
         let hwnd = hwnd_from_id(id);
         let mut rect = RECT::default();
         unsafe { GetWindowRect(hwnd, &mut rect) }
-            .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("GetWindowRect: {e}")))?;
+            .map_err(|e| PlatformError::OperationFailed { operation: "GetWindowRect", details: Some(e.to_string()) })?;
         Ok(Rect::new(
             f64::from(rect.left),
             f64::from(rect.top),
@@ -239,8 +240,9 @@ impl WindowManager for Win32WindowManager {
 
     fn close(&self, id: WindowId) -> Result<(), PlatformError> {
         let hwnd = hwnd_from_id(id);
-        unsafe { PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) }
-            .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("PostMessageW(WM_CLOSE): {e}")))
+        unsafe { PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) }.map_err(|e| {
+            PlatformError::OperationFailed { operation: "PostMessageW(WM_CLOSE)", details: Some(e.to_string()) }
+        })
     }
 
     fn minimize(&self, id: WindowId) -> Result<(), PlatformError> {
@@ -280,7 +282,7 @@ impl WindowManager for Win32WindowManager {
                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
             )
         }
-        .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("SetWindowPos (move): {e}")))
+        .map_err(|e| PlatformError::OperationFailed { operation: "SetWindowPos move", details: Some(e.to_string()) })
     }
 
     fn resize(&self, id: WindowId, size: Size) -> Result<(), PlatformError> {
@@ -297,7 +299,7 @@ impl WindowManager for Win32WindowManager {
                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
             )
         }
-        .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("SetWindowPos (resize): {e}")))
+        .map_err(|e| PlatformError::OperationFailed { operation: "SetWindowPos resize", details: Some(e.to_string()) })
     }
 }
 

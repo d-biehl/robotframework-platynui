@@ -3,7 +3,6 @@ use std::sync::Arc;
 // Windows UIAutomation provider: registers the UIA technology and streams root
 // children via the RawView walker (no FindAll/CacheRequest).
 
-use platynui_core::provider::ProviderErrorKind;
 use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::register_provider;
 use platynui_core::ui::{TechnologyId, UiNode};
@@ -175,17 +174,21 @@ impl UiTreeProvider for WindowsUiaProvider {
         parent: Arc<dyn UiNode>,
     ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
         if self.is_shutdown.load(Ordering::Acquire) {
-            return Err(ProviderError::new(
-                ProviderErrorKind::CommunicationFailure,
-                crate::error::UiaError::Shutdown.to_string(),
-            ));
+            return Err(ProviderError::CommunicationFailure {
+                channel: "windows uia",
+                details: Some(crate::error::UiaError::Shutdown.to_string()),
+            });
         }
-        let uia = crate::com::uia()
-            .map_err(|e| ProviderError::new(ProviderErrorKind::CommunicationFailure, e.to_string()))?;
+        let uia = crate::com::uia().map_err(|e| ProviderError::CommunicationFailure {
+            channel: "windows uia",
+            details: Some(e.to_string()),
+        })?;
 
         let root = unsafe {
-            uia.GetRootElement()
-                .map_err(|e| ProviderError::new(ProviderErrorKind::CommunicationFailure, e.to_string()))?
+            uia.GetRootElement().map_err(|e| ProviderError::CommunicationFailure {
+                channel: "windows uia",
+                details: Some(e.to_string()),
+            })?
         };
         // Stream: first raw desktop children (excluding own process), then one app:Application per PID.
         let it = ElementAndAppIter::new(root, parent);

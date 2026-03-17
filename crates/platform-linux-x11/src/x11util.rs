@@ -1,4 +1,4 @@
-use platynui_core::platform::{PlatformError, PlatformErrorKind};
+use platynui_core::platform::PlatformError;
 use std::env;
 use std::sync::Mutex;
 use std::sync::OnceLock;
@@ -16,8 +16,10 @@ pub struct X11Handle {
 static X11: OnceLock<Mutex<Option<X11Handle>>> = OnceLock::new();
 
 pub fn connection() -> Result<X11Guard, PlatformError> {
-    let disp = env::var("DISPLAY")
-        .map_err(|_| PlatformError::new(PlatformErrorKind::UnsupportedPlatform, "X11 DISPLAY not set"))?;
+    let disp = env::var("DISPLAY").map_err(|_| PlatformError::UnsupportedPlatform {
+        platform: "X11",
+        details: Some("DISPLAY is not set".into()),
+    })?;
 
     let cell = X11.get_or_init(|| {
         tracing::debug!(display = %disp, "establishing X11 connection");
@@ -34,14 +36,16 @@ pub fn connection() -> Result<X11Guard, PlatformError> {
         }
     });
 
-    let guard =
-        cell.lock().map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "x11 mutex poisoned"))?;
+    let guard = cell.lock().map_err(|_| PlatformError::InitializationFailed {
+        component: "x11 connection state",
+        details: Some("mutex poisoned".into()),
+    })?;
 
     if guard.is_none() {
-        return Err(PlatformError::new(
-            PlatformErrorKind::InitializationFailed,
-            "X11 connection not available (shutdown or failed to connect)",
-        ));
+        return Err(PlatformError::InitializationFailed {
+            component: "x11 connection",
+            details: Some("not available after shutdown or failed connect".into()),
+        });
     }
 
     Ok(X11Guard(guard))

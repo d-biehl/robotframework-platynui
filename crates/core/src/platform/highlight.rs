@@ -67,7 +67,7 @@ macro_rules! register_highlight_provider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platform::{PlatformError, PlatformErrorKind};
+    use crate::platform::PlatformError;
     use crate::types::Rect;
 
     struct StubHighlightProvider;
@@ -78,7 +78,10 @@ mod tests {
         }
 
         fn clear(&self) -> Result<(), PlatformError> {
-            Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "clear not supported"))
+            Err(PlatformError::CapabilityUnavailable {
+                capability: "highlight clear",
+                details: Some("clear not supported".into()),
+            })
         }
     }
 

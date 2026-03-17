@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use platynui_core::platform::{
-    KeyCode, KeyState, KeyboardError, KeyboardEvent, PlatformError, PlatformErrorKind, PointerButton, ScrollDelta,
+    KeyCode, KeyState, KeyboardError, KeyboardEvent, PlatformError, PointerButton, ScrollDelta,
 };
 use platynui_core::types::Point;
 use platynui_xkb_util::{KeyAction, KeyCombination};
@@ -54,36 +54,44 @@ impl ControlSocketState {
     /// Used for input injection commands where the compositor does not
     /// send a response, avoiding round-trip latency.
     fn send_event(&mut self, command: &str) -> Result<(), PlatformError> {
-        writeln!(self.writer, "{command}").map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("control socket write failed: {e}"))
+        writeln!(self.writer, "{command}").map_err(|e| PlatformError::OperationFailed {
+            operation: "control socket write",
+            details: Some(e.to_string()),
         })?;
-        self.writer.flush().map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("control socket flush failed: {e}"))
+        self.writer.flush().map_err(|e| PlatformError::OperationFailed {
+            operation: "control socket flush",
+            details: Some(e.to_string()),
         })?;
         Ok(())
     }
 
     /// Send a JSON command and read the JSON response.
     fn send_command(&mut self, command: &str) -> Result<serde_json::Value, PlatformError> {
-        writeln!(self.writer, "{command}").map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("control socket write failed: {e}"))
+        writeln!(self.writer, "{command}").map_err(|e| PlatformError::OperationFailed {
+            operation: "control socket write",
+            details: Some(e.to_string()),
         })?;
-        self.writer.flush().map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("control socket flush failed: {e}"))
+        self.writer.flush().map_err(|e| PlatformError::OperationFailed {
+            operation: "control socket flush",
+            details: Some(e.to_string()),
         })?;
 
         let mut line = String::new();
-        self.reader.read_line(&mut line).map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("control socket read failed: {e}"))
+        self.reader.read_line(&mut line).map_err(|e| PlatformError::OperationFailed {
+            operation: "control socket read",
+            details: Some(e.to_string()),
         })?;
 
         let value: serde_json::Value = serde_json::from_str(line.trim()).map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("control socket invalid JSON: {e}"))
+            PlatformError::OperationFailed { operation: "control socket decode JSON", details: Some(e.to_string()) }
         })?;
 
         if value.get("status").and_then(serde_json::Value::as_str) != Some("ok") {
             let msg = value.get("message").and_then(serde_json::Value::as_str).unwrap_or("unknown error");
-            return Err(PlatformError::new(PlatformErrorKind::OperationFailed, format!("control socket error: {msg}")));
+            return Err(PlatformError::OperationFailed {
+                operation: "control socket request",
+                details: Some(msg.into()),
+            });
         }
 
         Ok(value)
@@ -133,25 +141,22 @@ impl ControlSocketBackend {
     /// Discovers the socket path, establishes a persistent connection,
     /// and fetches the compositor's XKB keymap for key-name resolution.
     pub(crate) fn connect() -> Result<Self, PlatformError> {
-        let socket_path = discover_control_socket_path().ok_or_else(|| {
-            PlatformError::new(
-                PlatformErrorKind::CapabilityUnavailable,
-                "control socket path not found (set PLATYNUI_CONTROL_SOCKET or ensure WAYLAND_DISPLAY is set)",
-            )
+        let socket_path = discover_control_socket_path().ok_or_else(|| PlatformError::CapabilityUnavailable {
+            capability: "control socket path discovery",
+            details: Some("set PLATYNUI_CONTROL_SOCKET or ensure WAYLAND_DISPLAY is set".into()),
         })?;
 
-        let stream = UnixStream::connect(&socket_path).map_err(|e| {
-            PlatformError::new(
-                PlatformErrorKind::InitializationFailed,
-                format!("failed to connect to control socket {}: {e}", socket_path.display()),
-            )
+        let stream = UnixStream::connect(&socket_path).map_err(|e| PlatformError::InitializationFailed {
+            component: "control socket connection",
+            details: Some(format!("{}: {e}", socket_path.display())),
         })?;
 
         stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
         stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
 
-        let reader_stream = stream.try_clone().map_err(|e| {
-            PlatformError::new(PlatformErrorKind::InitializationFailed, format!("failed to clone stream: {e}"))
+        let reader_stream = stream.try_clone().map_err(|e| PlatformError::InitializationFailed {
+            component: "control socket stream clone",
+            details: Some(e.to_string()),
         })?;
 
         let mut state = ControlSocketState {
@@ -301,7 +306,7 @@ fn discover_control_socket_path() -> Option<PathBuf> {
 }
 
 fn platform_err(e: &impl std::fmt::Display) -> PlatformError {
-    PlatformError::new(PlatformErrorKind::OperationFailed, format!("control socket error: {e}"))
+    PlatformError::OperationFailed { operation: "control socket", details: Some(e.to_string()) }
 }
 
 /// Map a `PointerButton` to an evdev button code.

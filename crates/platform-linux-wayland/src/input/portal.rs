@@ -15,9 +15,7 @@ use std::collections::HashMap;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
-use platynui_core::platform::{
-    KeyCode, KeyboardError, KeyboardEvent, PlatformError, PlatformErrorKind, PointerButton, ScrollDelta,
-};
+use platynui_core::platform::{KeyCode, KeyboardError, KeyboardEvent, PlatformError, PointerButton, ScrollDelta};
 use platynui_core::types::Point;
 use tracing::{debug, info, warn};
 use zbus::blocking::Connection;
@@ -151,12 +149,14 @@ impl InputBackend for PortalBackend {
 
 /// Execute the full portal flow and return the EIS stream + D-Bus connection.
 fn connect_via_portal() -> Result<(UnixStream, Connection), PlatformError> {
-    let connection = Connection::session().map_err(|e| {
-        PlatformError::new(PlatformErrorKind::InitializationFailed, format!("D-Bus session connection failed: {e}"))
+    let connection = Connection::session().map_err(|e| PlatformError::InitializationFailed {
+        component: "D-Bus session connection",
+        details: Some(e.to_string()),
     })?;
 
-    let portal = RemoteDesktopProxyBlocking::new(&connection).map_err(|e| {
-        PlatformError::new(PlatformErrorKind::CapabilityUnavailable, format!("RemoteDesktop portal not available: {e}"))
+    let portal = RemoteDesktopProxyBlocking::new(&connection).map_err(|e| PlatformError::CapabilityUnavailable {
+        capability: "RemoteDesktop portal",
+        details: Some(e.to_string()),
     })?;
 
     let restore_token = load_restore_token();
@@ -172,24 +172,29 @@ fn connect_via_portal() -> Result<(UnixStream, Connection), PlatformError> {
             ("session_handle_token", Value::from("platynui_session")),
         ]);
 
-        portal.create_session(&options).map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("portal CreateSession failed: {e}"))
+        portal.create_session(&options).map_err(|e| PlatformError::OperationFailed {
+            operation: "portal CreateSession",
+            details: Some(e.to_string()),
         })?;
 
         let results = wait_for_response(&mut signals)?;
-        let session_handle_val = results.get("session_handle").ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, "portal did not return session_handle")
+        let session_handle_val = results.get("session_handle").ok_or(PlatformError::OperationFailed {
+            operation: "portal CreateSession",
+            details: Some("session_handle missing".into()),
         })?;
 
-        let session_path: String = session_handle_val.clone().try_into().or_else(|_| {
-            let path: OwnedObjectPath = session_handle_val.clone().try_into().map_err(|e| {
-                PlatformError::new(PlatformErrorKind::OperationFailed, format!("invalid session_handle type: {e}"))
+        let session_path: String = if let Ok(path) = String::try_from(session_handle_val.clone()) {
+            path
+        } else {
+            let path = OwnedObjectPath::try_from(session_handle_val.clone()).map_err(|e| {
+                PlatformError::OperationFailed { operation: "parse session_handle", details: Some(e.to_string()) }
             })?;
-            Ok(path.to_string())
-        })?;
+            path.to_string()
+        };
 
-        OwnedObjectPath::try_from(session_path).map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("invalid session_handle path: {e}"))
+        OwnedObjectPath::try_from(session_path).map_err(|e| PlatformError::OperationFailed {
+            operation: "parse session_handle path",
+            details: Some(e.to_string()),
         })?
     };
 
@@ -210,8 +215,9 @@ fn connect_via_portal() -> Result<(UnixStream, Connection), PlatformError> {
             options.insert("restore_token", Value::from(rt.as_str()));
         }
 
-        portal.select_devices(&session_handle, &options).map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("portal SelectDevices failed: {e}"))
+        portal.select_devices(&session_handle, &options).map_err(|e| PlatformError::OperationFailed {
+            operation: "portal SelectDevices",
+            details: Some(e.to_string()),
         })?;
 
         wait_for_response(&mut signals)?;
@@ -227,7 +233,7 @@ fn connect_via_portal() -> Result<(UnixStream, Connection), PlatformError> {
 
         portal
             .start(&session_handle, "", &options)
-            .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("portal Start failed: {e}")))?;
+            .map_err(|e| PlatformError::OperationFailed { operation: "portal Start", details: Some(e.to_string()) })?;
 
         let results = wait_for_response(&mut signals)?;
 
@@ -246,8 +252,9 @@ fn connect_via_portal() -> Result<(UnixStream, Connection), PlatformError> {
 
     // Step 4: ConnectToEIS
     debug!("portal: ConnectToEIS");
-    let fd = portal.connect_to_eis(&session_handle, &HashMap::new()).map_err(|e| {
-        PlatformError::new(PlatformErrorKind::OperationFailed, format!("portal ConnectToEIS failed: {e}"))
+    let fd = portal.connect_to_eis(&session_handle, &HashMap::new()).map_err(|e| PlatformError::OperationFailed {
+        operation: "portal ConnectToEIS",
+        details: Some(e.to_string()),
     })?;
 
     let std_fd: std::os::fd::OwnedFd = fd.into();
@@ -264,37 +271,41 @@ fn connect_via_portal() -> Result<(UnixStream, Connection), PlatformError> {
 fn subscribe_response(connection: &Connection, handle_token: &str) -> Result<ResponseIterator, PlatformError> {
     let unique_name = connection
         .unique_name()
-        .ok_or_else(|| PlatformError::new(PlatformErrorKind::OperationFailed, "D-Bus connection has no unique name"))?;
+        .ok_or(PlatformError::OperationFailed { operation: "read D-Bus unique name", details: None })?;
     let sender = unique_name.as_str().trim_start_matches(':').replace('.', "_");
     let path = format!("/org/freedesktop/portal/desktop/request/{sender}/{handle_token}");
 
     let request_proxy = PortalRequestProxyBlocking::builder(connection)
         .path(path.as_str())
-        .map_err(|e| PlatformError::new(PlatformErrorKind::OperationFailed, format!("invalid portal path: {e}")))?
+        .map_err(|e| PlatformError::OperationFailed { operation: "build portal path", details: Some(e.to_string()) })?
         .build()
-        .map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("portal request proxy failed: {e}"))
+        .map_err(|e| PlatformError::OperationFailed {
+            operation: "build portal request proxy",
+            details: Some(e.to_string()),
         })?;
 
-    request_proxy.receive_response().map_err(|e| {
-        PlatformError::new(PlatformErrorKind::OperationFailed, format!("failed to subscribe to portal response: {e}"))
+    request_proxy.receive_response().map_err(|e| PlatformError::OperationFailed {
+        operation: "subscribe to portal response",
+        details: Some(e.to_string()),
     })
 }
 
 fn wait_for_response(signals: &mut ResponseIterator) -> Result<HashMap<String, OwnedValue>, PlatformError> {
-    let signal = signals
-        .next()
-        .ok_or_else(|| PlatformError::new(PlatformErrorKind::OperationFailed, "portal response signal stream ended"))?;
+    let signal = signals.next().ok_or_else(|| PlatformError::OperationFailed {
+        operation: "wait for portal response",
+        details: Some("signal stream ended".into()),
+    })?;
 
-    let args = signal.args().map_err(|e| {
-        PlatformError::new(PlatformErrorKind::OperationFailed, format!("failed to parse portal response: {e}"))
+    let args = signal.args().map_err(|e| PlatformError::OperationFailed {
+        operation: "parse portal response",
+        details: Some(e.to_string()),
     })?;
 
     if args.response != 0 {
-        return Err(PlatformError::new(
-            PlatformErrorKind::OperationFailed,
-            format!("portal request denied (response code {})", args.response),
-        ));
+        return Err(PlatformError::OperationFailed {
+            operation: "portal request",
+            details: Some(format!("denied with response code {}", args.response)),
+        });
     }
 
     Ok(args.results.clone())

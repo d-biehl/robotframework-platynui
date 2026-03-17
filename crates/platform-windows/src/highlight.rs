@@ -6,9 +6,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
-use platynui_core::platform::{
-    HighlightProvider, HighlightRequest, PlatformError, PlatformErrorKind, desktop_info_providers,
-};
+use platynui_core::platform::{HighlightProvider, HighlightRequest, PlatformError, desktop_info_providers};
 use platynui_core::register_highlight_provider;
 use platynui_core::types::Rect;
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, SIZE, WPARAM};
@@ -74,25 +72,31 @@ impl OverlayController {
     where
         F: FnOnce(&Self) -> Result<R, PlatformError>,
     {
-        let guard = Self::global()
-            .lock()
-            .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight lock poisoned"))?;
-        let ctrl = guard.as_ref().ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight has been shut down")
+        let guard = Self::global().lock().map_err(|_| PlatformError::InitializationFailed {
+            component: "windows highlight state",
+            details: Some("lock poisoned".into()),
+        })?;
+        let ctrl = guard.as_ref().ok_or_else(|| PlatformError::InitializationFailed {
+            component: "windows highlight controller",
+            details: Some("shut down".into()),
         })?;
         f(ctrl)
     }
 
     fn show(&self, rects: &[Rect], duration: Option<Duration>) -> Result<(), PlatformError> {
-        self.tx
-            .send(Command::Show { rects: rects.to_vec(), duration })
-            .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight thread stopped"))
+        self.tx.send(Command::Show { rects: rects.to_vec(), duration }).map_err(|_| {
+            PlatformError::InitializationFailed {
+                component: "windows highlight thread",
+                details: Some("stopped".into()),
+            }
+        })
     }
 
     fn clear(&self) -> Result<(), PlatformError> {
-        self.tx
-            .send(Command::Clear)
-            .map_err(|_| PlatformError::new(PlatformErrorKind::InitializationFailed, "highlight thread stopped"))
+        self.tx.send(Command::Clear).map_err(|_| PlatformError::InitializationFailed {
+            component: "windows highlight thread",
+            details: Some("stopped".into()),
+        })
     }
 }
 

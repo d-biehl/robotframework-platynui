@@ -1278,7 +1278,7 @@ impl UiNode for DummyNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use platynui_core::provider::{ProviderError, ProviderErrorKind};
+    use platynui_core::provider::ProviderError;
     use platynui_core::types::Rect;
     use platynui_core::ui::{PatternId, RuntimeId, UiAttribute, UiNode, attribute_names, supported_patterns_value};
     use rstest::rstest;
@@ -1616,7 +1616,7 @@ mod tests {
 
     impl NodeResolver for ResolverError {
         fn resolve(&self, _runtime_id: &RuntimeId) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
-            Err(ProviderError::simple(ProviderErrorKind::TreeUnavailable))
+            Err(ProviderError::TreeUnavailable { provider: "resolver", details: None })
         }
     }
 

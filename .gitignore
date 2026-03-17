@@ -50,3 +50,6 @@ packages/**/*.dSYM/
 
 # cibuildwheel artifacts
 wheelhouse/
+
+.agents
+skills-lock.json

@@ -17,7 +17,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use platynui_core::platform::{
-    KeyCode, KeyState, KeyboardError, KeyboardEvent, PlatformError, PlatformErrorKind, PointerButton, ScrollDelta,
+    KeyCode, KeyState, KeyboardError, KeyboardEvent, PlatformError, PointerButton, ScrollDelta,
 };
 use platynui_core::types::Point;
 use platynui_xkb_util::xkb;
@@ -95,27 +95,26 @@ struct VirtualInputDispatch {
 impl VirtualInputBackend {
     /// Try to connect and bind the virtual-input protocols.
     pub(crate) fn connect() -> Result<Self, PlatformError> {
-        let conn = Connection::connect_to_env().map_err(|e| {
-            PlatformError::new(
-                PlatformErrorKind::InitializationFailed,
-                format!("Wayland connection for virtual-input failed: {e}"),
-            )
+        let conn = Connection::connect_to_env().map_err(|e| PlatformError::InitializationFailed {
+            component: "virtual-input Wayland connection",
+            details: Some(e.to_string()),
         })?;
 
         let (globals, mut eq) =
             wayland_client::globals::registry_queue_init::<VirtualInputDispatch>(&conn).map_err(|e| {
-                PlatformError::new(
-                    PlatformErrorKind::InitializationFailed,
-                    format!("Wayland registry init failed: {e}"),
-                )
+                PlatformError::InitializationFailed {
+                    component: "virtual-input Wayland registry",
+                    details: Some(e.to_string()),
+                }
             })?;
 
         let qh = eq.handle();
         let mut dispatch = bind_globals(&globals, &qh);
 
         // Roundtrip to finish binding.
-        eq.roundtrip(&mut dispatch).map_err(|e| {
-            PlatformError::new(PlatformErrorKind::InitializationFailed, format!("Wayland roundtrip failed: {e}"))
+        eq.roundtrip(&mut dispatch).map_err(|e| PlatformError::InitializationFailed {
+            component: "virtual-input Wayland roundtrip",
+            details: Some(e.to_string()),
         })?;
 
         // Create the virtual pointer if the manager is available.
@@ -153,14 +152,16 @@ impl VirtualInputBackend {
             };
 
         // Flush to ensure the keymap upload reaches the compositor.
-        conn.flush().map_err(|e| {
-            PlatformError::new(PlatformErrorKind::InitializationFailed, format!("Wayland flush failed: {e}"))
+        conn.flush().map_err(|e| PlatformError::InitializationFailed {
+            component: "virtual-input Wayland flush",
+            details: Some(e.to_string()),
         })?;
 
         // Second roundtrip: ensure the compositor has processed the keymap
         // before any key events are sent.
-        eq.roundtrip(&mut dispatch).map_err(|e| {
-            PlatformError::new(PlatformErrorKind::InitializationFailed, format!("Wayland roundtrip failed: {e}"))
+        eq.roundtrip(&mut dispatch).map_err(|e| PlatformError::InitializationFailed {
+            component: "virtual-input keymap roundtrip",
+            details: Some(e.to_string()),
         })?;
 
         // The seat keyboard is no longer needed — drop it to stop receiving
@@ -185,10 +186,10 @@ impl VirtualInputBackend {
         );
 
         if !has_pointer && !has_keyboard {
-            return Err(PlatformError::new(
-                PlatformErrorKind::CapabilityUnavailable,
-                "no virtual-input protocols available on this compositor",
-            ));
+            return Err(PlatformError::CapabilityUnavailable {
+                capability: "virtual-input protocols",
+                details: Some("not available on this compositor".into()),
+            });
         }
 
         Ok(Self {
@@ -292,9 +293,10 @@ impl InputBackend for VirtualInputBackend {
         let mut guard = self.inner.lock().expect("virtual-input mutex poisoned");
         let state = &mut *guard;
 
-        let vp = state.virtual_pointer.as_ref().ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "no virtual pointer available")
-        })?;
+        let vp = state
+            .virtual_pointer
+            .as_ref()
+            .ok_or(PlatformError::CapabilityUnavailable { capability: "virtual pointer", details: None })?;
 
         let time = timestamp_ms(state.epoch);
         #[expect(
@@ -307,8 +309,9 @@ impl InputBackend for VirtualInputBackend {
         // Pass the output dimensions so pixel coordinates map 1:1.
         vp.motion_absolute(time, x, y, state.output_width, state.output_height);
         vp.frame();
-        state.conn.flush().map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("Wayland flush failed: {e}"))
+        state.conn.flush().map_err(|e| PlatformError::OperationFailed {
+            operation: "virtual pointer flush",
+            details: Some(e.to_string()),
         })?;
         state.last_position = Some(point);
 
@@ -319,16 +322,18 @@ impl InputBackend for VirtualInputBackend {
         let mut guard = self.inner.lock().expect("virtual-input mutex poisoned");
         let state = &mut *guard;
 
-        let vp = state.virtual_pointer.as_ref().ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "no virtual pointer available")
-        })?;
+        let vp = state
+            .virtual_pointer
+            .as_ref()
+            .ok_or(PlatformError::CapabilityUnavailable { capability: "virtual pointer", details: None })?;
 
         let time = timestamp_ms(state.epoch);
         let code = evdev_button_code(button);
         vp.button(time, code, wayland_client::protocol::wl_pointer::ButtonState::Pressed);
         vp.frame();
-        state.conn.flush().map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("Wayland flush failed: {e}"))
+        state.conn.flush().map_err(|e| PlatformError::OperationFailed {
+            operation: "virtual pointer button press flush",
+            details: Some(e.to_string()),
         })?;
 
         Ok(())
@@ -338,16 +343,18 @@ impl InputBackend for VirtualInputBackend {
         let mut guard = self.inner.lock().expect("virtual-input mutex poisoned");
         let state = &mut *guard;
 
-        let vp = state.virtual_pointer.as_ref().ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "no virtual pointer available")
-        })?;
+        let vp = state
+            .virtual_pointer
+            .as_ref()
+            .ok_or(PlatformError::CapabilityUnavailable { capability: "virtual pointer", details: None })?;
 
         let time = timestamp_ms(state.epoch);
         let code = evdev_button_code(button);
         vp.button(time, code, wayland_client::protocol::wl_pointer::ButtonState::Released);
         vp.frame();
-        state.conn.flush().map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("Wayland flush failed: {e}"))
+        state.conn.flush().map_err(|e| PlatformError::OperationFailed {
+            operation: "virtual pointer button release flush",
+            details: Some(e.to_string()),
         })?;
 
         Ok(())
@@ -357,9 +364,10 @@ impl InputBackend for VirtualInputBackend {
         let mut guard = self.inner.lock().expect("virtual-input mutex poisoned");
         let state = &mut *guard;
 
-        let vp = state.virtual_pointer.as_ref().ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "no virtual pointer available")
-        })?;
+        let vp = state
+            .virtual_pointer
+            .as_ref()
+            .ok_or(PlatformError::CapabilityUnavailable { capability: "virtual pointer", details: None })?;
 
         let time = timestamp_ms(state.epoch);
         // wl_pointer::Axis: 0 = vertical, 1 = horizontal
@@ -370,8 +378,9 @@ impl InputBackend for VirtualInputBackend {
             vp.axis(time, wayland_client::protocol::wl_pointer::Axis::HorizontalScroll, delta.horizontal);
         }
         vp.frame();
-        state.conn.flush().map_err(|e| {
-            PlatformError::new(PlatformErrorKind::OperationFailed, format!("Wayland flush failed: {e}"))
+        state.conn.flush().map_err(|e| PlatformError::OperationFailed {
+            operation: "virtual pointer scroll flush",
+            details: Some(e.to_string()),
         })?;
 
         Ok(())
@@ -596,8 +605,9 @@ fn load_and_upload_keymap(
         debug!("no seat keymap available, falling back to system default");
         let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
         let keymap = xkb::Keymap::new_from_names(&context, "", "", "", "", None, xkb::KEYMAP_COMPILE_NO_FLAGS)
-            .ok_or_else(|| {
-                PlatformError::new(PlatformErrorKind::InitializationFailed, "failed to create default XKB keymap")
+            .ok_or_else(|| PlatformError::InitializationFailed {
+                component: "default XKB keymap",
+                details: Some("creation failed".into()),
             })?;
         keymap.get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1)
     };
@@ -609,11 +619,12 @@ fn load_and_upload_keymap(
     keymap_bytes.push(0);
 
     let memfd = rustix::fs::memfd_create("xkb-keymap", rustix::fs::MemfdFlags::CLOEXEC).map_err(|e| {
-        PlatformError::new(PlatformErrorKind::InitializationFailed, format!("memfd_create failed: {e}"))
+        PlatformError::InitializationFailed { component: "XKB keymap memfd", details: Some(e.to_string()) }
     })?;
     let mut file = std::fs::File::from(memfd);
-    file.write_all(&keymap_bytes).map_err(|e| {
-        PlatformError::new(PlatformErrorKind::InitializationFailed, format!("writing keymap to memfd failed: {e}"))
+    file.write_all(&keymap_bytes).map_err(|e| PlatformError::InitializationFailed {
+        component: "XKB keymap memfd write",
+        details: Some(e.to_string()),
     })?;
 
     #[expect(clippy::cast_possible_truncation, reason = "keymap size won't exceed u32")]
@@ -622,7 +633,7 @@ fn load_and_upload_keymap(
     debug!(size, "uploaded XKB keymap to virtual keyboard");
 
     let lookup = KeymapLookup::from_string_for_layout(&keymap_string, seat_group).map_err(|e| {
-        PlatformError::new(PlatformErrorKind::InitializationFailed, format!("failed to build keymap lookup: {e}"))
+        PlatformError::InitializationFailed { component: "XKB keymap lookup", details: Some(e.to_string()) }
     })?;
     info!(entries = lookup.len(), "virtual keyboard keymap ready");
 
@@ -631,8 +642,9 @@ fn load_and_upload_keymap(
     let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
     let keymap =
         xkb::Keymap::new_from_string(&context, keymap_string, xkb::KEYMAP_FORMAT_TEXT_V1, xkb::KEYMAP_COMPILE_NO_FLAGS)
-            .ok_or_else(|| {
-                PlatformError::new(PlatformErrorKind::InitializationFailed, "failed to parse keymap for xkb state")
+            .ok_or_else(|| PlatformError::InitializationFailed {
+                component: "XKB state keymap",
+                details: Some("parse failed".into()),
             })?;
     let xkb_state = xkb::State::new(&keymap);
 
@@ -693,10 +705,10 @@ fn send_virtual_key_combo(state: &mut VirtualInputState, combo: &KeyCombination)
     }
 
     state.conn.flush().map_err(|e| {
-        KeyboardError::Platform(PlatformError::new(
-            PlatformErrorKind::OperationFailed,
-            format!("Wayland flush failed: {e}"),
-        ))
+        KeyboardError::Platform(PlatformError::OperationFailed {
+            operation: "virtual keyboard combo flush",
+            details: Some(e.to_string()),
+        })
     })?;
 
     Ok(())
@@ -717,10 +729,10 @@ fn send_modifier_state(
 ) -> Result<(), KeyboardError> {
     update_xkb_and_send_mods(state, evdev_code, key_state);
     state.conn.flush().map_err(|e| {
-        KeyboardError::Platform(PlatformError::new(
-            PlatformErrorKind::OperationFailed,
-            format!("Wayland flush failed: {e}"),
-        ))
+        KeyboardError::Platform(PlatformError::OperationFailed {
+            operation: "virtual keyboard modifier flush",
+            details: Some(e.to_string()),
+        })
     })
 }
 

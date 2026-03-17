@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
-use platynui_core::platform::{PlatformError, PlatformErrorKind};
+use platynui_core::platform::PlatformError;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use tracing::{debug, info, warn};
 use wayland_client::protocol::wl_output::{self, WlOutput};
@@ -241,17 +241,15 @@ static GLOBAL: Mutex<Option<WaylandGlobal>> = Mutex::new(None);
 /// Returns `PlatformError` if the Wayland display connection or roundtrip fails.
 pub(crate) fn connect_and_enumerate()
 -> Result<(Connection, CompositorType, Vec<OutputInfo>, WaylandSession), PlatformError> {
-    let conn = Connection::connect_to_env().map_err(|e| {
-        PlatformError::new(
-            PlatformErrorKind::InitializationFailed,
-            format!("failed to connect to Wayland display: {e}"),
-        )
+    let conn = Connection::connect_to_env().map_err(|e| PlatformError::InitializationFailed {
+        component: "Wayland display connection",
+        details: Some(e.to_string()),
     })?;
 
     let compositor = crate::capabilities::detect_compositor(&conn);
 
     let (globals, mut eq) = wayland_client::globals::registry_queue_init::<RegistryState>(&conn).map_err(|e| {
-        PlatformError::new(PlatformErrorKind::InitializationFailed, format!("Wayland registry init failed: {e}"))
+        PlatformError::InitializationFailed { component: "Wayland registry", details: Some(e.to_string()) }
     })?;
 
     let qh = eq.handle();
@@ -278,8 +276,9 @@ pub(crate) fn connect_and_enumerate()
     }
 
     // First roundtrip: receives wl_output events (geometry, mode, scale, name, description, done).
-    eq.roundtrip(&mut state).map_err(|e| {
-        PlatformError::new(PlatformErrorKind::InitializationFailed, format!("Wayland roundtrip failed: {e}"))
+    eq.roundtrip(&mut state).map_err(|e| PlatformError::InitializationFailed {
+        component: "Wayland roundtrip",
+        details: Some(e.to_string()),
     })?;
 
     // If xdg-output-manager is available, request xdg_output for each output.
@@ -290,11 +289,9 @@ pub(crate) fn connect_and_enumerate()
         }
 
         // Second roundtrip: collects xdg_output events.
-        eq.roundtrip(&mut state).map_err(|e| {
-            PlatformError::new(
-                PlatformErrorKind::InitializationFailed,
-                format!("Wayland xdg-output roundtrip failed: {e}"),
-            )
+        eq.roundtrip(&mut state).map_err(|e| PlatformError::InitializationFailed {
+            component: "Wayland xdg-output roundtrip",
+            details: Some(e.to_string()),
         })?;
     } else {
         warn!("zxdg_output_manager_v1 not available — using wl_output geometry/mode for monitor info");

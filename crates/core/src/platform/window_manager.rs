@@ -108,7 +108,7 @@ macro_rules! register_window_manager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platform::{PlatformError, PlatformErrorKind};
+    use crate::platform::PlatformError;
     use crate::types::{Point, Rect, Size};
     use crate::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode};
     use std::sync::{Arc, LazyLock, Weak};
@@ -170,7 +170,10 @@ mod tests {
         }
 
         fn close(&self, _id: WindowId) -> Result<(), PlatformError> {
-            Err(PlatformError::new(PlatformErrorKind::OperationFailed, "close not supported"))
+            Err(PlatformError::OperationFailed {
+                operation: "close window",
+                details: Some("close not supported".into()),
+            })
         }
 
         fn minimize(&self, _id: WindowId) -> Result<(), PlatformError> {

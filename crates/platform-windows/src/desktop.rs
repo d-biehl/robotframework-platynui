@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::mem::size_of;
 
-use platynui_core::platform::{DesktopInfo, DesktopInfoProvider, MonitorInfo, PlatformError, PlatformErrorKind};
+use platynui_core::platform::{DesktopInfo, DesktopInfoProvider, MonitorInfo, PlatformError};
 use platynui_core::register_desktop_info_provider;
 use platynui_core::types::Rect;
 use platynui_core::ui::{RuntimeId, TechnologyId};
@@ -37,10 +37,10 @@ impl DesktopInfoProvider for WindowsDesktopProvider {
         let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) } as f64;
 
         if width <= 0.0 || height <= 0.0 {
-            return Err(PlatformError::new(
-                PlatformErrorKind::CapabilityUnavailable,
-                "virtual screen dimensions unavailable",
-            ));
+            return Err(PlatformError::CapabilityUnavailable {
+                capability: "virtual screen dimensions",
+                details: None,
+            });
         }
 
         // Enumerate physical monitors; on any failure, fall back to no monitors.
@@ -102,7 +102,10 @@ unsafe fn enumerate_monitors() -> Result<Vec<MonitorInfo>, PlatformError> {
     let lparam = LPARAM(&mut list as *mut _ as isize);
     let ok = unsafe { EnumDisplayMonitors(None, None, Some(enum_proc), lparam) };
     if !ok.as_bool() {
-        return Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "EnumDisplayMonitors failed"));
+        return Err(PlatformError::CapabilityUnavailable {
+            capability: "monitor enumeration",
+            details: Some("EnumDisplayMonitors failed".into()),
+        });
     }
     Ok(list)
 }

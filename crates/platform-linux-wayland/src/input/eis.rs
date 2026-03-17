@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use enumflags2::BitFlags;
 use platynui_core::platform::{
-    KeyCode, KeyState, KeyboardError, KeyboardEvent, PlatformError, PlatformErrorKind, PointerButton, ScrollDelta,
+    KeyCode, KeyState, KeyboardError, KeyboardEvent, PlatformError, PointerButton, ScrollDelta,
 };
 use platynui_core::types::Point;
 use platynui_xkb_util::{KeyAction, KeyCombination};
@@ -99,14 +99,15 @@ impl EisBackend {
     /// Used by the Portal backend which obtains the stream via
     /// `ConnectToEIS`.
     pub(crate) fn from_stream(stream: UnixStream, compositor_type: CompositorType) -> Result<Self, PlatformError> {
-        let context = ei::Context::new(stream).map_err(|e| {
-            PlatformError::new(PlatformErrorKind::InitializationFailed, format!("EIS context creation failed: {e}"))
+        let context = ei::Context::new(stream).map_err(|e| PlatformError::InitializationFailed {
+            component: "EIS context",
+            details: Some(e.to_string()),
         })?;
 
-        let resp = reis::handshake::ei_handshake_blocking(&context, "platynui", ei::handshake::ContextType::Sender)
-            .map_err(|e| {
-                PlatformError::new(PlatformErrorKind::InitializationFailed, format!("EIS handshake failed: {e}"))
-            })?;
+        let resp =
+            reis::handshake::ei_handshake_blocking(&context, "platynui", ei::handshake::ContextType::Sender).map_err(
+                |e| PlatformError::InitializationFailed { component: "EIS handshake", details: Some(e.to_string()) },
+            )?;
 
         let mut converter = EiEventConverter::new(&context, resp);
         let connection = converter.connection().clone();
@@ -250,12 +251,14 @@ impl InputBackend for EisBackend {
 
     fn pointer_move_to(&self, point: Point) -> Result<(), PlatformError> {
         let mut guard = self.inner.lock().expect("EIS state mutex poisoned");
-        let dev = guard.pointer.as_ref().ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "no EIS pointer-absolute device")
-        })?;
+        let dev = guard
+            .pointer
+            .as_ref()
+            .ok_or(PlatformError::CapabilityUnavailable { capability: "EIS pointer-absolute device", details: None })?;
 
-        let abs = dev.interface::<ei::PointerAbsolute>().ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "device lacks PointerAbsolute interface")
+        let abs = dev.interface::<ei::PointerAbsolute>().ok_or(PlatformError::CapabilityUnavailable {
+            capability: "EIS PointerAbsolute interface",
+            details: None,
         })?;
 
         let serial = guard.connection.serial();
@@ -275,11 +278,11 @@ impl InputBackend for EisBackend {
         let dev = guard
             .button
             .as_ref()
-            .ok_or_else(|| PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "no EIS button device"))?;
+            .ok_or(PlatformError::CapabilityUnavailable { capability: "EIS button device", details: None })?;
 
-        let btn = dev.interface::<ei::Button>().ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "device lacks Button interface")
-        })?;
+        let btn = dev
+            .interface::<ei::Button>()
+            .ok_or(PlatformError::CapabilityUnavailable { capability: "EIS Button interface", details: None })?;
 
         let code = evdev_button_code(button);
         let serial = guard.connection.serial();
@@ -297,11 +300,11 @@ impl InputBackend for EisBackend {
         let dev = guard
             .button
             .as_ref()
-            .ok_or_else(|| PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "no EIS button device"))?;
+            .ok_or(PlatformError::CapabilityUnavailable { capability: "EIS button device", details: None })?;
 
-        let btn = dev.interface::<ei::Button>().ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "device lacks Button interface")
-        })?;
+        let btn = dev
+            .interface::<ei::Button>()
+            .ok_or(PlatformError::CapabilityUnavailable { capability: "EIS Button interface", details: None })?;
 
         let code = evdev_button_code(button);
         let serial = guard.connection.serial();
@@ -319,11 +322,11 @@ impl InputBackend for EisBackend {
         let dev = guard
             .scroll
             .as_ref()
-            .ok_or_else(|| PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "no EIS scroll device"))?;
+            .ok_or(PlatformError::CapabilityUnavailable { capability: "EIS scroll device", details: None })?;
 
-        let scroll = dev.interface::<ei::Scroll>().ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "device lacks Scroll interface")
-        })?;
+        let scroll = dev
+            .interface::<ei::Scroll>()
+            .ok_or(PlatformError::CapabilityUnavailable { capability: "EIS Scroll interface", details: None })?;
 
         let serial = guard.connection.serial();
         dev.device().start_emulating(serial, 1);
@@ -386,20 +389,16 @@ fn connect_to_eis_socket() -> Result<UnixStream, PlatformError> {
             PathBuf::from(&path)
         };
 
-        return UnixStream::connect(&full_path).map_err(|e| {
-            PlatformError::new(
-                PlatformErrorKind::InitializationFailed,
-                format!("failed to connect to EIS socket {}: {e}", full_path.display()),
-            )
+        return UnixStream::connect(&full_path).map_err(|e| PlatformError::InitializationFailed {
+            component: "EIS socket connection",
+            details: Some(format!("{}: {e}", full_path.display())),
         });
     }
 
     // 2. Try well-known paths in $XDG_RUNTIME_DIR
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").map_err(|_| {
-        PlatformError::new(
-            PlatformErrorKind::CapabilityUnavailable,
-            "no LIBEI_SOCKET set and XDG_RUNTIME_DIR unavailable",
-        )
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").map_err(|_| PlatformError::CapabilityUnavailable {
+        capability: "EIS socket discovery",
+        details: Some("LIBEI_SOCKET is unset and XDG_RUNTIME_DIR is unavailable".into()),
     })?;
 
     let candidates = ["eis-0", "eis-1"];
@@ -418,10 +417,10 @@ fn connect_to_eis_socket() -> Result<UnixStream, PlatformError> {
         }
     }
 
-    Err(PlatformError::new(
-        PlatformErrorKind::CapabilityUnavailable,
-        "no EIS socket found (set LIBEI_SOCKET or ensure compositor provides eis-0)",
-    ))
+    Err(PlatformError::CapabilityUnavailable {
+        capability: "EIS socket",
+        details: Some("set LIBEI_SOCKET or ensure the compositor provides eis-0".into()),
+    })
 }
 
 /// Drain events already sitting in the context's internal read buffer.
@@ -429,12 +428,16 @@ fn dispatch_buffered(context: &ei::Context, converter: &mut EiEventConverter) ->
     while let Some(result) = context.pending_event() {
         match result {
             PendingRequestResult::Request(event) => {
-                converter.handle_event(event).map_err(|e| {
-                    PlatformError::new(PlatformErrorKind::OperationFailed, format!("EIS protocol error: {e}"))
+                converter.handle_event(event).map_err(|e| PlatformError::OperationFailed {
+                    operation: "EIS protocol handling",
+                    details: Some(e.to_string()),
                 })?;
             }
             PendingRequestResult::ParseError(e) => {
-                return Err(PlatformError::new(PlatformErrorKind::OperationFailed, format!("EIS parse error: {e}")));
+                return Err(PlatformError::OperationFailed {
+                    operation: "EIS event parsing",
+                    details: Some(e.to_string()),
+                });
             }
             PendingRequestResult::InvalidObject(_) => {}
         }
@@ -481,8 +484,9 @@ fn wait_for_devices(state: &mut EisState) -> Result<(), PlatformError> {
             match event {
                 EiEvent::SeatAdded(ref seat) => {
                     seat.seat.bind_capabilities(BitFlags::all());
-                    flush_blocking(&state.connection, &state.context).map_err(|e| {
-                        PlatformError::new(PlatformErrorKind::OperationFailed, format!("EIS flush failed: {e}"))
+                    flush_blocking(&state.connection, &state.context).map_err(|e| PlatformError::OperationFailed {
+                        operation: "EIS flush",
+                        details: Some(e.to_string()),
                     })?;
                 }
                 EiEvent::DeviceResumed(ref dev) => {
@@ -518,7 +522,7 @@ fn wait_for_devices(state: &mut EisState) -> Result<(), PlatformError> {
             Ok(false) => break,
             Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break,
             Err(e) => {
-                return Err(PlatformError::new(PlatformErrorKind::OperationFailed, format!("EIS read error: {e}")));
+                return Err(PlatformError::OperationFailed { operation: "EIS read", details: Some(e.to_string()) });
             }
         }
     }
@@ -623,7 +627,7 @@ fn poll_group_changes(state: &mut EisState) {
 // ---------------------------------------------------------------------------
 
 fn platform_err(e: &impl std::fmt::Display) -> PlatformError {
-    PlatformError::new(PlatformErrorKind::OperationFailed, format!("EIS error: {e}"))
+    PlatformError::OperationFailed { operation: "EIS", details: Some(e.to_string()) }
 }
 
 /// Send a complete key combination via EIS including modifier presses/releases.

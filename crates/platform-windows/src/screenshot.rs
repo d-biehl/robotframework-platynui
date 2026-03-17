@@ -1,6 +1,5 @@
 use platynui_core::platform::{
-    PixelFormat, PlatformError, PlatformErrorKind, Screenshot, ScreenshotProvider, ScreenshotRequest,
-    desktop_info_providers,
+    PixelFormat, PlatformError, Screenshot, ScreenshotProvider, ScreenshotRequest, desktop_info_providers,
 };
 use platynui_core::register_screenshot_provider;
 use platynui_core::types::Rect;
@@ -19,14 +18,14 @@ pub struct WindowsScreenshotProvider;
 
 impl ScreenshotProvider for WindowsScreenshotProvider {
     fn capture(&self, request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
-        let desktop = desktop_bounds().ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "desktop bounds unavailable")
-        })?;
+        let desktop = desktop_bounds()
+            .ok_or_else(|| PlatformError::CapabilityUnavailable { capability: "desktop bounds", details: None })?;
 
         // Determine requested capture region and clamp to desktop
         let requested = request.region.unwrap_or(desktop);
-        let region = intersect_rect(&requested, &desktop).ok_or_else(|| {
-            PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "capture region outside desktop")
+        let region = intersect_rect(&requested, &desktop).ok_or_else(|| PlatformError::CapabilityUnavailable {
+            capability: "capture region",
+            details: Some("outside desktop".into()),
         })?;
 
         let left = region.x().floor() as i32;
@@ -37,12 +36,18 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
         unsafe {
             let screen_dc: HDC = GetDC(None);
             if screen_dc.0.is_null() {
-                return Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "GetDC(NULL) failed"));
+                return Err(PlatformError::CapabilityUnavailable {
+                    capability: "GetDC(NULL)",
+                    details: Some("failed".into()),
+                });
             }
             let mem_dc: HDC = CreateCompatibleDC(Some(screen_dc));
             if mem_dc.0.is_null() {
                 let _ = ReleaseDC(None, screen_dc);
-                return Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "CreateCompatibleDC failed"));
+                return Err(PlatformError::CapabilityUnavailable {
+                    capability: "CreateCompatibleDC",
+                    details: Some("failed".into()),
+                });
             }
 
             let info: BITMAPINFO = BITMAPINFO {
@@ -68,10 +73,10 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
                 Err(e) => {
                     let _ = DeleteDC(mem_dc);
                     let _ = ReleaseDC(None, screen_dc);
-                    return Err(PlatformError::new(
-                        PlatformErrorKind::CapabilityUnavailable,
-                        format!("CreateDIBSection failed: {e:?}"),
-                    ));
+                    return Err(PlatformError::CapabilityUnavailable {
+                        capability: "CreateDIBSection",
+                        details: Some(format!("failed: {e:?}")),
+                    });
                 }
             };
             let old = SelectObject(mem_dc, bitmap.into());
@@ -84,7 +89,10 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
                 let _ = DeleteObject(bitmap.into());
                 let _ = DeleteDC(mem_dc);
                 let _ = ReleaseDC(None, screen_dc);
-                return Err(PlatformError::new(PlatformErrorKind::CapabilityUnavailable, "BitBlt failed"));
+                return Err(PlatformError::CapabilityUnavailable {
+                    capability: "BitBlt",
+                    details: Some("failed".into()),
+                });
             }
 
             // Copy pixels from DIBSection memory

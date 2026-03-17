@@ -15,7 +15,7 @@
 
 #[cfg(target_os = "linux")]
 pub mod init {
-    use platynui_core::platform::{PlatformError, PlatformErrorKind, PlatformModule};
+    use platynui_core::platform::{PlatformError, PlatformModule};
     use tracing::{debug, info, warn};
     use x11rb::protocol::xproto::ConnectionExt as _;
 
@@ -42,10 +42,10 @@ pub mod init {
                 conn.query_extension(b"XTEST").ok().and_then(|c| c.reply().ok()).is_some_and(|r| r.present);
 
             if !xtest_available {
-                return Err(PlatformError::new(
-                    PlatformErrorKind::CapabilityUnavailable,
-                    "XTEST extension not available — pointer/keyboard injection will not work",
-                ));
+                return Err(PlatformError::CapabilityUnavailable {
+                    capability: "XTEST extension",
+                    details: Some("pointer and keyboard injection will not work".into()),
+                });
             }
             debug!("XTEST extension available");
 

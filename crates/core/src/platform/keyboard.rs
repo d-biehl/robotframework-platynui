@@ -251,7 +251,6 @@ macro_rules! register_keyboard_device {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platform::PlatformErrorKind;
     use rstest::rstest;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -307,7 +306,10 @@ mod tests {
 
     #[rstest]
     fn keyboard_error_converts_platform() {
-        let err = KeyboardError::from(PlatformError::new(PlatformErrorKind::InitializationFailed, "test"));
+        let err = KeyboardError::from(PlatformError::InitializationFailed {
+            component: "test",
+            details: Some("test".into()),
+        });
         assert!(matches!(err, KeyboardError::Platform(_)));
     }
 }

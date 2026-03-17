@@ -31,6 +31,10 @@ just bootstrap
 just pre-commit
 ```
 
+## Design Notes
+
+- Error handling conventions: see [error-handling.md](../docs/error-handling.md)
+
 ## Available Recipes
 
 ### Bootstrap
