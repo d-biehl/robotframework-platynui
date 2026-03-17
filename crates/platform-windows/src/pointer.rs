@@ -117,12 +117,12 @@ fn scroll_data(delta: f64) -> u32 {
     value as u32
 }
 
-fn last_error(context: &str) -> PlatformError {
+fn last_error(context: &'static str) -> PlatformError {
     let code = unsafe { GetLastError() };
     PlatformError::CapabilityUnavailable { capability: context, details: Some(format!("failed: {code:?}")) }
 }
 
-fn win_error(context: &str, err: Error) -> PlatformError {
+fn win_error(context: &'static str, err: Error) -> PlatformError {
     PlatformError::CapabilityUnavailable { capability: context, details: Some(format!("failed: {err:?}")) }
 }
 
