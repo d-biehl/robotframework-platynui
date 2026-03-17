@@ -613,7 +613,7 @@ Complete checklists from all work areas, including completed items for historica
 - [x] `KeyboardDevice` trait (`key_to_code`, `send_key_event`, `known_key_names`)
 - [x] Key naming conventions documented
 - [x] `KeyboardEvent` struct
-- [x] `KeyboardSettings` + `KeyboardOverrides`
+- [x] `KeyboardProfile` + `KeyboardOverrides`
 - [x] Documentation updated
 
 ### 10.17 Keyboard — Sequence Parser & Runtime API

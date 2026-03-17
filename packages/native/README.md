@@ -114,7 +114,7 @@ Reference
   - ensure_move_position: true; ensure_move_threshold: 2.0; ensure_move_timeout: 250 ms
   - scroll_step: (0.0, -120.0); scroll_delay: 40 ms
 
-- Keyboard defaults (KeyboardSettings.default)
+- Keyboard timing profile (KeyboardProfile.default)
   - press_delay: 35 ms; release_delay: 25 ms
   - between_keys_delay: 40 ms
   - chord_press_delay: 45 ms; chord_release_delay: 45 ms

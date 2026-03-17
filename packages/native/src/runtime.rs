@@ -697,25 +697,25 @@ impl PyRuntime {
         Ok(())
     }
 
-    /// Returns the keyboard timing defaults as :class:`KeyboardSettings`.
+    /// Returns the keyboard timing profile as :class:`KeyboardProfile`.
     #[pyo3(text_signature = "(self)")]
-    fn keyboard_settings(&self, py: Python<'_>) -> PyResult<Py<PyKeyboardSettings>> {
+    fn keyboard_profile(&self, py: Python<'_>) -> PyResult<Py<PyKeyboardProfile>> {
         let runtime = self.runtime()?;
-        Py::new(py, PyKeyboardSettings::from(runtime.keyboard_settings()))
+        Py::new(py, PyKeyboardProfile::from(runtime.keyboard_profile()))
     }
 
-    /// Replaces the keyboard timing defaults for subsequent keyboard input.
-    #[pyo3(signature = (settings), text_signature = "(self, settings)")]
-    fn set_keyboard_settings(&self, settings: KeyboardSettingsLike) -> PyResult<()> {
+    /// Replaces the keyboard timing profile for subsequent keyboard input.
+    #[pyo3(signature = (profile), text_signature = "(self, profile)")]
+    fn set_keyboard_profile(&self, profile: KeyboardProfileLike) -> PyResult<()> {
         let runtime = self.runtime()?;
-        match settings {
-            KeyboardSettingsLike::Class(c) => {
-                runtime.set_keyboard_settings(c.inner.clone());
+        match profile {
+            KeyboardProfileLike::Class(c) => {
+                runtime.set_keyboard_profile(c.inner.clone());
             }
-            KeyboardSettingsLike::Dict(d) => {
-                let mut merged = runtime.keyboard_settings();
+            KeyboardProfileLike::Dict(d) => {
+                let mut merged = runtime.keyboard_profile();
                 d.apply_to(&mut merged);
-                runtime.set_keyboard_settings(merged);
+                runtime.set_keyboard_profile(merged);
             }
         }
         Ok(())
@@ -1174,7 +1174,7 @@ pub fn register_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPointerSettings>()?;
     m.add_class::<PyPointerProfile>()?;
     m.add_class::<PyKeyboardOverrides>()?;
-    m.add_class::<PyKeyboardSettings>()?;
+    m.add_class::<PyKeyboardProfile>()?;
     // Pointer motion mode enum (IntEnum)
     {
         let enum_mod = PyModule::import(py, "enum")?;
@@ -2183,14 +2183,14 @@ impl From<runtime_rs::PointerProfile> for PyPointerProfile {
     }
 }
 
-/// Runtime keyboard timing defaults such as key press durations and delays.
-#[pyclass(module = "platynui_native", name = "KeyboardSettings")]
-pub struct PyKeyboardSettings {
-    pub(crate) inner: core_rs::platform::KeyboardSettings,
+/// Runtime keyboard timing profile such as key press durations and delays.
+#[pyclass(module = "platynui_native", name = "KeyboardProfile")]
+pub struct PyKeyboardProfile {
+    pub(crate) inner: core_rs::platform::KeyboardProfile,
 }
 
 #[pymethods]
-impl PyKeyboardSettings {
+impl PyKeyboardProfile {
     #[new]
     #[pyo3(signature = (*,
         press_delay_ms=None,
@@ -2201,7 +2201,7 @@ impl PyKeyboardSettings {
         after_sequence_delay_ms=None,
         after_text_delay_ms=None,
     ))]
-    /// Creates keyboard timing defaults that can be applied to the runtime.
+    /// Creates a keyboard timing profile that can be applied to the runtime.
     fn new(
         press_delay_ms: Option<f64>,
         release_delay_ms: Option<f64>,
@@ -2211,7 +2211,7 @@ impl PyKeyboardSettings {
         after_sequence_delay_ms: Option<f64>,
         after_text_delay_ms: Option<f64>,
     ) -> Self {
-        let mut inner = core_rs::platform::KeyboardSettings::default();
+        let mut inner = core_rs::platform::KeyboardProfile::default();
         if let Some(ms) = press_delay_ms {
             inner.press_delay = duration_from_millis(ms);
         }
@@ -2238,13 +2238,13 @@ impl PyKeyboardSettings {
 
     /// Returns a readable representation for debugging.
     fn __repr__(&self) -> String {
-        "KeyboardSettings(...)".to_string()
+        "KeyboardProfile(...)".to_string()
     }
 
     #[classmethod]
-    /// Accepts any object recognised by ``KeyboardSettingsLike`` and returns settings.
+    /// Accepts any object recognised by ``KeyboardProfileLike`` and returns a profile.
     fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
-        let like = value.extract::<KeyboardSettingsLike>()?;
+        let like = value.extract::<KeyboardProfileLike>()?;
         Ok(Self { inner: like.into() })
     }
 
@@ -2291,8 +2291,8 @@ impl PyKeyboardSettings {
     }
 }
 
-impl From<core_rs::platform::KeyboardSettings> for PyKeyboardSettings {
-    fn from(inner: core_rs::platform::KeyboardSettings) -> Self {
+impl From<core_rs::platform::KeyboardProfile> for PyKeyboardProfile {
+    fn from(inner: core_rs::platform::KeyboardProfile) -> Self {
         Self { inner }
     }
 }
@@ -2663,7 +2663,7 @@ impl From<PointerProfileLike<'_>> for runtime_rs::PointerProfile {
 }
 
 #[derive(Default)]
-pub struct KeyboardSettingsInput {
+pub struct KeyboardProfileInput {
     pub press_delay_ms: Option<f64>,
     pub release_delay_ms: Option<f64>,
     pub between_keys_delay_ms: Option<f64>,
@@ -2673,7 +2673,7 @@ pub struct KeyboardSettingsInput {
     pub after_text_delay_ms: Option<f64>,
 }
 
-impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for KeyboardSettingsInput {
+impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for KeyboardProfileInput {
     type Error = PyErr;
     fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let dict = ob.cast::<PyDict>()?;
@@ -2689,51 +2689,51 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for KeyboardSettingsInput {
     }
 }
 
-impl From<KeyboardSettingsInput> for core_rs::platform::KeyboardSettings {
-    fn from(input: KeyboardSettingsInput) -> Self {
-        let mut settings = core_rs::platform::KeyboardSettings::default();
-        input.apply_to(&mut settings);
-        settings
+impl From<KeyboardProfileInput> for core_rs::platform::KeyboardProfile {
+    fn from(input: KeyboardProfileInput) -> Self {
+        let mut profile = core_rs::platform::KeyboardProfile::default();
+        input.apply_to(&mut profile);
+        profile
     }
 }
 
-impl KeyboardSettingsInput {
-    fn apply_to(self, settings: &mut core_rs::platform::KeyboardSettings) {
+impl KeyboardProfileInput {
+    fn apply_to(self, profile: &mut core_rs::platform::KeyboardProfile) {
         if let Some(ms) = self.press_delay_ms {
-            settings.press_delay = duration_from_millis(ms);
+            profile.press_delay = duration_from_millis(ms);
         }
         if let Some(ms) = self.release_delay_ms {
-            settings.release_delay = duration_from_millis(ms);
+            profile.release_delay = duration_from_millis(ms);
         }
         if let Some(ms) = self.between_keys_delay_ms {
-            settings.between_keys_delay = duration_from_millis(ms);
+            profile.between_keys_delay = duration_from_millis(ms);
         }
         if let Some(ms) = self.chord_press_delay_ms {
-            settings.chord_press_delay = duration_from_millis(ms);
+            profile.chord_press_delay = duration_from_millis(ms);
         }
         if let Some(ms) = self.chord_release_delay_ms {
-            settings.chord_release_delay = duration_from_millis(ms);
+            profile.chord_release_delay = duration_from_millis(ms);
         }
         if let Some(ms) = self.after_sequence_delay_ms {
-            settings.after_sequence_delay = duration_from_millis(ms);
+            profile.after_sequence_delay = duration_from_millis(ms);
         }
         if let Some(ms) = self.after_text_delay_ms {
-            settings.after_text_delay = duration_from_millis(ms);
+            profile.after_text_delay = duration_from_millis(ms);
         }
     }
 }
 
 #[derive(FromPyObject)]
-pub enum KeyboardSettingsLike<'py> {
-    Dict(KeyboardSettingsInput),
-    Class(PyRef<'py, PyKeyboardSettings>),
+pub enum KeyboardProfileLike<'py> {
+    Dict(KeyboardProfileInput),
+    Class(PyRef<'py, PyKeyboardProfile>),
 }
 
-impl From<KeyboardSettingsLike<'_>> for core_rs::platform::KeyboardSettings {
-    fn from(value: KeyboardSettingsLike<'_>) -> Self {
+impl From<KeyboardProfileLike<'_>> for core_rs::platform::KeyboardProfile {
+    fn from(value: KeyboardProfileLike<'_>) -> Self {
         match value {
-            KeyboardSettingsLike::Dict(d) => d.into(),
-            KeyboardSettingsLike::Class(c) => (*c).inner.clone(),
+            KeyboardProfileLike::Dict(d) => d.into(),
+            KeyboardProfileLike::Class(c) => (*c).inner.clone(),
         }
     }
 }

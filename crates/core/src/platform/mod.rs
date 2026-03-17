@@ -12,8 +12,8 @@ pub use desktop::{DesktopInfo, DesktopInfoProvider, DesktopInfoRegistration, Mon
 pub use error::{PlatformError, PlatformErrorKind};
 pub use highlight::{HighlightProvider, HighlightRegistration, HighlightRequest, highlight_providers};
 pub use keyboard::{
-    KeyCode, KeyCodeError, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, KeyboardOverrides,
-    KeyboardRegistration, KeyboardSettings, keyboard_devices,
+    KeyCode, KeyCodeError, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, KeyboardOverrides, KeyboardProfile,
+    KeyboardRegistration, keyboard_devices,
 };
 pub use module::PlatformModule;
 pub use pointer::{

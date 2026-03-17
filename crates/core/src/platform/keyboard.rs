@@ -109,9 +109,9 @@ impl From<PlatformError> for KeyboardError {
     }
 }
 
-/// Global keyboard configuration controlled by the runtime.
+/// Keyboard timing profile controlled by the runtime.
 #[derive(Clone, Debug, PartialEq)]
-pub struct KeyboardSettings {
+pub struct KeyboardProfile {
     pub press_delay: Duration,
     pub release_delay: Duration,
     pub between_keys_delay: Duration,
@@ -121,7 +121,7 @@ pub struct KeyboardSettings {
     pub after_text_delay: Duration,
 }
 
-impl Default for KeyboardSettings {
+impl Default for KeyboardProfile {
     fn default() -> Self {
         // Tuned for ~240 WPM — fast test automation that still looks human-ish.
         Self {
@@ -136,7 +136,7 @@ impl Default for KeyboardSettings {
     }
 }
 
-/// Per-call overrides that tweak keyboard timings.
+/// Per-call overrides that tweak a keyboard profile.
 #[must_use]
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct KeyboardOverrides {

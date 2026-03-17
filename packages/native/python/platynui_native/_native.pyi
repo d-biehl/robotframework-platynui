@@ -213,7 +213,7 @@ class _PointerProfileDict(TypedDict, total=False):
     scroll_delay_ms: float
     move_time_per_pixel_us: float
 
-class _KeyboardSettingsDict(TypedDict, total=False):
+class _KeyboardProfileDict(TypedDict, total=False):
     press_delay_ms: float
     release_delay_ms: float
     between_keys_delay_ms: float
@@ -234,7 +234,7 @@ class _KeyboardOverridesDict(TypedDict, total=False):
 PointerOverridesLike: TypeAlias = PointerOverrides | _PointerOverridesDict
 PointerSettingsLike: TypeAlias = PointerSettings | _PointerSettingsDict
 PointerProfileLike: TypeAlias = PointerProfile | _PointerProfileDict
-KeyboardSettingsLike: TypeAlias = KeyboardSettings | _KeyboardSettingsDict
+KeyboardProfileLike: TypeAlias = KeyboardProfile | _KeyboardProfileDict
 KeyboardOverridesLike: TypeAlias = KeyboardOverrides | _KeyboardOverridesDict
 
 Primitive = bool | int | float | str | None
@@ -355,8 +355,8 @@ class Runtime:
     def set_pointer_settings(self, settings: PointerSettingsLike) -> None: ...
     def pointer_profile(self) -> PointerProfile: ...
     def set_pointer_profile(self, profile: PointerProfileLike) -> None: ...
-    def keyboard_settings(self) -> KeyboardSettings: ...
-    def set_keyboard_settings(self, settings: KeyboardSettingsLike) -> None: ...
+    def keyboard_profile(self) -> KeyboardProfile: ...
+    def set_keyboard_profile(self, profile: KeyboardProfileLike) -> None: ...
     def pointer_position(self) -> Point: ...
     def pointer_move_to(self, point: PointLike, overrides: PointerOverridesLike | None = ...) -> Point: ...
     def pointer_click(
@@ -596,7 +596,7 @@ class PointerProfile:
     @property
     def move_time_per_pixel_us(self) -> float: ...
 
-class KeyboardSettings:
+class KeyboardProfile:
     def __init__(
         self,
         *,
@@ -609,7 +609,7 @@ class KeyboardSettings:
         after_text_delay_ms: float | None = ...,
     ) -> None: ...
     @classmethod
-    def from_like(cls, value: KeyboardSettingsLike) -> KeyboardSettings: ...
+    def from_like(cls, value: KeyboardProfileLike) -> KeyboardProfile: ...
     @property
     def press_delay_ms(self) -> float: ...
     @property
@@ -638,8 +638,8 @@ __all__ = [
     'KeyboardError',
     'KeyboardOverrides',
     'KeyboardOverridesLike',
-    'KeyboardSettings',
-    'KeyboardSettingsLike',
+    'KeyboardProfile',
+    'KeyboardProfileLike',
     'Namespace',
     'NodeAttributesIterator',
     'NodeChildrenIterator',

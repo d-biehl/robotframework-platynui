@@ -8,7 +8,7 @@ from typing import Any, Literal, cast
 from platynui_native import (
     EvaluatedAttribute,
     KeyboardOverridesLike,
-    KeyboardSettingsLike,
+    KeyboardProfileLike,
     Point,
     PointerButton,
     PointerButtonLike,
@@ -102,7 +102,7 @@ class UiNodeDescriptor:
     def convert(value: str | UiNode, library: 'BareMetal') -> 'UiNodeDescriptor':
         if isinstance(value, UiNode):
             return UiNodeDescriptor(value, None, library)
-        return library._descriptor_from_query(value)
+        return library.descriptor_from_query(value)
 
 
 PLATYNUI_ROOT_DESCRIPTOR = (
@@ -137,7 +137,7 @@ class BareMetal(OurDynamicCore):
     def __init__(
         self,
         *,
-        keyboard_settings: KeyboardSettingsLike | None = None,
+        keyboard_profile: KeyboardProfileLike | None = None,
         pointer_settings: PointerSettingsLike | None = None,
         pointer_profile: PointerProfileLike | None = None,
         use_mock: bool = False,
@@ -148,12 +148,12 @@ class BareMetal(OurDynamicCore):
         self.use_mock = use_mock
         self.auto_activate = auto_activate
         self.query_settings = QuerySettings(30, 0.1, False)
-        self._keyboard_settings = keyboard_settings
+        self._keyboard_profile = keyboard_profile
         self._pointer_settings = pointer_settings
         self._pointer_profile = pointer_profile
         self._descriptor_cache: dict[str, UiNodeDescriptor] = {}
 
-    def _descriptor_from_query(self, query: str) -> UiNodeDescriptor:
+    def descriptor_from_query(self, query: str) -> UiNodeDescriptor:
         descriptor = self._descriptor_cache.get(query)
         if descriptor is not None:
             return descriptor
@@ -187,8 +187,8 @@ class BareMetal(OurDynamicCore):
         """
         runtime = self._create_runtime()
 
-        if self._keyboard_settings is not None:
-            runtime.set_keyboard_settings(self._keyboard_settings)
+        if self._keyboard_profile is not None:
+            getattr(runtime, 'set_keyboard_profile')(self._keyboard_profile)
         if self._pointer_settings is not None:
             runtime.set_pointer_settings(self._pointer_settings)
         if self._pointer_profile is not None:

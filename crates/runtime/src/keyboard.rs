@@ -1,11 +1,12 @@
 use std::time::Duration;
 
 use platynui_core::platform::{
-    KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, KeyboardOverrides, KeyboardSettings,
+    KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, KeyboardOverrides, KeyboardProfile,
 };
 
 use crate::keyboard_sequence::{ResolvedKeyboardSequence, ResolvedSegment};
 
+#[derive(Debug)]
 pub enum KeyboardMode {
     Press,
     Release,
@@ -14,7 +15,7 @@ pub enum KeyboardMode {
 
 pub struct KeyboardEngine<'a> {
     device: &'a dyn KeyboardDevice,
-    settings: KeyboardSettings,
+    profile: KeyboardProfile,
     sleep: &'a dyn Fn(Duration),
     pressed: Vec<KeyCode>,
     started: bool,
@@ -23,20 +24,15 @@ pub struct KeyboardEngine<'a> {
 impl<'a> KeyboardEngine<'a> {
     pub fn new(
         device: &'a dyn KeyboardDevice,
-        settings: KeyboardSettings,
+        profile: KeyboardProfile,
         sleep: &'a dyn Fn(Duration),
     ) -> Result<Self, KeyboardError> {
         device.start_input()?;
-        Ok(Self { device, settings, sleep, pressed: Vec::new(), started: true })
+        Ok(Self { device, profile, sleep, pressed: Vec::new(), started: true })
     }
 
     pub fn execute(mut self, sequence: &ResolvedKeyboardSequence, mode: KeyboardMode) -> Result<(), KeyboardError> {
-        let mode_label = match &mode {
-            KeyboardMode::Press => "press",
-            KeyboardMode::Release => "release",
-            KeyboardMode::Type => "type",
-        };
-        tracing::debug!(mode = mode_label, segments = sequence.segments().len(), "keyboard execute");
+        tracing::debug!(mode = ?mode, segments = sequence.segments().len(), "keyboard execute");
         let mut result = match mode {
             KeyboardMode::Press => self.press_sequence(sequence),
             KeyboardMode::Release => self.release_sequence(sequence),
@@ -178,7 +174,7 @@ impl<'a> KeyboardEngine<'a> {
     fn press_code(&mut self, code: &KeyCode) -> Result<(), KeyboardError> {
         self.device.send_key_event(KeyboardEvent { code: code.clone(), state: KeyState::Press })?;
         self.pressed.push(code.clone());
-        self.sleep(self.settings.press_delay);
+        self.sleep(self.profile.press_delay);
         Ok(())
     }
 
@@ -187,14 +183,14 @@ impl<'a> KeyboardEngine<'a> {
         if let Some(pos) = self.pressed.iter().rposition(|stored| stored == code) {
             self.pressed.remove(pos);
         }
-        self.sleep(self.settings.release_delay);
+        self.sleep(self.profile.release_delay);
         Ok(())
     }
 
     fn release_all_pressed(&mut self) -> Result<(), KeyboardError> {
         while let Some(code) = self.pressed.pop() {
             self.device.send_key_event(KeyboardEvent { code: code.clone(), state: KeyState::Release })?;
-            self.sleep(self.settings.release_delay);
+            self.sleep(self.profile.release_delay);
         }
         Ok(())
     }
@@ -206,48 +202,48 @@ impl<'a> KeyboardEngine<'a> {
     }
 
     fn sleep_between_keys(&self) {
-        self.sleep(self.settings.between_keys_delay);
+        self.sleep(self.profile.between_keys_delay);
     }
 
     fn sleep_chord_press(&self) {
-        self.sleep(self.settings.chord_press_delay);
+        self.sleep(self.profile.chord_press_delay);
     }
 
     fn sleep_chord_release(&self) {
-        self.sleep(self.settings.chord_release_delay);
+        self.sleep(self.profile.chord_release_delay);
     }
 
     fn sleep_after_text(&self) {
-        self.sleep(self.settings.after_text_delay);
+        self.sleep(self.profile.after_text_delay);
     }
 
     fn sleep_after_sequence(&self) {
-        self.sleep(self.settings.after_sequence_delay);
+        self.sleep(self.profile.after_sequence_delay);
     }
 }
 
-pub fn apply_overrides(base: &KeyboardSettings, overrides: &KeyboardOverrides) -> KeyboardSettings {
-    let mut settings = base.clone();
+pub fn resolve_profile(base: &KeyboardProfile, overrides: &KeyboardOverrides) -> KeyboardProfile {
+    let mut profile = base.clone();
     if let Some(value) = overrides.press_delay {
-        settings.press_delay = value;
+        profile.press_delay = value;
     }
     if let Some(value) = overrides.release_delay {
-        settings.release_delay = value;
+        profile.release_delay = value;
     }
     if let Some(value) = overrides.between_keys_delay {
-        settings.between_keys_delay = value;
+        profile.between_keys_delay = value;
     }
     if let Some(value) = overrides.chord_press_delay {
-        settings.chord_press_delay = value;
+        profile.chord_press_delay = value;
     }
     if let Some(value) = overrides.chord_release_delay {
-        settings.chord_release_delay = value;
+        profile.chord_release_delay = value;
     }
     if let Some(value) = overrides.after_sequence_delay {
-        settings.after_sequence_delay = value;
+        profile.after_sequence_delay = value;
     }
     if let Some(value) = overrides.after_text_delay {
-        settings.after_text_delay = value;
+        profile.after_text_delay = value;
     }
-    settings
+    profile
 }

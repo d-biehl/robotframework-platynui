@@ -571,7 +571,7 @@ Runtime APIs:
 - `keyboard_press(sequence, overrides)` — press-only
 - `keyboard_release(sequence, overrides)` — release-only
 
-**KeyboardSettings** holds global defaults (`press_delay`, `release_delay`, `between_keys_delay`, `chord_press_delay`, `chord_release_delay`, `after_sequence_delay`, `after_text_delay`). **KeyboardOverrides** provides per-call deltas.
+**KeyboardProfile** holds the keyboard timing profile (`press_delay`, `release_delay`, `between_keys_delay`, `chord_press_delay`, `chord_release_delay`, `after_sequence_delay`, `after_text_delay`). **KeyboardOverrides** provides per-call deltas.
 
 ### 8.3 ScreenshotProvider
 

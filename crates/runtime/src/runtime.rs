@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use platynui_core::platform::{
     DesktopInfo, DesktopInfoProvider, HighlightProvider, HighlightRequest, KeyboardDevice, KeyboardError,
-    KeyboardOverrides, KeyboardSettings, MonitorInfo, PlatformError, PlatformErrorKind, PointerButton, PointerDevice,
+    KeyboardOverrides, KeyboardProfile, MonitorInfo, PlatformError, PlatformErrorKind, PointerButton, PointerDevice,
     Screenshot, ScreenshotProvider, ScreenshotRequest, ScrollDelta, desktop_info_providers, highlight_providers,
     keyboard_devices, platform_modules, pointer_devices, screenshot_providers,
 };
@@ -27,7 +27,7 @@ use thiserror::Error;
 use crate::provider::ProviderRegistry;
 use crate::provider::event::{ProviderEventDispatcher, ProviderEventSink};
 
-use crate::keyboard::{KeyboardEngine, KeyboardMode, apply_overrides as apply_keyboard_overrides};
+use crate::keyboard::{KeyboardEngine, KeyboardMode, resolve_profile as resolve_keyboard_profile};
 use crate::keyboard_sequence::{KeyboardSequence, KeyboardSequenceError};
 use crate::pointer::{PointerEngine, PointerError};
 use crate::pointer::{PointerOverrides, PointerProfile, PointerSettings};
@@ -48,7 +48,7 @@ pub struct Runtime {
     pointer_settings: Mutex<PointerSettings>,
     pointer_profile: Mutex<PointerProfile>,
     keyboard: Option<&'static dyn KeyboardDevice>,
-    keyboard_settings: Mutex<KeyboardSettings>,
+    keyboard_profile: Mutex<KeyboardProfile>,
     is_shutdown: AtomicBool,
 }
 
@@ -289,7 +289,7 @@ impl Runtime {
             }
         }
         let pointer_profile = PointerProfile::named_default();
-        let keyboard_settings = KeyboardSettings::default();
+        let keyboard_profile = KeyboardProfile::default();
         let pointer_engine = pointer.map(|device| {
             PointerEngine::new(
                 device,
@@ -321,7 +321,7 @@ impl Runtime {
             pointer_settings: Mutex::new(pointer_settings),
             pointer_profile: Mutex::new(pointer_profile),
             keyboard,
-            keyboard_settings: Mutex::new(keyboard_settings),
+            keyboard_profile: Mutex::new(keyboard_profile),
             is_shutdown: AtomicBool::new(false),
         };
         tracing::info!(providers = provider_count, "Runtime initialized");
@@ -636,12 +636,12 @@ impl Runtime {
         Ok(device.position()?)
     }
 
-    pub fn keyboard_settings(&self) -> KeyboardSettings {
-        self.keyboard_settings.lock().expect("keyboard_settings lock poisoned").clone()
+    pub fn keyboard_profile(&self) -> KeyboardProfile {
+        self.keyboard_profile.lock().expect("keyboard_profile lock poisoned").clone()
     }
 
-    pub fn set_keyboard_settings(&self, settings: KeyboardSettings) {
-        *self.keyboard_settings.lock().expect("keyboard_settings lock poisoned") = settings;
+    pub fn set_keyboard_profile(&self, profile: KeyboardProfile) {
+        *self.keyboard_profile.lock().expect("keyboard_profile lock poisoned") = profile;
     }
 
     pub fn pointer_move_to(&self, point: Point, overrides: Option<PointerOverrides>) -> Result<Point, PointerError> {
@@ -751,8 +751,8 @@ impl Runtime {
         let parsed = KeyboardSequence::parse(sequence)?;
         let resolved = parsed.resolve(device)?;
         let overrides = overrides.unwrap_or_default();
-        let settings = apply_keyboard_overrides(&self.keyboard_settings(), &overrides);
-        KeyboardEngine::new(device, settings, &default_keyboard_sleep)?.execute(&resolved, KeyboardMode::Press)?;
+        let profile = resolve_keyboard_profile(&self.keyboard_profile(), &overrides);
+        KeyboardEngine::new(device, profile, &default_keyboard_sleep)?.execute(&resolved, KeyboardMode::Press)?;
         Ok(())
     }
 
@@ -765,8 +765,8 @@ impl Runtime {
         let parsed = KeyboardSequence::parse(sequence)?;
         let resolved = parsed.resolve(device)?;
         let overrides = overrides.unwrap_or_default();
-        let settings = apply_keyboard_overrides(&self.keyboard_settings(), &overrides);
-        KeyboardEngine::new(device, settings, &default_keyboard_sleep)?.execute(&resolved, KeyboardMode::Release)?;
+        let profile = resolve_keyboard_profile(&self.keyboard_profile(), &overrides);
+        KeyboardEngine::new(device, profile, &default_keyboard_sleep)?.execute(&resolved, KeyboardMode::Release)?;
         Ok(())
     }
 
@@ -779,8 +779,8 @@ impl Runtime {
         let parsed = KeyboardSequence::parse(sequence)?;
         let resolved = parsed.resolve(device)?;
         let overrides = overrides.unwrap_or_default();
-        let settings = apply_keyboard_overrides(&self.keyboard_settings(), &overrides);
-        KeyboardEngine::new(device, settings, &default_keyboard_sleep)?.execute(&resolved, KeyboardMode::Type)?;
+        let profile = resolve_keyboard_profile(&self.keyboard_profile(), &overrides);
+        KeyboardEngine::new(device, profile, &default_keyboard_sleep)?.execute(&resolved, KeyboardMode::Type)?;
         Ok(())
     }
 
@@ -1366,15 +1366,15 @@ mod tests {
     }
 
     fn configure_keyboard_for_tests(runtime: &Runtime) {
-        let mut settings = runtime.keyboard_settings();
-        settings.press_delay = Duration::ZERO;
-        settings.release_delay = Duration::ZERO;
-        settings.between_keys_delay = Duration::ZERO;
-        settings.chord_press_delay = Duration::ZERO;
-        settings.chord_release_delay = Duration::ZERO;
-        settings.after_sequence_delay = Duration::ZERO;
-        settings.after_text_delay = Duration::ZERO;
-        runtime.set_keyboard_settings(settings);
+        let mut profile = runtime.keyboard_profile();
+        profile.press_delay = Duration::ZERO;
+        profile.release_delay = Duration::ZERO;
+        profile.between_keys_delay = Duration::ZERO;
+        profile.chord_press_delay = Duration::ZERO;
+        profile.chord_release_delay = Duration::ZERO;
+        profile.after_sequence_delay = Duration::ZERO;
+        profile.after_text_delay = Duration::ZERO;
+        runtime.set_keyboard_profile(profile);
     }
 
     fn zero_keyboard_overrides() -> KeyboardOverrides {

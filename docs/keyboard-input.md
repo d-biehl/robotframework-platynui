@@ -363,6 +363,6 @@ platynui-cli keyboard type --delay-ms 10 "Hello World"
 # Python: override specific delays per call
 rt.keyboard_type("Hello", overrides={"between_keys_delay_ms": 5.0})
 
-# Python: change global defaults
-rt.set_keyboard_settings({"between_keys_delay_ms": 25.0})
+# Python: change the keyboard timing profile
+rt.set_keyboard_profile({"between_keys_delay_ms": 25.0})
 ```

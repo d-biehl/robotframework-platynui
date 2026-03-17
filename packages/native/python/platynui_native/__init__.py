@@ -15,7 +15,7 @@ from ._native import (
     Focusable,
     KeyboardError,
     KeyboardOverrides,
-    KeyboardSettings,
+    KeyboardProfile,
     Namespace,
     NodeAttributesIterator,
     NodeChildrenIterator,
@@ -131,7 +131,7 @@ class _PointerProfileDict(TypedDict, total=False):
     move_time_per_pixel_us: float
 
 
-class _KeyboardSettingsDict(TypedDict, total=False):
+class _KeyboardProfileDict(TypedDict, total=False):
     press_delay_ms: float
     release_delay_ms: float
     between_keys_delay_ms: float
@@ -155,7 +155,7 @@ PointerOverridesLike: TypeAlias = PointerOverrides | _PointerOverridesDict
 PointerSettingsLike: TypeAlias = PointerSettings | _PointerSettingsDict
 PointerProfileLike: TypeAlias = PointerProfile | _PointerProfileDict
 KeyboardOverridesLike: TypeAlias = KeyboardOverrides | _KeyboardOverridesDict
-KeyboardSettingsLike: TypeAlias = KeyboardSettings | _KeyboardSettingsDict
+KeyboardProfileLike: TypeAlias = KeyboardProfile | _KeyboardProfileDict
 
 Primitive = bool | int | float | str | None
 JSONLike = dict[str, Any] | list[Any]
@@ -172,8 +172,8 @@ __all__ = [
     'KeyboardError',
     'KeyboardOverrides',
     'KeyboardOverridesLike',
-    'KeyboardSettings',
-    'KeyboardSettingsLike',
+    'KeyboardProfile',
+    'KeyboardProfileLike',
     'Namespace',
     'NodeAttributesIterator',
     'NodeChildrenIterator',
