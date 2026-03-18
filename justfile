@@ -6,6 +6,10 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
 # XDG data directory for local installs (only meaningful on Linux)
 xdg_data_home := if os() == "linux" { env("XDG_DATA_HOME", env("HOME") / ".local" / "share") } else { "" }
+windows_rust_target := env("PLATYNUI_WINDOWS_TARGET", "x86_64-pc-windows-gnu")
+windows_rust_packages := "--package platynui-core --package platynui-link --package platynui-xpath --package platynui-runtime --package platynui-platform-windows --package platynui-provider-windows-uia --package platynui-cli --package platynui-inspector --package platynui-cli-bin --package platynui-inspector-bin"
+macos_arm_rust_target := env("PLATYNUI_MACOS_ARM_TARGET", "aarch64-apple-darwin")
+macos_rust_packages := "--package platynui-core --package platynui-link --package platynui-xpath --package platynui-runtime --package platynui-platform-macos --package platynui-provider-macos-ax --package platynui-cli --package platynui-inspector --package platynui-cli-bin --package platynui-inspector-bin"
 
 # ─── Default ────────────────────────────────────────────────────────────────────
 
@@ -83,6 +87,26 @@ fmt-check:
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
 
+# Type-check Windows-relevant Rust crates for Windows from Linux
+[linux]
+check-windows: _check-windows-cross-tools
+    cargo check --all-targets --target {{ windows_rust_target }} {{ windows_rust_packages }}
+
+# Type-check macOS ARM-relevant Rust crates from Linux
+[linux]
+check-macos-arm: _check-macos-cross-tools
+    cargo check --all-targets --target {{ macos_arm_rust_target }} {{ macos_rust_packages }}
+
+# Run clippy for Windows-relevant Rust crates from Linux
+[linux]
+clippy-windows: _check-windows-cross-tools
+    cargo clippy --all-targets --target {{ windows_rust_target }} {{ windows_rust_packages }} -- -D warnings
+
+# Run clippy for macOS ARM-relevant Rust crates from Linux
+[linux]
+clippy-macos-arm: _check-macos-cross-tools
+    cargo clippy --all-targets --target {{ macos_arm_rust_target }} {{ macos_rust_packages }} -- -D warnings
+
 # Lint Python code
 ruff:
     uv run ruff check
@@ -150,8 +174,29 @@ _uninstall-icons:
     rm -f "{{ xdg_data_home }}/icons/hicolor/256x256/apps/org.platynui.compositor.png"
     rm -f "{{ xdg_data_home }}/icons/hicolor/256x256/apps/org.platynui.inspector.png"
 
+# Verify Linux -> Windows GNU cross-compilation prerequisites
+[linux]
+_check-windows-cross-tools:
+    rustup target list --installed | grep -qx '{{ windows_rust_target }}' || \
+        (echo 'Missing Rust target {{ windows_rust_target }}. Run: rustup target add {{ windows_rust_target }}' >&2; exit 1)
+    command -v x86_64-w64-mingw32-gcc >/dev/null || \
+        (echo 'Missing MinGW cross-compiler x86_64-w64-mingw32-gcc. Install mingw-w64-gcc.' >&2; exit 1)
+    command -v llvm-rc >/dev/null || \
+        (echo 'Missing llvm-rc. Install llvm.' >&2; exit 1)
+
+# Verify Linux -> macOS ARM cross-check prerequisites
+[linux]
+_check-macos-cross-tools:
+    rustup target list --installed | grep -qx '{{ macos_arm_rust_target }}' || \
+        (echo 'Missing Rust target {{ macos_arm_rust_target }}. Run: rustup target add {{ macos_arm_rust_target }}' >&2; exit 1)
+
 # ─── Full CI Sequence ───────────────────────────────────────────────────────────
 
 # Run the full pre-commit check sequence
 pre-commit: bootstrap check test-all
     @echo "Pre-commit checks passed. Ready to commit!"
+
+# Run pre-commit checks plus cross-platform checks (Windows + macOS ARM)
+[linux]
+pre-commit-cross: pre-commit check-windows clippy-windows check-macos-arm clippy-macos-arm
+    @echo "All cross-platform checks passed."

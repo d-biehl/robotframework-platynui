@@ -19,7 +19,7 @@ pub struct WindowsScreenshotProvider;
 impl ScreenshotProvider for WindowsScreenshotProvider {
     fn capture(&self, request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
         let desktop = desktop_bounds()
-            .ok_or_else(|| PlatformError::CapabilityUnavailable { capability: "desktop bounds", details: None })?;
+            .ok_or(PlatformError::CapabilityUnavailable { capability: "desktop bounds", details: None })?;
 
         // Determine requested capture region and clamp to desktop
         let requested = request.region.unwrap_or(desktop);
