@@ -38,13 +38,14 @@ pub static TECHNOLOGY: LazyLock<TechnologyId> = LazyLock::new(|| TechnologyId::f
 const REGISTRY_BUS: &str = "org.a11y.atspi.Registry";
 const ROOT_PATH: &str = "/org/a11y/atspi/accessible/root";
 
+static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
+    ProviderDescriptor::new(PROVIDER_ID, PROVIDER_NAME, TechnologyId::from("AT-SPI2"), ProviderKind::Native)
+});
+
 pub struct AtspiFactory;
 
 impl UiTreeProviderFactory for AtspiFactory {
     fn descriptor(&self) -> &ProviderDescriptor {
-        static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
-            ProviderDescriptor::new(PROVIDER_ID, PROVIDER_NAME, TechnologyId::from("AT-SPI2"), ProviderKind::Native)
-        });
         &DESCRIPTOR
     }
 
@@ -61,9 +62,6 @@ pub struct AtspiProvider {
 
 impl AtspiProvider {
     fn new() -> Self {
-        static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
-            ProviderDescriptor::new(PROVIDER_ID, PROVIDER_NAME, TechnologyId::from("AT-SPI2"), ProviderKind::Native)
-        });
         Self { descriptor: &DESCRIPTOR, conn: ClearableCell::new(), is_shutdown: AtomicBool::new(false) }
     }
 

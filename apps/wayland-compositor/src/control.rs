@@ -25,20 +25,30 @@
 //! - `{"command": "pointer_button", "button": <evdev_code>, "state": "press"|"release"}` → inject pointer button
 //! - `{"command": "pointer_scroll", "dx": <f64>, "dy": <f64>}` → inject scroll event
 //! - `{"command": "get_keymap"}` → current XKB keymap string
+//! - `{"command": "move_window", ...}` → move a window to an absolute logical position
+//! - `{"command": "resize_window", ...}` → resize a window to an absolute logical size
+//! - `{"command": "show_highlight", "rects": [{"x": ..., "y": ..., "width": ..., "height": ...}], "duration_ms": <u64>}` → show compositor highlight frames
+//! - `{"command": "clear_highlight"}` → clear compositor highlight frames
 //! - `{"command": "ping"}` → alias for `status`
 //! - `{"command": "shutdown"}` → request compositor shutdown
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::os::fd::AsFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use smithay::backend::input::{AxisSource, ButtonState, KeyState};
 use smithay::desktop::Window;
 use smithay::input::keyboard::{FilterResult, xkb};
 use smithay::input::pointer::{AxisFrame, MotionEvent};
-use smithay::utils::{Physical, Point, SERIAL_COUNTER, Size};
+use smithay::reexports::wayland_server::Resource;
+use smithay::utils::{Logical, Physical, Point, Rectangle, SERIAL_COUNTER, Size};
+use smithay::wayland::compositor::{self, SurfaceAttributes};
+use smithay::wayland::seat::WaylandFocus;
 
 use crate::handlers::foreign_toplevel;
 use crate::input;
@@ -52,6 +62,8 @@ use crate::state::State;
 #[derive(Deserialize)]
 struct Request {
     command: Option<String>,
+    #[serde(default)]
+    window_id: Option<u64>,
     #[serde(default)]
     id: Option<u64>,
     #[serde(default)]
@@ -79,29 +91,75 @@ struct Request {
     /// Vertical scroll delta for `pointer_scroll`.
     #[serde(default)]
     dy: Option<f64>,
+    /// Width for `resize_window`.
+    #[serde(default)]
+    width: Option<f64>,
+    /// Height for `resize_window`.
+    #[serde(default)]
+    height: Option<f64>,
+    /// Rectangles for `show_highlight`.
+    #[serde(default)]
+    rects: Option<Vec<HighlightRectRequest>>,
+    /// Optional auto-clear timeout for `show_highlight`.
+    #[serde(default)]
+    duration_ms: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct HighlightRectRequest {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+/// Rectangle in the opaque region of a window surface.
+#[derive(Serialize)]
+struct OpaqueRegionRect {
+    kind: &'static str,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
 }
 
 /// Window information returned in IPC responses.
 #[derive(Serialize)]
 struct WindowInfo {
     id: usize,
+    window_id: u64,
     title: String,
     app_id: String,
+    pid: Option<u32>,
     x: i32,
     y: i32,
     width: i32,
     height: i32,
+    content_x: i32,
+    content_y: i32,
+    content_width: i32,
+    content_height: i32,
+    /// Geometry offset within the surface buffer (CSD shadow inset).
+    /// For CSD windows this is typically `(shadow_left, shadow_top)`,
+    /// for SSD windows it is `(0, 0)`.
+    geometry_x: i32,
+    geometry_y: i32,
     focused: bool,
     maximized: bool,
     fullscreen: bool,
+    /// Decoration mode: `"csd"` (client-side) or `"ssd"` (server-side).
+    decoration_mode: &'static str,
+    opaque_region: Option<Vec<OpaqueRegionRect>>,
 }
 
 /// Minimized window information.
 #[derive(Serialize)]
 struct MinimizedWindowInfo {
     id: String,
+    window_id: u64,
     title: String,
     app_id: String,
+    pid: Option<u32>,
     x: i32,
     y: i32,
 }
@@ -250,6 +308,7 @@ fn handle_client_data(client: &mut ControlClient, state: &mut State) -> calloop:
 ///
 /// Returns `None` for fire-and-forget input injection commands that need
 /// no client acknowledgement (key, pointer, scroll events).
+#[allow(clippy::too_many_lines)]
 fn process_command(input: &str, state: &mut State) -> Option<String> {
     let request: Request = match serde_json::from_str(input.trim()) {
         Ok(req) => req,
@@ -273,7 +332,13 @@ fn process_command(input: &str, state: &mut State) -> Option<String> {
         }
 
         Some("get_window") => {
-            match resolve_window_selector(state, request.id, request.app_id.as_deref(), request.title.as_deref()) {
+            match resolve_window_selector(
+                state,
+                request.window_id,
+                request.id,
+                request.app_id.as_deref(),
+                request.title.as_deref(),
+            ) {
                 Some(info) => serde_json::json!({"status": "ok", "window": info}),
                 None => serde_json::json!({"status": "error", "message": "window not found"}),
             }
@@ -282,6 +347,7 @@ fn process_command(input: &str, state: &mut State) -> Option<String> {
         Some("close_window") => {
             match resolve_and_act_on_window(
                 state,
+                request.window_id,
                 request.id,
                 request.app_id.as_deref(),
                 request.title.as_deref(),
@@ -297,6 +363,7 @@ fn process_command(input: &str, state: &mut State) -> Option<String> {
         Some("focus_window") => {
             match resolve_and_act_on_window(
                 state,
+                request.window_id,
                 request.id,
                 request.app_id.as_deref(),
                 request.title.as_deref(),
@@ -309,9 +376,106 @@ fn process_command(input: &str, state: &mut State) -> Option<String> {
             }
         }
 
+        Some("minimize_window") => {
+            match resolve_and_act_on_window(
+                state,
+                request.window_id,
+                request.id,
+                request.app_id.as_deref(),
+                request.title.as_deref(),
+                minimize_window,
+            ) {
+                Some((t, a)) => {
+                    serde_json::json!({"status": "ok", "message": "window minimized", "title": t, "app_id": a})
+                }
+                None => serde_json::json!({"status": "error", "message": "window not found"}),
+            }
+        }
+
+        Some("maximize_window") => {
+            match resolve_and_act_on_window(
+                state,
+                request.window_id,
+                request.id,
+                request.app_id.as_deref(),
+                request.title.as_deref(),
+                maximize_window,
+            ) {
+                Some((t, a)) => {
+                    serde_json::json!({"status": "ok", "message": "window maximized", "title": t, "app_id": a})
+                }
+                None => serde_json::json!({"status": "error", "message": "window not found"}),
+            }
+        }
+
+        Some("restore_window") => {
+            match restore_window_by_selector(
+                state,
+                request.window_id,
+                request.id,
+                request.app_id.as_deref(),
+                request.title.as_deref(),
+            ) {
+                Some((t, a)) => {
+                    serde_json::json!({"status": "ok", "message": "window restored", "title": t, "app_id": a})
+                }
+                None => serde_json::json!({"status": "error", "message": "window not found"}),
+            }
+        }
+
+        Some("move_window") => {
+            match move_window_by_selector(
+                state,
+                request.window_id,
+                request.id,
+                request.app_id.as_deref(),
+                request.title.as_deref(),
+                request.x,
+                request.y,
+            ) {
+                Ok(Some((t, a))) => {
+                    serde_json::json!({"status": "ok", "message": "window moved", "title": t, "app_id": a})
+                }
+                Ok(None) => serde_json::json!({"status": "error", "message": "window not found"}),
+                Err(message) => {
+                    serde_json::json!({"status": "error", "message": format!("invalid or missing '{message}' field")})
+                }
+            }
+        }
+
+        Some("resize_window") => {
+            match resize_window_by_selector(
+                state,
+                request.window_id,
+                request.id,
+                request.app_id.as_deref(),
+                request.title.as_deref(),
+                request.width,
+                request.height,
+            ) {
+                Ok(Some((t, a))) => {
+                    serde_json::json!({"status": "ok", "message": "window resized", "title": t, "app_id": a})
+                }
+                Ok(None) => serde_json::json!({"status": "error", "message": "window not found"}),
+                Err(message) => {
+                    serde_json::json!({"status": "error", "message": format!("invalid or missing '{message}' field")})
+                }
+            }
+        }
+
         Some("get_pointer_position") => {
             let loc = state.pointer_location;
             serde_json::json!({"status": "ok", "x": loc.x, "y": loc.y})
+        }
+
+        Some("show_highlight") => match show_highlight(state, &request) {
+            Ok(rect_count) => serde_json::json!({"status": "ok", "message": "highlight updated", "rects": rect_count}),
+            Err(message) => serde_json::json!({"status": "error", "message": message}),
+        },
+
+        Some("clear_highlight") => {
+            state.highlight_overlay.clear();
+            serde_json::json!({"status": "ok", "message": "highlight cleared"})
         }
 
         Some("key_event" | "pointer_move_to" | "pointer_button" | "pointer_scroll" | "get_keymap") => {
@@ -347,6 +511,32 @@ fn process_command(input: &str, state: &mut State) -> Option<String> {
     };
 
     Some(response.to_string())
+}
+
+fn show_highlight(state: &mut State, request: &Request) -> Result<usize, String> {
+    let rects = if let Some(rects) = request.rects.as_ref() {
+        rects
+            .iter()
+            .map(|rect| {
+                crate::highlight::logical_rectangle(rect.x, rect.y, rect.width, rect.height)
+                    .ok_or_else(|| "invalid highlight rectangle".to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        let (Some(x), Some(y), Some(width), Some(height)) = (request.x, request.y, request.width, request.height)
+        else {
+            return Err("missing highlight rects or x/y/width/height fields".into());
+        };
+
+        vec![
+            crate::highlight::logical_rectangle(x, y, width, height)
+                .ok_or_else(|| "invalid highlight rectangle".to_string())?,
+        ]
+    };
+
+    let duration = request.duration_ms.map(Duration::from_millis);
+    state.highlight_overlay.show(rects, duration);
+    Ok(state.highlight_overlay.rects().len())
 }
 
 // ---------------------------------------------------------------------------
@@ -534,10 +724,19 @@ fn build_status_response(state: &State) -> serde_json::Value {
 /// then `title`. If `app_id` does not produce a match, falls through to `title`.
 fn resolve_window_selector(
     state: &State,
+    window_id: Option<u64>,
     id: Option<u64>,
     app_id: Option<&str>,
     title: Option<&str>,
 ) -> Option<WindowInfo> {
+    if let Some(window_id) = window_id {
+        return state
+            .space
+            .elements()
+            .enumerate()
+            .find(|(_, window)| window_stable_id(window) == window_id)
+            .map(|(idx, window)| build_window_info(state, idx, window));
+    }
     if let Some(id) = id {
         return get_window_info(state, id);
     }
@@ -563,22 +762,100 @@ fn resolve_window_selector(
 /// Resolve a window by selector and perform an action. Returns (title, `app_id`) on success.
 fn resolve_and_act_on_window(
     state: &mut State,
+    window_id: Option<u64>,
     id: Option<u64>,
     app_id: Option<&str>,
     title: Option<&str>,
     action: impl FnOnce(&mut State, u64) -> bool,
 ) -> Option<(String, String)> {
-    let resolved_idx = resolve_window_index(state, id, app_id, title)?;
+    let resolved_idx = resolve_window_index(state, window_id, id, app_id, title)?;
     let window = state.space.elements().nth(resolved_idx)?;
     let t = foreign_toplevel::window_title(window);
     let a = foreign_toplevel::window_app_id(window);
     if action(state, resolved_idx as u64) { Some((t, a)) } else { None }
 }
 
+fn restore_window_by_selector(
+    state: &mut State,
+    window_id: Option<u64>,
+    id: Option<u64>,
+    app_id: Option<&str>,
+    title: Option<&str>,
+) -> Option<(String, String)> {
+    if let Some(window_id) = window_id {
+        let mapped_window = { state.space.elements().find(|window| window_stable_id(window) == window_id).cloned() };
+        if let Some(window) = mapped_window {
+            let resolved_title = foreign_toplevel::window_title(&window);
+            let resolved_app_id = foreign_toplevel::window_app_id(&window);
+            crate::handlers::foreign_toplevel::restore_window(state, &window);
+            return Some((resolved_title, resolved_app_id));
+        }
+
+        let minimized_window = {
+            state
+                .minimized_windows
+                .iter()
+                .find(|(window, _)| window_stable_id(window) == window_id)
+                .map(|(window, _)| window.clone())
+        };
+        if let Some(window) = minimized_window {
+            let resolved_title = foreign_toplevel::window_title(&window);
+            let resolved_app_id = foreign_toplevel::window_app_id(&window);
+            crate::handlers::foreign_toplevel::restore_window(state, &window);
+            return Some((resolved_title, resolved_app_id));
+        }
+    }
+
+    resolve_and_act_on_window(state, None, id, app_id, title, restore_window)
+}
+
+fn move_window_by_selector(
+    state: &mut State,
+    window_id: Option<u64>,
+    id: Option<u64>,
+    app_id: Option<&str>,
+    title: Option<&str>,
+    x: Option<f64>,
+    y: Option<f64>,
+) -> Result<Option<(String, String)>, &'static str> {
+    let x = parse_i32_coordinate(x, "x")?;
+    let y = parse_i32_coordinate(y, "y")?;
+    Ok(resolve_and_act_on_window(state, window_id, id, app_id, title, |state, idx| move_window(state, idx, x, y)))
+}
+
+fn resize_window_by_selector(
+    state: &mut State,
+    window_id: Option<u64>,
+    id: Option<u64>,
+    app_id: Option<&str>,
+    title: Option<&str>,
+    width: Option<f64>,
+    height: Option<f64>,
+) -> Result<Option<(String, String)>, &'static str> {
+    let width = parse_i32_size(width, "width")?;
+    let height = parse_i32_size(height, "height")?;
+    Ok(resolve_and_act_on_window(state, window_id, id, app_id, title, |state, idx| {
+        resize_window(state, idx, width, height)
+    }))
+}
+
 /// Resolve a window selector to an index.
 ///
 /// Falls through from `app_id` to `title` if `app_id` does not match.
-fn resolve_window_index(state: &State, id: Option<u64>, app_id: Option<&str>, title: Option<&str>) -> Option<usize> {
+fn resolve_window_index(
+    state: &State,
+    window_id: Option<u64>,
+    id: Option<u64>,
+    app_id: Option<&str>,
+    title: Option<&str>,
+) -> Option<usize> {
+    if let Some(window_id) = window_id {
+        for (idx, window) in state.space.elements().enumerate() {
+            if window_stable_id(window) == window_id {
+                return Some(idx);
+            }
+        }
+    }
     if let Some(id) = id {
         return usize::try_from(id).ok();
     }
@@ -621,28 +898,92 @@ fn is_fullscreen(window: &Window) -> bool {
 
 /// Check if a window is the currently focused window.
 fn is_focused(state: &State, window: &Window) -> bool {
-    state.seat.get_keyboard().and_then(|kb| kb.current_focus()).is_some_and(|focus| {
-        use smithay::wayland::seat::WaylandFocus;
-        focus.wl_surface().zip(window.wl_surface()).is_some_and(|(a, b)| *a == *b)
-    })
+    state
+        .seat
+        .get_keyboard()
+        .and_then(|kb| kb.current_focus())
+        .is_some_and(|focus| focus.wl_surface().zip(window.wl_surface()).is_some_and(|(a, b)| *a == *b))
 }
 
 /// Format window info as a typed struct for serialization.
 fn build_window_info(state: &State, idx: usize, window: &Window) -> WindowInfo {
-    let loc = state.space.element_location(window).unwrap_or_default();
+    let content_bounds = window_content_bounds(state, window);
+    let frame_bounds = window_frame_bounds(window, content_bounds);
     let geo = window.geometry();
     WindowInfo {
         id: idx,
+        window_id: window_stable_id(window),
         title: foreign_toplevel::window_title(window),
         app_id: foreign_toplevel::window_app_id(window),
-        x: loc.x,
-        y: loc.y,
-        width: geo.size.w,
-        height: geo.size.h,
+        pid: window_pid(state, window),
+        x: frame_bounds.loc.x,
+        y: frame_bounds.loc.y,
+        width: frame_bounds.size.w,
+        height: frame_bounds.size.h,
+        content_x: content_bounds.loc.x,
+        content_y: content_bounds.loc.y,
+        content_width: content_bounds.size.w,
+        content_height: content_bounds.size.h,
+        geometry_x: geo.loc.x,
+        geometry_y: geo.loc.y,
         focused: is_focused(state, window),
         maximized: is_maximized(window),
         fullscreen: is_fullscreen(window),
+        decoration_mode: if crate::decorations::window_has_ssd(window) { "ssd" } else { "csd" },
+        opaque_region: window_opaque_region(window),
     }
+}
+
+fn window_content_bounds(state: &State, window: &Window) -> Rectangle<i32, Logical> {
+    let loc = state.space.element_location(window).unwrap_or_default();
+    let geo = window.geometry();
+    Rectangle::new(loc, geo.size)
+}
+
+fn window_frame_bounds(window: &Window, content_bounds: Rectangle<i32, Logical>) -> Rectangle<i32, Logical> {
+    if crate::decorations::window_has_ssd(window) {
+        let frame_loc = (
+            content_bounds.loc.x - crate::decorations::RESIZE_BORDER,
+            content_bounds.loc.y - crate::decorations::TITLEBAR_HEIGHT - crate::decorations::RESIZE_BORDER,
+        )
+            .into();
+        let frame_size = (
+            content_bounds.size.w + crate::decorations::RESIZE_BORDER * 2,
+            content_bounds.size.h + crate::decorations::TITLEBAR_HEIGHT + crate::decorations::RESIZE_BORDER * 2,
+        )
+            .into();
+        return Rectangle::new(frame_loc, frame_size);
+    }
+
+    let geo = window.geometry();
+    Rectangle::new((content_bounds.loc.x + geo.loc.x, content_bounds.loc.y + geo.loc.y).into(), geo.size)
+}
+
+/// Extract the opaque region from a window's root surface, if set.
+///
+/// Coordinates are in surface-local space (relative to the buffer origin).
+/// For a typical GTK4 CSD window with shadow inset (6, 8), the opaque
+/// region will be `{6, 8, content_w, content_h}`.
+fn window_opaque_region(window: &Window) -> Option<Vec<OpaqueRegionRect>> {
+    let surface = window.wl_surface()?;
+    compositor::with_states(&surface, |states| {
+        states.cached_state.get::<SurfaceAttributes>().current().opaque_region.as_ref().map(|region| {
+            region
+                .rects
+                .iter()
+                .map(|(kind, rect)| OpaqueRegionRect {
+                    kind: match kind {
+                        compositor::RectangleKind::Add => "add",
+                        compositor::RectangleKind::Subtract => "subtract",
+                    },
+                    x: rect.loc.x,
+                    y: rect.loc.y,
+                    width: rect.size.w,
+                    height: rect.size.h,
+                })
+                .collect()
+        })
+    })
 }
 
 /// List all mapped windows as typed structs.
@@ -658,12 +999,39 @@ fn list_minimized_windows(state: &State) -> Vec<MinimizedWindowInfo> {
         .enumerate()
         .map(|(idx, (window, pos))| MinimizedWindowInfo {
             id: format!("minimized_{idx}"),
+            window_id: window_stable_id(window),
             title: foreign_toplevel::window_title(window),
             app_id: foreign_toplevel::window_app_id(window),
+            pid: window_pid(state, window),
             x: pos.x,
             y: pos.y,
         })
         .collect()
+}
+
+fn window_stable_id(window: &Window) -> u64 {
+    if let Some(x11) = window.x11_surface() {
+        return u64::from(x11.window_id());
+    }
+
+    if let Some(surface) = window.wl_surface() {
+        let mut hasher = DefaultHasher::new();
+        format!("{:?}", surface.id()).hash(&mut hasher);
+        return hasher.finish();
+    }
+
+    0
+}
+
+fn window_pid(state: &State, window: &Window) -> Option<u32> {
+    if let Some(x11) = window.x11_surface() {
+        return x11.pid();
+    }
+
+    let surface = window.wl_surface()?;
+    let client = surface.client()?;
+    let creds = client.get_credentials(&state.display_handle).ok()?;
+    u32::try_from(creds.pid).ok()
 }
 
 /// Get info about a specific window by index.
@@ -700,6 +1068,78 @@ fn focus_window(state: &mut State, id: u64) -> bool {
     } else {
         false
     }
+}
+
+fn minimize_window(state: &mut State, id: u64) -> bool {
+    let Some(id) = usize::try_from(id).ok() else { return false };
+    let window = state.space.elements().nth(id).cloned();
+    if let Some(window) = window {
+        crate::handlers::foreign_toplevel::minimize_window(state, &window);
+        true
+    } else {
+        false
+    }
+}
+
+fn maximize_window(state: &mut State, id: u64) -> bool {
+    let Some(id) = usize::try_from(id).ok() else { return false };
+    let window = state.space.elements().nth(id).cloned();
+    if let Some(window) = window {
+        crate::handlers::foreign_toplevel::maximize_window(state, &window);
+        true
+    } else {
+        false
+    }
+}
+
+fn restore_window(state: &mut State, id: u64) -> bool {
+    let Some(id) = usize::try_from(id).ok() else { return false };
+    let window = state.space.elements().nth(id).cloned();
+    if let Some(window) = window {
+        crate::handlers::foreign_toplevel::restore_window(state, &window);
+        true
+    } else {
+        false
+    }
+}
+
+fn move_window(state: &mut State, id: u64, x: i32, y: i32) -> bool {
+    let Some(id) = usize::try_from(id).ok() else { return false };
+    let window = state.space.elements().nth(id).cloned();
+    if let Some(window) = window {
+        crate::handlers::foreign_toplevel::move_window(state, &window, (x, y).into());
+        true
+    } else {
+        false
+    }
+}
+
+fn resize_window(state: &mut State, id: u64, width: i32, height: i32) -> bool {
+    let Some(id) = usize::try_from(id).ok() else { return false };
+    let window = state.space.elements().nth(id).cloned();
+    if let Some(window) = window {
+        crate::handlers::foreign_toplevel::resize_window(state, &window, (width, height).into());
+        true
+    } else {
+        false
+    }
+}
+
+fn parse_i32_coordinate(value: Option<f64>, field: &'static str) -> Result<i32, &'static str> {
+    let value = value.ok_or(field)?;
+    if !value.is_finite() || value < f64::from(i32::MIN) || value > f64::from(i32::MAX) {
+        return Err(field);
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    Ok(value.round() as i32)
+}
+
+fn parse_i32_size(value: Option<f64>, field: &'static str) -> Result<i32, &'static str> {
+    let parsed = parse_i32_coordinate(value, field)?;
+    if parsed <= 0 {
+        return Err(field);
+    }
+    Ok(parsed)
 }
 
 // -- Screenshot implementation --
@@ -843,5 +1283,42 @@ mod tests {
         assert!(!encoded.is_empty());
         // Verify padding
         assert!(encoded.len().is_multiple_of(4));
+    }
+
+    #[test]
+    fn window_frame_bounds_for_ssd_expand_client_rect() {
+        let content_bounds: Rectangle<i32, Logical> = Rectangle::new((100, 200).into(), (640, 480).into());
+        let frame: Rectangle<i32, Logical> = Rectangle::new(
+            (
+                content_bounds.loc.x - crate::decorations::RESIZE_BORDER,
+                content_bounds.loc.y - crate::decorations::TITLEBAR_HEIGHT - crate::decorations::RESIZE_BORDER,
+            )
+                .into(),
+            (
+                content_bounds.size.w + crate::decorations::RESIZE_BORDER * 2,
+                content_bounds.size.h + crate::decorations::TITLEBAR_HEIGHT + crate::decorations::RESIZE_BORDER * 2,
+            )
+                .into(),
+        );
+
+        assert_eq!(frame.loc.x, 92);
+        assert_eq!(frame.loc.y, 162);
+        assert_eq!(frame.size.w, 656);
+        assert_eq!(frame.size.h, 526);
+    }
+
+    #[test]
+    fn csd_frame_origin_applies_geometry_offset() {
+        let content_bounds: Rectangle<i32, Logical> = Rectangle::new((50, 70).into(), (800, 600).into());
+        let geometry: Rectangle<i32, Logical> = Rectangle::new((6, 8).into(), (800, 600).into());
+        let frame: Rectangle<i32, Logical> = Rectangle::new(
+            (content_bounds.loc.x + geometry.loc.x, content_bounds.loc.y + geometry.loc.y).into(),
+            geometry.size,
+        );
+
+        assert_eq!(frame.loc.x, 56);
+        assert_eq!(frame.loc.y, 78);
+        assert_eq!(frame.size.w, 800);
+        assert_eq!(frame.size.h, 600);
     }
 }

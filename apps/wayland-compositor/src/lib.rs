@@ -24,6 +24,7 @@ mod environment;
 mod focus;
 mod grabs;
 mod handlers;
+mod highlight;
 mod input;
 pub mod multi_output;
 mod ready;

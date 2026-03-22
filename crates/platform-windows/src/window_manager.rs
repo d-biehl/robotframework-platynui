@@ -169,7 +169,7 @@ impl WindowManager for Win32WindowManager {
         })
     }
 
-    fn bounds(&self, id: WindowId) -> Result<Rect, PlatformError> {
+    fn bounds(&self, id: WindowId, _toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
         let hwnd = hwnd_from_id(id);
         let mut rect = RECT::default();
         unsafe { GetWindowRect(hwnd, &mut rect) }

@@ -261,8 +261,8 @@ mod mediator {
             resolved().window_manager.resolve_window(node)
         }
 
-        fn bounds(&self, id: WindowId) -> Result<Rect, PlatformError> {
-            resolved().window_manager.bounds(id)
+        fn bounds(&self, id: WindowId, toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
+            resolved().window_manager.bounds(id, toolkit_hint)
         }
 
         fn is_active(&self, id: WindowId) -> Result<bool, PlatformError> {

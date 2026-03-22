@@ -56,7 +56,10 @@ pub trait WindowManager: Send + Sync {
     /// Actual screen bounds of the window as reported by the window manager.
     ///
     /// May differ from accessibility-reported bounds (e.g. GTK4 on X11).
-    fn bounds(&self, id: WindowId) -> Result<Rect, PlatformError>;
+    /// The optional `toolkit_hint` (e.g. `"gtk4"`) lets implementations
+    /// adjust the result for toolkit-specific quirks such as CSD shadow
+    /// offsets.
+    fn bounds(&self, id: WindowId, toolkit_hint: Option<&str>) -> Result<Rect, PlatformError>;
 
     /// Whether this window is the currently active (foreground) window.
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError>;
@@ -93,6 +96,14 @@ inventory::collect!(WindowManagerRegistration);
 /// Iterate over all registered [`WindowManager`] implementations.
 pub fn window_managers() -> impl Iterator<Item = &'static dyn WindowManager> {
     inventory::iter::<WindowManagerRegistration>.into_iter().map(|entry| entry.provider)
+}
+
+/// Return the first registered [`WindowManager`], if any.
+///
+/// This is a convenience shortcut for `window_managers().next()` and is
+/// appropriate when exactly one window manager is expected at runtime.
+pub fn window_manager() -> Option<&'static dyn WindowManager> {
+    window_managers().next()
 }
 
 /// Register a [`WindowManager`] implementation.
@@ -157,7 +168,7 @@ mod tests {
             Ok(WindowId::new(42))
         }
 
-        fn bounds(&self, _id: WindowId) -> Result<Rect, PlatformError> {
+        fn bounds(&self, _id: WindowId, _toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
             Ok(Rect::new(0.0, 0.0, 800.0, 600.0))
         }
 
@@ -220,7 +231,7 @@ mod tests {
     #[test]
     fn stub_bounds_returns_rect() {
         let wm = StubWindowManager;
-        let rect = wm.bounds(WindowId::new(1)).unwrap();
+        let rect = wm.bounds(WindowId::new(1), None).unwrap();
         assert!((rect.width() - 800.0).abs() < f64::EPSILON);
     }
 

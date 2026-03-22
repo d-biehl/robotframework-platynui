@@ -299,7 +299,7 @@ impl WindowManager for X11EwmhWindowManager {
         Ok(WindowId::new(u64::from(xid)))
     }
 
-    fn bounds(&self, id: WindowId) -> Result<Rect, PlatformError> {
+    fn bounds(&self, id: WindowId, _toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
         let xid = id.raw() as Window;
         let x11 = x11util::connection()?;
         let geom = x11

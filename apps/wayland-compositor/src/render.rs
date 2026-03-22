@@ -57,6 +57,8 @@ pub fn collect_render_elements(
     output: &Output,
     draw_cursor: bool,
 ) -> Vec<CompositorRenderElement> {
+    state.highlight_overlay.clear_if_expired();
+
     let mut elements: Vec<CompositorRenderElement> = Vec::new();
 
     // Per-output rendering (DRM): each output has its own framebuffer, so
@@ -194,6 +196,11 @@ pub fn collect_render_elements(
                 elements.push(CompositorRenderElement::Titlebar(tb));
             }
         }
+    }
+
+    let highlight_elements = crate::highlight::render_elements(state.highlight_overlay.rects(), output_geo, scale);
+    for highlight in highlight_elements.into_iter().rev() {
+        elements.insert(0, CompositorRenderElement::Decoration(highlight));
     }
 
     // --- Context menu overlay (on top of everything) ---

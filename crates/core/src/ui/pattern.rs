@@ -1,4 +1,5 @@
 use super::value::UiValue;
+use crate::platform::PlatformError;
 use crate::types::{Point, Rect, Size};
 use std::any::Any;
 use std::borrow::Cow;
@@ -402,6 +403,12 @@ impl PatternError {
 impl Display for PatternError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.message)
+    }
+}
+
+impl From<PlatformError> for PatternError {
+    fn from(err: PlatformError) -> Self {
+        Self::new(err.to_string())
     }
 }
 

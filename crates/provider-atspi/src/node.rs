@@ -16,15 +16,17 @@ use atspi_proxies::table::TableProxy;
 use atspi_proxies::table_cell::TableCellProxy;
 use atspi_proxies::text::TextProxy;
 use atspi_proxies::value::ValueProxy;
-use platynui_core::platform::{WindowId, window_managers};
+use platynui_core::platform::{WindowId, WindowManager, window_manager};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{activation_target, application, common, element, focusable, window_surface};
 use platynui_core::ui::{
-    FocusableAction, Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue, WindowSurfaceActions,
-    supported_patterns_value,
+    FocusableAction, Namespace, PatternError, PatternId, RuntimeId, UiAttribute, UiNode, UiNodeExt, UiPattern, UiValue,
+    WindowSurfacePattern, supported_patterns_value,
 };
+use std::any::Any;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex, OnceLock, Weak};
 use tracing::{trace, warn};
 use zbus::proxy::CacheProperties;
 
@@ -34,7 +36,12 @@ use crate::timeout::block_on_timeout_call;
 
 const NULL_PATH: &str = "/org/a11y/atspi/accessible/null";
 const ALT_NULL_PATH: &str = "/org/a11y/atspi/null";
+const ATSPI_ROOT_PATH: &str = "/org/a11y/atspi/accessible/root";
 const TECHNOLOGY: &str = "AT-SPI2";
+
+/// Cached toolkit names keyed by D-Bus bus name (one lookup per application).
+static TOOLKIT_NAME_CACHE: LazyLock<Mutex<HashMap<String, Option<String>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub struct AtspiNode {
     conn: Arc<AccessibilityConnection>,
@@ -132,8 +139,7 @@ impl AtspiNode {
     /// Returns `true` if this node represents a top-level window surface
     /// (Frame, Window, or Dialog).
     fn is_window_surface(&self) -> bool {
-        let role = self.role();
-        matches!(role, "Frame" | "Window" | "Dialog")
+        is_window_surface_role(self.role())
     }
 
     /// Resolve the Unix process ID of the application owning this node's
@@ -271,23 +277,9 @@ impl UiNode for AtspiNode {
                 if !self.is_window_surface() {
                     return None;
                 }
-                let weak1 = self.self_weak.get().cloned();
-                let weak2 = weak1.clone();
-                let weak3 = weak1.clone();
-                let pattern = WindowSurfaceActions::new()
-                    .with_activate(move || {
-                        let node = weak1.as_ref().and_then(Weak::upgrade).ok_or(AtspiError::NodeDropped)?;
-                        activate_window(node.as_ref()).map_err(Into::into)
-                    })
-                    .with_close(move || {
-                        let node = weak2.as_ref().and_then(Weak::upgrade).ok_or(AtspiError::NodeDropped)?;
-                        close_window(node.as_ref()).map_err(Into::into)
-                    })
-                    .with_accepts_user_input(move || {
-                        let node = weak3.as_ref().and_then(Weak::upgrade);
-                        Ok(node.and_then(|n| is_active_window(n.as_ref())))
-                    });
-                Some(Arc::new(pattern) as Arc<dyn UiPattern>)
+                let weak = self.self_weak.get().cloned()?;
+                Some(Arc::new(AtspiWindowSurface { node: weak, conn: self.conn.clone(), obj: self.obj.clone() })
+                    as Arc<dyn UiPattern>)
             }
             _ => None,
         }
@@ -308,28 +300,6 @@ impl UiNode for AtspiNode {
     }
 }
 
-fn accessible_proxy<'a>(conn: &'a AccessibilityConnection, obj: &'a ObjectRefOwned) -> Option<AccessibleProxy<'a>> {
-    let name = obj.name_as_str()?;
-    let builder = AccessibleProxy::builder(conn.connection())
-        .cache_properties(CacheProperties::No)
-        .destination(name)
-        .ok()?
-        .path(obj.path_as_str())
-        .ok()?;
-    block_on_timeout_call(builder.build()).and_then(|r| r.ok())
-}
-
-fn component_proxy<'a>(conn: &'a AccessibilityConnection, obj: &'a ObjectRefOwned) -> Option<ComponentProxy<'a>> {
-    let name = obj.name_as_str()?;
-    let builder = ComponentProxy::builder(conn.connection())
-        .cache_properties(CacheProperties::No)
-        .destination(name)
-        .ok()?
-        .path(obj.path_as_str())
-        .ok()?;
-    block_on_timeout_call(builder.build()).and_then(|r| r.ok())
-}
-
 macro_rules! make_proxy {
     ($fn_name:ident, $proxy:ident) => {
         fn $fn_name<'a>(conn: &'a AccessibilityConnection, obj: &'a ObjectRefOwned) -> Option<$proxy<'a>> {
@@ -345,6 +315,8 @@ macro_rules! make_proxy {
     };
 }
 
+make_proxy!(accessible_proxy, AccessibleProxy);
+make_proxy!(component_proxy, ComponentProxy);
 make_proxy!(action_proxy, ActionProxy);
 make_proxy!(application_proxy, ApplicationProxy);
 make_proxy!(collection_proxy, CollectionProxy);
@@ -358,6 +330,61 @@ make_proxy!(table_cell_proxy, TableCellProxy);
 make_proxy!(text_proxy, TextProxy);
 make_proxy!(value_proxy, ValueProxy);
 
+/// Resolve the toolkit identifier for the application owning the given
+/// accessible object by querying `Application.ToolkitName` and
+/// `Application.Version` on the AT-SPI root node of that bus name.
+///
+/// The returned string combines the toolkit name with its major version
+/// (e.g. `"gtk4"`, `"qt6"`).  If the version is unavailable, only the
+/// lowercase toolkit name is returned (e.g. `"gtk"`).
+///
+/// Successful results are cached per D-Bus bus name so the calls happen
+/// at most once per application.  Failures are **not** cached so that
+/// transient D-Bus timeouts can recover on the next attempt.
+fn resolve_toolkit_name(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<String> {
+    let bus_name = obj.name_as_str()?;
+
+    // Fast path: return cached successful result without holding the lock
+    // during D-Bus calls.
+    {
+        let cache = TOOLKIT_NAME_CACHE.lock().expect("toolkit name cache mutex poisoned");
+        if let Some(cached) = cache.get(bus_name) {
+            return cached.clone();
+        }
+    }
+
+    // Slow path: D-Bus calls outside the lock.
+    let result = (|| {
+        let proxy = ApplicationProxy::builder(conn.connection())
+            .cache_properties(CacheProperties::No)
+            .destination(bus_name)
+            .ok()?
+            .path(ATSPI_ROOT_PATH)
+            .ok()?;
+        let proxy = block_on_timeout_call(proxy.build()).and_then(|r| r.ok())?;
+        let name = block_on_timeout_call(proxy.toolkit_name()).and_then(|r| r.ok())?.to_lowercase();
+        // Append the major version number if available (e.g. "gtk" + "4" → "gtk4").
+        let version = block_on_timeout_call(proxy.version()).and_then(|r| r.ok());
+        match version.as_deref().and_then(|v| v.split('.').next()) {
+            Some(major) if !major.is_empty() => Some(format!("{name}{major}")),
+            _ => Some(name),
+        }
+    })();
+
+    // Only cache successful results so transient failures can be retried.
+    if let Some(ref toolkit) = result {
+        trace!(bus_name, toolkit, "resolved toolkit name");
+        TOOLKIT_NAME_CACHE
+            .lock()
+            .expect("toolkit name cache mutex poisoned")
+            .insert(bus_name.to_string(), Some(toolkit.clone()));
+    } else {
+        trace!(bus_name, "failed to resolve toolkit name");
+    }
+
+    result
+}
+
 fn grab_focus(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<(), AtspiError> {
     let proxy = component_proxy(conn, obj).ok_or(AtspiError::InterfaceMissing("Component"))?;
     let ok = block_on_timeout_call(proxy.grab_focus())
@@ -366,36 +393,101 @@ fn grab_focus(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<()
     if ok { Ok(()) } else { Err(AtspiError::FocusFailed) }
 }
 
-/// Resolve the native window ID for this AT-SPI window node using the
-/// registered [`WindowManager`].
+/// Check whether a role string represents a top-level window surface.
+fn is_window_surface_role(role: &str) -> bool {
+    matches!(role, "Frame" | "Window" | "Dialog")
+}
+
+/// [`WindowSurfacePattern`] implementation for AT-SPI window nodes.
 ///
-/// The node itself carries PID (via `native:ProcessId`) and window name
-/// (via `UiNode::name()`) so the platform-specific window manager can
-/// match the correct top-level window.
-fn resolve_window_id(node: &dyn UiNode) -> Result<WindowId, AtspiError> {
-    let wm = window_managers().next().ok_or(AtspiError::NoWindowManager)?;
-    wm.resolve_window(node).map_err(|e| AtspiError::dbus("resolve_window", e))
+/// Holds a single [`Weak`] reference to the owning [`UiNode`] and delegates
+/// all operations to the registered [`WindowManager`].
+struct AtspiWindowSurface {
+    node: Weak<dyn UiNode>,
+    conn: Arc<AccessibilityConnection>,
+    obj: ObjectRefOwned,
 }
 
-/// Bring a window to the foreground via the registered [`WindowManager`].
-fn activate_window(node: &dyn UiNode) -> Result<(), AtspiError> {
-    let wid = resolve_window_id(node)?;
-    let wm = window_managers().next().ok_or(AtspiError::NoWindowManager)?;
-    wm.activate(wid).map_err(|e| AtspiError::dbus("activate_window", e))
+impl AtspiWindowSurface {
+    /// Upgrade the weak node reference and resolve the window manager + window ID.
+    fn resolve(&self) -> Result<(&'static dyn WindowManager, WindowId), AtspiError> {
+        let node = self.node.upgrade().ok_or(AtspiError::NodeDropped)?;
+        let wm = window_manager().ok_or(AtspiError::NoWindowManager)?;
+        let wid = wm.resolve_window(node.as_ref()).map_err(|e| AtspiError::dbus("resolve_window", e))?;
+        Ok((wm, wid))
+    }
+
+    fn resolve_state(&self) -> Option<StateSet> {
+        accessible_proxy(self.conn.as_ref(), &self.obj)
+            .and_then(|proxy| block_on_timeout_call(proxy.get_state()).and_then(|r| r.ok()))
+    }
 }
 
-/// Close a window via the registered [`WindowManager`].
-fn close_window(node: &dyn UiNode) -> Result<(), AtspiError> {
-    let wid = resolve_window_id(node)?;
-    let wm = window_managers().next().ok_or(AtspiError::NoWindowManager)?;
-    wm.close(wid).map_err(|e| AtspiError::dbus("close_window", e))
+impl UiPattern for AtspiWindowSurface {
+    fn id(&self) -> PatternId {
+        Self::static_id()
+    }
+
+    fn static_id() -> PatternId
+    where
+        Self: Sized,
+    {
+        PatternId::from("WindowSurface")
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
-/// Check whether a window is the currently active (foreground) window.
-fn is_active_window(node: &dyn UiNode) -> Option<bool> {
-    let wid = resolve_window_id(node).ok()?;
-    let wm = window_managers().next()?;
-    wm.is_active(wid).ok()
+impl WindowSurfacePattern for AtspiWindowSurface {
+    fn activate(&self) -> Result<(), PatternError> {
+        let (wm, wid) = self.resolve()?;
+        wm.activate(wid)?;
+        Ok(())
+    }
+
+    fn minimize(&self) -> Result<(), PatternError> {
+        let (wm, wid) = self.resolve()?;
+        wm.minimize(wid)?;
+        Ok(())
+    }
+
+    fn maximize(&self) -> Result<(), PatternError> {
+        let (wm, wid) = self.resolve()?;
+        wm.maximize(wid)?;
+        Ok(())
+    }
+
+    fn restore(&self) -> Result<(), PatternError> {
+        let (wm, wid) = self.resolve()?;
+        wm.restore(wid)?;
+        Ok(())
+    }
+
+    fn close(&self) -> Result<(), PatternError> {
+        let (wm, wid) = self.resolve()?;
+        wm.close(wid)?;
+        Ok(())
+    }
+
+    fn move_to(&self, position: Point) -> Result<(), PatternError> {
+        let (wm, wid) = self.resolve()?;
+        wm.move_to(wid, position)?;
+        Ok(())
+    }
+
+    fn resize(&self, size: Size) -> Result<(), PatternError> {
+        let (wm, wid) = self.resolve()?;
+        wm.resize(wid, size)?;
+        Ok(())
+    }
+
+    fn accepts_user_input(&self) -> Result<Option<bool>, PatternError> {
+        // If the AT-SPI peer responds to a state query, its event loop is running
+        // and it can accept user input — analogous to WaitForInputIdle on Windows.
+        Ok(Some(self.resolve_state().is_some()))
+    }
 }
 
 fn object_runtime_id(obj: &ObjectRefOwned) -> String {
@@ -1039,12 +1131,67 @@ impl LazyNodeData {
 
     fn resolve_extents(&self) -> Option<Rect> {
         *self.extents.get_or_init(|| {
+            // For top-level windows, prefer the WindowManager bounds (the
+            // compositor/WM knows the actual on-screen geometry).
+            if is_window_surface_role(&self.role)
+                && let Some(bounds) = self.resolve_window_manager_bounds()
+            {
+                return Some(bounds);
+            }
+
+            // For child elements, use window-relative extents plus the
+            // top-level window's absolute position.  This is essential on
+            // Wayland where GetExtents(Screen) returns (0,0) for the
+            // window origin because clients don't know their screen position.
+            if let Some(win_bounds) = self.resolve_toplevel_window_bounds()
+                && let Some(rect) = component_proxy(&self.conn, &self.obj).and_then(|proxy| {
+                    block_on_timeout_call(proxy.get_extents(CoordType::Window)).and_then(|r| r.ok()).map(
+                        |(x, y, w, h)| {
+                            Rect::new(win_bounds.x() + x as f64, win_bounds.y() + y as f64, w as f64, h as f64)
+                        },
+                    )
+                })
+            {
+                return Some(rect);
+            }
+
+            // Fallback: Screen extents (works on X11 where AT-SPI reports
+            // real screen coordinates).
             component_proxy(&self.conn, &self.obj).and_then(|proxy| {
                 block_on_timeout_call(proxy.get_extents(CoordType::Screen))
                     .and_then(|r| r.ok())
                     .map(|(x, y, w, h)| Rect::new(x as f64, y as f64, w as f64, h as f64))
             })
         })
+    }
+
+    /// Resolve the window manager and window ID for this node.
+    fn resolve_window(&self) -> Option<(&'static dyn WindowManager, WindowId)> {
+        let node = self.owner.as_ref()?.upgrade()?;
+        let wm = window_manager()?;
+        let wid = wm.resolve_window(node.as_ref()).ok()?;
+        Some((wm, wid))
+    }
+
+    /// Resolve the toolkit identifier for the application owning this node.
+    fn resolve_toolkit(&self) -> Option<String> {
+        resolve_toolkit_name(&self.conn, &self.obj)
+    }
+
+    /// Ask the registered [`WindowManager`] for the bounds of this window.
+    fn resolve_window_manager_bounds(&self) -> Option<Rect> {
+        let (wm, wid) = self.resolve_window()?;
+        wm.bounds(wid, self.resolve_toolkit().as_deref()).ok()
+    }
+
+    /// Walk up the node tree to find the nearest top-level window ancestor
+    /// and return its absolute screen bounds from the [`WindowManager`].
+    fn resolve_toplevel_window_bounds(&self) -> Option<Rect> {
+        let node = self.owner.as_ref()?.upgrade()?;
+        let toplevel = node.top_level_or_self();
+        let wm = window_manager()?;
+        let wid = wm.resolve_window(toplevel.as_ref()).ok()?;
+        wm.bounds(wid, self.resolve_toolkit().as_deref()).ok()
     }
 
     fn resolve_name(&self) -> &str {
@@ -1060,8 +1207,8 @@ impl LazyNodeData {
     /// window ID cannot be resolved (e.g. no provider registered, or the node
     /// is not a top-level window).
     fn resolve_is_active_window(&self) -> Option<bool> {
-        let node = self.owner.as_ref()?.upgrade()?;
-        is_active_window(node.as_ref())
+        let (wm, wid) = self.resolve_window()?;
+        wm.is_active(wid).ok()
     }
 }
 
@@ -1161,7 +1308,7 @@ impl UiAttribute for LazyStdAttr {
                     .resolve_state()
                     .map(|s| s.contains(State::Focusable) || s.contains(State::Focused))
                     .unwrap_or(false);
-                let window_surface = matches!(self.ctx.role.as_str(), "Frame" | "Window" | "Dialog");
+                let window_surface = is_window_surface_role(&self.ctx.role);
                 let mut patterns = Vec::new();
                 if focusable {
                     patterns.push(PatternId::from("Focusable"));
@@ -1176,12 +1323,9 @@ impl UiAttribute for LazyStdAttr {
                 UiValue::from(active)
             }
             StdAttrKind::AcceptsUserInput => {
-                let accepts = self
-                    .ctx
-                    .resolve_state()
-                    .map(|s| s.contains(State::Enabled) || s.contains(State::Sensitive))
-                    .unwrap_or(false);
-                UiValue::from(accepts)
+                // If the AT-SPI peer responds to a state query, its event loop
+                // is running and it can accept user input.
+                UiValue::from(self.ctx.resolve_state().is_some())
             }
         }
     }

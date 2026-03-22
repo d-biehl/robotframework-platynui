@@ -242,6 +242,9 @@ pub struct State {
     /// Open right-click context menu on an SSD titlebar (if any).
     pub context_menu: Option<crate::decorations::TitlebarContextMenu>,
 
+    /// Active compositor-side highlight overlay requested via control IPC.
+    pub highlight_overlay: crate::highlight::HighlightOverlay,
+
     // -- Output --
     pub output: Output,
     /// All outputs (the first is also stored in `output` for backwards compatibility).
@@ -606,6 +609,7 @@ impl State {
             pressed_titlebar_button: None,
             touch_ssd_button: None,
             context_menu: None,
+            highlight_overlay: crate::highlight::HighlightOverlay::default(),
             output,
             outputs,
             clock,

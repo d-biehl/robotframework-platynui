@@ -24,6 +24,8 @@ use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
+use serde_json::Value;
+
 // ─── Helpers ────────────────────────────────────────────────────────────
 
 /// Helper: determine the backend to use for tests.
@@ -255,6 +257,31 @@ fn ipc_invalid_json() {
 }
 
 #[test]
+fn ipc_highlight_commands() {
+    let Some((child, socket_name)) = start_compositor("highlight") else {
+        return;
+    };
+
+    let Some(socket_path) = wait_for_socket(&socket_name, Duration::from_secs(10)) else {
+        eprintln!("skipping: control socket did not appear");
+        return;
+    };
+
+    let show = send_command(
+        &socket_path,
+        r#"{"command": "show_highlight", "rects": [{"x": 10, "y": 20, "width": 120, "height": 80}], "duration_ms": 250}"#,
+    )
+    .expect("failed to send show_highlight");
+    assert!(show.contains(r#""status":"ok""#), "unexpected response: {show}");
+
+    let clear =
+        send_command(&socket_path, r#"{"command": "clear_highlight"}"#).expect("failed to send clear_highlight");
+    assert!(clear.contains(r#""status":"ok""#), "unexpected response: {clear}");
+
+    shutdown_compositor(&socket_path, child);
+}
+
+#[test]
 fn ipc_missing_command_field() {
     let Some((child, socket_name)) = start_compositor("no_cmd_field") else {
         return;
@@ -471,6 +498,123 @@ fn ipc_get_window_by_title() {
     assert!(response.contains("Unique Title 42"), "missing title: {response}");
 
     let _ = app.kill();
+    shutdown_compositor(&socket_path, child);
+}
+
+#[test]
+fn ipc_get_window_by_stable_window_id() {
+    let Some((child, socket_name)) = start_compositor("get_by_window_id") else {
+        return;
+    };
+
+    let Some(socket_path) = wait_for_socket(&socket_name, Duration::from_secs(10)) else {
+        eprintln!("skipping: control socket did not appear");
+        return;
+    };
+
+    let Some(mut test_app) = start_test_app(&socket_name, "test.windowid", "Stable Window Id", 20) else {
+        shutdown_compositor(&socket_path, child);
+        return;
+    };
+    if wait_for_windows(&socket_path, 1, Duration::from_secs(10)).is_none() {
+        eprintln!("skipping: test app window did not appear");
+        let _ = test_app.kill();
+        shutdown_compositor(&socket_path, child);
+        return;
+    }
+
+    let list = send_command(&socket_path, r#"{"command": "list_windows"}"#).expect("failed to list windows");
+    let list_json: Value = serde_json::from_str(&list).expect("list_windows should return valid JSON");
+    let window_id = list_json["windows"][0]["window_id"].as_u64().expect("missing stable window_id");
+
+    let response = send_command(&socket_path, &format!(r#"{{"command":"get_window","window_id":{window_id}}}"#))
+        .expect("failed to send get_window by stable id");
+    let response_json: Value = serde_json::from_str(&response).expect("get_window should return valid JSON");
+
+    assert!(response.contains(r#""status":"ok"#), "unexpected response: {response}");
+    assert_eq!(response_json["window"]["window_id"].as_u64(), Some(window_id), "missing stable window_id: {response}");
+    assert_eq!(response_json["window"]["app_id"].as_str(), Some("test.windowid"), "missing app_id: {response}");
+
+    let _ = test_app.kill();
+    let _ = test_app.wait();
+    shutdown_compositor(&socket_path, child);
+}
+
+#[test]
+fn ipc_move_window_by_stable_window_id() {
+    let Some((child, socket_name)) = start_compositor("move_by_window_id") else {
+        return;
+    };
+    let Some(socket_path) = wait_for_socket(&socket_name, Duration::from_secs(10)) else {
+        eprintln!("skipping: control socket did not appear");
+        return;
+    };
+
+    let Some(mut app) = start_test_app(&socket_name, "test.move", "Move Window", 20) else {
+        shutdown_compositor(&socket_path, child);
+        return;
+    };
+    if wait_for_windows(&socket_path, 1, Duration::from_secs(10)).is_none() {
+        eprintln!("skipping: test app window did not appear");
+        let _ = app.kill();
+        shutdown_compositor(&socket_path, child);
+        return;
+    }
+
+    let list = send_command(&socket_path, r#"{"command": "list_windows"}"#).expect("failed to list windows");
+    let list_json: Value = serde_json::from_str(&list).expect("list_windows should return valid JSON");
+    let window_id = list_json["windows"][0]["window_id"].as_u64().expect("missing stable window_id");
+
+    let response =
+        send_command(&socket_path, &format!(r#"{{"command":"move_window","window_id":{window_id},"x":120,"y":80}}"#))
+            .expect("failed to send move_window");
+    assert!(response.contains(r#""status":"ok"#), "unexpected response: {response}");
+
+    let moved = send_command(&socket_path, &format!(r#"{{"command":"get_window","window_id":{window_id}}}"#))
+        .expect("failed to fetch moved window");
+    let moved_json: Value = serde_json::from_str(&moved).expect("get_window should return valid JSON");
+    assert_eq!(moved_json["window"]["content_x"].as_i64(), Some(120));
+    assert_eq!(moved_json["window"]["content_y"].as_i64(), Some(80));
+
+    let _ = app.kill();
+    let _ = app.wait();
+    shutdown_compositor(&socket_path, child);
+}
+
+#[test]
+fn ipc_resize_window_by_stable_window_id() {
+    let Some((child, socket_name)) = start_compositor("resize_by_window_id") else {
+        return;
+    };
+    let Some(socket_path) = wait_for_socket(&socket_name, Duration::from_secs(10)) else {
+        eprintln!("skipping: control socket did not appear");
+        return;
+    };
+
+    let Some(mut app) = start_test_app(&socket_name, "test.resize", "Resize Window", 20) else {
+        shutdown_compositor(&socket_path, child);
+        return;
+    };
+    if wait_for_windows(&socket_path, 1, Duration::from_secs(10)).is_none() {
+        eprintln!("skipping: test app window did not appear");
+        let _ = app.kill();
+        shutdown_compositor(&socket_path, child);
+        return;
+    }
+
+    let list = send_command(&socket_path, r#"{"command": "list_windows"}"#).expect("failed to list windows");
+    let list_json: Value = serde_json::from_str(&list).expect("list_windows should return valid JSON");
+    let window_id = list_json["windows"][0]["window_id"].as_u64().expect("missing stable window_id");
+
+    let response = send_command(
+        &socket_path,
+        &format!(r#"{{"command":"resize_window","window_id":{window_id},"width":640,"height":360}}"#),
+    )
+    .expect("failed to send resize_window");
+    assert!(response.contains(r#""status":"ok"#), "unexpected response: {response}");
+
+    let _ = app.kill();
+    let _ = app.wait();
     shutdown_compositor(&socket_path, child);
 }
 

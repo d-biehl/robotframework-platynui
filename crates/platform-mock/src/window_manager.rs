@@ -46,7 +46,7 @@ impl WindowManager for MockWindowManager {
         Ok(WindowId::new(1))
     }
 
-    fn bounds(&self, id: WindowId) -> Result<Rect, PlatformError> {
+    fn bounds(&self, id: WindowId, _toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
         self.record(WindowManagerLogEntry::Bounds(id));
         Ok(Rect::new(0.0, 0.0, 800.0, 600.0))
     }

@@ -24,7 +24,7 @@ pub use registration::{PlatformRegistration, platform_modules};
 pub use screenshot::{
     PixelFormat, Screenshot, ScreenshotProvider, ScreenshotRegistration, ScreenshotRequest, screenshot_providers,
 };
-pub use window_manager::{WindowId, WindowManager, WindowManagerRegistration, window_managers};
+pub use window_manager::{WindowId, WindowManager, WindowManagerRegistration, window_manager, window_managers};
 
 #[macro_export]
 macro_rules! register_platform_module {

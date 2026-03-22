@@ -136,6 +136,55 @@ Request a graceful compositor shutdown.
 
 ---
 
+### `show_highlight`
+
+Shows one or more compositor-rendered highlight frames in logical desktop coordinates.
+This is currently used by the Wayland platform backend for the PlatynUI compositor.
+
+**Request:**
+```json
+{
+  "command": "show_highlight",
+  "rects": [
+    {"x": 100, "y": 50, "width": 800, "height": 600},
+    {"x": 950, "y": 200, "width": 300, "height": 120}
+  ],
+  "duration_ms": 1200
+}
+```
+
+**Parameters:**
+
+| Field         | Type   | Required | Description |
+|---------------|--------|----------|-------------|
+| `rects`       | array  | yes*     | Highlight rectangles in logical compositor coordinates |
+| `duration_ms` | int    | no       | Optional auto-clear timeout in milliseconds |
+
+\* As a convenience, a single rectangle can also be sent via top-level `x`, `y`, `width`, `height` fields.
+
+**Response:**
+```json
+{"status": "ok", "message": "highlight updated", "rects": 2}
+```
+
+---
+
+### `clear_highlight`
+
+Removes any active compositor-rendered highlight frames.
+
+**Request:**
+```json
+{"command": "clear_highlight"}
+```
+
+**Response:**
+```json
+{"status": "ok", "message": "highlight cleared"}
+```
+
+---
+
 ### `list_windows`
 
 List all currently mapped (visible) and minimized windows.
@@ -196,14 +245,19 @@ List all currently mapped (visible) and minimized windows.
 
 Get details of a specific window.
 
-Windows can be identified by numeric index, `app_id` (exact match), or
+Windows can be identified by stable `window_id`, numeric list index, `app_id` (exact match), or
 `title` (case-insensitive substring match).  When multiple selectors are
-provided, priority is: `id` → `app_id` → `title`.  If `app_id` does not
+provided, priority is: `window_id` → `id` → `app_id` → `title`.  If `app_id` does not
 match, the compositor falls through to `title` matching.
 
 **Request (by index):**
 ```json
 {"command": "get_window", "id": 0}
+```
+
+**Request (by stable window id):**
+```json
+{"command": "get_window", "window_id": 123456789}
 ```
 
 **Request (by app\_id):**
@@ -220,6 +274,7 @@ match, the compositor falls through to `title` matching.
 
 | Field    | Type   | Required | Description                                  |
 |----------|--------|----------|----------------------------------------------|
+| `window_id` | int | no*      | Stable opaque window identifier for this compositor session |
 | `id`     | int    | no*      | Window index                                 |
 | `app_id` | string | no*      | Application ID (exact match)                 |
 | `title`  | string | no*      | Window title (case-insensitive substring)    |
@@ -232,8 +287,10 @@ match, the compositor falls through to `title` matching.
   "status": "ok",
   "window": {
     "id": 0,
+    "window_id": 123456789,
     "title": "Kate",
     "app_id": "org.kde.kate",
+    "pid": 4242,
     "x": 100,
     "y": 50,
     "width": 800,
@@ -256,6 +313,35 @@ match, the compositor falls through to `title` matching.
 
 Send a close request to a window (the application may show a "save?" dialog).
 Accepts the same window selectors as `get_window`.
+
+### `focus_window`, `minimize_window`, `maximize_window`, `restore_window`, `move_window`, `resize_window`
+
+Window-management actions using the same selectors as `get_window`.
+
+**Requests:**
+```json
+{"command": "focus_window", "window_id": 123456789}
+```
+
+```json
+{"command": "minimize_window", "window_id": 123456789}
+```
+
+```json
+{"command": "maximize_window", "window_id": 123456789}
+```
+
+```json
+{"command": "restore_window", "window_id": 123456789}
+```
+
+```json
+{"command": "move_window", "window_id": 123456789, "x": 120, "y": 80}
+```
+
+```json
+{"command": "resize_window", "window_id": 123456789, "width": 640, "height": 360}
+```
 
 **Request:**
 ```json

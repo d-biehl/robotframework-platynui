@@ -229,6 +229,11 @@ struct WaylandGlobal {
 
 static GLOBAL: Mutex<Option<WaylandGlobal>> = Mutex::new(None);
 
+/// Return the compositor type detected during platform initialization.
+pub(crate) fn compositor_type() -> Option<CompositorType> {
+    GLOBAL.lock().expect("wayland global mutex poisoned").as_ref().map(|global| global.compositor)
+}
+
 /// Connect to the Wayland display server, detect the compositor, and
 /// enumerate outputs.
 ///

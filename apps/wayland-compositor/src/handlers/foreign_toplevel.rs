@@ -27,6 +27,7 @@ use smithay::{
             backend::{ClientId, GlobalId},
         },
     },
+    utils::{Logical, Rectangle},
     wayland::{
         compositor,
         foreign_toplevel_list::{ForeignToplevelListHandler, ForeignToplevelListState},
@@ -35,6 +36,9 @@ use smithay::{
 };
 
 use crate::state::State;
+
+const MIN_CONTROLLED_WINDOW_WIDTH: i32 = 1;
+const MIN_CONTROLLED_WINDOW_HEIGHT: i32 = 1;
 
 // ── wlr-foreign-toplevel-management state constants ─────────────────────────
 //
@@ -571,7 +575,7 @@ pub fn window_app_id(window: &Window) -> String {
 /// Un-minimizes the window if needed, raises it, and sets keyboard focus.
 /// The `SeatHandler::focus_changed` callback handles notifying foreign-toplevel
 /// clients about activated/deactivated state and X11 `set_activated` calls.
-fn activate_window(state: &mut State, window: &Window) {
+pub(crate) fn activate_window(state: &mut State, window: &Window) {
     // Un-minimize first if needed
     if let Some(idx) = state.minimized_windows.iter().position(|(w, _)| w == window) {
         let (win, pos) = state.minimized_windows.remove(idx);
@@ -585,13 +589,156 @@ fn activate_window(state: &mut State, window: &Window) {
 }
 
 /// Close a window via its protocol surface.
-fn close_window(window: &Window) {
+pub(crate) fn close_window(window: &Window) {
     if let Some(toplevel) = window.toplevel() {
         toplevel.send_close();
     } else if let Some(x11) = window.x11_surface()
         && let Err(err) = x11.close()
     {
         tracing::debug!(%err, "X11 close request failed (surface may be destroyed)");
+    }
+}
+
+/// Maximize a window using the same compositor-side logic as foreign-toplevel requests.
+pub(crate) fn maximize_window(state: &mut State, window: &Window) {
+    if let Some(toplevel) = window.toplevel() {
+        crate::handlers::xdg_shell::do_maximize(state, toplevel);
+        return;
+    }
+
+    let Some(x11) = window.x11_surface() else {
+        return;
+    };
+
+    if x11.is_maximized() {
+        return;
+    }
+
+    let current_loc = state.space.element_location(window).unwrap_or_default();
+    let current_size = Some(window.geometry().size);
+    state.pre_maximize_positions.retain(|(w, _, _)| w != window);
+    state.pre_maximize_positions.push((window.clone(), current_loc, current_size));
+
+    let usable_geo = state.usable_geometry_for_window(window);
+    let y_offset = if crate::decorations::window_has_ssd(window) { crate::decorations::TITLEBAR_HEIGHT } else { 0 };
+    let max_size = smithay::utils::Size::from((usable_geo.size.w, usable_geo.size.h - y_offset));
+
+    if let Err(err) = x11.set_maximized(true) {
+        tracing::warn!(%err, "failed to maximize X11 window");
+    }
+    if let Err(err) = x11.configure(Rectangle::new((usable_geo.loc.x, usable_geo.loc.y + y_offset).into(), max_size)) {
+        tracing::warn!(%err, "failed to configure X11 window for maximize");
+    }
+    state.space.map_element(window.clone(), (usable_geo.loc.x, usable_geo.loc.y + y_offset), true);
+}
+
+/// Restore a window from minimized or maximized state.
+pub(crate) fn restore_window(state: &mut State, window: &Window) {
+    if state.minimized_windows.iter().any(|(w, _)| w == window) {
+        unminimize_window(state, window);
+        return;
+    }
+
+    if let Some(toplevel) = window.toplevel() {
+        let is_maximized = toplevel
+            .current_state()
+            .states
+            .contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized);
+        if is_maximized {
+            crate::handlers::xdg_shell::do_unmaximize(state, toplevel);
+        }
+        return;
+    }
+
+    let Some(x11) = window.x11_surface() else {
+        return;
+    };
+
+    if !x11.is_maximized() {
+        return;
+    }
+
+    let saved = state
+        .pre_maximize_positions
+        .iter()
+        .position(|(w, _, _)| w == window)
+        .map(|i| state.pre_maximize_positions.remove(i));
+
+    if let Err(err) = x11.set_maximized(false) {
+        tracing::warn!(%err, "failed to unmaximize X11 window");
+    }
+
+    if let Some((_, pos, size)) = saved {
+        if let Err(err) = x11.configure(size.map(|saved_size| Rectangle::<i32, Logical>::new(pos, saved_size))) {
+            tracing::warn!(%err, "failed to configure X11 window after restore");
+        }
+        state.space.map_element(window.clone(), pos, true);
+    } else if let Err(err) = x11.configure(None) {
+        tracing::warn!(%err, "failed to configure X11 window after restore");
+    }
+}
+
+/// Move a window to the requested logical position.
+pub(crate) fn move_window(state: &mut State, window: &Window, position: smithay::utils::Point<i32, Logical>) {
+    if state.minimized_windows.iter().any(|(w, _)| w == window) {
+        unminimize_window(state, window);
+    }
+
+    if let Some(toplevel) = window.toplevel() {
+        let states = toplevel.current_state().states;
+        if states.contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Fullscreen) {
+            crate::handlers::xdg_shell::do_unfullscreen(state, toplevel);
+        }
+        if states.contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized) {
+            crate::handlers::xdg_shell::do_unmaximize(state, toplevel);
+        }
+        state.space.map_element(window.clone(), position, true);
+        toplevel.send_configure();
+        return;
+    }
+
+    let Some(x11) = window.x11_surface() else {
+        return;
+    };
+
+    let size = window.geometry().size;
+    if let Err(err) = x11.configure(Rectangle::new(position, size)) {
+        tracing::warn!(%err, "failed to configure X11 window during move");
+    }
+    state.space.map_element(window.clone(), position, true);
+}
+
+/// Resize a window to the requested logical size.
+pub(crate) fn resize_window(state: &mut State, window: &Window, size: smithay::utils::Size<i32, Logical>) {
+    if state.minimized_windows.iter().any(|(w, _)| w == window) {
+        unminimize_window(state, window);
+    }
+
+    let clamped_size =
+        smithay::utils::Size::from((size.w.max(MIN_CONTROLLED_WINDOW_WIDTH), size.h.max(MIN_CONTROLLED_WINDOW_HEIGHT)));
+
+    if let Some(toplevel) = window.toplevel() {
+        let states = toplevel.current_state().states;
+        if states.contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Fullscreen) {
+            crate::handlers::xdg_shell::do_unfullscreen(state, toplevel);
+        }
+        if states.contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized) {
+            crate::handlers::xdg_shell::do_unmaximize(state, toplevel);
+        }
+        toplevel.with_pending_state(|pending| {
+            pending.size = Some(clamped_size);
+        });
+        toplevel.send_configure();
+        return;
+    }
+
+    let Some(x11) = window.x11_surface() else {
+        return;
+    };
+
+    let position = state.space.element_location(window).unwrap_or_default();
+    if let Err(err) = x11.configure(Rectangle::new(position, clamped_size)) {
+        tracing::warn!(%err, "failed to configure X11 window during resize");
     }
 }
 
