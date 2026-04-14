@@ -19,6 +19,7 @@ pub enum ResultAction {
 ///
 /// `focused_index` is the keyboard cursor position (mutable — updated
 /// by arrow key navigation inside the panel).
+#[allow(deprecated)]
 pub fn show_results_panel(
     ctx: &egui::Context,
     results: &[SearchResultItem],
@@ -153,6 +154,13 @@ pub fn show_results_panel(
             // table body which would conflict with TableBuilder's &mut).
             let mut clicked_row: Option<usize> = None;
 
+            // Limit the table to the remaining available height so the
+            // vertical scrollbar is never clipped by the panel boundary.
+            // Subtract the table header height (20 px) because max_scroll_height
+            // applies only to the body scroll area; the header is rendered on
+            // top of it and would otherwise push the table past the available space.
+            let available_height = ui.available_height() - 20.0;
+
             let mut table = TableBuilder::new(ui)
                 .auto_shrink([false, false])
                 .striped(true)
@@ -160,6 +168,7 @@ pub fn show_results_panel(
                 .column(Column::exact(40.0)) // #
                 .column(Column::exact(60.0)) // Type
                 .column(Column::remainder().at_least(200.0)) // Label
+                .max_scroll_height(available_height)
                 .sense(egui::Sense::click());
 
             // Only scroll to the focused row when the index actually

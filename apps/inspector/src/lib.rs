@@ -121,6 +121,9 @@ impl InspectorApp {
 }
 
 impl eframe::App for InspectorApp {
+    fn ui(&mut self, _ui: &mut egui::Ui, _frame: &mut eframe::Frame) {}
+
+    #[expect(deprecated)]
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // View: Menu Bar
         toolbar::show_menu_bar(ctx);

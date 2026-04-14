@@ -50,6 +50,8 @@ winit = { version = "0.30", default-features = false, features = ["wayland-csd-a
 zbus = { version = "5", features = ["blocking-api"] }
 
 # Compositor UI (titlebar text, buttons, future panel)
+# Pinned to 0.33 because smithay 0.7 re-exports glow 0.16 and egui_glow 0.34+
+# requires glow 0.17 — bump both when smithay upgrades its glow dependency.
 egui = { version = "0.33", default-features = false, features = ["default_fonts"] }
 
 # egui → glow renderer (GPU-accelerated titlebar rendering)
@@ -64,7 +66,7 @@ xcursor = "0.3"
 # Configuration file
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "1.0"
+toml = "1.1"
 
 # Signal handling
 signal-hook = "0.4"

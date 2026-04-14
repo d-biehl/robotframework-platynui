@@ -20,7 +20,7 @@ inventory = "0.3"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 [dev-dependencies]
-rstest = "0.25"
+rstest = "0.26"
 
 [lints]
 workspace = true

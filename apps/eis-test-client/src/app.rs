@@ -648,6 +648,8 @@ fn cmd_interactive(
                 }
             }
             Ok(reedline::Signal::CtrlC | reedline::Signal::CtrlD) => break,
+            // reedline::Signal is #[non_exhaustive]; ignore any future variants.
+            Ok(_) => {}
             Err(e) => return Err(anyhow::Error::msg(e.to_string()).context("readline error")),
         }
     }

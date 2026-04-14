@@ -11,6 +11,7 @@ pub enum ToolbarAction {
 }
 
 /// Render the application menu bar.
+#[allow(deprecated)]
 pub fn show_menu_bar(ctx: &egui::Context) {
     egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
@@ -37,6 +38,7 @@ pub fn show_menu_bar(ctx: &egui::Context) {
 /// Render the search toolbar. Returns actions to process.
 ///
 /// When `is_searching` is `true`, the Search button becomes a Stop button.
+#[allow(deprecated)]
 pub fn show_search_bar(
     ctx: &egui::Context,
     search_text: &mut String,

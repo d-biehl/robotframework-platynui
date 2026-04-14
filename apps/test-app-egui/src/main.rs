@@ -105,9 +105,9 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(move |cc| {
             // Use default egui style with slightly larger text for readability
-            let mut style = (*cc.egui_ctx.style()).clone();
+            let mut style = (*cc.egui_ctx.global_style()).clone();
             style.text_styles.insert(egui::TextStyle::Body, egui::FontId::new(14.0, egui::FontFamily::Proportional));
-            cc.egui_ctx.set_style(style);
+            cc.egui_ctx.set_global_style(style);
 
             Ok(Box::new(TestApp::new(auto_close_secs)))
         }),
@@ -191,6 +191,9 @@ impl TestApp {
 }
 
 impl eframe::App for TestApp {
+    fn ui(&mut self, _ui: &mut egui::Ui, _frame: &mut eframe::Frame) {}
+
+    #[expect(deprecated)]
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Auto-close logic
         if self.auto_close_secs > 0 && self.start_time.elapsed().as_secs() >= self.auto_close_secs {

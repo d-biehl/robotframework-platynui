@@ -81,9 +81,13 @@ pub fn show_properties(
         if asc { cmp } else { cmp.reverse() }
     });
 
-    let available_height = ui.available_height();
-
     egui::ScrollArea::horizontal().show(ui, |ui| {
+        // Compute available_height inside the ScrollArea so the horizontal
+        // scrollbar chrome (if visible) is already accounted for.
+        // Subtract the table header height (22 px) because max_scroll_height
+        // applies only to the body scroll area; the header is rendered on top
+        // of it and would otherwise push the table past the available space.
+        let available_height = ui.available_height() - 22.0;
         TableBuilder::new(ui)
             .auto_shrink([false, false])
             .striped(true)
@@ -92,7 +96,8 @@ pub fn show_properties(
             .column(Column::auto().at_least(180.0)) // Name
             .column(Column::remainder().at_least(200.0)) // Value
             .column(Column::auto().at_least(80.0)) // Type
-            .min_scrolled_height(available_height)
+            .min_scrolled_height(0.0)
+            .max_scroll_height(available_height)
             .header(22.0, |mut header| {
                 header.col(|ui| {
                     ui.strong("Name");
@@ -128,7 +133,7 @@ pub fn show_properties(
                             let mut text = name_str.clone();
                             let te = egui::TextEdit::singleline(&mut text)
                                 .desired_width(ui.available_width())
-                                .frame(false)
+                                .frame(egui::Frame::NONE)
                                 .interactive(true);
                             let resp = ui.add(te);
                             show_row_context_menu(&resp, &name_str, &attr.value, &attr.value_type, &row_str);
@@ -139,7 +144,7 @@ pub fn show_properties(
                             let mut text = attr.value.clone();
                             let te = egui::TextEdit::singleline(&mut text)
                                 .desired_width(ui.available_width())
-                                .frame(false)
+                                .frame(egui::Frame::NONE)
                                 .interactive(true);
                             let resp = ui.add(te);
                             show_row_context_menu(&resp, &name_str, &attr.value, &attr.value_type, &row_str);
@@ -151,7 +156,7 @@ pub fn show_properties(
                             let te = egui::TextEdit::singleline(&mut text)
                                 .desired_width(ui.available_width())
                                 .text_color(egui::Color32::from_gray(160))
-                                .frame(false)
+                                .frame(egui::Frame::NONE)
                                 .interactive(true);
                             let resp = ui.add(te);
                             show_row_context_menu(&resp, &name_str, &attr.value, &attr.value_type, &row_str);
