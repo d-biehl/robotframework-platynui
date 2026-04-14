@@ -251,7 +251,11 @@ impl TitlebarRenderer {
         pixmap.data().to_vec()
     }
 
-    /// Paint the context menu into an RGBA pixel buffer.
+    /// Paint the context menu text overlay on a transparent pixmap.
+    ///
+    /// Background, border, hover highlight, and separator are rendered as
+    /// [`SolidColorRenderElement`](smithay::backend::renderer::element::solid::SolidColorRenderElement)
+    /// by [`render_context_menu_solids`](crate::decorations::render_context_menu_solids).
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)]
     fn paint_context_menu(
         &self,
@@ -259,26 +263,17 @@ impl TitlebarRenderer {
         buf_h: i32,
         int_scale: i32,
         is_maximized: bool,
-        hovered_item: Option<usize>,
+        _hovered_item: Option<usize>,
         theme: &ThemeConfig,
     ) -> Vec<u8> {
         let w = buf_w as u32;
         let h = buf_h as u32;
+        // Transparent pixmap — bg, border, hover, separator are SolidColorRenderElements.
         let mut pixmap =
             tiny_skia::Pixmap::new(w, h).unwrap_or_else(|| tiny_skia::Pixmap::new(1, 1).expect("1×1 pixmap"));
 
-        let bg = parse_theme_color(&theme.titlebar_background_focused);
         let text_color = parse_theme_color(&theme.titlebar_text);
-        let hover_bg = [255u8, 255, 255, 30];
-        let border_color = [80u8, 80, 80, 255];
-
         let scale_f = int_scale as f32;
-
-        // Fill background.
-        pixmap.fill(to_skia_color(bg));
-
-        // Draw border.
-        draw_rect_outline(&mut pixmap, 0.0, 0.0, buf_w as f32, buf_h as f32, 1.0 * scale_f, border_color);
 
         let padding_y = 4.0 * scale_f;
         let item_height = 26.0 * scale_f;
@@ -289,30 +284,8 @@ impl TitlebarRenderer {
         let mut y = padding_y;
         for (idx, label) in items.iter().enumerate() {
             if idx == 2 {
-                // Separator before Close.
-                let sep_y = y + 3.0 * scale_f;
-                draw_line(
-                    &mut pixmap,
-                    4.0 * scale_f,
-                    sep_y,
-                    buf_w as f32 - 4.0 * scale_f,
-                    sep_y,
-                    1.0 * scale_f,
-                    border_color,
-                );
+                // Skip separator space (drawn as SolidColorRenderElement).
                 y += separator_height;
-            }
-
-            if hovered_item == Some(idx) {
-                draw_rounded_rect(
-                    &mut pixmap,
-                    2.0 * scale_f,
-                    y,
-                    buf_w as f32 - 4.0 * scale_f,
-                    item_height,
-                    2.0 * scale_f,
-                    hover_bg,
-                );
             }
 
             let text_y = y + item_height / 2.0;
@@ -404,30 +377,6 @@ fn to_skia_color(c: [u8; 4]) -> tiny_skia::Color {
 // ---------------------------------------------------------------------------
 // Drawing primitives
 // ---------------------------------------------------------------------------
-
-/// Draw a filled rounded rectangle.
-#[allow(clippy::many_single_char_names)]
-fn draw_rounded_rect(pixmap: &mut tiny_skia::Pixmap, x: f32, y: f32, w: f32, h: f32, radius: f32, color: [u8; 4]) {
-    let r = radius.min(w / 2.0).min(h / 2.0);
-    let mut pb = tiny_skia::PathBuilder::new();
-    pb.move_to(x + r, y);
-    pb.line_to(x + w - r, y);
-    pb.quad_to(x + w, y, x + w, y + r);
-    pb.line_to(x + w, y + h - r);
-    pb.quad_to(x + w, y + h, x + w - r, y + h);
-    pb.line_to(x + r, y + h);
-    pb.quad_to(x, y + h, x, y + h - r);
-    pb.line_to(x, y + r);
-    pb.quad_to(x, y, x + r, y);
-    pb.close();
-    let Some(path) = pb.finish() else { return };
-    let paint = tiny_skia::Paint {
-        shader: tiny_skia::Shader::SolidColor(to_skia_color(color)),
-        anti_alias: true,
-        ..Default::default()
-    };
-    pixmap.fill_path(&path, &paint, tiny_skia::FillRule::Winding, tiny_skia::Transform::identity(), None);
-}
 
 /// Draw a line segment.
 fn draw_line(pixmap: &mut tiny_skia::Pixmap, x1: f32, y1: f32, x2: f32, y2: f32, width: f32, color: [u8; 4]) {

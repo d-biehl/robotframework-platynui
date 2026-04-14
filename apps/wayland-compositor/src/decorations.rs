@@ -604,6 +604,73 @@ fn render_titlebar_solids(
     ]
 }
 
+/// Create solid-color render elements for the context menu background, border,
+/// separator, and optional hover highlight.
+///
+/// The caller layers the text overlay on top.
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+pub fn render_context_menu_solids(
+    physical_loc: Point<i32, Physical>,
+    scale: f64,
+    hovered_item: Option<usize>,
+    theme: &crate::config::ThemeConfig,
+) -> Vec<SolidColorRenderElement> {
+    let menu_w = (f64::from(TitlebarContextMenu::WIDTH) * scale) as i32;
+    let menu_h = (f64::from(TitlebarContextMenu::HEIGHT) * scale) as i32;
+    if menu_w <= 0 || menu_h <= 0 {
+        return Vec::new();
+    }
+
+    let bg_color = theme.titlebar_background_focused_rgba();
+    let border_color: [f32; 4] = [80.0 / 255.0, 80.0 / 255.0, 80.0 / 255.0, 1.0];
+    // Hover highlight — SolidColorRenderElement expects straight (non-premultiplied)
+    // RGBA, but uses premultiplied blending (GL_ONE, GL_ONE_MINUS_SRC_ALPHA).
+    // A subtle white tint: 12% opacity.
+    let hover_alpha = 30.0 / 255.0;
+    let hover_color: [f32; 4] = [hover_alpha, hover_alpha, hover_alpha, hover_alpha];
+
+    let bw = (scale) as i32;
+    let x = physical_loc.x;
+    let y = physical_loc.y;
+
+    let padding_y = (TitlebarContextMenu::PADDING_Y * scale) as i32;
+    let item_h = (TitlebarContextMenu::ITEM_HEIGHT * scale) as i32;
+    let sep_h = (TitlebarContextMenu::SEPARATOR_HEIGHT * scale) as i32;
+
+    let mut elements = Vec::with_capacity(8);
+
+    // Hover highlight (on top of background) — must be pushed first (low index = on top).
+    if let Some(idx) = hovered_item {
+        let inset = (2.0 * scale) as i32;
+        let hover_w = menu_w - 2 * inset;
+        // Items 0 and 1 are before the separator, item 2 is after.
+        let hover_y = match idx {
+            0 => y + padding_y,
+            1 => y + padding_y + item_h,
+            _ => y + padding_y + 2 * item_h + sep_h,
+        };
+        elements.push(solid_color((x + inset, hover_y).into(), (hover_w, item_h).into(), hover_color));
+    }
+
+    // Separator line between item 1 and item 2 (before Close).
+    let sep_y = y + padding_y + 2 * item_h + (3.0 * scale) as i32;
+    let sep_inset = (4.0 * scale) as i32;
+    elements.push(solid_color((x + sep_inset, sep_y).into(), (menu_w - 2 * sep_inset, bw).into(), border_color));
+
+    // Border: top, bottom, left, right.
+    let menu_size: Size<i32, Physical> = (menu_w, menu_h).into();
+    elements.push(solid_color((x, y).into(), (menu_w, bw).into(), border_color));
+    elements.push(solid_color((x, y + menu_h - bw).into(), (menu_w, bw).into(), border_color));
+    elements.push(solid_color((x, y + bw).into(), (bw, menu_h - 2 * bw).into(), border_color));
+    elements.push(solid_color((x + menu_w - bw, y + bw).into(), (bw, menu_h - 2 * bw).into(), border_color));
+
+    // Background (behind everything).
+    elements.push(solid_color(physical_loc, menu_size, bg_color));
+
+    elements
+}
+
 fn solid_color(loc: Point<i32, Physical>, size: Size<i32, Physical>, color: [f32; 4]) -> SolidColorRenderElement {
     SolidColorRenderElement::new(
         smithay::backend::renderer::element::Id::new(),

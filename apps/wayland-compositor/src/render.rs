@@ -209,17 +209,23 @@ pub fn collect_render_elements(
             let hovered_item = menu.item_at(state.pointer_location);
             let menu_loc = menu.position - output_geo.loc;
             #[allow(clippy::cast_possible_truncation)]
-            let physical_loc = smithay::utils::Point::<f64, Physical>::from((
+            let physical_loc = smithay::utils::Point::<i32, Physical>::from((
+                (f64::from(menu_loc.x) * render_scale) as i32,
+                (f64::from(menu_loc.y) * render_scale) as i32,
+            ));
+            let physical_loc_f = smithay::utils::Point::<f64, Physical>::from((
                 f64::from(menu_loc.x) * render_scale,
                 f64::from(menu_loc.y) * render_scale,
             ));
+
+            // Text overlay (on top of solid bg/border/hover).
             if let Some(menu_element) = state
                 .titlebar_renderer
                 .render_context_menu(menu.is_maximized, hovered_item, render_scale, &state.config.theme)
                 .and_then(|buf| {
                     MemoryRenderBufferRenderElement::from_buffer(
                         renderer,
-                        physical_loc,
+                        physical_loc_f,
                         &buf,
                         None,
                         None,
@@ -229,8 +235,16 @@ pub fn collect_render_elements(
                     .ok()
                 })
             {
-                // Insert at index 0 so the menu is drawn last (on top).
+                // Insert at index 0 so the text is drawn last (on top).
                 elements.insert(0, CompositorRenderElement::Memory(menu_element));
+            }
+
+            // Solid elements: hover highlight, separator, border, background.
+            let menu_solids =
+                decorations::render_context_menu_solids(physical_loc, render_scale, hovered_item, &state.config.theme);
+            // Insert after text overlay (index 1+) so solids are behind text.
+            for (i, solid) in menu_solids.into_iter().enumerate() {
+                elements.insert(1 + i, CompositorRenderElement::Decoration(solid));
             }
         } else {
             // Window gone — dismiss the menu.  We can't modify through the
