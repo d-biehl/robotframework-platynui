@@ -403,11 +403,6 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
 /// elements (windows + decorations), then queues the frame for scanout.
 /// Frames are skipped when a previous frame is still pending (`VBlank`).
 fn render_drm_outputs(backend: &mut DrmBackendState, state: &mut State) {
-    // Lazy-init the glow-based titlebar painter on the first frame.
-    if !state.titlebar_renderer.is_glow_initialized() {
-        state.titlebar_renderer.init_glow(&mut backend.renderer);
-    }
-
     let conn_handles: Vec<connector::Handle> = backend.outputs.keys().copied().collect();
 
     for conn in conn_handles {

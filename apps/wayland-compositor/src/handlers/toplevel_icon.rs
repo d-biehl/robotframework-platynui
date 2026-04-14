@@ -29,7 +29,7 @@ use crate::state::State;
 // Icon pixel data — owned RGBA copy of the best-available buffer
 // ---------------------------------------------------------------------------
 
-/// RGBA pixel data for a toplevel icon, ready for egui rendering.
+/// RGBA pixel data for a toplevel icon, ready for titlebar rendering.
 #[derive(Debug, Clone)]
 pub struct ToplevelIconPixels {
     /// RGBA8 pixel data (row-major, no padding).

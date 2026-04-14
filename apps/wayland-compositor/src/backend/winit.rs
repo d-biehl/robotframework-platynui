@@ -39,7 +39,7 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     let display: Display<State> = Display::new()?;
 
     // Initialize the winit backend with GlowRenderer (wraps GlesRenderer,
-    // provides glow::Context for GPU-accelerated egui titlebar rendering).
+    // provides glow::Context for GPU-accelerated rendering).
     // The Wayland app-name sets the `app_id` on the xdg_toplevel so that
     // GNOME/KDE can match the window to a .desktop file for icon + grouping.
     // Theme: prefer system setting; sctk-adwaita's auto-detection uses
@@ -275,19 +275,10 @@ fn render_frame(
             return;
         };
 
-        // Lazy-init the glow-based titlebar painter on the first frame.
-        // GlowRenderer provides the GL context for offscreen egui rendering.
-        if !state.titlebar_renderer.is_glow_initialized() {
-            state.titlebar_renderer.init_glow(renderer);
-        }
-
         // Build the combined render element list with correct z-ordering.
         // Decorations are interleaved with window surfaces so that a
         // background window's title bar never paints on top of a
         // foreground window.
-        //
-        // Uses the GlowRenderer path: titlebars are GPU-resident
-        // TextureRenderElements (no pixel readback).
         let render_elements = crate::render::collect_render_elements(renderer, state, &output, state.software_cursor);
 
         match damage_tracker.render_output(

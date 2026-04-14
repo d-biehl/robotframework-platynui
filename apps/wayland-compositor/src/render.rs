@@ -10,8 +10,6 @@ use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement
 use smithay::backend::renderer::element::render_elements;
 use smithay::backend::renderer::element::solid::SolidColorRenderElement;
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
-use smithay::backend::renderer::element::texture::TextureRenderElement;
-use smithay::backend::renderer::gles::GlesTexture;
 use smithay::backend::renderer::glow::GlowRenderer;
 use smithay::desktop::layer_map_for_output;
 use smithay::input::pointer::{CursorIcon, CursorImageStatus, CursorImageSurfaceData};
@@ -24,17 +22,16 @@ use smithay::wayland::shell::wlr_layer::Layer as WlrLayer;
 
 use crate::{decorations, handlers::foreign_toplevel, state::State};
 
-// Render element type — GPU-resident titlebars via TextureRenderElement.
+// Render element type — CPU-rendered titlebars and cursors as MemoryRenderBufferRenderElement.
 //
-// The `<=GlowRenderer` syntax binds the enum to GlowRenderer specifically,
-// allowing TextureRenderElement<GlesTexture> because
-// GlowRenderer::TextureId = GlesTexture.
+// The `<=GlowRenderer` syntax binds the enum to GlowRenderer specifically.
+// Titlebar and Cursor both use MemoryRenderBufferRenderElement, so we merge
+// them into a single variant.
 render_elements! {
     pub CompositorRenderElement<=GlowRenderer>;
     Surface=WaylandSurfaceRenderElement<GlowRenderer>,
     Decoration=SolidColorRenderElement,
-    Titlebar=TextureRenderElement<GlesTexture>,
-    Cursor=MemoryRenderBufferRenderElement<GlowRenderer>,
+    Memory=MemoryRenderBufferRenderElement<GlowRenderer>,
 }
 
 /// Build the full render element list with correct z-ordering.
@@ -47,9 +44,8 @@ render_elements! {
 /// `OutputDamageTracker::render_output` iterates `.iter().rev()` so index 0
 /// is drawn last (on top).
 ///
-/// Titlebars are rendered as GPU-resident [`TextureRenderElement<GlesTexture>`]
-/// via smithay's offscreen API — the texture stays on the GPU with no pixel
-/// readback.
+/// Titlebars are rendered as CPU-side [`MemoryRenderBufferRenderElement`]
+/// via tiny-skia + swash — no offscreen GL pipeline needed.
 #[allow(clippy::module_name_repetitions, clippy::too_many_lines)]
 pub fn collect_render_elements(
     renderer: &mut GlowRenderer,
@@ -181,7 +177,7 @@ pub fn collect_render_elements(
 
             let (deco_elements, titlebar_element) = decorations::render_decorations(
                 renderer,
-                &mut state.titlebar_renderer,
+                &state.titlebar_renderer,
                 titlebar_loc,
                 client_size,
                 render_scale,
@@ -191,10 +187,11 @@ pub fn collect_render_elements(
                 &state.config.theme,
                 hovered_button,
             );
-            elements.extend(deco_elements.into_iter().map(CompositorRenderElement::Decoration));
+            // Overlay first (lower index = on top of solid bg/buttons).
             if let Some(tb) = titlebar_element {
-                elements.push(CompositorRenderElement::Titlebar(tb));
+                elements.push(CompositorRenderElement::Memory(tb));
             }
+            elements.extend(deco_elements.into_iter().map(CompositorRenderElement::Decoration));
         }
     }
 
@@ -216,16 +213,24 @@ pub fn collect_render_elements(
                 f64::from(menu_loc.x) * render_scale,
                 f64::from(menu_loc.y) * render_scale,
             ));
-            if let Some(menu_element) = state.titlebar_renderer.render_context_menu_element(
-                renderer,
-                physical_loc,
-                menu.is_maximized,
-                hovered_item,
-                render_scale,
-                &state.config.theme,
-            ) {
+            if let Some(menu_element) = state
+                .titlebar_renderer
+                .render_context_menu(menu.is_maximized, hovered_item, render_scale, &state.config.theme)
+                .and_then(|buf| {
+                    MemoryRenderBufferRenderElement::from_buffer(
+                        renderer,
+                        physical_loc,
+                        &buf,
+                        None,
+                        None,
+                        None,
+                        smithay::backend::renderer::element::Kind::Unspecified,
+                    )
+                    .ok()
+                })
+            {
                 // Insert at index 0 so the menu is drawn last (on top).
-                elements.insert(0, CompositorRenderElement::Titlebar(menu_element));
+                elements.insert(0, CompositorRenderElement::Memory(menu_element));
             }
         } else {
             // Window gone — dismiss the menu.  We can't modify through the
@@ -383,7 +388,7 @@ fn render_xcursor_icon(
             None,
             smithay::backend::renderer::element::Kind::Cursor,
         ) {
-            elements.insert(0, CompositorRenderElement::Cursor(elem));
+            elements.insert(0, CompositorRenderElement::Memory(elem));
         }
     }
 }
@@ -509,27 +514,15 @@ pub fn render_to_pixels(
 
     let buffer_size: Size<i32, smithay::utils::Buffer> = (size.w, size.h).into();
 
-    // Lazy-init the screenshot titlebar painter on the screenshot renderer's
-    // GL context.  VAOs are per-context in OpenGL — they are NOT shared even
-    // when contexts share textures via EGLContext::new_shared.
-    if !state.screenshot_titlebar_renderer.is_glow_initialized() {
-        state.screenshot_titlebar_renderer.init_glow(renderer);
-    }
-
     // Create offscreen GL texture (Abgr8888 for GL compatibility).
     let mut texture: GlesTexture =
         renderer.create_buffer(DrmFourcc::Abgr8888, buffer_size).map_err(|e| format!("create_buffer: {e}"))?;
 
     let mut framebuffer = renderer.bind(&mut texture).map_err(|e| format!("bind: {e}"))?;
 
-    // Swap in the screenshot titlebar renderer so that collect_render_elements
-    // paints egui titlebars using the correct GL context.
-    std::mem::swap(&mut state.titlebar_renderer, &mut state.screenshot_titlebar_renderer);
-
+    // CPU-rendered titlebars have no GL context dependency — no need for
+    // separate renderer instances or GL context swapping.
     let render_elements = collect_render_elements(renderer, state, output, paint_cursors);
-
-    // Swap back so the main render loop keeps its own titlebar renderer.
-    std::mem::swap(&mut state.titlebar_renderer, &mut state.screenshot_titlebar_renderer);
 
     // Render into the offscreen buffer.
     let mut damage_tracker = OutputDamageTracker::new(size, scale, Transform::Normal);

@@ -36,8 +36,8 @@ pub struct CompositorConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct FontConfig {
-    /// Font family name. Resolved via fontconfig at runtime.
-    /// Falls back to egui's built-in font if not found.
+    /// Font family name. Resolved via fontdb (system fonts) at runtime.
+    /// Falls back to the first available system font if not found.
     pub family: String,
 
     /// Font size in logical pixels.

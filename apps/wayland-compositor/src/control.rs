@@ -1149,8 +1149,7 @@ fn parse_i32_size(value: Option<f64>, field: &'static str) -> Result<i32, &'stat
 /// Uses the [`GlowRenderer`](smithay::backend::renderer::glow::GlowRenderer)
 /// stored in `State::screenshot_renderer`.  For winit and DRM backends this
 /// is pre-initialized with a shared EGL context (same GL namespace as the
-/// main renderer) so that client surface textures and egui titlebar textures
-/// are accessible.  For headless (no main renderer) a standalone offscreen
+/// main renderer) so that client surface textures are accessible.  For headless (no main renderer) a standalone offscreen
 /// renderer is lazily created from a DRI render node.
 ///
 /// Renders all windows with their decorations into an offscreen GL texture,

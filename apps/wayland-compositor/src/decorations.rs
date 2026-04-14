@@ -2,12 +2,9 @@
 //!
 //! ## Rendering
 //!
-//! egui-rendered titlebar as a GPU-resident
-//! [`TextureRenderBuffer`](smithay::backend::renderer::element::texture::TextureRenderBuffer)
-//! via [`GlowRenderer`]. Borders are [`SolidColorRenderElement`].
-//!
-//! For environments without a hardware GPU, set `LIBGL_ALWAYS_SOFTWARE=1` to
-//! use Mesa's software renderer (llvmpipe).
+//! CPU-rendered titlebar as a
+//! [`MemoryRenderBuffer`](smithay::backend::renderer::element::memory::MemoryRenderBuffer)
+//! via tiny-skia + swash. Borders are [`SolidColorRenderElement`].
 //!
 //! ## Hit-testing (inspired by cosmic-comp)
 //!
@@ -16,8 +13,8 @@
 
 use smithay::{
     backend::renderer::{
-        element::Kind, element::solid::SolidColorRenderElement, element::texture::TextureRenderElement,
-        gles::GlesTexture, glow::GlowRenderer,
+        element::Kind, element::memory::MemoryRenderBufferRenderElement, element::solid::SolidColorRenderElement,
+        glow::GlowRenderer,
     },
     desktop::Window,
     reexports::wayland_protocols::xdg::{
@@ -403,7 +400,7 @@ pub fn pointer_hit_test(space: &smithay::desktop::Space<Window>, point: Point<f6
 
 /// Hit-test within the title bar header to determine which button was clicked.
 ///
-/// The button positions must match the egui layout in `build_titlebar_ui`:
+/// The button positions must match the layout in `paint_titlebar`:
 /// right-to-left with 6 px right padding, 26×18 px buttons, 2 px gap between
 /// them, centred vertically in the 30 px high title bar.
 #[must_use]
@@ -459,11 +456,11 @@ pub fn titlebar_button_hit_test(
     Some(DecorationClick::TitleBar)
 }
 
-/// Generate render elements for SSD (GPU-resident egui titlebar via [`GlowRenderer`]).
+/// Generate render elements for SSD (CPU-rendered titlebar via tiny-skia + swash).
 #[allow(clippy::cast_possible_truncation, clippy::too_many_arguments)]
 pub fn render_decorations(
     renderer: &mut GlowRenderer,
-    titlebar_renderer: &mut crate::ui::TitlebarRenderer,
+    titlebar_renderer: &crate::ui::TitlebarRenderer,
     window_loc: Point<i32, Logical>,
     window_geo: Size<i32, Logical>,
     scale: f64,
@@ -472,26 +469,35 @@ pub fn render_decorations(
     icon: Option<&crate::handlers::toplevel_icon::ToplevelIconPixels>,
     theme: &crate::config::ThemeConfig,
     hovered_button: Option<DecorationClick>,
-) -> (Vec<SolidColorRenderElement>, Option<TextureRenderElement<GlesTexture>>) {
+) -> (Vec<SolidColorRenderElement>, Option<MemoryRenderBufferRenderElement<GlowRenderer>>) {
     let Some((physical_loc, physical_size)) = titlebar_physical_geometry(window_loc, window_geo, scale) else {
         return (Vec::new(), None);
     };
 
-    let titlebar_element = titlebar_renderer.render_titlebar_element(
-        renderer,
-        (f64::from(physical_loc.x), f64::from(physical_loc.y)).into(),
-        title,
-        icon,
-        focused,
-        window_geo.w.unsigned_abs(),
-        TITLEBAR_HEIGHT.unsigned_abs(),
-        scale,
-        theme,
-        hovered_button,
-    );
+    let loc: Point<f64, Physical> = (f64::from(physical_loc.x), f64::from(physical_loc.y)).into();
 
+    let titlebar_element = titlebar_renderer
+        .render_titlebar(
+            title,
+            icon,
+            focused,
+            window_geo.w.unsigned_abs(),
+            TITLEBAR_HEIGHT.unsigned_abs(),
+            scale,
+            theme,
+            hovered_button,
+        )
+        .and_then(|buf| {
+            MemoryRenderBufferRenderElement::from_buffer(renderer, loc, &buf, None, None, None, Kind::Unspecified).ok()
+        });
+
+    let titlebar_solids = render_titlebar_solids(physical_loc, physical_size, scale, focused, theme, hovered_button);
     let borders = render_borders(physical_loc, physical_size, window_geo, scale, focused, theme);
-    (borders, titlebar_element)
+
+    // Z-order within solids: buttons (low index = on top) → bg → borders.
+    let mut all_solids = titlebar_solids;
+    all_solids.extend(borders);
+    (all_solids, titlebar_element)
 }
 
 /// Compute the physical location and size of a titlebar, returning `None` if degenerate.
@@ -539,6 +545,62 @@ fn render_borders(
         solid_color((frame_x - bw, frame_y + frame_h).into(), (frame_w + 2 * bw, bw).into(), border_color),
         solid_color((frame_x - bw, frame_y).into(), (bw, frame_h).into(), border_color),
         solid_color((frame_x + frame_w, frame_y).into(), (bw, frame_h).into(), border_color),
+    ]
+}
+
+/// Create solid-color render elements for the titlebar background and button fills.
+///
+/// The returned Vec has buttons at lower indices (on top) and the background
+/// at the highest index (behind).  This ensures that button fills paint over
+/// the titlebar background when composited.
+#[allow(clippy::cast_possible_truncation)]
+fn render_titlebar_solids(
+    physical_loc: Point<i32, Physical>,
+    physical_size: Size<i32, Physical>,
+    scale: f64,
+    focused: bool,
+    theme: &crate::config::ThemeConfig,
+    hovered_button: Option<DecorationClick>,
+) -> Vec<SolidColorRenderElement> {
+    let bg_color = if focused { theme.titlebar_background_focused_rgba() } else { theme.titlebar_background_rgba() };
+
+    // Button fill geometry in physical pixels.
+    let btn_w = (TITLEBAR_BTN_WIDTH * scale) as i32;
+    let btn_h = (TITLEBAR_BTN_HEIGHT * scale) as i32;
+    let btn_gap = (TITLEBAR_BTN_GAP * scale) as i32;
+    let right_pad = (TITLEBAR_BTN_RIGHT_PAD * scale) as i32;
+    let btn_y = physical_loc.y + (physical_size.h - btn_h) / 2;
+
+    let close_x = physical_loc.x + physical_size.w - right_pad - btn_w;
+    let max_x = close_x - btn_gap - btn_w;
+    let min_x = max_x - btn_gap - btn_w;
+
+    let hover_tint = |base: [f32; 4]| -> [f32; 4] {
+        let t = f32::from(HOVER_LIGHTEN_AMOUNT) / 255.0;
+        [(base[0] + t).min(1.0), (base[1] + t).min(1.0), (base[2] + t).min(1.0), base[3]]
+    };
+
+    let close_color = {
+        let base = theme.button_close_rgba();
+        if hovered_button == Some(DecorationClick::Close) { hover_tint(base) } else { base }
+    };
+    let max_color = {
+        let base = theme.button_maximize_rgba();
+        if hovered_button == Some(DecorationClick::Maximize) { hover_tint(base) } else { base }
+    };
+    let min_color = {
+        let base = theme.button_minimize_rgba();
+        if hovered_button == Some(DecorationClick::Minimize) { hover_tint(base) } else { base }
+    };
+
+    let btn_size: Size<i32, Physical> = (btn_w, btn_h).into();
+
+    // Buttons first (low index = on top), background last.
+    vec![
+        solid_color((close_x, btn_y).into(), btn_size, close_color),
+        solid_color((max_x, btn_y).into(), btn_size, max_color),
+        solid_color((min_x, btn_y).into(), btn_size, min_color),
+        solid_color(physical_loc, physical_size, bg_color),
     ]
 }
 

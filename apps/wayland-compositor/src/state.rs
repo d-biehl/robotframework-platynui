@@ -286,15 +286,6 @@ pub struct State {
     // -- UI rendering --
     pub titlebar_renderer: crate::ui::TitlebarRenderer,
 
-    /// Separate [`TitlebarRenderer`](crate::ui::TitlebarRenderer) whose egui
-    /// painter (and VAO) lives on the screenshot renderer's GL context.
-    ///
-    /// VAOs are per-context in OpenGL — they are NOT shared even when the
-    /// parent and child EGL contexts share textures via `EGLContext::new_shared`.
-    /// Using the main titlebar renderer with the screenshot renderer would cause
-    /// `GL_INVALID_OPERATION in glBindVertexArray(non-gen name)`.
-    pub screenshot_titlebar_renderer: crate::ui::TitlebarRenderer,
-
     /// Offscreen `GlowRenderer` for screenshots.
     ///
     /// For winit/DRM backends this is pre-initialized with a shared EGL context
@@ -622,7 +613,6 @@ impl State {
             ready_fd: None,
             security_policy,
             titlebar_renderer: crate::ui::TitlebarRenderer::new(&config.font.family, config.font.size),
-            screenshot_titlebar_renderer: crate::ui::TitlebarRenderer::new(&config.font.family, config.font.size),
             screenshot_renderer: None,
             config,
             exit_with_child: false,
