@@ -208,6 +208,199 @@ impl DrmBackendState {
         let name = output.name();
         self.outputs.iter().find(|(_, o)| o.output.name() == name).map(|(conn, _)| *conn)
     }
+
+    /// Set up a newly connected connector: create output, modes, and DRM compositor.
+    ///
+    /// Returns `Some(DrmOutputState)` on success, `None` if the connector has no
+    /// usable modes.  The caller is responsible for mapping the output into the
+    /// space and registering it in `state.outputs`.
+    #[allow(clippy::too_many_lines)]
+    pub fn setup_connector(
+        &mut self,
+        conn_handle: connector::Handle,
+        display_handle: &smithay::reexports::wayland_server::DisplayHandle,
+    ) -> Result<Option<DrmOutputState>, Box<dyn std::error::Error>> {
+        let conn_info = self.drm_device.get_connector(conn_handle, false).map_err(|e| format!("get_connector: {e}"))?;
+        let iface = conn_info.interface();
+        let output_name = format!("{}-{}", iface.as_str(), conn_info.interface_id());
+
+        if conn_info.state() != connector::State::Connected {
+            return Ok(None);
+        }
+
+        let modes = conn_info.modes();
+        if modes.is_empty() {
+            tracing::warn!(name = output_name, "connected connector has no modes");
+            return Ok(None);
+        }
+
+        let mode = modes
+            .iter()
+            .find(|m| m.mode_type().contains(control::ModeTypeFlags::PREFERRED))
+            .or_else(|| modes.first())
+            .copied()
+            .ok_or("no mode available")?;
+
+        let subpixel = match conn_info.subpixel() {
+            connector::SubPixel::HorizontalRgb => Subpixel::HorizontalRgb,
+            connector::SubPixel::HorizontalBgr => Subpixel::HorizontalBgr,
+            connector::SubPixel::VerticalRgb => Subpixel::VerticalRgb,
+            connector::SubPixel::VerticalBgr => Subpixel::VerticalBgr,
+            connector::SubPixel::None => Subpixel::None,
+            _ => Subpixel::Unknown,
+        };
+
+        let edid_info = read_edid_info(&self.drm_device, conn_handle);
+        let (make, model_name) = match edid_info {
+            Some(ref info) => (info.make.clone(), info.model.clone()),
+            None => ("Unknown".to_string(), "Unknown".to_string()),
+        };
+
+        let phys_size = conn_info.size().unwrap_or((0, 0));
+        let output = Output::new(
+            output_name.clone(),
+            PhysicalProperties {
+                #[allow(clippy::cast_possible_truncation)]
+                size: (phys_size.0.min(i32::MAX as u32).cast_signed(), phys_size.1.min(i32::MAX as u32).cast_signed())
+                    .into(),
+                subpixel,
+                make,
+                model: model_name,
+            },
+        );
+
+        let preferred_mode = OutputMode {
+            size: (i32::from(mode.size().0), i32::from(mode.size().1)).into(),
+            refresh: mode.vrefresh().min(i32::MAX as u32).cast_signed() * 1000,
+        };
+        for drm_mode in modes {
+            let output_mode = OutputMode {
+                size: (i32::from(drm_mode.size().0), i32::from(drm_mode.size().1)).into(),
+                refresh: drm_mode.vrefresh().min(i32::MAX as u32).cast_signed() * 1000,
+            };
+            output.add_mode(output_mode);
+        }
+        output.change_current_state(Some(preferred_mode), None, None, None);
+        output.set_preferred(preferred_mode);
+        output.create_global::<State>(display_handle);
+
+        let res_handles = self.drm_device.resource_handles().map_err(|e| format!("resource_handles: {e}"))?;
+        let crtc_handle = find_crtc_for_connector(&self.drm_device, &res_handles, &conn_info, &self.outputs);
+
+        let renderer_formats: Vec<DrmFormat> = [DrmFourcc::Argb8888, DrmFourcc::Xrgb8888]
+            .iter()
+            .map(|code| DrmFormat { code: *code, modifier: DrmModifier::Linear })
+            .collect();
+
+        let compositor = if let Some(crtc) = crtc_handle {
+            let surface: DrmSurface = self.drm_device.create_surface(crtc, mode, &[conn_handle])?;
+            let allocator =
+                GbmAllocator::new(self.gbm_device.clone(), GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT);
+            let exporter = GbmFramebufferExporter::new(self.gbm_device.clone(), None);
+            let color_formats = [DrmFourcc::Argb8888, DrmFourcc::Xrgb8888];
+
+            let drm_compositor = DrmCompositor::new(
+                &output,
+                surface,
+                None,
+                allocator,
+                exporter,
+                color_formats,
+                renderer_formats,
+                self.cursor_size,
+                Some(self.gbm_device.clone()),
+            )
+            .map_err(|e| format!("DrmCompositor::new for {output_name}: {e}"))?;
+
+            tracing::info!(
+                name = output_name,
+                ?crtc,
+                make = edid_info.as_ref().map_or("Unknown", |i| &i.make),
+                model = edid_info.as_ref().map_or("Unknown", |i| &i.model),
+                mode_w = mode.size().0,
+                mode_h = mode.size().1,
+                refresh = mode.vrefresh(),
+                "DRM output initialized (active)",
+            );
+
+            Some(ActiveDrmCompositor {
+                crtc,
+                drm_compositor,
+                pending_frame: false,
+                pending_presentation_feedback: None,
+            })
+        } else {
+            tracing::info!(
+                name = output_name,
+                make = edid_info.as_ref().map_or("Unknown", |i| &i.make),
+                model = edid_info.as_ref().map_or("Unknown", |i| &i.model),
+                mode_w = mode.size().0,
+                mode_h = mode.size().1,
+                refresh = mode.vrefresh(),
+                "DRM output detected (disabled — no CRTC available)",
+            );
+            None
+        };
+
+        Ok(Some(DrmOutputState { output, compositor }))
+    }
+
+    /// Re-enumerate connectors after a udev change event (monitor hotplug).
+    ///
+    /// Detects newly connected and disconnected connectors.  Returns the list
+    /// of added connector handles (caller maps them into the space) and removed
+    /// outputs (caller relocates windows and notifies clients).
+    pub fn handle_hotplug(
+        &mut self,
+        display_handle: &smithay::reexports::wayland_server::DisplayHandle,
+    ) -> (Vec<connector::Handle>, Vec<Output>) {
+        let mut added = Vec::new();
+        let mut removed = Vec::new();
+
+        let Ok(res_handles) = self.drm_device.resource_handles() else {
+            tracing::warn!("failed to query DRM resource handles during hotplug");
+            return (added, removed);
+        };
+
+        // Detect disconnected connectors (were in our map, now gone or disconnected).
+        let known_conns: Vec<connector::Handle> = self.outputs.keys().copied().collect();
+        for conn in &known_conns {
+            let still_connected = self
+                .drm_device
+                .get_connector(*conn, true)
+                .is_ok_and(|info| info.state() == connector::State::Connected);
+
+            if !still_connected && let Some(output_state) = self.outputs.remove(conn) {
+                tracing::info!(output = output_state.output.name(), "connector disconnected (hotplug)",);
+                removed.push(output_state.output);
+            }
+        }
+
+        // Detect newly connected connectors.
+        for conn_handle in res_handles.connectors() {
+            if self.outputs.contains_key(conn_handle) {
+                continue; // already tracked
+            }
+
+            match self.setup_connector(*conn_handle, display_handle) {
+                Ok(Some(output_state)) => {
+                    tracing::info!(
+                        output = output_state.output.name(),
+                        active = output_state.compositor.is_some(),
+                        "connector connected (hotplug)",
+                    );
+                    self.outputs.insert(*conn_handle, output_state);
+                    added.push(*conn_handle);
+                }
+                Ok(None) => {} // not connected or no modes
+                Err(err) => {
+                    tracing::warn!(%err, "failed to set up hotplugged connector");
+                }
+            }
+        }
+
+        (added, removed)
+    }
 }
 
 /// Run the compositor on real hardware using DRM/KMS.
@@ -377,16 +570,17 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
         }
     }
 
-    // Watch for hotplug events
-    event_loop.handle().insert_source(udev_backend, |event, (), _state| match event {
+    // Watch for hotplug events (monitor plug/unplug and GPU add/remove).
+    event_loop.handle().insert_source(udev_backend, |event, (), state| match event {
         UdevEvent::Added { device_id, path } => {
-            tracing::info!(?device_id, ?path, "GPU device added (hotplug)");
+            tracing::info!(?device_id, ?path, "GPU device added (hotplug) — not yet supported");
         }
         UdevEvent::Changed { device_id } => {
-            tracing::debug!(?device_id, "GPU device changed");
+            tracing::debug!(?device_id, "GPU device changed — re-enumerating connectors");
+            handle_connector_hotplug(state);
         }
         UdevEvent::Removed { device_id } => {
-            tracing::info!(?device_id, "GPU device removed");
+            tracing::info!(?device_id, "GPU device removed — not yet supported");
         }
     })?;
 
@@ -516,6 +710,92 @@ fn render_drm_outputs(backend: &mut DrmBackendState, state: &mut State) -> bool 
     any_frame_queued
 }
 
+/// Handle a udev "changed" event by re-enumerating DRM connectors.
+///
+/// Detects newly connected monitors (maps them into the space to the right of
+/// or below existing outputs) and disconnected monitors (unmaps them and
+/// relocates their windows to a remaining output).  Notifies
+/// `wlr-output-management` clients of the change.
+fn handle_connector_hotplug(state: &mut State) {
+    // Temporarily take the backend to avoid overlapping borrows.
+    let Some(mut backend) = state.drm_backend.take() else {
+        return;
+    };
+
+    let (added, removed) = backend.handle_hotplug(&state.display_handle);
+
+    if added.is_empty() && removed.is_empty() {
+        state.drm_backend = Some(backend);
+        return;
+    }
+
+    // Remove disconnected outputs from the space and state.outputs.
+    for output in &removed {
+        state.space.unmap_output(output);
+        state.outputs.retain(|o| o.name() != output.name());
+    }
+
+    // Map newly connected outputs at the end of the current layout.
+    for conn in &added {
+        let Some(output_state) = backend.outputs.get(conn) else {
+            continue;
+        };
+
+        state.outputs.push(output_state.output.clone());
+
+        // Only map active outputs (with a CRTC) into the space.
+        if output_state.compositor.is_none() {
+            continue;
+        }
+
+        // Compute position: place after the rightmost existing output.
+        let next_pos = compute_next_output_position(state);
+        output_state.output.change_current_state(None, None, None, Some(next_pos.into()));
+        state.space.map_output(&output_state.output, next_pos);
+    }
+
+    // Put the backend back before further state operations.
+    state.drm_backend = Some(backend);
+
+    // If the primary output was removed, pick a new one.
+    if removed.iter().any(|o| o.name() == state.output.name())
+        && let Some(first) = state.space.outputs().next().cloned()
+    {
+        state.output = first;
+    }
+
+    // Relocate windows from removed outputs to remaining outputs.
+    if !removed.is_empty() {
+        state.reconfigure_windows_for_outputs();
+    }
+
+    // Notify wlr-output-management clients about the topology change.
+    state.output_config_changed = true;
+    state.schedule_render();
+
+    tracing::info!(
+        added = added.len(),
+        removed = removed.len(),
+        total = state.outputs.len(),
+        "connector hotplug handled",
+    );
+}
+
+/// Compute the position for the next output in the layout.
+///
+/// Places the new output to the right of all existing outputs (horizontal
+/// layout is the default for DRM — the initial layout direction from CLI
+/// args is not stored, so we always append horizontally).
+fn compute_next_output_position(state: &State) -> (i32, i32) {
+    let mut max_x = 0i32;
+    for output in state.space.outputs() {
+        if let Some(geo) = state.space.output_geometry(output) {
+            max_x = max_x.max(geo.loc.x + geo.size.w);
+        }
+    }
+    (max_x, 0)
+}
+
 /// Wrapper for libinput to use libseat for device access.
 struct LibseatInterface(LibSeatSession);
 
@@ -555,7 +835,7 @@ fn initialize_drm_device(
 
     let node = DrmNode::from_file(&device_fd)?;
 
-    let (mut drm_device, drm_notifier) = DrmDevice::new(device_fd.clone(), true)?;
+    let (drm_device, drm_notifier) = DrmDevice::new(device_fd.clone(), true)?;
 
     let gbm_device = GbmDevice::new(device_fd)?;
     let renderer = {
@@ -630,163 +910,13 @@ fn initialize_drm_device(
         }
     })?;
 
-    // Enumerate connectors and create an output for each connected one
+    // Enumerate connectors and create an output for each connected one.
+    // Uses the same `setup_connector()` method that hotplug uses later.
     let res_handles = drm_device.resource_handles().map_err(|e| format!("resource_handles: {e}"))?;
     let cursor_size: Size<u32, BufferCoords> = drm_device.cursor_size();
-    let mut outputs = HashMap::new();
+    let outputs = HashMap::new();
 
-    // Build renderer format list for the DRM compositor intersection
-    let renderer_formats: Vec<DrmFormat> = [DrmFourcc::Argb8888, DrmFourcc::Xrgb8888]
-        .iter()
-        .map(|code| DrmFormat { code: *code, modifier: DrmModifier::Linear })
-        .collect();
-
-    for conn_handle in res_handles.connectors() {
-        let conn_info = drm_device.get_connector(*conn_handle, false).map_err(|e| format!("get_connector: {e}"))?;
-        let iface = conn_info.interface();
-        let output_name = format!("{}-{}", iface.as_str(), conn_info.interface_id());
-
-        if conn_info.state() != connector::State::Connected {
-            tracing::debug!(name = output_name, state = ?conn_info.state(), "skipping disconnected connector");
-            continue;
-        }
-
-        let modes = conn_info.modes();
-        if modes.is_empty() {
-            tracing::warn!(name = output_name, "connected connector has no modes");
-            continue;
-        }
-
-        // Pick the preferred mode, or the first mode if none is preferred
-        let mode = modes
-            .iter()
-            .find(|m| m.mode_type().contains(control::ModeTypeFlags::PREFERRED))
-            .or_else(|| modes.first())
-            .copied()
-            .ok_or("no mode available")?;
-
-        // Map DRM subpixel geometry to Smithay's enum.
-        let subpixel = match conn_info.subpixel() {
-            connector::SubPixel::HorizontalRgb => Subpixel::HorizontalRgb,
-            connector::SubPixel::HorizontalBgr => Subpixel::HorizontalBgr,
-            connector::SubPixel::VerticalRgb => Subpixel::VerticalRgb,
-            connector::SubPixel::VerticalBgr => Subpixel::VerticalBgr,
-            connector::SubPixel::None => Subpixel::None,
-            _ => Subpixel::Unknown,
-        };
-
-        // Read EDID for manufacturer + model name (falls back to "Unknown").
-        let edid_info = read_edid_info(&drm_device, *conn_handle);
-        let (make, model_name) = match edid_info {
-            Some(ref info) => (info.make.clone(), info.model.clone()),
-            None => ("Unknown".to_string(), "Unknown".to_string()),
-        };
-
-        // Build the Smithay output with the real connector name.
-        let phys_size = conn_info.size().unwrap_or((0, 0));
-        let output = Output::new(
-            output_name.clone(),
-            PhysicalProperties {
-                #[allow(clippy::cast_possible_truncation)]
-                size: (phys_size.0.min(i32::MAX as u32).cast_signed(), phys_size.1.min(i32::MAX as u32).cast_signed())
-                    .into(),
-                subpixel,
-                make,
-                model: model_name,
-            },
-        );
-
-        // Register all modes from the connector so wlr-randr can list them.
-        let preferred_mode = OutputMode {
-            size: (i32::from(mode.size().0), i32::from(mode.size().1)).into(),
-            refresh: mode.vrefresh().min(i32::MAX as u32).cast_signed() * 1000,
-        };
-        for drm_mode in modes {
-            let output_mode = OutputMode {
-                size: (i32::from(drm_mode.size().0), i32::from(drm_mode.size().1)).into(),
-                refresh: drm_mode.vrefresh().min(i32::MAX as u32).cast_signed() * 1000,
-            };
-            output.add_mode(output_mode);
-        }
-        output.change_current_state(Some(preferred_mode), None, None, None);
-        output.set_preferred(preferred_mode);
-        output.create_global::<State>(&state.display_handle);
-
-        // Find a suitable CRTC for this connector.
-        // If no CRTC is available (more monitors than GPU CRTCs), the output is
-        // still registered as a Wayland global (visible in wlr-randr) but starts
-        // disabled — it can be activated later by freeing a CRTC from another output.
-        let crtc_handle = find_crtc_for_connector(&drm_device, &res_handles, &conn_info, &outputs);
-
-        let compositor = if let Some(crtc) = crtc_handle {
-            // Create the DRM surface for this CRTC + connector + mode
-            let surface: DrmSurface = drm_device.create_surface(crtc, mode, &[*conn_handle])?;
-
-            let allocator = GbmAllocator::new(gbm_device.clone(), GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT);
-            let exporter = GbmFramebufferExporter::new(gbm_device.clone(), None);
-            let color_formats = [DrmFourcc::Argb8888, DrmFourcc::Xrgb8888];
-
-            let drm_compositor = DrmCompositor::new(
-                &output,
-                surface,
-                None,
-                allocator,
-                exporter,
-                color_formats,
-                renderer_formats.clone(),
-                cursor_size,
-                Some(gbm_device.clone()),
-            )
-            .map_err(|e| format!("DrmCompositor::new for {output_name}: {e}"))?;
-
-            tracing::info!(
-                name = output_name,
-                ?crtc,
-                make = edid_info.as_ref().map_or("Unknown", |i| &i.make),
-                model = edid_info.as_ref().map_or("Unknown", |i| &i.model),
-                mode_w = mode.size().0,
-                mode_h = mode.size().1,
-                refresh = mode.vrefresh(),
-                "DRM output initialized (active)",
-            );
-
-            Some(ActiveDrmCompositor {
-                crtc,
-                drm_compositor,
-                pending_frame: false,
-                pending_presentation_feedback: None,
-            })
-        } else {
-            tracing::info!(
-                name = output_name,
-                make = edid_info.as_ref().map_or("Unknown", |i| &i.make),
-                model = edid_info.as_ref().map_or("Unknown", |i| &i.model),
-                mode_w = mode.size().0,
-                mode_h = mode.size().1,
-                refresh = mode.vrefresh(),
-                "DRM output detected (disabled — no CRTC available)",
-            );
-            None
-        };
-
-        outputs.insert(*conn_handle, DrmOutputState { output, compositor });
-    }
-
-    if outputs.is_empty() {
-        return Err("no connected DRM outputs found".into());
-    }
-
-    let active_count = outputs.values().filter(|o| o.compositor.is_some()).count();
-    tracing::info!(
-        ?path,
-        ?node,
-        total = outputs.len(),
-        active = active_count,
-        disabled = outputs.len() - active_count,
-        "DRM device initialized",
-    );
-
-    Ok(DrmBackendState {
+    let mut backend_state = DrmBackendState {
         drm_device,
         gbm_device,
         cursor_size,
@@ -795,7 +925,35 @@ fn initialize_drm_device(
         libinput,
         session: session.clone(),
         session_active: true,
-    })
+    };
+
+    for conn_handle in res_handles.connectors() {
+        match backend_state.setup_connector(*conn_handle, &state.display_handle) {
+            Ok(Some(output_state)) => {
+                backend_state.outputs.insert(*conn_handle, output_state);
+            }
+            Ok(None) => {} // not connected or no modes
+            Err(err) => {
+                tracing::warn!(%err, "failed to set up connector during init");
+            }
+        }
+    }
+
+    if backend_state.outputs.is_empty() {
+        return Err("no connected DRM outputs found".into());
+    }
+
+    let active_count = backend_state.outputs.values().filter(|o| o.compositor.is_some()).count();
+    tracing::info!(
+        ?path,
+        ?node,
+        total = backend_state.outputs.len(),
+        active = active_count,
+        disabled = backend_state.outputs.len() - active_count,
+        "DRM device initialized",
+    );
+
+    Ok(backend_state)
 }
 
 /// EDID-derived monitor identification.
