@@ -109,6 +109,8 @@ impl WlrLayerShellHandler for State {
                     output = output.name(),
                     "layer surface unmapped",
                 );
+                drop(map);
+                self.schedule_render();
                 return;
             }
         }

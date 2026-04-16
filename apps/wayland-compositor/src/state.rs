@@ -3,15 +3,14 @@
 use std::collections::{HashMap, HashSet};
 
 use smithay::{
-    delegate_alpha_modifier, delegate_commit_timing, delegate_compositor, delegate_content_type, delegate_cursor_shape,
-    delegate_data_control, delegate_data_device, delegate_dmabuf, delegate_ext_data_control, delegate_fifo,
-    delegate_fractional_scale, delegate_idle_inhibit, delegate_idle_notify, delegate_input_method_manager,
-    delegate_keyboard_shortcuts_inhibit, delegate_layer_shell, delegate_output, delegate_pointer_constraints,
-    delegate_pointer_gestures, delegate_presentation, delegate_primary_selection, delegate_relative_pointer,
-    delegate_seat, delegate_security_context, delegate_session_lock, delegate_shm, delegate_single_pixel_buffer,
-    delegate_tablet_manager, delegate_text_input_manager, delegate_viewporter, delegate_virtual_keyboard_manager,
-    delegate_xdg_activation, delegate_xdg_decoration, delegate_xdg_dialog, delegate_xdg_foreign, delegate_xdg_shell,
-    delegate_xdg_system_bell,
+    delegate_alpha_modifier, delegate_compositor, delegate_content_type, delegate_cursor_shape, delegate_data_control,
+    delegate_data_device, delegate_dmabuf, delegate_ext_data_control, delegate_fractional_scale, delegate_idle_inhibit,
+    delegate_idle_notify, delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit, delegate_layer_shell,
+    delegate_output, delegate_pointer_constraints, delegate_pointer_gestures, delegate_presentation,
+    delegate_primary_selection, delegate_relative_pointer, delegate_seat, delegate_security_context,
+    delegate_session_lock, delegate_shm, delegate_single_pixel_buffer, delegate_tablet_manager,
+    delegate_text_input_manager, delegate_viewporter, delegate_virtual_keyboard_manager, delegate_xdg_activation,
+    delegate_xdg_decoration, delegate_xdg_dialog, delegate_xdg_foreign, delegate_xdg_shell, delegate_xdg_system_bell,
     desktop::{PopupManager, Space, Window, layer_map_for_output},
     input::{Seat, SeatState, keyboard::XkbConfig, pointer::CursorImageStatus},
     output::{Output, PhysicalProperties, Subpixel},
@@ -22,12 +21,10 @@ use smithay::{
     utils::{Clock, Logical, Monotonic, Physical, Point, Rectangle, Size},
     wayland::{
         alpha_modifier::AlphaModifierState,
-        commit_timing::CommitTimingManagerState,
         compositor::CompositorState,
         content_type::ContentTypeState,
         cursor_shape::CursorShapeManagerState,
         dmabuf::DmabufState,
-        fifo::FifoManagerState,
         foreign_toplevel_list::{ForeignToplevelHandle, ForeignToplevelListState},
         fractional_scale::{FractionalScaleHandler, FractionalScaleManagerState},
         idle_inhibit::IdleInhibitManagerState,
@@ -92,6 +89,7 @@ pub struct State {
     pub data_device_state: DataDeviceState,
     pub primary_selection_state: PrimarySelectionState,
     pub dmabuf_state: DmabufState,
+    pub dmabuf_feedback: Option<smithay::wayland::dmabuf::DmabufFeedback>,
 
     // -- Application compatibility protocols --
     pub viewporter_state: ViewporterState,
@@ -112,8 +110,6 @@ pub struct State {
 
     // -- Phase 3b: Additional protocol support --
     pub alpha_modifier_state: AlphaModifierState,
-    pub commit_timing_state: CommitTimingManagerState,
-    pub fifo_state: FifoManagerState,
     pub idle_inhibit_state: IdleInhibitManagerState,
     /// Surfaces that currently hold an idle inhibitor.
     pub idle_inhibit_surfaces: HashSet<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
@@ -315,6 +311,14 @@ pub struct State {
     /// When `true`, the xcursor theme image is composited into every frame.
     /// When `false`, Named cursors are delegated to the host windowing system.
     pub software_cursor: bool,
+
+    /// Render scheduling ping — set by the winit backend.
+    ///
+    /// When `Some`, pinging this triggers a single frame render on the next
+    /// calloop iteration.  Protocol handlers (e.g. `wl_surface.commit`) call
+    /// [`schedule_render()`](Self::schedule_render) to request a redraw.
+    /// Other backends (DRM, headless) leave this `None`.
+    pub render_ping: Option<smithay::reexports::calloop::ping::Ping>,
 }
 
 impl State {
@@ -362,19 +366,7 @@ impl State {
         let viewporter_state = ViewporterState::new::<Self>(&dh);
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
 
-        // DMA-BUF — advertise common formats with Linear modifier.
-        // Real compositors query the GPU; these four are universally supported.
-        let mut dmabuf_state = DmabufState::new();
-        let dmabuf_formats = {
-            use smithay::backend::allocator::{Format, Fourcc, Modifier};
-            vec![
-                Format { code: Fourcc::Argb8888, modifier: Modifier::Linear },
-                Format { code: Fourcc::Xrgb8888, modifier: Modifier::Linear },
-                Format { code: Fourcc::Abgr8888, modifier: Modifier::Linear },
-                Format { code: Fourcc::Xbgr8888, modifier: Modifier::Linear },
-            ]
-        };
-        let _dmabuf_global = dmabuf_state.create_global::<Self>(&dh, dmabuf_formats);
+        let dmabuf_state = DmabufState::new();
 
         let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
         let pointer_constraints_state = PointerConstraintsState::new::<Self>(&dh);
@@ -398,8 +390,6 @@ impl State {
 
         // Phase 3b: Additional protocol support
         let alpha_modifier_state = AlphaModifierState::new::<Self>(&dh);
-        let commit_timing_state = CommitTimingManagerState::new::<Self>(&dh);
-        let fifo_state = FifoManagerState::new::<Self>(&dh);
         let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
         let idle_inhibit_surfaces = HashSet::new();
         let xdg_dialog_state = XdgDialogState::new::<Self>(&dh);
@@ -535,6 +525,7 @@ impl State {
             data_device_state,
             primary_selection_state,
             dmabuf_state,
+            dmabuf_feedback: None,
             viewporter_state,
             fractional_scale_state,
             xdg_activation_state,
@@ -551,8 +542,6 @@ impl State {
             security_context_state,
             cursor_shape_state,
             alpha_modifier_state,
-            commit_timing_state,
-            fifo_state,
             idle_inhibit_state,
             idle_inhibit_surfaces,
             xdg_dialog_state,
@@ -624,7 +613,62 @@ impl State {
             output_config_changed: false,
             window_scale: 1.0,
             software_cursor: false,
+            render_ping: None,
         }
+    }
+
+    /// Request a frame render on the next calloop iteration.
+    ///
+    /// No-op if no backend has registered a render ping (e.g. DRM/headless).
+    pub fn schedule_render(&self) {
+        if let Some(ping) = &self.render_ping {
+            ping.ping();
+        }
+    }
+
+    /// Initialize the DMA-BUF global by querying the renderer for supported formats.
+    pub fn init_dmabuf_from_renderer(&mut self, renderer: &smithay::backend::renderer::glow::GlowRenderer) {
+        use smithay::backend::egl::EGLDevice;
+        use smithay::backend::renderer::ImportDma;
+        use smithay::wayland::dmabuf::DmabufFeedbackBuilder;
+
+        let dmabuf_formats = renderer.dmabuf_formats();
+        let render_node = EGLDevice::device_for_display(renderer.egl_context().display())
+            .and_then(|device| device.try_get_render_node());
+
+        match render_node {
+            Ok(Some(node)) => match DmabufFeedbackBuilder::new(node.dev_id(), dmabuf_formats.clone()).build() {
+                Ok(feedback) => {
+                    self.dmabuf_state.create_global_with_default_feedback::<Self>(&self.display_handle, &feedback);
+                    self.dmabuf_feedback = Some(feedback);
+                    tracing::info!("DMA-BUF global created with renderer feedback (render node {node})");
+                    return;
+                }
+                Err(err) => {
+                    tracing::warn!(%err, "failed to build DMA-BUF feedback, falling back to format list");
+                }
+            },
+            Ok(None) => {
+                tracing::warn!("no render node available, creating DMA-BUF global without feedback");
+            }
+            Err(err) => {
+                tracing::warn!(%err, "failed to query EGL device, creating DMA-BUF global without feedback");
+            }
+        }
+
+        self.dmabuf_state.create_global::<Self>(&self.display_handle, dmabuf_formats);
+    }
+
+    /// Initialize the DMA-BUF global with a static set of common formats.
+    pub fn init_dmabuf_with_fallback_formats(&mut self) {
+        use smithay::backend::allocator::{Format, Fourcc, Modifier};
+        let formats = vec![
+            Format { code: Fourcc::Argb8888, modifier: Modifier::Linear },
+            Format { code: Fourcc::Xrgb8888, modifier: Modifier::Linear },
+            Format { code: Fourcc::Abgr8888, modifier: Modifier::Linear },
+            Format { code: Fourcc::Xbgr8888, modifier: Modifier::Linear },
+        ];
+        self.dmabuf_state.create_global::<Self>(&self.display_handle, formats);
     }
 
     /// Spawn the child program (if configured) and optionally monitor its exit.
@@ -1121,13 +1165,12 @@ impl State {
     }
 
     /// Send frame callbacks to all mapped windows and layer surfaces.
-    ///
-    /// Each window receives a callback from the output its centre lies on.
-    /// Layer surfaces receive callbacks from their associated output.
-    /// Without frame callbacks, clients that block on the next frame
-    /// (like GTK4 during popup creation) would hang indefinitely.
-    pub fn send_frame_callbacks(&self) {
+    pub fn send_frame_callbacks(&self, throttle: std::time::Duration) {
+        use smithay::desktop::utils::surface_primary_scanout_output;
+
         let now = self.frame_clock_now();
+        let throttle = Some(throttle);
+
         for window in self.space.elements() {
             let output = self
                 .output_at_point({
@@ -1136,13 +1179,103 @@ impl State {
                     (f64::from(loc.x + size.w / 2), f64::from(loc.y + size.h / 2)).into()
                 })
                 .clone();
-            window.send_frame(&output, now, Some(std::time::Duration::ZERO), |_, _| Some(output.clone()));
+            window.send_frame(&output, now, throttle, surface_primary_scanout_output);
         }
 
         for output in &self.outputs {
             let map = smithay::desktop::layer_map_for_output(output);
             for layer_surface in map.layers() {
-                layer_surface.send_frame(output, now, Some(std::time::Duration::ZERO), |_, _| Some(output.clone()));
+                layer_surface.send_frame(output, now, throttle, surface_primary_scanout_output);
+            }
+        }
+    }
+
+    /// Update per-surface primary scanout output tracking after a render pass.
+    pub fn update_primary_scanout_output(
+        &self,
+        output: &Output,
+        render_element_states: &smithay::backend::renderer::element::RenderElementStates,
+    ) {
+        use smithay::backend::renderer::element::default_primary_scanout_output_compare;
+        use smithay::desktop::utils::update_surface_primary_scanout_output;
+        use smithay::wayland::fractional_scale::with_fractional_scale;
+
+        let update = |surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+                      states: &smithay::wayland::compositor::SurfaceData| {
+            let primary = update_surface_primary_scanout_output(
+                surface,
+                output,
+                states,
+                render_element_states,
+                default_primary_scanout_output_compare,
+            );
+            if let Some(ref o) = primary {
+                with_fractional_scale(states, |fraction_scale| {
+                    fraction_scale.set_preferred_scale(o.current_scale().fractional_scale());
+                });
+            }
+        };
+
+        for window in self.space.elements() {
+            window.with_surfaces(update);
+        }
+
+        for o in &self.outputs {
+            let map = smithay::desktop::layer_map_for_output(o);
+            for layer_surface in map.layers() {
+                layer_surface.with_surfaces(update);
+            }
+        }
+    }
+
+    /// Collect presentation feedback from all surfaces for the given output.
+    pub fn take_presentation_feedback(
+        &self,
+        _output: &Output,
+        render_element_states: &smithay::backend::renderer::element::RenderElementStates,
+        feedback: &mut smithay::desktop::utils::OutputPresentationFeedback,
+    ) {
+        use smithay::desktop::utils::{
+            surface_presentation_feedback_flags_from_states, surface_primary_scanout_output,
+        };
+
+        for window in self.space.elements() {
+            window.take_presentation_feedback(feedback, surface_primary_scanout_output, |surface, _| {
+                surface_presentation_feedback_flags_from_states(surface, render_element_states)
+            });
+        }
+
+        for o in &self.outputs {
+            let map = smithay::desktop::layer_map_for_output(o);
+            for layer_surface in map.layers() {
+                layer_surface.take_presentation_feedback(feedback, surface_primary_scanout_output, |surface, _| {
+                    surface_presentation_feedback_flags_from_states(surface, render_element_states)
+                });
+            }
+        }
+    }
+
+    /// Send per-surface DMA-BUF feedback based on primary scanout output.
+    pub fn send_dmabuf_feedback(
+        &self,
+        output: &Output,
+        _render_element_states: &smithay::backend::renderer::element::RenderElementStates,
+    ) {
+        use smithay::desktop::utils::surface_primary_scanout_output;
+
+        let Some(ref feedback) = self.dmabuf_feedback else {
+            return;
+        };
+
+        for window in self.space.elements() {
+            window.send_dmabuf_feedback(output, surface_primary_scanout_output, |_surface, _states| feedback);
+        }
+
+        for o in &self.outputs {
+            let map = smithay::desktop::layer_map_for_output(o);
+            for layer_surface in map.layers() {
+                layer_surface
+                    .send_dmabuf_feedback(output, surface_primary_scanout_output, |_surface, _states| feedback);
             }
         }
     }
@@ -1308,8 +1441,6 @@ delegate_virtual_keyboard_manager!(State);
 
 // Phase 3b: Additional protocol support
 delegate_alpha_modifier!(State);
-delegate_commit_timing!(State);
-delegate_fifo!(State);
 delegate_idle_inhibit!(State);
 delegate_xdg_dialog!(State);
 delegate_xdg_system_bell!(State);

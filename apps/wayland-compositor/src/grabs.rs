@@ -18,6 +18,7 @@ use smithay::{
     },
     reexports::wayland_protocols::xdg::shell::server::xdg_toplevel,
     utils::{Logical, Point, Serial, Size},
+    wayland::{compositor, shell::xdg::XdgToplevelSurfaceData},
 };
 
 use crate::{decorations::Focus, input::BTN_LEFT, state::State};
@@ -26,6 +27,15 @@ use crate::{decorations::Focus, input::BTN_LEFT, state::State};
 const MIN_WINDOW_WIDTH: i32 = 100;
 /// Minimum window height during interactive resize (logical pixels).
 const MIN_WINDOW_HEIGHT: i32 = 50;
+
+/// Check whether the client has committed a buffer matching the last configured size.
+fn toplevel_latest_size_committed(toplevel: &smithay::wayland::shell::xdg::ToplevelSurface) -> bool {
+    compositor::with_states(toplevel.wl_surface(), |states| {
+        let attributes = states.data_map.get::<XdgToplevelSurfaceData>().unwrap().lock().unwrap();
+        let current_server = attributes.current_server_state();
+        attributes.last_acked.as_ref().is_some_and(|acked| acked.size == current_server.size)
+    })
+}
 
 /// Implement the gesture pass-through methods of [`PointerGrab`] for a grab type.
 ///
@@ -460,7 +470,9 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
                 s.states.set(xdg_toplevel::State::Resizing);
                 s.size = Some(Size::from((new_w, new_h)));
             });
-            toplevel.send_configure();
+            if toplevel_latest_size_committed(toplevel) {
+                toplevel.send_configure();
+            }
         }
 
         // X11 windows: resize via X11 configure request
@@ -783,7 +795,9 @@ impl TouchGrab<State> for TouchResizeSurfaceGrab {
                 s.states.set(xdg_toplevel::State::Resizing);
                 s.size = Some(Size::from((new_w, new_h)));
             });
-            toplevel.send_configure();
+            if toplevel_latest_size_committed(toplevel) {
+                toplevel.send_configure();
+            }
         }
 
         if let Some(x11) = self.window.x11_surface()

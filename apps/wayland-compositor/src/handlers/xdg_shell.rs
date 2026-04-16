@@ -324,6 +324,7 @@ impl XdgShellHandler for State {
             crate::handlers::foreign_toplevel::close_toplevel(self, window);
 
             self.space.unmap_elem(window);
+            self.schedule_render();
             // Clean up compositor-side state for this window
             self.pre_maximize_positions.retain(|(w, _, _)| w != window);
             self.pre_fullscreen_states.retain(|(w, _, _)| w != window);

@@ -150,7 +150,10 @@ pub fn register_wayland_sources(
         #[allow(unsafe_code)]
         let result = unsafe { display.get_mut().dispatch_clients(state) };
         match result {
-            Ok(_) => Ok(PostAction::Continue),
+            Ok(_) => {
+                let _ = state.display_handle.flush_clients();
+                Ok(PostAction::Continue)
+            }
             Err(err) => {
                 tracing::error!(%err, "I/O error dispatching Wayland clients");
                 state.running = false;

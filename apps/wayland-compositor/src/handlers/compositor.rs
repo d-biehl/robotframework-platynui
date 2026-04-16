@@ -49,11 +49,11 @@ impl CompositorHandler for State {
 
         // If this surface belongs to a mapped window, handle the commit
         let window = self.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == *surface)).cloned();
-        if let Some(window) = window {
+        if let Some(ref window) = window {
             window.on_commit();
 
             // Forward title/app_id/state changes to foreign-toplevel protocols
-            crate::handlers::foreign_toplevel::update_toplevel_metadata(self, &window);
+            crate::handlers::foreign_toplevel::update_toplevel_metadata(self, window);
         }
 
         // Handle popup commits — moves tracked popups from unmapped to the tree
@@ -74,6 +74,10 @@ impl CompositorHandler for State {
 
         // Ensure pending xdg toplevels get an initial configure
         crate::workspace::handle_commit(&self.xdg_shell_state, surface);
+
+        // A client committed new content — schedule a frame render so the
+        // compositor composites it promptly.
+        self.schedule_render();
     }
 }
 

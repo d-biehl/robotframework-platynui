@@ -751,6 +751,7 @@ pub(crate) fn minimize_window(state: &mut State, window: &Window) {
     if let Some(loc) = state.space.element_location(window) {
         state.minimized_windows.push((window.clone(), loc));
         state.space.unmap_elem(window);
+        state.schedule_render();
 
         // Move keyboard focus away from the now-minimized window.
         let next_window = state.space.elements().next_back().cloned();
@@ -775,6 +776,7 @@ pub(crate) fn unminimize_window(state: &mut State, window: &Window) {
     if let Some(idx) = state.minimized_windows.iter().position(|(w, _)| w == window) {
         let (win, pos) = state.minimized_windows.remove(idx);
         state.space.map_element(win, pos, true);
+        state.schedule_render();
         send_foreign_toplevel_state(state, window);
     }
 }

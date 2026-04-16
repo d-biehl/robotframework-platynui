@@ -536,6 +536,7 @@ fn show_highlight(state: &mut State, request: &Request) -> Result<usize, String>
 
     let duration = request.duration_ms.map(Duration::from_millis);
     state.highlight_overlay.show(rects, duration);
+    state.schedule_render();
     Ok(state.highlight_overlay.rects().len())
 }
 

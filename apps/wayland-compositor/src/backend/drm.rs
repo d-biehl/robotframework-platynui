@@ -240,6 +240,7 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
         config,
     );
     state.backend_name = "drm";
+    state.init_dmabuf_with_fallback_formats();
 
     // Register Wayland display + listening socket + set WAYLAND_DISPLAY
     super::register_wayland_sources(&event_loop.handle(), display, listening_socket, &socket_name)?;
@@ -389,7 +390,7 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
             state.drm_backend = Some(backend);
         }
 
-        state.send_frame_callbacks();
+        state.send_frame_callbacks(Duration::ZERO);
         state.flush_and_refresh();
     }
 

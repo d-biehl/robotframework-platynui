@@ -45,6 +45,7 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
         config,
     );
     state.backend_name = "headless";
+    state.init_dmabuf_with_fallback_formats();
 
     // Register Wayland display + listening socket + set WAYLAND_DISPLAY
     super::register_wayland_sources(&event_loop.handle(), display, listening_socket, &socket_name)?;
@@ -58,7 +59,7 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     while state.running && !shutdown.is_set() {
         event_loop.dispatch(Some(FRAME_DISPATCH_TIMEOUT), &mut state)?;
 
-        state.send_frame_callbacks();
+        state.send_frame_callbacks(Duration::ZERO);
         state.flush_and_refresh();
     }
 
