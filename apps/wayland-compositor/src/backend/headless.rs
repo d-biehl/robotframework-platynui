@@ -1,20 +1,28 @@
 //! Headless backend — off-screen rendering for CI environments.
 //!
 //! The event loop processes Wayland client requests without any visible output.
+//! A periodic timer sends frame callbacks so clients that block on the next
+//! frame (like GTK4 during popup creation) don't hang indefinitely.
 //! Screenshots use a lazily-initialized [`GlowRenderer`] (EGL on a DRI render
 //! node).  Set `LIBGL_ALWAYS_SOFTWARE=1` for environments without a hardware GPU.
 
 use std::time::Duration;
 
-/// Event loop dispatch timeout — one frame period at ~60 FPS.
-const FRAME_DISPATCH_TIMEOUT: Duration = Duration::from_millis(16);
-
 use smithay::{
-    reexports::{calloop::EventLoop, wayland_server::Display},
+    reexports::{
+        calloop::{
+            EventLoop,
+            timer::{TimeoutAction, Timer},
+        },
+        wayland_server::Display,
+    },
     utils::{Physical, Size},
 };
 
 use crate::{CompositorArgs, config::CompositorConfig, state::State};
+
+/// Frame callback interval — one frame period at ~60 FPS.
+const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Run the compositor in headless mode.
 ///
@@ -53,15 +61,26 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     // Register signal handlers, watchdog, XWayland, control socket, readiness
     let shutdown = super::setup_services(&event_loop.handle(), &mut state, args, timeout)?;
 
+    // Periodic wake-up so the idle callback runs at least once per frame
+    // period, even when no client events arrive.  This prevents clients that
+    // wait for a frame callback before their first commit from hanging.
+    event_loop.handle().insert_source(Timer::from_duration(FRAME_INTERVAL), |_, (), _state| {
+        TimeoutAction::ToDuration(FRAME_INTERVAL)
+    })?;
+
     tracing::info!(backend = "headless", socket = %socket_name, "event loop starting");
 
-    // Main event loop — protocol dispatch + frame callbacks.
-    while state.running && !shutdown.is_set() {
-        event_loop.dispatch(Some(FRAME_DISPATCH_TIMEOUT), &mut state)?;
-
+    // The idle callback runs after every event-loop iteration (including
+    // timer wake-ups), so frame callbacks go out as soon as a client commits
+    // rather than waiting for the next 16 ms tick.
+    event_loop.run(None, &mut state, |state| {
         state.send_frame_callbacks(Duration::ZERO);
         state.flush_and_refresh();
-    }
+
+        if !state.running || shutdown.is_set() {
+            state.loop_signal.stop();
+        }
+    })?;
 
     tracing::info!("compositor shutting down");
     Ok(())
