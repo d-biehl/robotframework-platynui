@@ -312,12 +312,12 @@ pub struct State {
     /// When `false`, Named cursors are delegated to the host windowing system.
     pub software_cursor: bool,
 
-    /// Render scheduling ping — set by the winit backend.
+    /// Render scheduling ping — set by the winit and DRM backends.
     ///
     /// When `Some`, pinging this triggers a single frame render on the next
     /// calloop iteration.  Protocol handlers (e.g. `wl_surface.commit`) call
     /// [`schedule_render()`](Self::schedule_render) to request a redraw.
-    /// Other backends (DRM, headless) leave this `None`.
+    /// The headless backend leaves this `None`.
     pub render_ping: Option<smithay::reexports::calloop::ping::Ping>,
 }
 

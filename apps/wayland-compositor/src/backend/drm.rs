@@ -14,6 +14,14 @@
 //! 6. `DrmCompositor::render_frame()` → `queue_frame()` → `VBlank` → `frame_submitted()`
 //! 7. VT-switching pauses/resumes the DRM device and input
 //!
+//! ## Render scheduling
+//!
+//! Rendering is VBlank-driven: a calloop [`Ping`](smithay::reexports::calloop::ping::Ping)
+//! is used to request a frame render.  Protocol handlers (e.g. `wl_surface.commit`),
+//! `VBlank` completions, and output configuration changes all trigger the ping via
+//! [`schedule_render()`](crate::state::State::schedule_render).  This avoids
+//! busy-loop rendering and only draws when there is actual work to present.
+//!
 //! For environments without a dedicated GPU, set `LIBGL_ALWAYS_SOFTWARE=1` to
 //! use Mesa's software renderer (llvmpipe).
 //!
@@ -23,8 +31,6 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
-/// Event loop dispatch timeout — one frame period at ~60 FPS.
-const FRAME_DISPATCH_TIMEOUT: Duration = Duration::from_millis(16);
 /// Linux `ENODEV` errno value, returned when an input device cannot be opened.
 const ENODEV: i32 = 19;
 
@@ -46,7 +52,7 @@ use smithay::{
     },
     output::{Mode as OutputMode, Output, PhysicalProperties, Subpixel},
     reexports::{
-        calloop::EventLoop,
+        calloop::{EventLoop, ping},
         drm::control::{self, Device as ControlDevice, connector, crtc},
         input::Libinput,
         wayland_server::Display,
@@ -361,38 +367,43 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     // Register signal handlers, watchdog, XWayland, control socket, readiness
     let shutdown = super::setup_services(&event_loop.handle(), &mut state, args, timeout)?;
 
-    tracing::info!(backend = "drm", socket = %socket_name, "event loop starting");
+    // VBlank-driven render scheduling: a calloop Ping triggers a single
+    // render pass.  VBlank completions, client commits, and output config
+    // changes all request a render via schedule_render().
+    let (render_ping, render_source) = ping::make_ping()?;
+    state.render_ping = Some(render_ping.clone());
 
-    // Main event loop
-    while state.running && !shutdown.is_set() {
-        event_loop.dispatch(Some(FRAME_DISPATCH_TIMEOUT), &mut state)?;
-
-        // Handle output configuration changes from wlr-output-management.
-        // Reconfigure maximized/fullscreen windows for new logical dimensions.
-        // NOTE: DRM mode changes would need hardware reconfiguration — not yet
-        // implemented; only scale/position changes take effect immediately.
-        if state.output_config_changed {
-            state.output_config_changed = false;
-
-            // Notify output management clients (e.g. kanshi) about the change.
-            crate::handlers::output_management::notify_output_config_changed(&mut state);
-
-            state.reconfigure_windows_for_outputs();
-        }
-
-        // Render on each DRM output (only when the session is active).
-        // We temporarily take the backend out of state to avoid a double
-        // mutable borrow (render_drm_outputs needs &mut state for the space).
+    event_loop.handle().insert_source(render_source, |(), (), state| {
+        // Temporarily take the backend to avoid double mutable borrow
+        // (render_drm_outputs needs &mut state for the space).
         if let Some(mut backend) = state.drm_backend.take() {
             if backend.session_active {
-                render_drm_outputs(&mut backend, &mut state);
+                render_drm_outputs(&mut backend, state);
             }
             state.drm_backend = Some(backend);
         }
-
         state.send_frame_callbacks(Duration::ZERO);
         state.flush_and_refresh();
-    }
+    })?;
+
+    // Kick off the initial render.
+    render_ping.ping();
+
+    tracing::info!(backend = "drm", socket = %socket_name, "event loop starting");
+
+    event_loop.run(None, &mut state, |state| {
+        // Handle output configuration changes from wlr-output-management.
+        if state.output_config_changed {
+            state.output_config_changed = false;
+            crate::handlers::output_management::notify_output_config_changed(state);
+            state.reconfigure_windows_for_outputs();
+            state.schedule_render();
+        }
+
+        if !state.running || shutdown.is_set() {
+            state.loop_signal.stop();
+        }
+    })?;
 
     tracing::info!("compositor shutting down");
     Ok(())
@@ -523,6 +534,8 @@ fn initialize_drm_device(
                     active.pending_frame = false;
                 }
             }
+            // Schedule a render now that this output is ready for a new frame.
+            state.schedule_render();
         }
         DrmEvent::Error(err) => {
             tracing::error!(%err, "DRM device error");
