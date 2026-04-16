@@ -41,7 +41,7 @@ use smithay::{
             gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
         },
         drm::{
-            DrmDevice, DrmDeviceFd, DrmEvent, DrmNode, DrmSurface,
+            DrmDevice, DrmDeviceFd, DrmEvent, DrmEventTime, DrmNode, DrmSurface,
             compositor::{DrmCompositor, FrameFlags},
             exporter::gbm::GbmFramebufferExporter,
         },
@@ -50,14 +50,17 @@ use smithay::{
         session::{Event as SessionEvent, Session, libseat::LibSeatSession},
         udev::{UdevBackend, UdevEvent},
     },
+    desktop::utils::OutputPresentationFeedback,
     output::{Mode as OutputMode, Output, PhysicalProperties, Subpixel},
     reexports::{
         calloop::{EventLoop, ping},
         drm::control::{self, Device as ControlDevice, connector, crtc},
         input::Libinput,
+        wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
         wayland_server::Display,
     },
     utils::{Buffer as BufferCoords, Physical, Size},
+    wayland::presentation::Refresh,
 };
 
 use crate::{CompositorArgs, config::CompositorConfig, state::State};
@@ -71,6 +74,8 @@ pub struct ActiveDrmCompositor {
         DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>,
     /// Whether a frame has been queued and we're waiting for `VBlank`.
     pub(crate) pending_frame: bool,
+    /// Presentation feedback collected during `render_frame()`, delivered on `VBlank`.
+    pub(crate) pending_presentation_feedback: Option<OutputPresentationFeedback>,
 }
 
 /// Per-output state for a DRM connector.
@@ -98,6 +103,8 @@ pub struct DrmBackendState {
     pub(crate) outputs: HashMap<connector::Handle, DrmOutputState>,
     /// `GlowRenderer` (EGL on GBM — GPU-accelerated or Mesa llvmpipe).
     pub(crate) renderer: GlowRenderer,
+    /// libinput context — retained for `suspend()`/`resume()` on VT switch.
+    pub(crate) libinput: Libinput,
     /// libseat session — used for VT switching (`Ctrl+Alt+F<n>`).
     pub(crate) session: LibSeatSession,
     /// Whether the session is currently active (false when VT-switched away).
@@ -172,7 +179,12 @@ impl DrmBackendState {
         .map_err(|e| format!("DrmCompositor::new: {e}"))?;
 
         let output_state = self.outputs.get_mut(&conn).expect("checked above");
-        output_state.compositor = Some(ActiveDrmCompositor { crtc, drm_compositor, pending_frame: false });
+        output_state.compositor = Some(ActiveDrmCompositor {
+            crtc,
+            drm_compositor,
+            pending_frame: false,
+            pending_presentation_feedback: None,
+        });
 
         tracing::info!(output = output.name(), ?crtc, "DRM output activated");
         Ok(())
@@ -251,28 +263,42 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     // Register Wayland display + listening socket + set WAYLAND_DISPLAY
     super::register_wayland_sources(&event_loop.handle(), display, listening_socket, &socket_name)?;
 
-    // Initialize libinput for keyboard/mouse/touch input
+    // Initialize libinput for keyboard/mouse/touch input.
+    // Clone the context before passing to `LibinputInputBackend` so we retain
+    // a handle for `suspend()`/`resume()` during VT switching.
     let mut libinput_context = Libinput::new_with_udev(LibseatInterface(session.clone()));
     libinput_context.udev_assign_seat(&session.seat()).map_err(|()| "failed to assign libinput seat")?;
 
-    let libinput_backend = LibinputInputBackend::new(libinput_context);
+    let libinput_backend = LibinputInputBackend::new(libinput_context.clone());
     event_loop.handle().insert_source(libinput_backend, |event, (), state| {
         crate::input::process_input_event(state, event);
     })?;
 
-    // Register session notifier for VT switching
+    // Register session notifier for VT switching.
+    // On pause: suspend libinput + DRM device (release DRM master).
+    // On resume: activate DRM device (re-acquire DRM master) + resume libinput,
+    //            then schedule a render to repaint all outputs.
     event_loop.handle().insert_source(notifier, |event, (), state| match event {
         SessionEvent::PauseSession => {
             tracing::info!("session paused (VT switch away)");
             if let Some(ref mut backend) = state.drm_backend {
+                backend.libinput.suspend();
+                backend.drm_device.pause();
                 backend.session_active = false;
             }
         }
         SessionEvent::ActivateSession => {
             tracing::info!("session activated (VT switch back)");
             if let Some(ref mut backend) = state.drm_backend {
+                if let Err(err) = backend.drm_device.activate(false) {
+                    tracing::error!(%err, "failed to activate DRM device after VT switch");
+                }
+                if backend.libinput.resume().is_err() {
+                    tracing::error!("failed to resume libinput after VT switch");
+                }
                 backend.session_active = true;
             }
+            state.schedule_render();
         }
     })?;
 
@@ -283,7 +309,7 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     for (device_id, path) in udev_backend.device_list() {
         tracing::info!(?device_id, ?path, "discovered GPU device");
         if state.drm_backend.is_none() {
-            match initialize_drm_device(&mut session, &event_loop, &state, path) {
+            match initialize_drm_device(&mut session, &event_loop, &state, path, libinput_context.clone()) {
                 Ok(backend_state) => {
                     // Apply the CLI --scale to DRM outputs if specified.
                     let cli_scale = if args.scale > 0.0 && (args.scale - 1.0).abs() > f64::EPSILON {
@@ -376,13 +402,19 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     event_loop.handle().insert_source(render_source, |(), (), state| {
         // Temporarily take the backend to avoid double mutable borrow
         // (render_drm_outputs needs &mut state for the space).
-        if let Some(mut backend) = state.drm_backend.take() {
-            if backend.session_active {
-                render_drm_outputs(&mut backend, state);
-            }
+        let frame_queued = if let Some(mut backend) = state.drm_backend.take() {
+            let queued = if backend.session_active { render_drm_outputs(&mut backend, state) } else { false };
             state.drm_backend = Some(backend);
+            queued
+        } else {
+            false
+        };
+        // When no frame was queued (all outputs empty or pending), no VBlank
+        // will fire, so send frame callbacks here as a fallback to prevent
+        // clients from stalling.
+        if !frame_queued {
+            state.send_frame_callbacks(Duration::ZERO);
         }
-        state.send_frame_callbacks(Duration::ZERO);
         state.flush_and_refresh();
     })?;
 
@@ -414,8 +446,15 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
 /// For each output with an active `DrmCompositor`, renders all compositor
 /// elements (windows + decorations), then queues the frame for scanout.
 /// Frames are skipped when a previous frame is still pending (`VBlank`).
-fn render_drm_outputs(backend: &mut DrmBackendState, state: &mut State) {
+///
+/// After a successful render, collects presentation feedback and updates
+/// per-surface scanout/DMA-BUF state.  The feedback is stored on the
+/// `ActiveDrmCompositor` and delivered when the `VBlank` event arrives.
+///
+/// Returns `true` if at least one frame was queued (a `VBlank` will follow).
+fn render_drm_outputs(backend: &mut DrmBackendState, state: &mut State) -> bool {
     let conn_handles: Vec<connector::Handle> = backend.outputs.keys().copied().collect();
+    let mut any_frame_queued = false;
 
     for conn in conn_handles {
         let Some(output_state) = backend.outputs.get_mut(&conn) else {
@@ -446,11 +485,25 @@ fn render_drm_outputs(backend: &mut DrmBackendState, state: &mut State) {
             FrameFlags::DEFAULT,
         ) {
             Ok(result) => {
+                // Update per-surface scanout tracking and collect feedback
+                // before submitting, while we still have the render states.
+                let render_element_states = result.states;
+
+                state.update_primary_scanout_output(&output, &render_element_states);
+                state.send_dmabuf_feedback(&output, &render_element_states);
+
+                // Collect presentation feedback — will be delivered on VBlank
+                // with the real hardware timestamp.
+                let mut feedback = OutputPresentationFeedback::new(&output);
+                state.take_presentation_feedback(&output, &render_element_states, &mut feedback);
+
                 if !result.is_empty {
                     if let Err(err) = active.drm_compositor.queue_frame(()) {
                         tracing::warn!(%err, crtc = ?active.crtc, "failed to queue DRM frame");
                     } else {
                         active.pending_frame = true;
+                        active.pending_presentation_feedback = Some(feedback);
+                        any_frame_queued = true;
                     }
                 }
             }
@@ -459,6 +512,8 @@ fn render_drm_outputs(backend: &mut DrmBackendState, state: &mut State) {
             }
         }
     }
+
+    any_frame_queued
 }
 
 /// Wrapper for libinput to use libseat for device access.
@@ -491,6 +546,7 @@ fn initialize_drm_device(
     event_loop: &EventLoop<'static, State>,
     state: &State,
     path: &Path,
+    libinput: Libinput,
 ) -> Result<DrmBackendState, Box<dyn std::error::Error>> {
     use smithay::reexports::rustix::fs::OFlags;
 
@@ -518,10 +574,13 @@ fn initialize_drm_device(
     };
 
     // Register DRM device events (VBlank, page flip completion).
-    // On VBlank, mark the corresponding output as ready for a new frame.
-    event_loop.handle().insert_source(drm_notifier, |event, _metadata, state| match event {
+    // On VBlank: confirm frame, deliver presentation feedback with hardware
+    // timestamps, send frame callbacks, then schedule the next render.
+    event_loop.handle().insert_source(drm_notifier, |event, metadata, state| match event {
         DrmEvent::VBlank(crtc) => {
             tracing::trace!(?crtc, "VBlank");
+            let drm_metadata = metadata.take();
+
             if let Some(ref mut backend) = state.drm_backend {
                 let output_state =
                     backend.outputs.values_mut().find(|o| o.compositor.as_ref().is_some_and(|a| a.crtc == crtc));
@@ -532,9 +591,38 @@ fn initialize_drm_device(
                         tracing::warn!(?crtc, %err, "frame_submitted failed");
                     }
                     active.pending_frame = false;
+
+                    // Deliver presentation feedback with the real hardware timestamp.
+                    if let Some(mut feedback) = active.pending_presentation_feedback.take() {
+                        let output = &output_state.output;
+                        let refresh = output.current_mode().map_or(Refresh::Unknown, |mode| {
+                            Refresh::Fixed(Duration::from_secs_f64(1_000.0 / f64::from(mode.refresh)))
+                        });
+
+                        let (clock, flags) = match drm_metadata.as_ref().map(|m| &m.time) {
+                            Some(DrmEventTime::Monotonic(tp)) => (
+                                (*tp).into(),
+                                wp_presentation_feedback::Kind::Vsync
+                                    | wp_presentation_feedback::Kind::HwClock
+                                    | wp_presentation_feedback::Kind::HwCompletion,
+                            ),
+                            _ => (
+                                state.clock.now(),
+                                wp_presentation_feedback::Kind::Vsync | wp_presentation_feedback::Kind::HwCompletion,
+                            ),
+                        };
+
+                        let sequence = drm_metadata.as_ref().map_or(0, |m| u64::from(m.sequence));
+                        feedback.presented::<_, smithay::utils::Monotonic>(clock, refresh, sequence, flags);
+                    }
                 }
             }
-            // Schedule a render now that this output is ready for a new frame.
+
+            // Send frame callbacks on VBlank — clients learn about presentation
+            // at the correct time rather than at render time.
+            state.send_frame_callbacks(Duration::ZERO);
+
+            // Schedule the next render now that this output is ready.
             state.schedule_render();
         }
         DrmEvent::Error(err) => {
@@ -662,7 +750,12 @@ fn initialize_drm_device(
                 "DRM output initialized (active)",
             );
 
-            Some(ActiveDrmCompositor { crtc, drm_compositor, pending_frame: false })
+            Some(ActiveDrmCompositor {
+                crtc,
+                drm_compositor,
+                pending_frame: false,
+                pending_presentation_feedback: None,
+            })
         } else {
             tracing::info!(
                 name = output_name,
@@ -699,6 +792,7 @@ fn initialize_drm_device(
         cursor_size,
         outputs,
         renderer,
+        libinput,
         session: session.clone(),
         session_active: true,
     })
