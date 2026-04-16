@@ -93,6 +93,8 @@ pub struct DrmOutputState {
 
 /// Per-GPU rendering state.
 pub struct DrmBackendState {
+    /// Udev device ID (`dev_t`) — used to correlate hotplug events with this GPU.
+    pub(crate) device_id: u64,
     /// DRM device — needed for creating surfaces when activating outputs.
     pub(crate) drm_device: DrmDevice,
     /// GBM device — needed for allocators when activating outputs.
@@ -502,7 +504,7 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     for (device_id, path) in udev_backend.device_list() {
         tracing::info!(?device_id, ?path, "discovered GPU device");
         if state.drm_backend.is_none() {
-            match initialize_drm_device(&mut session, &event_loop, &state, path, libinput_context.clone()) {
+            match initialize_drm_device(device_id, &mut session, &event_loop, &state, path, libinput_context.clone()) {
                 Ok(backend_state) => {
                     // Apply the CLI --scale to DRM outputs if specified.
                     let cli_scale = if args.scale > 0.0 && (args.scale - 1.0).abs() > f64::EPSILON {
@@ -573,14 +575,14 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     // Watch for hotplug events (monitor plug/unplug and GPU add/remove).
     event_loop.handle().insert_source(udev_backend, |event, (), state| match event {
         UdevEvent::Added { device_id, path } => {
-            tracing::info!(?device_id, ?path, "GPU device added (hotplug) — not yet supported");
+            handle_gpu_added(state, device_id, &path);
         }
         UdevEvent::Changed { device_id } => {
             tracing::debug!(?device_id, "GPU device changed — re-enumerating connectors");
             handle_connector_hotplug(state);
         }
         UdevEvent::Removed { device_id } => {
-            tracing::info!(?device_id, "GPU device removed — not yet supported");
+            handle_gpu_removed(state, device_id);
         }
     })?;
 
@@ -796,6 +798,65 @@ fn compute_next_output_position(state: &State) -> (i32, i32) {
     (max_x, 0)
 }
 
+/// Handle a new GPU device appearing (e.g. eGPU plugged in).
+///
+/// Currently only the primary GPU is supported.  If no GPU is active yet this
+/// logs a hint; otherwise it reports that multi-GPU is not implemented.
+fn handle_gpu_added(state: &mut State, device_id: u64, path: &Path) {
+    if state.drm_backend.is_some() {
+        tracing::info!(?device_id, ?path, "additional GPU detected — multi-GPU not yet supported, ignoring",);
+    } else {
+        // No GPU is active (e.g. the primary was removed earlier).  We cannot
+        // initialize a new GPU here because `initialize_drm_device` needs the
+        // calloop `EventLoop` handle which is not available in this callback.
+        // A full implementation would store it in `State`.
+        tracing::warn!(
+            ?device_id,
+            ?path,
+            "GPU added but late initialization not yet supported — restart the compositor",
+        );
+    }
+}
+
+/// Handle the removal of a GPU device (e.g. eGPU unplugged).
+///
+/// If the removed device matches the active GPU, tears down all its outputs,
+/// relocates windows, and clears the backend state.  The compositor continues
+/// running (e.g. for a reconnect or graceful shutdown).
+fn handle_gpu_removed(state: &mut State, device_id: u64) {
+    let is_our_gpu = state.drm_backend.as_ref().is_some_and(|b| b.device_id == device_id);
+
+    if !is_our_gpu {
+        tracing::debug!(?device_id, "unknown GPU removed — ignoring");
+        return;
+    }
+
+    tracing::warn!(?device_id, "active GPU removed — tearing down all outputs");
+
+    // Take the backend to drop all DRM/GBM resources.
+    let backend = state.drm_backend.take().expect("checked above");
+
+    // Unmap every output that belonged to this GPU from the space.
+    for output_state in backend.outputs.values() {
+        state.space.unmap_output(&output_state.output);
+        state.outputs.retain(|o| o.name() != output_state.output.name());
+    }
+    // The backend (DrmDevice, GbmDevice, renderer, compositors) is dropped here.
+    drop(backend);
+
+    // Pick a new primary output if any remain (from another backend, unlikely
+    // today but future-proof).
+    if let Some(first) = state.space.outputs().next().cloned() {
+        state.output = first;
+    }
+
+    state.reconfigure_windows_for_outputs();
+    state.output_config_changed = true;
+    // No schedule_render — there is no GPU to render on.
+
+    tracing::info!("GPU teardown complete; compositor still running (no rendering)");
+}
+
 /// Wrapper for libinput to use libseat for device access.
 struct LibseatInterface(LibSeatSession);
 
@@ -820,8 +881,9 @@ impl ::smithay::reexports::input::LibinputInterface for LibseatInterface {
 /// For each connected connector, creates a [`DrmSurface`], [`GbmAllocator`],
 /// [`GbmFramebufferExporter`], and [`DrmCompositor`].  Returns the per-GPU
 /// backend state containing all per-output compositors.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::similar_names)]
 fn initialize_drm_device(
+    device_id: u64,
     session: &mut LibSeatSession,
     event_loop: &EventLoop<'static, State>,
     state: &State,
@@ -917,6 +979,7 @@ fn initialize_drm_device(
     let outputs = HashMap::new();
 
     let mut backend_state = DrmBackendState {
+        device_id,
         drm_device,
         gbm_device,
         cursor_size,
