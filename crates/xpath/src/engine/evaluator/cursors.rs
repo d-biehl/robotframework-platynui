@@ -1512,7 +1512,7 @@ impl<N: 'static + XdmNode + Clone> QuantLoopCursor<N> {
                 )
             })?;
             // Stream EBV to avoid materialization
-            let truth = self.vm.with_vm(|vm| vm.ebv_stream(body_stream.cursor()))?;
+            let truth = crate::engine::ebv::ebv_of_stream(&mut *body_stream.cursor())?;
             match self.kind {
                 QuantifierKind::Some => {
                     if truth {

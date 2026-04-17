@@ -1,6 +1,7 @@
-use super::common::{data_default, ebv};
+use super::common::data_default;
+use crate::engine::ebv::ebv_of_stream;
 use crate::engine::runtime::{CallCtx, Error};
-use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
+use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequenceStream};
 
 /// Stream-based data() implementation.
 /// Handles both 0-arity (uses context item) and 1-arity versions.
@@ -35,22 +36,22 @@ pub(super) fn fn_false_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_item(XdmItem::Atomic(XdmAtomicValue::Boolean(false))))
 }
 
-/// Stream-based not() - materializes input for EBV calculation.
+/// Stream-based not() - uses streaming EBV (no materialization).
 pub(super) fn fn_not_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    let b = ebv(&seq)?;
+    let mut cursor = args[0].cursor();
+    let b = ebv_of_stream(&mut *cursor)?;
     Ok(XdmSequenceStream::from_item(XdmItem::Atomic(XdmAtomicValue::Boolean(!b))))
 }
 
-/// Stream-based boolean() implementation.
+/// Stream-based boolean() implementation - uses streaming EBV (no materialization).
 pub(super) fn fn_boolean_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let seq: XdmSequence<N> = args[0].materialize()?;
-    let b = ebv(&seq)?;
-    Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]))
+    let mut cursor = args[0].cursor();
+    let b = ebv_of_stream(&mut *cursor)?;
+    Ok(XdmSequenceStream::from_item(XdmItem::Atomic(XdmAtomicValue::Boolean(b))))
 }

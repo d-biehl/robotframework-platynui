@@ -13,26 +13,6 @@ pub(super) fn require_context_item<N: crate::model::XdmNode + Clone>(ctx: &CallC
     }
 }
 
-pub(super) fn ebv<N>(seq: &XdmSequence<N>) -> Result<bool, Error> {
-    match seq.len() {
-        0 => Ok(false),
-        1 => match &seq[0] {
-            XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => Ok(*b),
-            XdmItem::Atomic(XdmAtomicValue::String(s)) => Ok(!s.is_empty()),
-            XdmItem::Atomic(XdmAtomicValue::Integer(i)) => Ok(*i != 0),
-            XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => Ok(!d.is_zero()),
-            XdmItem::Atomic(XdmAtomicValue::Double(d)) => Ok(*d != 0.0 && !d.is_nan()),
-            XdmItem::Atomic(XdmAtomicValue::Float(f)) => Ok(*f != 0.0 && !f.is_nan()),
-            XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => Ok(!s.is_empty()),
-            XdmItem::Atomic(_) => {
-                Err(Error::from_code(ErrorCode::FORG0006, "EBV for this atomic type not supported yet"))
-            }
-            XdmItem::Node(_) => Ok(true),
-        },
-        _ => Err(Error::from_code(ErrorCode::FORG0006, "EBV of sequence with more than one item")),
-    }
-}
-
 pub(super) fn item_to_string<N: crate::model::XdmNode>(seq: &XdmSequence<N>) -> String {
     if seq.is_empty() {
         return String::new();

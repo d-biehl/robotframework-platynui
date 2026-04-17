@@ -1,9 +1,10 @@
 use crate::compiler::ir::{CompiledXPath, InstrSeq, OpCode};
+use crate::engine::ebv::{ebv_of_atomic, ebv_of_stream};
 use crate::engine::runtime::{
     CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations, ItemTypeSpec, Occurrence, ParamTypeSpec,
 };
 use crate::model::XdmNode;
-use crate::xdm::{ExpandedName, SequenceCursor, XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
+use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
 use chrono::Duration as ChronoDuration;
 use chrono::{FixedOffset as ChronoFixedOffset, Offset, TimeZone};
 use smallvec::SmallVec;
@@ -1226,12 +1227,12 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 OpCode::And => {
                     let rhs_stream = self.pop_stream();
                     let lhs_stream = self.pop_stream();
-                    let lhs_b = self.ebv_stream(lhs_stream.cursor())?;
+                    let lhs_b = ebv_of_stream(&mut *lhs_stream.cursor())?;
                     if !lhs_b {
                         self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]);
                         ip += 1;
                     } else {
-                        let rhs_b = self.ebv_stream(rhs_stream.cursor())?;
+                        let rhs_b = ebv_of_stream(&mut *rhs_stream.cursor())?;
                         self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(rhs_b))]);
                         ip += 1;
                     }
@@ -1239,25 +1240,25 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 OpCode::Or => {
                     let rhs_stream = self.pop_stream();
                     let lhs_stream = self.pop_stream();
-                    let lhs_b = self.ebv_stream(lhs_stream.cursor())?;
+                    let lhs_b = ebv_of_stream(&mut *lhs_stream.cursor())?;
                     if lhs_b {
                         self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(true))]);
                         ip += 1;
                     } else {
-                        let rhs_b = self.ebv_stream(rhs_stream.cursor())?;
+                        let rhs_b = ebv_of_stream(&mut *rhs_stream.cursor())?;
                         self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(rhs_b))]);
                         ip += 1;
                     }
                 }
                 OpCode::Not => {
                     let v = self.pop_stream();
-                    let b = !self.ebv_stream(v.cursor())?;
+                    let b = !ebv_of_stream(&mut *v.cursor())?;
                     self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
                 OpCode::ToEBV => {
                     let v = self.pop_stream();
-                    let b = self.ebv_stream(v.cursor())?;
+                    let b = ebv_of_stream(&mut *v.cursor())?;
                     self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
@@ -1273,7 +1274,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 }
                 OpCode::JumpIfTrue(delta) => {
                     let v = self.pop_stream();
-                    let b = self.ebv_stream(v.cursor())?;
+                    let b = ebv_of_stream(&mut *v.cursor())?;
                     if b {
                         ip += 1 + *delta;
                     } else {
@@ -1282,7 +1283,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 }
                 OpCode::JumpIfFalse(delta) => {
                     let v = self.pop_stream();
-                    let b = self.ebv_stream(v.cursor())?;
+                    let b = ebv_of_stream(&mut *v.cursor())?;
                     if !b {
                         ip += 1 + *delta;
                     } else {
@@ -1702,81 +1703,6 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         result
     }
 
-    fn ebv(seq: &XdmSequence<N>) -> Result<bool, Error> {
-        match seq.len() {
-            0 => Ok(false),
-            1 => match &seq[0] {
-                XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => Ok(*b),
-                XdmItem::Atomic(XdmAtomicValue::String(s)) => Ok(!s.is_empty()),
-                XdmItem::Atomic(XdmAtomicValue::Integer(i)) => Ok(*i != 0),
-                XdmItem::Atomic(XdmAtomicValue::Decimal(d)) => Ok(!d.is_zero()),
-                XdmItem::Atomic(XdmAtomicValue::Double(d)) => Ok(*d != 0.0 && !d.is_nan()),
-                XdmItem::Atomic(XdmAtomicValue::Float(f)) => Ok(*f != 0.0 && !f.is_nan()),
-                XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => Ok(!s.is_empty()),
-                XdmItem::Node(_) => Ok(true),
-                _ => Err(Error::from_code(ErrorCode::FORG0006, "EBV for this atomic type not supported")),
-            },
-            _ => {
-                if seq.iter().all(|item| matches!(item, XdmItem::Node(_))) {
-                    Ok(true)
-                } else {
-                    Err(Error::from_code(ErrorCode::FORG0006, "effective boolean value of sequence of length > 1"))
-                }
-            }
-        }
-    }
-
-    fn ebv_stream(&self, mut cursor: Box<dyn SequenceCursor<N>>) -> Result<bool, Error> {
-        use crate::xdm::XdmAtomicValue as V;
-        use crate::xdm::XdmItem;
-        let mut seen = 0usize;
-        let mut first_atomic: Option<bool> = None;
-        let mut saw_node_only = true;
-
-        while let Some(item) = cursor.next_item() {
-            let item = item?;
-            seen = seen.saturating_add(1);
-            match item {
-                XdmItem::Node(_) => {
-                    // keep scanning to ensure sequence does not contain atomics
-                }
-                XdmItem::Atomic(a) => {
-                    saw_node_only = false;
-                    if seen == 1 {
-                        let ebv = match a {
-                            V::Boolean(b) => b,
-                            V::String(ref s) | V::UntypedAtomic(ref s) => !s.is_empty(),
-                            V::Integer(i) => i != 0,
-                            V::Decimal(d) => !d.is_zero(),
-                            V::Double(d) => d != 0.0 && !d.is_nan(),
-                            V::Float(f) => f != 0.0 && !f.is_nan(),
-                            _ => {
-                                return Err(Error::from_code(
-                                    ErrorCode::FORG0006,
-                                    "EBV for this atomic type not supported",
-                                ));
-                            }
-                        };
-                        first_atomic = Some(ebv);
-                    } else {
-                        return Err(Error::from_code(
-                            ErrorCode::FORG0006,
-                            "effective boolean value of sequence of length > 1",
-                        ));
-                    }
-                }
-            }
-        }
-
-        if seen == 0 {
-            return Ok(false);
-        }
-        if saw_node_only {
-            return Ok(true);
-        }
-        Ok(first_atomic.unwrap_or(false))
-    }
-
     // XPath 2.0 predicate semantics:
     // - If result is a number: keep node iff number == position()
     // - Else: use EBV of the result
@@ -1795,15 +1721,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         };
         match first {
             XdmItem::Node(_) => {
-                // If we see a second node, EBV=true immediately; if we see an atomic afterward → error.
-                match c.next_item() {
-                    Some(Ok(XdmItem::Node(_))) => Ok(true),
-                    Some(Ok(XdmItem::Atomic(_))) => {
-                        Err(Error::from_code(ErrorCode::FORG0006, "effective boolean value of sequence of length > 1"))
-                    }
-                    Some(Err(e)) => Err(e),
-                    None => Ok(true),
-                }
+                // EBV rule 2: first item is a node → true (short-circuit, rest ignored)
+                Ok(true)
             }
             XdmItem::Atomic(a) => {
                 // Peek if there is a second item; if yes → EBV error (length>1 with atomics)
@@ -1832,7 +1751,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     return Ok((num - (position as f64)).abs() < f64::EPSILON);
                 }
                 // Otherwise EBV of singleton atomic
-                Self::ebv(&vec![XdmItem::Atomic(a)])
+                ebv_of_atomic(&a)
             }
         }
     }
