@@ -46,6 +46,7 @@ impl<'a> KeyboardEngine<'a> {
 
         if self.started {
             let end_result = self.device.end_input();
+            self.started = false;
             if result.is_ok()
                 && let Err(end_err) = end_result
             {
@@ -219,6 +220,17 @@ impl<'a> KeyboardEngine<'a> {
 
     fn sleep_after_sequence(&self) {
         self.sleep(self.profile.after_sequence_delay);
+    }
+}
+
+impl Drop for KeyboardEngine<'_> {
+    fn drop(&mut self) {
+        if self.started {
+            tracing::warn!("KeyboardEngine dropped without calling execute — ending input session");
+            let _ = self.release_all_pressed();
+            let _ = self.device.end_input();
+            self.started = false;
+        }
     }
 }
 
