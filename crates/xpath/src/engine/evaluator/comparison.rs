@@ -1,5 +1,7 @@
 //! Atomic value comparison for XPath 2.0 value and general comparisons.
 
+use std::borrow::Cow;
+
 use crate::compiler::ir::ComparisonOp;
 use crate::engine::runtime::{Error, ErrorCode};
 use crate::model::XdmNode;
@@ -63,29 +65,31 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
 
         // Normalize untypedAtomic per context: if the counterpart is numeric attempt numeric cast (error on failure),
         // else treat both sides' untyped as string. untyped vs untyped -> both strings.
-        let (a_norm, b_norm) = match (a, b) {
-            (V::UntypedAtomic(sa), V::UntypedAtomic(sb)) => (V::String(sa.clone()), V::String(sb.clone())),
+        let (a_norm, b_norm): (Cow<'_, XdmAtomicValue>, Cow<'_, XdmAtomicValue>) = match (a, b) {
+            (V::UntypedAtomic(sa), V::UntypedAtomic(sb)) => {
+                (Cow::Owned(V::String(sa.clone())), Cow::Owned(V::String(sb.clone())))
+            }
             (V::UntypedAtomic(s), other)
                 if matches!(other, V::Integer(_) | V::Decimal(_) | V::Double(_) | V::Float(_)) =>
             {
                 let num =
                     s.parse::<f64>().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid numeric literal"))?;
-                (V::Double(num), other.clone())
+                (Cow::Owned(V::Double(num)), Cow::Borrowed(other))
             }
             (other, V::UntypedAtomic(s))
                 if matches!(other, V::Integer(_) | V::Decimal(_) | V::Double(_) | V::Float(_)) =>
             {
                 let num =
                     s.parse::<f64>().map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid numeric literal"))?;
-                (other.clone(), V::Double(num))
+                (Cow::Borrowed(other), Cow::Owned(V::Double(num)))
             }
-            (V::UntypedAtomic(s), other) => (V::String(s.clone()), other.clone()),
-            (other, V::UntypedAtomic(s)) => (other.clone(), V::String(s.clone())),
-            _ => (a.clone(), b.clone()),
+            (V::UntypedAtomic(s), other) => (Cow::Owned(V::String(s.clone())), Cow::Borrowed(other)),
+            (other, V::UntypedAtomic(s)) => (Cow::Borrowed(other), Cow::Owned(V::String(s.clone()))),
+            _ => (Cow::Borrowed(a), Cow::Borrowed(b)),
         };
 
         // Boolean handling
-        if let (V::Boolean(x), V::Boolean(y)) = (&a_norm, &b_norm) {
+        if let (V::Boolean(x), V::Boolean(y)) = (&*a_norm, &*b_norm) {
             return Ok(match op {
                 Eq => x == y,
                 Ne => x != y,
@@ -96,9 +100,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
 
         // If both (after normalization) are strings and not numeric context
-        if matches!((&a_norm, &b_norm), (V::String(_), V::String(_))) && matches!(op, Lt | Le | Gt | Ge | Eq | Ne) {
-            let ls = if let V::String(s) = &a_norm { s } else { unreachable!("expected string after normalization") };
-            let rs = if let V::String(s) = &b_norm { s } else { unreachable!("expected string after normalization") };
+        if matches!((&*a_norm, &*b_norm), (V::String(_), V::String(_))) && matches!(op, Lt | Le | Gt | Ge | Eq | Ne) {
+            let ls = if let V::String(s) = &*a_norm { s } else { unreachable!("expected string after normalization") };
+            let rs = if let V::String(s) = &*b_norm { s } else { unreachable!("expected string after normalization") };
             // Collation-aware: use default collation (fallback to codepoint)
             let coll_arc;
             let coll: &dyn crate::engine::collation::Collation = if let Some(c) = &self.default_collation {
