@@ -1,7 +1,11 @@
 //! `wl_seat` handler — keyboard, pointer, touch.
 
 use smithay::input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus};
+use smithay::reexports::wayland_server::Resource;
 use smithay::utils::IsAlive;
+use smithay::wayland::seat::WaylandFocus;
+use smithay::wayland::selection::data_device::set_data_device_focus;
+use smithay::wayland::selection::primary_selection::set_primary_focus;
 
 use crate::{
     focus::{KeyboardFocusTarget, PointerFocusTarget},
@@ -17,8 +21,16 @@ impl SeatHandler for State {
         &mut self.seat_state
     }
 
-    fn focus_changed(&mut self, _seat: &Seat<Self>, focused: Option<&Self::KeyboardFocus>) {
+    fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&Self::KeyboardFocus>) {
         tracing::debug!(?focused, "keyboard focus changed");
+
+        // Update data-device and primary-selection focus so the newly
+        // focused client receives clipboard/selection offers.
+        let client = focused
+            .and_then(WaylandFocus::wl_surface)
+            .and_then(|s| s.client());
+        set_data_device_focus(&self.display_handle, seat, client.clone());
+        set_primary_focus(&self.display_handle, seat, client);
 
         // Notify foreign-toplevel clients about activated state changes so
         // that taskbars (ironbar) can correctly distinguish between focused
