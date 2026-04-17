@@ -31,10 +31,15 @@ where
     T: UiPattern + 'static,
 {
     if Arc::as_ref(&pattern).as_any().is::<T>() {
-        let raw_pattern = Arc::into_raw(pattern);
-        let raw_any = raw_pattern as *const (dyn Any + Send + Sync);
-        let any_arc = unsafe { Arc::from_raw(raw_any) };
-        Arc::downcast::<T>(any_arc).ok()
+        let raw = Arc::into_raw(pattern) as *const T;
+        // SAFETY: `is::<T>()` verified that the concrete type behind `dyn UiPattern`
+        // is `T`. `Arc::into_raw` returns a pointer whose data component points to the
+        // actual `T` value, and casting to `*const T` (thin pointer) discards the
+        // trait-object vtable. The `Arc` allocation layout is identical regardless of
+        // whether it was created as `Arc<T>` or `Arc<dyn UiPattern>` (same data, same
+        // refcounts), so `Arc::from_raw` reconstructs a valid `Arc<T>`.
+        #[allow(unsafe_code)]
+        Some(unsafe { Arc::from_raw(raw) })
     } else {
         None
     }
