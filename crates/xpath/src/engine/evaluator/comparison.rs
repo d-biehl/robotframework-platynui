@@ -67,7 +67,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         // else treat both sides' untyped as string. untyped vs untyped -> both strings.
         let (a_norm, b_norm): (Cow<'_, XdmAtomicValue>, Cow<'_, XdmAtomicValue>) = match (a, b) {
             (V::UntypedAtomic(sa), V::UntypedAtomic(sb)) => {
-                (Cow::Owned(V::String(sa.clone())), Cow::Owned(V::String(sb.clone())))
+                // Both untypedAtomic: compare as strings directly without allocating V::String wrappers
+                return self.compare_strings(sa, sb, op);
             }
             (V::UntypedAtomic(s), other)
                 if matches!(other, V::Integer(_) | V::Decimal(_) | V::Double(_) | V::Float(_)) =>
@@ -103,32 +104,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         if matches!((&*a_norm, &*b_norm), (V::String(_), V::String(_))) && matches!(op, Lt | Le | Gt | Ge | Eq | Ne) {
             let ls = if let V::String(s) = &*a_norm { s } else { unreachable!("expected string after normalization") };
             let rs = if let V::String(s) = &*b_norm { s } else { unreachable!("expected string after normalization") };
-            // Collation-aware: use default collation (fallback to codepoint)
-            let coll_arc;
-            let coll: &dyn crate::engine::collation::Collation = if let Some(c) = &self.default_collation {
-                c.as_ref()
-            } else {
-                coll_arc = self
-                    .dyn_ctx
-                    .collations
-                    .get(crate::engine::collation::CODEPOINT_URI)
-                    .unwrap_or_else(|| std::rc::Rc::new(crate::engine::collation::CodepointCollation));
-                coll_arc.as_ref()
-            };
-            return Ok(match op {
-                Eq => coll.key(ls) == coll.key(rs),
-                Ne => coll.key(ls) != coll.key(rs),
-                Lt => coll.compare(ls, rs).is_lt(),
-                Le => {
-                    let ord = coll.compare(ls, rs);
-                    ord.is_lt() || ord.is_eq()
-                }
-                Gt => coll.compare(ls, rs).is_gt(),
-                Ge => {
-                    let ord = coll.compare(ls, rs);
-                    ord.is_gt() || ord.is_eq()
-                }
-            });
+            return self.compare_strings(ls, rs, op);
         }
 
         // QName equality (only Eq/Ne permitted); compare namespace URI + local name; ignore prefix
@@ -271,5 +247,34 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
 
         // Unsupported / incomparable type combination → type error (XPTY0004)
         Err(Error::from_code(ErrorCode::XPTY0004, "incomparable atomic types"))
+    }
+
+    fn compare_strings(&self, ls: &str, rs: &str, op: ComparisonOp) -> Result<bool, Error> {
+        use ComparisonOp::*;
+        let coll_arc;
+        let coll: &dyn crate::engine::collation::Collation = if let Some(c) = &self.default_collation {
+            c.as_ref()
+        } else {
+            coll_arc = self
+                .dyn_ctx
+                .collations
+                .get(crate::engine::collation::CODEPOINT_URI)
+                .unwrap_or_else(|| std::rc::Rc::new(crate::engine::collation::CodepointCollation));
+            coll_arc.as_ref()
+        };
+        Ok(match op {
+            Eq => coll.key(ls) == coll.key(rs),
+            Ne => coll.key(ls) != coll.key(rs),
+            Lt => coll.compare(ls, rs).is_lt(),
+            Le => {
+                let ord = coll.compare(ls, rs);
+                ord.is_lt() || ord.is_eq()
+            }
+            Gt => coll.compare(ls, rs).is_gt(),
+            Ge => {
+                let ord = coll.compare(ls, rs);
+                ord.is_gt() || ord.is_eq()
+            }
+        })
     }
 }

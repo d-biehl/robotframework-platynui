@@ -40,24 +40,29 @@ pub(super) fn root_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let item_opt = if args.is_empty() {
-        Some(require_context_item(ctx)?)
+    let materialized;
+    let item = if args.is_empty() {
+        require_context_item(ctx)?
     } else {
-        let seq: XdmSequence<N> = args[0].materialize()?;
-        if seq.is_empty() { None } else { Some(seq[0].clone()) }
-    };
-    let Some(item) = item_opt else {
-        return Ok(XdmSequenceStream::from_vec(vec![]));
+        materialized = args[0].materialize()?;
+        if materialized.is_empty() {
+            return Ok(XdmSequenceStream::from_vec(vec![]));
+        }
+        &materialized[0]
     };
     match item {
         XdmItem::Node(n) => {
-            let mut cur = n.clone();
-            let mut p = cur.parent();
-            while let Some(pp) = p {
-                cur = pp.clone();
-                p = cur.parent();
-            }
-            Ok(XdmSequenceStream::from_vec(vec![XdmItem::Node(cur)]))
+            // Avoid cloning n when it has a parent (common case).
+            let root = match n.parent() {
+                None => n.clone(),
+                Some(mut cur) => {
+                    while let Some(pp) = cur.parent() {
+                        cur = pp;
+                    }
+                    cur
+                }
+            };
+            Ok(XdmSequenceStream::from_vec(vec![XdmItem::Node(root)]))
         }
         _ => Err(Error::from_code(ErrorCode::XPTY0004, "root() expects node()")),
     }
@@ -67,15 +72,12 @@ pub(super) fn base_uri_fn<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    let item_opt = if args.is_empty() {
-        Some(require_context_item(ctx)?)
+    let item = if args.is_empty() {
+        require_context_item(ctx)?
     } else if args[0].is_empty() {
-        None
-    } else {
-        Some(args[0][0].clone())
-    };
-    let Some(item) = item_opt else {
         return Ok(vec![]);
+    } else {
+        &args[0][0]
     };
     match item {
         XdmItem::Node(n) => {
@@ -108,15 +110,12 @@ pub(super) fn document_uri_fn<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequence<N>],
 ) -> Result<XdmSequence<N>, Error> {
-    let item_opt = if args.is_empty() {
-        Some(require_context_item(ctx)?)
+    let item = if args.is_empty() {
+        require_context_item(ctx)?
     } else if args[0].is_empty() {
-        None
-    } else {
-        Some(args[0][0].clone())
-    };
-    let Some(item) = item_opt else {
         return Ok(vec![]);
+    } else {
+        &args[0][0]
     };
     match item {
         XdmItem::Node(n) => {
@@ -163,33 +162,43 @@ pub(super) fn lang_fn<N: crate::model::XdmNode + Clone>(
         if args[1].len() != 1 {
             return Err(Error::from_code(ErrorCode::FORG0006, "fn:lang requires exactly one node in second argument"));
         }
-        args[1][0].clone()
+        &args[1][0]
     };
-    let mut n = match target_item {
-        XdmItem::Node(node) => node,
-        _ => {
-            return Err(Error::from_code(ErrorCode::XPTY0004, "fn:lang requires node() as second argument"));
-        }
+    let XdmItem::Node(start_node) = target_item else {
+        return Err(Error::from_code(ErrorCode::XPTY0004, "fn:lang requires node() as second argument"));
     };
+    // Walk the ancestor chain looking for xml:lang.
+    // Check start_node first (by ref), then walk parents (owned).
     let mut lang_val: Option<String> = None;
-    loop {
-        for a in n.attributes() {
-            if let Some(q) = a.name() {
-                let is_xml_lang = q.local == "lang"
-                    && (q.prefix.as_deref() == Some("xml") || q.ns_uri.as_deref() == Some(crate::consts::XML_URI));
-                if is_xml_lang {
-                    lang_val = Some(a.string_value());
-                    break;
-                }
+    // Check the start node itself first.
+    for a in start_node.attributes() {
+        if let Some(q) = a.name() {
+            let is_xml_lang = q.local == "lang"
+                && (q.prefix.as_deref() == Some("xml") || q.ns_uri.as_deref() == Some(crate::consts::XML_URI));
+            if is_xml_lang {
+                lang_val = Some(a.string_value());
+                break;
             }
         }
-        if lang_val.is_some() {
-            break;
-        }
-        if let Some(p) = n.parent() {
-            n = p;
-        } else {
-            break;
+    }
+    // If not found, walk parents (owned via parent()).
+    if lang_val.is_none() {
+        let mut n = start_node.parent();
+        while let Some(cur) = n {
+            for a in cur.attributes() {
+                if let Some(q) = a.name() {
+                    let is_xml_lang = q.local == "lang"
+                        && (q.prefix.as_deref() == Some("xml") || q.ns_uri.as_deref() == Some(crate::consts::XML_URI));
+                    if is_xml_lang {
+                        lang_val = Some(a.string_value());
+                        break;
+                    }
+                }
+            }
+            if lang_val.is_some() {
+                break;
+            }
+            n = cur.parent();
         }
     }
     let result = if let Some(lang) = lang_val {

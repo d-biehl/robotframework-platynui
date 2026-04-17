@@ -4,6 +4,11 @@ use std::borrow::Cow;
 
 use crate::xdm::XdmAtomicValue;
 
+/// Borrow the inner `&str` from a string-like atomic value.
+///
+/// This is the read-only counterpart to [`string_like_into_owned`].  Use this
+/// variant when you only need to inspect the string content without taking
+/// ownership (no allocation, no move).
 pub(crate) fn string_like_value(atom: &XdmAtomicValue) -> Option<&str> {
     match atom {
         XdmAtomicValue::String(s)
@@ -20,6 +25,34 @@ pub(crate) fn string_like_value(atom: &XdmAtomicValue) -> Option<&str> {
         | XdmAtomicValue::Notation(s)
         | XdmAtomicValue::AnyUri(s) => Some(s),
         _ => None,
+    }
+}
+
+/// Move the owned `String` out of a string-like atomic value, consuming it.
+///
+/// This is the owned counterpart to [`string_like_value`].  Use this variant
+/// when the caller needs an owned `String` and the atom is being consumed
+/// anyway (e.g. casting to `xs:string`).  Moving avoids the heap allocation
+/// that `.to_owned()` on a borrowed `&str` would require.
+///
+/// Returns `Err(atom)` if the variant is not string-like, giving the value back
+/// so the caller can fall back to formatting.
+pub(crate) fn string_like_into_owned(atom: XdmAtomicValue) -> Result<String, XdmAtomicValue> {
+    match atom {
+        XdmAtomicValue::String(s)
+        | XdmAtomicValue::UntypedAtomic(s)
+        | XdmAtomicValue::NormalizedString(s)
+        | XdmAtomicValue::Token(s)
+        | XdmAtomicValue::Language(s)
+        | XdmAtomicValue::Name(s)
+        | XdmAtomicValue::NCName(s)
+        | XdmAtomicValue::NMTOKEN(s)
+        | XdmAtomicValue::Id(s)
+        | XdmAtomicValue::IdRef(s)
+        | XdmAtomicValue::Entity(s)
+        | XdmAtomicValue::Notation(s)
+        | XdmAtomicValue::AnyUri(s) => Ok(s),
+        other => Err(other),
     }
 }
 

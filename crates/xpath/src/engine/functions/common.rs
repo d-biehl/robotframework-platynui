@@ -4,13 +4,15 @@ use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
 use chrono::{DateTime as ChronoDateTime, FixedOffset as ChronoFixedOffset, NaiveDate, NaiveTime, Offset};
 
-pub(super) fn require_context_item<N: crate::model::XdmNode + Clone>(ctx: &CallCtx<N>) -> Result<XdmItem<N>, Error> {
-    if let Some(item) = ctx.current_context_item.clone() {
+pub(super) fn require_context_item<'a, N: crate::model::XdmNode + Clone>(
+    ctx: &'a CallCtx<'a, N>,
+) -> Result<&'a XdmItem<N>, Error> {
+    if let Some(item) = ctx.current_context_item.as_ref() {
         Ok(item)
     } else {
         ctx.dyn_ctx
             .context_item
-            .clone()
+            .as_ref()
             .ok_or_else(|| Error::from_code(ErrorCode::XPDY0002, "context item is undefined"))
     }
 }
@@ -33,7 +35,7 @@ pub(super) fn normalize_space_default<N: 'static + crate::model::XdmNode + Clone
     let s = match arg_opt {
         Some(seq) => item_to_string(seq),
         None => match require_context_item(ctx)? {
-            XdmItem::Atomic(a) => as_string(&a).into_owned(),
+            XdmItem::Atomic(a) => as_string(a).into_owned(),
             XdmItem::Node(n) => n.string_value(),
         },
     };
@@ -76,7 +78,7 @@ pub(super) fn data_default<N: 'static + crate::model::XdmNode + Clone>(
         Ok(out)
     } else {
         match require_context_item(ctx)? {
-            XdmItem::Atomic(a) => Ok(vec![XdmItem::Atomic(a)]),
+            XdmItem::Atomic(a) => Ok(vec![XdmItem::Atomic(a.clone())]),
             XdmItem::Node(n) => Ok(n.typed_value().into_iter().map(XdmItem::Atomic).collect()),
         }
     }
@@ -87,8 +89,14 @@ pub(super) fn number_default<N: crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     arg_opt: Option<&XdmSequence<N>>,
 ) -> Result<XdmSequence<N>, Error> {
-    let seq: XdmSequence<N> = if let Some(s) = arg_opt { s.clone() } else { vec![require_context_item(ctx)?] };
-    let n = to_number(&seq).unwrap_or(f64::NAN);
+    let n = if let Some(s) = arg_opt {
+        to_number(s).unwrap_or(f64::NAN)
+    } else {
+        match require_context_item(ctx)? {
+            XdmItem::Atomic(a) => to_number_atomic(a).unwrap_or(f64::NAN),
+            XdmItem::Node(node) => node.string_value().parse::<f64>().unwrap_or(f64::NAN),
+        }
+    };
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(n))])
 }
 
@@ -100,7 +108,7 @@ pub(super) fn string_default<N: crate::model::XdmNode + Clone>(
     let s = match arg_opt {
         Some(seq) => item_to_string(seq),
         None => match require_context_item(ctx)? {
-            XdmItem::Atomic(a) => as_string(&a).into_owned(),
+            XdmItem::Atomic(a) => as_string(a).into_owned(),
             XdmItem::Node(n) => n.string_value(),
         },
     };
@@ -202,9 +210,9 @@ pub(super) fn node_name_default<N: crate::model::XdmNode + Clone>(
         XdmItem::Node(n) => {
             if let Some(q) = n.name() {
                 Ok(vec![XdmItem::Atomic(XdmAtomicValue::QName {
-                    ns_uri: q.ns_uri.clone(),
-                    prefix: q.prefix.clone(),
-                    local: q.local.clone(),
+                    ns_uri: q.ns_uri,
+                    prefix: q.prefix,
+                    local: q.local,
                 })])
             } else {
                 Ok(vec![])
@@ -484,7 +492,7 @@ pub(super) fn name_default<N: crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     use crate::model::NodeKind;
     let target_opt = if let Some(seq) = arg_opt {
-        if seq.is_empty() { None } else { Some(seq[0].clone()) }
+        if seq.is_empty() { None } else { Some(&seq[0]) }
     } else {
         Some(require_context_item(ctx)?)
     };
@@ -515,7 +523,7 @@ pub(super) fn local_name_default<N: crate::model::XdmNode + Clone>(
     arg_opt: Option<&XdmSequence<N>>,
 ) -> Result<XdmSequence<N>, Error> {
     let target_opt = if let Some(seq) = arg_opt {
-        if seq.is_empty() { None } else { Some(seq[0].clone()) }
+        if seq.is_empty() { None } else { Some(&seq[0]) }
     } else {
         Some(require_context_item(ctx)?)
     };

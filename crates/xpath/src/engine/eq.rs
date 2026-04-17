@@ -342,7 +342,10 @@ fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
             EqKey::String(StringKey { key: CompactString::from(&*key), original: s.as_str().into() })
         }
         QName { ns_uri, local, .. } => {
-            EqKey::QName(QNameKey { ns: ns_uri.as_ref().map(|s| s.clone().into()), local: local.clone().into() })
+            EqKey::QName(QNameKey {
+                ns: ns_uri.as_ref().map(|s| CompactString::from(s.as_str())),
+                local: CompactString::from(local.as_str()),
+            })
         }
         DateTime(_) | Date { .. } | Time { .. } => {
             if let Some((kind, ns)) = date_time_instant_ns(a) {

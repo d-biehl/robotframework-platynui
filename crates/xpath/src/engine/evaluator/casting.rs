@@ -11,7 +11,7 @@ use crate::xdm::{ExpandedName, XdmAtomicValue};
 use super::Vm;
 use super::xml_helpers::{
     collapse_xml_whitespace, decode_hex, encode_hex_upper, is_valid_language, is_valid_name, is_valid_nmtoken,
-    replace_xml_whitespace, string_like_value,
+    replace_xml_whitespace, string_like_into_owned, string_like_value,
 };
 
 impl<N: 'static + XdmNode + Clone> Vm<N> {
@@ -25,14 +25,14 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
         match target.local.as_str() {
             "anyAtomicType" => Ok(a),
-            "string" => {
-                let text = string_like_value(&a).map(str::to_owned).unwrap_or_else(|| self.atomic_to_string(&a));
-                Ok(XdmAtomicValue::String(text))
-            }
-            "untypedAtomic" => {
-                let text = string_like_value(&a).map(str::to_owned).unwrap_or_else(|| self.atomic_to_string(&a));
-                Ok(XdmAtomicValue::UntypedAtomic(text))
-            }
+            "string" => match string_like_into_owned(a) {
+                Ok(s) => Ok(XdmAtomicValue::String(s)),
+                Err(other) => Ok(XdmAtomicValue::String(self.atomic_to_string(&other))),
+            },
+            "untypedAtomic" => match string_like_into_owned(a) {
+                Ok(s) => Ok(XdmAtomicValue::UntypedAtomic(s)),
+                Err(other) => Ok(XdmAtomicValue::UntypedAtomic(self.atomic_to_string(&other))),
+            },
             "boolean" => match a {
                 XdmAtomicValue::Boolean(b) => Ok(XdmAtomicValue::Boolean(b)),
                 XdmAtomicValue::Integer(i) => Ok(XdmAtomicValue::Boolean(i != 0)),

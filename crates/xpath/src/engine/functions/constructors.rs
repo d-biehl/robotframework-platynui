@@ -103,13 +103,13 @@ pub(super) fn xs_decimal_stream<N: 'static + crate::model::XdmNode + Clone>(
     let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
     };
-    let s = s.trim().to_string();
+    let s = s.trim();
     if s.eq_ignore_ascii_case("nan") || s.eq_ignore_ascii_case("inf") || s.eq_ignore_ascii_case("-inf") {
         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"));
     }
     let v = {
         use std::str::FromStr;
-        rust_decimal::Decimal::from_str(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?
+        rust_decimal::Decimal::from_str(s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:decimal"))?
     };
     let result = vec![XdmItem::Atomic(XdmAtomicValue::Decimal(v))];
     Ok(XdmSequenceStream::from_vec(result))
@@ -122,8 +122,8 @@ pub(super) fn xs_double_stream<N: 'static + crate::model::XdmNode + Clone>(
     let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
     };
-    let s = s.trim().to_string();
-    let v = match s.as_str() {
+    let s = s.trim();
+    let v = match s {
         "NaN" => f64::NAN,
         "INF" => f64::INFINITY,
         "-INF" => f64::NEG_INFINITY,
@@ -140,8 +140,8 @@ pub(super) fn xs_float_stream<N: 'static + crate::model::XdmNode + Clone>(
     let Some(s) = materialize_singleton(args)? else {
         return Ok(XdmSequenceStream::from_vec(vec![]));
     };
-    let s = s.trim().to_string();
-    let v = match s.as_str() {
+    let s = s.trim();
+    let v = match s {
         "NaN" => f32::NAN,
         "INF" => f32::INFINITY,
         "-INF" => f32::NEG_INFINITY,

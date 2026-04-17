@@ -104,7 +104,7 @@ pub struct CallCtx<'a, N> {
     // Resolved default collation according to resolution order (if available)
     pub default_collation: Option<Rc<dyn Collation>>,
     pub regex: Option<Rc<dyn RegexProvider>>,
-    pub current_context_item: Option<XdmItem<N>>,
+    pub current_context_item: &'a Option<XdmItem<N>>,
 }
 
 /// Stream-based function implementation for zero-copy streaming.
@@ -1486,7 +1486,7 @@ fn convert_qname_atomic(a: XdmAtomicValue, static_ctx: &StaticContext) -> Result
 #[derive(Debug, Clone, Default)]
 pub struct FunctionSignatures {
     entries: HashMap<ExpandedName, Vec<ArityRange>>,
-    param_types: HashMap<(ExpandedName, usize), Vec<ParamTypeSpec>>,
+    param_types: HashMap<ExpandedName, HashMap<usize, Vec<ParamTypeSpec>>>,
 }
 
 impl FunctionSignatures {
@@ -1498,7 +1498,7 @@ impl FunctionSignatures {
     }
 
     pub fn set_param_types(&mut self, name: ExpandedName, arity: usize, specs: Vec<ParamTypeSpec>) {
-        self.param_types.insert((name, arity), specs);
+        self.param_types.entry(name).or_default().insert(arity, specs);
     }
 
     pub fn register_ns(&mut self, ns: &str, local: &str, min: usize, max: Option<usize>) {
@@ -1523,15 +1523,18 @@ impl FunctionSignatures {
         arity: usize,
         default_ns: Option<&str>,
     ) -> Option<&[ParamTypeSpec]> {
-        if let Some(types) = self.param_types.get(&(name.clone(), arity)) {
+        if let Some(by_arity) = self.param_types.get(name)
+            && let Some(types) = by_arity.get(&arity)
+        {
             return Some(types.as_slice());
         }
         if name.ns_uri.is_none()
             && let Some(ns) = default_ns
         {
-            let mut resolved = name.clone();
-            resolved.ns_uri = Some(ns.to_string());
-            if let Some(types) = self.param_types.get(&(resolved, arity)) {
+            let resolved = ExpandedName { ns_uri: Some(ns.to_string()), local: name.local.clone() };
+            if let Some(by_arity) = self.param_types.get(&resolved)
+                && let Some(types) = by_arity.get(&arity)
+            {
                 return Some(types.as_slice());
             }
         }

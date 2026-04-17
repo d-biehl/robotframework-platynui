@@ -253,14 +253,15 @@ pub(super) fn namespace_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
-    let item_opt = if args.is_empty() {
-        Some(super::common::require_context_item(ctx)?)
+    let materialized;
+    let item = if args.is_empty() {
+        super::common::require_context_item(ctx)?
     } else {
-        let seq = args[0].materialize()?;
-        if seq.is_empty() { None } else { Some(seq[0].clone()) }
-    };
-    let Some(item) = item_opt else {
-        return Ok(XdmSequenceStream::from_vec(vec![]));
+        materialized = args[0].materialize()?;
+        if materialized.is_empty() {
+            return Ok(XdmSequenceStream::from_vec(vec![]));
+        }
+        &materialized[0]
     };
     let result = match item {
         XdmItem::Node(n) => {

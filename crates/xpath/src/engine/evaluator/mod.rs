@@ -1600,7 +1600,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             static_ctx: &self.compiled.static_ctx,
                             default_collation,
                             regex: self.dyn_ctx.regex.clone(),
-                            current_context_item: self.current_context_item.clone(),
+                            current_context_item: &self.current_context_item,
                         };
 
                         // Call stream function and push result directly
