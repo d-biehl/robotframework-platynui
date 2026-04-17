@@ -116,10 +116,8 @@ pub fn show_results_panel(
                             egui::Key::ArrowUp => {
                                 *focused_index = focused_index.saturating_sub(1);
                             }
-                            egui::Key::ArrowDown => {
-                                if *focused_index + 1 < results.len() {
-                                    *focused_index += 1;
-                                }
+                            egui::Key::ArrowDown if *focused_index + 1 < results.len() => {
+                                *focused_index += 1;
                             }
                             egui::Key::PageUp => {
                                 *focused_index = focused_index.saturating_sub(page_rows);
@@ -130,10 +128,8 @@ pub fn show_results_panel(
                             egui::Key::Home => {
                                 *focused_index = 0;
                             }
-                            egui::Key::End => {
-                                if !results.is_empty() {
-                                    *focused_index = results.len() - 1;
-                                }
+                            egui::Key::End if !results.is_empty() => {
+                                *focused_index = results.len() - 1;
                             }
                             egui::Key::Enter => {}
                             _ => {}

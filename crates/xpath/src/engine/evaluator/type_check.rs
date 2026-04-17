@@ -22,10 +22,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         return Ok(false);
                     }
                     match occ {
-                        OccurrenceIR::One | OccurrenceIR::ZeroOrOne => {
-                            if count > 1 {
-                                return Ok(false);
-                            }
+                        OccurrenceIR::One | OccurrenceIR::ZeroOrOne if count > 1 => {
+                            return Ok(false);
                         }
                         _ => {}
                     }

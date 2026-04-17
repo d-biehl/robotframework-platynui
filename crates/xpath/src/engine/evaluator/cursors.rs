@@ -1072,15 +1072,11 @@ fn classify_predicate_fast(code: &InstrSeq) -> PredicateFastKind {
         for op in &code.0 {
             match op {
                 Position => saw_position = true,
-                PushAtomic(av) => {
-                    if number.is_none() {
-                        number = atomic_to_usize(av);
-                    }
+                PushAtomic(av) if number.is_none() => {
+                    number = atomic_to_usize(av);
                 }
-                CompareValue(c) | CompareGeneral(c) => {
-                    if cmp.is_none() {
-                        cmp = Some(*c);
-                    }
+                CompareValue(c) | CompareGeneral(c) if cmp.is_none() => {
+                    cmp = Some(*c);
                 }
                 _ => {}
             }
@@ -1130,10 +1126,8 @@ pub(super) fn instr_seq_uses_last(code: &InstrSeq) -> bool {
         match op {
             Last => return true,
             // Recurse into nested sequences where predicates might hide
-            PathExprStep(inner) => {
-                if instr_seq_uses_last(inner) {
-                    return true;
-                }
+            PathExprStep(inner) if instr_seq_uses_last(inner) => {
+                return true;
             }
             ApplyPredicates(preds) => {
                 for p in preds {
@@ -1149,15 +1143,11 @@ pub(super) fn instr_seq_uses_last(code: &InstrSeq) -> bool {
                     }
                 }
             }
-            ForLoop { body, .. } => {
-                if instr_seq_uses_last(body) {
-                    return true;
-                }
+            ForLoop { body, .. } if instr_seq_uses_last(body) => {
+                return true;
             }
-            QuantLoop { body, .. } => {
-                if instr_seq_uses_last(body) {
-                    return true;
-                }
+            QuantLoop { body, .. } if instr_seq_uses_last(body) => {
+                return true;
             }
             _ => {}
         }

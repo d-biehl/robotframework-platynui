@@ -233,7 +233,7 @@ impl InputBackend for VirtualInputBackend {
             {
                 return Ok(KeyCode::new(VirtualKeyCode::Action(*action)));
             }
-            return Err(KeyboardError::UnsupportedKey(format!("{name} (active layout: '{}')", lookup.layout_name(),)));
+            return Err(KeyboardError::UnsupportedKey(format!("{name} (active layout: '{}')", lookup.layout_name())));
         }
 
         Err(KeyboardError::UnsupportedKey(format!("{name} (no keymap available, backend virtual-input)")))

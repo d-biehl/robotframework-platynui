@@ -86,12 +86,10 @@ impl Dispatch<WlRegistry, GlobalListContents> for RegistryState {
                 }
                 _ => {}
             },
-            wl_registry::Event::GlobalRemove { name } => {
-                if state.outputs.remove(&name).is_some() {
-                    info!(global_name = name, "wl_output removed (hot-unplug)");
-                    if state.live {
-                        state.rebuild_and_update_outputs();
-                    }
+            wl_registry::Event::GlobalRemove { name } if state.outputs.remove(&name).is_some() => {
+                info!(global_name = name, "wl_output removed (hot-unplug)");
+                if state.live {
+                    state.rebuild_and_update_outputs();
                 }
             }
             _ => {}
@@ -187,18 +185,16 @@ impl Dispatch<ZxdgOutputV1, u32> for RegistryState {
                 info.logical_width = Some(width);
                 info.logical_height = Some(height);
             }
-            zxdg_output_v1::Event::Name { name } => {
+            zxdg_output_v1::Event::Name { name }
                 // Deprecated since wl_output v4 — only use as fallback.
-                if info.name.is_none() {
+                if info.name.is_none() => {
                     info.name = Some(name);
                 }
-            }
-            zxdg_output_v1::Event::Description { description } => {
+            zxdg_output_v1::Event::Description { description }
                 // Deprecated since wl_output v4 — only use as fallback.
-                if info.description.is_none() {
+                if info.description.is_none() => {
                     info.description = Some(description);
                 }
-            }
             _ => {}
         }
     }

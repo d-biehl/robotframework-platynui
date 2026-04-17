@@ -494,11 +494,9 @@ fn wait_for_devices(state: &mut EisState) -> Result<(), PlatformError> {
                     assign_device(state, &dev.device);
                     grace_deadline = Some(Instant::now() + grace);
                 }
-                EiEvent::KeyboardModifiers(ref mods) => {
-                    if mods.group != state.active_group {
-                        debug!(old_group = state.active_group, new_group = mods.group, "EIS layout group changed");
-                        update_active_group(state, mods.group);
-                    }
+                EiEvent::KeyboardModifiers(ref mods) if mods.group != state.active_group => {
+                    debug!(old_group = state.active_group, new_group = mods.group, "EIS layout group changed");
+                    update_active_group(state, mods.group);
                 }
                 EiEvent::Disconnected(ref disc) => {
                     warn!(reason = ?disc.reason, "EIS disconnected during device discovery");

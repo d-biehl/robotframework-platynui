@@ -703,14 +703,10 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     cur.clear();
                     saw_component = true;
                 }
-                'M' => {
-                    if time_part {
-                        mins = cur.parse::<i64>().map_err(|_| ())?;
-                        cur.clear();
-                        saw_component = true;
-                    } else {
-                        return Err(());
-                    }
+                'M' if time_part => {
+                    mins = cur.parse::<i64>().map_err(|_| ())?;
+                    cur.clear();
+                    saw_component = true;
                 }
                 'S' => {
                     secs = cur.parse::<i64>().map_err(|_| ())?;
