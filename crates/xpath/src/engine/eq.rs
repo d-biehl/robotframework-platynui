@@ -38,6 +38,7 @@ use crate::xdm::XdmItem;
 use chrono::TimeZone;
 use compact_str::CompactString;
 use core::hash::{Hash, Hasher};
+use std::borrow::Cow;
 
 const NANOS_PER_SECOND: i128 = 1_000_000_000;
 
@@ -337,8 +338,8 @@ fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
         Double(f) if f.is_nan() => EqKey::NaN,
         Boolean(b) => EqKey::Boolean(*b),
         String(s) | AnyUri(s) | UntypedAtomic(s) => {
-            let key = if let Some(c) = coll { c.key(s) } else { s.clone() };
-            EqKey::String(StringKey { key: key.into(), original: s.clone().into() })
+            let key = if let Some(c) = coll { c.key(s) } else { Cow::Borrowed(s.as_str()) };
+            EqKey::String(StringKey { key: CompactString::from(&*key), original: s.as_str().into() })
         }
         QName { ns_uri, local, .. } => {
             EqKey::QName(QNameKey { ns: ns_uri.as_ref().map(|s| s.clone().into()), local: local.clone().into() })
@@ -361,8 +362,8 @@ fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
         // g* and string derived types collapse to their string value (spec: value space maps)
         NormalizedString(s) | Token(s) | Language(s) | Name(s) | NCName(s) | NMTOKEN(s) | Id(s) | IdRef(s)
         | Entity(s) | Notation(s) => {
-            let key = if let Some(c) = coll { c.key(s) } else { s.clone() };
-            EqKey::String(StringKey { key: key.into(), original: s.clone().into() })
+            let key = if let Some(c) = coll { c.key(s) } else { Cow::Borrowed(s.as_str()) };
+            EqKey::String(StringKey { key: CompactString::from(&*key), original: s.as_str().into() })
         }
         // Fallback – pack debug; will be replaced by specialized handling later.
         _ => EqKey::Other(OtherKey { type_tag: 255, bytes: format!("{:?}", a).into_bytes() }),

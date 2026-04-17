@@ -212,9 +212,8 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                     *initialized = true;
                     *current = Self::first_attribute(&self.node);
                     // fast-skip non-matching attributes for common tests
-                    let test = self.test.clone();
                     while let Some(cur) = current.as_ref() {
-                        match Self::attribute_test_fast_match_static(&test, cur) {
+                        match Self::attribute_test_fast_match_static(&self.test, cur) {
                             Some(true) | None => break,
                             Some(false) => {
                                 let next = Self::next_attribute_in_doc(&self.node, cur);
@@ -226,10 +225,9 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                 }
                 if let Some(cur) = current.take() {
                     // Pre-compute next matching attribute
-                    let test = self.test.clone();
                     let mut next = Self::next_attribute_in_doc(&self.node, &cur);
                     while let Some(ref c2) = next {
-                        match Self::attribute_test_fast_match_static(&test, c2) {
+                        match Self::attribute_test_fast_match_static(&self.test, c2) {
                             Some(true) | None => break,
                             Some(false) => {
                                 next = Self::next_attribute_in_doc(&self.node, c2);

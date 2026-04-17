@@ -26,11 +26,11 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         match target.local.as_str() {
             "anyAtomicType" => Ok(a),
             "string" => {
-                let text = string_like_value(&a).unwrap_or_else(|| self.atomic_to_string(&a));
+                let text = string_like_value(&a).map(str::to_owned).unwrap_or_else(|| self.atomic_to_string(&a));
                 Ok(XdmAtomicValue::String(text))
             }
             "untypedAtomic" => {
-                let text = string_like_value(&a).unwrap_or_else(|| self.atomic_to_string(&a));
+                let text = string_like_value(&a).map(str::to_owned).unwrap_or_else(|| self.atomic_to_string(&a));
                 Ok(XdmAtomicValue::UntypedAtomic(text))
             }
             "boolean" => match a {
@@ -41,7 +41,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::Float(f) => Ok(XdmAtomicValue::Boolean(f != 0.0 && !f.is_nan())),
                 other => {
                     let text = self.require_string_like(&other, "xs:boolean")?;
-                    let b = match text.as_str() {
+                    let b = match text {
                         "true" | "1" => true,
                         "false" | "0" => false,
                         _ => {
@@ -292,7 +292,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::QName { ns_uri, prefix, local } => Ok(XdmAtomicValue::QName { ns_uri, prefix, local }),
                 other => {
                     let text = self.require_string_like(&other, "xs:QName")?;
-                    let (prefix, local) = parse_qname_lexical(&text)
+                    let (prefix, local) = parse_qname_lexical(text)
                         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"))?;
                     Ok(XdmAtomicValue::QName { ns_uri: None, prefix, local })
                 }
@@ -301,10 +301,10 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::Notation(s) => Ok(XdmAtomicValue::Notation(s)),
                 other => {
                     let text = self.require_string_like(&other, "xs:NOTATION")?;
-                    if parse_qname_lexical(&text).is_err() {
+                    if parse_qname_lexical(text).is_err() {
                         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:NOTATION"));
                     }
-                    Ok(XdmAtomicValue::Notation(text))
+                    Ok(XdmAtomicValue::Notation(text.to_owned()))
                 }
             },
             "base64Binary" => match a {
@@ -346,100 +346,100 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::NormalizedString(s) => Ok(XdmAtomicValue::NormalizedString(s)),
                 other => {
                     let text = self.require_string_like(&other, "xs:normalizedString")?;
-                    let normalized = replace_xml_whitespace(&text);
-                    Ok(XdmAtomicValue::NormalizedString(normalized))
+                    let normalized = replace_xml_whitespace(text);
+                    Ok(XdmAtomicValue::NormalizedString(normalized.into_owned()))
                 }
             },
             "token" => match a {
                 XdmAtomicValue::Token(s) => Ok(XdmAtomicValue::Token(s)),
                 other => {
                     let text = self.require_string_like(&other, "xs:token")?;
-                    let collapsed = collapse_xml_whitespace(&text);
-                    Ok(XdmAtomicValue::Token(collapsed))
+                    let collapsed = collapse_xml_whitespace(text);
+                    Ok(XdmAtomicValue::Token(collapsed.into_owned()))
                 }
             },
             "language" => match a {
                 XdmAtomicValue::Language(s) => Ok(XdmAtomicValue::Language(s)),
                 other => {
                     let text = self.require_string_like(&other, "xs:language")?;
-                    let collapsed = collapse_xml_whitespace(&text);
+                    let collapsed = collapse_xml_whitespace(text);
                     if !is_valid_language(&collapsed) {
                         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:language"));
                     }
-                    Ok(XdmAtomicValue::Language(collapsed))
+                    Ok(XdmAtomicValue::Language(collapsed.into_owned()))
                 }
             },
             "Name" => match a {
                 XdmAtomicValue::Name(s) => Ok(XdmAtomicValue::Name(s)),
                 other => {
                     let text = self.require_string_like(&other, "xs:Name")?;
-                    let collapsed = collapse_xml_whitespace(&text);
+                    let collapsed = collapse_xml_whitespace(text);
                     if !is_valid_name(&collapsed, true, true) {
                         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:Name"));
                     }
-                    Ok(XdmAtomicValue::Name(collapsed))
+                    Ok(XdmAtomicValue::Name(collapsed.into_owned()))
                 }
             },
             "NCName" => match a {
                 XdmAtomicValue::NCName(s) => Ok(XdmAtomicValue::NCName(s)),
                 other => {
                     let text = self.require_string_like(&other, "xs:NCName")?;
-                    let collapsed = collapse_xml_whitespace(&text);
+                    let collapsed = collapse_xml_whitespace(text);
                     if !is_valid_name(&collapsed, true, false) {
                         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:NCName"));
                     }
-                    Ok(XdmAtomicValue::NCName(collapsed))
+                    Ok(XdmAtomicValue::NCName(collapsed.into_owned()))
                 }
             },
             "NMTOKEN" => match a {
                 XdmAtomicValue::NMTOKEN(s) => Ok(XdmAtomicValue::NMTOKEN(s)),
                 other => {
                     let text = self.require_string_like(&other, "xs:NMTOKEN")?;
-                    let collapsed = collapse_xml_whitespace(&text);
+                    let collapsed = collapse_xml_whitespace(text);
                     if !is_valid_nmtoken(&collapsed) {
                         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:NMTOKEN"));
                     }
-                    Ok(XdmAtomicValue::NMTOKEN(collapsed))
+                    Ok(XdmAtomicValue::NMTOKEN(collapsed.into_owned()))
                 }
             },
             "ID" => match a {
                 XdmAtomicValue::Id(s) => Ok(XdmAtomicValue::Id(s)),
                 other => {
                     let text = self.require_string_like(&other, "xs:ID")?;
-                    let collapsed = collapse_xml_whitespace(&text);
+                    let collapsed = collapse_xml_whitespace(text);
                     if !is_valid_name(&collapsed, true, false) {
                         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:ID"));
                     }
-                    Ok(XdmAtomicValue::Id(collapsed))
+                    Ok(XdmAtomicValue::Id(collapsed.into_owned()))
                 }
             },
             "IDREF" => match a {
                 XdmAtomicValue::IdRef(s) => Ok(XdmAtomicValue::IdRef(s)),
                 other => {
                     let text = self.require_string_like(&other, "xs:IDREF")?;
-                    let collapsed = collapse_xml_whitespace(&text);
+                    let collapsed = collapse_xml_whitespace(text);
                     if !is_valid_name(&collapsed, true, false) {
                         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:IDREF"));
                     }
-                    Ok(XdmAtomicValue::IdRef(collapsed))
+                    Ok(XdmAtomicValue::IdRef(collapsed.into_owned()))
                 }
             },
             "ENTITY" => match a {
                 XdmAtomicValue::Entity(s) => Ok(XdmAtomicValue::Entity(s)),
                 other => {
                     let text = self.require_string_like(&other, "xs:ENTITY")?;
-                    let collapsed = collapse_xml_whitespace(&text);
+                    let collapsed = collapse_xml_whitespace(text);
                     if !is_valid_name(&collapsed, true, false) {
                         return Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:ENTITY"));
                     }
-                    Ok(XdmAtomicValue::Entity(collapsed))
+                    Ok(XdmAtomicValue::Entity(collapsed.into_owned()))
                 }
             },
             "date" => match a {
                 XdmAtomicValue::Date { date, tz } => Ok(XdmAtomicValue::Date { date, tz }),
                 other => {
                     let text = self.require_string_like(&other, "xs:date")?;
-                    match self.parse_date(&text) {
+                    match self.parse_date(text) {
                         Ok(v) => Ok(v),
                         Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid date")),
                     }
@@ -449,7 +449,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::DateTime(dt) => Ok(XdmAtomicValue::DateTime(dt)),
                 other => {
                     let text = self.require_string_like(&other, "xs:dateTime")?;
-                    match self.parse_date_time(&text) {
+                    match self.parse_date_time(text) {
                         Ok(v) => Ok(v),
                         Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid dateTime")),
                     }
@@ -459,7 +459,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::Time { time, tz } => Ok(XdmAtomicValue::Time { time, tz }),
                 other => {
                     let text = self.require_string_like(&other, "xs:time")?;
-                    match self.parse_time(&text) {
+                    match self.parse_time(text) {
                         Ok(v) => Ok(v),
                         Err(_) => Err(Error::from_code(ErrorCode::FORG0001, "invalid time")),
                     }
@@ -469,7 +469,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::YearMonthDuration(m) => Ok(XdmAtomicValue::YearMonthDuration(m)),
                 other => {
                     let text = self.require_string_like(&other, "xs:yearMonthDuration")?;
-                    self.parse_year_month_duration(&text)
+                    self.parse_year_month_duration(text)
                         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid yearMonthDuration"))
                 }
             },
@@ -477,7 +477,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::DayTimeDuration(m) => Ok(XdmAtomicValue::DayTimeDuration(m)),
                 other => {
                     let text = self.require_string_like(&other, "xs:dayTimeDuration")?;
-                    self.parse_day_time_duration(&text)
+                    self.parse_day_time_duration(text)
                         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid dayTimeDuration"))
                 }
             },
@@ -486,7 +486,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 other => {
                     let text = self.require_string_like(&other, "xs:gYear")?;
                     let (year, tz) =
-                        parse_g_year(&text).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYear"))?;
+                        parse_g_year(text).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYear"))?;
                     Ok(XdmAtomicValue::GYear { year, tz })
                 }
             },
@@ -494,7 +494,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::GYearMonth { year, month, tz } => Ok(XdmAtomicValue::GYearMonth { year, month, tz }),
                 other => {
                     let text = self.require_string_like(&other, "xs:gYearMonth")?;
-                    let (year, month, tz) = parse_g_year_month(&text)
+                    let (year, month, tz) = parse_g_year_month(text)
                         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gYearMonth"))?;
                     Ok(XdmAtomicValue::GYearMonth { year, month, tz })
                 }
@@ -504,7 +504,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 other => {
                     let text = self.require_string_like(&other, "xs:gMonth")?;
                     let (month, tz) =
-                        parse_g_month(&text).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonth"))?;
+                        parse_g_month(text).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonth"))?;
                     Ok(XdmAtomicValue::GMonth { month, tz })
                 }
             },
@@ -512,7 +512,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 XdmAtomicValue::GMonthDay { month, day, tz } => Ok(XdmAtomicValue::GMonthDay { month, day, tz }),
                 other => {
                     let text = self.require_string_like(&other, "xs:gMonthDay")?;
-                    let (month, day, tz) = parse_g_month_day(&text)
+                    let (month, day, tz) = parse_g_month_day(text)
                         .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gMonthDay"))?;
                     Ok(XdmAtomicValue::GMonthDay { month, day, tz })
                 }
@@ -522,7 +522,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 other => {
                     let text = self.require_string_like(&other, "xs:gDay")?;
                     let (day, tz) =
-                        parse_g_day(&text).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gDay"))?;
+                        parse_g_day(text).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:gDay"))?;
                     Ok(XdmAtomicValue::GDay { day, tz })
                 }
             },
@@ -570,7 +570,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             Float(f) => self.float_to_integer(*f as f64, target),
             other => {
                 if let Some(text) = string_like_value(other) {
-                    self.parse_integer_string(&text, target)
+                    self.parse_integer_string(text, target)
                 } else {
                     Err(Error::from_code(ErrorCode::FORG0001, format!("cannot cast to {target}")))
                 }
@@ -613,7 +613,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
     }
 
-    pub(crate) fn require_string_like(&self, atom: &XdmAtomicValue, target: &str) -> Result<String, Error> {
+    pub(crate) fn require_string_like<'a>(&self, atom: &'a XdmAtomicValue, target: &str) -> Result<&'a str, Error> {
         string_like_value(atom).ok_or_else(|| Error::from_code(ErrorCode::FORG0001, format!("cannot cast to {target}")))
     }
 

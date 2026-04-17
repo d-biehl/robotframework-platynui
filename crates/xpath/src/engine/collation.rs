@@ -1,12 +1,13 @@
 use crate::engine::runtime::{DynamicContext, Error, ErrorCode};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 pub trait Collation {
     fn uri(&self) -> &str;
     fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering;
-    fn key(&self, s: &str) -> String {
-        s.to_string()
+    fn key<'a>(&self, s: &'a str) -> Cow<'a, str> {
+        Cow::Borrowed(s)
     }
 }
 
@@ -71,8 +72,8 @@ impl Collation for SimpleCaseCollation {
     fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
         self.key(a).cmp(&self.key(b))
     }
-    fn key(&self, s: &str) -> String {
-        s.to_lowercase()
+    fn key<'a>(&self, s: &'a str) -> Cow<'a, str> {
+        Cow::Owned(s.to_lowercase())
     }
 }
 
@@ -86,10 +87,10 @@ impl Collation for SimpleAccentCollation {
     fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
         self.key(a).cmp(&self.key(b))
     }
-    fn key(&self, s: &str) -> String {
+    fn key<'a>(&self, s: &'a str) -> Cow<'a, str> {
         use unicode_normalization::UnicodeNormalization;
         use unicode_normalization::char::canonical_combining_class as ccc;
-        s.nfd().filter(|&ch| ccc(ch) == 0).collect()
+        Cow::Owned(s.nfd().filter(|&ch| ccc(ch) == 0).collect())
     }
 }
 
@@ -103,11 +104,11 @@ impl Collation for SimpleCaseAccentCollation {
     fn compare(&self, a: &str, b: &str) -> core::cmp::Ordering {
         self.key(a).cmp(&self.key(b))
     }
-    fn key(&self, s: &str) -> String {
+    fn key<'a>(&self, s: &'a str) -> Cow<'a, str> {
         use unicode_normalization::UnicodeNormalization;
         use unicode_normalization::char::canonical_combining_class as ccc;
         let no_marks: String = s.nfd().filter(|&ch| ccc(ch) == 0).collect();
-        no_marks.to_lowercase()
+        Cow::Owned(no_marks.to_lowercase())
     }
 }
 

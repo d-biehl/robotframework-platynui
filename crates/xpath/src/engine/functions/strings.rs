@@ -306,7 +306,7 @@ pub(super) fn string_join_stream<N: 'static + crate::model::XdmNode + Clone>(
     let parts: Vec<String> = items
         .iter()
         .map(|it| match it {
-            XdmItem::Atomic(a) => as_string(a),
+            XdmItem::Atomic(a) => as_string(a).into_owned(),
             XdmItem::Node(n) => n.string_value(),
         })
         .collect();
@@ -326,7 +326,7 @@ fn contains_default<N: 'static + crate::model::XdmNode + Clone>(
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
     let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
-    let b = c.key(&s).contains(&c.key(&sub));
+    let b = c.key(&s).contains(&*c.key(&sub));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
 }
 
@@ -341,7 +341,7 @@ fn starts_with_default<N: 'static + crate::model::XdmNode + Clone>(
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
     let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
-    let b = c.key(&s).starts_with(&c.key(&sub));
+    let b = c.key(&s).starts_with(&*c.key(&sub));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
 }
 
@@ -356,6 +356,6 @@ fn ends_with_default<N: 'static + crate::model::XdmNode + Clone>(
     let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
     let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
-    let b = c.key(&s).ends_with(&c.key(&sub));
+    let b = c.key(&s).ends_with(&*c.key(&sub));
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
 }

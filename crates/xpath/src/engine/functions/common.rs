@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
 use chrono::{DateTime as ChronoDateTime, FixedOffset as ChronoFixedOffset, NaiveDate, NaiveTime, Offset};
@@ -18,7 +20,7 @@ pub(super) fn item_to_string<N: crate::model::XdmNode>(seq: &XdmSequence<N>) -> 
         return String::new();
     }
     match &seq[0] {
-        XdmItem::Atomic(a) => as_string(a),
+        XdmItem::Atomic(a) => as_string(a).into_owned(),
         XdmItem::Node(n) => n.string_value(),
     }
 }
@@ -31,7 +33,7 @@ pub(super) fn normalize_space_default<N: 'static + crate::model::XdmNode + Clone
     let s = match arg_opt {
         Some(seq) => item_to_string(seq),
         None => match require_context_item(ctx)? {
-            XdmItem::Atomic(a) => as_string(&a),
+            XdmItem::Atomic(a) => as_string(&a).into_owned(),
             XdmItem::Node(n) => n.string_value(),
         },
     };
@@ -98,7 +100,7 @@ pub(super) fn string_default<N: crate::model::XdmNode + Clone>(
     let s = match arg_opt {
         Some(seq) => item_to_string(seq),
         None => match require_context_item(ctx)? {
-            XdmItem::Atomic(a) => as_string(&a),
+            XdmItem::Atomic(a) => as_string(&a).into_owned(),
             XdmItem::Node(n) => n.string_value(),
         },
     };
@@ -599,14 +601,14 @@ pub(super) fn index_of_default<N: 'static + crate::model::XdmNode + Clone>(
                 if let Some(c) = coll {
                     c.key(&n.string_value()) == c.key(&as_string(b))
                 } else {
-                    n.string_value() == as_string(b)
+                    *n.string_value() == *as_string(b)
                 }
             }
             (XdmItem::Atomic(a), Some(XdmItem::Node(n))) => {
                 if let Some(c) = coll {
                     c.key(&as_string(a)) == c.key(&n.string_value())
                 } else {
-                    as_string(a) == n.string_value()
+                    *as_string(a) == *n.string_value()
                 }
             }
             _ => false,
@@ -654,59 +656,59 @@ pub(super) fn error_default<N: crate::model::XdmNode>(args: &[XdmSequence<N>]) -
     }
 }
 
-pub(super) fn as_string(a: &XdmAtomicValue) -> String {
+pub(super) fn as_string(a: &XdmAtomicValue) -> Cow<'_, str> {
     match a {
-        XdmAtomicValue::String(s) => s.clone(),
-        XdmAtomicValue::UntypedAtomic(s) => s.clone(),
-        XdmAtomicValue::AnyUri(u) => u.clone(),
+        XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s) | XdmAtomicValue::AnyUri(s) => {
+            Cow::Borrowed(s.as_str())
+        }
         XdmAtomicValue::Boolean(b) => {
             if *b {
-                "true".into()
+                Cow::Borrowed("true")
             } else {
-                "false".into()
+                Cow::Borrowed("false")
             }
         }
-        XdmAtomicValue::Integer(i) => i.to_string(),
+        XdmAtomicValue::Integer(i) => Cow::Owned(i.to_string()),
         // Numeric subtypes fallback to their numeric representation
-        XdmAtomicValue::Long(i) => i.to_string(),
-        XdmAtomicValue::Int(i) => i.to_string(),
-        XdmAtomicValue::Short(i) => i.to_string(),
-        XdmAtomicValue::Byte(i) => i.to_string(),
-        XdmAtomicValue::UnsignedLong(i) => i.to_string(),
-        XdmAtomicValue::UnsignedInt(i) => i.to_string(),
-        XdmAtomicValue::UnsignedShort(i) => i.to_string(),
-        XdmAtomicValue::UnsignedByte(i) => i.to_string(),
-        XdmAtomicValue::NonPositiveInteger(i) => i.to_string(),
-        XdmAtomicValue::NegativeInteger(i) => i.to_string(),
-        XdmAtomicValue::NonNegativeInteger(i) => i.to_string(),
-        XdmAtomicValue::PositiveInteger(i) => i.to_string(),
-        XdmAtomicValue::Double(d) => d.to_string(),
-        XdmAtomicValue::Float(f) => f.to_string(),
-        XdmAtomicValue::Decimal(d) => d.normalize().to_string(),
+        XdmAtomicValue::Long(i) => Cow::Owned(i.to_string()),
+        XdmAtomicValue::Int(i) => Cow::Owned(i.to_string()),
+        XdmAtomicValue::Short(i) => Cow::Owned(i.to_string()),
+        XdmAtomicValue::Byte(i) => Cow::Owned(i.to_string()),
+        XdmAtomicValue::UnsignedLong(i) => Cow::Owned(i.to_string()),
+        XdmAtomicValue::UnsignedInt(i) => Cow::Owned(i.to_string()),
+        XdmAtomicValue::UnsignedShort(i) => Cow::Owned(i.to_string()),
+        XdmAtomicValue::UnsignedByte(i) => Cow::Owned(i.to_string()),
+        XdmAtomicValue::NonPositiveInteger(i) => Cow::Owned(i.to_string()),
+        XdmAtomicValue::NegativeInteger(i) => Cow::Owned(i.to_string()),
+        XdmAtomicValue::NonNegativeInteger(i) => Cow::Owned(i.to_string()),
+        XdmAtomicValue::PositiveInteger(i) => Cow::Owned(i.to_string()),
+        XdmAtomicValue::Double(d) => Cow::Owned(d.to_string()),
+        XdmAtomicValue::Float(f) => Cow::Owned(f.to_string()),
+        XdmAtomicValue::Decimal(d) => Cow::Owned(d.normalize().to_string()),
         XdmAtomicValue::QName { prefix, local, .. } => {
             if let Some(p) = prefix {
-                format!("{}:{}", p, local)
+                Cow::Owned(format!("{}:{}", p, local))
             } else {
-                local.clone()
+                Cow::Borrowed(local.as_str())
             }
         }
-        XdmAtomicValue::DateTime(dt) => dt.format("%Y-%m-%dT%H:%M:%S%:z").to_string(),
+        XdmAtomicValue::DateTime(dt) => Cow::Owned(dt.format("%Y-%m-%dT%H:%M:%S%:z").to_string()),
         XdmAtomicValue::Date { date, tz } => {
             if let Some(off) = tz {
-                format!("{}{}", date.format("%Y-%m-%d"), fmt_offset_local(off))
+                Cow::Owned(format!("{}{}", date.format("%Y-%m-%d"), fmt_offset_local(off)))
             } else {
-                date.format("%Y-%m-%d").to_string()
+                Cow::Owned(date.format("%Y-%m-%d").to_string())
             }
         }
         XdmAtomicValue::Time { time, tz } => {
             if let Some(off) = tz {
-                format!("{}{}", time.format("%H:%M:%S"), fmt_offset_local(off))
+                Cow::Owned(format!("{}{}", time.format("%H:%M:%S"), fmt_offset_local(off)))
             } else {
-                time.format("%H:%M:%S").to_string()
+                Cow::Owned(time.format("%H:%M:%S").to_string())
             }
         }
-        XdmAtomicValue::YearMonthDuration(months) => format_year_month_duration_local(*months),
-        XdmAtomicValue::DayTimeDuration(secs) => format_day_time_duration_local(*secs),
+        XdmAtomicValue::YearMonthDuration(months) => Cow::Owned(format_year_month_duration_local(*months)),
+        XdmAtomicValue::DayTimeDuration(secs) => Cow::Owned(format_day_time_duration_local(*secs)),
         // Binary & lexical string-derived types: return stored lexical form
         XdmAtomicValue::Base64Binary(s)
         | XdmAtomicValue::HexBinary(s)
@@ -719,22 +721,22 @@ pub(super) fn as_string(a: &XdmAtomicValue) -> String {
         | XdmAtomicValue::Id(s)
         | XdmAtomicValue::IdRef(s)
         | XdmAtomicValue::Entity(s)
-        | XdmAtomicValue::Notation(s) => s.clone(),
+        | XdmAtomicValue::Notation(s) => Cow::Borrowed(s.as_str()),
         // g* date fragments: simple ISO-ish formatting
         XdmAtomicValue::GYear { year, tz } => {
-            format!("{:04}{}", year, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default())
+            Cow::Owned(format!("{:04}{}", year, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()))
         }
         XdmAtomicValue::GYearMonth { year, month, tz } => {
-            format!("{:04}-{:02}{}", year, month, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default())
+            Cow::Owned(format!("{:04}-{:02}{}", year, month, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()))
         }
         XdmAtomicValue::GMonth { month, tz } => {
-            format!("--{:02}{}", month, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default())
+            Cow::Owned(format!("--{:02}{}", month, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()))
         }
         XdmAtomicValue::GMonthDay { month, day, tz } => {
-            format!("--{:02}-{:02}{}", month, day, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default())
+            Cow::Owned(format!("--{:02}-{:02}{}", month, day, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()))
         }
         XdmAtomicValue::GDay { day, tz } => {
-            format!("---{:02}{}", day, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default())
+            Cow::Owned(format!("---{:02}{}", day, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()))
         }
     }
 }
@@ -929,8 +931,8 @@ pub(super) fn node_deep_equal<N: crate::model::XdmNode>(
             let mut sa = a.string_value();
             let mut sb = b.string_value();
             if let Some(c) = coll {
-                sa = c.key(&sa);
-                sb = c.key(&sb);
+                sa = c.key(&sa).into_owned();
+                sb = c.key(&sb).into_owned();
             }
             Ok(sa == sb)
         }
@@ -944,7 +946,7 @@ pub(super) fn node_deep_equal<N: crate::model::XdmNode>(
                     let local = name.as_ref().map(|q| q.local.clone()).unwrap_or_default();
                     let mut val = at.string_value();
                     if let Some(c) = coll {
-                        val = c.key(&val);
+                        val = c.key(&val).into_owned();
                     }
                     (ns, local, val)
                 })
@@ -957,7 +959,7 @@ pub(super) fn node_deep_equal<N: crate::model::XdmNode>(
                     let local = name.as_ref().map(|q| q.local.clone()).unwrap_or_default();
                     let mut val = at.string_value();
                     if let Some(c) = coll {
-                        val = c.key(&val);
+                        val = c.key(&val).into_owned();
                     }
                     (ns, local, val)
                 })
@@ -1250,22 +1252,22 @@ pub(super) fn minmax_impl<N: crate::model::XdmNode>(
     };
     let mut iter = seq.iter();
     let first = match iter.next() {
-        Some(XdmItem::Atomic(a)) => as_string(a),
+        Some(XdmItem::Atomic(a)) => as_string(a).into_owned(),
         Some(XdmItem::Node(n)) => n.string_value(),
         None => String::new(), // unreachable due to non-empty
     };
     if let Some(c) = effective_coll {
-        let mut best_orig = first.clone();
-        let mut best_key = c.key(&first);
+        let mut best_key = c.key(&first).into_owned();
+        let mut best_orig = first;
         for it in iter {
             let s = match it {
-                XdmItem::Atomic(a) => as_string(a),
+                XdmItem::Atomic(a) => as_string(a).into_owned(),
                 XdmItem::Node(n) => n.string_value(),
             };
             let k = c.key(&s);
-            let ord = k.cmp(&best_key);
+            let ord = k.as_ref().cmp(best_key.as_str());
             if (is_min && ord == core::cmp::Ordering::Less) || (!is_min && ord == core::cmp::Ordering::Greater) {
-                best_key = k;
+                best_key = k.into_owned();
                 best_orig = s;
             }
         }
@@ -1274,7 +1276,7 @@ pub(super) fn minmax_impl<N: crate::model::XdmNode>(
     } else {
         let best = iter.fold(first, |acc, it| {
             let s = match it {
-                XdmItem::Atomic(a) => as_string(a),
+                XdmItem::Atomic(a) => as_string(a).into_owned(),
                 XdmItem::Node(n) => n.string_value(),
             };
             let ord = s.cmp(&acc);

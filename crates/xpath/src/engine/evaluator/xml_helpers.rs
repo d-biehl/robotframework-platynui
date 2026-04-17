@@ -1,8 +1,10 @@
 //! XML and string utility functions for the XPath evaluator.
 
+use std::borrow::Cow;
+
 use crate::xdm::XdmAtomicValue;
 
-pub(crate) fn string_like_value(atom: &XdmAtomicValue) -> Option<String> {
+pub(crate) fn string_like_value(atom: &XdmAtomicValue) -> Option<&str> {
     match atom {
         XdmAtomicValue::String(s)
         | XdmAtomicValue::UntypedAtomic(s)
@@ -16,22 +18,34 @@ pub(crate) fn string_like_value(atom: &XdmAtomicValue) -> Option<String> {
         | XdmAtomicValue::IdRef(s)
         | XdmAtomicValue::Entity(s)
         | XdmAtomicValue::Notation(s)
-        | XdmAtomicValue::AnyUri(s) => Some(s.clone()),
+        | XdmAtomicValue::AnyUri(s) => Some(s),
         _ => None,
     }
 }
 
-pub(crate) fn replace_xml_whitespace(input: &str) -> String {
-    input
-        .chars()
-        .map(|ch| match ch {
-            '\t' | '\n' | '\r' => ' ',
-            other => other,
-        })
-        .collect()
+pub(crate) fn replace_xml_whitespace<'a>(input: &'a str) -> Cow<'a, str> {
+    if !input.contains(['\t', '\n', '\r']) {
+        return Cow::Borrowed(input);
+    }
+    Cow::Owned(
+        input
+            .chars()
+            .map(|ch| match ch {
+                '\t' | '\n' | '\r' => ' ',
+                other => other,
+            })
+            .collect(),
+    )
 }
 
-pub(crate) fn collapse_xml_whitespace(input: &str) -> String {
+pub(crate) fn collapse_xml_whitespace<'a>(input: &'a str) -> Cow<'a, str> {
+    let needs_collapse = input.starts_with(char::is_whitespace)
+        || input.ends_with(char::is_whitespace)
+        || input.contains(['\t', '\n', '\r'])
+        || input.contains("  ");
+    if !needs_collapse {
+        return Cow::Borrowed(input);
+    }
     let mut out = String::with_capacity(input.len());
     let mut in_space = false;
     for ch in input.chars() {
@@ -51,7 +65,7 @@ pub(crate) fn collapse_xml_whitespace(input: &str) -> String {
     while out.ends_with(' ') {
         out.pop();
     }
-    out
+    Cow::Owned(out)
 }
 
 pub(crate) fn is_valid_language(s: &str) -> bool {

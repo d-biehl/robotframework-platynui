@@ -950,7 +950,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         continue;
                     }
                     // Normalize untypedAtomic: must be numeric for arithmetic. Invalid lexical -> FORG0001.
-                    let norm_untyped = |v: &V| -> Result<V, Error> {
+                    let norm_untyped = |v: V| -> Result<V, Error> {
                         Ok(match v {
                             V::UntypedAtomic(s) => match s.parse::<f64>() {
                                 Ok(num) => V::Double(num),
@@ -961,11 +961,11 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                     ));
                                 }
                             },
-                            _ => v.clone(),
+                            other => other,
                         })
                     };
-                    a = norm_untyped(&a)?;
-                    b = norm_untyped(&b)?;
+                    a = norm_untyped(a)?;
+                    b = norm_untyped(b)?;
 
                     let (ka, kb) = match (classify(&a), classify(&b)) {
                         (Some(x), Some(y)) => (x, y),

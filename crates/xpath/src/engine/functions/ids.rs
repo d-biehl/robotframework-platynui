@@ -37,7 +37,7 @@ pub(super) fn id_fn<N: 'static + crate::model::XdmNode + Clone>(
     let mut tokens: HashSet<String> = HashSet::new();
     for it in &args[0] {
         let s = match it {
-            XdmItem::Atomic(a) => as_string(a),
+            XdmItem::Atomic(a) => as_string(a).into_owned(),
             XdmItem::Node(n) => n.string_value(),
         };
         let collapsed = collapse_whitespace(&s);
@@ -118,7 +118,7 @@ pub(super) fn element_with_id_fn<N: 'static + crate::model::XdmNode + Clone>(
     let mut tokens: HashSet<String> = HashSet::new();
     for it in &args[0] {
         let s = match it {
-            XdmItem::Atomic(a) => as_string(a),
+            XdmItem::Atomic(a) => as_string(a).into_owned(),
             XdmItem::Node(n) => n.string_value(),
         };
         let collapsed = collapse_whitespace(&s);
@@ -163,7 +163,7 @@ pub(super) fn idref_fn<N: 'static + crate::model::XdmNode + Clone>(
     let mut ids: HashSet<String> = HashSet::new();
     for it in &args[0] {
         let s = match it {
-            XdmItem::Atomic(a) => as_string(a),
+            XdmItem::Atomic(a) => as_string(a).into_owned(),
             XdmItem::Node(n) => n.string_value(),
         };
         if is_ncname_ascii(&s) {

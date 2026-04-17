@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::engine::runtime::{Error, ErrorCode};
 use crate::xdm::XdmAtomicValue;
 
@@ -172,65 +174,65 @@ fn typed_value_to_string(values: &[XdmAtomicValue]) -> String {
     values.iter().map(lexical_cast).collect::<Vec<_>>().join(" ")
 }
 
-fn lexical_cast(value: &XdmAtomicValue) -> String {
+fn lexical_cast(value: &XdmAtomicValue) -> Cow<'_, str> {
     use XdmAtomicValue::*;
     match value {
-        Boolean(b) => b.to_string(),
+        Boolean(b) => Cow::Owned(b.to_string()),
         String(s) | UntypedAtomic(s) | AnyUri(s) | NormalizedString(s) | Token(s) | Language(s) | Name(s)
-        | NCName(s) | NMTOKEN(s) | Id(s) | IdRef(s) | Entity(s) | Notation(s) => s.clone(),
-        Integer(i) => i.to_string(),
-        Long(i) => i.to_string(),
-        NonPositiveInteger(i) => i.to_string(),
-        NegativeInteger(i) => i.to_string(),
-        Int(i) => i.to_string(),
-        Short(i) => i.to_string(),
-        Byte(i) => i.to_string(),
-        UnsignedLong(u) => u.to_string(),
-        NonNegativeInteger(u) => u.to_string(),
-        PositiveInteger(u) => u.to_string(),
-        UnsignedInt(u) => u.to_string(),
-        UnsignedShort(u) => u.to_string(),
-        UnsignedByte(u) => u.to_string(),
-        Decimal(d) => d.normalize().to_string(),
-        Double(d) => trim_float(*d),
-        Float(f) => trim_float(*f as f64),
+        | NCName(s) | NMTOKEN(s) | Id(s) | IdRef(s) | Entity(s) | Notation(s) => Cow::Borrowed(s.as_str()),
+        Integer(i) => Cow::Owned(i.to_string()),
+        Long(i) => Cow::Owned(i.to_string()),
+        NonPositiveInteger(i) => Cow::Owned(i.to_string()),
+        NegativeInteger(i) => Cow::Owned(i.to_string()),
+        Int(i) => Cow::Owned(i.to_string()),
+        Short(i) => Cow::Owned(i.to_string()),
+        Byte(i) => Cow::Owned(i.to_string()),
+        UnsignedLong(u) => Cow::Owned(u.to_string()),
+        NonNegativeInteger(u) => Cow::Owned(u.to_string()),
+        PositiveInteger(u) => Cow::Owned(u.to_string()),
+        UnsignedInt(u) => Cow::Owned(u.to_string()),
+        UnsignedShort(u) => Cow::Owned(u.to_string()),
+        UnsignedByte(u) => Cow::Owned(u.to_string()),
+        Decimal(d) => Cow::Owned(d.normalize().to_string()),
+        Double(d) => Cow::Owned(trim_float(*d)),
+        Float(f) => Cow::Owned(trim_float(*f as f64)),
         QName { ns_uri, prefix, local } => match (ns_uri, prefix) {
-            (Some(ns), Some(pref)) => format!("{{{}}}{}:{}", ns, pref, local),
-            (Some(ns), None) => format!("{{{}}}{}", ns, local),
-            (None, Some(pref)) => format!("{}:{}", pref, local),
-            (None, None) => local.clone(),
+            (Some(ns), Some(pref)) => Cow::Owned(format!("{{{}}}{}:{}", ns, pref, local)),
+            (Some(ns), None) => Cow::Owned(format!("{{{}}}{}", ns, local)),
+            (None, Some(pref)) => Cow::Owned(format!("{}:{}", pref, local)),
+            (None, None) => Cow::Borrowed(local.as_str()),
         },
-        DateTime(dt) => dt.to_rfc3339(),
+        DateTime(dt) => Cow::Owned(dt.to_rfc3339()),
         Date { date, tz } => match tz {
-            Some(offset) => format!("{}{}", date, offset),
-            None => date.to_string(),
+            Some(offset) => Cow::Owned(format!("{}{}", date, offset)),
+            None => Cow::Owned(date.to_string()),
         },
         Time { time, tz } => match tz {
-            Some(offset) => format!("{}{}", time, offset),
-            None => time.to_string(),
+            Some(offset) => Cow::Owned(format!("{}{}", time, offset)),
+            None => Cow::Owned(time.to_string()),
         },
-        YearMonthDuration(months) => format!("P{}M", months),
-        DayTimeDuration(secs) => format!("PT{}S", secs),
-        Base64Binary(data) | HexBinary(data) => data.clone(),
+        YearMonthDuration(months) => Cow::Owned(format!("P{}M", months)),
+        DayTimeDuration(secs) => Cow::Owned(format!("PT{}S", secs)),
+        Base64Binary(data) | HexBinary(data) => Cow::Borrowed(data.as_str()),
         GYear { year, tz } => match tz {
-            Some(offset) => format!("{}{}", year, offset),
-            None => year.to_string(),
+            Some(offset) => Cow::Owned(format!("{}{}", year, offset)),
+            None => Cow::Owned(year.to_string()),
         },
         GYearMonth { year, month, tz } => match tz {
-            Some(offset) => format!("{}-{:02}{}", year, month, offset),
-            None => format!("{}-{:02}", year, month),
+            Some(offset) => Cow::Owned(format!("{}-{:02}{}", year, month, offset)),
+            None => Cow::Owned(format!("{}-{:02}", year, month)),
         },
         GMonth { month, tz } => match tz {
-            Some(offset) => format!("{:02}{}", month, offset),
-            None => format!("{:02}", month),
+            Some(offset) => Cow::Owned(format!("{:02}{}", month, offset)),
+            None => Cow::Owned(format!("{:02}", month)),
         },
         GMonthDay { month, day, tz } => match tz {
-            Some(offset) => format!("{:02}-{:02}{}", month, day, offset),
-            None => format!("{:02}-{:02}", month, day),
+            Some(offset) => Cow::Owned(format!("{:02}-{:02}{}", month, day, offset)),
+            None => Cow::Owned(format!("{:02}-{:02}", month, day)),
         },
         GDay { day, tz } => match tz {
-            Some(offset) => format!("{:02}{}", day, offset),
-            None => format!("{:02}", day),
+            Some(offset) => Cow::Owned(format!("{:02}{}", day, offset)),
+            None => Cow::Owned(format!("{:02}", day)),
         },
     }
 }
