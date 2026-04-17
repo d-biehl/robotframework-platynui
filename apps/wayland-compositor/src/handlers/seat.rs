@@ -26,9 +26,7 @@ impl SeatHandler for State {
 
         // Update data-device and primary-selection focus so the newly
         // focused client receives clipboard/selection offers.
-        let client = focused
-            .and_then(WaylandFocus::wl_surface)
-            .and_then(|s| s.client());
+        let client = focused.and_then(WaylandFocus::wl_surface).and_then(|s| s.client());
         set_data_device_focus(&self.display_handle, seat, client.clone());
         set_primary_focus(&self.display_handle, seat, client);
 
