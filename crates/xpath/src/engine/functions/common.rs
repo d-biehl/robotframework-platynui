@@ -209,11 +209,7 @@ pub(super) fn node_name_default<N: crate::model::XdmNode + Clone>(
     match &seq[0] {
         XdmItem::Node(n) => {
             if let Some(q) = n.name() {
-                Ok(vec![XdmItem::Atomic(XdmAtomicValue::QName {
-                    ns_uri: q.ns_uri,
-                    prefix: q.prefix,
-                    local: q.local,
-                })])
+                Ok(vec![XdmItem::Atomic(XdmAtomicValue::QName { ns_uri: q.ns_uri, prefix: q.prefix, local: q.local })])
             } else {
                 Ok(vec![])
             }
