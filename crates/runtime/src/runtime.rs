@@ -295,7 +295,7 @@ impl Runtime {
                 desktop.bounds,
                 pointer_settings.clone(),
                 pointer_profile.clone(),
-                &default_pointer_sleep,
+                &default_sleep,
             )
         });
 
@@ -572,7 +572,7 @@ impl Runtime {
                     if start.elapsed() >= timeout {
                         return Err(BringToFrontError::Timeout { runtime_id: rid, waited: timeout });
                     }
-                    default_keyboard_sleep(Duration::from_millis(20));
+                    default_sleep(Duration::from_millis(20));
                 }
                 Ok(None) => return Ok(()),
                 Err(source) => return Err(BringToFrontError::ActionFailed { runtime_id: rid, source }),
@@ -760,7 +760,7 @@ impl Runtime {
         let resolved = parsed.resolve(device)?;
         let overrides = overrides.unwrap_or_default();
         let profile = resolve_keyboard_profile(&self.keyboard_profile(), &overrides);
-        KeyboardEngine::new(device, profile, &default_keyboard_sleep)?.execute(&resolved, KeyboardMode::Press)?;
+        KeyboardEngine::new(device, profile, &default_sleep)?.execute(&resolved, KeyboardMode::Press)?;
         Ok(())
     }
 
@@ -774,7 +774,7 @@ impl Runtime {
         let resolved = parsed.resolve(device)?;
         let overrides = overrides.unwrap_or_default();
         let profile = resolve_keyboard_profile(&self.keyboard_profile(), &overrides);
-        KeyboardEngine::new(device, profile, &default_keyboard_sleep)?.execute(&resolved, KeyboardMode::Release)?;
+        KeyboardEngine::new(device, profile, &default_sleep)?.execute(&resolved, KeyboardMode::Release)?;
         Ok(())
     }
 
@@ -788,7 +788,7 @@ impl Runtime {
         let resolved = parsed.resolve(device)?;
         let overrides = overrides.unwrap_or_default();
         let profile = resolve_keyboard_profile(&self.keyboard_profile(), &overrides);
-        KeyboardEngine::new(device, profile, &default_keyboard_sleep)?.execute(&resolved, KeyboardMode::Type)?;
+        KeyboardEngine::new(device, profile, &default_sleep)?.execute(&resolved, KeyboardMode::Type)?;
         Ok(())
     }
 
@@ -884,14 +884,7 @@ fn fallback_os_version() -> String {
     String::new()
 }
 
-fn default_pointer_sleep(duration: Duration) {
-    if duration.is_zero() {
-        return;
-    }
-    std::thread::sleep(duration);
-}
-
-fn default_keyboard_sleep(duration: Duration) {
+fn default_sleep(duration: Duration) {
     if duration.is_zero() {
         return;
     }
