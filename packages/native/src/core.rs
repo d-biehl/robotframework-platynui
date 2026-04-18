@@ -1,5 +1,3 @@
-#![allow(unsafe_op_in_unsafe_fn)]
-#![allow(clippy::useless_conversion)]
 use pyo3::exceptions::{PyIndexError, PyTypeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};

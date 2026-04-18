@@ -1,4 +1,3 @@
-#![allow(clippy::too_many_arguments, clippy::upper_case_acronyms)]
 use std::mem::size_of;
 use std::sync::Mutex;
 use std::sync::OnceLock;
@@ -290,7 +289,7 @@ impl Overlay {
             }
 
             let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
-            let bmi = BITMAPINFO::new(width as i32, height as i32);
+            let bmi = BITMAPINFO::new(width, height);
             let bitmap: HBITMAP = match CreateDIBSection(Some(mem_dc), &bmi.inner, DIB_RGB_COLORS, &mut bits, None, 0) {
                 Ok(bmp) => bmp,
                 Err(_) => {
@@ -541,6 +540,7 @@ fn blend_pixel(buf: &mut [u8], idx: usize, color: Rgba) {
 }
 
 #[repr(C)]
+#[allow(clippy::upper_case_acronyms)]
 struct BITMAPINFO {
     inner: windows::Win32::Graphics::Gdi::BITMAPINFO,
 }

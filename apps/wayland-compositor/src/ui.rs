@@ -95,12 +95,7 @@ impl TitlebarRenderer {
     ///
     /// Returns `None` if dimensions are zero.
     #[must_use]
-    #[allow(
-        clippy::cast_sign_loss,
-        clippy::cast_possible_truncation,
-        clippy::cast_possible_wrap,
-        clippy::too_many_arguments
-    )]
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
     pub fn render_titlebar(
         &self,
         title: &str,
@@ -172,12 +167,7 @@ impl TitlebarRenderer {
     // -----------------------------------------------------------------------
 
     /// Paint the titlebar overlay (symbols, text, icon) on a transparent pixmap.
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss,
-        clippy::too_many_arguments
-    )]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)]
     fn paint_titlebar(
         &self,
         buf_w: i32,

@@ -575,7 +575,6 @@ fn send_head_for_output(state: &State, manager: &ZwlrOutputManagerV1, output: &O
 }
 
 /// Create and send a mode object with its properties.
-#[allow(clippy::too_many_arguments)]
 fn send_mode(
     dh: &DisplayHandle,
     client: &Client,

@@ -457,7 +457,7 @@ pub fn titlebar_button_hit_test(
 }
 
 /// Generate render elements for SSD (CPU-rendered titlebar via tiny-skia + swash).
-#[allow(clippy::cast_possible_truncation, clippy::too_many_arguments)]
+#[allow(clippy::cast_possible_truncation)]
 pub fn render_decorations(
     renderer: &mut GlowRenderer,
     titlebar_renderer: &crate::ui::TitlebarRenderer,

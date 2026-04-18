@@ -11,3 +11,7 @@ disallowed-types = [
     { path = "once_cell::unsync::Lazy",    reason = "Use std::cell::LazyCell instead (stable since Rust 1.80)" },
     { path = "once_cell::unsync::OnceCell", reason = "Use std::cell::OnceCell instead (stable since Rust 1.70)" },
 ]
+
+# --- Function signature limits ---
+# Default is 7, but low-level drawing/FFI functions legitimately need more.
+too-many-arguments-threshold = 10
