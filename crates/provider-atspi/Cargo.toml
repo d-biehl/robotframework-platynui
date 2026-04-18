@@ -21,3 +21,6 @@ atspi-proxies = "0.13"
 zbus = "5"
 thiserror = "2.0"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
+sysinfo = { version = "0.38", default-features = false, features = ["system", "user"] }
+libc = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
