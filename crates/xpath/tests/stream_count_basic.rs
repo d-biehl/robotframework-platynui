@@ -1,142 +1,124 @@
-/// Test that count() uses the new stream-based implementation.
-use platynui_xpath::*;
+//! Tests for streaming sequence predicates: `count()`, `exists()`, `empty()`.
+//!
+//! These three functions share a stream-based implementation, so each group is
+//! exercised with the same table of scenarios (empty sequence, singleton,
+//! multiple items, large range requiring early termination).
 
-// ===== count() tests =====
+use platynui_xpath::{DynamicContextBuilder, SimpleNode, XdmItem, elem, simple_doc};
+use rstest::{fixture, rstest};
 
-#[test]
-fn count_empty_sequence() {
-    let doc = simple_doc().build();
-    let ctx = DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc)).build();
-    let result = evaluate_expr::<SimpleNode>("count(())", &ctx).unwrap();
-    assert_eq!(result.len(), 1);
-    match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Integer(n)) => assert_eq!(*n, 0),
-        _ => panic!("Expected integer"),
-    }
+mod common;
+use common::{eval_single_boolean, eval_single_integer};
+
+type Ctx = platynui_xpath::DynamicContext<SimpleNode>;
+
+// ===== Fixtures =====
+
+#[fixture]
+fn empty_ctx() -> Ctx {
+    DynamicContextBuilder::default().with_context_item(XdmItem::Node(simple_doc().build())).build()
 }
 
-#[test]
-fn count_single_item() {
+#[fixture]
+fn single_root_ctx() -> Ctx {
     let doc = simple_doc().child(elem("root")).build();
-    let ctx = DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc.clone())).build();
-    let result = evaluate_expr::<SimpleNode>("count(/root)", &ctx).unwrap();
-    assert_eq!(result.len(), 1);
-    match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Integer(n)) => assert_eq!(*n, 1),
-        _ => panic!("Expected integer"),
-    }
+    DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc)).build()
 }
 
-#[test]
-fn count_multiple_children() {
+#[fixture]
+fn three_items_ctx() -> Ctx {
     let doc = simple_doc().child(elem("root").child(elem("item")).child(elem("item")).child(elem("item"))).build();
-    let ctx = DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc.clone())).build();
-    let result = evaluate_expr::<SimpleNode>("count(//item)", &ctx).unwrap();
-    assert_eq!(result.len(), 1);
-    match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Integer(n)) => assert_eq!(*n, 3),
-        _ => panic!("Expected integer"),
-    }
+    DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc)).build()
 }
 
-#[test]
-fn count_large_sequence() {
-    // Test streaming works for large sequences
-    let result = evaluate_expr::<SimpleNode>("count(1 to 10000)", &DynamicContextBuilder::default().build()).unwrap();
-    assert_eq!(result.len(), 1);
-    match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Integer(n)) => assert_eq!(*n, 10000),
-        _ => panic!("Expected integer"),
-    }
+#[fixture]
+fn no_item_ctx() -> Ctx {
+    DynamicContextBuilder::default().build()
 }
 
-// ===== exists() tests =====
+// ===== count() =====
 
-#[test]
-fn exists_empty_sequence() {
-    let doc = simple_doc().build();
-    let ctx = DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc)).build();
-    let result = evaluate_expr::<SimpleNode>("exists(())", &ctx).unwrap();
-    assert_eq!(result.len(), 1);
-    match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => assert!(!*b),
-        _ => panic!("Expected boolean"),
-    }
+#[rstest]
+#[case::empty_literal("count(())", 0)]
+#[case::empty_tree_path("count(/item)", 0)]
+fn count_on_empty_tree(empty_ctx: Ctx, #[case] xpath: &str, #[case] expected: i64) {
+    assert_eq!(eval_single_integer(xpath, &empty_ctx), expected);
 }
 
-#[test]
-fn exists_single_item() {
-    let doc = simple_doc().child(elem("root")).build();
-    let ctx = DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc.clone())).build();
-    let result = evaluate_expr::<SimpleNode>("exists(/root)", &ctx).unwrap();
-    assert_eq!(result.len(), 1);
-    match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => assert!(*b),
-        _ => panic!("Expected boolean"),
-    }
+#[rstest]
+#[case::root("count(/root)", 1)]
+fn count_on_single_root(single_root_ctx: Ctx, #[case] xpath: &str, #[case] expected: i64) {
+    assert_eq!(eval_single_integer(xpath, &single_root_ctx), expected);
 }
 
-#[test]
-fn exists_early_termination() {
-    // exists() should stop after first item (O(1) not O(n))
-    let result =
-        evaluate_expr::<SimpleNode>("exists(1 to 1000000)", &DynamicContextBuilder::default().build()).unwrap();
-    assert_eq!(result.len(), 1);
-    match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => assert!(*b),
-        _ => panic!("Expected boolean"),
-    }
+#[rstest]
+#[case::multiple_children("count(//item)", 3)]
+#[case::filtered_empty("count(//missing)", 0)]
+fn count_on_three_items(three_items_ctx: Ctx, #[case] xpath: &str, #[case] expected: i64) {
+    assert_eq!(eval_single_integer(xpath, &three_items_ctx), expected);
 }
 
-// ===== empty() tests =====
-
-#[test]
-fn empty_empty_sequence() {
-    let doc = simple_doc().build();
-    let ctx = DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc)).build();
-    let result = evaluate_expr::<SimpleNode>("empty(())", &ctx).unwrap();
-    assert_eq!(result.len(), 1);
-    match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => assert!(*b),
-        _ => panic!("Expected boolean"),
-    }
+#[rstest]
+#[case::range("count(1 to 10000)", 10_000)]
+#[case::range_single("count(1 to 1)", 1)]
+#[case::range_empty("count(5 to 1)", 0)]
+fn count_on_large_range_streams(no_item_ctx: Ctx, #[case] xpath: &str, #[case] expected: i64) {
+    assert_eq!(eval_single_integer(xpath, &no_item_ctx), expected);
 }
 
-#[test]
-fn empty_non_empty_sequence() {
-    let doc = simple_doc().child(elem("root")).build();
-    let ctx = DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc.clone())).build();
-    let result = evaluate_expr::<SimpleNode>("empty(/root)", &ctx).unwrap();
-    assert_eq!(result.len(), 1);
-    match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => assert!(!*b),
-        _ => panic!("Expected boolean"),
-    }
+// ===== exists() =====
+
+#[rstest]
+#[case::empty_literal("exists(())", false)]
+#[case::empty_tree_path("exists(/item)", false)]
+fn exists_on_empty_tree(empty_ctx: Ctx, #[case] xpath: &str, #[case] expected: bool) {
+    assert_eq!(eval_single_boolean(xpath, &empty_ctx), expected);
 }
 
-#[test]
-fn empty_early_termination() {
-    // empty() should stop after first item (O(1) not O(n))
-    let result = evaluate_expr::<SimpleNode>("empty(1 to 1000000)", &DynamicContextBuilder::default().build()).unwrap();
-    assert_eq!(result.len(), 1);
-    match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Boolean(b)) => assert!(!*b),
-        _ => panic!("Expected boolean"),
-    }
+#[rstest]
+#[case::root("exists(/root)", true)]
+fn exists_on_single_root(single_root_ctx: Ctx, #[case] xpath: &str, #[case] expected: bool) {
+    assert_eq!(eval_single_boolean(xpath, &single_root_ctx), expected);
 }
 
-// ===== Combined usage test =====
+#[rstest]
+// Early termination: must not materialize 1M items to decide existence.
+#[case::huge_range("exists(1 to 1000000)", true)]
+#[case::empty_range("exists(5 to 1)", false)]
+fn exists_terminates_early(no_item_ctx: Ctx, #[case] xpath: &str, #[case] expected: bool) {
+    assert_eq!(eval_single_boolean(xpath, &no_item_ctx), expected);
+}
+
+// ===== empty() =====
+
+#[rstest]
+#[case::empty_literal("empty(())", true)]
+#[case::empty_tree_path("empty(/item)", true)]
+fn empty_on_empty_tree(empty_ctx: Ctx, #[case] xpath: &str, #[case] expected: bool) {
+    assert_eq!(eval_single_boolean(xpath, &empty_ctx), expected);
+}
+
+#[rstest]
+#[case::root("empty(/root)", false)]
+fn empty_on_single_root(single_root_ctx: Ctx, #[case] xpath: &str, #[case] expected: bool) {
+    assert_eq!(eval_single_boolean(xpath, &single_root_ctx), expected);
+}
+
+#[rstest]
+// Early termination: mirror of `exists_terminates_early`.
+#[case::huge_range("empty(1 to 1000000)", false)]
+#[case::empty_range("empty(5 to 1)", true)]
+fn empty_terminates_early(no_item_ctx: Ctx, #[case] xpath: &str, #[case] expected: bool) {
+    assert_eq!(eval_single_boolean(xpath, &no_item_ctx), expected);
+}
+
+// ===== Combined =====
 
 #[test]
-fn combined_sequence_predicates() {
+fn count_exists_empty_compose_in_if_expression() {
     let doc = simple_doc().child(elem("root").child(elem("item")).child(elem("item"))).build();
     let ctx = DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc)).build();
 
-    // All three stream functions working together
-    let result = evaluate_expr::<SimpleNode>("if (exists(//item)) then count(//item) else 0", &ctx).unwrap();
-    assert_eq!(result.len(), 1);
-    match &result[0] {
-        XdmItem::Atomic(XdmAtomicValue::Integer(n)) => assert_eq!(*n, 2),
-        _ => panic!("Expected integer"),
-    }
+    assert_eq!(eval_single_integer("if (exists(//item)) then count(//item) else 0", &ctx), 2);
+    assert_eq!(eval_single_integer("if (empty(//missing)) then count(//item) else -1", &ctx), 2);
 }

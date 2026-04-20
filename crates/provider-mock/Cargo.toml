@@ -20,5 +20,5 @@ serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
 
 [dev-dependencies]
-rstest = "0.26.1"
+rstest = "0.26"
 serial_test = "3.4"
