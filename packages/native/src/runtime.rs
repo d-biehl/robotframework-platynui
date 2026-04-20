@@ -192,8 +192,7 @@ impl PyNode {
         if !self.inner.supported_patterns().iter().any(|p| p.as_str() == id) {
             return Err(PatternError::new_err(format!("pattern not supported: {id}")));
         }
-        pattern_object(py, &self.inner, &id)
-            .ok_or_else(|| PyTypeError::new_err(format!("unknown pattern: {id}")))
+        pattern_object(py, &self.inner, &id).ok_or_else(|| PyTypeError::new_err(format!("unknown pattern: {id}")))
     }
 }
 
@@ -451,7 +450,8 @@ impl PyWindowSurface {
     where
         F: FnOnce(&dyn core_rs::ui::pattern::WindowSurfacePattern) -> Result<T, core_rs::ui::pattern::PatternError>,
     {
-        let p = self.node
+        let p = self
+            .node
             .pattern::<core_rs::ui::pattern::WindowSurfaceActions>()
             .ok_or_else(|| PatternError::new_err("WindowSurface pattern not available"))?;
         f(&*p).map_err(|e| PatternError::new_err(e.to_string()))
