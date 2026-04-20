@@ -677,30 +677,28 @@ fn read_keymap_from_fd(fd: std::os::fd::OwnedFd, size: u32) -> Option<String> {
 /// Sends `modifiers` events after each state change so the compositor knows
 /// which modifiers are active.
 fn send_virtual_key_combo(state: &mut VirtualInputState, combo: &KeyCombination) -> Result<(), KeyboardError> {
-    if state.virtual_keyboard.is_none() {
-        return Err(KeyboardError::NotReady);
-    }
+    let vk = state.virtual_keyboard.as_ref().ok_or(KeyboardError::NotReady)?.clone();
     let evdev_code = combo.evdev_keycode();
     let mod_keys = combo.modifier_keycodes();
     let time = timestamp_ms(state.epoch);
 
     // Press modifiers.
     for &m in &mod_keys {
-        state.virtual_keyboard.as_ref().unwrap().key(time, m, 1);
+        vk.key(time, m, 1);
         update_xkb_and_send_mods(state, m, KeyState::Press);
     }
 
     // Press key.
-    state.virtual_keyboard.as_ref().unwrap().key(time, evdev_code, 1);
+    vk.key(time, evdev_code, 1);
     update_xkb_and_send_mods(state, evdev_code, KeyState::Press);
 
     // Release key.
-    state.virtual_keyboard.as_ref().unwrap().key(time, evdev_code, 0);
+    vk.key(time, evdev_code, 0);
     update_xkb_and_send_mods(state, evdev_code, KeyState::Release);
 
     // Release modifiers (reverse order).
     for &m in mod_keys.iter().rev() {
-        state.virtual_keyboard.as_ref().unwrap().key(time, m, 0);
+        vk.key(time, m, 0);
         update_xkb_and_send_mods(state, m, KeyState::Release);
     }
 

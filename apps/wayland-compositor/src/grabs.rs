@@ -31,7 +31,13 @@ const MIN_WINDOW_HEIGHT: i32 = 50;
 /// Check whether the client has committed a buffer matching the last configured size.
 fn toplevel_latest_size_committed(toplevel: &smithay::wayland::shell::xdg::ToplevelSurface) -> bool {
     compositor::with_states(toplevel.wl_surface(), |states| {
-        let attributes = states.data_map.get::<XdgToplevelSurfaceData>().unwrap().lock().unwrap();
+        // Invariant: every XDG toplevel surface carries XdgToplevelSurfaceData — guaranteed by Smithay.
+        let attributes = states
+            .data_map
+            .get::<XdgToplevelSurfaceData>()
+            .expect("XDG toplevel surface without XdgToplevelSurfaceData")
+            .lock()
+            .expect("XdgToplevelSurfaceData mutex poisoned");
         let current_server = attributes.current_server_state();
         attributes.last_acked.as_ref().is_some_and(|acked| acked.size == current_server.size)
     })
