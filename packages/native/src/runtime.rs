@@ -172,20 +172,28 @@ impl PyNode {
         self.inner.invalidate();
     }
 
-    /// Returns the requested interaction pattern object or ``None`` when unsupported.
+    /// Returns ``True`` when the node advertises support for the given pattern.
     ///
-    /// Known pattern ids include ``"Focusable"`` and ``"WindowSurface"``.
-    fn pattern_by_id(&self, py: Python<'_>, id: &str) -> Option<Py<PyAny>> {
-        match id {
-            "Focusable" => Py::new(py, PyFocusable { node: self.inner.clone() }).ok().map(|p| p.into_any()),
-            "WindowSurface" => Py::new(py, PyWindowSurface { node: self.inner.clone() }).ok().map(|p| p.into_any()),
-            _ => None,
-        }
+    /// Accepts either a pattern id string (e.g. ``"Focusable"``) or a pattern
+    /// class (e.g. ``Focusable``).
+    fn has_pattern(&self, id: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let id = pattern_id_from_arg(id)?;
+        Ok(self.inner.supported_patterns().iter().any(|p| p.as_str() == id))
     }
 
-    /// Returns ``True`` when the node advertises support for the given pattern id.
-    fn has_pattern(&self, id: &str) -> bool {
-        self.inner.supported_patterns().iter().any(|p| p.as_str() == id)
+    /// Returns the requested pattern object.
+    ///
+    /// Accepts either a pattern id string (e.g. ``"Focusable"``) or a pattern
+    /// class (e.g. ``Focusable``).
+    /// Raises ``PatternError`` when the node does not support the pattern.
+    /// Raises ``TypeError`` when the pattern id is unknown.
+    fn get_pattern(&self, py: Python<'_>, pattern: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let id = pattern_id_from_arg(pattern)?;
+        if !self.inner.supported_patterns().iter().any(|p| p.as_str() == id) {
+            return Err(PatternError::new_err(format!("pattern not supported: {id}")));
+        }
+        pattern_object(py, &self.inner, &id)
+            .ok_or_else(|| PyTypeError::new_err(format!("unknown pattern: {id}")))
     }
 }
 
@@ -298,11 +306,11 @@ impl PyFocusable {
     }
     /// Requests focus for the associated node.
     fn focus(&self) -> PyResult<()> {
-        if let Some(p) = self.node.pattern::<core_rs::ui::pattern::FocusableAction>() {
-            p.focus().map_err(|e| PatternError::new_err(e.to_string()))
-        } else {
-            Err(PatternError::new_err("Focusable pattern not available"))
-        }
+        self.node
+            .pattern::<core_rs::ui::pattern::FocusableAction>()
+            .ok_or_else(|| PatternError::new_err("Focusable pattern not available"))?
+            .focus()
+            .map_err(|e| PatternError::new_err(e.to_string()))
     }
 }
 
@@ -443,13 +451,10 @@ impl PyWindowSurface {
     where
         F: FnOnce(&dyn core_rs::ui::pattern::WindowSurfacePattern) -> Result<T, core_rs::ui::pattern::PatternError>,
     {
-        // Try to obtain a concrete pattern instance registered for this node.
-        // We first attempt the default WindowSurfaceActions type; if not present, fall back to trait-object style via as_any.
-        if let Some(p) = self.node.pattern::<core_rs::ui::pattern::WindowSurfaceActions>() {
-            return f(&*p).map_err(|e| PatternError::new_err(e.to_string()));
-        }
-        // Not available as known concrete type; report not available.
-        Err(PatternError::new_err("WindowSurface pattern not available"))
+        let p = self.node
+            .pattern::<core_rs::ui::pattern::WindowSurfaceActions>()
+            .ok_or_else(|| PatternError::new_err("WindowSurface pattern not available"))?;
+        f(&*p).map_err(|e| PatternError::new_err(e.to_string()))
     }
 
     fn call<F>(&self, f: F) -> PyResult<()>
@@ -1136,6 +1141,18 @@ fn map_bring_err(err: runtime_rs::runtime::BringToFrontError) -> PyErr {
 }
 
 // ---------------- Internal helpers ----------------
+
+/// Extracts a pattern id string from either a ``str`` or a pattern ``type`` argument.
+fn pattern_id_from_arg(arg: &Bound<'_, PyAny>) -> PyResult<String> {
+    if let Ok(s) = arg.extract::<String>() {
+        return Ok(s);
+    }
+    if let Ok(ty) = arg.cast::<PyType>() {
+        let name = ty.name()?;
+        return name.extract::<String>();
+    }
+    Err(PyTypeError::new_err("expected a pattern id string or pattern type"))
+}
 
 fn pattern_object(py: Python<'_>, node: &Arc<dyn core_rs::ui::UiNode>, id: &str) -> Option<Py<PyAny>> {
     match id {

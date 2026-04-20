@@ -565,90 +565,142 @@ class BareMetal(OurDynamicCore):
         self.runtime.focus(descriptor())
 
     @keyword
-    def restore(self, descriptor: UiNodeDescriptor) -> None:
+    def restore_window(self, descriptor: UiNodeDescriptor) -> None:
         """Restore a window from minimized or maximized state.
 
-        Operates through the element's ``WindowSurface`` pattern when available.
-        If the element doesn't support ``WindowSurface``, this is a no-op.
+        Operates through the element's ``WindowSurface`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
 
         Args:
             descriptor: The window element to restore.
 
         Examples:
-            | Restore | //control:Window[@Name="Settings"] |
+            | Restore Window | //control:Window[@Name="Settings"] |
         """
         node = descriptor()
-        pattern = node.pattern_by_id('WindowSurface')
-        if isinstance(pattern, WindowSurface):
-            pattern.restore()
+        node.get_pattern(WindowSurface).restore()
 
     @keyword
-    def maximize(self, descriptor: UiNodeDescriptor) -> None:
+    def maximize_window(self, descriptor: UiNodeDescriptor) -> None:
         """Maximize a window.
 
-        Uses the element's ``WindowSurface`` pattern if supported. No-op otherwise.
+        Operates through the element's ``WindowSurface`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
 
         Args:
             descriptor: The window element to maximize.
 
         Examples:
-            | Maximize | //control:Window[@Name="Editor"] |
+            | Maximize Window | //control:Window[@Name="Editor"] |
         """
         node = descriptor()
-        pattern = node.pattern_by_id('WindowSurface')
-        if isinstance(pattern, WindowSurface):
-            pattern.maximize()
+        node.get_pattern(WindowSurface).maximize()
 
     @keyword
-    def minimize(self, descriptor: UiNodeDescriptor) -> None:
+    def minimize_window(self, descriptor: UiNodeDescriptor) -> None:
         """Minimize a window.
 
-        Uses the element's ``WindowSurface`` pattern if supported. No-op otherwise.
+        Operates through the element's ``WindowSurface`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
 
         Args:
             descriptor: The window element to minimize.
 
         Examples:
-            | Minimize | //control:Window[@Name="Editor"] |
+            | Minimize Window | //control:Window[@Name="Editor"] |
         """
         node = descriptor()
-        pattern = node.pattern_by_id('WindowSurface')
-        if isinstance(pattern, WindowSurface):
-            pattern.minimize()
+        node.get_pattern(WindowSurface).minimize()
 
-    @keyword('Close')
+    @keyword
     def close_window(self, descriptor: UiNodeDescriptor) -> None:
         """Close a window.
 
-        Uses the element's ``WindowSurface`` pattern if supported. No-op otherwise.
+        Operates through the element's ``WindowSurface`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
 
         Args:
             descriptor: The window element to close.
 
         Examples:
-            | Close | //control:Window[@Name="Editor"] |
+            | Close Window | //control:Window[@Name="Editor"] |
         """
         node = descriptor()
-        pattern = node.pattern_by_id('WindowSurface')
-        if isinstance(pattern, WindowSurface):
-            pattern.close()
+        node.get_pattern(WindowSurface).close()
 
     @keyword
-    def activate(self, descriptor: UiNodeDescriptor) -> None:
+    def activate_window(self, descriptor: UiNodeDescriptor) -> None:
         """Activate (bring to front and focus) a window.
 
-        Uses the element's ``WindowSurface`` pattern if supported. No-op otherwise.
+        Operates through the element's ``WindowSurface`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
 
         Args:
             descriptor: The window element to activate.
 
         Examples:
-            | Activate | //control:Window[@Name="Editor"] |
+            | Activate Window | //control:Window[@Name="Editor"] |
         """
         node = descriptor()
-        pattern = node.pattern_by_id('WindowSurface')
-        if isinstance(pattern, WindowSurface):
-            pattern.activate()
+        node.get_pattern(WindowSurface).activate()
+
+    @keyword
+    def move_window(self, descriptor: UiNodeDescriptor, x: float, y: float) -> None:
+        """Move a window to the specified screen coordinates.
+
+        Operates through the element's ``WindowSurface`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
+
+        Args:
+            descriptor: The window element to move.
+            x: The target x coordinate for the window's top-left corner.
+            y: The target y coordinate for the window's top-left corner.
+
+        Examples:
+            | Move Window | //control:Window[@Name="Editor"] | 100 | 200 |
+        """
+        node = descriptor()
+        node.get_pattern(WindowSurface).move_to(x, y)
+
+    @keyword
+    def resize_window(self, descriptor: UiNodeDescriptor, width: float, height: float) -> None:
+        """Resize a window to the specified dimensions.
+
+        Operates through the element's ``WindowSurface`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
+
+        Args:
+            descriptor: The window element to resize.
+            width: The target width.
+            height: The target height.
+
+        Examples:
+            | Resize Window | //control:Window[@Name="Editor"] | 800 | 600 |
+        """
+        node = descriptor()
+        node.get_pattern(WindowSurface).resize(width, height)
+
+    @keyword
+    def move_and_resize_window(
+        self, descriptor: UiNodeDescriptor, x: float, y: float, width: float, height: float
+    ) -> None:
+        """Move and resize a window in a single operation.
+
+        Operates through the element's ``WindowSurface`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
+
+        Args:
+            descriptor: The window element to move and resize.
+            x: The target x coordinate for the window's top-left corner.
+            y: The target y coordinate for the window's top-left corner.
+            width: The target width.
+            height: The target height.
+
+        Examples:
+            | Move And Resize Window | //control:Window[@Name="Editor"] | 100 | 200 | 800 | 600 |
+        """
+        node = descriptor()
+        node.get_pattern(WindowSurface).move_and_resize(x, y, width, height)
 
     @keyword
     def bring_to_front(self, descriptor: UiNodeDescriptor) -> None:
