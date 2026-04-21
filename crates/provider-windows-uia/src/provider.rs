@@ -8,6 +8,7 @@ use platynui_core::register_provider;
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::collections::HashSet;
 use std::sync::LazyLock;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub const PROVIDER_ID: &str = "windows-uia";
@@ -16,7 +17,7 @@ pub static TECHNOLOGY: LazyLock<TechnologyId> = LazyLock::new(|| TechnologyId::f
 // Cache current process id once for the entire module; stable for process lifetime.
 static SELF_PID: LazyLock<i32> = LazyLock::new(|| std::process::id() as i32);
 
-// Streams root children (excluding this process), then one app:Application per PID.
+// Streams root children first, then app:Application nodes.
 struct ElementAndAppIter {
     parent_elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
     current: Option<windows::Win32::UI::Accessibility::IUIAutomationElement>,
@@ -26,6 +27,7 @@ struct ElementAndAppIter {
     apps_phase: bool,
     app_order: Vec<i32>,
     app_index: usize,
+    windows_by_pid: crate::node::AppWindowBuckets,
 }
 
 impl ElementAndAppIter {
@@ -39,6 +41,7 @@ impl ElementAndAppIter {
             apps_phase: false,
             app_order: Vec::new(),
             app_index: 0,
+            windows_by_pid: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 }
@@ -52,7 +55,8 @@ impl Iterator for ElementAndAppIter {
                     let pid = self.app_order[self.app_index];
                     self.app_index += 1;
                     if pid > 0 && pid != *SELF_PID {
-                        let app = crate::node::ApplicationNode::new(pid, self.parent_elem.clone(), &self.parent);
+                        let app =
+                            crate::node::ApplicationNode::new(pid, &self.parent, Arc::clone(&self.windows_by_pid));
                         return Some(app as Arc<dyn UiNode>);
                     }
                 }
@@ -72,20 +76,14 @@ impl Iterator for ElementAndAppIter {
                     self.current = walker.GetFirstChildElement(&self.parent_elem).ok();
                     if self.current.is_none() {
                         self.apps_phase = true;
-                        let mut ordered: Vec<i32> = self.seen.iter().copied().collect();
-                        ordered.sort_unstable();
-                        self.app_order = ordered;
                         self.app_index = 0;
-                        return self.next();
+                        return None;
                     }
                 } else if let Some(ref e) = self.current {
                     let cur = e.clone();
                     self.current = walker.GetNextSiblingElement(&cur).ok();
                     if self.current.is_none() {
                         self.apps_phase = true;
-                        let mut ordered: Vec<i32> = self.seen.iter().copied().collect();
-                        ordered.sort_unstable();
-                        self.app_order = ordered;
                         self.app_index = 0;
                         return self.next();
                     }
@@ -94,11 +92,25 @@ impl Iterator for ElementAndAppIter {
                 let elem = self.current.as_ref()?.clone();
                 let pid = crate::map::get_process_id(&elem).unwrap_or(-1);
                 if pid > 0 && pid != *SELF_PID {
-                    self.seen.insert(pid);
-                    let node = crate::node::UiaNode::from_elem_with_scope(elem, crate::map::UiaIdScope::Desktop);
-                    node.set_parent(&self.parent);
-                    crate::node::UiaNode::init_self(&node);
-                    return Some(node as Arc<dyn UiNode>);
+                    // Create and return the desktop-scoped window node.
+                    let desktop_node =
+                        crate::node::UiaNode::from_elem_with_scope(elem.clone(), crate::map::UiaIdScope::Desktop);
+                    desktop_node.set_parent(&self.parent);
+                    crate::node::UiaNode::init_self(&desktop_node);
+
+                    // Store raw element in pid bucket; app-scoped nodes are
+                    // created lazily in ApplicationNode::children().
+                    if let Ok(mut grouped) = self.windows_by_pid.lock() {
+                        grouped.entry(pid).or_default().push(crate::node::AppWindowElem(elem));
+                    }
+
+                    // Record app order by first appearance; app nodes are streamed
+                    // only after all top-level nodes have been emitted.
+                    if self.seen.insert(pid) {
+                        self.app_order.push(pid);
+                    }
+
+                    return Some(desktop_node as Arc<dyn UiNode>);
                 } else {
                     continue;
                 }

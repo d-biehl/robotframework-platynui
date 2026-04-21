@@ -2,6 +2,7 @@
 //!
 //! UiaNode reflects the current UIA state; no heavy provider‑side caches.
 
+use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex, Weak};
 // no name cache atomics needed
@@ -186,6 +187,7 @@ impl UiNode for UiaNode {
             None => Box::new(std::iter::empty::<Arc<dyn UiNode>>()),
         }
     }
+
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         let rid_str = self.runtime_id().as_str().to_string();
         let owner = self.as_ui_node();
@@ -1260,9 +1262,16 @@ unsafe impl Sync for SupportsResizeAttr {}
 // ---------------------------------------------------------------------------
 // Synthetic Application node for grouped view (Application -> Window)
 
+#[derive(Clone)]
+pub struct AppWindowElem(pub IUIAutomationElement);
+unsafe impl Send for AppWindowElem {}
+unsafe impl Sync for AppWindowElem {}
+
+pub type AppWindowBuckets = Arc<Mutex<HashMap<i32, Vec<AppWindowElem>>>>;
+
 pub struct ApplicationNode {
     pid: i32,
-    root: windows::Win32::UI::Accessibility::IUIAutomationElement,
+    windows_by_pid: AppWindowBuckets,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     self_weak: std::sync::OnceLock<Weak<dyn UiNode>>,
     rid_cell: std::sync::OnceLock<RuntimeId>,
@@ -1272,14 +1281,10 @@ unsafe impl Send for ApplicationNode {}
 unsafe impl Sync for ApplicationNode {}
 
 impl ApplicationNode {
-    pub fn new(
-        pid: i32,
-        root: windows::Win32::UI::Accessibility::IUIAutomationElement,
-        parent: &Arc<dyn UiNode>,
-    ) -> Arc<Self> {
+    pub fn new(pid: i32, parent: &Arc<dyn UiNode>, windows_by_pid: AppWindowBuckets) -> Arc<Self> {
         let node = Arc::new(Self {
             pid,
-            root,
+            windows_by_pid,
             parent: Mutex::new(Some(Arc::downgrade(parent))),
             self_weak: std::sync::OnceLock::new(),
             rid_cell: std::sync::OnceLock::new(),
@@ -1330,44 +1335,30 @@ impl UiNode for ApplicationNode {
         }
     }
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
-        struct AppWindowsIter {
-            // Hold no COM interfaces directly to keep the iterator Send; fetch walker on demand
-            root: windows::Win32::UI::Accessibility::IUIAutomationElement,
-            current: Option<windows::Win32::UI::Accessibility::IUIAutomationElement>,
-            first: bool,
-            parent: Option<Arc<dyn UiNode>>,
-            pid: i32,
-        }
-        impl Iterator for AppWindowsIter {
-            type Item = Arc<dyn UiNode>;
-            fn next(&mut self) -> Option<Self::Item> {
-                let walker = crate::com::raw_walker().ok()?;
-                loop {
-                    if self.first {
-                        self.first = false;
-                        self.current = unsafe { walker.GetFirstChildElement(&self.root).ok() };
-                        self.current.as_ref()?;
-                    } else if let Some(ref elem) = self.current {
-                        let cur = elem.clone();
-                        self.current = unsafe { walker.GetNextSiblingElement(&cur).ok() };
-                        self.current.as_ref()?;
-                    }
-                    let elem = self.current.as_ref()?.clone();
-                    let pid = crate::map::get_process_id(&elem).unwrap_or(-1);
-                    if pid == self.pid {
-                        let node = UiaNode::from_elem_with_scope(elem, crate::map::UiaIdScope::App { pid: self.pid });
-                        if let Some(ref parent) = self.parent {
-                            node.set_parent(parent);
-                        }
-                        UiaNode::init_self(&node);
-                        return Some(node as Arc<dyn UiNode>);
-                    }
-                }
-            }
-        }
-        unsafe impl Send for AppWindowsIter {}
         let parent = self.self_weak.get().and_then(|w| w.upgrade());
-        Box::new(AppWindowsIter { root: self.root.clone(), current: None, first: true, parent, pid: self.pid })
+        let windows: Vec<AppWindowElem> = match self.windows_by_pid.lock() {
+            Ok(grouped) => grouped.get(&self.pid).cloned().unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
+
+        let pid = self.pid;
+        let iter = windows.into_iter().map(move |wrapped| {
+            let elem = wrapped.0;
+            let node = UiaNode::from_elem_with_scope(elem, crate::map::UiaIdScope::App { pid });
+            UiaNode::init_self(&node);
+            if let Some(ref parent_arc) = parent {
+                node.set_parent(parent_arc);
+            }
+            node as Arc<dyn UiNode>
+        });
+        Box::new(iter)
+    }
+
+    fn has_children(&self) -> bool {
+        match self.windows_by_pid.lock() {
+            Ok(grouped) => grouped.get(&self.pid).is_some_and(|v| !v.is_empty()),
+            Err(_) => false,
+        }
     }
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         let owner = self.self_weak.get().and_then(|w| w.upgrade());

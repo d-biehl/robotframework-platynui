@@ -8,7 +8,7 @@
 //! same MTA thread when used from iterator code.
 
 use std::cell::{Cell, RefCell};
-use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx};
+use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationCacheRequest, IUIAutomationTreeWalker, UIA_AutomationIdPropertyId,
     UIA_ControlTypePropertyId, UIA_IsContentElementPropertyId, UIA_IsControlElementPropertyId, UIA_ProcessIdPropertyId,
@@ -22,13 +22,23 @@ thread_local! {
     static TRAVERSAL_CACHE: RefCell<Option<IUIAutomationCacheRequest>> = const { RefCell::new(None) };
 }
 
+// HRESULT for "cannot change thread mode after it is set".
+const RPC_E_CHANGED_MODE_HRESULT: i32 = 0x8001_0106u32 as i32;
+
 pub fn ensure_com_mta() {
     COM_INIT.with(|flag| {
         if !flag.get() {
-            unsafe {
-                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+            if hr.is_ok() {
+                flag.set(true);
+            } else if hr.0 == RPC_E_CHANGED_MODE_HRESULT {
+                // Another library may have initialized COM on this thread
+                // with a different apartment model (commonly STA).
+                flag.set(true);
+                tracing::debug!(hr = ?hr, "CoInitializeEx(MTA) skipped: thread already initialized with different COM mode");
+            } else {
+                tracing::warn!(hr = ?hr, "CoInitializeEx(MTA) failed");
             }
-            flag.set(true);
         }
     });
 }
