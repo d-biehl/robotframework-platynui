@@ -1,3 +1,5 @@
+#![allow(unused_crate_dependencies)]
+
 //! `PlatynUI` Wayland Compositor binary entry point.
 //!
 //! This is a thin wrapper that delegates to [`platynui_wayland_compositor::run`].
@@ -13,9 +15,9 @@ fn main() {
 #[cfg(target_os = "linux")]
 // Dependencies used by the library crate, acknowledged here for the binary crate.
 use {
-    calloop as _, clap as _, fontdb as _, png as _, reis as _, serde as _, serde_json as _, signal_hook as _,
-    smithay as _, swash as _, tempfile as _, tiny_skia as _, toml as _, tracing as _, tracing_subscriber as _,
-    winit as _, xcursor as _, zbus as _,
+    calloop as _, clap as _, fontdb as _, platynui_wayland_compositor as _, png as _, reis as _, serde as _,
+    serde_json as _, signal_hook as _, smithay as _, swash as _, tempfile as _, tiny_skia as _, toml as _,
+    tracing as _, tracing_subscriber as _, winit as _, xcursor as _, zbus as _,
 };
 
 #[cfg(target_os = "linux")]

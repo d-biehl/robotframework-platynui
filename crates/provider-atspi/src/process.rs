@@ -67,16 +67,26 @@ pub fn query_command_line(pid: u32) -> Option<String> {
 /// NSS sources like LDAP, SSSD, NIS correctly — unlike enumeration-based
 /// approaches that may miss users when NSS enumeration is disabled).
 pub fn query_user_name(pid: u32) -> Option<String> {
-    with_process(pid, |p| {
-        let uid = p.effective_user_id().or_else(|| p.user_id())?;
-        resolve_username(**uid)
-    })
+    #[cfg(target_os = "linux")]
+    {
+        return with_process(pid, |p| {
+            let uid = p.effective_user_id().or_else(|| p.user_id())?;
+            resolve_username(**uid)
+        });
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        None
+    }
 }
 
 /// Resolve a UID to a username via `getpwuid_r(3)`.
 ///
 /// Uses the POSIX Name Service Switch (NSS), which correctly handles
 /// `/etc/passwd`, LDAP, SSSD, NIS, and systemd-homed.
+#[cfg(target_os = "linux")]
 #[allow(unsafe_code)]
 fn resolve_username(uid: u32) -> Option<String> {
     // Initial buffer size; grown if ERANGE is returned.
@@ -155,7 +165,6 @@ fn read_elf_architecture(path: &str) -> Option<String> {
     let e_machine = u16::from_le_bytes([header[18], header[19]]);
     Some(elf_machine_to_string(e_machine))
 }
-
 /// Map ELF `e_machine` to a human-readable architecture string.
 fn elf_machine_to_string(machine: u16) -> String {
     match machine {

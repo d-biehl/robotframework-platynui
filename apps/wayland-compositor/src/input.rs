@@ -506,9 +506,7 @@ pub(crate) fn process_touch_up(state: &mut State, slot: smithay::backend::input:
 
     // Deferred SSD button action (mirrors pointer's pressed_titlebar_button).
     // Only consume the pending state when the *same* touch slot is lifted.
-    if let Some((window, pending_click, _, last_pos)) =
-        state.touch_ssd_button.take_if(|(_, _, s, _)| *s == slot)
-    {
+    if let Some((window, pending_click, _, last_pos)) = state.touch_ssd_button.take_if(|(_, _, s, _)| *s == slot) {
         // Only fire the action if the finger is still over the *same*
         // button — matching pointer release behaviour.
         let still_over_same = (|| {

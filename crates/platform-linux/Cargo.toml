@@ -12,14 +12,14 @@ authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-[dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 platynui-core = { path = "../core" }
 platynui-platform-linux-x11 = { path = "../platform-linux-x11" }
 platynui-platform-linux-wayland = { path = "../platform-linux-wayland" }
 inventory = "0.3"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 
-[dev-dependencies]
+[target.'cfg(target_os = "linux")'.dev-dependencies]
 rstest = "0.26"
 
 [lints]

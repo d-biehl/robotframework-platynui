@@ -1,3 +1,5 @@
+#![allow(unused_crate_dependencies)]
+
 //! IPC integration tests — start the compositor and exercise control commands.
 //!
 //! These tests start `platynui-wayland-compositor` as a subprocess, connect to the control
@@ -15,8 +17,6 @@
 
 // This entire test suite only applies to Linux (Wayland compositor).
 #![cfg(target_os = "linux")]
-// Suppress unused-crate-dependency warnings — integration test inherits library deps.
-#![allow(unused_crate_dependencies)]
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -24,6 +24,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
+use platynui_wayland_compositor as _;
 use serde_json::Value;
 
 // ─── Helpers ────────────────────────────────────────────────────────────
