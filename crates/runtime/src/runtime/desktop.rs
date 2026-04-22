@@ -5,7 +5,8 @@ use platynui_core::platform::{DesktopInfo, MonitorInfo};
 use platynui_core::provider::UiTreeProvider;
 use platynui_core::ui::attribute_names;
 use platynui_core::ui::{
-    DESKTOP_RUNTIME_ID, Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue, supported_patterns_value,
+    DESKTOP_RUNTIME_ID, Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue, pattern_ids,
+    supported_patterns_value,
 };
 
 pub(super) struct DesktopNode {
@@ -22,7 +23,7 @@ impl DesktopNode {
         info.runtime_id = RuntimeId::from(DESKTOP_RUNTIME_ID);
         let namespace = Namespace::Control;
         let mut attributes: Vec<Arc<dyn UiAttribute>> = Vec::new();
-        let supported = vec![PatternId::from("Desktop")];
+        let supported = vec![PatternId::from(pattern_ids::DESKTOP)];
 
         attributes.push(attr(namespace, attribute_names::common::ROLE, UiValue::from("Desktop")));
         attributes.push(attr(namespace, attribute_names::common::NAME, UiValue::from(info.name.clone())));

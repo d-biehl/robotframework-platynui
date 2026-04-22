@@ -37,6 +37,7 @@ mod tests {
     use crate::types::Rect;
     use crate::ui::attribute_names::{common, element};
     use crate::ui::pattern::{PatternError, PatternRegistry};
+    use crate::ui::pattern_ids;
     use crate::ui::value::UiValue;
     use crate::ui::{UiAttribute, UiPattern};
     use rstest::rstest;
@@ -118,7 +119,7 @@ mod tests {
                 name: common::TECHNOLOGY,
                 value: UiValue::from("Mock"),
             }));
-            let focusable = PatternId::from("Focusable");
+            let focusable = PatternId::from(pattern_ids::FOCUSABLE);
             self.attributes.push(Arc::new(StaticAttribute {
                 namespace: self.namespace,
                 name: common::SUPPORTED_PATTERNS,
@@ -130,7 +131,7 @@ mod tests {
 
         fn with_focusable_pattern(mut self) -> Self {
             self.patterns.register_dyn(Arc::new(MockFocusablePattern) as Arc<dyn UiPattern>);
-            let focusable = PatternId::from("Focusable");
+            let focusable = PatternId::from(pattern_ids::FOCUSABLE);
             if !self.supported.iter().any(|id| id == &focusable) {
                 self.supported.push(focusable);
             }
@@ -182,14 +183,14 @@ mod tests {
 
     impl UiPattern for MockFocusablePattern {
         fn id(&self) -> PatternId {
-            PatternId::from("Focusable")
+            PatternId::from(pattern_ids::FOCUSABLE)
         }
 
         fn static_id() -> PatternId
         where
             Self: Sized,
         {
-            PatternId::from("Focusable")
+            PatternId::from(pattern_ids::FOCUSABLE)
         }
 
         fn as_any(&self) -> &dyn std::any::Any {
@@ -218,11 +219,11 @@ mod tests {
     #[rstest]
     fn fails_when_supported_patterns_duplicate_values() {
         let mut node = MockNode::new(Namespace::Control).with_required_attributes();
-        node.supported.push(PatternId::from("Focusable"));
+        node.supported.push(PatternId::from(pattern_ids::FOCUSABLE));
         let result = validate_control_or_item(&node);
         assert!(matches!(
             result,
-            Err(ContractViolation::DuplicatePattern { pattern }) if pattern.as_str() == "Focusable"
+            Err(ContractViolation::DuplicatePattern { pattern }) if pattern.as_str() == pattern_ids::FOCUSABLE
         ));
     }
 

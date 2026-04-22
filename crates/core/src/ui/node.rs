@@ -1,4 +1,4 @@
-use super::identifiers::{PatternId, RuntimeId};
+use super::identifiers::{PatternId, RuntimeId, pattern_ids};
 use super::namespace::Namespace;
 use super::pattern::{UiPattern, downcast_pattern_arc};
 use super::value::UiValue;
@@ -131,7 +131,7 @@ impl UiNodeExt for Arc<dyn UiNode> {
     }
 
     fn top_level_or_self(&self) -> Arc<dyn UiNode> {
-        let window_pattern_id = PatternId::from("WindowSurface");
+        let window_pattern_id = PatternId::from(pattern_ids::WINDOW_SURFACE);
         for node in self.ancestors_including_self() {
             if node.supported_patterns().iter().any(|pid| pid == &window_pattern_id) {
                 return node;
@@ -309,7 +309,7 @@ mod tests {
         where
             Self: Sized,
         {
-            PatternId::from("Activatable")
+            PatternId::from(pattern_ids::ACTIVATABLE)
         }
 
         fn as_any(&self) -> &dyn std::any::Any {
@@ -414,7 +414,7 @@ mod tests {
             where
                 Self: Sized,
             {
-                PatternId::from("WindowSurface")
+                PatternId::from(pattern_ids::WINDOW_SURFACE)
             }
 
             fn as_any(&self) -> &dyn std::any::Any {

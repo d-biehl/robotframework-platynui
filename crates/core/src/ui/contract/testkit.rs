@@ -147,7 +147,7 @@ fn collect_attributes(node: &dyn UiNode) -> HashMap<(Namespace, String), UiValue
 mod geometry_tests {
     use super::*;
     use crate::types::{Point, Rect};
-    use crate::ui::{Namespace, UiAttribute};
+    use crate::ui::{Namespace, UiAttribute, pattern_ids};
     use std::sync::{Arc, LazyLock};
 
     const ELEMENT_EXPECTATIONS: [AttributeExpectation; 1] =
@@ -186,7 +186,7 @@ mod geometry_tests {
 
     fn sample_expectation() -> NodeExpectation {
         NodeExpectation::default()
-            .with_pattern(PatternExpectation::new(PatternId::from("Element"), &ELEMENT_EXPECTATIONS))
+            .with_pattern(PatternExpectation::new(PatternId::from(pattern_ids::ELEMENT), &ELEMENT_EXPECTATIONS))
     }
 
     struct AttrNode {
@@ -231,7 +231,7 @@ mod geometry_tests {
         }
 
         fn supported_patterns(&self) -> Vec<PatternId> {
-            vec![PatternId::from("Element"), PatternId::from("ActivationTarget")]
+            vec![PatternId::from(pattern_ids::ELEMENT), PatternId::from(pattern_ids::ACTIVATION_TARGET)]
         }
 
         fn invalidate(&self) {}
@@ -264,8 +264,10 @@ mod geometry_tests {
 
     #[test]
     fn activation_point_aliases_not_required() {
-        let expectation = NodeExpectation::default()
-            .with_pattern(PatternExpectation::new(PatternId::from("ActivationTarget"), &ACTIVATION_EXPECTATIONS));
+        let expectation = NodeExpectation::default().with_pattern(PatternExpectation::new(
+            PatternId::from(pattern_ids::ACTIVATION_TARGET),
+            &ACTIVATION_EXPECTATIONS,
+        ));
         let node = AttrNode::new(vec![StaticAttribute::new(
             Namespace::Control,
             crate::ui::attribute_names::activation_target::ACTIVATION_POINT,
@@ -282,7 +284,7 @@ mod expectation_tests {
     use crate::types::Rect;
     use crate::ui::attribute_names::{activatable, common, element, text_content};
     use crate::ui::pattern::{PatternRegistry, UiPattern};
-    use crate::ui::{UiAttribute, UiNode};
+    use crate::ui::{UiAttribute, UiNode, pattern_ids};
     use rstest::rstest;
     use std::sync::{Arc, Mutex, Weak};
 
@@ -327,7 +329,7 @@ mod expectation_tests {
         where
             Self: Sized,
         {
-            PatternId::from("Mock")
+            PatternId::from(pattern_ids::MOCK)
         }
 
         fn as_any(&self) -> &dyn std::any::Any {
@@ -405,9 +407,9 @@ mod expectation_tests {
     }
 
     fn build_expectation() -> NodeExpectation {
-        let text_pattern = PatternExpectation::new(PatternId::from("TextContent"), TEXT_CONTENT_ATTRS);
-        let element_pattern = PatternExpectation::new(PatternId::from("Element"), ELEMENT_ATTRS);
-        let activatable_pattern = PatternExpectation::new(PatternId::from("Activatable"), ACTIVATABLE_ATTRS);
+        let text_pattern = PatternExpectation::new(PatternId::from(pattern_ids::TEXT_CONTENT), TEXT_CONTENT_ATTRS);
+        let element_pattern = PatternExpectation::new(PatternId::from(pattern_ids::ELEMENT), ELEMENT_ATTRS);
+        let activatable_pattern = PatternExpectation::new(PatternId::from(pattern_ids::ACTIVATABLE), ACTIVATABLE_ATTRS);
 
         NodeExpectation::default()
             .with_pattern(text_pattern)
@@ -417,9 +419,9 @@ mod expectation_tests {
 
     fn build_node() -> Arc<MockNode> {
         let node = MockNode::new(Namespace::Control)
-            .with_pattern(PatternId::from("TextContent"))
-            .with_pattern(PatternId::from("Element"))
-            .with_pattern(PatternId::from("Activatable"));
+            .with_pattern(PatternId::from(pattern_ids::TEXT_CONTENT))
+            .with_pattern(PatternId::from(pattern_ids::ELEMENT))
+            .with_pattern(PatternId::from(pattern_ids::ACTIVATABLE));
 
         let attrs: Vec<Arc<dyn UiAttribute>> = vec![
             Arc::new(StaticAttribute {
@@ -485,12 +487,12 @@ mod expectation_tests {
 
     #[rstest]
     fn verify_node_reports_missing_pattern() {
-        let node = MockNode::new(Namespace::Control).with_pattern(PatternId::from("Element"));
+        let node = MockNode::new(Namespace::Control).with_pattern(PatternId::from(pattern_ids::ELEMENT));
         let expectations = build_expectation();
 
         let result = verify_node(&node, &expectations);
         assert!(result.iter().any(
-            |issue| matches!(issue, ContractIssue::MissingPattern { pattern } if pattern.as_str() == "TextContent")
+            |issue| matches!(issue, ContractIssue::MissingPattern { pattern } if pattern.as_str() == pattern_ids::TEXT_CONTENT)
         ));
     }
 
@@ -503,16 +505,16 @@ mod expectation_tests {
         let result = verify_node(node.as_ref(), &expectations);
         assert!(result.iter().any(|issue| matches!(issue,
             ContractIssue::MissingAttribute { pattern, name, .. }
-                if pattern.as_str() == "TextContent" && name == text_content::TEXT
+                if pattern.as_str() == pattern_ids::TEXT_CONTENT && name == text_content::TEXT
         )));
     }
 
     #[rstest]
     fn verify_node_reports_null_attribute() {
         let node = MockNode::new(Namespace::Control)
-            .with_pattern(PatternId::from("Element"))
-            .with_pattern(PatternId::from("TextContent"))
-            .with_pattern(PatternId::from("Activatable"))
+            .with_pattern(PatternId::from(pattern_ids::ELEMENT))
+            .with_pattern(PatternId::from(pattern_ids::TEXT_CONTENT))
+            .with_pattern(PatternId::from(pattern_ids::ACTIVATABLE))
             .with_attribute(Arc::new(StaticAttribute {
                 namespace: Namespace::Control,
                 name: text_content::TEXT,
@@ -558,7 +560,7 @@ mod expectation_tests {
         let result = verify_node(&node, &expectations);
         assert!(result.iter().any(|issue| matches!(issue,
             ContractIssue::NullAttribute { pattern, name, .. }
-                if pattern.as_str() == "TextContent" && name == text_content::TEXT
+                if pattern.as_str() == pattern_ids::TEXT_CONTENT && name == text_content::TEXT
         )));
     }
 

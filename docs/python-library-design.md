@@ -588,16 +588,13 @@ Begründung der Identifier-Pflicht:
 > serialisiert die IDs als String-Array für die FFI-Grenze
 > (`pattern.rs:165`).
 >
-> **Aktuell verwendet Rust bare names** (`PatternId::from("Focusable")`,
-> `PatternId::from("WindowSurface")`). Das ist mit der hier gewählten
-> Reverse-DNS-Konvention noch **nicht synchron**. **TODO als Teil
-> der Python-Migration:** alle `PatternId::from("…")`-Stellen in
-> `crates/core/src/ui/pattern.rs` (Tests + Default-Impls), `crates/
-> core/src/ui/node.rs:134` und Provider-Crates auf
-> `org.platynui.patterns.<Name>` umstellen, sodass Rust- und
-> Python-Identifier wörtlich übereinstimmen. `PatternId` selbst bleibt
-> validierungsfrei (Convention statt Format-Check); die Konsistenz wird
-> in den Mapping-Tabellen und beim Python-Import sichergestellt.
+> **Rust verwendet jetzt Reverse-DNS-Identifier** (Rev. 14, siehe §13.6):
+> Sowohl `PatternId::from(pattern_ids::FOCUSABLE)` (= `"org.platynui.patterns.Focusable"`)
+> als auch Python-`Focusable.pattern_name` liefern denselben String. Die
+> Konstanten leben in `core::ui::pattern_ids` (`crates/core/src/ui/identifiers.rs`)
+> und werden überall statt der bare names verwendet. `PatternId` selbst
+> bleibt validierungsfrei (Convention statt Format-Check); die Konsistenz
+> wird in den Mapping-Tabellen und beim Python-Import sichergestellt.
 
 Der Identifier wird von `PatternBase` als `ClassVar[str]` deklariert.
 Eine `__init_subclass__`-Prüfung gibt es nicht: Eine Pattern-ABC ohne
@@ -2438,7 +2435,7 @@ gdbus call --session --dest=org.a11y.Bus --object-path=/org/a11y/bus \
 - `control:Role="Application"`, `control:Name="platynui-test-app-egui"`,
   `control:ProcessId`, `control:Technology="AT-SPI2"` kommen korrekt durch.
 - `control:Bounds`, `control:ActivationPoint`, `control:IsFocused`,
-  `control:SupportedPatterns=["Focusable","WindowSurface"]` funktionieren.
+  `control:SupportedPatterns=["org.platynui.patterns.Focusable","org.platynui.patterns.WindowSurface"]` funktionieren.
 - Widget-Hierarchie sichtbar: Frame → Panel (Menubar) → Button, Entry,
   CheckBox, SpinButton, ScrollBar etc. (43 Children im Frame).
 - `native:Accessible.*` (Role, RoleName, State, Interfaces,
@@ -2628,22 +2625,30 @@ die wir nicht abstrahiert haben) ist offen. Vorschlag: separate
 `unsafe`-Helper-API auf dem Adapter, explizit als „nicht portabel"
 markiert.
 
-### 13.6 Rust-PatternId-Umstellung auf Reverse-DNS
+### 13.6 Rust-PatternId-Umstellung auf Reverse-DNS — RESOLVED (Rev. 14)
 
-Rust-`PatternId` verwendet aktuell bare names (`"Focusable"`,
-`"WindowSurface"`). Im Zuge der Python-Migration umstellen auf
-`org.platynui.patterns.<Name>`, damit Rust-`PatternId.as_str()` und
-Python-`pattern_name` wörtlich identisch sind. Betroffene Stellen:
+Rust-`PatternId` verwendet jetzt durchgängig Reverse-DNS-Identifier
+(`org.platynui.patterns.<Name>`). Damit sind Rust-`PatternId.as_str()`
+und Python-`pattern_name` wörtlich identisch.
 
-- `crates/core/src/ui/pattern.rs` — `FocusableAction::static_id`,
-  `WindowSurfaceActions::static_id`, Test-Patterns
-- `crates/core/src/ui/node.rs:134` — `PatternId::from("WindowSurface")`
-- Provider-Crates, die `PatternId::from(...)` benutzen
-  (Hauptkandidat: `crates/provider-windows-uia/src/node.rs`)
-- Bench/Test-Fixtures
+**Implementierung:**
 
-Keine API-Änderung an `PatternId` selbst (bleibt validierungsfrei) —
-nur die literalen Strings.
+- Neues Konstanten-Modul `core::ui::pattern_ids` mit `&'static str`-
+  Konstanten (z.B. `pub const FOCUSABLE: &str = "org.platynui.patterns.Focusable";`)
+- Alle `PatternId::from("BareName")`-Stellen in core/runtime/provider-atspi/
+  provider-mock/platform-linux-wayland umgestellt
+- `assets/mock_tree.xml` enthält voll qualifizierte Patterns (kein
+  Loader-Expand-Shortcut)
+- PyO3-Bindings: `Pattern.id()` liefert Reverse-DNS;
+  `pattern_id_from_arg` liest `pattern_name`-ClassVar von Pattern-Klassen
+  (kein Klassennamen-Fallback mehr)
+- `match pattern.as_str() { … }` in Provider-Code auf `if`-Ketten
+  umgestellt (`&str`-Konstanten in Patterns nicht erlaubt)
+
+**Breaking Change:** PyO3 `pattern_object`/`Pattern.id()` liefert jetzt
+Reverse-DNS-Strings statt bare names; Python-Aufrufer von
+`get_pattern("Focusable")` müssen auf `get_pattern("org.platynui.patterns.Focusable")`
+oder `get_pattern(Focusable)` (mit `pattern_name`-ClassVar) umstellen.
 
 ## 14. Zusammenfassung
 

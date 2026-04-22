@@ -9,7 +9,7 @@ use platynui_core::ui::contract::testkit::{
 };
 use platynui_core::ui::{
     FocusableAction, FocusablePattern, Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue,
-    WindowSurfaceActions, WindowSurfacePattern,
+    WindowSurfaceActions, WindowSurfacePattern, pattern_ids,
 };
 use rstest::rstest;
 use serial_test::serial;
@@ -119,13 +119,13 @@ fn provider_not_auto_registered() {
 fn custom_tree_overrides_defaults() {
     let tree = StaticMockTree::new(vec![
         NodeSpec::new(Namespace::App, "Application", "Custom App", "mock://app/custom")
-            .with_pattern("Application")
+            .with_pattern(pattern_ids::APPLICATION)
             .with_child(
                 NodeSpec::new(Namespace::Control, "Window", "Custom Window", "mock://window/custom")
-                    .with_pattern("Element")
+                    .with_pattern(pattern_ids::ELEMENT)
                     .with_child(
                         NodeSpec::new(Namespace::Control, "Button", "Launch", "mock://button/custom")
-                            .with_pattern("Element"),
+                            .with_pattern(pattern_ids::ELEMENT),
                     ),
             ),
     ]);
@@ -168,10 +168,13 @@ fn contract_expectations_for_button_hold() {
     let button = find_by_runtime_id(window, factory::BUTTON_RUNTIME_ID).expect("button reachable in mock tree");
 
     let expectations = NodeExpectation::default()
-        .with_pattern(PatternExpectation::new(PatternId::from("Element"), &ELEMENT_EXPECTATIONS))
-        .with_pattern(PatternExpectation::new(PatternId::from("TextContent"), &TEXT_CONTENT_EXPECTATIONS))
-        .with_pattern(PatternExpectation::new(PatternId::from("ActivationTarget"), &ACTIVATION_TARGET_EXPECTATIONS))
-        .with_pattern(PatternExpectation::new(PatternId::from("Focusable"), &FOCUSABLE_EXPECTATIONS));
+        .with_pattern(PatternExpectation::new(PatternId::from(pattern_ids::ELEMENT), &ELEMENT_EXPECTATIONS))
+        .with_pattern(PatternExpectation::new(PatternId::from(pattern_ids::TEXT_CONTENT), &TEXT_CONTENT_EXPECTATIONS))
+        .with_pattern(PatternExpectation::new(
+            PatternId::from(pattern_ids::ACTIVATION_TARGET),
+            &ACTIVATION_TARGET_EXPECTATIONS,
+        ))
+        .with_pattern(PatternExpectation::new(PatternId::from(pattern_ids::FOCUSABLE), &FOCUSABLE_EXPECTATIONS));
 
     require_node(button.as_ref(), &expectations).expect("button contract satisfied");
     let issues = verify_node(button.as_ref(), &expectations);
@@ -210,8 +213,8 @@ fn window_surface_pattern_is_exposed() {
         windows.find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID).expect("main window present");
 
     let patterns = window.supported_patterns();
-    assert!(patterns.contains(&PatternId::from("WindowSurface")));
-    assert!(patterns.contains(&PatternId::from("Focusable")));
+    assert!(patterns.contains(&PatternId::from(pattern_ids::WINDOW_SURFACE)));
+    assert!(patterns.contains(&PatternId::from(pattern_ids::FOCUSABLE)));
 
     let window_surface = window.pattern::<WindowSurfaceActions>().expect("window surface pattern registered");
     assert!(window_surface.accepts_user_input().unwrap().is_some());

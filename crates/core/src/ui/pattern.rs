@@ -9,7 +9,7 @@ use std::fmt::{Display, Formatter};
 use std::sync::{Arc, Mutex, OnceLock};
 use thiserror::Error as ThisError;
 
-use super::identifiers::PatternId;
+use super::identifiers::{PatternId, pattern_ids};
 
 /// Base trait for runtime patterns that enrich a [`UiNode`](super::UiNode).
 ///
@@ -226,7 +226,7 @@ impl UiPattern for FocusableAction {
     where
         Self: Sized,
     {
-        PatternId::from("Focusable")
+        PatternId::from(pattern_ids::FOCUSABLE)
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -347,7 +347,7 @@ impl UiPattern for WindowSurfaceActions {
     where
         Self: Sized,
     {
-        PatternId::from("WindowSurface")
+        PatternId::from(pattern_ids::WINDOW_SURFACE)
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -458,7 +458,7 @@ mod tests {
         where
             Self: Sized,
         {
-            PatternId::from("Dummy")
+            PatternId::from(pattern_ids::DUMMY)
         }
 
         fn as_any(&self) -> &dyn Any {
@@ -491,7 +491,7 @@ mod tests {
             where
                 Self: Sized,
             {
-                PatternId::from("Lazy")
+                PatternId::from(pattern_ids::LAZY)
             }
 
             fn as_any(&self) -> &dyn Any {
@@ -532,7 +532,7 @@ mod tests {
             where
                 Self: Sized,
             {
-                PatternId::from("Other")
+                PatternId::from(pattern_ids::OTHER)
             }
 
             fn as_any(&self) -> &dyn Any {
@@ -623,8 +623,11 @@ mod tests {
 
     #[rstest]
     fn supported_patterns_value_converts_ids() {
-        let patterns = vec![PatternId::from("Focusable"), PatternId::from("WindowSurface")];
+        let patterns = vec![PatternId::from(pattern_ids::FOCUSABLE), PatternId::from(pattern_ids::WINDOW_SURFACE)];
         let value = supported_patterns_value(&patterns);
-        assert_eq!(value, UiValue::Array(vec![UiValue::from("Focusable"), UiValue::from("WindowSurface")]));
+        assert_eq!(
+            value,
+            UiValue::Array(vec![UiValue::from(pattern_ids::FOCUSABLE), UiValue::from(pattern_ids::WINDOW_SURFACE),])
+        );
     }
 }

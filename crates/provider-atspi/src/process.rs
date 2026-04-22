@@ -69,10 +69,10 @@ pub fn query_command_line(pid: u32) -> Option<String> {
 pub fn query_user_name(pid: u32) -> Option<String> {
     #[cfg(target_os = "linux")]
     {
-        return with_process(pid, |p| {
+        with_process(pid, |p| {
             let uid = p.effective_user_id().or_else(|| p.user_id())?;
             resolve_username(**uid)
-        });
+        })
     }
 
     #[cfg(not(target_os = "linux"))]

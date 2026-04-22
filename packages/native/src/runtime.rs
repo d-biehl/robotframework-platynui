@@ -114,8 +114,9 @@ impl PyNode {
 
     /// Returns the first ancestor (including ``self``) that supports the given pattern.
     ///
-    /// ``id`` accepts names such as ``"Focusable"`` or ``"WindowSurface"`` and
-    /// returns the Python pattern object when available.
+    /// ``id`` accepts Reverse-DNS identifiers such as ``"org.platynui.patterns.Focusable"``
+    /// or ``"org.platynui.patterns.WindowSurface"`` and returns the Python pattern object
+    /// when available.
     fn ancestor_pattern(&self, py: Python<'_>, id: &str) -> Option<Py<PyAny>> {
         let pid = core_rs::ui::identifiers::PatternId::from(id);
         for node in self.inner.ancestors_including_self() {
@@ -174,8 +175,9 @@ impl PyNode {
 
     /// Returns ``True`` when the node advertises support for the given pattern.
     ///
-    /// Accepts either a pattern id string (e.g. ``"Focusable"``) or a pattern
-    /// class (e.g. ``Focusable``).
+    /// Accepts either a Reverse-DNS pattern id string (e.g.
+    /// ``"org.platynui.patterns.Focusable"``) or a pattern class (e.g. ``Focusable``)
+    /// that exposes a ``pattern_name`` class attribute.
     fn has_pattern(&self, id: &Bound<'_, PyAny>) -> PyResult<bool> {
         let id = pattern_id_from_arg(id)?;
         Ok(self.inner.supported_patterns().iter().any(|p| p.as_str() == id))
@@ -183,8 +185,9 @@ impl PyNode {
 
     /// Returns the requested pattern object.
     ///
-    /// Accepts either a pattern id string (e.g. ``"Focusable"``) or a pattern
-    /// class (e.g. ``Focusable``).
+    /// Accepts either a Reverse-DNS pattern id string (e.g.
+    /// ``"org.platynui.patterns.Focusable"``) or a pattern class (e.g. ``Focusable``)
+    /// that exposes a ``pattern_name`` class attribute.
     /// Raises ``PatternError`` when the node does not support the pattern.
     /// Raises ``TypeError`` when the pattern id is unknown.
     fn get_pattern(&self, py: Python<'_>, pattern: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
@@ -299,9 +302,9 @@ pub struct PyFocusable {
 
 #[pymethods]
 impl PyFocusable {
-    /// Returns the pattern identifier ``"Focusable"``.
+    /// Returns the pattern identifier ``"org.platynui.patterns.Focusable"``.
     fn id(&self) -> &'static str {
-        "Focusable"
+        core_rs::ui::pattern_ids::FOCUSABLE
     }
     /// Requests focus for the associated node.
     fn focus(&self) -> PyResult<()> {
@@ -321,9 +324,9 @@ pub struct PyWindowSurface {
 
 #[pymethods]
 impl PyWindowSurface {
-    /// Returns the pattern identifier ``"WindowSurface"``.
+    /// Returns the pattern identifier ``"org.platynui.patterns.WindowSurface"``.
     fn id(&self) -> &'static str {
-        "WindowSurface"
+        core_rs::ui::pattern_ids::WINDOW_SURFACE
     }
 
     /// Brings the window to the foreground and activates it.
@@ -530,6 +533,7 @@ impl PyRuntime {
                 pointer: Some(&platynui_platform_mock::MOCK_POINTER),
                 keyboard: Some(&platynui_platform_mock::MOCK_KEYBOARD),
             };
+            #[allow(clippy::needless_return)]
             return runtime_rs::Runtime::new_with_factories_and_platforms(&factories, platforms)
                 .map(|inner| Self { inner: Mutex::new(inner) })
                 .map_err(map_provider_err);
@@ -1143,21 +1147,33 @@ fn map_bring_err(err: runtime_rs::runtime::BringToFrontError) -> PyErr {
 // ---------------- Internal helpers ----------------
 
 /// Extracts a pattern id string from either a ``str`` or a pattern ``type`` argument.
+///
+/// For pattern classes, reads the ``pattern_name`` class attribute (Reverse-DNS
+/// identifier such as ``"org.platynui.patterns.Focusable"``).
 fn pattern_id_from_arg(arg: &Bound<'_, PyAny>) -> PyResult<String> {
     if let Ok(s) = arg.extract::<String>() {
         return Ok(s);
     }
     if let Ok(ty) = arg.cast::<PyType>() {
-        let name = ty.name()?;
-        return name.extract::<String>();
+        let attr = ty.getattr("pattern_name").map_err(|_| {
+            PyTypeError::new_err(format!(
+                "pattern type {} is missing the `pattern_name` class attribute",
+                ty.name().map(|n| n.to_string()).unwrap_or_else(|_| "<unknown>".to_string())
+            ))
+        })?;
+        return attr.extract::<String>();
     }
     Err(PyTypeError::new_err("expected a pattern id string or pattern type"))
 }
 
 fn pattern_object(py: Python<'_>, node: &Arc<dyn core_rs::ui::UiNode>, id: &str) -> Option<Py<PyAny>> {
     match id {
-        "Focusable" => Py::new(py, PyFocusable { node: node.clone() }).ok().map(|p| p.into_any()),
-        "WindowSurface" => Py::new(py, PyWindowSurface { node: node.clone() }).ok().map(|p| p.into_any()),
+        core_rs::ui::pattern_ids::FOCUSABLE => {
+            Py::new(py, PyFocusable { node: node.clone() }).ok().map(|p| p.into_any())
+        }
+        core_rs::ui::pattern_ids::WINDOW_SURFACE => {
+            Py::new(py, PyWindowSurface { node: node.clone() }).ok().map(|p| p.into_any())
+        }
         _ => None,
     }
 }

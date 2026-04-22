@@ -219,7 +219,7 @@ disallow_untyped_decorators = false
 disallow_subclassing_any = false
 explicit_package_bases = true
 namespace_packages = true
-files = ["src"]
+files = ["src", "packages/native/python"]
 exclude = [
     '^\.mypy_cache/',
     '^\.venv/',
@@ -228,9 +228,8 @@ exclude = [
     "^out/",
     "^playground/",
     "^scripts/",
-    "^packages/native/",
 ]
-mypy_path = ["src", "packages/runtime/python", "packages/runtime/tests"]
+mypy_path = ["src", "packages/native/python"]
 
 [[tool.mypy.overrides]]
 module = [
