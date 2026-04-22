@@ -46,7 +46,7 @@ impl DesktopNode {
         attributes.push(attr(namespace, attribute_names::element::BOUNDS, UiValue::from(info.bounds)));
         attributes.push(attr(namespace, attribute_names::element::IS_VISIBLE, UiValue::from(true)));
         attributes.push(attr(namespace, attribute_names::element::IS_ENABLED, UiValue::from(true)));
-        attributes.push(attr(namespace, attribute_names::element::IS_OFFSCREEN, UiValue::from(false)));
+        attributes.push(attr(namespace, attribute_names::element::IS_IN_VIEW, UiValue::from(true)));
 
         attributes.push(attr(
             namespace,

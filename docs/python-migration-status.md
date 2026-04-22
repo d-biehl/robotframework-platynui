@@ -7,7 +7,8 @@ in das neue Rust-basierte Projekt verfolgt.
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
 **Stand:** 2026-04-22
-**Aktuelle Revision:** Rev. 14 (PatternId Reverse-DNS)
+**Aktuelle Revision:** Rev. 18 (`@locator`-Decorator: Class-Form
+implementiert, Method-Form als Phase-3-Stub)
 
 ---
 
@@ -16,9 +17,13 @@ Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 | Phase | Status | Bemerkung |
 |---|---|---|
 | Phase 0 — Smoke-Verifikation | DONE | Commit `ceb3057` |
-| §13.6 Rust-PatternId Reverse-DNS | DONE | Rev. 14, uncommitted |
-| Phase 1 — Fundament | PENDING | Wartet auf §13.6-Commit |
-| Phase 2 — Adapter-Schicht | PENDING | unblockiert nach §13.6 |
+| §13.6 Rust-PatternId Reverse-DNS | DONE | Rev. 14, Commit `09fdc6a` |
+| Designdoku-Konsolidierung Rev. 15 | DONE | uncommitted; Properties-Pattern entfernt, Attribute-Modell mit Namespaces |
+| Designdoku Rev. 16 — Locator-Kwargs | DONE | uncommitted; drei Eingangskanäle (Convenience-Felder, Kwargs, Dict) mit Konfliktregel |
+| Designdoku Rev. 17 — Pattern-Konsolidierung | DONE | uncommitted; Element/TextContent/TextEditable/Clearable/Toggleable/Activatable/Focusable; Rust IsOffscreen→IsInView |
+| Rev. 18 — `@locator` Decorator-Form | DONE | uncommitted; Class-Decorator komplett, Method-Form als Phase-3-Stub mit `NotImplementedError` |
+| Phase 1 — Fundament | DONE | uncommitted; 10 Module incl. vorgezogenem `core/patterns/` (war Phase 2 #11); 128 pytest + 1980 nextest grün, ruff+mypy+pyright+clippy grün |
+| Phase 2 — Adapter-Schicht | PENDING | reduziert auf 4 Punkte (Adapter, AdapterProxy, RustAdapter, devices); Pattern-ABCs bereits in Phase 1 erledigt |
 | Phase 3 — Context-Schicht | PENDING | — |
 | Phase 4 — UI-Klassen + Standard-Proxies | PENDING | — |
 | Phase 5 — Keywords + Robot-Library | PENDING | — |
@@ -38,7 +43,7 @@ Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
   - `scripts/linux-a11y-restore.sh`
 - Designdoc Rev. 13 mit Smoke-Befunden aktualisiert
 
-### §13.6 Rust-PatternId-Umstellung auf Reverse-DNS (Rev. 14, **uncommitted**)
+### §13.6 Rust-PatternId-Umstellung auf Reverse-DNS (Rev. 14, Commit `09fdc6a`)
 
 Ziel: `PatternId.as_str()` (Rust) und `pattern_name` (Python ClassVar)
 liefern wörtlich denselben String (`org.platynui.patterns.<Name>`).
@@ -79,47 +84,315 @@ liefern wörtlich denselben String (`org.platynui.patterns.<Name>`).
 - `cargo clippy --workspace --all-targets --all-features -- -D warnings` ✓
 - `cargo fmt --all` ✓
 
-**Breaking Change (PyO3):** `Pattern.id()` und `pattern_object` liefern
-jetzt Reverse-DNS-Strings. Python-Aufrufer müssen
-`get_pattern("Focusable")` auf
-`get_pattern("org.platynui.patterns.Focusable")` oder
-`get_pattern(Focusable)` (mit `pattern_name`-ClassVar) umstellen.
+**Hinweis (PyO3):** `Pattern.id()` und `pattern_object` liefern jetzt
+Reverse-DNS-Strings. Aufrufe wie `get_pattern("Focusable")` werden zu
+`get_pattern("org.platynui.patterns.Focusable")` bzw.
+`get_pattern(Focusable)` (mit `pattern_name`-ClassVar). Da das Projekt
+noch nicht veröffentlicht ist, ist das kein Breaking Change im SemVer-Sinn.
 
 ---
 
 ## Offen
 
-### Sofort
+### Designdoku Rev. 15 — Attribute-Modell konsolidiert (uncommitted)
 
-- [ ] **§13.6-Änderungen committen** — auf User-Anweisung. Vorschlag:
-      `refactor(core)!: switch PatternId to Reverse-DNS identifiers`
+Aus den ursprünglichen `Properties` / `NativeProperties`-Patterns wird
+**ein** namespacebasierter Attribut-Schlüsselraum, symmetrisch zur
+Rust-Seite (`crates/core/src/ui/{node,namespace}.rs`).
 
-### Phase 1 — Fundament (Designdoc §10 Phase 1)
+**Doku-Pass (alle 16 Stellen in `docs/python-library-design.md`):**
 
-- [ ] `core/exceptions.py` — Exception-Hierarchie (§A.2)
-- [ ] `core/settings.py` — Settings-Klasse (§A.1)
-- [ ] `core/patterns/base.py` — `PatternBase` ABC mit
-      `pattern_name: ClassVar[str]` (§5)
-- [ ] `core/patterns/*.py` — die ~20 Standard-Patterns aus §5
-      (Activatable, Focusable, WindowSurface, HasBounds, …)
-- [ ] `core/ensure.py`, `core/wait.py` (§A.3)
-- [ ] Tests in `packages/native/tests` und neuer `src/PlatynUI/tests`-Hierarchie
+- Header auf Rev. 15 aktualisiert; Rev-14- und Rev-15-Notes
+- §4.1 Tabelle: zwei Properties-Zeilen → eine `attributes[(ns, name)]`
+- §4.2, §5a.3, §7.1, §8, §9, §11.4, §12, §14: durchgehend `attributes=`
+- §5: Properties-Pattern aus Liste entfernt; expliziter Hinweis-Block
+- §A.4 / §A.5: Adapter-Interface auf `attribute_names(namespace=None)`,
+  `attribute_value(name, namespace='control')`, `attributes()` umgestellt
+- §A.6 Locator: `attributes: dict[str | tuple[str, str], ...]`,
+  XPath-Bau-Schritt 4 neu, Locator-Beispiele um `default_attribute_namespace`
+  und Cross-Namespace-Tupel-Keys erweitert
+- §10 Phase 1: Hinweis auf Tupel-Keys & `default_attribute_namespace`
+
+**Code-Umbau (Phase 1, uncommitted):**
+
+- [x] `core/patterns/properties.py` gelöscht (Properties-Pattern entfällt)
+- [x] `core/patterns/__init__.py`: Re-Exports `Properties` /
+      `NativeProperties` entfernt
+- [x] `core/locator.py`: namespacebasiertes `attributes`-Modell;
+      Bare-String → `default_attribute_namespace`,
+      Tupel `(ns, name)` → expliziter Namespace; Render-Regel
+      „control unprefixed, sonst `@ns:Name`"; neuer
+      `default_attribute_namespace`-Parameter in `to_xpath`;
+      `DEFAULT_ATTRIBUTE_NAMESPACE = "control"` Modul-Konstante
+- [x] `core/weight_calculator.py`: `properties` /
+      `native_properties` Criteria → ein `attributes`-Criterion;
+      Cache umgestellt auf `dict[(ns, name), Any]`;
+      `AdapterLike.attribute_value(name, namespace)` ersetzt die alte
+      Properties-Pattern-Indirektion;
+      optionaler `default_attribute_namespace`-Konstruktor-Parameter
+- [x] Tests `test_patterns.py` / `test_locator.py` /
+      `test_weight_calculator.py` angepasst und ausgebaut (jetzt 104
+      Tests gesamt, alle grün)
+
+**Verifikation:**
+
+- `uv run ruff check src/PlatynUI tests/PlatynUI` ✓
+- `uv run mypy src/PlatynUI tests/PlatynUI` ✓
+- `uv run pyright src/PlatynUI tests/PlatynUI` ✓
+- `uv run pytest tests/PlatynUI` → **104 passed** ✓
+
+### Designdoku Rev. 16 — Locator-Kwargs (uncommitted)
+
+`Locator` akzeptiert jetzt drei Eingangskanäle für
+Attribut-Predicates: (1) sechs typisierte snake_case-Convenience-Felder,
+(2) freies `attributes`-Dict, (3) freie `**kwargs` am Konstruktor (und
+damit am `@locator`-Decorator). Doppelte Schlüssel über mehrere Kanäle
+werfen `TypeError` mit konkreter Quellenangabe — kein stilles
+Vorrang-Verhalten.
+
+**Code-Umbau (uncommitted):**
+
+- [x] `core/locator.py`: `@dataclass` durch handgeschriebene Klasse
+      mit `__slots__` ersetzt, damit `**extra_attributes` möglich
+      werden. Kwargs ohne `__` landen als Bare-String-Keys im
+      `attributes`-Dict (Default-Namespace `control`); Kwargs mit
+      `<ns>__<name>` werden zu Tupel-Keys (`native__HWND=0xABCD`
+      → `attributes[("native","HWND")] = ...`). Mehrere `__` im
+      Kwarg-Namen sind nicht erlaubt. Konfliktdetektion erfolgt im
+      Konstruktor *nach* Namespace-Normalisierung — d.h.
+      `Locator(name="A", Name="B")` und
+      `Locator(name="A", attributes={("control","Name"): "B"})`
+      werden beide erkannt.
+- [x] `RESERVED_FIELDS` als ClassVar exponiert für Introspektion.
+- [x] Tests `test_locator.py` um 13 neue Fälle erweitert: PascalCase-
+      Kwargs, `ns__name`-Trenner, alle drei Konflikt-Konstellationen,
+      Konflikt nach Namespace-Normalisierung, Koexistenz unterschied-
+      licher Namespaces, „reservierte Felder nur exakt-snake_case"
+      (`Locator(Path="x")` → `@Path="x"`).
+
+**Doku-Pass (`docs/python-library-design.md`):**
+
+- §7.1 Attribut-Namenskonvention: Block von zwei auf drei
+  Eingangskanäle erweitert; Empfehlungs-Reihenfolge ergänzt;
+  Begründung der Asymmetrie umformuliert.
+- §A.6 Locator: Skeleton-Kommentar um `**extra_attributes`-Block
+  erweitert; XPath-Bau-Schritt 4 aufgeteilt in (a) Convenience-
+  Felder, (b) freie Kwargs (mit `__`-Trenner), (c) `attributes`-
+  Dict, (d) `custom_attributes`, plus Konflikt-Regel-Punkt;
+  einleitender Absatz erklärt warum kein `@dataclass`.
+
+**Verifikation:**
+
+- `uv run ruff check src/PlatynUI tests/PlatynUI` ✓
+- `uv run mypy src/PlatynUI tests/PlatynUI` ✓
+- `uv run pyright src/PlatynUI tests/PlatynUI` ✓
+- `uv run pytest tests/PlatynUI` → **117 passed** ✓ (104 + 13 neue)
+
+### Designdoku Rev. 17 — Pattern-Konsolidierung + IsInView (uncommitted)
+
+Python-Pattern-Hierarchie an die Rust-Capability-Gruppen
+(`crates/core/src/ui/attributes.rs`, `pattern_ids` in
+`crates/core/src/ui/identifiers.rs`) angeglichen. Parallel dazu
+**Wire-Breaking Change** in Rust: `IsOffscreen`-Attribut zu `IsInView`
+umbenannt und semantisch invertiert (Default-Fallback dreht von
+`false` auf `true`). Da das Projekt unveröffentlicht ist, kein
+SemVer-Breaking.
+
+**Pattern-Mapping Rust ↔ Python (neu):**
+
+| Rust-Modul | Pattern-Name | Python-Klasse | Methoden / Properties |
+|---|---|---|---|
+| `attributes::element` | `Element` | `Element` | `bounds`, `is_visible`, `is_in_view`, `is_enabled`, `default_click_position` |
+| `attributes::text_content` | `TextContent` | `TextContent` | `text`, `locale`, `is_truncated` |
+| `attributes::text_editable` | `TextEditable` | `TextEditable` | `set_text()`, `is_readonly`, `max_length`, `supports_password_mode` |
+| `attributes::clearable` (leer) | `Clearable` | `Clearable` | `clear()` |
+| `attributes::toggleable` | `Toggleable` | `Toggleable` | `toggle()`, `state`, `supports_three_state` |
+| `attributes::activatable` | `Activatable` | `Activatable` | `activate()`, `is_activation_enabled`, `default_accelerator` |
+| `attributes::focusable` | `Focusable` | `Focusable` | `is_focused`, `focus()` |
+
+Konsolidierungen gegenüber dem Altprojekt: `HasBounds + Visibility +
+HasIsEnabled` → `Element`; `Toggleable + HasToggleState` →
+`Toggleable`; `EditableText + HasIsReadonly` → `TextEditable` (+
+`TextContent` separiert für read-only); `HasFocus` entfällt, geht in
+`Focusable`. Rust-seitig ergänzt: `Clearable`, `Toggleable`,
+`TextEditable` als neue PatternIds in `pattern_ids`.
+
+**Rust-Code-Umbau (uncommitted):**
+
+- [x] `crates/core/src/ui/attributes.rs`: `IS_OFFSCREEN` → `IS_IN_VIEW`
+      (mit Doc-Cross-Reference); neues leeres Modul `clearable {}`
+- [x] `crates/core/src/ui/identifiers.rs`: pattern_ids erweitert um
+      `TEXT_EDITABLE`, `CLEARABLE`, `TOGGLEABLE`; Test
+      `pattern_ids_are_reverse_dns` erweitert
+- [x] `crates/core/src/ui/contract/testkit.rs`: `IS_OFFSCREEN` →
+      `IS_IN_VIEW`
+- [x] `crates/runtime/src/runtime/desktop.rs`: Desktop-Root liefert
+      `IS_IN_VIEW=true` (war `IS_OFFSCREEN=false`)
+- [x] `crates/provider-windows-uia/src/{map,node}.rs`:
+      `get_is_offscreen()` → `get_is_in_view()` mit invertiertem
+      Return; `IsOffscreenAttr` → `IsInViewAttr` (incl. unwrap_or-
+      Default invertiert)
+- [x] `crates/provider-atspi/src/node.rs`: enum-Variante
+      `StdAttrKind::IsOffscreen` → `IsInView`, Wert-Berechnung
+      invertiert (Negation entfernt)
+- [x] Doku: `docs/architecture.md` (4 Stellen),
+      `docs/platform-windows.md`, `docs/platform-linux.md`
+      durchgängig auf `IsInView` / `IsEnabled && IsInView`
+
+**Python-Code-Umbau (uncommitted):**
+
+- [x] `core/types.py`: `Point` und `Rect` als Re-Export aus
+      `platynui_native` (kanonische pyo3-Bindings statt eigener
+      Definition)
+- [x] `core/patterns/element.py` (NEU): `Element` mit `bounds`,
+      `is_visible`, `is_in_view`, `is_enabled`,
+      `default_click_position` (nutzt `Rect.center()` als Methode)
+- [x] `core/patterns/focusable.py` (NEU): `Focusable` mit
+      `is_focused` + `focus()`
+- [x] `core/patterns/text.py` (umgeschrieben): `TextContent`,
+      `TextEditable`, `Clearable`
+- [x] `core/patterns/toggle.py` (umgeschrieben): konsolidiertes
+      `Toggleable`; `HasToggleState` weg
+- [x] `core/patterns/activation.py` (erweitert): `Activatable` um
+      `is_activation_enabled` + `default_accelerator`
+- [x] `core/patterns/state.py` und `core/patterns/geometry.py`
+      gelöscht
+- [x] `core/patterns/__init__.py`: Re-Exports neu (Activatable,
+      Clearable, Element, Focusable, PatternBase, Point, Rect,
+      TextContent, TextEditable, ToggleState, Toggleable)
+- [x] `tests/PlatynUI/test_patterns.py`: komplett neu, 35 Tests inkl.
+      `test_legacy_split_patterns_are_gone`,
+      `test_pattern_names_match_rust_ids`,
+      `test_point_and_rect_come_from_native_module`
+
+**Doku-Pass (`docs/python-library-design.md`):**
+
+- Header auf Rev. 17; Rev-17-Note (Pattern-Konsolidierung +
+  IsInView-Rename)
+- §5 Pattern-Codeblock vollständig neu (Element, TextContent,
+  TextEditable, Clearable, Toggleable, Activatable, Focusable);
+  Folgeabsatz mit Konsolidierungs-Tabelle
+- §5.3 CheckBox-Beispiel: `HasToggleState` → `Toggleable.state`
+- §5.4 RUST_PATTERN_MAP-Beispiel: `HasBounds` → `Element`
+- §5a.2 Standard-Rollen-Tabelle: Toggleable/TextContent/TextEditable/
+  Clearable
+- §8 Outcome-Tabelle: `Focus`/`Toggle`/`Set Value`/`Clear`-Zeilen
+- §9 Datei-Layout: `toggle.py`/`text.py`/`element.py`/`focusable.py`-
+  Kommentare
+- §A.4 Adapter-Interface-Erläuterung
+- §A.5 Element-Convenience-Properties auf `patterns.Element`
+- §A.7 ElementDescriptor-Beispiel
+- §A.9 AdapterMouseProxy auf `patterns.Element`
+- §A.10 Pattern-Defaults: `DefaultTextEditable`,
+  `Toggleable`-Default-Block
+
+**Verifikation:**
+
+- `cargo check --workspace` ✓
+- `cargo nextest run --workspace` → **1980 passed** ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `uv run ruff check src/PlatynUI tests/PlatynUI` ✓
+- `uv run mypy src/PlatynUI tests/PlatynUI` ✓
+- `uv run pyright src/PlatynUI tests/PlatynUI` ✓
+- `uv run pytest tests/PlatynUI` → **119 passed** ✓ (117 + 2 Pattern-
+  Identitäts-Tests; alte Pattern-Tests durch konsolidierte Tests
+  ersetzt)
+
+### Rev. 18 — `@locator` Decorator-Form (uncommitted)
+
+Bis Rev. 17 war `locator = Locator` ein irreführendes Alias: die
+Class-Decorator-Form `@locator(name="X")` lieferte zwar syntaktisch
+einen Aufruf, ersetzte die Klasse aber durch eine Locator-Instanz —
+*nicht* das, was Designdoc §7.1 / §A.6 spezifiziert.
+
+Rev. 18 ersetzt das Alias durch eine echte Decorator-Funktion mit
+zwei Verwendungsformen:
+
+1. **Class-Decorator** (vollständig implementiert):
+   ```python
+   @locator(name='Calculator', role='Window')
+   class CalculatorWindow: ...
+   ```
+   hängt einen `Locator` als Klassenattribut `__locator__` an und gibt
+   die Klasse unverändert zurück.
+
+2. **Method/Property-Decorator** (Phase-3-Stub):
+   ```python
+   class CalculatorWindow:
+       @property
+       @locator(AutomationId='num5Button')
+       def n5(self) -> Button: ...
+   ```
+   Die Methode wird durch einen `LocatorMethodDescriptor` ersetzt, der
+   den Locator und die Wrapped-Function speichert. Beim Zugriff auf
+   einer Instanz wird derzeit `NotImplementedError("Phase 3")`
+   geworfen. Die volle Resolution (Return-Type-Annotation lesen,
+   `ContextBase.get(annotation, locator=...)` aufrufen) braucht
+   `ContextBase` aus Phase 3.
+
+**Begründung für die Stub-Variante:** Page-Object-Code kann bereits
+heute mit beiden Formen geschrieben werden; der Phase-3-Übergang
+muss nur den `__get__`-Body austauschen, nicht die API. Das verhindert
+spätere Quelltext-Änderungen an Page-Objects.
+
+**Konkrete Änderungen:**
+
+- [x] `src/PlatynUI/core/locator.py`: `locator = Locator`-Alias
+      entfernt; `LocatorMethodDescriptor`-Klasse + `def locator(...)`
+      mit identischer Kwargs-Signatur wie `Locator.__init__`
+      hinzugefügt; `__all__` um `LocatorMethodDescriptor` erweitert.
+- [x] `tests/PlatynUI/test_locator.py`: alter `test_locator_alias_is_class`
+      entfernt; 9 neue Tests für Class-Decorator (Attribut-Anhang,
+      Klasse-unverändert, free-form Kwargs, kwargs match constructor),
+      Method-Decorator-Stub (Descriptor-Returntyp,
+      `NotImplementedError` bei Instanzzugriff, Class-Access liefert
+      Descriptor, `__set_name__` setzt `attr_name`), und
+      Decorator-API-Identität (`locator is not Locator`, Reject von
+      Nicht-Class/Nicht-Callable).
+- [x] `docs/python-migration-status.md` Phase 3 erweitert: explizite
+      To-Do-Position für die Method-Decorator-Vervollständigung.
+
+**Verifikation:**
+
+- `cargo` unverändert.
+- `uv run ruff check src/PlatynUI tests/PlatynUI` ✓
+- `uv run mypy src/PlatynUI tests/PlatynUI` ✓
+- `uv run pyright src/PlatynUI tests/PlatynUI` ✓
+- `uv run pytest tests/PlatynUI` → **128 passed** ✓ (119 + 9 neue
+  Decorator-Tests; ein alter Alias-Test entfernt).
 
 ### Phase 2 — Adapter-Schicht (Designdoc §10 Phase 2)
 
 - [ ] `core/adapter.py` — Adapter-Interface (§A.4),
-      `Adapter`-Pattern, `supported_pattern_names()`
-- [ ] `core/adapters/native.py` — Adapter-Implementation auf Basis von
-      `platynui_native.Runtime`
+      `attribute_value(name, namespace)`, `supported_patterns()`
+- [ ] `core/adapter_proxy.py` — `AdapterProxy`, `PatternProxyFactory`,
+      `@pattern_proxy_for`
+- [ ] `core/adapters/rust.py` — `RustAdapter` über `platynui_native`
 - [ ] `core/adapters/mock.py` — Mock-Adapter (§A.11)
-- [ ] Pattern-Default-Implementierungen (§A.10)
+- [ ] `core/devices.py` — `MouseProxy`/`KeyboardProxy`
+
+(`core/patterns/` Pattern-ABCs wurden in Phase 1 vorgezogen, siehe
+Phase-1-Punkt 10 im Designdoc §10. Pattern-Default-Implementierungen
+in `core/patterns/defaults.py` bleiben Phase 4.)
 
 ### Phase 3 — Context-Schicht (Designdoc §10 Phase 3)
 
 - [ ] `core/context.py` — `ContextBase` (§A.5)
-- [ ] `core/locator.py` — `@locator`-Mechanik (§A.6)
 - [ ] `core/descriptor.py` — `ElementDescriptor[PatternT]` (§A.7)
-- [ ] `WeightCalculator` aus Altprojekt portieren (§11.4)
+- [ ] `@context`-Mechanik + `ContextFactory` (Klassenregistry pro
+      Rolle, gewichtetes Match)
+- [ ] **`@locator` Method/Property-Form vervollständigen** —
+      `LocatorMethodDescriptor.__get__` (`core/locator.py`) wirft
+      derzeit `NotImplementedError("Phase 3")`. Mit `ContextBase.get`
+      muss er stattdessen die Return-Type-Annotation der dekorierten
+      Methode auflesen und `self.get(annotation, locator=...)` auf der
+      Owner-Instanz aufrufen. Class-Decorator-Form
+      (`@locator(name="...")` auf Klasse → `__locator__`-Attribut) ist
+      bereits Phase-1-DONE.
+
+(`core/locator.py` und `core/weight_calculator.py` wurden in Phase 1
+abgeschlossen. Die Class-Decorator-Form von `@locator` ist ebenfalls
+Phase-1-DONE; nur die Method/Property-Form wartet auf `ContextBase`.)
 
 ### Phase 4 — UI-Klassen + Standard-Proxies (Designdoc §10 Phase 4)
 

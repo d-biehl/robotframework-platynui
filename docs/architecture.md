@@ -302,7 +302,7 @@ pub trait WindowSurfacePattern: UiPattern {
 
 | Pattern | Required Attributes | Optional Attributes |
 |---------|-------------------|-------------------|
-| **Element** | Bounds, IsVisible, IsEnabled | IsOffscreen, Technology |
+| **Element** | Bounds, IsVisible, IsEnabled | IsInView, Technology |
 | **Desktop** | Bounds, OsVersion, Monitors | — |
 | **TextContent** | Text | IsReadOnly |
 | **TextEditable** | Text, IsReadOnly=false | MaxLength |
@@ -439,7 +439,7 @@ pub trait WindowSurfacePattern: UiPattern {
 | IsMinimized | WindowPattern.WindowVisualState == Minimized | State.ICONIFIED | AXMinimized |
 | IsMaximized | WindowPattern.WindowVisualState == Maximized | EWMH _NET_WM_STATE check | AXFullScreen |
 | IsTopmost | WindowPattern.IsTopmost | EWMH _NET_WM_STATE_ABOVE | AXMain hint |
-| accepts_user_input() | IsEnabled && !IsOffscreen + WaitForInputIdle | State.SENSITIVE && State.SHOWING | AXEnabled |
+| accepts_user_input() | IsEnabled && IsInView + WaitForInputIdle | State.SENSITIVE && State.SHOWING | AXEnabled |
 
 **Application**
 
@@ -495,7 +495,7 @@ All providers must:
 - Bounds from `BoundingRectangle` in desktop coordinates (Per-Monitor-V2 DPI active).
 - ActivationPoint via `GetClickablePoint()` or center of bounds as fallback.
 - Text priority: `NameProperty` → `ValuePattern.Value` → `TextPattern.DocumentRange.GetText`.
-- WindowSurface attributes via `WindowPattern`/`TransformPattern`; `accepts_user_input()` via `IsEnabled && !IsOffscreen` + `WaitForInputIdle`.
+- WindowSurface attributes via `WindowPattern`/`TransformPattern`; `accepts_user_input()` via `IsEnabled && IsInView` + `WaitForInputIdle`.
 - Application node: process metadata (`ProcessId`, `Name`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture`).
 - `SelectionItemPattern`/`SelectionPattern` sync verified.
 - COM initialized (`CoInitializeEx` MTA) before any UIA call.
@@ -509,7 +509,7 @@ All providers must:
 - TextContent/TextSelection via AT-SPI `Text` interface.
 - SelectionProvider via AT-SPI `Selection` interface.
 - WindowSurface actions delegate to EWMH WindowManager (not direct X11 calls from provider).
-- Component-gated attributes (`Bounds`, `ActivationPoint`, `IsEnabled`, `IsVisible`, `IsOffscreen`, `IsFocused`) only present when Component interface available.
+- Component-gated attributes (`Bounds`, `ActivationPoint`, `IsEnabled`, `IsVisible`, `IsInView`, `IsFocused`) only present when Component interface available.
 - Native attributes: `Native/<Interface>.<Property>` format for all AT-SPI interfaces.
 - Virtual desktops: provider does NOT handle desktop switching — that is `WindowManager::ensure_window_accessible()` responsibility.
 

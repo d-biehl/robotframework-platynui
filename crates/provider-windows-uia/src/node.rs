@@ -214,7 +214,7 @@ impl UiNode for UiaNode {
                 "Bounds" => Some(Arc::new(BoundsAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 "ActivationPoint" => Some(Arc::new(ActivationPointAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 "IsEnabled" => Some(Arc::new(IsEnabledAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                "IsOffscreen" => Some(Arc::new(IsOffscreenAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                "IsInView" => Some(Arc::new(IsInViewAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 "IsVisible" => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 "IsFocused" => Some(Arc::new(IsFocusedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 "IsMinimized" if self.has_window_surface() => {
@@ -583,22 +583,22 @@ impl UiAttribute for IsEnabledAttr {
 unsafe impl Send for IsEnabledAttr {}
 unsafe impl Sync for IsEnabledAttr {}
 
-struct IsOffscreenAttr {
+struct IsInViewAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
 }
-impl UiAttribute for IsOffscreenAttr {
+impl UiAttribute for IsInViewAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
     fn name(&self) -> &str {
-        "IsOffscreen"
+        "IsInView"
     }
     fn value(&self) -> UiValue {
-        UiValue::from(crate::map::get_is_offscreen(&self.elem).unwrap_or(false))
+        UiValue::from(crate::map::get_is_in_view(&self.elem).unwrap_or(true))
     }
 }
-unsafe impl Send for IsOffscreenAttr {}
-unsafe impl Sync for IsOffscreenAttr {}
+unsafe impl Send for IsInViewAttr {}
+unsafe impl Sync for IsInViewAttr {}
 
 struct ActivationPointAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -632,9 +632,9 @@ impl UiAttribute for IsVisibleAttr {
         "IsVisible"
     }
     fn value(&self) -> UiValue {
-        let off = crate::map::get_is_offscreen(&self.elem).unwrap_or(false);
+        let in_view = crate::map::get_is_in_view(&self.elem).unwrap_or(true);
         let r = crate::map::get_bounding_rect(&self.elem).unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
-        UiValue::from(!off && r.width() > 0.0 && r.height() > 0.0)
+        UiValue::from(in_view && r.width() > 0.0 && r.height() > 0.0)
     }
 }
 unsafe impl Send for IsVisibleAttr {}
@@ -665,8 +665,8 @@ impl UiAttribute for AcceptsUserInputAttr {
 
         // Process is idle or check failed - fall back to basic enabled/visible check
         let enabled = crate::map::get_is_enabled(&self.elem).unwrap_or(false);
-        let off = crate::map::get_is_offscreen(&self.elem).unwrap_or(false);
-        UiValue::from(enabled && !off)
+        let in_view = crate::map::get_is_in_view(&self.elem).unwrap_or(true);
+        UiValue::from(enabled && in_view)
     }
 }
 unsafe impl Send for AcceptsUserInputAttr {}
@@ -713,7 +713,7 @@ impl Iterator for AttrsIter {
                 4 => Some(Arc::new(BoundsAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 5 => Some(Arc::new(ActivationPointAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 6 => Some(Arc::new(IsEnabledAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                7 => Some(Arc::new(IsOffscreenAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                7 => Some(Arc::new(IsInViewAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 8 => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 9 => Some(Arc::new(IsFocusedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 10 => {

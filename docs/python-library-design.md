@@ -4,7 +4,7 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 12**.
+> **Status:** Diskussionsentwurf, **Revision 17**.
 >
 > **Änderungen seit Rev. 4:**
 > - **Rev. 5** — modernes Python 3.10+ als verbindlicher Standard
@@ -98,6 +98,72 @@
 >   Strategie überdenken (nicht in Phase 0). (4) `native:Application.
 >   ToolkitName` kommt `null` zurück — AccessKit oder egui-winit setzt
 >   das nicht; Nice-to-have für später.
+> - **Rev. 14** — Rust-`PatternId` durchgängig auf Reverse-DNS umgestellt
+>   (siehe §13.6).
+> - **Rev. 15** — **Attribute-Modell konsolidiert.** Die alten
+>   `Properties`-/`NativeProperties`-Patterns und die getrennten
+>   `property_*`/`native_property_*`-Adapter-Methoden werden ersatzlos
+>   gestrichen. Adapter (Rust und alle künftigen) exposen Attribute
+>   einheitlich als `(namespace, name) → UiValue`-Schlüsselraum, parallel
+>   zum Rust-Modell (`crates/core/src/ui/node.rs`,
+>   `crates/core/src/ui/namespace.rs`). Vier Namespaces sind kanonisch:
+>   `control` (Default), `item`, `app`, `native`. Konsequenzen:
+>   (a) `Adapter`-Interface (§A.4) hat `attribute_names(namespace=...)`
+>   und `attribute_value(name, namespace=...)`, sonst nichts; (b)
+>   `WeightCalculator` (§4.1) hat genau ein Attribut-Kriterium
+>   `attributes[(ns, name)] == v`; (c) Locator (§A.6) trägt
+>   `attributes: dict[str | tuple[str, str], str | re.Pattern[str]]` —
+>   bare String = Name im Default-Namespace, Tupel = expliziter
+>   Namespace; (d) Page-Object kann den Default-Namespace per
+>   Klassenattribut `default_attribute_namespace = "item"` o.Ä.
+>   umstellen. Symmetrisch zu Rust und zur XPath-Schreibweise
+>   (`@AutomationId` ist im Default-NS `control`, `@native:HWND` ist
+>   explizit). Die Robot-Keywords heißen `Get Attribute` / `Get
+>   Attributes` (kein `Get Property` mehr); das `Properties`-Pattern
+>   entfällt.
+> - **Rev. 16** — **Locator-Konstruktor akzeptiert PascalCase-Kwargs**
+>   als freie Attribut-Predicates (`Locator(Name="OK", native__HWND=1)`),
+>   neben den sechs typisierten snake_case-Convenience-Feldern und dem
+>   `attributes`-Dict. Doppelte Schlüssel über mehrere Kanäle werfen
+>   `TypeError` mit konkreter Quellenangabe — kein stilles
+>   Vorrang-Verhalten. Details in §7.1 und §A.6.
+> - **Rev. 18** — **`@locator` ist jetzt eine echte Decorator-Funktion**
+>   (kein `Locator`-Alias mehr). Class-Decorator-Form
+>   (`@locator(name="X") class Foo: ...`) ist vollständig implementiert
+>   und hängt einen `Locator` als `Foo.__locator__` an. Method-/
+>   Property-Form (`@property + @locator(...) def n5(self) -> Button`)
+>   ist als `LocatorMethodDescriptor`-Stub implementiert: API steht,
+>   `__get__` wirft derzeit `NotImplementedError("Phase 3")`. Die volle
+>   Resolution braucht `ContextBase.get(annotation, locator=…)` aus
+>   Phase 3. Page-Object-Code kann beide Formen heute schreiben — der
+>   Phase-3-Übergang erfordert keine Änderung am Page-Object. Details in
+>   §A.6.
+> - **Rev. 17** — **Pattern-Liste konsolidiert.** Die Python-Pattern-
+>   Hierarchie wird an die Rust-Capability-Gruppen
+>   (`crates/core/src/ui/attributes.rs`,
+>   `crates/core/src/ui/identifiers.rs`) angeglichen. Konkret:
+>   (a) **`HasBounds` + `Visibility` + `HasIsEnabled`** werden zu
+>   einem Pattern `Element` mit `bounds`, `is_visible`, `is_in_view`,
+>   `is_enabled`, `default_click_position` zusammengeführt — analog zum
+>   Rust-Modul `attributes::element`. (b) **`EditableText`** wird in
+>   drei Patterns aufgeteilt: `TextContent` (read-only Properties
+>   `text`, `locale`, `is_truncated`), `TextEditable` (`set_text()` +
+>   `is_readonly`, `max_length`, `supports_password_mode`) und
+>   `Clearable` (`clear()`). `HasIsReadonly` entfällt — Read-only-
+>   Status gehört zu `TextEditable`. (c) **`Toggleable` + `HasToggleState`**
+>   werden zu einem Pattern `Toggleable` mit `toggle()` + `state` +
+>   `supports_three_state` zusammengeführt. (d) **`Activatable`** wird
+>   um `is_activation_enabled` und `default_accelerator` erweitert.
+>   (e) **`Focusable`** bleibt eigenständig (`is_focused` + `focus()`).
+>   `HasFocus` entfällt. (f) **`Point`/`Rect`** werden aus
+>   `platynui_native` re-exportiert (kanonische pyo3-Bindings statt
+>   eigener Python-Definition).
+>
+> **Wire-Breaking Change in Rev. 17:** Das Rust-Attribut `IsOffscreen`
+> wird zu `IsInView` umbenannt und semantisch invertiert (war: „nicht
+> sichtbar im Viewport"; jetzt: „im Viewport sichtbar"). Default-
+> Fallback in den Providern dreht von `false` auf `true`. Da das
+> Projekt unveröffentlicht ist, ist das kein SemVer-Breaking Change.
 >
 > **Begriffsänderung in Rev. 4:** Wir verwenden durchgehend den Begriff
 > **Pattern** statt Strategy — passend zur neuen Rust-Implementierung
@@ -428,12 +494,24 @@ Jede Registrierung gibt eine Teilmenge dieser Kriterien an:
 | `framework_id` | `"WPF"` | +1000 (oder reject) |
 | `class_name` | `"Microsoft.Maui.Controls.Button"` | +500 (oder reject) |
 | `tag_name` | (DOM-artig) | +400 (oder reject) |
-| `properties[k] == v` | `{"AutomationId": re.compile("submit-.*")}` | +200 pro Match (oder reject) |
-| `native_properties[k] == v` | `{"UIA.IsKeyboardFocusable": True}` | +200 pro Match (oder reject) |
+| `attributes[(ns, name)] == v` | `{("control", "AutomationId"): re.compile("submit-.*")}`, `{("native", "HWND"): 0xABCD}` | +200 pro Match (oder reject) |
 
 Werte können `str`, `re.Pattern` oder beliebige `==`-vergleichbare Werte
 sein. Höchstes Gewicht > 0 gewinnt; bei keinem Match: Fallback
 (`UnknownContext` bzw. roher Adapter ohne Proxy).
+
+**Attribut-Namensraum.** Schlüssel im `attributes`-Dict sind entweder
+ein Tupel `(namespace, name)` oder — als Convenience — ein bloßer
+String, der dann als `(<default_namespace>, name)` interpretiert wird.
+Der Default-Namespace ist `control` und kann von einer Page-Object-
+Klasse über das Klassenattribut `default_attribute_namespace`
+umgestellt werden (siehe §A.6 / §7.1). Vier Namespaces sind
+kanonisch (1:1 zu `crates/core/src/ui/namespace.rs`):
+
+- `control` — semantische UI-Attribute (Default)
+- `item` — Container-Item-Attribute
+- `app` — Application-Attribute
+- `native` — toolkit-/provider-spezifische Roh-Attribute
 
 ### 4.2 Zwei Registries
 
@@ -447,7 +525,7 @@ class Button(Control, role="Button"):
     def activate(self) -> None: ...
 
 @context(role="Button", framework_id="WPF",
-         properties={"ClassName": re.compile("MyApp\\..*PrimaryButton")})
+         attributes={"ClassName": re.compile("MyApp\\..*PrimaryButton")})
 class MyAppPrimaryButton(Button):
     """Spezialisierung für Primary-Buttons unserer App."""
 ```
@@ -474,7 +552,7 @@ class ButtonProxy(ControlProxy, patterns.Activatable):
         ...
 
 @pattern_proxy_for(role="Label",
-                   properties={"ClassName": "MyApp.FakeButton"})
+                   attributes={"ClassName": "MyApp.FakeButton"})
 class FakeButtonProxy(ControlProxy, patterns.Activatable):
     """Label-mit-ClickHandler bedient sich wie ein Button."""
     def activate(self) -> None:
@@ -629,88 +707,140 @@ class Activatable(PatternBase):
     pattern_name = "org.platynui.patterns.Activatable"
     @abstractmethod
     def activate(self) -> None: ...
+    @property
+    @abstractmethod
+    def is_activation_enabled(self) -> bool: ...
+    @property
+    @abstractmethod
+    def default_accelerator(self) -> str | None: ...
 
 
 # core/patterns/toggle.py
 class Toggleable(PatternBase):
+    """Toggle-Aktion *und* Toggle-Status in einem Pattern.
+
+    Konsolidiert die alten `Toggleable` und `HasToggleState`-Patterns
+    (Rev. 17). Spiegel des Rust-Moduls `attributes::toggleable`.
+    """
     pattern_name = "org.platynui.patterns.Toggleable"
     @abstractmethod
     def toggle(self) -> None: ...
-
-
-class HasToggleState(PatternBase):
-    pattern_name = "org.platynui.patterns.HasToggleState"
     @property
     @abstractmethod
     def state(self) -> "ToggleState": ...
+    @property
+    @abstractmethod
+    def supports_three_state(self) -> bool: ...
 
 
 # core/patterns/text.py
-class EditableText(PatternBase):
-    pattern_name = "org.platynui.patterns.EditableText"
+class TextContent(PatternBase):
+    """Read-only Textinhalt eines Elements."""
+    pattern_name = "org.platynui.patterns.TextContent"
+    @property
+    @abstractmethod
+    def text(self) -> str: ...
+    @property
+    @abstractmethod
+    def locale(self) -> str | None: ...
+    @property
+    @abstractmethod
+    def is_truncated(self) -> bool: ...
+
+
+class TextEditable(PatternBase):
+    """Editable-Status + Schreib-Operation. Ersetzt den alten
+    `EditableText` und `HasIsReadonly` (Rev. 17)."""
+    pattern_name = "org.platynui.patterns.TextEditable"
     @abstractmethod
     def set_text(self, value: str) -> None: ...
+    @property
+    @abstractmethod
+    def is_readonly(self) -> bool: ...
+    @property
+    @abstractmethod
+    def max_length(self) -> int | None: ...
+    @property
+    @abstractmethod
+    def supports_password_mode(self) -> bool: ...
 
 
 class Clearable(PatternBase):
+    """Eigenständige Clear-Operation (separater Capability-Marker)."""
     pattern_name = "org.platynui.patterns.Clearable"
     @abstractmethod
     def clear(self) -> None: ...
 
 
-# core/patterns/geometry.py
-class HasBounds(PatternBase):
-    """Geometrische Position des Elements auf dem Screen."""
-    pattern_name = "org.platynui.patterns.HasBounds"
+# core/patterns/element.py
+class Element(PatternBase):
+    """Konsolidiertes Element-Pattern: Geometrie + Sichtbarkeit +
+    Enabled-Status. Ersetzt die alten `HasBounds`, `Visibility` und
+    `HasIsEnabled` (Rev. 17). Spiegel des Rust-Moduls
+    `attributes::element` (`Bounds`, `IsVisible`, `IsInView`, `IsEnabled`).
+    """
+    pattern_name = "org.platynui.patterns.Element"
     @property
     @abstractmethod
     def bounds(self) -> Rect: ...
-    @property
-    def default_click_position(self) -> Point:
-        """Typisch bounds.center; Adapter überschreiben bei Bedarf."""
-        return self.bounds.center
-
-
-class Visibility(PatternBase):
-    """Sichtbarkeits-Status (inkl. In-View-Unterscheidung)."""
-    pattern_name = "org.platynui.patterns.Visibility"
     @property
     @abstractmethod
     def is_visible(self) -> bool: ...
     @property
     @abstractmethod
     def is_in_view(self) -> bool: ...
-
-
-# core/patterns/state.py
-class HasIsEnabled(PatternBase):
-    """Aktivierbarkeits-Status; eigenständig von Activatable, weil
-    ein Element `enabled` sein kann, ohne selbst aktivierbar zu sein
-    (z.B. ein Container, dessen Kinder enabled sind)."""
-    pattern_name = "org.platynui.patterns.HasIsEnabled"
     @property
     @abstractmethod
     def is_enabled(self) -> bool: ...
+    @property
+    def default_click_position(self) -> Point:
+        """Typisch bounds.center(); Adapter überschreiben bei Bedarf."""
+        return self.bounds.center()
 
 
-class HasIsReadonly(PatternBase):
-    """Schreibschutz-Status für Editable-Elemente."""
-    pattern_name = "org.platynui.patterns.HasIsReadonly"
+# core/patterns/focusable.py
+class Focusable(PatternBase):
+    """Fokus-Status + Fokus-Aktion (`focus()` ist Python-seitig)."""
+    pattern_name = "org.platynui.patterns.Focusable"
     @property
     @abstractmethod
-    def is_readonly(self) -> bool: ...
+    def is_focused(self) -> bool: ...
+    @abstractmethod
+    def focus(self) -> None: ...
 
 
-# Expandable, HasIsExpanded, Selectable, HasIsSelected, Focusable,
-# HasFocus, Scrollable, HasNativeWindowHandle, HasValue, EditableValue,
-# Properties, … — alle als ABC mit pattern_name im
+# Expandable, HasIsExpanded, Selectable, HasIsSelected,
+# Scrollable, HasNativeWindowHandle, HasValue, EditableValue,
+# … — alle als ABC mit pattern_name im
 # org.platynui.patterns.*-Namespace.
+#
+# Hinweis: Es gibt KEIN „Properties"-Pattern. Generische Attribut-
+# Reads laufen direkt am Adapter über
+# `adapter.attribute_value(name, namespace=...)` (§A.4) — symmetrisch
+# zu `UiNode.attribute(name, namespace)` in Rust.
 ```
 
-Die Patterns sind aus dem Altprojekt **weitgehend unverändert** zu
-übernehmen (nur umbenannt: Strategy → Pattern, `strategy_name` →
-`pattern_name`). Die Liste der ~20 Patterns hat sich in der Praxis
-bewährt.
+Die Pattern-Liste folgt **eng der Rust-Capability-Gruppierung** in
+`crates/core/src/ui/attributes.rs` und `pattern_ids` in
+`crates/core/src/ui/identifiers.rs`. Konsolidierungen gegenüber dem
+Altprojekt (Rev. 17):
+
+- `HasBounds` + `Visibility` + `HasIsEnabled` → **`Element`** (Rust:
+  `attributes::element` mit `Bounds`, `IsVisible`, `IsInView`,
+  `IsEnabled`).
+- `Toggleable` + `HasToggleState` → **`Toggleable`** (Rust:
+  `attributes::toggleable` mit `ToggleState`, `SupportsThreeState`).
+- `EditableText` + `HasIsReadonly` → **`TextEditable`** (Rust:
+  `attributes::text_editable` mit `IsReadOnly`, `MaxLength`,
+  `SupportsPasswordMode`); read-only Inhalt → **`TextContent`** (Rust:
+  `attributes::text_content`); Clear-Operation → **`Clearable`** (Rust:
+  leeres Modul `attributes::clearable`, da reine Aktion ohne Attribute).
+- `Activatable` ist um `is_activation_enabled` und
+  `default_accelerator` erweitert (Rust: `attributes::activatable`).
+- `Focusable` bleibt eigenständig; `HasFocus` entfällt.
+- `Point` und `Rect` werden aus `platynui_native` re-exportiert
+  (kanonische pyo3-Bindings; `Rect.center()` ist eine Methode, keine
+  Property).
 
 ### 5.1 Wer implementiert Patterns?
 
@@ -773,12 +903,13 @@ class Button(Control, role="Button"):
 class CheckBox(Button, role="CheckBox"):
     def set_state(self, target: ToggleState) -> None:
         for _ in ToggleState:
-            current = self.adapter.get_pattern(patterns.HasToggleState).state
+            toggleable = self.adapter.get_pattern(patterns.Toggleable)
+            current = toggleable.state
             if current == target:
                 return
-            self.adapter.get_pattern(patterns.Toggleable).toggle()
+            toggleable.toggle()
             wait_for(lambda last=current:
-                     self.adapter.get_pattern(patterns.HasToggleState).state != last)
+                     self.adapter.get_pattern(patterns.Toggleable).state != last)
         raise CannotEnsureError(f"cannot set checkbox to {target}")
 ```
 
@@ -796,7 +927,7 @@ reicht als Vertrag zwischen Adapter und UI-Schicht — eine globale
   _RUST_PATTERN_MAP: dict[str, type[PatternBase]] = {
       Focusable.pattern_name: Focusable,
       WindowSurface.pattern_name: WindowSurface,
-      HasBounds.pattern_name: HasBounds,
+      Element.pattern_name: Element,
       # …
   }
   ```
@@ -875,9 +1006,9 @@ Minimal-Set, das mit v1 ausgeliefert werden soll (Rollen entsprechen
 |---|---|---|
 | `Desktop` / `Application` / `Window` / `Dialog` / `Frame` | `Desktop`, `Application`, `Window`, `Dialog` | `WindowSurface`-Patterns (über Rust), `Activatable` |
 | `Button`, `Link` | `Button` | `Activatable` |
-| `CheckBox`, `RadioButton`, `ToggleButton` | `CheckBox`, `RadioButton`, `ToggleButton` | `Toggleable`, `HasToggleState` |
-| `Edit`, `Text`, `PasswordBox` | `Edit`, `Text` | `EditableText`, `HasValue`, `Clearable` |
-| `ComboBox` | `ComboBox` | `Expandable`, `Selectable`, `EditableText` (editierbar) |
+| `CheckBox`, `RadioButton`, `ToggleButton` | `CheckBox`, `RadioButton`, `ToggleButton` | `Toggleable` |
+| `Edit`, `Text`, `PasswordBox` | `Edit`, `Text` | `TextContent`, `TextEditable`, `Clearable`, `HasValue` |
+| `ComboBox` | `ComboBox` | `Expandable`, `Selectable`, `TextEditable` (editierbar) |
 | `List`, `ListItem` | `List`, `ListItem` | `Selectable`, `HasIsSelected`, `Scrollable` |
 | `Tree`, `TreeItem` | `Tree`, `TreeItem` | `Expandable`, `Selectable`, `Scrollable` |
 | `Table`, `Row`, `Cell`, `Header` | `Table`, `Row`, `Cell` | `Selectable`, `Scrollable` |
@@ -902,14 +1033,14 @@ Die Liste ist bewusst am Altprojekt (`ui/proxies/standardproxies.py`,
   über den Default.
 - **Fake-Button-Szenario (siehe §12)** ist genau so umgesetzt: der
   Default-Proxy für `role="Button"` bleibt unberührt; zusätzlich wird
-  ein `@pattern_proxy_for(role="Label", properties={...})` registriert,
+  ein `@pattern_proxy_for(role="Label", attributes={...})` registriert,
   der im Match höheres Gewicht bekommt.
 - **Drei-Ebenen-Fallback pro Pattern** (von spezifisch nach generisch):
   1. App/Framework-spezifischer Proxy (User-Registrierung)
   2. Default-Proxy für die Standard-Rolle (PlatynUI)
   3. Adapter-Pattern (Provider-nativ) oder generische
      Pattern-Defaults in `core/patterns/defaults.py`
-     (Click-basiertes `Activatable`, Tastatur-basiertes `EditableText`,
+     (Click-basiertes `Activatable`, Tastatur-basiertes `TextEditable`,
      …) — greifen, wenn keine der oberen Ebenen etwas liefert.
 
 ## 6. Was Rust beitragen kann (und was nicht)
@@ -1020,15 +1151,59 @@ UiNode dann je nach Locator unterschiedlich behandelt würde. Pattern-
 Auswahl gehört in die `@pattern_proxy_for`-Registry (siehe §4), wo sie
 auf Eigenschaften des UiNodes selbst basiert.
 
-> **Attribut-Namenskonvention:** Locator-Kwargs (`AutomationId=`,
-> `ClassName=`, `Name=`, …) verwenden **PascalCase** und entsprechen
-> 1:1 den Attributnamen, die der Adapter exposed (siehe AGENTS.md:
-> *„Attribute use PascalCase"*). Das ist konsistent mit der
-> XPath-Schreibweise (`//control:Button[@AutomationId='num5Button']`)
-> und mit dem `properties=`-Kwarg in `@context`/`@pattern_proxy_for`.
-> Python-eigene Locator-Optionen (Strategie-Modifier, z.B. `name=` als
-> Convenience für `@Name=`) bleiben snake_case und sind in der
-> Locator-API als reservierte Schlüsselwörter dokumentiert.
+> **Attribut-Namenskonvention.** Es gibt **drei** Eingangskanäle für
+> Attribut-Predicates am `Locator`. Sie können frei gemischt werden,
+> aber dasselbe Attribut darf nur über **genau einen** Kanal gesetzt
+> werden — Konflikte werfen `TypeError` (kein stilles Vorrang-Verhalten).
+>
+> 1. **Sechs verdrahtete Convenience-Felder** (typisierte Parameter):
+>    `name`, `id`, `class_name`, `role`, `runtime_id`, `framework_id`.
+>    Diese sind **snake_case** (Python-Identifier-Konvention) und
+>    werden vom Framework auf ihre PascalCase-XPath-Form gemappt
+>    (`Locator(role="Button", name="Hallo")` → `Button[@Name="Hallo"]`,
+>    `class_name=` → `@ClassName=`, `runtime_id=` → `@RuntimeId=`,
+>    `framework_id=` → `@FrameworkId=`). Das Mapping ist abgeschlossen
+>    und nicht erweiterbar — es deckt nur diese sechs hochfrequenten
+>    Felder ab. Implementierung: `Locator._standard_attributes()`.
+>
+> 2. **Freie Kwargs am Konstruktor / Decorator**: Jeder Kwarg, der
+>    *kein* reserviertes Locator-Feld ist (also nicht in
+>    `Locator.RESERVED_FIELDS`), wird als Attribut interpretiert. Der
+>    Kwarg-Name geht **wörtlich** in den XPath, ohne jede
+>    Case-Konvertierung — per Konvention ist er PascalCase:
+>    `Locator(AutomationId="x")` → `[@AutomationId="x"]`,
+>    `@locator(IsEnabled="true")` → `[@IsEnabled="true"]`. Für
+>    Attribute außerhalb des `control`-Default-Namespace gilt der
+>    Doppelunterstrich-Trenner: `Locator(native__HWND=0xABCD)` →
+>    `[@native:HWND="..."]`. Mehrere `__` im Kwarg-Namen sind nicht
+>    erlaubt — komplexere Schlüssel gehen über das `attributes`-Dict.
+>
+> 3. **Freies `attributes`-Dict** (für programmatisch konstruierte
+>    Schlüssel oder Attribute, deren Name kein Python-Identifier ist):
+>    Schlüssel werden wörtlich in den XPath übernommen. Bare String =
+>    Default-Namespace, Tupel `(namespace, name)` = explizit:
+>    `attributes={"AutomationId": "x"}` → `[@AutomationId="x"]`,
+>    `attributes={("native", "HWND"): 0xABCD}` → `[@native:HWND="..."]`.
+>
+> Begründung der bewussten Asymmetrie zwischen (1) und (2)/(3):
+> dataclass-artige Felder *müssen* Python-Identifier sein und folgen
+> damit PEP 8 (snake_case); für Attribut-Schlüssel wäre eine
+> heuristische snake_case→PascalCase-Brücke unzuverlässig, weil
+> Acronym-Sonderfälle (`HWND`, `OS`, `URL`, `XPath`) jede Heuristik
+> brechen. Identitäts-Mapping mit explizitem User-Wording ist
+> verlässlicher als „cleveres" Auto-Casing.
+>
+> **Empfehlungs-Reihenfolge:** Convenience-Feld vor Kwarg vor Dict.
+> Den Dict-Weg primär für dynamisch konstruierte Schlüssel oder
+> Cross-Namespace-Tupel verwenden.
+>
+> **Namensraum.** Bare Attribut-Namen (sowohl Kwargs ohne `__` als
+> auch String-Schlüssel im Dict) werden im Default-Namespace der
+> Page-Object-Klasse aufgelöst — standardmäßig `control`. Eine Klasse
+> kann das per Klassenattribut umstellen, z.B.
+> `class ListItem(Item): default_attribute_namespace = "item"`. Für
+> explizite Cross-Namespace-Attribute nutzt das `attributes`-Dict
+> Tupel-Keys oder der Kwarg den `__`-Trenner. Siehe §A.6.
 
 ### 7.2 Page Objects via `@context`
 
@@ -1045,15 +1220,16 @@ RoboCon-Slide 10):
 | Keyword | Pattern(s) | Outcome |
 |---|---|---|
 | `Activate` | `Activatable` (+ App-ready) | Aktivierung erfolgt + verifiziert |
-| `Focus` | `Focusable` + `HasFocus` | Element hat Fokus |
-| `Toggle` | `Toggleable` + `HasToggleState` | Toggle-State hat sich geändert |
-| `Check` / `Uncheck` / `Set Check State` | `Toggleable` + `HasToggleState` | Ziel-State erreicht |
+| `Focus` | `Focusable` | Element hat Fokus |
+| `Toggle` | `Toggleable` | Toggle-State hat sich geändert |
+| `Check` / `Uncheck` / `Set Check State` | `Toggleable` | Ziel-State erreicht |
 | `Select` / `Deselect` / `Select Item` | `Selectable` + `HasIsSelected` | Selektion verifiziert |
 | `Expand` / `Collapse` | `Expandable` + `HasIsExpanded` | Expand-State erreicht |
-| `Set Value` / `Clear` / `Append` | `EditableText` + `HasValue` | Wert verifiziert |
+| `Set Value` / `Append` | `TextEditable` + `HasValue` | Wert verifiziert |
+| `Clear` | `Clearable` | Wert ist leer |
 | `Scroll Into View` | `Scrollable` + `IsInView`-Check | Element im Viewport |
 | `Activate Window` / `Maximize Window` / `Minimize Window` / `Close Window` | `WindowSurface`-Patterns | Window-State verifiziert |
-| `Get Property` / `Get Attribute` | `Properties` / direkter Attribut-Read | Wert |
+| `Get Attribute` / `Get Attributes` | direkter Attribut-Read am Adapter (`adapter.attribute_value(name, namespace=...)`) | Wert |
 | `Wait Until Exists` / `Wait Until Gone` | Locator + `wait_for` | Existenz |
 
 Implementierung: jedes Keyword nimmt ein UI-Element-Argument (typisiert
@@ -1120,11 +1296,12 @@ src/PlatynUI/
 │   │   ├── __init__.py             # re-exports
 │   │   ├── base.py                 # PatternBase (ABC) + pattern_name-Check
 │   │   ├── activation.py           # Activatable
-│   │   ├── toggle.py               # Toggleable, HasToggleState
-│   │   ├── text.py                 # EditableText, HasValue, Clearable
+│   │   ├── toggle.py               # Toggleable (toggle + state + supports_three_state)
+│   │   ├── text.py                 # TextContent, TextEditable, Clearable, HasValue
+│   │   ├── element.py              # Element (bounds + visibility + enabled + click_position)
+│   │   ├── focusable.py            # Focusable (is_focused + focus())
 │   │   ├── expand.py               # Expandable, HasIsExpanded
 │   │   ├── selection.py            # Selectable, HasIsSelected, …
-│   │   ├── focus.py                # Focusable, HasFocus
 │   │   ├── window.py               # WindowSurface (Activate/Close/Min/Max als Methoden)
 │   │   ├── defaults.py             # Default-Implementierungen (alt: strategyimpl.py)
 │   │   └── …
@@ -1166,7 +1343,7 @@ src/PlatynUI/
     ├── expand.py                   # Expand, Collapse
     ├── scroll.py                   # Scroll Into View, Scroll
     ├── window.py                   # Activate/Close/Min/Max Window
-    ├── properties.py               # Get Property, Get Attribute
+    ├── properties.py               # Get Attribute, Get Attributes
     ├── wait.py                     # Wait Until Exists / Gone
     └── application.py              # Start/Close Application
 ```
@@ -1319,7 +1496,7 @@ def ensure_that(
    class Element(Control):
        @predicate("element {0} is enabled")
        def _element_is_enabled(self) -> bool:
-           return self.adapter.get_pattern(patterns.HasIsEnabled).is_enabled
+            return self.adapter.get_pattern(patterns.Element).is_enabled
    ```
 
 **Standard-Predicates** (in `ui/element.py` als Methoden, übernommen
@@ -1392,15 +1569,24 @@ class Adapter(ABC):
     @property @abstractmethod
     def framework_id(self) -> str: ...
 
-    # Attribute (Properties + Native-Properties)
+    # Attribute (einheitlicher (namespace, name)-Schlüsselraum,
+    # symmetrisch zu UiNode in Rust:
+    #   crates/core/src/ui/node.rs (`attribute(namespace, name)`,
+    #   `attributes()`),
+    #   crates/core/src/ui/namespace.rs (control|item|app|native).
+    # Default-Namespace ist "control".
     @abstractmethod
-    def property_names(self) -> set[str]: ...
+    def attribute_names(self, namespace: str | None = None) -> set[str]:
+        """Alle Attribut-Namen. Mit `namespace=None` werden Namen aus
+        ALLEN Namespaces zurückgegeben — i.d.R. nur für Inspector/
+        Debug-Zwecke. Mit explizitem `namespace="native"` (oder
+        anderem) nur die des jeweiligen Namespaces."""
     @abstractmethod
-    def property_value(self, name: str) -> object: ...
+    def attribute_value(self, name: str, namespace: str = "control") -> object: ...
     @abstractmethod
-    def native_property_names(self) -> set[str]: ...
-    @abstractmethod
-    def native_property_value(self, name: str) -> object: ...
+    def attributes(self) -> Iterator[tuple[str, str, object]]:
+        """Iterator über (namespace, name, value) — direkte Entsprechung
+        zu `UiNode.attributes()` in Rust."""
 
     # Pattern-Discovery & -Aufruf (Kern!)
     @abstractmethod
@@ -1435,10 +1621,11 @@ class Adapter(ABC):
 **Visuelle/State-Properties** (`bounding_rectangle`, `is_visible`,
 `is_enabled`, `is_in_view`, `is_focused`, …) sind **keine** Adapter-
 Methoden, sondern werden über das jeweilige Pattern abgerufen
-(`HasBounds`, `Visibility`, `Activatable.is_enabled`, …). `Element`
-(§7.1) bietet `@cached_property`-Convenience-Wrapper, die intern
-`adapter.get_pattern(HasBounds).bounds` etc. aufrufen. So bleibt das
-Adapter-Interface schmal und Pattern-orientiert.
+(`Element.bounds`, `Element.is_visible`, `Element.is_enabled`,
+`Focusable.is_focused`, …). `Element` (§7.1) bietet
+`@cached_property`-Convenience-Wrapper, die intern
+`adapter.get_pattern(patterns.Element).bounds` etc. aufrufen. So bleibt
+das Adapter-Interface schmal und Pattern-orientiert.
 
 **Pattern-Resolution-Reihenfolge** (siehe auch §4.3):
 1. `self` ist `isinstance(pattern_type)` → `self`.
@@ -1521,14 +1708,13 @@ class ContextBase(Assertable):
     def __exit__(self, *exc) -> None: pass
 ```
 
-**Generische Property-Reads** (für Locator-`properties=`-Match und
-Inspector-Zwecke):
+**Generische Attribut-Reads** (für Locator-`attributes=`-Match und
+Inspector-Zwecke; delegieren 1:1 an den Adapter, siehe §A.4):
 
 ```python
-def property_names(self) -> set[str]: ...
-def property_value(self, name: str) -> object: ...
-def native_property_names(self) -> set[str]: ...
-def native_property_value(self, name: str) -> object: ...
+def attribute_names(self, namespace: str | None = None) -> set[str]: ...
+def attribute_value(self, name: str, namespace: str = "control") -> object: ...
+def attributes(self) -> Iterator[tuple[str, str, object]]: ...
 ```
 
 `ContextFactory` lebt im selben Modul, hält die Klassen-Registry für
@@ -1542,28 +1728,36 @@ bzw. `@property`, damit Page-Object-Code ohne expliziten
 
 ```python
 class Element(ContextBase):
+    """Page-Object-Basisklasse. Nicht zu verwechseln mit dem
+    gleichnamigen *Pattern* `patterns.Element` (§5), das hier durch
+    diese Properties gewrappt wird."""
+
+    @property
+    def _element_pattern(self) -> patterns.Element:
+        return self.adapter.get_pattern(patterns.Element)
+
     @property
     def bounding_rectangle(self) -> Rect:
-        return self.adapter.get_pattern(HasBounds).bounds
+        return self._element_pattern.bounds
 
     @property
     def is_visible(self) -> bool:
-        v = self.adapter.get_pattern(Visibility, raise_exception=False)
-        return v.is_visible if v is not None else True
+        e = self.adapter.get_pattern(patterns.Element, raise_exception=False)
+        return e.is_visible if e is not None else True
 
     @property
     def is_in_view(self) -> bool:
-        v = self.adapter.get_pattern(Visibility, raise_exception=False)
-        return v.is_in_view if v is not None else self.is_visible
+        e = self.adapter.get_pattern(patterns.Element, raise_exception=False)
+        return e.is_in_view if e is not None else self.is_visible
 
     @property
     def is_enabled(self) -> bool:
-        a = self.adapter.get_pattern(Activatable, raise_exception=False)
-        return a.is_enabled if a is not None else True
+        e = self.adapter.get_pattern(patterns.Element, raise_exception=False)
+        return e.is_enabled if e is not None else True
 
     @property
     def is_focused(self) -> bool:
-        f = self.adapter.get_pattern(Focusable, raise_exception=False)
+        f = self.adapter.get_pattern(patterns.Focusable, raise_exception=False)
         return f.is_focused if f is not None else False
 ```
 
@@ -1574,7 +1768,11 @@ Diese Properties sind die Quelle für Default-Predicates
 ### A.6 `@locator`-Mechanik (`core/locator.py`)
 
 `Locator` ist eine `@dataclass`-ähnliche Builder-Klasse, die intern
-einen XPath-2.0-Ausdruck für die Rust-XPath-Engine baut.
+einen XPath-2.0-Ausdruck für die Rust-XPath-Engine baut. Die
+Implementierung ist eine handgeschriebene Klasse mit `__slots__`
+(kein `@dataclass`-Decorator), weil der Konstruktor zusätzlich zu den
+typisierten Feldern beliebige `**kwargs` als freie Attribut-Predicates
+entgegennimmt (siehe §7.1).
 
 **Felder & Kwargs** (vereinfacht aus Altcode `ui/locator.py:21`):
 
@@ -1599,9 +1797,22 @@ class Locator:
     runtime_id: str | None = None        # → @RuntimeId=
     framework_id: str | None = None      # → @FrameworkId=
 
-    # Freie Attribute (PascalCase erwartet, siehe §7.1)
-    attributes: dict[str, str | re.Pattern[str]] = field(default_factory=dict)
+    # Freie Attribute (PascalCase erwartet, siehe §7.1).
+    # Schlüssel: bare String → (default_namespace, name);
+    #            Tupel (namespace, name) → expliziter Namespace.
+    # Default-Namespace = "control"; eine Page-Object-Klasse kann das
+    # über das Klassenattribut `default_attribute_namespace`
+    # umstellen (z.B. `default_attribute_namespace = "item"`). Die
+    # Auflösung passiert beim Build des XPath, nicht beim Setzen der
+    # Dict-Einträge — das hält die Locator-Konstruktion deklarativ.
+    attributes: dict[str | tuple[str, str], str | re.Pattern[str]] = field(default_factory=dict)
     custom_attributes: list[str] = field(default_factory=list)  # raw Prädikate
+
+    # Plus beliebige `**extra_attributes: str | re.Pattern[str]` am __init__:
+    # Locator(AutomationId="x")        → attributes["AutomationId"] = "x"
+    # Locator(native__HWND=0xABCD)     → attributes[("native","HWND")] = 0xABCD
+    # Konflikte mit den typisierten Feldern oder dem attributes-Dict
+    # (nach Namespace-Normalisierung) werfen TypeError.
 ```
 
 **`LocatorScope`** als String-Enum-Alias (kein `StrEnum`-Zwang):
@@ -1621,27 +1832,81 @@ LocatorScope: TypeAlias = Literal[
 2. Sonst: Knotenname = `node` ?? `role` ?? `default_role` ?? `*`.
 3. Achse aus `axis` ?? `LocatorScope`-Mapping (`children` → leer,
    `descendants` → `.//`, `ancestor` → `ancestor::`, …).
-4. Prädikate aus `attributes` (`@k='v'` oder `matches(@k, 'v')` für
-   Regex) und `custom_attributes` (raw), mit ` and ` verbunden.
+4. Prädikate aus drei Quellen (siehe §7.1 für die User-Konvention):
+   - **Convenience-Felder** (`name`, `id`, `class_name`, `runtime_id`,
+     `framework_id`) werden über `_standard_attributes()` zu
+     `@Name='v'`, `@Id='v'`, `@ClassName='v'`, `@RuntimeId='v'`,
+     `@FrameworkId='v'` (immer im `control`-Namespace, daher
+     unprefixed).
+   - **Freie Kwargs** am Konstruktor werden bereits in `__init__`
+     in das `attributes`-Dict gemergt: ein Kwarg ohne `__`-Trenner
+     landet als Bare-String-Key (`AutomationId="x"` →
+     `attributes["AutomationId"] = "x"`); ein Kwarg mit
+     `<ns>__<name>`-Trenner landet als Tupel-Key (`native__HWND=...`
+     → `attributes[("native", "HWND")] = ...`). Damit fließen sie
+     durch denselben Pfad wie der Dict-Weg.
+   - **`attributes`-Dict**:
+     - Bare-String-Schlüssel werden auf `(default_namespace, name)`
+       normalisiert; `default_namespace` ist `"control"`, sofern die
+       verwendende Page-Object-Klasse nicht
+       `default_attribute_namespace = "<ns>"` setzt.
+     - `(namespace, name)` → `@<ns>:<name>='v'` (bzw. nur `@<name>` wenn
+       der Namespace dem XPath-Default `control` entspricht), oder
+       `matches(@<ns>:<name>, 'v')` für Regex.
+   - **`custom_attributes`** werden als rohe Prädikat-Strings übernommen.
+   - Alle Teilbedingungen mit ` and ` verbunden.
+   - **Konflikt-Regel** (im Konstruktor durchgesetzt, nicht erst hier):
+     Sammelt eine `(namespace, name)`-Map über alle drei Quellen.
+     Doppelte Schlüssel (auch nach Normalisierung — z.B.
+     Convenience-Feld `name=` vs. Kwarg `Name=` vs.
+     `attributes={('control','Name'): ...}`) werfen `TypeError` mit
+     genauer Fehlermeldung.
 5. Suffix `[N]` aus `index`, `[position()=N]` aus `position`.
 6. Default-Scope-Regel: ohne Parent → `children`; mit Parent →
    `children` falls Parent ein `Application`/`Desktop`, sonst
    `descendants`. (1:1 aus Altcode.)
 
-**`@locator`-Decorator** ist die `Locator`-Klasse selbst (`locator =
-Locator`). Verwendung:
+**`@locator`-Decorator** ist eine eigene Funktion (nicht die
+`Locator`-Klasse selbst — siehe Rev. 18). Sie nimmt dieselben Kwargs wie
+`Locator.__init__` entgegen und liefert je nach Decorator-Target zwei
+Verhalten:
+
+| Target | Verhalten | Status |
+|---|---|---|
+| Klasse | hängt einen `Locator` als `__locator__`-Klassenattribut an, gibt die Klasse unverändert zurück | **Phase 1 / Rev. 18 — DONE** |
+| Methode/Property | wickelt die Funktion in einen `LocatorMethodDescriptor` ein, der den Locator + die Wrapped-Function speichert; beim Instanz-Zugriff wird `ContextBase.get(annotation, locator=…)` aufgerufen | **Phase 3 — STUB** (wirft derzeit `NotImplementedError`) |
+
+Die Method-Form ist als Stub bereits API-stabil; Page-Object-Code kann
+beide Formen heute schreiben — die Resolution wird in Phase 3 transparent
+nachgereicht, ohne Quelltext-Änderungen am Page-Object.
+
+Verwendung:
 
 ```python
-# Klassen-Default (am Page-Object)
+# Klassen-Default (am Page-Object) — funktioniert heute
 @locator(path="/.")
 class Desktop(ContextBase, role="Desktop"):
     pass
 
-# Property-Variante (typisierter Child-Locator)
+# Property-Variante (typisierter Child-Locator) — Stub bis Phase 3
 class CalculatorWindow(Window, role="Window", name="Rechner"):
     @property
     @locator(AutomationId="num5Button")
     def n5(self) -> Button: ...
+
+# Default-Namespace umstellen (z.B. für Item-Container)
+class FileListItem(Item):
+    default_attribute_namespace = "item"
+    # bare-String-Keys im attributes-Dict landen jetzt im
+    # `item:`-Namespace; expliziter Namespace bleibt jederzeit
+    # via Tupel-Key möglich.
+
+# Cross-Namespace via Tupel
+@locator(attributes={
+    "AutomationId": "submit",          # → @AutomationId=… (control)
+    ("native", "HWND"): 0x12AB,         # → @native:HWND=…
+})
+class SubmitButton(Button): ...
 ```
 
 **Property-Vererbung:** `Locator.copy_from(parent)` übernimmt aus dem
@@ -1739,8 +2004,11 @@ XPath aufgelöst wird (`/.//control:Foo`).
              # patterns.__all__):
              patterns.Activatable: ElementDescriptor[patterns.Activatable].convert,
              patterns.Toggleable: ElementDescriptor[patterns.Toggleable].convert,
-             patterns.HasToggleState: ElementDescriptor[patterns.HasToggleState].convert,
-             patterns.EditableText: ElementDescriptor[patterns.EditableText].convert,
+             patterns.TextContent: ElementDescriptor[patterns.TextContent].convert,
+             patterns.TextEditable: ElementDescriptor[patterns.TextEditable].convert,
+             patterns.Clearable: ElementDescriptor[patterns.Clearable].convert,
+             patterns.Element: ElementDescriptor[patterns.Element].convert,
+             patterns.Focusable: ElementDescriptor[patterns.Focusable].convert,
              # …
              Locator: convert_locator,
          })
@@ -1887,13 +2155,13 @@ class AdapterMouseProxy(MouseProxy):
                  mouse_device: MouseDevice | None = None) -> None: ...
     @property
     def base_point(self) -> Point:
-        return self._adapter.get_pattern(patterns.HasBounds).bounds.top_left
+        return self._adapter.get_pattern(patterns.Element).bounds.top_left
     @property
     def base_rect(self) -> Rect:
-        return self._adapter.get_pattern(patterns.HasBounds).bounds
+        return self._adapter.get_pattern(patterns.Element).bounds
     @property
     def default_click_position(self) -> Point:
-        return self._adapter.get_pattern(patterns.HasBounds).default_click_position
+        return self._adapter.get_pattern(patterns.Element).default_click_position
 ```
 
 **Coord-Berechnung** (`_calc_mouse_point`, 1:1 aus Altcode
@@ -1944,24 +2212,34 @@ class DefaultActivatable(patterns.Activatable):
         AdapterMouseProxy(self._adapter).click()
 ```
 
-**`EditableText` (Default):** Fokus + Clear-Sequenz (Ctrl+A, Del) +
-`type_keys`.
+**`TextEditable` (Default):** Fokus + Clear-Sequenz (Ctrl+A, Del) +
+`type_keys`. Properties (`is_readonly`, `max_length`,
+`supports_password_mode`) liefern konservative Defaults
+(`is_readonly=False`, `max_length=None`, `supports_password_mode=False`),
+solange der Adapter sie nicht überschreibt.
 
 ```python
-class DefaultEditableText(patterns.EditableText):
-    pattern_name = patterns.EditableText.pattern_name
+class DefaultTextEditable(patterns.TextEditable):
+    pattern_name = patterns.TextEditable.pattern_name
     def set_text(self, value: str) -> None:
         self._adapter.get_pattern(patterns.Focusable).focus()
         kb = AdapterKeyboardProxy(self._adapter)
         kb.type_keys("<Control+A>", "<Delete>")
         kb.type_keys(value)
+    @property
+    def is_readonly(self) -> bool: return False
+    @property
+    def max_length(self) -> int | None: return None
+    @property
+    def supports_password_mode(self) -> bool: return False
 ```
 
 **`Clearable` (Default):** Fokus + Ctrl+A + Del.
 
-**`HasToggleState` + `Toggleable` (Default):** kein generischer
-Default — diese Patterns *müssen* vom Adapter oder Proxy kommen, weil
-ohne State-Read keine Verifikation möglich ist.
+**`Toggleable` (Default):** kein generischer Default — dieses Pattern
+*muss* vom Adapter oder Proxy kommen, weil ohne State-Read keine
+Verifikation möglich ist (`state` und `supports_three_state` lassen sich
+nicht generisch bestimmen).
 
 `core/patterns/defaults.py` enthält diese Defaults und bietet sie
 **nur auf explizite Anforderung** an: Der `AdapterProxy.get_pattern`-
@@ -2102,7 +2380,8 @@ bauen auf früheren auf.
 ### Phase 1 — Fundament
 
 1. `core/types.py` — `TypeAlias`es (`PatternName`, `RoleName`,
-   `TechnologyName`, `FrameworkId`) als freie String-Aliases
+   `TechnologyName`, `FrameworkId`) als freie String-Aliases; zusätzlich
+   Re-Export `Point`/`Rect` aus `platynui_native` (Rev. 17)
 2. `core/settings.py` — als `@dataclass(frozen=True, slots=True, kw_only=True)`,
    mit `with`-Block und RF-Variablen-Brücke (siehe §9a.1)
 3. `core/exceptions.py` — Hierarchie nach §9a.2 (Typo-Fix
@@ -2111,28 +2390,41 @@ bauen auf früheren auf.
 5. `core/ensure.py` — `ensure_that` mit Stage-Memo und re-entrant
    Thread-Local-Stack (siehe §9a.3); Decorator mit `ParamSpec`/
    `Concatenate` typisiert, `match`/`case` für Outcome
-6. `core/weight_calculator.py` — 1:1 aus Altprojekt, `MatchCriteria`
-   als Dataclass
-7. `core/technology.py` — Marker + AdapterFactory-Registry
-8. `core/locator.py` — neu, XPath-basiert über Rust, API nach §9a.6
+6. `core/predicate.py` — `@predicate`-Decorator (für `ensure_that`-
+   Standard-Predicates und Page-Object-Predicates, siehe §A.3)
+7. `core/weight_calculator.py` — Port aus Altprojekt, `MatchCriteria`
+   als Dataclass; `attribute_value(name, namespace)`-basiert (Rev. 15)
+8. `core/technology.py` — Marker + AdapterFactory-Registry
+9. `core/locator.py` — neu, XPath-basiert über Rust, API nach §A.6
    (`@overload`, Builder-Methoden geben `Self` zurück, `copy_from`-
-   Vererbung)
+   Vererbung; `attributes` mit Tupel- oder String-Keys; Default-NS
+   per Klassenattribut `default_attribute_namespace`; freie
+   PascalCase-Kwargs nach Rev. 16)
+10. `core/patterns/` — **vorgezogen aus Phase 2 Punkt 11**, weil
+    `Locator` und `WeightCalculator` bereits `pattern_name`
+    referenzieren. Pattern-Klassen nach §5 (Element, TextContent,
+    TextEditable, Clearable, Toggleable, Activatable, Focusable —
+    konsolidiert in Rev. 17, parallel zu den Rust-Capability-Gruppen
+    in `crates/core/src/ui/attributes.rs`). Ohne Default-
+    Implementierungen (`patterns/defaults.py` bleibt Phase 4).
 
-**Ergebnis:** ~550 LOC Core-Infrastruktur, unabhängig testbar.
+**Ergebnis:** ~750 LOC Core-Infrastruktur + Pattern-ABCs, unabhängig
+testbar (119 pytest, mock-basiert).
 
 ### Phase 2 — Adapter-Schicht
 
-9. `core/adapter.py` — Interface
-10. `core/adapter_proxy.py` — `AdapterProxy`, `PatternProxyFactory`,
+11. `core/adapter.py` — Interface
+12. `core/adapter_proxy.py` — `AdapterProxy`, `PatternProxyFactory`,
     `@pattern_proxy_for` (portiert aus altem `adapterproxy.py`, nur
     umbenannt)
-11. `core/patterns/` — Port aus altem `core/strategies/` (Umbenennung
-    Strategy → Pattern)
-12. `core/adapters/rust.py` — `RustAdapter`, der `UiNode` aus
+13. `core/adapters/rust.py` — `RustAdapter`, der `UiNode` aus
     `platynui_native` umhüllt; mappt Rust-Patterns auf Python-Patterns
     (`FocusablePattern` → `Focusable`, `WindowSurfacePattern` → diverse
     Window-Patterns)
-13. `core/devices.py` — `MouseProxy`/`KeyboardProxy` über Rust-Runtime
+14. `core/devices.py` — `MouseProxy`/`KeyboardProxy` über Rust-Runtime
+
+(Punkt 11 „`core/patterns/` — Pattern-ABCs" wurde nach Phase 1
+vorgezogen, siehe Phase-1-Punkt 10.)
 
 ### Phase 3 — Context-Schicht
 
@@ -2196,11 +2488,16 @@ und ist nicht ersetzbar; `failed_func` als optionaler Parameter
 (Default: `context.invalidate`); Stage-Memo für stabile
 Multi-Predicate-Verifikation.
 
-### 11.4 `WeightCalculator` (114 → 114 LOC)
+### 11.4 `WeightCalculator` (114 → ~110 LOC)
 
-**Keine Vereinfachung.** Der Mechanismus ist genau richtig, wie er ist —
-ein gewichtetes Multi-Kriterien-Match, das Spezialfälle elegant über
-generische Fälle hebt. Wir übernehmen ihn 1:1.
+**Mechanismus 1:1 übernommen** (gewichtetes Multi-Kriterien-Match —
+elegant, hebt Spezialfälle über generische). Einzige inhaltliche
+Änderung: das alte Doppel-Kriterium `properties[k]==v` /
+`native_properties[k]==v` wird zu **einem** Kriterium
+`attributes[(ns, name)] == v`, weil Adapter (Rust und alle künftigen)
+Attribute jetzt einheitlich über den `(namespace, name)`-Schlüsselraum
+exposen (siehe §A.4 / §4.1). LOC bleibt praktisch identisch — die
+Cache-Map nutzt Tupel-Keys statt zwei separate Dicts.
 
 ## 11a. Testing-Strategie
 
@@ -2565,7 +2862,7 @@ Login With Valid Credentials
    nativen Calculator unter Windows UIA.
 2. Alle Standard-Keywords aus §8 funktionieren.
 3. Ein „Fake-Button" (Label mit ClickHandler) wird durch einen
-   `@pattern_proxy_for(role="Label", properties={...})`-Proxy korrekt als
+   `@pattern_proxy_for(role="Label", attributes={...})`-Proxy korrekt als
    Button bedient — ohne dass die Test-Suite davon weiß.
 4. Mindestens 30 Python-Unit-Tests gegen Mock-Adapter
    (`core/adapters/mock.py`).
@@ -2658,7 +2955,7 @@ oder `get_pattern(Focusable)` (mit `pattern_name`-ClassVar) umstellen.
 - **Batterien inklusive:** PlatynUI liefert für alle gängigen
   UI-Rollen fertige UI-Klassen und Default-Proxies mit (siehe §5a).
   Test-Projekte sind ohne eigenen Proxy-Code produktiv; App-Spezialfälle
-  überschreiben gezielt über `framework_id`/`class_name`/`properties`.
+  überschreiben gezielt über `framework_id`/`class_name`/`attributes`.
 - **Rust ist eine konkrete Adapter-Implementierung**, nicht „die"
   Adapter-Schicht. Weitere Adapter (JSON-RPC, Mock, …) können
   gleichberechtigt daneben stehen. Patterns tragen einen stabilen

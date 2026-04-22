@@ -293,7 +293,7 @@ mod expectation_tests {
     const ELEMENT_ATTRS: &[AttributeExpectation] = &[
         AttributeExpectation::required(Namespace::Control, element::BOUNDS),
         AttributeExpectation::required(Namespace::Control, element::IS_VISIBLE),
-        AttributeExpectation::optional(Namespace::Control, element::IS_OFFSCREEN),
+        AttributeExpectation::optional(Namespace::Control, element::IS_IN_VIEW),
     ];
     const ACTIVATABLE_ATTRS: &[AttributeExpectation] =
         &[AttributeExpectation::required(Namespace::Control, activatable::IS_ACTIVATION_ENABLED)];

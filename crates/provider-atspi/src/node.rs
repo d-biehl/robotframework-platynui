@@ -997,7 +997,7 @@ impl Iterator for AttrsIter {
                     if self.supports_component {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
-                            kind: StdAttrKind::IsOffscreen,
+                            kind: StdAttrKind::IsInView,
                             ctx: self.ctx.clone(),
                         }))
                     } else {
@@ -1220,7 +1220,7 @@ enum StdAttrKind {
     ActivationPoint,
     IsEnabled,
     IsVisible,
-    IsOffscreen,
+    IsInView,
     IsFocused,
     SupportedPatterns,
     IsTopmost,
@@ -1253,7 +1253,7 @@ impl UiAttribute for LazyStdAttr {
             StdAttrKind::ActivationPoint => activation_target::ACTIVATION_POINT,
             StdAttrKind::IsEnabled => element::IS_ENABLED,
             StdAttrKind::IsVisible => element::IS_VISIBLE,
-            StdAttrKind::IsOffscreen => element::IS_OFFSCREEN,
+            StdAttrKind::IsInView => element::IS_IN_VIEW,
             StdAttrKind::IsFocused => focusable::IS_FOCUSED,
             StdAttrKind::SupportedPatterns => common::SUPPORTED_PATTERNS,
             StdAttrKind::IsTopmost => window_surface::IS_TOPMOST,
@@ -1289,13 +1289,13 @@ impl UiAttribute for LazyStdAttr {
                     .unwrap_or(false);
                 UiValue::from(visible)
             }
-            StdAttrKind::IsOffscreen => {
+            StdAttrKind::IsInView => {
                 let visible = self
                     .ctx
                     .resolve_state()
                     .map(|s| s.contains(State::Visible) || s.contains(State::Showing))
                     .unwrap_or(false);
-                UiValue::from(!visible)
+                UiValue::from(visible)
             }
             StdAttrKind::IsFocused => {
                 let focused = self.ctx.resolve_state().map(|s| s.contains(State::Focused)).unwrap_or(false);

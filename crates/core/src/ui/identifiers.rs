@@ -138,6 +138,9 @@ pub mod pattern_ids {
     /// stay in the same module.
     pub const ELEMENT: &str = "org.platynui.patterns.Element";
     pub const TEXT_CONTENT: &str = "org.platynui.patterns.TextContent";
+    pub const TEXT_EDITABLE: &str = "org.platynui.patterns.TextEditable";
+    pub const CLEARABLE: &str = "org.platynui.patterns.Clearable";
+    pub const TOGGLEABLE: &str = "org.platynui.patterns.Toggleable";
     pub const ACTIVATION_TARGET: &str = "org.platynui.patterns.ActivationTarget";
 
     /// Synthetic patterns used exclusively by unit tests and contract fixtures.
@@ -180,6 +183,9 @@ mod tests {
             pattern_ids::APPLICATION,
             pattern_ids::ELEMENT,
             pattern_ids::TEXT_CONTENT,
+            pattern_ids::TEXT_EDITABLE,
+            pattern_ids::CLEARABLE,
+            pattern_ids::TOGGLEABLE,
             pattern_ids::ACTIVATION_TARGET,
             pattern_ids::MOCK,
             pattern_ids::DUMMY,
