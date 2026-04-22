@@ -112,6 +112,7 @@ struct InspectorApp {
     vm: InspectorViewModel,
     properties_sort: properties::PropertiesSortState,
     prev_always_on_top: Option<bool>,
+    show_about_dialog: bool,
 }
 
 impl InspectorApp {
@@ -120,6 +121,7 @@ impl InspectorApp {
             vm: InspectorViewModel::new(runtime, preloaded_root_children),
             properties_sort: properties::PropertiesSortState::default(),
             prev_always_on_top: None,
+            show_about_dialog: false,
         }
     }
 }
@@ -129,7 +131,13 @@ impl eframe::App for InspectorApp {
         let ctx = ui.ctx().clone();
 
         // View: Menu Bar (top)
-        toolbar::show_menu_bar(ui);
+        let menu_actions = toolbar::show_menu_bar(ui);
+
+        for action in menu_actions {
+            match action {
+                toolbar::MenuAction::ShowAbout => self.show_about_dialog = true,
+            }
+        }
 
         // View: Search Bar (below menu)
         let is_searching = self.vm.is_searching();
@@ -263,6 +271,8 @@ impl eframe::App for InspectorApp {
                 properties::show_no_selection(ui);
             }
         });
+
+        view::about_dialog::show_about_dialog(&ctx, &mut self.show_about_dialog);
     }
 }
 

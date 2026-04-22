@@ -2,6 +2,12 @@
 
 use eframe::egui;
 
+/// Actions emitted by the menu bar.
+pub enum MenuAction {
+    /// Open the About dialog.
+    ShowAbout,
+}
+
 /// Actions emitted by the search toolbar.
 pub enum ToolbarAction {
     /// User pressed Enter in the search bar — evaluate XPath.
@@ -11,7 +17,9 @@ pub enum ToolbarAction {
 }
 
 /// Render the application menu bar.
-pub fn show_menu_bar(ui: &mut egui::Ui) {
+pub fn show_menu_bar(ui: &mut egui::Ui) -> Vec<MenuAction> {
+    let mut actions = Vec::new();
+
     egui::Panel::top("menu_bar").show_inside(ui, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
@@ -28,10 +36,15 @@ pub fn show_menu_bar(ui: &mut egui::Ui) {
                 let _ = ui.button("Paste");
             });
             ui.menu_button("Help", |ui| {
-                let _ = ui.button("About PlatynUI Inspector");
+                if ui.button("About PlatynUI Inspector").clicked() {
+                    actions.push(MenuAction::ShowAbout);
+                    ui.close();
+                }
             });
         });
     });
+
+    actions
 }
 
 /// Render the search toolbar. Returns actions to process.

@@ -1,3 +1,4 @@
+pub mod about_dialog;
 pub mod properties;
 pub mod results_panel;
 pub mod status_bar;
