@@ -24,13 +24,17 @@ mod model;
 mod view;
 mod viewmodel;
 
+use crate::model::automation;
+use crate::model::tree_data::UiNodeData;
+
 use clap::{Parser, ValueEnum};
 use eframe::egui;
+use platynui_core::ui::UiNode;
 use platynui_link::platynui_link_providers;
 use platynui_runtime::Runtime;
 use std::sync::Arc;
 
-use view::{properties, results_panel, toolbar, tree_view};
+use view::{properties, results_panel, status_bar, toolbar, tree_view};
 use viewmodel::inspector_vm::InspectorViewModel;
 
 /// Load the embedded application icon as [`egui::IconData`].
@@ -111,9 +115,9 @@ struct InspectorApp {
 }
 
 impl InspectorApp {
-    fn new(runtime: Arc<Runtime>) -> Self {
+    fn new(runtime: Arc<Runtime>, preloaded_root_children: Vec<Arc<UiNodeData>>) -> Self {
         Self {
-            vm: InspectorViewModel::new(runtime),
+            vm: InspectorViewModel::new(runtime, preloaded_root_children),
             properties_sort: properties::PropertiesSortState::default(),
             prev_always_on_top: None,
         }
@@ -121,17 +125,16 @@ impl InspectorApp {
 }
 
 impl eframe::App for InspectorApp {
-    fn ui(&mut self, _ui: &mut egui::Ui, _frame: &mut eframe::Frame) {}
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
 
-    #[expect(deprecated)]
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // View: Menu Bar
-        toolbar::show_menu_bar(ctx);
+        // View: Menu Bar (top)
+        toolbar::show_menu_bar(ui);
 
-        // View: Search Bar
+        // View: Search Bar (below menu)
         let is_searching = self.vm.is_searching();
         let search_actions =
-            toolbar::show_search_bar(ctx, &mut self.vm.search_text, &mut self.vm.always_on_top, is_searching);
+            toolbar::show_search_bar(ui, &mut self.vm.search_text, &mut self.vm.always_on_top, is_searching);
 
         // Apply "Always On Top" setting only when it changes to avoid
         // flooding the window manager with _NET_WM_STATE requests every frame.
@@ -155,18 +158,27 @@ impl eframe::App for InspectorApp {
             }
         }
 
+        // Poll background initial tree load (must run every frame while loading).
+        self.vm.poll_initial_load(&ctx);
+
         // Poll background search for new results BEFORE rendering the
         // results panel so the count shown in the header and the status
         // text are always consistent within a single frame.
-        self.vm.poll_search(ctx);
+        self.vm.poll_search(&ctx);
 
         // Poll background reveal (tree sync) so the tree updates once
         // the ancestor path is pre-loaded.
-        self.vm.poll_reveal(ctx);
+        self.vm.poll_reveal(&ctx);
 
-        // View: Results Panel (bottom)
+        // Poll background selected-node details so selection never blocks UI.
+        self.vm.poll_selection(&ctx);
+
+        // View: Status Bar (bottom-most)
+        status_bar::show_status_bar(ui, self.vm.loaded_root_children_count());
+
+        // View: Results Panel (above status bar)
         let result_actions = results_panel::show_results_panel(
-            ctx,
+            ui,
             &self.vm.results,
             self.vm.result_status.as_deref(),
             &mut self.vm.result_focused_index,
@@ -180,17 +192,20 @@ impl eframe::App for InspectorApp {
         }
 
         // View: Tree Panel (left side)
-        egui::SidePanel::left("tree_panel")
+        egui::Panel::left("tree_panel")
             .resizable(true)
-            .default_width(450.0)
-            .min_width(200.0)
-            .max_width(ctx.content_rect().width() - 200.0)
-            .show(ctx, |ui| {
+            .default_size(450.0)
+            .min_size(200.0)
+            .max_size(ctx.content_rect().width() - 200.0)
+            .show_inside(ui, |ui| {
                 ui.set_min_height(ui.available_height());
                 ui.strong("UI Elements");
                 ui.separator();
 
-                // View renders tree via TreeView widget, returns TreeResponse
+                // View renders tree via TreeView widget, returns TreeResponse.
+                // While the initial background load is in progress the row list
+                // is empty; it fills in automatically once poll_initial_load()
+                // calls expand_root() and requests a repaint.
                 let snapshot: Vec<_> = self.vm.tree.rows().to_vec();
                 let scroll = self.vm.scroll_to_focused;
                 let response = tree_view::TreeView::new(&snapshot)
@@ -235,8 +250,8 @@ impl eframe::App for InspectorApp {
                 }
             });
 
-        // View: Properties Panel (center)
-        egui::CentralPanel::default().show(ctx, |ui| {
+        // View: Properties Panel (remaining central area)
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             if self.vm.selected_index.is_some() {
                 properties::show_properties(
                     ui,
@@ -265,6 +280,22 @@ pub fn run() -> eframe::Result {
     let runtime = Runtime::new().expect("Failed to create PlatynUI runtime");
     let runtime = Arc::new(runtime);
 
+    // Snapshot top-level nodes before creating the inspector window.
+    // This avoids expensive UIA root traversal while the inspector is
+    // already advertising its own accessibility tree.
+    let rt_for_preload = Arc::clone(&runtime);
+    let preloaded_root_children = automation::run(move || {
+        let root = rt_for_preload.desktop_node();
+        let raw_children: Vec<Arc<dyn UiNode>> = root.children().collect();
+        let mut out = Vec::with_capacity(raw_children.len());
+        for node in raw_children {
+            let data = Arc::new(UiNodeData::new(node));
+            data.preload_caches();
+            out.push(data);
+        }
+        out
+    });
+
     let icon = load_icon();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -279,8 +310,9 @@ pub fn run() -> eframe::Result {
         "PlatynUI Inspector",
         options,
         Box::new(move |cc| {
+            automation::register_ui_thread();
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
-            Ok(Box::new(InspectorApp::new(runtime)))
+            Ok(Box::new(InspectorApp::new(Arc::clone(&runtime), preloaded_root_children)))
         }),
     )
 }

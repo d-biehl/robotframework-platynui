@@ -19,21 +19,20 @@ pub enum ResultAction {
 ///
 /// `focused_index` is the keyboard cursor position (mutable — updated
 /// by arrow key navigation inside the panel).
-#[allow(deprecated)]
 pub fn show_results_panel(
-    ctx: &egui::Context,
+    ui: &mut egui::Ui,
     results: &[SearchResultItem],
     status: Option<&str>,
     focused_index: &mut usize,
 ) -> Vec<ResultAction> {
     let mut actions = Vec::new();
 
-    egui::TopBottomPanel::bottom("results_panel")
+    egui::Panel::bottom("results_panel")
         .resizable(true)
-        .min_height(60.0)
-        .max_height(ctx.content_rect().height() * 0.6)
-        .default_height(150.0)
-        .show(ctx, |ui| {
+        .min_size(60.0)
+        .max_size(ui.ctx().content_rect().height() * 0.6)
+        .default_size(150.0)
+        .show_inside(ui, |ui| {
             // ── Header ───────────────────────────────────────────────
             ui.horizontal(|ui| {
                 ui.strong("Results");

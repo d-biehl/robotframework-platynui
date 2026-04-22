@@ -55,6 +55,7 @@ pub fn uia() -> Result<IUIAutomation, crate::error::UiaError> {
                 CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER),
             )?
         };
+
         *cell.borrow_mut() = Some(created.clone());
         Ok(created)
     })

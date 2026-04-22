@@ -54,13 +54,27 @@ pub struct TreeViewModel {
 impl TreeViewModel {
     /// Create a new tree ViewModel rooted at the given node.
     ///
-    /// The root node is auto-expanded.
+    /// The tree starts empty; call [`expand_root`] once the initial background
+    /// load has populated the root's children cache.
     pub fn new(root: Arc<UiNodeData>) -> Self {
-        let mut vm = Self { root, expanded: HashSet::new(), visible_rows: Vec::new() };
-        // Auto-expand the root Desktop node
-        vm.expanded.insert(vm.root.id());
-        vm.rebuild();
-        vm
+        Self { root, expanded: HashSet::new(), visible_rows: Vec::new() }
+    }
+
+    /// Expand the root node and rebuild the visible row list.
+    ///
+    /// Call this once after the initial background load completes so the
+    /// rebuild is cheap (children are already cached).
+    pub fn expand_root(&mut self) {
+        self.expanded.insert(self.root.id());
+        self.rebuild();
+    }
+
+    /// Rebuild the visible row list from the current cache state.
+    ///
+    /// Call this after the background streaming thread has pushed new children
+    /// into the root's cache so the tree view reflects the latest data.
+    pub fn rebuild_rows(&mut self) {
+        self.rebuild();
     }
 
     /// Snapshot of currently visible rows.
@@ -190,14 +204,19 @@ impl TreeViewModel {
     fn flatten(node: Arc<UiNodeData>, depth: usize, expanded: &HashSet<String>, out: &mut Vec<VisibleRow>) {
         let id = node.id();
         let is_expanded = expanded.contains(&id);
-        let has_children = node.has_children();
         let label = node.label();
         let is_valid = node.is_valid();
 
+        let loaded_children = if is_expanded { Some(node.children()) } else { None };
+        let has_children = match loaded_children.as_ref() {
+            Some(children) => !children.is_empty(),
+            None => node.cached_has_children().unwrap_or(true),
+        };
+
         out.push(VisibleRow { label, depth, has_children, is_expanded, is_valid, data: Arc::clone(&node) });
 
-        if has_children && is_expanded {
-            for child in node.children() {
+        if let Some(children) = loaded_children {
+            for child in children {
                 Self::flatten(child, depth + 1, expanded, out);
             }
         }

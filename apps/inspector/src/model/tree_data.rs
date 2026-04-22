@@ -4,6 +4,7 @@
 //! the PlatynUI runtime (`UiNode`, `UiAttribute`, `UiValue`) to the inspector
 //! UI without coupling to any GUI framework.
 
+use crate::model::automation;
 use platynui_core::ui::{Namespace, UiNode, UiValue};
 use platynui_runtime::EvaluationItem;
 use std::fmt::Write as _;
@@ -106,6 +107,7 @@ pub struct UiNodeData {
     label_cache: Mutex<Option<String>>,
     has_children_cache: Mutex<Option<bool>>,
     children_cache: Mutex<Option<Vec<Arc<UiNodeData>>>>,
+    is_valid_cache: Mutex<Option<bool>>,
 }
 
 impl UiNodeData {
@@ -117,10 +119,12 @@ impl UiNodeData {
             label_cache: Mutex::new(None),
             has_children_cache: Mutex::new(None),
             children_cache: Mutex::new(None),
+            is_valid_cache: Mutex::new(None),
         }
     }
 
     /// Runtime ID string (cached).
+    /// Note: No warning here since we pre-fill cache during initial load.
     pub fn id(&self) -> String {
         if let Some(v) = self.id_cache.lock().unwrap().as_ref() {
             return v.clone();
@@ -131,6 +135,7 @@ impl UiNodeData {
     }
 
     /// Display label: `Role "Name"` (cached).
+    /// Note: No warning here since we pre-fill cache during initial load.
     pub fn label(&self) -> String {
         if let Some(v) = self.label_cache.lock().unwrap().as_ref() {
             return v.clone();
@@ -146,26 +151,21 @@ impl UiNodeData {
         label
     }
 
-    /// Whether the node has children (uses cache, falls back to `has_children()`).
-    pub fn has_children(&self) -> bool {
-        if let Some(children) = self.children_cache.lock().unwrap().as_ref() {
-            return !children.is_empty();
-        }
-        if let Some(hc) = *self.has_children_cache.lock().unwrap() {
-            return hc;
-        }
-        let has = self.node.has_children();
-        *self.has_children_cache.lock().unwrap() = Some(has);
-        has
-    }
-
     /// Children as `UiNodeData` wrappers (cached; triggers lazy load on first call).
     pub fn children(&self) -> Vec<Arc<UiNodeData>> {
         if let Some(v) = self.children_cache.lock().unwrap().as_ref() {
             return v.clone();
         }
-        let list: Vec<Arc<UiNodeData>> =
-            self.node.children().map(|child_node| Arc::new(UiNodeData::new(child_node))).collect();
+        let list: Vec<Arc<UiNodeData>> = self
+            .node
+            .children()
+            .map(|child_node| {
+                let has_ch = child_node.has_children();
+                let data = Arc::new(UiNodeData::new(child_node));
+                *data.has_children_cache.lock().unwrap() = Some(has_ch);
+                data
+            })
+            .collect();
         *self.has_children_cache.lock().unwrap() = Some(!list.is_empty());
         *self.children_cache.lock().unwrap() = Some(list.clone());
         list
@@ -178,63 +178,126 @@ impl UiNodeData {
         self.children_cache.lock().unwrap().clone()
     }
 
+    /// Return cached knowledge about whether this node has children.
+    ///
+    /// Returns `None` when child presence has not been probed yet.
+    pub fn cached_has_children(&self) -> Option<bool> {
+        if let Some(children) = self.children_cache.lock().unwrap().as_ref() {
+            return Some(!children.is_empty());
+        }
+        *self.has_children_cache.lock().unwrap()
+    }
+
+    /// Preload essential caches on the worker thread before the inspector
+    /// window opens. Called for each root child during the initial load.
+    pub fn preload_caches(&self) {
+        let _ = self.id();
+        let _ = self.label();
+        let _ = self.is_valid();
+        if self.has_children_cache.lock().unwrap().is_none() {
+            let has_ch = self.node.has_children();
+            *self.has_children_cache.lock().unwrap() = Some(has_ch);
+        }
+    }
+
     /// Whether the underlying node is still valid (not destroyed).
+    /// Note: No warning here since we pre-fill cache during initial load.
     pub fn is_valid(&self) -> bool {
-        self.node.is_valid()
+        if let Some(v) = self.is_valid_cache.lock().unwrap().as_ref() {
+            return *v;
+        }
+        let is_valid = self.node.is_valid();
+        *self.is_valid_cache.lock().unwrap() = Some(is_valid);
+        is_valid
     }
 
     /// Whether this node has a parent (false for the desktop root).
     pub fn has_parent(&self) -> bool {
-        self.node.parent().is_some()
+        let node = Arc::clone(&self.node);
+        automation::run(move || node.parent().is_some())
     }
 
     /// Collect all attributes formatted for the properties table.
     pub fn display_attributes(&self) -> Vec<DisplayAttribute> {
-        let mut attrs = Vec::new();
-        for attr in self.node.attributes() {
-            let ns = attr.namespace();
-            let name = attr.name().to_string();
-            let value = attr.value();
+        let node = Arc::clone(&self.node);
+        automation::run(move || {
+            let mut attrs = Vec::new();
+            for attr in node.attributes() {
+                let ns = attr.namespace();
+                let name = attr.name().to_string();
+                let value = attr.value();
 
-            let (val_str, ty_str) = format_ui_value(&value);
-            let ns_name = match ns {
-                Namespace::Control => "control",
-                Namespace::Item => "item",
-                Namespace::App => "app",
-                Namespace::Native => "native",
-            };
+                let (val_str, ty_str) = format_ui_value(&value);
+                let ns_name = match ns {
+                    Namespace::Control => "control",
+                    Namespace::Item => "item",
+                    Namespace::App => "app",
+                    Namespace::Native => "native",
+                };
 
-            attrs.push(DisplayAttribute { namespace: ns_name.to_string(), name, value: val_str, value_type: ty_str });
-        }
-        attrs
+                attrs.push(DisplayAttribute {
+                    namespace: ns_name.to_string(),
+                    name,
+                    value: val_str,
+                    value_type: ty_str,
+                });
+            }
+            attrs
+        })
     }
 
     /// Get the Bounds rect if available (for highlighting).
     pub fn bounds_rect(&self) -> Option<platynui_core::types::Rect> {
-        for attr in self.node.attributes() {
-            if let (Namespace::Control, "Bounds") = (attr.namespace(), attr.name())
-                && let UiValue::Rect(r) = attr.value()
-                && !r.is_empty()
-            {
-                return Some(r);
+        let node = Arc::clone(&self.node);
+        automation::run(move || {
+            for attr in node.attributes() {
+                if let (Namespace::Control, "Bounds") = (attr.namespace(), attr.name())
+                    && let UiValue::Rect(r) = attr.value()
+                    && !r.is_empty()
+                {
+                    return Some(r);
+                }
             }
-        }
-        None
+            None
+        })
+    }
+
+    /// Initialize the children cache to an empty list.
+    ///
+    /// Call this before streaming children from a background thread so that
+    /// `children()` returns the partial list rather than triggering a
+    /// synchronous full load.
+    pub fn init_children_cache(&self) {
+        *self.children_cache.lock().unwrap() = Some(Vec::new());
+        *self.has_children_cache.lock().unwrap() = Some(false);
+    }
+
+    /// Append a single pre-loaded child to the children cache.
+    ///
+    /// Used by the background streaming thread.  Thread-safe via `Mutex`.
+    pub fn push_cached_child(&self, child: Arc<UiNodeData>) {
+        let mut cache = self.children_cache.lock().unwrap();
+        let v = cache.get_or_insert_with(Vec::new);
+        v.push(child);
+        *self.has_children_cache.lock().unwrap() = Some(true);
     }
 
     /// Invalidate all caches so values are re-queried on next access.
     pub fn refresh(&self) {
-        self.node.invalidate();
+        let node = Arc::clone(&self.node);
+        automation::run(move || node.invalidate());
         *self.id_cache.lock().unwrap() = None;
         *self.label_cache.lock().unwrap() = None;
         *self.has_children_cache.lock().unwrap() = None;
         *self.children_cache.lock().unwrap() = None;
+        *self.is_valid_cache.lock().unwrap() = None;
     }
 
     /// Recursively refresh this node and all cached children.
     pub fn refresh_recursive(&self) {
+        let cached_children = self.children_cache.lock().unwrap().clone();
         self.refresh();
-        if let Some(children) = self.children_cache.lock().unwrap().as_ref() {
+        if let Some(children) = cached_children.as_ref() {
             for child in children {
                 child.refresh_recursive();
             }
