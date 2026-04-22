@@ -74,6 +74,7 @@ dev = [
     "ruff>=0.12.11",
     "semantic-version>=2.10.0",
     "robotcode[runner]>=2.0.0",
+    "pyright[nodejs]>=1.1.408",
 ]
 
 [tool.cibuildwheel.macos.environment]
@@ -201,7 +202,8 @@ reportUnknownVariableType = false
 reportUntypedClassDecorator = false
 reportUnknownParameterType = false
 reportUnknownMemberType = false
-include = ["packages", "examples"]
+reportUnusedFunction = true
+include = ["packages", "src", "tests"]
 venvPath = '.'
 venv = ".venv"
 

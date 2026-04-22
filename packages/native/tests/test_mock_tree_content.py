@@ -1,4 +1,4 @@
-from platynui_native import Rect, Runtime, UiNode
+from platynui_native import Point, Rect, Runtime, UiNode
 
 
 def test_mock_windows_and_buttons(rt_mock_platform: Runtime) -> None:
@@ -15,8 +15,7 @@ def test_mock_windows_and_buttons(rt_mock_platform: Runtime) -> None:
     assert isinstance(bounds, Rect)
     assert bounds.to_tuple() == (140.0, 620.0, 120.0, 32.0)
     ap = ok_btn.attribute('ActivationPoint', 'control')
-    assert ap is not None
-    assert hasattr(ap, 'to_tuple')
+    assert isinstance(ap, Point)
     assert ap.to_tuple() == (200.0, 636.0)
     assert ok_btn.attribute('MyProperty', 'control') == 'My Value'
 

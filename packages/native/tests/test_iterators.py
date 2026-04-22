@@ -87,7 +87,7 @@ def test_lazy_evaluation(rt_mock_platform: Runtime) -> None:
     children_iter = desktop.children()
 
     # Take only first 3 children
-    first_three = []
+    first_three: list[UiNode] = []
     for i, child in enumerate(children_iter):
         if i >= 3:
             break

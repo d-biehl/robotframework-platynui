@@ -16,7 +16,7 @@ def test_desktop_node_and_info(rt_mock_platform: Runtime) -> None:
     assert info.get('os_name') == 'MockOS'
     monitors = info.get('monitors', [])
     assert isinstance(monitors, list)
-    assert len(monitors) == 3
+    assert len(monitors) == 3  # pyright: ignore[reportUnknownArgumentType]
 
 
 def test_focus_sets_is_focused_flags(rt_mock_platform: Runtime) -> None:
