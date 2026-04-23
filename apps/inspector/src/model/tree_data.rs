@@ -106,7 +106,7 @@ impl SearchResultItem {
     }
 }
 
-/// A single attribute as displayed in the properties table.
+/// A single attribute as displayed in the attributes table.
 #[derive(Clone, Debug)]
 pub struct DisplayAttribute {
     /// Namespace prefix (control, item, app, native).
@@ -240,7 +240,7 @@ impl UiNodeData {
         automation::run(move || node.parent().is_some())
     }
 
-    /// Collect all attributes formatted for the properties table.
+    /// Collect all attributes formatted for the attributes table.
     pub fn display_attributes(&self) -> Vec<DisplayAttribute> {
         let node = Arc::clone(&self.node);
         automation::run(move || {

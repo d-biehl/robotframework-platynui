@@ -1,4 +1,4 @@
-//! View: Properties table (right panel).
+//! View: Attributes table (right panel).
 //!
 //! Each cell is a read-only `TextEdit` so users can select text with the mouse
 //! and copy with Ctrl+C. A right-click context menu offers quick "Copy Name",
@@ -26,16 +26,16 @@ pub enum SortDirection {
     Descending,
 }
 
-/// Persistent sort state for the properties table.
+/// Persistent sort state for the attributes table.
 #[derive(Default)]
-pub struct PropertiesSortState {
+pub struct AttributesSortState {
     /// Current sort column.
     pub column: SortColumn,
     /// Current sort direction.
     pub direction: SortDirection,
 }
 
-impl PropertiesSortState {
+impl AttributesSortState {
     /// Toggle: if same column, flip direction; if different column, sort ascending.
     pub fn toggle(&mut self, col: SortColumn) {
         if self.column == col {
@@ -50,12 +50,12 @@ impl PropertiesSortState {
     }
 }
 
-/// Render the properties table for the selected node.
-pub fn show_properties(
+/// Render the attributes table for the selected node.
+pub fn show_attributes(
     ui: &mut egui::Ui,
     selected_label: &str,
     attributes: &[DisplayAttribute],
-    sort_state: &mut PropertiesSortState,
+    sort_state: &mut AttributesSortState,
     filter_text: &mut String,
 ) {
     if attributes.is_empty() {
@@ -63,7 +63,7 @@ pub fn show_properties(
         return;
     }
 
-    ui.strong(format!("Properties: {selected_label}"));
+    ui.strong(selected_label);
     ui.separator();
 
     ui.horizontal(|ui| {
@@ -101,13 +101,13 @@ pub fn show_properties(
         indices.retain(|&idx| attribute_matches_filter(&attributes[idx], &normalized_filter));
         ui.colored_label(
             egui::Color32::from_gray(160),
-            format!("Showing {} of {} properties", indices.len(), attributes.len()),
+            format!("Showing {} of {} attributes", indices.len(), attributes.len()),
         );
         ui.separator();
     }
 
     if indices.is_empty() {
-        ui.colored_label(egui::Color32::from_gray(120), "No properties match the current filter.");
+        ui.colored_label(egui::Color32::from_gray(120), "No attributes match the current filter.");
         return;
     }
 
@@ -123,9 +123,9 @@ pub fn show_properties(
             .striped(true)
             .resizable(true)
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-            .column(Column::auto().at_least(180.0)) // Name
-            .column(Column::remainder().at_least(200.0)) // Value
-            .column(Column::auto().at_least(80.0)) // Type
+            .column(Column::auto().at_least(180.0))
+            .column(Column::remainder().at_least(200.0))
+            .column(Column::auto().at_least(80.0))
             .min_scrolled_height(0.0)
             .max_scroll_height(available_height)
             .header(22.0, |mut header| {
@@ -158,12 +158,9 @@ pub fn show_properties(
                     let row_str = format!("{}={}", name_str, attr.value);
 
                     body.row(20.0, |mut row| {
-                        // Column 0: Name (read-only selectable text)
                         row.col(|ui| {
                             let mut text = name_str.clone();
                             let cell_id = ui.id().with(("prop_name", row_idx));
-                            // Snapshot state BEFORE TextEdit runs so we can restore it
-                            // if a right-click press wipes the selection (see below).
                             let prev_state = egui::text_edit::TextEditState::load(ui.ctx(), cell_id);
                             let prev_sel = cell_selection_from_state(prev_state.as_ref(), &name_str);
                             let resp = ui.add(
@@ -173,11 +170,6 @@ pub fn show_properties(
                                     .frame(egui::Frame::NONE)
                                     .interactive(true),
                             );
-                            // TextEdit's pointer_interaction() calls any_pressed() which
-                            // fires on the secondary (right) button too, resetting the
-                            // cursor and wiping the selection. Restore the snapshot so the
-                            // selection survives into the next frame when the context menu
-                            // actually opens (secondary_clicked = button released).
                             if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary))
                                 && resp.hovered()
                                 && let Some(state) = prev_state
@@ -196,7 +188,6 @@ pub fn show_properties(
                             );
                         });
 
-                        // Column 1: Value (read-only selectable text)
                         row.col(|ui| {
                             let mut text = attr.value.clone();
                             let cell_id = ui.id().with(("prop_value", row_idx));
@@ -227,7 +218,6 @@ pub fn show_properties(
                             );
                         });
 
-                        // Column 2: Type (read-only selectable text)
                         row.col(|ui| {
                             let mut text = attr.value_type.clone();
                             let cell_id = ui.id().with(("prop_type", row_idx));
@@ -282,10 +272,10 @@ fn attribute_matches_filter(attr: &DisplayAttribute, filter_text: &str) -> bool 
         || attr.value_type.to_lowercase().contains(filter_text)
 }
 
-/// Context menu for text cells in the properties table.
+/// Context menu for text cells in the attributes table.
 ///
 /// `prev_sel` is the selection captured **before** the TextEdit was rendered this
-/// frame (see [`cell_selection_from_state`]).  Passing it in means right-click no longer
+/// frame (see [`cell_selection_from_state`]). Passing it in means right-click no longer
 /// wipes the selection before the menu can use it.
 fn show_text_cell_context_menu(
     response: &egui::Response,
@@ -349,6 +339,6 @@ fn show_text_cell_context_menu(
 /// Render a placeholder when no node is selected.
 pub fn show_no_selection(ui: &mut egui::Ui) {
     ui.centered_and_justified(|ui| {
-        ui.colored_label(egui::Color32::from_gray(120), "Select a node in the tree to view its properties.");
+        ui.colored_label(egui::Color32::from_gray(120), "Select a node in the tree to view its attributes.");
     });
 }

@@ -1,5 +1,5 @@
 pub mod about_dialog;
-pub mod properties;
+pub mod attributes;
 pub mod results_panel;
 pub mod status_bar;
 pub mod toolbar;

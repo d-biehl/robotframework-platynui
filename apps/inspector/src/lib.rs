@@ -16,7 +16,7 @@
 //! └── view/                ← V: Pure UI rendering (egui)
 //!     ├── mod.rs
 //!     ├── tree_view.rs     ← TreeView panel
-//!     ├── properties.rs    ← Properties table
+//!     ├── attributes.rs    ← Attributes table
 //!     └── toolbar.rs       ← Menu, search bar, results panel
 //! ```
 
@@ -34,7 +34,7 @@ use platynui_link::platynui_link_providers;
 use platynui_runtime::Runtime;
 use std::sync::Arc;
 
-use view::{properties, results_panel, status_bar, toolbar, tree_view};
+use view::{attributes, results_panel, status_bar, toolbar, tree_view};
 use viewmodel::inspector_vm::InspectorViewModel;
 
 /// Load the embedded application icon as [`egui::IconData`].
@@ -110,8 +110,8 @@ fn init_tracing(cli_level: Option<LogLevel>) {
 /// The eframe `App` that connects ViewModel to View.
 struct InspectorApp {
     vm: InspectorViewModel,
-    properties_sort: properties::PropertiesSortState,
-    property_filter: String,
+    attributes_sort: attributes::AttributesSortState,
+    attribute_filter: String,
     prev_always_on_top: Option<bool>,
     show_about_dialog: bool,
 }
@@ -134,8 +134,8 @@ impl InspectorApp {
     fn new(runtime: Arc<Runtime>, preloaded_root_children: Vec<Arc<UiNodeData>>) -> Self {
         Self {
             vm: InspectorViewModel::new(runtime, preloaded_root_children),
-            properties_sort: properties::PropertiesSortState::default(),
-            property_filter: String::new(),
+            attributes_sort: attributes::AttributesSortState::default(),
+            attribute_filter: String::new(),
             prev_always_on_top: None,
             show_about_dialog: false,
         }
@@ -424,18 +424,18 @@ impl eframe::App for InspectorApp {
                 }
             });
 
-        // View: Properties Panel (remaining central area)
+        // View: Attributes Panel (remaining central area)
         egui::CentralPanel::default().show_inside(ui, |ui| {
             if self.vm.selected_index.is_some() {
-                properties::show_properties(
+                attributes::show_attributes(
                     ui,
                     &self.vm.selected_label,
                     &self.vm.selected_attributes,
-                    &mut self.properties_sort,
-                    &mut self.property_filter,
+                    &mut self.attributes_sort,
+                    &mut self.attribute_filter,
                 );
             } else {
-                properties::show_no_selection(ui);
+                attributes::show_no_selection(ui);
             }
         });
 

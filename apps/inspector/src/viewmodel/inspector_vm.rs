@@ -270,10 +270,10 @@ impl InspectorViewModel {
         self.tree.root().cached_children().map_or(0, |children| children.len())
     }
 
-    /// Select a tree node by index, updating the properties panel and highlighting.
+    /// Select a tree node by index, updating the attributes panel and highlighting.
     pub fn select_node(&mut self, index: usize) {
         // Ignore redundant re-selection of the same row to avoid repeatedly
-        // clearing properties and replacing in-flight background loads.
+        // clearing attributes and replacing in-flight background loads.
         if self.selected_index == Some(index) {
             self.focused_index = index;
             self.scroll_to_focused = true;
