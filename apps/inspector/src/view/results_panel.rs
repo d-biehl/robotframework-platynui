@@ -2,17 +2,33 @@
 //!
 //! A keyboard-navigable table built on `egui_extras::TableBuilder`.
 //! Up/Down arrows move the focused row, Enter reveals the focused
-//! result in the tree, clicking a row reveals it immediately.
+//! result in the tree, single-click selects, and double-click reveals.
 
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 
 use crate::model::tree_data::SearchResultItem;
 
+#[derive(Clone, Copy, Debug)]
 /// Actions emitted by the results panel.
 pub enum ResultAction {
-    /// User selected a result to reveal in the tree.
+    /// User requested tree reveal for a result.
     Reveal(usize),
+    /// User requested highlight for a node-backed result.
+    Highlight(usize),
+    /// Copy the display label.
+    CopyLabel(usize),
+    /// Copy the owner runtime id for node-backed results.
+    CopyRuntimeId(usize),
+    /// Copy the raw attribute value for attribute results.
+    CopyAttributeValue(usize),
+    /// Copy the fullest string representation of the result.
+    CopyFullResult(usize),
+}
+
+/// Stable egui id for keyboard focus in the results panel.
+pub fn focus_id() -> egui::Id {
+    egui::Id::new("inspector_results_focus")
 }
 
 /// Render the results panel. Returns a list of actions to process.
@@ -64,7 +80,7 @@ pub fn show_results_panel(
             }
 
             // ── Focus management ─────────────────────────────────────
-            let panel_id = ui.id().with("results_focus");
+            let panel_id = focus_id();
             let had_focus = ui.memory(|mem| mem.has_focus(panel_id));
 
             // Clamp focused index to valid range.
@@ -104,7 +120,6 @@ pub fn show_results_panel(
             // Runs BEFORE the table so that index changes are visible
             // to scroll_to_row in the same frame.
             if had_focus || has_focus_now {
-                let old_index = *focused_index;
                 // Approximate number of visible rows for PageUp/PageDown.
                 let row_height = 20.0_f32;
                 let page_rows = ((focus_rect.height() / row_height).floor() as usize).max(1);
@@ -130,15 +145,31 @@ pub fn show_results_panel(
                             egui::Key::End if !results.is_empty() => {
                                 *focused_index = results.len() - 1;
                             }
-                            egui::Key::Enter => {}
                             _ => {}
                         }
                     }
                 }
-                // Reveal in the tree whenever the focused index changes
-                // (arrow keys, Home, End).
-                if *focused_index != old_index && results.get(*focused_index).is_some_and(SearchResultItem::is_node) {
+
+                let reveal_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Enter);
+                if ui.input_mut(|i| i.consume_shortcut(&reveal_shortcut))
+                    && results.get(*focused_index).is_some_and(SearchResultItem::is_node)
+                {
                     actions.push(ResultAction::Reveal(*focused_index));
+                }
+
+                let highlight_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Space);
+                if ui.input_mut(|i| i.consume_shortcut(&highlight_shortcut))
+                    && results.get(*focused_index).is_some_and(SearchResultItem::is_node)
+                {
+                    actions.push(ResultAction::Highlight(*focused_index));
+                }
+
+                let command_highlight_shortcut =
+                    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::H);
+                if ui.input_mut(|i| i.consume_shortcut(&command_highlight_shortcut))
+                    && results.get(*focused_index).is_some_and(SearchResultItem::is_node)
+                {
+                    actions.push(ResultAction::Highlight(*focused_index));
                 }
             }
 
@@ -148,6 +179,8 @@ pub fn show_results_panel(
             // back to the outer scope (avoids borrowing `ui` inside the
             // table body which would conflict with TableBuilder's &mut).
             let mut clicked_row: Option<usize> = None;
+            let mut double_clicked_row: Option<usize> = None;
+            let mut context_action: Option<ResultAction> = None;
 
             // Limit the table to the remaining available height so the
             // vertical scrollbar is never clipped by the panel boundary.
@@ -222,21 +255,29 @@ pub fn show_results_panel(
                             ui.add(egui::Label::new(rich).selectable(false));
                         });
 
-                        // Click detection — row.response() borrows only
-                        // the table's internal Ui, not the outer one.
-                        if row.response().clicked() {
+                        let row_response = row.response();
+                        if row_response.clicked() || row_response.secondary_clicked() || row_response.double_clicked() {
                             clicked_row = Some(i);
                         }
+                        if row_response.double_clicked() && result.is_node() {
+                            double_clicked_row = Some(i);
+                        }
+                        show_result_context_menu(&row_response, result, i, &mut context_action);
                     });
                 });
 
-            // Process click after the table (no borrow conflict with `ui`).
+            // Process row actions after the table (no borrow conflict with `ui`).
             if let Some(i) = clicked_row {
                 *focused_index = i;
                 ui.memory_mut(|mem| mem.request_focus(panel_id));
-                if results.get(i).is_some_and(SearchResultItem::is_node) {
-                    actions.push(ResultAction::Reveal(i));
-                }
+            }
+
+            if let Some(i) = double_clicked_row {
+                actions.push(ResultAction::Reveal(i));
+            }
+
+            if let Some(action) = context_action {
+                actions.push(action);
             }
 
             // Remember the current focused index for the next frame so
@@ -245,4 +286,59 @@ pub fn show_results_panel(
         });
 
     actions
+}
+
+fn show_result_context_menu(
+    response: &egui::Response,
+    result: &SearchResultItem,
+    index: usize,
+    action: &mut Option<ResultAction>,
+) {
+    response.context_menu(|ui| {
+        if result.is_node() {
+            let reveal_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Enter);
+            if ui
+                .add(egui::Button::new("Reveal in Tree").shortcut_text(ui.ctx().format_shortcut(&reveal_shortcut)))
+                .clicked()
+            {
+                *action = Some(ResultAction::Reveal(index));
+                ui.close();
+            }
+
+            let highlight_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Space);
+            if ui
+                .add(
+                    egui::Button::new("Highlight Result")
+                        .shortcut_text(ui.ctx().format_shortcut(&highlight_shortcut)),
+                )
+                .clicked()
+            {
+                *action = Some(ResultAction::Highlight(index));
+                ui.close();
+            }
+            ui.separator();
+        }
+
+        if ui.button("Copy Label").clicked() {
+            *action = Some(ResultAction::CopyLabel(index));
+            ui.close();
+        }
+
+        if result.is_node() && ui.button("Copy Runtime ID").clicked() {
+            *action = Some(ResultAction::CopyRuntimeId(index));
+            ui.close();
+        }
+
+        if result.attribute_value().is_some() && ui.button("Copy Attribute Value").clicked() {
+            *action = Some(ResultAction::CopyAttributeValue(index));
+            ui.close();
+        }
+
+        ui.separator();
+
+        if ui.button("Copy Full Result").clicked() {
+            *action = Some(ResultAction::CopyFullResult(index));
+            ui.close();
+        }
+    });
 }

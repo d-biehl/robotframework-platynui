@@ -495,6 +495,20 @@ impl InspectorViewModel {
         }
     }
 
+    /// Highlight a specific search result, if it is backed by a UI node.
+    pub fn highlight_result(&self, index: usize) {
+        if let Some(result) = self.results.get(index)
+            && let Some(node) = result.ui_node().cloned()
+        {
+            let node_data = UiNodeData::new(node);
+            if node_data.has_parent() {
+                self.highlight_bounds(node_data.id(), node_data.bounds_rect());
+            } else {
+                self.clear_highlight();
+            }
+        }
+    }
+
     /// Expand the currently selected tree row, if any.
     pub fn expand_selected_row(&mut self) {
         if let Some(index) = self.selected_index {

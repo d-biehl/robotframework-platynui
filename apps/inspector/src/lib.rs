@@ -162,8 +162,9 @@ impl InspectorApp {
             commands.push(AppCommand::RefreshSubtree);
         }
 
+        let results_have_focus = ctx.memory(|mem| mem.has_focus(results_panel::focus_id()));
         let highlight_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::H);
-        if ctx.input_mut(|i| i.consume_shortcut(&highlight_shortcut)) {
+        if !results_have_focus && ctx.input_mut(|i| i.consume_shortcut(&highlight_shortcut)) {
             commands.push(AppCommand::HighlightNode);
         }
 
@@ -283,6 +284,27 @@ impl eframe::App for InspectorApp {
         for action in result_actions {
             match action {
                 results_panel::ResultAction::Reveal(i) => self.vm.reveal_and_select_result(i),
+                results_panel::ResultAction::Highlight(i) => self.vm.highlight_result(i),
+                results_panel::ResultAction::CopyLabel(i) => {
+                    if let Some(result) = self.vm.results.get(i) {
+                        ctx.copy_text(result.display_label().to_string());
+                    }
+                }
+                results_panel::ResultAction::CopyRuntimeId(i) => {
+                    if let Some(runtime_id) = self.vm.results.get(i).and_then(|result| result.runtime_id()) {
+                        ctx.copy_text(runtime_id);
+                    }
+                }
+                results_panel::ResultAction::CopyAttributeValue(i) => {
+                    if let Some(value) = self.vm.results.get(i).and_then(|result| result.attribute_value()) {
+                        ctx.copy_text(value.to_string());
+                    }
+                }
+                results_panel::ResultAction::CopyFullResult(i) => {
+                    if let Some(result) = self.vm.results.get(i) {
+                        ctx.copy_text(result.full_copy_text());
+                    }
+                }
             }
         }
 

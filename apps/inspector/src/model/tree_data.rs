@@ -24,6 +24,8 @@ pub enum SearchResultItem {
     Attribute {
         /// Display label showing namespace:name = value.
         label: String,
+        /// Raw formatted attribute value for copy actions.
+        value: String,
         /// Owner node for tree reveal.
         node: Arc<dyn UiNode>,
     },
@@ -50,10 +52,8 @@ impl SearchResultItem {
             }
             EvaluationItem::Attribute(attr) => {
                 let (val_str, _) = format_ui_value(&attr.value);
-                Self::Attribute {
-                    label: format!("@{}:{} = {}", attr.namespace, attr.name, val_str),
-                    node: Arc::clone(&attr.owner),
-                }
+                let label = format!("@{}:{} = {}", attr.namespace, attr.name, val_str);
+                Self::Attribute { label, value: val_str, node: Arc::clone(&attr.owner) }
             }
             EvaluationItem::Value(val) => {
                 let (val_str, ty_str) = format_ui_value(val);
@@ -79,6 +79,29 @@ impl SearchResultItem {
         match self {
             Self::Node { node, .. } | Self::Attribute { node, .. } => Some(node),
             Self::Value { .. } => None,
+        }
+    }
+
+    /// Owner runtime id for node-backed results.
+    pub fn runtime_id(&self) -> Option<String> {
+        self.ui_node().map(|node| node.runtime_id().as_str().to_string())
+    }
+
+    /// Raw attribute value for attribute results.
+    pub fn attribute_value(&self) -> Option<&str> {
+        match self {
+            Self::Attribute { value, .. } => Some(value),
+            Self::Node { .. } | Self::Value { .. } => None,
+        }
+    }
+
+    /// A fuller copy representation than the plain display label.
+    pub fn full_copy_text(&self) -> String {
+        match self {
+            Self::Node { label, node } | Self::Attribute { label, node, .. } => {
+                format!("{label} [{}]", node.runtime_id().as_str())
+            }
+            Self::Value { label } => label.clone(),
         }
     }
 }
