@@ -164,8 +164,7 @@ pub fn show_results_panel(
                     actions.push(ResultAction::Highlight(*focused_index));
                 }
 
-                let command_highlight_shortcut =
-                    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::H);
+                let command_highlight_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::H);
                 if ui.input_mut(|i| i.consume_shortcut(&command_highlight_shortcut))
                     && results.get(*focused_index).is_some_and(SearchResultItem::is_node)
                 {
@@ -307,10 +306,7 @@ fn show_result_context_menu(
 
             let highlight_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Space);
             if ui
-                .add(
-                    egui::Button::new("Highlight Result")
-                        .shortcut_text(ui.ctx().format_shortcut(&highlight_shortcut)),
-                )
+                .add(egui::Button::new("Highlight Result").shortcut_text(ui.ctx().format_shortcut(&highlight_shortcut)))
                 .clicked()
             {
                 *action = Some(ResultAction::Highlight(index));

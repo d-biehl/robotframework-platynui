@@ -103,10 +103,8 @@ pub fn show_attributes(
         indices.retain(|&idx| attribute_matches_filter(&attributes[idx], &normalized_filter));
     }
 
-    let pinned_count = attributes
-        .iter()
-        .filter(|attribute| pinned_attributes.contains(&attribute_key(attribute)))
-        .count();
+    let pinned_count =
+        attributes.iter().filter(|attribute| pinned_attributes.contains(&attribute_key(attribute))).count();
 
     if filter_active || pinned_count > 0 {
         let mut summary_parts = Vec::new();
@@ -126,9 +124,8 @@ pub fn show_attributes(
         return;
     }
 
-    let (pinned_indices, unpinned_indices): (Vec<_>, Vec<_>) = indices
-        .into_iter()
-        .partition(|&idx| pinned_attributes.contains(&attribute_key(&attributes[idx])));
+    let (pinned_indices, unpinned_indices): (Vec<_>, Vec<_>) =
+        indices.into_iter().partition(|&idx| pinned_attributes.contains(&attribute_key(&attributes[idx])));
 
     egui::ScrollArea::horizontal().show(ui, |ui| {
         // Compute available_height inside the ScrollArea so the horizontal

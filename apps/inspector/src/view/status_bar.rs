@@ -1,12 +1,12 @@
-//! View: Bottom status bar for worker thread status.
+//! View: Bottom status bar for a simple worker activity indicator.
 
 use crate::model::automation;
 use eframe::egui;
 
 /// Render the bottom status bar.
 ///
-/// Shows overall worker thread status: green circle for idle, red rotating indicator for active tasks.
-pub fn show_status_bar(ui: &mut egui::Ui, loaded_count: usize) {
+/// Shows a simple overall worker status: green circle for idle, red rotating indicator for active tasks.
+pub fn show_status_bar(ui: &mut egui::Ui) {
     egui::Panel::bottom("status_bar").resizable(false).exact_size(28.0).show_inside(ui, |ui| {
         ui.horizontal(|ui| {
             // Status indicator: green circle (idle) or red rotating element (running)
@@ -37,9 +37,6 @@ pub fn show_status_bar(ui: &mut egui::Ui, loaded_count: usize) {
 
                 ui.ctx().request_repaint(); // Keep animating
             }
-
-            ui.separator();
-            ui.label(format!("{loaded_count} root items"));
         });
     });
 }

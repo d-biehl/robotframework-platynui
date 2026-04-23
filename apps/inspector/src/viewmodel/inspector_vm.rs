@@ -265,11 +265,6 @@ impl InspectorViewModel {
         }
     }
 
-    /// Number of already-cached root children.
-    pub fn loaded_root_children_count(&self) -> usize {
-        self.tree.root().cached_children().map_or(0, |children| children.len())
-    }
-
     /// Select a tree node by index, updating the attributes panel and highlighting.
     pub fn select_node(&mut self, index: usize) {
         // Ignore redundant re-selection of the same row to avoid repeatedly

@@ -275,7 +275,7 @@ impl eframe::App for InspectorApp {
         self.vm.poll_selection(&ctx);
 
         // View: Status Bar (bottom-most)
-        status_bar::show_status_bar(ui, self.vm.loaded_root_children_count());
+        status_bar::show_status_bar(ui);
 
         // View: Results Panel (above status bar)
         let result_actions = results_panel::show_results_panel(
