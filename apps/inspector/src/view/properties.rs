@@ -56,6 +56,7 @@ pub fn show_properties(
     selected_label: &str,
     attributes: &[DisplayAttribute],
     sort_state: &mut PropertiesSortState,
+    filter_text: &mut String,
 ) {
     if attributes.is_empty() {
         ui.colored_label(egui::Color32::from_gray(120), "No attributes available for this node.");
@@ -64,6 +65,21 @@ pub fn show_properties(
 
     ui.strong(format!("Properties: {selected_label}"));
     ui.separator();
+
+    ui.horizontal(|ui| {
+        ui.label("Filter");
+        ui.add(
+            egui::TextEdit::singleline(filter_text)
+                .hint_text("Filter by name, value, or type")
+                .desired_width(ui.available_width() - 56.0),
+        );
+        if !filter_text.is_empty() && ui.button("Clear").clicked() {
+            filter_text.clear();
+        }
+    });
+
+    let normalized_filter = filter_text.trim().to_lowercase();
+    let filter_active = !normalized_filter.is_empty();
 
     // Build sorted index list
     let mut indices: Vec<usize> = (0..attributes.len()).collect();
@@ -80,6 +96,20 @@ pub fn show_properties(
         };
         if asc { cmp } else { cmp.reverse() }
     });
+
+    if filter_active {
+        indices.retain(|&idx| attribute_matches_filter(&attributes[idx], &normalized_filter));
+        ui.colored_label(
+            egui::Color32::from_gray(160),
+            format!("Showing {} of {} properties", indices.len(), attributes.len()),
+        );
+        ui.separator();
+    }
+
+    if indices.is_empty() {
+        ui.colored_label(egui::Color32::from_gray(120), "No properties match the current filter.");
+        return;
+    }
 
     egui::ScrollArea::horizontal().show(ui, |ui| {
         // Compute available_height inside the ScrollArea so the horizontal
@@ -245,10 +275,17 @@ fn cell_selection_from_state(state: Option<&egui::text_edit::TextEditState>, cel
         .filter(|s| !s.is_empty())
 }
 
+fn attribute_matches_filter(attr: &DisplayAttribute, filter_text: &str) -> bool {
+    let attribute_name = format!("{}:{}", attr.namespace, attr.name).to_lowercase();
+    attribute_name.contains(filter_text)
+        || attr.value.to_lowercase().contains(filter_text)
+        || attr.value_type.to_lowercase().contains(filter_text)
+}
+
 /// Context menu for text cells in the properties table.
 ///
 /// `prev_sel` is the selection captured **before** the TextEdit was rendered this
-/// frame (see [`read_cell_selection`]).  Passing it in means right-click no longer
+/// frame (see [`cell_selection_from_state`]).  Passing it in means right-click no longer
 /// wipes the selection before the menu can use it.
 fn show_text_cell_context_menu(
     response: &egui::Response,

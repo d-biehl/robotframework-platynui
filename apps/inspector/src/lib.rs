@@ -111,6 +111,7 @@ fn init_tracing(cli_level: Option<LogLevel>) {
 struct InspectorApp {
     vm: InspectorViewModel,
     properties_sort: properties::PropertiesSortState,
+    property_filter: String,
     prev_always_on_top: Option<bool>,
     show_about_dialog: bool,
 }
@@ -134,6 +135,7 @@ impl InspectorApp {
         Self {
             vm: InspectorViewModel::new(runtime, preloaded_root_children),
             properties_sort: properties::PropertiesSortState::default(),
+            property_filter: String::new(),
             prev_always_on_top: None,
             show_about_dialog: false,
         }
@@ -430,6 +432,7 @@ impl eframe::App for InspectorApp {
                     &self.vm.selected_label,
                     &self.vm.selected_attributes,
                     &mut self.properties_sort,
+                    &mut self.property_filter,
                 );
             } else {
                 properties::show_no_selection(ui);
