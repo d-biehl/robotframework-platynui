@@ -2,13 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Text capabilities — read-only content, editing, and clearing.
+"""Text capabilities: read-only content, editing, and clearing.
 
-Mirrors the Rust attribute groups ``text_content``, ``text_editable`` and
-``clearable``. Each pattern is a separate capability so adapters can opt in
-independently (e.g. a label exposes only :class:`TextContent`, an entry
-field exposes :class:`TextContent` + :class:`TextEditable` + optionally
-:class:`Clearable`).
+Each capability is a separate pattern so adapters can opt in
+independently. A label exposes only `TextContent`; an entry
+field exposes `TextContent`, `TextEditable`, and
+optionally `Clearable`.
 """
 
 from __future__ import annotations
@@ -21,61 +20,59 @@ __all__ = ['Clearable', 'TextContent', 'TextEditable']
 
 
 class TextContent(PatternBase):
-    """Element exposes its current textual content (read-only).
-
-    Attributes mirror the Rust ``text_content`` group: ``Text``,
-    ``Locale``, ``IsTruncated``.
-    """
+    """An element that exposes its current textual content (read-only)."""
 
     pattern_name = 'org.platynui.patterns.TextContent'
 
     @property
     @abstractmethod
-    def text(self) -> str: ...
+    def text(self) -> str:
+        """The current text content."""
 
     @property
     @abstractmethod
-    def locale(self) -> str: ...
+    def locale(self) -> str:
+        """The BCP-47 locale tag for `text`, or empty if unknown."""
 
     @property
     @abstractmethod
-    def is_truncated(self) -> bool: ...
+    def is_truncated(self) -> bool:
+        """Whether the displayed text is shortened (e.g. with an ellipsis)."""
 
 
 class TextEditable(PatternBase):
-    """Element accepts a new text value and exposes editing constraints.
-
-    Attributes mirror the Rust ``text_editable`` group: ``IsReadOnly``,
-    ``MaxLength``, ``SupportsPasswordMode``.
-    """
+    """An element that accepts a new text value and exposes editing constraints."""
 
     pattern_name = 'org.platynui.patterns.TextEditable'
 
     @abstractmethod
-    def set_text(self, value: str) -> None: ...
+    def set_text(self, value: str) -> None:
+        """Replace the current content with ``value``."""
 
     @property
     @abstractmethod
-    def is_readonly(self) -> bool: ...
+    def is_readonly(self) -> bool:
+        """Whether the field rejects edits."""
 
     @property
     @abstractmethod
     def max_length(self) -> int | None:
-        """Maximum length in characters, or :data:`None` if unbounded."""
+        """The maximum length in characters, or `None` if unbounded."""
 
     @property
     @abstractmethod
-    def supports_password_mode(self) -> bool: ...
+    def supports_password_mode(self) -> bool:
+        """Whether the field can mask its content, e.g. for password input."""
 
 
 class Clearable(PatternBase):
-    """Element supports a dedicated clear operation.
+    """An element that supports a dedicated clear operation.
 
-    Pure action capability — no observable attributes (mirrors the empty
-    Rust ``clearable`` attribute module).
+    Pure action capability; carries no observable state.
     """
 
     pattern_name = 'org.platynui.patterns.Clearable'
 
     @abstractmethod
-    def clear(self) -> None: ...
+    def clear(self) -> None:
+        """Remove the current content."""

@@ -2,12 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Lean polling helper (design document section A.3).
+"""Lean polling helper.
 
-``wait_for`` polls a sequence of zero-arg predicates until either all of
-them return ``True`` within the timeout, or the timeout expires. It does
-not raise on timeout, does not retain a stage memo, and does not invoke
-hooks; for those features see :func:`PlatynUI.core.ensure.ensure_that`.
+`wait_for` polls a sequence of zero-argument predicates until
+they all return truthy or the timeout expires. Unlike
+`ensure_that` it never raises on timeout,
+keeps no per-stage memo and runs no hooks; use it whenever a plain
+boolean result is enough.
 """
 
 from __future__ import annotations
@@ -29,23 +30,15 @@ def wait_for(
 ) -> bool:
     """Poll ``predicates`` until they all hold or the timeout expires.
 
-    Args:
-        predicates: Zero-arg callables that return truthy when satisfied.
-        timeout: Polling deadline in seconds (default
-            ``Settings.current().wait_for_timeout``).
-        delay: Sleep between iterations in seconds (default
-            ``Settings.current().wait_for_delay``).
-        invalidate: Optional hook executed between iterations, typically to
-            invalidate cached adapter handles.
+    Return ``True`` once every predicate returns truthy; return
+    ``False`` if the timeout elapses first. ``timeout`` and ``delay``
+    default to the values from `Settings`.
+    ``invalidate`` is invoked between iterations and is typically used
+    to drop cached adapter handles.
 
-    Returns:
-        ``True`` if every predicate returned truthy within the timeout,
-        otherwise ``False``. Never raises on timeout.
-
-    Raises:
-        PlatynUIFatalError: re-raised from a predicate without retry.
-        KeyboardInterrupt: re-raised without retry.
-        SystemExit: re-raised without retry.
+    `PlatynUIFatalError`,
+    `KeyboardInterrupt` and `SystemExit` raised from a
+    predicate propagate immediately without retry.
     """
     settings = Settings.current()
     effective_timeout = settings.wait_for_timeout if timeout is None else timeout

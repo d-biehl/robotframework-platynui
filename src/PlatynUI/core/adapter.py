@@ -4,24 +4,22 @@
 
 # pyright: reportUnnecessaryTypeIgnoreComment=false
 #
-# The pattern-resolution algorithm below uses cross-tool ``# type: ignore``
-# directives that mypy needs (TypeVar narrowing through ``isinstance`` on
-# an unrelated base class is not supported) but pyright considers
-# unnecessary. Disabling the diagnostic locally is cleaner than littering
-# every line with paired ``# pyright: ignore`` annotations.
+# The pattern-resolution algorithm below uses ``# type: ignore`` directives
+# that mypy needs (TypeVar narrowing through ``isinstance`` on an unrelated
+# base class is not supported) but pyright considers unnecessary. Disabling
+# the diagnostic locally is cleaner than pairing each line with its own
+# ``# pyright: ignore``.
 
-"""Adapter abstract base class (design document section A.4).
+"""Adapter abstract base class.
 
-An :class:`Adapter` is what an adapter backend (Rust, JSON-RPC, mock, ...)
-hands to the PlatynUI core. Adapters expose identity, structural
-relationships, search criteria for the :class:`WeightCalculator`, the
-namespaced attribute space (mirroring Rust ``UiNode``), and
-pattern discovery / resolution.
+Adapters expose a UI element to the PlatynUI core: identity, structural
+relationships, search criteria for the
+`WeightCalculator`, the
+namespaced attribute space, and pattern discovery and resolution.
 
-Pattern resolution follows a fixed four-step algorithm implemented once
-on the ABC (template method). Concrete adapters only override the narrow
-:meth:`Adapter._resolve_pattern` hook — see the class docstring for
-details.
+Pattern resolution follows a fixed four-step algorithm implemented
+once on the ABC. Concrete adapters override only the narrow
+`_resolve_pattern` hook.
 """
 
 from __future__ import annotations
@@ -48,35 +46,33 @@ P = TypeVar('P', bound=PatternBase)
 
 
 class Adapter(ABC):
-    """What the adapter layer (Rust, JSON-RPC, mock, ...) provides.
+    """Expose a UI element to the PlatynUI core.
 
-    Adapters are *not* :class:`PatternBase` subclasses; the
-    :attr:`pattern_name` class attribute exists only as a stable
+    Adapters are not `PatternBase` subclasses; the
+    `pattern_name` class attribute exists only as a stable
     Reverse-DNS identifier on the wire, symmetric to how patterns
     advertise themselves.
 
-    Pattern resolution (:meth:`get_pattern`, :meth:`get_pattern_by_name`)
-    is implemented once on this class and follows the four-step algorithm
-    documented in design section 4.3 / A.4:
+    `get_pattern` and `get_pattern_by_name` resolve a
+    pattern in four steps:
 
-    1. ``self`` is an ``isinstance`` of the requested pattern type
-       (Rust-style adapters that natively implement a pattern).
-    2. The pattern instance is already cached in
-       :attr:`_pattern_impls` (keyed by Reverse-DNS pattern name).
-    3. The adapter-specific hook :meth:`_resolve_pattern` returns a
-       fresh implementation; the framework caches the result.
-    4. Otherwise raise :class:`PatternNotSupportedError` (or return
-       ``None`` if ``raise_exception=False``).
+    1. ``self`` itself is an instance of the requested pattern type
+       (adapters that natively implement a pattern via mix-in).
+    2. The pattern is already cached in `_pattern_impls`,
+       keyed by Reverse-DNS pattern name.
+    3. `_resolve_pattern` returns a fresh implementation, which
+       the framework then caches.
+    4. Otherwise raise `PatternNotSupportedError`, or return
+       ``None`` when ``raise_exception=False``.
 
-    Concrete adapters override only :meth:`_resolve_pattern`. They may
-    also override :meth:`supports_pattern` for cheaper short-circuits
-    (e.g. Rust ``UiNode.has_pattern`` instead of building the full
-    pattern set).
+    Concrete adapters override only `_resolve_pattern`. They may
+    also override `supports_pattern` for a cheaper short-circuit.
 
-    Visual / state properties (``bounds``, ``is_visible``,
-    ``is_enabled``, ``is_focused``, ...) are intentionally **not**
-    adapter methods — they are reached through the relevant pattern
-    (``Element``, ``Focusable``, ...).
+    Visual and state properties (``bounds``, ``is_visible``,
+    ``is_enabled``, ``is_focused``, ...) are deliberately not adapter
+    methods; reach them through the relevant pattern
+    (`Element`,
+    `Focusable`, ...).
     """
 
     pattern_name: ClassVar['PatternName'] = 'org.platynui.core.Adapter'
@@ -91,12 +87,12 @@ class Adapter(ABC):
     @property
     @abstractmethod
     def valid(self) -> bool:
-        """``True`` while this adapter handle still refers to a live element."""
+        """Whether this handle still refers to a live element."""
 
     @property
     @abstractmethod
     def runtime_id(self) -> str:
-        """Stable, opaque identifier for this element within its adapter backend."""
+        """A stable opaque identifier within this adapter's backend."""
 
     @property
     @abstractmethod
@@ -110,12 +106,12 @@ class Adapter(ABC):
     @property
     @abstractmethod
     def parent(self) -> 'Adapter | None':
-        """Parent adapter, or ``None`` for the root."""
+        """The parent adapter, or ``None`` for the root."""
 
     @property
     @abstractmethod
     def children(self) -> Sequence['Adapter']:
-        """Direct child adapters in document order."""
+        """The direct child adapters in document order."""
 
     # ------------------------------------------------------------------
     # Search criteria (consumed by WeightCalculator)
@@ -124,32 +120,32 @@ class Adapter(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """Accessible name (may be empty)."""
+        """The accessible name; may be empty."""
 
     @property
     @abstractmethod
     def class_name(self) -> str:
-        """Native class / control type name (may be empty)."""
+        """The native class or control type name; may be empty."""
 
     @property
     def tag_name(self) -> str:
-        """XML-style tag name; default empty (HTML/web adapters override)."""
+        """The XML-style tag name; empty unless overridden."""
         return ''
 
     @property
     @abstractmethod
     def role(self) -> str:
-        """Primary role (PascalCase, e.g. ``"Button"``, ``"Window"``)."""
+        """The primary role in PascalCase, for example ``"Button"``."""
 
     @property
     @abstractmethod
     def supported_roles(self) -> set['RoleName']:
-        """All roles this element conforms to (includes :attr:`role`)."""
+        """All roles this element conforms to, including `role`."""
 
     @property
     @abstractmethod
     def framework_id(self) -> 'FrameworkId':
-        """UI framework identifier (``"WPF"``, ``"Qt"``, ``"Gtk"``, ...)."""
+        """The UI framework identifier, e.g. ``"WPF"`` or ``"Qt"``."""
 
     # ------------------------------------------------------------------
     # Attributes (namespaced; symmetric to Rust UiNode)
@@ -159,19 +155,19 @@ class Adapter(ABC):
     def attribute_names(self, namespace: str | None = None) -> set[str]:
         """Return attribute names.
 
-        With ``namespace=None`` returns names from **all** namespaces —
-        primarily useful for inspector/debug tooling. With an explicit
+        Pass ``namespace=None`` to return names from every namespace
+        (mainly for inspector or debug tooling). Pass an explicit
         namespace (``"control"``, ``"item"``, ``"app"``, ``"native"``)
-        only that namespace's names are returned.
+        to restrict the result to that namespace.
         """
 
     @abstractmethod
     def attribute_value(self, name: str, namespace: str = 'control') -> object:
-        """Return the value of ``namespace:name`` for this element."""
+        """Return the value of the ``namespace:name`` attribute."""
 
     @abstractmethod
     def attributes(self) -> Iterator[tuple[str, str, object]]:
-        """Iterate ``(namespace, name, value)`` triples — mirrors Rust ``UiNode.attributes()``."""
+        """Yield ``(namespace, name, value)`` for every attribute."""
 
     # ------------------------------------------------------------------
     # Pattern discovery
@@ -179,21 +175,23 @@ class Adapter(ABC):
 
     @abstractmethod
     def supported_patterns(self) -> set[type[PatternBase]]:
-        """All Python pattern classes this adapter can resolve."""
+        """Return every Python pattern class this adapter can resolve."""
 
     @abstractmethod
     def supported_pattern_names(self) -> set['PatternName']:
-        """All Reverse-DNS pattern identifiers this adapter advertises.
+        """Return every Reverse-DNS pattern identifier this adapter advertises.
 
-        Superset of :meth:`supported_patterns`'s ``pattern_name``s — it
-        also covers patterns whose Python class is not (yet) imported
-        on this side, which matters for cross-runtime adapters.
+        Superset of the ``pattern_name`` values from
+        `supported_patterns`: also covers patterns whose Python
+        class is not (yet) imported on this side, which matters for
+        cross-runtime adapters.
         """
 
     def supports_pattern(self, pattern_type: type[PatternBase]) -> bool:
-        """Default: membership test against :meth:`supported_patterns`.
+        """Return whether ``pattern_type`` is in `supported_patterns`.
 
-        Adapters may override with a cheaper check (e.g. Rust ``UiNode.has_pattern``).
+        Adapters may override with a cheaper check that avoids building
+        the full pattern set.
         """
         return pattern_type in self.supported_patterns()
 
@@ -203,13 +201,12 @@ class Adapter(ABC):
 
     @abstractmethod
     def _resolve_pattern(self, pattern_name: 'PatternName') -> PatternBase | None:
-        """Adapter-specific pattern lookup (step 3 of resolution).
+        """Construct the implementation for ``pattern_name``.
 
-        Return a freshly constructed :class:`PatternBase` implementation
-        for ``pattern_name``, or ``None`` if this adapter cannot provide
-        it. The framework handles the ``isinstance`` short-circuit, the
-        cache, and error reporting around this hook — implementations
-        must not cache results themselves.
+        Return a fresh `PatternBase` instance, or ``None`` when
+        this adapter cannot provide it. The ``isinstance`` short-circuit,
+        the cache, and error reporting are handled around this hook;
+        implementations must not cache results themselves.
         """
 
     @overload
@@ -232,7 +229,10 @@ class Adapter(ABC):
     ) -> P | None:
         """Resolve ``pattern_type`` for this adapter.
 
-        Implements the four-step algorithm; see class docstring.
+        Run the four-step algorithm described in the class docstring.
+        Raise `PatternNotSupportedError` when the pattern cannot
+        be obtained, unless ``raise_exception`` is false (in which case
+        return ``None``).
         """
         if not isinstance(pattern_type, type) or not issubclass(pattern_type, PatternBase):
             raise NotAPatternTypeError(f'{pattern_type!r} is not a PatternBase subclass')
@@ -285,10 +285,10 @@ class Adapter(ABC):
     ) -> PatternBase | None:
         """Resolve a pattern by its Reverse-DNS identifier.
 
-        Useful for cross-runtime callers that do not import the
-        Python pattern class. Resolution mirrors :meth:`get_pattern`
-        but cannot perform the ``isinstance(self, ...)`` short-circuit
-        because no class object is available.
+        Behaves like `get_pattern` but skips the
+        ``isinstance(self, ...)`` short-circuit because no class object
+        is available. Useful for callers that do not import the Python
+        pattern class.
         """
         if not isinstance(pattern_name, str) or not pattern_name:
             raise NotAPatternTypeError(f'{pattern_name!r} is not a valid pattern name')

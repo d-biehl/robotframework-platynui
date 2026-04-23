@@ -2,13 +2,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Verification driver (design document section A.3).
+"""Verification driver for outcome-contract style predicates.
 
-``ensure_that`` is the outcome-contract primitive used by UI page-object
-methods to gate operations on pre-conditions and to validate post-
-conditions. It supports stage memoisation, invalidation hooks, and
-re-entrancy via a thread-local stack so that nested ``ensure_that`` calls
-share the outer timeout instead of starting their own.
+`ensure_that` polls a list of zero-argument predicates and
+returns once all of them hold, or raises
+`CannotEnsureError` after the timeout.
+Compared to `wait_for` it adds stage
+memoisation, re-entrant timeout sharing, observation hooks
+(`add_ensure_hook`) and a per-iteration failure callback.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ class _HasFullRepr(Protocol):
 
 
 def full_repr(obj: Any) -> str:
-    """Return ``obj.full_repr()`` if available, otherwise ``repr(obj)``."""
+    """Return ``obj.full_repr()`` if available, else ``repr(obj)``."""
     try:
         if isinstance(obj, _HasFullRepr):
             return obj.full_repr()
@@ -55,8 +56,8 @@ _hooks: list[Callable[[Any], None]] = []
 def add_ensure_hook(hook: Callable[[Any], None]) -> None:
     """Register a global hook called once per ``ensure_that`` iteration.
 
-    Hooks receive the ``context`` and may raise :class:`PlatynUIFatalError`
-    to abort retries.
+    The hook receives the current ``context`` and may raise
+    `PlatynUIFatalError` to abort retries.
     """
     _hooks.append(hook)
 
@@ -75,29 +76,23 @@ def ensure_that(
 ) -> bool:
     """Verify that all ``predicates`` hold within the timeout.
 
-    Predicates marked via :func:`PlatynUI.core.predicate.predicate` carry a
-    ``message`` attribute that is interpolated into the failure exception.
+    Return ``True`` once every predicate has returned truthy in the
+    same iteration. On timeout, raise
+    `CannotEnsureError` (default) or
+    return ``False`` if ``raise_exception`` is ``False``. ``None``
+    entries in ``predicates`` are skipped.
 
-    Args:
-        context: The page-object or element the predicates run against; used
-            for failure messages and adapter invalidation.
-        predicates: Zero-arg callables; ``None`` entries are skipped.
-        timeout: Polling deadline in seconds (default
-            ``Settings.current().ensure_timeout``). On a re-entrant call the
-            outer timeout wins.
-        raise_exception: ``True`` (default) raises :class:`CannotEnsureError`
-            on timeout; ``False`` returns ``False`` instead.
-        failed_func: Hook executed between retries (typically
-            ``context.invalidate``).
+    ``timeout`` defaults to
+    ``Settings.current().ensure_timeout``. On a re-entrant call the
+    outer scope's timeout and ``raise_exception`` policy win.
+    ``failed_func`` runs between iterations and is typically used to
+    invalidate cached adapter handles.
 
-    Returns:
-        ``True`` if all predicates eventually returned truthy, ``False`` on
-        timeout when ``raise_exception`` is ``False``.
-
-    Raises:
-        CannotEnsureError: timeout exceeded with ``raise_exception=True``.
-        PlatynUIFatalError, KeyboardInterrupt, SystemExit: re-raised without
-            retry.
+    Predicates marked with
+    `predicate` carry a ``message``
+    attribute that is formatted into the failure message;
+    `PlatynUIFatalError`, `KeyboardInterrupt` and
+    `SystemExit` raised from a predicate propagate immediately.
     """
     if timeout is None:
         timeout = Settings.current().ensure_timeout

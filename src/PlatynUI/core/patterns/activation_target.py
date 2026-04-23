@@ -39,7 +39,7 @@ class ActivationTarget(PatternBase):
         """An extended hit-zone, or ``None`` if a single point is enough.
 
         When set, the mouse layer clicks the centre of the area instead
-        of :attr:`activation_point`.
+        of `activation_point`.
         """
         return None
 

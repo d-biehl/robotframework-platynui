@@ -4,10 +4,11 @@
 
 """Exception hierarchy for PlatynUI.
 
-See design document section A.2. ``ensure_that`` and ``wait_for`` re-raise
-:class:`PlatynUIFatalError`, :class:`KeyboardInterrupt` and
-:class:`SystemExit` without retry; everything else inheriting from
-:class:`PlatynUIError` is considered recoverable.
+All recoverable errors derive from `PlatynUIError` and are
+retried by `ensure_that` and
+`wait_for` until their timeout expires.
+`PlatynUIFatalError`, `KeyboardInterrupt` and
+`SystemExit` propagate immediately.
 """
 
 from __future__ import annotations
@@ -41,11 +42,7 @@ class PlatynUIError(Exception):
 
 
 class PlatynUIFatalError(PlatynUIError):
-    """Non-recoverable error.
-
-    ``ensure_that`` and ``wait_for`` re-raise this immediately instead of
-    retrying.
-    """
+    """Non-recoverable error that bypasses retry loops."""
 
 
 class AdapterNotFoundFatalError(PlatynUIFatalError):
@@ -69,7 +66,7 @@ class PatternNotSupportedError(AdapterError):
 
 
 class NotAPatternTypeError(AdapterError):
-    """The given object is not a recognised :class:`PatternBase` subclass."""
+    """The given object is not a recognised `PatternBase` subclass."""
 
 
 class EnsureError(PlatynUIError):

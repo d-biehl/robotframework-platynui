@@ -15,7 +15,7 @@ __all__ = ['ToggleState', 'Toggleable']
 
 
 class ToggleState(Enum):
-    """Tri-state toggle value (mirrors UIA / AT-SPI semantics)."""
+    """Tri-state toggle value: ``OFF``, ``ON``, or ``INDETERMINATE``."""
 
     OFF = 'off'
     ON = 'on'
@@ -23,22 +23,24 @@ class ToggleState(Enum):
 
 
 class Toggleable(PatternBase):
-    """Element can be toggled and exposes its current state.
+    """An element that can be toggled and exposes its current state.
 
-    Bundles the action (:meth:`toggle`) with its observable attributes
-    (:attr:`state`, :attr:`supports_three_state`) — mirrors the Rust
-    ``toggleable`` capability group.
+    Combines the toggle action with its observable state so callers
+    can both read whether the element is on or off and flip it.
     """
 
     pattern_name = 'org.platynui.patterns.Toggleable'
 
     @abstractmethod
-    def toggle(self) -> None: ...
+    def toggle(self) -> None:
+        """Advance to the next toggle state."""
 
     @property
     @abstractmethod
-    def state(self) -> ToggleState: ...
+    def state(self) -> ToggleState:
+        """The current toggle state."""
 
     @property
     @abstractmethod
-    def supports_three_state(self) -> bool: ...
+    def supports_three_state(self) -> bool:
+        """Whether `state` may legitimately return ``INDETERMINATE``."""

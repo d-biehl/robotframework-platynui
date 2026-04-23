@@ -2,18 +2,20 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Process-wide settings singleton (design document section A.1).
+"""Process-wide settings singleton.
 
-``Settings`` is a frozen, slotted, keyword-only dataclass. Instances act as
-context managers that temporarily replace the process-wide singleton:
+`Settings` holds timing and behaviour knobs for the wait/ensure
+helpers and the device proxies. Instances are frozen, slotted and
+keyword-only and act as context managers that temporarily replace the
+process-wide singleton::
 
->>> with Settings(ensure_timeout=30):
-...     ensure_that(ctx, predicate)
+    with Settings(ensure_timeout=30):
+        ensure_that(ctx, predicate)
 
 For programmatic configuration without nesting, use
-:meth:`Settings.set_current`. Settings are **not** thread-safe; this matches
-the legacy implementation and is sufficient for ``pabot``-style parallelism
-where each worker runs in its own process.
+`set_current`. The accessor is **not** thread-safe; this
+matches typical ``pabot`` parallelism where each worker runs in its own
+process.
 """
 
 from __future__ import annotations
@@ -30,6 +32,13 @@ _stack: list['Settings'] = []
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Settings:
+    """Tunable timings and limits used across the PlatynUI core.
+
+    All values are seconds unless noted otherwise. Construct with
+    keyword arguments to override individual fields; unspecified fields
+    keep their defaults.
+    """
+
     # Wait timings
     wait_for_timeout: float = 1.0
     wait_for_delay: float = 0.1
@@ -62,7 +71,7 @@ class Settings:
 
     @staticmethod
     def current() -> "Settings":
-        """Return the active settings instance, creating a default if needed."""
+        """Return the active settings, creating defaults on first use."""
         global _current
         if _current is None:
             _current = Settings()
@@ -72,8 +81,8 @@ class Settings:
     def set_current(settings: "Settings") -> None:
         """Replace the process-wide singleton.
 
-        Use within tests or library bootstrap. Within a ``with``-block,
-        prefer the context-manager form so the previous value is restored.
+        Prefer the context-manager form inside a ``with`` block so the
+        previous value is restored automatically.
         """
         global _current
         _current = settings

@@ -2,13 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Base element capability — bounds, visibility and enabled state.
+"""Base element capability: bounds, visibility, and enabled state.
 
-Mirrors the Rust ``element`` attribute group
-(``crates/core/src/ui/attributes.rs``) one-to-one. Adapters that surface
-any kind of on-screen widget implement this single pattern instead of the
-finer-grained ``HasBounds`` / ``Visibility`` / ``HasIsEnabled`` triple
-that earlier revisions exposed.
+Adapters that surface any kind of on-screen widget implement this
+pattern to expose its geometry and basic interaction state.
 """
 
 from __future__ import annotations
@@ -24,38 +21,44 @@ __all__ = ['Element']
 class Element(PatternBase):
     """An on-screen UI element with geometry and visibility state.
 
-    Properties map directly onto the Rust ``element`` attribute names:
+    Exposes the four core properties every visible widget shares:
 
-    - :attr:`bounds` ↔ ``Bounds``
-    - :attr:`is_visible` ↔ ``IsVisible``
-    - :attr:`is_in_view` ↔ ``IsInView`` (positive form of UIA ``IsOffscreen``)
-    - :attr:`is_enabled` ↔ ``IsEnabled``
+    - `bounds`: screen rectangle in absolute pixels.
+    - `is_visible`: the element is rendered (not hidden or
+      collapsed).
+    - `is_in_view`: the element lies within the viewport (not
+      scrolled off-screen).
+    - `is_enabled`: the element accepts user input.
 
-    :attr:`default_click_position` is a Python-side convenience that
-    defaults to the centre of :attr:`bounds`; adapters may override to
-    surface a more accurate hit point (UIA ``ClickablePoint``,
-    AT-SPI ``GetExtents`` mid-point, etc.).
+    `default_click_position` is a convenience point used by
+    high-level actions like mouse click and hover. It defaults to the
+    centre of `bounds`; adapters may override it to return a
+    more accurate hit point when the platform exposes one.
     """
 
     pattern_name = 'org.platynui.patterns.Element'
 
     @property
     @abstractmethod
-    def bounds(self) -> Rect: ...
+    def bounds(self) -> Rect:
+        """The element's screen rectangle in absolute pixels."""
 
     @property
     @abstractmethod
-    def is_visible(self) -> bool: ...
+    def is_visible(self) -> bool:
+        """Whether the element is rendered (not hidden or collapsed)."""
 
     @property
     @abstractmethod
-    def is_in_view(self) -> bool: ...
+    def is_in_view(self) -> bool:
+        """Whether the element lies within the viewport."""
 
     @property
     @abstractmethod
-    def is_enabled(self) -> bool: ...
+    def is_enabled(self) -> bool:
+        """Whether the element accepts user input."""
 
     @property
     def default_click_position(self) -> Point:
-        """Default interaction point — centre of :attr:`bounds`."""
+        """The default interaction point; centre of ``bounds``."""
         return self.bounds.center()

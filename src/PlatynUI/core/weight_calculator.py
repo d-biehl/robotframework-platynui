@@ -2,31 +2,25 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Adapter weight calculator (design document section 11.4).
+"""Score how well an adapter matches a set of selection criteria.
 
-Used during ``@pattern_proxy_for`` resolution to score which proxy
-overload best matches a given adapter. The legacy implementation
-(``core/weight_calculator.py`` in the old project) is preserved 1:1 in
-behaviour with one substantive change: the old twin criteria
-``properties[k]==v`` / ``native_properties[k]==v`` are consolidated into
-a single ``attributes[(ns, name)] == v`` criterion, mirroring the
-namespaced ``UiAttribute`` model on the Rust side
-(``crates/core/src/ui/{node,namespace}.rs``).
+Used during `pattern_proxy_for`
+resolution to pick the best-fitting proxy registration. Operates on a
+structural `AdapterLike` Protocol so it stays decoupled from the
+concrete `Adapter` class and can be tested
+with simple stubs.
 
-``adapter`` is typed via an :class:`AdapterLike` ``Protocol`` to avoid a
-hard import dependency on ``core.adapter`` (which lands in Phase 2).
-
-Weights:
+Scoring weights:
 
 * ``technology`` — 100 000
-* ``role`` exact match — 10 000; entry in ``supported_roles`` — ``5000-i``
+* ``role`` exact match — 10 000; entry in ``supported_roles`` — ``5000 - i``
 * ``framework_id`` — 1 000
 * ``class_name`` — 500
 * ``tag_name`` — 400
 * each entry in ``attributes`` — 200
 
-Any criterion provided but not satisfied causes ``calculate`` to return
-``0`` (i.e. "no match").
+Any provided criterion that does not match causes `calculate` to
+return ``0``.
 """
 
 from __future__ import annotations
@@ -42,42 +36,41 @@ __all__ = ['AdapterLike', 'WeightCalculator']
 
 @runtime_checkable
 class AdapterLike(Protocol):
-    """Minimal adapter surface required by :class:`WeightCalculator`.
-
-    The full adapter interface lives in ``core.adapter`` (Phase 2). Using
-    a structural protocol keeps this module independent of that concrete
-    type so it can be unit-tested with simple stubs.
-
-    ``attribute_value`` mirrors the Rust ``UiNode::attribute(namespace,
-    name)`` API and returns ``None`` for unknown / unsupported
-    attributes (see §A.4).
-    """
+    """Minimal adapter surface required by ``WeightCalculator``."""
 
     @property
-    def technology(self) -> Any: ...
+    def technology(self) -> Any:
+        """The platform technology this adapter belongs to."""
+        ...
 
     @property
-    def supported_patterns(self) -> "list[PatternName]": ...
+    def supported_patterns(self) -> "list[PatternName]":
+        """The pattern names this adapter advertises."""
+        ...
 
-    def get_pattern(self, pattern_name: PatternName) -> Any: ...
+    def get_pattern(self, pattern_name: PatternName) -> Any:
+        """Return the pattern implementation for ``pattern_name``."""
+        ...
 
     def attribute_value(
         self, name: str, namespace: str = DEFAULT_ATTRIBUTE_NAMESPACE
-    ) -> Any: ...
+    ) -> Any:
+        """Return the attribute value, or ``None`` if unknown."""
+        ...
 
 
 #: A criterion attribute key. Bare strings live in
-#: :data:`DEFAULT_ATTRIBUTE_NAMESPACE`; tuple keys are explicit.
+#: `DEFAULT_ATTRIBUTE_NAMESPACE`; tuple keys are explicit.
 AttributeKey = 'str | tuple[str, str]'
 
 
 def _normalize_key(
     key: 'str | tuple[str, str]', default_namespace: str
 ) -> tuple[str, str]:
-    """Resolve a free-form attribute key into ``(namespace, name)``.
+    """Resolve a free-form attribute key to ``(namespace, name)``.
 
-    Bare strings are placed in ``default_namespace``; tuple keys are
-    taken verbatim.
+    Bare strings go into ``default_namespace``; tuple keys are taken
+    verbatim.
     """
     if isinstance(key, tuple):
         if len(key) != 2:
@@ -98,7 +91,7 @@ def _normalize_key(
 
 
 class WeightCalculator:
-    """Score how well an adapter matches a set of criteria."""
+    """Compute the match weight between an adapter and a criteria set."""
 
     def __init__(
         self,
@@ -112,13 +105,13 @@ class WeightCalculator:
         self._attributes_cache: dict[tuple[str, str], Any] = {}
 
     def cached(self, name: str) -> Any:
-        """Memoised attribute access on the adapter."""
+        """Return ``adapter.<name>`` with per-instance memoisation."""
         if name not in self._cache:
             self._cache[name] = getattr(self.adapter, name, None)
         return self._cache[name]
 
     def attribute_cached(self, namespace: str, name: str) -> Any:
-        """Memoised access to ``adapter.attribute_value(name, namespace)``."""
+        """Return ``adapter.attribute_value(name, namespace)`` with memoisation."""
         key = (namespace, name)
         if key not in self._attributes_cache:
             self._attributes_cache[key] = self.adapter.attribute_value(
@@ -128,7 +121,7 @@ class WeightCalculator:
 
     @staticmethod
     def test_values(actual: Any, expected: Any) -> bool:
-        """Compare ``actual`` against ``expected`` (regex- or equality-based)."""
+        """Match ``actual`` against ``expected`` by regex or equality."""
         if isinstance(expected, re.Pattern):
             return expected.fullmatch(str(actual)) is not None
         return bool(actual == expected)

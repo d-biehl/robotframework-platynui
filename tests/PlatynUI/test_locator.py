@@ -335,13 +335,13 @@ def test_method_decorator_returns_descriptor() -> None:
     assert raw.__locator__.to_xpath() == './/*[@AutomationId="num5Button"]'
 
 
-def test_method_decorator_access_raises_not_implemented_phase3() -> None:
+def test_method_decorator_access_raises_not_implemented() -> None:
     class Page:
         @locator(AutomationId='num5Button')
         def n5(self) -> object: ...
 
     page = Page()
-    with pytest.raises(NotImplementedError, match='Phase 3'):
+    with pytest.raises(NotImplementedError, match='not yet implemented'):
         _ = page.n5
 
 

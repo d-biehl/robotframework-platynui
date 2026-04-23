@@ -14,23 +14,25 @@ __all__ = ['Activatable']
 
 
 class Activatable(PatternBase):
-    """Element can be activated (button click, menu invoke, ...).
+    """An element that can be activated, e.g. a button click or menu invoke.
 
-    Bundles the action (:meth:`activate`) with its observable attributes
-    (:attr:`is_activation_enabled`, :attr:`default_accelerator`) —
-    mirrors the Rust ``activatable`` capability group.
+    Combines the activation action with its observable state, so
+    callers can both check whether activation is currently allowed
+    and invoke it.
     """
 
     pattern_name = 'org.platynui.patterns.Activatable'
 
     @abstractmethod
-    def activate(self) -> None: ...
+    def activate(self) -> None:
+        """Trigger the element's primary action."""
 
     @property
     @abstractmethod
-    def is_activation_enabled(self) -> bool: ...
+    def is_activation_enabled(self) -> bool:
+        """Whether `activate` is currently available."""
 
     @property
     @abstractmethod
     def default_accelerator(self) -> str | None:
-        """Suggested keyboard accelerator (e.g. ``"Enter"``), or :data:`None`."""
+        """The suggested keyboard accelerator (e.g. ``"Enter"``), or ``None``."""

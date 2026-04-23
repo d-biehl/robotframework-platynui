@@ -2,11 +2,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Predicate decorator (design document section A.3).
+"""Decorator marking a callable as an ``ensure_that`` predicate.
 
-The decorator attaches a human-readable failure message to a zero-arg
-predicate so that :func:`PlatynUI.core.ensure.ensure_that` can render
-meaningful errors. Use ``{0}`` in the message to interpolate the context.
+A predicate is a zero-argument callable returning a truthy value when
+satisfied. The decorator attaches a human-readable failure message that
+`ensure_that` interpolates into the
+resulting `CannotEnsureError`. Use
+``{0}`` in the message as a placeholder for the context object.
+
+Example::
+
+    @predicate('{0} is visible')
+    def _is_visible() -> bool:
+        return element.is_visible
+
+    ensure_that(element, _is_visible)
 """
 
 from __future__ import annotations
@@ -20,12 +30,11 @@ F = TypeVar('F', bound=Callable[..., Any])
 
 
 def predicate(message: str | None = None, flags: Any = None) -> Callable[[F], F]:
-    """Mark a callable as an ``ensure_that`` / ``wait_for`` predicate.
+    """Mark a callable as a predicate for ``ensure_that`` / ``wait_for``.
 
-    Args:
-        message: Failure message template (``{0}`` is replaced by the
-            ``ensure_that`` context's ``full_repr`` / ``repr``).
-        flags: Free-form metadata, currently unused by the framework.
+    ``message`` is a failure-message template; ``{0}`` is substituted
+    with the context object passed to ``ensure_that``. ``flags`` is
+    free-form metadata reserved for future use.
     """
 
     def decorator(func: F) -> F:

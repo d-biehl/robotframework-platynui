@@ -2,16 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared type aliases for the PlatynUI core layer.
+"""Shared type aliases and geometry primitives for the PlatynUI core.
 
-Reverse-DNS pattern identifiers (``PatternName``) and the role/technology
-naming conventions are defined here so that both pattern ABCs and adapter
-implementations share a single source of truth.
-
-Geometry primitives ``Point`` and ``Rect`` are re-exported from the Rust
-native module so that pure-Python code, the native adapter, and the runtime
-all share a single representation. Keeping them in one place avoids
-conversion shims at the FFI boundary.
+Re-exports `Point`, `Rect` and `PointerButton` from
+the native module so Python code, adapters and the runtime share a single
+representation without conversion shims.
 """
 
 from __future__ import annotations
@@ -35,17 +30,15 @@ __all__ = [
 #: Reverse-DNS pattern identifier, e.g. ``"org.platynui.patterns.Activatable"``.
 PatternName: TypeAlias = str
 
-#: UI role name, e.g. ``"Button"``, ``"Window"``, ``"Application"``.
+#: UI role name in PascalCase, e.g. ``"Button"``, ``"Window"``, ``"Application"``.
 RoleName: TypeAlias = str
 
-#: Adapter technology name, e.g. ``"rust"``, ``"jsonrpc"``, ``"mock"``.
+#: Adapter technology name, e.g. ``"UiNode"``, ``"mock"``.
 TechnologyName: TypeAlias = str
 
-#: UI framework identifier as reported by the platform (e.g. ``"WPF"``,
-#: ``"Qt"``, ``"Gtk"``).
+#: UI framework identifier reported by the platform, e.g. ``"WPF"``, ``"Qt"``, ``"Gtk"``.
 FrameworkId: TypeAlias = str
 
-#: Historical Python alias for :class:`platynui_native.PointerButton`.
-#: Kept so that PlatynUI keywords and tests can spell out the familiar
-#: ``MouseButton`` name without depending on the native module directly.
+#: Mouse button identifier. Alias for `PointerButton`
+#: with members ``LEFT``, ``RIGHT``, ``MIDDLE``, ``X1``, ``X2``.
 MouseButton: TypeAlias = PointerButton

@@ -14,19 +14,18 @@ __all__ = ['Focusable']
 
 
 class Focusable(PatternBase):
-    """Element can receive keyboard focus and exposes its focus state.
+    """An element that can receive keyboard focus.
 
-    The :attr:`is_focused` attribute mirrors the Rust ``focusable``
-    attribute group (``IsFocused``). The :meth:`focus` action is a
-    Python-side capability — the Rust runtime does not require a
-    matching attribute since focus changes are purely behavioural.
+    Combines the focus state (`is_focused`) with the focus
+    action (`focus`) so callers see a single capability.
     """
 
     pattern_name = 'org.platynui.patterns.Focusable'
 
     @property
     @abstractmethod
-    def is_focused(self) -> bool: ...
+    def is_focused(self) -> bool:
+        """Whether this element currently holds keyboard focus."""
 
     @abstractmethod
     def focus(self) -> None:

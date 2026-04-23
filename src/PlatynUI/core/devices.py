@@ -8,15 +8,15 @@
 
 Two abstract proxy classes form the public surface:
 
-- :class:`MouseProxy` — element-relative pointer actions (move, press,
+- `MouseProxy` — element-relative pointer actions (move, press,
   release, click, double-click) with anchor- and offset-based targeting.
-- :class:`KeyboardProxy` — keyboard input accepting sequence strings
+- `KeyboardProxy` — keyboard input accepting sequence strings
   like ``"hello<Enter>"`` or ``"<Ctrl+Shift+T>"``.
 
-Concrete implementations (:class:`AdapterMouseProxy`,
-:class:`AdapterKeyboardProxy`) attach a proxy to a UI adapter; custom
-subclasses can override :meth:`MouseProxy.before_action` /
-:meth:`MouseProxy.after_action` to inject pre- and post-conditions
+Concrete implementations (`AdapterMouseProxy`,
+`AdapterKeyboardProxy`) attach a proxy to a UI adapter; custom
+subclasses can override `before_action` /
+`after_action` to inject pre- and post-conditions
 (focus, scroll-into-view, verification).
 """
 
@@ -50,7 +50,7 @@ __all__ = [
 ]
 
 
-#: Pointer button identifier. Alias for :class:`platynui_native.PointerButton`
+#: Pointer button identifier. Alias for `PointerButton`
 #: providing the standard members ``LEFT``, ``RIGHT``, ``MIDDLE``, ``X1``, ``X2``.
 MouseButton: TypeAlias = PointerButton
 
@@ -93,10 +93,10 @@ class KeyboardAction(str, Enum):
 
 @dataclass(frozen=True)
 class VirtualPoint:
-    """A named function that derives a :class:`Point` from a :class:`Rect`.
+    """A named function that derives a `Point` from a `Rect`.
 
     Use this to define custom anchors beyond the nine predefined ones in
-    :class:`Anchor`. The ``func`` receives the element's bounding box and
+    `Anchor`. The ``func`` receives the element's bounding box and
     must return an absolute desktop point.
 
     Example::
@@ -146,10 +146,10 @@ def _anchor_bottom_right(rect: Rect) -> Point:
 
 
 class Anchor:
-    """Predefined :class:`VirtualPoint` instances for the nine standard
+    """Predefined `VirtualPoint` instances for the nine standard
     positions inside an element's bounding box.
 
-    Pass any of these as the ``pos`` argument to :class:`MouseProxy`
+    Pass any of these as the ``pos`` argument to `MouseProxy`
     actions to target a specific corner, edge midpoint, or the centre::
 
         proxy.click(pos=Anchor.TOP_RIGHT)
@@ -175,18 +175,18 @@ class Anchor:
 class MouseProxy(ABC):
     """Element-relative mouse interface.
 
-    Subclass and implement :attr:`base_rect` to bind the proxy to an
+    Subclass and implement `base_rect` to bind the proxy to an
     element. All actions accept the same targeting arguments:
 
-    - ``pos`` selects the base point inside :attr:`base_rect`:
+    - ``pos`` selects the base point inside `base_rect`:
 
-      * ``None`` (default) — use :attr:`default_click_position`
-      * :class:`Anchor` / :class:`VirtualPoint` — anchor inside the box
-      * :class:`Point` — offset from the box's top-left corner
+      * ``None`` (default) — use `default_click_position`
+      * `Anchor` / `VirtualPoint` — anchor inside the box
+      * `Point` — offset from the box's top-left corner
 
     - ``x`` / ``y`` add a final pixel offset on top of the base point.
 
-    Override :meth:`before_action` / :meth:`after_action` to plug in
+    Override `before_action` / `after_action` to plug in
     pre- and post-conditions (focus, visibility checks, verification).
 
     Example::
@@ -209,7 +209,7 @@ class MouseProxy(ABC):
     @property
     def default_click_position(self) -> Point:
         """The point clicked when ``pos`` is ``None``. Defaults to the
-        centre of :attr:`base_rect`; subclasses may override to use a
+        centre of `base_rect`; subclasses may override to use a
         more specific location."""
         return self.base_rect.center()
 
@@ -330,7 +330,7 @@ class MouseProxy(ABC):
 
 
 class AdapterMouseProxy(MouseProxy):
-    """Standard :class:`MouseProxy` bound to a UI adapter.
+    """Standard `MouseProxy` bound to a UI adapter.
 
     Reads the bounding box from the adapter's ``Element`` pattern and
     determines the default click position from the adapter's patterns,
@@ -390,7 +390,7 @@ class KeyboardProxy(ABC):
         proxy.type_keys('abc')             # types ABC
         proxy.release_keys('<Shift>')      # release Shift
 
-    Override :meth:`before_action` / :meth:`after_action` for hooks
+    Override `before_action` / `after_action` for hooks
     around each action (e.g. to ensure the target window has focus).
     """
 
@@ -422,11 +422,11 @@ class KeyboardProxy(ABC):
 
 
 class AdapterKeyboardProxy(KeyboardProxy):
-    """Standard :class:`KeyboardProxy` bound to a UI adapter.
+    """Standard `KeyboardProxy` bound to a UI adapter.
 
     The adapter reference is held so subclasses can implement focus
-    and verification logic via :meth:`KeyboardProxy.before_action` /
-    :meth:`KeyboardProxy.after_action`.
+    and verification logic via `before_action` /
+    `after_action`.
     """
 
     def __init__(self, adapter: 'AdapterFacade') -> None:

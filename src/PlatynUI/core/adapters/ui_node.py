@@ -4,49 +4,30 @@
 
 # pyright: reportPrivateUsage=false
 #
-# The native-pattern wrappers and pattern builders below intentionally
+# The native-pattern wrappers and pattern builders below deliberately
 # reach into ``UiNodeAdapter._node`` to read the underlying native node.
-# They are part of the same module / cooperating implementation, so the
+# They are part of the same cooperating implementation, so the
 # protected-access diagnostic is noise here.
 
-"""Native-backed :class:`Adapter` implementation (design doc §A.4a).
+"""Native-backed `Adapter` for the platform UI tree.
 
-:class:`UiNodeAdapter` wraps a single ``platynui_native.UiNode`` and
-exposes it through the Python :class:`~PlatynUI.core.adapter.Adapter`
-contract. It is the *only* production adapter in PlatynUI — the design
-treats the native UI tree as the sole technology backend (see
-``docs/python-library-design.md`` §A.4 / §A.8). Variations needed for
-tests (stubs, spies, scripted behaviour) are layered on top via
-:class:`~PlatynUI.core.adapter_proxy.AdapterProxy` overlays, not via
-alternative adapter classes.
+`UiNodeAdapter` wraps a single native UI node and exposes it
+through the Python `Adapter` contract.
+It is the only production adapter; test variations (stubs, spies,
+scripted behaviour) are layered on top through
+`AdapterProxy` overlays.
 
-Pattern resolution maps Reverse-DNS pattern identifiers to thin Python
-wrappers around the corresponding native pattern objects. Currently only
-:class:`~PlatynUI.core.patterns.Focusable` has a native counterpart; the
-remaining capability patterns will be wired up in later migration phases
-once the native side exposes them.
+Pattern access combines two underlying mechanisms into the single
+Python pattern view users expect:
 
-Design note — why the wrappers exist
-====================================
-The Rust core deliberately splits a single Python pattern across two
-mechanisms (see the original ``docs/patterns.md`` design memo, in this
-repository's git history at commit ``4d36c43``):
+* Actions, e.g. ``Focusable.focus()``: platform-specific calls that
+  may fail at runtime.
+* State, e.g. ``Focusable.is_focused``: values read from the node's
+  attribute space.
 
-* **RuntimePatterns** (e.g. ``FocusableAction``, ``WindowSurfaceActions``)
-  carry *actions* — methods that need platform-specific code and may
-  fail at runtime (UIA ``SetFocus``, AT-SPI ``grabFocus``, X11 grabs,
-  …). They live behind the ``UiPattern`` trait and are obtained via
-  ``UiNode::pattern::<T>()``.
-* **ClientPatterns** (the much larger set, e.g. ``IsFocused``,
-  ``IsSelected``, ``Bounds``) carry *state* — values that every
-  provider exposes the same way: as ``UiAttribute`` entries readable
-  via ``UiNode::attribute(name, namespace)``.
-
-Python users want a *single* pattern object that bundles both halves
-(``Focusable.is_focused`` *and* ``Focusable.focus()``). The native
-wrappers below are the seam where the two Rust worlds get fused into
-that unified Python view; they are not boilerplate around a single
-underlying object.
+Currently only `Focusable` is wired
+up; the remaining capability patterns follow as the native side
+exposes them.
 """
 
 from __future__ import annotations
@@ -69,7 +50,7 @@ __all__ = ['UiNodeAdapter', 'UiNodeTechnology']
 
 
 class UiNodeTechnology(Technology):
-    """Singleton marker for the native ``platynui_native`` adapter family."""
+    """Marker singleton identifying the native UI-tree technology."""
 
     _instance: ClassVar['UiNodeTechnology | None'] = None
 
@@ -90,19 +71,17 @@ _TECHNOLOGY: UiNodeTechnology = UiNodeTechnology()
 
 
 class _NativeFocusable(Focusable):
-    """Bridge ``platynui_native.Focusable`` (action) + node attribute (state).
+    """Combine the native focus action with the ``IsFocused`` state attribute.
 
-    The native ``Focusable`` pattern only carries the runtime *action*
-    ``focus()``; the corresponding *state* ``IsFocused`` lives in the
-    node's attribute space (see the module docstring for the rationale
-    behind that split). This wrapper is the seam that fuses both into
-    the single Python :class:`~PlatynUI.core.patterns.Focusable`
-    contract — it is not an indirection over a self-contained object.
+    The native focus pattern carries only the ``focus()`` action; the
+    matching ``IsFocused`` state lives in the node's attribute space.
+    This wrapper exposes both as a single
+    `Focusable` object.
 
     ``IsFocused`` is read from whichever namespace the underlying node
-    advertises (``control`` for windows/buttons, ``item`` for list /
-    tree items, …), so the wrapper inspects ``node.namespace`` instead
-    of hard-coding ``"control"``.
+    advertises (``control`` for windows and buttons, ``item`` for list
+    or tree items, ...), so the wrapper mirrors the node's own
+    namespace instead of hard-coding one.
     """
 
     __slots__ = ('_adapter', '_native')
@@ -128,9 +107,9 @@ class _NativeFocusable(Focusable):
         self._native.focus()
 
 
-# Reverse-DNS → builder. Builders take the adapter and return a fresh
-# pattern instance, or ``None`` if the native side cannot satisfy the
-# request for this particular node.
+# Reverse-DNS to builder. Each builder takes the adapter and returns a
+# fresh pattern instance, or ``None`` if the native side cannot satisfy
+# the request for this particular node.
 def _build_focusable(adapter: 'UiNodeAdapter') -> PatternBase | None:
     try:
         native = adapter._node.get_pattern(Focusable.pattern_name)
@@ -152,17 +131,15 @@ _NATIVE_PATTERN_BUILDERS: dict[str, object] = {
 
 
 class UiNodeAdapter(Adapter):
-    """Adapter backed by a single native ``UiNode``.
+    """Adapter backed by a single native UI node.
 
-    Construct via :meth:`from_node` (or :meth:`create_root` for the
-    desktop). The class is intentionally not a dataclass — it owns
-    mutable per-instance state (the resolved-pattern cache inherited
-    from :class:`Adapter`).
+    Construct via `from_node`, or `create_root` for the
+    desktop. Not a dataclass: each instance owns mutable state
+    (the resolved-pattern cache inherited from `Adapter`).
 
-    The adapter does not hold a runtime reference. Operations that need
-    one (e.g. delegating to native pointer/keyboard methods) read
-    :data:`PlatynUI.core.runtime.runtime`.``current`` lazily — the
-    process-wide singleton (design doc §A.5, Rev. 20).
+    Operations that need the active runtime read it lazily from the
+    process-wide `runtime` singleton; the
+    adapter itself does not hold a runtime reference.
     """
 
     pattern_name: ClassVar['PatternName'] = 'org.platynui.adapters.UiNode'
@@ -177,7 +154,7 @@ class UiNodeAdapter(Adapter):
 
     @classmethod
     def from_node(cls, node: _pn.UiNode) -> 'UiNodeAdapter':
-        """Wrap an arbitrary native node (used for parent / children walks)."""
+        """Wrap an arbitrary native node, e.g. from a parent or child walk."""
         return cls(node)
 
     @classmethod
@@ -234,9 +211,9 @@ class UiNodeAdapter(Adapter):
 
     @property
     def supported_roles(self) -> set['RoleName']:
-        # The native side currently surfaces only the primary role.
-        # SupportedRoles will be added once the native attribute group
-        # exposes it; for now the primary role is the single entry.
+        # Only the primary role is currently exposed by the underlying
+        # node; additional roles will be returned once the attribute
+        # surface advertises them.
         return {self._node.role}
 
     @property

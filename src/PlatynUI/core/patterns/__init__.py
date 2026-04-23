@@ -4,20 +4,17 @@
 
 """Capability-marker pattern ABCs.
 
-See ``docs/python-library-design.md`` section 5 for the design rationale.
-Each pattern is an ``abc.ABC`` carrying a Reverse-DNS ``pattern_name``
-identifier; concrete implementations live in adapter packages.
+Each pattern is an `ABC` carrying a Reverse-DNS
+``pattern_name`` identifier; concrete implementations live in adapter
+packages.
 
-The pattern set is aligned 1:1 with the Rust ``pattern_ids`` and
-attribute-group modules (``crates/core/src/ui/identifiers.rs``,
-``crates/core/src/ui/attributes.rs``). Capability-group patterns
-(``Element``, ``Toggleable``, ``Activatable``) bundle related attributes
-and actions instead of splitting them into per-attribute markers.
+Capability-group patterns (`Element`, `Toggleable`,
+`Activatable`) bundle related state and actions into a single
+pattern instead of splitting them into per-attribute markers.
 
-Note: there is intentionally no ``Properties``/``NativeProperties``
-pattern — generic key/value reads go through the adapter's namespaced
-attribute API (``adapter.attribute_value(name, namespace=...)``) rather
-than through a pattern. See design doc §A.4 / §5.
+There is no generic ``Properties`` pattern: arbitrary key/value reads
+go through the adapter's namespaced attribute API
+(``adapter.attribute_value(name, namespace=...)``).
 """
 
 from __future__ import annotations

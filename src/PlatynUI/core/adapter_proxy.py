@@ -5,26 +5,26 @@
 # pyright: reportUnnecessaryTypeIgnoreComment=false
 #
 # Same mypy/pyright TypeVar-narrowing tradeoff as in core/adapter.py:
-# isinstance(self, pattern_type) is statically unreachable for mypy
+# ``isinstance(self, pattern_type)`` is statically unreachable for mypy
 # (AdapterProxy does not extend PatternBase) but is the deliberate
-# Step 1 of pattern resolution for proxies that mix in pattern ABCs.
+# step 1 of pattern resolution for proxies that mix in pattern ABCs.
 
-"""Adapter proxy and pattern-proxy registry (design sections 4.2-4.3, A.4).
+"""Adapter proxy and pattern-proxy registry.
 
-An :class:`AdapterProxy` wraps an :class:`Adapter` to add or override
-pattern implementations. Per the design document, the proxy is a
-**composition** of an adapter (held in :attr:`AdapterProxy.adapter`),
-not an :class:`Adapter` subclass — the old project's inheritance-based
-proxy is deliberately not reproduced here.
+An `AdapterProxy` wraps an `Adapter` to add or override
+pattern implementations. The proxy holds the wrapped adapter as
+`adapter` and is not itself an `Adapter`
+subclass.
 
-The proxy exposes the same public surface as :class:`Adapter` so that
-caller code can treat ``Adapter | AdapterProxy`` interchangeably; this
-union is published as the :data:`AdapterFacade` type alias.
+The proxy mirrors the public surface of `Adapter`, so callers
+may treat ``Adapter | AdapterProxy`` interchangeably; that union is
+published as `AdapterFacade`.
 
-Concrete proxies are registered through the :func:`pattern_proxy_for`
-class decorator. The :class:`PatternProxyFactory` module-level
-singleton scores registered proxies against an adapter via
-:class:`WeightCalculator` and wraps the highest-scoring match.
+Concrete proxies register through the `pattern_proxy_for` class
+decorator. The `PatternProxyFactory` singleton scores
+registered proxies against an adapter via
+`WeightCalculator` and wraps
+the highest-scoring match.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ P = TypeVar('P', bound=PatternBase)
 ProxyT = TypeVar('ProxyT', bound='AdapterProxy')
 
 
-#: Either a raw :class:`Adapter` or a wrapping :class:`AdapterProxy` —
+#: Either a raw `Adapter` or a wrapping `AdapterProxy`;
 #: both expose the same public surface to UI-side callers.
 AdapterFacade: TypeAlias = 'Adapter | AdapterProxy'
 
@@ -65,22 +65,21 @@ AdapterFacade: TypeAlias = 'Adapter | AdapterProxy'
 
 
 class AdapterProxy:
-    """Composition-based proxy that adds/overrides patterns on an adapter.
+    """Wrap an `Adapter` to add or override pattern implementations.
 
-    The proxy is **not** an :class:`Adapter` subclass; instead it
-    forwards every adapter-shaped method to the wrapped instance. Only
-    pattern resolution is enriched:
+    The proxy is not an `Adapter` subclass; every adapter-shaped
+    method forwards to the wrapped instance. Only pattern resolution
+    is enriched:
 
-    1. If the proxy itself is an ``isinstance`` of the requested pattern
-       type (i.e. it mixes in the pattern ABC and provides the methods),
-       it acts as the implementation.
+    1. If the proxy itself is an instance of the requested pattern
+       type (it mixes in the pattern ABC and provides the methods),
+       the proxy is the implementation.
     2. Otherwise resolution delegates to the wrapped adapter.
-    3. Otherwise raises :class:`PatternNotSupportedError` (or returns
-       ``None`` when ``raise_exception=False``).
+    3. Otherwise raise `PatternNotSupportedError`, or return
+       ``None`` when ``raise_exception=False``.
 
-    :attr:`supported_patterns` and :attr:`supported_pattern_names`
-    return the **union** of proxy-provided and adapter-provided
-    patterns.
+    `supported_patterns` and `supported_pattern_names`
+    return the union of proxy-provided and adapter-provided patterns.
     """
 
     def __init__(self, adapter: Adapter) -> None:
@@ -96,7 +95,7 @@ class AdapterProxy:
 
     @property
     def adapter(self) -> Adapter:
-        """The wrapped underlying adapter."""
+        """The wrapped adapter."""
         return self._adapter
 
     # ------------------------------------------------------------------
@@ -173,7 +172,7 @@ class AdapterProxy:
     # ------------------------------------------------------------------
 
     def _proxy_pattern_classes(self) -> set[type[PatternBase]]:
-        """Pattern ABCs mixed into the concrete proxy class via MRO."""
+        """Return pattern ABCs mixed into the concrete proxy class via MRO."""
         return {
             base
             for base in type(self).__mro__
@@ -222,7 +221,7 @@ class AdapterProxy:
     ) -> P | None:
         """Resolve ``pattern_type`` via the proxy first, then the adapter.
 
-        See class docstring for the resolution algorithm.
+        See the class docstring for the resolution algorithm.
         """
         if not isinstance(pattern_type, type) or not issubclass(pattern_type, PatternBase):
             raise NotAPatternTypeError(f'{pattern_type!r} is not a PatternBase subclass')
@@ -240,7 +239,7 @@ class AdapterProxy:
         *,
         raise_exception: bool = True,
     ) -> PatternBase | None:
-        """Resolve by Reverse-DNS identifier (proxy first, then adapter)."""
+        """Resolve a pattern by Reverse-DNS identifier; check proxy first."""
         if not isinstance(pattern_name, str) or not pattern_name:
             raise NotAPatternTypeError(f'{pattern_name!r} is not a valid pattern name')
 
@@ -278,8 +277,8 @@ class AdapterProxy:
 # ---------------------------------------------------------------------------
 
 
-#: Criterion keys accepted by :func:`pattern_proxy_for`. The set mirrors
-#: :meth:`WeightCalculator.calculate`'s ``criteria`` dict so that proxy
+#: Criterion keys accepted by `pattern_proxy_for`. The set mirrors
+#: `calculate`'s ``criteria`` dict so that proxy
 #: matching uses the same scoring rules as locator matching.
 _CRITERION_KEYS: frozenset[str] = frozenset(
     {'technology', 'role', 'framework_id', 'class_name', 'tag_name', 'attributes'}
@@ -300,16 +299,12 @@ class _ProxyRegistration:
 
 
 class PatternProxyFactory:
-    """Module-level registry that maps adapters to proxy wrappers.
+    """Map adapters to registered proxy wrappers.
 
-    Registrations are populated by the :func:`pattern_proxy_for`
-    decorator. :meth:`find_proxy_for` returns the best-scoring proxy
-    wrapped around the adapter, or the adapter itself when no
-    registered proxy matches.
-
-    The factory is intentionally **not** a global ``PatternRegistry``:
-    it indexes proxy *classes* by adapter criteria; pattern identity
-    itself stays adapter-local (see design section 5.4).
+    The `pattern_proxy_for` decorator populates the registry.
+    `find_proxy_for` returns the best-scoring proxy wrapped
+    around the adapter, or the adapter itself when no registered
+    proxy matches.
     """
 
     _registrations: list[_ProxyRegistration] = []
@@ -320,9 +315,9 @@ class PatternProxyFactory:
     ) -> None:
         """Register ``proxy_cls`` with the given matching criteria.
 
-        Called by :func:`pattern_proxy_for`; not normally invoked
-        directly. Re-registering a class is idempotent — the previous
-        entry is replaced.
+        Re-registering an existing class replaces its previous entry.
+        Normally invoked through `pattern_proxy_for` rather than
+        directly.
         """
         if not isinstance(proxy_cls, type) or not issubclass(proxy_cls, AdapterProxy):
             raise TypeError(
@@ -335,10 +330,7 @@ class PatternProxyFactory:
 
     @classmethod
     def unregister(cls, proxy_cls: type[AdapterProxy]) -> None:
-        """Remove ``proxy_cls`` from the registry (no-op if absent).
-
-        Useful in tests that register temporary proxies.
-        """
+        """Remove ``proxy_cls`` from the registry; no-op if absent."""
         cls._registrations = [
             entry for entry in cls._registrations if entry.proxy_cls is not proxy_cls
         ]
@@ -350,16 +342,16 @@ class PatternProxyFactory:
 
     @classmethod
     def registrations(cls) -> Sequence[_ProxyRegistration]:
-        """Read-only view of the current registrations (for diagnostics)."""
+        """Return a read-only view of the current registrations."""
         return tuple(cls._registrations)
 
     @classmethod
     def find_proxy_for(cls, adapter: Adapter) -> AdapterFacade:
         """Wrap ``adapter`` in the highest-scoring registered proxy.
 
-        Returns the adapter unchanged if no proxy has a positive score.
-        Ties are broken by registration order: the earliest entry wins,
-        consistent with the legacy ``AdapterProxyFactory`` behaviour.
+        Return the adapter unchanged when no proxy has a positive
+        score. Break ties by registration order; the earliest entry
+        wins.
         """
         if not cls._registrations:
             return adapter
@@ -379,14 +371,13 @@ class PatternProxyFactory:
 
 
 class _AdapterCriteriaView:
-    """Adapt :class:`Adapter` to the :class:`WeightCalculator` Protocol.
+    """Present an `Adapter` through the `WeightCalculator` Protocol.
 
-    :class:`WeightCalculator` was built before :class:`Adapter` existed
-    and consumes a structural :class:`AdapterLike` view (``technology``,
-    ``role``, ``framework_id`` etc. as cached attributes plus
-    ``attribute_value(name, namespace)``). This thin shim presents the
-    calculator with exactly that surface without forcing the calculator
-    to import :class:`Adapter`.
+    `WeightCalculator` consumes a structural ``AdapterLike``
+    view (``technology``, ``role``, ``framework_id`` and so on as
+    cached attributes plus ``attribute_value(name, namespace)``).
+    This shim exposes that exact surface without forcing the
+    calculator to import `Adapter`.
     """
 
     __slots__ = ('_adapter',)
@@ -441,9 +432,9 @@ def pattern_proxy_for(
     technology: type[Any] | None = None,
     attributes: dict[str | tuple[str, str], object] | None = None,
 ) -> Callable[[type[ProxyT]], type[ProxyT]]:
-    """Class decorator: register an :class:`AdapterProxy` with match criteria.
+    """Register an `AdapterProxy` subclass with match criteria.
 
-    The accepted keywords mirror :class:`WeightCalculator`'s criteria
+    The accepted keywords mirror `WeightCalculator`'s criteria
     dict. ``attributes`` keys may be bare strings (resolved in the
     default ``control`` namespace) or ``(namespace, name)`` tuples.
 

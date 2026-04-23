@@ -2,15 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Concrete :class:`~PlatynUI.core.adapter.Adapter` implementations.
+"""Concrete `Adapter` implementations.
 
-Currently only the native :class:`UiNodeAdapter` (backed by the Rust
-``platynui_native.UiNode``) is shipped — see design doc §A.4a. Additional
-adapter backends are intentionally out of scope; the runtime treats the
-native UiNode as *the* technology layer and Python-side variation
-(stubs, spies, scripted behaviour) is composed via
-:class:`~PlatynUI.core.adapter_proxy.AdapterProxy` overlays instead of
-parallel adapter implementations.
+Ships the single production adapter, `UiNodeAdapter`, which
+wraps the platform UI tree. Test variations are layered on top
+through `AdapterProxy` overlays
+rather than through alternative adapter classes.
 """
 
 from __future__ import annotations

@@ -4,10 +4,10 @@
 
 """Technology marker base class.
 
-A *technology* identifies an adapter family (e.g. the Rust-backed UI tree,
-a JSON-RPC remote, the in-process mock). Each technology subclass is a
-singleton-ish marker; the actual ``adapter_factory`` hook is added in
-Phase 2 once the ``Adapter`` ABC lands.
+A *technology* identifies an adapter family (the native UI tree, an
+in-process mock, a future remote backend). Each technology subclass acts
+as a singleton-ish marker so adapters can be grouped and matched against
+`WeightCalculator` criteria.
 """
 
 from __future__ import annotations

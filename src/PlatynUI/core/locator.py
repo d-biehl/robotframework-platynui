@@ -2,43 +2,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Declarative XPath locator (design document section A.6).
+"""Declarative XPath locator for UI elements.
 
-A :class:`Locator` describes how to find an element relative to a parent
-node. It does not perform the lookup itself — that is done by the runtime
-via the Rust XPath engine. ``Locator.to_xpath`` produces a single XPath
-2.0 expression suitable for ``runtime.evaluate``.
+Three predicate sources may be freely mixed, but the same attribute
+must not be set through more than one of them:
 
-The ``LocatorScope`` axis vocabulary is exposed as a ``Literal`` type
-alias rather than an ``Enum`` so that page-object authors can write
-``scope="descendants"`` directly.
-
-There are **three ways** to specify an attribute predicate, and they may
-be freely mixed (but the same attribute may only be set via one of them
-— see :meth:`Locator.__init__` for the conflict rules):
-
-1. **Reserved snake_case convenience fields** — ``name``, ``id``,
-   ``class_name``, ``role``, ``runtime_id``, ``framework_id`` — are
-   typed dataclass-style parameters mapped to their PascalCase XPath
-   form (``Locator(name="OK")`` → ``[@Name="OK"]``). This is a closed
-   set; new attributes are *not* added here.
-
-2. **Free-form** ``attributes`` **dict** — keys are taken verbatim as
-   attribute names (no case conversion). Bare strings sit in the
-   ``default_attribute_namespace`` (``"control"`` unless overridden);
-   tuple keys ``(namespace, name)`` are explicit.
-
-3. **Free-form keyword arguments** — any kwarg that is *not* a reserved
-   field name is interpreted as a free-form attribute. ``Locator(
-   AutomationId="x")`` → ``[@AutomationId="x"]``. To address a
-   non-default namespace via kwarg, use the double-underscore separator
-   ``ns__name``: ``Locator(native__HWND=0xABCD)`` →
-   ``[@native:HWND="..."]``.
-
-   The kwarg name is taken verbatim — no PascalCase enforcement, no
-   case conversion. ``Locator(foo="x")`` → ``[@foo="x"]``. Authors are
-   responsible for following the project convention that adapter
-   attribute names are PascalCase (see ``crates/core/src/ui/attributes.rs``).
+1. Reserved snake_case fields (``name``, ``id``, ``class_name``,
+   ``role``, ``runtime_id``, ``framework_id``) map to their PascalCase
+   XPath form: ``Locator(name="OK")`` renders ``[@Name="OK"]``.
+2. The free-form ``attributes`` dict takes keys verbatim. Bare-string
+   keys sit in ``default_attribute_namespace``; tuple keys
+   ``(namespace, name)`` are explicit.
+3. Free-form keyword arguments are interpreted as attributes:
+   ``Locator(AutomationId="x")`` renders ``[@AutomationId="x"]``. Use
+   the double-underscore separator for a non-default namespace:
+   ``Locator(native__HWND=0xABCD)``.
 """
 
 from __future__ import annotations
@@ -55,10 +33,9 @@ from typing_extensions import Self
 __all__ = ['DEFAULT_ATTRIBUTE_NAMESPACE', 'Locator', 'LocatorMethodDescriptor', 'LocatorScope', 'locator']
 
 
-#: XPath default namespace for free-form attribute keys.
-#: Mirrors :rust:`Namespace::Control` (``crates/core/src/ui/namespace.rs``).
-#: Attributes in this namespace are emitted *unprefixed* in the generated
-#: XPath; all other namespaces are emitted with their prefix.
+#: Default XPath namespace for free-form attribute keys. Attributes in
+#: this namespace are emitted unprefixed; all others are emitted with
+#: their prefix.
 DEFAULT_ATTRIBUTE_NAMESPACE: str = 'control'
 
 
@@ -92,17 +69,17 @@ _XPATH_AXIS: dict[str, str] = {
 }
 
 
-#: Type of the public ``Locator.attributes`` mapping. ``str`` keys use the
-#: enclosing class' ``default_attribute_namespace``; ``(namespace, name)``
-#: tuple keys are explicit.
+#: Key type for the ``Locator.attributes`` mapping. Bare ``str`` keys
+#: use the enclosing class' ``default_attribute_namespace``;
+#: ``(namespace, name)`` tuple keys are explicit.
 AttributeKey: TypeAlias = 'str | tuple[str, str]'
 
 
 def _xquery_repr(value: Any) -> str:
     """Format ``value`` as an XPath/XQuery literal."""
     if isinstance(value, re.Pattern):
-        # The caller is expected to wrap regex predicates in matches() —
-        # this helper only handles literal values.
+        # Regex predicates are wrapped in matches() by the caller; this
+        # helper only handles literal values.
         return xmlutils.quoteattr(cast(str, value.pattern))
     if isinstance(value, Enum):
         return '"' + str(value.value) + '"'
@@ -120,14 +97,14 @@ def _xquery_repr(value: Any) -> str:
 
 
 def _render_attribute_name(namespace: str, name: str) -> str:
-    """Render an attribute reference with namespace prefix when needed."""
+    """Render an attribute reference, prefixing non-default namespaces."""
     if namespace == DEFAULT_ATTRIBUTE_NAMESPACE:
         return f'@{name}'
     return f'@{namespace}:{name}'
 
 
 def _attribute_predicate(namespace: str, name: str, value: Any) -> str:
-    """Render a single ``[@Name=...]`` (or ``[@ns:Name=...]``) predicate body."""
+    """Render a single predicate body of the form ``@Name=...``."""
     rendered = _render_attribute_name(namespace, name)
     if isinstance(value, re.Pattern):
         return f'matches({rendered}, {xmlutils.quoteattr(cast(str, value.pattern))})'
@@ -137,8 +114,8 @@ def _attribute_predicate(namespace: str, name: str, value: Any) -> str:
 def _normalize_key(key: AttributeKey, default_namespace: str) -> tuple[str, str]:
     """Resolve a free-form attribute key into ``(namespace, name)``.
 
-    Bare strings are placed in ``default_namespace``; tuple keys are
-    taken verbatim.
+    Bare strings adopt ``default_namespace``; tuple keys are taken
+    verbatim.
     """
     if isinstance(key, tuple):
         if len(key) != 2:
@@ -161,9 +138,9 @@ def _normalize_key(key: AttributeKey, default_namespace: str) -> tuple[str, str]
 def _split_kwarg_name(kwarg: str) -> tuple[str, str]:
     """Split a kwarg name into ``(namespace, attribute_name)``.
 
-    ``foo`` → ``(DEFAULT_ATTRIBUTE_NAMESPACE, "foo")``;
-    ``ns__name`` → ``("ns", "name")``. Multiple ``__`` separators are
-    rejected because the intended namespace would be ambiguous.
+    ``foo`` yields ``(DEFAULT_ATTRIBUTE_NAMESPACE, "foo")`` and
+    ``ns__name`` yields ``("ns", "name")``. Reject names with more than
+    one ``__`` separator: the intended namespace would be ambiguous.
     """
     parts = kwarg.split('__')
     if len(parts) == 1:
@@ -181,9 +158,9 @@ def _split_kwarg_name(kwarg: str) -> tuple[str, str]:
     )
 
 
-# Names of typed Locator parameters that are *not* free-form attributes.
-# Used to separate reserved kwargs from PascalCase attribute kwargs in
-# ``Locator.__init__``. Must stay in sync with ``Locator.__slots__``.
+# Names of typed Locator parameters that are not free-form attributes.
+# Kept in sync with ``Locator.__slots__``; consulted by ``__init__`` to
+# distinguish reserved kwargs from PascalCase attribute kwargs.
 _RESERVED_FIELDS: frozenset[str] = frozenset({
     'path',
     'node',
@@ -205,8 +182,8 @@ _RESERVED_FIELDS: frozenset[str] = frozenset({
 
 
 # Mapping from snake_case convenience fields to their PascalCase XPath
-# attribute name. The closed set of standard shorthand attributes, all
-# rendered in the default ``control`` namespace.
+# attribute name. Closed set, all rendered in the default ``control``
+# namespace.
 _SHORTHAND_TO_ATTR: dict[str, str] = {
     'id': 'Id',
     'name': 'Name',
@@ -217,18 +194,17 @@ _SHORTHAND_TO_ATTR: dict[str, str] = {
 
 
 class Locator:
-    """Declarative XPath locator builder.
+    """Build an XPath 2.0 expression for a UI element.
 
-    Either ``path`` is set (then the XPath is taken verbatim, modulo the
-    optional ``prefix``/``axis`` prefix), or the locator is composed from
-    a node name (``node``/``role``), an axis (``axis``/``scope``), a set
-    of attribute predicates, and optional positional qualifiers
-    (``index``, ``position``).
+    When ``path`` is set, the XPath is taken verbatim (modulo an
+    optional ``prefix``/``axis`` prefix). Otherwise the expression is
+    composed from a node name (``node`` or ``role``), an axis
+    (``axis`` or ``scope``), attribute predicates, and the optional
+    qualifiers ``index`` and ``position``.
 
-    Attribute predicates can come from three sources (see module docstring
-    for the full convention). Setting the same logical attribute via more
-    than one source raises ``TypeError`` — there is no precedence rule,
-    conflicts are surfaced loudly.
+    Setting the same logical attribute through more than one of the
+    three predicate sources (see module docstring) raises
+    `TypeError`.
     """
 
     __slots__ = (
@@ -362,17 +338,14 @@ class Locator:
     ) -> str:
         """Render this locator as an XPath 2.0 expression.
 
-        Args:
-            parent_is_root_like: ``True`` when the resolving parent is an
-                ``Application`` or ``Desktop`` node. Influences the
-                default scope when none is explicitly set.
-            default_role: Fallback node name from the page-object class.
-            default_prefix: Fallback namespace prefix from the page-object
-                class; only used when ``use_default_prefix`` is ``True``.
-            default_attribute_namespace: Namespace used for bare-string
-                keys in :attr:`attributes`. Page-object classes pass
-                their own ``default_attribute_namespace`` class attribute
-                here (default ``"control"``).
+        Set ``parent_is_root_like`` when the resolving parent is an
+        ``Application`` or ``Desktop`` node; this picks ``children`` as
+        the implicit scope instead of ``descendants``. ``default_role``
+        and ``default_prefix`` provide fallbacks from the page-object
+        class; ``default_prefix`` only applies when
+        ``use_default_prefix`` is true. ``default_attribute_namespace``
+        names the namespace used for bare-string keys in
+        `attributes`.
         """
         if self.path is not None:
             return self.path
@@ -428,8 +401,8 @@ class Locator:
     def copy_from(self, other: "Locator | None") -> Self:
         """Inherit unset fields and merge attribute dicts from ``other``.
 
-        Used for property/class-level locator inheritance: child locator
-        wins on conflict, parent fills the gaps.
+        Implements property/class-level locator inheritance: the child
+        locator wins on conflict, the parent fills the gaps.
         """
         if other is None:
             return self
@@ -465,7 +438,7 @@ class Locator:
         return self
 
     def copy(self) -> "Locator":
-        """Return a shallow-ish copy (attribute and custom-attribute lists copied)."""
+        """Return a copy with attribute and custom-attribute lists duplicated."""
         return Locator(
             path=self.path,
             node=self.node,
@@ -492,8 +465,8 @@ class Locator:
             getattr(self, slot) == getattr(other, slot) for slot in self.__slots__
         )
 
-    # Locators are mutable (copy_from rewrites fields in place) — explicitly
-    # unhashable, mirroring the previous @dataclass(eq=True) default.
+    # Locators are mutable (copy_from rewrites fields in place); make
+    # them explicitly unhashable, mirroring @dataclass(eq=True).
     __hash__ = None  # type: ignore[assignment]
 
     def __repr__(self) -> str:
@@ -530,16 +503,13 @@ def _conflict_message(
 
 
 class LocatorMethodDescriptor:
-    """Descriptor produced by ``@locator(...)`` on a method/property.
+    """Wrap a callable with an attached locator.
 
-    Phase 2 stub. The full method-form decorator requires
-    :class:`ContextBase.get` (Phase 3) to resolve the locator against the
-    owning context using the method's return-type annotation. Until then,
-    accessing such an attribute raises :class:`NotImplementedError`.
-
-    The descriptor still stores the locator and the wrapped function so
-    that page-object code can be authored today and will work once
-    Phase 3 lands without source changes.
+    Returned by `locator` when applied to a method or property.
+    Attribute access on an instance raises `NotImplementedError`:
+    method-form resolution (using the return-type annotation to locate
+    the target element) is not yet implemented. Use `locator`
+    only as a class decorator until then.
     """
 
     __slots__ = ('__locator__', '__wrapped__', 'attr_name')
@@ -566,8 +536,7 @@ class LocatorMethodDescriptor:
         attr = self.attr_name or '<unknown>'
         raise NotImplementedError(
             f"@locator method form for {owner.__name__ if owner else '?'}.{attr} "
-            'requires ContextBase.get() — implemented in Phase 3 of the '
-            'Python migration. Use @locator only as a class decorator for now.'
+            'is not yet implemented. Use @locator only as a class decorator for now.'
         )
 
 
@@ -591,31 +560,27 @@ def locator(
     custom_attributes: list[str] | None = None,
     **extra_attributes: str | re.Pattern[str],
 ) -> collections.abc.Callable[[Any], Any]:
-    """Decorator form of :class:`Locator`.
+    """Attach a `Locator` to a class, method, or property.
 
-    Two usage forms are supported:
+    As a class decorator, store the locator on ``__locator__`` and
+    return the class unchanged::
 
-    1. **Class decorator** — attaches the locator as the ``__locator__``
-       class attribute and returns the class unchanged::
+        @locator(name="Calculator")
+        class CalculatorWindow(Window):
+            ...
 
-           @locator(name="Calculator")
-           class CalculatorWindow(Window):
-               ...
+    As a method or property decorator, return a
+    `LocatorMethodDescriptor` carrying the locator. Method-form
+    resolution is not yet implemented; accessing the attribute raises
+    `NotImplementedError`. Page-object code can be written today
+    and will work once method-form lands without source changes::
 
-    2. **Method/property decorator (Phase-3 stub)** — wraps the method in
-       a descriptor that stores the locator. Accessing the attribute on
-       an instance currently raises :class:`NotImplementedError`; the
-       full resolution path (read return-type annotation, call
-       ``ContextBase.get``) lands with Phase 3::
+        class CalculatorWindow(Window):
+            @property
+            @locator(AutomationId="num5Button")
+            def n5(self) -> Button: ...
 
-           class CalculatorWindow(Window):
-               @property
-               @locator(AutomationId="num5Button")
-               def n5(self) -> Button: ...
-
-    Keyword arguments mirror :meth:`Locator.__init__` exactly. To call
-    :class:`Locator` directly without the decorator wrapping, use the
-    class — :func:`locator` is *not* a transparent alias.
+    Keyword arguments mirror `__init__`.
     """
     loc = Locator(
         path=path,

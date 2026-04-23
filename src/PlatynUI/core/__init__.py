@@ -2,10 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""PlatynUI core layer (Phase 1: foundation modules).
+"""PlatynUI core layer.
 
-Public re-exports for the most commonly used primitives. Concrete adapter
-implementations and page-object base classes land in subsequent phases.
+Re-exports the primitives needed to build adapters and page objects:
+the `Adapter` contract, capability patterns, the runtime
+singleton, locator, predicate, and wait helpers, and shared types.
 """
 
 from __future__ import annotations
