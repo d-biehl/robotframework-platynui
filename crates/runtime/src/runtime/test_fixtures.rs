@@ -11,7 +11,7 @@ use platynui_core::provider::{
 use platynui_core::ui::attribute_names;
 use platynui_core::ui::identifiers::TechnologyId;
 use platynui_core::ui::{
-    FocusableAction, Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue, pattern_ids,
+    FocusableAction, Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue, pattern_names,
 };
 use platynui_platform_mock as _;
 use platynui_provider_mock as _;
@@ -97,7 +97,7 @@ impl UiNode for StubNode {
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         Box::new(vec![Arc::new(StubAttribute) as Arc<dyn UiAttribute>].into_iter())
     }
-    fn supported_patterns(&self) -> Vec<PatternId> {
+    fn supported_patterns(&self) -> Vec<PatternName> {
         Vec::new()
     }
     fn invalidate(&self) {}
@@ -262,11 +262,11 @@ impl UiNode for FocusNode {
         ];
         Box::new(attrs.into_iter())
     }
-    fn supported_patterns(&self) -> Vec<PatternId> {
-        if self.focusable { vec![PatternId::from(pattern_ids::FOCUSABLE)] } else { Vec::new() }
+    fn supported_patterns(&self) -> Vec<PatternName> {
+        if self.focusable { vec![PatternName::from(pattern_names::FOCUSABLE)] } else { Vec::new() }
     }
-    fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
-        if self.focusable && *pattern == PatternId::from(pattern_ids::FOCUSABLE) {
+    fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
+        if self.focusable && *pattern == PatternName::from(pattern_names::FOCUSABLE) {
             let action: Arc<dyn UiPattern> = Arc::new(FocusableAction::new(|| Ok(())));
             Some(action)
         } else {

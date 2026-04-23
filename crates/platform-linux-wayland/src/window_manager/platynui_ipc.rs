@@ -6,7 +6,7 @@ use std::sync::{LazyLock, Mutex};
 
 use platynui_core::platform::{PlatformError, WindowId};
 use platynui_core::types::{Point, Rect, Size};
-use platynui_core::ui::{Namespace, PatternId, UiNode, pattern_ids};
+use platynui_core::ui::{Namespace, PatternName, UiNode, pattern_names};
 use serde_json::{Value, json};
 
 use super::CompositorBackend;
@@ -275,7 +275,7 @@ fn extract_window_title(node: &dyn UiNode) -> String {
 
 fn is_window_surface(node: &dyn UiNode) -> bool {
     matches!(node.role(), "Frame" | "Window" | "Dialog")
-        || node.supported_patterns().iter().any(|pattern| pattern == &PatternId::from(pattern_ids::WINDOW_SURFACE))
+        || node.supported_patterns().iter().any(|pattern| pattern == &PatternName::from(pattern_names::WINDOW_SURFACE))
 }
 
 fn extract_pid(node: &dyn UiNode) -> Option<u32> {

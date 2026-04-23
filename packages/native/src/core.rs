@@ -452,7 +452,7 @@ macro_rules! define_id {
     };
 }
 
-define_id!(PatternId, core_rs::ui::identifiers::PatternId, "pattern handles");
+define_id!(PatternName, core_rs::ui::identifiers::PatternName, "pattern handles");
 define_id!(RuntimeId, core_rs::ui::identifiers::RuntimeId, "runtime instances");
 define_id!(TechnologyId, core_rs::ui::identifiers::TechnologyId, "accessibility technologies");
 
@@ -525,7 +525,7 @@ pub fn register_types(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPoint>()?;
     m.add_class::<PySize>()?;
     m.add_class::<PyRect>()?;
-    m.add_class::<PatternId>()?;
+    m.add_class::<PatternName>()?;
     m.add_class::<RuntimeId>()?;
     m.add_class::<TechnologyId>()?;
     m.add_class::<PyNamespace>()?;

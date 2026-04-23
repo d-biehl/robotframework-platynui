@@ -107,7 +107,7 @@ mod tests {
         UiTreeProviderFactory, register_provider,
     };
     use platynui_core::ui::identifiers::TechnologyId;
-    use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
+    use platynui_core::ui::{Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue};
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, LazyLock, Weak};
@@ -156,7 +156,7 @@ mod tests {
         fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
             Box::new(vec![Arc::new(DummyAttribute) as Arc<dyn UiAttribute>].into_iter())
         }
-        fn supported_patterns(&self) -> Vec<PatternId> {
+        fn supported_patterns(&self) -> Vec<PatternName> {
             Vec::new()
         }
         fn invalidate(&self) {}

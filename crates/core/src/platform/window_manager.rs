@@ -121,7 +121,7 @@ mod tests {
     use super::*;
     use crate::platform::PlatformError;
     use crate::types::{Point, Rect, Size};
-    use crate::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode};
+    use crate::ui::{Namespace, PatternName, RuntimeId, UiAttribute, UiNode};
     use std::sync::{Arc, LazyLock, Weak};
 
     /// Minimal UiNode stub for unit tests.
@@ -151,7 +151,7 @@ mod tests {
         fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
             Box::new(std::iter::empty())
         }
-        fn supported_patterns(&self) -> Vec<PatternId> {
+        fn supported_patterns(&self) -> Vec<PatternName> {
             Vec::new()
         }
         fn invalidate(&self) {}

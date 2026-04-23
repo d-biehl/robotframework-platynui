@@ -177,10 +177,10 @@ pub fn get_is_enabled(elem: &IUIAutomationElement) -> Result<bool, crate::error:
     }
 }
 
-pub fn get_is_offscreen(elem: &IUIAutomationElement) -> Result<bool, crate::error::UiaError> {
+pub fn get_is_in_view(elem: &IUIAutomationElement) -> Result<bool, crate::error::UiaError> {
     unsafe {
         crate::error::uia_api("IUIAutomationElement::CurrentIsOffscreen", elem.CurrentIsOffscreen())
-            .map(|b| b.as_bool())
+            .map(|b| !b.as_bool())
     }
 }
 

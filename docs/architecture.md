@@ -184,8 +184,8 @@ pub trait UiNode: Send + Sync {
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_>;
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_>;
     fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>>;
-    fn supported_patterns(&self) -> Vec<PatternId>;
-    fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>>;
+    fn supported_patterns(&self) -> Vec<PatternName>;
+    fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>>;
     fn invalidate(&self);
 }
 
@@ -196,8 +196,8 @@ pub trait UiAttribute: Send + Sync {
 }
 
 pub trait UiPattern: Any + Send + Sync {
-    fn id(&self) -> PatternId;
-    fn static_id() -> PatternId where Self: Sized;
+    fn pattern_name(&self) -> PatternName;
+    fn static_pattern_name() -> PatternName where Self: Sized;
     fn as_any(&self) -> &dyn Any;
 }
 ```
@@ -205,7 +205,7 @@ pub trait UiPattern: Any + Send + Sync {
 - Children and attributes are returned as `Box<dyn Iterator<...> + Send + '_>`. Providers may use custom iterator types.
 - The runtime never materializes lists upfront; `UiAttribute::value()` is called on demand.
 - `UiNodeExt` provides navigation helpers: `parent_arc()`, `ancestors()`, `top_level_or_self()`, `ancestor_pattern::<T>()`.
-- `PatternRegistry` stores patterns as `HashMap<PatternId, Arc<dyn UiPattern>>` with insertion-order tracking. `register_lazy` defers expensive platform probes until first access.
+- `PatternRegistry` stores patterns as `HashMap<PatternName, Arc<dyn UiPattern>>` with insertion-order tracking. `register_lazy` defers expensive platform probes until first access.
 
 ### 5.2 Namespaces
 
@@ -302,7 +302,7 @@ pub trait WindowSurfacePattern: UiPattern {
 
 | Pattern | Required Attributes | Optional Attributes |
 |---------|-------------------|-------------------|
-| **Element** | Bounds, IsVisible, IsEnabled | IsOffscreen, Technology |
+| **Element** | Bounds, IsVisible, IsEnabled | IsInView, Technology |
 | **Desktop** | Bounds, OsVersion, Monitors | — |
 | **TextContent** | Text | IsReadOnly |
 | **TextEditable** | Text, IsReadOnly=false | MaxLength |
@@ -439,7 +439,7 @@ pub trait WindowSurfacePattern: UiPattern {
 | IsMinimized | WindowPattern.WindowVisualState == Minimized | State.ICONIFIED | AXMinimized |
 | IsMaximized | WindowPattern.WindowVisualState == Maximized | EWMH _NET_WM_STATE check | AXFullScreen |
 | IsTopmost | WindowPattern.IsTopmost | EWMH _NET_WM_STATE_ABOVE | AXMain hint |
-| accepts_user_input() | IsEnabled && !IsOffscreen + WaitForInputIdle | State.SENSITIVE && State.SHOWING | AXEnabled |
+| accepts_user_input() | IsEnabled && IsInView + WaitForInputIdle | State.SENSITIVE && State.SHOWING | AXEnabled |
 
 **Application**
 
@@ -495,7 +495,7 @@ All providers must:
 - Bounds from `BoundingRectangle` in desktop coordinates (Per-Monitor-V2 DPI active).
 - ActivationPoint via `GetClickablePoint()` or center of bounds as fallback.
 - Text priority: `NameProperty` → `ValuePattern.Value` → `TextPattern.DocumentRange.GetText`.
-- WindowSurface attributes via `WindowPattern`/`TransformPattern`; `accepts_user_input()` via `IsEnabled && !IsOffscreen` + `WaitForInputIdle`.
+- WindowSurface attributes via `WindowPattern`/`TransformPattern`; `accepts_user_input()` via `IsEnabled && IsInView` + `WaitForInputIdle`.
 - Application node: process metadata (`ProcessId`, `Name`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture`).
 - `SelectionItemPattern`/`SelectionPattern` sync verified.
 - COM initialized (`CoInitializeEx` MTA) before any UIA call.
@@ -509,7 +509,7 @@ All providers must:
 - TextContent/TextSelection via AT-SPI `Text` interface.
 - SelectionProvider via AT-SPI `Selection` interface.
 - WindowSurface actions delegate to EWMH WindowManager (not direct X11 calls from provider).
-- Component-gated attributes (`Bounds`, `ActivationPoint`, `IsEnabled`, `IsVisible`, `IsOffscreen`, `IsFocused`) only present when Component interface available.
+- Component-gated attributes (`Bounds`, `ActivationPoint`, `IsEnabled`, `IsVisible`, `IsInView`, `IsFocused`) only present when Component interface available.
 - Native attributes: `Native/<Interface>.<Property>` format for all AT-SPI interfaces.
 - Virtual desktops: provider does NOT handle desktop switching — that is `WindowManager::ensure_window_accessible()` responsibility.
 

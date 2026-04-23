@@ -9,16 +9,16 @@ use std::fmt::{Display, Formatter};
 use std::sync::{Arc, Mutex, OnceLock};
 use thiserror::Error as ThisError;
 
-use super::identifiers::{PatternId, pattern_ids};
+use super::identifiers::{PatternName, pattern_names};
 
 /// Base trait for runtime patterns that enrich a [`UiNode`](super::UiNode).
 ///
 /// Provider implementations register pattern instances in the [`PatternRegistry`]
 /// so `supported_patterns()` and `UiNode::pattern::<T>()` operate on the same data.
 pub trait UiPattern: Any + Send + Sync {
-    fn id(&self) -> PatternId;
+    fn pattern_name(&self) -> PatternName;
 
-    fn static_id() -> PatternId
+    fn static_pattern_name() -> PatternName
     where
         Self: Sized;
 
@@ -60,8 +60,8 @@ pub struct PatternRegistry {
 
 #[derive(Default)]
 struct PatternRegistryState {
-    order: Vec<PatternId>,
-    entries: HashMap<PatternId, RegistryEntry>,
+    order: Vec<PatternName>,
+    entries: HashMap<PatternName, RegistryEntry>,
 }
 
 enum RegistryEntry {
@@ -86,7 +86,7 @@ impl PatternRegistry {
 
     pub fn register_dyn(&self, pattern: Arc<dyn UiPattern>) {
         let mut state = self.state.lock().expect("PatternRegistry lock poisoned");
-        let id = pattern.id();
+        let id = pattern.pattern_name();
         if let Some(entry) = state.entries.get_mut(&id) {
             *entry = RegistryEntry::Ready(Arc::clone(&pattern));
         } else {
@@ -95,7 +95,7 @@ impl PatternRegistry {
         }
     }
 
-    pub fn register_lazy<F>(&self, id: PatternId, probe: F)
+    pub fn register_lazy<F>(&self, id: PatternName, probe: F)
     where
         F: Fn() -> Option<Arc<dyn UiPattern>> + Send + Sync + 'static,
     {
@@ -109,7 +109,7 @@ impl PatternRegistry {
         }
     }
 
-    pub fn get(&self, id: &PatternId) -> Option<Arc<dyn UiPattern>> {
+    pub fn get(&self, id: &PatternName) -> Option<Arc<dyn UiPattern>> {
         let mut state = self.state.lock().expect("PatternRegistry lock poisoned");
         let entry = state.entries.get_mut(id)?;
         resolve_entry(entry)
@@ -119,11 +119,11 @@ impl PatternRegistry {
     where
         T: UiPattern + 'static,
     {
-        let id = T::static_id();
+        let id = T::static_pattern_name();
         self.get(&id).and_then(downcast_pattern_arc::<T>)
     }
 
-    pub fn supported(&self) -> Vec<PatternId> {
+    pub fn supported(&self) -> Vec<PatternName> {
         let mut state = self.state.lock().expect("PatternRegistry lock poisoned");
         let order_snapshot = state.order.clone();
         let mut supported = Vec::new();
@@ -162,7 +162,7 @@ fn resolve_entry(entry: &mut RegistryEntry) -> Option<Arc<dyn UiPattern>> {
 }
 
 /// Converts a pattern list into the canonical `SupportedPatterns` value.
-pub fn supported_patterns_value(patterns: &[PatternId]) -> UiValue {
+pub fn supported_patterns_value(patterns: &[PatternName]) -> UiValue {
     UiValue::Array(patterns.iter().map(|id| UiValue::from(id.as_str().to_owned())).collect())
 }
 
@@ -218,15 +218,15 @@ impl FocusableAction {
 }
 
 impl UiPattern for FocusableAction {
-    fn id(&self) -> PatternId {
-        Self::static_id()
+    fn pattern_name(&self) -> PatternName {
+        Self::static_pattern_name()
     }
 
-    fn static_id() -> PatternId
+    fn static_pattern_name() -> PatternName
     where
         Self: Sized,
     {
-        PatternId::from(pattern_ids::FOCUSABLE)
+        PatternName::from(pattern_names::FOCUSABLE)
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -339,15 +339,15 @@ impl Default for WindowSurfaceActions {
 }
 
 impl UiPattern for WindowSurfaceActions {
-    fn id(&self) -> PatternId {
-        Self::static_id()
+    fn pattern_name(&self) -> PatternName {
+        Self::static_pattern_name()
     }
 
-    fn static_id() -> PatternId
+    fn static_pattern_name() -> PatternName
     where
         Self: Sized,
     {
-        PatternId::from(pattern_ids::WINDOW_SURFACE)
+        PatternName::from(pattern_names::WINDOW_SURFACE)
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -450,15 +450,15 @@ mod tests {
     struct DummyPattern;
 
     impl UiPattern for DummyPattern {
-        fn id(&self) -> PatternId {
-            Self::static_id()
+        fn pattern_name(&self) -> PatternName {
+            Self::static_pattern_name()
         }
 
-        fn static_id() -> PatternId
+        fn static_pattern_name() -> PatternName
         where
             Self: Sized,
         {
-            PatternId::from(pattern_ids::DUMMY)
+            PatternName::from(pattern_names::DUMMY)
         }
 
         fn as_any(&self) -> &dyn Any {
@@ -475,7 +475,7 @@ mod tests {
         assert!(stored.is_some());
         let supported = registry.supported();
         assert_eq!(supported.len(), 1);
-        assert_eq!(supported[0], DummyPattern::static_id());
+        assert_eq!(supported[0], DummyPattern::static_pattern_name());
     }
 
     #[rstest]
@@ -483,15 +483,15 @@ mod tests {
         struct LazyPattern;
 
         impl UiPattern for LazyPattern {
-            fn id(&self) -> PatternId {
-                Self::static_id()
+            fn pattern_name(&self) -> PatternName {
+                Self::static_pattern_name()
             }
 
-            fn static_id() -> PatternId
+            fn static_pattern_name() -> PatternName
             where
                 Self: Sized,
             {
-                PatternId::from(pattern_ids::LAZY)
+                PatternName::from(pattern_names::LAZY)
             }
 
             fn as_any(&self) -> &dyn Any {
@@ -502,18 +502,18 @@ mod tests {
         let registry = PatternRegistry::new();
         let counter = Arc::new(Mutex::new(0u32));
         let counter_clone = Arc::clone(&counter);
-        registry.register_lazy(LazyPattern::static_id(), move || {
+        registry.register_lazy(LazyPattern::static_pattern_name(), move || {
             *counter_clone.lock().unwrap() += 1;
             Some(Arc::new(LazyPattern) as Arc<dyn UiPattern>)
         });
 
         // First access resolves the pattern via the probe.
         let ids = registry.supported();
-        assert_eq!(ids, vec![LazyPattern::static_id()]);
+        assert_eq!(ids, vec![LazyPattern::static_pattern_name()]);
         assert_eq!(*counter.lock().unwrap(), 1);
 
         // Subsequent lookups reuse the cached pattern without invoking the probe again.
-        assert!(registry.get(&LazyPattern::static_id()).is_some());
+        assert!(registry.get(&LazyPattern::static_pattern_name()).is_some());
         assert_eq!(*counter.lock().unwrap(), 1);
     }
 
@@ -524,15 +524,15 @@ mod tests {
 
         struct OtherPattern;
         impl UiPattern for OtherPattern {
-            fn id(&self) -> PatternId {
-                Self::static_id()
+            fn pattern_name(&self) -> PatternName {
+                Self::static_pattern_name()
             }
 
-            fn static_id() -> PatternId
+            fn static_pattern_name() -> PatternName
             where
                 Self: Sized,
             {
-                PatternId::from(pattern_ids::OTHER)
+                PatternName::from(pattern_names::OTHER)
             }
 
             fn as_any(&self) -> &dyn Any {
@@ -623,11 +623,14 @@ mod tests {
 
     #[rstest]
     fn supported_patterns_value_converts_ids() {
-        let patterns = vec![PatternId::from(pattern_ids::FOCUSABLE), PatternId::from(pattern_ids::WINDOW_SURFACE)];
+        let patterns =
+            vec![PatternName::from(pattern_names::FOCUSABLE), PatternName::from(pattern_names::WINDOW_SURFACE)];
         let value = supported_patterns_value(&patterns);
         assert_eq!(
             value,
-            UiValue::Array(vec![UiValue::from(pattern_ids::FOCUSABLE), UiValue::from(pattern_ids::WINDOW_SURFACE),])
+            UiValue::Array(
+                vec![UiValue::from(pattern_names::FOCUSABLE), UiValue::from(pattern_names::WINDOW_SURFACE),]
+            )
         );
     }
 }

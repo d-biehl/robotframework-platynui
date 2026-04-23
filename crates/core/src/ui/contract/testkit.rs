@@ -4,7 +4,7 @@
 //! expected attributes per pattern. The actual verification logic lives in a
 //! separate step; here we only define the data models those checks consume.
 
-use crate::ui::{Namespace, PatternId, UiAttribute, UiNode, UiValue};
+use crate::ui::{Namespace, PatternName, UiAttribute, UiNode, UiValue};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -29,12 +29,12 @@ impl AttributeExpectation {
 /// Groups attribute expectations for a pattern.
 #[derive(Debug)]
 pub struct PatternExpectation {
-    pub id: PatternId,
+    pub id: PatternName,
     pub attributes: &'static [AttributeExpectation],
 }
 
 impl PatternExpectation {
-    pub const fn new(id: PatternId, attributes: &'static [AttributeExpectation]) -> Self {
+    pub const fn new(id: PatternName, attributes: &'static [AttributeExpectation]) -> Self {
         Self { id, attributes }
     }
 }
@@ -56,25 +56,25 @@ impl NodeExpectation {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContractIssue {
     MissingPattern {
-        pattern: PatternId,
+        pattern: PatternName,
     },
     MissingAttribute {
-        pattern: PatternId,
+        pattern: PatternName,
         namespace: Namespace,
         name: String,
     },
     NullAttribute {
-        pattern: PatternId,
+        pattern: PatternName,
         namespace: Namespace,
         name: String,
     },
     MissingGeometryAlias {
-        pattern: PatternId,
+        pattern: PatternName,
         namespace: Namespace,
         alias: String,
     },
     GeometryAliasMismatch {
-        pattern: PatternId,
+        pattern: PatternName,
         namespace: Namespace,
         alias: String,
         expected: UiValue,
@@ -86,7 +86,7 @@ pub enum ContractIssue {
 pub fn verify_node(node: &dyn UiNode, expectations: &NodeExpectation) -> Vec<ContractIssue> {
     let mut issues = Vec::new();
 
-    let supported: HashSet<PatternId> = node.supported_patterns().into_iter().collect();
+    let supported: HashSet<PatternName> = node.supported_patterns().into_iter().collect();
     let attributes = collect_attributes(node);
 
     for pattern in &expectations.patterns {
@@ -147,7 +147,7 @@ fn collect_attributes(node: &dyn UiNode) -> HashMap<(Namespace, String), UiValue
 mod geometry_tests {
     use super::*;
     use crate::types::{Point, Rect};
-    use crate::ui::{Namespace, UiAttribute, pattern_ids};
+    use crate::ui::{Namespace, UiAttribute, pattern_names};
     use std::sync::{Arc, LazyLock};
 
     const ELEMENT_EXPECTATIONS: [AttributeExpectation; 1] =
@@ -186,7 +186,7 @@ mod geometry_tests {
 
     fn sample_expectation() -> NodeExpectation {
         NodeExpectation::default()
-            .with_pattern(PatternExpectation::new(PatternId::from(pattern_ids::ELEMENT), &ELEMENT_EXPECTATIONS))
+            .with_pattern(PatternExpectation::new(PatternName::from(pattern_names::ELEMENT), &ELEMENT_EXPECTATIONS))
     }
 
     struct AttrNode {
@@ -230,8 +230,8 @@ mod geometry_tests {
             Box::new(self.attributes.clone().into_iter())
         }
 
-        fn supported_patterns(&self) -> Vec<PatternId> {
-            vec![PatternId::from(pattern_ids::ELEMENT), PatternId::from(pattern_ids::ACTIVATION_TARGET)]
+        fn supported_patterns(&self) -> Vec<PatternName> {
+            vec![PatternName::from(pattern_names::ELEMENT), PatternName::from(pattern_names::ACTIVATION_TARGET)]
         }
 
         fn invalidate(&self) {}
@@ -265,7 +265,7 @@ mod geometry_tests {
     #[test]
     fn activation_point_aliases_not_required() {
         let expectation = NodeExpectation::default().with_pattern(PatternExpectation::new(
-            PatternId::from(pattern_ids::ACTIVATION_TARGET),
+            PatternName::from(pattern_names::ACTIVATION_TARGET),
             &ACTIVATION_EXPECTATIONS,
         ));
         let node = AttrNode::new(vec![StaticAttribute::new(
@@ -284,7 +284,7 @@ mod expectation_tests {
     use crate::types::Rect;
     use crate::ui::attribute_names::{activatable, common, element, text_content};
     use crate::ui::pattern::{PatternRegistry, UiPattern};
-    use crate::ui::{UiAttribute, UiNode, pattern_ids};
+    use crate::ui::{UiAttribute, UiNode, pattern_names};
     use rstest::rstest;
     use std::sync::{Arc, Mutex, Weak};
 
@@ -293,7 +293,7 @@ mod expectation_tests {
     const ELEMENT_ATTRS: &[AttributeExpectation] = &[
         AttributeExpectation::required(Namespace::Control, element::BOUNDS),
         AttributeExpectation::required(Namespace::Control, element::IS_VISIBLE),
-        AttributeExpectation::optional(Namespace::Control, element::IS_OFFSCREEN),
+        AttributeExpectation::optional(Namespace::Control, element::IS_IN_VIEW),
     ];
     const ACTIVATABLE_ATTRS: &[AttributeExpectation] =
         &[AttributeExpectation::required(Namespace::Control, activatable::IS_ACTIVATION_ENABLED)];
@@ -318,18 +318,18 @@ mod expectation_tests {
         }
     }
 
-    struct MockPattern(PatternId);
+    struct MockPattern(PatternName);
 
     impl UiPattern for MockPattern {
-        fn id(&self) -> PatternId {
+        fn pattern_name(&self) -> PatternName {
             self.0.clone()
         }
 
-        fn static_id() -> PatternId
+        fn static_pattern_name() -> PatternName
         where
             Self: Sized,
         {
-            PatternId::from(pattern_ids::MOCK)
+            PatternName::from(pattern_names::MOCK)
         }
 
         fn as_any(&self) -> &dyn std::any::Any {
@@ -359,7 +359,7 @@ mod expectation_tests {
             self
         }
 
-        fn with_pattern(self, pattern: PatternId) -> Self {
+        fn with_pattern(self, pattern: PatternName) -> Self {
             let arc: Arc<dyn UiPattern> = Arc::new(MockPattern(pattern.clone()));
             self.patterns.register_dyn(arc);
             self
@@ -395,11 +395,11 @@ mod expectation_tests {
             Box::new(self.attributes.lock().unwrap().clone().into_iter())
         }
 
-        fn supported_patterns(&self) -> Vec<PatternId> {
+        fn supported_patterns(&self) -> Vec<PatternName> {
             self.patterns.supported()
         }
 
-        fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
+        fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
             self.patterns.get(pattern)
         }
 
@@ -407,9 +407,10 @@ mod expectation_tests {
     }
 
     fn build_expectation() -> NodeExpectation {
-        let text_pattern = PatternExpectation::new(PatternId::from(pattern_ids::TEXT_CONTENT), TEXT_CONTENT_ATTRS);
-        let element_pattern = PatternExpectation::new(PatternId::from(pattern_ids::ELEMENT), ELEMENT_ATTRS);
-        let activatable_pattern = PatternExpectation::new(PatternId::from(pattern_ids::ACTIVATABLE), ACTIVATABLE_ATTRS);
+        let text_pattern = PatternExpectation::new(PatternName::from(pattern_names::TEXT_CONTENT), TEXT_CONTENT_ATTRS);
+        let element_pattern = PatternExpectation::new(PatternName::from(pattern_names::ELEMENT), ELEMENT_ATTRS);
+        let activatable_pattern =
+            PatternExpectation::new(PatternName::from(pattern_names::ACTIVATABLE), ACTIVATABLE_ATTRS);
 
         NodeExpectation::default()
             .with_pattern(text_pattern)
@@ -419,9 +420,9 @@ mod expectation_tests {
 
     fn build_node() -> Arc<MockNode> {
         let node = MockNode::new(Namespace::Control)
-            .with_pattern(PatternId::from(pattern_ids::TEXT_CONTENT))
-            .with_pattern(PatternId::from(pattern_ids::ELEMENT))
-            .with_pattern(PatternId::from(pattern_ids::ACTIVATABLE));
+            .with_pattern(PatternName::from(pattern_names::TEXT_CONTENT))
+            .with_pattern(PatternName::from(pattern_names::ELEMENT))
+            .with_pattern(PatternName::from(pattern_names::ACTIVATABLE));
 
         let attrs: Vec<Arc<dyn UiAttribute>> = vec![
             Arc::new(StaticAttribute {
@@ -487,12 +488,12 @@ mod expectation_tests {
 
     #[rstest]
     fn verify_node_reports_missing_pattern() {
-        let node = MockNode::new(Namespace::Control).with_pattern(PatternId::from(pattern_ids::ELEMENT));
+        let node = MockNode::new(Namespace::Control).with_pattern(PatternName::from(pattern_names::ELEMENT));
         let expectations = build_expectation();
 
         let result = verify_node(&node, &expectations);
         assert!(result.iter().any(
-            |issue| matches!(issue, ContractIssue::MissingPattern { pattern } if pattern.as_str() == pattern_ids::TEXT_CONTENT)
+            |issue| matches!(issue, ContractIssue::MissingPattern { pattern } if pattern.as_str() == pattern_names::TEXT_CONTENT)
         ));
     }
 
@@ -505,16 +506,16 @@ mod expectation_tests {
         let result = verify_node(node.as_ref(), &expectations);
         assert!(result.iter().any(|issue| matches!(issue,
             ContractIssue::MissingAttribute { pattern, name, .. }
-                if pattern.as_str() == pattern_ids::TEXT_CONTENT && name == text_content::TEXT
+                if pattern.as_str() == pattern_names::TEXT_CONTENT && name == text_content::TEXT
         )));
     }
 
     #[rstest]
     fn verify_node_reports_null_attribute() {
         let node = MockNode::new(Namespace::Control)
-            .with_pattern(PatternId::from(pattern_ids::ELEMENT))
-            .with_pattern(PatternId::from(pattern_ids::TEXT_CONTENT))
-            .with_pattern(PatternId::from(pattern_ids::ACTIVATABLE))
+            .with_pattern(PatternName::from(pattern_names::ELEMENT))
+            .with_pattern(PatternName::from(pattern_names::TEXT_CONTENT))
+            .with_pattern(PatternName::from(pattern_names::ACTIVATABLE))
             .with_attribute(Arc::new(StaticAttribute {
                 namespace: Namespace::Control,
                 name: text_content::TEXT,
@@ -560,7 +561,7 @@ mod expectation_tests {
         let result = verify_node(&node, &expectations);
         assert!(result.iter().any(|issue| matches!(issue,
             ContractIssue::NullAttribute { pattern, name, .. }
-                if pattern.as_str() == pattern_ids::TEXT_CONTENT && name == text_content::TEXT
+                if pattern.as_str() == pattern_names::TEXT_CONTENT && name == text_content::TEXT
         )));
     }
 

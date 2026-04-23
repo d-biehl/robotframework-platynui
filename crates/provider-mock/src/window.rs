@@ -137,7 +137,7 @@ pub(crate) fn register_window(
     WINDOW_STATES.write().unwrap().insert(runtime_id.clone(), WindowState::from(config));
 
     let register_id = runtime_id.clone();
-    registry.register_lazy(WindowSurfaceActions::static_id(), move || {
+    registry.register_lazy(WindowSurfaceActions::static_pattern_name(), move || {
         state_exists(&register_id).then(|| pattern_for(&register_id))
     });
 

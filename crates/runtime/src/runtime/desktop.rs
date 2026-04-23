@@ -5,14 +5,14 @@ use platynui_core::platform::{DesktopInfo, MonitorInfo};
 use platynui_core::provider::UiTreeProvider;
 use platynui_core::ui::attribute_names;
 use platynui_core::ui::{
-    DESKTOP_RUNTIME_ID, Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue, pattern_ids,
+    DESKTOP_RUNTIME_ID, Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue, pattern_names,
     supported_patterns_value,
 };
 
 pub(super) struct DesktopNode {
     info: DesktopInfo,
     attributes: Vec<Arc<dyn UiAttribute>>,
-    supported: Vec<PatternId>,
+    supported: Vec<PatternName>,
     providers: Vec<Arc<dyn UiTreeProvider>>,
     self_weak: OnceLock<Weak<dyn UiNode>>,
 }
@@ -23,7 +23,7 @@ impl DesktopNode {
         info.runtime_id = RuntimeId::from(DESKTOP_RUNTIME_ID);
         let namespace = Namespace::Control;
         let mut attributes: Vec<Arc<dyn UiAttribute>> = Vec::new();
-        let supported = vec![PatternId::from(pattern_ids::DESKTOP)];
+        let supported = vec![PatternName::from(pattern_names::DESKTOP)];
 
         attributes.push(attr(namespace, attribute_names::common::ROLE, UiValue::from("Desktop")));
         attributes.push(attr(namespace, attribute_names::common::NAME, UiValue::from(info.name.clone())));
@@ -46,7 +46,7 @@ impl DesktopNode {
         attributes.push(attr(namespace, attribute_names::element::BOUNDS, UiValue::from(info.bounds)));
         attributes.push(attr(namespace, attribute_names::element::IS_VISIBLE, UiValue::from(true)));
         attributes.push(attr(namespace, attribute_names::element::IS_ENABLED, UiValue::from(true)));
-        attributes.push(attr(namespace, attribute_names::element::IS_OFFSCREEN, UiValue::from(false)));
+        attributes.push(attr(namespace, attribute_names::element::IS_IN_VIEW, UiValue::from(true)));
 
         attributes.push(attr(
             namespace,
@@ -147,7 +147,7 @@ impl UiNode for DesktopNode {
         Box::new(self.attributes.clone().into_iter())
     }
 
-    fn supported_patterns(&self) -> Vec<PatternId> {
+    fn supported_patterns(&self) -> Vec<PatternName> {
         self.supported.clone()
     }
 

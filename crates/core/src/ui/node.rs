@@ -1,4 +1,4 @@
-use super::identifiers::{PatternId, RuntimeId, pattern_ids};
+use super::identifiers::{PatternName, RuntimeId, pattern_names};
 use super::namespace::Namespace;
 use super::pattern::{UiPattern, downcast_pattern_arc};
 use super::value::UiValue;
@@ -41,11 +41,11 @@ pub trait UiNode: Send + Sync {
         self.attributes().find(|attr| attr.namespace() == namespace && attr.name() == name)
     }
     /// Capability patterns implemented by the node.
-    fn supported_patterns(&self) -> Vec<PatternId>;
+    fn supported_patterns(&self) -> Vec<PatternName>;
     /// Retrieves a pattern instance by identifier. Default implementation
     /// returns `None`; providers override this to surface concrete pattern
     /// objects.
-    fn pattern_by_id(&self, _pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
+    fn pattern_by_name(&self, _pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
         None
     }
     /// Optional hint for document-order comparisons. If present, the value must
@@ -71,8 +71,8 @@ impl dyn UiNode {
     where
         T: UiPattern + 'static,
     {
-        let id = T::static_id();
-        let pattern = self.pattern_by_id(&id)?;
+        let id = T::static_pattern_name();
+        let pattern = self.pattern_by_name(&id)?;
         downcast_pattern_arc::<T>(pattern)
     }
 }
@@ -131,7 +131,7 @@ impl UiNodeExt for Arc<dyn UiNode> {
     }
 
     fn top_level_or_self(&self) -> Arc<dyn UiNode> {
-        let window_pattern_id = PatternId::from(pattern_ids::WINDOW_SURFACE);
+        let window_pattern_id = PatternName::from(pattern_names::WINDOW_SURFACE);
         for node in self.ancestors_including_self() {
             if node.supported_patterns().iter().any(|pid| pid == &window_pattern_id) {
                 return node;
@@ -287,11 +287,11 @@ mod tests {
             Box::new(self.attributes.clone().into_iter())
         }
 
-        fn supported_patterns(&self) -> Vec<PatternId> {
+        fn supported_patterns(&self) -> Vec<PatternName> {
             self.patterns.supported()
         }
 
-        fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
+        fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
             self.patterns.get(pattern)
         }
 
@@ -301,15 +301,15 @@ mod tests {
     struct ActivatablePattern;
 
     impl UiPattern for ActivatablePattern {
-        fn id(&self) -> PatternId {
-            Self::static_id()
+        fn pattern_name(&self) -> PatternName {
+            Self::static_pattern_name()
         }
 
-        fn static_id() -> PatternId
+        fn static_pattern_name() -> PatternName
         where
             Self: Sized,
         {
-            PatternId::from(pattern_ids::ACTIVATABLE)
+            PatternName::from(pattern_names::ACTIVATABLE)
         }
 
         fn as_any(&self) -> &dyn std::any::Any {
@@ -392,11 +392,11 @@ mod tests {
                 Box::new(std::iter::empty())
             }
 
-            fn supported_patterns(&self) -> Vec<PatternId> {
+            fn supported_patterns(&self) -> Vec<PatternName> {
                 self.pattern_registry.supported()
             }
 
-            fn pattern_by_id(&self, id: &PatternId) -> Option<Arc<dyn UiPattern>> {
+            fn pattern_by_name(&self, id: &PatternName) -> Option<Arc<dyn UiPattern>> {
                 self.pattern_registry.get(id)
             }
 
@@ -406,15 +406,15 @@ mod tests {
         struct WindowPattern;
 
         impl UiPattern for WindowPattern {
-            fn id(&self) -> PatternId {
-                Self::static_id()
+            fn pattern_name(&self) -> PatternName {
+                Self::static_pattern_name()
             }
 
-            fn static_id() -> PatternId
+            fn static_pattern_name() -> PatternName
             where
                 Self: Sized,
             {
-                PatternId::from(pattern_ids::WINDOW_SURFACE)
+                PatternName::from(pattern_names::WINDOW_SURFACE)
             }
 
             fn as_any(&self) -> &dyn std::any::Any {
@@ -447,7 +447,7 @@ mod tests {
 
         // pattern resolution (ancestor incl. self)
         let pattern = button_arc.ancestor_pattern::<WindowPattern>().expect("window pattern via ancestor");
-        assert_eq!(pattern.id(), WindowPattern::static_id());
+        assert_eq!(pattern.pattern_name(), WindowPattern::static_pattern_name());
 
         // top-level pattern
         assert!(button_arc.top_level_pattern::<WindowPattern>().is_some());
@@ -493,10 +493,10 @@ mod tests {
             fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
                 Box::new(std::iter::empty())
             }
-            fn supported_patterns(&self) -> Vec<PatternId> {
+            fn supported_patterns(&self) -> Vec<PatternName> {
                 vec![]
             }
-            fn pattern_by_id(&self, _id: &PatternId) -> Option<Arc<dyn UiPattern>> {
+            fn pattern_by_name(&self, _id: &PatternName) -> Option<Arc<dyn UiPattern>> {
                 None
             }
             fn invalidate(&self) {}
@@ -558,11 +558,11 @@ mod tests {
                 Box::new(std::iter::empty())
             }
 
-            fn supported_patterns(&self) -> Vec<PatternId> {
+            fn supported_patterns(&self) -> Vec<PatternName> {
                 vec![]
             }
 
-            fn pattern_by_id(&self, _pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
+            fn pattern_by_name(&self, _pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
                 None
             }
 
@@ -612,11 +612,11 @@ mod tests {
                 Box::new(std::iter::empty())
             }
 
-            fn supported_patterns(&self) -> Vec<PatternId> {
+            fn supported_patterns(&self) -> Vec<PatternName> {
                 vec![]
             }
 
-            fn pattern_by_id(&self, _pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
+            fn pattern_by_name(&self, _pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
                 None
             }
 
@@ -645,10 +645,10 @@ mod tests {
         if register_pattern {
             assert!(pattern.is_some());
             let supported = node.supported_patterns();
-            assert_eq!(supported[0], ActivatablePattern::static_id());
+            assert_eq!(supported[0], ActivatablePattern::static_pattern_name());
             assert_eq!(supported, node.patterns.supported());
             for id in supported {
-                assert!(node.pattern_by_id(&id).is_some(), "pattern {id:?} missing instance");
+                assert!(node.pattern_by_name(&id).is_some(), "pattern {id:?} missing instance");
             }
         } else {
             assert!(pattern.is_none());

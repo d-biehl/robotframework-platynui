@@ -17,7 +17,10 @@ pub mod pattern {
         pub const BOUNDS: &str = "Bounds";
         pub const IS_VISIBLE: &str = "IsVisible";
         pub const IS_ENABLED: &str = "IsEnabled";
-        pub const IS_OFFSCREEN: &str = "IsOffscreen";
+        /// Element is currently within its container's viewport (i.e. not
+        /// scrolled or clipped out of view). The positive complement to the
+        /// UIA `IsOffscreen` / AT-SPI `!Showing` flags.
+        pub const IS_IN_VIEW: &str = "IsInView";
     }
 
     /// Desktop root attributes (Desktop-Pattern).
@@ -40,6 +43,10 @@ pub mod pattern {
         pub const MAX_LENGTH: &str = "MaxLength";
         pub const SUPPORTS_PASSWORD_MODE: &str = "SupportsPasswordMode";
     }
+
+    /// Pure action capability — no observable attributes. Listed for symmetry
+    /// with the corresponding pattern id (`pattern_names::CLEARABLE`).
+    pub mod clearable {}
 
     pub mod text_selection {
         pub const CARET_POSITION: &str = "CaretPosition";

@@ -62,7 +62,7 @@ This document covers the Windows-specific implementation details for PlatynUI: p
 **Patterns**:
 - `Focusable`: `SetFocus()`
 - `WindowSurface`: via `WindowPattern` + `TransformPattern` (activate, minimize, maximize, restore, move, resize, close)
-- `accepts_user_input()`: heuristic `IsEnabled && !IsOffscreen` + `WaitForInputIdle` (100ms timeout)
+- `accepts_user_input()`: heuristic `IsEnabled && IsInView` + `WaitForInputIdle` (100ms timeout)
 - Virtualized elements: best-effort `VirtualizedItemPattern::Realize()` before child traversal
 
 **Application Nodes**:

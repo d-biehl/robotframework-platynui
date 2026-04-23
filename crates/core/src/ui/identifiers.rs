@@ -79,9 +79,9 @@ impl From<Arc<str>> for TechnologyId {
 
 /// Identifies capability patterns (see `docs/architecture.md` §6).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PatternId(Arc<str>);
+pub struct PatternName(Arc<str>);
 
-impl PatternId {
+impl PatternName {
     pub fn new<T: Into<Arc<str>>>(value: T) -> Self {
         Self(value.into())
     }
@@ -91,25 +91,25 @@ impl PatternId {
     }
 }
 
-impl Display for PatternId {
+impl Display for PatternName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
     }
 }
 
-impl From<&str> for PatternId {
+impl From<&str> for PatternName {
     fn from(value: &str) -> Self {
         Self::new(Arc::<str>::from(value))
     }
 }
 
-impl From<String> for PatternId {
+impl From<String> for PatternName {
     fn from(value: String) -> Self {
         Self::new(Arc::<str>::from(value))
     }
 }
 
-impl From<Arc<str>> for PatternId {
+impl From<Arc<str>> for PatternName {
     fn from(value: Arc<str>) -> Self {
         Self::new(value)
     }
@@ -117,7 +117,7 @@ impl From<Arc<str>> for PatternId {
 
 /// Canonical pattern identifier strings in reverse-DNS form.
 ///
-/// All `PatternId` values used inside the workspace MUST be constructed from
+/// All `PatternName` values used inside the workspace MUST be constructed from
 /// one of these constants (or via the `provider-mock` XML loader, which
 /// accepts the same strings verbatim). The reverse-DNS scheme keeps Rust and
 /// Python identifiers literally interchangeable — see
@@ -125,7 +125,7 @@ impl From<Arc<str>> for PatternId {
 ///
 /// New patterns extend this module; do not introduce ad-hoc string literals
 /// at call sites.
-pub mod pattern_ids {
+pub mod pattern_names {
     /// Production patterns (currently exposed by real providers).
     pub const FOCUSABLE: &str = "org.platynui.patterns.Focusable";
     pub const WINDOW_SURFACE: &str = "org.platynui.patterns.WindowSurface";
@@ -138,6 +138,9 @@ pub mod pattern_ids {
     /// stay in the same module.
     pub const ELEMENT: &str = "org.platynui.patterns.Element";
     pub const TEXT_CONTENT: &str = "org.platynui.patterns.TextContent";
+    pub const TEXT_EDITABLE: &str = "org.platynui.patterns.TextEditable";
+    pub const CLEARABLE: &str = "org.platynui.patterns.Clearable";
+    pub const TOGGLEABLE: &str = "org.platynui.patterns.Toggleable";
     pub const ACTIVATION_TARGET: &str = "org.platynui.patterns.ActivationTarget";
 
     /// Synthetic patterns used exclusively by unit tests and contract fixtures.
@@ -166,25 +169,28 @@ mod tests {
 
     #[test]
     fn pattern_id_display_roundtrip() {
-        let pattern = PatternId::from(pattern_ids::TEXT_CONTENT);
+        let pattern = PatternName::from(pattern_names::TEXT_CONTENT);
         assert_eq!(pattern.to_string(), "org.platynui.patterns.TextContent");
     }
 
     #[test]
     fn pattern_ids_are_reverse_dns() {
         for id in [
-            pattern_ids::FOCUSABLE,
-            pattern_ids::WINDOW_SURFACE,
-            pattern_ids::ACTIVATABLE,
-            pattern_ids::DESKTOP,
-            pattern_ids::APPLICATION,
-            pattern_ids::ELEMENT,
-            pattern_ids::TEXT_CONTENT,
-            pattern_ids::ACTIVATION_TARGET,
-            pattern_ids::MOCK,
-            pattern_ids::DUMMY,
-            pattern_ids::LAZY,
-            pattern_ids::OTHER,
+            pattern_names::FOCUSABLE,
+            pattern_names::WINDOW_SURFACE,
+            pattern_names::ACTIVATABLE,
+            pattern_names::DESKTOP,
+            pattern_names::APPLICATION,
+            pattern_names::ELEMENT,
+            pattern_names::TEXT_CONTENT,
+            pattern_names::TEXT_EDITABLE,
+            pattern_names::CLEARABLE,
+            pattern_names::TOGGLEABLE,
+            pattern_names::ACTIVATION_TARGET,
+            pattern_names::MOCK,
+            pattern_names::DUMMY,
+            pattern_names::LAZY,
+            pattern_names::OTHER,
         ] {
             assert!(id.starts_with("org.platynui.patterns."), "pattern id `{id}` must use reverse-DNS prefix",);
         }
