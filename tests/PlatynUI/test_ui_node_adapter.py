@@ -39,6 +39,7 @@ from PlatynUI.core.adapter import Adapter
 from PlatynUI.core.adapters import UiNodeAdapter, UiNodeTechnology
 from PlatynUI.core.exceptions import PatternNotSupportedError
 from PlatynUI.core.patterns import Element, Focusable
+from PlatynUI.core.runtime import runtime
 from PlatynUI.core.technology import Technology
 
 # ----------------------------------------------------------------------
@@ -47,41 +48,47 @@ from PlatynUI.core.technology import Technology
 
 
 @pytest.fixture
-def runtime() -> Generator[_pn.Runtime, None, None]:
-    rt = _pn.Runtime.new_with_mock()
-    try:
+def native_runtime() -> Generator[_pn.Runtime, None, None]:
+    """Mock runtime activated for the test scope.
+
+    UiNodeAdapter looks up its runtime via ``PlatynUI.core.runtime.runtime``.
+    The override context manager activates a mock-backed runtime for the
+    duration of the test and guarantees restore of the previous state on
+    exit — including ``shutdown()`` of the override instance.
+    """
+    with runtime.override_with_mock() as rt:
         yield rt
-    finally:
-        rt.shutdown()
 
 
 @pytest.fixture
-def desktop_adapter(runtime: _pn.Runtime) -> UiNodeAdapter:
-    return UiNodeAdapter.create_root(runtime)
+def desktop_adapter(native_runtime: _pn.Runtime) -> UiNodeAdapter:
+    # ``native_runtime`` fixture installs the mock runtime into the singleton.
+    del native_runtime
+    return UiNodeAdapter.create_root()
 
 
 @pytest.fixture
-def main_window_adapter(runtime: _pn.Runtime) -> UiNodeAdapter:
-    node = runtime.evaluate_single("//control:Window[@Name='Operations Console']")
+def main_window_adapter(native_runtime: _pn.Runtime) -> UiNodeAdapter:
+    node = native_runtime.evaluate_single("//control:Window[@Name='Operations Console']")
     assert isinstance(node, _pn.UiNode), 'mock tree must expose Operations Console window'
-    return UiNodeAdapter.from_node(runtime, node)
+    return UiNodeAdapter.from_node(node)
 
 
 @pytest.fixture
-def ok_button_adapter(runtime: _pn.Runtime) -> UiNodeAdapter:
-    node = runtime.evaluate_single("//control:Button[@Name='OK']")
+def ok_button_adapter(native_runtime: _pn.Runtime) -> UiNodeAdapter:
+    node = native_runtime.evaluate_single("//control:Button[@Name='OK']")
     assert isinstance(node, _pn.UiNode), 'mock tree must expose OK button'
-    return UiNodeAdapter.from_node(runtime, node)
+    return UiNodeAdapter.from_node(node)
 
 
 @pytest.fixture
-def focusable_listitem_adapter(runtime: _pn.Runtime) -> UiNodeAdapter:
+def focusable_listitem_adapter(native_runtime: _pn.Runtime) -> UiNodeAdapter:
     # First ListItem in the Task List — advertises the Focusable pattern.
     # ListItems live in the "item" namespace, so the Name predicate must
     # be explicitly qualified.
-    node = runtime.evaluate_single("//item:ListItem[@item:Name='Analyze Project Status']")
+    node = native_runtime.evaluate_single("//item:ListItem[@item:Name='Analyze Project Status']")
     assert isinstance(node, _pn.UiNode), 'mock tree must expose Analyze Project Status item'
-    return UiNodeAdapter.from_node(runtime, node)
+    return UiNodeAdapter.from_node(node)
 
 
 # ----------------------------------------------------------------------
@@ -89,10 +96,10 @@ def focusable_listitem_adapter(runtime: _pn.Runtime) -> UiNodeAdapter:
 # ----------------------------------------------------------------------
 
 
-def test_create_root_wraps_desktop_node(runtime: _pn.Runtime, desktop_adapter: UiNodeAdapter) -> None:
+def test_create_root_wraps_desktop_node(native_runtime: _pn.Runtime, desktop_adapter: UiNodeAdapter) -> None:
     assert isinstance(desktop_adapter, Adapter)
     assert desktop_adapter.role == 'Desktop'
-    assert desktop_adapter.runtime_id == runtime.desktop_node().runtime_id
+    assert desktop_adapter.runtime_id == native_runtime.desktop_node().runtime_id
 
 
 def test_runtime_id_matches_native_node(main_window_adapter: UiNodeAdapter) -> None:
@@ -113,9 +120,10 @@ def test_technology_subclasses_base_marker(desktop_adapter: UiNodeAdapter) -> No
     assert isinstance(desktop_adapter.technology, Technology)
 
 
-def test_equality_uses_runtime_id(runtime: _pn.Runtime) -> None:
-    a = UiNodeAdapter.create_root(runtime)
-    b = UiNodeAdapter.create_root(runtime)
+def test_equality_uses_runtime_id(native_runtime: _pn.Runtime) -> None:
+    del native_runtime  # fixture installs mock runtime into singleton
+    a = UiNodeAdapter.create_root()
+    b = UiNodeAdapter.create_root()
     assert a == b
     assert hash(a) == hash(b)
     assert a is not b  # distinct Python objects, equal by runtime_id
@@ -284,13 +292,13 @@ def test_focusable_is_focused_defaults_false_when_attribute_missing(
     assert pattern.is_focused is False
 
 
-def test_focusable_is_focused_reads_native_attribute(runtime: _pn.Runtime) -> None:
+def test_focusable_is_focused_reads_native_attribute(native_runtime: _pn.Runtime) -> None:
     # mock_tree.xml sets IsFocused=true on exactly one node (the OK
     # button). Find it by iterating instead of via XPath: the native
     # side stores IsFocused as a real bool, so a string-comparison
     # XPath predicate would not match.
     candidate: _pn.UiNode | None = None
-    for node in runtime.evaluate('//*'):
+    for node in native_runtime.evaluate('//*'):
         if not isinstance(node, _pn.UiNode):
             continue
         if Focusable.pattern_name not in node.supported_patterns():
@@ -303,7 +311,7 @@ def test_focusable_is_focused_reads_native_attribute(runtime: _pn.Runtime) -> No
             candidate = node
             break
     assert candidate is not None, 'mock tree must contain a node with IsFocused=true'
-    adapter = UiNodeAdapter.from_node(runtime, candidate)
+    adapter = UiNodeAdapter.from_node(candidate)
     pattern = adapter.get_pattern(Focusable)
     assert pattern.is_focused is True
 

@@ -128,15 +128,20 @@
 >   `TypeError` mit konkreter Quellenangabe — kein stilles
 >   Vorrang-Verhalten. Details in §7.1 und §A.6.
 > - **Rev. 20** — **Process-wide Runtime Singleton.** `PlatynUI.core.runtime`
->   exportiert ein Singleton-Objekt `runtime` (Klasse `Runtime`) mit
->   `current` (lazy default), `set()`, `reset()` und `is_initialised()`.
+>   exportiert ein Singleton-Objekt `runtime` (Klasse `Runtime`) mit drei
+>   Verantwortlichkeiten: *Variantenwahl* (`use_default()`, `use_mock()`,
+>   `use_factory(cb)` — nur vor dem ersten `current`-Zugriff erlaubt;
+>   danach gesealed), *Konsum* (`current`-Property, lazy gebaut beim
+>   ersten Zugriff) und *Test-Override* (`override(...)` /
+>   `override_with_mock()` als Context-Manager mit garantiertem
+>   Restore). Es gibt **keinen** nackten Setter wie `set(rt)` — alle
+>   Wege sind entweder Variantenwahl oder scope-gebundener Override.
 >   Adapter, Device-Proxies, künftige Robot-Keywords, BareMetal-Helper
 >   und Inspector teilen sich denselben `platynui_native.Runtime`.
 >   Konsequenzen: `UiNodeAdapter.create_root()` braucht keinen Runtime-
 >   Parameter mehr; `AdapterMouseProxy` / `AdapterKeyboardProxy` greifen
->   intern auf `runtime.current` zu. Tests installieren Mock-Runtimes via
->   `runtime.set(NativeRuntime.new_with_mock())` und reset im Teardown.
->   Siehe §A.5.
+>   intern auf `runtime.current` zu. RF-Library: `Library PlatynUI
+>   use_mock=${True}` mappt auf `runtime.use_mock()`. Siehe §A.5.
 > - **Rev. 19** — **Rust-API-Symmetrie zu Python: `PatternId` → `PatternName`.**
 >   Der Newtype `PatternId` heißt jetzt `PatternName`, das Konstanten-Modul
 >   `pattern_ids` heißt `pattern_names`, die Trait-Methoden `UiPattern::id()`
@@ -1859,52 +1864,122 @@ Instanz. Den Runtime explizit durch jeden Konstruktor zu reichen
 würde dem Robot-Framework-Idiom (Keywords ohne Per-Call-Context)
 widersprechen und die User-API unnötig aufblähen.
 
+**Designprinzipien.** Die API trennt drei Verantwortlichkeiten
+strikt:
+
+1. *Variantenwahl* — vor der ersten Benutzung darf der Aufrufer
+   wählen, *welche* Runtime gebaut werden soll (Default,
+   Mock-Provider oder eigene Factory). Sobald ein Konsument
+   `runtime.current` liest, wird die Wahl eingefroren („sealed").
+2. *Konsum* — Konsumenten lesen ausschließlich `runtime.current`
+   und bekommen immer dieselbe, einmal gebaute Instanz.
+3. *Test-Override* — Tests installieren eine alternative Runtime
+   stets über den Context-Manager `runtime.override(...)`, der
+   den vorherigen Zustand garantiert wiederherstellt.
+
+Es gibt **keinen** nackten Setter, der eine externe Native-Runtime
+in das Singleton injiziert. Alle Wege führen entweder über eine
+Variantenwahl (`use_*`) oder über einen scope-gebundenen Override.
+Damit ist „vergessenes Reset" konstruktiv ausgeschlossen, und
+versehentliches Tauschen während laufender Operationen wird durch
+das Sealing verhindert.
+
 **API.** `core/runtime.py` exportiert ein Singleton-Objekt
-`runtime` (Klasse `Runtime`) mit drei Operationen:
+`runtime` (Klasse `Runtime`):
 
 ```python
 from PlatynUI.core import runtime
 
-runtime.current        # liefert den aktiven platynui_native.Runtime,
-                       # erzeugt beim ersten Zugriff lazy einen Default
-runtime.set(other_rt)  # ersetzt die aktive Instanz (z.B. Mock im Test)
-runtime.reset()        # ruft shutdown() und droppt; nächster
-                       # current-Zugriff erzeugt eine frische Instanz
-runtime.is_initialised()  # True iff bereits eine Instanz vorhanden
+# --- Konsum (für alle Aufrufer: Adapter, Devices, Keywords, …) ---
+runtime.current             # property: aktive platynui_native.Runtime
+                            # — sealed beim ersten Zugriff
+runtime.is_initialised()    # bool: wurde current je gebaut/gewählt
+runtime.is_sealed()         # bool: wurde current bereits ausgelesen
+
+# --- Variantenwahl (nur vor Sealing erlaubt) ---
+runtime.use_default()       # Auto-Discovery via inventory (=Werkseinstellung)
+runtime.use_mock()           # Runtime.new_with_mock() (mock-provider Feature)
+runtime.use_factory(cb)     # cb: Callable[[], _NativeRuntime] — Custom-Builder
+
+# --- Test-Override (jederzeit erlaubt, scope-gebunden) ---
+with runtime.override(factory) as rt:    # factory: Callable[[], _NativeRuntime]
+    ...                     # innerhalb: rt ist aktiv
+                            # exit: shutdown(rt), Vorzustand restored
+with runtime.override_with_mock() as rt:
+    ...                     # Convenience für Tests
 ```
 
-**Lazy-Default.** Der erste `current`-Zugriff erzeugt
-`platynui_native.Runtime()` (Standard-Provider-Discovery via
-`inventory`). Wer eine andere Konfiguration braucht (Mock-Provider,
-spezieller Factory), ruft `set()` *vor* dem ersten `current`-Zugriff
-auf — oder `reset()` und danach `set()`.
+**Variantenwahl & Sealing.**
 
-**Thread-Safety.** Der Accessor selbst wird durch ein `RLock`
-geschützt. Die zugrundeliegende `platynui_native.Runtime` hält intern
-ein Rust-`Mutex` und ist sicher zwischen Python-Threads teilbar.
+- `use_*()`-Methoden setzen einen *Builder* (Closure), nicht die
+  Instanz selbst. Mehrfach-Aufruf vor Sealing ersetzt den Builder
+  still — der zuletzt gewählte gewinnt.
+- Beim ersten `current`-Zugriff wird der Builder ausgeführt, das
+  Ergebnis gecacht und der Accessor *sealed*.
+- `use_*()` nach Sealing wirft `RuntimeError("runtime already
+  initialised; use override() instead")`. Wer im laufenden Prozess
+  scopiert tauschen will, nutzt `override(...)`.
+- Wird vor Sealing kein `use_*()` aufgerufen, gilt `use_default()`
+  implizit.
+
+**Override-Semantik.**
+
+- `override(factory)` akzeptiert ein zero-arg Callable
+  `Callable[[], _NativeRuntime]`. Das Callable wird im Enter genau
+  einmal ausgeführt; die produzierte Instanz wird aktiv.  Wer eine
+  bereits gebaute Instanz wiederverwenden möchte, wrappt sie:
+  `runtime.override(lambda: existing_rt)`.  Diese explizite Callable-
+  Konvention vermeidet Ambiguität (Mock-Objekte sind callable —
+  `callable()`-Heuristiken wären fragil).
+- `override_with_mock()` ist Zucker für
+  `override(NativeRuntime.new_with_mock)`.
+- Im Enter wird der aktuelle Zustand (Builder *und* Instanz) auf
+  einem Stack gesichert; danach ist die Override-Instanz aktiv und
+  bereits sealed.
+- Im Exit wird `shutdown()` der Override-Instanz aufgerufen
+  (Exceptions werden geschluckt — best-effort) und der Vorzustand
+  restauriert. Verschachtelte `override(...)`-Blöcke sind erlaubt
+  (LIFO-Stack).
+
+**Thread-Safety.** Der Accessor wird durch ein `RLock` geschützt.
+Die zugrundeliegende `platynui_native.Runtime` hält intern ein
+Rust-`Mutex` und ist sicher zwischen Python-Threads teilbar.
 Pointer- und Keyboard-Methoden adressieren absolute
 Bildschirmkoordinaten bzw. die OS-Event-Queue und sind damit
-node-unabhängig: ein `set()` mitten in einer Session invalidiert keine
-zuvor geholten `UiNode`-Instanzen — diese referenzieren weiterhin
-ihren ursprünglichen Provider-Tree.
+node-unabhängig: ein Override mitten in einer Session invalidiert
+keine zuvor geholten `UiNode`-Instanzen — diese referenzieren
+weiterhin ihren ursprünglichen Provider-Tree.
 
-**Tests.** Mock-Tests installieren typischerweise per Fixture eine
-mock-getragene Runtime:
+**Robot-Framework-Integration.** Die spätere
+`PlatynUI`-Robot-Library nimmt die Variantenwahl als
+Konstruktor-Argument entgegen:
+
+```robotframework
+*** Settings ***
+Library    PlatynUI    use_mock=${True}
+```
+
+```python
+class PlatynUI:
+    def __init__(self, use_mock: bool = False) -> None:
+        if use_mock:
+            runtime.use_mock()
+        # sonst: Default-Lazy reicht
+```
+
+**Tests.** Mock-Tests verwenden ausschließlich den Override-
+Context-Manager — kein manuelles Setzen, kein vergessenes
+Reset:
 
 ```python
 @pytest.fixture
-def mock_runtime():
+def native_runtime():
     from PlatynUI.core import runtime
-    from platynui_native import Runtime as NativeRuntime
-    rt = NativeRuntime.new_with_mock()
-    runtime.set(rt)
-    try:
+    with runtime.override_with_mock() as rt:
         yield rt
-    finally:
-        runtime.reset()
 ```
 
-`runtime.reset()` schluckt Exceptions aus `shutdown()` (best-effort
+`override(...)` schluckt Exceptions aus `shutdown()` (best-effort
 teardown) — Test-Cleanup soll niemals den eigentlichen Test
 verschleiern.
 
@@ -2189,9 +2264,10 @@ class PlatynUI(DynamicCore):
 3. `core.adapters.ui_node`-Import lädt die `UiNodeAdapter`-
    Implementierung. Sie ist die einzige produktive Adapter-Klasse;
    andere Adapter sind nicht vorgesehen.
-4. Die Robot-Library ist nutzungsbereit. **Es gibt keinen
-   `Runtime`-Singleton in der Python-Schicht** — der `UiNodeAdapter`
-   hält seine `platynui_native.Runtime`-Instanz selbst.
+4. Die Robot-Library ist nutzungsbereit. Der **Runtime-Singleton**
+   `PlatynUI.core.runtime.runtime` (Rev. 20, §A.5) liefert die
+   prozessweite `platynui_native.Runtime`; `UiNodeAdapter` greift dort
+   lazy zu und hält keine eigene Runtime-Referenz.
 
 **Desktop-Root** ist konzeptionell das Wurzelelement des UI-Trees.
 Praktisch gibt es ihn als Klasse:

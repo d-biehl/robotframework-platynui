@@ -25,6 +25,28 @@ wrappers around the corresponding native pattern objects. Currently only
 :class:`~PlatynUI.core.patterns.Focusable` has a native counterpart; the
 remaining capability patterns will be wired up in later migration phases
 once the native side exposes them.
+
+Design note — why the wrappers exist
+====================================
+The Rust core deliberately splits a single Python pattern across two
+mechanisms (see the original ``docs/patterns.md`` design memo, in this
+repository's git history at commit ``4d36c43``):
+
+* **RuntimePatterns** (e.g. ``FocusableAction``, ``WindowSurfaceActions``)
+  carry *actions* — methods that need platform-specific code and may
+  fail at runtime (UIA ``SetFocus``, AT-SPI ``grabFocus``, X11 grabs,
+  …). They live behind the ``UiPattern`` trait and are obtained via
+  ``UiNode::pattern::<T>()``.
+* **ClientPatterns** (the much larger set, e.g. ``IsFocused``,
+  ``IsSelected``, ``Bounds``) carry *state* — values that every
+  provider exposes the same way: as ``UiAttribute`` entries readable
+  via ``UiNode::attribute(name, namespace)``.
+
+Python users want a *single* pattern object that bundles both halves
+(``Focusable.is_focused`` *and* ``Focusable.focus()``). The native
+wrappers below are the seam where the two Rust worlds get fused into
+that unified Python view; they are not boilerplate around a single
+underlying object.
 """
 
 from __future__ import annotations
@@ -37,6 +59,7 @@ import platynui_native as _pn
 from ..adapter import Adapter
 from ..patterns.base import PatternBase
 from ..patterns.focusable import Focusable
+from ..runtime import runtime
 from ..technology import Technology
 
 if TYPE_CHECKING:
@@ -67,12 +90,19 @@ _TECHNOLOGY: UiNodeTechnology = UiNodeTechnology()
 
 
 class _NativeFocusable(Focusable):
-    """Wrap ``platynui_native.Focusable`` + adapter for attribute reads.
+    """Bridge ``platynui_native.Focusable`` (action) + node attribute (state).
 
-    The native ``Focusable`` exposes only ``focus()`` (and an internal
-    ``id``); ``IsFocused`` lives on the UiNode's attribute space. The
-    wrapper bridges the two so callers get the unified Python pattern
-    contract.
+    The native ``Focusable`` pattern only carries the runtime *action*
+    ``focus()``; the corresponding *state* ``IsFocused`` lives in the
+    node's attribute space (see the module docstring for the rationale
+    behind that split). This wrapper is the seam that fuses both into
+    the single Python :class:`~PlatynUI.core.patterns.Focusable`
+    contract — it is not an indirection over a self-contained object.
+
+    ``IsFocused`` is read from whichever namespace the underlying node
+    advertises (``control`` for windows/buttons, ``item`` for list /
+    tree items, …), so the wrapper inspects ``node.namespace`` instead
+    of hard-coding ``"control"``.
     """
 
     __slots__ = ('_adapter', '_native')
@@ -128,13 +158,17 @@ class UiNodeAdapter(Adapter):
     desktop). The class is intentionally not a dataclass — it owns
     mutable per-instance state (the resolved-pattern cache inherited
     from :class:`Adapter`).
+
+    The adapter does not hold a runtime reference. Operations that need
+    one (e.g. delegating to native pointer/keyboard methods) read
+    :data:`PlatynUI.core.runtime.runtime`.``current`` lazily — the
+    process-wide singleton (design doc §A.5, Rev. 20).
     """
 
     pattern_name: ClassVar['PatternName'] = 'org.platynui.adapters.UiNode'
 
-    def __init__(self, runtime: _pn.Runtime, node: _pn.UiNode) -> None:
+    def __init__(self, node: _pn.UiNode) -> None:
         super().__init__()
-        self._runtime = runtime
         self._node = node
 
     # ------------------------------------------------------------------
@@ -142,14 +176,14 @@ class UiNodeAdapter(Adapter):
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_node(cls, runtime: _pn.Runtime, node: _pn.UiNode) -> 'UiNodeAdapter':
+    def from_node(cls, node: _pn.UiNode) -> 'UiNodeAdapter':
         """Wrap an arbitrary native node (used for parent / children walks)."""
-        return cls(runtime, node)
+        return cls(node)
 
     @classmethod
-    def create_root(cls, runtime: _pn.Runtime) -> 'UiNodeAdapter':
-        """Wrap the desktop root of ``runtime``."""
-        return cls(runtime, runtime.desktop_node())
+    def create_root(cls) -> 'UiNodeAdapter':
+        """Wrap the desktop root of the active process-wide runtime."""
+        return cls(runtime.current.desktop_node())
 
     # ------------------------------------------------------------------
     # Identity & lifetime
@@ -176,11 +210,11 @@ class UiNodeAdapter(Adapter):
         parent_node = self._node.parent()
         if parent_node is None:
             return None
-        return UiNodeAdapter.from_node(self._runtime, parent_node)
+        return UiNodeAdapter.from_node(parent_node)
 
     @property
     def children(self) -> Sequence['Adapter']:
-        return [UiNodeAdapter.from_node(self._runtime, child) for child in self._node.children()]
+        return [UiNodeAdapter.from_node(child) for child in self._node.children()]
 
     # ------------------------------------------------------------------
     # Search criteria (consumed by WeightCalculator)
