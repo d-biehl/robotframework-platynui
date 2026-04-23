@@ -118,9 +118,9 @@ impl PyNode {
     /// or ``"org.platynui.patterns.WindowSurface"`` and returns the Python pattern object
     /// when available.
     fn ancestor_pattern(&self, py: Python<'_>, id: &str) -> Option<Py<PyAny>> {
-        let pid = core_rs::ui::identifiers::PatternId::from(id);
+        let pid = core_rs::ui::identifiers::PatternName::from(id);
         for node in self.inner.ancestors_including_self() {
-            if node.pattern_by_id(&pid).is_some() {
+            if node.pattern_by_name(&pid).is_some() {
                 return pattern_object(py, &node, id);
             }
         }
@@ -130,8 +130,8 @@ impl PyNode {
     /// Returns the requested pattern object from the top-level ancestor, if supported.
     fn top_level_pattern(&self, py: Python<'_>, id: &str) -> Option<Py<PyAny>> {
         let top = self.inner.top_level_or_self();
-        let pid = core_rs::ui::identifiers::PatternId::from(id);
-        if top.pattern_by_id(&pid).is_some() {
+        let pid = core_rs::ui::identifiers::PatternName::from(id);
+        if top.pattern_by_name(&pid).is_some() {
             return pattern_object(py, &top, id);
         }
         None
@@ -304,7 +304,7 @@ pub struct PyFocusable {
 impl PyFocusable {
     /// Returns the pattern identifier ``"org.platynui.patterns.Focusable"``.
     fn id(&self) -> &'static str {
-        core_rs::ui::pattern_ids::FOCUSABLE
+        core_rs::ui::pattern_names::FOCUSABLE
     }
     /// Requests focus for the associated node.
     fn focus(&self) -> PyResult<()> {
@@ -326,7 +326,7 @@ pub struct PyWindowSurface {
 impl PyWindowSurface {
     /// Returns the pattern identifier ``"org.platynui.patterns.WindowSurface"``.
     fn id(&self) -> &'static str {
-        core_rs::ui::pattern_ids::WINDOW_SURFACE
+        core_rs::ui::pattern_names::WINDOW_SURFACE
     }
 
     /// Brings the window to the foreground and activates it.
@@ -1168,10 +1168,10 @@ fn pattern_id_from_arg(arg: &Bound<'_, PyAny>) -> PyResult<String> {
 
 fn pattern_object(py: Python<'_>, node: &Arc<dyn core_rs::ui::UiNode>, id: &str) -> Option<Py<PyAny>> {
     match id {
-        core_rs::ui::pattern_ids::FOCUSABLE => {
+        core_rs::ui::pattern_names::FOCUSABLE => {
             Py::new(py, PyFocusable { node: node.clone() }).ok().map(|p| p.into_any())
         }
-        core_rs::ui::pattern_ids::WINDOW_SURFACE => {
+        core_rs::ui::pattern_names::WINDOW_SURFACE => {
             Py::new(py, PyWindowSurface { node: node.clone() }).ok().map(|p| p.into_any())
         }
         _ => None,

@@ -6,9 +6,9 @@ This document covers the Python/PyO3 bindings for PlatynUI (`platynui_native`). 
 
 ## Architecture
 
-Single native wheel `platynui_native` built with PyO3 + maturin. All types are registered in a single flat module (`platynui_native._native`), re-exported via `platynui_native`:
+Single native wheel `platynui_native` built with PyO3 + maturin. All types are registered in a single flat module (`platynui_native._native`), re-exported via `platynui_native` — except `PatternName`, which is intentionally not re-exported to avoid colliding with the `PlatynUI.core.types.PatternName: TypeAlias = str` alias (Python user code talks the str alias; the wrapper stays internal at `platynui_native._native.PatternName`):
 
-- Core types: `Point`, `Size`, `Rect`, `PatternId`, `RuntimeId`, `TechnologyId`, `Namespace` enum. All implement `__eq__`/`__ne__`/`__hash__`.
+- Core types: `Point`, `Size`, `Rect`, `PatternName` (internal-only wrapper), `RuntimeId`, `TechnologyId`, `Namespace` enum. All implement `__eq__`/`__ne__`/`__hash__`.
 - Runtime types: `Runtime`, `UiNode`, pattern wrappers (`Focusable`, `WindowSurface`), pointer/keyboard APIs, evaluation iterators.
 
 ## Type Conversion

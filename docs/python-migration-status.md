@@ -17,13 +17,14 @@ implementiert, Method-Form als Phase-3-Stub)
 | Phase | Status | Bemerkung |
 |---|---|---|
 | Phase 0 — Smoke-Verifikation | DONE | Commit `ceb3057` |
-| §13.6 Rust-PatternId Reverse-DNS | DONE | Rev. 14, Commit `09fdc6a` |
+| §13.6 Rust-PatternId Reverse-DNS | DONE | Rev. 14, Commit `09fdc6a` (Newtype später in Rev. 19 zu `PatternName` umbenannt — siehe §13.7) |
+| §13.7 Rust-API-Symmetrie PatternId → PatternName | DONE | Rev. 19, uncommitted (1980 nextest + 265 pytest grün) |
 | Designdoku-Konsolidierung Rev. 15 | DONE | uncommitted; Properties-Pattern entfernt, Attribute-Modell mit Namespaces |
 | Designdoku Rev. 16 — Locator-Kwargs | DONE | uncommitted; drei Eingangskanäle (Convenience-Felder, Kwargs, Dict) mit Konfliktregel |
 | Designdoku Rev. 17 — Pattern-Konsolidierung | DONE | uncommitted; Element/TextContent/TextEditable/Clearable/Toggleable/Activatable/Focusable; Rust IsOffscreen→IsInView |
 | Rev. 18 — `@locator` Decorator-Form | DONE | uncommitted; Class-Decorator komplett, Method-Form als Phase-3-Stub mit `NotImplementedError` |
 | Phase 1 — Fundament | DONE | uncommitted; 10 Module incl. vorgezogenem `core/patterns/` (war Phase 2 #11); 128 pytest + 1980 nextest grün, ruff+mypy+pyright+clippy grün |
-| Phase 2 — Adapter-Schicht | PENDING | reduziert auf 4 Punkte (Adapter, AdapterProxy, RustAdapter, devices); Pattern-ABCs bereits in Phase 1 erledigt |
+| Phase 2 — Adapter-Schicht | IN PROGRESS | Adapter-ABC + AdapterProxy + UiNodeAdapter fertig (94 Tests); devices.py steht noch aus; MockAdapter gestrichen |
 | Phase 3 — Context-Schicht | PENDING | — |
 | Phase 4 — UI-Klassen + Standard-Proxies | PENDING | — |
 | Phase 5 — Keywords + Robot-Library | PENDING | — |
@@ -44,6 +45,11 @@ implementiert, Method-Form als Phase-3-Stub)
 - Designdoc Rev. 13 mit Smoke-Befunden aktualisiert
 
 ### §13.6 Rust-PatternId-Umstellung auf Reverse-DNS (Rev. 14, Commit `09fdc6a`)
+
+> **Hinweis (Rev. 19):** Die hier erwähnten Bezeichner `PatternId`,
+> `pattern_ids`, `UiPattern::id()` heißen seit Rev. 19 `PatternName`,
+> `pattern_names`, `UiPattern::pattern_name()`. Siehe §13.7 weiter unten.
+> Der historische Wortlaut bleibt erhalten.
 
 Ziel: `PatternId.as_str()` (Rust) und `pattern_name` (Python ClassVar)
 liefern wörtlich denselben String (`org.platynui.patterns.<Name>`).
@@ -363,17 +369,22 @@ spätere Quelltext-Änderungen an Page-Objects.
 
 ### Phase 2 — Adapter-Schicht (Designdoc §10 Phase 2)
 
-- [ ] `core/adapter.py` — Adapter-Interface (§A.4),
-      `attribute_value(name, namespace)`, `supported_patterns()`
-- [ ] `core/adapter_proxy.py` — `AdapterProxy`, `PatternProxyFactory`,
-      `@pattern_proxy_for`
-- [ ] `core/adapters/rust.py` — `RustAdapter` über `platynui_native`
-- [ ] `core/adapters/mock.py` — Mock-Adapter (§A.11)
-- [ ] `core/devices.py` — `MouseProxy`/`KeyboardProxy`
+- [x] `core/adapter.py` — Adapter-ABC (§A.4) inkl. Template-Method-
+      `_resolve_pattern`. 26 Tests.
+- [x] `core/adapter_proxy.py` — `AdapterProxy` (Komposition),
+      `PatternProxyFactory`, `@pattern_proxy_for`. 36 Tests.
+- [x] `core/adapters/ui_node.py` — `UiNodeAdapter` über `platynui_native`
+      (§A.4a) inkl. `UiNodeTechnology`-Singleton und nativer
+      `Focusable`-Wrapper. 32 Tests gegen `Runtime.new_with_mock()`.
+- [ ] `core/devices.py` — `MouseProxy`/`KeyboardProxy` über
+      `platynui_native.Runtime`.
 
 (`core/patterns/` Pattern-ABCs wurden in Phase 1 vorgezogen, siehe
 Phase-1-Punkt 10 im Designdoc §10. Pattern-Default-Implementierungen
-in `core/patterns/defaults.py` bleiben Phase 4.)
+in `core/patterns/defaults.py` bleiben Phase 4. Ein dedizierter Python-
+`MockAdapter` entfällt — Tests gegen den UI-Tree nutzen den Rust-Mock-
+Provider; ABC-/Algorithmus-Tests nutzen Inline-Fakes. Siehe Designdoc
+§A.11 und §11a.2.)
 
 ### Phase 3 — Context-Schicht (Designdoc §10 Phase 3)
 
@@ -403,7 +414,6 @@ Phase-1-DONE; nur die Method/Property-Form wartet auf `ContextBase`.)
 
 - [ ] Library-Init und Lifecycle (§A.8)
 - [ ] Keywords (§8)
-- [ ] Devices: Mouse/Keyboard (§A.9)
 - [ ] Highlight + Diagnose (§A.12)
 
 ### Phase 6 — Iterative Erweiterungen (Designdoc §10 Phase 6)

@@ -127,6 +127,17 @@
 >   `attributes`-Dict. Doppelte Schlüssel über mehrere Kanäle werfen
 >   `TypeError` mit konkreter Quellenangabe — kein stilles
 >   Vorrang-Verhalten. Details in §7.1 und §A.6.
+> - **Rev. 19** — **Rust-API-Symmetrie zu Python: `PatternId` → `PatternName`.**
+>   Der Newtype `PatternId` heißt jetzt `PatternName`, das Konstanten-Modul
+>   `pattern_ids` heißt `pattern_names`, die Trait-Methoden `UiPattern::id()`
+>   / `UiPattern::static_id()` heißen `pattern_name()` / `static_pattern_name()`,
+>   und `UiNode::pattern_by_id()` heißt `pattern_by_name()`. Damit haben
+>   Rust-API und Python-API dieselbe Vokabelwahl. Wire-Format ist unverändert
+>   (`org.platynui.patterns.<Name>`-Strings). PyO3-Klasse `PatternName` wird
+>   bewusst NICHT aus `platynui_native.__init__` re-exportiert, weil sie
+>   sonst mit dem Python-TypeAlias `PlatynUI.core.types.PatternName: TypeAlias = str`
+>   kollidieren würde — Python-User-Code spricht den str-Alias, der Wrapper
+>   bleibt intern (`platynui_native._native.PatternName`). Siehe §13.7.
 > - **Rev. 18** — **`@locator` ist jetzt eine echte Decorator-Funktion**
 >   (kein `Locator`-Alias mehr). Class-Decorator-Form
 >   (`@locator(name="X") class Foo: ...`) ist vollständig implementiert
@@ -488,7 +499,7 @@ Jede Registrierung gibt eine Teilmenge dieser Kriterien an:
 
 | Kriterium | Beispiel | Gewicht |
 |---|---|---|
-| `technology` | `RustAdapterTechnology` | +100000 (oder reject) |
+| `technology` | `UiNodeTechnology` | +100000 (oder reject) |
 | `role` (exakt) | `"Button"` | +10000 (oder reject) |
 | `role` (in `supported_roles`) | `"ToggleButton" ∈ {"Button", "ToggleButton"}` | +5000 - i |
 | `framework_id` | `"WPF"` | +1000 (oder reject) |
@@ -594,8 +605,7 @@ Wenn `parent.get(child_ctx, locator=...)` aufgerufen wird (siehe §A.5):
 ```
 1. Adapter-Quelle aus dem Parent-Context erben.
    Der Parent hält bereits einen Adapter; Children werden aus
-   dessen Tree resolved (Rust-XPath-Engine bei RustAdapter,
-   MockNode-Walk bei MockAdapter, …).
+   dessen Tree resolved (Rust-XPath-Engine via `Runtime.evaluate`).
 2. Locator → XPath → Adapter.evaluate(xpath) → Sequenz roher
    Adapter-Refs auf gefundene UiNodes.
 3. PatternProxyFactory.find_proxy_for(adapter)
@@ -637,7 +647,7 @@ sind zu trennen:
   über die Drahtverbindung melden — der Identifier ist Teil des
   öffentlichen Vertrags.
 - **Format (Konvention):** Reverse-DNS ist die empfohlene Form,
-  aber **nicht erzwungen** — symmetrisch zu Rust-`PatternId`, das
+  aber **nicht erzwungen** — symmetrisch zu Rust-`PatternName`, das
   ebenfalls keine Format-Validierung macht. Third-Party-Patterns
   *sollten* einen eigenen Reverse-DNS-Namespace
   (`com.acme.patterns.*`) verwenden, um Kollisionen zu vermeiden.
@@ -657,20 +667,21 @@ Begründung der Identifier-Pflicht:
   (siehe §5.4).
 
 > **Status Rust-Code:** Der Identifier-Mechanismus existiert
-> bereits Rust-seitig: `PatternId` (newtype über `Arc<str>`,
-> `crates/core/src/ui/identifiers.rs:82`), `UiPattern::id()` /
-> `UiPattern::static_id() -> PatternId` als Pflicht-Trait-Methoden
+> bereits Rust-seitig: `PatternName` (newtype über `Arc<str>`,
+> `crates/core/src/ui/identifiers.rs:82`), `UiPattern::pattern_name()` /
+> `UiPattern::static_pattern_name() -> PatternName` als Pflicht-Trait-Methoden
 > (`crates/core/src/ui/pattern.rs:18`), `PatternRegistry` mit
 > `register`/`get`/`get_typed`/`supported`
 > (`crates/core/src/ui/pattern.rs:57`) und `supported_patterns_value`
 > serialisiert die IDs als String-Array für die FFI-Grenze
 > (`pattern.rs:165`).
 >
-> **Rust verwendet jetzt Reverse-DNS-Identifier** (Rev. 14, siehe §13.6):
-> Sowohl `PatternId::from(pattern_ids::FOCUSABLE)` (= `"org.platynui.patterns.Focusable"`)
+> **Rust verwendet Reverse-DNS-Identifier** (Rev. 14 als `PatternId` eingeführt,
+> Rev. 15 zu `PatternName` umbenannt für Symmetrie mit Python — siehe §13.6, §13.7):
+> Sowohl `PatternName::from(pattern_names::FOCUSABLE)` (= `"org.platynui.patterns.Focusable"`)
 > als auch Python-`Focusable.pattern_name` liefern denselben String. Die
-> Konstanten leben in `core::ui::pattern_ids` (`crates/core/src/ui/identifiers.rs`)
-> und werden überall statt der bare names verwendet. `PatternId` selbst
+> Konstanten leben in `core::ui::pattern_names` (`crates/core/src/ui/identifiers.rs`)
+> und werden überall statt der bare names verwendet. `PatternName` selbst
 > bleibt validierungsfrei (Convention statt Format-Check); die Konsistenz
 > wird in den Mapping-Tabellen und beim Python-Import sichergestellt.
 
@@ -694,7 +705,7 @@ class PatternBase(ABC):
 
     Jede konkrete Pattern-ABC deklariert einen Reverse-DNS-Identifier
     via `pattern_name`. Das Format ist Konvention, keine Validierung
-    (symmetrisch zu Rust-PatternId).
+    (symmetrisch zu Rust-PatternName).
     """
     pattern_name: ClassVar[str]
 
@@ -821,7 +832,7 @@ class Focusable(PatternBase):
 ```
 
 Die Pattern-Liste folgt **eng der Rust-Capability-Gruppierung** in
-`crates/core/src/ui/attributes.rs` und `pattern_ids` in
+`crates/core/src/ui/attributes.rs` und `pattern_names` in
 `crates/core/src/ui/identifiers.rs`. Konsolidierungen gegenüber dem
 Altprojekt (Rev. 17):
 
@@ -920,7 +931,7 @@ reicht als Vertrag zwischen Adapter und UI-Schicht — eine globale
 `PatternRegistry` ist **nicht** nötig:
 
 - **Rust-Adapter** (`core/adapters/rust.py`) hält eine lokale
-  Mapping-Tabelle `PatternId-String → Python-ABC`:
+  Mapping-Tabelle `PatternName-String → Python-ABC`:
 
   ```python
   # core/adapters/rust.py
@@ -965,13 +976,17 @@ reicht als Vertrag zwischen Adapter und UI-Schicht — eine globale
   alle Patterns, die der Adapter zur Python-Klasse auflösen kann. Eine
   zusätzliche `supported_pattern_names() → set[str]` deckt auch externe
   Patterns ab, deren Python-ABC dem Adapter (noch) nicht bekannt ist.
-- **`RustAdapter`** übersetzt die `PatternId`-Strings, die
+- **`UiNodeAdapter`** übersetzt die `PatternName`-Strings, die
   `UiNode.supported_patterns()` aus dem Rust-Code liefert, über seine
-  lokale Mapping-Tabelle (`_RUST_PATTERN_MAP`) in Python-Pattern-Klassen.
-  Sobald Rust-PatternIds auf das Reverse-DNS-Format umgestellt sind
-  (siehe Status-Box in §5), reduziert sich die Tabelle auf eine reine
-  String→Klasse-Zuordnung — die Strings sind dann wörtlich identisch
-  und es gibt keine Umbenennung mehr.
+  lokale Builder-Tabelle (`_NATIVE_PATTERN_BUILDERS: dict[str,
+  Callable[[UiNodeAdapter], PatternBase | None]]`) in Python-Pattern-
+  Implementierungen. Builder werden gewählt, weil das Wrapping pro
+  Pattern leicht unterschiedlich ist (z. B. `_NativeFocusable` braucht
+  Adapter + native `Focusable`, ein zukünftiger `_NativeElement` würde
+  nur den Adapter brauchen). Eine Erweiterung um ein neues Pattern ist
+  ein einzelner Eintrag in der Tabelle. Die Pattern-Id-Strings sind
+  bereits im Reverse-DNS-Format (`org.platynui.patterns.*`), also
+  identisch zwischen Rust- und Python-Seite.
 
 ## 5a. Mitgelieferte Standard-UI-Elemente (Batterien inklusive)
 
@@ -1305,11 +1320,10 @@ src/PlatynUI/
 │   │   ├── window.py               # WindowSurface (Activate/Close/Min/Max als Methoden)
 │   │   ├── defaults.py             # Default-Implementierungen (alt: strategyimpl.py)
 │   │   └── …
-│   ├── devices.py                  # MouseProxy/KeyboardProxy (Wrapper über Rust-Runtime)
-│   └── adapters/                   # konkrete Adapter-Implementierungen
+│   ├── devices.py                  # MouseProxy/KeyboardProxy (Wrapper über platynui_native.Runtime)
+│   └── adapters/                   # Adapter-Implementierung(en)
 │       ├── __init__.py
-│       ├── rust.py                 # RustAdapter (default), wraps platynui_native
-│       └── (jsonrpc.py, mock.py, …) # zukünftig
+│       └── ui_node.py              # UiNodeAdapter, wraps platynui_native.UiNode
 │
 ├── ui/                             # UI-Klassen + Standard-Proxies
 │   ├── __init__.py
@@ -1538,7 +1552,14 @@ Toggle-State geändert hat" in `CheckBox.set_state` (siehe §5.3-Beispiel).
 
 ```python
 class Adapter(ABC):
-    """Was die Adapter-Schicht (Rust, JSON-RPC, Mock, …) liefert."""
+    """Abstraktion über einen UI-Knoten zur Pattern-Wrapping-Ebene.
+
+    In der Praxis gibt es **eine** produktive Implementierung —
+    `UiNodeAdapter` (§A.4a) — die einen `platynui_native.UiNode`
+    umhüllt. Die ABC existiert dennoch, weil sie den Vertrag bildet,
+    den `AdapterProxy` (§4 / §A.4) per Komposition delegieren muss,
+    und weil Test-Code lokale Fakes davon ableiten kann (siehe
+    `tests/PlatynUI/test_adapter.py`)."""
     pattern_name: ClassVar[str] = "org.platynui.core.Adapter"
 
     # Identität & Lebenszeit
@@ -1631,8 +1652,8 @@ das Adapter-Interface schmal und Pattern-orientiert.
 1. `self` ist `isinstance(pattern_type)` → `self`.
 2. Adapter-internes Mapping (`_pattern_impls: dict[str, PatternBase]`) →
    gecached.
-3. Adapter-spezifischer Lookup (Rust: PyO3-Call zu `UiNode.get_pattern`;
-   JSON-RPC: Wire-Call) → cachen.
+3. Adapter-spezifischer Lookup (`UiNodeAdapter`: PyO3-Call zu
+   `UiNode.get_pattern`) → cachen.
 4. Sonst: `PatternNotSupportedError` (oder `None` bei
    `raise_exception=False`).
 
@@ -1642,7 +1663,59 @@ nur `get_pattern` (eigene Patterns zuerst, dann `adapter.get_pattern`)
 plus `supported_patterns` (Vereinigung). Alle anderen Adapter-Aufrufe
 delegieren transparent.
 
-### A.5 `ContextBase`-API (`core/context.py`)
+### A.4a `UiNodeAdapter` (`core/adapters/ui_node.py`)
+
+Die einzige produktive `Adapter`-Implementierung. Wickelt einen
+`platynui_native.UiNode` so ein, dass das Python-`Adapter`-Interface
+(§A.4) erfüllt ist.
+
+Aufgabenkatalog:
+
+- **API-Mapping**: `UiNode.attribute(name, namespace) -> UiValue` (wirft
+  `AttributeNotFoundError`) → `Adapter.attribute_value(name, namespace)
+  -> object` (wirft `KeyError` mit Schlüssel `"<ns>:<name>"`).
+  `UiNode.attributes()` liefert `UiAttribute`; der Adapter exposed sie
+  als `(namespace, name, value)`-Tupel. `attribute_names(namespace)`
+  filtert in Python (kein dedizierter Native-Endpoint).
+- **Defensive Default-Felder**: optionale Suchkriterien-Properties
+  fangen `AttributeNotFoundError` ab und liefern den ABC-Default:
+  - `class_name` ↔ `attribute('ClassName', 'control')`, default `""`
+  - `framework_id` ↔ `attribute('FrameworkId', 'native')`, default `""`
+  - `supported_roles` enthält bis auf Weiteres nur `{role}` — bis das
+    Native-Attribut-Set `SupportedRoles` exposed (siehe §13.x), gibt es
+    keinen anderen Lieferanten.
+- **Pattern-Resolution-Hook (`_resolve_pattern`)**: schlägt den Reverse-
+  DNS-Namen in einer modul-lokalen Builder-Tabelle nach
+  (`_NATIVE_PATTERN_BUILDERS`). Treffer ruft `UiNode.get_pattern(name)`
+  per **String** (nicht per Python-Klasse — die native Klasse besitzt
+  kein `pattern_name`-ClassVar) und wrappt das Resultat in eine
+  `core.patterns.*`-Subklasse. Beispiel: `platynui_native.Focusable` →
+  `_NativeFocusable(Focusable)`, das `focus()` ans native Objekt
+  delegiert und `is_focused` aus `UiNode.attribute('IsFocused',
+  node.namespace.as_str())` zieht. Der Namespace folgt **dem Knoten**:
+  Window/Button-Focus liegt in `control:IsFocused`, ListItem/TreeItem-
+  Focus in `item:IsFocused` — der Wrapper liest entsprechend dynamisch.
+- **`supports_pattern`-Override**: gibt nur dann `True` zurück, wenn
+  (a) die native Seite das Pattern advertised UND (b) ein Python-
+  Wrapper im `_NATIVE_PATTERN_BUILDERS`-Dict steht. Ohne (b) würde
+  `get_pattern` später trotzdem in `PatternNotSupportedError` laufen
+  und der Vertrag (`supports → get`) wäre gebrochen. Erweiterung um
+  weitere Patterns = neuer Builder-Eintrag, sonst nichts.
+- **Identity / Caching**: `runtime_id` aus `UiNode.runtime_id` (stabil
+  über Tree-Reloads); `__eq__` / `__hash__` folgen der Adapter-ABC
+  (§A.4 Z. 1617). `parent` / `children` werden bei jedem Aufruf neu
+  aus `UiNode` geholt — der Rust-Cache regelt Wiederverwendung.
+- **Technology**: `UiNodeTechnology` ist ein `Technology`-Subclass mit
+  klassischem `__new__`-Singleton; das Modul hält eine fertig
+  konstruierte Instanz (`_TECHNOLOGY`), so dass `.technology` keine
+  Allokation auslöst.
+
+Tests laufen gegen den **Rust-Mock-Provider** (`Runtime.new_with_mock()`)
+und prüfen alle Mappings end-to-end. Reine Algorithmus-Tests für die
+ABC selbst (Cache, Resolution-Steps) bleiben in `test_adapter.py` mit
+Inline-Fakes.
+
+
 
 `ContextBase` ist die Wurzel aller UI-Klassen (Page-Object-Basis).
 Vereinfacht ggü. Altcode (473 → ~250 LOC), siehe §11.2. Erbt von
@@ -2043,15 +2116,15 @@ class PlatynUI(DynamicCore):
 2. `from . import ui` triggert alle `@context`/`@pattern_proxy_for`-
    Registrierungen (Side-Effect-Imports in `ui/__init__.py` und
    `ui/proxies/__init__.py`).
-3. `core.adapters.rust`-Import lädt die `RustAdapter`-Implementierung
-   und registriert sie als Default-Technology. Andere Adapter (Mock,
-   JSON-RPC) werden nur geladen, wenn explizit referenziert.
+3. `core.adapters.ui_node`-Import lädt die `UiNodeAdapter`-
+   Implementierung. Sie ist die einzige produktive Adapter-Klasse;
+   andere Adapter sind nicht vorgesehen.
 4. Die Robot-Library ist nutzungsbereit. **Es gibt keinen
-   `Runtime`-Singleton in der Python-Schicht** — jeder Adapter hält
-   seinen eigenen (Rust-`Runtime`-Instanz im `RustAdapter`).
+   `Runtime`-Singleton in der Python-Schicht** — der `UiNodeAdapter`
+   hält seine `platynui_native.Runtime`-Instanz selbst.
 
-**Desktop-Root** ist konzeptionell das Wurzelelement aller Adapter-
-Trees. Praktisch gibt es ihn als Klasse:
+**Desktop-Root** ist konzeptionell das Wurzelelement des UI-Trees.
+Praktisch gibt es ihn als Klasse:
 
 ```python
 @locator(path="/.")
@@ -2061,35 +2134,11 @@ class Desktop(ContextBase, role="Desktop"):
     # bereit, damit absolute Mouse-Operationen ohne Element möglich sind.
 ```
 
-**Adapter-Bootstrap.** Welcher Adapter den Desktop-Root liefert, ist
-über `core/technology.py` konfigurierbar:
-
-```python
-# core/technology.py
-@dataclass(frozen=True, slots=True)
-class Technology:
-    name: str           # z.B. "rust", "jsonrpc", "mock"
-    factory: Callable[[], Adapter]   # baut den Root-Adapter
-
-_REGISTERED: dict[str, Technology] = {}
-
-def register_technology(t: Technology) -> None:
-    _REGISTERED[t.name] = t
-
-def get_default_technology() -> Technology:
-    name = Settings.current().technology   # default "rust"
-    return _REGISTERED[name]
-```
-
-`core/adapters/rust.py` registriert sich beim Import als
-`Technology(name="rust", factory=lambda: RustAdapter.create_root())`.
-Der Mock-Adapter (§A.11) registriert sich nur, wenn das Mock-Modul
-explizit importiert wird (kein Side-Effect aus `core/__init__.py`).
-Beim Bau des Desktop-Roots ruft der Konstruktor
-`get_default_technology().factory()` auf, sofern kein expliziter
-`adapter=`-Parameter übergeben wurde. **Das ist die einzige
-prozessweite Adapter-Registry — sie hat genau einen Zweck: den
-Default-Adapter für ein neu erzeugtes Desktop-Objekt zu wählen.**
+**Adapter-Bootstrap.** Da es nur eine produktive Adapter-Klasse gibt,
+entfällt jede Multi-Backend-Registry. Der `Desktop`-Konstruktor ruft
+schlicht `UiNodeAdapter.create_root()` auf, sofern kein expliziter
+`adapter=`-Parameter übergeben wurde. Tests (in Python wie Rust)
+geben einen über `Runtime.new_with_mock()` gebauten Adapter ein.
 
 **Application Start.** Im Altprojekt unimplementiert
 (`keywords/application.py` raised `NotImplementedError`). Im neuen
@@ -2249,72 +2298,26 @@ Implementierung gefunden, prüfe, ob ein
 ihn lazy". Das Mapping ist eine reine Modul-Konstante, keine globale
 Registry mit Side-Effects.
 
-### A.11 Mock-Adapter (`core/adapters/mock.py`)
+### A.11 Mock-Adapter — *gestrichen*
 
-Im Altprojekt nicht vorhanden — neu für die Test-Suite. Erlaubt
-Python-Unit-Tests ohne Rust/Provider-Abhängigkeit.
+Ursprünglich war hier ein Python-`MockAdapter` über einen Python-
+`MockNode`-Tree vorgesehen. Diese Idee wurde verworfen: Tests laufen
+stattdessen gegen den **Rust-Mock-Provider** (`provider-mock` mit
+`Runtime.new_with_mock()`). Begründung:
 
-```python
-@dataclass
-class MockNode:
-    role: str
-    name: str = ""
-    class_name: str = ""
-    framework_id: str = "Mock"
-    bounds: Rect = field(default_factory=lambda: Rect(0, 0, 100, 30))
-    properties: dict[str, object] = field(default_factory=dict)
-    patterns: dict[str, PatternBase] = field(default_factory=dict)
-    children: list["MockNode"] = field(default_factory=list)
-    parent: "MockNode | None" = None
+- `UiNode` (aus `platynui_native`) ist die einzige *Technology* der
+  Bibliothek. Eine zweite Technology auf Python-Ebene aufzubauen, nur
+  um sie zu testen, doppelt die Adapter-Mechanik ohne neuen Nutzen.
+- Der Rust-Mock-Provider liefert vollwertige `UiNode`-Bäume mit
+  Pattern-Implementierungen — exakt das, was Tests brauchen.
+- Lokale Test-Fakes für eng begrenzte Adapter-Algorithmus-Tests
+  (z.B. `test_adapter.py`) bleiben als kleine Inline-Helper bestehen
+  und werden nicht zu einem öffentlichen API gehoben.
 
-class MockAdapter(Adapter):
-    """Adapter über einen MockNode-Tree. Patterns werden direkt am
-    Node-Dict registriert; Tests können Spy-/Stub-Patterns einsetzen
-    und das Verhalten der Proxies/UI-Klassen verifizieren."""
-    def __init__(self, node: MockNode, *, technology: Technology = MOCK_TECHNOLOGY) -> None: ...
-    # … alle Adapter-Methoden delegieren an MockNode
-
-# Convenience-Builder
-def build_tree(spec: dict) -> MockNode: ...
-
-def mock_desktop(root_node: MockNode) -> "Desktop":
-    """Baut ein `Desktop`-Context-Objekt, dessen Adapter-Resolver den
-    MockNode-Tree liefert (statt den Rust-Adapter). Nutzbar als
-    `parent`-Parameter für `get(...)`-Aufrufe."""
-    return Desktop(
-        locator=Locator(path="/."),
-        adapter=MockAdapter(root_node),
-    )
-```
-
-**Verwendungsbeispiel:**
-
-```python
-def test_button_activate_uses_provider_pattern_when_available():
-    activate_calls = []
-    button_node = MockNode(
-        role="Button", name="OK",
-        patterns={
-            patterns.Activatable.pattern_name:
-                StubActivatable(on_activate=lambda: activate_calls.append("api")),
-        },
-    )
-    desktop = mock_desktop(MockNode(role="Desktop", children=[button_node]))
-    button = desktop.get(Button, name="OK")
-    button.activate()
-    assert activate_calls == ["api"]
-```
-
-Konsistent mit §A.8: **kein Python-`Runtime`-Objekt**. Der Mock-
-Adapter wird dem `Desktop`-Context direkt per `adapter=`-Parameter
-übergeben; Children erben ihn über `ContextBase.get(...)` aus der
-Parent-Chain.
-
-**Abgrenzung zum Rust-Mock-Provider:** Der Rust-`provider-mock` liefert
-einen UiTree für Integrations-Tests (Rust + Python via Maturin). Der
-Python-`MockAdapter` ersetzt dagegen die *gesamte* Adapter-Schicht und
-ist für reine Python-Tests gedacht (Patterns, Proxies, UI-Klassen,
-Keywords). Beide existieren parallel und konkurrieren nicht.
+Stub-Patterns für Spy-Verhalten (z.B. *„hat `activate()` genau einmal
+diesen Stub aufgerufen?"*) werden über die **`AdapterProxy`-Schicht**
+realisiert: ein Proxy mixt das Pattern als Spy ein und überschreibt
+damit das vom Native-Node gelieferte Pattern (siehe §A.4 / §4.2).
 
 ### A.12 Highlight & Diagnose (`core/devices.py` + `keywords/diagnostics.py`)
 
@@ -2417,14 +2420,17 @@ testbar (119 pytest, mock-basiert).
 12. `core/adapter_proxy.py` — `AdapterProxy`, `PatternProxyFactory`,
     `@pattern_proxy_for` (portiert aus altem `adapterproxy.py`, nur
     umbenannt)
-13. `core/adapters/rust.py` — `RustAdapter`, der `UiNode` aus
-    `platynui_native` umhüllt; mappt Rust-Patterns auf Python-Patterns
-    (`FocusablePattern` → `Focusable`, `WindowSurfacePattern` → diverse
-    Window-Patterns)
-14. `core/devices.py` — `MouseProxy`/`KeyboardProxy` über Rust-Runtime
+13. `core/adapters/ui_node.py` — `UiNodeAdapter`, der `UiNode` aus
+    `platynui_native` umhüllt; mappt Native-Patterns auf Python-Patterns
+    (`platynui_native.Focusable` → `core.patterns.Focusable` usw.).
+    Siehe §A.4a.
+14. `core/devices.py` — `MouseProxy`/`KeyboardProxy` über
+    `platynui_native.Runtime`
 
 (Punkt 11 „`core/patterns/` — Pattern-ABCs" wurde nach Phase 1
-vorgezogen, siehe Phase-1-Punkt 10.)
+vorgezogen, siehe Phase-1-Punkt 10. Ein dedizierter Python-`MockAdapter`
+entfällt; Tests gegen den UI-Tree nutzen den Rust-Mock-Provider via
+`Runtime.new_with_mock()`. Siehe §A.11.)
 
 ### Phase 3 — Context-Schicht
 
@@ -2451,10 +2457,8 @@ vorgezogen, siehe Phase-1-Punkt 10.)
 
 - Weitere Provider-Patterns in Rust hinzufügen, wenn ein konkreter Bedarf
   auftritt (siehe §6.2). Pro neues Pattern: Trait + Provider-Impl(s) +
-  Mapping in `RustAdapter` auf ein Python-Pattern. UI-Klassen und Proxies
-  bleiben unverändert.
-- Weitere Adapter-Implementierungen (JSON-RPC, …) als parallele
-  `core/adapters/*.py`-Module, sobald ein Use-Case da ist.
+  Mapping in `UiNodeAdapter` auf ein Python-Pattern. UI-Klassen und
+  Proxies bleiben unverändert.
 
 ## 11. Drastische Vereinfachungen gegenüber dem Altprojekt
 
@@ -2511,8 +2515,8 @@ sind das Oberflächenziel, aber nicht der alleinige Test-Kanal.
                     │     .robot Suites           │  (Keyword-Syntax)
                     ├─────────────────────────────┤
                     │  Ebene 2: pytest            │  Python-Unit/
-                    │  (Py-MockAdapter ODER       │  -Integration
-                    │   Rust-Mock via Maturin)    │
+                    │  (Rust-Mock via Maturin     │  -Integration
+                    │   + Inline-Fakes für ABC)   │
                     ├─────────────────────────────┤
                     │  Ebene 1: cargo nextest     │  Rust-Unit/
                     │  (Rust-Mock-Provider)       │  -Integration
@@ -2539,19 +2543,24 @@ Implementierungen, PyO3-Bindings (sofern reine Rust-Logik).
 
 ### 11a.2 Ebene 2 — Python-Tests (`pytest`)
 
-Zwei Varianten, je nach Test-Ziel:
+Zwei komplementäre Spielarten, je nach Test-Ziel:
 
-**2a. Reine Python-Tests mit `MockAdapter` (§A.11)**
-- Kein Rust-Build nötig
-- Für: Pattern-ABCs, `@pattern_proxy_for`-Match-Logik, `AdapterProxy`-
-  Pattern-Resolution, `ContextBase.get`, `wait_for`/`ensure_that`,
-  UI-Klassen-Hybrid-Form, Keyword-Outcome-Verträge
-- Stub-/Spy-Patterns werden am `MockNode` registriert
+**2a. Inline-Fakes für ABC-/Algorithmus-Tests**
+- Kein Rust-Build nötig.
+- Lokale `class _FakeAdapter(Adapter)` o.ä. direkt im Test-Modul; nicht
+  als öffentliches Test-API gehoben.
+- Für: `Adapter`-ABC-Resolution-Algorithmus, `AdapterProxy`-Komposition,
+  `PatternProxyFactory`-Match-Logik, `WeightCalculator`,
+  `wait_for`/`ensure_that`-Re-Entrancy — alles, was rein in Python
+  liegt und keinen UI-Tree braucht.
 
-**2b. Python-Tests gegen den Rust-Mock-Provider**
+**2b. Tests gegen den Rust-Mock-Provider**
 - Build: `uv run maturin develop -m packages/native/Cargo.toml --features mock-provider`
-- Für: PyO3-Bindings, `RustAdapter`-Pfad, end-to-end Pattern-Lookup
-- Geringer Umfang, fokussiert auf Bindings-Korrektheit
+- Für: `UiNodeAdapter` (Native-Pattern-Mapping, PyO3-Bindings),
+  `ContextBase.get`-End-to-End, UI-Klassen-Hybrid-Form, Keyword-
+  Outcome-Verträge — alles, was den realen UI-Tree-Pfad durchläuft.
+- Stub-/Spy-Verhalten wird via `AdapterProxy`-Overlays realisiert
+  (Proxy mixt das gewünschte Pattern als Spy ein).
 
 ### 11a.3 Ebene 3 — Robot-Framework-Acceptance-Tests
 
@@ -2606,21 +2615,24 @@ Erweiterungen über bestehende `MockNode`-Mutationspfade.
 
 ### 11a.5 Test-Matrix
 
-| Test-Gegenstand                    | nextest | pytest(Py-Mock) | pytest(Rust-Mock) | RF(Rust-Mock) | RF(echt) |
-|------------------------------------|:-------:|:---------------:|:-----------------:|:-------------:|:--------:|
-| XPath-Parser/Evaluator             |   ✅    |       —         |         —         |       —       |    —     |
-| Runtime-Orchestrierung             |   ✅    |       —         |        ✅         |       —       |    —     |
-| Provider-Adapter (Rust)            |   ✅    |       —         |         —         |       —       |   ✅     |
-| PyO3-Bindings                      |    —    |       —         |        ✅         |       —       |    —     |
-| Pattern-ABC-Verträge               |    —    |      ✅         |         —         |       —       |    —     |
-| `@pattern_proxy_for` Match-Logik   |    —    |      ✅         |         —         |       —       |    —     |
-| `wait_for`/`ensure_that` Re-entry  |    —    |      ✅         |         —         |       —       |    —     |
-| `ContextBase.get` Parent-Chain     |    —    |      ✅         |         —         |       —       |    —     |
-| UI-Klassen (Button, Window, …)     |    —    |      ✅         |         —         |       —       |    —     |
-| Keyword-Outcome-Verträge           |    —    |      ✅         |         —         |      ✅       |   ✅     |
-| Locator-Syntax in RF               |    —    |       —         |         —         |      ✅       |   ✅     |
-| Plattform-Provider (UIA/AT-SPI/AX) |    —    |       —         |         —         |       —       |   ✅     |
-| End-to-End Page-Object             |    —    |       —         |         —         |      ✅       |   ✅     |
+| Test-Gegenstand                    | nextest | pytest(Inline-Fakes) | pytest(Rust-Mock) | RF(Rust-Mock) | RF(echt) |
+|------------------------------------|:-------:|:--------------------:|:-----------------:|:-------------:|:--------:|
+| XPath-Parser/Evaluator             |   ✅    |          —           |         —         |       —       |    —     |
+| Runtime-Orchestrierung             |   ✅    |          —           |        ✅         |       —       |    —     |
+| Provider-Adapter (Rust)            |   ✅    |          —           |         —         |       —       |   ✅     |
+| PyO3-Bindings                      |    —    |          —           |        ✅         |       —       |    —     |
+| Pattern-ABC-Verträge               |    —    |         ✅           |         —         |       —       |    —     |
+| `Adapter`-Resolution-Algorithmus   |    —    |         ✅           |         —         |       —       |    —     |
+| `AdapterProxy`-Komposition         |    —    |         ✅           |         —         |       —       |    —     |
+| `@pattern_proxy_for` Match-Logik   |    —    |         ✅           |         —         |       —       |    —     |
+| `UiNodeAdapter` (Native-Mapping)   |    —    |          —           |        ✅         |       —       |    —     |
+| `wait_for`/`ensure_that` Re-entry  |    —    |         ✅           |         —         |       —       |    —     |
+| `ContextBase.get` Parent-Chain     |    —    |          —           |        ✅         |       —       |    —     |
+| UI-Klassen (Button, Window, …)     |    —    |          —           |        ✅         |       —       |    —     |
+| Keyword-Outcome-Verträge           |    —    |          —           |        ✅         |      ✅       |   ✅     |
+| Locator-Syntax in RF               |    —    |          —           |         —         |      ✅       |   ✅     |
+| Plattform-Provider (UIA/AT-SPI/AX) |    —    |          —           |         —         |       —       |   ✅     |
+| End-to-End Page-Object             |    —    |          —           |         —         |      ✅       |   ✅     |
 
 ### 11a.6 Reihenfolge & CI-Integration
 
@@ -2637,8 +2649,9 @@ inspizieren, ggf. deterministische Widget-Szenarien ergänzen.
 **Phase 1 (Foundation):** pytest für `types`, `settings`, `wait`,
 `ensure`, `weight_calculator`, `technology`, `locator`.
 
-**Phase 2 (Patterns/Adapter):** pytest mit `MockAdapter`. Erst hier
-existiert genug, um Pattern-Proxy-Match-Logik zu testen.
+**Phase 2 (Patterns/Adapter):** pytest mit Inline-Fakes für die ABC-/
+Resolution-Algorithmen (`Adapter`, `AdapterProxy`, `PatternProxyFactory`)
+sowie pytest gegen den Rust-Mock-Provider für `UiNodeAdapter`.
 
 **Phase 3 (Standard-UI-Klassen):** Zusätzlich zu pytest die ersten
 **Smoke-RF-Suites** — und zwar **dual-mode** (siehe §11a.7): dieselbe
@@ -2891,11 +2904,10 @@ Phase 3 der Migration (siehe §10).
 
 ### 13.3 `UiNode.supported_patterns` in Python
 
-Aktuell exposed PyO3 nur `get_pattern(Focusable)`. Für
-`RustAdapter.supported_patterns` brauchen wir eine generische Liste der
-verfügbaren Patterns am UiNode. **Action:** in
-`packages/native/src/lib.rs` eine `supported_patterns -> list[str]`
-Methode ergänzen.
+Bereits verfügbar: `UiNode.supported_patterns() -> list[str]` ist in
+`packages/native/src/runtime.rs:157` implementiert und in
+`_native.pyi:302` typisiert. `UiNodeAdapter` kann direkt darauf
+aufsetzen — kein zusätzlicher Bindings-Bedarf.
 
 ### 13.4 Mehrere Runtimes / Pabot
 
@@ -2924,6 +2936,12 @@ markiert.
 
 ### 13.6 Rust-PatternId-Umstellung auf Reverse-DNS — RESOLVED (Rev. 14)
 
+> **Hinweis (Rev. 19):** Der Newtype `PatternId` und das Konstanten-Modul
+> `pattern_ids`, die in dieser Sektion erwähnt werden, heißen seit Rev. 19
+> `PatternName` und `pattern_names`. Siehe §13.7 für die Umbenennung. Der
+> ursprüngliche Wortlaut bleibt hier erhalten als historisches Record der
+> Reverse-DNS-Umstellung.
+
 Rust-`PatternId` verwendet jetzt durchgängig Reverse-DNS-Identifier
 (`org.platynui.patterns.<Name>`). Damit sind Rust-`PatternId.as_str()`
 und Python-`pattern_name` wörtlich identisch.
@@ -2946,6 +2964,53 @@ und Python-`pattern_name` wörtlich identisch.
 Reverse-DNS-Strings statt bare names; Python-Aufrufer von
 `get_pattern("Focusable")` müssen auf `get_pattern("org.platynui.patterns.Focusable")`
 oder `get_pattern(Focusable)` (mit `pattern_name`-ClassVar) umstellen.
+
+### 13.7 Rust-API-Symmetrie zu Python: PatternId → PatternName — RESOLVED (Rev. 19)
+
+Rust-Code spricht ab Rev. 19 dieselbe Vokabel wie Python: `PatternName`
+(statt `PatternId`), `pattern_names` (statt `pattern_ids`),
+`UiPattern::pattern_name()` (statt `id()`),
+`UiPattern::static_pattern_name()` (statt `static_id()`),
+`UiNode::pattern_by_name()` (statt `pattern_by_id()`).
+
+**Motivation:** Asymmetrie zwischen Rust (`PatternId` / `id()`) und
+Python (`PatternName` / `pattern_name`) verursachte mentale
+Übersetzungsarbeit beim Lesen. Der Wire-Inhalt (Reverse-DNS-String)
+ist auf beiden Seiten identisch — die Bezeichner sind es jetzt auch.
+
+**Implementierung:**
+
+- `crates/core/src/ui/identifiers.rs`: `pub struct PatternName(Arc<str>)`,
+  `pub mod pattern_names`
+- `crates/core/src/ui/pattern.rs`: `UiPattern::pattern_name()`,
+  `UiPattern::static_pattern_name()`
+- `crates/core/src/ui/node.rs`: `UiNode::pattern_by_name()`
+- Alle Implementierungen in `core`, `runtime`, `provider-*`, `platform-*`,
+  `cli`, `inspector`, `packages/native` mechanisch nachgezogen
+  (~27 Dateien, ~150 Bezeichner-Treffer)
+- PyO3-Klasse `PatternName` wird intern in `platynui_native._native`
+  registriert, aber bewusst NICHT aus `platynui_native.__init__`
+  re-exportiert, weil sie sonst mit dem Python-TypeAlias
+  `PlatynUI.core.types.PatternName: TypeAlias = str` kollidieren würde.
+  Python-User-Code spricht den str-Alias.
+
+**Verifikation:**
+
+- `cargo nextest run --workspace`: 1980/1980 ✅
+- `cargo clippy --workspace --all-targets -- -D warnings`: clean
+- `uv run pytest`: 265/265 ✅
+- `uv run ruff check`, `mypy`, `pyright`: clean
+
+**Breaking Change (Rust):** Direkte Rust-Konsumenten der `UiPattern`-/
+`UiNode`-Traits müssen ihre Aufrufe von `id()` → `pattern_name()`,
+`static_id()` → `static_pattern_name()`, `pattern_by_id()` →
+`pattern_by_name()` umstellen, und `PatternId` / `pattern_ids` durch
+`PatternName` / `pattern_names` ersetzen. Wire-Format unverändert.
+
+**Breaking Change (Python):** PyO3 exportiert keine Klasse `PatternId`
+mehr aus `platynui_native`. Wer den Wrapper braucht (selten —
+typischerweise nur Bridging-Code), nutzt `platynui_native._native.PatternName`.
+User-Code, der nur Strings vergleicht, ist nicht betroffen.
 
 ## 14. Zusammenfassung
 

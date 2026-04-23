@@ -6,8 +6,8 @@ use platynui_core::provider::ProviderDescriptor;
 use platynui_core::types::{Point, Rect};
 use platynui_core::ui::attribute_names::{activation_target, element, focusable};
 use platynui_core::ui::{
-    FocusableAction, Namespace, PatternId, PatternRegistry, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue,
-    pattern_ids,
+    FocusableAction, Namespace, PatternName, PatternRegistry, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue,
+    pattern_names,
 };
 use quick_xml::de::from_str;
 use serde::Deserialize;
@@ -461,14 +461,14 @@ fn instantiate_node(
 
     let runtime_patterns = PatternRegistry::new();
     let mut dynamic_attributes: Vec<Arc<dyn UiAttribute>> = Vec::new();
-    let mut declared_patterns: Vec<PatternId> = Vec::new();
+    let mut declared_patterns: Vec<PatternName> = Vec::new();
 
     if let Some(text) = spec.text.as_ref() {
         dynamic_attributes.push(input::register_text_attribute(spec.namespace, &runtime_id, text));
     }
 
-    let has_window_surface = spec.patterns.iter().any(|pattern| pattern == pattern_ids::WINDOW_SURFACE);
-    let has_focusable = spec.patterns.iter().any(|pattern| pattern == pattern_ids::FOCUSABLE);
+    let has_window_surface = spec.patterns.iter().any(|pattern| pattern == pattern_names::WINDOW_SURFACE);
+    let has_focusable = spec.patterns.iter().any(|pattern| pattern == pattern_names::FOCUSABLE);
     let window_config = has_window_surface.then(|| window::derive_config(&spec.attributes));
 
     let initial_focus = if has_focusable {
@@ -483,19 +483,19 @@ fn instantiate_node(
 
     for pattern in &spec.patterns {
         let id = pattern.as_str();
-        if id == pattern_ids::FOCUSABLE {
+        if id == pattern_names::FOCUSABLE {
             let action_runtime_id = runtime_id.clone();
-            runtime_patterns.register_lazy(PatternId::from(pattern_ids::FOCUSABLE), move || {
+            runtime_patterns.register_lazy(PatternName::from(pattern_names::FOCUSABLE), move || {
                 let target = action_runtime_id.clone();
                 let pattern: Arc<dyn UiPattern> =
                     Arc::new(FocusableAction::new(move || focus::request_focus(target.clone())));
                 Some(pattern)
             });
             dynamic_attributes.push(focus::focus_attribute(spec.namespace, runtime_id.clone()));
-        } else if id == pattern_ids::WINDOW_SURFACE {
+        } else if id == pattern_names::WINDOW_SURFACE {
             // WindowSurface is registered below via window_config.
         } else {
-            declared_patterns.push(PatternId::from(id));
+            declared_patterns.push(PatternName::from(id));
         }
     }
 

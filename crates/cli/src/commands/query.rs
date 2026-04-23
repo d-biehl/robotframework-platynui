@@ -2,7 +2,7 @@ use crate::OutputFormat;
 use crate::util::{CliResult, map_evaluate_error};
 use clap::Args;
 use owo_colors::{OwoColorize, Stream};
-use platynui_core::ui::{Namespace, PatternId, UiNode, UiValue};
+use platynui_core::ui::{Namespace, PatternName, UiNode, UiValue};
 use platynui_runtime::{EvaluationItem, Runtime};
 use serde::Serialize;
 use std::fmt::Write;
@@ -101,7 +101,7 @@ pub(crate) fn summarize_query_results(results: Vec<EvaluationItem>) -> Vec<Query
         .collect()
 }
 
-fn node_to_query_summary(node: Arc<dyn UiNode>, patterns: Vec<PatternId>) -> QueryItemSummary {
+fn node_to_query_summary(node: Arc<dyn UiNode>, patterns: Vec<PatternName>) -> QueryItemSummary {
     let namespace = node.namespace();
     let supported_patterns = patterns.into_iter().map(|id| id.as_str().to_owned()).collect();
 

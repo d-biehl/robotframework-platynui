@@ -51,7 +51,7 @@ impl ProviderEventListener for ProviderEventDispatcher {
 mod tests {
     use super::*;
     use platynui_core::provider::{ProviderEvent, ProviderEventKind};
-    use platynui_core::ui::PatternId;
+    use platynui_core::ui::PatternName;
     use platynui_core::ui::{Namespace, RuntimeId, UiAttribute, UiNode, UiValue};
     use rstest::rstest;
     use std::sync::{Arc, Mutex, Weak};
@@ -101,7 +101,7 @@ mod tests {
         fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
             Box::new(vec![Arc::new(StubAttribute) as Arc<dyn UiAttribute>].into_iter())
         }
-        fn supported_patterns(&self) -> Vec<PatternId> {
+        fn supported_patterns(&self) -> Vec<PatternName> {
             Vec::new()
         }
         fn invalidate(&self) {}

@@ -91,7 +91,7 @@ class Rect:
     @classmethod
     def from_like(cls, value: RectLike) -> Rect: ...
 
-class PatternId:
+class PatternName:
     def __init__(self, value: str) -> None: ...
     def as_str(self) -> str: ...
     def __eq__(self, other: object) -> bool: ...
@@ -649,7 +649,7 @@ __all__ = [
     'NodeChildrenIterator',
     'OriginLike',
     'PatternError',
-    'PatternId',
+    'PatternName',
     'PlatynUiError',
     # Core types
     'Point',

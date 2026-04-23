@@ -1,5 +1,5 @@
 //
-use platynui_core::ui::PatternId;
+use platynui_core::ui::PatternName;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1269,7 +1269,7 @@ impl UiNode for DummyNode {
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         Box::new(std::iter::empty())
     }
-    fn supported_patterns(&self) -> Vec<PatternId> {
+    fn supported_patterns(&self) -> Vec<PatternName> {
         Vec::new()
     }
     fn invalidate(&self) {}
@@ -1280,7 +1280,7 @@ mod tests {
     use super::*;
     use platynui_core::provider::ProviderError;
     use platynui_core::types::Rect;
-    use platynui_core::ui::{PatternId, RuntimeId, UiAttribute, UiNode, attribute_names, supported_patterns_value};
+    use platynui_core::ui::{PatternName, RuntimeId, UiAttribute, UiNode, attribute_names, supported_patterns_value};
     use rstest::rstest;
     use std::sync::{Arc, Mutex, Weak};
 
@@ -1316,7 +1316,7 @@ mod tests {
         name: String,
         runtime_id: RuntimeId,
         attributes: Vec<Arc<dyn UiAttribute>>,
-        patterns: Vec<PatternId>,
+        patterns: Vec<PatternName>,
         children: Mutex<Vec<Arc<dyn UiNode>>>,
         parent: Mutex<Option<Weak<dyn UiNode>>>,
     }
@@ -1331,7 +1331,7 @@ mod tests {
             patterns: Vec<&str>,
         ) -> Arc<Self> {
             let runtime_id = RuntimeId::from(runtime_id);
-            let patterns_vec: Vec<PatternId> = patterns.into_iter().map(PatternId::from).collect();
+            let patterns_vec: Vec<PatternName> = patterns.into_iter().map(PatternName::from).collect();
             let supported = supported_patterns_value(&patterns_vec);
 
             let mut attributes: Vec<Arc<dyn UiAttribute>> = vec![
@@ -1441,7 +1441,7 @@ mod tests {
             Box::new(self.attributes.clone().into_iter())
         }
 
-        fn supported_patterns(&self) -> Vec<PatternId> {
+        fn supported_patterns(&self) -> Vec<PatternName> {
             self.patterns.clone()
         }
 

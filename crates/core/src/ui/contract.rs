@@ -1,4 +1,4 @@
-use super::identifiers::PatternId;
+use super::identifiers::PatternName;
 use super::{Namespace, UiNode};
 
 pub mod testkit;
@@ -10,7 +10,7 @@ pub enum ContractViolation {
     /// The validator does not support the namespace of the given node.
     UnsupportedNamespace { namespace: Namespace },
     /// `SupportedPatterns` contains duplicate entries.
-    DuplicatePattern { pattern: PatternId },
+    DuplicatePattern { pattern: PatternName },
 }
 
 /// Ensures that `control:` and `item:` nodes expose the mandatory attributes and
@@ -37,7 +37,7 @@ mod tests {
     use crate::types::Rect;
     use crate::ui::attribute_names::{common, element};
     use crate::ui::pattern::{PatternError, PatternRegistry};
-    use crate::ui::pattern_ids;
+    use crate::ui::pattern_names;
     use crate::ui::value::UiValue;
     use crate::ui::{UiAttribute, UiPattern};
     use rstest::rstest;
@@ -68,7 +68,7 @@ mod tests {
         runtime_id: super::super::identifiers::RuntimeId,
         attributes: Vec<Arc<dyn UiAttribute>>,
         patterns: PatternRegistry,
-        supported: Vec<PatternId>,
+        supported: Vec<PatternName>,
     }
 
     impl MockNode {
@@ -119,7 +119,7 @@ mod tests {
                 name: common::TECHNOLOGY,
                 value: UiValue::from("Mock"),
             }));
-            let focusable = PatternId::from(pattern_ids::FOCUSABLE);
+            let focusable = PatternName::from(pattern_names::FOCUSABLE);
             self.attributes.push(Arc::new(StaticAttribute {
                 namespace: self.namespace,
                 name: common::SUPPORTED_PATTERNS,
@@ -131,7 +131,7 @@ mod tests {
 
         fn with_focusable_pattern(mut self) -> Self {
             self.patterns.register_dyn(Arc::new(MockFocusablePattern) as Arc<dyn UiPattern>);
-            let focusable = PatternId::from(pattern_ids::FOCUSABLE);
+            let focusable = PatternName::from(pattern_names::FOCUSABLE);
             if !self.supported.iter().any(|id| id == &focusable) {
                 self.supported.push(focusable);
             }
@@ -168,11 +168,11 @@ mod tests {
             Box::new(self.attributes.clone().into_iter())
         }
 
-        fn supported_patterns(&self) -> Vec<PatternId> {
+        fn supported_patterns(&self) -> Vec<PatternName> {
             if self.supported.is_empty() { self.patterns.supported() } else { self.supported.clone() }
         }
 
-        fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
+        fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
             self.patterns.get(pattern)
         }
 
@@ -182,15 +182,15 @@ mod tests {
     struct MockFocusablePattern;
 
     impl UiPattern for MockFocusablePattern {
-        fn id(&self) -> PatternId {
-            PatternId::from(pattern_ids::FOCUSABLE)
+        fn pattern_name(&self) -> PatternName {
+            PatternName::from(pattern_names::FOCUSABLE)
         }
 
-        fn static_id() -> PatternId
+        fn static_pattern_name() -> PatternName
         where
             Self: Sized,
         {
-            PatternId::from(pattern_ids::FOCUSABLE)
+            PatternName::from(pattern_names::FOCUSABLE)
         }
 
         fn as_any(&self) -> &dyn std::any::Any {
@@ -219,11 +219,11 @@ mod tests {
     #[rstest]
     fn fails_when_supported_patterns_duplicate_values() {
         let mut node = MockNode::new(Namespace::Control).with_required_attributes();
-        node.supported.push(PatternId::from(pattern_ids::FOCUSABLE));
+        node.supported.push(PatternName::from(pattern_names::FOCUSABLE));
         let result = validate_control_or_item(&node);
         assert!(matches!(
             result,
-            Err(ContractViolation::DuplicatePattern { pattern }) if pattern.as_str() == pattern_ids::FOCUSABLE
+            Err(ContractViolation::DuplicatePattern { pattern }) if pattern.as_str() == pattern_names::FOCUSABLE
         ));
     }
 

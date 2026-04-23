@@ -184,8 +184,8 @@ pub trait UiNode: Send + Sync {
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_>;
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_>;
     fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>>;
-    fn supported_patterns(&self) -> Vec<PatternId>;
-    fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>>;
+    fn supported_patterns(&self) -> Vec<PatternName>;
+    fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>>;
     fn invalidate(&self);
 }
 
@@ -196,8 +196,8 @@ pub trait UiAttribute: Send + Sync {
 }
 
 pub trait UiPattern: Any + Send + Sync {
-    fn id(&self) -> PatternId;
-    fn static_id() -> PatternId where Self: Sized;
+    fn pattern_name(&self) -> PatternName;
+    fn static_pattern_name() -> PatternName where Self: Sized;
     fn as_any(&self) -> &dyn Any;
 }
 ```
@@ -205,7 +205,7 @@ pub trait UiPattern: Any + Send + Sync {
 - Children and attributes are returned as `Box<dyn Iterator<...> + Send + '_>`. Providers may use custom iterator types.
 - The runtime never materializes lists upfront; `UiAttribute::value()` is called on demand.
 - `UiNodeExt` provides navigation helpers: `parent_arc()`, `ancestors()`, `top_level_or_self()`, `ancestor_pattern::<T>()`.
-- `PatternRegistry` stores patterns as `HashMap<PatternId, Arc<dyn UiPattern>>` with insertion-order tracking. `register_lazy` defers expensive platform probes until first access.
+- `PatternRegistry` stores patterns as `HashMap<PatternName, Arc<dyn UiPattern>>` with insertion-order tracking. `register_lazy` defers expensive platform probes until first access.
 
 ### 5.2 Namespaces
 

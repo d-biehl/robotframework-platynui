@@ -20,8 +20,8 @@ use platynui_core::platform::{WindowId, WindowManager, window_manager};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{activation_target, application, common, element, focusable, window_surface};
 use platynui_core::ui::{
-    FocusableAction, Namespace, PatternError, PatternId, RuntimeId, UiAttribute, UiNode, UiNodeExt, UiPattern, UiValue,
-    WindowSurfacePattern, pattern_ids, supported_patterns_value,
+    FocusableAction, Namespace, PatternError, PatternName, RuntimeId, UiAttribute, UiNode, UiNodeExt, UiPattern,
+    UiValue, WindowSurfacePattern, pattern_names, supported_patterns_value,
 };
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -251,20 +251,20 @@ impl UiNode for AtspiNode {
         Box::new(AttrsIter::new(self, rid_str))
     }
 
-    fn supported_patterns(&self) -> Vec<PatternId> {
+    fn supported_patterns(&self) -> Vec<PatternName> {
         let mut patterns = Vec::new();
         if self.focusable() {
-            patterns.push(PatternId::from(pattern_ids::FOCUSABLE));
+            patterns.push(PatternName::from(pattern_names::FOCUSABLE));
         }
         if self.is_window_surface() {
-            patterns.push(PatternId::from(pattern_ids::WINDOW_SURFACE));
+            patterns.push(PatternName::from(pattern_names::WINDOW_SURFACE));
         }
         patterns
     }
 
-    fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
+    fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
         let id = pattern.as_str();
-        if id == pattern_ids::FOCUSABLE {
+        if id == pattern_names::FOCUSABLE {
             if !self.focusable() {
                 return None;
             }
@@ -272,7 +272,7 @@ impl UiNode for AtspiNode {
             let obj = self.obj.clone();
             let action = FocusableAction::new(move || grab_focus(conn.as_ref(), &obj).map_err(Into::into));
             Some(Arc::new(action) as Arc<dyn UiPattern>)
-        } else if id == pattern_ids::WINDOW_SURFACE {
+        } else if id == pattern_names::WINDOW_SURFACE {
             if !self.is_window_surface() {
                 return None;
             }
@@ -423,15 +423,15 @@ impl AtspiWindowSurface {
 }
 
 impl UiPattern for AtspiWindowSurface {
-    fn id(&self) -> PatternId {
-        Self::static_id()
+    fn pattern_name(&self) -> PatternName {
+        Self::static_pattern_name()
     }
 
-    fn static_id() -> PatternId
+    fn static_pattern_name() -> PatternName
     where
         Self: Sized,
     {
-        PatternId::from(pattern_ids::WINDOW_SURFACE)
+        PatternName::from(pattern_names::WINDOW_SURFACE)
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -1310,10 +1310,10 @@ impl UiAttribute for LazyStdAttr {
                 let window_surface = is_window_surface_role(&self.ctx.role);
                 let mut patterns = Vec::new();
                 if focusable {
-                    patterns.push(PatternId::from(pattern_ids::FOCUSABLE));
+                    patterns.push(PatternName::from(pattern_names::FOCUSABLE));
                 }
                 if window_surface {
-                    patterns.push(PatternId::from(pattern_ids::WINDOW_SURFACE));
+                    patterns.push(PatternName::from(pattern_names::WINDOW_SURFACE));
                 }
                 supported_patterns_value(&patterns)
             }

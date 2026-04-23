@@ -1,6 +1,7 @@
 use platynui_core::ui::attribute_names::common;
 use platynui_core::ui::{
-    Namespace, PatternId, PatternRegistry, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue, supported_patterns_value,
+    Namespace, PatternName, PatternRegistry, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue,
+    supported_patterns_value,
 };
 use std::sync::{Arc, Mutex, Weak};
 
@@ -11,7 +12,7 @@ pub(crate) struct MockNode {
     runtime_id: RuntimeId,
     attributes: Vec<Arc<dyn UiAttribute>>,
     runtime_patterns: PatternRegistry,
-    declared_patterns: Vec<PatternId>,
+    declared_patterns: Vec<PatternName>,
     order_key: Option<u64>,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     children: Mutex<Vec<Arc<MockNode>>>,
@@ -19,7 +20,7 @@ pub(crate) struct MockNode {
 
 pub(crate) struct NodePatternContext {
     pub runtime_patterns: PatternRegistry,
-    pub declared_patterns: Vec<PatternId>,
+    pub declared_patterns: Vec<PatternName>,
     pub order_key: Option<u64>,
 }
 
@@ -109,7 +110,7 @@ impl UiNode for MockNode {
         Box::new(attributes.into_iter())
     }
 
-    fn supported_patterns(&self) -> Vec<PatternId> {
+    fn supported_patterns(&self) -> Vec<PatternName> {
         let mut patterns = self.declared_patterns.clone();
         for id in self.runtime_patterns.supported() {
             if !patterns.contains(&id) {
@@ -119,7 +120,7 @@ impl UiNode for MockNode {
         patterns
     }
 
-    fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
+    fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
         self.runtime_patterns.get(pattern)
     }
 

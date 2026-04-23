@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use platynui_core::types::{Point as UiPoint, Rect};
 use platynui_core::ui::pattern::{FocusableAction, PatternError, UiPattern, WindowSurfaceActions};
-use platynui_core::ui::{Namespace, PatternId, RuntimeId, UiAttribute, UiNode, UiValue};
+use platynui_core::ui::{Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue};
 use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, WaitForInputIdle};
 use windows::Win32::UI::Accessibility::{
@@ -246,18 +246,18 @@ impl UiNode for UiaNode {
         }
     }
 
-    fn supported_patterns(&self) -> Vec<PatternId> {
-        let mut out = vec![FocusableAction::static_id()];
+    fn supported_patterns(&self) -> Vec<PatternName> {
+        let mut out = vec![FocusableAction::static_pattern_name()];
         if self.has_window_surface() {
-            out.push(WindowSurfaceActions::static_id());
+            out.push(WindowSurfaceActions::static_pattern_name());
         }
         out
     }
-    fn pattern_by_id(&self, pattern: &PatternId) -> Option<Arc<dyn UiPattern>> {
+    fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
         use windows::Win32::UI::Accessibility::*;
         use windows::core::Interface;
         let pid = pattern.as_str();
-        if pid == FocusableAction::static_id().as_str() {
+        if pid == FocusableAction::static_pattern_name().as_str() {
             #[derive(Clone)]
             struct ElemSend {
                 elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -282,7 +282,7 @@ impl UiNode for UiaNode {
             });
             return Some(Arc::new(action) as Arc<dyn UiPattern>);
         }
-        if pid == WindowSurfaceActions::static_id().as_str() {
+        if pid == WindowSurfaceActions::static_pattern_name().as_str() {
             #[derive(Clone)]
             struct ElemSend {
                 elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -1364,7 +1364,7 @@ impl UiNode for ApplicationNode {
         let owner = self.self_weak.get().and_then(|w| w.upgrade());
         Box::new(AppAttrsIter::new(self.pid, self.runtime_id().as_str(), owner))
     }
-    fn supported_patterns(&self) -> Vec<PatternId> {
+    fn supported_patterns(&self) -> Vec<PatternName> {
         Vec::new()
     }
     fn invalidate(&self) {

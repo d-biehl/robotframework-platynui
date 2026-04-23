@@ -45,7 +45,7 @@ pub mod pattern {
     }
 
     /// Pure action capability — no observable attributes. Listed for symmetry
-    /// with the corresponding pattern id (`pattern_ids::CLEARABLE`).
+    /// with the corresponding pattern id (`pattern_names::CLEARABLE`).
     pub mod clearable {}
 
     pub mod text_selection {
