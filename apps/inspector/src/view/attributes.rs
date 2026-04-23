@@ -6,6 +6,7 @@
 
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
+use std::collections::BTreeSet;
 
 use crate::model::tree_data::DisplayAttribute;
 
@@ -57,6 +58,7 @@ pub fn show_attributes(
     attributes: &[DisplayAttribute],
     sort_state: &mut AttributesSortState,
     filter_text: &mut String,
+    pinned_attributes: &mut BTreeSet<String>,
 ) {
     if attributes.is_empty() {
         ui.colored_label(egui::Color32::from_gray(120), "No attributes available for this node.");
@@ -99,10 +101,23 @@ pub fn show_attributes(
 
     if filter_active {
         indices.retain(|&idx| attribute_matches_filter(&attributes[idx], &normalized_filter));
-        ui.colored_label(
-            egui::Color32::from_gray(160),
-            format!("Showing {} of {} attributes", indices.len(), attributes.len()),
-        );
+    }
+
+    let pinned_count = attributes
+        .iter()
+        .filter(|attribute| pinned_attributes.contains(&attribute_key(attribute)))
+        .count();
+
+    if filter_active || pinned_count > 0 {
+        let mut summary_parts = Vec::new();
+        if filter_active {
+            summary_parts.push(format!("Showing {} of {} attributes", indices.len(), attributes.len()));
+        }
+        if pinned_count > 0 {
+            summary_parts.push(format!("Pinned: {pinned_count}"));
+        }
+
+        ui.colored_label(egui::Color32::from_gray(160), summary_parts.join(" | "));
         ui.separator();
     }
 
@@ -110,6 +125,10 @@ pub fn show_attributes(
         ui.colored_label(egui::Color32::from_gray(120), "No attributes match the current filter.");
         return;
     }
+
+    let (pinned_indices, unpinned_indices): (Vec<_>, Vec<_>) = indices
+        .into_iter()
+        .partition(|&idx| pinned_attributes.contains(&attribute_key(&attributes[idx])));
 
     egui::ScrollArea::horizontal().show(ui, |ui| {
         // Compute available_height inside the ScrollArea so the horizontal
@@ -152,8 +171,10 @@ pub fn show_attributes(
                 });
             })
             .body(|mut body| {
-                for (row_idx, &idx) in indices.iter().enumerate() {
+                for (row_idx, idx) in pinned_indices.into_iter().chain(unpinned_indices).enumerate() {
                     let attr = &attributes[idx];
+                    let attribute_key = attribute_key(attr);
+                    let is_pinned = pinned_attributes.contains(&attribute_key);
                     let name_str = format!("{}:{}", attr.namespace, attr.name);
                     let row_str = format!("{}={}", name_str, attr.value);
 
@@ -181,10 +202,15 @@ pub fn show_attributes(
                                 cell_id,
                                 &name_str,
                                 prev_sel,
-                                &name_str,
-                                &attr.value,
-                                &attr.value_type,
-                                &row_str,
+                                AttributeRowMenu {
+                                    attribute_key: &attribute_key,
+                                    is_pinned,
+                                    pinned_attributes,
+                                    name: &name_str,
+                                    value: &attr.value,
+                                    value_type: &attr.value_type,
+                                    row_text: &row_str,
+                                },
                             );
                         });
 
@@ -211,10 +237,15 @@ pub fn show_attributes(
                                 cell_id,
                                 &attr.value,
                                 prev_sel,
-                                &name_str,
-                                &attr.value,
-                                &attr.value_type,
-                                &row_str,
+                                AttributeRowMenu {
+                                    attribute_key: &attribute_key,
+                                    is_pinned,
+                                    pinned_attributes,
+                                    name: &name_str,
+                                    value: &attr.value,
+                                    value_type: &attr.value_type,
+                                    row_text: &row_str,
+                                },
                             );
                         });
 
@@ -242,10 +273,15 @@ pub fn show_attributes(
                                 cell_id,
                                 &attr.value_type,
                                 prev_sel,
-                                &name_str,
-                                &attr.value,
-                                &attr.value_type,
-                                &row_str,
+                                AttributeRowMenu {
+                                    attribute_key: &attribute_key,
+                                    is_pinned,
+                                    pinned_attributes,
+                                    name: &name_str,
+                                    value: &attr.value,
+                                    value_type: &attr.value_type,
+                                    row_text: &row_str,
+                                },
                             );
                         });
                     });
@@ -272,6 +308,20 @@ fn attribute_matches_filter(attr: &DisplayAttribute, filter_text: &str) -> bool 
         || attr.value_type.to_lowercase().contains(filter_text)
 }
 
+fn attribute_key(attr: &DisplayAttribute) -> String {
+    format!("{}:{}", attr.namespace, attr.name)
+}
+
+struct AttributeRowMenu<'a> {
+    attribute_key: &'a str,
+    is_pinned: bool,
+    pinned_attributes: &'a mut BTreeSet<String>,
+    name: &'a str,
+    value: &'a str,
+    value_type: &'a str,
+    row_text: &'a str,
+}
+
 /// Context menu for text cells in the attributes table.
 ///
 /// `prev_sel` is the selection captured **before** the TextEdit was rendered this
@@ -282,11 +332,10 @@ fn show_text_cell_context_menu(
     cell_id: egui::Id,
     cell_text: &str,
     prev_sel: Option<String>,
-    name: &str,
-    value: &str,
-    value_type: &str,
-    row_text: &str,
+    row_menu: AttributeRowMenu<'_>,
 ) {
+    let AttributeRowMenu { attribute_key, is_pinned, pinned_attributes, name, value, value_type, row_text } = row_menu;
+
     response.context_menu(|ui| {
         let ctx = ui.ctx().clone();
 
@@ -331,6 +380,18 @@ fn show_text_cell_context_menu(
             egui::KeyboardShortcut::new(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::C);
         if ui.add(egui::Button::new("Copy Row").shortcut_text(ctx.format_shortcut(&copy_row_shortcut))).clicked() {
             ctx.copy_text(row_text.to_string());
+            ui.close();
+        }
+
+        ui.separator();
+
+        let pin_label = if is_pinned { "Unpin Attribute" } else { "Pin Attribute" };
+        if ui.button(pin_label).clicked() {
+            if is_pinned {
+                pinned_attributes.remove(attribute_key);
+            } else {
+                pinned_attributes.insert(attribute_key.to_string());
+            }
             ui.close();
         }
     });

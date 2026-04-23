@@ -32,6 +32,7 @@ use eframe::egui;
 use platynui_core::ui::UiNode;
 use platynui_link::platynui_link_providers;
 use platynui_runtime::Runtime;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use view::{attributes, results_panel, status_bar, toolbar, tree_view};
@@ -112,6 +113,7 @@ struct InspectorApp {
     vm: InspectorViewModel,
     attributes_sort: attributes::AttributesSortState,
     attribute_filter: String,
+    pinned_attributes: BTreeSet<String>,
     prev_always_on_top: Option<bool>,
     show_about_dialog: bool,
 }
@@ -136,6 +138,7 @@ impl InspectorApp {
             vm: InspectorViewModel::new(runtime, preloaded_root_children),
             attributes_sort: attributes::AttributesSortState::default(),
             attribute_filter: String::new(),
+            pinned_attributes: BTreeSet::new(),
             prev_always_on_top: None,
             show_about_dialog: false,
         }
@@ -433,6 +436,7 @@ impl eframe::App for InspectorApp {
                     &self.vm.selected_attributes,
                     &mut self.attributes_sort,
                     &mut self.attribute_filter,
+                    &mut self.pinned_attributes,
                 );
             } else {
                 attributes::show_no_selection(ui);
