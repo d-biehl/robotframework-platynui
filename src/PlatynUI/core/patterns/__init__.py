@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from ..types import Point, Rect
 from .activation import Activatable
+from .activation_target import ActivationTarget
 from .base import PatternBase
 from .element import Element
 from .focusable import Focusable
@@ -32,6 +33,7 @@ from .toggle import Toggleable, ToggleState
 
 __all__ = [
     'Activatable',
+    'ActivationTarget',
     'Clearable',
     'Element',
     'Focusable',

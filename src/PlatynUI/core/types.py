@@ -18,12 +18,14 @@ from __future__ import annotations
 
 from typing import TypeAlias
 
-from platynui_native import Point, Rect
+from platynui_native import Point, PointerButton, Rect
 
 __all__ = [
     'FrameworkId',
+    'MouseButton',
     'PatternName',
     'Point',
+    'PointerButton',
     'Rect',
     'RoleName',
     'TechnologyName',
@@ -42,3 +44,8 @@ TechnologyName: TypeAlias = str
 #: UI framework identifier as reported by the platform (e.g. ``"WPF"``,
 #: ``"Qt"``, ``"Gtk"``).
 FrameworkId: TypeAlias = str
+
+#: Historical Python alias for :class:`platynui_native.PointerButton`.
+#: Kept so that PlatynUI keywords and tests can spell out the familiar
+#: ``MouseButton`` name without depending on the native module directly.
+MouseButton: TypeAlias = PointerButton

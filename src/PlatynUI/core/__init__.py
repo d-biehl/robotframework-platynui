@@ -13,6 +13,16 @@ from __future__ import annotations
 from .adapter import Adapter
 from .adapter_proxy import AdapterFacade, AdapterProxy, PatternProxyFactory, pattern_proxy_for
 from .adapters import UiNodeAdapter, UiNodeTechnology
+from .devices import (
+    AdapterKeyboardProxy,
+    AdapterMouseProxy,
+    Anchor,
+    KeyboardAction,
+    KeyboardProxy,
+    MouseAction,
+    MouseProxy,
+    VirtualPoint,
+)
 from .ensure import add_ensure_hook, ensure_that, full_repr
 from .exceptions import (
     AdapterError,
@@ -41,7 +51,7 @@ from .predicate import predicate
 from .runtime import Runtime, runtime
 from .settings import Settings
 from .technology import Technology
-from .types import FrameworkId, PatternName, RoleName, TechnologyName
+from .types import FrameworkId, MouseButton, PatternName, RoleName, TechnologyName
 from .wait import wait_for
 from .weight_calculator import AdapterLike, WeightCalculator
 
@@ -49,20 +59,28 @@ __all__ = [
     'Adapter',
     'AdapterError',
     'AdapterFacade',
+    'AdapterKeyboardProxy',
     'AdapterLike',
+    'AdapterMouseProxy',
     'AdapterNotFoundError',
     'AdapterNotFoundFatalError',
     'AdapterNotValidError',
     'AdapterProxy',
+    'Anchor',
     'CannotEnsureError',
     'DeviceError',
     'ElementNotFoundError',
     'EnsureError',
     'FrameworkId',
     'InvalidArgumentError',
+    'KeyboardAction',
+    'KeyboardProxy',
     'Locator',
     'LocatorError',
     'LocatorScope',
+    'MouseAction',
+    'MouseButton',
+    'MouseProxy',
     'MultipleElementsFoundError',
     'NoDisplayDeviceError',
     'NoKeyboardDeviceError',
@@ -82,6 +100,7 @@ __all__ = [
     'TechnologyName',
     'UiNodeAdapter',
     'UiNodeTechnology',
+    'VirtualPoint',
     'WeightCalculator',
     'add_ensure_hook',
     'ensure_that',

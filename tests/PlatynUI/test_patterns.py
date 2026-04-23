@@ -19,6 +19,7 @@ import pytest
 
 from PlatynUI.core.patterns import (
     Activatable,
+    ActivationTarget,
     Clearable,
     Element,
     Focusable,
@@ -33,6 +34,7 @@ from PlatynUI.core.patterns import (
 
 ALL_PATTERNS: list[type[PatternBase]] = [
     Activatable,
+    ActivationTarget,
     Clearable,
     Element,
     Focusable,
@@ -102,6 +104,7 @@ def test_pattern_names_match_rust_ids() -> None:
     """
     expected = {
         Activatable: 'org.platynui.patterns.Activatable',
+        ActivationTarget: 'org.platynui.patterns.ActivationTarget',
         Clearable: 'org.platynui.patterns.Clearable',
         Element: 'org.platynui.patterns.Element',
         Focusable: 'org.platynui.patterns.Focusable',
@@ -286,6 +289,39 @@ def test_concrete_clearable_implementation() -> None:
     f = Field()
     f.clear()
     assert f.cleared is True
+
+
+def test_concrete_activation_target_implementation() -> None:
+    """Adapter overrides may surface ``ActivationArea`` and
+    ``ActivationHint``; the ABC defaults both to ``None``."""
+
+    class Btn(ActivationTarget):
+        @property
+        def activation_point(self) -> Point:
+            return Point(40.0, 25.0)
+
+    class RichBtn(ActivationTarget):
+        @property
+        def activation_point(self) -> Point:
+            return Point(40.0, 25.0)
+
+        @property
+        def activation_area(self) -> Rect | None:
+            return Rect(30.0, 20.0, 20.0, 10.0)
+
+        @property
+        def activation_hint(self) -> str | None:
+            return 'click ribbon expand chevron'
+
+    minimal = Btn()
+    assert minimal.activation_point == Point(40.0, 25.0)
+    assert minimal.activation_area is None
+    assert minimal.activation_hint is None
+
+    rich = RichBtn()
+    assert rich.activation_point == Point(40.0, 25.0)
+    assert rich.activation_area == Rect(30.0, 20.0, 20.0, 10.0)
+    assert rich.activation_hint == 'click ribbon expand chevron'
 
 
 def test_toggle_state_values() -> None:

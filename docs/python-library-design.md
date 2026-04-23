@@ -2313,80 +2313,243 @@ API), `close_application` schickt ein Window-Close (X-Knopf-Äquivalent).
 
 ### A.9 Devices: Mouse / Keyboard (`core/devices.py`)
 
-Die Python-Devices sind dünne Wrapper über die Rust-Profile. Sie liefern
-zwei Dinge: Coordinate-Resolving relativ zur Element-BoundingBox und
-Pre/Post-Verifikation (Element in View, App ready).
+Die Python-Devices sind **dünne Element-Wrapper** über die im Rust-
+Runtime bereits vollständig implementierte Pointer/Keyboard-Pipeline.
+Die komplette Low-Level-Logik (Profile, `PointerOverrides`, Multi-
+Click-Multiplikator, Press/Release-Delays, Move-Interpolation, Sequenz-
+Parser für `<Ctrl+A>`, Modifier-Stacking) lebt in `crates/runtime` und
+ist via `runtime.current.pointer_*` / `runtime.current.keyboard_*` von
+Python aus direkt erreichbar.
+
+Die Python-Schicht trägt nur noch drei Verantwortlichkeiten:
+
+1. **Element-bezogenes Coord-Resolving**: aus einer `Point | VirtualPoint
+   | None`-Override plus optionalen `x`/`y`-Offsets eine absolute
+   Desktop-Koordinate berechnen, die an Rust übergeben wird.
+2. **Default-Click-Position**: über die Adapter-Pattern-Kette
+   (`ActivationTarget` → `Element`) den Standard-Klickpunkt eines
+   Elements bestimmen.
+3. **Pre/Post-Hooks**: `before_action`/`after_action` als
+   Erweiterungspunkt für Element-Integration in Phase 3 (`ensure_that(
+   toplevel_active, in_view)`); in `core/devices.py` selbst no-op.
+
+Es gibt **kein** `MouseDevice`/`KeyboardDevice`-Zwischenlayer mehr —
+der Rust-Runtime *ist* das Device.
+
+#### A.9.1 Aktions-Enums und Typ-Aliase
 
 ```python
 class MouseAction(StrEnum):
-    MOVE = "move"; PRESS = "press"; RELEASE = "release"
-    CLICK = "click"; DOUBLE_CLICK = "double_click"
+    MOVE = "move"
+    PRESS = "press"
+    RELEASE = "release"
+    CLICK = "click"
+    DOUBLE_CLICK = "double_click"
 
+class KeyboardAction(StrEnum):
+    TYPE = "type"
+    PRESS = "press"
+    RELEASE = "release"
+
+# core/types.py
+MouseButton: TypeAlias = PointerButton  # 1:1 aus platynui_native
+```
+
+`PointerButton` (LEFT=1, MIDDLE=2, RIGHT=3) wird unverändert aus dem
+Rust-Modul re-exportiert. `MouseButton` ist der historische Python-Name
+für dieselbe Enum.
+
+#### A.9.2 VirtualPoint und Anchor
+
+`VirtualPoint` ist eine reine Funktion `Rect → Point`, die einen
+Anker-Punkt innerhalb eines Bounding-Rects beschreibt.
+
+```python
+@dataclass(frozen=True)
+class VirtualPoint:
+    name: str
+    func: Callable[[Rect], Point]
+
+    def resolve(self, rect: Rect) -> Point:
+        return self.func(rect)
+
+
+class Anchor:
+    """Vordefinierte VirtualPoints für Element-Bounds."""
+    TOP_LEFT     = VirtualPoint("top_left",     lambda r: r.position())
+    TOP          = VirtualPoint("top",          lambda r: Point(r.x + r.width / 2, r.y))
+    TOP_RIGHT    = VirtualPoint("top_right",    lambda r: Point(r.right(), r.y))
+    LEFT         = VirtualPoint("left",         lambda r: Point(r.x, r.y + r.height / 2))
+    CENTER       = VirtualPoint("center",       lambda r: r.center())
+    RIGHT        = VirtualPoint("right",        lambda r: Point(r.right(), r.y + r.height / 2))
+    BOTTOM_LEFT  = VirtualPoint("bottom_left",  lambda r: Point(r.x, r.bottom()))
+    BOTTOM       = VirtualPoint("bottom",       lambda r: Point(r.x + r.width / 2, r.bottom()))
+    BOTTOM_RIGHT = VirtualPoint("bottom_right", lambda r: Point(r.right(), r.bottom()))
+```
+
+Im Gegensatz zum Altcode (`tmp/.../core/types.py:76`) gibt es **keinen
+None-Achsenwert-Trick** mehr — der neue `Point` ist immer vollständig.
+Y-only-Anker (Altcode `Anchor.TOP` mit `x=None`) sind durch konkrete
+Halbierung der Width abgelöst.
+
+#### A.9.3 MouseProxy
+
+```python
 class MouseProxy(ABC):
-    """Element-relativer Maus-Wrapper. Berechnet absolute Koordinaten
-    aus base_point + default_click_position + Override (Point/x/y)."""
-    @property @abstractmethod
-    def base_point(self) -> Point: ...
-    @property @abstractmethod
-    def base_rect(self) -> Rect: ...
+    """Element-relativer Maus-Wrapper.
+
+    Berechnet absolute Desktop-Koordinaten aus base_rect plus
+    Override (Point | VirtualPoint | None) plus optionalen x/y-Offsets
+    und delegiert die eigentliche Pointer-Aktion an den Rust-Runtime.
+    """
+
     @property
-    def default_click_position(self) -> Point: return Point(0, 0)
+    @abstractmethod
+    def base_rect(self) -> Rect:
+        """Element-Bounding-Box im Desktop-Koordinatensystem."""
+
+    @property
+    def default_click_position(self) -> Point:
+        """Default-Klickpunkt (absolut). Wird verwendet wenn pos=None."""
+        return self.base_rect.center()
 
     def before_action(self, action: MouseAction) -> None: ...
     def after_action(self, action: MouseAction) -> None: ...
 
-    def move_to(self, pos: Point | None = None, *,
-                x: int | None = None, y: int | None = None) -> Point: ...
-    def press(self, *, button: MouseButton = MouseButton.LEFT,
-              pos=None, x=None, y=None) -> None: ...
-    def release(self, *, button=MouseButton.LEFT, pos=None, x=None, y=None) -> None: ...
-    def click(self, *, button=MouseButton.LEFT, times: int = 1,
-              pos=None, x=None, y=None) -> None: ...
-    def double_click(self, *, button=MouseButton.LEFT, pos=None, x=None, y=None) -> None: ...
+    def _resolve_point(
+        self,
+        pos: Point | VirtualPoint | None,
+        x: float | None,
+        y: float | None,
+    ) -> Point:
+        if pos is None:
+            base = self.default_click_position
+        elif isinstance(pos, VirtualPoint):
+            base = pos.resolve(self.base_rect)
+        else:  # Point — relativ zu Element-TopLeft
+            base = self.base_rect.position() + pos
+        return base.translate(x or 0.0, y or 0.0)
 
+    def move_to(
+        self,
+        pos: Point | VirtualPoint | None = None,
+        *,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> Point:
+        target = self._resolve_point(pos, x, y)
+        self.before_action(MouseAction.MOVE)
+        runtime.current.pointer_move(target.x, target.y, origin="desktop")
+        self.after_action(MouseAction.MOVE)
+        return target
+
+    def click(
+        self,
+        *,
+        button: MouseButton = MouseButton.LEFT,
+        times: int = 1,
+        pos: Point | VirtualPoint | None = None,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> None:
+        target = self._resolve_point(pos, x, y)
+        self.before_action(MouseAction.CLICK)
+        runtime.current.pointer_multi_click(
+            target.x, target.y, button=button, clicks=times, origin="desktop",
+        )
+        self.after_action(MouseAction.CLICK)
+
+    # press / release / double_click analog
+```
+
+#### A.9.4 AdapterMouseProxy mit ActivationTarget-Fallback-Kette
+
+```python
 class AdapterMouseProxy(MouseProxy):
-    """Standard-Implementierung: holt BoundingRect aus dem Adapter."""
-    def __init__(self, adapter: Adapter, *,
-                 mouse_device: MouseDevice | None = None) -> None: ...
-    @property
-    def base_point(self) -> Point:
-        return self._adapter.get_pattern(patterns.Element).bounds.top_left
+    """Standard-Implementierung: liest Bounds und Default-Klickpunkt
+    über die Adapter-Pattern-Kette."""
+
+    def __init__(self, adapter: AdapterFacade) -> None:
+        self._adapter = adapter
+        self._logger = logging.getLogger("platynui.devices")
+
     @property
     def base_rect(self) -> Rect:
         return self._adapter.get_pattern(patterns.Element).bounds
+
     @property
     def default_click_position(self) -> Point:
+        # Fallback-Kette gemäß patterns.md / Spec §A.9:
+        # ActivationArea-Center → ActivationPoint → Element.default_click_position
+        if self._adapter.supports_pattern(patterns.ActivationTarget):
+            target = self._adapter.get_pattern(patterns.ActivationTarget)
+            if target.activation_area is not None:
+                return target.activation_area.center()
+            return target.activation_point
         return self._adapter.get_pattern(patterns.Element).default_click_position
+
+    def before_action(self, action: MouseAction) -> None:
+        if self._adapter.supports_pattern(patterns.ActivationTarget):
+            hint = self._adapter.get_pattern(patterns.ActivationTarget).activation_hint
+            if hint:
+                self._logger.debug("mouse %s: %s", action.value, hint)
 ```
 
-**Coord-Berechnung** (`_calc_mouse_point`, 1:1 aus Altcode
-`ui/core/devices/mouseproxy.py:58`):
+#### A.9.5 KeyboardProxy
 
-- Leerer `Point()` → `base_point + default_click_position` (mittiger
-  Default-Klick), `x`/`y` als Offsets.
-- Konkretes `Point(x, y)` → absolute Koordinate (nicht relativ).
-- `VirtualPoint(rel_x, rel_y)` → `pos.calc_rect(base_rect)` (Prozent-/
-  Anker-basiert).
-
-**`MouseDevice`** und **`KeyboardDevice`** sind die Low-Level-Adapter
-zu den Rust-`PointerProfile`/`KeyboardProfile`. Sie kapseln Multi-
-Click-Schutz, Move-Interpolation (`mouse_move_time`), Press/Release-
-Delays etc. — alles über `Settings`-Felder konfigurierbar.
+Der Rust-Runtime parst `<Ctrl+A>`, `<Shift+.>`, Unicode-Escapes etc.
+über `KeyboardSequence::parse` (pest-basiert, siehe
+`crates/runtime/src/keyboard_sequence.rs`). Die Python-API ist deshalb
+**kein Variadic** mehr — sie nimmt eine einzige Sequenz-String und
+reicht sie unverändert an Rust weiter.
 
 ```python
 class KeyboardProxy(ABC):
-    def type_keys(self, *keys: str | Key, delay: float | None = None) -> None: ...
-    def press_keys(self, *keys: str | Key) -> None: ...
-    def release_keys(self, *keys: str | Key) -> None: ...
-    def escape_text(self, value: str) -> str: ...
+    """Tastatur-Wrapper. Sequenz-Format wird komplett von Rust geparst."""
+
+    def before_action(self, action: KeyboardAction) -> None: ...
+    def after_action(self, action: KeyboardAction) -> None: ...
+
+    def type_keys(self, sequence: str) -> None:
+        self.before_action(KeyboardAction.TYPE)
+        runtime.current.keyboard_type(sequence)
+        self.after_action(KeyboardAction.TYPE)
+
+    def press_keys(self, sequence: str) -> None:
+        self.before_action(KeyboardAction.PRESS)
+        runtime.current.keyboard_press(sequence)
+        self.after_action(KeyboardAction.PRESS)
+
+    def release_keys(self, sequence: str) -> None:
+        self.before_action(KeyboardAction.RELEASE)
+        runtime.current.keyboard_release(sequence)
+        self.after_action(KeyboardAction.RELEASE)
+
+
+class AdapterKeyboardProxy(KeyboardProxy):
+    """Tastatur-Wrapper für ein Element. Aktuell ohne adapter-spezifische
+    Logik — Hook für Phase 3 (Element-Fokus, Verifikation)."""
+
+    def __init__(self, adapter: AdapterFacade) -> None:
+        self._adapter = adapter
 ```
 
-**Element-Integration** (analog zu Altcode `ui/element.py:211`): Die
-`Element`-Klasse exposed `self.mouse` und `self.keyboard` als
-property-cached Instanzen, deren `before_action` `ensure_that(
-self._toplevel_parent_is_active, self._element_is_in_view)` ruft —
-damit ist die Pre-Condition automatisch da, sobald jemand
-`button.mouse.click()` ausführt.
+#### A.9.6 Element-Integration (Phase 3, Vorausschau)
+
+In `ui/element.py` wird `Element` `mouse` und `keyboard` als property-
+cached `AdapterMouseProxy`/`AdapterKeyboardProxy` exposen, deren
+`before_action` dann ein echtes `ensure_that(toplevel_active, in_view)`
+ausführt. In `core/devices.py` selbst sind die Hooks no-op — die
+Element-Schicht hängt sich später per Subclass oder Override ein.
+
+#### A.9.7 Logging
+
+`AdapterMouseProxy` nutzt den Standard-Python-Logger
+`platynui.devices`. Wenn ein Element ein `ActivationTarget`-Pattern
+mit nicht-leerem `activation_hint` bietet, wird dieser auf DEBUG-Level
+vor jeder Maus-Aktion geloggt. Default-Level ist WARNING — User müssen
+explizit `logging.getLogger("platynui.devices").setLevel(logging.DEBUG)`
+setzen, um die Hints zu sehen.
 
 ### A.10 Pattern-Default-Implementierungen (`core/patterns/defaults.py`)
 
@@ -2419,7 +2582,7 @@ class DefaultTextEditable(patterns.TextEditable):
     def set_text(self, value: str) -> None:
         self._adapter.get_pattern(patterns.Focusable).focus()
         kb = AdapterKeyboardProxy(self._adapter)
-        kb.type_keys("<Control+A>", "<Delete>")
+        kb.type_keys("<Control+A><Delete>")
         kb.type_keys(value)
     @property
     def is_readonly(self) -> bool: return False
