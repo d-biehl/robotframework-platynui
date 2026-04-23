@@ -24,7 +24,7 @@ implementiert, Method-Form als Phase-3-Stub)
 | Designdoku Rev. 17 — Pattern-Konsolidierung | DONE | uncommitted; Element/TextContent/TextEditable/Clearable/Toggleable/Activatable/Focusable; Rust IsOffscreen→IsInView |
 | Rev. 18 — `@locator` Decorator-Form | DONE | uncommitted; Class-Decorator komplett, Method-Form als Phase-3-Stub mit `NotImplementedError` |
 | Phase 1 — Fundament | DONE | uncommitted; 10 Module incl. vorgezogenem `core/patterns/` (war Phase 2 #11); 128 pytest + 1980 nextest grün, ruff+mypy+pyright+clippy grün |
-| Phase 2 — Adapter-Schicht | IN PROGRESS | Adapter-ABC + AdapterProxy + UiNodeAdapter fertig (94 Tests); devices.py steht noch aus; MockAdapter gestrichen |
+| Phase 2 — Adapter-Schicht | IN PROGRESS | Adapter-ABC + AdapterProxy + UiNodeAdapter + Runtime-Singleton fertig (106 Tests); devices.py + UiNodeAdapter-Refactor (Rev. 20) stehen noch aus; MockAdapter gestrichen |
 | Phase 3 — Context-Schicht | PENDING | — |
 | Phase 4 — UI-Klassen + Standard-Proxies | PENDING | — |
 | Phase 5 — Keywords + Robot-Library | PENDING | — |
@@ -376,8 +376,11 @@ spätere Quelltext-Änderungen an Page-Objects.
 - [x] `core/adapters/ui_node.py` — `UiNodeAdapter` über `platynui_native`
       (§A.4a) inkl. `UiNodeTechnology`-Singleton und nativer
       `Focusable`-Wrapper. 32 Tests gegen `Runtime.new_with_mock()`.
+- [x] `core/runtime.py` — Process-wide Runtime-Singleton (`runtime` /
+      Klasse `Runtime`) mit `current` (lazy default), `set()`, `reset()`,
+      `is_initialised()`. 12 Tests. Designdoc §A.5 (Rev. 20).
 - [ ] `core/devices.py` — `MouseProxy`/`KeyboardProxy` über
-      `platynui_native.Runtime`.
+      `platynui_native.Runtime` (greifen auf `runtime.current` zu).
 
 (`core/patterns/` Pattern-ABCs wurden in Phase 1 vorgezogen, siehe
 Phase-1-Punkt 10 im Designdoc §10. Pattern-Default-Implementierungen

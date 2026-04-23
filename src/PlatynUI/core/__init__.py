@@ -38,6 +38,7 @@ from .exceptions import (
 )
 from .locator import Locator, LocatorScope, locator
 from .predicate import predicate
+from .runtime import Runtime, runtime
 from .settings import Settings
 from .technology import Technology
 from .types import FrameworkId, PatternName, RoleName, TechnologyName
@@ -75,6 +76,7 @@ __all__ = [
     'PlatynUIError',
     'PlatynUIFatalError',
     'RoleName',
+    'Runtime',
     'Settings',
     'Technology',
     'TechnologyName',
@@ -87,5 +89,6 @@ __all__ = [
     'locator',
     'pattern_proxy_for',
     'predicate',
+    'runtime',
     'wait_for',
 ]

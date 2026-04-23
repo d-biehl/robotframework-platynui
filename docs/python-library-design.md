@@ -4,7 +4,7 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 17**.
+> **Status:** Diskussionsentwurf, **Revision 20**.
 >
 > **Änderungen seit Rev. 4:**
 > - **Rev. 5** — modernes Python 3.10+ als verbindlicher Standard
@@ -127,6 +127,16 @@
 >   `attributes`-Dict. Doppelte Schlüssel über mehrere Kanäle werfen
 >   `TypeError` mit konkreter Quellenangabe — kein stilles
 >   Vorrang-Verhalten. Details in §7.1 und §A.6.
+> - **Rev. 20** — **Process-wide Runtime Singleton.** `PlatynUI.core.runtime`
+>   exportiert ein Singleton-Objekt `runtime` (Klasse `Runtime`) mit
+>   `current` (lazy default), `set()`, `reset()` und `is_initialised()`.
+>   Adapter, Device-Proxies, künftige Robot-Keywords, BareMetal-Helper
+>   und Inspector teilen sich denselben `platynui_native.Runtime`.
+>   Konsequenzen: `UiNodeAdapter.create_root()` braucht keinen Runtime-
+>   Parameter mehr; `AdapterMouseProxy` / `AdapterKeyboardProxy` greifen
+>   intern auf `runtime.current` zu. Tests installieren Mock-Runtimes via
+>   `runtime.set(NativeRuntime.new_with_mock())` und reset im Teardown.
+>   Siehe §A.5.
 > - **Rev. 19** — **Rust-API-Symmetrie zu Python: `PatternId` → `PatternName`.**
 >   Der Newtype `PatternId` heißt jetzt `PatternName`, das Konstanten-Modul
 >   `pattern_ids` heißt `pattern_names`, die Trait-Methoden `UiPattern::id()`
@@ -1837,6 +1847,66 @@ class Element(ContextBase):
 Diese Properties sind die Quelle für Default-Predicates
 (`is_visible`, `is_enabled`, …; siehe §A.3) und für Devices
 (`MouseProxy.click(element)` liest `bounding_rectangle`).
+
+### A.5 Process-wide Runtime (`core/runtime.py`)
+
+Die PlatynUI-Bibliothek bündelt einen einzigen
+`platynui_native.Runtime` pro Prozess. Provider-Cache,
+Pointer-/Keyboard-Profile und der Desktop-Tree gehören diesem
+Runtime-Objekt; Adapter, Device-Proxies, Robot-Keywords, der
+BareMetal-Helper und der Inspector arbeiten alle gegen dieselbe
+Instanz. Den Runtime explizit durch jeden Konstruktor zu reichen
+würde dem Robot-Framework-Idiom (Keywords ohne Per-Call-Context)
+widersprechen und die User-API unnötig aufblähen.
+
+**API.** `core/runtime.py` exportiert ein Singleton-Objekt
+`runtime` (Klasse `Runtime`) mit drei Operationen:
+
+```python
+from PlatynUI.core import runtime
+
+runtime.current        # liefert den aktiven platynui_native.Runtime,
+                       # erzeugt beim ersten Zugriff lazy einen Default
+runtime.set(other_rt)  # ersetzt die aktive Instanz (z.B. Mock im Test)
+runtime.reset()        # ruft shutdown() und droppt; nächster
+                       # current-Zugriff erzeugt eine frische Instanz
+runtime.is_initialised()  # True iff bereits eine Instanz vorhanden
+```
+
+**Lazy-Default.** Der erste `current`-Zugriff erzeugt
+`platynui_native.Runtime()` (Standard-Provider-Discovery via
+`inventory`). Wer eine andere Konfiguration braucht (Mock-Provider,
+spezieller Factory), ruft `set()` *vor* dem ersten `current`-Zugriff
+auf — oder `reset()` und danach `set()`.
+
+**Thread-Safety.** Der Accessor selbst wird durch ein `RLock`
+geschützt. Die zugrundeliegende `platynui_native.Runtime` hält intern
+ein Rust-`Mutex` und ist sicher zwischen Python-Threads teilbar.
+Pointer- und Keyboard-Methoden adressieren absolute
+Bildschirmkoordinaten bzw. die OS-Event-Queue und sind damit
+node-unabhängig: ein `set()` mitten in einer Session invalidiert keine
+zuvor geholten `UiNode`-Instanzen — diese referenzieren weiterhin
+ihren ursprünglichen Provider-Tree.
+
+**Tests.** Mock-Tests installieren typischerweise per Fixture eine
+mock-getragene Runtime:
+
+```python
+@pytest.fixture
+def mock_runtime():
+    from PlatynUI.core import runtime
+    from platynui_native import Runtime as NativeRuntime
+    rt = NativeRuntime.new_with_mock()
+    runtime.set(rt)
+    try:
+        yield rt
+    finally:
+        runtime.reset()
+```
+
+`runtime.reset()` schluckt Exceptions aus `shutdown()` (best-effort
+teardown) — Test-Cleanup soll niemals den eigentlichen Test
+verschleiern.
 
 ### A.6 `@locator`-Mechanik (`core/locator.py`)
 
