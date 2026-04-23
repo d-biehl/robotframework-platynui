@@ -324,31 +324,10 @@ impl InspectorViewModel {
                 self.selected_label = selected_label;
                 self.selected_attributes = attributes;
 
-                // Highlight bounds on screen (skip root desktop node).
-                if !is_root {
-                    if let Some(bounds) = bounds {
-                        let rt = Arc::clone(&self.runtime);
-                        automation::dispatch_tracked(automation::TaskKind::Highlight, move || {
-                            tracing::debug!(
-                                node_id,
-                                thread_id = ?std::thread::current().id(),
-                                "highlighting node bounds on automation worker"
-                            );
-                            let req = HighlightRequest::new(bounds).with_duration(Duration::from_millis(1500));
-                            if let Err(err) = rt.highlight(&req) {
-                                tracing::error!(%err, "highlight failed");
-                            }
-                        });
-                    } else {
-                        let rt = Arc::clone(&self.runtime);
-                        automation::dispatch_tracked(automation::TaskKind::Highlight, move || {
-                            tracing::debug!(
-                                thread_id = ?std::thread::current().id(),
-                                "clearing highlight on automation worker"
-                            );
-                            let _ = rt.clear_highlight();
-                        });
-                    }
+                if is_root {
+                    self.clear_highlight();
+                } else {
+                    self.highlight_bounds(node_id, bounds);
                 }
 
                 ctx.request_repaint();
@@ -445,6 +424,89 @@ impl InspectorViewModel {
     /// Refresh a tree row and its entire subtree.
     pub fn refresh_subtree(&mut self, index: usize) {
         self.tree.refresh_subtree(index);
+    }
+
+    fn highlight_bounds(&self, node_id: String, bounds: Option<platynui_core::types::Rect>) {
+        if let Some(bounds) = bounds {
+            let rt = Arc::clone(&self.runtime);
+            automation::dispatch_tracked(automation::TaskKind::Highlight, move || {
+                tracing::debug!(
+                    node_id,
+                    thread_id = ?std::thread::current().id(),
+                    "highlighting node bounds on automation worker"
+                );
+                let req = HighlightRequest::new(bounds).with_duration(Duration::from_millis(1500));
+                if let Err(err) = rt.highlight(&req) {
+                    tracing::error!(%err, "highlight failed");
+                }
+            });
+        } else {
+            self.clear_highlight();
+        }
+    }
+
+    fn clear_highlight(&self) {
+        let rt = Arc::clone(&self.runtime);
+        automation::dispatch_tracked(automation::TaskKind::Highlight, move || {
+            tracing::debug!(
+                thread_id = ?std::thread::current().id(),
+                "clearing highlight on automation worker"
+            );
+            let _ = rt.clear_highlight();
+        });
+    }
+
+    /// Clear current search results and status.
+    pub fn clear_results(&mut self) {
+        self.results.clear();
+        self.result_status = None;
+        self.result_focused_index = 0;
+    }
+
+    /// Refresh the currently selected tree row, if any.
+    pub fn refresh_selected_row(&mut self) {
+        if let Some(index) = self.selected_index {
+            self.refresh_row(index);
+        }
+    }
+
+    /// Refresh the currently selected tree row subtree, if any.
+    pub fn refresh_selected_subtree(&mut self) {
+        if let Some(index) = self.selected_index {
+            self.refresh_subtree(index);
+        }
+    }
+
+    /// Highlight the currently selected tree row, if any.
+    pub fn highlight_selected_row(&self) {
+        if let Some(index) = self.selected_index {
+            self.highlight_row(index);
+        }
+    }
+
+    /// Highlight a specific tree row, if possible.
+    pub fn highlight_row(&self, index: usize) {
+        if let Some(row) = self.tree.rows().get(index) {
+            if row.data.has_parent() {
+                self.highlight_bounds(row.data.id(), row.data.bounds_rect());
+            } else {
+                self.clear_highlight();
+            }
+        }
+    }
+
+    /// Expand the currently selected tree row, if any.
+    pub fn expand_selected_row(&mut self) {
+        if let Some(index) = self.selected_index {
+            self.tree.expand(index);
+        }
+    }
+
+    /// Collapse the currently selected tree row, if any.
+    pub fn collapse_selected_row(&mut self) {
+        if let Some(index) = self.selected_index {
+            self.tree.collapse(index);
+        }
     }
 
     /// Evaluate the current `search_text` as an XPath expression (non-blocking).

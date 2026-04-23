@@ -122,7 +122,7 @@ pub fn show_properties(
                 });
             })
             .body(|mut body| {
-                for &idx in &indices {
+                for (row_idx, &idx) in indices.iter().enumerate() {
                     let attr = &attributes[idx];
                     let name_str = format!("{}:{}", attr.namespace, attr.name);
                     let row_str = format!("{}={}", name_str, attr.value);
@@ -131,35 +131,102 @@ pub fn show_properties(
                         // Column 0: Name (read-only selectable text)
                         row.col(|ui| {
                             let mut text = name_str.clone();
-                            let te = egui::TextEdit::singleline(&mut text)
-                                .desired_width(ui.available_width())
-                                .frame(egui::Frame::NONE)
-                                .interactive(true);
-                            let resp = ui.add(te);
-                            show_row_context_menu(&resp, &name_str, &attr.value, &attr.value_type, &row_str);
+                            let cell_id = ui.id().with(("prop_name", row_idx));
+                            // Snapshot state BEFORE TextEdit runs so we can restore it
+                            // if a right-click press wipes the selection (see below).
+                            let prev_state = egui::text_edit::TextEditState::load(ui.ctx(), cell_id);
+                            let prev_sel = cell_selection_from_state(prev_state.as_ref(), &name_str);
+                            let resp = ui.add(
+                                egui::TextEdit::singleline(&mut text)
+                                    .id(cell_id)
+                                    .desired_width(ui.available_width())
+                                    .frame(egui::Frame::NONE)
+                                    .interactive(true),
+                            );
+                            // TextEdit's pointer_interaction() calls any_pressed() which
+                            // fires on the secondary (right) button too, resetting the
+                            // cursor and wiping the selection. Restore the snapshot so the
+                            // selection survives into the next frame when the context menu
+                            // actually opens (secondary_clicked = button released).
+                            if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary))
+                                && resp.hovered()
+                                && let Some(state) = prev_state
+                            {
+                                state.store(ui.ctx(), cell_id);
+                            }
+                            show_text_cell_context_menu(
+                                &resp,
+                                cell_id,
+                                &name_str,
+                                prev_sel,
+                                &name_str,
+                                &attr.value,
+                                &attr.value_type,
+                                &row_str,
+                            );
                         });
 
                         // Column 1: Value (read-only selectable text)
                         row.col(|ui| {
                             let mut text = attr.value.clone();
-                            let te = egui::TextEdit::singleline(&mut text)
-                                .desired_width(ui.available_width())
-                                .frame(egui::Frame::NONE)
-                                .interactive(true);
-                            let resp = ui.add(te);
-                            show_row_context_menu(&resp, &name_str, &attr.value, &attr.value_type, &row_str);
+                            let cell_id = ui.id().with(("prop_value", row_idx));
+                            let prev_state = egui::text_edit::TextEditState::load(ui.ctx(), cell_id);
+                            let prev_sel = cell_selection_from_state(prev_state.as_ref(), &attr.value);
+                            let resp = ui.add(
+                                egui::TextEdit::singleline(&mut text)
+                                    .id(cell_id)
+                                    .desired_width(ui.available_width())
+                                    .frame(egui::Frame::NONE)
+                                    .interactive(true),
+                            );
+                            if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary))
+                                && resp.hovered()
+                                && let Some(state) = prev_state
+                            {
+                                state.store(ui.ctx(), cell_id);
+                            }
+                            show_text_cell_context_menu(
+                                &resp,
+                                cell_id,
+                                &attr.value,
+                                prev_sel,
+                                &name_str,
+                                &attr.value,
+                                &attr.value_type,
+                                &row_str,
+                            );
                         });
 
                         // Column 2: Type (read-only selectable text)
                         row.col(|ui| {
                             let mut text = attr.value_type.clone();
-                            let te = egui::TextEdit::singleline(&mut text)
-                                .desired_width(ui.available_width())
-                                .text_color(egui::Color32::from_gray(160))
-                                .frame(egui::Frame::NONE)
-                                .interactive(true);
-                            let resp = ui.add(te);
-                            show_row_context_menu(&resp, &name_str, &attr.value, &attr.value_type, &row_str);
+                            let cell_id = ui.id().with(("prop_type", row_idx));
+                            let prev_state = egui::text_edit::TextEditState::load(ui.ctx(), cell_id);
+                            let prev_sel = cell_selection_from_state(prev_state.as_ref(), &attr.value_type);
+                            let resp = ui.add(
+                                egui::TextEdit::singleline(&mut text)
+                                    .id(cell_id)
+                                    .desired_width(ui.available_width())
+                                    .text_color(egui::Color32::from_gray(160))
+                                    .frame(egui::Frame::NONE)
+                                    .interactive(true),
+                            );
+                            if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary))
+                                && resp.hovered()
+                                && let Some(state) = prev_state
+                            {
+                                state.store(ui.ctx(), cell_id);
+                            }
+                            show_text_cell_context_menu(
+                                &resp,
+                                cell_id,
+                                &attr.value_type,
+                                prev_sel,
+                                &name_str,
+                                &attr.value,
+                                &attr.value_type,
+                                &row_str,
+                            );
                         });
                     });
                 }
@@ -167,24 +234,76 @@ pub fn show_properties(
     });
 }
 
-/// Context menu for a properties row with quick copy options.
-fn show_row_context_menu(response: &egui::Response, name: &str, value: &str, value_type: &str, row_text: &str) {
+/// Read the selected text out of a TextEditState snapshot.
+fn cell_selection_from_state(state: Option<&egui::text_edit::TextEditState>, cell_text: &str) -> Option<String> {
+    state
+        .and_then(|s| s.cursor.char_range())
+        .map(|range| {
+            let r = range.as_sorted_char_range();
+            cell_text.chars().skip(r.start).take(r.end - r.start).collect::<String>()
+        })
+        .filter(|s| !s.is_empty())
+}
+
+/// Context menu for text cells in the properties table.
+///
+/// `prev_sel` is the selection captured **before** the TextEdit was rendered this
+/// frame (see [`read_cell_selection`]).  Passing it in means right-click no longer
+/// wipes the selection before the menu can use it.
+fn show_text_cell_context_menu(
+    response: &egui::Response,
+    cell_id: egui::Id,
+    cell_text: &str,
+    prev_sel: Option<String>,
+    name: &str,
+    value: &str,
+    value_type: &str,
+    row_text: &str,
+) {
     response.context_menu(|ui| {
+        let ctx = ui.ctx().clone();
+
+        let copy_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::C);
+        let label = if prev_sel.is_some() { "Copy Selection" } else { "Copy" };
+        if ui.add(egui::Button::new(label).shortcut_text(ctx.format_shortcut(&copy_shortcut))).clicked() {
+            ctx.copy_text(prev_sel.unwrap_or_else(|| cell_text.to_string()));
+            ui.close();
+        }
+
+        let select_all_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::A);
+        if ui.add(egui::Button::new("Select All").shortcut_text(ctx.format_shortcut(&select_all_shortcut))).clicked() {
+            if let Some(mut state) = egui::text_edit::TextEditState::load(&ctx, cell_id) {
+                let len = cell_text.chars().count();
+                state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(0),
+                    egui::text::CCursor::new(len),
+                )));
+                state.store(&ctx, cell_id);
+            }
+            ctx.memory_mut(|m| m.request_focus(cell_id));
+            ui.close();
+        }
+
+        ui.separator();
+
         if ui.button("Copy Name").clicked() {
-            ui.ctx().copy_text(name.to_string());
+            ctx.copy_text(name.to_string());
             ui.close();
         }
         if ui.button("Copy Value").clicked() {
-            ui.ctx().copy_text(value.to_string());
+            ctx.copy_text(value.to_string());
             ui.close();
         }
         if ui.button("Copy Type").clicked() {
-            ui.ctx().copy_text(value_type.to_string());
+            ctx.copy_text(value_type.to_string());
             ui.close();
         }
         ui.separator();
-        if ui.button("Copy Row").clicked() {
-            ui.ctx().copy_text(row_text.to_string());
+
+        let copy_row_shortcut =
+            egui::KeyboardShortcut::new(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::C);
+        if ui.add(egui::Button::new("Copy Row").shortcut_text(ctx.format_shortcut(&copy_row_shortcut))).clicked() {
+            ctx.copy_text(row_text.to_string());
             ui.close();
         }
     });

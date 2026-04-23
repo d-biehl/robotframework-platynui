@@ -115,6 +115,20 @@ struct InspectorApp {
     show_about_dialog: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum AppCommand {
+    ShowAbout,
+    EvaluateXPath,
+    CancelSearch,
+    ClearResults,
+    RefreshNode,
+    RefreshSubtree,
+    HighlightNode,
+    ExpandNode,
+    CollapseNode,
+    FocusSearch,
+}
+
 impl InspectorApp {
     fn new(runtime: Arc<Runtime>, preloaded_root_children: Vec<Arc<UiNodeData>>) -> Self {
         Self {
@@ -124,25 +138,96 @@ impl InspectorApp {
             show_about_dialog: false,
         }
     }
+
+    fn collect_shortcut_commands(ctx: &egui::Context) -> Vec<AppCommand> {
+        let mut commands = Vec::new();
+
+        let search_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Enter);
+        if ctx.input_mut(|i| i.consume_shortcut(&search_shortcut)) {
+            commands.push(AppCommand::EvaluateXPath);
+        }
+
+        let focus_search_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::F);
+        if ctx.input_mut(|i| i.consume_shortcut(&focus_search_shortcut)) {
+            commands.push(AppCommand::FocusSearch);
+        }
+
+        let refresh_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::F5);
+        if ctx.input_mut(|i| i.consume_shortcut(&refresh_shortcut)) {
+            commands.push(AppCommand::RefreshNode);
+        }
+
+        let refresh_subtree_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::SHIFT, egui::Key::F5);
+        if ctx.input_mut(|i| i.consume_shortcut(&refresh_subtree_shortcut)) {
+            commands.push(AppCommand::RefreshSubtree);
+        }
+
+        let highlight_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::H);
+        if ctx.input_mut(|i| i.consume_shortcut(&highlight_shortcut)) {
+            commands.push(AppCommand::HighlightNode);
+        }
+
+        let search_has_focus = ctx.memory(|mem| mem.has_focus(toolbar::search_field_id()));
+        if !search_has_focus && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            commands.push(AppCommand::CancelSearch);
+        }
+
+        commands
+    }
+
+    fn execute_command(&mut self, ctx: &egui::Context, command: AppCommand) {
+        match command {
+            AppCommand::ShowAbout => self.show_about_dialog = true,
+            AppCommand::EvaluateXPath => self.vm.evaluate_xpath(),
+            AppCommand::CancelSearch => self.vm.cancel_search(),
+            AppCommand::ClearResults => self.vm.clear_results(),
+            AppCommand::RefreshNode => self.vm.refresh_selected_row(),
+            AppCommand::RefreshSubtree => self.vm.refresh_selected_subtree(),
+            AppCommand::HighlightNode => self.vm.highlight_selected_row(),
+            AppCommand::ExpandNode => self.vm.expand_selected_row(),
+            AppCommand::CollapseNode => self.vm.collapse_selected_row(),
+            AppCommand::FocusSearch => {
+                ctx.memory_mut(|mem| mem.request_focus(toolbar::search_field_id()));
+            }
+        }
+    }
 }
 
 impl eframe::App for InspectorApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        let is_searching = self.vm.is_searching();
+        let has_node_selection = self.vm.selected_index.is_some();
+
+        for command in Self::collect_shortcut_commands(&ctx) {
+            self.execute_command(&ctx, command);
+        }
 
         // View: Menu Bar (top)
-        let menu_actions = toolbar::show_menu_bar(ui);
+        let menu_actions = toolbar::show_menu_bar(ui, has_node_selection, is_searching);
 
         for action in menu_actions {
             match action {
-                toolbar::MenuAction::ShowAbout => self.show_about_dialog = true,
+                toolbar::MenuAction::EvaluateXPath => self.execute_command(&ctx, AppCommand::EvaluateXPath),
+                toolbar::MenuAction::CancelSearch => self.execute_command(&ctx, AppCommand::CancelSearch),
+                toolbar::MenuAction::ClearResults => self.execute_command(&ctx, AppCommand::ClearResults),
+                toolbar::MenuAction::RefreshNode => self.execute_command(&ctx, AppCommand::RefreshNode),
+                toolbar::MenuAction::RefreshSubtree => self.execute_command(&ctx, AppCommand::RefreshSubtree),
+                toolbar::MenuAction::HighlightNode => self.execute_command(&ctx, AppCommand::HighlightNode),
+                toolbar::MenuAction::ExpandNode => self.execute_command(&ctx, AppCommand::ExpandNode),
+                toolbar::MenuAction::CollapseNode => self.execute_command(&ctx, AppCommand::CollapseNode),
+                toolbar::MenuAction::ShowAbout => self.execute_command(&ctx, AppCommand::ShowAbout),
             }
         }
 
         // View: Search Bar (below menu)
-        let is_searching = self.vm.is_searching();
-        let search_actions =
-            toolbar::show_search_bar(ui, &mut self.vm.search_text, &mut self.vm.always_on_top, is_searching);
+        let search_actions = toolbar::show_search_bar(
+            ui,
+            &mut self.vm.search_text,
+            &mut self.vm.always_on_top,
+            is_searching,
+            has_node_selection,
+        );
 
         // Apply "Always On Top" setting only when it changes to avoid
         // flooding the window manager with _NET_WM_STATE requests every frame.
@@ -161,8 +246,10 @@ impl eframe::App for InspectorApp {
         // search is started before the first poll in the same frame).
         for action in search_actions {
             match action {
-                toolbar::ToolbarAction::EvaluateXPath => self.vm.evaluate_xpath(),
-                toolbar::ToolbarAction::CancelSearch => self.vm.cancel_search(),
+                toolbar::ToolbarAction::EvaluateXPath => self.execute_command(&ctx, AppCommand::EvaluateXPath),
+                toolbar::ToolbarAction::CancelSearch => self.execute_command(&ctx, AppCommand::CancelSearch),
+                toolbar::ToolbarAction::RefreshNode => self.execute_command(&ctx, AppCommand::RefreshNode),
+                toolbar::ToolbarAction::RefreshSubtree => self.execute_command(&ctx, AppCommand::RefreshSubtree),
             }
         }
 
@@ -222,12 +309,67 @@ impl eframe::App for InspectorApp {
                     .scroll_to_focused(scroll)
                     .context_menu(|ui, i| {
                         let mut close = false;
-                        if ui.button("Refresh").clicked() {
+
+                        let refresh_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::F5);
+                        if ui
+                            .add(
+                                egui::Button::new("Refresh Node")
+                                    .shortcut_text(ui.ctx().format_shortcut(&refresh_shortcut)),
+                            )
+                            .clicked()
+                        {
                             self.vm.refresh_row(i);
                             close = true;
                         }
-                        if ui.button("Refresh subtree").clicked() {
+
+                        let refresh_subtree_shortcut =
+                            egui::KeyboardShortcut::new(egui::Modifiers::SHIFT, egui::Key::F5);
+                        if ui
+                            .add(
+                                egui::Button::new("Refresh Subtree")
+                                    .shortcut_text(ui.ctx().format_shortcut(&refresh_subtree_shortcut)),
+                            )
+                            .clicked()
+                        {
                             self.vm.refresh_subtree(i);
+                            close = true;
+                        }
+
+                        let highlight_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::H);
+                        if ui
+                            .add(
+                                egui::Button::new("Highlight Node")
+                                    .shortcut_text(ui.ctx().format_shortcut(&highlight_shortcut)),
+                            )
+                            .clicked()
+                        {
+                            self.vm.highlight_row(i);
+                            close = true;
+                        }
+                        ui.separator();
+
+                        let expand_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::ArrowRight);
+                        if ui
+                            .add(
+                                egui::Button::new("Expand Node")
+                                    .shortcut_text(ui.ctx().format_shortcut(&expand_shortcut)),
+                            )
+                            .clicked()
+                        {
+                            self.vm.tree.expand(i);
+                            close = true;
+                        }
+
+                        let collapse_shortcut =
+                            egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::ArrowLeft);
+                        if ui
+                            .add(
+                                egui::Button::new("Collapse Node")
+                                    .shortcut_text(ui.ctx().format_shortcut(&collapse_shortcut)),
+                            )
+                            .clicked()
+                        {
+                            self.vm.tree.collapse(i);
                             close = true;
                         }
                         close
