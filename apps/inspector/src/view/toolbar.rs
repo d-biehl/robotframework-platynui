@@ -211,7 +211,12 @@ pub fn show_search_bar(
                 ui.memory_mut(|mem| {
                     mem.set_focus_lock_filter(
                         search_field_id(),
-                        egui::EventFilter { escape: true, ..Default::default() },
+                        egui::EventFilter {
+                            horizontal_arrows: true,
+                            vertical_arrows: true,
+                            escape: true,
+                            ..Default::default()
+                        },
                     );
                 });
             }
