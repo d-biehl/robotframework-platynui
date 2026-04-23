@@ -13,6 +13,7 @@ invoke patterns over wire protocols (Rust FFI, JSON-RPC, ...).
 from __future__ import annotations
 
 from abc import ABC
+from typing import ClassVar
 
 from ..types import PatternName
 
@@ -30,4 +31,4 @@ class PatternBase(ABC):
     (``com.acme.patterns.*``) to avoid collisions.
     """
 
-    pattern_name: "PatternName"
+    pattern_name: ClassVar[PatternName]

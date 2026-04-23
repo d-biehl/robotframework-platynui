@@ -10,6 +10,9 @@ implementations and page-object base classes land in subsequent phases.
 
 from __future__ import annotations
 
+from .adapter import Adapter
+from .adapter_proxy import AdapterFacade, AdapterProxy, PatternProxyFactory, pattern_proxy_for
+from .adapters import UiNodeAdapter, UiNodeTechnology
 from .ensure import add_ensure_hook, ensure_that, full_repr
 from .exceptions import (
     AdapterError,
@@ -42,11 +45,14 @@ from .wait import wait_for
 from .weight_calculator import AdapterLike, WeightCalculator
 
 __all__ = [
+    'Adapter',
     'AdapterError',
+    'AdapterFacade',
     'AdapterLike',
     'AdapterNotFoundError',
     'AdapterNotFoundFatalError',
     'AdapterNotValidError',
+    'AdapterProxy',
     'CannotEnsureError',
     'DeviceError',
     'ElementNotFoundError',
@@ -65,17 +71,21 @@ __all__ = [
     'NotSupportedError',
     'PatternName',
     'PatternNotSupportedError',
+    'PatternProxyFactory',
     'PlatynUIError',
     'PlatynUIFatalError',
     'RoleName',
     'Settings',
     'Technology',
     'TechnologyName',
+    'UiNodeAdapter',
+    'UiNodeTechnology',
     'WeightCalculator',
     'add_ensure_hook',
     'ensure_that',
     'full_repr',
     'locator',
+    'pattern_proxy_for',
     'predicate',
     'wait_for',
 ]
