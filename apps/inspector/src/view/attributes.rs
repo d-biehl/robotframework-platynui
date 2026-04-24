@@ -175,13 +175,10 @@ pub fn show_attributes(
     let prev_pane_id = ui.id().with("attributes_prev_pane");
     let prev_widths_id = ui.id().with("attributes_prev_widths");
 
-    let default_value_w = (pane - ATTRIBUTE_NAME_COLUMN_WIDTH - type_w - inner_spacing)
-        .max(ATTRIBUTE_VALUE_COLUMN_MIN_WIDTH);
-    let prev_widths: [f32; 2] = ui.memory(|m| {
-        m.data
-            .get_temp(prev_widths_id)
-            .unwrap_or([ATTRIBUTE_NAME_COLUMN_WIDTH, default_value_w])
-    });
+    let default_value_w =
+        (pane - ATTRIBUTE_NAME_COLUMN_WIDTH - type_w - inner_spacing).max(ATTRIBUTE_VALUE_COLUMN_MIN_WIDTH);
+    let prev_widths: [f32; 2] =
+        ui.memory(|m| m.data.get_temp(prev_widths_id).unwrap_or([ATTRIBUTE_NAME_COLUMN_WIDTH, default_value_w]));
     let prev_pane: f32 = ui.memory(|m| m.data.get_temp(prev_pane_id).unwrap_or(pane));
 
     let cached_name = prev_widths[0];
@@ -201,15 +198,13 @@ pub fn show_attributes(
         let max_value_for_current_name =
             (pane - new_name - type_w - inner_spacing).max(ATTRIBUTE_VALUE_COLUMN_MIN_WIDTH);
         // Absorb the delta into Value, but cap by what fits next to current Name.
-        let mut new_value = (cached_value + pane_delta)
-            .min(max_value_for_current_name)
-            .max(ATTRIBUTE_VALUE_COLUMN_MIN_WIDTH);
+        let mut new_value =
+            (cached_value + pane_delta).min(max_value_for_current_name).max(ATTRIBUTE_VALUE_COLUMN_MIN_WIDTH);
         // If even Value-at-minimum still overflows the pane, shrink Name down.
-        let min_total_with_current_name =
-            new_name + ATTRIBUTE_VALUE_COLUMN_MIN_WIDTH + type_w + inner_spacing;
+        let min_total_with_current_name = new_name + ATTRIBUTE_VALUE_COLUMN_MIN_WIDTH + type_w + inner_spacing;
         if min_total_with_current_name > pane {
-            new_name = (pane - ATTRIBUTE_VALUE_COLUMN_MIN_WIDTH - type_w - inner_spacing)
-                .max(ATTRIBUTE_NAME_COLUMN_MIN_WIDTH);
+            new_name =
+                (pane - ATTRIBUTE_VALUE_COLUMN_MIN_WIDTH - type_w - inner_spacing).max(ATTRIBUTE_NAME_COLUMN_MIN_WIDTH);
             new_value = ATTRIBUTE_VALUE_COLUMN_MIN_WIDTH;
         }
         (new_name, new_value, true)
@@ -265,10 +260,8 @@ pub fn show_attributes(
         .body(|mut body| {
             let widths = body.widths();
             let value_col_width = widths.get(1).copied().unwrap_or(target_value);
-            captured.set([
-                widths.first().copied().unwrap_or(target_name),
-                widths.get(1).copied().unwrap_or(target_value),
-            ]);
+            captured
+                .set([widths.first().copied().unwrap_or(target_name), widths.get(1).copied().unwrap_or(target_value)]);
 
             let heights: Vec<f32> = {
                 let ui = body.ui_mut();
@@ -329,25 +322,13 @@ fn build_body_entries(
                 entries.push(BodyEntry::Section { title: "Pinned Attributes" });
             }
             if has_pinned {
-                push_grouped_entries(
-                    &mut entries,
-                    attributes,
-                    pinned_indices,
-                    "pinned",
-                    collapsed_attribute_groups,
-                );
+                push_grouped_entries(&mut entries, attributes, pinned_indices, "pinned", collapsed_attribute_groups);
             }
             if has_unpinned {
                 if has_pinned {
                     entries.push(BodyEntry::Section { title: "Other Attributes" });
                 }
-                push_grouped_entries(
-                    &mut entries,
-                    attributes,
-                    unpinned_indices,
-                    "other",
-                    collapsed_attribute_groups,
-                );
+                push_grouped_entries(&mut entries, attributes, unpinned_indices, "other", collapsed_attribute_groups);
             }
         }
     }
@@ -446,13 +427,7 @@ fn render_body_entry(
             render_namespace_header_row(row, namespace, *count, group_key, *collapsed, collapsed_attribute_groups);
         }
         BodyEntry::Attribute { attr_idx, display_name, name_indent } => {
-            render_attribute_row_cells(
-                row,
-                &attributes[*attr_idx],
-                display_name,
-                *name_indent,
-                pinned_attributes,
-            );
+            render_attribute_row_cells(row, &attributes[*attr_idx], display_name, *name_indent, pinned_attributes);
         }
     }
 }
