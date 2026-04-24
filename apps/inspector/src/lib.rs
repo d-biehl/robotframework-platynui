@@ -499,6 +499,14 @@ pub fn run() -> eframe::Result {
         Box::new(move |cc| {
             automation::register_ui_thread();
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
+
+            // Load system fonts as additional fallbacks so that the system UI
+            // font is used for script-specific glyphs (CJK, Arabic, etc.) while
+            // egui's built-in proportional font remains the primary face.
+            let mut fonts = egui::FontDefinitions::default();
+            egui_system_fonts::add_auto(&cc.egui_ctx, &mut fonts, egui_system_fonts::FontStyle::Sans);
+            cc.egui_ctx.set_fonts(fonts);
+
             Ok(Box::new(InspectorApp::new(Arc::clone(&runtime), preloaded_root_children)))
         }),
     )

@@ -439,21 +439,51 @@ fn render_sort_header_cell(
     label: &str,
     id_source: &str,
 ) {
-    let arrow = if sort_state.column == column {
-        match sort_state.direction {
-            SortDirection::Ascending => "↑",
-            SortDirection::Descending => "↓",
-        }
-    } else {
-        ""
-    };
+    let active = sort_state.column == column;
+    let direction = sort_state.direction;
 
-    let text = if arrow.is_empty() { label.to_string() } else { format!("{label} {arrow}") };
-    ui.strong(text);
+    ui.horizontal(|ui| {
+        ui.strong(label);
+        if active {
+            // Reserve a small fixed-size square next to the label and paint
+            // a real triangle into it, the same way the tree view paints its
+            // chevron. Avoids the rectangle-glyph fallback some fonts give
+            // for `↑` / `↓`.
+            let size = 10.0_f32;
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+            paint_sort_arrow(ui, rect, direction);
+        }
+    });
+
     let resp = ui.interact(ui.max_rect(), ui.id().with(id_source), egui::Sense::click());
     if resp.clicked() {
         sort_state.toggle(column);
     }
+}
+
+/// Paint a small filled triangle indicating sort direction, mirroring the
+/// triangle style used by [`paint_chevron`] in the tree view.
+fn paint_sort_arrow(ui: &egui::Ui, rect: egui::Rect, direction: SortDirection) {
+    let color = ui.visuals().text_color();
+    let center = rect.center();
+    let half = 4.0_f32;
+
+    let points = match direction {
+        // Ascending: smallest on top → arrow points UP (▲).
+        SortDirection::Ascending => vec![
+            egui::pos2(center.x, center.y - half * 0.5),
+            egui::pos2(center.x - half, center.y + half * 0.5),
+            egui::pos2(center.x + half, center.y + half * 0.5),
+        ],
+        // Descending: largest on top → arrow points DOWN (▼).
+        SortDirection::Descending => vec![
+            egui::pos2(center.x - half, center.y - half * 0.5),
+            egui::pos2(center.x + half, center.y - half * 0.5),
+            egui::pos2(center.x, center.y + half * 0.5),
+        ],
+    };
+
+    ui.painter().add(egui::Shape::convex_polygon(points, color, egui::Stroke::NONE));
 }
 
 fn compare_attributes(
