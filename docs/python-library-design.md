@@ -4,9 +4,29 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 23**.
+> **Status:** Diskussionsentwurf, **Revision 24**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 24** — **`ElementDescriptor` (§A.7) präzisiert + §13.1/§13.2
+>   neu gefasst.** `core/descriptor.py` bleibt Robot-frei; das
+>   Root-Element wird über einen austauschbaren Storage-Hook
+>   (`set_root_element_storage(getter, setter)`) gehalten,
+>   Default = prozesssweiter Slot. Begründung jetzt explizit in §13.1
+>   als „Geteilter Zustand": `PlatynUI` und `BareMetal` laufen
+>   gemeinsam in derselben Robot-Suite, teilen die `Runtime`, und
+>   teilen sich perspektivisch eine **gemeinsame Robot-Variable
+>   `${PLATYNUI_ROOT_ELEMENT}}`** als Single Source of Truth (beide
+>   Library-Inits installieren denselben Hook). §13.1 stellt klar,
+>   dass BareMetal eine **dauerhafte** Low-Level-Library ist (keine
+>   reine Diagnose-Rolle); §13.2 enthält den Übergangsplan: aktuell
+>   noch eigener `UiNodeDescriptor` mit `${PLATYNUI_ROOT_DESCRIPTOR}`,
+>   später ersetzt durch eine BareMetal-Variante des Descriptors mit
+>   `UiNode`-Resolution. `PatternT` ist ein Phantom-TypeVar
+>   (`bound=PatternBase, default=PatternBase`); `__call__` liefert
+>   weiterhin `ContextBase`, der Pattern-Check erfolgt im Keyword
+>   selbst. `__call__` ist keyword-only (`full_context=True`).
+>   `RootElementDescriptor` bleibt Subklasse mit überschriebenem
+>   `convert`.
 > - **Rev. 23** — **`AdapterFactory` als eigenes Singleton (§A.4b).**
 >   Suche und Adapter-Wrapping ist eine eigene Verantwortung,
 >   weder am `Adapter` (würde Adapter an Runtime koppeln und das
@@ -2399,31 +2419,54 @@ Klasse zu Instanz und von Parent-Page-Object zu Child.
 ### A.7 `ElementDescriptor[PatternT]` (`core/descriptor.py`)
 
 Im Altprojekt `keywords/types.py:20` bereits vorhanden, im neuen
-Projekt im `BareMetal`-Modul als `UiNodeDescriptor` (XPath-basiert).
-Beide werden konsolidiert: `ElementDescriptor` lebt in
-`core/descriptor.py` und wird **von `BareMetal` und `PlatynUI`
-gemeinsam genutzt**.
+Projekt zusätzlich im `BareMetal`-Modul als `UiNodeDescriptor`
+(XPath-basiert, direkt an `UiNode` gekoppelt — Übergangscode, siehe
+§13.2 für den Plan zur Ablösung).
+
+`ElementDescriptor` ist die High-Level-Variante für die `PlatynUI`-
+Library: er wrappt `Locator`/`ContextBase`, nicht `UiNode`. Er teilt
+sich mit der zukünftigen BareMetal-Variante eine **gemeinsame
+Robot-Variable `${PLATYNUI_ROOT_ELEMENT}`** als Single Source of
+Truth für das aktive Root-Element (siehe §13.1, „Geteilter Zustand").
+
+`core/descriptor.py` selbst bleibt **Robot-frei**. Das Root-Element
+wird über einen austauschbaren Storage-Hook
+(`set_root_element_storage(getter, setter)`) gehalten, dessen Default
+ein prozesssweiter Slot ist. Die Library-Inits
+(`src/PlatynUI/__init__.py`, später auch `BareMetal/__init__.py`)
+installieren denselben Override gegen
+`EXECUTION_CONTEXTS.current.variables[${PLATYNUI_ROOT_ELEMENT}]`,
+sodass `Set Root` in einer Library für die andere wirkt. Tests und
+programmatische Nutzung außerhalb von Robot fallen auf den
+In-Process-Slot zurück.
 
 ```python
-class ElementDescriptor(Generic[P]):
-    """Lazy Reference auf ein UI-Element. Wird von Robot-Argument-
-    Konvertern als Eingangstyp für Keywords verwendet."""
+PatternT = TypeVar("PatternT", bound=PatternBase, default=PatternBase)
 
-    def __init__(self,
-                 locator: Locator | None = None,
-                 context_type: type[ContextBase] | None = None,
-                 parent: "ElementDescriptor | None" = None,
-                 context: ContextBase | None = None) -> None: ...
+
+class ElementDescriptor(Generic[PatternT]):
+    """Lazy reference to a UI element used as Robot keyword argument."""
+
+    def __init__(
+        self,
+        locator: Locator | None = None,
+        context_type: type[ContextBase] | None = None,
+        parent: "ElementDescriptor[Any] | None" = None,
+        context: ContextBase | None = None,
+    ) -> None: ...
 
     def __call__(self, *, full_context: bool = True) -> ContextBase:
-        """Resolved den Context. Bei full_context=True wird die konkrete
-        Subklasse via ContextFactory ausgewählt; bei False bleibt es
-        beim generischen ContextBase (für reine Property-Reads)."""
-        ...
+        """Resolve and cache the underlying context.
 
-    # Robot-Konverter (registriert in PlatynUI/__init__.py)
+        With ``full_context=True`` the best-matching `ContextBase`
+        subclass is picked via `ContextFactory.find_context_class_for`;
+        with ``False`` a bare `ContextBase` is returned for cheap
+        property reads.
+        """
+
+    # Robot converter (registered in PlatynUI/__init__.py)
     @staticmethod
-    def convert(value: str | ContextBase) -> "ElementDescriptor":
+    def convert(value: str | ContextBase) -> "ElementDescriptor[Any]":
         if isinstance(value, ContextBase):
             return ElementDescriptor(context=value)
         return ElementDescriptor(
@@ -2432,12 +2475,30 @@ class ElementDescriptor(Generic[P]):
         )
 
     @staticmethod
-    def set_root_element(element: "ElementDescriptor | None") -> None: ...
+    def set_root_element(
+        element: "ElementDescriptor[Any] | None",
+    ) -> "ElementDescriptor[Any] | None": ...
+
     @staticmethod
-    def get_root_element() -> "ElementDescriptor | None": ...
+    def get_root_element() -> "ElementDescriptor[Any] | None": ...
+
+
+class RootElementDescriptor(ElementDescriptor[PatternT]):
+    """Variant whose ``convert`` ignores the ambient root element."""
+
+    @staticmethod
+    def convert(value: str | ContextBase) -> "ElementDescriptor[Any]":
+        if isinstance(value, ContextBase):
+            return ElementDescriptor(context=value)
+        return RootElementDescriptor(Locator(path=value))
 ```
 
-**Pattern-getypte Variante** für Keyword-Argumente:
+`PatternT` is a *phantom* marker. It does not constrain the runtime
+return type of `__call__`; it exists so that
+`ElementDescriptor[patterns.Activatable]` (a `_GenericAlias`) can be
+registered as a distinct Robot converter and surfaced as its own type
+in the Robot IDE documentation. The actual pattern check happens in
+the keyword body via `ctx.adapter.supports_pattern(...)`.
 
 ```python
 # keywords/activate.py
@@ -2450,17 +2511,31 @@ def activate(element: ElementDescriptor[patterns.Activatable]) -> None:
     ctx.activate()                          # UI-Klasse hat die Methode
 ```
 
-Die Robot-Library registriert für jede oft genutzte Pattern-ABC einen
-eigenen Konverter (`ElementDescriptor[patterns.Activatable].convert`,
-…), damit die Robot-IDE-Doku die richtigen Typen anzeigt und das
-Pattern-Check beim Argument-Parsing greift, nicht erst beim Call.
+**Root-Element storage.** `core/descriptor.py` defines a module-level
+hook:
 
-**Root-Element:** Wird über die Robot-Variable
-`${PLATYNUI_ROOT_ELEMENT}` gesteuert (gespeichert per
-`EXECUTION_CONTEXTS.current.variables`). Default ist `None` ⇒
-`ElementDescriptor.convert(string)` setzt einen Locator mit
-`parent=None`, was via `Locator.scope`-Default in einen Desktop-relativen
-XPath aufgelöst wird (`/.//control:Foo`).
+```python
+RootElementGetter = Callable[[], "ElementDescriptor[Any] | None"]
+RootElementSetter = Callable[
+    ["ElementDescriptor[Any] | None"], "ElementDescriptor[Any] | None"
+]
+
+
+def set_root_element_storage(
+    getter: RootElementGetter, setter: RootElementSetter
+) -> None: ...
+```
+
+The default in-process storage is a single module-level slot. The
+Robot-library entry point (`src/PlatynUI/__init__.py`) installs an
+override that reads/writes `${PLATYNUI_ROOT_ELEMENT}` via
+`EXECUTION_CONTEXTS.current.variables`. With no Robot context the
+fallback applies, so `BareMetal` and unit tests work identically.
+
+When `get_root_element()` returns `None`, `convert(string)` builds an
+`ElementDescriptor` with `parent=None`; the resulting `Locator(path=...)`
+resolves desktop-relatively via `Locator.scope` defaults
+(`/.//control:Foo`).
 
 ### A.8 Lifecycle & Robot-Library-Init
 
@@ -3454,23 +3529,76 @@ Login With Valid Credentials
 
 ## 13. Offene Fragen
 
-### 13.1 BareMetal vs. PlatynUI — Abgrenzung
+### 13.1 BareMetal vs. PlatynUI — Abgrenzung & Koexistenz
 
-- **BareMetal:** Low-Level, XPath-Strings direkt, ohne Page Objects oder
-  semantische Keywords. Bleibt als Werkzeug für Quick-Skripte und für
-  Diagnose-/Debug-Zwecke.
-- **PlatynUI:** High-Level, Page-Object-basiert, semantische Keywords mit
-  Outcome-Vertrag.
+Beide Libraries sind **dauerhaft** Teil des Produkts und arbeiten in
+derselben Robot-Suite zusammen.
 
-Beide nebeneinander. Mittelfristig kann BareMetal sich auf eine reine
-Diagnose-/Inspector-Rolle konzentrieren.
+- **`PlatynUI.BareMetal`** — Low-Level-Library, mappt die Rust-Runtime
+  quasi 1:1 auf Robot-Keywords. XPath-Strings direkt, ohne Page Objects
+  oder Locator-Vererbung. Notwendig für Sonderfälle, die der Page-
+  Object-Layer nicht abdeckt (gezielte Pointer-/Keyboard-Operationen
+  auf einem `UiNode`, ad-hoc-XPath-Diagnose, Tests gegen die Runtime
+  selbst).
+- **`PlatynUI`** — High-Level-Library mit Page-Objects,
+  Locator-Vererbung, automatischer Adapter-/Pattern-Auswahl,
+  semantischen Keywords mit Outcome-Vertrag.
 
-### 13.2 `UiNodeDescriptor`-Umzug — **Resolved in §A.7**
+**Geteilter Zustand:**
 
-`UiNodeDescriptor` lebt aktuell in `BareMetal/__init__.py:51`. §A.7
-spezifiziert den gemeinsamen `ElementDescriptor[PatternT]` in
-`core/descriptor.py`; beide Libraries nutzen ihn. Umsetzung in
-Phase 3 der Migration (siehe §10).
+- **`Runtime`-Singleton** (`core.runtime.runtime`) — beide Libraries
+  greifen dieselbe Instanz, sodass XPath-Queries und Page-Object-
+  Lookups dieselbe UI-Tree-Sicht haben.
+- **Root-Element-Variable `${PLATYNUI_ROOT_ELEMENT}`** — Single Source
+  of Truth für das aktive Root. `PlatynUI.Set Root Element` und das
+  zukünftige `BareMetal.Set Root` schreiben/lesen dieselbe Variable
+  über den Storage-Hook in `core/descriptor.py` (siehe §A.7).
+- **Werte-Interop** — ein in BareMetal aufgelöster `UiNode`/`Adapter`
+  kann an ein PlatynUI-Keyword übergeben werden und umgekehrt
+  (Konverter akzeptieren beide Richtungen, sobald die BareMetal-
+  Variante des Descriptors gelandet ist; siehe §13.2).
+
+### 13.2 `UiNodeDescriptor`-Umzug — Übergangsplan
+
+Aktueller Stand: `BareMetal/__init__.py:51` definiert einen eigenen
+`UiNodeDescriptor`, der `UiNode` direkt wrappt, eine `BareMetal`-
+Library-Referenz hält und gegen `library.runtime.evaluate_single`
+auflöst. Er nutzt eine eigene Robot-Variable
+`${PLATYNUI_ROOT_DESCRIPTOR}`. Das ist **Übergangscode**, entstanden
+um die Runtime-Bindings früh testen zu können.
+
+**Zielzustand:** beide Libraries nutzen denselben Descriptor-Mechanismus
+aus `core/descriptor.py`. Da `BareMetal` aber zu `UiNode` auflösen
+muss (kein `Adapter`/`ContextBase`-Wrapping), nicht zu `ContextBase`,
+braucht es eine **BareMetal-Variante** — keine 1:1-Wiederverwendung
+von `ElementDescriptor`. Skizze:
+
+- gemeinsame Basis: das Generic + `convert`-Protokoll + der
+  Storage-Hook (Root-Variable `${PLATYNUI_ROOT_ELEMENT}`),
+- BareMetal-Variante (z. B. `BareMetalDescriptor`): `__call__` liefert
+  `UiNode` statt `ContextBase`, `convert` baut eine Query aus dem
+  String, das Caching liegt entweder am Descriptor selbst oder
+  weiterhin in einem Library-seitigen Cache.
+
+**Umsetzungsreihenfolge:**
+
+1. (erledigt, Rev. 24) `core/descriptor.py` mit Storage-Hook —
+   `core/` bleibt Robot-frei, der Hook ist die Vorbedingung dafür,
+   dass beide Library-Inits später dieselbe Robot-Variable bedienen.
+2. PlatynUI-Library-Init installiert den `EXECUTION_CONTEXTS`-Override
+   (Phase 5 / §A.8).
+3. BareMetal-Variante des Descriptors entwerfen, sobald die genaue
+   Form des Werte-Interop (UiNode↔Adapter-Konvertierung,
+   Library-Caching, Set-Root-Semantik über beide Libraries hinweg)
+   geklärt ist.
+4. `UiNodeDescriptor` durch die neue Variante ersetzen,
+   `${PLATYNUI_ROOT_DESCRIPTOR}` durch `${PLATYNUI_ROOT_ELEMENT}`
+   ablösen, Library-Cache anpassen.
+
+Punkt 3+4 sind explizit *nicht* Teil von Phase 3. Bis dahin laufen
+`UiNodeDescriptor` und `ElementDescriptor` parallel mit getrennten
+Root-Variablen — der gemeinsame Mechanismus existiert, wird aber von
+BareMetal noch nicht angesprochen.
 
 ### 13.3 `UiNode.supported_patterns` in Python
 
