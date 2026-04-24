@@ -11,8 +11,6 @@ keeps no per-stage memo and runs no hooks; use it whenever a plain
 boolean result is enough.
 """
 
-from __future__ import annotations
-
 import time
 from collections.abc import Callable
 

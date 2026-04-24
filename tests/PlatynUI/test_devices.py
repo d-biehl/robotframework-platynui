@@ -13,8 +13,6 @@ which absolute coordinates — there is no need (and no value) in
 exercising the real OS pointer subsystem here.
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Any, Iterator
 from unittest.mock import MagicMock

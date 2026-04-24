@@ -8,8 +8,6 @@ Adapters that surface any kind of on-screen widget implement this
 pattern to expose its geometry and basic interaction state.
 """
 
-from __future__ import annotations
-
 from abc import abstractmethod
 
 from ..types import Point, Rect

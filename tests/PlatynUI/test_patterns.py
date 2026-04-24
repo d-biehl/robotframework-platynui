@@ -11,8 +11,6 @@ groups one-to-one (``crates/core/src/ui/identifiers.rs``,
 and actions instead of splitting them into per-attribute markers.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 import pytest

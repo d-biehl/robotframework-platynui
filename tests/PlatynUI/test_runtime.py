@@ -11,8 +11,6 @@ avoids cross-test pollution.  A handful of dedicated tests exercise the
 module-level singleton itself.
 """
 
-from __future__ import annotations
-
 from unittest.mock import MagicMock
 
 import pytest

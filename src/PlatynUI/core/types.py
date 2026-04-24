@@ -9,8 +9,6 @@ the native module so Python code, adapters and the runtime share a single
 representation without conversion shims.
 """
 
-from __future__ import annotations
-
 from typing import TypeAlias
 
 from platynui_native import Point, PointerButton, Rect

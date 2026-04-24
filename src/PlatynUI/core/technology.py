@@ -10,8 +10,6 @@ as a singleton-ish marker so adapters can be grouped and matched against
 `WeightCalculator` criteria.
 """
 
-from __future__ import annotations
-
 from abc import ABC
 
 from .types import TechnologyName

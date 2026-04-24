@@ -18,15 +18,13 @@ matches typical ``pabot`` parallelism where each worker runs in its own
 process.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Literal
 
 __all__ = ['Settings']
 
 
-_current: "Settings | None" = None
+_current: 'Settings | None' = None
 _stack: list['Settings'] = []
 
 
@@ -70,7 +68,7 @@ class Settings:
     element_highlight_ensure_timeout: float = 2.0
 
     @staticmethod
-    def current() -> "Settings":
+    def current() -> 'Settings':
         """Return the active settings, creating defaults on first use."""
         global _current
         if _current is None:
@@ -78,7 +76,7 @@ class Settings:
         return _current
 
     @staticmethod
-    def set_current(settings: "Settings") -> None:
+    def set_current(settings: 'Settings') -> None:
         """Replace the process-wide singleton.
 
         Prefer the context-manager form inside a ``with`` block so the
@@ -87,7 +85,7 @@ class Settings:
         global _current
         _current = settings
 
-    def __enter__(self) -> "Settings":
+    def __enter__(self) -> 'Settings':
         global _current
         _stack.append(_current if _current is not None else Settings())
         _current = self

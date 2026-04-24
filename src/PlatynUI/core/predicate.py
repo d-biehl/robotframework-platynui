@@ -19,8 +19,6 @@ Example::
     ensure_that(element, _is_visible)
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from typing import Any, TypeVar
 

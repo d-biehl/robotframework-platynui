@@ -9,8 +9,6 @@ the `Adapter` contract, capability patterns, the runtime
 singleton, locator, predicate, and wait helpers, and shared types.
 """
 
-from __future__ import annotations
-
 from .adapter import Adapter
 from .adapter_proxy import AdapterFacade, AdapterProxy, PatternProxyFactory, pattern_proxy_for
 from .adapters import UiNodeAdapter, UiNodeTechnology

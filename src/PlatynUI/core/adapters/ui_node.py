@@ -30,8 +30,6 @@ up; the remaining capability patterns follow as the native side
 exposes them.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterator, Sequence
 from typing import TYPE_CHECKING, ClassVar
 

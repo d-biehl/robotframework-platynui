@@ -19,8 +19,6 @@ must not be set through more than one of them:
    ``Locator(native__HWND=0xABCD)``.
 """
 
-from __future__ import annotations
-
 import collections.abc
 import numbers
 import re
@@ -398,7 +396,7 @@ class Locator:
 
         return result
 
-    def copy_from(self, other: "Locator | None") -> Self:
+    def copy_from(self, other: 'Locator | None') -> Self:
         """Inherit unset fields and merge attribute dicts from ``other``.
 
         Implements property/class-level locator inheritance: the child
@@ -437,7 +435,7 @@ class Locator:
 
         return self
 
-    def copy(self) -> "Locator":
+    def copy(self) -> 'Locator':
         """Return a copy with attribute and custom-attribute lists duplicated."""
         return Locator(
             path=self.path,

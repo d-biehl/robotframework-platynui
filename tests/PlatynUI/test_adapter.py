@@ -20,8 +20,6 @@ adapter implementations (mock, Rust, JSON-RPC) can rely on the
 contract.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterator, Sequence
 
 import pytest

@@ -17,8 +17,6 @@ go through the adapter's namespaced attribute API
 (``adapter.attribute_value(name, namespace=...)``).
 """
 
-from __future__ import annotations
-
 from ..types import Point, Rect
 from .activation import Activatable
 from .activation_target import ActivationTarget

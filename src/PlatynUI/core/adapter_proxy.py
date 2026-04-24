@@ -27,8 +27,6 @@ registered proxies against an adapter via
 the highest-scoring match.
 """
 
-from __future__ import annotations
-
 import re
 from collections.abc import Callable, Iterator, Sequence
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar, cast, overload

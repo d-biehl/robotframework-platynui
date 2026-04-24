@@ -4,8 +4,6 @@
 
 """Pattern for controls with an explicit activation hit-point."""
 
-from __future__ import annotations
-
 from abc import abstractmethod
 
 from ..types import Point, Rect

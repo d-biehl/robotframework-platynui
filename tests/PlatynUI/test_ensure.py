@@ -4,8 +4,6 @@
 
 """Tests for ``PlatynUI.core.ensure`` and ``PlatynUI.core.predicate``."""
 
-from __future__ import annotations
-
 import pytest
 
 from PlatynUI.core import (

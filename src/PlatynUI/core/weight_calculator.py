@@ -23,8 +23,6 @@ Any provided criterion that does not match causes `calculate` to
 return ``0``.
 """
 
-from __future__ import annotations
-
 import re
 from typing import Any, Protocol, cast, runtime_checkable
 
@@ -44,7 +42,7 @@ class AdapterLike(Protocol):
         ...
 
     @property
-    def supported_patterns(self) -> "list[PatternName]":
+    def supported_patterns(self) -> 'list[PatternName]':
         """The pattern names this adapter advertises."""
         ...
 

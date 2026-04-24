@@ -17,8 +17,6 @@ Covers the composition-based :class:`AdapterProxy` (design §A.4 lines
 :func:`pattern_proxy_for` decorations (§4.2-4.3).
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterator, Sequence
 
 import pytest

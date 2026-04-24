@@ -11,8 +11,6 @@ retried by `ensure_that` and
 `SystemExit` propagate immediately.
 """
 
-from __future__ import annotations
-
 __all__ = [
     'AdapterError',
     'AdapterNotFoundError',

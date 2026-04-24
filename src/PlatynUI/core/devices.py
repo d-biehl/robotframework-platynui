@@ -18,8 +18,6 @@ subclasses can override `before_action` /
 (focus, scroll-into-view, verification).
 """
 
-from __future__ import annotations
-
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass

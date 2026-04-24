@@ -4,8 +4,6 @@
 
 """Tests for ``PlatynUI.core.exceptions``."""
 
-from __future__ import annotations
-
 from PlatynUI.core import exceptions as exc
 
 

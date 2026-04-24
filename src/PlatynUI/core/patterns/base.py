@@ -10,8 +10,6 @@ live in adapter packages. Each subclass declares a stable Reverse-DNS
 patterns across process and language boundaries.
 """
 
-from __future__ import annotations
-
 from abc import ABC
 from typing import ClassVar
 

@@ -4,8 +4,6 @@
 
 """Tests for ``PlatynUI.core.locator``."""
 
-from __future__ import annotations
-
 import re
 from typing import cast
 

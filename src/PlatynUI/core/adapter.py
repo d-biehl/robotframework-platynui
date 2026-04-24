@@ -22,8 +22,6 @@ once on the ABC. Concrete adapters override only the narrow
 `_resolve_pattern` hook.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from collections.abc import Iterator, Sequence
 from typing import TYPE_CHECKING, ClassVar, Literal, TypeVar, cast, overload

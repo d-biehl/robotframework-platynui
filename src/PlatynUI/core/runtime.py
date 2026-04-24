@@ -51,8 +51,6 @@ context manager::
             yield rt
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from threading import RLock
@@ -67,7 +65,7 @@ __all__ = ['Runtime', 'runtime']
 _Builder = Callable[[], '_NativeRuntime']
 
 
-def _default_builder() -> _NativeRuntime:
+def _default_builder() -> '_NativeRuntime':
     """Build a default runtime via auto-discovery."""
     # Local import keeps module import cheap and avoids a hard
     # dependency at import time (helpful for docs and type-only tooling).
@@ -76,14 +74,14 @@ def _default_builder() -> _NativeRuntime:
     return NativeRuntime()
 
 
-def _mock_builder() -> _NativeRuntime:
+def _mock_builder() -> '_NativeRuntime':
     """Build a runtime backed by the bundled mock provider."""
     from platynui_native import Runtime as NativeRuntime
 
     return NativeRuntime.new_with_mock()
 
 
-def _shutdown_quietly(instance: _NativeRuntime | None) -> None:
+def _shutdown_quietly(instance: '_NativeRuntime | None') -> None:
     """Call ``shutdown()`` on ``instance``, swallowing any exception."""
     if instance is None:
         return
@@ -102,10 +100,10 @@ class _RuntimeAccessor:
 
     def __init__(self) -> None:
         self._builder: _Builder = _default_builder
-        self._instance: _NativeRuntime | None = None
+        self._instance: '_NativeRuntime | None' = None
         # LIFO stack of (builder, instance) snapshots, populated by
         # ``override(...)`` and consumed on exit.
-        self._stack: list[tuple[_Builder, _NativeRuntime | None]] = []
+        self._stack: list[tuple[_Builder, '_NativeRuntime | None']] = []
         self._lock = RLock()
 
     # ------------------------------------------------------------------
@@ -137,7 +135,7 @@ class _RuntimeAccessor:
     # ------------------------------------------------------------------
 
     @property
-    def current(self) -> _NativeRuntime:
+    def current(self) -> '_NativeRuntime':
         """Return the active runtime, building it on first use.
 
         The first read evaluates the currently selected builder
@@ -197,7 +195,7 @@ class _RuntimeAccessor:
     # ------------------------------------------------------------------
 
     @contextmanager
-    def override(self, factory: _Builder) -> Generator[_NativeRuntime]:
+    def override(self, factory: _Builder) -> Generator['_NativeRuntime']:
         """Activate an alternative runtime for the current scope.
 
         ``factory`` is a zero-argument callable that produces the
@@ -223,7 +221,7 @@ class _RuntimeAccessor:
             self._stack.append(previous)
             instance = factory()
 
-            def _override_builder(_inst: _NativeRuntime = instance) -> _NativeRuntime:
+            def _override_builder(_inst: '_NativeRuntime' = instance) -> '_NativeRuntime':
                 return _inst
 
             self._builder = _override_builder
@@ -241,7 +239,7 @@ class _RuntimeAccessor:
                 self._builder, self._instance = snapshot
 
     @contextmanager
-    def override_with_mock(self) -> Generator[_NativeRuntime]:
+    def override_with_mock(self) -> Generator['_NativeRuntime']:
         """Activate a mock-backed runtime for the current scope.
 
         Wraps `override` and builds a

@@ -28,8 +28,6 @@ for ground-truth values such as the ``Operations Console`` window and
 the ``OK`` button.
 """
 
-from __future__ import annotations
-
 from collections.abc import Generator
 
 import platynui_native as _pn

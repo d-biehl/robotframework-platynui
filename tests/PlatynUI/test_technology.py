@@ -4,8 +4,6 @@
 
 """Tests for ``PlatynUI.core.technology``."""
 
-from __future__ import annotations
-
 from PlatynUI.core import Technology
 
 
