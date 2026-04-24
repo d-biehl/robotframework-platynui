@@ -13,6 +13,7 @@ from .adapter import Adapter
 from .adapter_factory import AdapterFactory, AdapterFactoryAccessor, RuntimeAdapterFactory, adapter_factory
 from .adapter_proxy import AdapterFacade, AdapterProxy, PatternProxyFactory, pattern_proxy_for
 from .adapters import UiNodeAdapter, UiNodeTechnology
+from .context import ContextBase, ContextFactory, UnknownContext, context
 from .devices import (
     AdapterKeyboardProxy,
     AdapterMouseProxy,
@@ -70,6 +71,8 @@ __all__ = [
     'AdapterProxy',
     'Anchor',
     'CannotEnsureError',
+    'ContextBase',
+    'ContextFactory',
     'DeviceError',
     'ElementNotFoundError',
     'EnsureError',
@@ -103,10 +106,12 @@ __all__ = [
     'TechnologyName',
     'UiNodeAdapter',
     'UiNodeTechnology',
+    'UnknownContext',
     'VirtualPoint',
     'WeightCalculator',
     'adapter_factory',
     'add_ensure_hook',
+    'context',
     'ensure_that',
     'full_repr',
     'locator',
