@@ -350,7 +350,7 @@ class PatternProxyFactory:
         if not cls._registrations:
             return adapter
 
-        calculator = WeightCalculator(_AdapterCriteriaView(adapter))
+        calculator = WeightCalculator(AdapterCriteriaView(adapter))
         best_score = 0
         best_cls: type[AdapterProxy] | None = None
         for entry in cls._registrations:
@@ -364,7 +364,7 @@ class PatternProxyFactory:
         return best_cls(adapter)
 
 
-class _AdapterCriteriaView:
+class AdapterCriteriaView:
     """Present an `Adapter` through the `WeightCalculator` Protocol.
 
     `WeightCalculator` consumes a structural ``AdapterLike``
