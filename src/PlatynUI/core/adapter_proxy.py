@@ -29,7 +29,7 @@ the highest-scoring match.
 
 import re
 from collections.abc import Callable, Iterator, Sequence
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 from .adapter import Adapter
 from .exceptions import NotAPatternTypeError
@@ -50,7 +50,7 @@ __all__ = [
 
 #: Either a raw `Adapter` or a wrapping `AdapterProxy`;
 #: both expose the same public surface to UI-side callers.
-AdapterFacade: TypeAlias = 'Adapter | AdapterProxy'
+type AdapterFacade = Adapter | AdapterProxy
 
 
 # ---------------------------------------------------------------------------

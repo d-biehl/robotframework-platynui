@@ -9,8 +9,6 @@ the native module so Python code, adapters and the runtime share a single
 representation without conversion shims.
 """
 
-from typing import TypeAlias
-
 from platynui_native import Point, PointerButton, Rect
 
 __all__ = [
@@ -26,17 +24,17 @@ __all__ = [
 
 
 #: Reverse-DNS pattern identifier, e.g. ``"org.platynui.patterns.Activatable"``.
-PatternName: TypeAlias = str
+type PatternName = str
 
 #: UI role name in PascalCase, e.g. ``"Button"``, ``"Window"``, ``"Application"``.
-RoleName: TypeAlias = str
+type RoleName = str
 
 #: Adapter technology name, e.g. ``"UiNode"``, ``"mock"``.
-TechnologyName: TypeAlias = str
+type TechnologyName = str
 
 #: UI framework identifier reported by the platform, e.g. ``"WPF"``, ``"Qt"``, ``"Gtk"``.
-FrameworkId: TypeAlias = str
+type FrameworkId = str
 
 #: Mouse button identifier. Alias for `PointerButton`
 #: with members ``LEFT``, ``RIGHT``, ``MIDDLE``, ``X1``, ``X2``.
-MouseButton: TypeAlias = PointerButton
+type MouseButton = PointerButton

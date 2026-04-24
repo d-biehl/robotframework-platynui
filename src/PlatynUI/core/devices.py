@@ -23,7 +23,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, TypeAlias, override
+from typing import TYPE_CHECKING, override
 
 from platynui_native import PointerButton
 
@@ -49,7 +49,7 @@ __all__ = [
 
 #: Pointer button identifier. Alias for `PointerButton`
 #: providing the standard members ``LEFT``, ``RIGHT``, ``MIDDLE``, ``X1``, ``X2``.
-MouseButton: TypeAlias = PointerButton
+MouseButton = PointerButton
 
 _LOGGER = logging.getLogger('platynui.devices')
 

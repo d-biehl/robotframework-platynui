@@ -24,7 +24,7 @@ import numbers
 import re
 import xml.sax.saxutils as xmlutils
 from enum import Enum
-from typing import Any, ClassVar, Literal, Self, TypeAlias, cast
+from typing import Any, ClassVar, Literal, Self, cast
 
 __all__ = ['DEFAULT_ATTRIBUTE_NAMESPACE', 'Locator', 'LocatorMethodDescriptor', 'LocatorScope', 'locator']
 
@@ -35,7 +35,7 @@ __all__ = ['DEFAULT_ATTRIBUTE_NAMESPACE', 'Locator', 'LocatorMethodDescriptor', 
 DEFAULT_ATTRIBUTE_NAMESPACE: str = 'control'
 
 
-LocatorScope: TypeAlias = Literal[
+type LocatorScope = Literal[
     'root',
     'descendants',
     'children',
@@ -68,7 +68,7 @@ _XPATH_AXIS: dict[str, str] = {
 #: Key type for the ``Locator.attributes`` mapping. Bare ``str`` keys
 #: use the enclosing class' ``default_attribute_namespace``;
 #: ``(namespace, name)`` tuple keys are explicit.
-AttributeKey: TypeAlias = 'str | tuple[str, str]'
+type AttributeKey = str | tuple[str, str]
 
 
 def _xquery_repr(value: Any) -> str:

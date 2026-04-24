@@ -5,7 +5,7 @@ All types are directly exported from the native extension module.
 
 import enum as _enum
 from collections.abc import Iterable, Iterator
-from typing import Any, ClassVar, Literal, TypeAlias, TypedDict, overload
+from typing import Any, ClassVar, Literal, TypedDict, overload
 
 # ===== Core Types =====
 
@@ -153,11 +153,11 @@ class _RectDict(TypedDict):
     width: float
     height: float
 
-PointLike: TypeAlias = Point | tuple[float, float] | _PointDict
-SizeLike: TypeAlias = Size | tuple[float, float] | _SizeDict | _SizeShortDict
-RectLike: TypeAlias = Rect | tuple[float, float, float, float] | _RectDict
-OriginLike = Literal['desktop'] | PointLike | RectLike
-ScrollDeltaLike = tuple[float, float]
+type PointLike = Point | tuple[float, float] | _PointDict
+type SizeLike = Size | tuple[float, float] | _SizeDict | _SizeShortDict
+type RectLike = Rect | tuple[float, float, float, float] | _RectDict
+type OriginLike = Literal['desktop'] | PointLike | RectLike
+type ScrollDeltaLike = tuple[float, float]
 
 class _PointerOverridesDict(TypedDict, total=False):
     origin: OriginLike
@@ -231,11 +231,11 @@ class _KeyboardOverridesDict(TypedDict, total=False):
     after_sequence_delay_ms: float
     after_text_delay_ms: float
 
-PointerOverridesLike: TypeAlias = PointerOverrides | _PointerOverridesDict
-PointerSettingsLike: TypeAlias = PointerSettings | _PointerSettingsDict
-PointerProfileLike: TypeAlias = PointerProfile | _PointerProfileDict
-KeyboardProfileLike: TypeAlias = KeyboardProfile | _KeyboardProfileDict
-KeyboardOverridesLike: TypeAlias = KeyboardOverrides | _KeyboardOverridesDict
+type PointerOverridesLike = PointerOverrides | _PointerOverridesDict
+type PointerSettingsLike = PointerSettings | _PointerSettingsDict
+type PointerProfileLike = PointerProfile | _PointerProfileDict
+type KeyboardProfileLike = KeyboardProfile | _KeyboardProfileDict
+type KeyboardOverridesLike = KeyboardOverrides | _KeyboardOverridesDict
 
 Primitive = bool | int | float | str | None
 JSONLike = dict[str, Any] | list[Any]
@@ -246,7 +246,7 @@ class PointerButton(_enum.IntEnum):
     MIDDLE = 2
     RIGHT = 3
 
-PointerButtonLike: TypeAlias = int | PointerButton
+type PointerButtonLike = int | PointerButton
 
 class PointerMotionMode(_enum.IntEnum):
     DIRECT = 0

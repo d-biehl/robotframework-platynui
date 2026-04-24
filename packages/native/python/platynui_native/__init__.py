@@ -5,7 +5,7 @@ All types and functions are directly exported from the native extension module.
 """
 
 # Re-export everything from the native extension
-from typing import Any, Literal, TypeAlias, TypedDict
+from typing import Any, Literal, TypedDict
 
 from ._native import (
     AttributeNotFoundError,
@@ -66,12 +66,12 @@ class _RectDict(TypedDict):
     height: float
 
 
-PointLike: TypeAlias = Point | tuple[float, float] | _PointDict
-SizeLike: TypeAlias = Size | tuple[float, float] | _SizeDict | _SizeShortDict
-RectLike: TypeAlias = Rect | tuple[float, float, float, float] | _RectDict
-OriginLike: TypeAlias = Literal['desktop'] | PointLike | RectLike
-ScrollDeltaLike: TypeAlias = tuple[float, float]
-PointerButtonLike: TypeAlias = PointerButton | int
+type PointLike = Point | tuple[float, float] | _PointDict
+type SizeLike = Size | tuple[float, float] | _SizeDict | _SizeShortDict
+type RectLike = Rect | tuple[float, float, float, float] | _RectDict
+type OriginLike = Literal['desktop'] | PointLike | RectLike
+type ScrollDeltaLike = tuple[float, float]
+type PointerButtonLike = PointerButton | int
 
 class _PointerOverridesDict(TypedDict, total=False):
     origin: OriginLike
@@ -150,11 +150,11 @@ class _KeyboardOverridesDict(TypedDict, total=False):
     after_text_delay_ms: float
 
 
-PointerOverridesLike: TypeAlias = PointerOverrides | _PointerOverridesDict
-PointerSettingsLike: TypeAlias = PointerSettings | _PointerSettingsDict
-PointerProfileLike: TypeAlias = PointerProfile | _PointerProfileDict
-KeyboardOverridesLike: TypeAlias = KeyboardOverrides | _KeyboardOverridesDict
-KeyboardProfileLike: TypeAlias = KeyboardProfile | _KeyboardProfileDict
+type PointerOverridesLike = PointerOverrides | _PointerOverridesDict
+type PointerSettingsLike = PointerSettings | _PointerSettingsDict
+type PointerProfileLike = PointerProfile | _PointerProfileDict
+type KeyboardOverridesLike = KeyboardOverrides | _KeyboardOverridesDict
+type KeyboardProfileLike = KeyboardProfile | _KeyboardProfileDict
 
 Primitive = bool | int | float | str | None
 JSONLike = dict[str, Any] | list[Any]
