@@ -35,6 +35,11 @@ use platynui_runtime::Runtime;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+#[cfg(target_os = "windows")]
+use winreg::RegKey;
+#[cfg(target_os = "windows")]
+use winreg::enums::HKEY_CURRENT_USER;
+
 use view::{attributes, results_panel, status_bar, toolbar, tree_view};
 use viewmodel::inspector_vm::InspectorViewModel;
 
@@ -108,6 +113,20 @@ fn init_tracing(cli_level: Option<LogLevel>) {
     tracing_subscriber::fmt().with_env_filter(filter).with_target(true).with_writer(std::io::stderr).init();
 }
 
+#[cfg(target_os = "windows")]
+fn system_text_scale_factor() -> Option<f32> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key = hkcu.open_subkey("Software\\Microsoft\\Accessibility").ok()?;
+    let percent: u32 = key.get_value("TextScaleFactor").ok()?;
+    let clamped = u16::try_from(percent).ok()?.clamp(100, 225);
+    Some(f32::from(clamped) / 100.0)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn system_text_scale_factor() -> Option<f32> {
+    None
+}
+
 /// The eframe `App` that connects ViewModel to View.
 struct InspectorApp {
     vm: InspectorViewModel,
@@ -118,6 +137,7 @@ struct InspectorApp {
     collapsed_attribute_groups: BTreeSet<String>,
     prev_always_on_top: Option<bool>,
     show_about_dialog: bool,
+    last_pixels_per_point: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -135,7 +155,20 @@ enum AppCommand {
 }
 
 impl InspectorApp {
-    fn new(runtime: Arc<Runtime>, preloaded_root_children: Vec<Arc<UiNodeData>>) -> Self {
+    fn apply_system_fonts(ctx: &egui::Context) {
+        // Use the OS-resolved UI font as the default egui font family.
+        // If detection fails on a platform, egui keeps its own defaults.
+        let _ = egui_system_fonts::set_auto(ctx, egui_system_fonts::FontStyle::Sans);
+
+        // Honor Windows accessibility text scaling when available.
+        if let Some(scale_factor) = system_text_scale_factor() {
+            ctx.set_zoom_factor(scale_factor);
+        }
+    }
+
+    fn new(runtime: Arc<Runtime>, preloaded_root_children: Vec<Arc<UiNodeData>>, ctx: &egui::Context) -> Self {
+        Self::apply_system_fonts(ctx);
+
         Self {
             vm: InspectorViewModel::new(runtime, preloaded_root_children),
             attributes_sort: attributes::AttributesSortState::default(),
@@ -145,6 +178,17 @@ impl InspectorApp {
             collapsed_attribute_groups: BTreeSet::new(),
             prev_always_on_top: None,
             show_about_dialog: false,
+            last_pixels_per_point: ctx.pixels_per_point(),
+        }
+    }
+
+    fn maybe_refresh_system_fonts(&mut self, ctx: &egui::Context) {
+        let pixels_per_point = ctx.pixels_per_point();
+        let dpi_changed = (pixels_per_point - self.last_pixels_per_point).abs() > f32::EPSILON;
+
+        if dpi_changed {
+            Self::apply_system_fonts(ctx);
+            self.last_pixels_per_point = pixels_per_point;
         }
     }
 
@@ -206,6 +250,8 @@ impl InspectorApp {
 impl eframe::App for InspectorApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.maybe_refresh_system_fonts(&ctx);
+
         let is_searching = self.vm.is_searching();
         let has_node_selection = self.vm.selected_index.is_some();
 
@@ -500,14 +546,11 @@ pub fn run() -> eframe::Result {
             automation::register_ui_thread();
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
-            // Load system fonts as additional fallbacks so that the system UI
-            // font is used for script-specific glyphs (CJK, Arabic, etc.) while
-            // egui's built-in proportional font remains the primary face.
-            let mut fonts = egui::FontDefinitions::default();
-            egui_system_fonts::add_auto(&cc.egui_ctx, &mut fonts, egui_system_fonts::FontStyle::Sans);
-            cc.egui_ctx.set_fonts(fonts);
-
-            Ok(Box::new(InspectorApp::new(Arc::clone(&runtime), preloaded_root_children)))
+            Ok(Box::new(InspectorApp::new(
+                Arc::clone(&runtime),
+                preloaded_root_children,
+                &cc.egui_ctx,
+            )))
         }),
     )
 }
