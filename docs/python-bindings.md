@@ -48,7 +48,7 @@ All custom exceptions inherit from `PlatynUiError` (which extends `Exception`):
 
 ## Build & Distribution
 
-- Backend: maturin with PyO3 (`extension-module`, `abi3-py310`)
+- Backend: maturin with PyO3 (`extension-module`, `abi3-py312`)
 - Feature: `mock-provider` for local development
 - Developer workflow: `uv sync --dev` + `maturin develop -m packages/native/Cargo.toml --release`
 - CI builds wheels for Linux/macOS/Windows

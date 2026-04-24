@@ -3,7 +3,7 @@ name = "robotframework-PlatynUI"
 version = "0.12.0-dev.7"
 description = "Cross-platform UI automation toolkit for Robot Framework with XPath-based element selection"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }]
 maintainers = [{ name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }]
@@ -20,8 +20,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Testing",
@@ -105,7 +103,7 @@ pre_bump_hooks = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 include = [
     "src/**/*.py",
     "packages/**/*.py",
@@ -192,7 +190,7 @@ quote-style = "single"
 "docs/**/*.py" = ["D"]
 
 [tool.pyright]
-pythonVersion = "3.10"
+pythonVersion = "3.12"
 typeCheckingMode = "strict"
 reportMissingTypeStubs = false
 reportUnnecessaryIsInstance = false
@@ -208,7 +206,7 @@ venvPath = '.'
 venv = ".venv"
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 strict = true
 warn_redundant_casts = true
 warn_unused_ignores = true
@@ -221,6 +219,15 @@ disallow_untyped_decorators = false
 disallow_subclassing_any = false
 explicit_package_bases = true
 namespace_packages = true
+# `type-abstract` is disabled because pattern classes (subclasses of
+# `core.patterns.PatternBase`) are passed as lookup keys to
+# `Adapter.get_pattern(type[P])` / `Adapter.supports_pattern(type[PatternBase])`,
+# never as constructors. mypy correctly notes that the abstract classes
+# could in theory be instantiated, but in our design they are markers:
+# pattern instances are produced exclusively by adapters/proxies and
+# returned to the caller. Pyright (also part of CI) does not raise this
+# diagnostic, so no real coverage is lost.
+disable_error_code = ["type-abstract"]
 files = ["src", "packages/native/python"]
 exclude = [
     '^\.mypy_cache/',

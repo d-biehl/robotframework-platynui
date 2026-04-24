@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: 2024 Daniel Biehl <daniel.biehl@imbus.de>
 #
 # SPDX-License-Identifier: Apache-2.0
-#
-# mypy: disable-error-code="type-abstract"
 
 """Mouse and keyboard wrappers for UI elements.
 

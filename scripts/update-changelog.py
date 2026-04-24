@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.12"
 # dependencies = [
 #   "gitpython>=3.1.45",
 #   "semantic-version>=2.10.0",

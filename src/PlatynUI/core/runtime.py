@@ -53,9 +53,10 @@ context manager::
 
 from __future__ import annotations
 
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from threading import RLock
-from typing import TYPE_CHECKING, Callable, Iterator
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from platynui_native import Runtime as _NativeRuntime
@@ -196,7 +197,7 @@ class _RuntimeAccessor:
     # ------------------------------------------------------------------
 
     @contextmanager
-    def override(self, factory: _Builder) -> Iterator[_NativeRuntime]:
+    def override(self, factory: _Builder) -> Generator[_NativeRuntime]:
         """Activate an alternative runtime for the current scope.
 
         ``factory`` is a zero-argument callable that produces the
@@ -240,7 +241,7 @@ class _RuntimeAccessor:
                 self._builder, self._instance = snapshot
 
     @contextmanager
-    def override_with_mock(self) -> Iterator[_NativeRuntime]:
+    def override_with_mock(self) -> Generator[_NativeRuntime]:
         """Activate a mock-backed runtime for the current scope.
 
         Wraps `override` and builds a

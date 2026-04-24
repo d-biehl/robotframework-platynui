@@ -4,9 +4,28 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 20**.
+> **Status:** Diskussionsentwurf, **Revision 21**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 21** — **Python-Mindestversion auf 3.12 angehoben.** `requires-python`
+>   in allen vier `pyproject.toml`-Dateien (root, native, cli, inspector)
+>   sowie `.python-version` und `pyo3`-Feature `abi3-py312` (Cargo.toml +
+>   maturin-config). 3.10 erreicht im Oktober 2026 EOL — der Bump erfolgt
+>   *vor* Veröffentlichung, damit kein Nutzer betroffen ist. Gewinne:
+>   PEP 695 Generics-Syntax (`class PatternProxy[P]:` statt
+>   `Generic[P]`), `typing.override` als Sicherheitsnetz in der
+>   Proxy-Vererbungshierarchie, `typing.Self` ohne `typing_extensions`-
+>   Fallback. §2.6 entsprechend angepasst (PEP 695 ist jetzt empfohlen,
+>   nicht mehr ausgeschlossen). Begründung: ABC-vs-Protocol-Frage
+>   nochmals durchgegangen — ABC bleibt richtig (siehe Rev. 6) auch unter
+>   3.12, weil 3.12 keine Protocol-Eigenschaften ändert, die unsere
+>   nominale Verwendung beträfen. **ABC-Begründung in §2.6 und §5
+>   geschärft:** der bisherige Verweis auf `__init_subclass__` wurde
+>   gestrichen (war kein echter ABC-vs-Protocol-Unterschied — Protocols
+>   können das auch). Stattdessen das tatsächlich tragende Argument:
+>   Default-Methoden auf einer ABC werden nur an nominale Subklassen
+>   vererbt — strukturelle Protocol-Implementierer würden Defaults
+>   stillschweigend verlieren.
 > - **Rev. 5** — modernes Python 3.10+ als verbindlicher Standard
 >   (Dataclasses, `match`/`case`, PEP 604, `Self`, Hybrid-Registry für
 >   Decorators).
@@ -338,7 +357,7 @@ nötig. Details und abgedeckte Rollen: §5a.
 
 ### 2.6 Modernes Python: eingesetzte Sprachfeatures und Konventionen
 
-Zielversion ist **Python 3.10+** (3.10–3.13, vgl. `pyproject.toml`).
+Zielversion ist **Python 3.12+** (3.12–3.13, vgl. `pyproject.toml`).
 Der Altcode entstand zu Python-3.0-Zeiten und nutzt überwiegend
 klassische Idiome (ABC + `__init__`-Boilerplate, `Optional[X]`,
 Decorator-Side-Effects). Für die Neufassung legen wir einen modernen
@@ -348,12 +367,18 @@ Code und werden in jedem nachfolgenden Abschnitt vorausgesetzt:
 **Typsystem & Daten**
 
 - **`abc.ABC` + `@abstractmethod`** für Capability-Interfaces (Patterns,
-  Adapter, Devices). Erzwingt Implementierung zur Instanzierungszeit
-  (echter Fehler statt stiller Protocol-Miss), ermöglicht billige
-  `isinstance`-Checks über die MRO und passt zum Registry-Mechanismus
-  via `__init_subclass__`. `typing.Protocol` setzen wir nur punktuell
-  ein, wo strukturelles Typing echten Mehrwert bringt (z.B. kleine
-  interne Marker ohne Implementierungspflicht).
+  Adapter, Devices). Drei Gründe: (a) Implementierungspflicht wird zur
+  Instanzierungszeit erzwungen — echter `TypeError`, kein stiller
+  Protocol-Miss; (b) `isinstance`-Checks laufen billig über die MRO
+  ohne `@runtime_checkable`-Overhead; (c) **Default-Method-Vererbung
+  funktioniert verlässlich**: wenn z.B. `Element` eine
+  `default_click_position()`-Methode mit Default-Implementierung
+  anbietet, erbt jeder nominale Implementierer sie automatisch.
+  Strukturelle Protocol-Implementierer würden den Default *nicht*
+  bekommen — ein stiller Footgun. `typing.Protocol` setzen wir nur
+  punktuell ein, wo strukturelles Typing echten Mehrwert bringt (z.B.
+  kleine interne Marker ohne Default-Methoden und ohne
+  Implementierungspflicht).
 - **`@dataclass(frozen=True, slots=True, kw_only=True)`** als Default
   für alle Value-Objekte (`Settings`, `MatchCriteria`, `EnsureResult`,
   `Locator`-Bestandteile). `frozen` erzwingt Immutabilität, `slots`
@@ -361,9 +386,8 @@ Code und werden in jedem nachfolgenden Abschnitt vorausgesetzt:
   Reordering.
 - **PEP 604 Union-Syntax**: `X | None` statt `Optional[X]`, `int | str`
   statt `Union[int, str]`. Konsequent durchziehen.
-- **`typing.Self`** (3.11+, Fallback `typing_extensions` für 3.10) für
-  Builder-Pattern und Methoden, die `self`-Typ zurückgeben (z.B.
-  `Locator.with_role(...)`).
+- **`typing.Self`** für Builder-Pattern und Methoden, die `self`-Typ
+  zurückgeben (z.B. `Locator.with_role(...)`).
 - **`typing.TypeAlias`**: zentrale Aliases für `PatternName`,
   `RoleName`, `TechnologyName`, `FrameworkId`. Ein Punkt zum Ändern,
   semantisch klar. Freie Strings — kein Enum-Zwang, damit
@@ -415,6 +439,15 @@ Code und werden in jedem nachfolgenden Abschnitt vorausgesetzt:
 - **`typing.ParamSpec` + `Concatenate`** für die Decorator-Wrapper
   (`@ensure(...)`), damit aufgerufene Keyword-Funktionen ihre
   Typsignatur exakt behalten.
+- **PEP 695 Generics-Syntax** (3.12+) für neue Generics:
+  `class PatternProxy[P: PatternBase]:` statt
+  `class PatternProxy(Generic[P]):`. Type-Aliases mit `type X = …`
+  statt `X: TypeAlias = …`. Das macht Bound-Constraints direkt am
+  Generic-Parameter sichtbar und spart einen Import.
+- **`typing.override`** auf jeder Methode in den Proxy-Hierarchien
+  (`ElementProxy` → `ControlProxy` → `ButtonProxy` …), die eine
+  geerbte Methode überschreibt. Fängt Signatur-Drift bei
+  Refactorings zur Type-Check-Zeit.
 
 **Was wir nicht einführen**
 
@@ -422,8 +455,6 @@ Code und werden in jedem nachfolgenden Abschnitt vorausgesetzt:
   zusätzliche Runtime-Abhängigkeiten ohne Mehrwert.
 - **Kein flächendeckendes `async`/`await`** — RF ist sync, nur
   punktuell einführen, wenn ein Adapter es erzwingt.
-- **Kein PEP 695 `type X = …`** als Pflicht (erst ab 3.12) — `TypeAlias`
-  ist der gemeinsame Nenner für 3.10+.
 
 **Querverweise**: §5 (ABC-basierte Patterns), §5.4 (Convention statt
 Registry), §7 (Locator-API mit `@overload`), §10 Phase 1 (konkrete
@@ -650,8 +681,9 @@ Patterns sind `abc.ABC`-Klassen (Basis `PatternBase`) mit
 nicht **wie**. ABC wurde gegenüber `typing.Protocol` bevorzugt, weil
 (a) die Instanzierung einer unvollständigen Implementierung sofort
 einen echten Fehler wirft, (b) `isinstance`-Checks billig über die MRO
-laufen und (c) `__init_subclass__` ohne Umwege verfügbar ist (auch
-wenn wir aktuell keine globale Registry brauchen — siehe §5.4).
+laufen, und (c) Default-Methoden zuverlässig an Subklassen vererbt
+werden — bei `typing.Protocol` würden strukturelle Implementierer
+Defaults stillschweigend verlieren.
 
 **Jedes Pattern trägt einen stabilen String-Identifier** (`pattern_name`)
 im Reverse-DNS-Format `org.platynui.patterns.<Name>`. Zwei Aspekte
@@ -1671,6 +1703,22 @@ das Adapter-Interface schmal und Pattern-orientiert.
    `UiNode.get_pattern`) → cachen.
 4. Sonst: `PatternNotSupportedError` (oder `None` bei
    `raise_exception=False`).
+
+**mypy-Konfiguration: `type-abstract` deaktiviert.** Die Signaturen
+`get_pattern(pattern_type: type[P])` und
+`supports_pattern(pattern_type: type[PatternBase])` nehmen das
+Pattern-Klassenobjekt als **Lookup-Schlüssel** entgegen, nie als
+Konstruktor. Pattern-Instanzen werden ausschließlich von Adaptern bzw.
+Proxies erzeugt und an den Aufrufer zurückgegeben. mypys
+`type-abstract`-Diagnose würde an jeder Aufrufstelle anschlagen
+(`Only concrete class can be given where "type[Element]" is expected`),
+weil ABCs theoretisch instanziierbar sind. Da wir genau das nie tun und
+Pyright (zweiter Type-Checker im CI) den Check standardmäßig nicht
+führt, ist `disable_error_code = ["type-abstract"]` in der
+Root-`pyproject.toml` die saubere Lösung — pro-Aufrufstellen-Ignores
+würden mit den ~120 geplanten `get_pattern`-Aufrufen nicht skalieren.
+Echte „Pattern direkt instanziiert"-Fehler werden weiterhin von
+`abstract` (mypy) und `reportGeneralTypeIssues` (pyright) gefangen.
 
 **`AdapterProxy`** (siehe §4 / §5.1) ist *kein* Adapter-Subtyp, sondern
 eine **Komposition**: er hält einen `adapter: Adapter` und überschreibt
@@ -3351,10 +3399,12 @@ User-Code, der nur Strings vergleicht, ist nicht betroffen.
 - **~50 % Code-Reduktion** gegenüber dem Altprojekt (4.600 → ~2.000 LOC),
   weil Adapter-/Technology-Bridge und XPath-Builder dank Rust schrumpfen
   — die Konzepte aber 1:1 erhalten bleiben.
-- **Modernes Python 3.10+** ist verbindlich (siehe §2.6): ABC als
+- **Modernes Python 3.12+** ist verbindlich (siehe §2.6): ABC als
   Default für Pattern-Interfaces, Dataclasses
   (`frozen`/`slots`/`kw_only`) für Value-Objekte, `match`/`case` für
   Outcome-Dispatch, PEP 604 Union-Syntax, `Self`, `cached_property`,
-  `@overload` für Locator-API. `__init_subclass__`-Hybrid mit
+  `@overload` für Locator-API, PEP 695 Generics-Syntax und
+  `typing.override` in Proxy-Hierarchien.
+  `__init_subclass__`-Hybrid mit
   Decorator für `@context`. Keine globale `PatternRegistry` —
   Convention plus Adapter-lokale Mapping-Tabellen reichen.
