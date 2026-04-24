@@ -44,36 +44,36 @@ from ._native import (
 
 
 # Like dictionaries for ergonomics
-class _PointDict(TypedDict):
+class PointDict(TypedDict):
     x: float
     y: float
 
 
-class _SizeDict(TypedDict):
+class SizeDict(TypedDict):
     width: float
     height: float
 
 
-class _SizeShortDict(TypedDict):
+class SizeShortDict(TypedDict):
     w: float
     h: float
 
 
-class _RectDict(TypedDict):
+class RectDict(TypedDict):
     x: float
     y: float
     width: float
     height: float
 
 
-type PointLike = Point | tuple[float, float] | _PointDict
-type SizeLike = Size | tuple[float, float] | _SizeDict | _SizeShortDict
-type RectLike = Rect | tuple[float, float, float, float] | _RectDict
+type PointLike = Point | tuple[float, float] | PointDict
+type SizeLike = Size | tuple[float, float] | SizeDict | SizeShortDict
+type RectLike = Rect | tuple[float, float, float, float] | RectDict
 type OriginLike = Literal['desktop'] | PointLike | RectLike
 type ScrollDeltaLike = tuple[float, float]
 type PointerButtonLike = PointerButton | int
 
-class _PointerOverridesDict(TypedDict, total=False):
+class PointerOverridesDict(TypedDict, total=False):
     origin: OriginLike
     motion: PointerMotionMode
     steps_per_pixel: float
@@ -99,13 +99,13 @@ class _PointerOverridesDict(TypedDict, total=False):
     scroll_delay_ms: float
 
 
-class _PointerSettingsDict(TypedDict, total=False):
+class PointerSettingsDict(TypedDict, total=False):
     double_click_time_ms: float
     double_click_size: SizeLike
     default_button: PointerButtonLike
 
 
-class _PointerProfileDict(TypedDict, total=False):
+class PointerProfileDict(TypedDict, total=False):
     motion: PointerMotionMode
     steps_per_pixel: float
     max_move_duration_ms: float
@@ -130,7 +130,7 @@ class _PointerProfileDict(TypedDict, total=False):
     move_time_per_pixel_us: float
 
 
-class _KeyboardProfileDict(TypedDict, total=False):
+class KeyboardProfileDict(TypedDict, total=False):
     press_delay_ms: float
     release_delay_ms: float
     between_keys_delay_ms: float
@@ -140,7 +140,7 @@ class _KeyboardProfileDict(TypedDict, total=False):
     after_text_delay_ms: float
 
 
-class _KeyboardOverridesDict(TypedDict, total=False):
+class KeyboardOverridesDict(TypedDict, total=False):
     press_delay_ms: float
     release_delay_ms: float
     between_keys_delay_ms: float
@@ -150,11 +150,11 @@ class _KeyboardOverridesDict(TypedDict, total=False):
     after_text_delay_ms: float
 
 
-type PointerOverridesLike = PointerOverrides | _PointerOverridesDict
-type PointerSettingsLike = PointerSettings | _PointerSettingsDict
-type PointerProfileLike = PointerProfile | _PointerProfileDict
-type KeyboardOverridesLike = KeyboardOverrides | _KeyboardOverridesDict
-type KeyboardProfileLike = KeyboardProfile | _KeyboardProfileDict
+type PointerOverridesLike = PointerOverrides | PointerOverridesDict
+type PointerSettingsLike = PointerSettings | PointerSettingsDict
+type PointerProfileLike = PointerProfile | PointerProfileDict
+type KeyboardOverridesLike = KeyboardOverrides | KeyboardOverridesDict
+type KeyboardProfileLike = KeyboardProfile | KeyboardProfileDict
 
 Primitive = bool | int | float | str | None
 JSONLike = dict[str, Any] | list[Any]
@@ -170,8 +170,10 @@ __all__ = [
     'Focusable',
     'KeyboardError',
     'KeyboardOverrides',
+    'KeyboardOverridesDict',
     'KeyboardOverridesLike',
     'KeyboardProfile',
+    'KeyboardProfileDict',
     'KeyboardProfileLike',
     'Namespace',
     'NodeAttributesIterator',
@@ -180,25 +182,32 @@ __all__ = [
     'PatternError',
     'PlatynUiError',
     'Point',
+    'PointDict',
     'PointLike',
     'PointerAccelerationProfile',
     'PointerButton',
     'PointerError',
     'PointerMotionMode',
     'PointerOverrides',
+    'PointerOverridesDict',
     'PointerOverridesLike',
     'PointerProfile',
+    'PointerProfileDict',
     'PointerProfileLike',
     'PointerSettings',
+    'PointerSettingsDict',
     'PointerSettingsLike',
     'ProviderError',
     'Rect',
+    'RectDict',
     'RectLike',
     'Runtime',
     'RuntimeId',
     'ScrollDeltaLike',
     'Size',
+    'SizeDict',
     'SizeLike',
+    'SizeShortDict',
     'TechnologyId',
     'UiAttribute',
     'UiNode',
