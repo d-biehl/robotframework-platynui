@@ -21,6 +21,7 @@ __all__ = [
     'ElementNotFoundError',
     'EnsureError',
     'InvalidArgumentError',
+    'InvalidResultTypeError',
     'LocatorError',
     'MultipleElementsFoundError',
     'NoDisplayDeviceError',
@@ -115,3 +116,7 @@ class NotSupportedError(NotImplementedError):
 
 class InvalidArgumentError(ValueError):
     """Argument failed validation."""
+
+
+class InvalidResultTypeError(TypeError):
+    """Operation produced a value whose type does not match the contract."""

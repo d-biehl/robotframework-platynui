@@ -163,6 +163,15 @@ class UiNodeAdapter(Adapter):
         return cls(runtime.current.desktop_node())
 
     # ------------------------------------------------------------------
+    # Native-node access
+    # ------------------------------------------------------------------
+
+    @property
+    def native_node(self) -> _pn.UiNode:
+        """The wrapped native `_pn.UiNode`."""
+        return self._node
+
+    # ------------------------------------------------------------------
     # Identity & lifetime
     # ------------------------------------------------------------------
 

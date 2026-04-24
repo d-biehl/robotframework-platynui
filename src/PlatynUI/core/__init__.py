@@ -10,6 +10,7 @@ singleton, locator, predicate, and wait helpers, and shared types.
 """
 
 from .adapter import Adapter
+from .adapter_factory import AdapterFactory, AdapterFactoryAccessor, RuntimeAdapterFactory, adapter_factory
 from .adapter_proxy import AdapterFacade, AdapterProxy, PatternProxyFactory, pattern_proxy_for
 from .adapters import UiNodeAdapter, UiNodeTechnology
 from .devices import (
@@ -58,6 +59,8 @@ __all__ = [
     'Adapter',
     'AdapterError',
     'AdapterFacade',
+    'AdapterFactory',
+    'AdapterFactoryAccessor',
     'AdapterKeyboardProxy',
     'AdapterLike',
     'AdapterMouseProxy',
@@ -94,6 +97,7 @@ __all__ = [
     'PlatynUIFatalError',
     'RoleName',
     'Runtime',
+    'RuntimeAdapterFactory',
     'Settings',
     'Technology',
     'TechnologyName',
@@ -101,6 +105,7 @@ __all__ = [
     'UiNodeTechnology',
     'VirtualPoint',
     'WeightCalculator',
+    'adapter_factory',
     'add_ensure_hook',
     'ensure_that',
     'full_repr',
