@@ -14,6 +14,13 @@ from .adapter_factory import AdapterFactory, AdapterFactoryAccessor, RuntimeAdap
 from .adapter_proxy import AdapterFacade, AdapterProxy, PatternProxyFactory, pattern_proxy_for
 from .adapters import UiNodeAdapter, UiNodeTechnology
 from .context import ContextBase, ContextFactory, UnknownContext, context
+from .descriptor import (
+    ElementDescriptor,
+    PatternT,
+    RootElementDescriptor,
+    reset_root_element_storage,
+    set_root_element_storage,
+)
 from .devices import (
     AdapterKeyboardProxy,
     AdapterMouseProxy,
@@ -74,6 +81,7 @@ __all__ = [
     'ContextBase',
     'ContextFactory',
     'DeviceError',
+    'ElementDescriptor',
     'ElementNotFoundError',
     'EnsureError',
     'FrameworkId',
@@ -96,9 +104,11 @@ __all__ = [
     'PatternName',
     'PatternNotSupportedError',
     'PatternProxyFactory',
+    'PatternT',
     'PlatynUIError',
     'PlatynUIFatalError',
     'RoleName',
+    'RootElementDescriptor',
     'Runtime',
     'RuntimeAdapterFactory',
     'Settings',
@@ -117,6 +127,8 @@ __all__ = [
     'locator',
     'pattern_proxy_for',
     'predicate',
+    'reset_root_element_storage',
     'runtime',
+    'set_root_element_storage',
     'wait_for',
 ]
