@@ -24,7 +24,7 @@ once on the ABC. Concrete adapters override only the narrow
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterator, Sequence
-from typing import TYPE_CHECKING, ClassVar, Literal, TypeVar, cast, overload
+from typing import TYPE_CHECKING, ClassVar, Literal, cast, overload
 
 from .exceptions import (
     AdapterNotValidError,
@@ -40,7 +40,6 @@ if TYPE_CHECKING:
 __all__ = ['Adapter']
 
 
-P = TypeVar('P', bound=PatternBase)
 
 
 class Adapter(ABC):
@@ -208,18 +207,18 @@ class Adapter(ABC):
         """
 
     @overload
-    def get_pattern(self, pattern_type: type[P]) -> P: ...
+    def get_pattern[P: PatternBase](self, pattern_type: type[P]) -> P: ...
 
     @overload
-    def get_pattern(self, pattern_type: type[P], *, raise_exception: Literal[True]) -> P: ...
+    def get_pattern[P: PatternBase](self, pattern_type: type[P], *, raise_exception: Literal[True]) -> P: ...
 
     @overload
-    def get_pattern(self, pattern_type: type[P], *, raise_exception: Literal[False]) -> P | None: ...
+    def get_pattern[P: PatternBase](self, pattern_type: type[P], *, raise_exception: Literal[False]) -> P | None: ...
 
     @overload
-    def get_pattern(self, pattern_type: type[P], *, raise_exception: bool) -> P | None: ...
+    def get_pattern[P: PatternBase](self, pattern_type: type[P], *, raise_exception: bool) -> P | None: ...
 
-    def get_pattern(
+    def get_pattern[P: PatternBase](
         self,
         pattern_type: type[P],
         *,

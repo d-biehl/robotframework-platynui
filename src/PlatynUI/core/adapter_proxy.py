@@ -29,7 +29,7 @@ the highest-scoring match.
 
 import re
 from collections.abc import Callable, Iterator, Sequence
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast, overload
 
 from .adapter import Adapter
 from .exceptions import NotAPatternTypeError
@@ -46,10 +46,6 @@ __all__ = [
     'PatternProxyFactory',
     'pattern_proxy_for',
 ]
-
-
-P = TypeVar('P', bound=PatternBase)
-ProxyT = TypeVar('ProxyT', bound='AdapterProxy')
 
 
 #: Either a raw `Adapter` or a wrapping `AdapterProxy`;
@@ -200,18 +196,18 @@ class AdapterProxy:
     # ------------------------------------------------------------------
 
     @overload
-    def get_pattern(self, pattern_type: type[P]) -> P: ...
+    def get_pattern[P: PatternBase](self, pattern_type: type[P]) -> P: ...
 
     @overload
-    def get_pattern(self, pattern_type: type[P], *, raise_exception: Literal[True]) -> P: ...
+    def get_pattern[P: PatternBase](self, pattern_type: type[P], *, raise_exception: Literal[True]) -> P: ...
 
     @overload
-    def get_pattern(self, pattern_type: type[P], *, raise_exception: Literal[False]) -> P | None: ...
+    def get_pattern[P: PatternBase](self, pattern_type: type[P], *, raise_exception: Literal[False]) -> P | None: ...
 
     @overload
-    def get_pattern(self, pattern_type: type[P], *, raise_exception: bool) -> P | None: ...
+    def get_pattern[P: PatternBase](self, pattern_type: type[P], *, raise_exception: bool) -> P | None: ...
 
-    def get_pattern(
+    def get_pattern[P: PatternBase](
         self,
         pattern_type: type[P],
         *,
@@ -421,7 +417,7 @@ class _AdapterCriteriaView:
             return None
 
 
-def pattern_proxy_for(
+def pattern_proxy_for[ProxyT: AdapterProxy](
     *,
     role: str | None = None,
     framework_id: str | None = None,

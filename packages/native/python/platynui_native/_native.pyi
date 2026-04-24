@@ -5,7 +5,7 @@ All types are directly exported from the native extension module.
 
 import enum as _enum
 from collections.abc import Iterable, Iterator
-from typing import Any, ClassVar, Literal, TypeAlias, TypedDict, TypeVar, overload
+from typing import Any, ClassVar, Literal, TypeAlias, TypedDict, overload
 
 # ===== Core Types =====
 
@@ -304,9 +304,8 @@ class UiNode:
     def is_valid(self) -> bool: ...
     def invalidate(self) -> None: ...
     def has_pattern(self, pattern: str | type) -> bool: ...
-    _P = TypeVar('_P')
     @overload
-    def get_pattern(self, pattern: type[_P]) -> _P: ...
+    def get_pattern[_P](self, pattern: type[_P]) -> _P: ...
     @overload
     def get_pattern(self, pattern: str) -> object: ...
 
