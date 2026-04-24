@@ -4,9 +4,38 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 21**.
+> **Status:** Diskussionsentwurf, **Revision 23**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 23** — **`AdapterFactory` als eigenes Singleton (§A.4b).**
+>   Suche und Adapter-Wrapping ist eine eigene Verantwortung,
+>   weder am `Adapter` (würde Adapter an Runtime koppeln und das
+>   Wrapping-Verhalten je Implementierung duplizieren) noch direkt
+>   in `ContextBase` (würde Suchstrategie an Page-Object-Schicht
+>   nageln und Test-Stubs erschweren). Der Layer folgt dem
+>   Altprojekt (`core/adapterfactory.py`), tauscht aber die
+>   per-Technology-Registry gegen ein prozesssweites Singleton
+>   `adapter_factory` mit Sealing/Override analog zu `runtime`
+>   (§A.5). API auf zwei Methoden reduziert: `find_one(parent,
+>   locator)` und `find_all(parent, locator)`. `find_parent`
+>   entfällt — `adapter.parent` reicht. `ancestor`/`get_child`/
+>   `get_children` aus dem alten `ContextBase` sind dünne
+>   Wrapper über `find_one`/`find_all` mit gesetztem
+>   `LocatorScope` und gehören in `ContextBase`, nicht in die
+>   Factory. Die Default-`RuntimeAdapterFactory` greift
+>   `parent.native_node` (neue Public-Property auf `UiNodeAdapter`,
+>   §A.4a-Ergänzung) und ruft `runtime.current.evaluate*`. Doku in
+>   §A.4b neu; §4.4, §1.2-Tabelle, §6.4, §9-Verzeichnis und
+>   Phase-1/2-Reihenfolge entsprechend angepasst.
+> - **Rev. 22** — **`ContextBase` erbt nicht mehr von `Assertable`.**
+>   Die in §A.4 (Rev. 8) angekündigte Klasse `Assertable` mit
+>   `assert_that`/`assert_that_not` als Basis aller Page-Object-Klassen
+>   existierte weder im Alt- noch im Neuprojekt. `src/PlatynUI/_assertable.py`
+>   enthält nur den `@assertable`-**Keyword-Decorator** für die
+>   RF-Library-Schicht (siehe BareMetal-Keywords) — der bleibt
+>   unverändert und wird weiter eigenständig genutzt. Pre-/Post-
+>   Verifikation auf `ContextBase` läuft ausschließlich über die bereits
+>   spezifizierte `ensure_that`-Methode.
 > - **Rev. 21** — **Python-Mindestversion auf 3.12 angehoben.** `requires-python`
 >   in allen vier `pyproject.toml`-Dateien (root, native, cli, inspector)
 >   sowie `.python-version` und `pyo3`-Feature `abi3-py312` (Cargo.toml +
@@ -269,7 +298,7 @@ wird teilweise stark vereinfacht):
 | `core/ensure.py` | 155 | Retry mit Prädikaten | **Ja**, vereinfacht (~50 LOC) |
 | `core/wait_for.py` | 51 | Polling bis Prädikat | **Ja, 1:1** |
 | `core/settings.py` | 66 | Timeouts, Delays | **Ja, 1:1** |
-| `core/technology.py` + `AdapterFactory` | — | Bridge zu C#-Providern | Ersetzt durch `Runtime`/Provider-Registry (Rust) |
+| `core/technology.py` + `AdapterFactory` | — | Bridge zu C#-Providern | `technology.py` als Marker portiert; `AdapterFactory` als Singleton neu (siehe §A.4b) — die per-Technology-Registry des Altprojekts entfällt zugunsten einer Default-Factory pro Prozess |
 | `ui/locator.py` | 433 | XPath-Builder aus Attributen | **Ja**, ~100 LOC dank Rust-XPath |
 | `ui/proxies/standardproxies.py` | 408 | Standard-Proxies pro Rolle | **Ja**, das Herzstück |
 | `ui/element.py`, `window.py`, `buttons.py`, … | ~1500 | UI-Klassen (Page-Object-Basis) | **Ja** |
@@ -651,9 +680,12 @@ Wenn `parent.get(child_ctx, locator=...)` aufgerufen wird (siehe §A.5):
 ```
 1. Adapter-Quelle aus dem Parent-Context erben.
    Der Parent hält bereits einen Adapter; Children werden aus
-   dessen Tree resolved (Rust-XPath-Engine via `Runtime.evaluate`).
-2. Locator → XPath → Adapter.evaluate(xpath) → Sequenz roher
-   Adapter-Refs auf gefundene UiNodes.
+   dessen Tree resolved.
+2. Locator → adapter_factory.current.find_one(parent_adapter, locator)
+   bzw. find_all(...). Die RuntimeAdapterFactory rendert intern
+   den XPath (locator.to_xpath(...)) und ruft die Native-Engine
+   (runtime.current.evaluate*). Ergebnis: Sequenz roher
+   UiNodeAdapter-Refs auf gefundene UiNodes (siehe §A.4b).
 3. PatternProxyFactory.find_proxy_for(adapter)
    → wickelt einen passenden Proxy darum (gewichtsbasiert).
 4. ContextFactory.find_context_class_for(proxied_adapter)
@@ -663,8 +695,8 @@ Wenn `parent.get(child_ctx, locator=...)` aufgerufen wird (siehe §A.5):
 ```
 
 Schritt 3 passiert idealerweise **innerhalb** der Adapter-Auflösung
-(im Altcode: `AdapterFactory.get_adapter` ruft
-`PatternProxyFactory.find_proxy_for` auf), damit jeder Code-Pfad
+(`AdapterFactory.find_one`/`find_all` ruft `PatternProxyFactory.find_proxy_for`
+auf, bevor sie das Resultat zurückgibt), damit jeder Code-Pfad
 dieselben Proxies sieht.
 
 **Kein Runtime-Singleton** — der Adapter wird über die Parent-Chain
@@ -1156,7 +1188,12 @@ Eine zukünftige `JsonRpcAdapter`-Implementierung würde:
   Beziehungen)
 - ihre eigene `Technology`-Markierung tragen (relevant für
   `WeightCalculator`-Kriterium `technology`)
-- ihren `AdapterFactory` registrieren
+- eine eigene `AdapterFactory`-Implementierung mitbringen (siehe
+  §A.4b) und sie über `adapter_factory.use_factory(...)` als
+  Default einhängen oder via `adapter_factory.override(...)` scope-
+  gebunden aktivieren — die Default-`RuntimeAdapterFactory` setzt
+  einen `UiNodeAdapter` mit `native_node`-Property voraus und passt
+  daher nicht für Adapter ohne Native-Backing
 
 **Die `pattern_name`-Identifier (§5) sind der Schlüssel dazu.** Externe
 Adapter können keine Python-Klassen-Objekte über die Drahtverbindung
@@ -1344,6 +1381,7 @@ src/PlatynUI/
 │   ├── __init__.py
 │   ├── adapter.py                  # Adapter-Interface (~150 LOC)
 │   ├── adapter_proxy.py            # AdapterProxy + PatternProxyFactory + @pattern_proxy_for (~170 LOC)
+│   ├── adapter_factory.py          # AdapterFactory (ABC) + RuntimeAdapterFactory + Singleton (~150 LOC)
 │   ├── context.py                  # ContextBase + ContextFactory + @context (~250 LOC)
 │   ├── weight_calculator.py        # 1:1 aus alt (~115 LOC)
 │   ├── locator.py                  # Locator, @locator, LocatorScope (~120 LOC)
@@ -1352,7 +1390,7 @@ src/PlatynUI/
 │   ├── wait.py                     # wait_for (~40 LOC)
 │   ├── settings.py                 # Settings dataclass (~70 LOC)
 │   ├── exceptions.py               # Exception-Hierarchie
-│   ├── technology.py               # Technology-Marker, AdapterFactory-Registry (~60 LOC)
+│   ├── technology.py               # Technology-Marker (~40 LOC)
 │   ├── types.py                    # TypeAliases (PatternName, RoleName, FrameworkId, …)
 │   ├── patterns/                   # Pattern-Interfaces (im Altprojekt: strategies/)
 │   │   ├── __init__.py             # re-exports
@@ -1772,6 +1810,13 @@ Aufgabenkatalog:
   klassischem `__new__`-Singleton; das Modul hält eine fertig
   konstruierte Instanz (`_TECHNOLOGY`), so dass `.technology` keine
   Allokation auslöst.
+- **Native-Node-Zugriff (`native_node` Property)**: read-only Property,
+  liefert das gewrappte `platynui_native.UiNode`. Public, weil die
+  `RuntimeAdapterFactory` (§A.4b) das Handle zum Aufruf von
+  `runtime.current.evaluate(xpath, node)` braucht. Der Zugriff ist
+  bewusst spezifisch für `UiNodeAdapter` — Adapter-Implementierungen
+  ohne Native-Backing brauchen eine eigene `AdapterFactory`-Variante
+  und exposen die Property nicht.
 
 Tests laufen gegen den **Rust-Mock-Provider** (`Runtime.new_with_mock()`)
 und prüfen alle Mappings end-to-end. Reine Algorithmus-Tests für die
@@ -1781,13 +1826,25 @@ Inline-Fakes.
 
 
 `ContextBase` ist die Wurzel aller UI-Klassen (Page-Object-Basis).
-Vereinfacht ggü. Altcode (473 → ~250 LOC), siehe §11.2. Erbt von
-`Assertable` (`core/_assertable.py`, portiert aus aktuellem
-`src/PlatynUI/_assertable.py`), das `assert_that`/`assert_that_not`
-für RF-Style-Assertions liefert.
+Vereinfacht ggü. Altcode (473 → ~250 LOC), siehe §11.2.
+
+> **Hinweis (Rev. 22):** Frühere Fassungen dieses Abschnitts ließen
+> `ContextBase` von einer Klasse `Assertable` erben, die
+> `assert_that`/`assert_that_not` für RF-Style-Assertions auf
+> Page-Object-Ebene anbieten sollte. Eine solche Klasse existierte
+> weder im Alt- noch im Neuprojekt — `src/PlatynUI/_assertable.py`
+> enthält ausschließlich den `@assertable`-**Keyword-Decorator**,
+> der RF-Keywords drei Assertion-Parameter (`assertion_operator`,
+> `assertion_expected`, `assertion_message`) anhängt und bei einer
+> mitgelieferten Operator-Angabe `assertionengine.verify_assertion`
+> aufruft. Dieses Muster bleibt für die Keyword-Schicht erhalten
+> (siehe BareMetal-Keywords wie `get_pointer_position`,
+> `get_attribute`); `ContextBase` selbst braucht es nicht. Pre-/Post-
+> Verifikation auf Page-Object-Ebene läuft ausschließlich über
+> `ensure_that(*predicates)` (Doc unten).
 
 ```python
-class ContextBase(Assertable):
+class ContextBase:
     default_role: ClassVar[str | None] = None
     default_prefix: ClassVar[str | None] = None
 
@@ -1900,6 +1957,153 @@ class Element(ContextBase):
 Diese Properties sind die Quelle für Default-Predicates
 (`is_visible`, `is_enabled`, …; siehe §A.3) und für Devices
 (`MouseProxy.click(element)` liest `bounding_rectangle`).
+
+### A.4b `AdapterFactory` (`core/adapter_factory.py`)
+
+Die `AdapterFactory` trennt **Such- und Wrapping-Strategie** von
+der reinen Knoten-Abstraktion `Adapter` (§A.4) und vom Native-
+Runtime-Wrapper (§A.5). `Adapter` bleibt ein passiver Knoten-
+Wrapper; die Übersetzung *Locator → Trefferliste roher Adapter*
+ist ein eigenständiges Konzept und braucht einen eigenen Layer.
+
+Diese Trennung folgt dem Altprojekt (`core/adapterfactory.py`,
+`AdapterFactoryImpl`), wo die Suche bewusst nicht am Adapter
+hängt. Im neuen Code-Stand ersetzt das Singleton-Pattern die
+frühere per-Technology-Registry: es gibt eine Default-Factory
+für die produktive Native-Runtime; Tests und alternative
+Provider tauschen sie scope-gebunden über einen Override-
+Context-Manager (analog `runtime`, §A.5).
+
+**Begründung gegen Adapter.evaluate(...).** Würde der Adapter
+selbst eine `evaluate(xpath) -> list[Adapter]`-Methode tragen,
+müsste jede Adapter-Implementierung die Runtime-Abhängigkeit
+mitschleppen und die Wrapping-Strategie (UiNode → UiNodeAdapter,
+Filterung von skalaren XPath-Treffern, …) selbst implementieren.
+Mit der Factory bleibt der Adapter dünn, die Suchstrategie ist
+einmal an einer Stelle, und Mocks/Tests können den Suchpfad
+isoliert tauschen, ohne Adapter zu ersetzen.
+
+**API.** `core/adapter_factory.py` exportiert die ABC
+`AdapterFactory`, die Default-Implementierung
+`RuntimeAdapterFactory` und ein Singleton-Objekt
+`adapter_factory`:
+
+```python
+from PlatynUI.core import adapter_factory
+
+class AdapterFactory(ABC):
+    @abstractmethod
+    def find_one(
+        self,
+        parent: Adapter,
+        locator: Locator,
+    ) -> Adapter | None:
+        """Return the first matching adapter, or None."""
+
+    @abstractmethod
+    def find_all(
+        self,
+        parent: Adapter,
+        locator: Locator,
+    ) -> list[Adapter]:
+        """Return every matching adapter; empty list if none."""
+```
+
+Bewusst nur zwei Methoden:
+
+- `parent.parent` und `parent.children` decken **strukturelle**
+  Navigation locator-frei direkt am Adapter ab. Eine
+  `find_parent(adapter)` braucht die Factory daher nicht;
+  `adapter.parent` liefert das gleiche.
+- `ancestor` / `get_child` / `get_children` aus dem alten
+  `ContextBase` sind **Wrapper über `find_one`/`find_all`** mit
+  einem Locator, dessen `scope` auf `Ancestor` bzw. `Children`
+  gesetzt ist (siehe §A.4c). Sie werden in `ContextBase`
+  konstruiert, nicht in der Factory.
+
+Damit reduziert sich die Factory-Verantwortung auf das eine
+Konzept *„Locator gegen einen Parent auflösen"*.
+
+**RuntimeAdapterFactory (Default).** Die Default-Implementierung
+ruft `runtime.current.evaluate(...)` und `evaluate_single(...)`:
+
+```python
+class RuntimeAdapterFactory(AdapterFactory):
+    @override
+    def find_one(self, parent: Adapter, locator: Locator) -> Adapter | None:
+        xpath = self._render_xpath(parent, locator)
+        node = self._parent_node(parent)
+        result = runtime.current.evaluate_single(xpath, node)
+        return self._wrap_or_none(result)
+
+    @override
+    def find_all(self, parent: Adapter, locator: Locator) -> list[Adapter]:
+        xpath = self._render_xpath(parent, locator)
+        node = self._parent_node(parent)
+        results = runtime.current.evaluate(xpath, node)
+        return [a for a in (self._wrap_or_none(r) for r in results) if a is not None]
+```
+
+- `_render_xpath` ruft `locator.to_xpath(parent_is_root_like=…,
+  default_role=…, default_prefix=…)`. Die `default_*`-Parameter
+  kommen vom *Ziel-Context-Type*, den `ContextBase` kennt — nicht
+  vom Parent-Adapter; daher reicht `ContextBase` sie via Wrapper
+  durch (siehe §A.4c). Die Factory selbst kennt keine Page-
+  Object-Klassen.
+- `_parent_node` liest `parent.native_node` (neue Public-Property
+  auf `UiNodeAdapter`, siehe §A.4a). Adapter ohne `native_node`
+  (z.B. zukünftige Mock-Adapter ohne Rust-Backing) brauchen eine
+  eigene `AdapterFactory`-Implementierung — dafür gibt es das
+  Override.
+- `_wrap` wrappt `UiNode`-Treffer in `UiNodeAdapter`. Skalare
+  XPath-Treffer (`EvaluatedAttribute`, `UiValue`) lösen
+  `InvalidResultTypeError` (TypeError-Subklasse, außerhalb der
+  `PlatynUIError`-Hierarchie) aus, da sie auf einen fehlerhaft
+  konstruierten Locator-XPath hinweisen — das ist ein
+  Programmierfehler, keine Laufzeitbedingung.
+
+**Singleton-Accessor.** Symmetrie zu §A.5:
+
+```python
+adapter_factory.current                    # property: aktive AdapterFactory
+adapter_factory.is_initialised()           # bool
+adapter_factory.is_sealed()                # bool
+
+adapter_factory.use_default()              # RuntimeAdapterFactory()
+adapter_factory.use_factory(cb)            # cb: Callable[[], AdapterFactory]
+
+with adapter_factory.override(factory) as f:
+    ...                                    # scope-bound, restores on exit
+```
+
+Gleiche Sealing-Regeln wie `runtime`: erste `current`-Lesung
+fixiert die Wahl; `use_*` nach Sealing wirft `RuntimeError`;
+`override(...)` ist jederzeit erlaubt und LIFO-stackbar. Es gibt
+**kein** `override_with_mock()` — Mock-Adapter sind nicht
+geplant (§A.11), und die Default-Factory funktioniert auch
+gegen die Mock-Runtime, weil sie einfach `runtime.current`
+benutzt; ein laufender `runtime.override_with_mock()`-Block
+liefert automatisch eine Mock-XPath-Engine.
+
+**Thread-Safety.** Wie `runtime`: `RLock` um den Accessor;
+`AdapterFactory`-Implementierungen müssen selbst thread-safe
+sein, falls sie internen Zustand halten. `RuntimeAdapterFactory`
+ist zustandslos.
+
+**Tests.** Pytest-Fixtures verwenden den Override-Context-Manager
+(kein manuelles Setzen):
+
+```python
+@pytest.fixture
+def fake_factory():
+    from PlatynUI.core import adapter_factory
+    with adapter_factory.override(lambda: FakeFactory()) as f:
+        yield f
+```
+
+Die Default-`RuntimeAdapterFactory` wird gegen einen
+`runtime.override_with_mock()`-Scope getestet — keine eigene
+Mock-Factory nötig.
 
 ### A.5 Process-wide Runtime (`core/runtime.py`)
 
@@ -2754,7 +2958,10 @@ bauen auf früheren auf.
    Standard-Predicates und Page-Object-Predicates, siehe §A.3)
 7. `core/weight_calculator.py` — Port aus Altprojekt, `MatchCriteria`
    als Dataclass; `attribute_value(name, namespace)`-basiert (Rev. 15)
-8. `core/technology.py` — Marker + AdapterFactory-Registry
+8. `core/technology.py` — Technology-Marker (Singleton via `__new__`),
+   ohne AdapterFactory-Registry — die `AdapterFactory` ist seit Rev. 23
+   ein eigenes Singleton (`core/adapter_factory.py`, siehe §A.4b) und
+   wird in Phase 2 portiert
 9. `core/locator.py` — neu, XPath-basiert über Rust, API nach §A.6
    (`@overload`, Builder-Methoden geben `Self` zurück, `copy_from`-
    Vererbung; `attributes` mit Tupel- oder String-Keys; Default-NS
@@ -2780,8 +2987,14 @@ testbar (119 pytest, mock-basiert).
 13. `core/adapters/ui_node.py` — `UiNodeAdapter`, der `UiNode` aus
     `platynui_native` umhüllt; mappt Native-Patterns auf Python-Patterns
     (`platynui_native.Focusable` → `core.patterns.Focusable` usw.).
-    Siehe §A.4a.
-14. `core/devices.py` — `MouseProxy`/`KeyboardProxy` über
+    Siehe §A.4a. Exposed `native_node` als Public-Property für die
+    `RuntimeAdapterFactory`.
+14. `core/runtime.py` — Process-wide Native-Runtime-Singleton (§A.5).
+15. `core/adapter_factory.py` — `AdapterFactory` (ABC),
+    `RuntimeAdapterFactory` (Default), Singleton-Accessor
+    `adapter_factory` (§A.4b). Setzt §A.4a (`native_node`) und §A.5
+    (`runtime.current.evaluate*`) voraus.
+16. `core/devices.py` — `MouseProxy`/`KeyboardProxy` über
     `platynui_native.Runtime`
 
 (Punkt 11 „`core/patterns/` — Pattern-ABCs" wurde nach Phase 1
@@ -2791,8 +3004,8 @@ entfällt; Tests gegen den UI-Tree nutzen den Rust-Mock-Provider via
 
 ### Phase 3 — Context-Schicht
 
-14. `core/context.py` — `ContextBase`, `ContextFactory`, `@context`
-15. `core/descriptor.py` — `ElementDescriptor[PatternT]` (aus
+17. `core/context.py` — `ContextBase`, `ContextFactory`, `@context`
+18. `core/descriptor.py` — `ElementDescriptor[PatternT]` (aus
     BareMetal extrahieren, gemeinsam nutzen)
 
 ### Phase 4 — UI-Klassen + Standard-Proxies
