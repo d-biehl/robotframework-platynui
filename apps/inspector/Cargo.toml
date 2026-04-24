@@ -22,6 +22,7 @@ mock-provider = [
 eframe = "0.34"
 egui_extras = "0.34"
 egui-system-fonts = "0.34"
+egui-async = "0.4"
 clap = { version = "4", features = ["derive"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 tracing = { version = "0.1", default-features = false, features = ["std"] }

@@ -52,17 +52,6 @@ pub fn show_results_panel(
             // ── Header ───────────────────────────────────────────────
             ui.horizontal(|ui| {
                 ui.strong("Results");
-                if !results.is_empty() {
-                    ui.colored_label(egui::Color32::from_gray(160), format!("({})", results.len()));
-                }
-                if let Some(status) = status {
-                    ui.separator();
-                    if status.starts_with("Error") {
-                        ui.colored_label(egui::Color32::from_rgb(255, 100, 100), status);
-                    } else {
-                        ui.colored_label(egui::Color32::from_gray(160), status);
-                    }
-                }
             });
             ui.separator();
 

@@ -24,7 +24,6 @@ mod model;
 mod view;
 mod viewmodel;
 
-use crate::model::automation;
 use crate::model::tree_data::UiNodeData;
 
 use clap::{Parser, ValueEnum};
@@ -250,6 +249,7 @@ impl InspectorApp {
 impl eframe::App for InspectorApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        ctx.plugin_or_default::<egui_async::EguiAsyncPlugin>();
         self.maybe_refresh_system_fonts(&ctx);
 
         let is_searching = self.vm.is_searching();
@@ -277,9 +277,12 @@ impl eframe::App for InspectorApp {
         }
 
         // View: Search Bar (below menu)
+        let search_error_hint = self.vm.search_error_hint().map(ToOwned::to_owned);
+
         let search_actions = toolbar::show_search_bar(
             ui,
             &mut self.vm.search_text,
+            search_error_hint.as_deref(),
             &mut self.vm.always_on_top,
             is_searching,
             has_node_selection,
@@ -306,6 +309,7 @@ impl eframe::App for InspectorApp {
                 toolbar::ToolbarAction::CancelSearch => self.execute_command(&ctx, AppCommand::CancelSearch),
                 toolbar::ToolbarAction::RefreshNode => self.execute_command(&ctx, AppCommand::RefreshNode),
                 toolbar::ToolbarAction::RefreshSubtree => self.execute_command(&ctx, AppCommand::RefreshSubtree),
+                toolbar::ToolbarAction::SearchTextChanged => self.vm.on_search_text_changed(),
             }
         }
 
@@ -324,8 +328,11 @@ impl eframe::App for InspectorApp {
         // Poll background selected-node details so selection never blocks UI.
         self.vm.poll_selection(&ctx);
 
+        // Poll background highlight operations.
+        self.vm.poll_highlight(&ctx);
+
         // View: Status Bar (bottom-most)
-        status_bar::show_status_bar(ui);
+        status_bar::show_status_bar(ui, self.vm.has_pending_background_work(), self.vm.status_bar_text());
 
         // View: Results Panel (above status bar)
         let result_actions = results_panel::show_results_panel(
@@ -517,17 +524,22 @@ pub fn run() -> eframe::Result {
     // This avoids expensive UIA root traversal while the inspector is
     // already advertising its own accessibility tree.
     let rt_for_preload = Arc::clone(&runtime);
-    let preloaded_root_children = automation::run(move || {
-        let root = rt_for_preload.desktop_node();
-        let raw_children: Vec<Arc<dyn UiNode>> = root.children().collect();
-        let mut out = Vec::with_capacity(raw_children.len());
-        for node in raw_children {
-            let data = Arc::new(UiNodeData::new(node));
-            data.preload_caches();
-            out.push(data);
-        }
-        out
-    });
+    let preloaded_root_children = std::thread::Builder::new()
+        .name("inspector-preload".to_string())
+        .spawn(move || {
+            let root = rt_for_preload.desktop_node();
+            let raw_children: Vec<Arc<dyn UiNode>> = root.children().collect();
+            let mut out = Vec::with_capacity(raw_children.len());
+            for node in raw_children {
+                let data = Arc::new(UiNodeData::new(node));
+                data.preload_caches();
+                out.push(data);
+            }
+            out
+        })
+        .expect("failed to spawn inspector-preload thread")
+        .join()
+        .expect("inspector-preload thread panicked");
 
     let icon = load_icon();
     let options = eframe::NativeOptions {
@@ -543,7 +555,6 @@ pub fn run() -> eframe::Result {
         "PlatynUI Inspector",
         options,
         Box::new(move |cc| {
-            automation::register_ui_thread();
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
             Ok(Box::new(InspectorApp::new(Arc::clone(&runtime), preloaded_root_children, &cc.egui_ctx)))

@@ -4,7 +4,6 @@
 //! the PlatynUI runtime (`UiNode`, `UiAttribute`, `UiValue`) to the inspector
 //! UI without coupling to any GUI framework.
 
-use crate::model::automation;
 use platynui_core::ui::{Namespace, UiNode, UiValue};
 use platynui_runtime::EvaluationItem;
 use std::fmt::Write as _;
@@ -234,55 +233,28 @@ impl UiNodeData {
         is_valid
     }
 
-    /// Whether this node has a parent (false for the desktop root).
-    pub fn has_parent(&self) -> bool {
-        let node = Arc::clone(&self.node);
-        automation::run(move || node.parent().is_some())
+    /// Whether this node has a parent, evaluated on the current thread.
+    ///
+    /// Use this only from background task contexts where blocking provider calls
+    /// are acceptable.
+    pub fn has_parent_direct(&self) -> bool {
+        self.node.parent().is_some()
     }
 
-    /// Collect all attributes formatted for the attributes table.
-    pub fn display_attributes(&self) -> Vec<DisplayAttribute> {
-        let node = Arc::clone(&self.node);
-        automation::run(move || {
-            let mut attrs = Vec::new();
-            for attr in node.attributes() {
-                let ns = attr.namespace();
-                let name = attr.name().to_string();
-                let value = attr.value();
-
-                let (val_str, ty_str) = format_ui_value(&value);
-                let ns_name = match ns {
-                    Namespace::Control => "control",
-                    Namespace::Item => "item",
-                    Namespace::App => "app",
-                    Namespace::Native => "native",
-                };
-
-                attrs.push(DisplayAttribute {
-                    namespace: ns_name.to_string(),
-                    name,
-                    value: val_str,
-                    value_type: ty_str,
-                });
-            }
-            attrs
-        })
+    /// Collect all attributes on the current thread.
+    ///
+    /// Use this only from background task contexts where blocking provider calls
+    /// are acceptable.
+    pub fn display_attributes_direct(&self) -> Vec<DisplayAttribute> {
+        collect_display_attributes(self.node.as_ref())
     }
 
-    /// Get the Bounds rect if available (for highlighting).
-    pub fn bounds_rect(&self) -> Option<platynui_core::types::Rect> {
-        let node = Arc::clone(&self.node);
-        automation::run(move || {
-            for attr in node.attributes() {
-                if let (Namespace::Control, "Bounds") = (attr.namespace(), attr.name())
-                    && let UiValue::Rect(r) = attr.value()
-                    && !r.is_empty()
-                {
-                    return Some(r);
-                }
-            }
-            None
-        })
+    /// Get the Bounds rect on the current thread.
+    ///
+    /// Use this only from background task contexts where blocking provider calls
+    /// are acceptable.
+    pub fn bounds_rect_direct(&self) -> Option<platynui_core::types::Rect> {
+        extract_bounds_rect(self.node.as_ref())
     }
 
     /// Initialize the children cache to an empty list.
@@ -307,8 +279,7 @@ impl UiNodeData {
 
     /// Invalidate all caches so values are re-queried on next access.
     pub fn refresh(&self) {
-        let node = Arc::clone(&self.node);
-        automation::run(move || node.invalidate());
+        self.node.invalidate();
         *self.id_cache.lock().unwrap() = None;
         *self.label_cache.lock().unwrap() = None;
         *self.has_children_cache.lock().unwrap() = None;
@@ -326,6 +297,38 @@ impl UiNodeData {
             }
         }
     }
+}
+
+fn collect_display_attributes(node: &dyn UiNode) -> Vec<DisplayAttribute> {
+    let mut attrs = Vec::new();
+    for attr in node.attributes() {
+        let ns = attr.namespace();
+        let name = attr.name().to_string();
+        let value = attr.value();
+
+        let (val_str, ty_str) = format_ui_value(&value);
+        let ns_name = match ns {
+            Namespace::Control => "control",
+            Namespace::Item => "item",
+            Namespace::App => "app",
+            Namespace::Native => "native",
+        };
+
+        attrs.push(DisplayAttribute { namespace: ns_name.to_string(), name, value: val_str, value_type: ty_str });
+    }
+    attrs
+}
+
+fn extract_bounds_rect(node: &dyn UiNode) -> Option<platynui_core::types::Rect> {
+    for attr in node.attributes() {
+        if let (Namespace::Control, "Bounds") = (attr.namespace(), attr.name())
+            && let UiValue::Rect(r) = attr.value()
+            && !r.is_empty()
+        {
+            return Some(r);
+        }
+    }
+    None
 }
 
 /// Format a `UiValue` for display as `(value_string, type_label)`.
