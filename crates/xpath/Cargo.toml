@@ -16,7 +16,7 @@ rust-version.workspace = true
 pest = "2.8"
 pest_derive = "2.8"
 unicode-normalization = "0.1"
-fancy-regex = "0.17"
+fancy-regex = "0.18"
 chrono = { version = "0.4", default-features = false, features = [
     "clock",
     "std",
@@ -29,7 +29,7 @@ smallvec = "1.15"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 string_cache = "0.9"
 compact_str = "0.9"
-lru = "0.16"
+lru = "0.17"
 
 [dev-dependencies]
 rstest = "0.26"
