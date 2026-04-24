@@ -112,8 +112,10 @@ fn init_tracing(cli_level: Option<LogLevel>) {
 struct InspectorApp {
     vm: InspectorViewModel,
     attributes_sort: attributes::AttributesSortState,
+    attributes_view_mode: attributes::AttributesViewMode,
     attribute_filter: String,
     pinned_attributes: BTreeSet<String>,
+    collapsed_attribute_groups: BTreeSet<String>,
     prev_always_on_top: Option<bool>,
     show_about_dialog: bool,
 }
@@ -137,8 +139,10 @@ impl InspectorApp {
         Self {
             vm: InspectorViewModel::new(runtime, preloaded_root_children),
             attributes_sort: attributes::AttributesSortState::default(),
+            attributes_view_mode: attributes::AttributesViewMode::default(),
             attribute_filter: String::new(),
             pinned_attributes: BTreeSet::new(),
+            collapsed_attribute_groups: BTreeSet::new(),
             prev_always_on_top: None,
             show_about_dialog: false,
         }
@@ -435,8 +439,10 @@ impl eframe::App for InspectorApp {
                     &self.vm.selected_label,
                     &self.vm.selected_attributes,
                     &mut self.attributes_sort,
+                    &mut self.attributes_view_mode,
                     &mut self.attribute_filter,
                     &mut self.pinned_attributes,
+                    &mut self.collapsed_attribute_groups,
                 );
             } else {
                 attributes::show_no_selection(ui);

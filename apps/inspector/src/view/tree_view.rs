@@ -357,7 +357,7 @@ impl<'a, R: TreeRowData> TreeView<'a, R> {
 /// When `expanded` the triangle points down; when collapsed it points right.
 /// This mirrors egui's own `CollapsingHeader` icon and avoids relying on
 /// Unicode characters that may be missing from the default font.
-fn paint_chevron(ui: &egui::Ui, rect: egui::Rect, expanded: bool) {
+pub(crate) fn paint_chevron(ui: &egui::Ui, rect: egui::Rect, expanded: bool) {
     let color = ui.visuals().text_color();
     let center = rect.center();
     let half = 4.0_f32; // half-size of the triangle
