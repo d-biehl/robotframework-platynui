@@ -31,7 +31,7 @@ exposes them.
 """
 
 from collections.abc import Iterator, Sequence
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, override
 
 import platynui_native as _pn
 
@@ -89,6 +89,7 @@ class _NativeFocusable(Focusable):
         self._native = native
 
     @property
+    @override
     def is_focused(self) -> bool:
         # Focusable lives in whichever namespace the underlying node
         # uses (control for widgets like Window/Button, item for
@@ -101,6 +102,7 @@ class _NativeFocusable(Focusable):
             return False
         return bool(value)
 
+    @override
     def focus(self) -> None:
         self._native.focus()
 
@@ -165,14 +167,17 @@ class UiNodeAdapter(Adapter):
     # ------------------------------------------------------------------
 
     @property
+    @override
     def valid(self) -> bool:
         return self._node.is_valid()
 
     @property
+    @override
     def runtime_id(self) -> str:
         return self._node.runtime_id
 
     @property
+    @override
     def technology(self) -> Technology:
         return _TECHNOLOGY
 
@@ -181,6 +186,7 @@ class UiNodeAdapter(Adapter):
     # ------------------------------------------------------------------
 
     @property
+    @override
     def parent(self) -> 'Adapter | None':
         parent_node = self._node.parent()
         if parent_node is None:
@@ -188,6 +194,7 @@ class UiNodeAdapter(Adapter):
         return UiNodeAdapter.from_node(parent_node)
 
     @property
+    @override
     def children(self) -> Sequence['Adapter']:
         return [UiNodeAdapter.from_node(child) for child in self._node.children()]
 
@@ -196,18 +203,22 @@ class UiNodeAdapter(Adapter):
     # ------------------------------------------------------------------
 
     @property
+    @override
     def name(self) -> str:
         return self._node.name
 
     @property
+    @override
     def class_name(self) -> str:
         return self._safe_str_attr('ClassName', 'control')
 
     @property
+    @override
     def role(self) -> str:
         return self._node.role
 
     @property
+    @override
     def supported_roles(self) -> set['RoleName']:
         # Only the primary role is currently exposed by the underlying
         # node; additional roles will be returned once the attribute
@@ -215,6 +226,7 @@ class UiNodeAdapter(Adapter):
         return {self._node.role}
 
     @property
+    @override
     def framework_id(self) -> 'FrameworkId':
         return self._safe_str_attr('FrameworkId', 'native')
 
@@ -229,17 +241,20 @@ class UiNodeAdapter(Adapter):
     # Attributes (namespaced)
     # ------------------------------------------------------------------
 
+    @override
     def attribute_names(self, namespace: str | None = None) -> set[str]:
         if namespace is None:
             return {attr.name for attr in self._node.attributes()}
         return {attr.name for attr in self._node.attributes() if attr.namespace == namespace}
 
+    @override
     def attribute_value(self, name: str, namespace: str = 'control') -> object:
         try:
             return self._node.attribute(name, namespace)
         except _pn.AttributeNotFoundError as exc:
             raise KeyError(f'{namespace}:{name}') from exc
 
+    @override
     def attributes(self) -> Iterator[tuple[str, str, object]]:
         for attr in self._node.attributes():
             yield (attr.namespace, attr.name, attr.value())
@@ -248,9 +263,11 @@ class UiNodeAdapter(Adapter):
     # Pattern discovery
     # ------------------------------------------------------------------
 
+    @override
     def supported_pattern_names(self) -> set['PatternName']:
         return set(self._node.supported_patterns())
 
+    @override
     def supported_patterns(self) -> set[type[PatternBase]]:
         names = self.supported_pattern_names()
         result: set[type[PatternBase]] = set()
@@ -258,6 +275,7 @@ class UiNodeAdapter(Adapter):
             result.add(Focusable)
         return result
 
+    @override
     def supports_pattern(self, pattern_type: type[PatternBase]) -> bool:
         # A pattern is only truly supported when (a) the native node
         # advertises it AND (b) we have a Python wrapper for it.
@@ -272,6 +290,7 @@ class UiNodeAdapter(Adapter):
         except _pn.PatternError:
             return False
 
+    @override
     def _resolve_pattern(self, pattern_name: 'PatternName') -> PatternBase | None:
         builder = _NATIVE_PATTERN_BUILDERS.get(pattern_name)
         if builder is None:

@@ -22,7 +22,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Callable, TypeAlias
+from typing import TYPE_CHECKING, Callable, TypeAlias, override
 
 from platynui_native import PointerButton
 
@@ -344,10 +344,12 @@ class AdapterMouseProxy(MouseProxy):
         self._adapter = adapter
 
     @property
+    @override
     def base_rect(self) -> Rect:
         return self._adapter.get_pattern(patterns.Element).bounds
 
     @property
+    @override
     def default_click_position(self) -> Point:
         if self._adapter.supports_pattern(patterns.ActivationTarget):
             target = self._adapter.get_pattern(patterns.ActivationTarget)
@@ -356,6 +358,7 @@ class AdapterMouseProxy(MouseProxy):
             return target.activation_point
         return self._adapter.get_pattern(patterns.Element).default_click_position
 
+    @override
     def before_action(self, action: MouseAction) -> None:
         if not _LOGGER.isEnabledFor(logging.DEBUG):
             return
