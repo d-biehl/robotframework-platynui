@@ -24,9 +24,7 @@ import numbers
 import re
 import xml.sax.saxutils as xmlutils
 from enum import Enum
-from typing import Any, ClassVar, Literal, TypeAlias, cast
-
-from typing_extensions import Self
+from typing import Any, ClassVar, Literal, Self, TypeAlias, cast
 
 __all__ = ['DEFAULT_ATTRIBUTE_NAMESPACE', 'Locator', 'LocatorMethodDescriptor', 'LocatorScope', 'locator']
 
