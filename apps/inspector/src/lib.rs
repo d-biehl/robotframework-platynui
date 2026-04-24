@@ -546,11 +546,7 @@ pub fn run() -> eframe::Result {
             automation::register_ui_thread();
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
-            Ok(Box::new(InspectorApp::new(
-                Arc::clone(&runtime),
-                preloaded_root_children,
-                &cc.egui_ctx,
-            )))
+            Ok(Box::new(InspectorApp::new(Arc::clone(&runtime), preloaded_root_children, &cc.egui_ctx)))
         }),
     )
 }
