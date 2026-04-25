@@ -44,6 +44,7 @@ class Settings:
     ensure_delay: float = 0.1
     exists_timeout: float = 1.0
     window_close_timeout: float = 1.0
+    application_exit_timeout: float = 10.0
 
     # Keyboard
     input_after_input_delay: float = 0.001

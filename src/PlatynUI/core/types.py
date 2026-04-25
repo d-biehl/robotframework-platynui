@@ -9,7 +9,7 @@ the native module so Python code, adapters and the runtime share a single
 representation without conversion shims.
 """
 
-from platynui_native import Point, PointerButton, Rect
+from platynui_native import Point, PointerButton, Rect, Size
 
 __all__ = [
     'FrameworkId',
@@ -19,6 +19,7 @@ __all__ = [
     'PointerButton',
     'Rect',
     'RoleName',
+    'Size',
     'TechnologyName',
 ]
 
