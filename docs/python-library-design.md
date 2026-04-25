@@ -4,9 +4,40 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 24**.
+> **Status:** Diskussionsentwurf, **Revision 26**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 26** — **Page-Object-Basisklassen (§A.14).** `Element`,
+>   `Control`, `Window`, `Frame`, `Desktop`/`DesktopBase`, `Application`
+>   als Klassenhierarchie unter `ContextBase`. `Element` ist das
+>   Arbeitstier mit Predicates, Mouse/Keyboard-Proxies, Highlight,
+>   Screenshot, Bounds-/Visibility-Properties. `Window` wrappt die
+>   Window-Capability-Patterns aus §A.13 in Pre/Perform/Post-Verträge.
+>   `Application` ist reiner Identity-Container (`ContextBase`-Direkt-
+>   Child) mit zweistufigem `exit()` (graceful → force-kill).
+>   `_application_is_ready` kombiniert ein Top-Level-`HasUserInput`-
+>   Pattern mit einer optionalen User-`Application.is_ready()`-
+>   Methode (Tree-Walk-up, lazy gecached). Mouse-/Keyboard-Module
+>   ziehen nach `core/devices/`. `default_click_position` entfällt
+>   zugunsten des `ActivationTarget`-Patterns. `bounding_rectangle`
+>   heißt jetzt `bounds`.
+> - **Rev. 25** — **Granulare Window-Capability-Patterns (§A.13).**
+>   Das aktuelle Rust-`WindowSurfacePattern` ist eine **Arbeits-
+>   version**; im finalen Modell zerfällt es in eine Suite kleiner,
+>   orthogonaler Capability-Patterns: `Activatable`, `Focusable`
+>   (beide existieren), `Minimizable`, `Maximizable`, `Restorable`,
+>   `Closeable`, `Movable`, `Resizable`, `Titled`, `HasUserInput`.
+>   Pro Capability **ein** Pattern, das State-Reads und Action
+>   bündelt (kein paralleles `Has…`-Read-Pattern wie im Altprojekt).
+>   Damit decken ~10–15 Patterns alle UI-Elemente ab — eine Sidebar
+>   nutzt `Minimizable`+`Maximizable`+`Restorable` mit *demselben*
+>   Code wie ein Top-Level-Window. `Activatable` ist die universelle
+>   primary-action-Capability; ein `Window`-Page-Object ist
+>   `Activatable` (Default-Proxy mappt auf Window-Manager-API).
+>   Zusätzlich zwei kleine Element-Patterns aus dem Altprojekt:
+>   `Readable` (`is_readonly`) und `ApplicationReady`
+>   (`try_ensure_ready`). Übergangsweise (bis Rust-Refactor) ruft
+>   der Default-Window-Proxy weiter `WindowSurface` als Bridge.
 > - **Rev. 24** — **`ElementDescriptor` (§A.7) präzisiert + §13.1/§13.2
 >   neu gefasst.** `core/descriptor.py` bleibt Robot-frei; das
 >   Root-Element wird über einen austauschbaren Storage-Hook
@@ -474,8 +505,12 @@ Code und werden in jedem nachfolgenden Abschnitt vorausgesetzt:
   intern dieselbe Registrierungsfunktion. Beispiele:
 
   ```python
-  # Deklarativ (eine Rolle, häufigster Fall)
-  class Button(UiElement, role="Button"):
+  # Auto-Registrierung: role default = cls.__name__
+  class Window(Control):
+      ...
+
+  # Deklarativ mit explizitem Kriterium
+  class Button(Control, role="Button"):
       ...
 
   # Decorator (mehrere Rollen oder feinere Kriterien)
@@ -483,7 +518,18 @@ Code und werden in jedem nachfolgenden Abschnitt vorausgesetzt:
   @context(role="ToggleButton", framework_id="WPF")
   class WpfButton(Button):
       ...
+
+  # Opt-out für abstrakte Zwischenklassen
+  class Element(ContextBase, register=False):
+      ...
   ```
+
+  `__init_subclass__` registriert jede konkrete Subklasse
+  automatisch (Default-`role` = `cls.__name__`), außer das
+  Kwarg `register=False` schaltet die Registrierung explizit ab
+  oder die Klasse besitzt noch ungebundene `__abstractmethods__`.
+  Abstrakte Zwischenklassen (`Element`, `Control`, `DesktopBase`)
+  müssen daher `register=False` setzen.
 
 - **`typing.ParamSpec` + `Concatenate`** für die Decorator-Wrapper
   (`@ensure(...)`), damit aufgerufene Keyword-Funktionen ihre
@@ -3009,6 +3055,634 @@ Binary mit eigener `egui`-UI. Die Python-Library exposed jedoch die
 gleichen Diagnose-Bausteine (Highlight, Screenshot, Tree-Dump), damit
 Tests ohne Inspector denselben Output produzieren können.
 
+### A.13 Capability-Patterns (`core/patterns/*.py`)
+
+**Sinn der Pattern-Schicht.** Patterns übersetzen die heterogenen
+technischen Realitäten verschiedener UI-Stacks (UIA, AT-SPI, AX;
+WPF, Qt, GTK, Win32, …) in eine **konstante semantische API**.
+Egal ob ein Fenster über UIA `WindowPattern.SetWindowVisualState`
+oder über AT-SPI `Action.do_action("minimize")` minimiert wird —
+auf Pattern-Ebene heißt die Capability `Minimizable.minimize()`,
+und auf Robot-Ebene heißt sie `Minimize <locator>`. Was der
+RF-User schreibt, ändert sich nicht, wenn dasselbe Programm auf
+einer anderen Plattform läuft.
+
+```
+RF-User schreibt:        Minimize  //control:Window[@Name='X']
+Keyword-Layer (Phase 5): handgeschriebener @keyword-Wrapper
+Pattern-Layer (Python):  Minimizable.minimize() — konstante API
+Proxy-Implementation:    framework-/provider-spezifische Logik
+                         (kann Adapter-Attribute lesen, mehrere
+                          kombinieren, ableiten, Rust-Calls machen)
+Adapter-Attribute:       rohe Provider-Daten (Inspector zeigt diese)
+```
+
+Pattern-Properties wie `is_minimized` müssen **nicht** spiegelbildlich
+zu einem Adapter-Attribut existieren. Eine Pattern-Implementation
+kann den Wert aus einem einzelnen Attribut lesen, aus mehreren
+Attributen ableiten, oder Provider-spezifische Logik aufrufen. Der
+Inspector zeigt dem User die rohen Adapter-Attribute (siehe §A.12);
+die Pattern-Properties leben darüber als Implementations-Detail des
+jeweiligen Proxies.
+
+**Designprämisse — kleine, orthogonale Patterns.** Ein Test-Autor
+ruft Pattern-Methoden auf, unabhängig davon, ob das Element ein
+Top-Level-Window, eine einklappbare Sidebar oder ein verschiebbares
+Canvas-Item ist. Wer `Minimizable` implementiert, kann minimiert
+werden; wer es nicht implementiert, kann es nicht. Es gibt **kein**
+Window-Mega-Pattern.
+
+Damit deckt eine kleine Patterns-Suite alle Element-Klassen ab und
+macht selbst unbekannte Custom-Controls über die ihnen vom Provider
+oder einer Custom-Proxy-Implementation gemeldeten Patterns sicher
+bedienbar.
+
+**Verhältnis zu Robot-Keywords.** Jedes Pattern bekommt in Phase 5
+einen handgeschriebenen `@keyword`-Wrapper (siehe §A.8 / §10):
+`Activatable` → `Activate`, `Minimizable` → `Minimize`,
+`Maximizable` → `Maximize`, `Closeable` → `Close` usw. Pattern-
+Klassen tragen **keine** Keyword-Metadaten — die Wrapper-Funktionen
+sind die einzige Quelle der Wahrheit für Keyword-Namen, Argument-
+Reihenfolgen und Doku-Strings. Ob auch Read-Properties (z.B.
+`is_minimized`) eigene Keywords bekommen oder ob der RF-User dafür
+das generische `Get Attribute`-Keyword (analog BareMetal) nutzt,
+wird im Keyword-Designschritt entschieden.
+
+**Read+Action in einem Pattern.** Pro Capability **ein** Pattern,
+das State-Reads (`is_minimized`, `can_minimize`) und Action
+(`minimize()`) bündelt — anders als im Altprojekt, wo es zu jeder
+Action ein paralleles `Has…`-Read-Pattern gab. Begründung: wer
+minimieren kann, kann auch lesen, ob das Element minimiert ist;
+zwei Patterns für eine Capability erhöhen die Kombinatorik ohne
+Nutzen. Ein Adapter, der einen State **nur lesen** kann (z.B. ein
+Beobachter), liefert für die Action `NotSupportedError` oder
+`can_*` = `False`.
+
+**Pure-Action-Patterns sind erlaubt.** Nicht jedes Pattern braucht
+Read-Properties. `Restorable` exponiert nur `restore()`, weil
+"wiederherstellen" keinen sinnvollen eigenen Read-State hat (der
+Status liegt in `Minimizable.is_minimized` / `Maximizable.is_maximized`).
+Genauso ist `Activatable` reine Action. Ein Pattern listet **nur die
+Mitglieder, die für die Capability gebraucht werden** — Symmetrie
+zwischen Patterns ist kein Selbstzweck.
+
+**Pattern-Suite (Phase-4-Scope).**
+
+| Pattern | Methoden / Properties | Status |
+|---|---|---|
+| `Activatable` | `activate()` | ✓ vorhanden (§5) |
+| `Focusable` | `focus()`; Adapter-Attr `IsFocused` | ✓ vorhanden (§5) |
+| `Minimizable` | `is_minimized`, `can_minimize`, `minimize()` | **neu** |
+| `Maximizable` | `is_maximized`, `can_maximize`, `maximize()` | **neu** |
+| `Restorable` | `restore()` | **neu** |
+| `Closeable` | `can_close`, `close()` | **neu** |
+| `Movable` | `can_move`, `move_to(point)` | **neu** |
+| `Resizable` | `can_resize`, `resize(size)` | **neu** |
+| `Titled` | `title` (read-only) | **neu** |
+| `HasUserInput` | `accepts_user_input() -> bool \| None` | **neu** |
+
+`Activatable` ist die universelle "primary action"-Capability:
+Buttons aktivieren = klicken, MenuItems aktivieren = ausführen,
+**Windows aktivieren = Fokus + Foreground**. Ein `Window`-Page-Object
+implementiert `Activatable` ganz normal; der mitgelieferte Default-
+Proxy für `role="Window"` mappt `Activatable.activate()` auf die
+Plattform-Window-Activation. Damit erreicht das Robot-Keyword
+`Activate` sowohl Buttons als auch Windows ohne Sonderfall.
+
+**Beispiel — Sidebar:**
+
+```python
+class Sidebar(ContextBase, role="Pane", class_name="Sidebar"):
+    pass
+
+# Nutzung:
+sidebar = page.sidebar
+sidebar.adapter.get_pattern(Minimizable).minimize()
+assert sidebar.adapter.get_pattern(Minimizable).is_minimized
+```
+
+Dieselben drei Zeilen funktionieren auch für ein `Window`. Die
+Page-Object-Klasse muss nichts Spezielles tun — die Capability lebt
+im Pattern, nicht in der Klasse.
+
+**`accepts_user_input()` als Methode (nicht Attribut).** Anders als
+die Read-Properties der anderen Patterns ist
+`HasUserInput.accepts_user_input()` eine Methode mit
+`Optional[bool]`-Rückgabe (`None` = "Provider weiß es nicht").
+Begründung: für Modal-Dialog-Erkennung kann der Wert kurzlebig sein
+(Pop-up erscheint und blockiert), und Provider unterscheiden sich
+darin, ob sie das überhaupt melden können. Eine Methode signalisiert
+diesen Polling-Charakter klarer als ein Attribut.
+
+**Verhältnis zum aktuellen Rust-`WindowSurface` (eine Datenquelle
+unter mehreren).** Pattern-Definition und Pattern-Implementation
+sind getrennt. Die Pattern-Klassen in `core/patterns/` sind
+**Python-ABCs** und kennen Rust gar nicht. Eine konkrete
+Implementation für ein konkretes Element kommt aus einem Proxy
+(Default-Proxy oder Custom-Proxy), und der Proxy entscheidet, woher
+er die Daten und Aktionen nimmt — Adapter-Attribute lesen, mehrere
+Attribute kombinieren, native Read-Escape-Hatch (§13.5), eigene
+Klick-/Tastatur-Sequenzen, oder eben Rust-Calls.
+
+Für **`role="Window"`** liefert PlatynUI einen Default-Proxy mit, der
+`Activatable`, `Minimizable`, `Maximizable`, `Restorable`,
+`Closeable`, `Movable`, `Resizable`, `Titled` und `HasUserInput`
+implementiert, indem er das aktuelle Rust-Pattern `WindowSurfacePattern`
+(siehe `crates/core/src/ui/pattern.rs`) aufruft. Das ist eine
+**Implementations-Wahl dieses einen Proxies**, kein Vertrag der
+Pattern-Schicht. Ein User, der für seine Custom-Sidebar `Minimizable`
+implementieren will, schreibt einen eigenen Proxy ohne jeden
+Rust-`WindowSurface`-Bezug.
+
+Das Rust-`WindowSurfacePattern` bündelt heute mehrere Capabilities
+in einem Trait. In einem späteren, separaten Rust-Designschritt wird
+es in einzelne Traits aufgesplittet. Für die Python-Schicht ist das
+unsichtbar — der Default-Window-Proxy in `ui/proxies/window.py`
+ändert dann seine internen Aufrufe; die Pattern-Klassen, Keyword-
+Wrapper und alle anderen Proxies bleiben unverändert.
+
+**Offene Fragen für die Rust-Aufsplittung.** Diese werden in einem
+separaten Designschritt geklärt, **nicht** hier:
+
+- `is_active` (Window-Aktivierungs-Status) — finale Quelle ist der
+  Rust-`WindowManager` (auf Rust-Seite halb definiert, noch nicht
+  fertig). Bis dahin liest die Python-Schicht `is_active`
+  übergangsweise aus `Focusable.is_focused` am Window-Adapter.
+- `can_minimize` / `can_maximize` / `can_close` / `can_move` /
+  `can_resize` als Read-Capabilities — eigene Attribute oder pauschal
+  "Pattern wird vom Provider gemeldet ⇒ ja"? Heute existieren auf
+  Rust-Seite `window_surface::SUPPORTS_MOVE` und `SUPPORTS_RESIZE`,
+  die anderen drei fehlen.
+- `title` — `control:Name` wiederverwenden oder dediziertes
+  `titled::TITLE`?
+- Cross-Provider-Konsistenz der oben genannten Attribute.
+
+**Granulare Element-Patterns (Phase 4).** Zusätzlich zur
+Window-Suite werden zwei kleine Patterns aus dem Altprojekt
+übernommen, die Lücken im aktuellen `core/patterns/element.py`
+schließen:
+
+| Pattern | Methoden / Properties | Zweck |
+|---|---|---|
+| `Readable` | `is_readonly` | aktuell in Legacy `Element.is_readonly`; gehört nicht in das Geometrie-`Element`-Pattern |
+| `ApplicationReady` | `try_ensure_ready() -> bool` | Polling-Hook für "App ist nicht responding"; Predicate-Basis für `_application_is_ready` im Page-Object |
+
+Damit bleibt `core/patterns/element.py` auf Geometrie + Sichtbarkeit
++ Enabled fokussiert, und beide neuen Capabilities sind unabhängig
+kombinierbar (z.B. ein read-only Edit-Feld implementiert
+`Readable`+`TextContent`, kein `TextEditable`).
+
+**Aktualisierte `__init__.py`-Exports von `core/patterns/`:**
+
+```python
+__all__ = [
+    'Activatable',
+    'ActivationTarget',
+    'ApplicationReady',          # neu
+    'Closeable',                 # neu
+    'Element',
+    'Focusable',
+    'HasUserInput',              # neu
+    'Maximizable',               # neu
+    'Minimizable',               # neu
+    'Movable',                   # neu
+    'PatternBase',
+    'Readable',                  # neu
+    'Resizable',                 # neu
+    'Restorable',                # neu
+    'TextContent',
+    'Titled',                    # neu
+    'Toggleable',
+]
+```
+
+`pattern_name`-Identifier folgen dem Reverse-DNS-Schema aus §5:
+`org.platynui.patterns.Minimizable`, `org.platynui.patterns.Closeable`
+usw.
+
+
+### A.14 Page-Object-Basisklassen (`ui/*.py`)
+
+Die User-API der UI-Hierarchie. Jede Klasse erbt direkt oder
+indirekt von `ContextBase` (§A.4 / `core/context.py`) und stellt
+die typisierten Page-Objects bereit, mit denen Robot-Keywords und
+Python-User arbeiten.
+
+#### A.14.1 Schichten (Pattern → Context → Keyword)
+
+Drei Schichten, klare Verantwortung:
+
+| Schicht | Aufgabe |
+|---|---|
+| **Pattern** (`core/patterns/*.py`) | Roher Provider-Aufruf. Z. B. `Activatable.activate()` → UIA `Invoke`, AT-SPI `do_action`. Kein `ensure_that`, kein Warten, keine Komposition. |
+| **Context-Klasse** (`ui/*.py`) | Wrappt das Pattern in **Pre/Perform/Post-Vertrag**: `ensure_that(<predicates>)` → `pattern.action()` → `ensure_that(<post>)`. Darf die Pattern-Aktion **semantisch überladen**: `CheckBox.activate()` ruft nicht `Activatable.activate()`, sondern `Toggleable.set_state(Checked)` — `Activate` heißt aus User-Sicht „primäre Aktion", nicht „Pattern-X aufrufen". |
+| **Robot-Keyword** (`keywords/*.py`, Phase 5) | Dünner `@keyword`-Wrapper, ruft `context.action()`. Ein Wrapper pro Pattern: `Activatable` → `Activate`, `Minimizable` → `Minimize`, … |
+
+**Beispiel CheckBox.activate():**
+
+```python
+class CheckBox(Control):
+    def activate(self) -> None:
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        toggle = self.adapter.get_pattern(Toggleable, raise_exception=False)
+        if toggle is not None:
+            toggle.set_state(ToggleState.Checked)
+        # Post-Check optional: state == Checked
+```
+
+`Activate <my_checkbox>` aus Robot landet so beim richtigen
+User-Intent („abhaken"), unabhängig von der Toolkit-Mechanik.
+
+#### A.14.2 Klassenhierarchie
+
+```
+ContextBase  (core/context.py)
+├── UnknownContext              (core/context.py — Generic-Fallback)
+├── Application                 (ui/application.py — Identity-Container)
+├── DesktopBase                 (ui/desktopbase.py — Element-Verhalten ohne App-Ready)
+│   └── Desktop                 (ui/desktop.py — DesktopBase + @locator(path="/."))
+└── Element                     (ui/element.py — Arbeitstier)
+    └── Control                 (ui/control.py — + Focus)
+        └── Window              (ui/window.py — + Window-Capabilities)
+            └── Frame           (ui/window.py — Marker-Subklasse)
+```
+
+`Element` ist die zentrale Basisklasse für sichtbare UI-Elemente.
+`Control` ergänzt `has_focus`/`focus()`. `Window` wrappt die
+Window-Capability-Patterns (§A.13). `Frame` bleibt als Marker-
+Subklasse von `Window` für Toolkits, die Frame und Window
+unterscheiden (Legacy-Parität).
+
+`UnknownContext` (existiert in `core/context.py:536`) bleibt der
+Fallback, wenn `ContextFactory.find_context_class_for()` keine
+Klasse mit Score > 0 findet. Eigene Element-Subklassen mit
+spezifischer Rolle entstehen via `class MyElement(Element, role="..."):`
+oder `Element` mit `role=`-kwarg.
+
+`Element`, `Control` und `DesktopBase` sind abstrakte Zwischen-
+klassen und werden mit `register=False` von der automatischen
+Registrierung ausgenommen (§2.6). `Window`, `Frame`, `Application`
+und `Desktop` registrieren sich automatisch über
+`__init_subclass__` mit ihrem Klassennamen als `role` — das ist
+nötig, damit `ContextBase.parent` Adapter mit `role="Window"`
+auch tatsächlich als `Window` wrappt (statt als `UnknownContext`),
+und damit Tree-Walks (`top_level_parent`, `parent_window`,
+`_resolve_application`) korrekt durchlaufen.
+
+#### A.14.3 `Element` (`ui/element.py`)
+
+Properties (Adapter-Pass-Through, alle Werte aus
+`pattern::element::*` Attributen, siehe `crates/core/src/ui/attributes.rs`):
+
+```python
+class Element(ContextBase, register=False):
+    @property
+    def bounds(self) -> Rect: ...           # Bounds
+    @property
+    def is_visible(self) -> bool: ...       # IsVisible
+    @property
+    def is_enabled(self) -> bool: ...       # IsEnabled
+    @property
+    def is_in_view(self) -> bool: ...       # IsInView
+    @property
+    def is_readonly(self) -> bool:
+        # Convenience-Shortcut über Readable-Pattern;
+        # default False wenn Pattern fehlt
+        ...
+
+    @property
+    def top_level_parent(self) -> 'Element':
+        # Walk-up via self.parent bis zum direkten Kind von DesktopBase
+        ...
+
+    @property
+    def parent_window(self) -> 'Window | None':
+        # Walk-up via self.parent bis Window-Instanz, sonst None
+        ...
+
+    @property
+    def mouse(self) -> Mouse: ...
+    @property
+    def keyboard(self) -> Keyboard: ...
+```
+
+`default_click_position` aus dem Altprojekt entfällt; den richtigen
+Klick-Punkt liefert das `ActivationTarget`-Pattern
+(`ActivationTarget.activation_point` → Fallback `bounds.center`,
+implementiert im `MouseProxy.get_base_point()`).
+
+**Predicates** (Underscore-Prefix wie Altprojekt; intern aber zur
+Override durch Subklassen vorgesehen):
+
+```python
+@predicate("application for {0} is ready")
+def _application_is_ready(self) -> bool:
+    """Self-Check + Top-Level-HasUserInput-Pattern + lazy User-Application-Lookup."""
+    if self is not self.top_level_parent:
+        return self.top_level_parent._application_is_ready
+    pattern = self.adapter.get_pattern(HasUserInput, raise_exception=False)
+    pattern_says = pattern.accepts_user_input() if pattern else None
+    if self.__application is _UNRESOLVED:
+        self.__application = self._resolve_application()
+    user_says = self.__application.is_ready() if self.__application else None
+    return pattern_says is not False and user_says is not False
+
+@predicate("element {0} is visible")
+def _element_is_visible(self) -> bool:
+    self.ensure_that(self._application_is_ready)
+    return self.is_visible
+
+@predicate("element {0} is in view")
+def _element_is_in_view(self) -> bool:
+    self.ensure_that(self._element_is_visible)
+    # Pragmatisch (d1): kein BringIntoView-Pattern → ehrlicher Read-Check.
+    # Wenn später ein BringIntoViewable-Pattern kommt, hier vor dem
+    # Return ein try_pattern.bring_into_view() einbauen.
+    return self.is_in_view
+
+@predicate("element {0} is enabled")
+def _element_is_enabled(self) -> bool:
+    self.ensure_that(self._element_is_visible)
+    return self.is_enabled
+
+@predicate("element {0} is not readonly")
+def _element_is_not_readonly(self) -> bool:
+    self.ensure_that(self._element_is_enabled)
+    return not self.is_readonly
+
+@predicate("top-level parent of element {0} is active")
+def _toplevel_parent_is_active(self) -> bool:
+    """Aktiviert Top-Level via Activatable-Pattern, wenn nicht bereits aktiv."""
+    top = self.top_level_parent
+    if top.is_active:
+        return True
+    top.activate()  # via Window.activate() Context-Methode
+    return top.is_active
+```
+
+**`_resolve_application()`** läuft `self.parent` aufwärts (über
+`ContextBase.parent`, das via `adapter.parent` resolved) und
+returnt die erste `Application`-Instanz oder `None`. Cache-Slot
+auf der Element-Instanz (`__application: Application | None | _Unresolved`).
+
+`Application` registriert sich als Default-Context-Klasse für
+`role=Application`-Adapter-Knoten (`default_role = "Application"`),
+sodass der Walk-up im Normalfall *immer* eine `Application`-Instanz
+findet, sobald ein Application-Adapter im Tree existiert. User-
+Subklassen mit spezifischerem Locator gewinnen über den
+WeightCalculator.
+
+**Methoden:**
+
+```python
+def activate_parent_window(self) -> None:
+    pw = self.parent_window
+    if pw is not None:
+        pw.activate()
+
+def bring_to_view(self) -> bool:
+    return self.ensure_that(self._toplevel_parent_is_active, self._element_is_in_view)
+
+def highlight(self, duration: float = 3.0) -> None:
+    self.ensure_that(self._element_is_in_view)
+    # delegiert an Runtime.highlight(rects=[self.bounds],
+    #                                 duration_ms=int(duration * 1000))
+
+def get_screenshot(self) -> bytes:
+    self._before_get_screenshot()
+    # delegiert an Runtime.screenshot(rect=self.bounds)
+
+def save_screenshot(self, path: str | Path) -> Path:
+    Path(path).write_bytes(self.get_screenshot())
+    return Path(path)
+
+def _before_get_screenshot(self) -> None:
+    self.ensure_that(self._element_is_in_view)
+```
+
+`_before_get_screenshot` ist Hook für `DesktopBase` (No-op Override:
+Desktop ist immer in view).
+
+**Mouse/Keyboard-Proxies** kommen aus `core/devices/`
+(`core/devices/mouse.py`, `core/devices/keyboard.py`). `Element`
+liefert in den Properties ein neues `Mouse(MouseProxy(self))` bzw.
+`Keyboard(KeyboardProxy(self))`. `MouseProxy` (private Element-
+interne Adapter-Klasse) implementiert das `MouseDeviceProxy`-ABC
+aus `core/devices/`:
+
+- `get_base_point()` → fragt `ActivationTarget.activation_point`
+  am Element; Fallback `bounds.center`.
+- `before_action(action)` → `ensure_that(_toplevel_parent_is_active,
+  _element_is_in_view, _element_is_enabled)`.
+- `after_action(action)` → leer (Hook).
+
+`KeyboardProxy` analog, aber `before_action` ist leer (Element
+verlangt keinen Focus für Tastatur — das macht erst `Control`,
+siehe §A.14.4).
+
+#### A.14.4 `Control` (`ui/control.py`)
+
+```python
+class Control(Element, register=False):
+    @property
+    def has_focus(self) -> bool:
+        # Convenience über Focusable-Pattern; default False wenn fehlt
+        ...
+
+    def focus(self) -> None:
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        focusable = self.adapter.get_pattern(Focusable, raise_exception=False)
+        if focusable is not None:
+            focusable.focus()
+
+    @predicate("control {0} has focus")
+    def _control_has_focus(self) -> bool:
+        if self.has_focus:
+            return True
+        self.focus()
+        return self.has_focus
+```
+
+Plus eigener `KeyboardProxy`-Override, dessen `before_action`
+zusätzlich `_control_has_focus` aufruft (Tastatureingaben gehen an
+das fokussierte Element).
+
+#### A.14.5 `Window` (`ui/window.py`)
+
+Wrappt die Window-Capability-Patterns aus §A.13 in
+Pre/Perform/Post-Verträge. Jede Methode folgt demselben Muster:
+
+```python
+class Window(Control):
+    # ---- Read-Properties (Convenience-Shortcuts über Patterns) ----
+    @property
+    def is_active(self) -> bool: ...           # Activatable.is_active
+    @property
+    def is_minimized(self) -> bool: ...        # Minimizable.is_minimized
+    @property
+    def is_maximized(self) -> bool: ...        # Maximizable.is_maximized
+    @property
+    def title(self) -> str: ...                # Titled.title
+
+    # ---- Capability-Methoden (Pre → Pattern → Post) ----
+    def activate(self) -> None: ...
+    def minimize(self) -> None: ...
+    def maximize(self) -> None: ...
+    def restore(self) -> None: ...
+    def close(self, timeout: float | None = None) -> None: ...
+    def move_to(self, point: Point) -> None: ...
+    def resize(self, size: Size) -> None: ...
+```
+
+Jede Capability-Methode:
+
+1. **Pre**: `ensure_that(<predicates>)` — meist `_application_is_ready`
+   plus capability-spezifische Vorbedingungen (z. B. `can_minimize`,
+   `_window_can_close`).
+2. **Perform**: `pattern.action()` über `adapter.get_pattern(...)`
+   (raise default → `PatternNotSupportedError`, wenn Pattern fehlt).
+3. **Post**: `ensure_that(<post-predicate>)` — z. B. nach `minimize()`
+   warten bis `is_minimized` oder `not is_active`.
+
+`Frame(Window)` bleibt als leere Marker-Subklasse für Toolkits, die
+Frame/Window unterscheiden.
+
+#### A.14.6 `Desktop` und `DesktopBase` (`ui/desktopbase.py`, `ui/desktop.py`)
+
+```python
+class DesktopBase(Element, register=False):
+    default_role = "Desktop"
+
+    # MouseProxy-Override: Origin (0,0) statt bounds.center
+    # KeyboardProxy-Override: kein Focus-Check
+    # _before_get_screenshot: No-op (Desktop ist immer in view)
+    # _application_is_ready: returnt immer True (Desktop hat keine App)
+
+
+@locator(path="/.")
+@context
+class Desktop(DesktopBase):
+    pass
+```
+
+Trennung beibehalten wie Altprojekt, damit User eigene Desktop-
+Varianten ohne den `/.`-Locator von `DesktopBase` ableiten können
+(`class MyAppDesktop(DesktopBase, ...): ...`).
+
+#### A.14.7 `Application` (`ui/application.py`)
+
+Reiner Identity-Container, *kein* `Element`-Verhalten (keine Mouse/
+Keyboard-Proxies, keine Predicates wie `_element_is_visible`).
+`name`, `role`, `runtime_id` etc. kommen aus `ContextBase`.
+
+```python
+@context
+class Application(ContextBase):
+    default_role = "Application"
+    default_prefix = "app"
+
+    @property
+    def process_id(self) -> int: ...        # ProcessId
+    @property
+    def process_name(self) -> str: ...      # ProcessName
+
+    def is_ready(self) -> bool:
+        """User overrides für app-spezifische Readiness-Checks."""
+        return True
+
+    def exit(self, timeout: float | None = None) -> None:
+        if timeout is None:
+            timeout = Settings.current().application_exit_timeout
+        self._request_exit()
+        self._force_exit(timeout)
+        self.invalidate()
+
+    def _request_exit(self) -> None:
+        """Stage 1: graceful close. Default schließt alle Top-Level-Windows."""
+        ...
+
+    def _force_exit(self, timeout: float) -> None:
+        """Stage 2: pollt process_id, killt nach Timeout. Plattform-Switch via os.kill / ctypes."""
+        ...
+```
+
+Beide Stages sind via Underscore-Prefix als überschreibbar markiert
+(intern, aber Subklassen-Hook). Überschreiben:
+- `_request_exit` für app-spezifische graceful-shutdown-Sequenzen
+  (z. B. `Ctrl+Q` ans fokussierte Window, File-→-Exit-Menü).
+- `_force_exit` für app-spezifische Force-Strategien (z. B. `SIGINT`
+  statt `SIGKILL`, längere Timeouts für asynchron beendende Apps).
+
+Restliche Application-Adapter-Attribute (`ExecutablePath`,
+`CommandLine`, `UserName`, `StartTime`, `Architecture`) sind über
+`get_attribute("ExecutablePath")` zugänglich, ohne dedizierte
+Property.
+
+`Settings.application_exit_timeout: float = 10.0` ergänzt §A.1.
+
+#### A.14.8 Hierarchie-Erweiterung durch User
+
+Standard-UI-Element-Klassen wie `Button`, `CheckBox`, `Edit`,
+`ComboBox`, `MenuItem`, `Tab`, `Tree`, `List` etc. (Altprojekt-
+Verzeichnis `ui/buttons.py`, `ui/edit.py` …) sind §5a.2-Territorium
+und werden als Phase-5-Arbeit nach `ui/elements/` portiert. Sie
+folgen alle dem Schema:
+
+```python
+@locator(role="Button")
+@context
+class Button(Control):
+    def activate(self) -> None:
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        self.adapter.get_pattern(Activatable).activate()
+
+
+@locator(role="CheckBox")
+@context
+class CheckBox(Control):
+    def activate(self) -> None:
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        self.adapter.get_pattern(Toggleable).set_state(ToggleState.Checked)
+```
+
+Auswahl der Klasse pro Adapter erfolgt via WeightCalculator
+(`@locator`-Score) — spezifische Rolle/Class-Name gewinnt über
+generische `Element`-Default-Klasse.
+
+#### A.14.9 Offene Punkte
+
+- **`BringIntoViewable`-Pattern** (siehe §A.14.3, `_element_is_in_view`):
+  perspektivisch eigenes Pattern für UIA `IScrollItemProvider.ScrollIntoView`
+  / AT-SPI `Component.scroll_to`. Aktuell pragmatisch deferred (d1):
+  Predicate failt bei out-of-view ehrlich. Post-Phase-4.
+- **`Scrollable`-Pattern**: post-Phase-4 (siehe §A.13).
+- **Standard-UI-Elements** (`Button`, `CheckBox`, `ComboBox`, `Edit`,
+  `Tab`, `Tree`, `List` …): Phase 5 nach `ui/elements/`.
+- **`HasUserInput.accepts_user_input()`**-Implementierung im Default-
+  Window-Proxy (§A.13): aktuell Best-Effort über vorhandene Window-
+  State-Bits (`is_active`, `is_modal_dialog_blocking`); finale Heuristik
+  beim Implementieren festlegen.
+- **`exit()` Stage 2 — Cross-Plattform-Process-Polling**: konkrete
+  Wahl zwischen reinem `os.kill(pid, 0)`-Polling (Unix) plus
+  Windows-`ctypes`-Pfad versus späterem Wechsel zu `psutil` ist eine
+  Implementations-Entscheidung beim Code-Schreiben.
+
 
 ## 10. Migrations-Reihenfolge
 
@@ -3623,6 +4297,23 @@ Registrierungen in Modul-Imports passieren und prozessweit gleich
 aussehen. Bei Bedarf können wir später Runtime-Scoped Registries
 einführen — dann würden auch die Klassen-Registries pro `Runtime`-
 Instanz leben.
+
+**Duplikat-Erkennung**: Beide Registries (`ContextFactory`,
+`PatternProxyFactory`) emittieren beim Registrieren ein
+`DuplicateRegistrationWarning` (Subklasse von `UserWarning`,
+definiert in `core/exceptions.py`), wenn bereits ein Eintrag mit
+**exakt denselben Kriterien** existiert (Vergleich der
+Criteria-Dicts; `re.Pattern`-Werte werden über `(pattern, flags)`
+verglichen). Re-Registrierung **derselben Klasse** ist kein
+Duplikat — sie ersetzt den Vorgänger lautlos. CI kann
+`-W error::PlatynUI.core.exceptions.DuplicateRegistrationWarning`
+setzen, um Konflikte als Build-Fehler zu erzwingen. Tests, die
+absichtlich einen real registrierten Rollennamen wie `Button`
+oder `Window` verwenden, kollidieren sonst mit den Page-Object-
+Klassen aus `ui/`. Die Test-Konvention lautet daher: nutze
+Test-spezifische Rollen (`'__test_button__'`, `'TestButton'`),
+es sei denn der Test überprüft genau das Matching gegen die
+Standard-Klassen.
 
 ### 13.5 Native Read-Escape-Hatch
 

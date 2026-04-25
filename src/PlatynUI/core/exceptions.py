@@ -18,6 +18,7 @@ __all__ = [
     'AdapterNotValidError',
     'CannotEnsureError',
     'DeviceError',
+    'DuplicateRegistrationWarning',
     'ElementNotFoundError',
     'EnsureError',
     'InvalidArgumentError',
@@ -120,3 +121,12 @@ class InvalidArgumentError(ValueError):
 
 class InvalidResultTypeError(TypeError):
     """Operation produced a value whose type does not match the contract."""
+
+
+class DuplicateRegistrationWarning(UserWarning):
+    """Two distinct classes are registered with identical match criteria.
+
+    Emitted by `ContextFactory.register_context` and
+    `PatternProxyFactory.register` when the new entry's criteria dict
+    equals an existing one's. Re-registering the same class is silent.
+    """

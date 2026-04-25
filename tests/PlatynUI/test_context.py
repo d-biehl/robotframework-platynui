@@ -18,6 +18,7 @@ caching, parent/children traversal, and search delegation through
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Generator
 from unittest.mock import MagicMock
 
@@ -33,6 +34,7 @@ from PlatynUI.core.context import (
 )
 from PlatynUI.core.exceptions import (
     AdapterNotFoundError,
+    DuplicateRegistrationWarning,
     MultipleElementsFoundError,
     NoLocatorDefinedError,
 )
@@ -236,23 +238,23 @@ def test_context_manager_returns_self_and_swallows_nothing() -> None:
 
 
 def test_decorator_sets_default_role_and_locator() -> None:
-    @context(role='Button')
+    @context(role='__test_button__')
     class MyButton(ContextBase):
         pass
 
-    assert MyButton.default_role == 'Button'
+    assert MyButton.default_role == '__test_button__'
     assert MyButton._locator is not None
-    assert MyButton._locator.role == 'Button'
+    assert MyButton._locator.role == '__test_button__'
 
 
 def test_decorator_defaults_role_to_class_name() -> None:
     @context()
-    class Window(ContextBase):
+    class TestDecoratorWindow(ContextBase):
         pass
 
-    assert Window.default_role == 'Window'
-    assert Window._locator is not None
-    assert Window._locator.role == 'Window'
+    assert TestDecoratorWindow.default_role == 'TestDecoratorWindow'
+    assert TestDecoratorWindow._locator is not None
+    assert TestDecoratorWindow._locator.role == 'TestDecoratorWindow'
 
 
 def test_decorator_sets_prefix_and_use_default_prefix() -> None:
@@ -282,11 +284,65 @@ def test_class_kwargs_form_registers_too() -> None:
 def test_subclass_without_kwargs_is_not_registered() -> None:
     before = len(ContextFactory.registered_contexts)
 
-    class Intermediate(ContextBase):
+    class Intermediate(ContextBase, register=False):
         pass
 
     assert len(ContextFactory.registered_contexts) == before
     assert Intermediate._locator is None
+
+
+def test_subclass_without_kwargs_auto_registers_with_class_name() -> None:
+    class AutoRegisteredCtx(ContextBase):
+        pass
+
+    assert AutoRegisteredCtx._locator is not None
+    assert AutoRegisteredCtx.default_role == 'AutoRegisteredCtx'
+    assert any(
+        e.context_type is AutoRegisteredCtx
+        for e in ContextFactory.registered_contexts
+    )
+
+
+def test_duplicate_criteria_emits_warning() -> None:
+    @context(role='__test_dup__')
+    class FirstDup(ContextBase):
+        pass
+
+    with pytest.warns(DuplicateRegistrationWarning, match='__test_dup__'):
+        @context(role='__test_dup__')
+        class SecondDup(ContextBase):
+            pass
+
+    # Both classes are registered; the warning does not block registration.
+    assert any(e.context_type is FirstDup for e in ContextFactory.registered_contexts)
+    assert any(e.context_type is SecondDup for e in ContextFactory.registered_contexts)
+
+
+def test_re_registering_same_class_is_silent() -> None:
+    @context(role='__test_reuse__')
+    class ReuseCtx(ContextBase):
+        pass
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', DuplicateRegistrationWarning)
+        # Re-registering the exact same class with the same criteria stays silent.
+        ContextFactory.register_context(ReuseCtx, {'role': '__test_reuse__'})
+
+
+def test_duplicate_criteria_warning_normalizes_regex() -> None:
+    import re as _re
+
+    @context(role='__test_regex_dup__', attributes={'Name': _re.compile(r'foo', _re.IGNORECASE)})
+    class FirstRegex(ContextBase):
+        pass
+
+    with pytest.warns(DuplicateRegistrationWarning):
+        @context(role='__test_regex_dup__', attributes={'Name': _re.compile(r'foo', _re.IGNORECASE)})
+        class SecondRegex(ContextBase):
+            pass
+
+    assert any(e.context_type is FirstRegex for e in ContextFactory.registered_contexts)
+    assert any(e.context_type is SecondRegex for e in ContextFactory.registered_contexts)
 
 
 # ----------------------------------------------------------------------
@@ -295,7 +351,7 @@ def test_subclass_without_kwargs_is_not_registered() -> None:
 
 
 def test_find_context_class_for_returns_explicit_type() -> None:
-    @context(role='Button')
+    @context(role='__test_button__')
     class B(ContextBase):
         pass
 
@@ -304,24 +360,24 @@ def test_find_context_class_for_returns_explicit_type() -> None:
 
 
 def test_find_context_class_for_picks_best_weight() -> None:
-    @context(role='Button')
+    @context(role='__test_button__')
     class GenericButton(ContextBase):
         pass
 
-    @context(role='Button', framework_id='Qt')
+    @context(role='__test_button__', framework_id='Qt')
     class QtButton(ContextBase):
         pass
 
-    a = _make_adapter(role='Button', framework_id='Qt')
+    a = _make_adapter(role='__test_button__', framework_id='Qt')
     assert ContextFactory.find_context_class_for(a) is QtButton
 
 
 def test_find_context_class_for_returns_unknown_when_no_match() -> None:
-    @context(role='Button')
+    @context(role='__test_button__')
     class B(ContextBase):
         pass
 
-    a = _make_adapter(role='Window')
+    a = _make_adapter(role='__no_such_role_for_test__')
     assert ContextFactory.find_context_class_for(a) is UnknownContext
 
 
@@ -331,18 +387,18 @@ def test_find_context_class_for_returns_unknown_when_no_match() -> None:
 
 
 def test_instance_locator_inherits_class_default() -> None:
-    @context(role='Button', framework_id='Qt')
+    @context(role='__test_button__', framework_id='Qt')
     class QtButton(ContextBase):
         pass
 
     instance = QtButton(Locator(name='OK'))
-    assert instance.locator.role == 'Button'
+    assert instance.locator.role == '__test_button__'
     assert instance.locator.framework_id == 'Qt'
     assert instance.locator.name == 'OK'
 
 
 def test_instance_locator_overrides_class_default() -> None:
-    @context(role='Button')
+    @context(role='__test_button__')
     class B(ContextBase):
         pass
 
@@ -356,7 +412,7 @@ def test_instance_locator_overrides_class_default() -> None:
 
 
 def test_get_returns_typed_context() -> None:
-    @context(role='Button')
+    @context(role='__test_button__')
     class Btn(ContextBase):
         pass
 
@@ -366,7 +422,7 @@ def test_get_returns_typed_context() -> None:
     result = parent.get(Btn)
     assert isinstance(result, Btn)
     assert result.context_parent is parent
-    assert result.locator.role == 'Button'
+    assert result.locator.role == '__test_button__'
 
 
 def test_get_with_explicit_locator_uses_it() -> None:
@@ -384,7 +440,7 @@ def test_get_without_class_default_or_locator_raises() -> None:
 
 
 def test_get_child_sets_children_scope() -> None:
-    @context(role='Button')
+    @context(role='__test_button__')
     class Btn(ContextBase):
         pass
 
@@ -394,7 +450,7 @@ def test_get_child_sets_children_scope() -> None:
 
 
 def test_ancestor_sets_ancestor_scope() -> None:
-    @context(role='Window')
+    @context(role='__test_ancestor_window__')
     class Win(ContextBase):
         pass
 
@@ -404,15 +460,15 @@ def test_ancestor_sets_ancestor_scope() -> None:
 
 
 def test_iter_all_consults_adapter_factory() -> None:
-    @context(role='Button')
+    @context(role='__test_button__')
     class Btn(ContextBase):
         pass
 
     parent_adapter = _make_adapter(role='Window')
     parent = ContextBase(adapter=parent_adapter)
 
-    a1 = _make_adapter(role='Button', runtime_id='b1')
-    a2 = _make_adapter(role='Button', runtime_id='b2')
+    a1 = _make_adapter(role='__test_button__', runtime_id='b1')
+    a2 = _make_adapter(role='__test_button__', runtime_id='b2')
     stub = _StubFactory(results=[a1, a2])
 
     with adapter_factory.override(lambda: stub):
@@ -427,12 +483,12 @@ def test_iter_all_consults_adapter_factory() -> None:
 
 
 def test_get_one_returns_single_match() -> None:
-    @context(role='Button')
+    @context(role='__test_button__')
     class Btn(ContextBase):
         pass
 
     parent = ContextBase(adapter=_make_adapter())
-    only = _make_adapter(role='Button')
+    only = _make_adapter(role='__test_button__')
     stub = _StubFactory(results=[only])
 
     with adapter_factory.override(lambda: stub):
@@ -443,7 +499,7 @@ def test_get_one_returns_single_match() -> None:
 
 
 def test_get_one_raises_on_zero_matches() -> None:
-    @context(role='Button')
+    @context(role='__test_button__')
     class Btn(ContextBase):
         pass
 
@@ -455,13 +511,13 @@ def test_get_one_raises_on_zero_matches() -> None:
 
 
 def test_get_one_raises_on_multiple_matches() -> None:
-    @context(role='Button')
+    @context(role='__test_button__')
     class Btn(ContextBase):
         pass
 
     parent = ContextBase(adapter=_make_adapter())
     stub = _StubFactory(
-        results=[_make_adapter(role='Button'), _make_adapter(role='Button')],
+        results=[_make_adapter(role='__test_button__'), _make_adapter(role='__test_button__')],
     )
     with adapter_factory.override(lambda: stub):
         with pytest.raises(MultipleElementsFoundError):

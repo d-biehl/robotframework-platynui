@@ -114,12 +114,12 @@ def test_call_with_full_context_false_returns_bare_contextbase() -> None:
 def test_call_with_full_context_true_upgrades_to_subclass() -> None:
     """``full_context=True`` swaps the cached context for the registry pick."""
 
-    @context(role='Button')
+    @context(role='__test_button__')
     class Button(ContextBase):
         pass
 
-    adapter = _make_adapter(role='Button')
-    desc: ElementDescriptor = ElementDescriptor(Locator(role='Button'))
+    adapter = _make_adapter(role='__test_button__')
+    desc: ElementDescriptor = ElementDescriptor(Locator(role='__test_button__'))
 
     # Patch get_adapter so we don't hit adapter_factory.
     bare_holder: dict[str, ContextBase] = {}
@@ -188,16 +188,16 @@ def test_call_when_get_adapter_returns_none_keeps_bare_context() -> None:
 def test_explicit_context_type_overrides_registry_pick() -> None:
     """Passing ``context_type=...`` skips the weight calculation."""
 
-    @context(role='Button')
+    @context(role='__test_button__')
     class Button(ContextBase):
         pass
 
     class Forced(ContextBase):
         pass
 
-    adapter = _make_adapter(role='Button')
+    adapter = _make_adapter(role='__test_button__')
     desc: ElementDescriptor = ElementDescriptor(
-        Locator(role='Button'), context_type=Forced
+        Locator(role='__test_button__'), context_type=Forced
     )
 
     original_init = ContextBase.__init__

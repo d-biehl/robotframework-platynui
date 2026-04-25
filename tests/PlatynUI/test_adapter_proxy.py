@@ -29,6 +29,7 @@ from PlatynUI.core.adapter_proxy import (
     pattern_proxy_for,
 )
 from PlatynUI.core.exceptions import (
+    DuplicateRegistrationWarning,
     NotAPatternTypeError,
     PatternNotSupportedError,
 )
@@ -544,7 +545,7 @@ def test_find_proxy_for_filters_by_technology() -> None:
 
 
 def test_pattern_proxy_for_registers_class() -> None:
-    @pattern_proxy_for(role='Button')
+    @pattern_proxy_for(role='__test_button__')
     class _DecoratedProxy(AdapterProxy):
         pass
 
@@ -554,11 +555,11 @@ def test_pattern_proxy_for_registers_class() -> None:
         if e.proxy_cls is _DecoratedProxy
     ]
     assert len(entries) == 1
-    assert entries[0].criteria['role'] == 'Button'
+    assert entries[0].criteria['role'] == '__test_button__'
 
 
 def test_pattern_proxy_for_returns_class_unchanged() -> None:
-    @pattern_proxy_for(role='Button')
+    @pattern_proxy_for(role='__test_button__')
     class _DecoratedProxy(AdapterProxy):
         pass
 
@@ -569,7 +570,7 @@ def test_pattern_proxy_for_returns_class_unchanged() -> None:
 
 def test_pattern_proxy_for_supports_full_criteria_set() -> None:
     @pattern_proxy_for(
-        role='Button',
+        role='__test_button__',
         framework_id='wpf',
         class_name='Btn',
         tag_name='button',
@@ -585,7 +586,7 @@ def test_pattern_proxy_for_supports_full_criteria_set() -> None:
         if e.proxy_cls is _FullProxy
     )
     assert entry.criteria == {
-        'role': 'Button',
+        'role': '__test_button__',
         'framework_id': 'wpf',
         'class_name': 'Btn',
         'tag_name': 'button',
@@ -595,7 +596,7 @@ def test_pattern_proxy_for_supports_full_criteria_set() -> None:
 
 
 def test_pattern_proxy_for_end_to_end_resolves_via_factory() -> None:
-    @pattern_proxy_for(role='Button')
+    @pattern_proxy_for(role='__test_button__')
     class _EndToEndProxy(AdapterProxy, Activatable):
         def __init__(self, adapter: Adapter) -> None:
             super().__init__(adapter)
@@ -612,9 +613,62 @@ def test_pattern_proxy_for_end_to_end_resolves_via_factory() -> None:
         def default_accelerator(self) -> str | None:
             return None
 
-    a = _FakeAdapter(role='Button')
+    a = _FakeAdapter(role='__test_button__')
     facade = PatternProxyFactory.find_proxy_for(a)
     assert isinstance(facade, _EndToEndProxy)
     activatable = facade.get_pattern(Activatable)
     activatable.activate()
     assert facade.activate_calls == 1
+
+
+def test_duplicate_proxy_registration_emits_warning() -> None:
+    @pattern_proxy_for(role='__test_dup_proxy__')
+    class _FirstDupProxy(AdapterProxy, Activatable):
+        def activate(self) -> None: ...
+
+        @property
+        def is_activation_enabled(self) -> bool:
+            return True
+
+        @property
+        def default_accelerator(self) -> str | None:
+            return None
+
+    with pytest.warns(DuplicateRegistrationWarning, match='__test_dup_proxy__'):
+        @pattern_proxy_for(role='__test_dup_proxy__')
+        class _SecondDupProxy(AdapterProxy, Activatable):
+            def activate(self) -> None: ...
+
+            @property
+            def is_activation_enabled(self) -> bool:
+                return True
+
+            @property
+            def default_accelerator(self) -> str | None:
+                return None
+
+    classes = [e.proxy_cls for e in PatternProxyFactory.registrations()]
+    assert _FirstDupProxy in classes
+    assert _SecondDupProxy in classes
+
+
+def test_re_registering_same_proxy_class_is_silent() -> None:
+    import warnings as _warnings
+
+    @pattern_proxy_for(role='__test_reuse_proxy__')
+    class _ReuseProxy(AdapterProxy, Activatable):
+        def activate(self) -> None: ...
+
+        @property
+        def is_activation_enabled(self) -> bool:
+            return True
+
+        @property
+        def default_accelerator(self) -> str | None:
+            return None
+
+    with _warnings.catch_warnings():
+        _warnings.simplefilter('error', DuplicateRegistrationWarning)
+        # Re-registering the same class with the same criteria stays silent
+        # because the previous entry is removed before the duplicate check.
+        PatternProxyFactory.register(_ReuseProxy, {'role': '__test_reuse_proxy__'})

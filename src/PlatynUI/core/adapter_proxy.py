@@ -28,11 +28,13 @@ the highest-scoring match.
 """
 
 import re
+import warnings
 from collections.abc import Callable, Iterator, Sequence
 from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
+from ._criteria import criteria_equal
 from .adapter import Adapter
-from .exceptions import NotAPatternTypeError
+from .exceptions import DuplicateRegistrationWarning, NotAPatternTypeError
 from .patterns.base import PatternBase
 from .weight_calculator import WeightCalculator
 
@@ -310,6 +312,9 @@ class PatternProxyFactory:
         """Register ``proxy_cls`` with the given matching criteria.
 
         Re-registering an existing class replaces its previous entry.
+        Emits a `DuplicateRegistrationWarning` when a *different* proxy
+        class has already been registered with criteria that compare
+        equal (after normalising `re.Pattern` to ``(pattern, flags)``).
         Normally invoked through `pattern_proxy_for` rather than
         directly.
         """
@@ -317,10 +322,22 @@ class PatternProxyFactory:
             raise TypeError(
                 f'{proxy_cls!r} is not an AdapterProxy subclass'
             )
+        new_criteria = dict(criteria)
         cls._registrations = [
             entry for entry in cls._registrations if entry.proxy_cls is not proxy_cls
         ]
-        cls._registrations.append(_ProxyRegistration(proxy_cls, dict(criteria)))
+        for entry in cls._registrations:
+            if criteria_equal(entry.criteria, new_criteria):
+                warnings.warn(
+                    f'{proxy_cls.__module__}.{proxy_cls.__qualname__} '
+                    f'registers with the same criteria {new_criteria!r} as '
+                    f'{entry.proxy_cls.__module__}.{entry.proxy_cls.__qualname__}; '
+                    f'matches will be ambiguous.',
+                    DuplicateRegistrationWarning,
+                    stacklevel=3,
+                )
+                break
+        cls._registrations.append(_ProxyRegistration(proxy_cls, new_criteria))
 
     @classmethod
     def unregister(cls, proxy_cls: type[AdapterProxy]) -> None:

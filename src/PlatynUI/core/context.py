@@ -18,15 +18,17 @@ role='Button'): ...``; both routes share the same registration path.
 from __future__ import annotations
 
 import re
+import warnings
 import weakref
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self, overload
 
+from ._criteria import criteria_equal
 from .adapter import Adapter
 from .adapter_factory import adapter_factory
 from .adapter_proxy import AdapterCriteriaView
 from .ensure import ensure_that
-from .exceptions import NoLocatorDefinedError, PlatynUIFatalError
+from .exceptions import DuplicateRegistrationWarning, NoLocatorDefinedError, PlatynUIFatalError
 from .locator import Locator, LocatorScope
 from .predicate import predicate
 from .settings import Settings
@@ -104,28 +106,32 @@ class ContextBase:
         tag_name: str | None = None,
         attributes: dict[str | tuple[str, str], str | re.Pattern[str]] | None = None,
         prefix: str | None = None,
+        register: bool | None = None,
         **kwargs: Any,
     ) -> None:
         """Wire the class-keyword form into the same registry as `@context`.
 
+        Concrete subclasses register automatically with their class name as
+        ``role`` (`__name__`). Pass ``register=False`` to opt out for
+        abstract intermediate classes; subclasses that still carry
+        unbound ``__abstractmethods__`` are skipped automatically.
         Any of ``role``, ``framework_id``, ``class_name``, ``tag_name``,
-        ``attributes`` or ``prefix`` triggers registration; otherwise the
-        subclass is left untouched (e.g. abstract intermediates).
+        ``attributes`` or ``prefix`` overrides the matching default.
         """
         super().__init_subclass__(**kwargs)
-        if any(
-            v is not None
-            for v in (role, framework_id, class_name, tag_name, attributes, prefix)
-        ):
-            _register_context_class(
-                cls,
-                role=role,
-                framework_id=framework_id,
-                class_name=class_name,
-                tag_name=tag_name,
-                attributes=attributes,
-                prefix=prefix,
-            )
+        if register is False:
+            return
+        if getattr(cls, '__abstractmethods__', frozenset[str]()):
+            return
+        _register_context_class(
+            cls,
+            role=role,
+            framework_id=framework_id,
+            class_name=class_name,
+            tag_name=tag_name,
+            attributes=attributes,
+            prefix=prefix,
+        )
 
     # ------------------------------------------------------------------
     # Repr
@@ -533,7 +539,7 @@ class ContextBase:
         return base
 
 
-class UnknownContext(ContextBase):
+class UnknownContext(ContextBase, register=False):
     """Fallback page-object class for adapters with no registered match."""
 
 
@@ -561,8 +567,29 @@ class ContextFactory:
         context_type: 'type[ContextBase]',
         criteria: dict[str, object],
     ) -> None:
-        """Append ``(context_type, criteria)`` to the registry."""
-        cls.registered_contexts.append(cls.Entry(context_type, dict(criteria)))
+        """Append ``(context_type, criteria)`` to the registry.
+
+        Emits a `DuplicateRegistrationWarning` when a *different* class has
+        already been registered with criteria that compare equal (after
+        normalising `re.Pattern` to ``(pattern, flags)``). Re-registering
+        the same class with the same criteria is silent.
+        """
+        new_criteria = dict(criteria)
+        for entry in cls.registered_contexts:
+            if not criteria_equal(entry.criteria, new_criteria):
+                continue
+            if entry.context_type is context_type:
+                return
+            warnings.warn(
+                f'{context_type.__module__}.{context_type.__qualname__} '
+                f'registers with the same criteria {new_criteria!r} as '
+                f'{entry.context_type.__module__}.{entry.context_type.__qualname__}; '
+                f'matches will be ambiguous.',
+                DuplicateRegistrationWarning,
+                stacklevel=3,
+            )
+            break
+        cls.registered_contexts.append(cls.Entry(context_type, new_criteria))
 
     @overload
     @classmethod
