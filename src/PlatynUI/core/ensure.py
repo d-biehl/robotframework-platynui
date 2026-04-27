@@ -82,7 +82,12 @@ def ensure_that(
 
     ``timeout`` defaults to
     ``Settings.current().ensure_timeout``. On a re-entrant call the
-    outer scope's timeout and ``raise_exception`` policy win.
+    outer scope's timeout always wins (single shared clock); the
+    outer ``raise_exception`` policy is inherited only when the
+    nested caller leaves ``raise_exception`` unset (``None``). An
+    explicit ``raise_exception`` on a nested call is honoured, so
+    ``exists(raise_exception=False)`` stays non-raising even inside
+    a stricter outer scope.
     ``failed_func`` runs between iterations and is typically used to
     invalidate cached adapter handles.
 
@@ -102,8 +107,11 @@ def ensure_that(
             _thread_local.raise_exception = raise_exception
             _thread_local.timeout = timeout
         else:
-            # Inherit the outer scope's raise/timeout policy.
-            raise_exception = _thread_local.raise_exception
+            # Inherit the outer scope's raise policy only when the
+            # nested caller did not specify one. An explicit
+            # raise_exception on a nested call is honoured.
+            if raise_exception is None:
+                raise_exception = _thread_local.raise_exception
 
         if raise_exception is None:
             raise_exception = True

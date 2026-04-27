@@ -311,9 +311,6 @@ def test_close_calls_pattern_then_waits_for_window_gone() -> None:
     closeable.close = _close_and_invalidate
 
     w = Window(adapter=adapter)
-    # ``exists()`` would invoke the (mocked, non-functional) adapter factory
-    # after invalidation; replace it with a state-driven stand-in.
-    w.exists = lambda *, timeout=None, raise_exception=False: not state['closed']  # type: ignore[method-assign]
     w.close()
     assert closeable.close_calls == 1
     assert state['closed'] is True

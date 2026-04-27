@@ -4,6 +4,8 @@
 
 """Tests for ``PlatynUI.core.ensure`` and ``PlatynUI.core.predicate``."""
 
+import time
+
 import pytest
 
 from PlatynUI.core import (
@@ -116,6 +118,189 @@ def test_nested_ensure_inherits_outer_timeout() -> None:
         return ensure_that(object(), inner_fail)
 
     assert ensure_that(object(), outer, timeout=0.05, raise_exception=False) is False
+
+
+# ---------------------------------------------------------------------------
+# Nested ensure_that semantics (re-entrant scope sharing)
+# ---------------------------------------------------------------------------
+
+
+def test_nested_inner_raise_false_is_honoured_under_outer_raise_true() -> None:
+    """Explicit inner ``raise_exception=False`` survives an outer raising scope.
+
+    This is the contract relied on by ``Window.close()`` →
+    ``_window_is_gone`` → ``self.exists()``: the caller passed
+    ``exists(raise_exception=False)`` and that local policy must win
+    regardless of the surrounding ``ensure_that`` configuration.
+    """
+
+    @predicate('inner-never')
+    def inner_fail() -> bool:
+        return False
+
+    def outer() -> bool:
+        # Inner explicitly opts out of raising — its own policy wins,
+        # so the failure surfaces as a ``False`` return rather than a
+        # ``CannotEnsureError``.
+        return ensure_that(object(), inner_fail, raise_exception=False) or True
+
+    # Outer succeeds (``outer`` returns ``True``) — no exception bubbles up.
+    assert ensure_that(object(), outer, timeout=0.05) is True
+
+
+def test_nested_inner_without_raise_inherits_outer_policy() -> None:
+    """When inner leaves ``raise_exception`` unset, the outer scope's policy applies.
+
+    Counterpart to
+    :func:`test_nested_inner_raise_false_is_honoured_under_outer_raise_true`:
+    only an *explicit* nested value overrides; the default (``None``)
+    still inherits from the outermost frame.
+    """
+
+    @predicate('inner-never')
+    def inner_fail() -> bool:
+        return False
+
+    def outer() -> bool:
+        # No explicit raise_exception → inherits outer's True → raises.
+        ensure_that(object(), inner_fail)
+        return True  # pragma: no cover - unreachable
+
+    with pytest.raises(CannotEnsureError):
+        ensure_that(object(), outer, timeout=0.05)
+
+
+def test_nested_inner_timeout_is_overridden_by_outer_timeout() -> None:
+    """Inner ``timeout`` argument is ignored; the outer clock governs."""
+
+    def outer() -> bool:
+        # Inner asks for a 10s timeout but the outer scope already set
+        # 0.05s — the inner call must respect the outer budget.
+        return ensure_that(object(), lambda: False, timeout=10.0)
+
+    start = time.monotonic()
+    result = ensure_that(object(), outer, timeout=0.05, raise_exception=False)
+    elapsed = time.monotonic() - start
+    assert result is False
+    # Bounded comfortably below the inner's nominal 10s — anything under
+    # one second proves the inner timeout did not take effect.
+    assert elapsed < 1.0
+
+
+def test_nested_three_level_explicit_raise_false_isolates_failure() -> None:
+    """Three-level nesting: explicit ``raise_exception=False`` swallows the failure.
+
+    Models the real ``Window.close → _window_is_gone → exists →
+    _adapter_exists → ensure_that(_parent_exists)`` chain, where
+    ``exists()`` requests ``raise_exception=False`` so that an absent
+    window surfaces as ``False`` rather than aborting the close
+    sequence.
+    """
+
+    @predicate('innermost')
+    def innermost() -> bool:
+        return False
+
+    def middle() -> bool:
+        # Explicit raise_exception=False is honoured: innermost
+        # times out and the call returns False, the middle predicate
+        # itself reports success.
+        ensure_that(object(), innermost, raise_exception=False)
+        return True
+
+    def outer() -> bool:
+        ensure_that(object(), middle, raise_exception=False)
+        return True
+
+    assert ensure_that(object(), outer, timeout=0.05) is True
+
+
+def test_nested_succeeded_memo_is_shared_with_outer() -> None:
+    """A predicate marked succeeded inside a nested call is not re-evaluated outside.
+
+    The thread-local ``succeeded`` list is initialised only on the
+    outermost ``ensure_that``; nested calls append to and read from the
+    same list.
+    """
+
+    counter = {'p': 0}
+
+    @predicate('shared')
+    def p() -> bool:
+        counter['p'] += 1
+        return True
+
+    def outer() -> bool:
+        # Inner call evaluates ``p`` once and adds it to the shared memo.
+        ensure_that(object(), p)
+        # Direct evaluation in the outer scope: ``p`` should be skipped
+        # because the memo still contains it from the inner call.
+        ensure_that(object(), p)
+        return True
+
+    assert ensure_that(object(), outer, timeout=1.0) is True
+    # ``p`` is invoked exactly once: inner adds it to ``succeeded``;
+    # outer's second call hits the memo and short-circuits.
+    assert counter['p'] == 1
+
+
+def test_nested_inner_does_not_reset_outer_start_time() -> None:
+    """Only the outermost frame owns ``start_time``; inner must not reset it."""
+
+    @predicate('never-passes')
+    def fails() -> bool:
+        return False
+
+    inner_observations: list[bool] = []
+
+    def outer() -> bool:
+        # Nested call must respect the outer 0.05s budget rather than
+        # restarting its own clock — observe a False return promptly.
+        inner_result = ensure_that(object(), fails)
+        inner_observations.append(inner_result)
+        return True
+
+    start = time.monotonic()
+    # Outer succeeds (its own predicate returns True after the inner
+    # call completes); inner returns False because it inherits the
+    # outer's already-running clock.
+    assert ensure_that(object(), outer, timeout=0.05, raise_exception=False) is True
+    elapsed = time.monotonic() - start
+    # If the inner had restarted the start_time, we would loop on the
+    # inner predicate for ~0.05s on every outer iteration — but with a
+    # shared clock the whole call still finishes well under one second.
+    assert elapsed < 1.0
+    assert inner_observations == [False]
+
+
+def test_depth_resets_to_zero_on_predicate_exception() -> None:
+    """``depth`` and ``start_time`` are restored even if a predicate raises."""
+    # Sanity: depth starts at zero.
+    assert _ensure_depth() == 0
+
+    @predicate('boomy')
+    def boom() -> bool:
+        raise PlatynUIFatalError('boom')
+
+    with pytest.raises(PlatynUIFatalError):
+        ensure_that(object(), boom, timeout=1.0)
+
+    # The finally blocks must restore the thread-local to a pristine state
+    # so the next ensure_that call does not inherit stale data.
+    assert _ensure_depth() == 0
+    assert _ensure_start_time() is None
+
+
+def _ensure_depth() -> int:
+    from PlatynUI.core.ensure import _thread_local
+
+    return _thread_local.depth
+
+
+def _ensure_start_time() -> float | None:
+    from PlatynUI.core.ensure import _thread_local
+
+    return _thread_local.start_time
 
 
 def test_non_callable_predicate_is_fatal() -> None:

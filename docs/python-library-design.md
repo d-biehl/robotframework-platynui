@@ -1643,11 +1643,14 @@ def ensure_that(
    Retries; cached Adapter werden so verworfen, der nächste Versuch
    resolved frisch.
 3. **Re-entrant** über Thread-Local-Stack: verschachtelte Aufrufe in
-   z.B. UI-Klassen-Predicates erben den äußeren Timeout, statt einen
-   eigenen zu starten. Das entspricht der Altcode-Logik
-   (`core/ensure.py:60` mit `_EnsureLocal`), weil verschachtelte
-   Predicates im Praxis-Code (z.B. `_application_is_ready` ruft
-   intern wieder `ensure_that(...)`) sonst doppelt warten würden.
+   z.B. UI-Klassen-Predicates erben den äußeren Timeout (gemeinsame
+   Uhr, kein Doppelwarten). Für `raise_exception` gilt: setzt der
+   verschachtelte Aufruf den Wert *explizit* (also nicht `None`), so
+   bleibt seine eigene Policy aktiv; nur ein nicht spezifiziertes
+   `raise_exception=None` erbt vom äußeren Scope. Damit ergibt
+   `exists(raise_exception=False)` auch innerhalb eines
+   Pre-Condition-Blocks `False` statt zu propagieren.
+   (Altcode `core/ensure.py:60` mit `_EnsureLocal`.)
 4. **Timeout** → wenn `raise_exception=True`: `CannotEnsureError`
    mit der Message des zuletzt fehlgeschlagenen Predicates und
    `repr(context)` als Format-Argument.
