@@ -6,8 +6,6 @@
 
 """`Control` page-object base for focusable UI elements."""
 
-from __future__ import annotations
-
 from typing import override
 
 from ..core import patterns

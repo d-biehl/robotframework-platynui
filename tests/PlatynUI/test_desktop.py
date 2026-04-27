@@ -11,8 +11,6 @@ Covers the absolute ``/.``-locator on `Desktop`, the no-op overrides on
 the desktop-specific mouse and keyboard proxies.
 """
 
-from __future__ import annotations
-
 from _ui_helpers import (  # type: ignore[import-not-found]
     ElementStub,
     make_adapter,

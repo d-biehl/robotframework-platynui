@@ -17,8 +17,6 @@ predicates, and the seven Pre/Pattern/Post capability methods
 `resize`). Includes a smoke test for the `Frame` marker subclass.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterator
 
 import pytest

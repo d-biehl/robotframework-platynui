@@ -13,8 +13,6 @@ Two test groups:
   provider via ``runtime.override_with_mock()``.
 """
 
-from __future__ import annotations
-
 from collections.abc import Generator
 from unittest.mock import MagicMock
 

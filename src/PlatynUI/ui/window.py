@@ -4,8 +4,6 @@
 
 """`Window` page-object base wrapping window-capability patterns."""
 
-from __future__ import annotations
-
 from ..core import patterns
 from ..core.predicate import predicate
 from ..core.settings import Settings

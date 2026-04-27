@@ -15,8 +15,6 @@ the equivalent class-keyword form ``class Button(ContextBase,
 role='Button'): ...``; both routes share the same registration path.
 """
 
-from __future__ import annotations
-
 import re
 import warnings
 import weakref

@@ -15,8 +15,6 @@ Covers the focus contract added on top of `Element`:
 focus-aware keyboard proxy installed by ``_create_keyboard_proxy``.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterator
 
 import pytest

@@ -18,8 +18,6 @@ predicates, the convenience methods (`bring_to_view`, `highlight`,
 construction.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock

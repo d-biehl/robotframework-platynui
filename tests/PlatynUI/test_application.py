@@ -12,8 +12,6 @@ fallbacks), `is_ready` default, `_top_level_windows`, `_request_exit`
 kill), and `exit` (orchestration of the two stages plus invalidation).
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterator
 from unittest.mock import patch
 

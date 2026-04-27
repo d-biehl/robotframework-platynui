@@ -20,8 +20,6 @@ in-process slot. The Robot library installs an override that reads and
 writes ``${PLATYNUI_ROOT_ELEMENT}`` from `EXECUTION_CONTEXTS`.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any, Generic
 
 from typing_extensions import TypeVar

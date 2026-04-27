@@ -6,8 +6,6 @@
 
 """`Desktop` page-object — the conventional process-wide root."""
 
-from __future__ import annotations
-
 from ..core.locator import Locator
 from .desktopbase import DesktopBase
 

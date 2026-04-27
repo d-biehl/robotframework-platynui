@@ -11,8 +11,6 @@ explicit ``patterns`` mapping handed to ``make_adapter`` so each test
 controls exactly which capabilities its element exposes.
 """
 
-from __future__ import annotations
-
 from typing import Any
 from unittest.mock import MagicMock
 

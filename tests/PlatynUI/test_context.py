@@ -16,8 +16,6 @@ caching, parent/children traversal, and search delegation through
 `adapter_factory`.
 """
 
-from __future__ import annotations
-
 import warnings
 from collections.abc import Generator
 from unittest.mock import MagicMock

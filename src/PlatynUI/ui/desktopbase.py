@@ -6,8 +6,6 @@
 
 """`DesktopBase` page-object base for desktop-root contexts."""
 
-from __future__ import annotations
-
 from typing import override
 
 from ..core.devices import KeyboardAction, MouseAction

@@ -10,8 +10,6 @@ process-wide `adapter_factory` singleton used by page objects to
 look up child adapters.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator
 from contextlib import contextmanager

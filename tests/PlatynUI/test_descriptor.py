@@ -10,8 +10,6 @@
 
 """Unit tests for ``PlatynUI.core.descriptor``."""
 
-from __future__ import annotations
-
 from collections.abc import Generator
 from unittest.mock import MagicMock
 
