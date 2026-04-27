@@ -21,8 +21,8 @@ class _OtherTechnology:
 class _MockAdapter:
     """Minimal duck-typed adapter for weight-calculator tests.
 
-    Mirrors the post-Phase-1 adapter shape: namespaced attribute reads
-    via ``attribute_value(name, namespace)``; no ``Properties`` /
+    Provides namespaced attribute reads via
+    ``attribute_value(name, namespace)``; no ``Properties`` /
     ``NativeProperties`` patterns.
     """
 

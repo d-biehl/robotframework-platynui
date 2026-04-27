@@ -113,7 +113,7 @@ def test_call_with_full_context_true_upgrades_to_subclass() -> None:
     """``full_context=True`` swaps the cached context for the registry pick."""
 
     @context(role='__test_button__')
-    class Button(ContextBase):
+    class _TestButton(ContextBase):
         pass
 
     adapter = _make_adapter(role='__test_button__')
@@ -135,7 +135,7 @@ def test_call_with_full_context_true_upgrades_to_subclass() -> None:
     finally:
         ContextBase.__init__ = original_init  # type: ignore[method-assign]
 
-    assert isinstance(result, Button)
+    assert isinstance(result, _TestButton)
     assert desc._has_full_context is True
     # Second call returns the cached upgraded context unchanged.
     assert desc(full_context=True) is result
@@ -187,15 +187,15 @@ def test_explicit_context_type_overrides_registry_pick() -> None:
     """Passing ``context_type=...`` skips the weight calculation."""
 
     @context(role='__test_button__')
-    class Button(ContextBase):
+    class _TestButton(ContextBase):
         pass
 
-    class Forced(ContextBase):
+    class _TestForced(ContextBase):
         pass
 
     adapter = _make_adapter(role='__test_button__')
     desc: ElementDescriptor = ElementDescriptor(
-        Locator(role='__test_button__'), context_type=Forced
+        Locator(role='__test_button__'), context_type=_TestForced
     )
 
     original_init = ContextBase.__init__
@@ -211,8 +211,8 @@ def test_explicit_context_type_overrides_registry_pick() -> None:
     finally:
         ContextBase.__init__ = original_init  # type: ignore[method-assign]
 
-    assert isinstance(result, Forced)
-    assert not isinstance(result, Button)
+    assert isinstance(result, _TestForced)
+    assert not isinstance(result, _TestButton)
 
 
 def test_parent_descriptor_is_resolved_for_child_context() -> None:

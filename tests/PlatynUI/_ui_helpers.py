@@ -30,7 +30,9 @@ __all__ = [
     'ReadableStub',
     'ResizableStub',
     'RestorableStub',
+    'TextContentStub',
     'TitledStub',
+    'ToggleableStub',
     'make_adapter',
 ]
 
@@ -242,6 +244,67 @@ class ReadableStub(patterns.Readable):
     @property
     def is_readonly(self) -> bool:
         return self._readonly
+
+
+class TextContentStub(patterns.TextContent):
+    """`patterns.TextContent` stub with a fixed text value."""
+
+    def __init__(
+        self,
+        text: str = '',
+        *,
+        locale: str = '',
+        is_truncated: bool = False,
+    ) -> None:
+        self._text = text
+        self._locale = locale
+        self._truncated = is_truncated
+
+    @property
+    def text(self) -> str:
+        return self._text
+
+    @property
+    def locale(self) -> str:
+        return self._locale
+
+    @property
+    def is_truncated(self) -> bool:
+        return self._truncated
+
+
+class ToggleableStub(patterns.Toggleable):
+    """`patterns.Toggleable` stub with a mutable state cycle.
+
+    Each ``toggle()`` call advances through the cycle handed to the
+    constructor (default: two-state ``OFF`` → ``ON`` → ``OFF``). Tests
+    can pass a three-state cycle to exercise tri-state behaviour.
+    """
+
+    def __init__(
+        self,
+        state: patterns.ToggleState = patterns.ToggleState.OFF,
+        *,
+        cycle: tuple[patterns.ToggleState, ...] | None = None,
+        supports_three_state: bool = False,
+    ) -> None:
+        self._state = state
+        self._cycle = cycle or (patterns.ToggleState.OFF, patterns.ToggleState.ON)
+        self._three_state = supports_three_state
+        self.toggle_calls = 0
+
+    @property
+    def state(self) -> patterns.ToggleState:
+        return self._state
+
+    @property
+    def supports_three_state(self) -> bool:
+        return self._three_state
+
+    def toggle(self) -> None:
+        self.toggle_calls += 1
+        idx = self._cycle.index(self._state)
+        self._state = self._cycle[(idx + 1) % len(self._cycle)]
 
 
 # ---------------------------------------------------------------------------
