@@ -4,9 +4,28 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 33**.
+> **Status:** Diskussionsentwurf, **Revision 34**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 34** — **Item-Hierarchie + Container-Klassen
+>   (§A.14.13–§A.14.21).** Phase 4c führt vier neue Patterns
+>   (`Selectable`, `Expandable`, `HasEditor`, `ItemContainer`)
+>   und die Context-Klassen für Item-Container ein. Item-
+>   Capabilities werden als Mixin-Klassen modelliert: `Item`
+>   ist ein register-freier Marker mit `text` (über `TextContent`),
+>   `SelectableItem`/`ExpandableItem`/`EditableItem` ergänzen jeweils
+>   genau ein Pattern. Konkrete Klassen kombinieren per
+>   Mehrfachvererbung (`TreeItem(SelectableItem, ExpandableItem)`,
+>   `EditableCell(Cell, EditableItem)`). Container-Klassen
+>   (`List`, `Tree`, `Table`, `Row`) wrappen das `ItemContainer`-
+>   Pattern (typisierte `item_count`/`row_count`/`column_count`
+>   statt generischer `Properties`-Reads aus dem Altprojekt) und
+>   exposen `get_item(s)`/`iter_items` über `LocatorScope.Children`.
+>   `ComboBox` kombiniert `Expandable` + Item-Selektion + optional
+>   `TextEditable` und implementiert den expand→select→collapse-
+>   Lifecycle aus dem Altprojekt. Phase 4c bleibt komplett Python-
+>   seitig: ABCs + Tests gegen Stubs; Rust-Pattern-Konstanten und
+>   Native-Bindings folgen in einer späteren Phase.
 > - **Rev. 33** — **`Element.default_click_position` entfernt.** Saubere
 >   Trennung Geometrie (`Element`) ↔ Klick-Capability
 >   (`ActivationTarget`): das Element-Pattern liefert nur noch
@@ -1036,10 +1055,14 @@ class Focusable(PatternBase):
     def focus(self) -> None: ...
 
 
-# Expandable, HasIsExpanded, Selectable, HasIsSelected,
+# Selectable, Expandable, HasEditor, ItemContainer,
 # Scrollable, HasNativeWindowHandle, HasValue, EditableValue,
 # … — alle als ABC mit pattern_name im
 # org.platynui.patterns.*-Namespace.
+#
+# Hinweis: Selectable und Expandable bündeln Status-Read und
+# Aktion in einem Pattern (siehe Rev. 32) — kein paralleles
+# `HasIsSelected`/`HasIsExpanded` wie im Altprojekt.
 #
 # Hinweis: Es gibt KEIN „Properties"-Pattern. Generische Attribut-
 # Reads laufen direkt am Adapter über
@@ -1239,10 +1262,10 @@ Minimal-Set, das mit v1 ausgeliefert werden soll (Rollen entsprechen
 | `Button`, `Link` | `Button` | `Activatable` |
 | `CheckBox`, `RadioButton`, `ToggleButton` | `CheckBox`, `RadioButton`, `ToggleButton` | `Toggleable` |
 | `Edit`, `Text`, `PasswordBox` | `Edit`, `Text` | `TextContent`, `TextEditable`, `Clearable`, `HasValue` |
-| `ComboBox` | `ComboBox` | `Expandable`, `Selectable`, `TextEditable` (editierbar) |
-| `List`, `ListItem` | `List`, `ListItem` | `Selectable`, `HasIsSelected`, `Scrollable` |
-| `Tree`, `TreeItem` | `Tree`, `TreeItem` | `Expandable`, `Selectable`, `Scrollable` |
-| `Table`, `Row`, `Cell`, `Header` | `Table`, `Row`, `Cell` | `Selectable`, `Scrollable` |
+| `ComboBox` | `ComboBox` | `Expandable`, `Selectable`, `TextContent`, `TextEditable` (editierbar) |
+| `List`, `ListItem` | `List`, `ListItem` | `Selectable`, `ItemContainer`, `Scrollable` |
+| `Tree`, `TreeItem` | `Tree`, `TreeItem` | `Expandable`, `Selectable`, `ItemContainer`, `Scrollable` |
+| `Table`, `Row`, `Cell`, `Header` | `Table`, `Row`, `Cell` (+ `EditableCell`) | `Selectable`, `ItemContainer`, `HasEditor`, `Scrollable` |
 | `TabList`, `TabItem` | `TabList`, `TabItem` | `Selectable` |
 | `Menu`, `MenuBar`, `MenuItem` | `Menu`, `MenuBar`, `MenuItem` | `Activatable`, `Expandable` |
 | `Label`, `StaticText`, `Image` | `Label`, `Image` | (lesend — kein Action-Pattern) |
@@ -3390,9 +3413,27 @@ ContextBase  (core/context.py)
 ├── DesktopBase                 (ui/desktopbase.py — Element-Verhalten ohne App-Ready)
 │   └── Desktop                 (ui/desktop.py — DesktopBase + @locator(path="/."))
 └── Element                     (ui/element.py — Arbeitstier)
-    └── Control                 (ui/control.py — + Focus)
-        └── Window              (ui/window.py — + Window-Capabilities)
-            └── Frame           (ui/window.py — Marker-Subklasse)
+    ├── Control                 (ui/control.py — + Focus)
+    │   ├── Window              (ui/window.py — + Window-Capabilities)
+    │   │   └── Frame           (ui/window.py — Marker-Subklasse)
+    │   ├── AbstractButton      (ui/buttons.py — register=False)
+    │   │   ├── Button          (ui/buttons.py)
+    │   │   └── CheckBox        (ui/buttons.py)
+    │   ├── Text                (ui/text.py)
+    │   ├── Edit                (ui/text.py)
+    │   ├── List                (ui/lists.py — ItemContainer)
+    │   ├── Tree                (ui/tree.py — ItemContainer)
+    │   ├── Table               (ui/table.py — ItemContainer)
+    │   └── ComboBox            (ui/combobox.py — Expandable + Items + optional Editable)
+    └── Item                    (ui/item.py — register=False, + text)
+        ├── SelectableItem      (ui/item.py — register=False, + Selectable)
+        │   ├── ListItem        (ui/lists.py)
+        │   └── TreeItem        (ui/tree.py — auch ExpandableItem)
+        ├── ExpandableItem      (ui/item.py — register=False, + Expandable)
+        ├── EditableItem        (ui/item.py — register=False, + HasEditor + TextEditable)
+        ├── Cell                (ui/table.py)
+        │   └── EditableCell    (ui/table.py — auch EditableItem)
+        └── Row                 (ui/table.py — ItemContainer von Cells)
 ```
 
 `Element` ist die zentrale Basisklasse für sichtbare UI-Elemente.
@@ -3801,7 +3842,7 @@ class Button(AbstractButton):
 (default), wenn der Adapter das Pattern nicht liefert — Phase 4a
 verlangt den Provider-Pattern-Pfad. Ein Click-Fallback über
 `MouseProxy.click()` ist Sache der Default-Proxy-Schicht
-(Phase 4e, §A.14.12).
+(Phase 4e, §A.14.22).
 
 **`CheckBox`** wrappt das `Toggleable`-Pattern. Die Klasse fügt
 `is_checked` / `is_unchecked` als Bequemlichkeits-Properties
@@ -3914,7 +3955,7 @@ class Text(Control):
 `TextContent` nicht liefert — Phase 4b verlangt den
 Provider-Pattern-Pfad. Ein Display-Lookup-Fallback über das
 Element-Bounds-Rechteck wäre Sache der Default-Proxy-Schicht
-(Phase 4e, §A.14.12).
+(Phase 4e, §A.14.22).
 
 **`is_truncated`/`locale`.** Stellt `TextContent`-Properties
 direkt durch. Eine Multi-Line-Eigenschaft existiert auf `Text`
@@ -4010,7 +4051,7 @@ denselben Status zu vermeiden. `TextEditable.is_readonly` bleibt
 als interne Pattern-Eigenschaft erhalten — Default-Proxies
 können es als Fallback heranziehen, wenn `Readable` fehlt
 (Phase 4e). Der Focus-Check stellt sicher, dass die Tastatur-
-Eingabe (im Default-Proxy-Fallback, §A.14.12) am richtigen
+Eingabe (im Default-Proxy-Fallback, §A.14.22) am richtigen
 Widget landet — für den Provider-Pattern-Pfad ist er strenggenommen
 nicht nötig, aber er hält das Verhalten zwischen Pattern- und
 Fallback-Pfad konsistent.
@@ -4042,7 +4083,590 @@ einzige geteilte Methode wäre `text` (eine Zeile via
 Pre-Conditions (`Text` braucht keinen Focus). Eine
 Zwischenklasse wäre Code-Overhead ohne Gegenwert.
 
-#### A.14.12 Offene Punkte
+#### A.14.12 Item-Hierarchie (`ui/item.py`)
+
+Items sind UI-Elemente innerhalb eines Containers — Listen-
+einträge, Tree-Knoten, Tabellenzellen, Tabs, Menü-Einträge.
+Sie unterscheiden sich von `Control` darin, dass sie typisch
+**keinen eigenen Focus** halten (der Container ist fokussiert,
+das Item ist „selektiert") und dass ihre Aktionen über
+Container- oder Editor-Lifecycles laufen.
+
+```
+Element
+└── Item                          (register=False, default_prefix="item")
+    ├── SelectableItem            (register=False, + Selectable)
+    ├── ExpandableItem            (register=False, + Expandable)
+    └── EditableItem              (register=False, + HasEditor + TextEditable)
+```
+
+`Item`, `SelectableItem`, `ExpandableItem`, `EditableItem` sind
+alle `register=False` — sie sind Capability-Mixins, keine
+selbstständigen Rollen. Konkrete Klassen (`ListItem`, `TreeItem`,
+`Cell`, `Row`, `MenuItem`, `TabItem`) erben von `Item` plus
+einer beliebigen Kombination der Mixins per Mehrfachvererbung.
+
+```python
+class Item(Element, register=False):
+    """Container element (list entry, tree node, cell, …)."""
+
+    default_prefix: ClassVar[str] = "item"
+
+    @property
+    def text(self) -> str:
+        """The item's display text."""
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(TextContent).text
+
+
+class SelectableItem(Item, register=False):
+    """Item that can be selected within its container."""
+
+    @property
+    def is_selected(self) -> bool:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(Selectable).is_selected
+
+    def select(self) -> None:
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        selectable = self.adapter.get_pattern(Selectable)
+        if not selectable.is_selected:
+            selectable.select()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+
+
+class ExpandableItem(Item, register=False):
+    """Item that can be expanded/collapsed (tree node, …)."""
+
+    @property
+    def is_expanded(self) -> bool:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(Expandable).is_expanded
+
+    @property
+    def can_expand(self) -> bool:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(Expandable).can_expand
+
+    def expand(self) -> bool:
+        if not self.can_expand or self.is_expanded:
+            return False
+        self.ensure_that(self._toplevel_parent_is_active, self._element_is_in_view)
+        self.adapter.get_pattern(Expandable).expand()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+        return True
+
+    def collapse(self) -> bool:
+        if not self.can_expand or not self.is_expanded:
+            return False
+        self.ensure_that(self._toplevel_parent_is_active, self._element_is_in_view)
+        self.adapter.get_pattern(Expandable).collapse()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+        return True
+
+
+class EditableItem(Item, register=False):
+    """Item whose value can be edited inline (cell editor, …)."""
+
+    def set_text(self, value: str) -> None:
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        editor = self.adapter.get_pattern(HasEditor)
+        editor.open_editor()
+        try:
+            self.adapter.get_pattern(TextEditable).set_text(value)
+        finally:
+            editor.accept()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+
+    def clear(self) -> None:
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        editor = self.adapter.get_pattern(HasEditor)
+        editor.open_editor()
+        try:
+            self.adapter.get_pattern(Clearable).clear()
+        finally:
+            editor.accept()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+```
+
+**Mehrfachvererbung.** `TreeItem(SelectableItem, ExpandableItem)`
+und `EditableCell(Cell, EditableItem)` kombinieren orthogonale
+Capabilities. Die Mixins berühren sich nicht (jedes greift auf
+ein anderes Pattern zu); Python-MRO ist hier unkritisch.
+
+**`text`-Setter bewusst nicht auf `Item`.** Der Property-Setter
+`item.text = "..."` würde `set_text` voraussetzen und damit den
+Editor-Lifecycle implizieren. Da nicht jedes Item editierbar ist,
+ist `text` auf `Item` rein lesend; `EditableItem.set_text(value)`
+ist die explizite Schreib-API.
+
+**`HasEditor.open_editor()` + `accept()`.** Der Lifecycle wird in
+einem `try/finally` umschlossen, damit ein Fehler in `set_text`
+den Editor nicht offen lässt. Die `cancel()`-Variante des
+Patterns ist im Public-API der Item-Klassen (noch) nicht
+exposed — wer sie braucht, ruft das Pattern direkt an.
+
+#### A.14.13 `List` und `ListItem` (`ui/lists.py`)
+
+```
+Element                          Element
+└── Control                      └── Item
+    └── List                         └── SelectableItem
+                                          └── ListItem
+```
+
+`List` ist ein `Control` mit `ItemContainer`-Pattern; `ListItem`
+ein `SelectableItem`. Items werden über `scope='children'`
+gesucht — eine Liste enthält ihre Einträge direkt.
+
+```python
+class List(Control):
+    @property
+    def item_count(self) -> int:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(ItemContainer).item_count
+
+    def get_items(self, *, locator: Locator | None = None) -> list[ListItem]:
+        return self.get_all(ListItem, locator=locator, scope='children')
+
+    def iter_items(self, *, locator: Locator | None = None) -> Iterator[ListItem]:
+        return self.iter_all(ListItem, locator=locator, scope='children')
+
+    def get_item(self, *, locator: Locator | None = None) -> ListItem:
+        return self.get(ListItem, locator=locator, scope='children')
+
+    def select(self, *, locator: Locator | None = None) -> ListItem:
+        item = self.get_item(locator=locator)
+        item.select()
+        return item
+
+
+class ListItem(SelectableItem):
+    pass
+```
+
+`List.select(...)` ist ein Convenience-Wrapper: holt das Item
+über die Locator-Argumente und ruft `select()`. Liefert das Item
+zurück, damit der Caller weiterarbeiten kann.
+
+#### A.14.14 `Tree` und `TreeItem` (`ui/tree.py`)
+
+```
+Element                          Element
+└── Control                      └── Item
+    └── Tree                         └── SelectableItem  ExpandableItem
+                                              \           /
+                                               TreeItem
+```
+
+```python
+class Tree(Control):
+    @property
+    def item_count(self) -> int:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(ItemContainer).item_count
+
+    @property
+    def column_count(self) -> int:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(ItemContainer).column_count
+
+    def get_items(self, *, locator: Locator | None = None) -> list["TreeItem"]:
+        return self.get_all(TreeItem, locator=locator, scope='children')
+
+    def iter_items(self, *, locator: Locator | None = None) -> Iterator["TreeItem"]:
+        return self.iter_all(TreeItem, locator=locator, scope='children')
+
+    def get_item(self, *, locator: Locator | None = None) -> "TreeItem":
+        return self.get(TreeItem, locator=locator, scope='children')
+
+
+class TreeItem(SelectableItem, ExpandableItem):
+    @property
+    def item_count(self) -> int:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(ItemContainer).item_count
+
+    def get_items(self, *, locator: Locator | None = None) -> list["TreeItem"]:
+        return self.get_all(TreeItem, locator=locator, scope='children')
+
+    def iter_items(self, *, locator: Locator | None = None) -> Iterator["TreeItem"]:
+        return self.iter_all(TreeItem, locator=locator, scope='children')
+
+    def get_item(self, *, locator: Locator | None = None) -> "TreeItem":
+        return self.get(TreeItem, locator=locator, scope='children')
+```
+
+`TreeItem` ist sowohl `SelectableItem` als auch `ExpandableItem`
+**und** ein Container seiner eigenen Kinder — daher die
+`get_items`/`item_count`-Methoden auch auf der Item-Klasse.
+
+#### A.14.15 `Table`, `Row`, `Cell` (`ui/table.py`)
+
+```
+Element                          Element
+└── Control                      └── Item
+    └── Table                        ├── Cell
+                                     │   └── EditableCell  EditableItem
+                                     │            \         /
+                                     │             EditableCell
+                                     └── Row
+```
+
+```python
+class Cell(Item):
+    pass
+
+
+class EditableCell(Cell, EditableItem):
+    pass
+
+
+class Row(Item):
+    @property
+    def column_count(self) -> int:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(ItemContainer).column_count
+
+    def get_cells(self, *, locator: Locator | None = None) -> list[Cell]:
+        return self.get_all(Cell, locator=locator, scope='children')
+
+    def iter_cells(self, *, locator: Locator | None = None) -> Iterator[Cell]:
+        return self.iter_all(Cell, locator=locator, scope='children')
+
+    def get_cell(self, *, locator: Locator | None = None) -> Cell:
+        return self.get(Cell, locator=locator, scope='children')
+
+
+class Table(Control):
+    @property
+    def row_count(self) -> int:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(ItemContainer).row_count
+
+    @property
+    def column_count(self) -> int:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(ItemContainer).column_count
+
+    def get_rows(self, *, locator: Locator | None = None) -> list[Row]:
+        return self.get_all(Row, locator=locator, scope='children')
+
+    def iter_rows(self, *, locator: Locator | None = None) -> Iterator[Row]:
+        return self.iter_all(Row, locator=locator, scope='children')
+
+    def get_row(self, *, locator: Locator | None = None) -> Row:
+        return self.get(Row, locator=locator, scope='children')
+```
+
+**`Cell` als Marker, `EditableCell` getrennt.** Die meisten
+Tabellen sind read-only (Anzeige-Tabellen, Reports). Editierbare
+Tabellen liefern für ihre Zellen Adapter mit `HasEditor` —
+solche Adapter werden über `@context(role="Cell", properties={...})`
+auf die `EditableCell`-Klasse gemappt (Gewichtung über
+`framework_id`/`class_name`/`properties` aus §5a). Der Standardpfad
+ohne weitere Heuristik liefert `Cell`; ein `EditableCell`-Aufrufer
+weiß explizit, dass die Zelle editierbar ist.
+
+**`Row` als `Item`-Container.** `Row` erbt von `Item`, weil sie
+in einem Container (`Table`) lebt und i.d.R. selektierbar ist —
+wenn der Adapter ein `Selectable` liefert, exposed das die
+Standard-`select()`-API über `SelectableItem`-Mixin (offen für
+Anwendungen, die das brauchen — derzeit erbt `Row` nur von `Item`,
+da Row-Selektion seltener ist als Cell-Selektion; bei Bedarf
+nachziehen).
+
+#### A.14.16 `ComboBox` (`ui/combobox.py`)
+
+```
+Control
+└── ComboBox
+```
+
+`ComboBox` kombiniert drei Capability-Bereiche:
+
+- **Expand/Collapse** (`Expandable`-Pattern): das Dropdown auf-
+  und zumachen.
+- **Item-Selektion** (`ListItem`-Kinder via Locator): aus dem
+  geöffneten Dropdown einen Eintrag selektieren.
+- **Editierbarer Text** (`TextContent`/`TextEditable`-Patterns,
+  optional): bei editierbaren ComboBoxen den Anzeigetext direkt
+  setzen.
+
+```python
+class ComboBox(Control):
+    @property
+    def can_expand(self) -> bool:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(Expandable).can_expand
+
+    @property
+    def is_expanded(self) -> bool:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(Expandable).is_expanded
+
+    def expand(self) -> bool:
+        if self.is_expanded:
+            return False
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._control_has_focus,
+        )
+        self.adapter.get_pattern(Expandable).expand()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+        return True
+
+    def collapse(self) -> bool:
+        if not self.is_expanded:
+            return False
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._control_has_focus,
+        )
+        self.adapter.get_pattern(Expandable).collapse()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+        return True
+
+    def get_items(self, *, locator: Locator | None = None) -> list[ListItem]:
+        with self._expanded():
+            return self.get_all(ListItem, locator=locator, scope='descendants')
+
+    def iter_items(self, *, locator: Locator | None = None) -> Iterator[ListItem]:
+        with self._expanded():
+            yield from self.iter_all(ListItem, locator=locator, scope='descendants')
+
+    def get_item(self, *, locator: Locator | None = None) -> ListItem:
+        with self._expanded():
+            return self.get(ListItem, locator=locator, scope='descendants')
+
+    def select(self, *, locator: Locator | None = None) -> ListItem:
+        with self._expanded():
+            item = self.get(ListItem, locator=locator, scope='descendants')
+            item.select()
+            return item
+
+    @property
+    def selected(self) -> ListItem | None:
+        # Locator-based lookup — returns None if no item is selected.
+        ...
+
+    @property
+    def text(self) -> str:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(TextContent).text
+
+    @text.setter
+    def text(self, value: str) -> None:
+        self.set_text(value)
+
+    def set_text(self, value: str) -> None:
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+            self._element_is_not_readonly,
+            self._control_has_focus,
+        )
+        self.adapter.get_pattern(TextEditable).set_text(value)
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+
+    @contextmanager
+    def _expanded(self) -> Iterator[None]:
+        was_collapsed = self.expand()
+        try:
+            yield
+        finally:
+            if was_collapsed:
+                self.collapse()
+```
+
+**`_expanded()`-Context-Manager.** Faktorisiert das Legacy-Muster
+(`expanded = self.expand(); try: ...; finally: if expanded:
+self.collapse()`) in einen wiederverwendbaren Helper. `expand()`
+liefert `True`, wenn das Dropdown vor dem Aufruf zu war —
+`collapse()` läuft nur dann am Ende.
+
+**Items via `scope='descendants'`.** Ein offenes ComboBox-
+Dropdown hängt je nach Toolkit nicht direkt unter dem ComboBox-
+Adapter (Popup-Window, Overlay-Layer). Descendants-Scope deckt
+beide Fälle ab.
+
+**Locator-basierte `selected`-Property.** Der Altcode nutzt
+`get_item(IsSelected=True)`. Die neue Version geht denselben
+Weg über die Locator-API auf der Item-Adapter-`Selectable`-
+Property. Implementations-Detail: liefert `None` statt zu
+raisen, wenn keine Selektion existiert (gängiger Initial-Zustand
+einer ComboBox).
+
+**Text-Read auch ohne Editierbarkeit.** `text` liest immer über
+`TextContent` — auch eine read-only ComboBox hat einen sichtbaren
+Text. Erst der Setter (`set_text`) verlangt `TextEditable` und
+die Edit-Predicates (`not_readonly`, Focus).
+
+#### A.14.17 Pattern-Spec — `Selectable`
+
+```python
+class Selectable(PatternBase):
+    pattern_name = "org.platynui.patterns.Selectable"
+
+    @property
+    @abstractmethod
+    def is_selected(self) -> bool: ...
+
+    @abstractmethod
+    def select(self) -> None: ...
+```
+
+`Selectable` bündelt Status-Read und Aktion in einem Pattern
+(siehe Rev. 32 zur flachen Hierarchie). Eine `deselect()`-Methode
+gibt es bewusst nicht: Single-Selection-Container deselektieren
+implizit beim nächsten `select()`, Multi-Selection-Container sind
+selten genug, dass eine zweite Methode auf Item-Ebene das Modell
+unnötig aufbläht — wer Multi-Selection braucht, ruft im Test
+die nächste Selektion oder einen container-spezifischen
+Toggle-Modus auf.
+
+**`is_selectable` weggelassen.** Der Altcode hatte
+`HasSelected.is_selectable`. In der neuen Modellierung ist das
+implizit: ein Adapter, der `Selectable` exposed, ist selektierbar.
+Wer prüfen will, ob die Capability vorhanden ist, fragt
+`adapter.get_pattern(Selectable, raise_exception=False) is not None`.
+
+#### A.14.18 Pattern-Spec — `Expandable`
+
+```python
+class Expandable(PatternBase):
+    pattern_name = "org.platynui.patterns.Expandable"
+
+    @property
+    @abstractmethod
+    def can_expand(self) -> bool: ...
+
+    @property
+    @abstractmethod
+    def is_expanded(self) -> bool: ...
+
+    @abstractmethod
+    def expand(self) -> None: ...
+
+    @abstractmethod
+    def collapse(self) -> None: ...
+```
+
+**`can_expand` bleibt erhalten.** Anders als `is_selectable`
+hat `can_expand` einen sinnvollen Use-Case: ein TreeItem ohne
+Kinder kann technisch das `Expandable`-Pattern liefern, aber
+faktisch nichts auf-/zumachen. `can_expand` erlaubt der UI-Klasse,
+diesen Zustand vor dem Action-Call abzufragen.
+
+#### A.14.19 Pattern-Spec — `HasEditor`
+
+```python
+class HasEditor(PatternBase):
+    pattern_name = "org.platynui.patterns.HasEditor"
+
+    @abstractmethod
+    def open_editor(self) -> None: ...
+
+    @abstractmethod
+    def accept(self) -> None: ...
+
+    @abstractmethod
+    def cancel(self) -> None: ...
+```
+
+Beschreibt den Inline-Editor-Lifecycle für editierbare
+Container-Items (Cell-Editor, Tree-Item-Rename, …). Die
+`EditableItem`-UI-Klasse umschließt die Sequenz mit
+`open_editor → set_text/clear → accept` in einem `try/finally`,
+damit Fehler nicht den Editor offen lassen.
+
+`cancel()` ist Teil des Patterns (nicht jeder Editor lässt sich
+mit `accept` korrekt schließen), wird aber von den Default-Item-
+Methoden nicht aufgerufen — wer den Edit verwerfen will, ruft das
+Pattern direkt.
+
+#### A.14.20 Pattern-Spec — `ItemContainer`
+
+```python
+class ItemContainer(PatternBase):
+    pattern_name = "org.platynui.patterns.ItemContainer"
+
+    @property
+    @abstractmethod
+    def item_count(self) -> int: ...
+
+    @property
+    @abstractmethod
+    def row_count(self) -> int: ...
+
+    @property
+    @abstractmethod
+    def column_count(self) -> int: ...
+```
+
+Bündelt typisierte Größenangaben für Listen-, Tree- und
+Tabellencontainer. Im Altprojekt wurden `ItemCount`/`RowCount`/
+`ColumnCount` als generische Attribute über
+`Properties.get_property_value("ItemCount")` gelesen — ein Pattern
+mit `Properties`-Marker, der jeden String akzeptiert, ist explizit
+**nicht** Teil des neuen Modells (siehe §5, Hinweis nach der
+Pattern-Liste). Stattdessen hat jeder Container-Typ genau die
+Eigenschaften, die für ihn sinnvoll sind:
+
+| Container | sinnvolle Properties |
+|---|---|
+| `List` | `item_count` |
+| `Tree`, `TreeItem` | `item_count`, `column_count` |
+| `Table` | `row_count`, `column_count` |
+| `Row` | `column_count` |
+
+**Drei Properties statt drei Patterns.** Ein splittendes Modell
+(`ListContainer`/`TreeContainer`/`TableContainer`) wäre semantisch
+sauberer, würde aber Adapter zwingen, denselben Provider-State
+in drei verschiedenen Pattern-Implementierungen zu wrappen. Der
+unbenötigte Property-Read raised `NotImplementedError` in den
+Default-Pattern-Implementierungen; konkrete Adapter implementieren
+nur die für ihre Rolle relevanten Properties.
+
+Eine Properties-Property mit z. B. `column_count` für eine reine
+`List` ist also ein Programmierfehler — die UI-Klasse ruft sie
+nicht, der Adapter exposed sie nicht.
+
+#### A.14.21 Item-Lifecycle und Predicates
+
+Die meisten Item-Aktionen brauchen kein separates Focus-Predicate:
+der Container ist fokussiert, das Item wird durch Selektion
+„aktiv". `SelectableItem.select()` und `ExpandableItem.expand()`
+verlangen daher nur das Standard-Tripel
+(`_toplevel_parent_is_active`, `_element_is_in_view`,
+`_element_is_enabled`).
+
+`EditableItem.set_text()` braucht zusätzlich nichts mehr —
+`HasEditor.open_editor()` zwingt die Anwendung in den Editor-
+Modus, und das Pattern selbst ist verantwortlich, das Item
+zuvor zu fokussieren. Sollte sich diese Annahme in der Praxis
+nicht halten, kommt ein `_item_is_active`-Predicate dazu, das
+über `Activatable` den Doppelklick-Pfad abdeckt — bislang nicht
+umgesetzt, da der Altcode-Pfad (`activate()` über `Activatable`)
+den gleichen Effekt hatte und in den meisten Toolkits redundant
+ist.
+
+#### A.14.22 Offene Punkte
 
 - **`BringIntoViewable`-Pattern** (siehe §A.14.3, `_element_is_in_view`):
   perspektivisch eigenes Pattern für UIA `IScrollItemProvider.ScrollIntoView`

@@ -7,10 +7,10 @@ in das neue Rust-basierte Projekt verfolgt.
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
 **Stand:** 2026-04-27
-**Aktuelle Revision:** Rev. 33 (`Element.default_click_position` aus
-dem Pattern entfernt — saubere Trennung Geometrie ↔ Klick-Capability;
-Fallback-Kette des `AdapterMouseProxy` endet jetzt bei
-`Element.bounds.center()` statt der Pattern-Property)
+**Aktuelle Revision:** Rev. 34 (Item-Hierarchie + Container-Klassen
+für Phase 4c spezifiziert: vier neue Patterns
+(`Selectable`/`Expandable`/`HasEditor`/`ItemContainer`), Item-
+Mixin-Klassen, Container-/ComboBox-/Tree-/Table-Klassen)
 
 ---
 
@@ -28,7 +28,7 @@ Fallback-Kette des `AdapterMouseProxy` endet jetzt bei
 | Phase 1 — Fundament | DONE | uncommitted; 10 Module incl. vorgezogenem `core/patterns/` (war Phase 2 #11); 128 pytest + 1980 nextest grün, ruff+mypy+pyright+clippy grün |
 | Phase 2 — Adapter-Schicht | DONE | Adapter-ABC + AdapterProxy + UiNodeAdapter + Runtime-Singleton committed; Pipeline-Lücke in Phase 4-pre geschlossen |
 | Phase 3 — Context-Schicht | DONE | `ContextBase`, `ContextFactory`, `@context`, `ElementDescriptor`, `@locator` Method-Form |
-| Phase 4 — UI-Klassen + Standard-Proxies | IN PROGRESS | 4-pre + 4a DONE (uncommitted); 4b/4c/4d offen (UI-Klassen), 4e bündelt am Ende die Proxy-Schicht — siehe Sub-Phasen unten |
+| Phase 4 — UI-Klassen + Standard-Proxies | IN PROGRESS | 4-pre + 4a + 4b + 4c DONE (4c uncommitted); 4d offen, 4e bündelt am Ende die Proxy-Schicht — siehe Sub-Phasen unten |
 | Phase 5 — Keywords + Robot-Library | PENDING | — |
 | Phase 6 — Iterative Erweiterungen | PENDING | — |
 
@@ -531,15 +531,52 @@ die reinen Text-Widgets ab.
       `ClearableStub` erweitert.
 - [x] pytest grün, ruff/mypy/pyright clean.
 
-#### Phase 4c — ComboBox + Lists/Tree/Table (Item 19 ComboBox + Item 20 UI-Teil)
+#### Phase 4c — ComboBox + Lists/Tree/Table (Item 19 ComboBox + Item 20 UI-Teil) — DONE (uncommitted)
 
-- [ ] Neue Patterns auf Rust-Seite: `Expandable`, `Selectable`,
-      ggf. `Editable` (oder als Capability auf `TextEditable`).
-- [ ] `ui/lists.py`, `ui/tree.py`, `ui/table.py` UI-Klassen mit
-      `ListItem`/`TreeItem`/`Cell` als Inner-Klassen.
-- [ ] `ui/combobox.py` mit `expand`/`collapse`/`get_items`/
-      `select`/`text`/`set_text`.
-- [ ] Tests pro UI-Klasse gegen Provider-Pattern-Pfad.
+Komplett Python-seitig: Pattern-ABCs + Item-Hierarchie + Container-
+Klassen + Tests gegen Stubs. Rust-`pattern_names`-Konstanten und
+Native-Adapter-Anbindungen folgen in einer späteren Phase, sobald
+Provider-Bindings konkret werden.
+
+- [x] Designdoc-Spec §A.14.12 (Item-Hierarchie), §A.14.13 (List/
+      ListItem), §A.14.14 (Tree/TreeItem), §A.14.15 (Table/Row/Cell/
+      EditableCell), §A.14.16 (ComboBox), §A.14.17–§A.14.20
+      (Pattern-Specs Selectable/Expandable/HasEditor/ItemContainer),
+      §A.14.21 (Item-Lifecycle/Predicates).
+- [x] `core/patterns/selectable.py`: `Selectable` (`is_selected`,
+      `select()`).
+- [x] `core/patterns/expandable.py`: `Expandable` (`can_expand`,
+      `is_expanded`, `expand()`, `collapse()`).
+- [x] `core/patterns/has_editor.py`: `HasEditor` (`open_editor()`,
+      `accept()`, `cancel()`).
+- [x] `core/patterns/item_container.py`: `ItemContainer`
+      (`item_count`, `row_count`, `column_count`).
+- [x] `core/patterns/__init__.py` Re-Exports ergänzt.
+- [x] `ui/item.py`: `Item(Element, register=False)` Marker mit
+      `text`-Property; `SelectableItem(Item, register=False)`;
+      `ExpandableItem(Item, register=False)`;
+      `EditableItem(Item, register=False)` mit
+      `set_text`/`clear` über `HasEditor`-Lifecycle.
+- [x] `ui/lists.py`: `List(Control)` mit `ItemContainer`-Wrapper +
+      `get_item(s)`/`iter_items`/`select`; `ListItem(SelectableItem)`.
+- [x] `ui/tree.py`: `Tree(Control)` analog; `TreeItem(SelectableItem,
+      ExpandableItem)` mit eigenem `item_count`/Children-Lookup.
+- [x] `ui/table.py`: `Table(Control)`/`Row(Item)`/`Cell(Item)`/
+      `EditableCell(Cell, EditableItem)`.
+- [x] `ui/combobox.py`: `ComboBox(Control)` mit
+      `expand`/`collapse`/`get_item(s)`/`select`/`text`/`set_text`
+      und `_expanded()`-Context-Manager. `iter_items` als
+      Generator-Funktion (`yield from`), damit das Dropdown
+      während der Iteration offen bleibt — Bugfix gegenüber dem
+      Legacy-Code.
+- [x] `ui/__init__.py` Re-Exports ergänzt + Hierarchie-Diagramm
+      im Modul-Docstring aktualisiert.
+- [x] `_ui_helpers.py` um `SelectableStub`, `ExpandableStub`,
+      `HasEditorStub`, `ItemContainerStub` erweitert.
+- [x] Tests pro UI-Klasse: `test_item.py` (19), `test_lists.py` (9),
+      `test_tree.py` (11), `test_table.py` (12), `test_combobox.py`
+      (14, inkl. Generator-Korrektheits-Test).
+- [x] pytest grün (618/618), ruff/mypy/pyright clean.
 
 #### Phase 4d — Menus/Tabs (Item 21 Rest, UI-Teil)
 
