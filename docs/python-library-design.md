@@ -4,9 +4,37 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 27**.
+> **Status:** Diskussionsentwurf, **Revision 28**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 32** — **Pattern-Hierarchie bleibt flach (Klarstellung).**
+>   `TextEditable` erbt bewusst nicht von `TextContent`, obwohl
+>   jedes editierbare Feld auch lesbaren Inhalt hat. Begründung:
+>   das Resolver-Modell (`pattern_name`-String-Lookup im Adapter)
+>   kennt keine Hierarchie — Vererbung auf Python-Seite wäre ein
+>   stiller Beobachter ohne Verhaltens-Effekt; Adapter müssten
+>   beide Pattern-Namen ohnehin separat in
+>   `supported_pattern_names()` listen. Konvention gilt für alle
+>   Pattern-Paare (Toggleable/Activatable, Resizable/Movable, …);
+>   Beziehungen werden über Adapter-Listen, nicht über Klassen-
+>   hierarchie ausgedrückt. Reine Doku-Klarstellung, kein Code-
+>   Change.
+> - **Rev. 31** — **`is_multi_line` von `TextContent` auf `TextEditable`
+>   verschoben.** Die Multi-Line-Eigenschaft ist semantisch nur
+>   Felder relevant (Tab- vs. Enter-Verhalten, Zeilenumbruch-
+>   Akzeptanz); reine Anzeige-Texte unterscheiden ein-/mehrzeilig
+>   nicht durch ein Verhaltens-, sondern durch ein Layout-Merkmal.
+>   `TextContent` enthält damit nur noch `text`, `locale`,
+>   `is_truncated`. `Edit.is_multi_line` ruft `TextEditable.is_multi_line`;
+>   `Text` exposed die Eigenschaft nicht.
+> - **Rev. 28** — **Text/Edit (§A.14.10/§A.14.11).** `Text` ist
+>   die read-only Default-Klasse für Labels und Anzeige-Texte
+>   (nur `TextContent`); `Edit` ist die beschreibbare Default-
+>   Klasse für Eingabefelder (`TextContent` + `TextEditable` +
+>   `Clearable`). Beide leben in `ui/text.py` ohne Vererbungs-
+>   beziehung — die Legacy-Mischung „`Text` ist beschreibbar,
+>   `Edit(Text)` ist Marker-Alias" entfällt. Offene-Punkte-
+>   Subsection auf §A.14.12 umnummeriert.
 > - **Rev. 27** — **Buttons (§A.14.9).** `AbstractButton` als
 >   abstrakte Zwischenklasse unter `Control` mit
 >   `text`-Convenience über `TextContent` und abstract
@@ -283,9 +311,9 @@
 >   `is_enabled`, `default_click_position` zusammengeführt — analog zum
 >   Rust-Modul `attributes::element`. (b) **`EditableText`** wird in
 >   drei Patterns aufgeteilt: `TextContent` (read-only Properties
->   `text`, `locale`, `is_truncated`), `TextEditable` (`set_text()` +
->   `is_readonly`, `max_length`, `supports_password_mode`) und
->   `Clearable` (`clear()`). `HasIsReadonly` entfällt — Read-only-
+>   `text`, `locale`, `is_truncated`), `TextEditable`
+>   (`set_text()` + `is_readonly`, `max_length`, `supports_password_mode`,
+>   `is_multi_line`) und `Clearable` (`clear()`). `HasIsReadonly` entfällt — Read-only-
 >   Status gehört zu `TextEditable`. (c) **`Toggleable` + `HasToggleState`**
 >   werden zu einem Pattern `Toggleable` mit `toggle()` + `state` +
 >   `supports_three_state` zusammengeführt. (d) **`Activatable`** wird
@@ -934,6 +962,9 @@ class TextEditable(PatternBase):
     @property
     @abstractmethod
     def supports_password_mode(self) -> bool: ...
+    @property
+    @abstractmethod
+    def is_multi_line(self) -> bool: ...
 
 
 class Clearable(PatternBase):
@@ -941,6 +972,20 @@ class Clearable(PatternBase):
     pattern_name = "org.platynui.patterns.Clearable"
     @abstractmethod
     def clear(self) -> None: ...
+```
+
+**Pattern-Hierarchie bleibt flach.** `TextEditable` erbt nicht
+von `TextContent`, obwohl jedes editierbare Feld auch lesbaren
+Inhalt hat. Pattern-Resolution läuft über den
+`pattern_name`-String im Adapter — Vererbung auf Python-Seite
+hätte keinen Verhaltens-Effekt; Adapter müssten beide
+Reverse-DNS-Namen ohnehin separat in
+`supported_pattern_names()` listen. Diese Konvention gilt
+durchgängig (Toggleable nicht von Activatable, Resizable nicht
+von Movable, …); Beziehungen zwischen Capabilities werden über
+Adapter-Listen, nicht über Klassenhierarchie ausgedrückt.
+
+```python
 
 
 # core/patterns/element.py
@@ -3744,7 +3789,7 @@ class Button(AbstractButton):
 (default), wenn der Adapter das Pattern nicht liefert — Phase 4a
 verlangt den Provider-Pattern-Pfad. Ein Click-Fallback über
 `MouseProxy.click()` ist Sache der Default-Proxy-Schicht
-(Phase 4e, §A.14.10).
+(Phase 4e, §A.14.12).
 
 **`CheckBox`** wrappt das `Toggleable`-Pattern. Die Klasse fügt
 `is_checked` / `is_unchecked` als Bequemlichkeits-Properties
@@ -3813,15 +3858,185 @@ weil ein read-only Toggle-Element den Zustand nicht ändern kann.
 Buttons können nicht read-only sein im klassischen Sinn — ein
 disabled Button blockt schon über `_element_is_enabled`.
 
-#### A.14.10 Offene Punkte
+#### A.14.10 Text (`ui/text.py`)
+
+`Text` ist die Default-Page-Object-Klasse für rein lesende
+Text-Widgets — Labels, statische Texte, Status-Anzeigen,
+read-only Display-Felder. Beschreibbare Felder sind nicht
+`Text`, sondern `Edit` (§A.14.11) — die alte Legacy-Mischung
+von „`Text` ist beschreibbar, `Edit(Text)` ist Marker-Alias"
+wird hier nicht übernommen.
+
+```
+Control
+└── Text                        (role="Text")
+```
+
+`Text` wrappt allein das `TextContent`-Pattern. Kein `set_text`,
+kein `clear` — wer schreiben will, nutzt `Edit`.
+
+```python
+class Text(Control):
+    """Read-only text widget (label, status text, …)."""
+
+    @property
+    def text(self) -> str:
+        """The current text content."""
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(TextContent).text
+
+    @property
+    def is_truncated(self) -> bool:
+        """Whether the displayed text is shortened (e.g. ellipsis)."""
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(TextContent).is_truncated
+
+    @property
+    def locale(self) -> str:
+        """The BCP-47 locale tag for `text`, or empty if unknown."""
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(TextContent).locale
+```
+
+`text` raises `PatternNotSupportedError`, wenn der Adapter
+`TextContent` nicht liefert — Phase 4b verlangt den
+Provider-Pattern-Pfad. Ein Display-Lookup-Fallback über das
+Element-Bounds-Rechteck wäre Sache der Default-Proxy-Schicht
+(Phase 4e, §A.14.12).
+
+**`is_truncated`/`locale`.** Stellt `TextContent`-Properties
+direkt durch. Eine Multi-Line-Eigenschaft existiert auf `Text`
+bewusst nicht: ob eine reine Anzeige ein- oder mehrzeilig
+gerendert wird, ist eine Layout-Frage ohne Verhaltens-Konsequenz
+für den Test. Editierbare Felder unterscheiden ein-/mehrzeilig
+dagegen sehr wohl (Tab- vs. Enter-Verhalten, Zeilenumbruch-
+Akzeptanz) — `is_multi_line` lebt deshalb auf
+`TextEditable`/`Edit` (§A.14.11), nicht auf `TextContent`/`Text`.
+
+#### A.14.11 Edit (`ui/text.py`)
+
+`Edit` ist die Default-Page-Object-Klasse für beschreibbare
+Eingabefelder — Single-Line-Edits, Multi-Line-Edits, Such-/
+URL-/Passwort-Felder.
+
+```
+Control
+└── Edit                        (role="Edit")
+```
+
+`Edit` lebt im selben Modul wie `Text`, weil beide die gleiche
+Pattern-Familie (`TextContent` lesen) teilen, aber sie stehen
+nicht in einer Vererbungsbeziehung — `Edit` ist kein „Text mit
+Schreibfähigkeit", sondern ein eigenständiges Widget mit
+eigenen Pre-Conditions (`focus`, `not_readonly`).
+
+```python
+class Edit(Control):
+    """Editable text input widget."""
+
+    @property
+    def text(self) -> str:
+        """The current text content."""
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(TextContent).text
+
+    @text.setter
+    def text(self, value: str) -> None:
+        self.set_text(value)
+
+    @property
+    def max_length(self) -> int | None:
+        """The maximum length in characters, or `None` if unbounded."""
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(TextEditable).max_length
+
+    @property
+    def supports_password_mode(self) -> bool:
+        """Whether the field can mask its content."""
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(TextEditable).supports_password_mode
+
+    @property
+    def is_multi_line(self) -> bool:
+        """Whether the field accepts line breaks."""
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(TextEditable).is_multi_line
+
+    def set_text(self, value: str) -> None:
+        """Replace the current content with `value`."""
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+            self._element_is_not_readonly,
+            self._control_has_focus,
+        )
+        self.adapter.get_pattern(TextEditable).set_text(value)
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+
+    def clear(self) -> None:
+        """Remove the current content."""
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+            self._element_is_not_readonly,
+            self._control_has_focus,
+        )
+        self.adapter.get_pattern(Clearable).clear()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+```
+
+**Predicate-Verifikation.** `set_text` und `clear` verlangen
+zusätzlich zu den Standard-Predicates (`active`, `in_view`,
+`enabled`) noch `_element_is_not_readonly` und
+`_control_has_focus`. Read-only-Status bezieht das Predicate aus
+dem `Readable`-Pattern auf Element-Ebene (siehe §A.14.3); ein
+zusätzliches `Edit.is_readonly` über `TextEditable.is_readonly`
+gibt es bewusst nicht, um zwei konkurrierende Quellen für
+denselben Status zu vermeiden. `TextEditable.is_readonly` bleibt
+als interne Pattern-Eigenschaft erhalten — Default-Proxies
+können es als Fallback heranziehen, wenn `Readable` fehlt
+(Phase 4e). Der Focus-Check stellt sicher, dass die Tastatur-
+Eingabe (im Default-Proxy-Fallback, §A.14.12) am richtigen
+Widget landet — für den Provider-Pattern-Pfad ist er strenggenommen
+nicht nötig, aber er hält das Verhalten zwischen Pattern- und
+Fallback-Pfad konsistent.
+
+**`set_text` als Property-Setter.** `Edit.text = "neu"` ist die
+empfohlene Schreibweise; der Setter ruft intern `set_text`. Für
+explizite Sequenzen (z. B. `clear` + `set_text`) bleibt
+`set_text` direkt zugänglich.
+
+**Pattern-Aufteilung.** `Edit` braucht alle drei Text-Patterns:
+`TextContent` (lesen), `TextEditable` (schreiben + Constraints),
+`Clearable` (Inhalt löschen). Adapter, die `Clearable` nicht
+liefern, raisen beim `clear()`-Aufruf — eine Default-Sequenz
+„select-all + delete" gehört in den Default-Proxy
+(`EditProxy`, Phase 4e).
+
+**`is_multi_line` als Editable-Constraint.** `is_multi_line` sitzt
+auf `TextEditable`, nicht auf `TextContent` — die Eigenschaft
+hat nur für editierbare Felder Verhaltens-Konsequenzen
+(Tab- vs. Enter-Verhalten, Zeilenumbruch-Akzeptanz, andere
+Predicates für `set_text` mit `\n`). Bei reinen Anzeige-Texten
+ist sie eine reine Layout-Frage und wird auf `Text` deshalb gar
+nicht erst angeboten.
+
+**Trennung von `Text`.** `Text` und `Edit` sind unabhängige
+Klassen, kein gemeinsames `AbstractText`. Begründung: die
+einzige geteilte Methode wäre `text` (eine Zeile via
+`TextContent`), und beide Widgets haben unterschiedliche
+Pre-Conditions (`Text` braucht keinen Focus). Eine
+Zwischenklasse wäre Code-Overhead ohne Gegenwert.
+
+#### A.14.12 Offene Punkte
 
 - **`BringIntoViewable`-Pattern** (siehe §A.14.3, `_element_is_in_view`):
   perspektivisch eigenes Pattern für UIA `IScrollItemProvider.ScrollIntoView`
   / AT-SPI `Component.scroll_to`. Aktuell pragmatisch deferred (d1):
   Predicate failt bei out-of-view ehrlich. Post-Phase-4.
 - **`Scrollable`-Pattern**: post-Phase-4 (siehe §A.13).
-- **Standard-UI-Elements** (`Button`, `CheckBox`, `ComboBox`, `Edit`,
-  `Tab`, `Tree`, `List` …): Phase 5 nach `ui/elements/`.
 - **`HasUserInput.accepts_user_input()`**-Implementierung im Default-
   Window-Proxy (§A.13): aktuell Best-Effort über vorhandene Window-
   State-Bits (`is_active`, `is_modal_dialog_blocking`); finale Heuristik

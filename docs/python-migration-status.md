@@ -7,9 +7,10 @@ in das neue Rust-basierte Projekt verfolgt.
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
 **Stand:** 2026-04-27
-**Aktuelle Revision:** Rev. 29 (Phase 4a abgeschlossen: `AbstractButton`,
-`Button`, `CheckBox` mit Provider-Pattern-Pfad in `ui/buttons.py`;
-492 pytest grün)
+**Aktuelle Revision:** Rev. 31 (`is_multi_line` von `TextContent`
+auf `TextEditable` verschoben — Multi-Line-Eigenschaft ist nur
+für editierbare Felder verhaltens-relevant; `Edit.is_multi_line`
+liest aus `TextEditable`, `Text` exposed sie nicht)
 
 ---
 
@@ -211,7 +212,7 @@ SemVer-Breaking.
 |---|---|---|---|
 | `attributes::element` | `Element` | `Element` | `bounds`, `is_visible`, `is_in_view`, `is_enabled`, `default_click_position` |
 | `attributes::text_content` | `TextContent` | `TextContent` | `text`, `locale`, `is_truncated` |
-| `attributes::text_editable` | `TextEditable` | `TextEditable` | `set_text()`, `is_readonly`, `max_length`, `supports_password_mode` |
+| `attributes::text_editable` | `TextEditable` | `TextEditable` | `set_text()`, `is_readonly`, `max_length`, `supports_password_mode`, `is_multi_line` |
 | `attributes::clearable` (leer) | `Clearable` | `Clearable` | `clear()` |
 | `attributes::toggleable` | `Toggleable` | `Toggleable` | `toggle()`, `state`, `supports_three_state` |
 | `attributes::activatable` | `Activatable` | `Activatable` | `activate()`, `is_activation_enabled`, `default_accelerator` |
@@ -507,14 +508,36 @@ sind.
 - [x] 492 pytest grün, ruff/mypy/pyright clean.
 - [x] **Stop für Review** (jetzt).
 
-#### Phase 4b — Text/Edit/ComboBox (Item 19 UI-Teil)
+#### Phase 4b — Text/Edit (Item 19 UI-Teil, ohne ComboBox)
 
-- [ ] `ui/text.py`, `ui/combobox.py` UI-Klassen.
-- [ ] Tests pro UI-Klasse gegen Provider-Pattern-Pfad.
+ComboBox wandert nach Phase 4c, da sie auf `ListItem` angewiesen
+ist und mehrere noch nicht existierende Patterns benötigt
+(`Expandable`, `Selectable`, `Editable`). Phase 4b deckt nur
+die reinen Text-Widgets ab.
 
-#### Phase 4c — Lists/Tree/Table (Item 20 UI-Teil)
+- [x] Designdoc-Spec §A.14.10 (Text) und §A.14.11 (Edit) erstellt.
+- [x] `core/patterns/text.py`: `TextEditable.is_multi_line` ergänzt
+      (Rev. 31 — von `TextContent` auf `TextEditable` verschoben).
+- [x] `ui/text.py`: `Text(Control)` (read-only via `TextContent`)
+      und `Edit(Control)` (read+write via `TextContent` +
+      `TextEditable` + `Clearable`). Keine Vererbungsbeziehung
+      zwischen beiden.
+- [x] Tests in `tests/PlatynUI/test_text.py` gegen den
+      Provider-Pattern-Pfad: `text` lesen, `set_text`/`clear`
+      mit Predicate-Block bei `is_enabled=False`,
+      `is_readonly=True`, fehlendem Focus, fehlenden Patterns.
+- [x] `_ui_helpers.py` um `TextContentStub`, `TextEditableStub`,
+      `ClearableStub` erweitert.
+- [x] pytest grün, ruff/mypy/pyright clean.
 
-- [ ] `ui/lists.py`, `ui/tree.py`, `ui/table.py` UI-Klassen.
+#### Phase 4c — ComboBox + Lists/Tree/Table (Item 19 ComboBox + Item 20 UI-Teil)
+
+- [ ] Neue Patterns auf Rust-Seite: `Expandable`, `Selectable`,
+      ggf. `Editable` (oder als Capability auf `TextEditable`).
+- [ ] `ui/lists.py`, `ui/tree.py`, `ui/table.py` UI-Klassen mit
+      `ListItem`/`TreeItem`/`Cell` als Inner-Klassen.
+- [ ] `ui/combobox.py` mit `expand`/`collapse`/`get_items`/
+      `select`/`text`/`set_text`.
 - [ ] Tests pro UI-Klasse gegen Provider-Pattern-Pfad.
 
 #### Phase 4d — Menus/Tabs (Item 21 Rest, UI-Teil)
