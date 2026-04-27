@@ -4,7 +4,7 @@
 
 # pyright: reportPrivateUsage=false
 
-"""`Desktop` page-object — the conventional process-wide root."""
+"""`Desktop` context — the conventional process-wide root."""
 
 from ..core.locator import Locator
 from .desktopbase import DesktopBase
@@ -16,7 +16,6 @@ class Desktop(DesktopBase):
     """Conventional desktop root with the absolute ``/.`` XPath locator."""
 
 
-# Auto-registration via `__init_subclass__` sets `_locator` to a
-# role-only `Locator(role="Desktop")`. Override it with the absolute
-# path that pins the root in the adapter tree.
+# Pin the desktop root with the absolute ``/.`` XPath, replacing the
+# role-only locator set by ``__init_subclass__``.
 Desktop._locator = Locator(path='/.', role='Desktop')

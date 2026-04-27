@@ -7,14 +7,6 @@
 Each pattern is an `ABC` carrying a Reverse-DNS
 ``pattern_name`` identifier; concrete implementations live in adapter
 packages.
-
-Capability-group patterns (`Element`, `Toggleable`,
-`Activatable`) bundle related state and actions into a single
-pattern instead of splitting them into per-attribute markers.
-
-There is no generic ``Properties`` pattern: arbitrary key/value reads
-go through the adapter's namespaced attribute API
-(``adapter.attribute_value(name, namespace=...)``).
 """
 
 from ..types import Point, Rect, Size

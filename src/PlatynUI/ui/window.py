@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""`Window` page-object base wrapping window-capability patterns."""
+"""`Window` context base for top-level windows."""
 
 from ..core import patterns
 from ..core.predicate import predicate
@@ -14,30 +14,13 @@ __all__ = ['Frame', 'Window']
 
 
 class Window(Control):
-    """Page-object base for top-level windows.
-
-    Wraps the window-capability patterns from §A.13 (`Activatable`,
-    `Minimizable`, `Maximizable`, `Restorable`, `Closeable`,
-    `Movable`, `Resizable`, `Titled`) in Pre/Perform/Post
-    contracts. Each capability method ensures preconditions, invokes
-    the underlying pattern, and waits for the resulting state.
-    """
+    """Context base for top-level windows."""
 
     default_role = 'Window'
 
-    # ------------------------------------------------------------------
-    # Read-only state (convenience shortcuts over patterns)
-    # ------------------------------------------------------------------
-
     @property
     def is_active(self) -> bool:
-        """Whether the window is currently the active foreground window.
-
-        Until a dedicated ``IsActive`` adapter attribute lands on the
-        Rust side (see §A.13 open question), this falls back to the
-        window's `Focusable.is_focused` state, then to ``False`` when
-        no signal is available.
-        """
+        """Whether the window is currently the active foreground window."""
         focusable = self.adapter.get_pattern(patterns.Focusable, raise_exception=False)
         return focusable.is_focused if focusable is not None else False
 
@@ -55,17 +38,9 @@ class Window(Control):
 
     @property
     def title(self) -> str:
-        """The window title.
-
-        Falls back to the adapter's `name` if the `Titled` pattern
-        is not exposed.
-        """
+        """The window title."""
         titled = self.adapter.get_pattern(patterns.Titled, raise_exception=False)
         return titled.title if titled is not None else self.name
-
-    # ------------------------------------------------------------------
-    # Predicates for capability availability
-    # ------------------------------------------------------------------
 
     @predicate('window {0} can be minimized')
     def _window_can_minimize(self) -> bool:
@@ -106,12 +81,7 @@ class Window(Control):
 
     @predicate('window {0} is gone')
     def _window_is_gone(self) -> bool:
-        # After close: adapter becomes invalid or element disappears.
         return not self.exists()
-
-    # ------------------------------------------------------------------
-    # Capability methods (Pre → Pattern → Post)
-    # ------------------------------------------------------------------
 
     def activate(self) -> None:
         """Bring the window to the foreground and give it focus."""
@@ -140,11 +110,7 @@ class Window(Control):
         self.ensure_that(self._window_is_restored)
 
     def close(self, timeout: float | None = None) -> None:
-        """Close the window and wait until it disappears.
-
-        ``timeout`` overrides ``Settings.window_close_timeout`` for
-        the post-condition wait.
-        """
+        """Close the window and wait until it disappears."""
         self.ensure_that(self._application_is_ready, self._window_can_close)
         self.adapter.get_pattern(patterns.Closeable).close()
         wait = timeout if timeout is not None else Settings.current().window_close_timeout

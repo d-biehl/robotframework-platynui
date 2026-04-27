@@ -4,7 +4,7 @@
 
 # pyright: reportPrivateUsage=false
 
-"""`Element` page-object base for visible UI elements."""
+"""`Element` context base for visible UI elements."""
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, override
@@ -51,11 +51,7 @@ class _ElementMouseProxy(AdapterMouseProxy):
 
 
 class _ElementKeyboardProxy(AdapterKeyboardProxy):
-    """Keyboard proxy that ensures the owning element is in view before each action.
-
-    `Element` does not require focus for keyboard input; that
-    constraint is added by `Control._ControlKeyboardProxy`.
-    """
+    """Keyboard proxy that ensures the owning element is in view before each action."""
 
     def __init__(self, element: 'Element') -> None:
         super().__init__(element.adapter)
@@ -72,13 +68,7 @@ class _ElementKeyboardProxy(AdapterKeyboardProxy):
 
 
 class Element(ContextBase, register=False):
-    """Page-object base for visible UI elements.
-
-    Wraps the `Element` capability pattern and exposes element
-    geometry, visibility, enabled and read-only state. Provides
-    `mouse` and `keyboard` proxies that automatically wait
-    for the element to be interactable.
-    """
+    """Context base for visible UI elements."""
 
     default_prefix = 'element'
 
@@ -132,11 +122,7 @@ class Element(ContextBase, register=False):
 
     @property
     def is_readonly(self) -> bool:
-        """Whether the element is read-only.
-
-        Convenience shortcut over the `Readable` pattern; defaults
-        to ``False`` when the adapter does not expose `Readable`.
-        """
+        """Whether the element is read-only."""
         readable = self.adapter.get_pattern(patterns.Readable, raise_exception=False)
         return readable.is_readonly if readable is not None else False
 
@@ -146,10 +132,7 @@ class Element(ContextBase, register=False):
 
     @property
     def top_level_parent(self) -> 'Element':
-        """The outermost `Element` ancestor (direct child of `DesktopBase`).
-
-        Returns `self` when the element is itself a top-level element.
-        """
+        """The outermost `Element` ancestor, or ``self`` when already top-level."""
         from .desktopbase import DesktopBase
 
         current: Element = self
@@ -179,24 +162,22 @@ class Element(ContextBase, register=False):
 
     @property
     def mouse(self) -> _ElementMouseProxy:
-        """Mouse proxy bound to this element with interactability checks."""
+        """Mouse proxy bound to this element."""
         if self._mouse_proxy is None:
             self._mouse_proxy = self._create_mouse_proxy()
         return self._mouse_proxy
 
     @property
     def keyboard(self) -> _ElementKeyboardProxy:
-        """Keyboard proxy bound to this element with in-view checks."""
+        """Keyboard proxy bound to this element."""
         if self._keyboard_proxy is None:
             self._keyboard_proxy = self._create_keyboard_proxy()
         return self._keyboard_proxy
 
     def _create_mouse_proxy(self) -> _ElementMouseProxy:
-        """Build the mouse proxy. Override to install a custom proxy."""
         return _ElementMouseProxy(self)
 
     def _create_keyboard_proxy(self) -> _ElementKeyboardProxy:
-        """Build the keyboard proxy. Override to install a custom proxy."""
         return _ElementKeyboardProxy(self)
 
     # ------------------------------------------------------------------
@@ -205,13 +186,7 @@ class Element(ContextBase, register=False):
 
     @predicate('application for {0} is ready')
     def _application_is_ready(self) -> bool:
-        """Whether the owning application is ready to accept input.
-
-        Combines the top-level adapter's `HasUserInput` pattern with
-        an optional user-defined `Application.is_ready()` check. The
-        check runs on the top-level parent and is delegated up the
-        tree from non-top-level elements.
-        """
+        """Whether the owning application is ready to accept input."""
         top = self.top_level_parent
         if self is not top:
             return top._application_is_ready()
@@ -252,7 +227,6 @@ class Element(ContextBase, register=False):
     def _toplevel_parent_is_active(self) -> bool:
         """Activate the top-level parent if it is not already active."""
         top = self.top_level_parent
-        # Lazy import: Window/DesktopBase live in sibling modules.
         from .desktopbase import DesktopBase
         from .window import Window
 
@@ -263,7 +237,6 @@ class Element(ContextBase, register=False):
                 return True
             top.activate()
             return top.is_active
-        # Top-level is a plain Element — no activation contract; assume active.
         return True
 
     # ------------------------------------------------------------------
@@ -300,7 +273,6 @@ class Element(ContextBase, register=False):
         return out
 
     def _before_get_screenshot(self) -> None:
-        """Hook called before screenshot capture; ensures the element is in view."""
         self.ensure_that(self._element_is_in_view)
 
     # ------------------------------------------------------------------

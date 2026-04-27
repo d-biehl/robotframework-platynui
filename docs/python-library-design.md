@@ -58,7 +58,7 @@
 >   Pfad; Click-Fallback ist Sache der Default-Proxy-Schicht
 >   (Phase 4e). Offene-Punkte-Subsection auf §A.14.10
 >   umnummeriert.
-> - **Rev. 26** — **Page-Object-Basisklassen (§A.14).** `Element`,
+> - **Rev. 26** — **Context-Basisklassen (§A.14).** `Element`,
 >   `Control`, `Window`, `Frame`, `Desktop`/`DesktopBase`, `Application`
 >   als Klassenhierarchie unter `ContextBase`. `Element` ist das
 >   Arbeitstier mit Predicates, Mouse/Keyboard-Proxies, Highlight,
@@ -84,7 +84,7 @@
 >   Damit decken ~10–15 Patterns alle UI-Elemente ab — eine Sidebar
 >   nutzt `Minimizable`+`Maximizable`+`Restorable` mit *demselben*
 >   Code wie ein Top-Level-Window. `Activatable` ist die universelle
->   primary-action-Capability; ein `Window`-Page-Object ist
+>   primary-action-Capability; ein `Window`-Context ist
 >   `Activatable` (Default-Proxy mappt auf Window-Manager-API).
 >   Zusätzlich zwei kleine Element-Patterns aus dem Altprojekt:
 >   `Readable` (`is_readonly`) und `ApplicationReady`
@@ -114,7 +114,7 @@
 >   Suche und Adapter-Wrapping ist eine eigene Verantwortung,
 >   weder am `Adapter` (würde Adapter an Runtime koppeln und das
 >   Wrapping-Verhalten je Implementierung duplizieren) noch direkt
->   in `ContextBase` (würde Suchstrategie an Page-Object-Schicht
+>   in `ContextBase` (würde Suchstrategie an Context-Schicht
 >   nageln und Test-Stubs erschweren). Der Layer folgt dem
 >   Altprojekt (`core/adapterfactory.py`), tauscht aber die
 >   per-Technology-Registry gegen ein prozesssweites Singleton
@@ -132,7 +132,7 @@
 >   Phase-1/2-Reihenfolge entsprechend angepasst.
 > - **Rev. 22** — **`ContextBase` erbt nicht mehr von `Assertable`.**
 >   Die in §A.4 (Rev. 8) angekündigte Klasse `Assertable` mit
->   `assert_that`/`assert_that_not` als Basis aller Page-Object-Klassen
+>   `assert_that`/`assert_that_not` als Basis aller Context-Klassen
 >   existierte weder im Alt- noch im Neuprojekt. `src/PlatynUI/_assertable.py`
 >   enthält nur den `@assertable`-**Keyword-Decorator** für die
 >   RF-Library-Schicht (siehe BareMetal-Keywords) — der bleibt
@@ -265,7 +265,7 @@
 >   `attributes[(ns, name)] == v`; (c) Locator (§A.6) trägt
 >   `attributes: dict[str | tuple[str, str], str | re.Pattern[str]]` —
 >   bare String = Name im Default-Namespace, Tupel = expliziter
->   Namespace; (d) Page-Object kann den Default-Namespace per
+>   Namespace; (d) Context kann den Default-Namespace per
 >   Klassenattribut `default_attribute_namespace = "item"` o.Ä.
 >   umstellen. Symmetrisch zu Rust und zur XPath-Schreibweise
 >   (`@AutomationId` ist im Default-NS `control`, `@native:HWND` ist
@@ -312,8 +312,8 @@
 >   ist als `LocatorMethodDescriptor`-Stub implementiert: API steht,
 >   `__get__` wirft derzeit `NotImplementedError("Phase 3")`. Die volle
 >   Resolution braucht `ContextBase.get(annotation, locator=…)` aus
->   Phase 3. Page-Object-Code kann beide Formen heute schreiben — der
->   Phase-3-Übergang erfordert keine Änderung am Page-Object. Details in
+>   Phase 3. Context-Code kann beide Formen heute schreiben — der
+>   Phase-3-Übergang erfordert keine Änderung am Context. Details in
 >   §A.6.
 > - **Rev. 17** — **Pattern-Liste konsolidiert.** Die Python-Pattern-
 >   Hierarchie wird an die Rust-Capability-Gruppen
@@ -405,7 +405,7 @@ wird teilweise stark vereinfacht):
 | `core/technology.py` + `AdapterFactory` | — | Bridge zu C#-Providern | `technology.py` als Marker portiert; `AdapterFactory` als Singleton neu (siehe §A.4b) — die per-Technology-Registry des Altprojekts entfällt zugunsten einer Default-Factory pro Prozess |
 | `ui/locator.py` | 433 | XPath-Builder aus Attributen | **Ja**, ~100 LOC dank Rust-XPath |
 | `ui/proxies/standardproxies.py` | 408 | Standard-Proxies pro Rolle | **Ja**, das Herzstück |
-| `ui/element.py`, `window.py`, `buttons.py`, … | ~1500 | UI-Klassen (Page-Object-Basis) | **Ja** |
+| `ui/element.py`, `window.py`, `buttons.py`, … | ~1500 | UI-Klassen (Context-Basis) | **Ja** |
 | `keywords/*.py` | ~250 | Robot-Framework-Keywords | **Ja**, semantisch geschärft |
 | `_assertable.py` | — | bereits portiert | ✅ |
 
@@ -484,7 +484,7 @@ Web-/Mobile-Bridges, … Der Adapter ist explizit als
 PlatynUI liefert für die gängigen UI-Rollen (Button, CheckBox, Edit,
 ComboBox, List/Tree/Table, Window, Menu, Tabs, …) fertige UI-Klassen
 *und* passende Default-Proxies mit. Ein Test-Projekt definiert nur
-Locator/Page Objects und nutzt direkt die semantischen Keywords —
+Locator/Contexts und nutzt direkt die semantischen Keywords —
 eigene Pattern-Implementierungen sind nur für App-/Framework-Spezialfälle
 nötig. Details und abgedeckte Rollen: §5a.
 
@@ -643,7 +643,7 @@ Vermeide: `Optional[X]` (→ `X | None`), `Union[A, B]` (→ `A | B`),
 └──────────────────────┬──────────────────────────────────────┘
                        │ (semantische Verben)
 ┌──────────────────────▼──────────────────────────────────────┐
-│  UI-Klassen (Page Objects)                                  │
+│  UI-Klassen (Contexts)                                  │
 │  Button, CheckBox, ListItem, Window, …                       │
 │  - registriert via @context                                 │
 │  - kennen ihre Pattern-ABCs (Activatable, Toggleable)       │
@@ -709,7 +709,7 @@ sein. Höchstes Gewicht > 0 gewinnt; bei keinem Match: Fallback
 **Attribut-Namensraum.** Schlüssel im `attributes`-Dict sind entweder
 ein Tupel `(namespace, name)` oder — als Convenience — ein bloßer
 String, der dann als `(<default_namespace>, name)` interpretiert wird.
-Der Default-Namespace ist `control` und kann von einer Page-Object-
+Der Default-Namespace ist `control` und kann von einer Context-
 Klasse über das Klassenattribut `default_attribute_namespace`
 umgestellt werden (siehe §A.6 / §7.1). Vier Namespaces sind
 kanonisch (1:1 zu `crates/core/src/ui/namespace.rs`):
@@ -1208,7 +1208,7 @@ reicht als Vertrag zwischen Adapter und UI-Schicht — eine globale
 
 **Zentrale Designentscheidung:** PlatynUI liefert für die gängigen
 UI-Rollen fertige **UI-Klassen *und* passende Default-Proxies**
-out-of-the-box. Ein Test-Autor schreibt nur Locator/Page Objects — für
+out-of-the-box. Ein Test-Autor schreibt nur Locator/Contexts — für
 Standardfälle ist *keine eigene Implementierung* von Pattern-Proxies
 oder UI-Klassen nötig.
 
@@ -1216,7 +1216,7 @@ oder UI-Klassen nötig.
 
 Für jede Standardrolle sind zwei Dinge registriert:
 
-- eine UI-Klasse mit `@context(role=...)` in `ui/` (Page-Object-Ebene,
+- eine UI-Klasse mit `@context(role=...)` in `ui/` (Context-Ebene,
   orchestriert Pre/Perform/Post, exposed Methoden wie `activate()`,
   `set_state()`, …),
 - ein Default-Proxy mit `@pattern_proxy_for(role=...)` in
@@ -1254,7 +1254,7 @@ Die Liste ist bewusst am Altprojekt (`ui/proxies/standardproxies.py`,
 ### 5a.3 Konsequenzen
 
 - **Ein neues Test-Projekt ist produktiv, ohne eine einzige Zeile
-  Proxy-Code zu schreiben.** Der User definiert Locator/Page Objects und
+  Proxy-Code zu schreiben.** Der User definiert Locator/Contexts und
   ruft Keywords auf — Standard-Rollen funktionieren.
 - **Framework-Spezialfälle überschreiben gezielt.** Erst wenn eine
   konkrete App/ein Framework sich anders verhält (z.B. WPF-CustomControl
@@ -1314,7 +1314,7 @@ konkreter Use-Case-Schmerz das rechtfertigt, nicht prophylaktisch.
   UiNode?) — das bleibt Python.
 - Die Outcome-Verifikation (`ensure_that`/`wait_for`) — das bleibt
   Python.
-- Das Page-Object-Modell — das bleibt Python.
+- Das Context-Modell — das bleibt Python.
 
 ### 6.4 Mehrere Adapter-Implementierungen — Designeintragsplatz
 
@@ -1360,7 +1360,7 @@ Das System mischt sauber: ein Test kann Rust-basierte Adapter (für
 Desktop-Apps) und JSON-RPC-Adapter (für Remote-Backend) parallel im
 selben Lauf nutzen — beide sprechen dieselben `pattern_name`-Strings.
 
-## 7. Locator + Page Objects
+## 7. Locator + Contexts
 
 ### 7.1 Locator als Beschreibung
 
@@ -1435,15 +1435,15 @@ auf Eigenschaften des UiNodes selbst basiert.
 >
 > **Namensraum.** Bare Attribut-Namen (sowohl Kwargs ohne `__` als
 > auch String-Schlüssel im Dict) werden im Default-Namespace der
-> Page-Object-Klasse aufgelöst — standardmäßig `control`. Eine Klasse
+> Context-Klasse aufgelöst — standardmäßig `control`. Eine Klasse
 > kann das per Klassenattribut umstellen, z.B.
 > `class ListItem(Item): default_attribute_namespace = "item"`. Für
 > explizite Cross-Namespace-Attribute nutzt das `attributes`-Dict
 > Tupel-Keys oder der Kwarg den `__`-Trenner. Siehe §A.6.
 
-### 7.2 Page Objects via `@context`
+### 7.2 Contexts via `@context`
 
-UI-Klassen sind Page-Object-Bausteine. `@context` registriert sie für
+UI-Klassen sind Context-Bausteine. `@context` registriert sie für
 Auflösung über `ContextFactory` (siehe §4.2). Vollständige
 `ContextBase`-API und Convenience-Properties (`bounding_rectangle`,
 `is_visible`, …) siehe §A.5.
@@ -1490,7 +1490,7 @@ Konventionen für `__init__.py`-Dateien:
 
 - **`PlatynUI/__init__.py`** — Robot-Framework-Library-Klasse, die alle
   Keywords aus `keywords/*.py` einsammelt und exportiert. Zusätzlich
-  Re-Export der wichtigsten Page-Object-Symbole (`Button`, `Window`,
+  Re-Export der wichtigsten Context-Symbole (`Button`, `Window`,
   `@locator`, …) für direkten Python-Import.
 - **`core/__init__.py`** — Re-Export der öffentlichen API
   (`Adapter`, `AdapterProxy`, `@pattern_proxy_for`, `@context`,
@@ -1975,13 +1975,13 @@ Inline-Fakes.
 
 
 
-`ContextBase` ist die Wurzel aller UI-Klassen (Page-Object-Basis).
+`ContextBase` ist die Wurzel aller UI-Klassen (Context-Basis).
 Vereinfacht ggü. Altcode (473 → ~250 LOC), siehe §11.2.
 
 > **Hinweis (Rev. 22):** Frühere Fassungen dieses Abschnitts ließen
 > `ContextBase` von einer Klasse `Assertable` erben, die
 > `assert_that`/`assert_that_not` für RF-Style-Assertions auf
-> Page-Object-Ebene anbieten sollte. Eine solche Klasse existierte
+> Context-Ebene anbieten sollte. Eine solche Klasse existierte
 > weder im Alt- noch im Neuprojekt — `src/PlatynUI/_assertable.py`
 > enthält ausschließlich den `@assertable`-**Keyword-Decorator**,
 > der RF-Keywords drei Assertion-Parameter (`assertion_operator`,
@@ -1990,7 +1990,7 @@ Vereinfacht ggü. Altcode (473 → ~250 LOC), siehe §11.2.
 > aufruft. Dieses Muster bleibt für die Keyword-Schicht erhalten
 > (siehe BareMetal-Keywords wie `get_pointer_position`,
 > `get_attribute`); `ContextBase` selbst braucht es nicht. Pre-/Post-
-> Verifikation auf Page-Object-Ebene läuft ausschließlich über
+> Verifikation auf Context-Ebene läuft ausschließlich über
 > `ensure_that(*predicates)` (Doc unten).
 
 ```python
@@ -2066,12 +2066,12 @@ Subklasse (`WeightCalculator`-basiert, siehe §4).
 
 **Element-Convenience-Properties.** `Element` (§7.1, Subklasse von
 `ContextBase`) ergänzt Pattern-basierte Wrapper als `@cached_property`
-bzw. `@property`, damit Page-Object-Code ohne expliziten
+bzw. `@property`, damit Context-Code ohne expliziten
 `get_pattern`-Aufruf auskommt:
 
 ```python
 class Element(ContextBase):
-    """Page-Object-Basisklasse. Nicht zu verwechseln mit dem
+    """Context-Basisklasse. Nicht zu verwechseln mit dem
     gleichnamigen *Pattern* `patterns.Element` (§5), das hier durch
     diese Properties gewrappt wird."""
 
@@ -2198,8 +2198,8 @@ class RuntimeAdapterFactory(AdapterFactory):
   default_role=…, default_prefix=…)`. Die `default_*`-Parameter
   kommen vom *Ziel-Context-Type*, den `ContextBase` kennt — nicht
   vom Parent-Adapter; daher reicht `ContextBase` sie via Wrapper
-  durch (siehe §A.4c). Die Factory selbst kennt keine Page-
-  Object-Klassen.
+  durch (siehe §A.4c). Die Factory selbst kennt keine
+  Context-Klassen.
 - `_parent_node` liest `parent.native_node` (neue Public-Property
   auf `UiNodeAdapter`, siehe §A.4a). Adapter ohne `native_node`
   (z.B. zukünftige Mock-Adapter ohne Rust-Backing) brauchen eine
@@ -2420,7 +2420,7 @@ class Locator:
     # Freie Attribute (PascalCase erwartet, siehe §7.1).
     # Schlüssel: bare String → (default_namespace, name);
     #            Tupel (namespace, name) → expliziter Namespace.
-    # Default-Namespace = "control"; eine Page-Object-Klasse kann das
+    # Default-Namespace = "control"; eine Context-Klasse kann das
     # über das Klassenattribut `default_attribute_namespace`
     # umstellen (z.B. `default_attribute_namespace = "item"`). Die
     # Auflösung passiert beim Build des XPath, nicht beim Setzen der
@@ -2468,7 +2468,7 @@ LocatorScope: TypeAlias = Literal[
    - **`attributes`-Dict**:
      - Bare-String-Schlüssel werden auf `(default_namespace, name)`
        normalisiert; `default_namespace` ist `"control"`, sofern die
-       verwendende Page-Object-Klasse nicht
+       verwendende Context-Klasse nicht
        `default_attribute_namespace = "<ns>"` setzt.
      - `(namespace, name)` → `@<ns>:<name>='v'` (bzw. nur `@<name>` wenn
        der Namespace dem XPath-Default `control` entspricht), oder
@@ -2496,14 +2496,14 @@ Verhalten:
 | Klasse | hängt einen `Locator` als `__locator__`-Klassenattribut an, gibt die Klasse unverändert zurück | **Phase 1 / Rev. 18 — DONE** |
 | Methode/Property | wickelt die Funktion in einen `LocatorMethodDescriptor` ein, der den Locator + die Wrapped-Function speichert; beim Instanz-Zugriff wird `ContextBase.get(annotation, locator=…)` aufgerufen | **Phase 3 — STUB** (wirft derzeit `NotImplementedError`) |
 
-Die Method-Form ist als Stub bereits API-stabil; Page-Object-Code kann
+Die Method-Form ist als Stub bereits API-stabil; Context-Code kann
 beide Formen heute schreiben — die Resolution wird in Phase 3 transparent
-nachgereicht, ohne Quelltext-Änderungen am Page-Object.
+nachgereicht, ohne Quelltext-Änderungen am Context.
 
 Verwendung:
 
 ```python
-# Klassen-Default (am Page-Object) — funktioniert heute
+# Klassen-Default (am Context) — funktioniert heute
 @locator(path="/.")
 class Desktop(ContextBase, role="Desktop"):
     pass
@@ -2532,7 +2532,7 @@ class SubmitButton(Button): ...
 **Property-Vererbung:** `Locator.copy_from(parent)` übernimmt aus dem
 Parent-Locator alle Felder, die in `self` `None` sind, und mergt
 `attributes`/`custom_attributes`. So vererben `@locator`-Defaults von
-Klasse zu Instanz und von Parent-Page-Object zu Child.
+Klasse zu Instanz und von Parent-Context zu Child.
 
 **Match-Verhalten** (über die Rust-XPath-Engine):
 
@@ -3227,7 +3227,7 @@ zwischen Patterns ist kein Selbstzweck.
 
 `Activatable` ist die universelle "primary action"-Capability:
 Buttons aktivieren = klicken, MenuItems aktivieren = ausführen,
-**Windows aktivieren = Fokus + Foreground**. Ein `Window`-Page-Object
+**Windows aktivieren = Fokus + Foreground**. Ein `Window`-Context
 implementiert `Activatable` ganz normal; der mitgelieferte Default-
 Proxy für `role="Window"` mappt `Activatable.activate()` auf die
 Plattform-Window-Activation. Damit erreicht das Robot-Keyword
@@ -3240,13 +3240,13 @@ class Sidebar(ContextBase, role="Pane", class_name="Sidebar"):
     pass
 
 # Nutzung:
-sidebar = page.sidebar
+sidebar = window.sidebar
 sidebar.adapter.get_pattern(Minimizable).minimize()
 assert sidebar.adapter.get_pattern(Minimizable).is_minimized
 ```
 
 Dieselben drei Zeilen funktionieren auch für ein `Window`. Die
-Page-Object-Klasse muss nichts Spezielles tun — die Capability lebt
+Context-Klasse muss nichts Spezielles tun — die Capability lebt
 im Pattern, nicht in der Klasse.
 
 **`accepts_user_input()` als Methode (nicht Attribut).** Anders als
@@ -3309,7 +3309,7 @@ schließen:
 | Pattern | Methoden / Properties | Zweck |
 |---|---|---|
 | `Readable` | `is_readonly` | aktuell in Legacy `Element.is_readonly`; gehört nicht in das Geometrie-`Element`-Pattern |
-| `ApplicationReady` | `try_ensure_ready() -> bool` | Polling-Hook für "App ist nicht responding"; Predicate-Basis für `_application_is_ready` im Page-Object |
+| `ApplicationReady` | `try_ensure_ready() -> bool` | Polling-Hook für "App ist nicht responding"; Predicate-Basis für `_application_is_ready` im Context |
 
 Damit bleibt `core/patterns/element.py` auf Geometrie + Sichtbarkeit
 + Enabled fokussiert, und beide neuen Capabilities sind unabhängig
@@ -3345,11 +3345,11 @@ __all__ = [
 usw.
 
 
-### A.14 Page-Object-Basisklassen (`ui/*.py`)
+### A.14 Context-Basisklassen (`ui/*.py`)
 
 Die User-API der UI-Hierarchie. Jede Klasse erbt direkt oder
 indirekt von `ContextBase` (§A.4 / `core/context.py`) und stellt
-die typisierten Page-Objects bereit, mit denen Robot-Keywords und
+die typisierten Contexts bereit, mit denen Robot-Keywords und
 Python-User arbeiten.
 
 #### A.14.1 Schichten (Pattern → Context → Keyword)
@@ -3455,7 +3455,7 @@ class Element(ContextBase, register=False):
 ```
 
 `default_click_position` aus dem Altprojekt entfällt sowohl auf
-`Element` als auch als API-Property auf `Element` (Page-Object); den
+`Element` als auch als API-Property auf `Element` (Context); den
 richtigen Klick-Punkt liefert die `AdapterMouseProxy`-Fallback-Kette
 über das `ActivationTarget`-Pattern, mit `Element.bounds.center()`
 als letztem Fallback (siehe §A.9.4).
@@ -3757,7 +3757,7 @@ Convenience-Spiegel über das `TextContent`-Pattern.
 
 ```python
 class AbstractButton(Control, register=False):
-    """Page-object base for button-like widgets.
+    """Context base for button-like widgets.
 
     Adds a `text` convenience over `TextContent` and declares an
     abstract primary `activate()` action that subclasses
@@ -3872,7 +3872,7 @@ disabled Button blockt schon über `_element_is_enabled`.
 
 #### A.14.10 Text (`ui/text.py`)
 
-`Text` ist die Default-Page-Object-Klasse für rein lesende
+`Text` ist die Default-Context-Klasse für rein lesende
 Text-Widgets — Labels, statische Texte, Status-Anzeigen,
 read-only Display-Felder. Beschreibbare Felder sind nicht
 `Text`, sondern `Edit` (§A.14.11) — die alte Legacy-Mischung
@@ -3927,7 +3927,7 @@ Akzeptanz) — `is_multi_line` lebt deshalb auf
 
 #### A.14.11 Edit (`ui/text.py`)
 
-`Edit` ist die Default-Page-Object-Klasse für beschreibbare
+`Edit` ist die Default-Context-Klasse für beschreibbare
 Eingabefelder — Single-Line-Edits, Multi-Line-Edits, Such-/
 URL-/Passwort-Felder.
 
@@ -4079,7 +4079,7 @@ bauen auf früheren auf.
    Thread-Local-Stack (siehe §9a.3); Decorator mit `ParamSpec`/
    `Concatenate` typisiert, `match`/`case` für Outcome
 6. `core/predicate.py` — `@predicate`-Decorator (für `ensure_that`-
-   Standard-Predicates und Page-Object-Predicates, siehe §A.3)
+   Standard-Predicates und Context-Predicates, siehe §A.3)
 7. `core/weight_calculator.py` — Port aus Altprojekt, `MatchCriteria`
    als Dataclass; `attribute_value(name, namespace)`-basiert (Rev. 15)
 8. `core/technology.py` — Technology-Marker (Singleton via `__new__`),
@@ -4276,7 +4276,7 @@ existieren (ab Phase 3), schreiben wir parallel Smoke-Suites.
   `use_mock=${true}`)
 - Läuft headless auf Linux/macOS/Windows ohne Display-Server
 - **Coverage:** Keyword-Semantik, Locator-Syntax, Pre/Post-
-  Conditions, Outcome-Vertrag, Page-Object-Pattern
+  Conditions, Outcome-Vertrag, Context-Verwendung
 
 **3b. RF gegen echte Adapter** (plattformabhängig)
 - Läuft gegen `apps/test-app-egui` oder plattform-native Test-Apps
@@ -4334,7 +4334,7 @@ Erweiterungen über bestehende `MockNode`-Mutationspfade.
 | Keyword-Outcome-Verträge           |    —    |          —           |        ✅         |      ✅       |   ✅     |
 | Locator-Syntax in RF               |    —    |          —           |         —         |      ✅       |   ✅     |
 | Plattform-Provider (UIA/AT-SPI/AX) |    —    |          —           |         —         |       —       |   ✅     |
-| End-to-End Page-Object             |    —    |          —           |         —         |      ✅       |   ✅     |
+| End-to-End Context             |    —    |          —           |         —         |      ✅       |   ✅     |
 
 ### 11a.6 Reihenfolge & CI-Integration
 
@@ -4572,7 +4572,7 @@ Login With Valid Credentials
 
 ## 12. Erfolgskriterien
 
-1. Eine `.robot`-Datei mit Page-Object-Pattern (Calculator-Beispiel) läuft
+1. Eine `.robot`-Datei mit Context-Klassen (Calculator-Beispiel) läuft
    gegen `apps/test-app-egui` in `wayland-compositor` und gegen einen
    nativen Calculator unter Windows UIA.
 2. Alle Standard-Keywords aus §8 funktionieren.
@@ -4592,19 +4592,19 @@ Beide Libraries sind **dauerhaft** Teil des Produkts und arbeiten in
 derselben Robot-Suite zusammen.
 
 - **`PlatynUI.BareMetal`** — Low-Level-Library, mappt die Rust-Runtime
-  quasi 1:1 auf Robot-Keywords. XPath-Strings direkt, ohne Page Objects
-  oder Locator-Vererbung. Notwendig für Sonderfälle, die der Page-
-  Object-Layer nicht abdeckt (gezielte Pointer-/Keyboard-Operationen
+  quasi 1:1 auf Robot-Keywords. XPath-Strings direkt, ohne Contexts
+  oder Locator-Vererbung. Notwendig für Sonderfälle, die der
+  Context-Layer nicht abdeckt (gezielte Pointer-/Keyboard-Operationen
   auf einem `UiNode`, ad-hoc-XPath-Diagnose, Tests gegen die Runtime
   selbst).
-- **`PlatynUI`** — High-Level-Library mit Page-Objects,
+- **`PlatynUI`** — High-Level-Library mit Contexts,
   Locator-Vererbung, automatischer Adapter-/Pattern-Auswahl,
   semantischen Keywords mit Outcome-Vertrag.
 
 **Geteilter Zustand:**
 
 - **`Runtime`-Singleton** (`core.runtime.runtime`) — beide Libraries
-  greifen dieselbe Instanz, sodass XPath-Queries und Page-Object-
+  greifen dieselbe Instanz, sodass XPath-Queries und Context-
   Lookups dieselbe UI-Tree-Sicht haben.
 - **Root-Element-Variable `${PLATYNUI_ROOT_ELEMENT}`** — Single Source
   of Truth für das aktive Root. `PlatynUI.Set Root Element` und das
@@ -4692,7 +4692,7 @@ Duplikat — sie ersetzt den Vorgänger lautlos. CI kann
 `-W error::PlatynUI.core.exceptions.DuplicateRegistrationWarning`
 setzen, um Konflikte als Build-Fehler zu erzwingen. Tests, die
 absichtlich einen real registrierten Rollennamen wie `Button`
-oder `Window` verwenden, kollidieren sonst mit den Page-Object-
+oder `Window` verwenden, kollidieren sonst mit den Context-
 Klassen aus `ui/`. Die Test-Konvention lautet daher: nutze
 Test-spezifische Rollen (`'__test_button__'`, `'TestButton'`),
 es sei denn der Test überprüft genau das Matching gegen die

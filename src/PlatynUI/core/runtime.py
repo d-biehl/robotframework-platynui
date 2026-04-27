@@ -4,51 +4,11 @@
 
 """Process-wide PlatynUI runtime accessor.
 
-PlatynUI uses a single `Runtime` per process.
-Provider cache, pointer and keyboard profiles, and the desktop view
-all belong to that runtime; adapters, device proxies, Robot keywords,
-the BareMetal helper, and the inspector share the same instance.
-
-The runtime is exposed as a singleton (`runtime`) with three
-separated responsibilities:
-
-1. Variant selection. Before first use, callers may pick which
-   runtime to build through `use_default`,
-   `use_mock`, or `use_factory`.
-2. Consumption. Every component reads `current` and
-   gets the same, once-built instance. The first read seals the
-   accessor; further variant selection is rejected.
-3. Test override. Tests install an alternative runtime through the
-   context manager `override` (or
-   `override_with_mock`), which restores the previous
-   state on exit.
-
-There is deliberately no raw setter that injects an external runtime
-into the singleton. Every path goes through a variant choice or a
-scope-bound override; this rules out forgotten resets by construction
-and prevents accidental swaps during live operations.
-
-Thread safety
--------------
-
-The accessor is guarded by a re-entrant lock and the underlying
-native runtime is safe to share across Python threads. Pointer and
-keyboard methods target absolute screen coordinates, so an override
-mid-session does not invalidate `UiNode`
-instances obtained earlier; those keep referencing their original
-provider tree.
-
-Tests
------
-
-Mock-based tests install a mock-backed runtime through the override
-context manager::
-
-    @pytest.fixture
-    def native_runtime():
-        from PlatynUI.core import runtime
-        with runtime.override_with_mock() as rt:
-            yield rt
+The runtime is exposed as a singleton (`runtime`). Callers select
+the variant before first use via `use_default`, `use_mock`, or
+`use_factory`, then read the built instance through `current`.
+Tests install a scoped alternative through `override` (or
+`override_with_mock`).
 """
 
 from collections.abc import Callable, Generator
@@ -92,11 +52,7 @@ def _shutdown_quietly(instance: '_NativeRuntime | None') -> None:
 
 
 class _RuntimeAccessor:
-    """Hold the process-wide `Runtime` singleton.
-
-    Exposed module-side as `runtime`; instantiated exactly once.
-    See the module docstring for design rationale and lifecycle rules.
-    """
+    """Hold the process-wide `Runtime` singleton, exposed as `runtime`."""
 
     def __init__(self) -> None:
         self._builder: _Builder = _default_builder

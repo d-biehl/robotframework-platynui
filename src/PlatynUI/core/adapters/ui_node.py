@@ -12,22 +12,9 @@
 """Native-backed `Adapter` for the platform UI tree.
 
 `UiNodeAdapter` wraps a single native UI node and exposes it
-through the Python `Adapter` contract.
-It is the only production adapter; test variations (stubs, spies,
-scripted behaviour) are layered on top through
-`AdapterProxy` overlays.
-
-Pattern access combines two underlying mechanisms into the single
-Python pattern view users expect:
-
-* Actions, e.g. ``Focusable.focus()``: platform-specific calls that
-  may fail at runtime.
-* State, e.g. ``Focusable.is_focused``: values read from the node's
-  attribute space.
-
-Currently only `Focusable` is wired
-up; the remaining capability patterns follow as the native side
-exposes them.
+through the Python `Adapter` contract. Pattern access combines
+native action calls (e.g. ``Focusable.focus()``) with attribute
+reads (e.g. ``Focusable.is_focused``).
 """
 
 from collections.abc import Iterator, Sequence
@@ -69,18 +56,7 @@ _TECHNOLOGY: UiNodeTechnology = UiNodeTechnology()
 
 
 class _NativeFocusable(Focusable):
-    """Combine the native focus action with the ``IsFocused`` state attribute.
-
-    The native focus pattern carries only the ``focus()`` action; the
-    matching ``IsFocused`` state lives in the node's attribute space.
-    This wrapper exposes both as a single
-    `Focusable` object.
-
-    ``IsFocused`` is read from whichever namespace the underlying node
-    advertises (``control`` for windows and buttons, ``item`` for list
-    or tree items, ...), so the wrapper mirrors the node's own
-    namespace instead of hard-coding one.
-    """
+    """`Focusable` implementation backed by the native focus action and ``IsFocused`` attribute."""
 
     __slots__ = ('_adapter', '_native')
 
@@ -91,10 +67,6 @@ class _NativeFocusable(Focusable):
     @property
     @override
     def is_focused(self) -> bool:
-        # Focusable lives in whichever namespace the underlying node
-        # uses (control for widgets like Window/Button, item for
-        # ListItem/TreeItem, etc.). Mirror the node's own namespace so
-        # we read the right attribute on every kind of focusable.
         node = self._adapter._node
         try:
             value = node.attribute('IsFocused', node.namespace.as_str())
@@ -133,13 +105,7 @@ _NATIVE_PATTERN_BUILDERS: dict[str, object] = {
 class UiNodeAdapter(Adapter):
     """Adapter backed by a single native UI node.
 
-    Construct via `from_node`, or `create_root` for the
-    desktop. Not a dataclass: each instance owns mutable state
-    (the resolved-pattern cache inherited from `Adapter`).
-
-    Operations that need the active runtime read it lazily from the
-    process-wide `runtime` singleton; the
-    adapter itself does not hold a runtime reference.
+    Construct via `from_node`, or `create_root` for the desktop.
     """
 
     pattern_name: ClassVar['PatternName'] = 'org.platynui.adapters.UiNode'

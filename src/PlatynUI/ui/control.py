@@ -4,7 +4,7 @@
 
 # pyright: reportPrivateUsage=false
 
-"""`Control` page-object base for focusable UI elements."""
+"""`Control` context base for focusable UI elements."""
 
 from typing import override
 
@@ -26,21 +26,11 @@ class _ControlKeyboardProxy(_ElementKeyboardProxy):
 
 
 class Control(Element, register=False):
-    """Page-object base for focusable UI elements.
-
-    Adds a focus contract on top of `Element`: `has_focus`,
-    `focus`, the `_control_has_focus` predicate, and a
-    keyboard proxy that ensures the control is focused before sending
-    keys.
-    """
+    """Context base for focusable UI elements."""
 
     @property
     def has_focus(self) -> bool:
-        """Whether the control currently has keyboard focus.
-
-        Convenience shortcut over the `Focusable` pattern; defaults
-        to ``False`` when the adapter does not expose `Focusable`.
-        """
+        """Whether the control currently has keyboard focus."""
         focusable = self.adapter.get_pattern(patterns.Focusable, raise_exception=False)
         return focusable.is_focused if focusable is not None else False
 

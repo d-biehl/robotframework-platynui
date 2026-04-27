@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""PlatynUI page-object hierarchy.
+"""PlatynUI context hierarchy.
 
 Public class tree::
 

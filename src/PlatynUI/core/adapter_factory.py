@@ -6,7 +6,7 @@
 
 Defines the `AdapterFactory` interface, the default
 `RuntimeAdapterFactory` backed by the native runtime, and the
-process-wide `adapter_factory` singleton used by page objects to
+process-wide `adapter_factory` singleton used by contexts to
 look up child adapters.
 """
 

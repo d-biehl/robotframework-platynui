@@ -2,11 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Page-object base class and registry.
+"""Context base class and registry.
 
-`ContextBase` is the root of every PlatynUI page object: it holds a
+`ContextBase` is the root of every PlatynUI context: it holds a
 `Locator`, a parent context, and the cached `Adapter` resolved through
-`adapter_factory`. `ContextFactory` keeps the registry of page-object
+`adapter_factory`. `ContextFactory` keeps the registry of context
 classes annotated with `@context` and picks the best-matching subclass
 for a freshly resolved adapter via `WeightCalculator`.
 
@@ -44,7 +44,7 @@ __all__ = [
 
 
 class ContextBase:
-    """Page-object base.
+    """Context base.
 
     Subclasses receive a class-level default `Locator` either from the
     `@context` decorator or from the equivalent class-keyword form
@@ -167,7 +167,7 @@ class ContextBase:
 
     @property
     def context_parent(self) -> 'ContextBase | None':
-        """The owning page-object node, or ``None`` if detached."""
+        """The owning context node, or ``None`` if detached."""
         return self.__context_parent
 
     @context_parent.setter
@@ -425,7 +425,7 @@ class ContextBase:
         locator: Locator | None = None,
         scope: LocatorScope | None = None,
     ) -> Iterator[T]:
-        """Yield every matching child as a fresh page-object instance."""
+        """Yield every matching child as a fresh context instance."""
         effective = self._effective_locator(ctx, locator, scope)
         adapters = adapter_factory.current.find_all(
             self.adapter,
@@ -538,7 +538,7 @@ class ContextBase:
 
 
 class UnknownContext(ContextBase, register=False):
-    """Fallback page-object class for adapters with no registered match."""
+    """Fallback context class for adapters with no registered match."""
 
 
 class ContextFactory:
@@ -698,7 +698,7 @@ def context[T: ContextBase](
     attributes: dict[str | tuple[str, str], str | re.Pattern[str]] | None = None,
     prefix: str | None = None,
 ) -> 'type[T] | Callable[[type[T]], type[T]]':
-    """Register ``cls`` as a page-object class with match criteria.
+    """Register ``cls`` as a context class with match criteria.
 
     All criteria are forwarded to `WeightCalculator` and stored on the
     class as a default `Locator` (``cls._locator``); ``role`` also fills

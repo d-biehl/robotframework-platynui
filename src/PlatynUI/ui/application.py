@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""`Application` identity-container page-object."""
+"""`Application` identity-container context."""
 
 import logging
 import os
@@ -23,13 +23,7 @@ _LOGGER = logging.getLogger('platynui.ui.application')
 
 
 class Application(ContextBase):
-    """Page-object representing a running application as the parent of its windows.
-
-    Identity container only — no `Element` behaviour, no mouse or
-    keyboard proxies. Adapter attributes such as ``ProcessId`` /
-    ``ProcessName`` are exposed as properties; the rest is reachable
-    via `attribute_value`.
-    """
+    """Context representing a running application as the parent of its windows."""
 
     default_role = 'Application'
     default_prefix = 'app'
@@ -55,22 +49,11 @@ class Application(ContextBase):
         return value
 
     def is_ready(self) -> bool:
-        """Whether the application is ready to accept user input.
-
-        Default implementation always returns ``True``. Override in
-        subclasses for app-specific readiness checks (splash screens,
-        long-running startup).
-        """
+        """Whether the application is ready to accept user input."""
         return True
 
     def exit(self, timeout: float | None = None) -> None:
-        """Exit the application, attempting graceful shutdown then killing.
-
-        Calls `_request_exit` for a graceful close, then
-        `_force_exit` if the process is still alive after
-        ``timeout`` seconds. ``timeout`` defaults to
-        ``Settings.application_exit_timeout``.
-        """
+        """Exit the application, attempting graceful shutdown then killing."""
         if timeout is None:
             timeout = Settings.current().application_exit_timeout
         try:
@@ -85,11 +68,7 @@ class Application(ContextBase):
     # ------------------------------------------------------------------
 
     def _request_exit(self) -> None:
-        """Stage 1: graceful shutdown. Default closes all top-level windows.
-
-        Override for app-specific graceful sequences (e.g. ``Ctrl+Q``,
-        a File→Exit menu, an IPC shutdown command).
-        """
+        """Graceful shutdown. Default closes all top-level windows."""
         for window in self._top_level_windows():
             try:
                 window.close()
@@ -97,11 +76,7 @@ class Application(ContextBase):
                 _LOGGER.debug('failed to close %r: %s', window, exc)
 
     def _force_exit(self, timeout: float) -> None:
-        """Stage 2: poll the process, kill after ``timeout`` seconds.
-
-        Override for app-specific force strategies (longer waits, a
-        different signal, multiple-stage escalation).
-        """
+        """Poll the process, kill after ``timeout`` seconds."""
         try:
             pid = self.process_id
         except Exception:
@@ -127,7 +102,7 @@ class Application(ContextBase):
     # ------------------------------------------------------------------
 
     def _top_level_windows(self) -> list['Window']:
-        """Collect every direct-child `Window` page-object."""
+        """Collect every direct-child `Window` context."""
         from .window import Window
 
         result: list[Window] = []

@@ -296,7 +296,7 @@ class Locator:
 
         # 2. attributes-Dict (already on self.attributes; verified for
         # well-formedness via _normalize_key, with the *constructor's*
-        # default namespace 'control' — page-object overrides happen
+        # default namespace 'control' — context overrides happen
         # later in to_xpath()).
         for raw_key in self.attributes:
             ns_name = _normalize_key(raw_key, DEFAULT_ATTRIBUTE_NAMESPACE)
@@ -337,7 +337,7 @@ class Locator:
         Set ``parent_is_root_like`` when the resolving parent is an
         ``Application`` or ``Desktop`` node; this picks ``children`` as
         the implicit scope instead of ``descendants``. ``default_role``
-        and ``default_prefix`` provide fallbacks from the page-object
+        and ``default_prefix`` provide fallbacks from the context
         class; ``default_prefix`` only applies when
         ``use_default_prefix`` is true. ``default_attribute_namespace``
         names the namespace used for bare-string keys in
@@ -568,7 +568,7 @@ def locator(
     As a method or property decorator, return a
     `LocatorMethodDescriptor` carrying the locator. Method-form
     resolution is not yet implemented; accessing the attribute raises
-    `NotImplementedError`. Page-object code can be written today
+    `NotImplementedError`. Context code can be written today
     and will work once method-form lands without source changes::
 
         class CalculatorWindow(Window):

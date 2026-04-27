@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Page-objects for text widgets: ``Text`` (read-only) and ``Edit`` (editable)."""
+"""Context classes for text widgets: ``Text`` (read-only) and ``Edit`` (editable)."""
 
 from ..core import patterns
 from .control import Control
@@ -11,11 +11,7 @@ __all__ = ['Edit', 'Text']
 
 
 class Text(Control):
-    """A read-only text widget such as a label or status text.
-
-    Wrappt allein das ``TextContent``-Pattern. Beschreibbare
-    Eingabefelder sind ``Edit``, nicht ``Text``.
-    """
+    """A read-only text widget such as a label or status text."""
 
     @property
     def text(self) -> str:
@@ -37,13 +33,7 @@ class Text(Control):
 
 
 class Edit(Control):
-    """An editable text input widget.
-
-    Lives in the same module as ``Text`` because both share the
-    ``TextContent`` family, but does not inherit from ``Text`` —
-    ``Edit`` has different pre-conditions (focus, not read-only)
-    and a strictly larger pattern dependency.
-    """
+    """An editable text input widget."""
 
     @property
     def text(self) -> str:
@@ -86,7 +76,7 @@ class Edit(Control):
         self.ensure_that(self._application_is_ready, raise_exception=False)
 
     def clear(self) -> None:
-        """Remove the current content via the ``Clearable`` pattern."""
+        """Remove the current content."""
         self.ensure_that(
             self._toplevel_parent_is_active,
             self._element_is_in_view,

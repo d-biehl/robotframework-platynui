@@ -5,7 +5,7 @@
 # pyright: reportPrivateUsage=false, reportUnusedFunction=false, reportUnusedClass=false, reportUnnecessaryTypeIgnoreComment=false
 #
 # Tests verify internal state (``_locator``, ``_adapter``,
-# ``_context_children``) and define page-object subclasses purely for
+# ``_context_children``) and define context subclasses purely for
 # their registration side effect; both look unused to pyright.
 
 """Unit tests for ``PlatynUI.core.context``.

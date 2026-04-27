@@ -147,7 +147,7 @@ def test_text_locale_returns_pattern_value() -> None:
 
 
 def test_text_is_auto_registered() -> None:
-    """`Text` is registered as the default page-object for role=\"Text\"."""
+    """`Text` is registered as the default context for role=\"Text\"."""
     from PlatynUI.core.context import ContextFactory
 
     cls = ContextFactory().find_context_class_for(_text_adapter())
@@ -257,7 +257,7 @@ def test_edit_is_multi_line_returns_pattern_value() -> None:
 
 
 def test_edit_is_auto_registered() -> None:
-    """`Edit` is registered as the default page-object for role=\"Edit\"."""
+    """`Edit` is registered as the default context for role=\"Edit\"."""
     from PlatynUI.core.context import ContextFactory
 
     cls = ContextFactory().find_context_class_for(_edit_adapter())

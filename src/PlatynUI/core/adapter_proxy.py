@@ -9,22 +9,7 @@
 # (AdapterProxy does not extend PatternBase) but is the deliberate
 # step 1 of pattern resolution for proxies that mix in pattern ABCs.
 
-"""Adapter proxy and pattern-proxy registry.
-
-An `AdapterProxy` wraps an `Adapter` to add or override pattern
-implementations. It is itself an `Adapter` subclass that delegates
-the entire structural / attribute / lifetime surface to the wrapped
-`adapter`; only pattern resolution differs (proxy first, then the
-wrapped adapter). This keeps `AdapterFactory.find_one/find_all`
-typed `Adapter | None` even when a proxy is wrapped around the
-result.
-
-Concrete proxies register through the `pattern_proxy_for` class
-decorator. The `PatternProxyFactory` singleton scores
-registered proxies against an adapter via
-`WeightCalculator` and wraps
-the highest-scoring match.
-"""
+"""Adapter proxy and pattern-proxy registry."""
 
 import re
 import warnings
@@ -56,19 +41,10 @@ __all__ = [
 class AdapterProxy(Adapter):
     """Wrap an `Adapter` to add or override pattern implementations.
 
-    The proxy is an `Adapter` subclass; every adapter-shaped property
-    delegates to the wrapped instance. Only pattern resolution is
-    enriched:
-
-    1. If the proxy itself is an instance of the requested pattern
-       type (it mixes in the pattern ABC and provides the methods),
-       the proxy is the implementation.
-    2. Otherwise resolution delegates to the wrapped adapter.
-    3. Otherwise raise `PatternNotSupportedError`, or return
-       ``None`` when ``raise_exception=False``.
-
-    `supported_patterns` and `supported_pattern_names`
-    return the union of proxy-provided and adapter-provided patterns.
+    Adapter-shaped properties delegate to the wrapped instance.
+    Pattern resolution checks the proxy itself first (when it mixes
+    in the requested pattern ABC), then falls back to the wrapped
+    adapter.
     """
 
     def __init__(self, adapter: Adapter) -> None:

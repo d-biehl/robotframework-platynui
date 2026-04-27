@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Test helpers for `PlatynUI.ui` page-object tests.
+"""Test helpers for `PlatynUI.ui` context tests.
 
 Provides a ``make_adapter`` factory and concrete pattern stub classes
 that satisfy the abstract pattern ABCs from

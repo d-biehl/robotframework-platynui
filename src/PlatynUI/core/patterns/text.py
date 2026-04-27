@@ -2,21 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Text capabilities: read-only content, editing, and clearing.
-
-Each capability is a separate pattern so adapters can opt in
-independently. A label exposes only `TextContent`; an entry
-field exposes `TextContent`, `TextEditable`, and
-optionally `Clearable`.
-
-`TextEditable` does *not* inherit from `TextContent`. The pattern
-model is intentionally flat — relationships between capabilities
-are expressed via an adapter's `supported_pattern_names`, not via
-Python class hierarchy. The Reverse-DNS-keyed resolver ignores
-inheritance, so a subclass relation would be a silent observer
-that adds no behaviour and may mislead readers into expecting
-automatic capability bundling.
-"""
+"""Text capabilities: `TextContent`, `TextEditable`, `Clearable`."""
 
 from abc import abstractmethod
 
@@ -77,10 +63,7 @@ class TextEditable(PatternBase):
 
 
 class Clearable(PatternBase):
-    """An element that supports a dedicated clear operation.
-
-    Pure action capability; carries no observable state.
-    """
+    """An element that supports a dedicated clear operation."""
 
     pattern_name = 'org.platynui.patterns.Clearable'
 

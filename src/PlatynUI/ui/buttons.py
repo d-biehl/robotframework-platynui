@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Page-objects for button-like widgets: ``Button`` and ``CheckBox``."""
+"""Context classes for button-like widgets: ``Button`` and ``CheckBox``."""
 
 from abc import abstractmethod
 from typing import override
@@ -15,15 +15,11 @@ __all__ = ['AbstractButton', 'Button', 'CheckBox']
 
 
 class AbstractButton(Control, register=False):
-    """Base for widgets with a label and a single primary action.
-
-    Extend when implementing custom button-like widgets that do not
-    fit ``Button`` or ``CheckBox``.
-    """
+    """Base for widgets with a label and a single primary action."""
 
     @property
     def text(self) -> str:
-        """The label currently shown on the widget, or ``''`` when unavailable."""
+        """The label currently shown on the widget."""
         self.ensure_that(self._application_is_ready)
         content = self.adapter.get_pattern(patterns.TextContent, raise_exception=False)
         return content.text if content is not None else ''
@@ -38,7 +34,7 @@ class Button(AbstractButton):
 
     @override
     def activate(self) -> None:
-        """Press the button via the ``Activatable`` pattern."""
+        """Press the button."""
         self.ensure_that(
             self._toplevel_parent_is_active,
             self._element_is_in_view,
@@ -49,13 +45,7 @@ class Button(AbstractButton):
 
 
 class CheckBox(AbstractButton):
-    """A two- or three-state checkbox.
-
-    The high-level methods ``check`` / ``uncheck`` set a target
-    state idempotently; ``toggle`` flips to the next state in the
-    provider's cycle. ``activate`` is bound to ``check`` to match
-    the user-visible primary action.
-    """
+    """A two- or three-state checkbox."""
 
     @property
     def state(self) -> ToggleState:
@@ -75,7 +65,7 @@ class CheckBox(AbstractButton):
 
     @override
     def activate(self) -> None:
-        """Equivalent to ``check()``."""
+        """Check the checkbox."""
         self.check()
 
     def check(self) -> None:
@@ -87,7 +77,7 @@ class CheckBox(AbstractButton):
         self.set_state(ToggleState.OFF)
 
     def toggle(self) -> None:
-        """Advance to the next state via the ``Toggleable`` pattern."""
+        """Advance to the next state."""
         self.ensure_that(
             self._toplevel_parent_is_active,
             self._element_is_in_view,
@@ -98,11 +88,7 @@ class CheckBox(AbstractButton):
         self.ensure_that(self._application_is_ready, raise_exception=False)
 
     def set_state(self, state: ToggleState) -> None:
-        """Toggle until the checkbox reports ``state``.
-
-        Bounded by ``len(ToggleState)`` iterations; returns without
-        raising if ``state`` is unreachable in the provider's cycle.
-        """
+        """Toggle until the checkbox reports ``state``."""
         for _ in ToggleState:
             if self.state is state:
                 return

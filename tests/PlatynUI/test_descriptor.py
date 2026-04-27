@@ -5,7 +5,7 @@
 # pyright: reportPrivateUsage=false, reportUnusedFunction=false, reportUnusedClass=false, reportUnnecessaryTypeIgnoreComment=false
 #
 # Tests touch internal slots (``_context``, ``_has_full_context``,
-# ``_locator``) and define page-object subclasses solely for their
+# ``_locator``) and define context subclasses solely for their
 # `@context` registration side effect; both look unused to pyright.
 
 """Unit tests for ``PlatynUI.core.descriptor``."""

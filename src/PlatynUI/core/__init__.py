@@ -4,7 +4,7 @@
 
 """PlatynUI core layer.
 
-Re-exports the primitives needed to build adapters and page objects:
+Re-exports the primitives needed to build adapters and contexts:
 the `Adapter` contract, capability patterns, the runtime
 singleton, locator, predicate, and wait helpers, and shared types.
 """

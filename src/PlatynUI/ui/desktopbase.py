@@ -4,7 +4,7 @@
 
 # pyright: reportPrivateUsage=false
 
-"""`DesktopBase` page-object base for desktop-root contexts."""
+"""`DesktopBase` base for desktop-root contexts."""
 
 from typing import override
 
@@ -20,11 +20,7 @@ __all__ = ['DesktopBase']
 
 
 class _DesktopMouseProxy(_ElementMouseProxy):
-    """Mouse proxy for the desktop root.
-
-    Uses the screen origin ``(0, 0)`` as the default click position
-    and skips the interactability checks that `Element` performs.
-    """
+    """Mouse proxy for the desktop root with screen origin ``(0, 0)`` as default click position."""
 
     @property
     @override
@@ -33,25 +29,19 @@ class _DesktopMouseProxy(_ElementMouseProxy):
 
     @override
     def before_action(self, action: MouseAction) -> None:
-        # Desktop is always reachable; no top-level / in-view checks.
         pass
 
 
 class _DesktopKeyboardProxy(_ElementKeyboardProxy):
-    """Keyboard proxy for the desktop root with no in-view checks."""
+    """Keyboard proxy for the desktop root."""
 
     @override
     def before_action(self, action: KeyboardAction) -> None:
-        # Desktop never needs to be brought into view or focused.
         pass
 
 
 class DesktopBase(Element, register=False):
-    """Page-object base for desktop-root contexts.
-
-    Override target for users that want a custom desktop without
-    inheriting the ``/.``-locator from `Desktop`.
-    """
+    """Base for desktop-root contexts."""
 
     default_role = 'Desktop'
 

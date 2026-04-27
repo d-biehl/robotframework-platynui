@@ -45,31 +45,16 @@ __all__ = ['Adapter']
 class Adapter(ABC):
     """Expose a UI element to the PlatynUI core.
 
-    Adapters are not `PatternBase` subclasses; the
-    `pattern_name` class attribute exists only as a stable
-    Reverse-DNS identifier on the wire, symmetric to how patterns
-    advertise themselves.
+    `get_pattern` and `get_pattern_by_name` resolve a pattern by:
 
-    `get_pattern` and `get_pattern_by_name` resolve a
-    pattern in four steps:
+    1. checking whether ``self`` is an instance of the pattern type,
+    2. returning a cached implementation from `_pattern_impls`,
+    3. asking `_resolve_pattern` to build a fresh one,
+    4. or raising `PatternNotSupportedError` (or returning ``None``
+       when ``raise_exception=False``).
 
-    1. ``self`` itself is an instance of the requested pattern type
-       (adapters that natively implement a pattern via mix-in).
-    2. The pattern is already cached in `_pattern_impls`,
-       keyed by Reverse-DNS pattern name.
-    3. `_resolve_pattern` returns a fresh implementation, which
-       the framework then caches.
-    4. Otherwise raise `PatternNotSupportedError`, or return
-       ``None`` when ``raise_exception=False``.
-
-    Concrete adapters override only `_resolve_pattern`. They may
-    also override `supports_pattern` for a cheaper short-circuit.
-
-    Visual and state properties (``bounds``, ``is_visible``,
-    ``is_enabled``, ``is_focused``, ...) are deliberately not adapter
-    methods; reach them through the relevant pattern
-    (`Element`,
-    `Focusable`, ...).
+    Concrete adapters override `_resolve_pattern` and optionally
+    `supports_pattern` for a cheaper short-circuit.
     """
 
     pattern_name: ClassVar['PatternName'] = 'org.platynui.core.Adapter'

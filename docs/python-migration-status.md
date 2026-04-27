@@ -339,10 +339,10 @@ zwei Verwendungsformen:
    `ContextBase.get(annotation, locator=...)` aufrufen) braucht
    `ContextBase` aus Phase 3.
 
-**Begründung für die Stub-Variante:** Page-Object-Code kann bereits
+**Begründung für die Stub-Variante:** Context-Code kann bereits
 heute mit beiden Formen geschrieben werden; der Phase-3-Übergang
 muss nur den `__get__`-Body austauschen, nicht die API. Das verhindert
-spätere Quelltext-Änderungen an Page-Objects.
+spätere Quelltext-Änderungen an Contexts.
 
 **Konkrete Änderungen:**
 
@@ -425,7 +425,7 @@ durchlaufen.
   ApplicationReady, Closeable, Element, Focusable, HasUserInput,
   Maximizable, Minimizable, Movable, Readable, Resizable, Restorable,
   Text, Titled, Toggle).
-- `ui/element.py`, `ui/control.py` — Basis-Page-Objects (Item 16
+- `ui/element.py`, `ui/control.py` — Basis-Contexts (Item 16
   UI-Teil).
 - `ui/window.py` — `Window` und `Frame` (Item 18 UI-Teil).
 - `ui/desktopbase.py`, `ui/desktop.py`, `ui/application.py` — Item 21

@@ -12,11 +12,7 @@ __all__ = ['Restorable']
 
 
 class Restorable(PatternBase):
-    """An element that can be restored from a minimized or maximized state.
-
-    Pure-action pattern: the previous state is observable through
-    `Minimizable.is_minimized` / `Maximizable.is_maximized`.
-    """
+    """An element that can be restored from a minimized or maximized state."""
 
     pattern_name = 'org.platynui.patterns.Restorable'
 

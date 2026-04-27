@@ -84,7 +84,7 @@ def test_tuple_key_regex_with_namespace() -> None:
 
 
 def test_default_attribute_namespace_override_applies_to_bare_keys() -> None:
-    """A page-object can lift the default namespace to e.g. ``item``."""
+    """A context can lift the default namespace to e.g. ``item``."""
     xpath = Locator(role='Row', attributes={'Index': '3'}).to_xpath(
         default_attribute_namespace='item'
     )
@@ -324,45 +324,45 @@ def test_class_decorator_supports_free_form_kwargs() -> None:
 def test_method_decorator_returns_descriptor() -> None:
     from PlatynUI.core.locator import LocatorMethodDescriptor
 
-    class Page:
+    class Ctx:
         @locator(AutomationId='num5Button')
         def n5(self) -> object: ...
 
-    raw = Page.__dict__['n5']
+    raw = Ctx.__dict__['n5']
     assert isinstance(raw, LocatorMethodDescriptor)
     assert raw.__locator__.to_xpath() == './/*[@AutomationId="num5Button"]'
 
 
 def test_method_decorator_access_raises_not_implemented() -> None:
-    class Page:
+    class Ctx:
         @locator(AutomationId='num5Button')
         def n5(self) -> object: ...
 
-    page = Page()
+    ctx = Ctx()
     with pytest.raises(NotImplementedError, match='not yet implemented'):
-        _ = page.n5
+        _ = ctx.n5
 
 
 def test_method_decorator_class_access_returns_descriptor() -> None:
     from PlatynUI.core.locator import LocatorMethodDescriptor
 
-    class Page:
+    class Ctx:
         @locator(name='X')
         def thing(self) -> object: ...
 
     # Accessing on the class (not an instance) yields the descriptor itself.
-    obj = Page.__dict__['thing']
+    obj = Ctx.__dict__['thing']
     assert isinstance(obj, LocatorMethodDescriptor)
 
 
 def test_method_decorator_remembers_attribute_name() -> None:
     from PlatynUI.core.locator import LocatorMethodDescriptor
 
-    class Page:
+    class Ctx:
         @locator(name='X')
         def thing(self) -> object: ...
 
-    desc = Page.__dict__['thing']
+    desc = Ctx.__dict__['thing']
     assert isinstance(desc, LocatorMethodDescriptor)
     assert desc.attr_name == 'thing'
 

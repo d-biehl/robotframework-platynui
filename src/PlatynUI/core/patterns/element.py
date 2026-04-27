@@ -2,11 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Base element capability: bounds, visibility, and enabled state.
-
-Adapters that surface any kind of on-screen widget implement this
-pattern to expose its geometry and basic interaction state.
-"""
+"""`Element` pattern: geometry and visibility state of an on-screen widget."""
 
 from abc import abstractmethod
 
@@ -17,21 +13,7 @@ __all__ = ['Element']
 
 
 class Element(PatternBase):
-    """An on-screen UI element with geometry and visibility state.
-
-    Exposes the four core properties every visible widget shares:
-
-    - `bounds`: screen rectangle in absolute pixels.
-    - `is_visible`: the element is rendered (not hidden or
-      collapsed).
-    - `is_in_view`: the element lies within the viewport (not
-      scrolled off-screen).
-    - `is_enabled`: the element accepts user input.
-
-    The default click point is **not** part of this pattern; it lives
-    on the `MouseProxy` and falls back to `bounds.center()` when
-    no `ActivationTarget` is available.
-    """
+    """Geometry and visibility state of an on-screen widget."""
 
     pattern_name = 'org.platynui.patterns.Element'
 

@@ -9,15 +9,13 @@
 ``full_context=True``, upgrades the cached context to the best-matching
 `ContextBase` subclass via `ContextFactory`.
 
-`PatternT` is a phantom marker: it does not constrain the runtime
-return type but lets `ElementDescriptor[patterns.Activatable]` be
-registered as its own Robot converter. The actual pattern check is the
-keyword's responsibility.
+`PatternT` is a phantom marker: ``ElementDescriptor[patterns.Activatable]``
+registers as its own Robot converter without constraining the runtime
+return type.
 
-The module is Robot-free. Root-element storage goes through a
-swappable hook (`set_root_element_storage`) whose default is a single
-in-process slot. The Robot library installs an override that reads and
-writes ``${PLATYNUI_ROOT_ELEMENT}`` from `EXECUTION_CONTEXTS`.
+Root-element storage is swappable via `set_root_element_storage`; the
+Robot library installs an override that reads and writes
+``${PLATYNUI_ROOT_ELEMENT}``.
 """
 
 from typing import TYPE_CHECKING, Any, Generic
