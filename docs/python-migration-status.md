@@ -7,9 +7,9 @@ in das neue Rust-basierte Projekt verfolgt.
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
 **Stand:** 2026-04-27
-**Aktuelle Revision:** Rev. 27 (Phase 4-pre abgeschlossen: `AdapterProxy`
-als `Adapter`-Subklasse, `RuntimeAdapterFactory._wrap` chaint
-`PatternProxyFactory.find_proxy_for`; 470 pytest grün)
+**Aktuelle Revision:** Rev. 29 (Phase 4a abgeschlossen: `AbstractButton`,
+`Button`, `CheckBox` mit Provider-Pattern-Pfad in `ui/buttons.py`;
+492 pytest grün)
 
 ---
 
@@ -27,7 +27,7 @@ als `Adapter`-Subklasse, `RuntimeAdapterFactory._wrap` chaint
 | Phase 1 — Fundament | DONE | uncommitted; 10 Module incl. vorgezogenem `core/patterns/` (war Phase 2 #11); 128 pytest + 1980 nextest grün, ruff+mypy+pyright+clippy grün |
 | Phase 2 — Adapter-Schicht | DONE | Adapter-ABC + AdapterProxy + UiNodeAdapter + Runtime-Singleton committed; Pipeline-Lücke in Phase 4-pre geschlossen |
 | Phase 3 — Context-Schicht | DONE | `ContextBase`, `ContextFactory`, `@context`, `ElementDescriptor`, `@locator` Method-Form |
-| Phase 4 — UI-Klassen + Standard-Proxies | IN PROGRESS | 4-pre DONE (uncommitted); 4a/4b/4c/4d/4e/4f offen — siehe Sub-Phasen unten |
+| Phase 4 — UI-Klassen + Standard-Proxies | IN PROGRESS | 4-pre + 4a DONE (uncommitted); 4b/4c/4d offen (UI-Klassen), 4e bündelt am Ende die Proxy-Schicht — siehe Sub-Phasen unten |
 | Phase 5 — Keywords + Robot-Library | PENDING | — |
 | Phase 6 — Iterative Erweiterungen | PENDING | — |
 
@@ -461,60 +461,97 @@ ignoriert.
       `test_adapter_facade_is_alias_for_adapter` umgeschrieben.
 - [x] 470 pytest grün, ruff/mypy/pyright clean.
 
-#### Phase 4a — Proxy-Basis (`ui/proxies/base.py`, Item 16 Proxy-Teil)
+**Reihenfolge-Entscheidung (2026-04-27):** Die Default-Proxy-
+Hierarchie (`ui/proxies/base.py` + alle Widget-Proxies) wird ans
+Ende von Phase 4 verschoben. Begründung: `ElementProxy`/
+`ControlProxy` ohne konkrete Widget-Subklassen sind reine
+Aufhänger ohne Verhalten, und die Widget-Proxies leisten ihren
+Mehrwert (Click-/Tastatur-Fallbacks) erst, wenn sie ein Provider-
+Pattern *ersetzen* können. Wir bauen daher zuerst die UI-Klassen
+gegen den reinen Provider-Pattern-Pfad (Mock-Adapter liefert
+Pattern direkt) und führen die komplette Proxy-Schicht in einer
+abschließenden Sub-Phase ein, sobald reale Fallbacks motiviert
+sind.
 
-- [ ] Designdoc-Update: kurze §A.x oder Ergänzung in §A.13 zur
-      Default-Proxy-Hierarchie.
-- [ ] `ui/proxies/__init__.py` mit Side-Effect-Imports.
-- [ ] `ui/proxies/base.py`: `ElementProxy(AdapterProxy)`,
-      `ControlProxy(ElementProxy)` als Aufhänger für die widget-
-      spezifischen Proxies; default reichen sie Provider-Patterns
-      nur durch (`AdapterProxy.get_pattern` regelt das bereits).
-- [ ] Tests: Vereinigung Proxy/Adapter, Durchreichen, Reihenfolge.
+#### Phase 4a — Buttons (Item 17, eingeschränkt: Button + CheckBox) — DONE (uncommitted)
 
-#### Phase 4b — Buttons (Item 17, eingeschränkt: Button + CheckBox)
+- [x] Designdoc-Update §A.14.9 (Rev. 27): `AbstractButton` als
+      abstrakte Zwischenklasse mit `text`-Convenience über
+      `TextContent`; `Button` wrappt `Activatable`; `CheckBox`
+      wrappt `Toggleable` mit `check`/`uncheck`/`toggle`/
+      `set_state`/`is_checked`-Komfort. `CheckBox.activate()`
+      ruft semantisch `check()`. Phase 4a verlangt den
+      Provider-Pattern-Pfad; Click-Fallback ist Sache von
+      Phase 4e.
+- [x] `src/PlatynUI/ui/buttons.py`: `AbstractButton(Control,
+      register=False)` mit abstract `activate()` und `text`
+      Property, `Button(AbstractButton)` mit Pre/Perform/Post-
+      Activate, `CheckBox(AbstractButton)` mit `state`/
+      `is_checked`/`is_unchecked`/`check`/`uncheck`/`toggle`/
+      `set_state`. `set_state` durch `len(ToggleState)` begrenzt.
+- [x] `tests/PlatynUI/_ui_helpers.py` um `TextContentStub` und
+      `ToggleableStub` (mit konfigurierbarem Cycle für Tri-State)
+      erweitert.
+- [x] `tests/PlatynUI/test_buttons.py`: 22 Tests (text via
+      Pattern + Default, Activate-Pfad inkl. Predicate-Block bei
+      `is_enabled=False`, raise wenn `Activatable` fehlt,
+      CheckBox-State-Read-Back, `is_checked`/`is_unchecked`,
+      raise wenn `Toggleable` fehlt, Toggle blockt bei
+      `is_readonly`, `check`/`uncheck` no-op + toggle, Tri-State-
+      Cycle erreicht `INDETERMINATE`, `set_state` terminiert auch
+      ohne Treffer, Auto-Registrierung von Button/CheckBox).
+- [x] `tests/PlatynUI/test_descriptor.py`: lokale Klassen
+      `Button`/`Forced` zu `_TestButton`/`_TestForced`
+      umbenannt, damit `__init_subclass__` nicht mit
+      `ui.buttons.Button` kollidiert.
+- [x] 492 pytest grün, ruff/mypy/pyright clean.
+- [x] **Stop für Review** (jetzt).
 
-- [ ] Designdoc-Update: §A.x mit Button- und CheckBox-Interface.
-- [ ] `ui/buttons.py`: `Button` (`Activatable`-getrieben),
-      `CheckBox` (`Toggleable`-getrieben).
-- [ ] `ui/proxies/standard.py`: `ButtonProxy`, `CheckBoxProxy` mit
-      Click-Fallback wenn das Provider-Pattern fehlt.
-- [ ] Tests: Aktivierung über Provider-Pattern, Aktivierung über
-      Click-Fallback, Toggle-Zustandswechsel, Predicate-Verifikation.
-- [ ] **Stop für Review** mit dem User, bevor weitere Widgets folgen.
-
-#### Phase 4c — Window-Proxy (Item 18 Proxy-Teil)
-
-- [ ] `ui/proxies/window.py` mit den Default-Implementationen für
-      die Fenster-Patterns (Closeable, Maximizable, Minimizable,
-      Movable, Resizable, Restorable). Window-UI-Klasse ist bereits
-      committed.
-- [ ] Tests: jedes Pattern via Proxy aufrufbar, ohne dass der
-      Adapter es direkt liefert.
-
-#### Phase 4d — Text/Edit/ComboBox (Item 19)
+#### Phase 4b — Text/Edit/ComboBox (Item 19 UI-Teil)
 
 - [ ] `ui/text.py`, `ui/combobox.py` UI-Klassen.
-- [ ] `ui/proxies/text.py` Default-Proxies (`EditProxy`,
-      `ComboBoxProxy`).
-- [ ] Tests pro UI-Klasse + Proxy.
+- [ ] Tests pro UI-Klasse gegen Provider-Pattern-Pfad.
 
-#### Phase 4e — Lists/Tree/Table (Item 20)
+#### Phase 4c — Lists/Tree/Table (Item 20 UI-Teil)
 
 - [ ] `ui/lists.py`, `ui/tree.py`, `ui/table.py` UI-Klassen.
-- [ ] `ui/proxies/list_tree.py` Default-Proxies.
-- [ ] Tests pro UI-Klasse + Proxy.
+- [ ] Tests pro UI-Klasse gegen Provider-Pattern-Pfad.
 
-#### Phase 4f — Menus/Tabs (Item 21 Rest)
+#### Phase 4d — Menus/Tabs (Item 21 Rest, UI-Teil)
 
 - [ ] `ui/menus.py`, `ui/tabs.py` UI-Klassen.
-- [ ] Default-Proxies in `ui/proxies/standard.py` ergänzen oder
-      eigene Datei je nach Komplexität.
-- [ ] Tests pro UI-Klasse + Proxy.
+- [ ] Tests pro UI-Klasse gegen Provider-Pattern-Pfad.
+
+#### Phase 4e — Proxy-Schicht (Item 16 Proxy-Teil + Items 17/18/19/20/21 Proxy-Teile)
+
+Bündelt die komplette Default-Proxy-Hierarchie inklusive
+Widget-Proxies mit Click-/Tastatur-Fallbacks. Wird erst nach den
+UI-Klassen gebaut, damit jeder Proxy eine konkrete UI-Klasse hat,
+die ihn motiviert.
+
+- [ ] Designdoc-Update: §A.x oder Ergänzung in §A.13 zur Default-
+      Proxy-Hierarchie und ihrem Fallback-Vertrag.
+- [ ] `ui/proxies/__init__.py` mit Side-Effect-Imports.
+- [ ] `ui/proxies/base.py`: `ElementProxy(AdapterProxy)`,
+      `ControlProxy(ElementProxy)` als gemeinsame Aufhänger.
+- [ ] `ui/proxies/standard.py`: `ButtonProxy`, `CheckBoxProxy` mit
+      Click-Fallback wenn das Provider-Pattern fehlt.
+- [ ] `ui/proxies/window.py`: Default-Implementationen für die
+      Fenster-Patterns (Closeable, Maximizable, Minimizable,
+      Movable, Resizable, Restorable).
+- [ ] `ui/proxies/text.py`: `EditProxy`, `ComboBoxProxy` mit
+      Tastatur-Fallback.
+- [ ] `ui/proxies/list_tree.py`: Default-Proxies für Lists/Tree/
+      Table.
+- [ ] Menü-/Tab-Proxies entweder in `ui/proxies/standard.py`
+      ergänzen oder eigene Datei je nach Komplexität.
+- [ ] Tests pro Proxy: Pattern via Proxy aufrufbar, ohne dass der
+      Adapter es direkt liefert; Reihenfolge/Score-Auswahl;
+      Durchreichen vorhandener Provider-Patterns.
 
 **Schon erledigte Item-Bestandteile** sind im Auszug oben gelistet;
-sie zählen als Vorgriff auf 4a (Element/Control), 4c (Window UI-Teil)
-und 4f (Desktop/Application UI-Teil).
+sie zählen als Vorgriff auf den UI-Teil von Item 16 (Element/
+Control), Item 18 (Window) und Item 21 (Desktop/Application).
 
 ### Phase 5 — Keywords + Robot-Library (Designdoc §10 Phase 5)
 

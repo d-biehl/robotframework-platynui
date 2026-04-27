@@ -4,9 +4,20 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 26**.
+> **Status:** Diskussionsentwurf, **Revision 27**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 27** — **Buttons (§A.14.9).** `AbstractButton` als
+>   abstrakte Zwischenklasse unter `Control` mit
+>   `text`-Convenience über `TextContent` und abstract
+>   `activate()`. `Button` wrappt das `Activatable`-Pattern,
+>   `CheckBox` das `Toggleable`-Pattern (mit `check`/`uncheck`/
+>   `toggle`/`set_state`/`is_checked`-Komfort). `CheckBox.activate()`
+>   ruft semantisch `check()` (User-Intent „abhaken"), nicht
+>   `Toggleable.toggle()`. Phase 4a verlangt den Provider-Pattern-
+>   Pfad; Click-Fallback ist Sache der Default-Proxy-Schicht
+>   (Phase 4e). Offene-Punkte-Subsection auf §A.14.10
+>   umnummeriert.
 > - **Rev. 26** — **Page-Object-Basisklassen (§A.14).** `Element`,
 >   `Control`, `Window`, `Frame`, `Desktop`/`DesktopBase`, `Application`
 >   als Klassenhierarchie unter `ContextBase`. `Element` ist das
@@ -3647,16 +3658,78 @@ Property.
 
 #### A.14.8 Hierarchie-Erweiterung durch User
 
-Standard-UI-Element-Klassen wie `Button`, `CheckBox`, `Edit`,
-`ComboBox`, `MenuItem`, `Tab`, `Tree`, `List` etc. (Altprojekt-
-Verzeichnis `ui/buttons.py`, `ui/edit.py` …) sind §5a.2-Territorium
-und werden als Phase-5-Arbeit nach `ui/elements/` portiert. Sie
-folgen alle dem Schema:
+Standard-UI-Element-Klassen wie `Edit`, `ComboBox`, `MenuItem`,
+`Tab`, `Tree`, `List` etc. (Altprojekt-Verzeichnis `ui/edit.py`,
+`ui/combobox.py` …) werden in den weiteren Phase-4-Sub-Phasen
+nach `ui/text.py`, `ui/lists.py`, `ui/menus.py`, `ui/tabs.py`
+portiert. `Button` und `CheckBox` decken §A.14.9 ab. Alle
+Standard-Widgets folgen demselben Schema:
+
+- subclassen `Control` (oder eine widget-spezifische Zwischen-
+  klasse wie `AbstractButton`),
+- registrieren sich über `__init_subclass__` mit
+  `role=cls.__name__`,
+- wrappen ein oder mehrere Capability-Patterns aus §A.13 in
+  Pre/Perform/Post-Verträgen,
+- liefern Convenience-Properties über `adapter.get_pattern(X,
+  raise_exception=False)` für read-only Spiegel von Pattern-State.
+
+Auswahl der Klasse pro Adapter erfolgt via WeightCalculator
+(`@locator`-Score) — spezifische Rolle/Class-Name gewinnt über
+generische `Element`-Default-Klasse.
+
+#### A.14.9 Buttons (`ui/buttons.py`)
+
+`AbstractButton`, `Button` und `CheckBox` als ersten Schritt der
+Standard-Widget-Migration (Phase 4a). Weitere Button-Varianten
+(`PushButton`, `Link`, `RadioButton`) folgen erst, wenn ein
+konkreter Bedarf besteht — sie waren im Altprojekt leere Marker-
+Subklassen und tragen ohne eigenes Verhalten nichts bei.
+
+```
+Control
+└── AbstractButton              (register=False)
+    ├── Button                  (role="Button")
+    └── CheckBox                (role="CheckBox")
+```
+
+`AbstractButton` ist abstrakte Zwischenklasse (`register=False`,
+`abstract activate()`) und bündelt Verhalten, das alle Button-
+artigen Widgets teilen — primär die `text`-Property als
+Convenience-Spiegel über das `TextContent`-Pattern.
 
 ```python
-@locator(role="Button")
-@context
-class Button(Control):
+class AbstractButton(Control, register=False):
+    """Page-object base for button-like widgets.
+
+    Adds a `text` convenience over `TextContent` and declares an
+    abstract primary `activate()` action that subclasses
+    implement using the appropriate capability pattern.
+    """
+
+    @property
+    def text(self) -> str:
+        """The button's label text.
+
+        Convenience shortcut over the `TextContent` pattern;
+        returns the empty string when the adapter does not expose
+        `TextContent`.
+        """
+        self.ensure_that(self._application_is_ready)
+        content = self.adapter.get_pattern(TextContent, raise_exception=False)
+        return content.text if content is not None else ''
+
+    @abstractmethod
+    def activate(self) -> None:
+        """Trigger the widget's primary action."""
+```
+
+**`Button`** wrappt das `Activatable`-Pattern. `activate()` folgt
+dem Pre/Perform/Post-Vertrag aus §A.14.5:
+
+```python
+class Button(AbstractButton):
+    @override
     def activate(self) -> None:
         self.ensure_that(
             self._toplevel_parent_is_active,
@@ -3664,25 +3737,83 @@ class Button(Control):
             self._element_is_enabled,
         )
         self.adapter.get_pattern(Activatable).activate()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+```
 
+`get_pattern(Activatable)` raises `PatternNotSupportedError`
+(default), wenn der Adapter das Pattern nicht liefert — Phase 4a
+verlangt den Provider-Pattern-Pfad. Ein Click-Fallback über
+`MouseProxy.click()` ist Sache der Default-Proxy-Schicht
+(Phase 4e, §A.14.10).
 
-@locator(role="CheckBox")
-@context
-class CheckBox(Control):
+**`CheckBox`** wrappt das `Toggleable`-Pattern. Die Klasse fügt
+`is_checked` / `is_unchecked` als Bequemlichkeits-Properties
+hinzu sowie `check()` / `uncheck()` / `toggle()` / `set_state()`:
+
+```python
+class CheckBox(AbstractButton):
+    @property
+    def state(self) -> ToggleState:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(Toggleable).state
+
+    @property
+    def is_checked(self) -> bool:
+        return self.state is ToggleState.ON
+
+    @property
+    def is_unchecked(self) -> bool:
+        return self.state is ToggleState.OFF
+
+    @override
     def activate(self) -> None:
+        """Primäre Aktion = abhaken (User-Intent)."""
+        self.check()
+
+    def check(self) -> None:
+        self.set_state(ToggleState.ON)
+
+    def uncheck(self) -> None:
+        self.set_state(ToggleState.OFF)
+
+    def toggle(self) -> None:
         self.ensure_that(
             self._toplevel_parent_is_active,
             self._element_is_in_view,
             self._element_is_enabled,
+            self._element_is_not_readonly,
         )
-        self.adapter.get_pattern(Toggleable).set_state(ToggleState.Checked)
+        self.adapter.get_pattern(Toggleable).toggle()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+
+    def set_state(self, state: ToggleState) -> None:
+        """Toggle bis `state` erreicht ist (max. 3 Iterationen für Tri-State)."""
+        for _ in ToggleState:
+            if self.state is state:
+                return
+            self.toggle()
 ```
 
-Auswahl der Klasse pro Adapter erfolgt via WeightCalculator
-(`@locator`-Score) — spezifische Rolle/Class-Name gewinnt über
-generische `Element`-Default-Klasse.
+`set_state` entspricht semantisch §A.14.1 („Activate" = primäre
+User-Aktion, *nicht* das gleichnamige Pattern aufrufen):
+`CheckBox.activate()` ruft `check()`, nicht `Toggleable.toggle()`.
 
-#### A.14.9 Offene Punkte
+**Tri-State.** `Toggleable.supports_three_state` zeigt an, ob
+`state` legitim `INDETERMINATE` zurückgeben darf. `set_state` ist
+gegenüber Tri-State sicher: die Schleife läuft maximal so oft
+wie `len(ToggleState)` (=3), erreicht also auch
+`INDETERMINATE → ON` über genau einen `toggle()`-Aufruf, wenn der
+Provider die Reihenfolge `OFF → ON → INDETERMINATE → OFF`
+implementiert. Bei zwei-Zustands-Toggles wird `INDETERMINATE`
+übersprungen, der zweite Aufruf erreicht das Ziel.
+
+**Predicate-Verifikation.** `toggle()` verlangt zusätzlich
+`_element_is_not_readonly` (im Gegensatz zu `Button.activate()`),
+weil ein read-only Toggle-Element den Zustand nicht ändern kann.
+Buttons können nicht read-only sein im klassischen Sinn — ein
+disabled Button blockt schon über `_element_is_enabled`.
+
+#### A.14.10 Offene Punkte
 
 - **`BringIntoViewable`-Pattern** (siehe §A.14.3, `_element_is_in_view`):
   perspektivisch eigenes Pattern für UIA `IScrollItemProvider.ScrollIntoView`
@@ -3782,6 +3913,14 @@ entfällt; Tests gegen den UI-Tree nutzen den Rust-Mock-Provider via
 19. `ui/proxies/text.py` + `ui/text.py` + `ui/combobox.py`
 20. `ui/proxies/list_tree.py` + `ui/lists.py` + `ui/tree.py` + `ui/table.py`
 21. `ui/menus.py`, `ui/tabs.py`, `ui/desktop.py`, `ui/application.py`
+
+> Implementierungsreihenfolge (siehe `python-migration-status.md`,
+> Phase 4): die UI-Teile der Items 17–21 werden vor allen Default-
+> Proxies gebaut. Eine abschließende Sub-Phase bündelt
+> `ui/proxies/base.py` und sämtliche Widget-Proxies, sobald reale
+> Click-/Tastatur-Fallbacks motiviert sind. Die Item-Nummerierung
+> oben dokumentiert die konzeptionelle Kopplung UI↔Proxy, nicht die
+> Reihenfolge der Commits.
 
 ### Phase 5 — Keywords + Robot-Library
 
