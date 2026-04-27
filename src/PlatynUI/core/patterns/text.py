@@ -8,6 +8,14 @@ Each capability is a separate pattern so adapters can opt in
 independently. A label exposes only `TextContent`; an entry
 field exposes `TextContent`, `TextEditable`, and
 optionally `Clearable`.
+
+`TextEditable` does *not* inherit from `TextContent`. The pattern
+model is intentionally flat — relationships between capabilities
+are expressed via an adapter's `supported_pattern_names`, not via
+Python class hierarchy. The Reverse-DNS-keyed resolver ignores
+inheritance, so a subclass relation would be a silent observer
+that adds no behaviour and may mislead readers into expecting
+automatic capability bundling.
 """
 
 from abc import abstractmethod
@@ -61,6 +69,11 @@ class TextEditable(PatternBase):
     @abstractmethod
     def supports_password_mode(self) -> bool:
         """Whether the field can mask its content, e.g. for password input."""
+
+    @property
+    @abstractmethod
+    def is_multi_line(self) -> bool:
+        """Whether the field accepts line breaks (multi-line input)."""
 
 
 class Clearable(PatternBase):

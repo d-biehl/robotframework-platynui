@@ -248,6 +248,10 @@ def test_concrete_text_editable_implementation() -> None:
         def supports_password_mode(self) -> bool:
             return True
 
+        @property
+        def is_multi_line(self) -> bool:
+            return False
+
     i = Input()
     i.set_text('hello')
     assert i.value == 'hello'

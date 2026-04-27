@@ -20,6 +20,7 @@ from PlatynUI.core.types import Point, Rect, Size
 
 __all__ = [
     'ActivatableStub',
+    'ClearableStub',
     'CloseableStub',
     'ElementStub',
     'FocusableStub',
@@ -31,6 +32,7 @@ __all__ = [
     'ResizableStub',
     'RestorableStub',
     'TextContentStub',
+    'TextEditableStub',
     'TitledStub',
     'ToggleableStub',
     'make_adapter',
@@ -271,6 +273,53 @@ class TextContentStub(patterns.TextContent):
     @property
     def is_truncated(self) -> bool:
         return self._truncated
+
+
+class TextEditableStub(patterns.TextEditable):
+    """`patterns.TextEditable` stub recording the last ``set_text`` value."""
+
+    def __init__(
+        self,
+        *,
+        is_readonly: bool = False,
+        max_length: int | None = None,
+        supports_password_mode: bool = False,
+        is_multi_line: bool = False,
+    ) -> None:
+        self._readonly = is_readonly
+        self._max_length = max_length
+        self._password = supports_password_mode
+        self._multi_line = is_multi_line
+        self.set_text_calls: list[str] = []
+
+    def set_text(self, value: str) -> None:
+        self.set_text_calls.append(value)
+
+    @property
+    def is_readonly(self) -> bool:
+        return self._readonly
+
+    @property
+    def max_length(self) -> int | None:
+        return self._max_length
+
+    @property
+    def supports_password_mode(self) -> bool:
+        return self._password
+
+    @property
+    def is_multi_line(self) -> bool:
+        return self._multi_line
+
+
+class ClearableStub(patterns.Clearable):
+    """`patterns.Clearable` stub that records ``clear()`` calls."""
+
+    def __init__(self) -> None:
+        self.clear_calls = 0
+
+    def clear(self) -> None:
+        self.clear_calls += 1
 
 
 class ToggleableStub(patterns.Toggleable):
