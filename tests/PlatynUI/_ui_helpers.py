@@ -23,14 +23,18 @@ __all__ = [
     'ClearableStub',
     'CloseableStub',
     'ElementStub',
+    'ExpandableStub',
     'FocusableStub',
+    'HasEditorStub',
     'HasUserInputStub',
+    'ItemContainerStub',
     'MaximizableStub',
     'MinimizableStub',
     'MovableStub',
     'ReadableStub',
     'ResizableStub',
     'RestorableStub',
+    'SelectableStub',
     'TextContentStub',
     'TextEditableStub',
     'TitledStub',
@@ -354,6 +358,103 @@ class ToggleableStub(patterns.Toggleable):
         self.toggle_calls += 1
         idx = self._cycle.index(self._state)
         self._state = self._cycle[(idx + 1) % len(self._cycle)]
+
+
+class SelectableStub(patterns.Selectable):
+    """`patterns.Selectable` stub that records ``select()`` calls."""
+
+    def __init__(self, *, is_selected: bool = False) -> None:
+        self._selected = is_selected
+        self.select_calls = 0
+
+    @property
+    def is_selected(self) -> bool:
+        return self._selected
+
+    def select(self) -> None:
+        self.select_calls += 1
+        self._selected = True
+
+
+class ExpandableStub(patterns.Expandable):
+    """`patterns.Expandable` stub that records expand/collapse calls."""
+
+    def __init__(self, *, is_expanded: bool = False, can_expand: bool = True) -> None:
+        self._expanded = is_expanded
+        self._can_expand = can_expand
+        self.expand_calls = 0
+        self.collapse_calls = 0
+
+    @property
+    def can_expand(self) -> bool:
+        return self._can_expand
+
+    @property
+    def is_expanded(self) -> bool:
+        return self._expanded
+
+    def expand(self) -> None:
+        self.expand_calls += 1
+        self._expanded = True
+
+    def collapse(self) -> None:
+        self.collapse_calls += 1
+        self._expanded = False
+
+
+class HasEditorStub(patterns.HasEditor):
+    """`patterns.HasEditor` stub that records lifecycle calls."""
+
+    def __init__(self) -> None:
+        self.open_calls = 0
+        self.accept_calls = 0
+        self.cancel_calls = 0
+
+    def open_editor(self) -> None:
+        self.open_calls += 1
+
+    def accept(self) -> None:
+        self.accept_calls += 1
+
+    def cancel(self) -> None:
+        self.cancel_calls += 1
+
+
+class ItemContainerStub(patterns.ItemContainer):
+    """`patterns.ItemContainer` stub.
+
+    Each count is optional; unsupplied counts raise ``NotImplementedError``
+    when accessed, matching the contract for concrete container roles.
+    """
+
+    def __init__(
+        self,
+        *,
+        item_count: int | None = None,
+        row_count: int | None = None,
+        column_count: int | None = None,
+    ) -> None:
+        self._item_count = item_count
+        self._row_count = row_count
+        self._column_count = column_count
+
+    @property
+    def item_count(self) -> int:
+        if self._item_count is None:
+            raise NotImplementedError('item_count')
+        return self._item_count
+
+    @property
+    def row_count(self) -> int:
+        if self._row_count is None:
+            raise NotImplementedError('row_count')
+        return self._row_count
+
+    @property
+    def column_count(self) -> int:
+        if self._column_count is None:
+            raise NotImplementedError('column_count')
+        return self._column_count
 
 
 # ---------------------------------------------------------------------------
