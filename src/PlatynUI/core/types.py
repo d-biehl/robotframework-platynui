@@ -20,7 +20,6 @@ __all__ = [
     'Rect',
     'RoleName',
     'Size',
-    'TechnologyName',
 ]
 
 
@@ -29,9 +28,6 @@ type PatternName = str
 
 #: UI role name in PascalCase, e.g. ``"Button"``, ``"Window"``, ``"Application"``.
 type RoleName = str
-
-#: Adapter technology name, e.g. ``"UiNode"``, ``"mock"``.
-type TechnologyName = str
 
 #: UI framework identifier reported by the platform, e.g. ``"WPF"``, ``"Qt"``, ``"Gtk"``.
 type FrameworkId = str

@@ -23,7 +23,6 @@ from .patterns.base import PatternBase
 from .weight_calculator import WeightCalculator
 
 if TYPE_CHECKING:
-    from .technology import Technology
     from .types import FrameworkId, PatternName, RoleName
 
 __all__ = [
@@ -77,11 +76,6 @@ class AdapterProxy(Adapter):
     @override
     def runtime_id(self) -> str:
         return self._adapter.runtime_id
-
-    @property
-    @override
-    def technology(self) -> 'Technology':
-        return self._adapter.technology
 
     # ------------------------------------------------------------------
     # Structure — delegated
@@ -280,7 +274,7 @@ class AdapterProxy(Adapter):
 #: `calculate`'s ``criteria`` dict so that proxy
 #: matching uses the same scoring rules as locator matching.
 _CRITERION_KEYS: frozenset[str] = frozenset(
-    {'technology', 'role', 'framework_id', 'class_name', 'tag_name', 'attributes'}
+    {'role', 'framework_id', 'class_name', 'tag_name', 'attributes'}
 )
 
 
@@ -388,7 +382,7 @@ class AdapterCriteriaView:
     """Present an `Adapter` through the `WeightCalculator` Protocol.
 
     `WeightCalculator` consumes a structural ``AdapterLike``
-    view (``technology``, ``role``, ``framework_id`` and so on as
+    view (``role``, ``framework_id`` and so on as
     cached attributes plus ``attribute_value(name, namespace)``).
     This shim exposes that exact surface without forcing the
     calculator to import `Adapter`.
@@ -398,10 +392,6 @@ class AdapterCriteriaView:
 
     def __init__(self, adapter: Adapter) -> None:
         self._adapter = adapter
-
-    @property
-    def technology(self) -> Any:
-        return self._adapter.technology
 
     @property
     def role(self) -> str:
@@ -443,7 +433,6 @@ def pattern_proxy_for[ProxyT: AdapterProxy](
     framework_id: str | None = None,
     class_name: str | re.Pattern[str] | None = None,
     tag_name: str | re.Pattern[str] | None = None,
-    technology: type[Any] | None = None,
     attributes: dict[str | tuple[str, str], object] | None = None,
 ) -> Callable[[type[ProxyT]], type[ProxyT]]:
     """Register an `AdapterProxy` subclass with match criteria.
@@ -470,7 +459,6 @@ def pattern_proxy_for[ProxyT: AdapterProxy](
         'framework_id': framework_id,
         'class_name': class_name,
         'tag_name': tag_name,
-        'technology': technology,
         'attributes': attributes,
     }
     # Defensive: catch typos in future extensions.

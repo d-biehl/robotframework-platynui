@@ -31,16 +31,6 @@ from PlatynUI.core.exceptions import (
     PatternNotSupportedError,
 )
 from PlatynUI.core.patterns import Activatable, Focusable, PatternBase, Toggleable, ToggleState
-from PlatynUI.core.technology import Technology
-
-
-class _FakeTechnology(Technology):
-    @property
-    def name(self) -> str:
-        return 'fake'
-
-
-_FAKE_TECH = _FakeTechnology()
 
 
 class _FakePattern(PatternBase):
@@ -97,10 +87,6 @@ class _FakeAdapter(Adapter):
     @property
     def runtime_id(self) -> str:
         return self._runtime_id
-
-    @property
-    def technology(self) -> Technology:
-        return _FAKE_TECH
 
     @property
     def parent(self) -> Adapter | None:

@@ -34,7 +34,6 @@ from .exceptions import (
 from .patterns.base import PatternBase
 
 if TYPE_CHECKING:
-    from .technology import Technology
     from .types import FrameworkId, PatternName, RoleName
 
 __all__ = ['Adapter']
@@ -75,11 +74,6 @@ class Adapter(ABC):
     @abstractmethod
     def runtime_id(self) -> str:
         """A stable opaque identifier within this adapter's backend."""
-
-    @property
-    @abstractmethod
-    def technology(self) -> 'Technology':
-        """The technology marker that owns this adapter."""
 
     # ------------------------------------------------------------------
     # Structural relationships

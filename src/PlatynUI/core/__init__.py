@@ -12,7 +12,7 @@ singleton, locator, predicate, and wait helpers, and shared types.
 from .adapter import Adapter
 from .adapter_factory import AdapterFactory, AdapterFactoryAccessor, RuntimeAdapterFactory, adapter_factory
 from .adapter_proxy import AdapterProxy, PatternProxyFactory, pattern_proxy_for
-from .adapters import UiNodeAdapter, UiNodeTechnology
+from .adapters import UiNodeAdapter
 from .context import ContextBase, ContextFactory, UnknownContext, context
 from .descriptor import (
     ElementDescriptor,
@@ -58,8 +58,7 @@ from .locator import Locator, LocatorScope, locator
 from .predicate import predicate
 from .runtime import Runtime, runtime
 from .settings import Settings
-from .technology import Technology
-from .types import FrameworkId, MouseButton, PatternName, RoleName, TechnologyName
+from .types import FrameworkId, MouseButton, PatternName, RoleName
 from .wait import wait_for
 from .weight_calculator import AdapterLike, WeightCalculator
 
@@ -111,10 +110,7 @@ __all__ = [
     'Runtime',
     'RuntimeAdapterFactory',
     'Settings',
-    'Technology',
-    'TechnologyName',
     'UiNodeAdapter',
-    'UiNodeTechnology',
     'UnknownContext',
     'VirtualPoint',
     'WeightCalculator',

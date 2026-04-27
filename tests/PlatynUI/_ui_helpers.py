@@ -497,7 +497,6 @@ def make_adapter(
     a.supported_patterns = MagicMock(return_value=set(pattern_map or {}))
     a.attribute_names = MagicMock(return_value=set())
     a.attributes = MagicMock(return_value=iter(()))
-    a.technology = MagicMock()
 
     pmap = pattern_map or {}
 

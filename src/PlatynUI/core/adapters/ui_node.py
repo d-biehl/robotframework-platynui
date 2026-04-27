@@ -26,28 +26,11 @@ from ..adapter import Adapter
 from ..patterns.base import PatternBase
 from ..patterns.focusable import Focusable
 from ..runtime import runtime
-from ..technology import Technology
 
 if TYPE_CHECKING:
     from ..types import FrameworkId, PatternName, RoleName
 
-__all__ = ['UiNodeAdapter', 'UiNodeTechnology']
-
-
-class UiNodeTechnology(Technology):
-    """Marker singleton identifying the native UI-tree technology."""
-
-    _instance: ClassVar['UiNodeTechnology | None'] = None
-
-    def __new__(cls) -> 'UiNodeTechnology':
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-
-# Pre-built singleton so adapters do not pay the __new__ check on every
-# .technology access.
-_TECHNOLOGY: UiNodeTechnology = UiNodeTechnology()
+__all__ = ['UiNodeAdapter']
 
 
 # ----------------------------------------------------------------------
@@ -150,11 +133,6 @@ class UiNodeAdapter(Adapter):
     @override
     def runtime_id(self) -> str:
         return self._node.runtime_id
-
-    @property
-    @override
-    def technology(self) -> Technology:
-        return _TECHNOLOGY
 
     # ------------------------------------------------------------------
     # Structural relationships

@@ -33,27 +33,10 @@ from PlatynUI.core.exceptions import (
     PatternNotSupportedError,
 )
 from PlatynUI.core.patterns import Activatable, PatternBase
-from PlatynUI.core.technology import Technology
 
 # ---------------------------------------------------------------------------
 # Test fixtures
 # ---------------------------------------------------------------------------
-
-
-class _FakeTechnology(Technology):
-    @property
-    def name(self) -> str:
-        return 'fake'
-
-
-class _OtherTechnology(Technology):
-    @property
-    def name(self) -> str:
-        return 'other'
-
-
-_FAKE_TECH = _FakeTechnology()
-_OTHER_TECH = _OtherTechnology()
 
 
 class _RecordingActivatable(Activatable):
@@ -86,7 +69,6 @@ class _FakeAdapter(Adapter):
         framework_id: str = '',
         class_name: str = '',
         tag_name: str = '',
-        technology: Technology | None = None,
         attributes: dict[tuple[str, str], object] | None = None,
         resolvable: dict[str, PatternBase] | None = None,
     ) -> None:
@@ -97,7 +79,6 @@ class _FakeAdapter(Adapter):
         self._framework_id = framework_id
         self._class_name = class_name
         self._tag_name = tag_name
-        self._technology = technology if technology is not None else _FAKE_TECH
         self._attributes = dict(attributes) if attributes else {}
         self._resolvable = dict(resolvable) if resolvable else {}
 
@@ -108,10 +89,6 @@ class _FakeAdapter(Adapter):
     @property
     def runtime_id(self) -> str:
         return self._runtime_id
-
-    @property
-    def technology(self) -> Technology:
-        return self._technology
 
     @property
     def parent(self) -> Adapter | None:
@@ -231,7 +208,6 @@ def test_delegates_identity_and_structure() -> None:
     proxy = _BareProxy(a)
     assert proxy.runtime_id == 'rt-7'
     assert proxy.valid is True
-    assert proxy.technology is _FAKE_TECH
     assert proxy.parent is None
     assert proxy.children == ()
     assert proxy.role == 'Button'
@@ -490,17 +466,16 @@ def test_find_proxy_for_picks_highest_score() -> None:
 
     # Generic match (role only): 10 000
     PatternProxyFactory.register(_BareProxy, {'role': 'Button'})
-    # Specific match (role + framework_id + technology): much higher
+    # Specific match (role + framework_id): much higher
     PatternProxyFactory.register(
         _SpecificProxy,
         {
             'role': 'Button',
             'framework_id': 'wpf',
-            'technology': _FakeTechnology,
         },
     )
 
-    a = _FakeAdapter(role='Button', framework_id='wpf', technology=_FAKE_TECH)
+    a = _FakeAdapter(role='Button', framework_id='wpf')
     result = PatternProxyFactory.find_proxy_for(a)
     assert isinstance(result, _SpecificProxy)
 
@@ -521,19 +496,6 @@ def test_find_proxy_for_uses_attribute_criteria() -> None:
         role='Label',
         attributes={('control', 'ClassName'): 'OtherClass'},
     )
-    assert isinstance(
-        PatternProxyFactory.find_proxy_for(matching), _ActivatableProxy
-    )
-    assert PatternProxyFactory.find_proxy_for(other) is other
-
-
-def test_find_proxy_for_filters_by_technology() -> None:
-    PatternProxyFactory.register(
-        _ActivatableProxy,
-        {'role': 'Button', 'technology': _FakeTechnology},
-    )
-    matching = _FakeAdapter(role='Button', technology=_FAKE_TECH)
-    other = _FakeAdapter(role='Button', technology=_OTHER_TECH)
     assert isinstance(
         PatternProxyFactory.find_proxy_for(matching), _ActivatableProxy
     )
@@ -575,7 +537,6 @@ def test_pattern_proxy_for_supports_full_criteria_set() -> None:
         framework_id='wpf',
         class_name='Btn',
         tag_name='button',
-        technology=_FakeTechnology,
         attributes={'IsFocused': True},
     )
     class _FullProxy(AdapterProxy):
@@ -591,7 +552,6 @@ def test_pattern_proxy_for_supports_full_criteria_set() -> None:
         'framework_id': 'wpf',
         'class_name': 'Btn',
         'tag_name': 'button',
-        'technology': _FakeTechnology,
         'attributes': {'IsFocused': True},
     }
 

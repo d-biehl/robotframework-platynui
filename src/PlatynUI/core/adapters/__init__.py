@@ -10,6 +10,6 @@ through `AdapterProxy` overlays
 rather than through alternative adapter classes.
 """
 
-from .ui_node import UiNodeAdapter, UiNodeTechnology
+from .ui_node import UiNodeAdapter
 
-__all__ = ['UiNodeAdapter', 'UiNodeTechnology']
+__all__ = ['UiNodeAdapter']

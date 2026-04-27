@@ -81,7 +81,6 @@ def _make_adapter(
     a.attribute_value = MagicMock(return_value=None)
     a.attribute_names = MagicMock(return_value=set())
     a.attributes = MagicMock(return_value=iter(()))
-    a.technology = MagicMock()
     return a
 
 

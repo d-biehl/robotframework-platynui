@@ -12,7 +12,6 @@ with simple stubs.
 
 Scoring weights:
 
-* ``technology`` — 100 000
 * ``role`` exact match — 10 000; entry in ``supported_roles`` — ``5000 - i``
 * ``framework_id`` — 1 000
 * ``class_name`` — 500
@@ -35,11 +34,6 @@ __all__ = ['AdapterLike', 'WeightCalculator']
 @runtime_checkable
 class AdapterLike(Protocol):
     """Minimal adapter surface required by ``WeightCalculator``."""
-
-    @property
-    def technology(self) -> Any:
-        """The platform technology this adapter belongs to."""
-        ...
 
     @property
     def supported_patterns(self) -> 'list[PatternName]':
@@ -127,12 +121,6 @@ class WeightCalculator:
     def calculate(self, criteria: dict[str, object]) -> int:
         """Return the match weight, or ``0`` if any criterion fails."""
         weight = 0
-
-        if criteria.get('technology') is not None:
-            if self.test_values(type(self.adapter.technology), criteria['technology']):
-                weight += 100_000
-            else:
-                return 0
 
         if criteria.get('role') is not None:
             if self.cached('role') == criteria['role']:

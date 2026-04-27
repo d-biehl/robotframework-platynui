@@ -34,11 +34,10 @@ import platynui_native as _pn
 import pytest
 
 from PlatynUI.core.adapter import Adapter
-from PlatynUI.core.adapters import UiNodeAdapter, UiNodeTechnology
+from PlatynUI.core.adapters import UiNodeAdapter
 from PlatynUI.core.exceptions import PatternNotSupportedError
 from PlatynUI.core.patterns import Element, Focusable
 from PlatynUI.core.runtime import runtime
-from PlatynUI.core.technology import Technology
 
 # ----------------------------------------------------------------------
 # Fixtures
@@ -106,16 +105,6 @@ def test_runtime_id_matches_native_node(main_window_adapter: UiNodeAdapter) -> N
 
 def test_valid_flag_reflects_node_state(desktop_adapter: UiNodeAdapter) -> None:
     assert desktop_adapter.valid is True
-
-
-def test_technology_is_singleton(desktop_adapter: UiNodeAdapter, main_window_adapter: UiNodeAdapter) -> None:
-    assert isinstance(desktop_adapter.technology, UiNodeTechnology)
-    assert desktop_adapter.technology is main_window_adapter.technology
-    assert UiNodeTechnology() is desktop_adapter.technology
-
-
-def test_technology_subclasses_base_marker(desktop_adapter: UiNodeAdapter) -> None:
-    assert isinstance(desktop_adapter.technology, Technology)
 
 
 def test_equality_uses_runtime_id(native_runtime: _pn.Runtime) -> None:

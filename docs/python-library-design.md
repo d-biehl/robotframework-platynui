@@ -4,9 +4,20 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 34**.
+> **Status:** Diskussionsentwurf, **Revision 35**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 35** — **`Technology`-Marker entfernt.** Die einzige
+>   real existierende Technology der Bibliothek ist `UiNode` (siehe
+>   §A.11), und `framework_id` deckt jede aktuell vorstellbare
+>   Diskriminierung zwischen Plattformen/Toolkits bereits ab. Die
+>   `Technology`-ABC + `UiNodeTechnology`-Singleton + das
+>   `technology`-Kriterium des `WeightCalculator` und der
+>   `pattern_proxy_for(technology=...)`-Parameter waren in der neuen
+>   Architektur funktionslos und sind komplett entfernt. `Adapter`
+>   exposeniert kein `.technology` mehr; `core/technology.py` und
+>   `TechnologyName` sind weg. Falls jemals eine zweite
+>   Python-seitige Technology nötig wird, ist der Re-Add trivial.
 > - **Rev. 34** — **Item-Hierarchie + Container-Klassen
 >   (§A.14.13–§A.14.21).** Phase 4c führt vier neue Patterns
 >   (`Selectable`, `Expandable`, `HasEditor`, `ItemContainer`)
@@ -421,7 +432,7 @@ wird teilweise stark vereinfacht):
 | `core/ensure.py` | 155 | Retry mit Prädikaten | **Ja**, vereinfacht (~50 LOC) |
 | `core/wait_for.py` | 51 | Polling bis Prädikat | **Ja, 1:1** |
 | `core/settings.py` | 66 | Timeouts, Delays | **Ja, 1:1** |
-| `core/technology.py` + `AdapterFactory` | — | Bridge zu C#-Providern | `technology.py` als Marker portiert; `AdapterFactory` als Singleton neu (siehe §A.4b) — die per-Technology-Registry des Altprojekts entfällt zugunsten einer Default-Factory pro Prozess |
+| `AdapterFactory` | — | Bridge zu C#-Providern | `AdapterFactory` als Singleton neu (siehe §A.4b) — die per-Technology-Registry des Altprojekts entfällt zugunsten einer Default-Factory pro Prozess |
 | `ui/locator.py` | 433 | XPath-Builder aus Attributen | **Ja**, ~100 LOC dank Rust-XPath |
 | `ui/proxies/standardproxies.py` | 408 | Standard-Proxies pro Rolle | **Ja**, das Herzstück |
 | `ui/element.py`, `window.py`, `buttons.py`, … | ~1500 | UI-Klassen (Context-Basis) | **Ja** |
@@ -429,7 +440,7 @@ wird teilweise stark vereinfacht):
 | `_assertable.py` | — | bereits portiert | ✅ |
 
 **Gesamtgröße alt:** ~4.600 LOC. **Geschätzte Zielgröße:** ~2.000 LOC, weil
-Adapter-/Technology-Bridge und XPath-Builder dramatisch schrumpfen.
+die Adapter-Bridge und der XPath-Builder dramatisch schrumpfen.
 
 ## 2. Designprinzipien (das Mental Model)
 
@@ -542,9 +553,9 @@ Code und werden in jedem nachfolgenden Abschnitt vorausgesetzt:
 - **`typing.Self`** für Builder-Pattern und Methoden, die `self`-Typ
   zurückgeben (z.B. `Locator.with_role(...)`).
 - **`typing.TypeAlias`**: zentrale Aliases für `PatternName`,
-  `RoleName`, `TechnologyName`, `FrameworkId`. Ein Punkt zum Ändern,
+  `RoleName`, `FrameworkId`. Ein Punkt zum Ändern,
   semantisch klar. Freie Strings — kein Enum-Zwang, damit
-  app-spezifische Rollen/Technologien problemlos mitgeführt werden
+  app-spezifische Rollen problemlos mitgeführt werden
   können.
 - **Generics** für typisierte Wrapper (`PatternProxy[P]`,
   `AdapterRef[T]`) — ersetzt `cast()`-Aufrufe an Aufrufstellen.
@@ -713,7 +724,6 @@ Jede Registrierung gibt eine Teilmenge dieser Kriterien an:
 
 | Kriterium | Beispiel | Gewicht |
 |---|---|---|
-| `technology` | `UiNodeTechnology` | +100000 (oder reject) |
 | `role` (exakt) | `"Button"` | +10000 (oder reject) |
 | `role` (in `supported_roles`) | `"ToggleButton" ∈ {"Button", "ToggleButton"}` | +5000 - i |
 | `framework_id` | `"WPF"` | +1000 (oder reject) |
@@ -844,10 +854,8 @@ Proxies.
 
 **Kein Runtime-Singleton** — der Adapter wird über die Parent-Chain
 weitergereicht; das Wurzel-Context-Objekt (`Desktop`, siehe §A.8)
-hält den initialen Adapter und bestimmt damit die Technology für
-seinen gesamten Sub-Tree. Das `technology`-Kriterium des
-`WeightCalculator` (§4.1) liest die Technology aus dem
-Adapter-Objekt selbst (`adapter.technology`), nicht aus dem Locator.
+hält den initialen Adapter, von dem aus der gesamte Sub-Tree
+resolved wird.
 
 ## 5. Patterns als Capability-Marker
 
@@ -1346,8 +1354,6 @@ Eine zukünftige `JsonRpcAdapter`-Implementierung würde:
 
 - `Adapter`-Interface implementieren (Identität, Attribute, Patterns,
   Beziehungen)
-- ihre eigene `Technology`-Markierung tragen (relevant für
-  `WeightCalculator`-Kriterium `technology`)
 - eine eigene `AdapterFactory`-Implementierung mitbringen (siehe
   §A.4b) und sie über `adapter_factory.use_factory(...)` als
   Default einhängen oder via `adapter_factory.override(...)` scope-
@@ -1550,7 +1556,6 @@ src/PlatynUI/
 │   ├── wait.py                     # wait_for (~40 LOC)
 │   ├── settings.py                 # Settings dataclass (~70 LOC)
 │   ├── exceptions.py               # Exception-Hierarchie
-│   ├── technology.py               # Technology-Marker (~40 LOC)
 │   ├── types.py                    # TypeAliases (PatternName, RoleName, FrameworkId, …)
 │   ├── patterns/                   # Pattern-Interfaces (im Altprojekt: strategies/)
 │   │   ├── __init__.py             # re-exports
@@ -1815,8 +1820,6 @@ class Adapter(ABC):
     def valid(self) -> bool: ...
     @property @abstractmethod
     def runtime_id(self) -> str: ...
-    @property @abstractmethod
-    def technology(self) -> "Technology": ...
 
     # Strukturelle Beziehungen
     @property @abstractmethod
@@ -1924,7 +1927,7 @@ Echte „Pattern direkt instanziiert"-Fehler werden weiterhin von
 **`AdapterProxy`** (siehe §4 / §5.1) ist eine `Adapter`-Subklasse, die
 ihre Adapter-Identität vollständig per Komposition aus einem
 gewrappten `adapter: Adapter` bezieht. Alle Adapter-ABC-Methoden
-(`valid`, `runtime_id`, `technology`, `parent`, `children`,
+(`valid`, `runtime_id`, `parent`, `children`,
 Suchkriterien, Attribute, `_resolve_pattern`) delegieren transparent
 an den Wrapped-Adapter; eigenständige Logik gibt es nur in
 `get_pattern` (eigene Patterns zuerst, dann `adapter.get_pattern`),
@@ -1979,10 +1982,6 @@ Aufgabenkatalog:
   über Tree-Reloads); `__eq__` / `__hash__` folgen der Adapter-ABC
   (§A.4 Z. 1617). `parent` / `children` werden bei jedem Aufruf neu
   aus `UiNode` geholt — der Rust-Cache regelt Wiederverwendung.
-- **Technology**: `UiNodeTechnology` ist ein `Technology`-Subclass mit
-  klassischem `__new__`-Singleton; das Modul hält eine fertig
-  konstruierte Instanz (`_TECHNOLOGY`), so dass `.technology` keine
-  Allokation auslöst.
 - **Native-Node-Zugriff (`native_node` Property)**: read-only Property,
   liefert das gewrappte `platynui_native.UiNode`. Public, weil die
   `RuntimeAdapterFactory` (§A.4b) das Handle zum Aufruf von
@@ -3112,7 +3111,7 @@ damit das vom Native-Node gelieferte Pattern (siehe §A.4 / §4.2).
 
 Highlight und Screenshots gehören nicht zum Element-Vertrag, sondern
 zur **Diagnose-Schicht**. Sie erweitern `Element` um zwei Methoden,
-die direkt auf das `DisplayDevice` der Adapter-Technology zugreifen.
+die auf das `DisplayDevice` der aktiven Runtime zugreifen.
 
 ```python
 class DisplayDevice(ABC):
@@ -3137,7 +3136,7 @@ class Element(Control):
             raise_exception=False,
             timeout=Settings.current().element_highlight_ensure_timeout,
         )
-        self.adapter.technology.display_device.highlight_rect(rect, time=time)
+        self.adapter.display_device.highlight_rect(rect, time=time)
 
     def get_screenshot(self, rect: Rect | None = None, *,
                        format: str | None = None,
@@ -4692,7 +4691,7 @@ bauen auf früheren auf.
 ### Phase 1 — Fundament
 
 1. `core/types.py` — `TypeAlias`es (`PatternName`, `RoleName`,
-   `TechnologyName`, `FrameworkId`) als freie String-Aliases; zusätzlich
+   `FrameworkId`) als freie String-Aliases; zusätzlich
    Re-Export `Point`/`Rect` aus `platynui_native` (Rev. 17)
 2. `core/settings.py` — als `@dataclass(frozen=True, slots=True, kw_only=True)`,
    mit `with`-Block und RF-Variablen-Brücke (siehe §9a.1)
@@ -4706,10 +4705,9 @@ bauen auf früheren auf.
    Standard-Predicates und Context-Predicates, siehe §A.3)
 7. `core/weight_calculator.py` — Port aus Altprojekt, `MatchCriteria`
    als Dataclass; `attribute_value(name, namespace)`-basiert (Rev. 15)
-8. `core/technology.py` — Technology-Marker (Singleton via `__new__`),
-   ohne AdapterFactory-Registry — die `AdapterFactory` ist seit Rev. 23
-   ein eigenes Singleton (`core/adapter_factory.py`, siehe §A.4b) und
-   wird in Phase 2 portiert
+8. ~~`core/technology.py`~~ — entfallen (siehe Rev. 35); die
+   Nummerierung der nachfolgenden Punkte bleibt zur Stabilität der
+   Querverweise erhalten.
 9. `core/locator.py` — neu, XPath-basiert über Rust, API nach §A.6
    (`@overload`, Builder-Methoden geben `Self` zurück, `copy_from`-
    Vererbung; `attributes` mit Tupel- oder String-Keys; Default-NS
@@ -4973,7 +4971,7 @@ Code-Änderung nötig. Phase 0 ist eine Smoke-Verifikation: AT-SPI-Tree
 inspizieren, ggf. deterministische Widget-Szenarien ergänzen.
 
 **Phase 1 (Foundation):** pytest für `types`, `settings`, `wait`,
-`ensure`, `weight_calculator`, `technology`, `locator`.
+`ensure`, `weight_calculator`, `locator`.
 
 **Phase 2 (Patterns/Adapter):** pytest mit Inline-Fakes für die ABC-/
 Resolution-Algorithmen (`Adapter`, `AdapterProxy`, `PatternProxyFactory`)
@@ -5436,7 +5434,7 @@ User-Code, der nur Strings vergleicht, ist nicht betroffen.
 - **Pre-Conditions → Perform → Postcondition** ist der universelle
   Lebenszyklus jeder Aktion. Verifikation ist erstklassig.
 - **~50 % Code-Reduktion** gegenüber dem Altprojekt (4.600 → ~2.000 LOC),
-  weil Adapter-/Technology-Bridge und XPath-Builder dank Rust schrumpfen
+  weil die Adapter-Bridge und der XPath-Builder dank Rust schrumpfen
   — die Konzepte aber 1:1 erhalten bleiben.
 - **Modernes Python 3.12+** ist verbindlich (siehe §2.6): ABC als
   Default für Pattern-Interfaces, Dataclasses

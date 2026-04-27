@@ -7,10 +7,12 @@ in das neue Rust-basierte Projekt verfolgt.
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
 **Stand:** 2026-04-27
-**Aktuelle Revision:** Rev. 34 (Item-Hierarchie + Container-Klassen
-für Phase 4c spezifiziert: vier neue Patterns
-(`Selectable`/`Expandable`/`HasEditor`/`ItemContainer`), Item-
-Mixin-Klassen, Container-/ComboBox-/Tree-/Table-Klassen)
+**Aktuelle Revision:** Rev. 35 (`Technology`-Marker entfernt — `UiNode`
+ist die einzige real existierende Technology, `framework_id` deckt
+jede aktuell vorstellbare Diskriminierung ab; `core/technology.py`,
+`UiNodeTechnology`, `Adapter.technology`, das `technology`-
+Kriterium des `WeightCalculator` und `pattern_proxy_for(technology=...)`
+sind komplett entfallen).
 
 ---
 
@@ -377,8 +379,9 @@ spätere Quelltext-Änderungen an Contexts.
 - [x] `core/adapter_proxy.py` — `AdapterProxy` (Komposition),
       `PatternProxyFactory`, `@pattern_proxy_for`. 36 Tests.
 - [x] `core/adapters/ui_node.py` — `UiNodeAdapter` über `platynui_native`
-      (§A.4a) inkl. `UiNodeTechnology`-Singleton und nativer
-      `Focusable`-Wrapper. 32 Tests gegen `Runtime.new_with_mock()`.
+      (§A.4a) mit nativen `Focusable`-Wrappern. 32 Tests gegen
+      `Runtime.new_with_mock()`. (Der ursprünglich vorgesehene
+      `UiNodeTechnology`-Singleton ist mit Rev. 35 entfallen.)
 - [x] `core/runtime.py` — Process-wide Runtime-Singleton (`runtime` /
       Klasse `Runtime`) mit `current` (lazy default), `set()`, `reset()`,
       `is_initialised()`. 12 Tests. Designdoc §A.5 (Rev. 20).

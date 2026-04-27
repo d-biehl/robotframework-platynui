@@ -10,14 +10,6 @@ from typing import Any
 from PlatynUI.core import WeightCalculator
 
 
-class _MockTechnology:
-    pass
-
-
-class _OtherTechnology:
-    pass
-
-
 class _MockAdapter:
     """Minimal duck-typed adapter for weight-calculator tests.
 
@@ -29,7 +21,6 @@ class _MockAdapter:
     def __init__(
         self,
         *,
-        technology: object | None = None,
         role: str | None = None,
         supported_roles: list[str] | None = None,
         framework_id: str | None = None,
@@ -37,7 +28,6 @@ class _MockAdapter:
         tag_name: str | None = None,
         attributes: dict[tuple[str, str], Any] | None = None,
     ) -> None:
-        self.technology = technology if technology is not None else _MockTechnology()
         self.role = role
         self.supported_roles = supported_roles or []
         self.framework_id = framework_id
@@ -56,16 +46,6 @@ class _MockAdapter:
 def test_no_criteria_returns_zero() -> None:
     calc = WeightCalculator(_MockAdapter())
     assert calc.calculate({}) == 0
-
-
-def test_technology_match() -> None:
-    calc = WeightCalculator(_MockAdapter(technology=_MockTechnology()))
-    assert calc.calculate({'technology': _MockTechnology}) == 100_000
-
-
-def test_technology_mismatch_returns_zero() -> None:
-    calc = WeightCalculator(_MockAdapter(technology=_MockTechnology()))
-    assert calc.calculate({'technology': _OtherTechnology}) == 0
 
 
 def test_role_exact_match() -> None:
