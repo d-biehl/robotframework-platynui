@@ -252,7 +252,7 @@ def test_before_after_action_invoked(native_runtime: MagicMock) -> None:
 
 
 def test_adapter_default_click_falls_back_to_element_when_no_activation() -> None:
-    """Without ``ActivationTarget`` we use ``Element.default_click_position``."""
+    """Without ``ActivationTarget`` we fall back to ``Element.bounds.center()``."""
     elem = _ElementStub(Rect(0.0, 0.0, 100.0, 50.0))
     proxy = AdapterMouseProxy(_StubAdapter(elem))  # type: ignore[arg-type]
     assert proxy.default_click_position == Point(50.0, 25.0)

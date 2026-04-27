@@ -7,10 +7,10 @@ in das neue Rust-basierte Projekt verfolgt.
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
 **Stand:** 2026-04-27
-**Aktuelle Revision:** Rev. 31 (`is_multi_line` von `TextContent`
-auf `TextEditable` verschoben — Multi-Line-Eigenschaft ist nur
-für editierbare Felder verhaltens-relevant; `Edit.is_multi_line`
-liest aus `TextEditable`, `Text` exposed sie nicht)
+**Aktuelle Revision:** Rev. 33 (`Element.default_click_position` aus
+dem Pattern entfernt — saubere Trennung Geometrie ↔ Klick-Capability;
+Fallback-Kette des `AdapterMouseProxy` endet jetzt bei
+`Element.bounds.center()` statt der Pattern-Property)
 
 ---
 
@@ -210,7 +210,7 @@ SemVer-Breaking.
 
 | Rust-Modul | Pattern-Name | Python-Klasse | Methoden / Properties |
 |---|---|---|---|
-| `attributes::element` | `Element` | `Element` | `bounds`, `is_visible`, `is_in_view`, `is_enabled`, `default_click_position` |
+| `attributes::element` | `Element` | `Element` | `bounds`, `is_visible`, `is_in_view`, `is_enabled` |
 | `attributes::text_content` | `TextContent` | `TextContent` | `text`, `locale`, `is_truncated` |
 | `attributes::text_editable` | `TextEditable` | `TextEditable` | `set_text()`, `is_readonly`, `max_length`, `supports_password_mode`, `is_multi_line` |
 | `attributes::clearable` (leer) | `Clearable` | `Clearable` | `clear()` |
@@ -253,8 +253,9 @@ HasIsEnabled` → `Element`; `Toggleable + HasToggleState` →
       `platynui_native` (kanonische pyo3-Bindings statt eigener
       Definition)
 - [x] `core/patterns/element.py` (NEU): `Element` mit `bounds`,
-      `is_visible`, `is_in_view`, `is_enabled`,
-      `default_click_position` (nutzt `Rect.center()` als Methode)
+      `is_visible`, `is_in_view`, `is_enabled` (Rev. 33:
+      `default_click_position` entfernt — lebt jetzt nur noch im
+      `MouseProxy`)
 - [x] `core/patterns/focusable.py` (NEU): `Focusable` mit
       `is_focused` + `focus()`
 - [x] `core/patterns/text.py` (umgeschrieben): `TextContent`,

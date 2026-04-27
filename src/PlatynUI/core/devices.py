@@ -330,12 +330,12 @@ class AdapterMouseProxy(MouseProxy):
     """Standard `MouseProxy` bound to a UI adapter.
 
     Reads the bounding box from the adapter's ``Element`` pattern and
-    determines the default click position from the adapter's patterns,
+    determines the default click position via a two-stage fallback,
     preferring an explicit activation target over the element centre:
 
     1. Centre of ``ActivationTarget.activation_area`` if set.
     2. ``ActivationTarget.activation_point`` if the pattern is supported.
-    3. ``Element.default_click_position`` otherwise.
+    3. Centre of ``Element.bounds`` otherwise.
 
     When the adapter exposes an ``ActivationTarget.activation_hint``,
     each action logs it on DEBUG via the ``platynui.devices`` logger.
@@ -357,7 +357,7 @@ class AdapterMouseProxy(MouseProxy):
             if target.activation_area is not None:
                 return target.activation_area.center()
             return target.activation_point
-        return self._adapter.get_pattern(patterns.Element).default_click_position
+        return self._adapter.get_pattern(patterns.Element).bounds.center()
 
     @override
     def before_action(self, action: MouseAction) -> None:

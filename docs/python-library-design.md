@@ -4,9 +4,21 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 28**.
+> **Status:** Diskussionsentwurf, **Revision 33**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 33** — **`Element.default_click_position` entfernt.** Saubere
+>   Trennung Geometrie (`Element`) ↔ Klick-Capability
+>   (`ActivationTarget`): das Element-Pattern liefert nur noch
+>   `bounds`, `is_visible`, `is_in_view`, `is_enabled`. Der
+>   Default-Klickpunkt lebt vollständig im `MouseProxy`. Die
+>   `AdapterMouseProxy`-Fallback-Kette ist damit zweistufig:
+>   `ActivationTarget.activation_area.center()` →
+>   `ActivationTarget.activation_point` (falls Pattern unterstützt),
+>   sonst `Element.bounds.center()`. Begründung: Rust kennt nur
+>   `ActivationPoint`, kein `DefaultClickPosition`-Attribut; die
+>   Property war Convenience ohne Rust-Backing und vermischte
+>   Geometrie- und Interaktions-Verantwortung.
 > - **Rev. 32** — **Pattern-Hierarchie bleibt flach (Klarstellung).**
 >   `TextEditable` erbt bewusst nicht von `TextContent`, obwohl
 >   jedes editierbare Feld auch lesbaren Inhalt hat. Begründung:
@@ -57,9 +69,10 @@
 >   `_application_is_ready` kombiniert ein Top-Level-`HasUserInput`-
 >   Pattern mit einer optionalen User-`Application.is_ready()`-
 >   Methode (Tree-Walk-up, lazy gecached). Mouse-/Keyboard-Module
->   ziehen nach `core/devices/`. `default_click_position` entfällt
->   zugunsten des `ActivationTarget`-Patterns. `bounding_rectangle`
->   heißt jetzt `bounds`.
+>   ziehen nach `core/devices/`. `bounding_rectangle`
+>   heißt jetzt `bounds`. (Anmerkung Rev. 33: `default_click_position`
+>   wurde aus dem Element-Pattern komplett entfernt — siehe Rev. 33
+>   oben.)
 > - **Rev. 25** — **Granulare Window-Capability-Patterns (§A.13).**
 >   Das aktuelle Rust-`WindowSurfacePattern` ist eine **Arbeits-
 >   version**; im finalen Modell zerfällt es in eine Suite kleiner,
@@ -308,8 +321,9 @@
 >   `crates/core/src/ui/identifiers.rs`) angeglichen. Konkret:
 >   (a) **`HasBounds` + `Visibility` + `HasIsEnabled`** werden zu
 >   einem Pattern `Element` mit `bounds`, `is_visible`, `is_in_view`,
->   `is_enabled`, `default_click_position` zusammengeführt — analog zum
->   Rust-Modul `attributes::element`. (b) **`EditableText`** wird in
+>   `is_enabled` zusammengeführt — analog zum
+>   Rust-Modul `attributes::element`. (Anmerkung Rev. 33: ursprünglich
+>   inkl. `default_click_position`; in Rev. 33 wieder entfernt.) (b) **`EditableText`** wird in
 >   drei Patterns aufgeteilt: `TextContent` (read-only Properties
 >   `text`, `locale`, `is_truncated`), `TextEditable`
 >   (`set_text()` + `is_readonly`, `max_length`, `supports_password_mode`,
@@ -490,9 +504,10 @@ Code und werden in jedem nachfolgenden Abschnitt vorausgesetzt:
   Instanzierungszeit erzwungen — echter `TypeError`, kein stiller
   Protocol-Miss; (b) `isinstance`-Checks laufen billig über die MRO
   ohne `@runtime_checkable`-Overhead; (c) **Default-Method-Vererbung
-  funktioniert verlässlich**: wenn z.B. `Element` eine
-  `default_click_position()`-Methode mit Default-Implementierung
-  anbietet, erbt jeder nominale Implementierer sie automatisch.
+  funktioniert verlässlich**: wenn ein Pattern-ABC eine konkrete
+  Methode mit Default-Implementierung anbietet (z.B. eine abgeleitete
+  Bequemlichkeits-API auf Basis abstrakter Properties), erbt jeder
+  nominale Implementierer sie automatisch.
   Strukturelle Protocol-Implementierer würden den Default *nicht*
   bekommen — ein stiller Footgun. `typing.Protocol` setzen wir nur
   punktuell ein, wo strukturelles Typing echten Mehrwert bringt (z.B.
@@ -1008,10 +1023,6 @@ class Element(PatternBase):
     @property
     @abstractmethod
     def is_enabled(self) -> bool: ...
-    @property
-    def default_click_position(self) -> Point:
-        """Typisch bounds.center(); Adapter überschreiben bei Bedarf."""
-        return self.bounds.center()
 
 
 # core/patterns/focusable.py
@@ -2926,13 +2937,13 @@ class AdapterMouseProxy(MouseProxy):
     @property
     def default_click_position(self) -> Point:
         # Fallback-Kette gemäß patterns.md / Spec §A.9:
-        # ActivationArea-Center → ActivationPoint → Element.default_click_position
+        # ActivationArea-Center → ActivationPoint → Element.bounds.center()
         if self._adapter.supports_pattern(patterns.ActivationTarget):
             target = self._adapter.get_pattern(patterns.ActivationTarget)
             if target.activation_area is not None:
                 return target.activation_area.center()
             return target.activation_point
-        return self._adapter.get_pattern(patterns.Element).default_click_position
+        return self._adapter.get_pattern(patterns.Element).bounds.center()
 
     def before_action(self, action: MouseAction) -> None:
         if self._adapter.supports_pattern(patterns.ActivationTarget):
@@ -3443,10 +3454,11 @@ class Element(ContextBase, register=False):
     def keyboard(self) -> Keyboard: ...
 ```
 
-`default_click_position` aus dem Altprojekt entfällt; den richtigen
-Klick-Punkt liefert das `ActivationTarget`-Pattern
-(`ActivationTarget.activation_point` → Fallback `bounds.center`,
-implementiert im `MouseProxy.get_base_point()`).
+`default_click_position` aus dem Altprojekt entfällt sowohl auf
+`Element` als auch als API-Property auf `Element` (Page-Object); den
+richtigen Klick-Punkt liefert die `AdapterMouseProxy`-Fallback-Kette
+über das `ActivationTarget`-Pattern, mit `Element.bounds.center()`
+als letztem Fallback (siehe §A.9.4).
 
 **Predicates** (Underscore-Prefix wie Altprojekt; intern aber zur
 Override durch Subklassen vorgesehen):

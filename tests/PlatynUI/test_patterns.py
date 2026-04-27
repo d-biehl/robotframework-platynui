@@ -157,33 +157,9 @@ def test_concrete_element_implementation() -> None:
 
     b = Box()
     assert b.bounds == Rect(10.0, 20.0, 4.0, 8.0)
-    assert b.default_click_position == Point(12.0, 24.0)
     assert b.is_visible is True
     assert b.is_in_view is True
     assert b.is_enabled is True
-
-
-def test_element_default_click_position_is_bounds_center() -> None:
-    """Default uses ``Rect.center`` from the native module."""
-
-    class Box(Element):
-        @property
-        def bounds(self) -> Rect:
-            return Rect(0.0, 0.0, 100.0, 50.0)
-
-        @property
-        def is_visible(self) -> bool:
-            return True
-
-        @property
-        def is_in_view(self) -> bool:
-            return True
-
-        @property
-        def is_enabled(self) -> bool:
-            return True
-
-    assert Box().default_click_position == Point(50.0, 25.0)
 
 
 def test_concrete_toggleable_implementation() -> None:
