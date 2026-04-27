@@ -7,12 +7,17 @@ in das neue Rust-basierte Projekt verfolgt.
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
 **Stand:** 2026-04-27
-**Aktuelle Revision:** Rev. 35 (`Technology`-Marker entfernt — `UiNode`
-ist die einzige real existierende Technology, `framework_id` deckt
-jede aktuell vorstellbare Diskriminierung ab; `core/technology.py`,
-`UiNodeTechnology`, `Adapter.technology`, das `technology`-
-Kriterium des `WeightCalculator` und `pattern_proxy_for(technology=...)`
-sind komplett entfallen).
+**Aktuelle Revision:** Rev. 36 (Phase 4d abgeschlossen — `Tabs`
+(TabList/TabItem) und `Menus` (Menu/MenuBar/MenuItem) als
+UI-Klassen implementiert. `TabItem` erbt `SelectableItem` analog
+zu `ListItem`; `MenuItem` erbt bewusst `Control` statt `Item`, da
+ein Menü-Eintrag semantisch ein eigenständiges interaktives
+Control ist — kein Container-Inhalt — und in der Praxis selbst
+Sub-Hierarchien aufmacht. `MenuItem.activate()` walked die
+Vorfahren-Kette bis `Window`/`DesktopBase` hoch und expandiert
+sie außen → innen, bevor `Activatable.activate()` auf self läuft.
+Designdoc §A.14.23/§A.14.24 ergänzt. 19 neue Tests, 630/630 grün,
+ruff/mypy/pyright clean. Phase 4e (Proxy-Schicht) als nächstes.)
 
 ---
 
@@ -30,7 +35,7 @@ sind komplett entfallen).
 | Phase 1 — Fundament | DONE | uncommitted; 10 Module incl. vorgezogenem `core/patterns/` (war Phase 2 #11); 128 pytest + 1980 nextest grün, ruff+mypy+pyright+clippy grün |
 | Phase 2 — Adapter-Schicht | DONE | Adapter-ABC + AdapterProxy + UiNodeAdapter + Runtime-Singleton committed; Pipeline-Lücke in Phase 4-pre geschlossen |
 | Phase 3 — Context-Schicht | DONE | `ContextBase`, `ContextFactory`, `@context`, `ElementDescriptor`, `@locator` Method-Form |
-| Phase 4 — UI-Klassen + Standard-Proxies | IN PROGRESS | 4-pre + 4a + 4b + 4c DONE (4c uncommitted); 4d offen, 4e bündelt am Ende die Proxy-Schicht — siehe Sub-Phasen unten |
+| Phase 4 — UI-Klassen + Standard-Proxies | IN PROGRESS | 4-pre + 4a + 4b + 4c + 4d DONE (4c + 4d uncommitted); 4e bündelt am Ende die Proxy-Schicht — siehe Sub-Phasen unten |
 | Phase 5 — Keywords + Robot-Library | PENDING | — |
 | Phase 6 — Iterative Erweiterungen | PENDING | — |
 
@@ -583,8 +588,38 @@ Provider-Bindings konkret werden.
 
 #### Phase 4d — Menus/Tabs (Item 21 Rest, UI-Teil)
 
-- [ ] `ui/menus.py`, `ui/tabs.py` UI-Klassen.
-- [ ] Tests pro UI-Klasse gegen Provider-Pattern-Pfad.
+Letzte Standard-Container der UI-Schicht. Tabs folgen dem
+List/ListItem-Muster aus Phase 4c. Menus sind eigenständig:
+`MenuItem` erbt `Control` (kein `Item`), und `activate()` muss
+die Vorgänger-Hierarchie öffnen, bevor der Blatt-Eintrag
+ausgelöst werden kann.
+
+- [x] Designdoc-Spec §A.14.23 (TabList/TabItem), §A.14.24
+      (Menu/MenuBar/MenuItem), Korrektur Z. 4105 (`MenuItem` raus
+      aus Item-Aufzählung), Rev-36-Note.
+- [x] `ui/tabs.py`: `TabItem(SelectableItem)`;
+      `TabList(Control)` mit `item_count`/`get_items`/
+      `iter_items`/`get_item`/`select` (Form gespiegelt von
+      `lists.py` mit `*, locator=None` und `scope='children'`).
+- [x] `ui/menus.py`: `Menu(Control)`; `MenuBar(Control)`;
+      `MenuItem(Control)` mit `activate()` (Vorfahren-Walk →
+      `expand()` von außen nach innen →  `Activatable.activate()`
+      auf self).
+- [x] `ui/__init__.py` Re-Exports + Hierarchie-Diagramm im
+      Modul-Docstring ergänzen.
+- [x] Tests:
+      - `test_tabs.py` (9 Tests): Registrierung, `item_count`,
+        `get_items`/`iter_items`/`get_item`/`select` mit
+        `scope='children'`, locator-Filter.
+      - `test_menus.py` (10 Tests): Registrierung Menu/MenuBar/
+        MenuItem; `activate()` ohne Vorfahren; fehlendes
+        `Activatable`-Pattern wirft; Vorfahren-Kette wird
+        außen → innen expandiert; bereits expandierter
+        Vorfahre wird übersprungen; Vorfahre ohne
+        `Expandable` wird still übergangen; Walk stoppt am
+        `Window`-Boundary; Walk durch Menu-Popup-Container
+        zwischen MenuItems.
+- [x] pytest grün (630 Tests, +19); ruff/mypy/pyright clean.
 
 #### Phase 4e — Proxy-Schicht (Item 16 Proxy-Teil + Items 17/18/19/20/21 Proxy-Teile)
 

@@ -4,9 +4,23 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 35**.
+> **Status:** Diskussionsentwurf, **Revision 36**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 36** — **`Tabs` und `Menus` UI-Klassen (§A.14.23 +
+>   §A.14.24).** Phase 4d ergänzt die letzten beiden Standard-
+>   Container der UI-Schicht. `TabList`/`TabItem` folgt dem List/
+>   ListItem-Muster aus Phase 4c (`TabItem(Item)` mit
+>   `Selectable`-Mixin via `SelectableItem`). `Menu`/`MenuBar`/
+>   `MenuItem` modellieren Menü-Hierarchien: `MenuItem` erbt
+>   bewusst `Control` (nicht `Item`) — ein Menü-Eintrag ist
+>   semantisch ein eigenständiges interaktives Control mit
+>   eigener Sub-Hierarchie, kein Container-Inhalt im Sinne von
+>   `ListItem`/`Cell`. Konsequenz: Z. 4105 wird korrigiert
+>   (`MenuItem` raus aus der Item-Aufzählung). `MenuItem.activate()`
+>   läuft die Vorfahren-Kette nach oben, expandiert jedes
+>   Vorgänger-`MenuItem` von außen nach innen und aktiviert dann
+>   self.
 > - **Rev. 35** — **`Technology`-Marker entfernt.** Die einzige
 >   real existierende Technology der Bibliothek ist `UiNode` (siehe
 >   §A.11), und `framework_id` deckt jede aktuell vorstellbare
@@ -4102,8 +4116,11 @@ Element
 `Item`, `SelectableItem`, `ExpandableItem`, `EditableItem` sind
 alle `register=False` — sie sind Capability-Mixins, keine
 selbstständigen Rollen. Konkrete Klassen (`ListItem`, `TreeItem`,
-`Cell`, `Row`, `MenuItem`, `TabItem`) erben von `Item` plus
+`Cell`, `Row`, `TabItem`) erben von `Item` plus
 einer beliebigen Kombination der Mixins per Mehrfachvererbung.
+`MenuItem` erbt dagegen `Control` (siehe §A.14.24), da ein
+Menü-Eintrag semantisch ein interaktives Control mit eigener
+Sub-Hierarchie ist und nicht der Inhalt eines Auswahl-Containers.
 
 ```python
 class Item(Element, register=False):
@@ -4680,6 +4697,130 @@ ist.
   Wahl zwischen reinem `os.kill(pid, 0)`-Polling (Unix) plus
   Windows-`ctypes`-Pfad versus späterem Wechsel zu `psutil` ist eine
   Implementations-Entscheidung beim Code-Schreiben.
+
+#### A.14.23 `TabList` und `TabItem` (`ui/tabs.py`)
+
+`TabList` ist ein Container mit `TabItem`-Kindern. Ein TabItem
+erbt `SelectableItem` (analog `ListItem`); die TabList exponiert
+`items`/`iter_items`/`get_item` und einen `select(...)`-Shortcut.
+
+```
+Element
+└── Control
+    └── TabList                       (default_prefix="control")
+└── Item
+    └── SelectableItem
+        └── TabItem                   (default_prefix="item")
+```
+
+```python
+class TabItem(SelectableItem):
+    """A selectable tab within a TabList."""
+
+
+class TabList(Control):
+    """Container of TabItems."""
+
+    @property
+    def item_count(self) -> int:
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(ItemContainer).item_count
+
+    @property
+    def items(self) -> list[TabItem]:
+        return list(self.iter_items())
+
+    def iter_items(self) -> Iterator[TabItem]:
+        return self.iter_all(TabItem, scope=LocatorScope.Children)
+
+    def get_item(self, *args: object, **kwargs: object) -> TabItem:
+        return self.get(TabItem, scope=LocatorScope.Children, *args, **kwargs)
+
+    def select(self, *args: object, **kwargs: object) -> TabItem:
+        item = self.get_item(*args, **kwargs)
+        item.select()
+        return item
+```
+
+`select(...)` ist eine Bequemlichkeits-API, die den passenden
+`TabItem` lokalisiert und `select()` darauf aufruft — typische
+Keyword-Form `Select Tab    name=Settings`.
+
+#### A.14.24 `Menu`, `MenuBar`, `MenuItem` (`ui/menus.py`)
+
+Drei eng verwandte Klassen, die Menü-Hierarchien modellieren.
+
+```
+Element
+└── Control
+    ├── Menu                          (popup-/sub-menu container)
+    ├── MenuBar                       (top-level menu strip)
+    └── MenuItem                      (individual entry, may have submenu)
+```
+
+`MenuItem` erbt **`Control`**, nicht `Item`. Begründung:
+
+- Menü-Einträge sind keine Auswahl-Inhalte eines Containers (wie
+  `ListItem` oder `Cell`), sondern eigenständige interaktive
+  Controls. Sie haben oft selbst Untermenüs und reagieren auf
+  Tastenkürzel, Hover-Aktivierung und nicht zuletzt auf
+  echte Aktivierung (Click).
+- Praktische Konsequenz: ein `MenuItem` exponiert eine
+  `activate()`-Methode wie ein Button, kein `select()` wie ein
+  ListItem.
+
+`MenuItem.activate()` muss die Menü-Hierarchie vorbereiten:
+jedes Vorgänger-`MenuItem` zwischen Wurzel-Menu (oder MenuBar)
+und self muss zuerst geöffnet werden, sonst ist self gar nicht
+sichtbar/anklickbar. Algorithmus: vom self ausgehend nach oben
+laufen, alle `MenuItem`-Vorfahren sammeln, in der Reihenfolge
+*außen → innen* `expand()` aufrufen (übersprungen wenn bereits
+expandiert), dann auf self `Activatable.activate()`.
+
+```python
+class MenuItem(Control):
+    """A single menu entry that may host a submenu."""
+
+    def activate(self) -> None:
+        ancestors: list[MenuItem] = []
+        parent = self.parent
+        while parent is not None and not isinstance(parent, (Window, DesktopBase)):
+            if isinstance(parent, MenuItem):
+                ancestors.append(parent)
+            parent = parent.parent
+
+        # Open from outermost to innermost.
+        for ancestor in reversed(ancestors):
+            if ancestor.adapter.get_pattern(Expandable, raise_exception=False):
+                _expand_if_needed(ancestor)
+
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        self.adapter.get_pattern(Activatable).activate()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+
+
+class Menu(Control):
+    """Popup or submenu container of MenuItems."""
+
+
+class MenuBar(Control):
+    """Top-level menu strip, typically anchored to a Window."""
+```
+
+`Menu` und `MenuBar` sind in dieser Phase reine Container ohne
+eigene Methoden — die Aktion sitzt am `MenuItem`. Falls später
+ein `MenuBar.activate("File", "Open")`-Convenience benötigt wird
+(Pfad-Aktivierung), wird er hier ergänzt.
+
+`Expandable` an `MenuItem` ist optional: viele Blatt-Einträge
+liefern es gar nicht. Der Vorfahren-Walk fragt das Pattern daher
+mit `raise_exception=False` ab und überspringt Vorfahren ohne
+Expand-Pattern stillschweigend (z. B. ein `MenuBar`-Eintrag, der
+sich auf Hover öffnet und kein explizites `Expandable` exposeniert).
 
 
 ## 10. Migrations-Reihenfolge

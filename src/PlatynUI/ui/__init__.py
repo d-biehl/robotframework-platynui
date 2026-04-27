@@ -20,7 +20,8 @@ Public class tree::
         │   ├── TreeItem        (ui/tree.py)
         │   ├── Row             (ui/table.py)
         │   ├── Cell            (ui/table.py)
-        │   └── EditableCell    (ui/table.py)
+        │   ├── EditableCell    (ui/table.py)
+        │   └── TabItem         (ui/tabs.py)
         └── Control             (ui/control.py — adds focus)
             ├── AbstractButton  (ui/buttons.py — register=False)
             │   ├── Button      (ui/buttons.py)
@@ -31,6 +32,10 @@ Public class tree::
             ├── List            (ui/lists.py)
             ├── Tree            (ui/tree.py)
             ├── Table           (ui/table.py)
+            ├── TabList         (ui/tabs.py)
+            ├── Menu            (ui/menus.py)
+            ├── MenuBar         (ui/menus.py)
+            ├── MenuItem        (ui/menus.py)
             └── Window          (ui/window.py — window capabilities)
                 └── Frame       (ui/window.py — marker subclass)
 """
@@ -44,7 +49,9 @@ from .desktopbase import DesktopBase
 from .element import Element
 from .item import EditableItem, ExpandableItem, Item, SelectableItem
 from .lists import List, ListItem
+from .menus import Menu, MenuBar, MenuItem
 from .table import Cell, EditableCell, Row, Table
+from .tabs import TabItem, TabList
 from .text import Edit, Text
 from .tree import Tree, TreeItem
 from .window import Frame, Window
@@ -68,8 +75,13 @@ __all__ = [
     'Item',
     'List',
     'ListItem',
+    'Menu',
+    'MenuBar',
+    'MenuItem',
     'Row',
     'SelectableItem',
+    'TabItem',
+    'TabList',
     'Table',
     'Text',
     'Tree',
