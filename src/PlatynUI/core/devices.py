@@ -32,7 +32,7 @@ from .runtime import runtime
 from .types import Point, Rect
 
 if TYPE_CHECKING:
-    from .adapter_proxy import AdapterFacade
+    from .adapter import Adapter
 
 __all__ = [
     'AdapterKeyboardProxy',
@@ -341,7 +341,7 @@ class AdapterMouseProxy(MouseProxy):
     each action logs it on DEBUG via the ``platynui.devices`` logger.
     """
 
-    def __init__(self, adapter: 'AdapterFacade') -> None:
+    def __init__(self, adapter: 'Adapter') -> None:
         self._adapter = adapter
 
     @property
@@ -429,5 +429,5 @@ class AdapterKeyboardProxy(KeyboardProxy):
     `after_action`.
     """
 
-    def __init__(self, adapter: 'AdapterFacade') -> None:
+    def __init__(self, adapter: 'Adapter') -> None:
         self._adapter = adapter

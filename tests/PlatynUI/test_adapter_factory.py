@@ -26,6 +26,11 @@ from PlatynUI.core.adapter_factory import (
     RuntimeAdapterFactory,
     adapter_factory,
 )
+from PlatynUI.core.adapter_proxy import (
+    AdapterProxy,
+    PatternProxyFactory,
+    pattern_proxy_for,
+)
 from PlatynUI.core.adapters import UiNodeAdapter
 from PlatynUI.core.exceptions import InvalidResultTypeError
 from PlatynUI.core.locator import Locator
@@ -229,3 +234,105 @@ def test_find_one_rejects_adapter_without_native_node(
     loc = Locator(path='//control:Window')
     with pytest.raises(TypeError, match='does not expose a native UiNode'):
         factory.find_one(bogus, loc)
+
+
+# ----------------------------------------------------------------------
+# Proxy chaining — Designdoc §4.4 step 3
+# ----------------------------------------------------------------------
+
+
+@pytest.fixture
+def clean_proxy_registry() -> Generator[None]:
+    """Snapshot and restore ``PatternProxyFactory`` registrations.
+
+    Tests in this section register temporary proxies; the fixture
+    ensures cross-test isolation without leaking into the rest of the
+    suite.
+    """
+    saved = list(PatternProxyFactory.registrations())
+    PatternProxyFactory.clear()
+    try:
+        yield
+    finally:
+        PatternProxyFactory.clear()
+        for entry in saved:
+            PatternProxyFactory.register(entry.proxy_cls, entry.criteria)
+
+
+def test_find_one_returns_raw_adapter_without_matching_proxy(
+    factory: RuntimeAdapterFactory,
+    desktop_adapter: UiNodeAdapter,
+    clean_proxy_registry: None,
+) -> None:
+    """When no registered proxy matches, `_wrap` returns the raw adapter."""
+    del clean_proxy_registry  # fixture ensures empty registry
+    loc = Locator(path="//control:Window[@Name='Operations Console']")
+    found = factory.find_one(desktop_adapter, loc)
+    assert isinstance(found, UiNodeAdapter)
+    assert not isinstance(found, AdapterProxy)
+
+
+def test_find_one_wraps_adapter_in_matching_proxy(
+    factory: RuntimeAdapterFactory,
+    desktop_adapter: UiNodeAdapter,
+    clean_proxy_registry: None,
+) -> None:
+    """A registered proxy whose criteria match the resolved adapter
+    wraps it. Designdoc §4.4 step 3."""
+    del clean_proxy_registry
+
+    @pattern_proxy_for(role='Window')
+    class _WindowProbeProxy(AdapterProxy):
+        """Probe proxy used to verify ``_wrap`` chains ``find_proxy_for``."""
+
+    loc = Locator(path="//control:Window[@Name='Operations Console']")
+    found = factory.find_one(desktop_adapter, loc)
+    assert isinstance(found, _WindowProbeProxy)
+    # Subclass relationship: proxies are also adapters.
+    assert isinstance(found, Adapter)
+    # Underlying adapter still reachable via ``adapter`` property.
+    assert isinstance(found.adapter, UiNodeAdapter)
+
+
+def test_find_all_wraps_each_adapter_in_matching_proxy(
+    factory: RuntimeAdapterFactory,
+    desktop_adapter: UiNodeAdapter,
+    clean_proxy_registry: None,
+) -> None:
+    """``find_all`` applies the proxy to every result, not just the first."""
+    del clean_proxy_registry
+
+    @pattern_proxy_for(role='Button')
+    class _ButtonProbeProxy(AdapterProxy):
+        """Probe proxy for buttons in the mock-runtime tree."""
+
+    loc = Locator(path='//control:Button')
+    results = factory.find_all(desktop_adapter, loc)
+    assert len(results) >= 1
+    assert all(isinstance(a, _ButtonProbeProxy) for a in results)
+
+
+def test_find_one_proxy_chooses_highest_score(
+    factory: RuntimeAdapterFactory,
+    desktop_adapter: UiNodeAdapter,
+    clean_proxy_registry: None,
+) -> None:
+    """When multiple proxies match, the more specific one wins.
+
+    Mirrors `WeightCalculator`'s scoring: a role + attribute criterion
+    outscores a role-only criterion.
+    """
+    del clean_proxy_registry
+
+    @pattern_proxy_for(role='Window')
+    class _GenericWindowProxy(AdapterProxy):
+        """Less specific match (role only)."""
+
+    @pattern_proxy_for(role='Window', attributes={'Name': 'Operations Console'})
+    class _OperationsConsoleProxy(AdapterProxy):
+        """More specific match — should win for that exact window."""
+
+    loc = Locator(path="//control:Window[@Name='Operations Console']")
+    found = factory.find_one(desktop_adapter, loc)
+    assert isinstance(found, _OperationsConsoleProxy)
+    assert not isinstance(found, _GenericWindowProxy)

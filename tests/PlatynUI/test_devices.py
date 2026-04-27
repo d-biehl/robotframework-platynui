@@ -87,8 +87,7 @@ class _ActivationTargetStub(patterns.ActivationTarget):
 
 
 class _StubAdapter:
-    """Minimal adapter satisfying the ``AdapterFacade`` shape used by
-    :class:`AdapterMouseProxy`."""
+    """Minimal adapter shape consumed by :class:`AdapterMouseProxy`."""
 
     def __init__(
         self,

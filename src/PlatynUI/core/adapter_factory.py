@@ -128,7 +128,12 @@ class RuntimeAdapterFactory(AdapterFactory):
 
     @staticmethod
     def _wrap(result: object, xpath: str) -> 'Adapter | None':
-        """Wrap a `UiNode` result in `UiNodeAdapter`; ``None`` stays ``None``.
+        """Wrap a `UiNode` result in `UiNodeAdapter` and apply any matching
+        `AdapterProxy`; ``None`` stays ``None``.
+
+        Calls `PatternProxyFactory.find_proxy_for` after wrapping so that
+        every code path that resolves an adapter through the factory
+        sees the same registered proxies (Designdoc §4.4 step 3).
 
         Raises `InvalidResultTypeError` for non-node results
         (`EvaluatedAttribute`, `UiValue`).
@@ -136,9 +141,11 @@ class RuntimeAdapterFactory(AdapterFactory):
         if result is None:
             return None
         if isinstance(result, _pn.UiNode):
+            from .adapter_proxy import PatternProxyFactory
             from .adapters.ui_node import UiNodeAdapter
 
-            return UiNodeAdapter.from_node(result)
+            adapter = UiNodeAdapter.from_node(result)
+            return PatternProxyFactory.find_proxy_for(adapter)
         raise InvalidResultTypeError(
             f'XPath {xpath!r} returned a non-node result of type '
             f'{type(result).__name__}',

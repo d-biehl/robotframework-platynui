@@ -760,10 +760,14 @@ Wenn `parent.get(child_ctx, locator=...)` aufgerufen wird (siehe §A.5):
    → fertige Context-Instanz (z.B. Button-Objekt).
 ```
 
-Schritt 3 passiert idealerweise **innerhalb** der Adapter-Auflösung
-(`AdapterFactory.find_one`/`find_all` ruft `PatternProxyFactory.find_proxy_for`
-auf, bevor sie das Resultat zurückgibt), damit jeder Code-Pfad
-dieselben Proxies sieht.
+Schritt 3 passiert **innerhalb** der Adapter-Auflösung:
+`RuntimeAdapterFactory._wrap` ruft `PatternProxyFactory.find_proxy_for(adapter)`
+direkt nach `UiNodeAdapter.from_node(...)` auf, bevor das Ergebnis
+zurückgegeben wird. Da `AdapterProxy` selbst eine `Adapter`-Subklasse
+ist (siehe §A.4), bleibt der Rückgabetyp `Adapter | None` und jeder
+Code-Pfad — Locator-Resolution, `ContextBase.get`, `ElementDescriptor`,
+strukturelle Navigation über `parent`/`children` — sieht dieselben
+Proxies.
 
 **Kein Runtime-Singleton** — der Adapter wird über die Parent-Chain
 weitergereicht; das Wurzel-Context-Objekt (`Desktop`, siehe §A.8)
@@ -1827,11 +1831,21 @@ würden mit den ~120 geplanten `get_pattern`-Aufrufen nicht skalieren.
 Echte „Pattern direkt instanziiert"-Fehler werden weiterhin von
 `abstract` (mypy) und `reportGeneralTypeIssues` (pyright) gefangen.
 
-**`AdapterProxy`** (siehe §4 / §5.1) ist *kein* Adapter-Subtyp, sondern
-eine **Komposition**: er hält einen `adapter: Adapter` und überschreibt
-nur `get_pattern` (eigene Patterns zuerst, dann `adapter.get_pattern`)
-plus `supported_patterns` (Vereinigung). Alle anderen Adapter-Aufrufe
-delegieren transparent.
+**`AdapterProxy`** (siehe §4 / §5.1) ist eine `Adapter`-Subklasse, die
+ihre Adapter-Identität vollständig per Komposition aus einem
+gewrappten `adapter: Adapter` bezieht. Alle Adapter-ABC-Methoden
+(`valid`, `runtime_id`, `technology`, `parent`, `children`,
+Suchkriterien, Attribute, `_resolve_pattern`) delegieren transparent
+an den Wrapped-Adapter; eigenständige Logik gibt es nur in
+`get_pattern` (eigene Patterns zuerst, dann `adapter.get_pattern`),
+`get_pattern_by_name` (analog) und `supported_patterns` /
+`supported_pattern_names` (Vereinigung Proxy ⊕ Adapter).
+
+Subclassing wurde gegenüber reiner Komposition gewählt, damit die
+Adapter-Auflösungspipeline (`AdapterFactory.find_one/find_all` →
+`PatternProxyFactory.find_proxy_for`) durchgängig `Adapter | None`
+zurückgeben kann und Konsumenten (`ContextBase`, `ElementDescriptor`,
+`devices.py`) nicht zwischen Adapter und Proxy unterscheiden müssen.
 
 ### A.4a `UiNodeAdapter` (`core/adapters/ui_node.py`)
 
@@ -2845,7 +2859,7 @@ class AdapterMouseProxy(MouseProxy):
     """Standard-Implementierung: liest Bounds und Default-Klickpunkt
     über die Adapter-Pattern-Kette."""
 
-    def __init__(self, adapter: AdapterFacade) -> None:
+    def __init__(self, adapter: Adapter) -> None:
         self._adapter = adapter
         self._logger = logging.getLogger("platynui.devices")
 
@@ -2906,7 +2920,7 @@ class AdapterKeyboardProxy(KeyboardProxy):
     """Tastatur-Wrapper für ein Element. Aktuell ohne adapter-spezifische
     Logik — Hook für Phase 3 (Element-Fokus, Verifikation)."""
 
-    def __init__(self, adapter: AdapterFacade) -> None:
+    def __init__(self, adapter: Adapter) -> None:
         self._adapter = adapter
 ```
 

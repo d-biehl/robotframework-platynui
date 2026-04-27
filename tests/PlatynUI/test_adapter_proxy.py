@@ -23,7 +23,6 @@ import pytest
 
 from PlatynUI.core.adapter import Adapter
 from PlatynUI.core.adapter_proxy import (
-    AdapterFacade,
     AdapterProxy,
     PatternProxyFactory,
     pattern_proxy_for,
@@ -397,18 +396,20 @@ def test_repr_includes_class_and_adapter() -> None:
 
 
 # ---------------------------------------------------------------------------
-# AdapterFacade type alias
+# Subclass relationship
 # ---------------------------------------------------------------------------
 
 
-def test_adapter_facade_is_runtime_usable_union() -> None:
-    """``AdapterFacade`` resolves to ``Adapter | AdapterProxy``."""
+def test_adapter_proxy_is_adapter_subclass() -> None:
+    """Every `AdapterProxy` instance is also an `Adapter`.
 
-    a = _FakeAdapter()
-    facade: AdapterFacade = a
-    assert isinstance(facade, Adapter)
-    facade = _BareProxy(a)
-    assert isinstance(facade, AdapterProxy)
+    Required so that `AdapterFactory.find_one/find_all` can keep their
+    `Adapter | None` return type while still returning proxied
+    adapters (Designdoc §A.4 / §4.4).
+    """
+    assert issubclass(AdapterProxy, Adapter)
+    proxy = _BareProxy(_FakeAdapter())
+    assert isinstance(proxy, Adapter)
 
 
 # ===========================================================================

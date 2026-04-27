@@ -11,14 +11,13 @@
 
 """Adapter proxy and pattern-proxy registry.
 
-An `AdapterProxy` wraps an `Adapter` to add or override
-pattern implementations. The proxy holds the wrapped adapter as
-`adapter` and is not itself an `Adapter`
-subclass.
-
-The proxy mirrors the public surface of `Adapter`, so callers
-may treat ``Adapter | AdapterProxy`` interchangeably; that union is
-published as `AdapterFacade`.
+An `AdapterProxy` wraps an `Adapter` to add or override pattern
+implementations. It is itself an `Adapter` subclass that delegates
+the entire structural / attribute / lifetime surface to the wrapped
+`adapter`; only pattern resolution differs (proxy first, then the
+wrapped adapter). This keeps `AdapterFactory.find_one/find_all`
+typed `Adapter | None` even when a proxy is wrapped around the
+result.
 
 Concrete proxies register through the `pattern_proxy_for` class
 decorator. The `PatternProxyFactory` singleton scores
@@ -30,7 +29,7 @@ the highest-scoring match.
 import re
 import warnings
 from collections.abc import Callable, Iterator, Sequence
-from typing import TYPE_CHECKING, Any, Literal, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, cast, overload, override
 
 from ._criteria import criteria_equal
 from .adapter import Adapter
@@ -43,16 +42,10 @@ if TYPE_CHECKING:
     from .types import FrameworkId, PatternName, RoleName
 
 __all__ = [
-    'AdapterFacade',
     'AdapterProxy',
     'PatternProxyFactory',
     'pattern_proxy_for',
 ]
-
-
-#: Either a raw `Adapter` or a wrapping `AdapterProxy`;
-#: both expose the same public surface to UI-side callers.
-type AdapterFacade = Adapter | AdapterProxy
 
 
 # ---------------------------------------------------------------------------
@@ -60,12 +53,12 @@ type AdapterFacade = Adapter | AdapterProxy
 # ---------------------------------------------------------------------------
 
 
-class AdapterProxy:
+class AdapterProxy(Adapter):
     """Wrap an `Adapter` to add or override pattern implementations.
 
-    The proxy is not an `Adapter` subclass; every adapter-shaped
-    method forwards to the wrapped instance. Only pattern resolution
-    is enriched:
+    The proxy is an `Adapter` subclass; every adapter-shaped property
+    delegates to the wrapped instance. Only pattern resolution is
+    enriched:
 
     1. If the proxy itself is an instance of the requested pattern
        type (it mixes in the pattern ABC and provides the methods),
@@ -83,6 +76,7 @@ class AdapterProxy:
             raise TypeError(
                 f'AdapterProxy requires an Adapter instance; got {type(adapter).__name__}'
             )
+        super().__init__()
         self._adapter = adapter
 
     # ------------------------------------------------------------------
@@ -99,14 +93,17 @@ class AdapterProxy:
     # ------------------------------------------------------------------
 
     @property
+    @override
     def valid(self) -> bool:
         return self._adapter.valid
 
     @property
+    @override
     def runtime_id(self) -> str:
         return self._adapter.runtime_id
 
     @property
+    @override
     def technology(self) -> 'Technology':
         return self._adapter.technology
 
@@ -115,11 +112,13 @@ class AdapterProxy:
     # ------------------------------------------------------------------
 
     @property
-    def parent(self) -> 'AdapterFacade | None':
+    @override
+    def parent(self) -> 'Adapter | None':
         return self._adapter.parent
 
     @property
-    def children(self) -> Sequence['AdapterFacade']:
+    @override
+    def children(self) -> Sequence['Adapter']:
         return self._adapter.children
 
     # ------------------------------------------------------------------
@@ -127,26 +126,32 @@ class AdapterProxy:
     # ------------------------------------------------------------------
 
     @property
+    @override
     def name(self) -> str:
         return self._adapter.name
 
     @property
+    @override
     def class_name(self) -> str:
         return self._adapter.class_name
 
     @property
+    @override
     def tag_name(self) -> str:
         return self._adapter.tag_name
 
     @property
+    @override
     def role(self) -> str:
         return self._adapter.role
 
     @property
+    @override
     def supported_roles(self) -> 'set[RoleName]':
         return self._adapter.supported_roles
 
     @property
+    @override
     def framework_id(self) -> 'FrameworkId':
         return self._adapter.framework_id
 
@@ -154,12 +159,15 @@ class AdapterProxy:
     # Attributes — delegated
     # ------------------------------------------------------------------
 
+    @override
     def attribute_names(self, namespace: str | None = None) -> set[str]:
         return self._adapter.attribute_names(namespace)
 
+    @override
     def attribute_value(self, name: str, namespace: str = 'control') -> object:
         return self._adapter.attribute_value(name, namespace)
 
+    @override
     def attributes(self) -> Iterator[tuple[str, str, object]]:
         return self._adapter.attributes()
 
@@ -177,9 +185,11 @@ class AdapterProxy:
             and issubclass(base, PatternBase)
         }
 
+    @override
     def supported_patterns(self) -> set[type[PatternBase]]:
         return self._proxy_pattern_classes() | self._adapter.supported_patterns()
 
+    @override
     def supported_pattern_names(self) -> 'set[PatternName]':
         proxy_names = {
             cls.pattern_name
@@ -188,6 +198,7 @@ class AdapterProxy:
         }
         return proxy_names | self._adapter.supported_pattern_names()
 
+    @override
     def supports_pattern(self, pattern_type: type[PatternBase]) -> bool:
         if isinstance(self, pattern_type):
             return True
@@ -196,6 +207,17 @@ class AdapterProxy:
     # ------------------------------------------------------------------
     # Pattern resolution — proxy first, then delegate
     # ------------------------------------------------------------------
+
+    @override
+    def _resolve_pattern(self, pattern_name: 'PatternName') -> PatternBase | None:
+        """Delegate to the wrapped adapter.
+
+        The proxy-first short-circuit is handled in `get_pattern` /
+        `get_pattern_by_name`; by the time `_resolve_pattern` runs the
+        proxy itself does not implement ``pattern_name``, so the
+        wrapped adapter is the only remaining source.
+        """
+        return self._adapter._resolve_pattern(pattern_name)
 
     @overload
     def get_pattern[P: PatternBase](self, pattern_type: type[P]) -> P: ...
@@ -209,6 +231,7 @@ class AdapterProxy:
     @overload
     def get_pattern[P: PatternBase](self, pattern_type: type[P], *, raise_exception: bool) -> P | None: ...
 
+    @override
     def get_pattern[P: PatternBase](
         self,
         pattern_type: type[P],
@@ -229,6 +252,7 @@ class AdapterProxy:
         # Step 2: delegate to the wrapped adapter.
         return self._adapter.get_pattern(pattern_type, raise_exception=raise_exception)
 
+    @override
     def get_pattern_by_name(
         self,
         pattern_name: 'PatternName',
@@ -254,6 +278,7 @@ class AdapterProxy:
     # proxied and bare references to the same UI element compare equal.
     # ------------------------------------------------------------------
 
+    @override
     def __eq__(self, other: object) -> bool:
         if isinstance(other, AdapterProxy):
             return self._adapter == other._adapter
@@ -261,9 +286,11 @@ class AdapterProxy:
             return self._adapter == other
         return NotImplemented
 
+    @override
     def __hash__(self) -> int:
         return hash(self._adapter)
 
+    @override
     def __repr__(self) -> str:
         return f'<{type(self).__name__} adapter={self._adapter!r}>'
 
@@ -357,7 +384,7 @@ class PatternProxyFactory:
         return tuple(cls._registrations)
 
     @classmethod
-    def find_proxy_for(cls, adapter: Adapter) -> AdapterFacade:
+    def find_proxy_for(cls, adapter: Adapter) -> Adapter:
         """Wrap ``adapter`` in the highest-scoring registered proxy.
 
         Return the adapter unchanged when no proxy has a positive

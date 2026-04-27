@@ -6,9 +6,10 @@ in das neue Rust-basierte Projekt verfolgt.
 
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
-**Stand:** 2026-04-22
-**Aktuelle Revision:** Rev. 18 (`@locator`-Decorator: Class-Form
-implementiert, Method-Form als Phase-3-Stub)
+**Stand:** 2026-04-27
+**Aktuelle Revision:** Rev. 27 (Phase 4-pre abgeschlossen: `AdapterProxy`
+als `Adapter`-Subklasse, `RuntimeAdapterFactory._wrap` chaint
+`PatternProxyFactory.find_proxy_for`; 470 pytest grün)
 
 ---
 
@@ -24,9 +25,9 @@ implementiert, Method-Form als Phase-3-Stub)
 | Designdoku Rev. 17 — Pattern-Konsolidierung | DONE | uncommitted; Element/TextContent/TextEditable/Clearable/Toggleable/Activatable/Focusable; Rust IsOffscreen→IsInView |
 | Rev. 18 — `@locator` Decorator-Form | DONE | uncommitted; Class-Decorator komplett, Method-Form als Phase-3-Stub mit `NotImplementedError` |
 | Phase 1 — Fundament | DONE | uncommitted; 10 Module incl. vorgezogenem `core/patterns/` (war Phase 2 #11); 128 pytest + 1980 nextest grün, ruff+mypy+pyright+clippy grün |
-| Phase 2 — Adapter-Schicht | IN PROGRESS | Adapter-ABC + AdapterProxy + UiNodeAdapter + Runtime-Singleton fertig (106 Tests); devices.py + UiNodeAdapter-Refactor (Rev. 20) stehen noch aus; MockAdapter gestrichen |
-| Phase 3 — Context-Schicht | PENDING | — |
-| Phase 4 — UI-Klassen + Standard-Proxies | PENDING | — |
+| Phase 2 — Adapter-Schicht | DONE | Adapter-ABC + AdapterProxy + UiNodeAdapter + Runtime-Singleton committed; Pipeline-Lücke in Phase 4-pre geschlossen |
+| Phase 3 — Context-Schicht | DONE | `ContextBase`, `ContextFactory`, `@context`, `ElementDescriptor`, `@locator` Method-Form |
+| Phase 4 — UI-Klassen + Standard-Proxies | IN PROGRESS | 4-pre DONE (uncommitted); 4a/4b/4c/4d/4e/4f offen — siehe Sub-Phasen unten |
 | Phase 5 — Keywords + Robot-Library | PENDING | — |
 | Phase 6 — Iterative Erweiterungen | PENDING | — |
 
@@ -410,8 +411,110 @@ Phase-1-DONE; nur die Method/Property-Form wartet auf `ContextBase`.)
 
 ### Phase 4 — UI-Klassen + Standard-Proxies (Designdoc §10 Phase 4)
 
-- [ ] Standard-UI-Klassen (Button, TextBox, Window, …, §5a)
-- [ ] `@pattern_proxy_for` Default-Proxies pro Rolle/Framework
+Designdoc §10 listet die Items 16–21 (`ui/proxies/base.py`,
+`ui/element.py`, `ui/control.py`, `ui/buttons.py` + `ui/proxies/standard.py`,
+`ui/window.py` + `ui/proxies/window.py`, …). Wir gliedern Phase 4 in
+Sub-Phasen, die jeweils einen kompletten Doku→Code→Tests→Commit-Zyklus
+durchlaufen.
+
+**Bereits committed (Auszug aus 4a/4c/4f-Items):**
+
+- `core/patterns/` — 12 Pattern-ABCs (Activation, ActivationTarget,
+  ApplicationReady, Closeable, Element, Focusable, HasUserInput,
+  Maximizable, Minimizable, Movable, Readable, Resizable, Restorable,
+  Text, Titled, Toggle).
+- `ui/element.py`, `ui/control.py` — Basis-Page-Objects (Item 16
+  UI-Teil).
+- `ui/window.py` — `Window` und `Frame` (Item 18 UI-Teil).
+- `ui/desktopbase.py`, `ui/desktop.py`, `ui/application.py` — Item 21
+  UI-Teil.
+- 466 pytest-Tests grün, davon 79 für die committeten UI-Klassen.
+
+**Sub-Phasen:**
+
+#### Phase 4-pre — Pipeline-Lücke schließen (DONE, uncommitted)
+
+Designdoc §4.4 Schritt 3 ("`PatternProxyFactory.find_proxy_for`
+innerhalb der Adapter-Auflösung") ist jetzt aktiv. Bis zum Abschluss
+dieser Sub-Phase exposten `find_one`/`find_all` nur
+Provider-Patterns; registrierte `@pattern_proxy_for`-Klassen wurden
+ignoriert.
+
+- [x] `AdapterProxy` als `Adapter`-Subklasse umgebaut
+      (Designdoc §A.4 angepasst). `_resolve_pattern` delegiert an den
+      gewrappten Adapter; `parent`/`children`-Signaturen auf
+      `Adapter` zurückgeführt; `AdapterFacade`-Alias komplett
+      entfernt. Dadurch kann
+      `AdapterFactory.find_one/find_all` weiter `Adapter | None`
+      zurückgeben, ohne Konsumenten (`ContextBase`,
+      `ElementDescriptor`, `devices.py`) anpassen zu müssen.
+- [x] `RuntimeAdapterFactory._wrap` ruft
+      `PatternProxyFactory.find_proxy_for(adapter)` direkt nach
+      `UiNodeAdapter.from_node(...)` auf. Designdoc §4.4 entsprechend
+      präzisiert (kein „idealerweise" mehr).
+- [x] Tests in `tests/PlatynUI/test_adapter_factory.py`:
+      `test_find_one_returns_raw_adapter_without_matching_proxy`,
+      `test_find_one_wraps_adapter_in_matching_proxy`,
+      `test_find_all_wraps_each_adapter_in_matching_proxy`,
+      `test_find_one_proxy_chooses_highest_score`. Bestehender
+      `test_adapter_facade_is_runtime_usable_union` zu
+      `test_adapter_facade_is_alias_for_adapter` umgeschrieben.
+- [x] 470 pytest grün, ruff/mypy/pyright clean.
+
+#### Phase 4a — Proxy-Basis (`ui/proxies/base.py`, Item 16 Proxy-Teil)
+
+- [ ] Designdoc-Update: kurze §A.x oder Ergänzung in §A.13 zur
+      Default-Proxy-Hierarchie.
+- [ ] `ui/proxies/__init__.py` mit Side-Effect-Imports.
+- [ ] `ui/proxies/base.py`: `ElementProxy(AdapterProxy)`,
+      `ControlProxy(ElementProxy)` als Aufhänger für die widget-
+      spezifischen Proxies; default reichen sie Provider-Patterns
+      nur durch (`AdapterProxy.get_pattern` regelt das bereits).
+- [ ] Tests: Vereinigung Proxy/Adapter, Durchreichen, Reihenfolge.
+
+#### Phase 4b — Buttons (Item 17, eingeschränkt: Button + CheckBox)
+
+- [ ] Designdoc-Update: §A.x mit Button- und CheckBox-Interface.
+- [ ] `ui/buttons.py`: `Button` (`Activatable`-getrieben),
+      `CheckBox` (`Toggleable`-getrieben).
+- [ ] `ui/proxies/standard.py`: `ButtonProxy`, `CheckBoxProxy` mit
+      Click-Fallback wenn das Provider-Pattern fehlt.
+- [ ] Tests: Aktivierung über Provider-Pattern, Aktivierung über
+      Click-Fallback, Toggle-Zustandswechsel, Predicate-Verifikation.
+- [ ] **Stop für Review** mit dem User, bevor weitere Widgets folgen.
+
+#### Phase 4c — Window-Proxy (Item 18 Proxy-Teil)
+
+- [ ] `ui/proxies/window.py` mit den Default-Implementationen für
+      die Fenster-Patterns (Closeable, Maximizable, Minimizable,
+      Movable, Resizable, Restorable). Window-UI-Klasse ist bereits
+      committed.
+- [ ] Tests: jedes Pattern via Proxy aufrufbar, ohne dass der
+      Adapter es direkt liefert.
+
+#### Phase 4d — Text/Edit/ComboBox (Item 19)
+
+- [ ] `ui/text.py`, `ui/combobox.py` UI-Klassen.
+- [ ] `ui/proxies/text.py` Default-Proxies (`EditProxy`,
+      `ComboBoxProxy`).
+- [ ] Tests pro UI-Klasse + Proxy.
+
+#### Phase 4e — Lists/Tree/Table (Item 20)
+
+- [ ] `ui/lists.py`, `ui/tree.py`, `ui/table.py` UI-Klassen.
+- [ ] `ui/proxies/list_tree.py` Default-Proxies.
+- [ ] Tests pro UI-Klasse + Proxy.
+
+#### Phase 4f — Menus/Tabs (Item 21 Rest)
+
+- [ ] `ui/menus.py`, `ui/tabs.py` UI-Klassen.
+- [ ] Default-Proxies in `ui/proxies/standard.py` ergänzen oder
+      eigene Datei je nach Komplexität.
+- [ ] Tests pro UI-Klasse + Proxy.
+
+**Schon erledigte Item-Bestandteile** sind im Auszug oben gelistet;
+sie zählen als Vorgriff auf 4a (Element/Control), 4c (Window UI-Teil)
+und 4f (Desktop/Application UI-Teil).
 
 ### Phase 5 — Keywords + Robot-Library (Designdoc §10 Phase 5)
 
