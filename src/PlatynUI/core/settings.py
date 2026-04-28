@@ -46,20 +46,24 @@ class Settings:
     window_close_timeout: float = 1.0
     application_exit_timeout: float = 10.0
 
-    # Keyboard
-    input_after_input_delay: float = 0.001
-    keyboard_after_press_key_delay: float = 0.01
-    keyboard_after_release_key_delay: float = 0.01
-    keyboard_after_press_release_delay: float = 0.05
+    # Pointer delay overrides (milliseconds; ``None`` keeps the active profile value).
+    # Mirror the timing fields of ``platynui_native.PointerOverridesDict``.
+    pointer_after_move_delay_ms: float | None = None
+    pointer_after_input_delay_ms: float | None = None
+    pointer_press_release_delay_ms: float | None = None
+    pointer_after_click_delay_ms: float | None = None
+    pointer_before_next_click_delay_ms: float | None = None
+    pointer_multi_click_delay_ms: float | None = None
 
-    # Mouse
-    mouse_before_next_click_delay_multiplicator: float = 1.5
-    mouse_after_click_delay: float = 0.010
-    mouse_multi_click_delay_multiplicator: float = 0.5
-    mouse_press_release_delay: float = 0.010
-    mouse_after_move_delay: float = 0.010
-    mouse_move_delay: float = 0.001
-    mouse_move_time: float = 0.2
+    # Keyboard delay overrides (milliseconds; ``None`` keeps the active profile value).
+    # Mirror ``platynui_native.KeyboardOverridesDict``.
+    keyboard_press_delay_ms: float | None = None
+    keyboard_release_delay_ms: float | None = None
+    keyboard_between_keys_delay_ms: float | None = None
+    keyboard_chord_press_delay_ms: float | None = None
+    keyboard_chord_release_delay_ms: float | None = None
+    keyboard_after_sequence_delay_ms: float | None = None
+    keyboard_after_text_delay_ms: float | None = None
 
     # Display / diagnostics
     display_screenshot_format: str = 'png'

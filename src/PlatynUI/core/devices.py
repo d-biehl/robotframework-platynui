@@ -25,10 +25,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, override
 
-from platynui_native import PointerButton
+from platynui_native import KeyboardOverridesDict, PointerButton, PointerOverridesDict
 
 from . import patterns
 from .runtime import runtime
+from .settings import Settings
 from .types import Point, Rect
 
 if TYPE_CHECKING:
@@ -52,6 +53,60 @@ __all__ = [
 MouseButton = PointerButton
 
 _LOGGER = logging.getLogger('platynui.devices')
+
+
+# ----------------------------------------------------------------------
+# Settings → native overrides bridge
+# ----------------------------------------------------------------------
+
+
+_POINTER_OVERRIDE_FIELDS: tuple[tuple[str, str], ...] = (
+    ('pointer_after_move_delay_ms', 'after_move_delay_ms'),
+    ('pointer_after_input_delay_ms', 'after_input_delay_ms'),
+    ('pointer_press_release_delay_ms', 'press_release_delay_ms'),
+    ('pointer_after_click_delay_ms', 'after_click_delay_ms'),
+    ('pointer_before_next_click_delay_ms', 'before_next_click_delay_ms'),
+    ('pointer_multi_click_delay_ms', 'multi_click_delay_ms'),
+)
+
+_KEYBOARD_OVERRIDE_FIELDS: tuple[tuple[str, str], ...] = (
+    ('keyboard_press_delay_ms', 'press_delay_ms'),
+    ('keyboard_release_delay_ms', 'release_delay_ms'),
+    ('keyboard_between_keys_delay_ms', 'between_keys_delay_ms'),
+    ('keyboard_chord_press_delay_ms', 'chord_press_delay_ms'),
+    ('keyboard_chord_release_delay_ms', 'chord_release_delay_ms'),
+    ('keyboard_after_sequence_delay_ms', 'after_sequence_delay_ms'),
+    ('keyboard_after_text_delay_ms', 'after_text_delay_ms'),
+)
+
+
+def _pointer_overrides_from_settings() -> PointerOverridesDict | None:
+    """Build a `PointerOverridesDict` from the active `Settings`.
+
+    Returns ``None`` when no pointer-related override is set so the
+    runtime keeps the active pointer profile untouched.
+    """
+    settings = Settings.current()
+    overrides: PointerOverridesDict = {}
+    for settings_field, override_key in _POINTER_OVERRIDE_FIELDS:
+        value = getattr(settings, settings_field)
+        if value is not None:
+            overrides[override_key] = value  # type: ignore[literal-required]
+    return overrides or None
+
+
+def _keyboard_overrides_from_settings() -> KeyboardOverridesDict | None:
+    """Build a `KeyboardOverridesDict` from the active `Settings`.
+
+    Returns ``None`` when no keyboard-related override is set.
+    """
+    settings = Settings.current()
+    overrides: KeyboardOverridesDict = {}
+    for settings_field, override_key in _KEYBOARD_OVERRIDE_FIELDS:
+        value = getattr(settings, settings_field)
+        if value is not None:
+            overrides[override_key] = value  # type: ignore[literal-required]
+    return overrides or None
 
 
 # ----------------------------------------------------------------------
@@ -257,7 +312,7 @@ class MouseProxy(ABC):
         point the pointer was moved to."""
         target = self._resolve_point(pos, x, y)
         self.before_action(MouseAction.MOVE)
-        runtime.current.pointer_move_to(target)
+        runtime.current.pointer_move_to(target, overrides=_pointer_overrides_from_settings())
         self.after_action(MouseAction.MOVE)
         return target
 
@@ -272,7 +327,7 @@ class MouseProxy(ABC):
         """Move to the target and press ``button`` without releasing."""
         target = self._resolve_point(pos, x, y)
         self.before_action(MouseAction.PRESS)
-        runtime.current.pointer_press(target, button)
+        runtime.current.pointer_press(target, button, overrides=_pointer_overrides_from_settings())
         self.after_action(MouseAction.PRESS)
 
     def release(
@@ -286,7 +341,7 @@ class MouseProxy(ABC):
         """Move to the target and release a previously pressed ``button``."""
         target = self._resolve_point(pos, x, y)
         self.before_action(MouseAction.RELEASE)
-        runtime.current.pointer_release(target, button)
+        runtime.current.pointer_release(target, button, overrides=_pointer_overrides_from_settings())
         self.after_action(MouseAction.RELEASE)
 
     def click(
@@ -305,10 +360,11 @@ class MouseProxy(ABC):
         """
         target = self._resolve_point(pos, x, y)
         self.before_action(MouseAction.CLICK)
+        overrides = _pointer_overrides_from_settings()
         if times == 1:
-            runtime.current.pointer_click(target, button)
+            runtime.current.pointer_click(target, button, overrides=overrides)
         else:
-            runtime.current.pointer_multi_click(target, times, button)
+            runtime.current.pointer_multi_click(target, times, button, overrides=overrides)
         self.after_action(MouseAction.CLICK)
 
     def double_click(
@@ -322,7 +378,7 @@ class MouseProxy(ABC):
         """Double-click ``button`` at the resolved target."""
         target = self._resolve_point(pos, x, y)
         self.before_action(MouseAction.DOUBLE_CLICK)
-        runtime.current.pointer_multi_click(target, 2, button)
+        runtime.current.pointer_multi_click(target, 2, button, overrides=_pointer_overrides_from_settings())
         self.after_action(MouseAction.DOUBLE_CLICK)
 
 
@@ -405,19 +461,19 @@ class KeyboardProxy(ABC):
     def type_keys(self, sequence: str) -> None:
         """Type ``sequence`` — press and release each key in order."""
         self.before_action(KeyboardAction.TYPE)
-        runtime.current.keyboard_type(sequence)
+        runtime.current.keyboard_type(sequence, overrides=_keyboard_overrides_from_settings())
         self.after_action(KeyboardAction.TYPE)
 
     def press_keys(self, sequence: str) -> None:
         """Press the keys in ``sequence`` without releasing them."""
         self.before_action(KeyboardAction.PRESS)
-        runtime.current.keyboard_press(sequence)
+        runtime.current.keyboard_press(sequence, overrides=_keyboard_overrides_from_settings())
         self.after_action(KeyboardAction.PRESS)
 
     def release_keys(self, sequence: str) -> None:
         """Release the keys in ``sequence`` (in reverse order)."""
         self.before_action(KeyboardAction.RELEASE)
-        runtime.current.keyboard_release(sequence)
+        runtime.current.keyboard_release(sequence, overrides=_keyboard_overrides_from_settings())
         self.after_action(KeyboardAction.RELEASE)
 
 

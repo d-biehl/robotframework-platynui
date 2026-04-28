@@ -4,9 +4,27 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 39**.
+> **Status:** Diskussionsentwurf, **Revision 41**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 41** — **Settings ↔ Native-Override-Bridge.**
+>   Die Legacy-Sekunden-Felder `mouse_*`, `keyboard_after_press_*` und
+>   `input_after_input_delay` werden ersatzlos entfernt. An ihre Stelle
+>   treten Millisekunden-Felder, die 1:1 die Delay-Slots von
+>   `platynui_native.PointerOverridesDict` (`pointer_after_move_delay_ms`,
+>   `pointer_after_input_delay_ms`, `pointer_press_release_delay_ms`,
+>   `pointer_after_click_delay_ms`, `pointer_before_next_click_delay_ms`,
+>   `pointer_multi_click_delay_ms`) und `KeyboardOverridesDict`
+>   (`keyboard_press_delay_ms`, `keyboard_release_delay_ms`,
+>   `keyboard_between_keys_delay_ms`, `keyboard_chord_press_delay_ms`,
+>   `keyboard_chord_release_delay_ms`, `keyboard_after_sequence_delay_ms`,
+>   `keyboard_after_text_delay_ms`) spiegeln. Default ist `None`
+>   (Profile-Wert bleibt). `MouseProxy`/`KeyboardProxy` bauen pro Call
+>   aus `Settings.current()` ein Override-Dict und reichen es als
+>   `overrides=`-Kwarg an die Native-Calls durch. Profile-Tuning
+>   (Motion, Acceleration, Steps-pro-Pixel etc.) läuft direkt über
+>   `runtime.current.pointer_profile()` / `keyboard_profile()` und
+>   gehört bewusst nicht in `Settings`.
 > - **Rev. 40** — **Attribut-only-Patterns vom Proxy zum Adapter.**
 >   `Element`, `ActivationTarget` und `Readable` werden über
 >   Native-Wrapper im `_NATIVE_PATTERN_BUILDERS` des `UiNodeAdapter`
@@ -1735,32 +1753,34 @@ Reihenfolge so gewählt, dass spätere Abschnitte auf frühere aufbauen
 
 `Settings` ist eine `@dataclass(frozen=True, slots=True, kw_only=True)`
 mit prozessweitem Singleton-Zugriff über `Settings.current()` und einem
-`with`-Block für lokale Overrides. Felder (1:1 aus Altcode `core/settings.py:5`,
-nur Defaults konsolidiert):
+`with`-Block für lokale Overrides. Felder:
 
 ```python
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Settings:
-    # Wartezeiten
+    # Wartezeiten (Sekunden)
     wait_for_timeout: float = 1.0
     wait_for_delay: float = 0.1
     ensure_timeout: float = 15.0
     ensure_delay: float = 0.1
     exists_timeout: float = 1.0
     window_close_timeout: float = 1.0
-    # Tastatur
-    input_after_input_delay: float = 0.001
-    keyboard_after_press_key_delay: float = 0.01
-    keyboard_after_release_key_delay: float = 0.01
-    keyboard_after_press_release_delay: float = 0.05
-    # Maus
-    mouse_before_next_click_delay_multiplicator: float = 1.5
-    mouse_after_click_delay: float = 0.010
-    mouse_multi_click_delay_multiplicator: float = 0.5
-    mouse_press_release_delay: float = 0.010
-    mouse_after_move_delay: float = 0.010
-    mouse_move_delay: float = 0.001
-    mouse_move_time: float = 0.2
+    application_exit_timeout: float = 10.0
+    # Pointer-Delay-Overrides (ms; ``None`` = Profile-Default beibehalten)
+    pointer_after_move_delay_ms: float | None = None
+    pointer_after_input_delay_ms: float | None = None
+    pointer_press_release_delay_ms: float | None = None
+    pointer_after_click_delay_ms: float | None = None
+    pointer_before_next_click_delay_ms: float | None = None
+    pointer_multi_click_delay_ms: float | None = None
+    # Keyboard-Delay-Overrides (ms; ``None`` = Profile-Default beibehalten)
+    keyboard_press_delay_ms: float | None = None
+    keyboard_release_delay_ms: float | None = None
+    keyboard_between_keys_delay_ms: float | None = None
+    keyboard_chord_press_delay_ms: float | None = None
+    keyboard_chord_release_delay_ms: float | None = None
+    keyboard_after_sequence_delay_ms: float | None = None
+    keyboard_after_text_delay_ms: float | None = None
     # Display / Diagnose
     display_screenshot_format: str = "png"
     display_screenshot_quality: int = -1
@@ -1768,6 +1788,15 @@ class Settings:
     element_highlight_time: float = 2.0
     element_highlight_ensure_timeout: float = 2.0
 ```
+
+Die Pointer-/Keyboard-Felder spiegeln 1:1 die Delay-Felder von
+`platynui_native.PointerOverridesDict` bzw. `KeyboardOverridesDict`.
+`MouseProxy`/`KeyboardProxy` baut bei jedem Call aus den nicht-`None`
+Werten ein Override-Dict und reicht es an die Native-Runtime durch
+(`runtime.current.pointer_*(..., overrides=...)`). Profile-Tuning über
+Motion, Acceleration, Steps-pro-Pixel etc. läuft direkt über
+`runtime.current.pointer_profile()` / `keyboard_profile()` und gehört
+nicht in `Settings`.
 
 **Konfiguration:**
 

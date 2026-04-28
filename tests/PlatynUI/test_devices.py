@@ -32,6 +32,7 @@ from PlatynUI.core.devices import (
     VirtualPoint,
 )
 from PlatynUI.core.runtime import runtime
+from PlatynUI.core.settings import Settings
 from PlatynUI.core.types import Point, Rect
 
 # ----------------------------------------------------------------------
@@ -195,40 +196,40 @@ def test_move_to_calls_pointer_move_to(native_runtime: MagicMock) -> None:
     proxy = _BareMouseProxy(Rect(10.0, 20.0, 100.0, 50.0))
     target = proxy.move_to(Anchor.TOP_RIGHT)
     assert target == Point(110.0, 20.0)
-    native_runtime.pointer_move_to.assert_called_once_with(Point(110.0, 20.0))
+    native_runtime.pointer_move_to.assert_called_once_with(Point(110.0, 20.0), overrides=None)
 
 
 def test_click_default_button_is_left(native_runtime: MagicMock) -> None:
     proxy = _BareMouseProxy(Rect(0.0, 0.0, 50.0, 50.0))
     proxy.click()
-    native_runtime.pointer_click.assert_called_once_with(Point(25.0, 25.0), MouseButton.LEFT)
+    native_runtime.pointer_click.assert_called_once_with(Point(25.0, 25.0), MouseButton.LEFT, overrides=None)
 
 
 def test_click_with_explicit_button_and_offset(native_runtime: MagicMock) -> None:
     proxy = _BareMouseProxy(Rect(0.0, 0.0, 50.0, 50.0))
     proxy.click(button=MouseButton.RIGHT, x=2.0, y=-2.0)
-    native_runtime.pointer_click.assert_called_once_with(Point(27.0, 23.0), MouseButton.RIGHT)
+    native_runtime.pointer_click.assert_called_once_with(Point(27.0, 23.0), MouseButton.RIGHT, overrides=None)
 
 
 def test_click_times_two_uses_multi_click(native_runtime: MagicMock) -> None:
     proxy = _BareMouseProxy(Rect(0.0, 0.0, 10.0, 10.0))
     proxy.click(times=3)
     native_runtime.pointer_click.assert_not_called()
-    native_runtime.pointer_multi_click.assert_called_once_with(Point(5.0, 5.0), 3, MouseButton.LEFT)
+    native_runtime.pointer_multi_click.assert_called_once_with(Point(5.0, 5.0), 3, MouseButton.LEFT, overrides=None)
 
 
 def test_double_click_uses_multi_click_two(native_runtime: MagicMock) -> None:
     proxy = _BareMouseProxy(Rect(0.0, 0.0, 10.0, 10.0))
     proxy.double_click()
-    native_runtime.pointer_multi_click.assert_called_once_with(Point(5.0, 5.0), 2, MouseButton.LEFT)
+    native_runtime.pointer_multi_click.assert_called_once_with(Point(5.0, 5.0), 2, MouseButton.LEFT, overrides=None)
 
 
 def test_press_and_release_pass_button(native_runtime: MagicMock) -> None:
     proxy = _BareMouseProxy(Rect(0.0, 0.0, 10.0, 10.0))
     proxy.press(button=MouseButton.MIDDLE)
     proxy.release(button=MouseButton.MIDDLE)
-    native_runtime.pointer_press.assert_called_once_with(Point(5.0, 5.0), MouseButton.MIDDLE)
-    native_runtime.pointer_release.assert_called_once_with(Point(5.0, 5.0), MouseButton.MIDDLE)
+    native_runtime.pointer_press.assert_called_once_with(Point(5.0, 5.0), MouseButton.MIDDLE, overrides=None)
+    native_runtime.pointer_release.assert_called_once_with(Point(5.0, 5.0), MouseButton.MIDDLE, overrides=None)
 
 
 def test_before_after_action_invoked(native_runtime: MagicMock) -> None:
@@ -333,15 +334,15 @@ class _BareKeyboardProxy(KeyboardProxy):
 
 def test_keyboard_type_delegates_to_runtime(native_runtime: MagicMock) -> None:
     _BareKeyboardProxy().type_keys('hello<Enter>')
-    native_runtime.keyboard_type.assert_called_once_with('hello<Enter>')
+    native_runtime.keyboard_type.assert_called_once_with('hello<Enter>', overrides=None)
 
 
 def test_keyboard_press_and_release_delegate(native_runtime: MagicMock) -> None:
     kb = _BareKeyboardProxy()
     kb.press_keys('<Control+A>')
     kb.release_keys('<Control+A>')
-    native_runtime.keyboard_press.assert_called_once_with('<Control+A>')
-    native_runtime.keyboard_release.assert_called_once_with('<Control+A>')
+    native_runtime.keyboard_press.assert_called_once_with('<Control+A>', overrides=None)
+    native_runtime.keyboard_release.assert_called_once_with('<Control+A>', overrides=None)
 
 
 def test_keyboard_hooks_fire_around_actions(native_runtime: MagicMock) -> None:
@@ -356,3 +357,96 @@ def test_keyboard_hooks_fire_around_actions(native_runtime: MagicMock) -> None:
 
     Hooked().type_keys('x')
     assert seen == [('before', KeyboardAction.TYPE), ('after', KeyboardAction.TYPE)]
+
+
+# ----------------------------------------------------------------------
+# Settings → native overrides bridge
+# ----------------------------------------------------------------------
+
+
+def test_pointer_overrides_inactive_when_settings_default(native_runtime: MagicMock) -> None:
+    """With default :class:`Settings` no override dict is built."""
+    proxy = _BareMouseProxy(Rect(0.0, 0.0, 10.0, 10.0))
+    proxy.click()
+    native_runtime.pointer_click.assert_called_once_with(Point(5.0, 5.0), MouseButton.LEFT, overrides=None)
+
+
+def test_pointer_overrides_built_from_settings(native_runtime: MagicMock) -> None:
+    """A ``with Settings(...)`` block populates the override dict only with set fields."""
+    proxy = _BareMouseProxy(Rect(0.0, 0.0, 10.0, 10.0))
+    with Settings(
+        pointer_after_click_delay_ms=42.0,
+        pointer_press_release_delay_ms=7.5,
+    ):
+        proxy.click()
+    native_runtime.pointer_click.assert_called_once_with(
+        Point(5.0, 5.0),
+        MouseButton.LEFT,
+        overrides={'after_click_delay_ms': 42.0, 'press_release_delay_ms': 7.5},
+    )
+
+
+def test_pointer_overrides_seen_by_multi_click(native_runtime: MagicMock) -> None:
+    proxy = _BareMouseProxy(Rect(0.0, 0.0, 10.0, 10.0))
+    with Settings(pointer_multi_click_delay_ms=12.0):
+        proxy.click(times=3)
+    native_runtime.pointer_multi_click.assert_called_once_with(
+        Point(5.0, 5.0),
+        3,
+        MouseButton.LEFT,
+        overrides={'multi_click_delay_ms': 12.0},
+    )
+
+
+def test_pointer_overrides_propagate_to_press_release_and_move(native_runtime: MagicMock) -> None:
+    proxy = _BareMouseProxy(Rect(0.0, 0.0, 10.0, 10.0))
+    with Settings(pointer_after_move_delay_ms=3.0):
+        proxy.move_to()
+        proxy.press(button=MouseButton.LEFT)
+        proxy.release(button=MouseButton.LEFT)
+    overrides = {'after_move_delay_ms': 3.0}
+    native_runtime.pointer_move_to.assert_called_once_with(Point(5.0, 5.0), overrides=overrides)
+    native_runtime.pointer_press.assert_called_once_with(Point(5.0, 5.0), MouseButton.LEFT, overrides=overrides)
+    native_runtime.pointer_release.assert_called_once_with(Point(5.0, 5.0), MouseButton.LEFT, overrides=overrides)
+
+
+def test_pointer_overrides_resolved_per_call(native_runtime: MagicMock) -> None:
+    """Settings changes between calls are picked up immediately."""
+    proxy = _BareMouseProxy(Rect(0.0, 0.0, 10.0, 10.0))
+    with Settings(pointer_after_click_delay_ms=10.0):
+        proxy.click()
+        with Settings(pointer_after_click_delay_ms=99.0):
+            proxy.click()
+        proxy.click()
+
+    calls = native_runtime.pointer_click.call_args_list
+    assert [call.kwargs['overrides'] for call in calls] == [
+        {'after_click_delay_ms': 10.0},
+        {'after_click_delay_ms': 99.0},
+        {'after_click_delay_ms': 10.0},
+    ]
+
+
+def test_keyboard_overrides_inactive_by_default(native_runtime: MagicMock) -> None:
+    _BareKeyboardProxy().type_keys('x')
+    native_runtime.keyboard_type.assert_called_once_with('x', overrides=None)
+
+
+def test_keyboard_overrides_built_from_settings(native_runtime: MagicMock) -> None:
+    kb = _BareKeyboardProxy()
+    with Settings(
+        keyboard_press_delay_ms=4.0,
+        keyboard_between_keys_delay_ms=1.5,
+        keyboard_after_text_delay_ms=20.0,
+    ):
+        kb.type_keys('hi')
+        kb.press_keys('<Shift>')
+        kb.release_keys('<Shift>')
+    expected = {
+        'press_delay_ms': 4.0,
+        'between_keys_delay_ms': 1.5,
+        'after_text_delay_ms': 20.0,
+    }
+    native_runtime.keyboard_type.assert_called_once_with('hi', overrides=expected)
+    native_runtime.keyboard_press.assert_called_once_with('<Shift>', overrides=expected)
+    native_runtime.keyboard_release.assert_called_once_with('<Shift>', overrides=expected)

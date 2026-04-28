@@ -7,18 +7,36 @@ in das neue Rust-basierte Projekt verfolgt.
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
 **Stand:** 2026-04-28
-**Aktuelle Revision:** Rev. 40 (drei attribut-only Patterns wandern
-vom geplanten `ElementProxy` zum `UiNodeAdapter`: `Element`
-(`Bounds`/`IsVisible`/`IsInView`/`IsEnabled`), `ActivationTarget`
-(`ActivationPoint`/`ActivationArea`/`ActivationHint`) und `Readable`
-(`IsReadOnly`). Native-Wrapper `_NativeElement`/`_NativeActivationTarget`/
-`_NativeReadable` analog zu `_NativeWindowState`. Generische
-`_ATTRIBUTE_ONLY_PATTERNS`-Tabelle ersetzt den WindowState-Spezialfall
-in `supports_pattern`/`supported_patterns`. Mock-Tree um
-`IsReadOnly=true` auf dem Status-Text-Knoten ergänzt. Designdoc §A.13.4
-Native-Wrapper-Tabelle und `ElementProxy`-Mixin-Spalte entsprechend
-aktualisiert. `ApplicationReady` bleibt offen — kein Rust-Trait,
-kein Adapter-Wrapper.)
+**Aktuelle Revision:** Rev. 41 (Settings ↔ Native-Override-Bridge.
+Legacy-Sekunden-Felder `mouse_*`, `keyboard_after_press_*` und
+`input_after_input_delay` aus `Settings` entfernt; ersetzt durch
+Millisekunden-Felder, die 1:1 die Delay-Slots von
+`platynui_native.PointerOverridesDict` und `KeyboardOverridesDict`
+spiegeln (Default `None` = Profile-Wert beibehalten). `MouseProxy`/
+`KeyboardProxy` bauen pro Call aus `Settings.current()` ein
+Override-Dict via Helfer `_pointer_overrides_from_settings()` /
+`_keyboard_overrides_from_settings()` und reichen es als
+`overrides=`-Kwarg an alle `runtime.current.pointer_*` /
+`keyboard_*`-Calls durch. Profile-Tuning (Motion, Acceleration,
+Steps-pro-Pixel etc.) läuft direkt über
+`runtime.current.pointer_profile()` / `keyboard_profile()` und gehört
+nicht in `Settings`. Designdoc §A.1 und Header aktualisiert.
+Bestehende `test_devices.py`-Calls um `overrides=None` erweitert;
+sieben neue Bridge-Tests (`test_pointer_overrides_*`,
+`test_keyboard_overrides_*`).)
+
+> **Vorherige Rev. 40:** Drei attribut-only Patterns wandern
+> vom geplanten `ElementProxy` zum `UiNodeAdapter`: `Element`
+> (`Bounds`/`IsVisible`/`IsInView`/`IsEnabled`), `ActivationTarget`
+> (`ActivationPoint`/`ActivationArea`/`ActivationHint`) und `Readable`
+> (`IsReadOnly`). Native-Wrapper `_NativeElement`/`_NativeActivationTarget`/
+> `_NativeReadable` analog zu `_NativeWindowState`. Generische
+> `_ATTRIBUTE_ONLY_PATTERNS`-Tabelle ersetzt den WindowState-Spezialfall
+> in `supports_pattern`/`supported_patterns`. Mock-Tree um
+> `IsReadOnly=true` auf dem Status-Text-Knoten ergänzt. Designdoc §A.13.4
+> Native-Wrapper-Tabelle und `ElementProxy`-Mixin-Spalte entsprechend
+> aktualisiert. `ApplicationReady` bleibt offen — kein Rust-Trait,
+> kein Adapter-Wrapper.
 
 > **Vorherige Rev. 39:** Phase 4-rust-split eingeschoben — das
 > Rust-Mega-Trait `WindowSurfacePattern` (8 Methoden) wird in 7
