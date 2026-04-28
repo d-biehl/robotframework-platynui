@@ -116,70 +116,57 @@ class Application(ContextBase):
 # Process-control helpers
 # ----------------------------------------------------------------------
 
-
-def _process_alive(pid: int) -> bool:
-    """Return whether the given OS process is still alive."""
-    if sys.platform == 'win32':
-        return _process_alive_windows(pid)
-    return _process_alive_posix(pid)
-
-
-def _process_alive_posix(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        # Process exists but we cannot signal it.
-        return True
-    return True
-
-
-def _process_alive_windows(pid: int) -> bool:  # pragma: no cover - platform-specific
+if sys.platform == 'win32':
     import ctypes
     from ctypes import wintypes
 
-    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000  # noqa: N806 (Win32 constant)
-    STILL_ACTIVE = 259  # noqa: N806 (Win32 constant)
+    _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    _PROCESS_TERMINATE = 0x0001
+    _STILL_ACTIVE = 259
 
-    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-    if not handle:
-        return False
-    try:
-        exit_code = wintypes.DWORD()
-        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+    def _process_alive(pid: int) -> bool:  # pragma: no cover - platform-specific
+        """Return whether the given OS process is still alive."""
+        kernel32 = getattr(ctypes, 'windll').kernel32
+        handle = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
             return False
-        return exit_code.value == STILL_ACTIVE
-    finally:
-        kernel32.CloseHandle(handle)
+        try:
+            exit_code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return False
+            return exit_code.value == _STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
 
-
-def _kill_process(pid: int) -> None:
-    """Forcefully terminate the given OS process."""
-    if sys.platform == 'win32':
-        _kill_process_windows(pid)
-        return
+    def _kill_process(pid: int) -> None:  # pragma: no cover - platform-specific
+        """Forcefully terminate the given OS process."""
+        kernel32 = getattr(ctypes, 'windll').kernel32
+        handle = kernel32.OpenProcess(_PROCESS_TERMINATE, False, pid)
+        if not handle:
+            return
+        try:
+            kernel32.TerminateProcess(handle, 1)
+        finally:
+            kernel32.CloseHandle(handle)
+else:
     import signal
 
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return
-    except PermissionError as exc:
-        _LOGGER.error('permission denied killing pid=%d: %s', pid, exc)
+    def _process_alive(pid: int) -> bool:
+        """Return whether the given OS process is still alive."""
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            # Process exists but we cannot signal it.
+            return True
+        return True
 
-
-def _kill_process_windows(pid: int) -> None:  # pragma: no cover - platform-specific
-    import ctypes
-
-    PROCESS_TERMINATE = 0x0001  # noqa: N806 (Win32 constant)
-
-    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-    handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
-    if not handle:
-        return
-    try:
-        kernel32.TerminateProcess(handle, 1)
-    finally:
-        kernel32.CloseHandle(handle)
+    def _kill_process(pid: int) -> None:
+        """Forcefully terminate the given OS process."""
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+        except PermissionError as exc:
+            _LOGGER.error('permission denied killing pid=%d: %s', pid, exc)
