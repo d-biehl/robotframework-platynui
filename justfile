@@ -67,6 +67,11 @@ build-all-wheels: build-platynui-wheel build-native-wheel build-cli-wheel build-
 build-native-mock:
     uv run maturin develop -m packages/native/Cargo.toml --uv --features mock-provider
 
+# Remove local build and test artifacts, keeping .venv and tool caches
+clean:
+    cargo clean
+    git clean -fdX -- build dist wheelhouse wheels results .pytest_cache ':(glob)packages/*/target' ':(glob)packages/*/build' ':(glob)packages/*/dist'
+
 # ─── Documentation ──────────────────────────────────────────────────────────────
 
 # Build Rust API documentation

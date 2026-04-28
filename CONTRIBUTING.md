@@ -73,13 +73,14 @@ Common recipes:
 | Python tests | `just test-python` | Builds the native package with `mock-provider`, then runs pytest. |
 | Rust and Python tests | `just test-all` | Runs `just test` and `just test-python`. |
 | Full local gate | `just pre-commit` | Runs bootstrap, checks, Rust tests, and Python tests. |
-| Cross-platform gate | `just pre-commit-cross` | Linux-only; adds Windows and macOS ARM cargo check/clippy passes. |
+| Cross-target gate | `just pre-commit-cross` | Linux-only; adds Windows and macOS ARM cargo check/clippy passes. |
 | Install git hooks | `just hooks-install` | Installs `pre-commit`, `commit-msg`, and `pre-push` hooks. |
 | Install push gate | `just hooks-install-push` | Alias for `just hooks-install`; the push gate is standard. |
 | Enable Linux cross-target push gate | `just hooks-cross-enable` | Opts in to cross-target checks before every push on Linux. |
 | Disable Linux cross-target push gate | `just hooks-cross-disable` | Turns the optional Linux cross-target push gate off again. |
 | Native mock build | `just build-native-mock` | Needed before Python/RF work that uses `Runtime.new_with_mock()`. |
 | CLI or Inspector build | `just build-cli`, `just build-inspector` | Builds local binary Python packages with maturin. |
+| Clean local artifacts | `just clean` | Removes build/test artifacts while keeping `.venv` and tool caches. |
 
 Additional build and packaging recipes:
 
@@ -149,6 +150,8 @@ The commit-time hook set is intentionally quick:
 - `just mypy` for Python type checks when Python files changed
 - `conventional-pre-commit` in the `commit-msg` hook for Conventional Commit messages
 
+Some file hygiene hooks can update files automatically. If that happens, review the changes, stage them, and commit again.
+
 The full project gate is heavier, so it runs at Git `pre-push` instead of Git `pre-commit`. That hook runs `just pre-commit`, which includes bootstrap, checks, Rust tests, and Python tests. You can run the same gate manually with `just pre-commit` or `just hooks-run-push`.
 
 On Linux, contributors with the cross-target toolchain installed can opt in to an additional pre-push gate:
@@ -157,7 +160,7 @@ On Linux, contributors with the cross-target toolchain installed can opt in to a
 just hooks-cross-enable
 ```
 
-That makes every push run the Windows and macOS ARM cross-target checks after the normal pre-push gate. Disable it again with `just hooks-cross-disable`, or run the cross-target checks manually with `just hooks-run-cross`.
+That writes a local Git config flag and makes every push run the Windows and macOS ARM cross-target checks after the normal pre-push gate. The opt-in is local to your checkout and is not committed. Disable it again with `just hooks-cross-disable`, or run the cross-target checks manually with `just hooks-run-cross`.
 
 To run these recipes on Linux, install the Rust targets and host tools first:
 
@@ -300,7 +303,7 @@ uv tool install --prerelease allow platynui-inspector
 - If Python tools are missing, run `just bootstrap` again.
 - If mock Python tests fail because mock providers are unavailable, run `just build-native-mock` before retrying.
 - If Linux accessibility trees are empty, make sure AT-SPI is enabled and running for X11/XWayland sessions.
-- If cross-platform recipes fail on Linux, install the missing Rust target or system compiler named in the recipe error.
+- If Linux cross-target recipes fail, install the missing Rust target or system compiler named in the recipe error.
 - If a `just` recipe is too broad for investigation, run the equivalent raw command temporarily and capture the result in the PR notes.
 
 ---
