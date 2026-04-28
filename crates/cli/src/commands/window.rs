@@ -3,7 +3,7 @@ use anyhow::bail;
 use clap::Args;
 use owo_colors::{OwoColorize, Stream};
 use platynui_core::types::{Point, Rect, Size};
-use platynui_core::ui::attribute_names::{activatable, element, maximizable, minimizable, movable, resizable};
+use platynui_core::ui::attribute_names::{element, maximizable, minimizable, movable, resizable, window_state};
 use platynui_core::ui::{
     ActivatableAction, ActivatablePattern, CloseableAction, CloseablePattern, MaximizableAction, MaximizablePattern,
     MinimizableAction, MinimizablePattern, MovableAction, MovablePattern, Namespace, ResizableAction, ResizablePattern,
@@ -297,7 +297,7 @@ fn window_state(node: &Arc<dyn UiNode>) -> Option<WindowStatus> {
         bounds,
         is_minimized: attr_bool(node, minimizable::IS_MINIMIZED),
         is_maximized: attr_bool(node, maximizable::IS_MAXIMIZED),
-        is_topmost: attr_bool(node, activatable::IS_TOPMOST),
+        is_topmost: attr_bool(node, window_state::IS_TOPMOST),
         supports_move: attr_bool(node, movable::CAN_MOVE),
         supports_resize: attr_bool(node, resizable::CAN_RESIZE),
     })

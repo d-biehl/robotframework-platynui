@@ -229,6 +229,12 @@ impl UiNode for UiaNode {
                 "IsTopmost" if self.has_window_surface() => {
                     Some(Arc::new(IsTopmostAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                 }
+                "IsActive" if self.has_window_surface() => {
+                    Some(Arc::new(IsActiveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                }
+                "IsModal" if self.has_window_surface() => {
+                    Some(Arc::new(IsModalAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                }
                 "CanMove" if self.has_window_surface() => {
                     Some(Arc::new(CanMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                 }
@@ -752,8 +758,22 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                // Native property attributes (dynamic): build once, then stream
                 15 => {
+                    if self.has_window_surface {
+                        Some(Arc::new(IsActiveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                16 => {
+                    if self.has_window_surface {
+                        Some(Arc::new(IsModalAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                // Native property attributes (dynamic): build once, then stream
+                17 => {
                     if self.native_cache.is_none() {
                         let pairs = crate::map::collect_native_properties(&elem);
                         let attrs: Vec<Arc<dyn UiAttribute>> = pairs
@@ -777,7 +797,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 15 && self.native_cache.is_some() {
+                    if self.idx > 17 && self.native_cache.is_some() {
                         // Continue streaming native cache until exhausted
                         if let Some(list) = self.native_cache.as_ref()
                             && self.native_pos < list.len()
@@ -789,11 +809,11 @@ impl Iterator for AttrsIter {
                             return Some(attr);
                         }
                     }
-                    if self.idx > 15 && self.native_cache.is_none() {
+                    if self.idx > 17 && self.native_cache.is_none() {
                         // No native props at all
                         return None;
                     }
-                    if self.idx > 15 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false)
+                    if self.idx > 17 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false)
                     {
                         return None;
                     }
@@ -1192,6 +1212,62 @@ impl UiAttribute for IsTopmostAttr {
 }
 unsafe impl Send for IsTopmostAttr {}
 unsafe impl Sync for IsTopmostAttr {}
+
+struct IsActiveAttr {
+    elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+}
+impl UiAttribute for IsActiveAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        "IsActive"
+    }
+    fn value(&self) -> UiValue {
+        let result = (|| -> Result<bool, crate::error::UiaError> {
+            // Read this element's native HWND. Non-window elements return 0.
+            let hwnd = crate::error::uia_api("IUIAutomationElement::CurrentNativeWindowHandle", unsafe {
+                self.elem.CurrentNativeWindowHandle()
+            })?;
+            if hwnd.0.is_null() {
+                return Ok(false);
+            }
+            let foreground = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
+            Ok(foreground.0 == hwnd.0)
+        })();
+        UiValue::from(result.unwrap_or(false))
+    }
+}
+unsafe impl Send for IsActiveAttr {}
+unsafe impl Sync for IsActiveAttr {}
+
+struct IsModalAttr {
+    elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+}
+impl UiAttribute for IsModalAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        "IsModal"
+    }
+    fn value(&self) -> UiValue {
+        let result = (|| -> Result<bool, crate::error::UiaError> {
+            let unk = crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Window)", unsafe {
+                self.elem.GetCurrentPattern(windows::Win32::UI::Accessibility::UIA_PATTERN_ID(
+                    windows::Win32::UI::Accessibility::UIA_WindowPatternId.0,
+                ))
+            })?;
+            let pat: IUIAutomationWindowPattern = crate::error::uia_api("IUnknown::cast(WindowPattern)", unk.cast())?;
+            let v =
+                crate::error::uia_api("IUIAutomationWindowPattern::CurrentIsModal", unsafe { pat.CurrentIsModal() })?;
+            Ok(v.as_bool())
+        })();
+        UiValue::from(result.unwrap_or(false))
+    }
+}
+unsafe impl Send for IsModalAttr {}
+unsafe impl Sync for IsModalAttr {}
 
 struct CanMoveAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,

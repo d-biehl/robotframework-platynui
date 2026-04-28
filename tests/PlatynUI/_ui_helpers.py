@@ -231,11 +231,18 @@ class ResponsiveStub(patterns.Responsive):
 
 
 class WindowStateStub(patterns.WindowState):
-    """`patterns.WindowState` stub with fixed active/topmost flags."""
+    """`patterns.WindowState` stub with fixed active/topmost/modal flags."""
 
-    def __init__(self, *, is_active: bool = True, is_topmost: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        is_active: bool = True,
+        is_topmost: bool = False,
+        is_modal: bool = False,
+    ) -> None:
         self._active = is_active
         self._topmost = is_topmost
+        self._modal = is_modal
 
     @property
     def is_active(self) -> bool:
@@ -244,6 +251,10 @@ class WindowStateStub(patterns.WindowState):
     @property
     def is_topmost(self) -> bool:
         return self._topmost
+
+    @property
+    def is_modal(self) -> bool:
+        return self._modal
 
 
 class ReadableStub(patterns.Readable):

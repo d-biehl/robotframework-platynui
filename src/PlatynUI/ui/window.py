@@ -31,6 +31,12 @@ class Window(Control):
         return state.is_topmost if state is not None else False
 
     @property
+    def is_modal(self) -> bool:
+        """Whether the window is modal (blocks input to other windows)."""
+        state = self.adapter.get_pattern(patterns.WindowState, raise_exception=False)
+        return state.is_modal if state is not None else False
+
+    @property
     def is_minimized(self) -> bool:
         """Whether the window is currently minimized."""
         minimizable = self.adapter.get_pattern(patterns.Minimizable, raise_exception=False)

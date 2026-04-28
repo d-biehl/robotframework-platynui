@@ -3,7 +3,7 @@ use crate::focus;
 use crate::tree::AttributeSpec;
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{
-    activatable, closeable, element, maximizable, minimizable, movable, resizable,
+    closeable, element, maximizable, minimizable, movable, resizable, window_state,
 };
 use platynui_core::ui::{
     ActivatableAction, CloseableAction, MaximizableAction, MinimizableAction, MovableAction, Namespace, PatternError,
@@ -19,6 +19,7 @@ pub(crate) struct WindowConfig {
     pub is_minimized: bool,
     pub is_maximized: bool,
     pub is_topmost: bool,
+    pub is_modal: bool,
     pub can_minimize: bool,
     pub can_maximize: bool,
     pub can_close: bool,
@@ -35,6 +36,7 @@ impl Default for WindowConfig {
             is_minimized: false,
             is_maximized: false,
             is_topmost: false,
+            is_modal: false,
             can_minimize: true,
             can_maximize: true,
             can_close: true,
@@ -52,6 +54,7 @@ struct WindowState {
     is_minimized: bool,
     is_maximized: bool,
     is_topmost: bool,
+    is_modal: bool,
     can_minimize: bool,
     can_maximize: bool,
     can_close: bool,
@@ -68,6 +71,7 @@ impl From<WindowConfig> for WindowState {
             is_minimized: config.is_minimized,
             is_maximized: config.is_maximized,
             is_topmost: config.is_topmost,
+            is_modal: config.is_modal,
             can_minimize: config.can_minimize,
             can_maximize: config.can_maximize,
             can_close: config.can_close,
@@ -100,14 +104,19 @@ pub(crate) fn derive_config(attributes: &[AttributeSpec]) -> WindowConfig {
             continue;
         }
         match attr.name() {
-            activatable::IS_ACTIVE => {
+            window_state::IS_ACTIVE => {
                 if let Some(value) = as_bool(attr.value()) {
                     config.is_active = value;
                 }
             }
-            activatable::IS_TOPMOST => {
+            window_state::IS_TOPMOST => {
                 if let Some(value) = as_bool(attr.value()) {
                     config.is_topmost = value;
+                }
+            }
+            window_state::IS_MODAL => {
+                if let Some(value) = as_bool(attr.value()) {
+                    config.is_modal = value;
                 }
             }
             minimizable::IS_MINIMIZED => {
@@ -155,8 +164,9 @@ pub(crate) fn should_filter_attribute(name: &str) -> bool {
     matches!(
         name,
         n if n == element::BOUNDS
-            || n == activatable::IS_ACTIVE
-            || n == activatable::IS_TOPMOST
+            || n == window_state::IS_ACTIVE
+            || n == window_state::IS_TOPMOST
+            || n == window_state::IS_MODAL
             || n == minimizable::IS_MINIMIZED
             || n == minimizable::CAN_MINIMIZE
             || n == maximizable::IS_MAXIMIZED
@@ -179,8 +189,9 @@ pub(crate) fn register_window(
 
     vec![
         window_attribute(namespace, runtime_id.clone(), element::BOUNDS, WindowAttributeKind::Bounds),
-        window_attribute(namespace, runtime_id.clone(), activatable::IS_ACTIVE, WindowAttributeKind::IsActive),
-        window_attribute(namespace, runtime_id.clone(), activatable::IS_TOPMOST, WindowAttributeKind::IsTopmost),
+        window_attribute(namespace, runtime_id.clone(), window_state::IS_ACTIVE, WindowAttributeKind::IsActive),
+        window_attribute(namespace, runtime_id.clone(), window_state::IS_TOPMOST, WindowAttributeKind::IsTopmost),
+        window_attribute(namespace, runtime_id.clone(), window_state::IS_MODAL, WindowAttributeKind::IsModal),
         window_attribute(namespace, runtime_id.clone(), minimizable::IS_MINIMIZED, WindowAttributeKind::IsMinimized),
         window_attribute(namespace, runtime_id.clone(), minimizable::CAN_MINIMIZE, WindowAttributeKind::CanMinimize),
         window_attribute(namespace, runtime_id.clone(), maximizable::IS_MAXIMIZED, WindowAttributeKind::IsMaximized),
@@ -371,6 +382,7 @@ enum WindowAttributeKind {
     Bounds,
     IsActive,
     IsTopmost,
+    IsModal,
     IsMinimized,
     CanMinimize,
     IsMaximized,
@@ -399,6 +411,7 @@ impl UiAttribute for WindowAttribute {
             WindowAttributeKind::IsTopmost => {
                 state.map(|s| UiValue::from(s.is_topmost)).unwrap_or(UiValue::from(false))
             }
+            WindowAttributeKind::IsModal => state.map(|s| UiValue::from(s.is_modal)).unwrap_or(UiValue::from(false)),
             WindowAttributeKind::IsMinimized => {
                 state.map(|s| UiValue::from(s.is_minimized)).unwrap_or(UiValue::from(false))
             }

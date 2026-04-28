@@ -101,6 +101,16 @@ def test_is_topmost_defaults_false_without_window_state() -> None:
     assert w.is_topmost is False
 
 
+def test_is_modal_uses_window_state_when_present() -> None:
+    w = Window(adapter=_window_adapter({patterns.WindowState: WindowStateStub(is_modal=True)}))
+    assert w.is_modal is True
+
+
+def test_is_modal_defaults_false_without_window_state() -> None:
+    w = Window(adapter=_window_adapter())
+    assert w.is_modal is False
+
+
 def test_is_minimized_reflects_pattern_state() -> None:
     w = Window(adapter=_window_adapter({patterns.Minimizable: MinimizableStub(is_minimized=True)}))
     assert w.is_minimized is True

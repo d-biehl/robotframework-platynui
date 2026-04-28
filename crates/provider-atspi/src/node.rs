@@ -19,7 +19,7 @@ use atspi_proxies::value::ValueProxy;
 use platynui_core::platform::{WindowId, WindowManager, window_manager};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{
-    activatable as activatable_attr, activation_target, application, common, element, focusable,
+    activation_target, application, common, element, focusable, window_state as window_state_attr,
 };
 use platynui_core::ui::{
     ActivatableAction, CloseableAction, FocusableAction, MaximizableAction, MinimizableAction, MovableAction,
@@ -1076,7 +1076,18 @@ impl Iterator for AttrsIter {
                     if self.is_window_surface {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
-                            kind: StdAttrKind::IsTopmost,
+                            kind: StdAttrKind::IsActive,
+                            ctx: self.ctx.clone(),
+                        }))
+                    } else {
+                        None
+                    }
+                }
+                20 => {
+                    if self.is_window_surface {
+                        Some(Arc::new(LazyStdAttr {
+                            namespace: self.namespace,
+                            kind: StdAttrKind::IsModal,
                             ctx: self.ctx.clone(),
                         }))
                     } else {
@@ -1103,7 +1114,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 20 {
+                    if self.idx > 21 {
                         return None;
                     }
                     continue;
@@ -1251,7 +1262,8 @@ enum StdAttrKind {
     IsInView,
     IsFocused,
     SupportedPatterns,
-    IsTopmost,
+    IsActive,
+    IsModal,
 }
 
 /// A lazily-evaluated standard attribute.
@@ -1283,7 +1295,8 @@ impl UiAttribute for LazyStdAttr {
             StdAttrKind::IsInView => element::IS_IN_VIEW,
             StdAttrKind::IsFocused => focusable::IS_FOCUSED,
             StdAttrKind::SupportedPatterns => common::SUPPORTED_PATTERNS,
-            StdAttrKind::IsTopmost => activatable_attr::IS_TOPMOST,
+            StdAttrKind::IsActive => window_state_attr::IS_ACTIVE,
+            StdAttrKind::IsModal => window_state_attr::IS_MODAL,
         }
     }
 
@@ -1350,9 +1363,13 @@ impl UiAttribute for LazyStdAttr {
                 }
                 supported_patterns_value(&patterns)
             }
-            StdAttrKind::IsTopmost => {
+            StdAttrKind::IsActive => {
                 let active = self.ctx.resolve_is_active_window().unwrap_or(false);
                 UiValue::from(active)
+            }
+            StdAttrKind::IsModal => {
+                let modal = self.ctx.resolve_state().map(|s| s.contains(State::Modal)).unwrap_or(false);
+                UiValue::from(modal)
             }
         }
     }

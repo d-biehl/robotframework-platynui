@@ -108,7 +108,7 @@ class _NativeActivatable(Activatable):
 
 
 class _NativeWindowState(WindowState):
-    """`WindowState` reads the ``IsActive`` and ``IsTopmost`` attributes."""
+    """`WindowState` reads the ``IsActive``, ``IsTopmost`` and ``IsModal`` attributes."""
 
     __slots__ = ('_adapter',)
 
@@ -124,6 +124,11 @@ class _NativeWindowState(WindowState):
     @override
     def is_topmost(self) -> bool:
         return _bool_attr(self._adapter, 'IsTopmost')
+
+    @property
+    @override
+    def is_modal(self) -> bool:
+        return _bool_attr(self._adapter, 'IsModal')
 
 
 class _NativeMinimizable(Minimizable):

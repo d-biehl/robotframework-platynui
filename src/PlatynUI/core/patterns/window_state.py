@@ -30,3 +30,8 @@ class WindowState(PatternBase):
     @abstractmethod
     def is_topmost(self) -> bool:
         """Whether the window is in always-on-top mode."""
+
+    @property
+    @abstractmethod
+    def is_modal(self) -> bool:
+        """Whether the window is modal (blocks input to other windows)."""

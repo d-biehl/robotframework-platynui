@@ -4,9 +4,22 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 38**.
+> **Status:** Diskussionsentwurf, **Revision 39**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 39** — **`WindowState.is_modal` + Rust-Modul-Split.**
+>   `WindowState` bekommt eine dritte Read-only-Property `is_modal`,
+>   die anzeigt, ob das Window modal ist (blockiert Eingaben anderer
+>   Windows). Quellen: UIA `CurrentIsModal`
+>   (`UIA_WindowIsModalPropertyId`), AT-SPI `STATE_MODAL`. Begleitend
+>   wird das Rust-Attribut-Modul `attributes::activatable` aufgeteilt:
+>   `IS_ACTIVATION_ENABLED` und `DEFAULT_ACCELERATOR` bleiben dort,
+>   `IS_ACTIVE`, `IS_TOPMOST`, `IS_MODAL` ziehen in das neue Modul
+>   `attributes::window_state` um (Symmetrie zu den Python-Patterns).
+>   Provider-Konsequenzen: atspi liefert `IsActive` (vorher fälschlich
+>   als `IsTopmost` exposed) und neu `IsModal`; ein echtes `IsTopmost`
+>   gibt es unter X11 nicht. Windows-UIA bekommt `IsActive`
+>   (Foreground-Window-Vergleich) und `IsModal`. Macos-AX bleibt Stub.
 > - **Rev. 38** — **Default-Proxy-Schicht ohne `WindowProxy`
 >   (§A.13.4) + neues `WindowState`-Pattern.** Die Window-Sub-Patterns
 >   (`Activatable`, `Minimizable`, `Maximizable`, `Restorable`,
@@ -3276,7 +3289,7 @@ zwischen Patterns ist kein Selbstzweck.
 | Pattern | Methoden / Properties | Implementiert wo? |
 |---|---|---|
 | `Activatable` | `activate()`, `is_activation_enabled`, `default_accelerator` | TopLevel-Window: Rust `ActivatablePattern` (Window-Manager-Foreground); Buttons/MenuItems: Python-Proxy (Click) |
-| `WindowState` | `is_active`, `is_topmost` | TopLevel-Window: Adapter-Attribut-Reads (`IsActive`, `IsTopmost`) |
+| `WindowState` | `is_active`, `is_topmost`, `is_modal` | TopLevel-Window: Adapter-Attribut-Reads (`IsActive`, `IsTopmost`, `IsModal`) |
 | `Focusable` | `focus()`; Adapter-Attr `IsFocused` | Sub-Elemente (Edits, Buttons, ListItems). **Nicht** an Windows. |
 | `Minimizable` | `is_minimized`, `can_minimize`, `minimize()` | TopLevel-Window: Rust `MinimizablePattern` |
 | `Maximizable` | `is_maximized`, `can_maximize`, `maximize()` | TopLevel-Window: Rust `MaximizablePattern` |
@@ -3551,7 +3564,7 @@ brauchen daher keinen Proxy-Mixin:
 |---|---|
 | `Focusable` | `FocusablePattern` |
 | `Activatable` | `ActivatablePattern` (TopLevel-Windows only) |
-| `WindowState` | (kein Trait — liest Attribute `IsActive`/`IsTopmost`) |
+| `WindowState` | (kein Trait — liest Attribute `IsActive`/`IsTopmost`/`IsModal`) |
 | `Minimizable` | `MinimizablePattern` |
 | `Maximizable` | `MaximizablePattern` |
 | `Restorable` | `RestorablePattern` |

@@ -33,10 +33,14 @@ pub mod pattern {
     }
 
     pub mod activatable {
-        pub const IS_ACTIVE: &str = "IsActive";
-        pub const IS_TOPMOST: &str = "IsTopmost";
         pub const IS_ACTIVATION_ENABLED: &str = "IsActivationEnabled";
         pub const DEFAULT_ACCELERATOR: &str = "DefaultAccelerator";
+    }
+
+    pub mod window_state {
+        pub const IS_ACTIVE: &str = "IsActive";
+        pub const IS_TOPMOST: &str = "IsTopmost";
+        pub const IS_MODAL: &str = "IsModal";
     }
 
     pub mod activation_target {

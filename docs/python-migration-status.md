@@ -7,7 +7,7 @@ in das neue Rust-basierte Projekt verfolgt.
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
 **Stand:** 2026-04-28
-**Aktuelle Revision:** Rev. 38 (Phase 4-rust-split eingeschoben — das
+**Aktuelle Revision:** Rev. 39 (Phase 4-rust-split eingeschoben — das
 Rust-Mega-Trait `WindowSurfacePattern` (8 Methoden) wird in 7
 orthogonale Sub-Traits zerlegt: `ActivatablePattern` (TopLevel-only,
 trägt `activate()` + Read `IsActive`), `MinimizablePattern`,
@@ -766,7 +766,15 @@ Window-Proxy die granularen Sub-Traits aus Rev. 37
       `_NativeResizable`, `_NativeResponsive`) plus
       `_NATIVE_PATTERN_BUILDERS`/`_NATIVE_PATTERN_TYPES`-Registries.
       Neues `WindowState`-Pattern-ABC; `Window.is_active`/
-      `is_topmost` lesen über `WindowState`.
+      `is_topmost`/`is_modal` lesen über `WindowState`.
+- [x] **`WindowState.is_modal` + Rust-Modul-Split** (Rev. 39):
+      Drittes Read-only Window-Statusbit `is_modal` ergänzt;
+      `attributes::window_state` als neues Rust-Modul (IS_ACTIVE,
+      IS_TOPMOST, IS_MODAL); atspi-Provider-Bug gefixt
+      (`IsTopmost` → `IsActive` umbenannt, neuer `IsModal` via
+      `State::Modal`); Windows-UIA-Provider exposiert jetzt
+      `IsActive` (Foreground-Vergleich) und `IsModal`
+      (`CurrentIsModal`).
 - [ ] `ui/proxies/__init__.py` mit Side-Effect-Imports.
 - [ ] `ui/proxies/base.py`: `ElementProxy(AdapterProxy)`,
       `ControlProxy(ElementProxy)` als gemeinsame Aufhänger.
