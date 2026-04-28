@@ -54,9 +54,7 @@ def test_role_exact_match() -> None:
 
 
 def test_role_supported_match_decays_by_index() -> None:
-    calc = WeightCalculator(
-        _MockAdapter(role='Control', supported_roles=['Control', 'Button', 'Toggle'])
-    )
+    calc = WeightCalculator(_MockAdapter(role='Control', supported_roles=['Control', 'Button', 'Toggle']))
     # "Toggle" is at index 2 → 5000 - 2 = 4998
     assert calc.calculate({'role': 'Toggle'}) == 4998
 
@@ -82,24 +80,18 @@ def test_attributes_default_namespace_string_keys() -> None:
             },
         )
     )
-    weight = calc.calculate(
-        {'role': 'Button', 'attributes': {'AutomationId': 'btn1', 'Name': 'OK'}}
-    )
+    weight = calc.calculate({'role': 'Button', 'attributes': {'AutomationId': 'btn1', 'Name': 'OK'}})
     assert weight == 10_000 + 200 + 200
 
 
 def test_attributes_explicit_namespace_tuple_keys() -> None:
     """Tuple keys in criteria pick the namespace explicitly."""
-    calc = WeightCalculator(
-        _MockAdapter(attributes={('native', 'HWND'): '0x12AB'})
-    )
+    calc = WeightCalculator(_MockAdapter(attributes={('native', 'HWND'): '0x12AB'}))
     assert calc.calculate({'attributes': {('native', 'HWND'): '0x12AB'}}) == 200
 
 
 def test_attribute_mismatch_returns_zero() -> None:
-    calc = WeightCalculator(
-        _MockAdapter(role='Button', attributes={('control', 'AutomationId'): 'x'})
-    )
+    calc = WeightCalculator(_MockAdapter(role='Button', attributes={('control', 'AutomationId'): 'x'}))
     assert calc.calculate({'attributes': {'AutomationId': 'y'}}) == 0
 
 

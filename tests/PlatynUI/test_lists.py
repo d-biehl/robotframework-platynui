@@ -12,8 +12,8 @@ import pytest
 from _ui_helpers import (  # type: ignore[import-not-found]
     ElementStub,
     FocusableStub,
-    HasUserInputStub,
     ItemContainerStub,
+    ResponsiveStub,
     SelectableStub,
     make_adapter,
 )
@@ -86,7 +86,7 @@ def _list_adapter(
         parent=desktop,
         pattern_map={
             patterns.Element: ElementStub(),
-            patterns.HasUserInput: HasUserInputStub(True),
+            patterns.Responsive: ResponsiveStub(True),
             patterns.Focusable: FocusableStub(is_focused=True),
         },
     )
@@ -94,7 +94,9 @@ def _list_adapter(
     if extra:
         pmap.update(extra)
     return make_adapter(  # type: ignore[no-any-return]
-        role='List', parent=window, pattern_map=pmap,
+        role='List',
+        parent=window,
+        pattern_map=pmap,
     )
 
 

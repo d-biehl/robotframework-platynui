@@ -18,12 +18,14 @@ use atspi_proxies::text::TextProxy;
 use atspi_proxies::value::ValueProxy;
 use platynui_core::platform::{WindowId, WindowManager, window_manager};
 use platynui_core::types::{Point, Rect, Size};
-use platynui_core::ui::attribute_names::{activation_target, application, common, element, focusable, window_surface};
-use platynui_core::ui::{
-    FocusableAction, Namespace, PatternError, PatternName, RuntimeId, UiAttribute, UiNode, UiNodeExt, UiPattern,
-    UiValue, WindowSurfacePattern, pattern_names, supported_patterns_value,
+use platynui_core::ui::attribute_names::{
+    activatable as activatable_attr, activation_target, application, common, element, focusable,
 };
-use std::any::Any;
+use platynui_core::ui::{
+    ActivatableAction, CloseableAction, FocusableAction, MaximizableAction, MinimizableAction, MovableAction,
+    Namespace, PatternError, PatternName, ResizableAction, ResponsiveAction, RestorableAction, RuntimeId, UiAttribute,
+    UiNode, UiNodeExt, UiPattern, UiValue, pattern_names, supported_patterns_value,
+};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, OnceLock, Weak};
@@ -257,7 +259,14 @@ impl UiNode for AtspiNode {
             patterns.push(PatternName::from(pattern_names::FOCUSABLE));
         }
         if self.is_window_surface() {
-            patterns.push(PatternName::from(pattern_names::WINDOW_SURFACE));
+            patterns.push(PatternName::from(pattern_names::ACTIVATABLE));
+            patterns.push(PatternName::from(pattern_names::MINIMIZABLE));
+            patterns.push(PatternName::from(pattern_names::MAXIMIZABLE));
+            patterns.push(PatternName::from(pattern_names::RESTORABLE));
+            patterns.push(PatternName::from(pattern_names::CLOSEABLE));
+            patterns.push(PatternName::from(pattern_names::MOVABLE));
+            patterns.push(PatternName::from(pattern_names::RESIZABLE));
+            patterns.push(PatternName::from(pattern_names::RESPONSIVE));
         }
         patterns
     }
@@ -272,13 +281,23 @@ impl UiNode for AtspiNode {
             let obj = self.obj.clone();
             let action = FocusableAction::new(move || grab_focus(conn.as_ref(), &obj).map_err(Into::into));
             Some(Arc::new(action) as Arc<dyn UiPattern>)
-        } else if id == pattern_names::WINDOW_SURFACE {
+        } else if matches!(
+            id,
+            x if x == pattern_names::ACTIVATABLE
+                || x == pattern_names::MINIMIZABLE
+                || x == pattern_names::MAXIMIZABLE
+                || x == pattern_names::RESTORABLE
+                || x == pattern_names::CLOSEABLE
+                || x == pattern_names::MOVABLE
+                || x == pattern_names::RESIZABLE
+                || x == pattern_names::RESPONSIVE
+        ) {
             if !self.is_window_surface() {
                 return None;
             }
             let weak = self.self_weak.get().cloned()?;
-            Some(Arc::new(AtspiWindowSurface { node: weak, conn: self.conn.clone(), obj: self.obj.clone() })
-                as Arc<dyn UiPattern>)
+            let core = Arc::new(AtspiWindowSurface { node: weak, conn: self.conn.clone(), obj: self.obj.clone() });
+            Some(make_window_pattern(id, core))
         } else {
             None
         }
@@ -397,10 +416,11 @@ fn is_window_surface_role(role: &str) -> bool {
     matches!(role, "Frame" | "Window" | "Dialog")
 }
 
-/// [`WindowSurfacePattern`] implementation for AT-SPI window nodes.
+/// Shared resolver for AT-SPI window-surface sub-patterns.
 ///
 /// Holds a single [`Weak`] reference to the owning [`UiNode`] and delegates
-/// all operations to the registered [`WindowManager`].
+/// all operations to the registered [`WindowManager`]. Wrapped by
+/// [`make_window_pattern`] into the eight orthogonal sub-pattern actions.
 struct AtspiWindowSurface {
     node: Weak<dyn UiNode>,
     conn: Arc<AccessibilityConnection>,
@@ -420,26 +440,7 @@ impl AtspiWindowSurface {
         accessible_proxy(self.conn.as_ref(), &self.obj)
             .and_then(|proxy| block_on_timeout_call(proxy.get_state()).and_then(|r| r.ok()))
     }
-}
 
-impl UiPattern for AtspiWindowSurface {
-    fn pattern_name(&self) -> PatternName {
-        Self::static_pattern_name()
-    }
-
-    fn static_pattern_name() -> PatternName
-    where
-        Self: Sized,
-    {
-        PatternName::from(pattern_names::WINDOW_SURFACE)
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-impl WindowSurfacePattern for AtspiWindowSurface {
     fn activate(&self) -> Result<(), PatternError> {
         let (wm, wid) = self.resolve()?;
         wm.activate(wid)?;
@@ -484,8 +485,46 @@ impl WindowSurfacePattern for AtspiWindowSurface {
 
     fn accepts_user_input(&self) -> Result<Option<bool>, PatternError> {
         // If the AT-SPI peer responds to a state query, its event loop is running
-        // and it can accept user input — analogous to WaitForInputIdle on Windows.
+        // and it can accept user input \u2014 analogous to WaitForInputIdle on Windows.
         Ok(Some(self.resolve_state().is_some()))
+    }
+}
+
+fn make_window_pattern(id: &str, core: Arc<AtspiWindowSurface>) -> Arc<dyn UiPattern> {
+    match id {
+        x if x == pattern_names::ACTIVATABLE => {
+            let core = Arc::clone(&core);
+            Arc::new(ActivatableAction::new(move || core.activate()))
+        }
+        x if x == pattern_names::MINIMIZABLE => {
+            let core = Arc::clone(&core);
+            Arc::new(MinimizableAction::new(move || core.minimize()))
+        }
+        x if x == pattern_names::MAXIMIZABLE => {
+            let core = Arc::clone(&core);
+            Arc::new(MaximizableAction::new(move || core.maximize()))
+        }
+        x if x == pattern_names::RESTORABLE => {
+            let core = Arc::clone(&core);
+            Arc::new(RestorableAction::new(move || core.restore()))
+        }
+        x if x == pattern_names::CLOSEABLE => {
+            let core = Arc::clone(&core);
+            Arc::new(CloseableAction::new(move || core.close()))
+        }
+        x if x == pattern_names::MOVABLE => {
+            let core = Arc::clone(&core);
+            Arc::new(MovableAction::new(move |point| core.move_to(point)))
+        }
+        x if x == pattern_names::RESIZABLE => {
+            let core = Arc::clone(&core);
+            Arc::new(ResizableAction::new(move |size| core.resize(size)))
+        }
+        x if x == pattern_names::RESPONSIVE => {
+            let core = Arc::clone(&core);
+            Arc::new(ResponsiveAction::new(move || core.accepts_user_input()))
+        }
+        _ => unreachable!("make_window_pattern called with non-window pattern id"),
     }
 }
 
@@ -1044,17 +1083,6 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                20 => {
-                    if self.is_window_surface {
-                        Some(Arc::new(LazyStdAttr {
-                            namespace: self.namespace,
-                            kind: StdAttrKind::AcceptsUserInput,
-                            ctx: self.ctx.clone(),
-                        }))
-                    } else {
-                        None
-                    }
-                }
                 // Yield lazy native properties — D-Bus is only called
                 // when the consumer invokes `.value()` on the attribute.
                 _ => {
@@ -1075,7 +1103,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 21 {
+                    if self.idx > 20 {
                         return None;
                     }
                     continue;
@@ -1224,7 +1252,6 @@ enum StdAttrKind {
     IsFocused,
     SupportedPatterns,
     IsTopmost,
-    AcceptsUserInput,
 }
 
 /// A lazily-evaluated standard attribute.
@@ -1256,8 +1283,7 @@ impl UiAttribute for LazyStdAttr {
             StdAttrKind::IsInView => element::IS_IN_VIEW,
             StdAttrKind::IsFocused => focusable::IS_FOCUSED,
             StdAttrKind::SupportedPatterns => common::SUPPORTED_PATTERNS,
-            StdAttrKind::IsTopmost => window_surface::IS_TOPMOST,
-            StdAttrKind::AcceptsUserInput => window_surface::ACCEPTS_USER_INPUT,
+            StdAttrKind::IsTopmost => activatable_attr::IS_TOPMOST,
         }
     }
 
@@ -1313,18 +1339,20 @@ impl UiAttribute for LazyStdAttr {
                     patterns.push(PatternName::from(pattern_names::FOCUSABLE));
                 }
                 if window_surface {
-                    patterns.push(PatternName::from(pattern_names::WINDOW_SURFACE));
+                    patterns.push(PatternName::from(pattern_names::ACTIVATABLE));
+                    patterns.push(PatternName::from(pattern_names::MINIMIZABLE));
+                    patterns.push(PatternName::from(pattern_names::MAXIMIZABLE));
+                    patterns.push(PatternName::from(pattern_names::RESTORABLE));
+                    patterns.push(PatternName::from(pattern_names::CLOSEABLE));
+                    patterns.push(PatternName::from(pattern_names::MOVABLE));
+                    patterns.push(PatternName::from(pattern_names::RESIZABLE));
+                    patterns.push(PatternName::from(pattern_names::RESPONSIVE));
                 }
                 supported_patterns_value(&patterns)
             }
             StdAttrKind::IsTopmost => {
                 let active = self.ctx.resolve_is_active_window().unwrap_or(false);
                 UiValue::from(active)
-            }
-            StdAttrKind::AcceptsUserInput => {
-                // If the AT-SPI peer responds to a state query, its event loop
-                // is running and it can accept user input.
-                UiValue::from(self.ctx.resolve_state().is_some())
             }
         }
     }

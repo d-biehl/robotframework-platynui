@@ -193,9 +193,7 @@ def test_explicit_context_type_overrides_registry_pick() -> None:
         pass
 
     adapter = _make_adapter(role='__test_button__')
-    desc: ElementDescriptor = ElementDescriptor(
-        Locator(role='__test_button__'), context_type=_TestForced
-    )
+    desc: ElementDescriptor = ElementDescriptor(Locator(role='__test_button__'), context_type=_TestForced)
 
     original_init = ContextBase.__init__
 
@@ -218,9 +216,7 @@ def test_parent_descriptor_is_resolved_for_child_context() -> None:
     """Parent descriptor resolves to a context used as the child's parent."""
     parent_ctx = ContextBase(adapter=_make_adapter(role='Window'))
     parent_desc: ElementDescriptor = ElementDescriptor(context=parent_ctx)
-    child_desc: ElementDescriptor = ElementDescriptor(
-        Locator(role='Button'), parent=parent_desc
-    )
+    child_desc: ElementDescriptor = ElementDescriptor(Locator(role='Button'), parent=parent_desc)
 
     result = child_desc(full_context=False)
 
@@ -332,9 +328,7 @@ def test_set_root_element_storage_overrides_hook() -> None:
 
     set_root_element_storage(getter, setter)
 
-    desc: ElementDescriptor = ElementDescriptor(
-        context=ContextBase(adapter=_make_adapter())
-    )
+    desc: ElementDescriptor = ElementDescriptor(context=ContextBase(adapter=_make_adapter()))
     ElementDescriptor.set_root_element(desc)
 
     assert store['value'] is desc
@@ -343,9 +337,7 @@ def test_set_root_element_storage_overrides_hook() -> None:
 
 def test_reset_root_element_storage_restores_default_and_clears_slot() -> None:
     """`reset_root_element_storage` reverts to the default in-process slot."""
-    desc: ElementDescriptor = ElementDescriptor(
-        context=ContextBase(adapter=_make_adapter())
-    )
+    desc: ElementDescriptor = ElementDescriptor(context=ContextBase(adapter=_make_adapter()))
     ElementDescriptor.set_root_element(desc)
     assert ElementDescriptor.get_root_element() is desc
 

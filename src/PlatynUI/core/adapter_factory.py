@@ -147,8 +147,7 @@ class RuntimeAdapterFactory(AdapterFactory):
             adapter = UiNodeAdapter.from_node(result)
             return PatternProxyFactory.find_proxy_for(adapter)
         raise InvalidResultTypeError(
-            f'XPath {xpath!r} returned a non-node result of type '
-            f'{type(result).__name__}',
+            f'XPath {xpath!r} returned a non-node result of type {type(result).__name__}',
         )
 
 

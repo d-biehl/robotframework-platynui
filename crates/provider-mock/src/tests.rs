@@ -3,13 +3,17 @@ use crate::provider::{self, MockProvider};
 use crate::tree::{NodeSpec, StaticMockTree, install_mock_tree, reset_mock_tree};
 use platynui_core::provider::{UiTreeProvider, provider_factories};
 use platynui_core::types::{Point, Size};
-use platynui_core::ui::attribute_names::{activation_target, element, focusable, text_content, window_surface};
+use platynui_core::ui::attribute_names::{
+    activation_target, element, focusable, maximizable, minimizable, movable, resizable,
+};
 use platynui_core::ui::contract::testkit::{
     AttributeExpectation, NodeExpectation, PatternExpectation, require_node, verify_node,
 };
 use platynui_core::ui::{
-    FocusableAction, FocusablePattern, Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue,
-    WindowSurfaceActions, WindowSurfacePattern, pattern_names,
+    ActivatableAction, ActivatablePattern, CloseableAction, CloseablePattern, FocusableAction, FocusablePattern,
+    MaximizableAction, MaximizablePattern, MinimizableAction, MinimizablePattern, MovableAction, MovablePattern,
+    Namespace, PatternName, ResizableAction, ResizablePattern, ResponsiveAction, ResponsivePattern, RestorableAction,
+    RestorablePattern, RuntimeId, UiAttribute, UiNode, UiValue, pattern_names,
 };
 use rstest::rstest;
 use serial_test::serial;
@@ -22,7 +26,7 @@ const ELEMENT_EXPECTATIONS: [AttributeExpectation; 3] = [
 ];
 
 const TEXT_CONTENT_EXPECTATIONS: [AttributeExpectation; 1] =
-    [AttributeExpectation::required(Namespace::Control, text_content::TEXT)];
+    [AttributeExpectation::required(Namespace::Control, "Text")];
 
 const ACTIVATION_TARGET_EXPECTATIONS: [AttributeExpectation; 1] =
     [AttributeExpectation::required(Namespace::Control, activation_target::ACTIVATION_POINT)];
@@ -216,11 +220,18 @@ fn window_surface_pattern_is_exposed() {
         windows.find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID).expect("main window present");
 
     let patterns = window.supported_patterns();
-    assert!(patterns.contains(&PatternName::from(pattern_names::WINDOW_SURFACE)));
+    assert!(patterns.contains(&PatternName::from(pattern_names::ACTIVATABLE)));
+    assert!(patterns.contains(&PatternName::from(pattern_names::MINIMIZABLE)));
+    assert!(patterns.contains(&PatternName::from(pattern_names::MAXIMIZABLE)));
+    assert!(patterns.contains(&PatternName::from(pattern_names::RESTORABLE)));
+    assert!(patterns.contains(&PatternName::from(pattern_names::CLOSEABLE)));
+    assert!(patterns.contains(&PatternName::from(pattern_names::MOVABLE)));
+    assert!(patterns.contains(&PatternName::from(pattern_names::RESIZABLE)));
+    assert!(patterns.contains(&PatternName::from(pattern_names::RESPONSIVE)));
     assert!(patterns.contains(&PatternName::from(pattern_names::FOCUSABLE)));
 
-    let window_surface = window.pattern::<WindowSurfaceActions>().expect("window surface pattern registered");
-    assert!(window_surface.accepts_user_input().unwrap().is_some());
+    let responsive = window.pattern::<ResponsiveAction>().expect("responsive pattern registered");
+    assert!(responsive.accepts_user_input().unwrap().is_some());
 
     let focus_pattern = window.pattern::<FocusableAction>().expect("window focusable pattern available");
     focus_pattern.focus().expect("focusing window succeeds");
@@ -238,40 +249,47 @@ fn window_surface_actions_update_state() {
     let window =
         windows.find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID).expect("main window present");
 
-    let pattern = window.pattern::<WindowSurfaceActions>().expect("window surface pattern registered");
+    let activatable_pat = window.pattern::<ActivatableAction>().expect("activatable pattern registered");
+    let minimizable_pat = window.pattern::<MinimizableAction>().expect("minimizable pattern registered");
+    let maximizable_pat = window.pattern::<MaximizableAction>().expect("maximizable pattern registered");
+    let restorable_pat = window.pattern::<RestorableAction>().expect("restorable pattern registered");
+    let closeable_pat = window.pattern::<CloseableAction>().expect("closeable pattern registered");
+    let movable_pat = window.pattern::<MovableAction>().expect("movable pattern registered");
+    let resizable_pat = window.pattern::<ResizableAction>().expect("resizable pattern registered");
+    let responsive_pat = window.pattern::<ResponsiveAction>().expect("responsive pattern registered");
 
-    pattern.activate().expect("activate succeeds");
+    activatable_pat.activate().expect("activate succeeds");
     assert!(attr_bool(&window, Namespace::Control, focusable::IS_FOCUSED));
 
-    assert!(!attr_bool(&window, Namespace::Control, window_surface::IS_MINIMIZED));
-    assert!(attr_bool(&window, Namespace::Control, window_surface::SUPPORTS_MOVE));
-    assert!(attr_bool(&window, Namespace::Control, window_surface::SUPPORTS_RESIZE));
-    assert_eq!(pattern.accepts_user_input().unwrap(), Some(true));
+    assert!(!attr_bool(&window, Namespace::Control, minimizable::IS_MINIMIZED));
+    assert!(attr_bool(&window, Namespace::Control, movable::CAN_MOVE));
+    assert!(attr_bool(&window, Namespace::Control, resizable::CAN_RESIZE));
+    assert_eq!(responsive_pat.accepts_user_input().unwrap(), Some(true));
 
-    pattern.minimize().expect("minimize succeeds");
-    assert!(attr_bool(&window, Namespace::Control, window_surface::IS_MINIMIZED));
-    assert_eq!(pattern.accepts_user_input().unwrap(), Some(false));
+    minimizable_pat.minimize().expect("minimize succeeds");
+    assert!(attr_bool(&window, Namespace::Control, minimizable::IS_MINIMIZED));
+    assert_eq!(responsive_pat.accepts_user_input().unwrap(), Some(false));
     assert!(!attr_bool(&window, Namespace::Control, focusable::IS_FOCUSED));
 
-    pattern.restore().expect("restore succeeds");
-    assert!(!attr_bool(&window, Namespace::Control, window_surface::IS_MINIMIZED));
-    assert_eq!(pattern.accepts_user_input().unwrap(), Some(true));
+    restorable_pat.restore().expect("restore succeeds");
+    assert!(!attr_bool(&window, Namespace::Control, minimizable::IS_MINIMIZED));
+    assert_eq!(responsive_pat.accepts_user_input().unwrap(), Some(true));
     assert!(attr_bool(&window, Namespace::Control, focusable::IS_FOCUSED));
 
-    pattern.maximize().expect("maximize succeeds");
-    assert!(attr_bool(&window, Namespace::Control, window_surface::IS_MAXIMIZED));
+    maximizable_pat.maximize().expect("maximize succeeds");
+    assert!(attr_bool(&window, Namespace::Control, maximizable::IS_MAXIMIZED));
 
-    pattern.move_to(Point::new(240.0, 260.0)).expect("move succeeds");
+    movable_pat.move_to(Point::new(240.0, 260.0)).expect("move succeeds");
     let r = attr_rect(&window, Namespace::Control, element::BOUNDS).expect("bounds present");
     assert_eq!(r.x(), 240.0);
     assert_eq!(r.y(), 260.0);
 
-    pattern.resize(Size::new(820.0, 610.0)).expect("resize succeeds");
+    resizable_pat.resize(Size::new(820.0, 610.0)).expect("resize succeeds");
     let r = attr_rect(&window, Namespace::Control, element::BOUNDS).expect("bounds present");
     assert_eq!(r.width(), 820.0);
     assert_eq!(r.height(), 610.0);
 
-    pattern.close().expect("close succeeds");
+    closeable_pat.close().expect("close succeeds");
     assert!(!attr_bool(&window, Namespace::Control, focusable::IS_FOCUSED));
 }
 

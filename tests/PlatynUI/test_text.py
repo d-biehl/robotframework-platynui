@@ -17,8 +17,8 @@ from _ui_helpers import (  # type: ignore[import-not-found]
     ClearableStub,
     ElementStub,
     FocusableStub,
-    HasUserInputStub,
     ReadableStub,
+    ResponsiveStub,
     TextContentStub,
     TextEditableStub,
     make_adapter,
@@ -63,7 +63,7 @@ def _control_adapter(
         parent=desktop,
         pattern_map={
             patterns.Element: ElementStub(),
-            patterns.HasUserInput: HasUserInputStub(True),
+            patterns.Responsive: ResponsiveStub(True),
             patterns.Focusable: FocusableStub(is_focused=True),
         },
     )
@@ -74,7 +74,9 @@ def _control_adapter(
     if extra:
         pmap.update(extra)
     return make_adapter(  # type: ignore[no-any-return]
-        role=role, parent=window, pattern_map=pmap,
+        role=role,
+        parent=window,
+        pattern_map=pmap,
     )
 
 
@@ -118,7 +120,10 @@ def _edit_adapter(
     if extra_readable:
         extra[patterns.Readable] = ReadableStub(is_readonly=True)
     return _control_adapter(
-        role='Edit', extra=extra, is_focused=is_focused, element=element,
+        role='Edit',
+        extra=extra,
+        is_focused=is_focused,
+        element=element,
         focusable=focusable,
     )
 

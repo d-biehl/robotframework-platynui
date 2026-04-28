@@ -39,8 +39,6 @@ if TYPE_CHECKING:
 __all__ = ['Adapter']
 
 
-
-
 class Adapter(ABC):
     """Expose a UI element to the PlatynUI core.
 
@@ -215,9 +213,7 @@ class Adapter(ABC):
 
         name = getattr(pattern_type, 'pattern_name', None)
         if not isinstance(name, str) or not name:
-            raise NotAPatternTypeError(
-                f'{pattern_type!r} has no pattern_name; declare a Reverse-DNS identifier'
-            )
+            raise NotAPatternTypeError(f'{pattern_type!r} has no pattern_name; declare a Reverse-DNS identifier')
 
         # Step 1: self natively implements the pattern (e.g. a Rust-backed
         # adapter that subclasses both Adapter and a pattern ABC). mypy
@@ -240,17 +236,14 @@ class Adapter(ABC):
         if resolved is not None:
             if not isinstance(resolved, pattern_type):
                 raise PatternNotSupportedError(
-                    f'adapter resolved {name!r} to {type(resolved).__name__}, '
-                    f'which is not a {pattern_type.__name__}'
+                    f'adapter resolved {name!r} to {type(resolved).__name__}, which is not a {pattern_type.__name__}'
                 )
             self._pattern_impls[name] = resolved
             return resolved  # pyright: ignore[reportReturnType]
 
         # Step 4: not supported.
         if raise_exception:
-            raise PatternNotSupportedError(
-                f'adapter {self.runtime_id!r} does not support pattern {name!r}'
-            )
+            raise PatternNotSupportedError(f'adapter {self.runtime_id!r} does not support pattern {name!r}')
         return None
 
     def get_pattern_by_name(
@@ -281,9 +274,7 @@ class Adapter(ABC):
             return resolved
 
         if raise_exception:
-            raise PatternNotSupportedError(
-                f'adapter {self.runtime_id!r} does not support pattern {pattern_name!r}'
-            )
+            raise PatternNotSupportedError(f'adapter {self.runtime_id!r} does not support pattern {pattern_name!r}')
         return None
 
     # ------------------------------------------------------------------
@@ -300,9 +291,6 @@ class Adapter(ABC):
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         try:
-            return (
-                f'<{type(self).__name__} runtime_id={self.runtime_id!r} '
-                f'role={self.role!r} name={self.name!r}>'
-            )
+            return f'<{type(self).__name__} runtime_id={self.runtime_id!r} role={self.role!r} name={self.name!r}>'
         except Exception:  # repr must never raise
             return f'<{type(self).__name__} (invalid)>'

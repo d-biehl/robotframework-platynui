@@ -44,9 +44,7 @@ class AdapterLike(Protocol):
         """Return the pattern implementation for ``pattern_name``."""
         ...
 
-    def attribute_value(
-        self, name: str, namespace: str = DEFAULT_ATTRIBUTE_NAMESPACE
-    ) -> Any:
+    def attribute_value(self, name: str, namespace: str = DEFAULT_ATTRIBUTE_NAMESPACE) -> Any:
         """Return the attribute value, or ``None`` if unknown."""
         ...
 
@@ -56,9 +54,7 @@ class AdapterLike(Protocol):
 AttributeKey = 'str | tuple[str, str]'
 
 
-def _normalize_key(
-    key: 'str | tuple[str, str]', default_namespace: str
-) -> tuple[str, str]:
+def _normalize_key(key: 'str | tuple[str, str]', default_namespace: str) -> tuple[str, str]:
     """Resolve a free-form attribute key to ``(namespace, name)``.
 
     Bare strings go into ``default_namespace``; tuple keys are taken
@@ -66,20 +62,14 @@ def _normalize_key(
     """
     if isinstance(key, tuple):
         if len(key) != 2:
-            raise ValueError(
-                f'attribute key tuple must be (namespace, name); got {key!r}'
-            )
+            raise ValueError(f'attribute key tuple must be (namespace, name); got {key!r}')
         namespace, name = key
         if not isinstance(namespace, str) or not isinstance(name, str):
-            raise TypeError(
-                f'attribute key tuple must be (str, str); got {key!r}'
-            )
+            raise TypeError(f'attribute key tuple must be (str, str); got {key!r}')
         return namespace, name
     if isinstance(key, str):
         return default_namespace, key
-    raise TypeError(
-        f'attribute key must be str or (str, str) tuple; got {type(key).__name__}'
-    )
+    raise TypeError(f'attribute key must be str or (str, str) tuple; got {type(key).__name__}')
 
 
 class WeightCalculator:
@@ -106,9 +96,7 @@ class WeightCalculator:
         """Return ``adapter.attribute_value(name, namespace)`` with memoisation."""
         key = (namespace, name)
         if key not in self._attributes_cache:
-            self._attributes_cache[key] = self.adapter.attribute_value(
-                name, namespace
-            )
+            self._attributes_cache[key] = self.adapter.attribute_value(name, namespace)
         return self._attributes_cache[key]
 
     @staticmethod
@@ -154,9 +142,7 @@ class WeightCalculator:
         attributes = criteria.get('attributes')
         if attributes is not None:
             for raw_key, expected in cast('dict[Any, Any]', attributes).items():
-                namespace, name = _normalize_key(
-                    raw_key, self.default_attribute_namespace
-                )
+                namespace, name = _normalize_key(raw_key, self.default_attribute_namespace)
                 if self.test_values(self.attribute_cached(namespace, name), expected):
                     weight += 200
                 else:

@@ -109,12 +109,7 @@ def assertable(func: Callable[..., Any]) -> Callable[..., Any]:
         result = func(*bound_arguments.args, **bound_arguments.kwargs)
 
         if assertion_operator is not None:
-            verify_assertion(
-                result,
-                assertion_operator,
-                assertion_expected,
-                assertion_message
-            )
+            verify_assertion(result, assertion_operator, assertion_expected, assertion_message)
 
         return result
 

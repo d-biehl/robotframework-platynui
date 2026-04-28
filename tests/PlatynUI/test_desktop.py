@@ -59,7 +59,7 @@ def test_desktopbase_default_role_is_desktop() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_application_is_ready_true_without_has_user_input() -> None:
+def test_application_is_ready_true_without_responsive() -> None:
     d = DesktopBase(adapter=_desktop_adapter())
     assert d._application_is_ready() is True
 

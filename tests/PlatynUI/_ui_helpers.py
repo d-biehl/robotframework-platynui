@@ -26,18 +26,17 @@ __all__ = [
     'ExpandableStub',
     'FocusableStub',
     'HasEditorStub',
-    'HasUserInputStub',
     'ItemContainerStub',
     'MaximizableStub',
     'MinimizableStub',
     'MovableStub',
     'ReadableStub',
     'ResizableStub',
+    'ResponsiveStub',
     'RestorableStub',
     'SelectableStub',
     'TextContentStub',
     'TextEditableStub',
-    'TitledStub',
     'ToggleableStub',
     'make_adapter',
 ]
@@ -220,19 +219,8 @@ class ResizableStub(patterns.Resizable):
         self.resize_calls.append(size)
 
 
-class TitledStub(patterns.Titled):
-    """`patterns.Titled` stub with a fixed title."""
-
-    def __init__(self, title: str) -> None:
-        self._title = title
-
-    @property
-    def title(self) -> str:
-        return self._title
-
-
-class HasUserInputStub(patterns.HasUserInput):
-    """`patterns.HasUserInput` stub returning a fixed answer."""
+class ResponsiveStub(patterns.Responsive):
+    """`patterns.Responsive` stub returning a fixed answer."""
 
     def __init__(self, answer: bool | None = True) -> None:
         self._answer = answer

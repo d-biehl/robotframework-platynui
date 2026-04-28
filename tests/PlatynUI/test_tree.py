@@ -13,8 +13,8 @@ from _ui_helpers import (  # type: ignore[import-not-found]
     ElementStub,
     ExpandableStub,
     FocusableStub,
-    HasUserInputStub,
     ItemContainerStub,
+    ResponsiveStub,
     SelectableStub,
     make_adapter,
 )
@@ -80,7 +80,7 @@ def _tree_adapter(*, extra: dict[type, object] | None = None) -> Adapter:
         parent=desktop,
         pattern_map={
             patterns.Element: ElementStub(),
-            patterns.HasUserInput: HasUserInputStub(True),
+            patterns.Responsive: ResponsiveStub(True),
             patterns.Focusable: FocusableStub(is_focused=True),
         },
     )
@@ -88,7 +88,9 @@ def _tree_adapter(*, extra: dict[type, object] | None = None) -> Adapter:
     if extra:
         pmap.update(extra)
     return make_adapter(  # type: ignore[no-any-return]
-        role='Tree', parent=window, pattern_map=pmap,
+        role='Tree',
+        parent=window,
+        pattern_map=pmap,
     )
 
 
@@ -101,7 +103,9 @@ def _tree_item_adapter(*, runtime_id: str = 'ti1', extra: dict[type, object] | N
     if extra:
         pmap.update(extra)
     return make_adapter(  # type: ignore[no-any-return]
-        role='TreeItem', runtime_id=runtime_id, pattern_map=pmap,
+        role='TreeItem',
+        runtime_id=runtime_id,
+        pattern_map=pmap,
     )
 
 

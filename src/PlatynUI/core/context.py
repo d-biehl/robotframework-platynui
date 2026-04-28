@@ -227,9 +227,7 @@ class ContextBase:
         self.ensure_that(self._parent_exists)
         if self._instance_locator is None:
             return None
-        parent_adapter = (
-            self.__context_parent.adapter if self.__context_parent is not None else None
-        )
+        parent_adapter = self.__context_parent.adapter if self.__context_parent is not None else None
         if parent_adapter is None:
             return None
         return adapter_factory.current.find_one(
@@ -403,8 +401,7 @@ class ContextBase:
             )
         if len(results) > 1:
             raise MultipleElementsFoundError(
-                f'expected exactly one {ctx.__name__} below {self!r}, '
-                f'got {len(results)}',
+                f'expected exactly one {ctx.__name__} below {self!r}, got {len(results)}',
             )
         return results[0]
 

@@ -8,8 +8,11 @@ use std::sync::{Arc, Mutex, Weak};
 // no name cache atomics needed
 
 use platynui_core::types::{Point as UiPoint, Rect};
-use platynui_core::ui::pattern::{FocusableAction, PatternError, UiPattern, WindowSurfaceActions};
-use platynui_core::ui::{Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue};
+use platynui_core::ui::pattern::{
+    ActivatableAction, CloseableAction, FocusableAction, MaximizableAction, MinimizableAction, MovableAction,
+    PatternError, ResizableAction, ResponsiveAction, RestorableAction, UiPattern,
+};
+use platynui_core::ui::{Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue, pattern_names};
 use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, WaitForInputIdle};
 use windows::Win32::UI::Accessibility::{
@@ -226,14 +229,11 @@ impl UiNode for UiaNode {
                 "IsTopmost" if self.has_window_surface() => {
                     Some(Arc::new(IsTopmostAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                 }
-                "SupportsMove" if self.has_window_surface() => {
-                    Some(Arc::new(SupportsMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                "CanMove" if self.has_window_surface() => {
+                    Some(Arc::new(CanMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                 }
-                "SupportsResize" if self.has_window_surface() => {
-                    Some(Arc::new(SupportsResizeAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
-                }
-                "AcceptsUserInput" if self.has_window_surface() => {
-                    Some(Arc::new(AcceptsUserInputAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                "CanResize" if self.has_window_surface() => {
+                    Some(Arc::new(CanResizeAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                 }
                 _ => None,
             },
@@ -249,7 +249,14 @@ impl UiNode for UiaNode {
     fn supported_patterns(&self) -> Vec<PatternName> {
         let mut out = vec![FocusableAction::static_pattern_name()];
         if self.has_window_surface() {
-            out.push(WindowSurfaceActions::static_pattern_name());
+            out.push(PatternName::from(pattern_names::ACTIVATABLE));
+            out.push(PatternName::from(pattern_names::MINIMIZABLE));
+            out.push(PatternName::from(pattern_names::MAXIMIZABLE));
+            out.push(PatternName::from(pattern_names::RESTORABLE));
+            out.push(PatternName::from(pattern_names::CLOSEABLE));
+            out.push(PatternName::from(pattern_names::MOVABLE));
+            out.push(PatternName::from(pattern_names::RESIZABLE));
+            out.push(PatternName::from(pattern_names::RESPONSIVE));
         }
         out
     }
@@ -282,7 +289,15 @@ impl UiNode for UiaNode {
             });
             return Some(Arc::new(action) as Arc<dyn UiPattern>);
         }
-        if pid == WindowSurfaceActions::static_pattern_name().as_str() {
+        if pid == pattern_names::ACTIVATABLE
+            || pid == pattern_names::MINIMIZABLE
+            || pid == pattern_names::MAXIMIZABLE
+            || pid == pattern_names::RESTORABLE
+            || pid == pattern_names::CLOSEABLE
+            || pid == pattern_names::MOVABLE
+            || pid == pattern_names::RESIZABLE
+            || pid == pattern_names::RESPONSIVE
+        {
             #[derive(Clone)]
             struct ElemSend {
                 elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -328,52 +343,70 @@ impl UiNode for UiaNode {
                     crate::error::uia_api("IUIAutomationTransformPattern::Resize", unsafe { pat.Resize(w, h) })
                 }
             }
-            let e1 = ElemSend { elem: self.elem.clone() };
-            let e2 = e1.clone();
-            let e3 = e1.clone();
-            let e4 = e1.clone();
-            let e5 = e1.clone();
-            let e_move = e1.clone();
-            let e_resize = e1.clone();
+            let es = ElemSend { elem: self.elem.clone() };
 
-            // Get process ID for WaitForInputIdle checking
-            let pid = crate::map::get_process_id(&self.elem).unwrap_or(-1);
-            let input_checker = WaitForInputIdleChecker::new(pid);
-
-            let check_input_idle = move || -> Result<Option<bool>, PatternError> {
-                // Use WaitForInputIdle to check if process is ready for input
-                let idle_result = input_checker.check_input_idle()?;
-
-                // If process is not idle, return false immediately
-                if Some(false) == idle_result {
-                    return Ok(Some(false));
-                }
-
-                // Process is idle or check failed - combine with basic enabled/visible check
-                // Note: We can't access UIA element here due to thread safety, so we return
-                // None to indicate that the check should be performed dynamically when needed
-                Ok(None)
-            };
-            let actions = WindowSurfaceActions::new()
-                .with_activate(move || unsafe { e1.set_focus().map_err(|e| PatternError::new(e.to_string())) })
-                .with_minimize(move || unsafe {
-                    e2.window_set_state(WindowVisualState_Minimized).map_err(|e| PatternError::new(e.to_string()))
-                })
-                .with_maximize(move || unsafe {
-                    e3.window_set_state(WindowVisualState_Maximized).map_err(|e| PatternError::new(e.to_string()))
-                })
-                .with_restore(move || unsafe {
-                    e4.window_set_state(WindowVisualState_Normal).map_err(|e| PatternError::new(e.to_string()))
-                })
-                .with_close(move || unsafe { e5.window_close().map_err(|e| PatternError::new(e.to_string())) })
-                .with_move_to(move |p| unsafe {
-                    e_move.transform_move(p.x(), p.y()).map_err(|e| PatternError::new(e.to_string()))
-                })
-                .with_resize(move |s| unsafe {
-                    e_resize.transform_resize(s.width(), s.height()).map_err(|e| PatternError::new(e.to_string()))
-                })
-                .with_accepts_user_input(check_input_idle);
-            return Some(Arc::new(actions) as Arc<dyn UiPattern>);
+            if pid == pattern_names::ACTIVATABLE {
+                let e = es.clone();
+                let action = ActivatableAction::new(move || unsafe {
+                    e.set_focus().map_err(|err| PatternError::new(err.to_string()))
+                });
+                return Some(Arc::new(action) as Arc<dyn UiPattern>);
+            }
+            if pid == pattern_names::MINIMIZABLE {
+                let e = es.clone();
+                let action = MinimizableAction::new(move || unsafe {
+                    e.window_set_state(WindowVisualState_Minimized).map_err(|err| PatternError::new(err.to_string()))
+                });
+                return Some(Arc::new(action) as Arc<dyn UiPattern>);
+            }
+            if pid == pattern_names::MAXIMIZABLE {
+                let e = es.clone();
+                let action = MaximizableAction::new(move || unsafe {
+                    e.window_set_state(WindowVisualState_Maximized).map_err(|err| PatternError::new(err.to_string()))
+                });
+                return Some(Arc::new(action) as Arc<dyn UiPattern>);
+            }
+            if pid == pattern_names::RESTORABLE {
+                let e = es.clone();
+                let action = RestorableAction::new(move || unsafe {
+                    e.window_set_state(WindowVisualState_Normal).map_err(|err| PatternError::new(err.to_string()))
+                });
+                return Some(Arc::new(action) as Arc<dyn UiPattern>);
+            }
+            if pid == pattern_names::CLOSEABLE {
+                let e = es.clone();
+                let action = CloseableAction::new(move || unsafe {
+                    e.window_close().map_err(|err| PatternError::new(err.to_string()))
+                });
+                return Some(Arc::new(action) as Arc<dyn UiPattern>);
+            }
+            if pid == pattern_names::MOVABLE {
+                let e = es.clone();
+                let action = MovableAction::new(move |p| unsafe {
+                    e.transform_move(p.x(), p.y()).map_err(|err| PatternError::new(err.to_string()))
+                });
+                return Some(Arc::new(action) as Arc<dyn UiPattern>);
+            }
+            if pid == pattern_names::RESIZABLE {
+                let e = es.clone();
+                let action = ResizableAction::new(move |s| unsafe {
+                    e.transform_resize(s.width(), s.height()).map_err(|err| PatternError::new(err.to_string()))
+                });
+                return Some(Arc::new(action) as Arc<dyn UiPattern>);
+            }
+            if pid == pattern_names::RESPONSIVE {
+                // Get process ID for WaitForInputIdle checking
+                let proc_pid = crate::map::get_process_id(&self.elem).unwrap_or(-1);
+                let input_checker = WaitForInputIdleChecker::new(proc_pid);
+                let action = ResponsiveAction::new(move || -> Result<Option<bool>, PatternError> {
+                    let idle_result = input_checker.check_input_idle()?;
+                    if Some(false) == idle_result {
+                        return Ok(Some(false));
+                    }
+                    Ok(None)
+                });
+                return Some(Arc::new(action) as Arc<dyn UiPattern>);
+            }
         }
         None
     }
@@ -640,38 +673,6 @@ impl UiAttribute for IsVisibleAttr {
 unsafe impl Send for IsVisibleAttr {}
 unsafe impl Sync for IsVisibleAttr {}
 
-struct AcceptsUserInputAttr {
-    elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
-}
-impl UiAttribute for AcceptsUserInputAttr {
-    fn namespace(&self) -> Namespace {
-        Namespace::Control
-    }
-    fn name(&self) -> &str {
-        "AcceptsUserInput"
-    }
-    fn value(&self) -> UiValue {
-        // Get process ID for WaitForInputIdle checking
-        let pid = crate::map::get_process_id(&self.elem).unwrap_or(-1);
-
-        // First check if the process is ready for input using WaitForInputIdle
-        let input_checker = WaitForInputIdleChecker::new(pid);
-        if let Ok(Some(idle_ready)) = input_checker.check_input_idle()
-            && !idle_ready
-        {
-            // Process is not ready for input (busy or error)
-            return UiValue::from(false);
-        }
-
-        // Process is idle or check failed - fall back to basic enabled/visible check
-        let enabled = crate::map::get_is_enabled(&self.elem).unwrap_or(false);
-        let in_view = crate::map::get_is_in_view(&self.elem).unwrap_or(true);
-        UiValue::from(enabled && in_view)
-    }
-}
-unsafe impl Send for AcceptsUserInputAttr {}
-unsafe impl Sync for AcceptsUserInputAttr {}
-
 struct AttrsIter {
     idx: u8,
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -739,27 +740,20 @@ impl Iterator for AttrsIter {
                 }
                 13 => {
                     if self.has_window_surface {
-                        Some(Arc::new(SupportsMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                        Some(Arc::new(CanMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
                 14 => {
                     if self.has_window_surface {
-                        Some(Arc::new(SupportsResizeAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
-                    } else {
-                        None
-                    }
-                }
-                15 => {
-                    if self.has_window_surface {
-                        Some(Arc::new(AcceptsUserInputAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                        Some(Arc::new(CanResizeAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
                 // Native property attributes (dynamic): build once, then stream
-                16 => {
+                15 => {
                     if self.native_cache.is_none() {
                         let pairs = crate::map::collect_native_properties(&elem);
                         let attrs: Vec<Arc<dyn UiAttribute>> = pairs
@@ -783,7 +777,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 16 && self.native_cache.is_some() {
+                    if self.idx > 15 && self.native_cache.is_some() {
                         // Continue streaming native cache until exhausted
                         if let Some(list) = self.native_cache.as_ref()
                             && self.native_pos < list.len()
@@ -795,11 +789,11 @@ impl Iterator for AttrsIter {
                             return Some(attr);
                         }
                     }
-                    if self.idx > 16 && self.native_cache.is_none() {
+                    if self.idx > 15 && self.native_cache.is_none() {
                         // No native props at all
                         return None;
                     }
-                    if self.idx > 16 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false)
+                    if self.idx > 15 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false)
                     {
                         return None;
                     }
@@ -1199,15 +1193,15 @@ impl UiAttribute for IsTopmostAttr {
 unsafe impl Send for IsTopmostAttr {}
 unsafe impl Sync for IsTopmostAttr {}
 
-struct SupportsMoveAttr {
+struct CanMoveAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
 }
-impl UiAttribute for SupportsMoveAttr {
+impl UiAttribute for CanMoveAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
     fn name(&self) -> &str {
-        "SupportsMove"
+        "CanMove"
     }
     fn value(&self) -> UiValue {
         let result = (|| -> Result<bool, crate::error::UiaError> {
@@ -1226,18 +1220,18 @@ impl UiAttribute for SupportsMoveAttr {
         UiValue::from(result.unwrap_or(false))
     }
 }
-unsafe impl Send for SupportsMoveAttr {}
-unsafe impl Sync for SupportsMoveAttr {}
+unsafe impl Send for CanMoveAttr {}
+unsafe impl Sync for CanMoveAttr {}
 
-struct SupportsResizeAttr {
+struct CanResizeAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
 }
-impl UiAttribute for SupportsResizeAttr {
+impl UiAttribute for CanResizeAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
     fn name(&self) -> &str {
-        "SupportsResize"
+        "CanResize"
     }
     fn value(&self) -> UiValue {
         let result = (|| -> Result<bool, crate::error::UiaError> {
@@ -1256,8 +1250,8 @@ impl UiAttribute for SupportsResizeAttr {
         UiValue::from(result.unwrap_or(false))
     }
 }
-unsafe impl Send for SupportsResizeAttr {}
-unsafe impl Sync for SupportsResizeAttr {}
+unsafe impl Send for CanResizeAttr {}
+unsafe impl Sync for CanResizeAttr {}
 
 // ---------------------------------------------------------------------------
 // Synthetic Application node for grouped view (Application -> Window)

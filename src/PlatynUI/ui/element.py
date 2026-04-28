@@ -190,7 +190,7 @@ class Element(ContextBase, register=False):
         top = self.top_level_parent
         if self is not top:
             return top._application_is_ready()
-        pattern = self.adapter.get_pattern(patterns.HasUserInput, raise_exception=False)
+        pattern = self.adapter.get_pattern(patterns.Responsive, raise_exception=False)
         pattern_says = pattern.accepts_user_input() if pattern is not None else None
         if self._application_cache is _UNRESOLVED:
             self._application_cache = self._resolve_application()

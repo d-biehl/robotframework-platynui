@@ -15,7 +15,7 @@ from _ui_helpers import (  # type: ignore[import-not-found]
     ExpandableStub,
     FocusableStub,
     HasEditorStub,
-    HasUserInputStub,
+    ResponsiveStub,
     SelectableStub,
     TextContentStub,
     TextEditableStub,
@@ -52,7 +52,7 @@ def _item_adapter(
         parent=desktop,
         pattern_map={
             patterns.Element: ElementStub(),
-            patterns.HasUserInput: HasUserInputStub(True),
+            patterns.Responsive: ResponsiveStub(True),
             patterns.Focusable: FocusableStub(is_focused=True),
         },
     )
@@ -60,7 +60,9 @@ def _item_adapter(
     if extra:
         pmap.update(extra)
     return make_adapter(  # type: ignore[no-any-return]
-        role=role, parent=window, pattern_map=pmap,
+        role=role,
+        parent=window,
+        pattern_map=pmap,
     )
 
 

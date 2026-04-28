@@ -6,18 +6,44 @@ in das neue Rust-basierte Projekt verfolgt.
 
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
-**Stand:** 2026-04-27
-**Aktuelle Revision:** Rev. 36 (Phase 4d abgeschlossen — `Tabs`
-(TabList/TabItem) und `Menus` (Menu/MenuBar/MenuItem) als
-UI-Klassen implementiert. `TabItem` erbt `SelectableItem` analog
-zu `ListItem`; `MenuItem` erbt bewusst `Control` statt `Item`, da
-ein Menü-Eintrag semantisch ein eigenständiges interaktives
-Control ist — kein Container-Inhalt — und in der Praxis selbst
-Sub-Hierarchien aufmacht. `MenuItem.activate()` walked die
-Vorfahren-Kette bis `Window`/`DesktopBase` hoch und expandiert
-sie außen → innen, bevor `Activatable.activate()` auf self läuft.
-Designdoc §A.14.23/§A.14.24 ergänzt. 19 neue Tests, 630/630 grün,
-ruff/mypy/pyright clean. Phase 4e (Proxy-Schicht) als nächstes.)
+**Stand:** 2026-04-28
+**Aktuelle Revision:** Rev. 37 (Phase 4-rust-split eingeschoben — das
+Rust-Mega-Trait `WindowSurfacePattern` (8 Methoden) wird in 7
+orthogonale Sub-Traits zerlegt: `ActivatablePattern` (TopLevel-only,
+trägt `activate()` + Read `IsActive`), `MinimizablePattern`,
+`MaximizablePattern`, `RestorablePattern`, `CloseablePattern`,
+`MovablePattern`, `ResizablePattern`. Jedes Sub-Trait bekommt ein
+eigenes Attribut-Modul (`attributes::activatable`,
+`attributes::minimizable`, …); `attributes::window_surface`
+verschwindet komplett. Bestehende `SupportsMove`/`SupportsResize`
+werden zu `CanMove`/`CanResize` umbenannt; neue Read-Attribute
+`IsActive`, `CanMinimize`, `CanMaximize`, `CanClose`. Das `HasUserInput`-
+Pattern wird zu `Responsive` umbenannt (Methode `accepts_user_input()`
+bleibt unverändert); das alte `AcceptsUserInput`-Attribut entfällt.
+`Titled` entfällt komplett — `Window.title` liest direkt `control:Name`.
+`Focusable` wird an Windows/TopLevel nicht mehr implementiert
+(Aktiv-Status nur über `IsActive`, Tastatur-Fokus über
+`Focusable.is_focused` an Sub-Elementen). Provider-Migration in
+atspi/windows-uia/mock; `runtime/window.rs` stellt um.
+`core/patterns/defaults.py` (globale Default-Schicht) ist gestrichen —
+role-spezifische Defaults gehören in den Proxy. Diese Phase ist
+Voraussetzung für Phase 4e (Default-Proxy-Schicht inkl. Window-Proxy).
+Designdoc Rev. 37 vollständig (Header, §A.13.1, §5.1, §5a.3, §A.10
+gestrichen, §6.1, Verzeichnisbaum, §A.14.5, §_application_is_ready,
+Standard-Rollen-Tabelle, Phase-2-Plan, Schluss-Summary). Code-
+Migration (Rust + Python) folgt nach Doku-Sweep.)
+
+> **Vorherige Rev. 36:** Phase 4d abgeschlossen — `Tabs`
+> (TabList/TabItem) und `Menus` (Menu/MenuBar/MenuItem) als
+> UI-Klassen implementiert. `TabItem` erbt `SelectableItem` analog
+> zu `ListItem`; `MenuItem` erbt bewusst `Control` statt `Item`, da
+> ein Menü-Eintrag semantisch ein eigenständiges interaktives
+> Control ist — kein Container-Inhalt — und in der Praxis selbst
+> Sub-Hierarchien aufmacht. `MenuItem.activate()` walked die
+> Vorfahren-Kette bis `Window`/`DesktopBase` hoch und expandiert
+> sie außen → innen, bevor `Activatable.activate()` auf self läuft.
+> Designdoc §A.14.23/§A.14.24 ergänzt. 19 neue Tests, 630/630 grün,
+> ruff/mypy/pyright clean. Commit `07ca742`.
 
 ---
 
@@ -35,7 +61,8 @@ ruff/mypy/pyright clean. Phase 4e (Proxy-Schicht) als nächstes.)
 | Phase 1 — Fundament | DONE | uncommitted; 10 Module incl. vorgezogenem `core/patterns/` (war Phase 2 #11); 128 pytest + 1980 nextest grün, ruff+mypy+pyright+clippy grün |
 | Phase 2 — Adapter-Schicht | DONE | Adapter-ABC + AdapterProxy + UiNodeAdapter + Runtime-Singleton committed; Pipeline-Lücke in Phase 4-pre geschlossen |
 | Phase 3 — Context-Schicht | DONE | `ContextBase`, `ContextFactory`, `@context`, `ElementDescriptor`, `@locator` Method-Form |
-| Phase 4 — UI-Klassen + Standard-Proxies | IN PROGRESS | 4-pre + 4a + 4b + 4c + 4d DONE (4c + 4d uncommitted); 4e bündelt am Ende die Proxy-Schicht — siehe Sub-Phasen unten |
+| Phase 4 — UI-Klassen + Standard-Proxies | IN PROGRESS | 4-pre + 4a + 4b + 4c + 4d DONE (4d committed `07ca742`); **4-rust-split (Rev. 37) eingeschoben** als Voraussetzung für 4e; siehe Sub-Phasen unten |
+| Phase 4-rust-split — Rust-Trait-Splittung + Python-Anpassung | DONE | Designdoc Rev. 37 DONE; Rust-Split (`WindowSurfacePattern` → 7 Sub-Traits + `Responsive`-Polling) + Provider-Migration + Python-Pattern-Renames (`HasUserInput`→`Responsive`, `Titled` entfällt) abgeschlossen; alle Quality-Gates grün (1981 nextest + 629 pytest) |
 | Phase 5 — Keywords + Robot-Library | PENDING | — |
 | Phase 6 — Iterative Erweiterungen | PENDING | — |
 
@@ -429,10 +456,11 @@ durchlaufen.
 
 **Bereits committed (Auszug aus 4a/4c/4f-Items):**
 
-- `core/patterns/` — 12 Pattern-ABCs (Activation, ActivationTarget,
-  ApplicationReady, Closeable, Element, Focusable, HasUserInput,
-  Maximizable, Minimizable, Movable, Readable, Resizable, Restorable,
-  Text, Titled, Toggle).
+- `core/patterns/` — Pattern-ABCs (Activation, ActivationTarget,
+  ApplicationReady, Closeable, Element, Expandable, Focusable,
+  HasEditor, ItemContainer, Maximizable, Minimizable, Movable,
+  Readable, Resizable, Responsive, Restorable, Selectable, Text,
+  Toggle).
 - `ui/element.py`, `ui/control.py` — Basis-Contexts (Item 16
   UI-Teil).
 - `ui/window.py` — `Window` und `Frame` (Item 18 UI-Teil).
@@ -621,12 +649,99 @@ ausgelöst werden kann.
         zwischen MenuItems.
 - [x] pytest grün (630 Tests, +19); ruff/mypy/pyright clean.
 
+#### Phase 4-rust-split — Rust-Trait-Splittung + Python-Pattern-Anpassung (Rev. 37, eingeschoben vor 4e)
+
+Voraussetzung für die komplette Default-Proxy-Schicht (Phase 4e): das
+Rust-Mega-Trait `WindowSurfacePattern` (8 Methoden) wird in 7
+orthogonale Sub-Traits aufgesplittet, damit der Window-Proxy auf
+Python-Seite dieselben granularen ABCs konsumieren kann, die in
+`core/patterns/` schon existieren. Parallel zieht die Python-Seite
+zwei Pattern-Renames nach (`HasUserInput` → `Responsive`, `Titled`
+entfällt) und entfernt `Focusable` an Window-/TopLevel-Elementen.
+
+**Designdoc (Rev. 37):**
+
+- [x] Header + Rev-Notiz Rev. 37.
+- [x] §A.13: Pattern-Suite-Tabelle (Spalte „Implementiert wo?",
+      `Titled` raus, `HasUserInput` → `Responsive`); neue Absätze
+      „Activatable mit zwei Implementations-Pfaden",
+      „`is_focused` vs. `is_active` getrennt",
+      „`Responsive.accepts_user_input()` ≠ `is_active`".
+- [x] Neue §A.13.1 Rust-Trait-Splittung (Trait-Tabelle,
+      Provider-Migration, Python-Skizze).
+- [x] §A.13.2/§A.13.3: `Titled` raus, `Responsive` rein.
+- [x] §5.1 dritte Quelle (`core/patterns/defaults.py`) gestrichen,
+      Drei-Ebenen-Fallback wird Zwei-Ebenen-Fallback (§5a.3).
+- [x] §A.10 (`patterns/defaults.py`) komplett gestrichen.
+- [x] §6.1 Rust-Capabilities aktualisiert.
+- [x] Verzeichnisbaum (`patterns/window.py`-Kommentar,
+      `patterns/defaults.py` raus, `proxies/window.py`-Kommentar).
+- [x] §A.14.5 (`Window`-Klasse) `Titled.title` → liest direkt
+      `control:Name`.
+- [x] `_application_is_ready` von `HasUserInput` auf `Responsive`
+      umgestellt.
+- [x] Standard-Rollen-Tabelle (Window-Zeile auf Sub-Patterns).
+- [x] Phase-2-Plan-Punkt 10 (Strikethrough für `defaults.py`).
+- [x] Schluss-Summary auf Sub-Patterns.
+
+**Rust-Migration (PENDING):**
+
+- [ ] `crates/core/src/ui/pattern.rs`: `WindowSurfacePattern`-Trait
+      und `WindowSurfaceActions`-Builder durch 7 Sub-Trait-Definitionen
+      ersetzen (`ActivatablePattern`, `MinimizablePattern`,
+      `MaximizablePattern`, `RestorablePattern`, `CloseablePattern`,
+      `MovablePattern`, `ResizablePattern`, `ResponsivePattern` —
+      letzteres trägt `accepts_user_input() -> Result<Option<bool>>`
+      als Methode); pro Sub-Pattern ein eigener Per-Pattern-Builder
+      analog zu `WindowSurfaceActions`.
+- [ ] `crates/core/src/ui/attributes.rs`: Modul `window_surface`
+      auflösen; pro Sub-Pattern ein eigenes Modul (`activatable` mit
+      `IS_ACTIVE`, `minimizable` mit `IS_MINIMIZED`/`CAN_MINIMIZE`,
+      `maximizable` mit `IS_MAXIMIZED`/`CAN_MAXIMIZE`, `closeable`
+      mit `CAN_CLOSE`, `movable` mit `CAN_MOVE`, `resizable` mit
+      `CAN_RESIZE`); `IsTopmost` braucht eine Heimat (eigenes
+      `attributes::activatable`-Modul oder späteres `TopmostPattern`).
+      `AcceptsUserInput`-Attribut entfällt komplett.
+- [ ] `crates/core/src/ui/identifiers.rs`: 7 neue Pattern-Name-
+      Konstanten ergänzen, `WINDOW_SURFACE` entfernen.
+- [ ] `crates/core/src/ui/mod.rs`: Re-Exports umstellen.
+- [ ] Provider-Migration: `provider-atspi/src/node.rs`,
+      `provider-windows-uia/src/node.rs`,
+      `provider-mock/src/{tests.rs,window.rs}`.
+- [ ] `crates/runtime/src/runtime/window.rs`: `pattern::<>()`-
+      Aufrufe auf die einzelnen Sub-Traits umstellen.
+- [ ] PyO3 Bindings in `packages/native/src/runtime.rs` erweitern
+      (Per-Pattern-Wrapper analog `PyWindowSurface`).
+- [ ] cargo nextest grün, cargo clippy strict grün.
+
+**Python-Migration (DONE):**
+
+- [x] `core/patterns/has_user_input.py` → `responsive.py` umbenannt;
+      `pattern_name = "org.platynui.patterns.Responsive"`; Methode
+      `accepts_user_input()` unverändert.
+- [x] `core/patterns/titled.py` gelöscht.
+- [x] `core/patterns/__init__.py`: Re-Exports geupdated
+      (`Responsive` rein, `HasUserInput`/`Titled` raus).
+- [x] `src/PlatynUI/ui/element.py` `_application_is_ready`-Predicate
+      von `HasUserInput` auf `Responsive` umgestellt.
+- [x] `src/PlatynUI/ui/window.py` `Window.title` liest direkt
+      `self.name` (kein `Titled`-Pattern mehr).
+- [x] Test-Helpers / Window-Element-Stubs angepasst (`HasUserInputStub`
+      → `ResponsiveStub`, `TitledStub` entfernt).
+- [x] pytest grün (629 Tests); ruff/mypy/pyright clean.
+
+**Quality Gate:** `cargo fmt --all`, `cargo clippy --workspace
+--all-targets -- -D warnings`, `cargo nextest run --workspace`,
+`uv run ruff check .`, `uv run mypy .`, `uv run pyright`,
+`uv run pytest`.
+
 #### Phase 4e — Proxy-Schicht (Item 16 Proxy-Teil + Items 17/18/19/20/21 Proxy-Teile)
 
 Bündelt die komplette Default-Proxy-Hierarchie inklusive
 Widget-Proxies mit Click-/Tastatur-Fallbacks. Wird erst nach den
-UI-Klassen gebaut, damit jeder Proxy eine konkrete UI-Klasse hat,
-die ihn motiviert.
+UI-Klassen **und nach Phase 4-rust-split** gebaut, damit der
+Window-Proxy die granularen Sub-Traits aus Rev. 37
+(`Activatable`/`Minimizable`/…/`Responsive`) konsumieren kann.
 
 - [ ] Designdoc-Update: §A.x oder Ergänzung in §A.13 zur Default-
       Proxy-Hierarchie und ihrem Fallback-Vertrag.
@@ -636,8 +751,9 @@ die ihn motiviert.
 - [ ] `ui/proxies/standard.py`: `ButtonProxy`, `CheckBoxProxy` mit
       Click-Fallback wenn das Provider-Pattern fehlt.
 - [ ] `ui/proxies/window.py`: Default-Implementationen für die
-      Fenster-Patterns (Closeable, Maximizable, Minimizable,
-      Movable, Resizable, Restorable).
+      Window-Capability-Sub-Patterns aus Rev. 37 (Activatable,
+      Closeable, Maximizable, Minimizable, Movable, Resizable,
+      Restorable, Responsive).
 - [ ] `ui/proxies/text.py`: `EditProxy`, `ComboBoxProxy` mit
       Tastatur-Fallback.
 - [ ] `ui/proxies/list_tree.py`: Default-Proxies für Lists/Tree/

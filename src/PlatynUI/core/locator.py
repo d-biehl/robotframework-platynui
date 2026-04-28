@@ -115,20 +115,14 @@ def _normalize_key(key: AttributeKey, default_namespace: str) -> tuple[str, str]
     """
     if isinstance(key, tuple):
         if len(key) != 2:
-            raise ValueError(
-                f'attribute key tuple must be (namespace, name); got {key!r}'
-            )
+            raise ValueError(f'attribute key tuple must be (namespace, name); got {key!r}')
         namespace, name = key
         if not isinstance(namespace, str) or not isinstance(name, str):
-            raise TypeError(
-                f'attribute key tuple must be (str, str); got {key!r}'
-            )
+            raise TypeError(f'attribute key tuple must be (str, str); got {key!r}')
         return namespace, name
     if isinstance(key, str):
         return default_namespace, key
-    raise TypeError(
-        f'attribute key must be str or (str, str) tuple; got {type(key).__name__}'
-    )
+    raise TypeError(f'attribute key must be str or (str, str) tuple; got {type(key).__name__}')
 
 
 def _split_kwarg_name(kwarg: str) -> tuple[str, str]:
@@ -144,9 +138,7 @@ def _split_kwarg_name(kwarg: str) -> tuple[str, str]:
     if len(parts) == 2:
         namespace, name = parts
         if not namespace or not name:
-            raise ValueError(
-                f'kwarg attribute name {kwarg!r} has empty namespace or name'
-            )
+            raise ValueError(f'kwarg attribute name {kwarg!r} has empty namespace or name')
         return namespace, name
     raise ValueError(
         f'kwarg attribute name {kwarg!r} contains multiple "__" separators; '
@@ -157,24 +149,26 @@ def _split_kwarg_name(kwarg: str) -> tuple[str, str]:
 # Names of typed Locator parameters that are not free-form attributes.
 # Kept in sync with ``Locator.__slots__``; consulted by ``__init__`` to
 # distinguish reserved kwargs from PascalCase attribute kwargs.
-_RESERVED_FIELDS: frozenset[str] = frozenset({
-    'path',
-    'node',
-    'prefix',
-    'use_default_prefix',
-    'axis',
-    'scope',
-    'index',
-    'position',
-    'name',
-    'id',
-    'class_name',
-    'role',
-    'runtime_id',
-    'framework_id',
-    'attributes',
-    'custom_attributes',
-})
+_RESERVED_FIELDS: frozenset[str] = frozenset(
+    {
+        'path',
+        'node',
+        'prefix',
+        'use_default_prefix',
+        'axis',
+        'scope',
+        'index',
+        'position',
+        'name',
+        'id',
+        'class_name',
+        'role',
+        'runtime_id',
+        'framework_id',
+        'attributes',
+        'custom_attributes',
+    }
+)
 
 
 # Mapping from snake_case convenience fields to their PascalCase XPath
@@ -279,9 +273,7 @@ class Locator:
         self.runtime_id = runtime_id
         self.framework_id = framework_id
         self.attributes = dict(attributes) if attributes is not None else {}
-        self.custom_attributes = (
-            list(custom_attributes) if custom_attributes is not None else []
-        )
+        self.custom_attributes = list(custom_attributes) if custom_attributes is not None else []
 
         # Track which (namespace, name) keys originate from which source
         # so we can produce a clear conflict error.
@@ -290,9 +282,7 @@ class Locator:
         # 1. Reserved snake_case convenience fields → PascalCase in 'control'.
         for field_name, attr_name in _SHORTHAND_TO_ATTR.items():
             if getattr(self, field_name) is not None:
-                sources[(DEFAULT_ATTRIBUTE_NAMESPACE, attr_name)] = (
-                    f'reserved field {field_name}='
-                )
+                sources[(DEFAULT_ATTRIBUTE_NAMESPACE, attr_name)] = f'reserved field {field_name}='
 
         # 2. attributes-Dict (already on self.attributes; verified for
         # well-formedness via _normalize_key, with the *constructor's*
@@ -302,11 +292,7 @@ class Locator:
             ns_name = _normalize_key(raw_key, DEFAULT_ATTRIBUTE_NAMESPACE)
             existing = sources.get(ns_name)
             if existing is not None:
-                raise TypeError(
-                    _conflict_message(
-                        ns_name, existing, f'attributes[{raw_key!r}]'
-                    )
-                )
+                raise TypeError(_conflict_message(ns_name, existing, f'attributes[{raw_key!r}]'))
             sources[ns_name] = f'attributes[{raw_key!r}]'
 
         # 3. **extra_attributes — interpret kwarg name (with __ separator)
@@ -316,9 +302,7 @@ class Locator:
             ns_name = (namespace, attr_name)
             existing = sources.get(ns_name)
             if existing is not None:
-                raise TypeError(
-                    _conflict_message(ns_name, existing, f'kwarg {kwarg}=')
-                )
+                raise TypeError(_conflict_message(ns_name, existing, f'kwarg {kwarg}='))
             sources[ns_name] = f'kwarg {kwarg}='
             # Store as tuple key so the rendering pass uses the explicit
             # namespace, ignoring whatever default is in effect later.
@@ -353,9 +337,7 @@ class Locator:
         # ``control`` namespace.
         for attr_name, value in self._standard_attributes():
             if value is not None:
-                predicate_parts.append(
-                    _attribute_predicate(DEFAULT_ATTRIBUTE_NAMESPACE, attr_name, value)
-                )
+                predicate_parts.append(_attribute_predicate(DEFAULT_ATTRIBUTE_NAMESPACE, attr_name, value))
 
         for raw_key, value in self.attributes.items():
             namespace, name = _normalize_key(raw_key, default_attribute_namespace)
@@ -457,9 +439,7 @@ class Locator:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Locator):
             return NotImplemented
-        return all(
-            getattr(self, slot) == getattr(other, slot) for slot in self.__slots__
-        )
+        return all(getattr(self, slot) == getattr(other, slot) for slot in self.__slots__)
 
     # Locators are mutable (copy_from rewrites fields in place); make
     # them explicitly unhashable, mirroring @dataclass(eq=True).
@@ -484,18 +464,13 @@ class Locator:
         ]
 
 
-def _conflict_message(
-    ns_name: tuple[str, str], existing_source: str, new_source: str
-) -> str:
+def _conflict_message(ns_name: tuple[str, str], existing_source: str, new_source: str) -> str:
     namespace, name = ns_name
     if namespace == DEFAULT_ATTRIBUTE_NAMESPACE:
         rendered = f'@{name}'
     else:
         rendered = f'@{namespace}:{name}'
-    return (
-        f'conflicting attribute {rendered}: set via both '
-        f'{existing_source} and {new_source}; use exactly one source'
-    )
+    return f'conflicting attribute {rendered}: set via both {existing_source} and {new_source}; use exactly one source'
 
 
 class LocatorMethodDescriptor:
@@ -531,7 +506,7 @@ class LocatorMethodDescriptor:
             return self
         attr = self.attr_name or '<unknown>'
         raise NotImplementedError(
-            f"@locator method form for {owner.__name__ if owner else '?'}.{attr} "
+            f'@locator method form for {owner.__name__ if owner else "?"}.{attr} '
             'is not yet implemented. Use @locator only as a class decorator for now.'
         )
 
@@ -608,9 +583,6 @@ def locator(
         if callable(target):
             # Method/property decorator form: wrap in stub descriptor.
             return LocatorMethodDescriptor(loc, target)
-        raise TypeError(
-            f'@locator can only decorate classes or callables, '
-            f'got {type(target).__name__}'
-        )
+        raise TypeError(f'@locator can only decorate classes or callables, got {type(target).__name__}')
 
     return _apply

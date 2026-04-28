@@ -13,8 +13,8 @@ from _ui_helpers import (  # type: ignore[import-not-found]
     ElementStub,
     FocusableStub,
     HasEditorStub,
-    HasUserInputStub,
     ItemContainerStub,
+    ResponsiveStub,
     TextEditableStub,
     make_adapter,
 )
@@ -80,7 +80,7 @@ def _table_adapter(*, extra: dict[type, object] | None = None) -> Adapter:
         parent=desktop,
         pattern_map={
             patterns.Element: ElementStub(),
-            patterns.HasUserInput: HasUserInputStub(True),
+            patterns.Responsive: ResponsiveStub(True),
             patterns.Focusable: FocusableStub(is_focused=True),
         },
     )
@@ -88,7 +88,9 @@ def _table_adapter(*, extra: dict[type, object] | None = None) -> Adapter:
     if extra:
         pmap.update(extra)
     return make_adapter(  # type: ignore[no-any-return]
-        role='Table', parent=window, pattern_map=pmap,
+        role='Table',
+        parent=window,
+        pattern_map=pmap,
     )
 
 
@@ -97,7 +99,9 @@ def _row_adapter(*, runtime_id: str = 'r1', column_count: int | None = None) -> 
     if column_count is not None:
         pmap[patterns.ItemContainer] = ItemContainerStub(column_count=column_count)
     return make_adapter(  # type: ignore[no-any-return]
-        role='Row', runtime_id=runtime_id, pattern_map=pmap,
+        role='Row',
+        runtime_id=runtime_id,
+        pattern_map=pmap,
     )
 
 

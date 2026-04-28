@@ -325,16 +325,36 @@ class Focusable:
     pattern_name: ClassVar[str]
     def focus(self) -> None: ...
 
-class WindowSurface:
+class Activatable:
     pattern_name: ClassVar[str]
     def activate(self) -> None: ...
+
+class Minimizable:
+    pattern_name: ClassVar[str]
     def minimize(self) -> None: ...
+
+class Maximizable:
+    pattern_name: ClassVar[str]
     def maximize(self) -> None: ...
+
+class Restorable:
+    pattern_name: ClassVar[str]
     def restore(self) -> None: ...
+
+class Closeable:
+    pattern_name: ClassVar[str]
     def close(self) -> None: ...
+
+class Movable:
+    pattern_name: ClassVar[str]
     def move_to(self, x: float, y: float) -> None: ...
+
+class Resizable:
+    pattern_name: ClassVar[str]
     def resize(self, width: float, height: float) -> None: ...
-    def move_and_resize(self, x: float, y: float, width: float, height: float) -> None: ...
+
+class Responsive:
+    pattern_name: ClassVar[str]
     def accepts_user_input(self) -> bool | None: ...
 
 class Runtime:
@@ -677,5 +697,12 @@ __all__ = [
     'UiAttribute',
     'UiNode',
     'UiValue',
-    'WindowSurface',
+    'Activatable',
+    'Closeable',
+    'Maximizable',
+    'Minimizable',
+    'Movable',
+    'Resizable',
+    'Responsive',
+    'Restorable',
 ]

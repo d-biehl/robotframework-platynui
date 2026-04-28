@@ -275,7 +275,7 @@ fn extract_window_title(node: &dyn UiNode) -> String {
 
 fn is_window_surface(node: &dyn UiNode) -> bool {
     matches!(node.role(), "Frame" | "Window" | "Dialog")
-        || node.supported_patterns().iter().any(|pattern| pattern == &PatternName::from(pattern_names::WINDOW_SURFACE))
+        || node.supported_patterns().iter().any(|pattern| pattern == &PatternName::from(pattern_names::ACTIVATABLE))
 }
 
 fn extract_pid(node: &dyn UiNode) -> Option<u32> {

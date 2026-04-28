@@ -1,5 +1,4 @@
 use crate::events;
-use platynui_core::ui::attribute_names::text_content;
 use platynui_core::ui::{Namespace, RuntimeId, UiAttribute, UiValue};
 use std::collections::HashMap;
 // no additional std imports required
@@ -29,7 +28,7 @@ impl UiAttribute for TextAttribute {
     }
 
     fn name(&self) -> &str {
-        text_content::TEXT
+        "Text"
     }
 
     fn value(&self) -> UiValue {
@@ -343,7 +342,7 @@ mod tests {
         reset_text_buffers();
         let runtime_id = RuntimeId::from("mock://proof");
         let attribute = register_text_attribute(Namespace::Control, &runtime_id, "Start");
-        assert_eq!(attribute.name(), text_content::TEXT);
+        assert_eq!(attribute.name(), "Text");
         assert_eq!(attribute.value(), UiValue::from(String::from("Start")));
         assert_eq!(text_snapshot(runtime_id.as_str()).unwrap(), "Start");
     }

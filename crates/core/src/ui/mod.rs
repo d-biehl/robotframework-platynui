@@ -14,7 +14,10 @@ pub use identifiers::{PatternName, RuntimeId, TechnologyId, pattern_names};
 pub use namespace::{Namespace, all_namespaces, resolve_namespace};
 pub use node::{UiAttribute, UiNode, UiNodeAncestorIter, UiNodeExt};
 pub use pattern::{
-    FocusableAction, FocusablePattern, PatternError, PatternRegistry, UiPattern, WindowSurfaceActions,
-    WindowSurfacePattern, downcast_pattern_arc, downcast_pattern_ref, supported_patterns_value,
+    ActivatableAction, ActivatablePattern, CloseableAction, CloseablePattern, FocusableAction, FocusablePattern,
+    MaximizableAction, MaximizablePattern, MinimizableAction, MinimizablePattern, MovableAction, MovablePattern,
+    PatternError, PatternRegistry, ResizableAction, ResizablePattern, ResponsiveAction, ResponsivePattern,
+    RestorableAction, RestorablePattern, UiPattern, downcast_pattern_arc, downcast_pattern_ref,
+    supported_patterns_value,
 };
 pub use value::UiValue;

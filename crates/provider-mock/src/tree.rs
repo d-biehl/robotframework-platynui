@@ -467,7 +467,7 @@ fn instantiate_node(
         dynamic_attributes.push(input::register_text_attribute(spec.namespace, &runtime_id, text));
     }
 
-    let has_window_surface = spec.patterns.iter().any(|pattern| pattern == pattern_names::WINDOW_SURFACE);
+    let has_window_surface = spec.patterns.iter().any(|pattern| pattern == pattern_names::ACTIVATABLE);
     let has_focusable = spec.patterns.iter().any(|pattern| pattern == pattern_names::FOCUSABLE);
     let window_config = has_window_surface.then(|| window::derive_config(&spec.attributes));
 
@@ -492,8 +492,18 @@ fn instantiate_node(
                 Some(pattern)
             });
             dynamic_attributes.push(focus::focus_attribute(spec.namespace, runtime_id.clone()));
-        } else if id == pattern_names::WINDOW_SURFACE {
-            // WindowSurface is registered below via window_config.
+        } else if matches!(
+            id,
+            x if x == pattern_names::ACTIVATABLE
+                || x == pattern_names::MINIMIZABLE
+                || x == pattern_names::MAXIMIZABLE
+                || x == pattern_names::RESTORABLE
+                || x == pattern_names::CLOSEABLE
+                || x == pattern_names::MOVABLE
+                || x == pattern_names::RESIZABLE
+                || x == pattern_names::RESPONSIVE
+        ) {
+            // Window sub-patterns are registered together via window_config.
         } else {
             declared_patterns.push(PatternName::from(id));
         }

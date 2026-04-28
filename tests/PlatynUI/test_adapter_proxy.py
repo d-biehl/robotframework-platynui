@@ -405,13 +405,9 @@ def test_register_rejects_non_proxy_subclass() -> None:
 
 def test_register_then_unregister_round_trip() -> None:
     PatternProxyFactory.register(_BareProxy, {'role': 'Button'})
-    assert any(
-        e.proxy_cls is _BareProxy for e in PatternProxyFactory.registrations()
-    )
+    assert any(e.proxy_cls is _BareProxy for e in PatternProxyFactory.registrations())
     PatternProxyFactory.unregister(_BareProxy)
-    assert all(
-        e.proxy_cls is not _BareProxy for e in PatternProxyFactory.registrations()
-    )
+    assert all(e.proxy_cls is not _BareProxy for e in PatternProxyFactory.registrations())
 
 
 def test_unregister_unknown_is_noop() -> None:
@@ -421,9 +417,7 @@ def test_unregister_unknown_is_noop() -> None:
 def test_register_is_idempotent_replacing_previous_criteria() -> None:
     PatternProxyFactory.register(_BareProxy, {'role': 'Button'})
     PatternProxyFactory.register(_BareProxy, {'role': 'Label'})
-    entries = [
-        e for e in PatternProxyFactory.registrations() if e.proxy_cls is _BareProxy
-    ]
+    entries = [e for e in PatternProxyFactory.registrations() if e.proxy_cls is _BareProxy]
     assert len(entries) == 1
     assert entries[0].criteria == {'role': 'Label'}
 
@@ -496,9 +490,7 @@ def test_find_proxy_for_uses_attribute_criteria() -> None:
         role='Label',
         attributes={('control', 'ClassName'): 'OtherClass'},
     )
-    assert isinstance(
-        PatternProxyFactory.find_proxy_for(matching), _ActivatableProxy
-    )
+    assert isinstance(PatternProxyFactory.find_proxy_for(matching), _ActivatableProxy)
     assert PatternProxyFactory.find_proxy_for(other) is other
 
 
@@ -512,11 +504,7 @@ def test_pattern_proxy_for_registers_class() -> None:
     class _DecoratedProxy(AdapterProxy):
         pass
 
-    entries = [
-        e
-        for e in PatternProxyFactory.registrations()
-        if e.proxy_cls is _DecoratedProxy
-    ]
+    entries = [e for e in PatternProxyFactory.registrations() if e.proxy_cls is _DecoratedProxy]
     assert len(entries) == 1
     assert entries[0].criteria['role'] == '__test_button__'
 
@@ -542,11 +530,7 @@ def test_pattern_proxy_for_supports_full_criteria_set() -> None:
     class _FullProxy(AdapterProxy):
         pass
 
-    entry = next(
-        e
-        for e in PatternProxyFactory.registrations()
-        if e.proxy_cls is _FullProxy
-    )
+    entry = next(e for e in PatternProxyFactory.registrations() if e.proxy_cls is _FullProxy)
     assert entry.criteria == {
         'role': '__test_button__',
         'framework_id': 'wpf',
@@ -596,6 +580,7 @@ def test_duplicate_proxy_registration_emits_warning() -> None:
             return None
 
     with pytest.warns(DuplicateRegistrationWarning, match='__test_dup_proxy__'):
+
         @pattern_proxy_for(role='__test_dup_proxy__')
         class _SecondDupProxy(AdapterProxy, Activatable):
             def activate(self) -> None: ...

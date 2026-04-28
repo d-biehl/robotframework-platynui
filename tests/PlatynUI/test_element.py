@@ -27,8 +27,8 @@ from _ui_helpers import (  # type: ignore[import-not-found]
     ActivatableStub,
     ElementStub,
     FocusableStub,
-    HasUserInputStub,
     ReadableStub,
+    ResponsiveStub,
     make_adapter,
 )
 
@@ -187,27 +187,27 @@ def test_resolve_application_returns_none_when_no_application_in_chain() -> None
 # ---------------------------------------------------------------------------
 
 
-def test_application_is_ready_true_without_has_user_input_pattern() -> None:
+def test_application_is_ready_true_without_responsive_pattern() -> None:
     desktop = make_adapter(role='Desktop')
     win = make_adapter(role='Window', parent=desktop, pattern_map={patterns.Element: ElementStub()})
     e = Element(adapter=win)
     assert e._application_is_ready() is True
 
 
-def test_application_is_ready_false_when_has_user_input_says_no() -> None:
+def test_application_is_ready_false_when_responsive_says_no() -> None:
     desktop = make_adapter(role='Desktop')
     win = make_adapter(
         role='Window',
         parent=desktop,
         pattern_map={
             patterns.Element: ElementStub(),
-            patterns.HasUserInput: HasUserInputStub(False),
+            patterns.Responsive: ResponsiveStub(False),
         },
     )
     assert Element(adapter=win)._application_is_ready() is False
 
 
-def test_application_is_ready_true_when_has_user_input_returns_none() -> None:
+def test_application_is_ready_true_when_responsive_returns_none() -> None:
     """``None`` from the platform is treated as "do not know" → not blocking."""
     desktop = make_adapter(role='Desktop')
     win = make_adapter(
@@ -215,7 +215,7 @@ def test_application_is_ready_true_when_has_user_input_returns_none() -> None:
         parent=desktop,
         pattern_map={
             patterns.Element: ElementStub(),
-            patterns.HasUserInput: HasUserInputStub(None),
+            patterns.Responsive: ResponsiveStub(None),
         },
     )
     assert Element(adapter=win)._application_is_ready() is True
@@ -228,7 +228,7 @@ def test_application_is_ready_delegates_to_top_level_parent() -> None:
         parent=desktop,
         pattern_map={
             patterns.Element: ElementStub(),
-            patterns.HasUserInput: HasUserInputStub(False),
+            patterns.Responsive: ResponsiveStub(False),
         },
     )
     btn = make_adapter(role='Button', parent=win, pattern_map={patterns.Element: ElementStub()})

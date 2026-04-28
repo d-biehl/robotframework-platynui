@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use platynui_core::platform::{HighlightRequest, PlatformError, Screenshot, ScreenshotRequest};
 use platynui_core::ui::{
-    FocusableAction, FocusablePattern, Namespace, UiNode, UiNodeExt, WindowSurfaceActions, WindowSurfacePattern,
+    ActivatableAction, ActivatablePattern, FocusableAction, FocusablePattern, Namespace, ResponsiveAction,
+    ResponsivePattern, RestorableAction, RestorablePattern, UiNode, UiNodeExt,
 };
 
 use super::error::{BringToFrontError, FocusError};
@@ -32,18 +33,18 @@ impl Runtime {
         self.desktop.info()
     }
 
-    /// Returns the nearest ancestor (including `node` itself) that exposes the `WindowSurface`
-    /// pattern. For `app:Application` nodes without a direct pattern, this method selects the
-    /// first child that exposes a `WindowSurface`.
+    /// Returns the nearest ancestor (including `node` itself) that exposes the `Activatable`
+    /// pattern (i.e. is a top-level window). For `app:Application` nodes without a direct
+    /// pattern, this method selects the first child that exposes `Activatable`.
     pub fn top_level_window_for(&self, node: &Arc<dyn UiNode>) -> Option<Arc<dyn UiNode>> {
         for anc in node.ancestors_including_self() {
-            if anc.pattern::<WindowSurfaceActions>().is_some() {
+            if anc.pattern::<ActivatableAction>().is_some() {
                 return Some(anc);
             }
         }
         if node.namespace() == Namespace::App && node.role() == "Application" {
             for child in node.children() {
-                if child.pattern::<WindowSurfaceActions>().is_some() {
+                if child.pattern::<ActivatableAction>().is_some() {
                     return Some(child);
                 }
             }
@@ -61,15 +62,17 @@ impl Runtime {
             }
         };
         let rid = window.runtime_id().as_str().to_owned();
-        let pattern = window
-            .pattern::<WindowSurfaceActions>()
+        let activatable = window
+            .pattern::<ActivatableAction>()
             .ok_or_else(|| BringToFrontError::PatternMissing { runtime_id: rid.clone() })?;
 
         // Always try to restore to a normal state first. On many platforms this is a no-op when
         // the window is already visible, but required when minimized. Ignore errors here and rely
         // on the subsequent activate() to surface meaningful failures.
-        let _ = pattern.restore();
-        pattern.activate().map_err(|source| BringToFrontError::ActionFailed { runtime_id: rid, source })
+        if let Some(restorable) = window.pattern::<RestorableAction>() {
+            let _ = restorable.restore();
+        }
+        activatable.activate().map_err(|source| BringToFrontError::ActionFailed { runtime_id: rid, source })
     }
 
     /// Bring the window to the foreground and wait until it accepts user input, or until `timeout`.
@@ -85,13 +88,14 @@ impl Runtime {
             }
         };
         let rid = window.runtime_id().as_str().to_owned();
-        let pattern = window
-            .pattern::<WindowSurfaceActions>()
-            .ok_or_else(|| BringToFrontError::PatternMissing { runtime_id: rid.clone() })?;
+        let Some(responsive) = window.pattern::<ResponsiveAction>() else {
+            // No Responsive pattern \u2014 nothing to wait on; treat as immediately ready.
+            return Ok(());
+        };
 
         let start = std::time::Instant::now();
         loop {
-            match pattern.accepts_user_input() {
+            match responsive.accepts_user_input() {
                 Ok(Some(true)) => return Ok(()),
                 Ok(Some(false)) => {
                     if start.elapsed() >= timeout {
@@ -149,7 +153,7 @@ mod tests {
     use platynui_core::provider::UiTreeProviderFactory;
     use platynui_core::types::Rect;
     use platynui_core::ui::attribute_names;
-    use platynui_core::ui::{Namespace, UiNode, UiValue, WindowSurfaceActions, WindowSurfacePattern};
+    use platynui_core::ui::{MinimizableAction, MinimizablePattern, Namespace, UiNode, UiValue};
     use platynui_platform_mock::{
         reset_highlight_state, reset_screenshot_state, take_highlight_log, take_screenshot_log,
     };
@@ -217,7 +221,7 @@ mod tests {
     }
 
     fn is_minimized_bool(node: &Arc<dyn UiNode>) -> Option<bool> {
-        let attr = node.attribute(Namespace::Control, attribute_names::window_surface::IS_MINIMIZED)?;
+        let attr = node.attribute(Namespace::Control, attribute_names::minimizable::IS_MINIMIZED)?;
         match attr.value() {
             UiValue::Bool(b) => Some(b),
             UiValue::Integer(i) => Some(i != 0),
@@ -240,7 +244,7 @@ mod tests {
             None => panic!("window not found"),
         };
 
-        let pattern = window.pattern::<WindowSurfaceActions>().expect("mock window exposes WindowSurface");
+        let pattern = window.pattern::<MinimizableAction>().expect("mock window exposes Minimizable");
         pattern.minimize().expect("minimize succeeds");
 
         let is_min = is_minimized_bool(&window).unwrap_or(false);
@@ -263,7 +267,7 @@ mod tests {
             Some(n) => n,
             None => panic!("node not found"),
         };
-        let err = runtime.bring_to_front(&panel).expect_err("should fail: no WindowSurface ancestor");
+        let err = runtime.bring_to_front(&panel).expect_err("should fail: no Activatable ancestor");
         match err {
             super::super::error::BringToFrontError::PatternMissing { .. } => {}
             other => panic!("unexpected error: {other:?}"),

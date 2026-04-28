@@ -6,9 +6,14 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from platynui_native import (
+    Activatable,
+    Closeable,
     EvaluatedAttribute,
     KeyboardOverridesLike,
     KeyboardProfileLike,
+    Maximizable,
+    Minimizable,
+    Movable,
     Point,
     PointerButton,
     PointerButtonLike,
@@ -17,10 +22,11 @@ from platynui_native import (
     PointerSettingsLike,
     Rect,
     RectLike,
+    Resizable,
+    Restorable,
     Runtime,
     UiNode,
     UiValue,
-    WindowSurface,
 )
 from robot.api import logger
 from robot.api.deco import library
@@ -568,8 +574,8 @@ class BareMetal(OurDynamicCore):
     def restore_window(self, descriptor: UiNodeDescriptor) -> None:
         """Restore a window from minimized or maximized state.
 
-        Operates through the element's ``WindowSurface`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
+        Operates through the element's ``Restorable`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``Restorable``.
 
         Args:
             descriptor: The window element to restore.
@@ -578,14 +584,14 @@ class BareMetal(OurDynamicCore):
             | Restore Window | //control:Window[@Name="Settings"] |
         """
         node = descriptor()
-        node.get_pattern(WindowSurface).restore()
+        node.get_pattern(Restorable).restore()
 
     @keyword
     def maximize_window(self, descriptor: UiNodeDescriptor) -> None:
         """Maximize a window.
 
-        Operates through the element's ``WindowSurface`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
+        Operates through the element's ``Maximizable`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``Maximizable``.
 
         Args:
             descriptor: The window element to maximize.
@@ -594,14 +600,14 @@ class BareMetal(OurDynamicCore):
             | Maximize Window | //control:Window[@Name="Editor"] |
         """
         node = descriptor()
-        node.get_pattern(WindowSurface).maximize()
+        node.get_pattern(Maximizable).maximize()
 
     @keyword
     def minimize_window(self, descriptor: UiNodeDescriptor) -> None:
         """Minimize a window.
 
-        Operates through the element's ``WindowSurface`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
+        Operates through the element's ``Minimizable`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``Minimizable``.
 
         Args:
             descriptor: The window element to minimize.
@@ -610,14 +616,14 @@ class BareMetal(OurDynamicCore):
             | Minimize Window | //control:Window[@Name="Editor"] |
         """
         node = descriptor()
-        node.get_pattern(WindowSurface).minimize()
+        node.get_pattern(Minimizable).minimize()
 
     @keyword
     def close_window(self, descriptor: UiNodeDescriptor) -> None:
         """Close a window.
 
-        Operates through the element's ``WindowSurface`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
+        Operates through the element's ``Closeable`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``Closeable``.
 
         Args:
             descriptor: The window element to close.
@@ -626,14 +632,14 @@ class BareMetal(OurDynamicCore):
             | Close Window | //control:Window[@Name="Editor"] |
         """
         node = descriptor()
-        node.get_pattern(WindowSurface).close()
+        node.get_pattern(Closeable).close()
 
     @keyword
     def activate_window(self, descriptor: UiNodeDescriptor) -> None:
         """Activate (bring to front and focus) a window.
 
-        Operates through the element's ``WindowSurface`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
+        Operates through the element's ``Activatable`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``Activatable``.
 
         Args:
             descriptor: The window element to activate.
@@ -642,14 +648,14 @@ class BareMetal(OurDynamicCore):
             | Activate Window | //control:Window[@Name="Editor"] |
         """
         node = descriptor()
-        node.get_pattern(WindowSurface).activate()
+        node.get_pattern(Activatable).activate()
 
     @keyword
     def move_window(self, descriptor: UiNodeDescriptor, x: float, y: float) -> None:
         """Move a window to the specified screen coordinates.
 
-        Operates through the element's ``WindowSurface`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
+        Operates through the element's ``Movable`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``Movable``.
 
         Args:
             descriptor: The window element to move.
@@ -660,14 +666,14 @@ class BareMetal(OurDynamicCore):
             | Move Window | //control:Window[@Name="Editor"] | 100 | 200 |
         """
         node = descriptor()
-        node.get_pattern(WindowSurface).move_to(x, y)
+        node.get_pattern(Movable).move_to(x, y)
 
     @keyword
     def resize_window(self, descriptor: UiNodeDescriptor, width: float, height: float) -> None:
         """Resize a window to the specified dimensions.
 
-        Operates through the element's ``WindowSurface`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
+        Operates through the element's ``Resizable`` pattern.
+        Raises ``PatternError`` if the element doesn't support ``Resizable``.
 
         Args:
             descriptor: The window element to resize.
@@ -678,7 +684,7 @@ class BareMetal(OurDynamicCore):
             | Resize Window | //control:Window[@Name="Editor"] | 800 | 600 |
         """
         node = descriptor()
-        node.get_pattern(WindowSurface).resize(width, height)
+        node.get_pattern(Resizable).resize(width, height)
 
     @keyword
     def move_and_resize_window(
@@ -686,8 +692,8 @@ class BareMetal(OurDynamicCore):
     ) -> None:
         """Move and resize a window in a single operation.
 
-        Operates through the element's ``WindowSurface`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``WindowSurface``.
+        Composes the element's ``Movable`` and ``Resizable`` patterns.
+        Raises ``PatternError`` if the element doesn't support either pattern.
 
         Args:
             descriptor: The window element to move and resize.
@@ -700,7 +706,8 @@ class BareMetal(OurDynamicCore):
             | Move And Resize Window | //control:Window[@Name="Editor"] | 100 | 200 | 800 | 600 |
         """
         node = descriptor()
-        node.get_pattern(WindowSurface).move_and_resize(x, y, width, height)
+        node.get_pattern(Movable).move_to(x, y)
+        node.get_pattern(Resizable).resize(width, height)
 
     @keyword
     def bring_to_front(self, descriptor: UiNodeDescriptor) -> None:

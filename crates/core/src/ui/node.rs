@@ -131,9 +131,9 @@ impl UiNodeExt for Arc<dyn UiNode> {
     }
 
     fn top_level_or_self(&self) -> Arc<dyn UiNode> {
-        let window_pattern_id = PatternName::from(pattern_names::WINDOW_SURFACE);
+        let activatable_id = PatternName::from(pattern_names::ACTIVATABLE);
         for node in self.ancestors_including_self() {
-            if node.supported_patterns().iter().any(|pid| pid == &window_pattern_id) {
+            if node.supported_patterns().iter().any(|pid| pid == &activatable_id) {
                 return node;
             }
         }
@@ -414,7 +414,7 @@ mod tests {
             where
                 Self: Sized,
             {
-                PatternName::from(pattern_names::WINDOW_SURFACE)
+                PatternName::from(pattern_names::ACTIVATABLE)
             }
 
             fn as_any(&self) -> &dyn std::any::Any {

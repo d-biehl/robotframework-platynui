@@ -17,8 +17,8 @@ from _ui_helpers import (  # type: ignore[import-not-found]
     ActivatableStub,
     ElementStub,
     FocusableStub,
-    HasUserInputStub,
     ReadableStub,
+    ResponsiveStub,
     TextContentStub,
     ToggleableStub,
     make_adapter,
@@ -57,7 +57,7 @@ def _button_adapter(
 ) -> Adapter:
     """Build a button adapter parented to an active Window/Desktop chain.
 
-    The window-parent has ``HasUserInput=True`` and a focused
+    The window-parent has ``Responsive=True`` and a focused
     ``Focusable`` so the button's ``_application_is_ready`` and
     ``_toplevel_parent_is_active`` predicates pass without further
     setup.
@@ -68,7 +68,7 @@ def _button_adapter(
         parent=desktop,
         pattern_map={
             patterns.Element: ElementStub(),
-            patterns.HasUserInput: HasUserInputStub(True),
+            patterns.Responsive: ResponsiveStub(True),
             patterns.Focusable: FocusableStub(is_focused=is_focused),
         },
     )
@@ -76,7 +76,9 @@ def _button_adapter(
     if extra:
         pmap.update(extra)
     return make_adapter(  # type: ignore[no-any-return]
-        role=role, parent=window, pattern_map=pmap,
+        role=role,
+        parent=window,
+        pattern_map=pmap,
     )
 
 
@@ -154,7 +156,9 @@ def _checkbox_adapter(
     supports_three_state: bool = False,
 ) -> tuple[Adapter, ToggleableStub]:
     toggleable = ToggleableStub(
-        state, cycle=cycle, supports_three_state=supports_three_state,
+        state,
+        cycle=cycle,
+        supports_three_state=supports_three_state,
     )
     adapter = _button_adapter(
         role='CheckBox',
@@ -246,7 +250,9 @@ def test_checkbox_set_state_handles_three_state_cycle() -> None:
     """Reach ``INDETERMINATE`` from ``ON`` in a tri-state toggle (one toggle call)."""
     cycle = (ToggleState.OFF, ToggleState.ON, ToggleState.INDETERMINATE)
     adapter, toggleable = _checkbox_adapter(
-        state=ToggleState.ON, cycle=cycle, supports_three_state=True,
+        state=ToggleState.ON,
+        cycle=cycle,
+        supports_three_state=True,
     )
     CheckBox(adapter=adapter).set_state(ToggleState.INDETERMINATE)
     assert toggleable.state is ToggleState.INDETERMINATE

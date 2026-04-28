@@ -414,6 +414,4 @@ def test_distinct_patterns_cache_independently() -> None:
 
     assert adapter.get_pattern(Focusable) is focus
     assert adapter.get_pattern(Toggleable) is toggle
-    assert sorted(adapter.resolve_calls) == sorted(
-        [Focusable.pattern_name, Toggleable.pattern_name]
-    )
+    assert sorted(adapter.resolve_calls) == sorted([Focusable.pattern_name, Toggleable.pattern_name])

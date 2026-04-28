@@ -13,6 +13,10 @@ use platynui_runtime as runtime_rs;
 
 use crate::core::{PyNamespace, PyPoint, PyRect, PySize, py_namespace_from_inner};
 use platynui_core::ui::FocusablePattern as _;
+use platynui_core::ui::{
+    ActivatablePattern as _, CloseablePattern as _, MaximizablePattern as _, MinimizablePattern as _,
+    MovablePattern as _, ResizablePattern as _, ResponsivePattern as _, RestorablePattern as _,
+};
 
 use pyo3::prelude::PyRef;
 
@@ -329,61 +333,187 @@ impl PyFocusable {
     }
 }
 
-/// Exposes window-management operations for nodes with the ``WindowSurface`` pattern.
-#[pyclass(module = "platynui_native", name = "WindowSurface")]
-pub struct PyWindowSurface {
+/// Activates a window (brings it to the foreground / makes it the active window).
+#[pyclass(module = "platynui_native", name = "Activatable")]
+pub struct PyActivatable {
     node: Arc<dyn core_rs::ui::UiNode>,
 }
 
 #[pymethods]
-impl PyWindowSurface {
-    /// Reverse-DNS identifier of the pattern (``"org.platynui.patterns.WindowSurface"``).
-    ///
-    /// Exposed as a class attribute to mirror the ``pattern_name`` convention used
-    /// by Python-side pattern classes.  ``UiNode.has_pattern`` / ``UiNode.get_pattern``
-    /// accept this attribute directly, so callers can pass the class itself or the
-    /// string with identical semantics.
+impl PyActivatable {
+    /// Reverse-DNS identifier of the pattern (``"org.platynui.patterns.Activatable"``).
     #[classattr]
     fn pattern_name() -> &'static str {
-        core_rs::ui::pattern_names::WINDOW_SURFACE
+        core_rs::ui::pattern_names::ACTIVATABLE
     }
-
     /// Brings the window to the foreground and activates it.
     fn activate(&self) -> PyResult<()> {
-        self.call(|p| p.activate())
+        self.node
+            .pattern::<core_rs::ui::pattern::ActivatableAction>()
+            .ok_or_else(|| PatternError::new_err("Activatable pattern not available"))?
+            .activate()
+            .map_err(|e| PatternError::new_err(e.to_string()))
+    }
+}
+
+/// Minimizes a window.
+#[pyclass(module = "platynui_native", name = "Minimizable")]
+pub struct PyMinimizable {
+    node: Arc<dyn core_rs::ui::UiNode>,
+}
+
+#[pymethods]
+impl PyMinimizable {
+    /// Reverse-DNS identifier of the pattern (``"org.platynui.patterns.Minimizable"``).
+    #[classattr]
+    fn pattern_name() -> &'static str {
+        core_rs::ui::pattern_names::MINIMIZABLE
     }
     /// Minimizes the window if the platform supports the action.
     fn minimize(&self) -> PyResult<()> {
-        self.call(|p| p.minimize())
+        self.node
+            .pattern::<core_rs::ui::pattern::MinimizableAction>()
+            .ok_or_else(|| PatternError::new_err("Minimizable pattern not available"))?
+            .minimize()
+            .map_err(|e| PatternError::new_err(e.to_string()))
+    }
+}
+
+/// Maximizes a window.
+#[pyclass(module = "platynui_native", name = "Maximizable")]
+pub struct PyMaximizable {
+    node: Arc<dyn core_rs::ui::UiNode>,
+}
+
+#[pymethods]
+impl PyMaximizable {
+    /// Reverse-DNS identifier of the pattern (``"org.platynui.patterns.Maximizable"``).
+    #[classattr]
+    fn pattern_name() -> &'static str {
+        core_rs::ui::pattern_names::MAXIMIZABLE
     }
     /// Maximizes the window if the platform supports the action.
     fn maximize(&self) -> PyResult<()> {
-        self.call(|p| p.maximize())
+        self.node
+            .pattern::<core_rs::ui::pattern::MaximizableAction>()
+            .ok_or_else(|| PatternError::new_err("Maximizable pattern not available"))?
+            .maximize()
+            .map_err(|e| PatternError::new_err(e.to_string()))
+    }
+}
+
+/// Restores a window from minimized or maximized state.
+#[pyclass(module = "platynui_native", name = "Restorable")]
+pub struct PyRestorable {
+    node: Arc<dyn core_rs::ui::UiNode>,
+}
+
+#[pymethods]
+impl PyRestorable {
+    /// Reverse-DNS identifier of the pattern (``"org.platynui.patterns.Restorable"``).
+    #[classattr]
+    fn pattern_name() -> &'static str {
+        core_rs::ui::pattern_names::RESTORABLE
     }
     /// Restores the window to its previous size/state after minimize or maximize.
     fn restore(&self) -> PyResult<()> {
-        self.call(|p| p.restore())
+        self.node
+            .pattern::<core_rs::ui::pattern::RestorableAction>()
+            .ok_or_else(|| PatternError::new_err("Restorable pattern not available"))?
+            .restore()
+            .map_err(|e| PatternError::new_err(e.to_string()))
+    }
+}
+
+/// Closes a window.
+#[pyclass(module = "platynui_native", name = "Closeable")]
+pub struct PyCloseable {
+    node: Arc<dyn core_rs::ui::UiNode>,
+}
+
+#[pymethods]
+impl PyCloseable {
+    /// Reverse-DNS identifier of the pattern (``"org.platynui.patterns.Closeable"``).
+    #[classattr]
+    fn pattern_name() -> &'static str {
+        core_rs::ui::pattern_names::CLOSEABLE
     }
     /// Closes the window.
     fn close(&self) -> PyResult<()> {
-        self.call(|p| p.close())
+        self.node
+            .pattern::<core_rs::ui::pattern::CloseableAction>()
+            .ok_or_else(|| PatternError::new_err("Closeable pattern not available"))?
+            .close()
+            .map_err(|e| PatternError::new_err(e.to_string()))
     }
+}
 
+/// Moves a window to a new screen position.
+#[pyclass(module = "platynui_native", name = "Movable")]
+pub struct PyMovable {
+    node: Arc<dyn core_rs::ui::UiNode>,
+}
+
+#[pymethods]
+impl PyMovable {
+    /// Reverse-DNS identifier of the pattern (``"org.platynui.patterns.Movable"``).
+    #[classattr]
+    fn pattern_name() -> &'static str {
+        core_rs::ui::pattern_names::MOVABLE
+    }
     /// Moves the window's top-left corner to ``(x, y)`` screen coordinates.
     fn move_to(&self, x: f64, y: f64) -> PyResult<()> {
-        self.call(|p| p.move_to(core_rs::types::Point::new(x, y)))
+        self.node
+            .pattern::<core_rs::ui::pattern::MovableAction>()
+            .ok_or_else(|| PatternError::new_err("Movable pattern not available"))?
+            .move_to(core_rs::types::Point::new(x, y))
+            .map_err(|e| PatternError::new_err(e.to_string()))
     }
-    /// Resizes the window to ``width`` × ``height``.
+}
+
+/// Resizes a window.
+#[pyclass(module = "platynui_native", name = "Resizable")]
+pub struct PyResizable {
+    node: Arc<dyn core_rs::ui::UiNode>,
+}
+
+#[pymethods]
+impl PyResizable {
+    /// Reverse-DNS identifier of the pattern (``"org.platynui.patterns.Resizable"``).
+    #[classattr]
+    fn pattern_name() -> &'static str {
+        core_rs::ui::pattern_names::RESIZABLE
+    }
+    /// Resizes the window to ``width`` x ``height``.
     fn resize(&self, width: f64, height: f64) -> PyResult<()> {
-        self.call(|p| p.resize(core_rs::types::Size::new(width, height)))
+        self.node
+            .pattern::<core_rs::ui::pattern::ResizableAction>()
+            .ok_or_else(|| PatternError::new_err("Resizable pattern not available"))?
+            .resize(core_rs::types::Size::new(width, height))
+            .map_err(|e| PatternError::new_err(e.to_string()))
     }
-    /// Moves and resizes the window in a single operation.
-    fn move_and_resize(&self, x: f64, y: f64, width: f64, height: f64) -> PyResult<()> {
-        self.call(|p| p.move_and_resize(core_rs::types::Rect::new(x, y, width, height)))
+}
+
+/// Polls whether a window is currently able to receive user input.
+#[pyclass(module = "platynui_native", name = "Responsive")]
+pub struct PyResponsive {
+    node: Arc<dyn core_rs::ui::UiNode>,
+}
+
+#[pymethods]
+impl PyResponsive {
+    /// Reverse-DNS identifier of the pattern (``"org.platynui.patterns.Responsive"``).
+    #[classattr]
+    fn pattern_name() -> &'static str {
+        core_rs::ui::pattern_names::RESPONSIVE
     }
     /// Returns whether the window is currently able to receive user input, if known.
     fn accepts_user_input(&self) -> PyResult<Option<bool>> {
-        self.with_pattern(|p| p.accepts_user_input())
+        self.node
+            .pattern::<core_rs::ui::pattern::ResponsiveAction>()
+            .ok_or_else(|| PatternError::new_err("Responsive pattern not available"))?
+            .accepts_user_input()
+            .map_err(|e| PatternError::new_err(e.to_string()))
     }
 }
 
@@ -464,26 +594,6 @@ impl PyEvaluatedAttribute {
     /// Returns a concise string representation useful for debugging.
     fn __repr__(&self) -> String {
         format!("EvaluatedAttribute(namespace='{}', name='{}')", self.namespace, self.name)
-    }
-}
-
-impl PyWindowSurface {
-    fn with_pattern<T, F>(&self, f: F) -> PyResult<T>
-    where
-        F: FnOnce(&dyn core_rs::ui::pattern::WindowSurfacePattern) -> Result<T, core_rs::ui::pattern::PatternError>,
-    {
-        let p = self
-            .node
-            .pattern::<core_rs::ui::pattern::WindowSurfaceActions>()
-            .ok_or_else(|| PatternError::new_err("WindowSurface pattern not available"))?;
-        f(&*p).map_err(|e| PatternError::new_err(e.to_string()))
-    }
-
-    fn call<F>(&self, f: F) -> PyResult<()>
-    where
-        F: FnOnce(&dyn core_rs::ui::pattern::WindowSurfacePattern) -> Result<(), core_rs::ui::pattern::PatternError>,
-    {
-        self.with_pattern(|p| f(p))
     }
 }
 
@@ -1190,8 +1300,27 @@ fn pattern_object(py: Python<'_>, node: &Arc<dyn core_rs::ui::UiNode>, pattern_n
         core_rs::ui::pattern_names::FOCUSABLE => {
             Py::new(py, PyFocusable { node: node.clone() }).ok().map(|p| p.into_any())
         }
-        core_rs::ui::pattern_names::WINDOW_SURFACE => {
-            Py::new(py, PyWindowSurface { node: node.clone() }).ok().map(|p| p.into_any())
+        core_rs::ui::pattern_names::ACTIVATABLE => {
+            Py::new(py, PyActivatable { node: node.clone() }).ok().map(|p| p.into_any())
+        }
+        core_rs::ui::pattern_names::MINIMIZABLE => {
+            Py::new(py, PyMinimizable { node: node.clone() }).ok().map(|p| p.into_any())
+        }
+        core_rs::ui::pattern_names::MAXIMIZABLE => {
+            Py::new(py, PyMaximizable { node: node.clone() }).ok().map(|p| p.into_any())
+        }
+        core_rs::ui::pattern_names::RESTORABLE => {
+            Py::new(py, PyRestorable { node: node.clone() }).ok().map(|p| p.into_any())
+        }
+        core_rs::ui::pattern_names::CLOSEABLE => {
+            Py::new(py, PyCloseable { node: node.clone() }).ok().map(|p| p.into_any())
+        }
+        core_rs::ui::pattern_names::MOVABLE => Py::new(py, PyMovable { node: node.clone() }).ok().map(|p| p.into_any()),
+        core_rs::ui::pattern_names::RESIZABLE => {
+            Py::new(py, PyResizable { node: node.clone() }).ok().map(|p| p.into_any())
+        }
+        core_rs::ui::pattern_names::RESPONSIVE => {
+            Py::new(py, PyResponsive { node: node.clone() }).ok().map(|p| p.into_any())
         }
         _ => None,
     }
@@ -1221,7 +1350,14 @@ pub fn register_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyAttribute>()?;
     m.add_class::<PyEvaluatedAttribute>()?;
     m.add_class::<PyFocusable>()?;
-    m.add_class::<PyWindowSurface>()?;
+    m.add_class::<PyActivatable>()?;
+    m.add_class::<PyMinimizable>()?;
+    m.add_class::<PyMaximizable>()?;
+    m.add_class::<PyRestorable>()?;
+    m.add_class::<PyCloseable>()?;
+    m.add_class::<PyMovable>()?;
+    m.add_class::<PyResizable>()?;
+    m.add_class::<PyResponsive>()?;
     m.add_class::<PyPointerOverrides>()?;
     m.add_class::<PyPointerSettings>()?;
     m.add_class::<PyPointerProfile>()?;

@@ -62,32 +62,24 @@ def test_regex_attribute_uses_matches() -> None:
 
 
 def test_tuple_key_explicit_namespace_renders_with_prefix() -> None:
-    xpath = Locator(
-        role='Button', attributes={('native', 'HWND'): '0x12AB'}
-    ).to_xpath()
+    xpath = Locator(role='Button', attributes={('native', 'HWND'): '0x12AB'}).to_xpath()
     assert xpath == './/Button[@native:HWND="0x12AB"]'
 
 
 def test_tuple_key_with_control_namespace_renders_unprefixed() -> None:
     """Explicit control-namespace tuple key still emits without prefix."""
-    xpath = Locator(
-        role='Button', attributes={('control', 'AutomationId'): 'x'}
-    ).to_xpath()
+    xpath = Locator(role='Button', attributes={('control', 'AutomationId'): 'x'}).to_xpath()
     assert xpath == './/Button[@AutomationId="x"]'
 
 
 def test_tuple_key_regex_with_namespace() -> None:
-    xpath = Locator(
-        role='X', attributes={('item', 'Name'): re.compile(r'foo.*')}
-    ).to_xpath()
+    xpath = Locator(role='X', attributes={('item', 'Name'): re.compile(r'foo.*')}).to_xpath()
     assert 'matches(@item:Name, "foo.*")' in xpath
 
 
 def test_default_attribute_namespace_override_applies_to_bare_keys() -> None:
     """A context can lift the default namespace to e.g. ``item``."""
-    xpath = Locator(role='Row', attributes={'Index': '3'}).to_xpath(
-        default_attribute_namespace='item'
-    )
+    xpath = Locator(role='Row', attributes={'Index': '3'}).to_xpath(default_attribute_namespace='item')
     assert xpath == './/Row[@item:Index="3"]'
 
 
@@ -102,9 +94,7 @@ def test_default_attribute_namespace_override_does_not_affect_tuple_keys() -> No
 
 def test_default_attribute_namespace_override_does_not_affect_shorthands() -> None:
     """Standard shorthands (Id/Name/...) always sit in control namespace."""
-    xpath = Locator(role='Row', name='OK').to_xpath(
-        default_attribute_namespace='item'
-    )
+    xpath = Locator(role='Row', name='OK').to_xpath(default_attribute_namespace='item')
     assert xpath == './/Row[@Name="OK"]'
 
 

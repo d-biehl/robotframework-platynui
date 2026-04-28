@@ -128,8 +128,14 @@ impl From<Arc<str>> for PatternName {
 pub mod pattern_names {
     /// Production patterns (currently exposed by real providers).
     pub const FOCUSABLE: &str = "org.platynui.patterns.Focusable";
-    pub const WINDOW_SURFACE: &str = "org.platynui.patterns.WindowSurface";
     pub const ACTIVATABLE: &str = "org.platynui.patterns.Activatable";
+    pub const MINIMIZABLE: &str = "org.platynui.patterns.Minimizable";
+    pub const MAXIMIZABLE: &str = "org.platynui.patterns.Maximizable";
+    pub const RESTORABLE: &str = "org.platynui.patterns.Restorable";
+    pub const CLOSEABLE: &str = "org.platynui.patterns.Closeable";
+    pub const MOVABLE: &str = "org.platynui.patterns.Movable";
+    pub const RESIZABLE: &str = "org.platynui.patterns.Resizable";
+    pub const RESPONSIVE: &str = "org.platynui.patterns.Responsive";
     pub const DESKTOP: &str = "org.platynui.patterns.Desktop";
     pub const APPLICATION: &str = "org.platynui.patterns.Application";
 
@@ -177,8 +183,14 @@ mod tests {
     fn pattern_ids_are_reverse_dns() {
         for id in [
             pattern_names::FOCUSABLE,
-            pattern_names::WINDOW_SURFACE,
             pattern_names::ACTIVATABLE,
+            pattern_names::MINIMIZABLE,
+            pattern_names::MAXIMIZABLE,
+            pattern_names::RESTORABLE,
+            pattern_names::CLOSEABLE,
+            pattern_names::MOVABLE,
+            pattern_names::RESIZABLE,
+            pattern_names::RESPONSIVE,
             pattern_names::DESKTOP,
             pattern_names::APPLICATION,
             pattern_names::ELEMENT,

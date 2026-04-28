@@ -54,9 +54,7 @@ return type of `ElementDescriptor.__call__` is always `ContextBase`.
 
 
 RootElementGetter = 'Callable[[], ElementDescriptor[Any] | None]'
-RootElementSetter = (
-    'Callable[[ElementDescriptor[Any] | None], ElementDescriptor[Any] | None]'
-)
+RootElementSetter = 'Callable[[ElementDescriptor[Any] | None], ElementDescriptor[Any] | None]'
 
 _root_element_slot: 'ElementDescriptor[Any] | None' = None
 
@@ -74,19 +72,15 @@ def _default_set_root_element(
     return previous
 
 
-_get_root_element: 'Callable[[], ElementDescriptor[Any] | None]' = (
-    _default_get_root_element
+_get_root_element: 'Callable[[], ElementDescriptor[Any] | None]' = _default_get_root_element
+_set_root_element: 'Callable[[ElementDescriptor[Any] | None], ElementDescriptor[Any] | None]' = (
+    _default_set_root_element
 )
-_set_root_element: (
-    'Callable[[ElementDescriptor[Any] | None], ElementDescriptor[Any] | None]'
-) = _default_set_root_element
 
 
 def set_root_element_storage(
     getter: 'Callable[[], ElementDescriptor[Any] | None]',
-    setter: (
-        'Callable[[ElementDescriptor[Any] | None], ElementDescriptor[Any] | None]'
-    ),
+    setter: ('Callable[[ElementDescriptor[Any] | None], ElementDescriptor[Any] | None]'),
 ) -> None:
     """Replace the root-element storage hook with a custom pair.
 
@@ -155,16 +149,12 @@ class ElementDescriptor(Generic[PatternT]):
         """
         if self._context is None:
             parent_context = self._parent() if self._parent is not None else None
-            self._context = ContextBase(
-                self._locator, context_parent=parent_context
-            )
+            self._context = ContextBase(self._locator, context_parent=parent_context)
 
         if full_context and not self._has_full_context:
             adapter = self._context.get_adapter()
             if adapter is not None:
-                chosen = ContextFactory.find_context_class_for(
-                    adapter, self._context_type
-                )
+                chosen = ContextFactory.find_context_class_for(adapter, self._context_type)
                 self._context = chosen(
                     self._locator,
                     context_parent=self._context.context_parent,

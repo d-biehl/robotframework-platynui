@@ -3,8 +3,12 @@ use anyhow::bail;
 use clap::Args;
 use owo_colors::{OwoColorize, Stream};
 use platynui_core::types::{Point, Rect, Size};
-use platynui_core::ui::attribute_names::{element, window_surface};
-use platynui_core::ui::{Namespace, UiNode, UiValue, WindowSurfaceActions, WindowSurfacePattern};
+use platynui_core::ui::attribute_names::{activatable, element, maximizable, minimizable, movable, resizable};
+use platynui_core::ui::{
+    ActivatableAction, ActivatablePattern, CloseableAction, CloseablePattern, MaximizableAction, MaximizablePattern,
+    MinimizableAction, MinimizablePattern, MovableAction, MovablePattern, Namespace, ResizableAction, ResizablePattern,
+    RestorableAction, RestorablePattern, UiNode, UiValue,
+};
 use platynui_runtime::{EvaluationItem, Runtime};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -98,11 +102,10 @@ fn list_windows(runtime: &Runtime, args: &WindowArgs) -> CliResult<String> {
 
         if let Some(state) = window_state(&node) {
             lines.push(format!(
-                "    State: minimized={}, maximized={}, topmost={}, accepts_input={}",
+                "    State: minimized={}, maximized={}, topmost={}",
                 yes_no(state.is_minimized),
                 yes_no(state.is_maximized),
                 yes_no(state.is_topmost),
-                yes_no(state.accepts_user_input)
             ));
             lines.push(format!(
                 "    Bounds: x={}, y={}, width={}, height={}",
@@ -117,7 +120,7 @@ fn list_windows(runtime: &Runtime, args: &WindowArgs) -> CliResult<String> {
                 yes_no(state.supports_resize)
             ));
         } else {
-            lines.push("    WindowSurface pattern not available.".to_owned());
+            lines.push("    Activatable pattern not available.".to_owned());
         }
     }
 
@@ -159,7 +162,7 @@ fn execute_actions(runtime: &Runtime, expression: &str, actions: &WindowActions)
             applied.push(format!("- {}: brought to front", render_window_header(&node)));
         }
 
-        let Some(pattern) = node.pattern::<WindowSurfaceActions>() else {
+        let Some(_marker) = node.pattern::<ActivatableAction>() else {
             // If no further pattern actions are requested, silently accept runtime-only bring-to-front.
             if !actions.only_runtime_action() {
                 missing_pattern.push(render_window_header(&node));
@@ -167,7 +170,7 @@ fn execute_actions(runtime: &Runtime, expression: &str, actions: &WindowActions)
             continue;
         };
 
-        match apply_actions(&node, &pattern, actions) {
+        match apply_actions(&node, actions) {
             Ok(descriptions) => {
                 let summary = if descriptions.is_empty() { "no changes".to_owned() } else { descriptions.join(", ") };
                 applied.push(format!("- {}: {summary}", render_window_header(&node)));
@@ -190,7 +193,7 @@ fn execute_actions(runtime: &Runtime, expression: &str, actions: &WindowActions)
     }
 
     if !missing_pattern.is_empty() {
-        lines.push("Skipped (missing WindowSurface pattern):".to_owned());
+        lines.push("Skipped (missing Activatable pattern):".to_owned());
         lines.extend(missing_pattern.into_iter().map(|entry| format!("- {entry}")));
     }
 
@@ -204,47 +207,59 @@ fn execute_actions(runtime: &Runtime, expression: &str, actions: &WindowActions)
 
 fn apply_actions(
     node: &Arc<dyn UiNode>,
-    pattern: &Arc<WindowSurfaceActions>,
     actions: &WindowActions,
 ) -> Result<Vec<String>, platynui_core::ui::PatternError> {
     let mut descriptions = Vec::new();
 
     if actions.activate {
-        pattern.activate()?;
+        node.pattern::<ActivatableAction>()
+            .ok_or_else(|| platynui_core::ui::PatternError::new(format!("{} pattern not available", "Activatable")))?
+            .activate()?;
         descriptions.push("activated".to_owned());
     }
     if actions.minimize {
-        pattern.minimize()?;
+        node.pattern::<MinimizableAction>()
+            .ok_or_else(|| platynui_core::ui::PatternError::new(format!("{} pattern not available", "Minimizable")))?
+            .minimize()?;
         descriptions.push("minimized".to_owned());
     }
     if actions.maximize {
-        pattern.maximize()?;
+        node.pattern::<MaximizableAction>()
+            .ok_or_else(|| platynui_core::ui::PatternError::new(format!("{} pattern not available", "Maximizable")))?
+            .maximize()?;
         descriptions.push("maximized".to_owned());
     }
     if actions.restore {
-        pattern.restore()?;
+        node.pattern::<RestorableAction>()
+            .ok_or_else(|| platynui_core::ui::PatternError::new(format!("{} pattern not available", "Restorable")))?
+            .restore()?;
         descriptions.push("restored".to_owned());
     }
     if actions.close {
-        pattern.close()?;
+        node.pattern::<CloseableAction>()
+            .ok_or_else(|| platynui_core::ui::PatternError::new(format!("{} pattern not available", "Closeable")))?
+            .close()?;
         descriptions.push("closed".to_owned());
     }
     if let Some(point) = actions.move_to {
-        pattern.move_to(point)?;
+        node.pattern::<MovableAction>()
+            .ok_or_else(|| platynui_core::ui::PatternError::new(format!("{} pattern not available", "Movable")))?
+            .move_to(point)?;
         descriptions.push(format!("moved to ({}, {})", format_number(point.x()), format_number(point.y())));
     }
     if let Some(size) = actions.resize {
-        pattern.resize(size)?;
+        node.pattern::<ResizableAction>()
+            .ok_or_else(|| platynui_core::ui::PatternError::new(format!("{} pattern not available", "Resizable")))?
+            .resize(size)?;
         descriptions.push(format!("resized to {}×{}", format_number(size.width()), format_number(size.height())));
     }
 
     if let Some(state) = window_state(node) {
         descriptions.push(format!(
-            "state: minimized={}, maximized={}, topmost={}, accepts_input={}",
+            "state: minimized={}, maximized={}, topmost={}",
             yes_no(state.is_minimized),
             yes_no(state.is_maximized),
             yes_no(state.is_topmost),
-            yes_no(state.accepts_user_input)
         ));
     }
 
@@ -280,12 +295,11 @@ fn window_state(node: &Arc<dyn UiNode>) -> Option<WindowStatus> {
 
     Some(WindowStatus {
         bounds,
-        is_minimized: attr_bool(node, window_surface::IS_MINIMIZED),
-        is_maximized: attr_bool(node, window_surface::IS_MAXIMIZED),
-        is_topmost: attr_bool(node, window_surface::IS_TOPMOST),
-        supports_move: attr_bool(node, window_surface::SUPPORTS_MOVE),
-        supports_resize: attr_bool(node, window_surface::SUPPORTS_RESIZE),
-        accepts_user_input: attr_bool(node, window_surface::ACCEPTS_USER_INPUT),
+        is_minimized: attr_bool(node, minimizable::IS_MINIMIZED),
+        is_maximized: attr_bool(node, maximizable::IS_MAXIMIZED),
+        is_topmost: attr_bool(node, activatable::IS_TOPMOST),
+        supports_move: attr_bool(node, movable::CAN_MOVE),
+        supports_resize: attr_bool(node, resizable::CAN_RESIZE),
     })
 }
 
@@ -309,7 +323,6 @@ struct WindowStatus {
     is_topmost: bool,
     supports_move: bool,
     supports_resize: bool,
-    accepts_user_input: bool,
 }
 
 #[derive(Clone, Copy)]

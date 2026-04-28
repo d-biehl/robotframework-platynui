@@ -272,10 +272,7 @@ def test_class_kwargs_form_registers_too() -> None:
     assert MyControl.default_role == 'Slider'
     assert MyControl._locator is not None
     assert MyControl._locator.role == 'Slider'
-    assert any(
-        e.context_type is MyControl
-        for e in ContextFactory.registered_contexts
-    )
+    assert any(e.context_type is MyControl for e in ContextFactory.registered_contexts)
 
 
 def test_subclass_without_kwargs_is_not_registered() -> None:
@@ -294,10 +291,7 @@ def test_subclass_without_kwargs_auto_registers_with_class_name() -> None:
 
     assert AutoRegisteredCtx._locator is not None
     assert AutoRegisteredCtx.default_role == 'AutoRegisteredCtx'
-    assert any(
-        e.context_type is AutoRegisteredCtx
-        for e in ContextFactory.registered_contexts
-    )
+    assert any(e.context_type is AutoRegisteredCtx for e in ContextFactory.registered_contexts)
 
 
 def test_duplicate_criteria_emits_warning() -> None:
@@ -306,6 +300,7 @@ def test_duplicate_criteria_emits_warning() -> None:
         pass
 
     with pytest.warns(DuplicateRegistrationWarning, match='__test_dup__'):
+
         @context(role='__test_dup__')
         class SecondDup(ContextBase):
             pass
@@ -334,6 +329,7 @@ def test_duplicate_criteria_warning_normalizes_regex() -> None:
         pass
 
     with pytest.warns(DuplicateRegistrationWarning):
+
         @context(role='__test_regex_dup__', attributes={'Name': _re.compile(r'foo', _re.IGNORECASE)})
         class SecondRegex(ContextBase):
             pass

@@ -48,9 +48,7 @@ class AdapterProxy(Adapter):
 
     def __init__(self, adapter: Adapter) -> None:
         if not isinstance(adapter, Adapter):
-            raise TypeError(
-                f'AdapterProxy requires an Adapter instance; got {type(adapter).__name__}'
-            )
+            raise TypeError(f'AdapterProxy requires an Adapter instance; got {type(adapter).__name__}')
         super().__init__()
         self._adapter = adapter
 
@@ -150,9 +148,7 @@ class AdapterProxy(Adapter):
         return {
             base
             for base in type(self).__mro__
-            if isinstance(base, type)
-            and base is not PatternBase
-            and issubclass(base, PatternBase)
+            if isinstance(base, type) and base is not PatternBase and issubclass(base, PatternBase)
         }
 
     @override
@@ -239,9 +235,7 @@ class AdapterProxy(Adapter):
                 return cast(PatternBase, self)
 
         # Step 2: delegate.
-        return self._adapter.get_pattern_by_name(
-            pattern_name, raise_exception=raise_exception
-        )
+        return self._adapter.get_pattern_by_name(pattern_name, raise_exception=raise_exception)
 
     # ------------------------------------------------------------------
     # Identity helpers — equality follows the wrapped adapter so that
@@ -273,17 +267,13 @@ class AdapterProxy(Adapter):
 #: Criterion keys accepted by `pattern_proxy_for`. The set mirrors
 #: `calculate`'s ``criteria`` dict so that proxy
 #: matching uses the same scoring rules as locator matching.
-_CRITERION_KEYS: frozenset[str] = frozenset(
-    {'role', 'framework_id', 'class_name', 'tag_name', 'attributes'}
-)
+_CRITERION_KEYS: frozenset[str] = frozenset({'role', 'framework_id', 'class_name', 'tag_name', 'attributes'})
 
 
 class _ProxyRegistration:
     __slots__ = ('criteria', 'proxy_cls')
 
-    def __init__(
-        self, proxy_cls: type[AdapterProxy], criteria: dict[str, object]
-    ) -> None:
+    def __init__(self, proxy_cls: type[AdapterProxy], criteria: dict[str, object]) -> None:
         self.proxy_cls = proxy_cls
         self.criteria = criteria
 
@@ -303,9 +293,7 @@ class PatternProxyFactory:
     _registrations: list[_ProxyRegistration] = []
 
     @classmethod
-    def register(
-        cls, proxy_cls: type[AdapterProxy], criteria: dict[str, object]
-    ) -> None:
+    def register(cls, proxy_cls: type[AdapterProxy], criteria: dict[str, object]) -> None:
         """Register ``proxy_cls`` with the given matching criteria.
 
         Re-registering an existing class replaces its previous entry.
@@ -316,13 +304,9 @@ class PatternProxyFactory:
         directly.
         """
         if not isinstance(proxy_cls, type) or not issubclass(proxy_cls, AdapterProxy):
-            raise TypeError(
-                f'{proxy_cls!r} is not an AdapterProxy subclass'
-            )
+            raise TypeError(f'{proxy_cls!r} is not an AdapterProxy subclass')
         new_criteria = dict(criteria)
-        cls._registrations = [
-            entry for entry in cls._registrations if entry.proxy_cls is not proxy_cls
-        ]
+        cls._registrations = [entry for entry in cls._registrations if entry.proxy_cls is not proxy_cls]
         for entry in cls._registrations:
             if criteria_equal(entry.criteria, new_criteria):
                 warnings.warn(
@@ -339,9 +323,7 @@ class PatternProxyFactory:
     @classmethod
     def unregister(cls, proxy_cls: type[AdapterProxy]) -> None:
         """Remove ``proxy_cls`` from the registry; no-op if absent."""
-        cls._registrations = [
-            entry for entry in cls._registrations if entry.proxy_cls is not proxy_cls
-        ]
+        cls._registrations = [entry for entry in cls._registrations if entry.proxy_cls is not proxy_cls]
 
     @classmethod
     def clear(cls) -> None:

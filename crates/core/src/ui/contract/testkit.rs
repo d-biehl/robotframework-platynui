@@ -282,14 +282,13 @@ mod geometry_tests {
 mod expectation_tests {
     use super::*;
     use crate::types::Rect;
-    use crate::ui::attribute_names::{activatable, common, element, text_content};
+    use crate::ui::attribute_names::{activatable, common, element};
     use crate::ui::pattern::{PatternRegistry, UiPattern};
     use crate::ui::{UiAttribute, UiNode, pattern_names};
     use rstest::rstest;
     use std::sync::{Arc, Mutex, Weak};
 
-    const TEXT_CONTENT_ATTRS: &[AttributeExpectation] =
-        &[AttributeExpectation::required(Namespace::Control, text_content::TEXT)];
+    const TEXT_CONTENT_ATTRS: &[AttributeExpectation] = &[AttributeExpectation::required(Namespace::Control, "Text")];
     const ELEMENT_ATTRS: &[AttributeExpectation] = &[
         AttributeExpectation::required(Namespace::Control, element::BOUNDS),
         AttributeExpectation::required(Namespace::Control, element::IS_VISIBLE),
@@ -435,11 +434,7 @@ mod expectation_tests {
                 name: common::RUNTIME_ID,
                 value: UiValue::from("node-1"),
             }),
-            Arc::new(StaticAttribute {
-                namespace: Namespace::Control,
-                name: text_content::TEXT,
-                value: UiValue::from("OK"),
-            }),
+            Arc::new(StaticAttribute { namespace: Namespace::Control, name: "Text", value: UiValue::from("OK") }),
             Arc::new(StaticAttribute {
                 namespace: Namespace::Control,
                 name: element::BOUNDS,
@@ -500,13 +495,13 @@ mod expectation_tests {
     #[rstest]
     fn verify_node_reports_missing_attribute() {
         let node = build_node();
-        node.attributes.lock().unwrap().retain(|attr| attr.name() != text_content::TEXT);
+        node.attributes.lock().unwrap().retain(|attr| attr.name() != "Text");
         let expectations = build_expectation();
 
         let result = verify_node(node.as_ref(), &expectations);
         assert!(result.iter().any(|issue| matches!(issue,
             ContractIssue::MissingAttribute { pattern, name, .. }
-                if pattern.as_str() == pattern_names::TEXT_CONTENT && name == text_content::TEXT
+                if pattern.as_str() == pattern_names::TEXT_CONTENT && name == "Text"
         )));
     }
 
@@ -518,7 +513,7 @@ mod expectation_tests {
             .with_pattern(PatternName::from(pattern_names::ACTIVATABLE))
             .with_attribute(Arc::new(StaticAttribute {
                 namespace: Namespace::Control,
-                name: text_content::TEXT,
+                name: "Text",
                 value: UiValue::Null,
             }))
             .with_attribute(Arc::new(StaticAttribute {
@@ -561,7 +556,7 @@ mod expectation_tests {
         let result = verify_node(&node, &expectations);
         assert!(result.iter().any(|issue| matches!(issue,
             ContractIssue::NullAttribute { pattern, name, .. }
-                if pattern.as_str() == pattern_names::TEXT_CONTENT && name == text_content::TEXT
+                if pattern.as_str() == pattern_names::TEXT_CONTENT && name == "Text"
         )));
     }
 

@@ -19,7 +19,7 @@ import pytest
 from _ui_helpers import (  # type: ignore[import-not-found]
     CloseableStub,
     ElementStub,
-    HasUserInputStub,
+    ResponsiveStub,
     make_adapter,
 )
 
@@ -66,7 +66,7 @@ def _window_child_adapter(parent: Adapter, *, closeable: CloseableStub | None = 
     """Build a child Window adapter with the patterns required by `Window.close`."""
     pmap: dict[type, object] = {
         patterns.Element: ElementStub(),
-        patterns.HasUserInput: HasUserInputStub(True),
+        patterns.Responsive: ResponsiveStub(True),
     }
     if closeable is not None:
         pmap[patterns.Closeable] = closeable
@@ -192,8 +192,10 @@ def test_request_exit_swallows_close_failures() -> None:
 
 def test_force_exit_returns_immediately_when_process_id_unavailable() -> None:
     a = Application(adapter=_app_adapter())  # no ProcessId attribute
-    with patch('PlatynUI.ui.application._process_alive') as alive, \
-         patch('PlatynUI.ui.application._kill_process') as kill:
+    with (
+        patch('PlatynUI.ui.application._process_alive') as alive,
+        patch('PlatynUI.ui.application._kill_process') as kill,
+    ):
         a._force_exit(timeout=0.1)
     alive.assert_not_called()
     kill.assert_not_called()
@@ -201,8 +203,10 @@ def test_force_exit_returns_immediately_when_process_id_unavailable() -> None:
 
 def test_force_exit_returns_when_pid_non_positive() -> None:
     a = Application(adapter=_app_adapter(attributes={('ProcessId', 'app'): 0}))
-    with patch('PlatynUI.ui.application._process_alive') as alive, \
-         patch('PlatynUI.ui.application._kill_process') as kill:
+    with (
+        patch('PlatynUI.ui.application._process_alive') as alive,
+        patch('PlatynUI.ui.application._kill_process') as kill,
+    ):
         a._force_exit(timeout=0.1)
     alive.assert_not_called()
     kill.assert_not_called()
@@ -210,8 +214,10 @@ def test_force_exit_returns_when_pid_non_positive() -> None:
 
 def test_force_exit_returns_when_process_dies_during_poll() -> None:
     a = Application(adapter=_app_adapter(attributes={('ProcessId', 'app'): 1234}))
-    with patch('PlatynUI.ui.application._process_alive', return_value=False) as alive, \
-         patch('PlatynUI.ui.application._kill_process') as kill:
+    with (
+        patch('PlatynUI.ui.application._process_alive', return_value=False) as alive,
+        patch('PlatynUI.ui.application._kill_process') as kill,
+    ):
         a._force_exit(timeout=0.1)
     alive.assert_called_once_with(1234)
     kill.assert_not_called()
@@ -219,8 +225,10 @@ def test_force_exit_returns_when_process_dies_during_poll() -> None:
 
 def test_force_exit_kills_process_when_timeout_expires() -> None:
     a = Application(adapter=_app_adapter(attributes={('ProcessId', 'app'): 1234}))
-    with patch('PlatynUI.ui.application._process_alive', return_value=True), \
-         patch('PlatynUI.ui.application._kill_process') as kill:
+    with (
+        patch('PlatynUI.ui.application._process_alive', return_value=True),
+        patch('PlatynUI.ui.application._kill_process') as kill,
+    ):
         a._force_exit(timeout=0.05)
     kill.assert_called_once_with(1234)
 
@@ -243,9 +251,11 @@ def test_exit_runs_request_exit_then_force_exit_then_invalidates() -> None:
     def _record_invalidate(self: Application) -> None:
         calls.append('invalidate')
 
-    with patch.object(Application, '_request_exit', _record_request), \
-         patch.object(Application, '_force_exit', _record_force), \
-         patch.object(Application, 'invalidate', _record_invalidate):
+    with (
+        patch.object(Application, '_request_exit', _record_request),
+        patch.object(Application, '_force_exit', _record_force),
+        patch.object(Application, 'invalidate', _record_invalidate),
+    ):
         a.exit(timeout=0.2)
 
     assert calls == ['request', 'force:0.2', 'invalidate']
@@ -255,9 +265,11 @@ def test_exit_uses_settings_default_when_timeout_omitted() -> None:
     a = Application(adapter=_app_adapter(attributes={('ProcessId', 'app'): 1234}))
     captured: list[float] = []
 
-    with patch.object(Application, '_request_exit', lambda self: None), \
-         patch.object(Application, '_force_exit', lambda self, timeout: captured.append(timeout)), \
-         patch.object(Application, 'invalidate', lambda self: None):
+    with (
+        patch.object(Application, '_request_exit', lambda self: None),
+        patch.object(Application, '_force_exit', lambda self, timeout: captured.append(timeout)),
+        patch.object(Application, 'invalidate', lambda self: None),
+    ):
         a.exit()
 
     assert captured == [Settings.current().application_exit_timeout]
@@ -271,9 +283,11 @@ def test_exit_continues_to_force_when_request_exit_raises() -> None:
     def _boom(self: Application) -> None:
         raise RuntimeError('graceful exit failed')
 
-    with patch.object(Application, '_request_exit', _boom), \
-         patch.object(Application, '_force_exit', lambda self, timeout: forced.append(timeout)), \
-         patch.object(Application, 'invalidate', lambda self: invalidated.append(True)):
+    with (
+        patch.object(Application, '_request_exit', _boom),
+        patch.object(Application, '_force_exit', lambda self, timeout: forced.append(timeout)),
+        patch.object(Application, 'invalidate', lambda self: invalidated.append(True)),
+    ):
         a.exit(timeout=0.1)
 
     assert forced == [0.1]

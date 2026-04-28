@@ -37,9 +37,7 @@ class MenuItem(Control):
 
         # Open from outermost to innermost so that the path is visible.
         for ancestor in reversed(ancestors):
-            expandable = ancestor.adapter.get_pattern(
-                patterns.Expandable, raise_exception=False
-            )
+            expandable = ancestor.adapter.get_pattern(patterns.Expandable, raise_exception=False)
             if expandable is None or expandable.is_expanded:
                 continue
             expandable.expand()

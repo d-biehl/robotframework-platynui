@@ -14,7 +14,7 @@ from _ui_helpers import (  # type: ignore[import-not-found]
     ElementStub,
     ExpandableStub,
     FocusableStub,
-    HasUserInputStub,
+    ResponsiveStub,
     make_adapter,
 )
 
@@ -44,7 +44,7 @@ def _window_adapter() -> Adapter:
         parent=desktop,
         pattern_map={
             patterns.Element: ElementStub(),
-            patterns.HasUserInput: HasUserInputStub(True),
+            patterns.Responsive: ResponsiveStub(True),
             patterns.Focusable: FocusableStub(is_focused=True),
         },
     )
@@ -79,7 +79,8 @@ def test_menu_registered_with_role_menu() -> None:
     from PlatynUI.core.context import ContextFactory
 
     adapter = make_adapter(
-        role='Menu', parent=_window_adapter(),
+        role='Menu',
+        parent=_window_adapter(),
         pattern_map={patterns.Element: ElementStub()},
     )
     assert ContextFactory().find_context_class_for(adapter) is Menu
@@ -89,7 +90,8 @@ def test_menu_bar_registered_with_role_menubar() -> None:
     from PlatynUI.core.context import ContextFactory
 
     adapter = make_adapter(
-        role='MenuBar', parent=_window_adapter(),
+        role='MenuBar',
+        parent=_window_adapter(),
         pattern_map={patterns.Element: ElementStub()},
     )
     assert ContextFactory().find_context_class_for(adapter) is MenuBar
@@ -98,9 +100,7 @@ def test_menu_bar_registered_with_role_menubar() -> None:
 def test_menu_item_registered_with_role_menuitem() -> None:
     from PlatynUI.core.context import ContextFactory
 
-    cls = ContextFactory().find_context_class_for(
-        _menu_item_adapter(activatable=ActivatableStub())
-    )
+    cls = ContextFactory().find_context_class_for(_menu_item_adapter(activatable=ActivatableStub()))
     assert cls is MenuItem
 
 

@@ -111,6 +111,7 @@ class NoDisplayDeviceError(DeviceError):
 
 # Outside the PlatynUIError hierarchy: standard Python expectations.
 
+
 class NotSupportedError(NotImplementedError):
     """Operation is not supported in the current configuration."""
 

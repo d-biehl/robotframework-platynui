@@ -19,17 +19,16 @@ from .element import Element
 from .expandable import Expandable
 from .focusable import Focusable
 from .has_editor import HasEditor
-from .has_user_input import HasUserInput
 from .item_container import ItemContainer
 from .maximizable import Maximizable
 from .minimizable import Minimizable
 from .movable import Movable
 from .readable import Readable
 from .resizable import Resizable
+from .responsive import Responsive
 from .restorable import Restorable
 from .selectable import Selectable
 from .text import Clearable, TextContent, TextEditable
-from .titled import Titled
 from .toggle import Toggleable, ToggleState
 
 __all__ = [
@@ -42,7 +41,6 @@ __all__ = [
     'Expandable',
     'Focusable',
     'HasEditor',
-    'HasUserInput',
     'ItemContainer',
     'Maximizable',
     'Minimizable',
@@ -52,12 +50,12 @@ __all__ = [
     'Readable',
     'Rect',
     'Resizable',
+    'Responsive',
     'Restorable',
     'Selectable',
     'Size',
     'TextContent',
     'TextEditable',
-    'Titled',
     'ToggleState',
     'Toggleable',
 ]

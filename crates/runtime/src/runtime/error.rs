@@ -28,7 +28,7 @@ pub enum KeyboardActionError {
 
 #[derive(Debug, Error)]
 pub enum BringToFrontError {
-    #[error("node `{runtime_id}` has no window-capable ancestor (WindowSurface pattern missing)")]
+    #[error("node `{runtime_id}` has no window-capable ancestor (Activatable pattern missing)")]
     PatternMissing { runtime_id: String },
     #[error("bringing window `{runtime_id}` to front failed: {source}")]
     ActionFailed {

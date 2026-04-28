@@ -38,9 +38,8 @@ class Window(Control):
 
     @property
     def title(self) -> str:
-        """The window title."""
-        titled = self.adapter.get_pattern(patterns.Titled, raise_exception=False)
-        return titled.title if titled is not None else self.name
+        """The window title (reads ``control:Name`` directly)."""
+        return self.name
 
     @predicate('window {0} can be minimized')
     def _window_can_minimize(self) -> bool:

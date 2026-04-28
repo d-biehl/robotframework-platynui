@@ -12,8 +12,8 @@ import pytest
 from _ui_helpers import (  # type: ignore[import-not-found]
     ElementStub,
     FocusableStub,
-    HasUserInputStub,
     ItemContainerStub,
+    ResponsiveStub,
     SelectableStub,
     make_adapter,
 )
@@ -83,7 +83,7 @@ def _tab_list_adapter(*, extra: dict[type, object] | None = None) -> Adapter:
         parent=desktop,
         pattern_map={
             patterns.Element: ElementStub(),
-            patterns.HasUserInput: HasUserInputStub(True),
+            patterns.Responsive: ResponsiveStub(True),
             patterns.Focusable: FocusableStub(is_focused=True),
         },
     )
@@ -91,7 +91,9 @@ def _tab_list_adapter(*, extra: dict[type, object] | None = None) -> Adapter:
     if extra:
         pmap.update(extra)
     return make_adapter(  # type: ignore[no-any-return]
-        role='TabList', parent=window, pattern_map=pmap,
+        role='TabList',
+        parent=window,
+        pattern_map=pmap,
     )
 
 
@@ -126,9 +128,7 @@ def test_tab_item_registered_with_role_tabitem() -> None:
 
 
 def test_item_count_returns_pattern_value() -> None:
-    adapter = _tab_list_adapter(
-        extra={patterns.ItemContainer: ItemContainerStub(item_count=4)}
-    )
+    adapter = _tab_list_adapter(extra={patterns.ItemContainer: ItemContainerStub(item_count=4)})
     assert TabList(adapter=adapter).item_count == 4
 
 

@@ -8,7 +8,9 @@ All types and functions are directly exported from the native extension module.
 from typing import Any, Literal, TypedDict
 
 from ._native import (
+    Activatable,
     AttributeNotFoundError,
+    Closeable,
     EvaluatedAttribute,
     EvaluationError,
     EvaluationIterator,
@@ -16,6 +18,9 @@ from ._native import (
     KeyboardError,
     KeyboardOverrides,
     KeyboardProfile,
+    Maximizable,
+    Minimizable,
+    Movable,
     Namespace,
     NodeAttributesIterator,
     NodeChildrenIterator,
@@ -31,13 +36,15 @@ from ._native import (
     PointerSettings,
     ProviderError,
     Rect,
+    Resizable,
+    Responsive,
+    Restorable,
     Runtime,
     RuntimeId,
     Size,
     TechnologyId,
     UiAttribute,
     UiNode,
-    WindowSurface,
 )
 
 # ===== Type Aliases =====
@@ -72,6 +79,7 @@ type RectLike = Rect | tuple[float, float, float, float] | RectDict
 type OriginLike = Literal['desktop'] | PointLike | RectLike
 type ScrollDeltaLike = tuple[float, float]
 type PointerButtonLike = PointerButton | int
+
 
 class PointerOverridesDict(TypedDict, total=False):
     origin: OriginLike
@@ -163,7 +171,9 @@ UiValue = Primitive | Point | Size | Rect | JSONLike
 
 # Explicit __all__ for better IDE support (will be populated by stub file)
 __all__ = [
+    'Activatable',
     'AttributeNotFoundError',
+    'Closeable',
     'EvaluatedAttribute',
     'EvaluationError',
     'EvaluationIterator',
@@ -175,6 +185,9 @@ __all__ = [
     'KeyboardProfile',
     'KeyboardProfileDict',
     'KeyboardProfileLike',
+    'Maximizable',
+    'Minimizable',
+    'Movable',
     'Namespace',
     'NodeAttributesIterator',
     'NodeChildrenIterator',
@@ -201,6 +214,9 @@ __all__ = [
     'Rect',
     'RectDict',
     'RectLike',
+    'Resizable',
+    'Responsive',
+    'Restorable',
     'Runtime',
     'RuntimeId',
     'ScrollDeltaLike',
@@ -212,5 +228,4 @@ __all__ = [
     'UiAttribute',
     'UiNode',
     'UiValue',
-    'WindowSurface',
 ]

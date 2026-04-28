@@ -5,7 +5,7 @@
     <node namespace="control" role="Window" name="Operations Console" runtime_id="mock://window/main" bounds="80,80,1040,640" expose_flat="true">
       <attribute namespace="control" name="AutomationId" value="MainWindow" />
       <attribute namespace="native" name="ProcessId" value="4242" />
-      <patterns>org.platynui.patterns.Element,org.platynui.patterns.WindowSurface,org.platynui.patterns.Focusable</patterns>
+      <patterns>org.platynui.patterns.Element,org.platynui.patterns.Activatable,org.platynui.patterns.Focusable</patterns>
       <node namespace="control" role="Panel" name="Workspace" runtime_id="mock://panel/workspace" bounds="100,140,960,520">
         <patterns>org.platynui.patterns.Element,org.platynui.patterns.TextContent</patterns>
         <text>Workspace</text>
@@ -79,7 +79,7 @@
     </node>
     <node namespace="control" role="Window" name="Detail View" runtime_id="mock://window/details" bounds="360,160,720,540" expose_flat="true">
       <attribute namespace="control" name="AutomationId" value="DetailWindow" />
-      <patterns>org.platynui.patterns.Element,org.platynui.patterns.WindowSurface,org.platynui.patterns.Focusable</patterns>
+      <patterns>org.platynui.patterns.Element,org.platynui.patterns.Activatable,org.platynui.patterns.Focusable</patterns>
       <node namespace="control" role="Text" name="Description" runtime_id="mock://text/details" bounds="400,220,640,80">
         <patterns>org.platynui.patterns.Element,org.platynui.patterns.TextContent</patterns>
         <text>Details for the selected element appear here.</text>
@@ -90,7 +90,7 @@
     <patterns>org.platynui.patterns.Application</patterns>
     <node namespace="control" role="Window" name="Settings" runtime_id="mock://window/settings" bounds="120,120,680,520" expose_flat="true">
       <attribute namespace="native" name="AXSubrole" value="AXDialog" />
-      <patterns>org.platynui.patterns.Element,org.platynui.patterns.WindowSurface,org.platynui.patterns.Focusable</patterns>
+      <patterns>org.platynui.patterns.Element,org.platynui.patterns.Activatable,org.platynui.patterns.Focusable</patterns>
       <node namespace="control" role="CheckBox" name="Send reports automatically" runtime_id="mock://checkbox/reports" bounds="180,220,360,28">
         <patterns>org.platynui.patterns.Element,org.platynui.patterns.TextContent,org.platynui.patterns.Focusable</patterns>
         <text>Send reports automatically</text>

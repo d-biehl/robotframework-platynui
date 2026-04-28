@@ -1,6 +1,6 @@
 use super::value::UiValue;
 use crate::platform::PlatformError;
-use crate::types::{Point, Rect, Size};
+use crate::types::{Point, Size};
 use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -240,105 +240,99 @@ impl FocusablePattern for FocusableAction {
     }
 }
 
-/// Configurable window-surface implementation used in tests and default runtime wiring.
-#[must_use]
-pub struct WindowSurfaceActions {
-    activate: ActionHandler,
-    minimize: ActionHandler,
-    maximize: ActionHandler,
-    restore: ActionHandler,
-    close: ActionHandler,
-    move_to: MoveHandler,
-    resize: ResizeHandler,
-    accepts_user_input: InputHandler,
+/// Macro to declare a simple pure-action pattern (closure -> Result<(), PatternError>)
+/// together with its `*Action` builder struct.
+macro_rules! declare_action_pattern {
+    ($trait_name:ident, $action_struct:ident, $method:ident, $pattern_const:ident) => {
+        pub trait $trait_name: UiPattern {
+            fn $method(&self) -> Result<(), PatternError>;
+        }
+
+        #[must_use]
+        pub struct $action_struct {
+            handler: ActionHandler,
+        }
+
+        impl $action_struct {
+            pub fn new<F>(handler: F) -> Self
+            where
+                F: Fn() -> Result<(), PatternError> + Send + Sync + 'static,
+            {
+                Self { handler: arc_action(handler) }
+            }
+
+            pub fn noop() -> Self {
+                Self::new(|| Ok(()))
+            }
+        }
+
+        impl Default for $action_struct {
+            fn default() -> Self {
+                Self::noop()
+            }
+        }
+
+        impl UiPattern for $action_struct {
+            fn pattern_name(&self) -> PatternName {
+                Self::static_pattern_name()
+            }
+
+            fn static_pattern_name() -> PatternName
+            where
+                Self: Sized,
+            {
+                PatternName::from(pattern_names::$pattern_const)
+            }
+
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+        }
+
+        impl $trait_name for $action_struct {
+            fn $method(&self) -> Result<(), PatternError> {
+                (self.handler)()
+            }
+        }
+    };
 }
 
-impl WindowSurfaceActions {
-    pub fn new() -> Self {
-        Self::default()
-    }
+declare_action_pattern!(ActivatablePattern, ActivatableAction, activate, ACTIVATABLE);
+declare_action_pattern!(MinimizablePattern, MinimizableAction, minimize, MINIMIZABLE);
+declare_action_pattern!(MaximizablePattern, MaximizableAction, maximize, MAXIMIZABLE);
+declare_action_pattern!(RestorablePattern, RestorableAction, restore, RESTORABLE);
+declare_action_pattern!(CloseablePattern, CloseableAction, close, CLOSEABLE);
 
-    pub fn with_activate<F>(mut self, handler: F) -> Self
-    where
-        F: Fn() -> Result<(), PatternError> + Send + Sync + 'static,
-    {
-        self.activate = arc_action(handler);
-        self
-    }
+/// Pattern for window movement \u2014 places the surface at a screen point.
+pub trait MovablePattern: UiPattern {
+    fn move_to(&self, position: Point) -> Result<(), PatternError>;
+}
 
-    pub fn with_minimize<F>(mut self, handler: F) -> Self
-    where
-        F: Fn() -> Result<(), PatternError> + Send + Sync + 'static,
-    {
-        self.minimize = arc_action(handler);
-        self
-    }
+#[must_use]
+pub struct MovableAction {
+    handler: MoveHandler,
+}
 
-    pub fn with_maximize<F>(mut self, handler: F) -> Self
-    where
-        F: Fn() -> Result<(), PatternError> + Send + Sync + 'static,
-    {
-        self.maximize = arc_action(handler);
-        self
-    }
-
-    pub fn with_restore<F>(mut self, handler: F) -> Self
-    where
-        F: Fn() -> Result<(), PatternError> + Send + Sync + 'static,
-    {
-        self.restore = arc_action(handler);
-        self
-    }
-
-    pub fn with_close<F>(mut self, handler: F) -> Self
-    where
-        F: Fn() -> Result<(), PatternError> + Send + Sync + 'static,
-    {
-        self.close = arc_action(handler);
-        self
-    }
-
-    pub fn with_move_to<F>(mut self, handler: F) -> Self
+impl MovableAction {
+    pub fn new<F>(handler: F) -> Self
     where
         F: Fn(Point) -> Result<(), PatternError> + Send + Sync + 'static,
     {
-        self.move_to = arc_move(handler);
-        self
+        Self { handler: arc_move(handler) }
     }
 
-    pub fn with_resize<F>(mut self, handler: F) -> Self
-    where
-        F: Fn(Size) -> Result<(), PatternError> + Send + Sync + 'static,
-    {
-        self.resize = arc_resize(handler);
-        self
-    }
-
-    pub fn with_accepts_user_input<F>(mut self, handler: F) -> Self
-    where
-        F: Fn() -> Result<Option<bool>, PatternError> + Send + Sync + 'static,
-    {
-        self.accepts_user_input = arc_input(handler);
-        self
+    pub fn noop() -> Self {
+        Self::new(|_| Ok(()))
     }
 }
 
-impl Default for WindowSurfaceActions {
+impl Default for MovableAction {
     fn default() -> Self {
-        Self {
-            activate: arc_action(|| Ok(())),
-            minimize: arc_action(|| Ok(())),
-            maximize: arc_action(|| Ok(())),
-            restore: arc_action(|| Ok(())),
-            close: arc_action(|| Ok(())),
-            move_to: arc_move(|_| Ok(())),
-            resize: arc_resize(|_| Ok(())),
-            accepts_user_input: arc_input(|| Ok(None)),
-        }
+        Self::noop()
     }
 }
 
-impl UiPattern for WindowSurfaceActions {
+impl UiPattern for MovableAction {
     fn pattern_name(&self) -> PatternName {
         Self::static_pattern_name()
     }
@@ -347,7 +341,7 @@ impl UiPattern for WindowSurfaceActions {
     where
         Self: Sized,
     {
-        PatternName::from(pattern_names::WINDOW_SURFACE)
+        PatternName::from(pattern_names::MOVABLE)
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -355,37 +349,113 @@ impl UiPattern for WindowSurfaceActions {
     }
 }
 
-impl WindowSurfacePattern for WindowSurfaceActions {
-    fn activate(&self) -> Result<(), PatternError> {
-        (self.activate)()
-    }
-
-    fn minimize(&self) -> Result<(), PatternError> {
-        (self.minimize)()
-    }
-
-    fn maximize(&self) -> Result<(), PatternError> {
-        (self.maximize)()
-    }
-
-    fn restore(&self) -> Result<(), PatternError> {
-        (self.restore)()
-    }
-
-    fn close(&self) -> Result<(), PatternError> {
-        (self.close)()
-    }
-
+impl MovablePattern for MovableAction {
     fn move_to(&self, position: Point) -> Result<(), PatternError> {
-        (self.move_to)(position)
+        (self.handler)(position)
+    }
+}
+
+/// Pattern for window resizing \u2014 changes the surface size.
+pub trait ResizablePattern: UiPattern {
+    fn resize(&self, size: Size) -> Result<(), PatternError>;
+}
+
+#[must_use]
+pub struct ResizableAction {
+    handler: ResizeHandler,
+}
+
+impl ResizableAction {
+    pub fn new<F>(handler: F) -> Self
+    where
+        F: Fn(Size) -> Result<(), PatternError> + Send + Sync + 'static,
+    {
+        Self { handler: arc_resize(handler) }
     }
 
+    pub fn noop() -> Self {
+        Self::new(|_| Ok(()))
+    }
+}
+
+impl Default for ResizableAction {
+    fn default() -> Self {
+        Self::noop()
+    }
+}
+
+impl UiPattern for ResizableAction {
+    fn pattern_name(&self) -> PatternName {
+        Self::static_pattern_name()
+    }
+
+    fn static_pattern_name() -> PatternName
+    where
+        Self: Sized,
+    {
+        PatternName::from(pattern_names::RESIZABLE)
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl ResizablePattern for ResizableAction {
     fn resize(&self, size: Size) -> Result<(), PatternError> {
-        (self.resize)(size)
+        (self.handler)(size)
+    }
+}
+
+/// Pattern that polls whether a surface currently accepts user input.
+pub trait ResponsivePattern: UiPattern {
+    fn accepts_user_input(&self) -> Result<Option<bool>, PatternError>;
+}
+
+#[must_use]
+pub struct ResponsiveAction {
+    handler: InputHandler,
+}
+
+impl ResponsiveAction {
+    pub fn new<F>(handler: F) -> Self
+    where
+        F: Fn() -> Result<Option<bool>, PatternError> + Send + Sync + 'static,
+    {
+        Self { handler: arc_input(handler) }
     }
 
+    pub fn unknown() -> Self {
+        Self::new(|| Ok(None))
+    }
+}
+
+impl Default for ResponsiveAction {
+    fn default() -> Self {
+        Self::unknown()
+    }
+}
+
+impl UiPattern for ResponsiveAction {
+    fn pattern_name(&self) -> PatternName {
+        Self::static_pattern_name()
+    }
+
+    fn static_pattern_name() -> PatternName
+    where
+        Self: Sized,
+    {
+        PatternName::from(pattern_names::RESPONSIVE)
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl ResponsivePattern for ResponsiveAction {
     fn accepts_user_input(&self) -> Result<Option<bool>, PatternError> {
-        (self.accepts_user_input)()
+        (self.handler)()
     }
 }
 
@@ -420,25 +490,6 @@ impl From<PlatformError> for PatternError {
 /// Pattern for focus changes – requests focus via the runtime.
 pub trait FocusablePattern: UiPattern {
     fn focus(&self) -> Result<(), PatternError>;
-}
-
-/// Pattern for window control via platform‑specific window APIs.
-pub trait WindowSurfacePattern: UiPattern {
-    fn activate(&self) -> Result<(), PatternError>;
-    fn minimize(&self) -> Result<(), PatternError>;
-    fn maximize(&self) -> Result<(), PatternError>;
-    fn restore(&self) -> Result<(), PatternError>;
-    fn close(&self) -> Result<(), PatternError>;
-
-    fn move_to(&self, position: Point) -> Result<(), PatternError>;
-    fn resize(&self, size: Size) -> Result<(), PatternError>;
-
-    fn accepts_user_input(&self) -> Result<Option<bool>, PatternError>;
-
-    fn move_and_resize(&self, bounds: Rect) -> Result<(), PatternError> {
-        self.move_to(bounds.position())?;
-        self.resize(bounds.size())
-    }
 }
 
 #[cfg(test)]
@@ -575,62 +626,62 @@ mod tests {
     }
 
     #[rstest]
-    fn window_surface_actions_execute_handlers() {
+    fn movable_action_invokes_handler() {
         let moves: Arc<Mutex<Vec<Point>>> = Arc::new(Mutex::new(Vec::new()));
-        let sizes: Arc<Mutex<Vec<Size>>> = Arc::new(Mutex::new(Vec::new()));
+        let action = MovableAction::new({
+            let moves = Arc::clone(&moves);
+            move |point| {
+                moves.lock().unwrap().push(point);
+                Ok(())
+            }
+        });
 
-        let actions = WindowSurfaceActions::new()
-            .with_move_to({
-                let moves = Arc::clone(&moves);
-                move |point| {
-                    moves.lock().unwrap().push(point);
-                    Ok(())
-                }
-            })
-            .with_resize({
-                let sizes = Arc::clone(&sizes);
-                move |size| {
-                    sizes.lock().unwrap().push(size);
-                    Ok(())
-                }
-            });
-
-        actions.move_and_resize(Rect::new(10.0, 20.0, 300.0, 200.0)).expect("default implementation should succeed");
-
+        action.move_to(Point::new(10.0, 20.0)).expect("move should succeed");
         assert_eq!(moves.lock().unwrap().as_slice(), &[Point::new(10.0, 20.0)]);
+    }
+
+    #[rstest]
+    fn resizable_action_invokes_handler() {
+        let sizes: Arc<Mutex<Vec<Size>>> = Arc::new(Mutex::new(Vec::new()));
+        let action = ResizableAction::new({
+            let sizes = Arc::clone(&sizes);
+            move |size| {
+                sizes.lock().unwrap().push(size);
+                Ok(())
+            }
+        });
+
+        action.resize(Size::new(300.0, 200.0)).expect("resize should succeed");
         assert_eq!(sizes.lock().unwrap().as_slice(), &[Size::new(300.0, 200.0)]);
     }
 
     #[rstest]
-    fn window_surface_actions_propagate_error() {
-        let actions = WindowSurfaceActions::new().with_activate(|| Err(PatternError::new("fail")));
-        let err = actions.activate().expect_err("should propagate");
+    fn activatable_action_propagates_error() {
+        let action = ActivatableAction::new(|| Err(PatternError::new("fail")));
+        let err = action.activate().expect_err("should propagate");
         assert_eq!(err.message(), "fail");
     }
 
     #[rstest]
-    fn window_surface_accepts_user_input_reports_value() {
-        let actions = WindowSurfaceActions::new().with_accepts_user_input(|| Ok(Some(true)));
-        assert_eq!(actions.accepts_user_input().unwrap(), Some(true));
+    fn responsive_action_reports_value() {
+        let action = ResponsiveAction::new(|| Ok(Some(true)));
+        assert_eq!(action.accepts_user_input().unwrap(), Some(true));
     }
 
     #[rstest]
-    fn window_surface_accepts_user_input_propagates_error() {
-        let actions = WindowSurfaceActions::new().with_accepts_user_input(|| Err(PatternError::new("io")));
-        let err = actions.accepts_user_input().expect_err("should bubble up");
+    fn responsive_action_propagates_error() {
+        let action = ResponsiveAction::new(|| Err(PatternError::new("io")));
+        let err = action.accepts_user_input().expect_err("should bubble up");
         assert_eq!(err.message(), "io");
     }
 
     #[rstest]
     fn supported_patterns_value_converts_ids() {
-        let patterns =
-            vec![PatternName::from(pattern_names::FOCUSABLE), PatternName::from(pattern_names::WINDOW_SURFACE)];
+        let patterns = vec![PatternName::from(pattern_names::FOCUSABLE), PatternName::from(pattern_names::ACTIVATABLE)];
         let value = supported_patterns_value(&patterns);
         assert_eq!(
             value,
-            UiValue::Array(
-                vec![UiValue::from(pattern_names::FOCUSABLE), UiValue::from(pattern_names::WINDOW_SURFACE),]
-            )
+            UiValue::Array(vec![UiValue::from(pattern_names::FOCUSABLE), UiValue::from(pattern_names::ACTIVATABLE),])
         );
     }
 }

@@ -25,9 +25,7 @@ from typing import Any
 __all__ = ['predicate']
 
 
-def predicate[F: Callable[..., Any]](
-    message: str | None = None, flags: Any = None
-) -> Callable[[F], F]:
+def predicate[F: Callable[..., Any]](message: str | None = None, flags: Any = None) -> Callable[[F], F]:
     """Mark a callable as a predicate for ``ensure_that`` / ``wait_for``.
 
     ``message`` is a failure-message template; ``{0}`` is substituted

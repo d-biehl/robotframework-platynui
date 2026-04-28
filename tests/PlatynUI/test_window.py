@@ -25,13 +25,12 @@ from _ui_helpers import (  # type: ignore[import-not-found]
     CloseableStub,
     ElementStub,
     FocusableStub,
-    HasUserInputStub,
     MaximizableStub,
     MinimizableStub,
     MovableStub,
     ResizableStub,
+    ResponsiveStub,
     RestorableStub,
-    TitledStub,
     make_adapter,
 )
 
@@ -62,16 +61,18 @@ def _fast_settings() -> Iterator[None]:
 
 
 def _window_adapter(extra: dict[type, object] | None = None) -> Adapter:
-    """Build a window adapter parented to a Desktop with `HasUserInput=True`."""
+    """Build a window adapter parented to a Desktop with `Responsive=True`."""
     desktop = make_adapter(role='Desktop')
     pmap: dict[type, object] = {
         patterns.Element: ElementStub(),
-        patterns.HasUserInput: HasUserInputStub(True),
+        patterns.Responsive: ResponsiveStub(True),
     }
     if extra:
         pmap.update(extra)
     return make_adapter(  # type: ignore[no-any-return]
-        role='Window', parent=desktop, pattern_map=pmap,
+        role='Window',
+        parent=desktop,
+        pattern_map=pmap,
     )
 
 
@@ -108,18 +109,13 @@ def test_is_maximized_defaults_false_without_pattern() -> None:
     assert Window(adapter=_window_adapter()).is_maximized is False
 
 
-def test_title_uses_titled_pattern_when_present() -> None:
-    w = Window(adapter=_window_adapter({patterns.Titled: TitledStub('Hello')}))
-    assert w.title == 'Hello'
-
-
-def test_title_falls_back_to_adapter_name_when_titled_missing() -> None:
+def test_title_returns_adapter_name() -> None:
     desktop = make_adapter(role='Desktop')
     adapter = make_adapter(
         role='Window',
         name='Untitled - Notepad',
         parent=desktop,
-        pattern_map={patterns.Element: ElementStub(), patterns.HasUserInput: HasUserInputStub(True)},
+        pattern_map={patterns.Element: ElementStub(), patterns.Responsive: ResponsiveStub(True)},
     )
     assert Window(adapter=adapter).title == 'Untitled - Notepad'
 
@@ -187,10 +183,14 @@ def test_window_can_resize_false_when_pattern_missing() -> None:
 def test_activate_short_circuits_when_already_active() -> None:
     activatable = ActivatableStub()
     focusable = FocusableStub(is_focused=True)
-    w = Window(adapter=_window_adapter({
-        patterns.Activatable: activatable,
-        patterns.Focusable: focusable,
-    }))
+    w = Window(
+        adapter=_window_adapter(
+            {
+                patterns.Activatable: activatable,
+                patterns.Focusable: focusable,
+            }
+        )
+    )
     w.activate()
     assert activatable.activate_calls == 0
 
@@ -208,10 +208,14 @@ def test_activate_calls_activatable_then_waits_for_active_state() -> None:
             self._focusable._focused = True
 
     activatable = FlippingActivatable(focusable)
-    w = Window(adapter=_window_adapter({
-        patterns.Activatable: activatable,
-        patterns.Focusable: focusable,
-    }))
+    w = Window(
+        adapter=_window_adapter(
+            {
+                patterns.Activatable: activatable,
+                patterns.Focusable: focusable,
+            }
+        )
+    )
     w.activate()
     assert activatable.activate_calls == 1
     assert w.is_active is True
@@ -277,10 +281,14 @@ def test_restore_calls_pattern_then_waits_until_restored() -> None:
 
     restorable.restore = _restore_and_clear
 
-    w = Window(adapter=_window_adapter({
-        patterns.Minimizable: minimizable,
-        patterns.Restorable: restorable,
-    }))
+    w = Window(
+        adapter=_window_adapter(
+            {
+                patterns.Minimizable: minimizable,
+                patterns.Restorable: restorable,
+            }
+        )
+    )
     w.restore()
     assert restorable.restore_calls == 1
     assert w.is_minimized is False
