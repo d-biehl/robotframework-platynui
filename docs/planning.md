@@ -12,7 +12,7 @@ This document tracks all open work items, decided-but-not-implemented designs, o
 - **Type naming**: No `Platynui` prefix on Rust types. Use descriptive names within modules (`RuntimeState`, `WindowsDeviceBundle`).
 - **Plan maintenance**: Update this document after each work package — check off completed tasks, add new findings.
 - **Mock stack**: `mock-provider` feature gates mock platform/provider. Standard builds exclude mocks. Productive crates are linked by applications via `cfg(target_os = ...)` + `platynui-link` macros.
-- **Rust toolchain**: `rustc 1.90.0` baseline. Track release notes and adopt new features as appropriate.
+- **Rust toolchain**: MSRV `rustc 1.95.0`. Track release notes and adopt new features as appropriate.
 - **Lints**: `unsafe_code = "deny"`, `unused_must_use = "deny"`, `clippy::pedantic = "warn"`, `clippy::non_std_lazy_statics = "deny"`. Unavoidable `unsafe` (FFI, shared memory) uses `#[allow(unsafe_code)]` + `// SAFETY:` comment at the narrowest scope.
 
 ## 2. Current Status Summary

@@ -694,16 +694,15 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 
 **Projekt-Tooling:**
 
-19ap. ✅ **Justfile** (`justfile`, `docs/development.md`, `CONTRIBUTING.md`): `just` als Projekt-Task-Runner eingeführt. Recipes:
+19ap. ✅ **Justfile** (`justfile`, `CONTRIBUTING.md`): `just` als Projekt-Task-Runner eingeführt. Recipes:
   - **Bootstrap:** `just bootstrap` (uv sync)
   - **Build:** `just build`, `just build-native [features]`, `just build-cli`, `just build-inspector`
   - **Check:** `just fmt`, `just fmt-check`, `just clippy`, `just ruff`, `just mypy`, `just check`
   - **Test:** `just test`, `just test-crate <crate>`, `just test-python`
   - **Desktop-Integration:** `just install-desktop` (`.desktop` + Icons → `$XDG_DATA_HOME`), `just uninstall-desktop`, `just update-icon-cache`
   - **CI:** `just pre-commit` (bootstrap + fmt + build + clippy + test + ruff)
-  - `docs/development.md` dokumentiert alle Recipes mit Installationsanleitung
-  - `CONTRIBUTING.md` verweist auf `just` und `docs/development.md`
-  (~113 Zeilen justfile, ~95 Zeilen docs/development.md)
+  - `CONTRIBUTING.md` dokumentiert alle Recipes mit Installationsanleitung
+  (~113 Zeilen justfile)
 
 **Meilenstein 3c:** ✅ Winit-Fenster zeigt korrekten Titel, Adwaita-CSD, System-Theme und Icon. Alle Binaries nutzen `org.platynui.*` App-IDs. `.desktop`-Dateien für KDE/GNOME-Icon-Auflösung. `just install-desktop` installiert Desktop-Dateien und Icons nach `$XDG_DATA_HOME`. Justfile als zentraler Task-Runner mit Doku.
 
@@ -777,7 +776,7 @@ Essenziell für CI-Pipelines: Compositor startet → App startet → Tests laufe
 3. `$DISPLAY` gesetzt → X11
 4. Keines → `PlatformError`
 
-Hinweis: XWayland auf einer Wayland-Session setzt **beide** Variablen (`$DISPLAY` + `$WAYLAND_DISPLAY`), aber `$XDG_SESSION_TYPE=wayland` — daher hat Schritt 1 Vorrang. Platform-Level Input-Injection nutzt immer das native Session-Protokoll (Wayland→EIS, X11→XTEST). `OnceLock::get_or_try_init` ist bis Rust 1.93 unstable — daher `Mutex<Option<SessionType>>` als Cache.
+Hinweis: XWayland auf einer Wayland-Session setzt **beide** Variablen (`$DISPLAY` + `$WAYLAND_DISPLAY`), aber `$XDG_SESSION_TYPE=wayland` — daher hat Schritt 1 Vorrang. Platform-Level Input-Injection nutzt immer das native Session-Protokoll (Wayland→EIS, X11→XTEST). `OnceLock::get_or_try_init` ist bis Rust 1.95.0 unstable — daher `Mutex<Option<SessionType>>` als Cache.
 
 19e₁. ✅ **Crate anlegen** (`crates/platform-linux/Cargo.toml`): Deps: `platynui-core`, `platynui-platform-linux-x11`, `platynui-platform-linux-wayland`, `inventory`, `tracing`. Alles `#[cfg(target_os = "linux")]`.
 
@@ -946,12 +945,12 @@ crates/platform-linux-wayland/src/
 
     **Vorteil:** Kein blindes Probing von 15+ Capabilities. Der Compositor-Typ (kostengünstig via `SO_PEERCRED` ermittelt) bestimmt direkt, welche Backends instanziiert werden. Jeder Backend-Konstruktor verbindet sich zu seinem Protokoll/D-Bus-Service und liefert `Err` wenn nicht verfügbar — der `.or()`-Fallback wählt dann die nächste Alternative. Die `wl_registry`-Globals werden im Hintergrund beim Wayland-Roundtrip gesammelt und stehen den Wayland-Protokoll-Backends (ext-image-copy-capture, wlr-screencopy, wlr-layer-shell, etc.) direkt zur Verfügung.
     **Compositor-Typ-Erkennung** via `SO_PEERCRED` auf dem Wayland-Socket:
-    
+
     Die zuverlässigste Methode ist, den **Prozess hinter dem Wayland-Socket** zu identifizieren. Da wir bereits eine Wayland-Verbindung haben (sonst gäbe es kein Wayland-Platform-Crate), können wir:
     1. `getsockopt(wayland_fd, SOL_SOCKET, SO_PEERCRED)` → `ucred { pid, uid, gid }` des Compositor-Prozesses
     2. `std::fs::read_link(format!("/proc/{pid}/exe"))` → Binary-Pfad (z.B. `/usr/bin/mutter`, `/usr/bin/sway`)
     3. Binary-Name → `CompositorType` Mapping:
-    
+
     ```rust
     fn detect_compositor(wayland_fd: RawFd) -> CompositorType {
         // 1. Primär: Compositor-Binary über Wayland-Socket identifizieren
@@ -959,7 +958,7 @@ crates/platform-linux-wayland/src/
         let exe = std::fs::read_link(format!("/proc/{peer_pid}/exe"))
             .ok()
             .and_then(|p| p.file_name()?.to_str().map(String::from));
-        
+
         // Binary-Name → CompositorType (lowercase, contains-Matching)
         let lower = name.to_ascii_lowercase();
         if lower.contains("platynui")                    { return PlatynUi; }
@@ -982,7 +981,7 @@ crates/platform-linux-wayland/src/
         Unknown
     }
     ```
-    
+
     **Primär:** `SO_PEERCRED` auf dem Wayland-Socket → PID → `/proc/<pid>/exe` → Binary-Name. 100% zuverlässig, ein Syscall + ein Readlink.
     **Fallback:** `$XDG_CURRENT_DESKTOP` für Fälle in denen `/proc` nicht verfügbar ist (Container, Sandboxes) oder der Binary-Name unbekannt ist (Custom-Builds, Forks). (~250 LoC)
 
@@ -1065,14 +1064,14 @@ crates/platform-linux-wayland/src/
 21b. **Koordinaten-Transformation** (`src/coordinates.rs`): **Kernproblem:** Unter Wayland liefert AT-SPI `GetExtents(SCREEN)` für Wayland-native Apps **keine korrekten globalen Koordinaten**. Der AT-SPI-Provider im Toolkit (z.B. GTK, Qt) kennt die globale Fensterposition nicht, weil Wayland-Clients ihre Position bewusst nicht erfahren. Das bedeutet:
     - `GetExtents(SCREEN)` gibt für Wayland-native Apps nur **fenster-relative** Koordinaten zurück (als wären sie `GetExtents(WINDOW)`)
     - `GetExtents(SCREEN)` für **XWayland-Apps** funktioniert korrekt (X11-Kontext hat globale Positionen)
-    
+
     **Lösung:** Die `WaylandWindowManager`-Implementierung (Step 24) liefert via `bounds(WindowId) → Rect` die Fenster-Position vom Compositor. Dieses Modul kombiniert:
     - **Window-Position** von `WindowManager::bounds()` (via KWin Scripting, GNOME Extension, PlatynUI Control-Socket; später optional: Sway GET_TREE, Hyprland hyprctl)
     - **Element-Offset** von AT-SPI `GetExtents(WINDOW)` (relativ zum Fenster — funktioniert für die meisten Toolkits korrekt, **außer GTK4 mit CSD-Shadows**, siehe Caveat unten)
     → **Absolute Screen-Koordinaten** für `PointerDevice::move_to()`, `ScreenshotProvider::capture()` und `UiNode::bounds()`.
-    
+
     Diese Koordinaten werden auch dem AT-SPI-Provider zur Verfügung gestellt, damit `UiAttribute::Bounds` korrekte Werte enthält.
-    
+
     > **⚠ Caveat: GTK4 CSD-Shadow-Offset in `GetExtents(WINDOW)`**
     >
     > GTK4 hat einen Bug in `gtkatspiutils.c`: Die Funktion `gtk_at_spi_translate_coordinates_from_accessible()` akkumuliert Widget-Bounds entlang der Accessible-Hierarchie, wendet aber **nie** `gtk_window_native_get_surface_transform()` an — den Offset zwischen GDK-Surface-Origin (= Fensterkante inkl. Shadow/CSD) und Widget-Content-Origin. Dadurch sind alle AT-SPI `CoordType::Window`-Koordinaten um den CSD-Shadow-Offset verschoben.
@@ -1097,7 +1096,7 @@ crates/platform-linux-wayland/src/
     > - Dogtail hardcodet `gtk4_offset = [12, 12]` — exakt `RESIZE_HANDLE_SIZE`
     >
     > **Implikation für PlatynUI:** Step 21d beschreibt die Kompensation im `provider-atspi`.
-    
+
     (~100 LoC)
 
 21c. **App-Erkennung Wayland/XWayland** (`src/app_detect.rs`): Liest `/proc/{pid}/environ` der Ziel-App um `GDK_BACKEND=wayland`, `QT_QPA_PLATFORM=wayland`, `MOZ_ENABLE_WAYLAND=1` etc. zu prüfen. Entscheidet ob die App unter Wayland-nativ läuft (Fenster-Offset-Korrektur nötig) oder unter XWayland (AT-SPI `GetExtents(SCREEN)` direkt nutzbar). (~80 LoC)
@@ -1143,7 +1142,7 @@ crates/platform-linux-wayland/src/
     }
     ```
     Backend-Selektion in `create_backends()`: Basierend auf `CompositorType` wird das passende `CompositorBackend` instanziiert. `resolve_window()` extrahiert PID/app_id/Titel aus dem `UiNode` (analog zu X11, wo PID + `_NET_WM_NAME` genutzt wird).
-    
+
     **Registrierung:** Via `register_window_manager!()` Macro — oder, falls der `platform-linux` Mediator die Registrierung übernimmt, als `pub static WAYLAND_WINDOW_MANAGER` exportiert. (~120 LoC)
 
 24a. **wlr-foreign-toplevel** (`src/window_manager/wlr_foreign.rs`): `wlr-foreign-toplevel-management-v1` — Fenster-Liste + Aktionen (Activate + Close + Maximize + Minimize + Fullscreen). **Positionen nicht verfügbar** (Protokoll-Limitation). Auf wlroots-Compositors (Sway, Hyprland, COSMIC etc.) liefert `wlr-foreign-toplevel` zunächst Aktionen ohne Positionen — Compositor-spezifisches IPC für volle Geometrie ist optional und kann später nachgerüstet werden. Hinweis: COSMIC fällt in der `CompositorType`-Erkennung unter `Wlroots` oder `Unknown`. (~180 LoC)
@@ -1365,7 +1364,7 @@ crates/platform-linux-wayland/src/
 - Phase 3a: ✅ ERLEDIGT. Control-Socket JSON via typisierter `serde`-Structs (19f). ~595 Zeilen Code-Duplikation eliminiert (19f₂). Kommentar-Review (19f₃). Focus-Loss Input Release (19f₄). Software-Cursor für SSD-Resize (19f₅). Session-Scripts AT-SPI-Fix (19f₆). Steps 19g–19z komplett: Protokoll-Korrektheit (Screencopy, Output-Management), Unwrap-Eliminierung, Error-Handling, Tracing, Dead Code, Magic Numbers, DRM Multi-Monitor-Positionierung. 1883 Tests grün.
 - Phase 3a+: ✅ ERLEDIGT. Popup-Korrekturen (SSD, Layer-Shell, X11), VNC-Cursor-Rendering, Virtual-Pointer-Mapping, DRM Multi-Monitor-Overhaul, X11-Maximize-Größenwiederherstellung, Output-Resize-Reconfigure, Floating-Fenster-Clamping. ~14.500 LoC, 1883 Tests grün.
 - Phase 3b: ✅ Tier 1 + Tier 2 + Tier 3 komplett (15 Protokolle, 43 Globals). ✅ tearing-control + toplevel-drag Stubs. ✅ Tier 3: toplevel-icon (volle Pixel-Pipeline mit SSD-Titlebar-Rendering), toplevel-tag (In-Memory-Speicherung), ext-foreign-toplevel-list (bereits in Phase 3). ✅ ext-data-control-v1 (standardisierte Clipboard-Kontrolle parallel zu wlr-data-control). ✅ EIS-Test-Client (Step 17b): `platynui-eis-test-client` mit Portal-Support (Mutter/KWin), Restore-Token-Persistenz (`persist_mode=2`), 13 Subcommands (inkl. Touch + Human-readable Keys + Shortcuts + **type-text**), interaktiver REPL-Modus (reedline, 14 Kommandos inkl. type-text), reis-Bug-Workaround (manueller EiEventConverter), ~1.780 LoC. ✅ `platynui-xkb-util` Crate (~596 LoC, 11 Tests): XKB-Reverse-Lookup (`KeymapLookup`: char→keycode+modifiers), `KeyAction` enum (`Simple`/`Compose`), Compose-Table-Support (Dead-Keys für Akzente/Sonderzeichen), `KeyCombination::evdev_keycode()` + `modifier_keycodes()` (deduplizierte Modifier-Logik), Steuerzeichen-Mapping (`'\n'`→Enter, `'\t'`→Tab, BS→Backspace, ESC→Escape, DEL→Delete). ✅ EIS-Server (Step 17, ~370 LoC): Vollständiger EIS-Server mit allen Input-Capabilities (pointer, pointer_absolute, button, scroll, keyboard, touchscreen), XKB-Keymap-Propagation, Regions, Single-Client. ✅ Performance-Optimierung: Press/Release-Gap 20ms→2ms, Settle-Time 50ms→10ms, Modifier-Batching (~10× schneller). Gegen GNOME/Mutter validiert: move-by, click, key, scroll, type-text funktionieren. Erkenntnisse in `docs/eis-libei.md` dokumentiert. 1905 Tests grün.
-- Phase 3c: ✅ ERLEDIGT. Winit-Fenster-Verbesserungen (Titel, Adwaita-CSD, System-Theme via zbus, eingebettetes Icon). Einheitliche `org.platynui.*` App-IDs. `.desktop`-Dateien + `just install-desktop`. Justfile als Task-Runner (~113 Zeilen) + `docs/development.md` (~95 Zeilen).
+- Phase 3c: ✅ ERLEDIGT. Winit-Fenster-Verbesserungen (Titel, Adwaita-CSD, System-Theme via zbus, eingebettetes Icon). Einheitliche `org.platynui.*` App-IDs. `.desktop`-Dateien + `just install-desktop`. Justfile als Task-Runner (~113 Zeilen), dokumentiert in `CONTRIBUTING.md`.
 - Phase 3d: ✅ ERLEDIGT. Vollständige Touchscreen-Unterstützung: `seat.add_touch()`, Backend- + EIS-Touch-Handler mit shared `process_touch_*()` Funktionen, `surface_under_point()` Refactoring, `TouchMoveSurfaceGrab` (inkrementelle Deltas + Dead-Zone-Schutz) + `TouchResizeSurfaceGrab` (12 Resize-Richtungen), deferred SSD-Button-Aktionen mit Slot-Verifikation + Position-Tracking. Koordinaten via `combined_output_geometry()` (nicht Pointer-abhängig). Multi-Slot-Isolation. ~385 LoC über 4 Dateien, 27 Tests grün.
 - Phase 3e: ✅ ERLEDIGT. `crates/platform-linux/` Mediator (~510 LoC, `lib.rs` + `session.rs`) — delegiert an X11 oder Wayland basierend auf `$XDG_SESSION_TYPE`/`$WAYLAND_DISPLAY`/`$DISPLAY`. `Resolved`-Struct mit 7 `&'static dyn Trait`-Referenzen, einmalig in `initialize()` befüllt, gecacht in `Mutex<Option<Resolved>>`. Wayland-Backends vollständig verdrahtet (7 Imports: `WlModule`, `WlPointer`, `WlKeyboard`, `WlDesktop`, `WlScreenshot`, `WlHighlight`, `WlWindowManager`), `SessionType::Wayland` match statt X11-Fallback. `platform-linux-x11` refactored: Selbstregistrierung + `inventory`-Dep entfernt, Module + Structs `pub` exportiert. Alle Consumers (Link, CLI, Inspector, Native, Playground) auf `platform-linux` umgestellt. 1902 Tests grün.
 - Phase 4: 🔄 IN ARBEIT. Phase 4a (Fundament): ✅ `crates/platform-linux-wayland/` erstellt mit Wayland-Client-Connection, Compositor-Typ-Erkennung via `SO_PEERCRED` (`rustix::net::sockopt::socket_peercred` → PID → `/proc/<pid>/exe` → Binary-Name-Matching, Fallback `$XDG_CURRENT_DESKTOP`), `CompositorType`-Enum (PlatynUI/Mutter/KWin/Hyprland/Sway/Wlroots/Unknown), globaler State (`Mutex<Option<WaylandGlobal>>`), Stub-Implementierungen aller 7 Traits. ✅ Mediator-Integration: `platform-linux` delegiert korrekt an Wayland-Backends via `SessionType::Wayland` match (nicht mehr X11-Fallback). ✅ Desktop Info: Echte Monitor-Enumeration via `wl_output` + `xdg_output_manager_v1` mit `registry_queue_init` + Dispatch-Pattern, `OutputInfo` mit `effective_*()` Methoden, Union-Bounds-Berechnung, Background-Event-Loop für Output-Hot-Plug, D-Bus-Enrichment (Mutter `GetCurrentState()`, KWin `primaryOutputName`). Phase 4b (Input-Backends): ✅ KOMPLETT — alle 4 Backends implementiert (~2.160 LoC). ✅ `InputBackend`-Trait + Compositor-basierte Backend-Selektion (`select_backend()` mit Fallback-Ketten per `CompositorType`). ✅ `ControlSocketBackend` (~310 LoC) mit persistenter Unix-Socket-Verbindung, Fire-and-forget für Input-Events, Request-Response für Abfragen. ✅ `EisBackend` (~756 LoC) bereinigt (nur noch Drittanbieter-Compositors), `reis`-basiert mit vollständiger Keyboard/Pointer/Button/Scroll-Unterstützung. ✅ `PortalBackend` (~340 LoC) mit XDG Desktop Portal RemoteDesktop Flow (`CreateSession`→`SelectDevices`→`Start`→`ConnectToEIS`), Token-Persistenz (`persist_mode=2`, single-use `restore_token`), delegiert an `EisBackend::from_stream()`. ✅ `VirtualInputBackend` (~751 LoC) mit `zwlr-virtual-pointer-v1` + `zwp-virtual-keyboard-v1`, separate Wayland-Verbindung, XKB-Keymap-Upload via `memfd_create`, **lokale `xkb::State` für Modifier-Tracking** — nach jedem `key()` wird explizit `vk.modifiers()` mit aktuellen Modifier-Werten aufgerufen (ohne dieses explizite Modifier-Event ignoriert der Compositor Modifier-Kombinationen wie `<Control+A>`), `SendState`-Wrapper für `Send`-Safety. Compositor-seitig: Non-blocking Per-Client Calloop Sources (`ControlClient`), 5 neue Input-IPC-Kommandos (`key_event`, `pointer_move_to`, `pointer_button`, `pointer_scroll`, `get_keymap`), Input-Injection-Funktionen (`inject_key_event`, `inject_pointer_move`, `inject_pointer_button`, `inject_pointer_scroll`). ✅ Dead-Key/Compose-Support: `ControlKeyCode`/`EisKeyCode` als Enum (`Raw(u32)` | `Action(KeyAction)`), vollständige Compose-Sequenzen (Dead-Key + Base-Key) in `send_key_event()`. ✅ Modifier-Logik dedupliziert in `KeyCombination::evdev_keycode()` + `modifier_keycodes()` (xkb-util). ✅ Steuerzeichen-Mapping in `KeymapLookup`: `'\n'` → Enter, `'\t'` → Tab, BS → Backspace, ESC → Escape, DEL → Delete (Post-Processing aliasiert `'\n'` auf Return-Aktion statt Linefeed-Taste). Phase 4d: ✅ erster produktiver WindowManager-Pfad für den PlatynUI-Compositor inkl. stabiler `window_id`, `move_to()`/`resize()` und AT-SPI-Bounds-/WindowSurface-Integration. Phase 4e: ✅ erster produktiver Highlight-Pfad für den PlatynUI-Compositor via Control-Socket + compositorseitigem Render-Overlay. **Noch offen:** Phase 4c (Screenshots) sowie weitere Highlight-/WindowManager-Backends für GNOME, KWin und wlroots-Fremdcompositors.

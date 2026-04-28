@@ -33,7 +33,7 @@ $DISPLAY set?          ──→ X11
     Error: cannot detect session type
 ```
 
-The result is cached in `Mutex<Option<SessionType>>` (`OnceLock::get_or_try_init` is unstable as of Rust 1.93). `XWayland` environments have both `$DISPLAY` and `$WAYLAND_DISPLAY` set, but `$XDG_SESSION_TYPE=wayland` — hence step 1 takes priority.
+The result is cached in `Mutex<Option<SessionType>>` (`OnceLock::get_or_try_init` is unstable as of Rust 1.95.0). `XWayland` environments have both `$DISPLAY` and `$WAYLAND_DISPLAY` set, but `$XDG_SESSION_TYPE=wayland` — hence step 1 takes priority.
 
 ### Delegation Example
 

@@ -507,7 +507,7 @@ For automated testing in CI, a headless-capable compositor is essential.
 
 [cosmic-comp](https://github.com/pop-os/cosmic-comp) is System76's Smithay-based compositor for the [COSMIC desktop environment](https://system76.com/cosmic), shipping with Pop!_OS 24.04 LTS (beta as of Sep 2025).
 
-- **Built with:** [Smithay](https://github.com/Smithay/smithay) (Rust), MSRV 1.90, Rust 2024 edition — same toolchain as PlatynUI.
+- **Built with:** [Smithay](https://github.com/Smithay/smithay) (Rust), Rust 2024 edition. Track with PlatynUI's Rust baseline (MSRV 1.95).
 - **Protocol support:** Exceptionally broad — supports both `wlr-*` and `ext-*` protocol families:
   - Screenshots: `ext-image-copy-capture-v1` + `wlr-screencopy`
   - Toplevel: `ext-foreign-toplevel-list` + `wlr-foreign-toplevel-management` (with activate, close, maximize, minimize, move-to-workspace)

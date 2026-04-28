@@ -23,7 +23,7 @@ documentation = "https://github.com/imbus/robotframework-PlatynUI"
 repository = "https://github.com/imbus/robotframework-PlatynUI"
 authors = ["Daniel Biehl <daniel.biehl@imbus.de>"]
 license = "Apache-2.0"
-rust-version = "1.90"
+rust-version = "1.95"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

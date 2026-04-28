@@ -75,7 +75,7 @@ Generated artefacts such as `target/`, `.venv/`, `.vscode/`, build caches, and w
 
 ## Environment & Tooling Tips
 - Use the Python version pinned in `.python-version`; keep `uv` up to date for reproducible lockfiles.
-- Rust toolchain: MSRV 1.90, current dev toolchain 1.93. Target current stable.
+- Rust toolchain: MSRV 1.95. Target current stable.
 - For Windows builds from Linux, see README section on WSL2 cross-compilation. Mention any OS-specific dependencies in PRs so maintainers can reproduce.
 
 ## Project and Documentation Language
