@@ -10,6 +10,11 @@ windows_rust_target := env("PLATYNUI_WINDOWS_TARGET", "x86_64-pc-windows-gnu")
 windows_rust_packages := "--package platynui-core --package platynui-link --package platynui-xpath --package platynui-runtime --package platynui-platform-windows --package platynui-provider-windows-uia --package platynui-cli --package platynui-inspector --package platynui-cli-bin --package platynui-inspector-bin"
 macos_arm_rust_target := env("PLATYNUI_MACOS_ARM_TARGET", "aarch64-apple-darwin")
 macos_rust_packages := "--package platynui-core --package platynui-link --package platynui-xpath --package platynui-runtime --package platynui-platform-macos --package platynui-provider-macos-ax --package platynui-cli --package platynui-inspector --package platynui-cli-bin --package platynui-inspector-bin"
+pre_push_cross_command := if os() == "linux" {
+    "if [ \"$(git config --bool platynui.pre-push-cross-targets || true)\" != \"true\" ]; then echo \"Skipping optional Linux cross-target checks. Enable with: just hooks-cross-enable\"; else just cross-target-checks; fi"
+} else {
+    "echo \"Skipping optional Linux cross-target checks on " + os() + ".\""
+}
 
 # ─── Default ────────────────────────────────────────────────────────────────────
 
@@ -159,7 +164,7 @@ hooks-cross-disable:
 
 # Run optional Linux cross-target checks from the pre-push hook when enabled
 hooks-pre-push-cross:
-    @if [ "$(uname -s)" != "Linux" ]; then echo "Skipping optional Linux cross-target checks on $(uname -s)."; elif [ "$(git config --bool platynui.pre-push-cross-targets || true)" != "true" ]; then echo "Skipping optional Linux cross-target checks. Enable with: just hooks-cross-enable"; else just cross-target-checks; fi
+    @{{ pre_push_cross_command }}
 
 # Update remote pre-commit hook revisions
 hooks-update:
