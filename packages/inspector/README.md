@@ -1,49 +1,47 @@
-# Robot Framework PlatynUI – Inspector
+# PlatynUI Inspector
 
-A simple GUI inspector for PlatynUI. It shows the UI (accessibility) tree and attributes/patterns of the selected node and can briefly highlight the selected element’s bounds.
+`platynui-inspector` is a small desktop app for looking at the UI tree that PlatynUI sees. Use it to explore windows and controls, inspect attributes, test what is visible to the accessibility backend, and briefly highlight selected elements on screen.
 
 > [!WARNING]
-> Preview release on PyPI. This package is experimental; the UI and behavior may change. Intended for evaluation, not production.
+> Preview package. The UI and behavior may still change.
 
 ## Install
 
-Install the pre‑release package from PyPI. After installation, the `platynui-inspector` command is available on your PATH.
-
-```pwsh
-# In a virtual environment (uv)
-uv pip install --pre robotframework-platynui-inspector
-
-# Or with pip
-pip install --pre robotframework-platynui-inspector
-
-# Or install as a user-level tool (uv tool)
-uv tool install --prerelease allow robotframework-platynui-inspector
+```sh
+uv tool install --prerelease allow platynui-inspector
 ```
 
-Supported platforms: Windows, macOS, and Linux. The bundled binary links platform providers for your OS. Note: As a pre‑release, some installers require an explicit flag (e.g., `--pre`).
+Inside an existing virtual environment:
 
-## Usage
+```sh
+uv pip install --pre platynui-inspector
+# or
+pip install --pre platynui-inspector
+```
 
-```pwsh
+Windows and Linux are the active targets. macOS packages currently contain stub backend support.
+
+## Run
+
+```sh
 platynui-inspector
 ```
 
-- Left: Tree view (lazy-loaded). Expand/collapse nodes; the desktop is the root.
-- Right: Attribute table (namespace, name, value, type) for the selected node.
-- On selection, if available, the node’s `control:Bounds` is highlighted for ~1.5s.
+The left side shows the desktop UI tree. Selecting an element shows its attributes on the right and, when bounds are available, highlights it on screen for a moment.
 
-Tips:
-- Keyboard: Up/Down selects previous/next. Left collapses or jumps to the parent. Right expands or jumps to the first child. Home/End go to first/last; PageUp/PageDown scroll by a page.
-- Context menu: Right‑click a row to Refresh or Refresh subtree.
-- Value types are shown in the third column (Bool, Integer, Number, String, Point, Size, Rect, Array, Object).
+## Notes
 
-## Troubleshooting
+- On Linux/X11, make sure accessibility is enabled and AT-SPI is running.
+- On Windows, UIA is available by default, but elevated applications may require matching privileges.
+- If a highlighted element is missing or empty, the application may not expose usable bounds through the platform backend.
 
-- macOS: Grant Accessibility permissions to your terminal/IDE.
-- Linux (X11): Ensure accessibility is enabled and AT‑SPI is running.
-- Windows: UIA is typically available. If nothing appears, try running with elevated privileges.
-- Highlight not visible: Some elements don’t expose `Bounds` or expose empty rectangles.
+## More information
+
+- [../../docs/](../../docs/) - current working notes for Inspector behavior and platform details.
+- [../../README.md](../../README.md) - project overview.
+
+The files in `docs/` are working documentation for now and will be replaced or consolidated into proper user documentation later.
 
 ## License
 
-Apache‑2.0. See the repository’s LICENSE file.
+Apache-2.0. See the repository's LICENSE file.

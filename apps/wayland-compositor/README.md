@@ -1,63 +1,44 @@
 # PlatynUI Wayland Compositor
 
-A Wayland compositor for automated UI testing with [PlatynUI](../../README.md) on Linux.
-It provides a controlled display server environment where GTK, Qt, and X11 applications
-can run — headless in CI or nested in a window during development.
+The PlatynUI Wayland compositor is a controlled Linux desktop environment for UI automation tests. It can run nested during development or headless in CI, so tests do not depend on whatever desktop session happens to be open on the machine.
 
-## Why?
+Use it when you need repeatable window placement, screen size, keyboard layout, screenshots, and input behavior for Linux automation work.
 
-Automated UI tests on Linux need a display server. Running tests inside an existing
-desktop session is fragile and non-reproducible. This compositor solves that by providing:
+## Run it
 
-- **Reproducible environments** — same resolution, scale, keyboard layout, every time
-- **Headless operation** — no physical display needed, ideal for CI/CD pipelines
-- **XWayland support** — test X11 applications alongside native Wayland apps
-- **Automation protocols** — programmatic input injection, screenshots, window enumeration
-- **Test-control IPC** — query and control the compositor from test code
+From the repository root:
 
-## Features
-
-- Three backends: **headless** (CI), **winit** (nested window), **DRM** (bare metal)
-- Server-side and client-side window decorations
-- XWayland for X11 application support
-- Multi-monitor setups with per-output scaling
-- Configurable keyboard layouts
-- TOML configuration file with theming support
-- Child program lifecycle management (`--exit-with-child`)
-- Readiness notification for CI synchronization (`--ready-fd`, `--print-env`)
-- Test-control IPC via Unix socket (JSON protocol)
-- Automation protocols: virtual keyboard/pointer, screencopy, foreign-toplevel,
-  layer-shell, output management, clipboard control
-
-## Quick Start
-
-```bash
-# Build
-cargo build -p platynui-wayland-compositor
-
-# Run nested in a window (development)
+```sh
 cargo run -p platynui-wayland-compositor -- --backend winit
+```
 
-# Run headless (CI)
-cargo run -p platynui-wayland-compositor -- --backend headless --exit-with-child -- your-test-suite
+For headless CI-style runs:
 
-# With XWayland for X11 apps
+```sh
+cargo run -p platynui-wayland-compositor -- --backend headless --exit-with-child -- your-test-command
+```
+
+For X11 applications through XWayland:
+
+```sh
 cargo run -p platynui-wayland-compositor -- --backend winit --xwayland --print-env
 ```
 
-## CI Usage
+## Notes
 
-```bash
-# Self-contained: compositor starts, runs tests, exits when done
-platynui-wayland-compositor --backend headless --exit-with-child -- python -m pytest tests/
+- `winit` is the easiest backend for local development because it opens a nested window.
+- `headless` is intended for automated test runs.
+- `--print-env` prints environment variables that child applications can use to connect to the compositor.
+- The companion control tool is documented in [../wayland-compositor-ctl/README.md](../wayland-compositor-ctl/README.md).
 
-# Or start in background with readiness notification
-platynui-wayland-compositor --backend headless --print-env --ready-fd 3 3>&1 &
-```
+## More information
 
-## Documentation
+- [docs/](docs/) - current working notes for compositor usage, configuration, and the control protocol.
+- [../../docs/](../../docs/) - current project working notes and planning material.
+- [../../README.md](../../README.md) - project overview.
 
-- [Usage Reference](docs/usage.md) — backends, CLI flags, CI patterns, window management
-- [Configuration](docs/configuration.md) — TOML config file, theming, keyboard layouts, multi-monitor
-- [IPC Protocol](docs/ipc-protocol.md) — test-control socket, JSON commands
-- [Full Project Plan](../../docs/plan-waylandCompositor.md) — roadmap and design decisions
+The files in these `docs/` directories are working documentation for now and will be replaced or consolidated into proper user documentation later.
+
+## License
+
+Apache-2.0. See the repository's LICENSE file.

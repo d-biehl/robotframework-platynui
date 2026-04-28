@@ -1,104 +1,106 @@
 # Robot Framework PlatynUI
 
-Cross-platform UI automation for Robot Framework. Early alpha stage.
+Cross-platform native UI automation for Robot Framework.
 
 > [!WARNING]
-> Preview quality. APIs and behavior may change. Use for evaluation only.
+> Preview quality. Packages, keywords, CLI output, and platform behavior may change before the first stable release.
 
-## Quick install (preview)
+## What is PlatynUI?
 
-Install the pre-release packages from PyPI (explicit flags required):
+PlatynUI is intended to become the Robot Framework automation layer for native desktop applications. It should let test suites inspect real application windows, find controls by stable queries, read UI state, perform user-like actions, and capture diagnostic evidence without binding tests to one operating system or accessibility technology.
+
+Instead of exposing Windows UIA, Linux AT-SPI2, macOS AX, and test doubles as separate worlds, PlatynUI normalizes them into one desktop UI model. Tests and tools query that model with XPath-like selectors and then act through platform capabilities such as focus, window control, pointer input, keyboard input, highlighting, and screenshots.
+
+The project is organized around:
+
+- A Robot Framework-first library surface, with the current low-level `PlatynUI.BareMetal` library and a higher-level `PlatynUI` library still in migration.
+- A shared Rust UI model with `control`, `item`, `app`, and `native` namespaces.
+- An XPath 2.0-inspired query engine tailored to native desktop UI trees.
+- Native providers for Windows UIA and Linux AT-SPI2, planned macOS AX support, and mock providers for deterministic tests.
+- Platform devices for user-like interaction, screenshots, highlights, desktop metadata, and window management.
+- A CLI (`platynui-cli`) and GUI inspector (`platynui-inspector`) for diagnostics, exploration, and query development.
+- Python bindings (`platynui-native`) that connect the Rust runtime to Robot Framework and Python tests.
+
+## Current status
+
+- **Rust core:** active implementation for the UI model, XPath engine, runtime, CLI, platform devices, and providers.
+- **CLI and Inspector:** preview tools are available as binary Python packages and from local source builds.
+- **Robot Framework library:** the high-level `Library    PlatynUI` entry point is still a placeholder while the migration continues. Use `Library    PlatynUI.BareMetal` for the current low-level keyword surface.
+- **Python requirement:** Python 3.12 or newer. The native extension uses PyO3 `abi3-py312`.
+- **Rust requirement:** Rust 1.95 or newer, Rust 2024 edition.
+
+## Install preview tools
+
+Install pre-release tool packages explicitly. The examples below assume `uv` 0.11.7 or newer. For user-level command-line tools, `uv tool` is the most convenient path:
 
 ```sh
-# CLI
-uv pip install --pre robotframework-platynui-cli
-pip install --pre robotframework-platynui-cli
-uv tool install --prerelease allow robotframework-platynui-cli
-
-# Inspector GUI
-uv pip install --pre robotframework-platynui-inspector
-pip install --pre robotframework-platynui-inspector
-uv tool install --prerelease allow robotframework-platynui-inspector
+uv tool install --prerelease allow platynui-cli
+uv tool install --prerelease allow platynui-inspector
 ```
 
-> **Note:** The Robot Framework library package (`robotframework-PlatynUI`) is not yet published on PyPI. For local development, see `CONTRIBUTING.md`.
+Inside an existing virtual environment, install the packages directly:
 
-Try it:
+```sh
+uv pip install --pre platynui-cli platynui-inspector
+# or
+pip install --pre platynui-cli platynui-inspector
+```
+
+The Robot Framework library package (`robotframework-PlatynUI`) is not yet published as the stable end-user package. For local development, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Try the tools:
 
 ```sh
 platynui-cli list-providers
 platynui-cli info --format json
-platynui-cli keyboard list | head -n 20   # show first key names
-platynui-cli keyboard type "Hello <Ctrl+A>\u00A7"   # mixed text + chord + unicode
-platynui-cli snapshot "//control:Window" --pretty              # human-readable tree on console
-platynui-cli snapshot "//control:Window" --format xml --output windows.xml  # export as XML
+platynui-cli query "//control:Window"
+platynui-cli keyboard list | head -n 20
+platynui-cli keyboard type "Hello <Ctrl+A>\\u00A7"
+platynui-cli snapshot "//control:Window" --pretty
+platynui-cli snapshot "//control:Window" --format xml --output windows.xml
 platynui-inspector
 ```
 
-## What is PlatynUI?
-
-PlatynUI is a Robot Framework library and toolset to inspect, query, and control native desktop UIs across Windows, Linux, and macOS. It ships with:
-
-- A CLI for XPath queries, highlighting, screenshots, keyboard/pointer input
-- A GUI inspector to explore the UI tree and attributes
-- Python bindings to integrate with Robot Framework test suites
-
-Why PlatynUI?
-- Consistent, cross-platform API surface
-- Works with native accessibility stacks
-- XPath-like queries to find elements
-
-## Vision and direction
-
-This repository is a ground‑up rewrite of the original project (see https://github.com/imbus/robotframework-PlatynUI), keeping the vision but modernizing the architecture and tooling.
-
-We’re building PlatynUI to be:
-
-- Robot Framework‑first: a clean keyword library with simple Python packaging and installation.
-- Cross‑platform at the core: shared logic in Rust for performance, determinism, and safety; Python exposes the library to Robot Framework.
-- Query‑centric: an XPath 2.0‑inspired language tailored for desktop UIs with a streaming evaluator and predictable document‑order semantics.
-- Uniformly modeled: a single UI model with namespaces (control, item, app, native), typed attributes, and discoverable patterns (e.g., Focusable, WindowSurface, TextContent).
-- Provider‑based: native OS providers (Windows UIA, Linux AT‑SPI, macOS AX) plus fast mock providers for tests. External (out-of-process) providers are on the roadmap.
-- Tooled for productivity: a CLI for diagnostics/automation and a GUI Inspector for exploring the tree and crafting queries.
-- Reliability‑oriented: pointer/keyboard profiles, motion/acceleration and timing controls, highlighting and screenshots for feedback, and typed errors to reduce flakiness.
-- Extensible: hook points for custom providers and functions; as we leave preview, public APIs will stabilize.
-
-Expect differences to the original project’s API and keywords during the preview phase—capabilities converge, but names and behaviors may change as the new core matures.
-
 ## Platform support
 
-| Component | Windows | Linux (X11) | macOS |
-|-----------|---------|-------------|-------|
-| UI tree provider | ✅ UIA | ✅ AT-SPI2 | ❌ stub |
-| Pointer | ✅ SendInput | ✅ XTest | ❌ stub |
-| Keyboard | ✅ SendInput | ❌ planned | ❌ stub |
-| Screenshot | ✅ GDI | ✅ XGetImage | ❌ stub |
-| Highlight | ✅ Layered window | ✅ Override-redirect | ❌ stub |
-| Window management | ✅ Win32 | ⚠️ partial (EWMH) | ❌ stub |
-| Inspector | ✅ | ✅ | ❌ |
+| Component | Windows | Linux X11 | Linux Wayland | macOS | Mock |
+|-----------|---------|-----------|---------------|-------|------|
+| UI tree provider | ✅ UIA | ✅ AT-SPI2 | ✅ AT-SPI2 with Wayland coordinate limits | ❌ AX stub | ✅ |
+| Pointer | ✅ SendInput | ✅ XTest | ⚠️ EIS / portal / virtual-input / test-compositor backends | ❌ stub | ✅ |
+| Keyboard | ✅ SendInput | ✅ XTest | ⚠️ EIS / portal / virtual-input / test-compositor backends | ❌ stub | ✅ |
+| Desktop info | ✅ Win32 | ✅ XRandR/root geometry | ⚠️ `wl_output` plus compositor enrichment | ❌ stub | ✅ |
+| Screenshot | ✅ GDI | ✅ XGetImage | ❌ not implemented yet | ❌ stub | ✅ |
+| Highlight | ✅ layered window | ✅ override-redirect windows | ⚠️ PlatynUI test compositor only | ❌ stub | ✅ |
+| Window management | ✅ Win32 | ⚠️ partial EWMH | ⚠️ PlatynUI test compositor only | ❌ stub | ✅ |
+| Inspector | ✅ | ✅ | ⚠️ experimental through Linux mediator | ❌ | ✅ with mock feature |
 
-Wayland support is deferred; X11/XWayland is used on Linux. See `docs/planning.md` §4.4 for details.
+Linux uses `platynui-platform-linux` as a runtime session mediator. It detects X11 vs Wayland from the environment and delegates to the matching backend. X11 remains the most complete Linux path today. Wayland support is active but experimental; see the working notes under [docs/](docs/) and [apps/wayland-compositor/docs/](apps/wayland-compositor/docs/) for current protocol work.
 
 ## Package docs
 
-- CLI: `packages/cli/README.md`
-- Inspector: `packages/inspector/README.md`
-- Native Python bindings: `packages/native/README.md`
+- [packages/cli/README.md](packages/cli/README.md) - CLI package and command overview.
+- [packages/inspector/README.md](packages/inspector/README.md) - GUI inspector package and usage notes.
+- [packages/native/README.md](packages/native/README.md) - native Python bindings and mock-provider setup.
+- [crates/xpath/README.md](crates/xpath/README.md) - XPath engine notes.
+- [apps/wayland-compositor/README.md](apps/wayland-compositor/README.md) - test compositor overview.
+- [apps/wayland-compositor-ctl/README.md](apps/wayland-compositor-ctl/README.md) - compositor control CLI.
 
 ## Documentation
 
-- Architecture: `docs/architecture.md`
-- Planning & Roadmap: `docs/planning.md`
-- Windows Platform: `docs/platform-windows.md`
-- Linux Platform: `docs/platform-linux.md`
-- Python Bindings: `docs/python-bindings.md`
-- CLI Reference: `docs/cli.md`
-- Inspector: `docs/inspector.md`
-- Logging & Tracing: `.github/instructions/tracing.instructions.md`
+The files under [docs/](docs/) are currently working notes, design sketches, and development references. They will be consolidated into user-facing documentation as the project matures.
+
+Additional working docs live next to some components:
+
+- [apps/wayland-compositor/docs/](apps/wayland-compositor/docs/) - Wayland test compositor usage, configuration, and control protocol notes.
+- [crates/xpath/docs/](crates/xpath/docs/) - XPath engine coverage notes.
 
 ## Contributing
 
-Contributions are welcome. Please see `CONTRIBUTING.md` for guidelines. Development notes and deeper build instructions live in the repository docs and package READMEs.
+Contributions are welcome. Start with these guides:
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) - setup, contribution expectations, `just` task runner workflow, coding standards, testing guidance, PR checklist, and packaging notes.
+
+The short version is: keep changes focused, use Conventional Commits, run the relevant `just` checks, and update docs when behavior changes.
 
 ## License
 
