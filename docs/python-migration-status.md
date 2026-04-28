@@ -7,31 +7,44 @@ in das neue Rust-basierte Projekt verfolgt.
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
 **Stand:** 2026-04-28
-**Aktuelle Revision:** Rev. 39 (Phase 4-rust-split eingeschoben — das
-Rust-Mega-Trait `WindowSurfacePattern` (8 Methoden) wird in 7
-orthogonale Sub-Traits zerlegt: `ActivatablePattern` (TopLevel-only,
-trägt `activate()` + Read `IsActive`), `MinimizablePattern`,
-`MaximizablePattern`, `RestorablePattern`, `CloseablePattern`,
-`MovablePattern`, `ResizablePattern`. Jedes Sub-Trait bekommt ein
-eigenes Attribut-Modul (`attributes::activatable`,
-`attributes::minimizable`, …); `attributes::window_surface`
-verschwindet komplett. Bestehende `SupportsMove`/`SupportsResize`
-werden zu `CanMove`/`CanResize` umbenannt; neue Read-Attribute
-`IsActive`, `CanMinimize`, `CanMaximize`, `CanClose`. Das `HasUserInput`-
-Pattern wird zu `Responsive` umbenannt (Methode `accepts_user_input()`
-bleibt unverändert); das alte `AcceptsUserInput`-Attribut entfällt.
-`Titled` entfällt komplett — `Window.title` liest direkt `control:Name`.
-`Focusable` wird an Windows/TopLevel nicht mehr implementiert
-(Aktiv-Status nur über `IsActive`, Tastatur-Fokus über
-`Focusable.is_focused` an Sub-Elementen). Provider-Migration in
-atspi/windows-uia/mock; `runtime/window.rs` stellt um.
-`core/patterns/defaults.py` (globale Default-Schicht) ist gestrichen —
-role-spezifische Defaults gehören in den Proxy. Diese Phase ist
-Voraussetzung für Phase 4e (Default-Proxy-Schicht inkl. Window-Proxy).
-Designdoc Rev. 37 vollständig (Header, §A.13.1, §5.1, §5a.3, §A.10
-gestrichen, §6.1, Verzeichnisbaum, §A.14.5, §_application_is_ready,
-Standard-Rollen-Tabelle, Phase-2-Plan, Schluss-Summary). Code-
-Migration (Rust + Python) folgt nach Doku-Sweep.)
+**Aktuelle Revision:** Rev. 40 (drei attribut-only Patterns wandern
+vom geplanten `ElementProxy` zum `UiNodeAdapter`: `Element`
+(`Bounds`/`IsVisible`/`IsInView`/`IsEnabled`), `ActivationTarget`
+(`ActivationPoint`/`ActivationArea`/`ActivationHint`) und `Readable`
+(`IsReadOnly`). Native-Wrapper `_NativeElement`/`_NativeActivationTarget`/
+`_NativeReadable` analog zu `_NativeWindowState`. Generische
+`_ATTRIBUTE_ONLY_PATTERNS`-Tabelle ersetzt den WindowState-Spezialfall
+in `supports_pattern`/`supported_patterns`. Mock-Tree um
+`IsReadOnly=true` auf dem Status-Text-Knoten ergänzt. Designdoc §A.13.4
+Native-Wrapper-Tabelle und `ElementProxy`-Mixin-Spalte entsprechend
+aktualisiert. `ApplicationReady` bleibt offen — kein Rust-Trait,
+kein Adapter-Wrapper.)
+
+> **Vorherige Rev. 39:** Phase 4-rust-split eingeschoben — das
+> Rust-Mega-Trait `WindowSurfacePattern` (8 Methoden) wird in 7
+> orthogonale Sub-Traits zerlegt: `ActivatablePattern` (TopLevel-only,
+> trägt `activate()` + Read `IsActive`), `MinimizablePattern`,
+> `MaximizablePattern`, `RestorablePattern`, `CloseablePattern`,
+> `MovablePattern`, `ResizablePattern`. Jedes Sub-Trait bekommt ein
+> eigenes Attribut-Modul (`attributes::activatable`,
+> `attributes::minimizable`, …); `attributes::window_surface`
+> verschwindet komplett. Bestehende `SupportsMove`/`SupportsResize`
+> werden zu `CanMove`/`CanResize` umbenannt; neue Read-Attribute
+> `IsActive`, `CanMinimize`, `CanMaximize`, `CanClose`. Das `HasUserInput`-
+> Pattern wird zu `Responsive` umbenannt (Methode `accepts_user_input()`
+> bleibt unverändert); das alte `AcceptsUserInput`-Attribut entfällt.
+> `Titled` entfällt komplett — `Window.title` liest direkt `control:Name`.
+> `Focusable` wird an Windows/TopLevel nicht mehr implementiert
+> (Aktiv-Status nur über `IsActive`, Tastatur-Fokus über
+> `Focusable.is_focused` an Sub-Elementen). Provider-Migration in
+> atspi/windows-uia/mock; `runtime/window.rs` stellt um.
+> `core/patterns/defaults.py` (globale Default-Schicht) ist gestrichen —
+> role-spezifische Defaults gehören in den Proxy. Diese Phase ist
+> Voraussetzung für Phase 4e (Default-Proxy-Schicht inkl. Window-Proxy).
+> Designdoc Rev. 37 vollständig (Header, §A.13.1, §5.1, §5a.3, §A.10
+> gestrichen, §6.1, Verzeichnisbaum, §A.14.5, §_application_is_ready,
+> Standard-Rollen-Tabelle, Phase-2-Plan, Schluss-Summary). Code-
+> Migration (Rust + Python) folgt nach Doku-Sweep.
 
 > **Vorherige Rev. 36:** Phase 4d abgeschlossen — `Tabs`
 > (TabList/TabItem) und `Menus` (Menu/MenuBar/MenuItem) als

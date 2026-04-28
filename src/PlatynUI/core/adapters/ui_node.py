@@ -24,18 +24,21 @@ import platynui_native as _pn
 
 from ..adapter import Adapter
 from ..patterns.activation import Activatable
+from ..patterns.activation_target import ActivationTarget
 from ..patterns.base import PatternBase
 from ..patterns.closeable import Closeable
+from ..patterns.element import Element
 from ..patterns.focusable import Focusable
 from ..patterns.maximizable import Maximizable
 from ..patterns.minimizable import Minimizable
 from ..patterns.movable import Movable
+from ..patterns.readable import Readable
 from ..patterns.resizable import Resizable
 from ..patterns.responsive import Responsive
 from ..patterns.restorable import Restorable
 from ..patterns.window_state import WindowState
 from ..runtime import runtime
-from ..types import Point, Size
+from ..types import Point, Rect, Size
 
 if TYPE_CHECKING:
     from ..types import FrameworkId, PatternName, RoleName
@@ -129,6 +132,98 @@ class _NativeWindowState(WindowState):
     @override
     def is_modal(self) -> bool:
         return _bool_attr(self._adapter, 'IsModal')
+
+
+class _NativeElement(Element):
+    """`Element` reads ``Bounds``, ``IsVisible``, ``IsInView`` and ``IsEnabled`` attributes."""
+
+    __slots__ = ('_adapter',)
+
+    def __init__(self, adapter: 'UiNodeAdapter') -> None:
+        self._adapter = adapter
+
+    @property
+    @override
+    def bounds(self) -> Rect:
+        node = self._adapter._node
+        try:
+            value = node.attribute('Bounds', 'control')
+        except _pn.AttributeNotFoundError:
+            return Rect(0.0, 0.0, 0.0, 0.0)
+        if not isinstance(value, Rect):  # defensive: native API is dynamically typed
+            return Rect(0.0, 0.0, 0.0, 0.0)
+        return value
+
+    @property
+    @override
+    def is_visible(self) -> bool:
+        return _bool_attr(self._adapter, 'IsVisible')
+
+    @property
+    @override
+    def is_in_view(self) -> bool:
+        return _bool_attr(self._adapter, 'IsInView')
+
+    @property
+    @override
+    def is_enabled(self) -> bool:
+        return _bool_attr(self._adapter, 'IsEnabled')
+
+
+class _NativeActivationTarget(ActivationTarget):
+    """`ActivationTarget` reads ``ActivationPoint``, ``ActivationArea``, ``ActivationHint`` attributes."""
+
+    __slots__ = ('_adapter',)
+
+    def __init__(self, adapter: 'UiNodeAdapter') -> None:
+        self._adapter = adapter
+
+    @property
+    @override
+    def activation_point(self) -> Point:
+        node = self._adapter._node
+        value = node.attribute('ActivationPoint', 'control')
+        if not isinstance(value, Point):  # defensive: native API is dynamically typed
+            raise TypeError(f'ActivationPoint attribute must be a Point, got {type(value).__name__}')
+        return value
+
+    @property
+    @override
+    def activation_area(self) -> Rect | None:
+        node = self._adapter._node
+        try:
+            value = node.attribute('ActivationArea', 'control')
+        except _pn.AttributeNotFoundError:
+            return None
+        if not isinstance(value, Rect):
+            return None
+        return value
+
+    @property
+    @override
+    def activation_hint(self) -> str | None:
+        node = self._adapter._node
+        try:
+            value = node.attribute('ActivationHint', 'control')
+        except _pn.AttributeNotFoundError:
+            return None
+        if value is None or value == '':
+            return None
+        return str(value)
+
+
+class _NativeReadable(Readable):
+    """`Readable` reads the ``IsReadOnly`` attribute."""
+
+    __slots__ = ('_adapter',)
+
+    def __init__(self, adapter: 'UiNodeAdapter') -> None:
+        self._adapter = adapter
+
+    @property
+    @override
+    def is_readonly(self) -> bool:
+        return _bool_attr(self._adapter, 'IsReadOnly')
 
 
 class _NativeMinimizable(Minimizable):
@@ -278,6 +373,28 @@ def _build_window_state(adapter: 'UiNodeAdapter') -> PatternBase | None:
     return _NativeWindowState(adapter)
 
 
+def _build_element(adapter: 'UiNodeAdapter') -> PatternBase | None:
+    # No native pattern object — capability is derived from attribute presence.
+    if not _has_attribute(adapter, 'Bounds'):
+        return None
+    return _NativeElement(adapter)
+
+
+def _build_activation_target(adapter: 'UiNodeAdapter') -> PatternBase | None:
+    # No native pattern object — `ActivationPoint` is mandatory; without
+    # it the pattern cannot satisfy its contract.
+    if not _has_attribute(adapter, 'ActivationPoint'):
+        return None
+    return _NativeActivationTarget(adapter)
+
+
+def _build_readable(adapter: 'UiNodeAdapter') -> PatternBase | None:
+    # No native pattern object — capability is derived from attribute presence.
+    if not _has_attribute(adapter, 'IsReadOnly'):
+        return None
+    return _NativeReadable(adapter)
+
+
 def _build_minimizable(adapter: 'UiNodeAdapter') -> PatternBase | None:
     try:
         native = adapter._node.get_pattern(Minimizable.pattern_name)
@@ -353,6 +470,9 @@ def _has_attribute(adapter: 'UiNodeAdapter', name: str) -> bool:
 
 
 _NATIVE_PATTERN_BUILDERS: dict[str, object] = {
+    Element.pattern_name: _build_element,
+    ActivationTarget.pattern_name: _build_activation_target,
+    Readable.pattern_name: _build_readable,
     Focusable.pattern_name: _build_focusable,
     Activatable.pattern_name: _build_activatable,
     WindowState.pattern_name: _build_window_state,
@@ -367,9 +487,9 @@ _NATIVE_PATTERN_BUILDERS: dict[str, object] = {
 
 
 # Pattern types that map directly to a same-named native pattern for
-# `supported_patterns()` reporting. `WindowState` is intentionally
-# omitted: it has no native pattern — `supports_pattern` derives it
-# from attribute presence.
+# `supported_patterns()` reporting. Attribute-only patterns (no native
+# pattern object) are listed separately in `_ATTRIBUTE_ONLY_PATTERNS`
+# with the sentinel attribute that proves the pattern is available.
 _NATIVE_PATTERN_TYPES: tuple[type[PatternBase], ...] = (
     Focusable,
     Activatable,
@@ -380,6 +500,17 @@ _NATIVE_PATTERN_TYPES: tuple[type[PatternBase], ...] = (
     Movable,
     Resizable,
     Responsive,
+)
+
+
+# Attribute-only patterns: (pattern_type, sentinel_attribute_name).
+# `supports_pattern`/`supported_patterns` treat these specially because
+# the native side does not advertise them via `has_pattern`.
+_ATTRIBUTE_ONLY_PATTERNS: tuple[tuple[type[PatternBase], str], ...] = (
+    (Element, 'Bounds'),
+    (ActivationTarget, 'ActivationPoint'),
+    (Readable, 'IsReadOnly'),
+    (WindowState, 'IsActive'),
 )
 
 
@@ -527,23 +658,25 @@ class UiNodeAdapter(Adapter):
     def supported_patterns(self) -> set[type[PatternBase]]:
         names = self.supported_pattern_names()
         result: set[type[PatternBase]] = {pt for pt in _NATIVE_PATTERN_TYPES if pt.pattern_name in names}
-        if _has_attribute(self, 'IsActive'):
-            result.add(WindowState)
+        for pattern_type, sentinel in _ATTRIBUTE_ONLY_PATTERNS:
+            if _has_attribute(self, sentinel):
+                result.add(pattern_type)
         return result
 
     @override
     def supports_pattern(self, pattern_type: type[PatternBase]) -> bool:
         # A pattern is only truly supported when (a) the native node
-        # advertises it (or, for WindowState, exposes IsActive) AND
-        # (b) we have a Python wrapper for it. Returning True without
-        # (b) would let get_pattern fail later.
+        # advertises it (or, for attribute-only patterns, exposes the
+        # sentinel attribute) AND (b) we have a Python wrapper for it.
+        # Returning True without (b) would let get_pattern fail later.
         name = getattr(pattern_type, 'pattern_name', None)
         if not isinstance(name, str) or not name:
             return False
         if name not in _NATIVE_PATTERN_BUILDERS:
             return False
-        if pattern_type is WindowState:
-            return _has_attribute(self, 'IsActive')
+        for attr_pattern, sentinel in _ATTRIBUTE_ONLY_PATTERNS:
+            if pattern_type is attr_pattern:
+                return _has_attribute(self, sentinel)
         try:
             return self._node.has_pattern(name)
         except _pn.PatternError:

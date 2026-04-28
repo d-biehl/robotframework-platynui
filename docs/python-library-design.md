@@ -7,6 +7,23 @@
 > **Status:** Diskussionsentwurf, **Revision 39**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 40** — **Attribut-only-Patterns vom Proxy zum Adapter.**
+>   `Element`, `ActivationTarget` und `Readable` werden über
+>   Native-Wrapper im `_NATIVE_PATTERN_BUILDERS` des `UiNodeAdapter`
+>   ausgeliefert (analog `_NativeWindowState`, Rev. 38). Sie lesen
+>   ihren State direkt aus Adapter-Attributen (`Bounds`/`IsVisible`/
+>   `IsInView`/`IsEnabled` für `Element`; `ActivationPoint`/
+>   `ActivationArea`/`ActivationHint` für `ActivationTarget`;
+>   `IsReadOnly` für `Readable`). `ElementProxy` verliert damit die
+>   gleichnamigen Mixins — `Element`/`ActivationTarget`/`Readable`
+>   sind ohne Proxy-Beteiligung verfügbar, sobald der Provider die
+>   Attribute liefert. `ApplicationReady` bleibt offen (kein Rust-
+>   Trait, keine Adapter-Implementierung — wird in einem separaten
+>   Schritt geklärt). Begründung: Symmetrie zu `WindowState`,
+>   einheitlicher Lookup-Pfad für attribut-basierte Patterns,
+>   `AdapterMouseProxy.default_click_position` (`devices.py`) findet
+>   `ActivationTarget` jetzt über den regulären
+>   `adapter.get_pattern(...)`-Pfad.
 > - **Rev. 39** — **`WindowState.is_modal` + Rust-Modul-Split.**
 >   `WindowState` bekommt eine dritte Read-only-Property `is_modal`,
 >   die anzeigt, ob das Window modal ist (blockiert Eingaben anderer
@@ -3539,7 +3556,7 @@ nicht in der Proxy-Mixin-Spalte auf.
 
 | Proxy | Rolle(n) | Pattern-Mixins (synthetic) |
 |---|---|---|
-| `ElementProxy` | `Element` | `Element`, `Readable`, `ApplicationReady` (Adapter-Attribut-Reads) |
+| `ElementProxy` | `Element` | (keine — `Element`, `ActivationTarget`, `Readable` kommen vom Adapter; `ApplicationReady` offen) |
 | `ControlProxy` | `Control` | (keine — `Focusable` kommt vom Adapter) |
 | `ButtonProxy` | `Button`, `Link` | `Activatable` (Click auf `ActivationTarget.activation_point`) |
 | `CheckBoxProxy` | `CheckBox`, `RadioButton`, `ToggleButton` | `Toggleable` (Click; State liest `Toggleable.state`-Attribut) |
@@ -3562,6 +3579,9 @@ brauchen daher keinen Proxy-Mixin:
 
 | Pattern | Rust-Trait |
 |---|---|
+| `Element` | (kein Trait — liest Attribute `Bounds`/`IsVisible`/`IsInView`/`IsEnabled`) |
+| `ActivationTarget` | (kein Trait — liest Attribute `ActivationPoint`/`ActivationArea`/`ActivationHint`) |
+| `Readable` | (kein Trait — liest Attribut `IsReadOnly`) |
 | `Focusable` | `FocusablePattern` |
 | `Activatable` | `ActivatablePattern` (TopLevel-Windows only) |
 | `WindowState` | (kein Trait — liest Attribute `IsActive`/`IsTopmost`/`IsModal`) |

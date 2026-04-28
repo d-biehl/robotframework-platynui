@@ -62,6 +62,7 @@
           </node>
         </node>
         <node namespace="control" role="Text" name="Status" runtime_id="mock://text/status" bounds="120,560,520,32">
+          <attribute namespace="control" name="IsReadOnly" value="true" />
           <patterns>org.platynui.patterns.Element,org.platynui.patterns.TextContent</patterns>
           <text>Ready</text>
         </node>

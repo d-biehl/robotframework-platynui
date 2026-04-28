@@ -36,8 +36,9 @@ import pytest
 from PlatynUI.core.adapter import Adapter
 from PlatynUI.core.adapters import UiNodeAdapter
 from PlatynUI.core.exceptions import PatternNotSupportedError
-from PlatynUI.core.patterns import Element, Focusable
+from PlatynUI.core.patterns import ActivationTarget, Element, Focusable, Readable, Toggleable
 from PlatynUI.core.runtime import runtime
+from PlatynUI.core.types import Point, Rect
 
 # ----------------------------------------------------------------------
 # Fixtures
@@ -254,10 +255,10 @@ def test_supports_pattern_true_for_focusable(focusable_listitem_adapter: UiNodeA
 def test_supports_pattern_false_when_native_lacks_python_wrapper(
     main_window_adapter: UiNodeAdapter,
 ) -> None:
-    # Element is advertised on most nodes but has no native Python
-    # wrapper yet; supports_pattern must reflect that to keep
-    # get_pattern's contract intact.
-    assert main_window_adapter.supports_pattern(Element) is False
+    # Toggleable has no native wrapper in `_NATIVE_PATTERN_BUILDERS`,
+    # so supports_pattern must report False to keep get_pattern's
+    # contract intact.
+    assert main_window_adapter.supports_pattern(Toggleable) is False
 
 
 def test_get_pattern_focusable_returns_wrapper(focusable_listitem_adapter: UiNodeAdapter) -> None:
@@ -304,10 +305,100 @@ def test_focusable_is_focused_reads_native_attribute(native_runtime: _pn.Runtime
 
 
 def test_get_pattern_unknown_raises(main_window_adapter: UiNodeAdapter) -> None:
-    # Element has no native wrapper → resolution must fail.
+    # Toggleable has no native wrapper → resolution must fail.
     with pytest.raises(PatternNotSupportedError):
-        main_window_adapter.get_pattern(Element)
+        main_window_adapter.get_pattern(Toggleable)
 
 
 def test_get_pattern_raise_exception_false_returns_none(main_window_adapter: UiNodeAdapter) -> None:
-    assert main_window_adapter.get_pattern(Element, raise_exception=False) is None
+    assert main_window_adapter.get_pattern(Toggleable, raise_exception=False) is None
+
+
+# ----------------------------------------------------------------------
+# Element / ActivationTarget / Readable native wrappers
+# ----------------------------------------------------------------------
+
+
+def test_supports_pattern_true_for_element(ok_button_adapter: UiNodeAdapter) -> None:
+    assert ok_button_adapter.supports_pattern(Element) is True
+
+
+def test_supported_patterns_contains_element(ok_button_adapter: UiNodeAdapter) -> None:
+    assert Element in ok_button_adapter.supported_patterns()
+
+
+def test_get_pattern_element_returns_wrapper(ok_button_adapter: UiNodeAdapter) -> None:
+    pattern = ok_button_adapter.get_pattern(Element)
+    assert isinstance(pattern, Element)
+
+
+def test_element_bounds_reads_native_attribute(ok_button_adapter: UiNodeAdapter) -> None:
+    pattern = ok_button_adapter.get_pattern(Element)
+    # Mock-tree value: bounds="140,620,120,32".
+    assert pattern.bounds == Rect(140.0, 620.0, 120.0, 32.0)
+
+
+def test_element_is_enabled_reads_native_attribute(
+    ok_button_adapter: UiNodeAdapter,
+) -> None:
+    pattern = ok_button_adapter.get_pattern(Element)
+    # Mock provider exposes IsEnabled=true by default for every node.
+    assert pattern.is_enabled is True
+
+
+def test_element_is_in_view_defaults_false_when_attribute_missing(
+    ok_button_adapter: UiNodeAdapter,
+) -> None:
+    pattern = ok_button_adapter.get_pattern(Element)
+    # Mock tree does not expose IsInView — defensive default applies.
+    assert pattern.is_in_view is False
+
+
+def test_supports_pattern_true_for_activation_target(ok_button_adapter: UiNodeAdapter) -> None:
+    assert ok_button_adapter.supports_pattern(ActivationTarget) is True
+
+
+def test_get_pattern_activation_target_returns_wrapper(ok_button_adapter: UiNodeAdapter) -> None:
+    pattern = ok_button_adapter.get_pattern(ActivationTarget)
+    assert isinstance(pattern, ActivationTarget)
+
+
+def test_activation_target_point_reads_native_attribute(ok_button_adapter: UiNodeAdapter) -> None:
+    pattern = ok_button_adapter.get_pattern(ActivationTarget)
+    # Mock-tree value: activation_point="200,636".
+    assert pattern.activation_point == Point(200.0, 636.0)
+
+
+def test_activation_target_area_defaults_none_when_attribute_missing(
+    ok_button_adapter: UiNodeAdapter,
+) -> None:
+    pattern = ok_button_adapter.get_pattern(ActivationTarget)
+    assert pattern.activation_area is None
+
+
+def test_supports_pattern_false_for_activation_target_without_attribute(
+    main_window_adapter: UiNodeAdapter,
+) -> None:
+    # Window has Bounds but no ActivationPoint.
+    assert main_window_adapter.supports_pattern(ActivationTarget) is False
+
+
+def test_supports_pattern_true_for_readable(native_runtime: _pn.Runtime) -> None:
+    node = native_runtime.evaluate_single("//control:Text[@Name='Status']")
+    assert isinstance(node, _pn.UiNode), 'mock tree must expose Status text'
+    adapter = UiNodeAdapter.from_node(node)
+    assert adapter.supports_pattern(Readable) is True
+
+
+def test_readable_is_readonly_reads_native_attribute(native_runtime: _pn.Runtime) -> None:
+    node = native_runtime.evaluate_single("//control:Text[@Name='Status']")
+    assert isinstance(node, _pn.UiNode), 'mock tree must expose Status text'
+    adapter = UiNodeAdapter.from_node(node)
+    pattern = adapter.get_pattern(Readable)
+    assert pattern.is_readonly is True
+
+
+def test_supports_pattern_false_for_readable_without_attribute(
+    ok_button_adapter: UiNodeAdapter,
+) -> None:
+    assert ok_button_adapter.supports_pattern(Readable) is False
