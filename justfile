@@ -6,6 +6,8 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
 # XDG data directory for local installs (only meaningful on Linux)
 xdg_data_home := if os() == "linux" { env("XDG_DATA_HOME", env("HOME") / ".local" / "share") } else { "" }
+python_executable := if os() == "windows" { justfile_directory() / ".venv" / "Scripts" / "python.exe" } else { justfile_directory() / ".venv" / "bin" / "python" }
+export PYO3_PYTHON := env("PYO3_PYTHON", python_executable)
 windows_rust_target := env("PLATYNUI_WINDOWS_TARGET", "x86_64-pc-windows-gnu")
 windows_rust_packages := "--package platynui-core --package platynui-link --package platynui-xpath --package platynui-runtime --package platynui-platform-windows --package platynui-provider-windows-uia --package platynui-cli --package platynui-inspector --package platynui-cli-bin --package platynui-inspector-bin"
 macos_arm_rust_target := env("PLATYNUI_MACOS_ARM_TARGET", "aarch64-apple-darwin")
