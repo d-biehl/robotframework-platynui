@@ -16,6 +16,7 @@ from _ui_helpers import (  # type: ignore[import-not-found]
     ItemContainerStub,
     ResponsiveStub,
     SelectableStub,
+    WindowStateStub,
     make_adapter,
 )
 
@@ -81,6 +82,7 @@ def _tree_adapter(*, extra: dict[type, object] | None = None) -> Adapter:
         pattern_map={
             patterns.Element: ElementStub(),
             patterns.Responsive: ResponsiveStub(True),
+            patterns.WindowState: WindowStateStub(is_active=True),
             patterns.Focusable: FocusableStub(is_focused=True),
         },
     )

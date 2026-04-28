@@ -21,8 +21,14 @@ class Window(Control):
     @property
     def is_active(self) -> bool:
         """Whether the window is currently the active foreground window."""
-        focusable = self.adapter.get_pattern(patterns.Focusable, raise_exception=False)
-        return focusable.is_focused if focusable is not None else False
+        state = self.adapter.get_pattern(patterns.WindowState, raise_exception=False)
+        return state.is_active if state is not None else False
+
+    @property
+    def is_topmost(self) -> bool:
+        """Whether the window is currently in always-on-top mode."""
+        state = self.adapter.get_pattern(patterns.WindowState, raise_exception=False)
+        return state.is_topmost if state is not None else False
 
     @property
     def is_minimized(self) -> bool:

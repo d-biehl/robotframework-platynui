@@ -24,13 +24,13 @@ from _ui_helpers import (  # type: ignore[import-not-found]
     ActivatableStub,
     CloseableStub,
     ElementStub,
-    FocusableStub,
     MaximizableStub,
     MinimizableStub,
     MovableStub,
     ResizableStub,
     ResponsiveStub,
     RestorableStub,
+    WindowStateStub,
     make_adapter,
 )
 
@@ -81,14 +81,24 @@ def _window_adapter(extra: dict[type, object] | None = None) -> Adapter:
 # ---------------------------------------------------------------------------
 
 
-def test_is_active_uses_focusable_when_present() -> None:
-    w = Window(adapter=_window_adapter({patterns.Focusable: FocusableStub(is_focused=True)}))
+def test_is_active_uses_window_state_when_present() -> None:
+    w = Window(adapter=_window_adapter({patterns.WindowState: WindowStateStub(is_active=True)}))
     assert w.is_active is True
 
 
-def test_is_active_defaults_false_without_focusable() -> None:
+def test_is_active_defaults_false_without_window_state() -> None:
     w = Window(adapter=_window_adapter())
     assert w.is_active is False
+
+
+def test_is_topmost_uses_window_state_when_present() -> None:
+    w = Window(adapter=_window_adapter({patterns.WindowState: WindowStateStub(is_topmost=True)}))
+    assert w.is_topmost is True
+
+
+def test_is_topmost_defaults_false_without_window_state() -> None:
+    w = Window(adapter=_window_adapter())
+    assert w.is_topmost is False
 
 
 def test_is_minimized_reflects_pattern_state() -> None:
@@ -182,12 +192,12 @@ def test_window_can_resize_false_when_pattern_missing() -> None:
 
 def test_activate_short_circuits_when_already_active() -> None:
     activatable = ActivatableStub()
-    focusable = FocusableStub(is_focused=True)
+    window_state = WindowStateStub(is_active=True)
     w = Window(
         adapter=_window_adapter(
             {
                 patterns.Activatable: activatable,
-                patterns.Focusable: focusable,
+                patterns.WindowState: window_state,
             }
         )
     )
@@ -196,23 +206,23 @@ def test_activate_short_circuits_when_already_active() -> None:
 
 
 def test_activate_calls_activatable_then_waits_for_active_state() -> None:
-    focusable = FocusableStub(is_focused=False)
+    window_state = WindowStateStub(is_active=False)
 
     class FlippingActivatable(ActivatableStub):
-        def __init__(self, focusable: FocusableStub) -> None:
+        def __init__(self, window_state: WindowStateStub) -> None:
             super().__init__()
-            self._focusable = focusable
+            self._window_state = window_state
 
         def activate(self) -> None:
             super().activate()
-            self._focusable._focused = True
+            self._window_state._active = True
 
-    activatable = FlippingActivatable(focusable)
+    activatable = FlippingActivatable(window_state)
     w = Window(
         adapter=_window_adapter(
             {
                 patterns.Activatable: activatable,
-                patterns.Focusable: focusable,
+                patterns.WindowState: window_state,
             }
         )
     )

@@ -23,9 +23,19 @@ from typing import TYPE_CHECKING, ClassVar, override
 import platynui_native as _pn
 
 from ..adapter import Adapter
+from ..patterns.activation import Activatable
 from ..patterns.base import PatternBase
+from ..patterns.closeable import Closeable
 from ..patterns.focusable import Focusable
+from ..patterns.maximizable import Maximizable
+from ..patterns.minimizable import Minimizable
+from ..patterns.movable import Movable
+from ..patterns.resizable import Resizable
+from ..patterns.responsive import Responsive
+from ..patterns.restorable import Restorable
+from ..patterns.window_state import WindowState
 from ..runtime import runtime
+from ..types import Point, Size
 
 if TYPE_CHECKING:
     from ..types import FrameworkId, PatternName, RoleName
@@ -36,6 +46,15 @@ __all__ = ['UiNodeAdapter']
 # ----------------------------------------------------------------------
 # Native pattern wrappers
 # ----------------------------------------------------------------------
+
+
+def _bool_attr(adapter: 'UiNodeAdapter', name: str, namespace: str = 'control') -> bool:
+    node = adapter._node
+    try:
+        value = node.attribute(name, namespace)
+    except _pn.AttributeNotFoundError:
+        return False
+    return bool(value)
 
 
 class _NativeFocusable(Focusable):
@@ -50,16 +69,178 @@ class _NativeFocusable(Focusable):
     @property
     @override
     def is_focused(self) -> bool:
-        node = self._adapter._node
-        try:
-            value = node.attribute('IsFocused', node.namespace.as_str())
-        except _pn.AttributeNotFoundError:
-            return False
-        return bool(value)
+        return _bool_attr(self._adapter, 'IsFocused')
 
     @override
     def focus(self) -> None:
         self._native.focus()
+
+
+class _NativeActivatable(Activatable):
+    """`Activatable` for top-level windows; delegates to the native activate action."""
+
+    __slots__ = ('_adapter', '_native')
+
+    def __init__(self, adapter: 'UiNodeAdapter', native: _pn.Activatable) -> None:
+        self._adapter = adapter
+        self._native = native
+
+    @override
+    def activate(self) -> None:
+        self._native.activate()
+
+    @property
+    @override
+    def is_activation_enabled(self) -> bool:
+        return _bool_attr(self._adapter, 'IsActivationEnabled')
+
+    @property
+    @override
+    def default_accelerator(self) -> str | None:
+        node = self._adapter._node
+        try:
+            value = node.attribute('DefaultAccelerator', node.namespace.as_str())
+        except _pn.AttributeNotFoundError:
+            return None
+        if value is None or value == '':
+            return None
+        return str(value)
+
+
+class _NativeWindowState(WindowState):
+    """`WindowState` reads the ``IsActive`` and ``IsTopmost`` attributes."""
+
+    __slots__ = ('_adapter',)
+
+    def __init__(self, adapter: 'UiNodeAdapter') -> None:
+        self._adapter = adapter
+
+    @property
+    @override
+    def is_active(self) -> bool:
+        return _bool_attr(self._adapter, 'IsActive')
+
+    @property
+    @override
+    def is_topmost(self) -> bool:
+        return _bool_attr(self._adapter, 'IsTopmost')
+
+
+class _NativeMinimizable(Minimizable):
+    __slots__ = ('_adapter', '_native')
+
+    def __init__(self, adapter: 'UiNodeAdapter', native: _pn.Minimizable) -> None:
+        self._adapter = adapter
+        self._native = native
+
+    @property
+    @override
+    def is_minimized(self) -> bool:
+        return _bool_attr(self._adapter, 'IsMinimized')
+
+    @property
+    @override
+    def can_minimize(self) -> bool:
+        return _bool_attr(self._adapter, 'CanMinimize')
+
+    @override
+    def minimize(self) -> None:
+        self._native.minimize()
+
+
+class _NativeMaximizable(Maximizable):
+    __slots__ = ('_adapter', '_native')
+
+    def __init__(self, adapter: 'UiNodeAdapter', native: _pn.Maximizable) -> None:
+        self._adapter = adapter
+        self._native = native
+
+    @property
+    @override
+    def is_maximized(self) -> bool:
+        return _bool_attr(self._adapter, 'IsMaximized')
+
+    @property
+    @override
+    def can_maximize(self) -> bool:
+        return _bool_attr(self._adapter, 'CanMaximize')
+
+    @override
+    def maximize(self) -> None:
+        self._native.maximize()
+
+
+class _NativeRestorable(Restorable):
+    __slots__ = ('_native',)
+
+    def __init__(self, native: _pn.Restorable) -> None:
+        self._native = native
+
+    @override
+    def restore(self) -> None:
+        self._native.restore()
+
+
+class _NativeCloseable(Closeable):
+    __slots__ = ('_adapter', '_native')
+
+    def __init__(self, adapter: 'UiNodeAdapter', native: _pn.Closeable) -> None:
+        self._adapter = adapter
+        self._native = native
+
+    @property
+    @override
+    def can_close(self) -> bool:
+        return _bool_attr(self._adapter, 'CanClose')
+
+    @override
+    def close(self) -> None:
+        self._native.close()
+
+
+class _NativeMovable(Movable):
+    __slots__ = ('_adapter', '_native')
+
+    def __init__(self, adapter: 'UiNodeAdapter', native: _pn.Movable) -> None:
+        self._adapter = adapter
+        self._native = native
+
+    @property
+    @override
+    def can_move(self) -> bool:
+        return _bool_attr(self._adapter, 'CanMove')
+
+    @override
+    def move_to(self, point: Point) -> None:
+        self._native.move_to(point.x, point.y)
+
+
+class _NativeResizable(Resizable):
+    __slots__ = ('_adapter', '_native')
+
+    def __init__(self, adapter: 'UiNodeAdapter', native: _pn.Resizable) -> None:
+        self._adapter = adapter
+        self._native = native
+
+    @property
+    @override
+    def can_resize(self) -> bool:
+        return _bool_attr(self._adapter, 'CanResize')
+
+    @override
+    def resize(self, size: Size) -> None:
+        self._native.resize(size.width, size.height)
+
+
+class _NativeResponsive(Responsive):
+    __slots__ = ('_native',)
+
+    def __init__(self, native: _pn.Responsive) -> None:
+        self._native = native
+
+    @override
+    def accepts_user_input(self) -> bool | None:
+        return self._native.accepts_user_input()
 
 
 # Reverse-DNS to builder. Each builder takes the adapter and returns a
@@ -75,9 +256,126 @@ def _build_focusable(adapter: 'UiNodeAdapter') -> PatternBase | None:
     return _NativeFocusable(adapter, native)
 
 
+def _build_activatable(adapter: 'UiNodeAdapter') -> PatternBase | None:
+    try:
+        native = adapter._node.get_pattern(Activatable.pattern_name)
+    except _pn.PatternError:
+        return None
+    if not isinstance(native, _pn.Activatable):
+        return None
+    return _NativeActivatable(adapter, native)
+
+
+def _build_window_state(adapter: 'UiNodeAdapter') -> PatternBase | None:
+    # No native pattern object — capability is derived from attribute presence.
+    if not _has_attribute(adapter, 'IsActive'):
+        return None
+    return _NativeWindowState(adapter)
+
+
+def _build_minimizable(adapter: 'UiNodeAdapter') -> PatternBase | None:
+    try:
+        native = adapter._node.get_pattern(Minimizable.pattern_name)
+    except _pn.PatternError:
+        return None
+    if not isinstance(native, _pn.Minimizable):
+        return None
+    return _NativeMinimizable(adapter, native)
+
+
+def _build_maximizable(adapter: 'UiNodeAdapter') -> PatternBase | None:
+    try:
+        native = adapter._node.get_pattern(Maximizable.pattern_name)
+    except _pn.PatternError:
+        return None
+    if not isinstance(native, _pn.Maximizable):
+        return None
+    return _NativeMaximizable(adapter, native)
+
+
+def _build_restorable(adapter: 'UiNodeAdapter') -> PatternBase | None:
+    try:
+        native = adapter._node.get_pattern(Restorable.pattern_name)
+    except _pn.PatternError:
+        return None
+    if not isinstance(native, _pn.Restorable):
+        return None
+    return _NativeRestorable(native)
+
+
+def _build_closeable(adapter: 'UiNodeAdapter') -> PatternBase | None:
+    try:
+        native = adapter._node.get_pattern(Closeable.pattern_name)
+    except _pn.PatternError:
+        return None
+    if not isinstance(native, _pn.Closeable):
+        return None
+    return _NativeCloseable(adapter, native)
+
+
+def _build_movable(adapter: 'UiNodeAdapter') -> PatternBase | None:
+    try:
+        native = adapter._node.get_pattern(Movable.pattern_name)
+    except _pn.PatternError:
+        return None
+    if not isinstance(native, _pn.Movable):
+        return None
+    return _NativeMovable(adapter, native)
+
+
+def _build_resizable(adapter: 'UiNodeAdapter') -> PatternBase | None:
+    try:
+        native = adapter._node.get_pattern(Resizable.pattern_name)
+    except _pn.PatternError:
+        return None
+    if not isinstance(native, _pn.Resizable):
+        return None
+    return _NativeResizable(adapter, native)
+
+
+def _build_responsive(adapter: 'UiNodeAdapter') -> PatternBase | None:
+    try:
+        native = adapter._node.get_pattern(Responsive.pattern_name)
+    except _pn.PatternError:
+        return None
+    if not isinstance(native, _pn.Responsive):
+        return None
+    return _NativeResponsive(native)
+
+
+def _has_attribute(adapter: 'UiNodeAdapter', name: str) -> bool:
+    return any(attr.name == name for attr in adapter._node.attributes())
+
+
 _NATIVE_PATTERN_BUILDERS: dict[str, object] = {
     Focusable.pattern_name: _build_focusable,
+    Activatable.pattern_name: _build_activatable,
+    WindowState.pattern_name: _build_window_state,
+    Minimizable.pattern_name: _build_minimizable,
+    Maximizable.pattern_name: _build_maximizable,
+    Restorable.pattern_name: _build_restorable,
+    Closeable.pattern_name: _build_closeable,
+    Movable.pattern_name: _build_movable,
+    Resizable.pattern_name: _build_resizable,
+    Responsive.pattern_name: _build_responsive,
 }
+
+
+# Pattern types that map directly to a same-named native pattern for
+# `supported_patterns()` reporting. `WindowState` is intentionally
+# omitted: it has no native pattern — `supports_pattern` derives it
+# from attribute presence.
+_NATIVE_PATTERN_TYPES: tuple[type[PatternBase], ...] = (
+    Focusable,
+    Activatable,
+    Minimizable,
+    Maximizable,
+    Restorable,
+    Closeable,
+    Movable,
+    Resizable,
+    Responsive,
+)
 
 
 # ----------------------------------------------------------------------
@@ -223,21 +521,24 @@ class UiNodeAdapter(Adapter):
     @override
     def supported_patterns(self) -> set[type[PatternBase]]:
         names = self.supported_pattern_names()
-        result: set[type[PatternBase]] = set()
-        if Focusable.pattern_name in names:
-            result.add(Focusable)
+        result: set[type[PatternBase]] = {pt for pt in _NATIVE_PATTERN_TYPES if pt.pattern_name in names}
+        if _has_attribute(self, 'IsActive'):
+            result.add(WindowState)
         return result
 
     @override
     def supports_pattern(self, pattern_type: type[PatternBase]) -> bool:
         # A pattern is only truly supported when (a) the native node
-        # advertises it AND (b) we have a Python wrapper for it.
-        # Returning True without (b) would let get_pattern fail later.
+        # advertises it (or, for WindowState, exposes IsActive) AND
+        # (b) we have a Python wrapper for it. Returning True without
+        # (b) would let get_pattern fail later.
         name = getattr(pattern_type, 'pattern_name', None)
         if not isinstance(name, str) or not name:
             return False
         if name not in _NATIVE_PATTERN_BUILDERS:
             return False
+        if pattern_type is WindowState:
+            return _has_attribute(self, 'IsActive')
         try:
             return self._node.has_pattern(name)
         except _pn.PatternError:

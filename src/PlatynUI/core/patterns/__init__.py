@@ -30,6 +30,7 @@ from .restorable import Restorable
 from .selectable import Selectable
 from .text import Clearable, TextContent, TextEditable
 from .toggle import Toggleable, ToggleState
+from .window_state import WindowState
 
 __all__ = [
     'Activatable',
@@ -58,4 +59,5 @@ __all__ = [
     'TextEditable',
     'ToggleState',
     'Toggleable',
+    'WindowState',
 ]

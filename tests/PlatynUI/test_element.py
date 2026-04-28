@@ -26,9 +26,9 @@ import pytest
 from _ui_helpers import (  # type: ignore[import-not-found]
     ActivatableStub,
     ElementStub,
-    FocusableStub,
     ReadableStub,
     ResponsiveStub,
+    WindowStateStub,
     make_adapter,
 )
 
@@ -360,14 +360,14 @@ def test_activate_parent_window_calls_window_activate() -> None:
     """`activate_parent_window` resolves to the Window context's `activate()`."""
     desktop = make_adapter(role='Desktop')
     activ = ActivatableStub()
-    # `is_active` reads `Focusable.is_focused`; start unfocused so
+    # `is_active` reads `WindowState.is_active`; start inactive so
     # `Window.activate()` actually invokes the Activatable pattern,
-    # then flip the focus flag so the post-condition can succeed.
-    focusable = FocusableStub(is_focused=False)
+    # then flip the active flag so the post-condition can succeed.
+    window_state = WindowStateStub(is_active=False)
 
     def fake_activate() -> None:
         activ.activate_calls += 1
-        focusable._focused = True
+        window_state._active = True
 
     activ.activate = fake_activate
 
@@ -377,7 +377,7 @@ def test_activate_parent_window_calls_window_activate() -> None:
         pattern_map={
             patterns.Element: ElementStub(),
             patterns.Activatable: activ,
-            patterns.Focusable: focusable,
+            patterns.WindowState: window_state,
         },
     )
     btn_adapter = make_adapter(

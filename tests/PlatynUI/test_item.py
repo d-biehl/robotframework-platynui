@@ -19,6 +19,7 @@ from _ui_helpers import (  # type: ignore[import-not-found]
     SelectableStub,
     TextContentStub,
     TextEditableStub,
+    WindowStateStub,
     make_adapter,
 )
 
@@ -53,6 +54,7 @@ def _item_adapter(
         pattern_map={
             patterns.Element: ElementStub(),
             patterns.Responsive: ResponsiveStub(True),
+            patterns.WindowState: WindowStateStub(is_active=True),
             patterns.Focusable: FocusableStub(is_focused=True),
         },
     )

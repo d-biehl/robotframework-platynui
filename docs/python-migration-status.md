@@ -7,7 +7,7 @@ in das neue Rust-basierte Projekt verfolgt.
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
 **Stand:** 2026-04-28
-**Aktuelle Revision:** Rev. 37 (Phase 4-rust-split eingeschoben — das
+**Aktuelle Revision:** Rev. 38 (Phase 4-rust-split eingeschoben — das
 Rust-Mega-Trait `WindowSurfacePattern` (8 Methoden) wird in 7
 orthogonale Sub-Traits zerlegt: `ActivatablePattern` (TopLevel-only,
 trägt `activate()` + Read `IsActive`), `MinimizablePattern`,
@@ -684,35 +684,49 @@ entfällt) und entfernt `Focusable` an Window-/TopLevel-Elementen.
 - [x] Phase-2-Plan-Punkt 10 (Strikethrough für `defaults.py`).
 - [x] Schluss-Summary auf Sub-Patterns.
 
-**Rust-Migration (PENDING):**
+**Rust-Migration (DONE):**
 
-- [ ] `crates/core/src/ui/pattern.rs`: `WindowSurfacePattern`-Trait
-      und `WindowSurfaceActions`-Builder durch 7 Sub-Trait-Definitionen
-      ersetzen (`ActivatablePattern`, `MinimizablePattern`,
+- [x] `crates/core/src/ui/pattern.rs`: `WindowSurfacePattern`-Trait
+      und `WindowSurfaceActions`-Builder durch 8 Sub-Trait-Definitionen
+      ersetzt (`ActivatablePattern`, `MinimizablePattern`,
       `MaximizablePattern`, `RestorablePattern`, `CloseablePattern`,
       `MovablePattern`, `ResizablePattern`, `ResponsivePattern` —
       letzteres trägt `accepts_user_input() -> Result<Option<bool>>`
-      als Methode); pro Sub-Pattern ein eigener Per-Pattern-Builder
-      analog zu `WindowSurfaceActions`.
-- [ ] `crates/core/src/ui/attributes.rs`: Modul `window_surface`
-      auflösen; pro Sub-Pattern ein eigenes Modul (`activatable` mit
-      `IS_ACTIVE`, `minimizable` mit `IS_MINIMIZED`/`CAN_MINIMIZE`,
-      `maximizable` mit `IS_MAXIMIZED`/`CAN_MAXIMIZE`, `closeable`
-      mit `CAN_CLOSE`, `movable` mit `CAN_MOVE`, `resizable` mit
-      `CAN_RESIZE`); `IsTopmost` braucht eine Heimat (eigenes
-      `attributes::activatable`-Modul oder späteres `TopmostPattern`).
-      `AcceptsUserInput`-Attribut entfällt komplett.
-- [ ] `crates/core/src/ui/identifiers.rs`: 7 neue Pattern-Name-
-      Konstanten ergänzen, `WINDOW_SURFACE` entfernen.
-- [ ] `crates/core/src/ui/mod.rs`: Re-Exports umstellen.
-- [ ] Provider-Migration: `provider-atspi/src/node.rs`,
-      `provider-windows-uia/src/node.rs`,
-      `provider-mock/src/{tests.rs,window.rs}`.
-- [ ] `crates/runtime/src/runtime/window.rs`: `pattern::<>()`-
-      Aufrufe auf die einzelnen Sub-Traits umstellen.
-- [ ] PyO3 Bindings in `packages/native/src/runtime.rs` erweitern
-      (Per-Pattern-Wrapper analog `PyWindowSurface`).
-- [ ] cargo nextest grün, cargo clippy strict grün.
+      als Methode); `declare_action_pattern!`-Makro für die fünf
+      Pure-Action-Traits, `MovableAction`/`ResizableAction`/
+      `ResponsiveAction` mit typisierten Payloads.
+- [x] `crates/core/src/ui/attributes.rs`: aggressiv aufgeräumt auf
+      12 aktiv genutzte Submodule (`activatable`, `minimizable`,
+      `maximizable`, `closeable`, `movable`, `resizable`, `focusable`,
+      `activation_target`, `application`, `common`, `desktop`,
+      `element`); 16 ungenutzte Submodule (text/toggle/etc.) gelöscht.
+      `IsTopmost` lebt unter `attributes::activatable`;
+      `AcceptsUserInput`-Attribut ersatzlos entfernt.
+- [x] `crates/core/src/ui/identifiers.rs`: 9 neue Pattern-Name-
+      Konstanten ergänzt; `WINDOW_SURFACE` entfernt.
+- [x] `crates/core/src/ui/mod.rs`: Re-Exports umgestellt.
+- [x] Provider-Migration: `provider-atspi/src/node.rs` (Resolver-
+      Struct + `make_window_pattern`-Factory),
+      `provider-windows-uia/src/node.rs` (`pattern_by_name`-Dispatch
+      mit `ElemSend`; `CanMove`/`CanResize` statt
+      `SupportsMove`/`SupportsResize`),
+      `provider-mock/src/{tests.rs,window.rs,tree.rs,input.rs}` +
+      `assets/mock_tree.xml` (ACTIVATABLE als kanonischer Top-Level-
+      Marker).
+- [x] `crates/runtime/src/runtime/window.rs`: `pattern::<>()`-
+      Aufrufe auf die einzelnen Sub-Traits umgestellt; `move_to` +
+      `resize` werden inline komponiert (kein `move_and_resize` mehr).
+- [x] `crates/cli/src/commands/window.rs`: probt ActivatableAction
+      als Marker, dann jedes Sub-Pattern einzeln.
+- [x] `crates/platform-linux-wayland/src/window_manager/platynui_ipc.rs`:
+      `WINDOW_SURFACE` → `ACTIVATABLE`-Marker.
+- [x] PyO3 Bindings in `packages/native/src/runtime.rs`: 8 PyKlassen
+      (`PyActivatable`, `PyMinimizable`, `PyMaximizable`, `PyRestorable`,
+      `PyCloseable`, `PyMovable`, `PyResizable`, `PyResponsive`).
+- [x] BareMetal-Python (`src/PlatynUI/BareMetal/__init__.py`): 13
+      Keywords nutzen die Sub-Patterns; `move_and_resize_window`
+      komponiert `Movable.move_to` + `Resizable.resize` inline.
+- [x] cargo nextest grün (1981/1981), cargo clippy strict grün.
 
 **Python-Migration (DONE):**
 
@@ -743,8 +757,16 @@ UI-Klassen **und nach Phase 4-rust-split** gebaut, damit der
 Window-Proxy die granularen Sub-Traits aus Rev. 37
 (`Activatable`/`Minimizable`/…/`Responsive`) konsumieren kann.
 
-- [ ] Designdoc-Update: §A.x oder Ergänzung in §A.13 zur Default-
-      Proxy-Hierarchie und ihrem Fallback-Vertrag.
+- [x] Designdoc-Update: §A.13.4 ergänzt (Default-Proxy-Hierarchie,
+      Pass-Through vs. Synthetic, Strategie-Tabelle pro Proxy).
+- [x] **Native-Wrapper-Schicht im `UiNodeAdapter`** (Rev. 38):
+      9 Native-Wrapper-Klassen (`_NativeActivatable`,
+      `_NativeWindowState`, `_NativeMinimizable`, `_NativeMaximizable`,
+      `_NativeRestorable`, `_NativeCloseable`, `_NativeMovable`,
+      `_NativeResizable`, `_NativeResponsive`) plus
+      `_NATIVE_PATTERN_BUILDERS`/`_NATIVE_PATTERN_TYPES`-Registries.
+      Neues `WindowState`-Pattern-ABC; `Window.is_active`/
+      `is_topmost` lesen über `WindowState`.
 - [ ] `ui/proxies/__init__.py` mit Side-Effect-Imports.
 - [ ] `ui/proxies/base.py`: `ElementProxy(AdapterProxy)`,
       `ControlProxy(ElementProxy)` als gemeinsame Aufhänger.

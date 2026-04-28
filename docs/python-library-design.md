@@ -4,9 +4,26 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 37**.
+> **Status:** Diskussionsentwurf, **Revision 38**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 38** — **Default-Proxy-Schicht ohne `WindowProxy`
+>   (§A.13.4) + neues `WindowState`-Pattern.** Die Window-Sub-Patterns
+>   (`Activatable`, `Minimizable`, `Maximizable`, `Restorable`,
+>   `Closeable`, `Movable`, `Resizable`, `Responsive`) plus
+>   `Focusable` werden ausschließlich vom `UiNodeAdapter` über
+>   Native-Wrapper in `_NATIVE_PATTERN_BUILDERS` exposed (analog
+>   `_NativeFocusable`). Der ursprünglich geplante `WindowProxy`
+>   (Pure Pass-Through mit Pattern-Mixins) entfällt — er hätte das
+>   Native-Wrapping ausserhalb des Adapter-Moduls dupliziert. Neu:
+>   **`WindowState`-Pattern** (`is_active`, `is_topmost`) trennt die
+>   Read-only-Window-Statusbits von der `Activatable`-Aktion;
+>   `Window.is_active` greift künftig auf `WindowState` statt auf den
+>   `Focusable.is_focused`-Altlast-Workaround zu. Konsequenz für die
+>   Default-Proxy-Hierarchie: `WindowProxy` und `FrameProxy` werden
+>   nicht angelegt; `Window`/`Dialog`/`Frame` greifen auf
+>   `ControlProxy` (Element-/Readable-Reads) plus die
+>   Adapter-Native-Wrapper zurück.
 > - **Rev. 37** — **WindowSurface-Trait-Splittung + `Responsive`
 >   ersetzt `HasUserInput` (§A.13).** Das Rust-Mega-Trait
 >   `WindowSurfacePattern` (8 Methoden) wird in 7 orthogonale
@@ -3258,7 +3275,8 @@ zwischen Patterns ist kein Selbstzweck.
 
 | Pattern | Methoden / Properties | Implementiert wo? |
 |---|---|---|
-| `Activatable` | `activate()` (+ Window: `is_active`) | TopLevel-Window: Rust `ActivatablePattern` (Window-Manager-Foreground); Buttons/MenuItems: Python-Proxy (Click) |
+| `Activatable` | `activate()`, `is_activation_enabled`, `default_accelerator` | TopLevel-Window: Rust `ActivatablePattern` (Window-Manager-Foreground); Buttons/MenuItems: Python-Proxy (Click) |
+| `WindowState` | `is_active`, `is_topmost` | TopLevel-Window: Adapter-Attribut-Reads (`IsActive`, `IsTopmost`) |
 | `Focusable` | `focus()`; Adapter-Attr `IsFocused` | Sub-Elemente (Edits, Buttons, ListItems). **Nicht** an Windows. |
 | `Minimizable` | `is_minimized`, `can_minimize`, `minimize()` | TopLevel-Window: Rust `MinimizablePattern` |
 | `Maximizable` | `is_maximized`, `can_maximize`, `maximize()` | TopLevel-Window: Rust `MaximizablePattern` |
@@ -3278,8 +3296,11 @@ zwischen Patterns ist kein Selbstzweck.
 - **TopLevel-Windows** → Rust `ActivatablePattern` ruft die
   plattformspezifische Window-Manager-Foreground-API (UIA
   `WindowPattern.SetWindowFocus`, X11 `_NET_ACTIVE_WINDOW`,
-  AT-SPI Action). Trägt zusätzlich das Read-Attribut `IsActive`
-  (welches Window ist gerade Foreground).
+  AT-SPI Action). Der zugehörige Lese-State (welches Window ist
+  Foreground, welches ist Always-on-Top) lebt in einem separaten
+  Pattern `WindowState` (`is_active`, `is_topmost`); das hält
+  `Activatable` als reine Aktion sauber und entkoppelt es von
+  Window-spezifischen Statusbits.
 
 Das Robot-Keyword `Activate` erreicht damit beide Welten ohne
 Sonderfall — die Auflösung passiert pro Element-Rolle im Proxy.
@@ -3287,16 +3308,15 @@ Sonderfall — die Auflösung passiert pro Element-Rolle im Proxy.
 **`is_focused` vs. `is_active` — getrennte Konzepte.** Im System
 gibt es genau **ein** fokussiertes Element (Tastatur-Fokus,
 `Focusable.is_focused`) und genau **ein** aktives TopLevel-Window
-pro Display (`Activatable.is_active`). Beides ist orthogonal: ein
+pro Display (`WindowState.is_active`). Beides ist orthogonal: ein
 inaktives Window kann ein "zuletzt fokussiertes" Element behalten;
 ein aktives Window braucht nicht zwingend ein fokussiertes
 Sub-Element. **`Focusable` wird daher an Windows / TopLevel-
 Elementen gar nicht implementiert** — Provider liefern dort
-ausschließlich `ActivatablePattern.IsActive`. Wer wissen will, ob
-ein Window vorne ist, fragt `Activatable.is_active`; wer wissen
-will, welches Element gerade Tastatureingaben empfängt, sucht
-unterhalb dieses Windows nach dem `Focusable`-Element mit
-`IsFocused = True`.
+ausschließlich `WindowState`. Wer wissen will, ob ein Window vorne
+ist, fragt `WindowState.is_active`; wer wissen will, welches Element
+gerade Tastatureingaben empfängt, sucht unterhalb dieses Windows
+nach dem `Focusable`-Element mit `IsFocused = True`.
 
 **`Responsive.accepts_user_input()` ist nicht `is_active`.**
 `is_active` sagt "dieses Window ist Foreground". `accepts_user_input()`
@@ -3430,6 +3450,138 @@ __all__ = [
 `pattern_name`-Identifier folgen dem Reverse-DNS-Schema aus §5:
 `org.platynui.patterns.Minimizable`, `org.platynui.patterns.Closeable`,
 `org.platynui.patterns.Responsive` usw.
+
+#### A.13.4 Default-Proxy-Schicht (`ui/proxies/*.py`)
+
+Die Default-Proxies sind die ausgelieferte generische Fallback-Stufe
+des `@pattern_proxy_for`-Matches (§4, §5a). Sie liefern die Pattern-
+Implementierungen für die Standard-Rollen aus §5a.2 und werden vom
+`PatternProxyFactory` gewählt, sobald keine spezifischere User-
+Registrierung passt. Vorbild ist `ui/proxies/standardproxies.py` aus
+dem Altprojekt (~400 LOC); die Migration übernimmt dessen Hierarchie
+und passt sie an die neuen Pattern-Namen sowie an die Rust-Sub-Trait-
+Splittung (Rev. 37) an.
+
+**Zwei Quellen für Pattern-Implementierungen.** Pro Pattern liegt
+fest, ob die Implementierung aus dem Rust-Adapter (Native-Wrapper im
+`UiNodeAdapter`) oder aus dem Default-Proxy (Synthetic) kommt:
+
+- **Native-Wrapper im `UiNodeAdapter`** (siehe §A.4a,
+  `_NATIVE_PATTERN_BUILDERS`) — wrappt das vom Provider gemeldete
+  Rust-Sub-Trait (z. B. `Activatable`, `Minimizable`) und exposed es
+  als Python-Pattern. Genutzt für Capabilities, die nur das
+  Betriebssystem / der Window-Manager korrekt ausführen kann
+  (Fenster aktivieren, minimieren, schließen, positionieren; Fokus
+  setzen). Diese Patterns brauchen **keinen Default-Proxy** — der
+  Adapter liefert sie direkt, `adapter.get_pattern(Activatable)` raised
+  nur, wenn der Provider das Sub-Trait nicht implementiert.
+- **Synthetic im Default-Proxy** — der Proxy baut die Capability aus
+  Maus- und Tastatureingaben gegen
+  `ActivationTarget.activation_point` und der Adapter-eigenen
+  `Focusable`-Implementierung zusammen. Genutzt für alle
+  Widget-Aktionen, die ein Endanwender ebenfalls per Maus/Tastatur
+  erledigen würde (Button klicken, Edit-Feld füllen, Item selektieren,
+  Menü öffnen).
+
+Das spiegelt das Architektur-Prinzip "Rust nur für native Aktionen,
+alles Maus-/Tastatur-Getriebene bleibt Python" (siehe §6). Die
+Window-Sub-Patterns aus Rev. 37 sind damit ausschließlich
+Adapter-Sache; ein `WindowProxy` existiert nicht.
+
+**Klassenhierarchie.** Jede Klasse ist mit `@pattern_proxy_for(role=…)`
+registriert (auch die Basisklassen `ElementProxy` / `ControlProxy`
+analog Altprojekt) und stellt damit die generische Fallback-Stufe für
+ihre Rolle. Konkrete Rollen-Proxies erben Pattern-Mixins ihrer Eltern
+und ergänzen weitere.
+
+```
+AdapterProxy (core/adapter_proxy.py)
+└── ElementProxy            (ui/proxies/base.py)         role="Element"
+    └── ControlProxy        (ui/proxies/base.py)         role="Control"
+        ├── ButtonProxy     (ui/proxies/standard.py)     role="Button"
+        ├── CheckBoxProxy   (ui/proxies/standard.py)     role="CheckBox"
+        ├── MenuItemProxy   (ui/proxies/standard.py)     role="MenuItem"
+        ├── EditProxy       (ui/proxies/text.py)         role="Edit"
+        │   └── TextProxy                                 role="Text"
+        ├── ComboBoxProxy   (ui/proxies/text.py)         role="ComboBox"
+        └── ItemProxy       (ui/proxies/list_tree.py)    role="Item"
+            ├── ListItemProxy                             role="ListItem"
+            ├── TreeItemProxy                             role="TreeItem"
+            ├── TabItemProxy                              role="TabItem"
+            └── CellProxy                                 role="Cell"
+```
+
+`ElementProxy` exposed `Element`, `Readable`, `ApplicationReady`;
+`ControlProxy` ist Marker ohne weitere Mixins (`Focusable` kommt
+direkt vom Adapter, ebenso die Window-Sub-Patterns für
+`Window`/`Frame`/`Dialog` — siehe Native-Wrapper unten). Beide sind
+selbst registriert, damit auch unbekannte Rollen, die als `Element`
+oder `Control` gemeldet werden, automatisch die Basis-Patterns
+bekommen. `Window`/`Dialog`/`Frame` brauchen keinen eigenen Proxy:
+`ControlProxy` greift, die Window-Patterns liefert der Adapter.
+
+**Strategie pro Default-Proxy.** Mixins sind ausschließlich
+synthetic; native Patterns kommen über den Adapter und tauchen daher
+nicht in der Proxy-Mixin-Spalte auf.
+
+| Proxy | Rolle(n) | Pattern-Mixins (synthetic) |
+|---|---|---|
+| `ElementProxy` | `Element` | `Element`, `Readable`, `ApplicationReady` (Adapter-Attribut-Reads) |
+| `ControlProxy` | `Control` | (keine — `Focusable` kommt vom Adapter) |
+| `ButtonProxy` | `Button`, `Link` | `Activatable` (Click auf `ActivationTarget.activation_point`) |
+| `CheckBoxProxy` | `CheckBox`, `RadioButton`, `ToggleButton` | `Toggleable` (Click; State liest `Toggleable.state`-Attribut) |
+| `MenuItemProxy` | `Menu`, `MenuBar`, `MenuItem` | `Activatable`, `Expandable` (Click + ggf. Keyboard-Navigation) |
+| `EditProxy` / `TextProxy` | `Edit`, `Text`, `PasswordBox` | `TextContent`, `TextEditable`, `Clearable` (focus → select-all → type / delete) |
+| `ComboBoxProxy` | `ComboBox` | `Expandable`, `Selectable`, `TextContent`, `TextEditable` (Click auf Dropdown-Pfeil + Item-Click) |
+| `ItemProxy` | `Item` | `Selectable`, `HasEditor`, `TextEditable`, `Clearable`, `Activatable` (Click, Keyboard für Editor) |
+| `ListItemProxy` | `ListItem` | (erbt von `ItemProxy`) |
+| `TreeItemProxy` | `TreeItem` | + `Expandable` (Click expand/collapse) |
+| `TabItemProxy` | `TabItem` | (erbt von `ItemProxy`) |
+| `CellProxy` | `Cell` | (erbt von `ItemProxy`) |
+
+Read-only Patterns (`Element`, `Readable`, `TextContent`,
+`Toggleable.state`, `Selectable.is_selected`, `Expandable.is_expanded`)
+lesen ihren State direkt aus Adapter-Attributen.
+
+**Native-Wrapper im `UiNodeAdapter`.** Folgende Patterns werden vom
+Adapter selbst geliefert (`_NATIVE_PATTERN_BUILDERS`, §A.4a) und
+brauchen daher keinen Proxy-Mixin:
+
+| Pattern | Rust-Trait |
+|---|---|
+| `Focusable` | `FocusablePattern` |
+| `Activatable` | `ActivatablePattern` (TopLevel-Windows only) |
+| `WindowState` | (kein Trait — liest Attribute `IsActive`/`IsTopmost`) |
+| `Minimizable` | `MinimizablePattern` |
+| `Maximizable` | `MaximizablePattern` |
+| `Restorable` | `RestorablePattern` |
+| `Closeable` | `CloseablePattern` |
+| `Movable` | `MovablePattern` |
+| `Resizable` | `ResizablePattern` |
+| `Responsive` | `ResponsivePattern` |
+
+Liefert ein Provider keines der Window-Patterns für ein gegebenes
+Element, ist die Capability dort nicht verfügbar; `get_pattern` raised
+wie für jedes andere Pattern. **Rust ist die einzige Quelle für
+native Window- und Fokus-Aktionen**, parallel existierende
+Python-Fallbacks gibt es nicht.
+
+**Registrierung.** Jeder Default-Proxy ist mit `@pattern_proxy_for(role=…)`
+ohne weitere Match-Kriterien registriert (kein `framework_id`, kein
+`class_name`). Das ergibt das niedrigste Match-Gewicht; jede User-
+Registrierung mit zusätzlichen Kriterien gewinnt. Side-Effect-Imports
+in `ui/proxies/__init__.py` stellen sicher, dass die Decorator-
+Aufrufe beim ersten `import PlatynUI.ui` ausgeführt werden.
+
+**Abgrenzung zur gestrichenen globalen Default-Schicht.** Diese
+role-spezifischen Default-Proxies sind nicht zu verwechseln mit dem
+in Rev. 37 verworfenen globalen `core/patterns/defaults.py`-Modul
+(siehe §A.10). Dort ging es um Pattern-Default-Implementierungen
+*ohne* Rollenbezug; hier geht es um konkrete, role-gebundene
+Proxy-Klassen, die ein User wahlweise überschreibt. Die Begriffe
+"Standard-Proxy" (Herkunft aus dem Altprojekt) und "Default-Proxy"
+(semantisch = niedrigstes Match-Gewicht) bezeichnen dieselbe
+Schicht.
 
 
 ### A.14 Context-Basisklassen (`ui/*.py`)
@@ -3714,7 +3866,7 @@ Pre/Perform/Post-Verträge. Jede Methode folgt demselben Muster:
 class Window(Control):
     # ---- Read-Properties (Convenience-Shortcuts über Patterns) ----
     @property
-    def is_active(self) -> bool: ...           # Activatable.is_active
+    def is_active(self) -> bool: ...           # WindowState.is_active
     @property
     def is_minimized(self) -> bool: ...        # Minimizable.is_minimized
     @property

@@ -15,6 +15,7 @@ from _ui_helpers import (  # type: ignore[import-not-found]
     ExpandableStub,
     FocusableStub,
     ResponsiveStub,
+    WindowStateStub,
     make_adapter,
 )
 
@@ -45,6 +46,7 @@ def _window_adapter() -> Adapter:
         pattern_map={
             patterns.Element: ElementStub(),
             patterns.Responsive: ResponsiveStub(True),
+            patterns.WindowState: WindowStateStub(is_active=True),
             patterns.Focusable: FocusableStub(is_focused=True),
         },
     )

@@ -21,6 +21,7 @@ from _ui_helpers import (  # type: ignore[import-not-found]
     ResponsiveStub,
     TextContentStub,
     ToggleableStub,
+    WindowStateStub,
     make_adapter,
 )
 
@@ -69,6 +70,7 @@ def _button_adapter(
         pattern_map={
             patterns.Element: ElementStub(),
             patterns.Responsive: ResponsiveStub(True),
+            patterns.WindowState: WindowStateStub(is_active=is_focused),
             patterns.Focusable: FocusableStub(is_focused=is_focused),
         },
     )

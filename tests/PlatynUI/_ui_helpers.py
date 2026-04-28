@@ -38,6 +38,7 @@ __all__ = [
     'TextContentStub',
     'TextEditableStub',
     'ToggleableStub',
+    'WindowStateStub',
     'make_adapter',
 ]
 
@@ -227,6 +228,22 @@ class ResponsiveStub(patterns.Responsive):
 
     def accepts_user_input(self) -> bool | None:
         return self._answer
+
+
+class WindowStateStub(patterns.WindowState):
+    """`patterns.WindowState` stub with fixed active/topmost flags."""
+
+    def __init__(self, *, is_active: bool = True, is_topmost: bool = False) -> None:
+        self._active = is_active
+        self._topmost = is_topmost
+
+    @property
+    def is_active(self) -> bool:
+        return self._active
+
+    @property
+    def is_topmost(self) -> bool:
+        return self._topmost
 
 
 class ReadableStub(patterns.Readable):
