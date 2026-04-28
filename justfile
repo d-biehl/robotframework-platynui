@@ -1,5 +1,5 @@
 # PlatynUI development task runner
-# See docs/development.md for details.
+# See CONTRIBUTING.md for contributor workflow details.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
@@ -21,7 +21,7 @@ default:
 
 # Bootstrap the full development environment
 bootstrap:
-    uv sync --dev --all-packages --all-groups --all-extras --no-install-workspace 
+    uv sync --dev --all-packages --all-groups --all-extras --no-install-workspace
 
 # ─── Build ──────────────────────────────────────────────────────────────────────
 
@@ -115,9 +115,56 @@ ruff:
 mypy:
     uv run mypy .
 
-# Run all checks (format, clippy, ruff)
+# Run all checks (format, clippy, ruff, mypy)
 check: fmt clippy ruff mypy
     @echo "All checks passed."
+
+# ─── Git Hooks ─────────────────────────────────────────────────────────────────
+
+# Install pre-commit, commit-msg, and pre-push hooks
+hooks-install:
+    uv run pre-commit install --install-hooks
+
+# Alias for explicit push-gate setup
+hooks-install-push: hooks-install
+    @echo "pre-push is installed by hooks-install."
+
+# Run pre-commit stage hooks against all files
+hooks-run:
+    uv run pre-commit run --all-files
+
+# Run the pre-push hook manually
+hooks-run-push:
+    uv run pre-commit run --hook-stage pre-push --all-files
+
+# Run Linux cross-target checks manually
+[linux]
+hooks-run-cross:
+    just cross-target-checks
+
+# Enable optional Linux cross-target checks before each push
+hooks-cross-enable:
+    git config platynui.pre-push-cross-targets true
+    @echo "Optional Linux cross-target pre-push checks enabled."
+
+# Disable optional Linux cross-target checks before each push
+hooks-cross-disable:
+    git config --unset platynui.pre-push-cross-targets || true
+    @echo "Optional Linux cross-target pre-push checks disabled."
+
+# Run optional Linux cross-target checks from the pre-push hook when enabled
+hooks-pre-push-cross:
+    @if [ "$(uname -s)" != "Linux" ]; then echo "Skipping optional Linux cross-target checks on $(uname -s)."; elif [ "$(git config --bool platynui.pre-push-cross-targets || true)" != "true" ]; then echo "Skipping optional Linux cross-target checks. Enable with: just hooks-cross-enable"; else just cross-target-checks; fi
+
+# Update remote pre-commit hook revisions
+hooks-update:
+    uv run pre-commit autoupdate
+
+# Remove installed git hooks managed by pre-commit
+hooks-uninstall:
+    uv run pre-commit uninstall --hook-type pre-commit
+    uv run pre-commit uninstall --hook-type commit-msg
+    uv run pre-commit uninstall --hook-type pre-push
 
 # ─── Test ───────────────────────────────────────────────────────────────────────
 
@@ -196,7 +243,12 @@ _check-macos-cross-tools:
 pre-commit: bootstrap check test-all
     @echo "Pre-commit checks passed. Ready to commit!"
 
-# Run pre-commit checks plus cross-platform checks (Windows + macOS ARM)
+# Run Linux cross-target checks (Windows + macOS ARM)
 [linux]
-pre-commit-cross: pre-commit check-windows clippy-windows check-macos-arm clippy-macos-arm
-    @echo "All cross-platform checks passed."
+cross-target-checks: check-windows clippy-windows check-macos-arm clippy-macos-arm
+    @echo "All cross-target checks passed."
+
+# Run pre-commit checks plus cross-target checks (Windows + macOS ARM)
+[linux]
+pre-commit-cross: pre-commit cross-target-checks
+    @echo "All pre-commit and cross-target checks passed."

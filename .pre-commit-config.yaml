@@ -1,0 +1,73 @@
+minimum_pre_commit_version: "4.0.0"
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+  - pre-push
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-toml
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args:
+          - --verbose
+          - feat
+          - fix
+          - docs
+          - style
+          - refactor
+          - perf
+          - test
+          - build
+          - ci
+          - chore
+          - revert
+
+  - repo: local
+    hooks:
+      - id: just-fmt-check
+        name: just fmt-check
+        entry: just fmt-check
+        language: system
+        pass_filenames: false
+        types_or: [rust]
+
+      - id: just-ruff
+        name: just ruff
+        entry: just ruff
+        language: system
+        pass_filenames: false
+        types_or: [python]
+
+      - id: just-mypy
+        name: just mypy
+        entry: just mypy
+        language: system
+        pass_filenames: false
+        types_or: [python]
+
+      - id: just-pre-push-gate
+        name: just pre-commit
+        entry: just pre-commit
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: just-optional-linux-cross-targets
+        name: just optional Linux cross-target checks
+        entry: just hooks-pre-push-cross
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
