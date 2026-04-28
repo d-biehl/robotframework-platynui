@@ -331,14 +331,16 @@ impl eframe::App for InspectorApp {
         // Poll background highlight operations.
         self.vm.poll_highlight(&ctx);
 
+        let status_text = self.vm.status_bar_text();
+
         // View: Status Bar (bottom-most)
-        status_bar::show_status_bar(ui, self.vm.has_pending_background_work(), self.vm.status_bar_text());
+        status_bar::show_status_bar(ui, self.vm.has_pending_background_work(), status_text.as_deref());
 
         // View: Results Panel (above status bar)
         let result_actions = results_panel::show_results_panel(
             ui,
             &self.vm.results,
-            self.vm.result_status.as_deref(),
+            status_text.as_deref(),
             &mut self.vm.result_focused_index,
         );
 

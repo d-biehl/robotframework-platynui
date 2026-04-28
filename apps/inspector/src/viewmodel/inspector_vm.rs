@@ -7,8 +7,43 @@ use egui_async::Bind;
 use platynui_core::ui::UiNode;
 use platynui_runtime::Runtime;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
+
+const SEARCH_RESULTS_PER_FRAME: usize = 512;
+
+#[derive(Clone, Debug)]
+enum ResultStatus {
+    Searching { count: usize, elapsed_secs: f64 },
+    Draining { visible_count: usize, total_count: usize, pending_count: usize },
+    Completed { count: usize, elapsed_ms: f64 },
+    Cancelled { count: usize, elapsed_ms: f64 },
+    Error(String),
+}
+
+impl ResultStatus {
+    fn text(&self) -> String {
+        match self {
+            Self::Searching { count, elapsed_secs } => {
+                format!("Searching\u{2026} {count} result{} ({elapsed_secs:.1}s)", if *count == 1 { "" } else { "s" })
+            }
+            Self::Draining { visible_count, total_count, pending_count } => {
+                format!("Loading results\u{2026} {visible_count}/{total_count} shown, {pending_count} queued")
+            }
+            Self::Completed { count, elapsed_ms } => {
+                format!("{count} result{} ({elapsed_ms:.1}ms)", if *count == 1 { "" } else { "s" })
+            }
+            Self::Cancelled { count, elapsed_ms } => {
+                format!("Cancelled \u{2014} {count} result{} ({elapsed_ms:.1}ms)", if *count == 1 { "" } else { "s" })
+            }
+            Self::Error(summary) => format!("Error: {summary}"),
+        }
+    }
+}
+
+fn next_epoch(epoch: &AtomicU64) -> u64 {
+    epoch.fetch_add(1, Ordering::Relaxed).wrapping_add(1)
+}
 
 /// Top-level ViewModel holding the complete inspector state.
 pub struct InspectorViewModel {
@@ -29,7 +64,7 @@ pub struct InspectorViewModel {
     /// Results from XPath evaluation.
     pub results: Vec<SearchResultItem>,
     /// Status / error message for the results panel.
-    pub result_status: Option<String>,
+    result_status: Option<ResultStatus>,
     /// Full search error message shown below the search field.
     search_error_hint: Option<String>,
     /// Focused row index in the results panel (keyboard cursor).
@@ -49,18 +84,22 @@ pub struct InspectorViewModel {
     search_task: Bind<async_tasks::SearchResult, String>,
     /// Shared in-flight search progress for incremental UI updates.
     search_progress: Option<async_tasks::SharedSearchProgress>,
-    /// Number of progress items already appended to `results`.
-    search_progress_seen: usize,
+    /// Completed search metadata waiting for the visible progress queue to drain.
+    search_completion: Option<async_tasks::SearchResult>,
     /// Cancellation flag for in-flight search task.
     search_cancel_flag: Option<Arc<AtomicBool>>,
     /// Start time of in-flight search for live status.
     search_started_at: Option<Instant>,
     /// Background reveal (tree sync) state handled by egui-async.
     reveal_task: Bind<async_tasks::RevealResult, String>,
+    /// Latest reveal request epoch.
+    reveal_epoch: Arc<AtomicU64>,
     /// Background selected-node details state handled by egui-async.
     selection_task: Bind<async_tasks::SelectionResult, String>,
     /// Highlight clear/show task handled by egui-async.
-    highlight_task: Bind<(), String>,
+    highlight_task: Bind<async_tasks::HighlightResult, String>,
+    /// Latest highlight request epoch.
+    highlight_epoch: Arc<AtomicU64>,
     /// Monotonic request id to ignore stale selection results.
     selection_request_id: u64,
     /// Frame counter for spinner animation.
@@ -114,12 +153,14 @@ impl InspectorViewModel {
             init_load_task: Bind::new(false),
             search_task: Bind::new(false),
             search_progress: None,
-            search_progress_seen: 0,
+            search_completion: None,
             search_cancel_flag: None,
             search_started_at: None,
             reveal_task: Bind::new(false),
+            reveal_epoch: Arc::new(AtomicU64::new(0)),
             selection_task: Bind::new(false),
             highlight_task: Bind::new(false),
+            highlight_epoch: Arc::new(AtomicU64::new(0)),
             selection_request_id: 0,
             spinner_frame: 0,
         }
@@ -241,8 +282,18 @@ impl InspectorViewModel {
     /// Poll highlight task state. Call this every frame.
     pub fn poll_highlight(&mut self, ctx: &egui::Context) {
         if let Some(result) = self.highlight_task.take() {
-            if let Err(err) = result {
-                tracing::warn!(%err, "highlight task failed");
+            match result {
+                Ok(result) => {
+                    let latest_epoch = self.highlight_epoch.load(Ordering::Relaxed);
+                    if result.epoch != latest_epoch {
+                        tracing::debug!(epoch = result.epoch, latest_epoch, "ignored stale highlight task result");
+                    } else if result.skipped {
+                        tracing::debug!(epoch = result.epoch, "highlight task skipped");
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(%err, "highlight task failed");
+                }
             }
         } else if self.highlight_task.is_pending() {
             ctx.request_repaint();
@@ -253,14 +304,15 @@ impl InspectorViewModel {
     pub fn has_pending_background_work(&mut self) -> bool {
         self.init_load_task.is_pending()
             || self.search_task.is_pending()
+            || self.search_completion.is_some()
             || self.reveal_task.is_pending()
             || self.selection_task.is_pending()
             || self.highlight_task.is_pending()
     }
 
     /// Current status text for the global status bar.
-    pub fn status_bar_text(&self) -> Option<&str> {
-        self.result_status.as_deref()
+    pub fn status_bar_text(&self) -> Option<String> {
+        self.result_status.as_ref().map(ResultStatus::text)
     }
 
     /// Full search error hint shown under the search field.
@@ -271,7 +323,7 @@ impl InspectorViewModel {
     /// Clear search error hint when the query text changes.
     pub fn on_search_text_changed(&mut self) {
         self.search_error_hint = None;
-        if self.result_status.as_deref().is_some_and(|status| status.starts_with("Error:")) {
+        if matches!(self.result_status, Some(ResultStatus::Error(_))) {
             self.result_status = None;
         }
     }
@@ -364,7 +416,14 @@ impl InspectorViewModel {
     fn highlight_bounds(&mut self, node_id: String, bounds: Option<platynui_core::types::Rect>) {
         if let Some(bounds) = bounds {
             let rt = Arc::clone(&self.runtime);
-            self.highlight_task.refresh(async_tasks::highlight_bounds_task(rt, node_id, bounds));
+            let epoch = next_epoch(&self.highlight_epoch);
+            self.highlight_task.refresh(async_tasks::highlight_bounds_task(
+                rt,
+                epoch,
+                Arc::clone(&self.highlight_epoch),
+                node_id,
+                bounds,
+            ));
             return;
         }
 
@@ -373,7 +432,8 @@ impl InspectorViewModel {
 
     fn clear_highlight(&mut self) {
         let rt = Arc::clone(&self.runtime);
-        self.highlight_task.refresh(async_tasks::clear_highlight_task(rt));
+        let epoch = next_epoch(&self.highlight_epoch);
+        self.highlight_task.refresh(async_tasks::clear_highlight_task(rt, epoch, Arc::clone(&self.highlight_epoch)));
     }
 
     /// Clear current search results and status.
@@ -381,6 +441,8 @@ impl InspectorViewModel {
         self.results.clear();
         self.result_status = None;
         self.search_error_hint = None;
+        self.search_progress = None;
+        self.search_completion = None;
         self.result_focused_index = 0;
     }
 
@@ -410,7 +472,13 @@ impl InspectorViewModel {
         if let Some(row) = self.tree.rows().get(index) {
             let rt = Arc::clone(&self.runtime);
             let node_data = Arc::clone(&row.data);
-            self.highlight_task.refresh(async_tasks::highlight_node_task(rt, node_data));
+            let epoch = next_epoch(&self.highlight_epoch);
+            self.highlight_task.refresh(async_tasks::highlight_node_task(
+                rt,
+                epoch,
+                Arc::clone(&self.highlight_epoch),
+                node_data,
+            ));
         }
     }
 
@@ -421,7 +489,13 @@ impl InspectorViewModel {
         {
             let rt = Arc::clone(&self.runtime);
             let node_data = Arc::new(UiNodeData::new(node));
-            self.highlight_task.refresh(async_tasks::highlight_node_task(rt, node_data));
+            let epoch = next_epoch(&self.highlight_epoch);
+            self.highlight_task.refresh(async_tasks::highlight_node_task(
+                rt,
+                epoch,
+                Arc::clone(&self.highlight_epoch),
+                node_data,
+            ));
         }
     }
 
@@ -451,20 +525,22 @@ impl InspectorViewModel {
             self.results.clear();
             self.result_status = None;
             self.search_error_hint = None;
+            self.search_progress = None;
+            self.search_completion = None;
             self.result_focused_index = 0;
             return;
         }
 
         // Clear previous results.
         self.results.clear();
-        self.result_status = Some("Searching\u{2026}".to_string());
+        self.result_status = Some(ResultStatus::Searching { count: 0, elapsed_secs: 0.0 });
         self.search_error_hint = None;
+        self.search_completion = None;
         self.result_focused_index = 0;
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
         let progress = async_tasks::new_search_progress();
         self.search_progress = Some(Arc::clone(&progress));
-        self.search_progress_seen = 0;
         self.search_cancel_flag = Some(Arc::clone(&cancel_flag));
         self.search_started_at = Some(Instant::now());
         self.search_task.refresh(async_tasks::search_task(Arc::clone(&self.runtime), xpath, cancel_flag, progress));
@@ -475,55 +551,72 @@ impl InspectorViewModel {
     /// While a search is active, requests a repaint so the next frame polls again.
     pub fn poll_search(&mut self, ctx: &egui::Context) {
         if let Some(result) = self.search_task.take() {
-            self.search_progress = None;
-            self.search_progress_seen = 0;
             self.search_cancel_flag = None;
             self.search_started_at = None;
 
             match result {
-                Ok(async_tasks::SearchResult { results, elapsed, cancelled }) => {
-                    self.results = results;
-                    let count = self.results.len();
-                    if cancelled {
-                        self.result_status = Some(format!(
-                            "Cancelled \u{2014} {count} result{} ({:.1}ms)",
-                            if count == 1 { "" } else { "s" },
-                            elapsed.as_secs_f64() * 1000.0,
-                        ));
-                    } else {
-                        self.result_status = Some(format!(
-                            "{count} result{} ({:.1}ms)",
-                            if count == 1 { "" } else { "s" },
-                            elapsed.as_secs_f64() * 1000.0,
-                        ));
+                Ok(summary) => {
+                    self.search_completion = Some(summary);
+                }
+                Err(err) => {
+                    self.search_progress = None;
+                    self.search_completion = None;
+                    self.search_error_hint = Some(err.clone());
+                    self.result_status = Some(ResultStatus::Error(short_error_summary(&err)));
+                }
+            }
+        }
+
+        let mut drained_pending_count = 0;
+        let mut drained_total_count = self.results.len();
+        if let Some(progress) = &self.search_progress {
+            match async_tasks::drain_search_progress(progress, SEARCH_RESULTS_PER_FRAME) {
+                Ok(drain) => {
+                    drained_total_count = drain.total_count;
+                    drained_pending_count = drain.pending_count;
+                    if !drain.results.is_empty() {
+                        self.results.extend(drain.results);
                     }
                 }
                 Err(err) => {
-                    self.search_error_hint = Some(err.clone());
-                    self.result_status = Some(format!("Error: {}", short_error_summary(&err)));
+                    tracing::warn!(%err, "failed to drain search progress");
+                    self.search_progress = None;
+                    self.search_completion = None;
+                    self.result_status = Some(ResultStatus::Error(err));
+                    return;
                 }
             }
+        }
+
+        if let Some(summary) = &self.search_completion {
+            if drained_pending_count == 0 {
+                let summary = self.search_completion.take().expect("search completion checked above");
+                self.search_progress = None;
+                let count = self.results.len().max(summary.result_count);
+                let elapsed_ms = summary.elapsed.as_secs_f64() * 1000.0;
+                self.result_status = Some(if summary.cancelled {
+                    ResultStatus::Cancelled { count, elapsed_ms }
+                } else {
+                    ResultStatus::Completed { count, elapsed_ms }
+                });
+            } else {
+                self.result_status = Some(ResultStatus::Draining {
+                    visible_count: self.results.len(),
+                    total_count: summary.result_count,
+                    pending_count: drained_pending_count,
+                });
+                ctx.request_repaint();
+            }
         } else if self.search_task.is_pending() {
-            if let Some(progress) = &self.search_progress
-                && let Ok(state) = progress.lock()
-            {
-                let len = state.results.len();
-                if self.search_progress_seen > len {
-                    self.search_progress_seen = 0;
-                    self.results.clear();
-                }
-                if self.search_progress_seen < len {
-                    self.results.extend_from_slice(&state.results[self.search_progress_seen..]);
-                    self.search_progress_seen = len;
-                }
+            if drained_pending_count > 0 {
+                ctx.request_repaint();
             }
 
             // Update live status while search is in progress.
             self.spinner_frame = self.spinner_frame.wrapping_add(1);
             let elapsed = self.search_started_at.map_or(0.0, |start| start.elapsed().as_secs_f64());
-            let count = self.results.len();
-            self.result_status =
-                Some(format!("Searching\u{2026} {count} result{} ({elapsed:.1}s)", if count == 1 { "" } else { "s" },));
+            let count = self.results.len().max(drained_total_count);
+            self.result_status = Some(ResultStatus::Searching { count, elapsed_secs: elapsed });
             // Request repaint so next frame continues polling.
             ctx.request_repaint();
         }
@@ -531,21 +624,20 @@ impl InspectorViewModel {
 
     /// Cancel the current background search, if any.
     pub fn cancel_search(&mut self) {
-        if self.search_task.is_pending() {
+        if self.search_task.is_pending() || self.search_completion.is_some() || self.search_progress.is_some() {
             if let Some(cancel_flag) = &self.search_cancel_flag {
                 cancel_flag.store(true, Ordering::Relaxed);
             }
-            self.search_task.abort();
+            if self.search_task.is_pending() {
+                self.search_task.abort();
+            }
 
             let count = self.results.len();
             let elapsed_ms = self.search_started_at.map_or(0.0, |start| start.elapsed().as_secs_f64() * 1000.0);
-            self.result_status = Some(format!(
-                "Cancelled \u{2014} {count} result{} ({elapsed_ms:.1}ms)",
-                if count == 1 { "" } else { "s" },
-            ));
+            self.result_status = Some(ResultStatus::Cancelled { count, elapsed_ms });
 
             self.search_progress = None;
-            self.search_progress_seen = 0;
+            self.search_completion = None;
             self.search_cancel_flag = None;
             self.search_started_at = None;
         }
@@ -553,7 +645,7 @@ impl InspectorViewModel {
 
     /// Returns `true` if a background search is currently running.
     pub fn is_searching(&mut self) -> bool {
-        self.search_task.is_pending()
+        self.search_task.is_pending() || self.search_completion.is_some()
     }
 
     /// When a result is selected, reveal its node in the tree (non-blocking).
@@ -565,6 +657,7 @@ impl InspectorViewModel {
     /// If a previous reveal is still in progress it is cancelled.
     pub fn reveal_and_select_result(&mut self, result_index: usize) {
         // Cancel any in-flight reveal and start a fresh request.
+        let epoch = next_epoch(&self.reveal_epoch);
         self.reveal_task.abort();
 
         let item = match self.results.get(result_index) {
@@ -576,6 +669,11 @@ impl InspectorViewModel {
             return;
         };
 
+        if !target_node.is_valid() {
+            tracing::warn!(epoch, "reveal_result: target node is no longer valid");
+            return;
+        }
+
         let target_id = target_node.runtime_id().as_str().to_string();
 
         // Quick path: node is already visible in the cached tree.
@@ -586,7 +684,7 @@ impl InspectorViewModel {
 
         // Slow path: spawn egui-async task to pre-load ancestor caches.
         let root = Arc::clone(self.tree.root());
-        self.reveal_task.refresh(async_tasks::reveal_task(root, target_node));
+        self.reveal_task.refresh(async_tasks::reveal_task(epoch, Arc::clone(&self.reveal_epoch), root, target_node));
     }
 
     /// Helper: select a node if it's visible in the tree.
@@ -602,7 +700,12 @@ impl InspectorViewModel {
     pub fn poll_reveal(&mut self, ctx: &egui::Context) {
         if let Some(result) = self.reveal_task.take() {
             match result {
-                Ok(async_tasks::RevealResult::Ready { target_id }) => {
+                Ok(async_tasks::RevealResult::Ready { epoch, target_id }) => {
+                    let latest_epoch = self.reveal_epoch.load(Ordering::Relaxed);
+                    if epoch != latest_epoch {
+                        tracing::debug!(epoch, latest_epoch, target_id, "ignored stale reveal task result");
+                        return;
+                    }
                     // Now find_and_expand is cheap (children are cached).
                     if self.tree.reveal_node_cached(&target_id) {
                         self.select_node_if_visible(&target_id);
@@ -610,7 +713,9 @@ impl InspectorViewModel {
                         tracing::warn!(target_id, "reveal_node: not found after background preload");
                     }
                 }
-                Ok(async_tasks::RevealResult::Cancelled) => {}
+                Ok(async_tasks::RevealResult::Cancelled { epoch }) => {
+                    tracing::debug!(epoch, "reveal task cancelled");
+                }
                 Err(err) => {
                     tracing::error!(%err, "reveal task failed");
                 }
