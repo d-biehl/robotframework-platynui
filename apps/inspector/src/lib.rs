@@ -58,6 +58,9 @@ fn load_icon() -> egui::IconData {
 // Link platform-specific providers (AT-SPI on Linux, UIA on Windows, AX on macOS)
 platynui_link_providers!();
 
+const RENDERER_ENV: &str = "PLATYNUI_INSPECTOR_RENDERER";
+const GLOW_HARDWARE_ACCELERATION_ENV: &str = "PLATYNUI_INSPECTOR_GLOW_HARDWARE_ACCELERATION";
+
 /// CLI arguments for the inspector.
 #[derive(Parser)]
 #[command(author, version, about = "PlatynUI Inspector", long_about = None)]
@@ -67,6 +70,16 @@ struct InspectorArgs {
     /// Use `RUST_LOG` for fine-grained per-crate filtering.
     #[arg(long = "log-level", value_enum)]
     log_level: Option<LogLevel>,
+
+    /// Rendering backend to use (`wgpu` or `glow`).
+    /// Overrides the `PLATYNUI_INSPECTOR_RENDERER` environment variable.
+    #[arg(long = "renderer", value_enum)]
+    renderer: Option<RendererChoice>,
+
+    /// Glow renderer hardware acceleration policy (`required`, `preferred`, or `off`).
+    /// Overrides the `PLATYNUI_INSPECTOR_GLOW_HARDWARE_ACCELERATION` environment variable.
+    #[arg(long = "glow-hardware-acceleration", value_enum)]
+    glow_hardware_acceleration: Option<GlowHardwareAccelerationChoice>,
 }
 
 /// Supported log level values for the `--log-level` CLI flag.
@@ -77,6 +90,136 @@ pub enum LogLevel {
     Info,
     Debug,
     Trace,
+}
+
+/// Supported renderer backends for the inspector.
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+pub enum RendererChoice {
+    #[default]
+    Wgpu,
+    Glow,
+}
+
+impl RendererChoice {
+    fn resolve(cli_choice: Option<Self>) -> Self {
+        if let Some(choice) = cli_choice {
+            return choice;
+        }
+
+        match std::env::var(RENDERER_ENV) {
+            Ok(value) => Self::parse_env_value(&value).unwrap_or_else(|| {
+                tracing::warn!(env = RENDERER_ENV, value = %value, "ignoring invalid inspector renderer");
+                Self::default()
+            }),
+            Err(std::env::VarError::NotPresent) => Self::default(),
+            Err(error) => {
+                tracing::warn!(env = RENDERER_ENV, %error, "ignoring unreadable inspector renderer");
+                Self::default()
+            }
+        }
+    }
+
+    fn parse_env_value(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "wgpu" => Some(Self::Wgpu),
+            "glow" | "gl" | "opengl" => Some(Self::Glow),
+            _ => None,
+        }
+    }
+
+    fn to_eframe(self) -> eframe::Renderer {
+        match self {
+            Self::Wgpu => eframe::Renderer::Wgpu,
+            Self::Glow => eframe::Renderer::Glow,
+        }
+    }
+}
+
+impl std::fmt::Display for RendererChoice {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Wgpu => "wgpu".fmt(formatter),
+            Self::Glow => "glow".fmt(formatter),
+        }
+    }
+}
+
+/// Supported hardware acceleration policies for the glow renderer.
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+pub enum GlowHardwareAccelerationChoice {
+    Required,
+    #[default]
+    Preferred,
+    Off,
+}
+
+impl GlowHardwareAccelerationChoice {
+    fn resolve(cli_choice: Option<Self>) -> Self {
+        if let Some(choice) = cli_choice {
+            return choice;
+        }
+
+        match std::env::var(GLOW_HARDWARE_ACCELERATION_ENV) {
+            Ok(value) => Self::parse_env_value(&value).unwrap_or_else(|| {
+                tracing::warn!(
+                    env = GLOW_HARDWARE_ACCELERATION_ENV,
+                    value = %value,
+                    "ignoring invalid inspector glow hardware acceleration policy"
+                );
+                Self::default()
+            }),
+            Err(std::env::VarError::NotPresent) => Self::default(),
+            Err(error) => {
+                tracing::warn!(
+                    env = GLOW_HARDWARE_ACCELERATION_ENV,
+                    %error,
+                    "ignoring unreadable inspector glow hardware acceleration policy"
+                );
+                Self::default()
+            }
+        }
+    }
+
+    fn parse_env_value(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "required" | "require" => Some(Self::Required),
+            "preferred" | "prefer" | "auto" | "on" | "true" | "yes" | "1" => Some(Self::Preferred),
+            "off" | "false" | "no" | "0" | "disabled" | "disable" => Some(Self::Off),
+            _ => None,
+        }
+    }
+
+    fn to_eframe(self) -> eframe::HardwareAcceleration {
+        match self {
+            Self::Required => eframe::HardwareAcceleration::Required,
+            Self::Preferred => eframe::HardwareAcceleration::Preferred,
+            Self::Off => eframe::HardwareAcceleration::Off,
+        }
+    }
+
+    fn effective_for_renderer(self, renderer: RendererChoice) -> Self {
+        if matches!((renderer, self), (RendererChoice::Glow, Self::Off)) {
+            tracing::warn!(
+                renderer = %renderer,
+                requested_glow_hardware_acceleration = %self,
+                effective_glow_hardware_acceleration = %Self::Preferred,
+                "glow renderer cannot reliably force software OpenGL; falling back to preferred hardware acceleration"
+            );
+            return Self::Preferred;
+        }
+
+        self
+    }
+}
+
+impl std::fmt::Display for GlowHardwareAccelerationChoice {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Required => "required".fmt(formatter),
+            Self::Preferred => "preferred".fmt(formatter),
+            Self::Off => "off".fmt(formatter),
+        }
+    }
 }
 
 /// Initialize the tracing subscriber.
@@ -518,6 +661,16 @@ impl eframe::App for InspectorApp {
 pub fn run() -> eframe::Result {
     let args = InspectorArgs::parse();
     init_tracing(args.log_level);
+    let renderer = RendererChoice::resolve(args.renderer);
+    let requested_glow_hardware_acceleration = GlowHardwareAccelerationChoice::resolve(args.glow_hardware_acceleration);
+    let glow_hardware_acceleration = requested_glow_hardware_acceleration.effective_for_renderer(renderer);
+
+    tracing::info!(
+        renderer = %renderer,
+        glow_hardware_acceleration = %glow_hardware_acceleration,
+        requested_glow_hardware_acceleration = %requested_glow_hardware_acceleration,
+        "starting inspector renderer"
+    );
 
     let runtime = Runtime::new().expect("Failed to create PlatynUI runtime");
     let runtime = Arc::new(runtime);
@@ -545,6 +698,8 @@ pub fn run() -> eframe::Result {
 
     let icon = load_icon();
     let options = eframe::NativeOptions {
+        renderer: renderer.to_eframe(),
+        hardware_acceleration: glow_hardware_acceleration.to_eframe(),
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 750.0])
             .with_title("PlatynUI Inspector")

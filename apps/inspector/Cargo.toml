@@ -19,7 +19,7 @@ mock-provider = [
 ]
 
 [dependencies]
-eframe = "0.34"
+eframe = { version = "0.34", features = ["glow"] }
 egui_extras = "0.34"
 egui-system-fonts = "0.34"
 egui-async = "0.4"
