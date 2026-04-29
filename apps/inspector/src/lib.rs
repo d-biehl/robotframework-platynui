@@ -60,6 +60,8 @@ platynui_link_providers!();
 
 const RENDERER_ENV: &str = "PLATYNUI_INSPECTOR_RENDERER";
 const GLOW_HARDWARE_ACCELERATION_ENV: &str = "PLATYNUI_INSPECTOR_GLOW_HARDWARE_ACCELERATION";
+const SEARCH_RESULT_LIMIT_ENV: &str = "PLATYNUI_INSPECTOR_SEARCH_RESULT_LIMIT";
+const DEFAULT_SEARCH_RESULT_LIMIT: usize = 5_000;
 
 /// CLI arguments for the inspector.
 #[derive(Parser)]
@@ -80,6 +82,11 @@ struct InspectorArgs {
     /// Overrides the `PLATYNUI_INSPECTOR_GLOW_HARDWARE_ACCELERATION` environment variable.
     #[arg(long = "glow-hardware-acceleration", value_enum)]
     glow_hardware_acceleration: Option<GlowHardwareAccelerationChoice>,
+
+    /// Maximum XPath search results to collect in the Inspector (`unlimited` disables the guard).
+    /// Overrides the `PLATYNUI_INSPECTOR_SEARCH_RESULT_LIMIT` environment variable.
+    #[arg(long = "search-result-limit", value_name = "COUNT|unlimited", value_parser = parse_search_result_limit)]
+    search_result_limit: Option<SearchResultLimitChoice>,
 }
 
 /// Supported log level values for the `--log-level` CLI flag.
@@ -222,6 +229,82 @@ impl std::fmt::Display for GlowHardwareAccelerationChoice {
     }
 }
 
+/// Supported Inspector XPath search result limit values.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SearchResultLimitChoice {
+    Limited(usize),
+    Unlimited,
+}
+
+impl SearchResultLimitChoice {
+    fn resolve(cli_choice: Option<Self>) -> Self {
+        if let Some(choice) = cli_choice {
+            return choice;
+        }
+
+        match std::env::var(SEARCH_RESULT_LIMIT_ENV) {
+            Ok(value) => Self::parse_env_value(&value).unwrap_or_else(|| {
+                tracing::warn!(
+                    env = SEARCH_RESULT_LIMIT_ENV,
+                    value = %value,
+                    default_limit = DEFAULT_SEARCH_RESULT_LIMIT,
+                    "ignoring invalid inspector search result limit"
+                );
+                Self::default()
+            }),
+            Err(std::env::VarError::NotPresent) => Self::default(),
+            Err(error) => {
+                tracing::warn!(
+                    env = SEARCH_RESULT_LIMIT_ENV,
+                    %error,
+                    default_limit = DEFAULT_SEARCH_RESULT_LIMIT,
+                    "ignoring unreadable inspector search result limit"
+                );
+                Self::default()
+            }
+        }
+    }
+
+    fn parse_env_value(value: &str) -> Option<Self> {
+        let normalized = value.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "unlimited" | "none" | "off" | "disabled" | "disable" => Some(Self::Unlimited),
+            _ => value
+                .trim()
+                .parse::<usize>()
+                .ok()
+                .map(|limit| if limit == 0 { Self::Unlimited } else { Self::Limited(limit) }),
+        }
+    }
+
+    fn into_limit(self) -> Option<usize> {
+        match self {
+            Self::Limited(limit) => Some(limit),
+            Self::Unlimited => None,
+        }
+    }
+}
+
+impl Default for SearchResultLimitChoice {
+    fn default() -> Self {
+        Self::Limited(DEFAULT_SEARCH_RESULT_LIMIT)
+    }
+}
+
+impl std::fmt::Display for SearchResultLimitChoice {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Limited(limit) => limit.fmt(formatter),
+            Self::Unlimited => "unlimited".fmt(formatter),
+        }
+    }
+}
+
+fn parse_search_result_limit(value: &str) -> Result<SearchResultLimitChoice, String> {
+    SearchResultLimitChoice::parse_env_value(value)
+        .ok_or_else(|| format!("expected a positive integer or 'unlimited', got '{value}'"))
+}
+
 /// Initialize the tracing subscriber.
 ///
 /// Priority (highest wins):
@@ -308,11 +391,16 @@ impl InspectorApp {
         }
     }
 
-    fn new(runtime: Arc<Runtime>, preloaded_root_children: Vec<Arc<UiNodeData>>, ctx: &egui::Context) -> Self {
+    fn new(
+        runtime: Arc<Runtime>,
+        preloaded_root_children: Vec<Arc<UiNodeData>>,
+        search_result_limit: Option<usize>,
+        ctx: &egui::Context,
+    ) -> Self {
         Self::apply_system_fonts(ctx);
 
         Self {
-            vm: InspectorViewModel::new(runtime, preloaded_root_children),
+            vm: InspectorViewModel::new(runtime, preloaded_root_children, search_result_limit),
             attributes_sort: attributes::AttributesSortState::default(),
             attributes_view_mode: attributes::AttributesViewMode::default(),
             attribute_filter: String::new(),
@@ -664,11 +752,13 @@ pub fn run() -> eframe::Result {
     let renderer = RendererChoice::resolve(args.renderer);
     let requested_glow_hardware_acceleration = GlowHardwareAccelerationChoice::resolve(args.glow_hardware_acceleration);
     let glow_hardware_acceleration = requested_glow_hardware_acceleration.effective_for_renderer(renderer);
+    let search_result_limit = SearchResultLimitChoice::resolve(args.search_result_limit);
 
     tracing::info!(
         renderer = %renderer,
         glow_hardware_acceleration = %glow_hardware_acceleration,
         requested_glow_hardware_acceleration = %requested_glow_hardware_acceleration,
+        search_result_limit = %search_result_limit,
         "starting inspector renderer"
     );
 
@@ -714,7 +804,12 @@ pub fn run() -> eframe::Result {
         Box::new(move |cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
-            Ok(Box::new(InspectorApp::new(Arc::clone(&runtime), preloaded_root_children, &cc.egui_ctx)))
+            Ok(Box::new(InspectorApp::new(
+                Arc::clone(&runtime),
+                preloaded_root_children,
+                search_result_limit.into_limit(),
+                &cc.egui_ctx,
+            )))
         }),
     )
 }

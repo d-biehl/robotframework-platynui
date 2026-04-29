@@ -61,6 +61,16 @@ platynui-cli snapshot "//control:Window" --format xml --output windows.xml
 platynui-inspector
 ```
 
+Useful Inspector options:
+
+```sh
+platynui-inspector --search-result-limit 5000
+platynui-inspector --search-result-limit unlimited
+PLATYNUI_INSPECTOR_SEARCH_RESULT_LIMIT=5000 platynui-inspector
+```
+
+The Inspector shows the first 5000 XPath search results by default. Use `--search-result-limit <COUNT|unlimited>` or `PLATYNUI_INSPECTOR_SEARCH_RESULT_LIMIT=<COUNT|unlimited>` to override that guard. Command-line options take precedence over environment variables.
+
 ## Platform support
 
 | Component | Windows | Linux X11 | Linux Wayland | macOS | Mock |

@@ -17,6 +17,7 @@ pub struct SearchResult {
     pub result_count: usize,
     pub elapsed: Duration,
     pub cancelled: bool,
+    pub limit_reached: Option<usize>,
 }
 
 /// Shared mutable progress for in-flight search.
@@ -199,6 +200,7 @@ pub async fn search_task(
     xpath: String,
     cancel_flag: Arc<AtomicBool>,
     progress: SharedSearchProgress,
+    result_limit: Option<usize>,
 ) -> Result<SearchResult, String> {
     tracing::debug!(
         xpath,
@@ -213,7 +215,12 @@ pub async fn search_task(
         Ok(iter) => {
             for item_result in iter {
                 if cancel_flag.load(Ordering::Relaxed) {
-                    return Ok(SearchResult { result_count, elapsed: start.elapsed(), cancelled: true });
+                    return Ok(SearchResult {
+                        result_count,
+                        elapsed: start.elapsed(),
+                        cancelled: true,
+                        limit_reached: None,
+                    });
                 }
 
                 match item_result {
@@ -224,18 +231,43 @@ pub async fn search_task(
                             .lock()
                             .map_err(|_| "search progress lock poisoned".to_string())?
                             .push_result(result_item);
+
+                        if result_limit.is_some_and(|limit| result_count >= limit) {
+                            tracing::debug!(
+                                xpath,
+                                result_count,
+                                result_limit,
+                                "stopping XPath evaluation after inspector search result limit was reached"
+                            );
+                            return Ok(SearchResult {
+                                result_count,
+                                elapsed: start.elapsed(),
+                                cancelled: false,
+                                limit_reached: result_limit,
+                            });
+                        }
                     }
                     Err(err) => {
                         let msg = err.to_string();
                         if msg.contains("cancelled") && cancel_flag.load(Ordering::Relaxed) {
-                            return Ok(SearchResult { result_count, elapsed: start.elapsed(), cancelled: true });
+                            return Ok(SearchResult {
+                                result_count,
+                                elapsed: start.elapsed(),
+                                cancelled: true,
+                                limit_reached: None,
+                            });
                         }
                         return Err(msg);
                     }
                 }
             }
 
-            Ok(SearchResult { result_count, elapsed: start.elapsed(), cancelled: cancel_flag.load(Ordering::Relaxed) })
+            Ok(SearchResult {
+                result_count,
+                elapsed: start.elapsed(),
+                cancelled: cancel_flag.load(Ordering::Relaxed),
+                limit_reached: None,
+            })
         }
         Err(err) => Err(err.to_string()),
     }

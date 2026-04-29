@@ -29,6 +29,24 @@ platynui-inspector
 
 The left side shows the desktop UI tree. Selecting an element shows its attributes on the right and, when bounds are available, highlights it on screen for a moment.
 
+### Search result limit
+
+The inspector limits XPath search collection to the first 5000 results by default so broad queries stay usable in an interactive UI. Override the limit with a command-line option:
+
+```sh
+platynui-inspector --search-result-limit 10000
+platynui-inspector --search-result-limit unlimited
+```
+
+Or use the equivalent environment variable:
+
+```sh
+PLATYNUI_INSPECTOR_SEARCH_RESULT_LIMIT=10000
+PLATYNUI_INSPECTOR_SEARCH_RESULT_LIMIT=unlimited
+```
+
+Command-line options take precedence over environment variables. Values `0`, `off`, `disabled`, `disable`, `none`, and `unlimited` disable the guard.
+
 ### Rendering options
 
 The inspector ships with both `wgpu` and `glow` renderers. `wgpu` is the default; `glow` can be useful in virtual machines or older graphics stacks.

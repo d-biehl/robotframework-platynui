@@ -17,6 +17,7 @@ enum ResultStatus {
     Searching { count: usize, elapsed_secs: f64 },
     Draining { visible_count: usize, total_count: usize, pending_count: usize },
     Completed { count: usize, elapsed_ms: f64 },
+    Limited { count: usize, limit: usize, elapsed_ms: f64 },
     Cancelled { count: usize, elapsed_ms: f64 },
     Error(String),
 }
@@ -32,6 +33,9 @@ impl ResultStatus {
             }
             Self::Completed { count, elapsed_ms } => {
                 format!("{count} result{} ({elapsed_ms:.1}ms)", if *count == 1 { "" } else { "s" })
+            }
+            Self::Limited { count, limit, elapsed_ms } => {
+                format!("Showing first {count} results; limit {limit} reached ({elapsed_ms:.1}ms)")
             }
             Self::Cancelled { count, elapsed_ms } => {
                 format!("Cancelled \u{2014} {count} result{} ({elapsed_ms:.1}ms)", if *count == 1 { "" } else { "s" })
@@ -90,6 +94,8 @@ pub struct InspectorViewModel {
     search_cancel_flag: Option<Arc<AtomicBool>>,
     /// Start time of in-flight search for live status.
     search_started_at: Option<Instant>,
+    /// Maximum XPath search results to collect for the Inspector UI.
+    search_result_limit: Option<usize>,
     /// Background reveal (tree sync) state handled by egui-async.
     reveal_task: Bind<async_tasks::RevealResult, String>,
     /// Latest reveal request epoch.
@@ -108,7 +114,11 @@ pub struct InspectorViewModel {
 
 impl InspectorViewModel {
     /// Create a new inspector ViewModel backed by the given runtime.
-    pub fn new(runtime: Arc<Runtime>, preloaded_root_children: Vec<Arc<UiNodeData>>) -> Self {
+    pub fn new(
+        runtime: Arc<Runtime>,
+        preloaded_root_children: Vec<Arc<UiNodeData>>,
+        search_result_limit: Option<usize>,
+    ) -> Self {
         let rt_for_root = Arc::clone(&runtime);
         let desktop_node = std::thread::Builder::new()
             .name("inspector-root-node".to_string())
@@ -156,6 +166,7 @@ impl InspectorViewModel {
             search_completion: None,
             search_cancel_flag: None,
             search_started_at: None,
+            search_result_limit,
             reveal_task: Bind::new(false),
             reveal_epoch: Arc::new(AtomicU64::new(0)),
             selection_task: Bind::new(false),
@@ -543,7 +554,13 @@ impl InspectorViewModel {
         self.search_progress = Some(Arc::clone(&progress));
         self.search_cancel_flag = Some(Arc::clone(&cancel_flag));
         self.search_started_at = Some(Instant::now());
-        self.search_task.refresh(async_tasks::search_task(Arc::clone(&self.runtime), xpath, cancel_flag, progress));
+        self.search_task.refresh(async_tasks::search_task(
+            Arc::clone(&self.runtime),
+            xpath,
+            cancel_flag,
+            progress,
+            self.search_result_limit,
+        ));
     }
 
     /// Poll the background search for new results. Call this every frame.
@@ -596,6 +613,8 @@ impl InspectorViewModel {
                 let elapsed_ms = summary.elapsed.as_secs_f64() * 1000.0;
                 self.result_status = Some(if summary.cancelled {
                     ResultStatus::Cancelled { count, elapsed_ms }
+                } else if let Some(limit) = summary.limit_reached {
+                    ResultStatus::Limited { count, limit, elapsed_ms }
                 } else {
                     ResultStatus::Completed { count, elapsed_ms }
                 });
