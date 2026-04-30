@@ -8,6 +8,7 @@ use platynui_core::ui::{Namespace, UiNode, UiValue};
 use platynui_runtime::EvaluationItem;
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// A single XPath search result, ready for display.
 #[derive(Clone)]
@@ -125,6 +126,7 @@ pub struct DisplayAttribute {
 /// native accessibility API on next access.
 pub struct UiNodeData {
     node: Arc<dyn UiNode>,
+    namespace_cache: Mutex<Option<Namespace>>,
     id_cache: Mutex<Option<String>>,
     label_cache: Mutex<Option<String>>,
     has_children_cache: Mutex<Option<bool>>,
@@ -137,6 +139,7 @@ impl UiNodeData {
     pub fn new(node: Arc<dyn UiNode>) -> Self {
         Self {
             node,
+            namespace_cache: Mutex::new(None),
             id_cache: Mutex::new(None),
             label_cache: Mutex::new(None),
             has_children_cache: Mutex::new(None),
@@ -156,21 +159,26 @@ impl UiNodeData {
         v
     }
 
-    /// Display label: `Role "Name"` (cached).
-    /// Note: No warning here since we pre-fill cache during initial load.
-    pub fn label(&self) -> String {
-        if let Some(v) = self.label_cache.lock().unwrap().as_ref() {
-            return v.clone();
-        }
-        let name_str = self.node.name();
-        let escaped = escape_control_chars(&name_str);
-        let label = if escaped.is_empty() {
-            self.node.role().to_string()
-        } else {
-            format!("{} \"{}\"", self.node.role(), escaped)
-        };
-        *self.label_cache.lock().unwrap() = Some(label.clone());
-        label
+    /// Cached runtime ID without triggering provider I/O.
+    pub fn cached_id(&self) -> Option<String> {
+        self.id_cache.lock().unwrap().clone()
+    }
+
+    /// Preload the node namespace.
+    pub fn preload_namespace(&self) {
+        let namespace = self.node.namespace();
+        *self.namespace_cache.lock().unwrap() = Some(namespace);
+    }
+
+    /// Preload the complete display label, including the node name.
+    pub fn preload_label(&self) {
+        let label = format_node_label(self.node.as_ref());
+        *self.label_cache.lock().unwrap() = Some(label);
+    }
+
+    /// Cached display label without triggering provider I/O.
+    pub fn cached_label(&self) -> Option<String> {
+        self.label_cache.lock().unwrap().clone()
     }
 
     /// Children as `UiNodeData` wrappers (cached; triggers lazy load on first call).
@@ -178,19 +186,62 @@ impl UiNodeData {
         if let Some(v) = self.children_cache.lock().unwrap().as_ref() {
             return v.clone();
         }
-        let list: Vec<Arc<UiNodeData>> = self
-            .node
-            .children()
-            .map(|child_node| {
-                let has_ch = child_node.has_children();
-                let data = Arc::new(UiNodeData::new(child_node));
-                *data.has_children_cache.lock().unwrap() = Some(has_ch);
-                data
-            })
-            .collect();
-        *self.has_children_cache.lock().unwrap() = Some(!list.is_empty());
-        *self.children_cache.lock().unwrap() = Some(list.clone());
-        list
+        let _ = self.load_children_incremental(|_, _| {}, |_, _| {});
+        self.cached_children().unwrap_or_default()
+    }
+
+    /// Load children on the current thread, publishing each child to the cache as it arrives.
+    ///
+    /// Use this only from background task contexts where blocking provider calls are acceptable.
+    pub fn load_children_incremental<F, G>(&self, mut on_child: F, mut on_child_updated: G) -> usize
+    where
+        F: FnMut(Arc<UiNodeData>, usize),
+        G: FnMut(Arc<UiNodeData>, usize),
+    {
+        *self.children_cache.lock().unwrap() = Some(Vec::new());
+        *self.has_children_cache.lock().unwrap() = Some(false);
+
+        let streaming_start = Instant::now();
+        let mut child_count = 0;
+        let mut loaded_children = Vec::new();
+        let mut child_nodes = self.node.children();
+        loop {
+            let next_start = Instant::now();
+            let Some(child_node) = child_nodes.next() else {
+                log_child_load_timing("iterator-complete", child_count, next_start.elapsed());
+                break;
+            };
+            log_child_load_timing("iterator-next", child_count + 1, next_start.elapsed());
+
+            let data = Arc::new(UiNodeData::new(child_node));
+            let row_preload_start = Instant::now();
+            data.preload_row_caches();
+            log_child_load_timing("row-preload", child_count + 1, row_preload_start.elapsed());
+            child_count += 1;
+
+            let mut cache = self.children_cache.lock().unwrap();
+            let children = cache.get_or_insert_with(Vec::new);
+            children.push(Arc::clone(&data));
+            drop(cache);
+
+            *self.has_children_cache.lock().unwrap() = Some(true);
+            on_child(Arc::clone(&data), child_count);
+            loaded_children.push((child_count, data));
+        }
+
+        log_child_load_timing("children-streamed", child_count, streaming_start.elapsed());
+        *self.has_children_cache.lock().unwrap() = Some(child_count > 0);
+
+        let metadata_start = Instant::now();
+        for (child_index, data) in loaded_children {
+            let metadata_preload_start = Instant::now();
+            data.preload_deferred_row_caches();
+            log_child_load_timing("deferred-row-preload", child_index, metadata_preload_start.elapsed());
+            on_child_updated(data, child_index);
+        }
+        log_child_load_timing("deferred-row-preload-complete", child_count, metadata_start.elapsed());
+
+        child_count
     }
 
     /// Return already-cached children without triggering any I/O.
@@ -210,11 +261,15 @@ impl UiNodeData {
         *self.has_children_cache.lock().unwrap()
     }
 
-    /// Preload essential caches on the worker thread before the inspector
-    /// window opens. Called for each root child during the initial load.
-    pub fn preload_caches(&self) {
+    /// Preload row data that is needed before a child is first streamed to the UI.
+    pub fn preload_row_caches(&self) {
         let _ = self.id();
-        let _ = self.label();
+        self.preload_namespace();
+        self.preload_label();
+    }
+
+    /// Preload row data that can be updated after a child is already visible.
+    pub fn preload_deferred_row_caches(&self) {
         let _ = self.is_valid();
         if self.has_children_cache.lock().unwrap().is_none() {
             let has_ch = self.node.has_children();
@@ -231,6 +286,11 @@ impl UiNodeData {
         let is_valid = self.node.is_valid();
         *self.is_valid_cache.lock().unwrap() = Some(is_valid);
         is_valid
+    }
+
+    /// Cached validity without triggering provider I/O.
+    pub fn cached_is_valid(&self) -> Option<bool> {
+        *self.is_valid_cache.lock().unwrap()
     }
 
     /// Whether this node has a parent, evaluated on the current thread.
@@ -257,29 +317,27 @@ impl UiNodeData {
         extract_bounds_rect(self.node.as_ref())
     }
 
-    /// Initialize the children cache to an empty list.
-    ///
-    /// Call this before streaming children from a background thread so that
-    /// `children()` returns the partial list rather than triggering a
-    /// synchronous full load.
-    pub fn init_children_cache(&self) {
-        *self.children_cache.lock().unwrap() = Some(Vec::new());
-        *self.has_children_cache.lock().unwrap() = Some(false);
+    /// Clear cached child data without querying the provider.
+    pub fn clear_children_cache(&self) {
+        *self.children_cache.lock().unwrap() = None;
+        *self.has_children_cache.lock().unwrap() = None;
     }
 
-    /// Append a single pre-loaded child to the children cache.
-    ///
-    /// Used by the background streaming thread.  Thread-safe via `Mutex`.
-    pub fn push_cached_child(&self, child: Arc<UiNodeData>) {
-        let mut cache = self.children_cache.lock().unwrap();
-        let v = cache.get_or_insert_with(Vec::new);
-        v.push(child);
-        *self.has_children_cache.lock().unwrap() = Some(true);
+    /// Clear cached descendants without querying the provider.
+    pub fn clear_children_cache_recursive(&self) {
+        let cached_children = self.children_cache.lock().unwrap().clone();
+        self.clear_children_cache();
+        if let Some(children) = cached_children.as_ref() {
+            for child in children {
+                child.clear_children_cache_recursive();
+            }
+        }
     }
 
     /// Invalidate all caches so values are re-queried on next access.
     pub fn refresh(&self) {
         self.node.invalidate();
+        *self.namespace_cache.lock().unwrap() = None;
         *self.id_cache.lock().unwrap() = None;
         *self.label_cache.lock().unwrap() = None;
         *self.has_children_cache.lock().unwrap() = None;
@@ -296,6 +354,19 @@ impl UiNodeData {
                 child.refresh_recursive();
             }
         }
+    }
+}
+
+fn format_node_label(node: &dyn UiNode) -> String {
+    let name_str = node.name();
+    let escaped = escape_control_chars(&name_str);
+    if escaped.is_empty() { node.role().to_string() } else { format!("{} \"{}\"", node.role(), escaped) }
+}
+
+fn log_child_load_timing(stage: &'static str, child_count: usize, elapsed: Duration) {
+    if elapsed > Duration::from_millis(200) {
+        let elapsed_ms = elapsed.as_secs_f64() * 1000.0;
+        tracing::warn!(stage, child_count, elapsed_ms, "slow inspector tree child loading stage");
     }
 }
 

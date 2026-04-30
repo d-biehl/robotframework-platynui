@@ -26,6 +26,10 @@ pub trait TreeRowData {
     fn is_expanded(&self) -> bool;
     /// Whether the underlying data is still valid.
     fn is_valid(&self) -> bool;
+    /// Whether child data is currently being loaded for this row.
+    fn is_loading(&self) -> bool {
+        false
+    }
 }
 
 // ── Response types ───────────────────────────────────────────────────────────
@@ -193,6 +197,11 @@ impl<'a, R: TreeRowData> TreeView<'a, R> {
                             text = text.strong();
                         }
                         ui.label(text);
+
+                        if row.is_loading() {
+                            ui.add_space(4.0);
+                            ui.add(egui::Spinner::new().size(12.0));
+                        }
 
                         // Consume remaining horizontal space so the
                         // Frame spans the full available width.

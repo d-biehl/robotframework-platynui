@@ -2,13 +2,13 @@
 
 <!-- This is a living document. For version history see CHANGELOG.md and git log. -->
 
-This document covers the PlatynUI GUI Inspector. For the platform-agnostic architecture, see `docs/architecture.md`.
+This document covers the PlatynUI GUI Inspector. For the platform-agnostic architecture, see `docs/architecture.md`. For planned UX and workflow improvements, see `docs/inspector-improvements.md`.
 
 Binary: `platynui-inspector-rs` (package `platynui-inspector`, egui-based GUI)
 
 ## Overview
 
-The inspector is a desktop GUI tool for exploring and debugging the PlatynUI UI tree in real time. It connects to the PlatynUI runtime, displays the full UI element hierarchy, allows XPath queries against the tree, shows element properties, and highlights selected elements on screen.
+The inspector is a desktop GUI tool for exploring and debugging the PlatynUI UI tree in real time. It connects to the PlatynUI runtime, displays the full UI element hierarchy, allows XPath queries against the tree, shows element attributes, and highlights selected elements on screen.
 
 **UI framework**: [egui](https://github.com/emilk/egui) via `eframe` (pure Rust, immediate-mode GUI). Chosen for its minimal dependency footprint, no build-time code generation, and straightforward Rust-native API.
 
@@ -30,40 +30,53 @@ src/
 └── view/                ← V: Pure UI rendering (egui)
     ├── mod.rs
     ├── tree_view.rs     ← TreeView panel
-    ├── properties.rs    ← Properties table
+    ├── attributes.rs    ← Attributes table
     └── toolbar.rs       ← Menu, search bar, results panel
 ```
 
 ### Model Layer (`model/`)
 
-- **`UiNodeData`** — Cached wrapper around `Arc<dyn UiNode>`. Caches id, label, children, and `has_children` behind `Mutex` guards. Provides `display_attributes()` for the properties table and `bounds_rect()` for highlighting. `refresh()` / `refresh_recursive()` invalidate caches.
+- **`UiNodeData`** — Cached wrapper around `Arc<dyn UiNode>`. Caches id, label, children, and `has_children` behind `Mutex` guards. Provides `display_attributes()` for the attributes table and `bounds_rect()` for highlighting. `refresh()` / `refresh_recursive()` invalidate caches.
 - **`SearchResultItem`** — Enum for XPath results: `Node`, `Attribute` (with owner node for tree reveal), `Value`.
-- **`DisplayAttribute`** — Flat struct for properties table rows (namespace, name, value, type).
+- **`DisplayAttribute`** — Flat struct for attributes table rows (namespace, name, value, type).
 
 ### ViewModel Layer (`viewmodel/`)
 
 - **`TreeViewModel`** — Maintains a `HashSet<String>` of expanded node IDs and a flattened `Vec<VisibleRow>` of the currently visible tree. Supports `toggle`, `expand`, `collapse`, `reveal_node` (auto-expand ancestor chain), `refresh_row`, `refresh_subtree`.
-- **`InspectorViewModel`** — Top-level app state: owns `TreeViewModel`, `Runtime`, selection/focus indices, search text, results, properties cache. Provides keyboard navigation (Up/Down/Left/Right/Home/End/PageUp/PageDown), `evaluate_xpath()` (non-blocking, spawns background thread), `poll_search()` (drains streaming results each frame), `cancel_search()`, `reveal_and_select_result()`, and auto-highlight on selection.
+- **`InspectorViewModel`** — Top-level app state: owns `TreeViewModel`, `Runtime`, selection/focus indices, search text, results, attributes cache. Provides keyboard navigation (Up/Down/Left/Right/Home/End/PageUp/PageDown), `evaluate_xpath()` (non-blocking, spawns background thread), `poll_search()` (drains streaming results each frame), `cancel_search()`, `reveal_and_select_result()`, and auto-highlight on selection.
 
 ### View Layer (`view/`)
 
 All view functions are pure rendering — they read state and return action enums. No mutation of ViewModel state happens inside view code.
 
 - **`tree_view::show_tree()`** — ScrollArea with indented rows, disclosure triangles, role icons, selection/focus indicators, context menu (Refresh / Refresh Subtree). Returns `Vec<TreeAction>`.
-- **`properties::show_properties()`** — `egui_extras::TableBuilder` with sortable columns (Name, Value, Type). Each cell is a read-only `TextEdit` for native text selection. Context menu: Copy Name/Value/Type/Row.
-- **`toolbar::show_menu_bar()`** / `show_search_bar()` / `show_results_panel()` — Menu bar, XPath search with Enter/Button (toggles to Stop while searching), results list with click-to-reveal. Returns `Vec<ToolbarAction>` (`EvaluateXPath`, `CancelSearch`, `RevealResult`).
+- **`attributes::show_attributes()`** — `egui_extras::TableBuilder` with sortable columns (Name, Value, Type), a grouped/ungrouped namespace toggle, and a text filter over `namespace:name`, value, and type. Each cell is a read-only `TextEdit` for native text selection. In grouped mode, the same resizable table stays in place and inserts collapsible namespace group rows into the body, closer to a classic list-view layout. Context menu: Copy Name/Value/Type/Row, Pin Attribute, Unpin Attribute. Pinned attributes stay above the normal sorted rows.
+- **`toolbar::show_menu_bar()`** / `show_search_bar()` / `show_results_panel()` — Menu bar, XPath search with Enter/Button (toggles to Stop while searching), and a keyboard-navigable results list with explicit reveal, highlight, and copy actions.
 
 ## Features
 
 - **UI Tree** — Hierarchical tree with lazy child loading, expand/collapse, keyboard navigation, role icons, invalid-node strikethrough
-- **Properties Panel** — Sortable table with namespace:name, value, type columns; copy via context menu and native text selection
-- **XPath Search** — Non-blocking, streaming XPath evaluation with cancellation support. Results appear incrementally with a live spinner and elapsed time. Click any result to reveal the node in tree
+- **Attributes Panel** — Sortable table with grouped and ungrouped namespace views, collapsible namespace groups in grouped mode, a quick text filter, copy via context menu and native text selection, and per-attribute pinning to keep common rows at the top
+- **XPath Search** — Non-blocking, streaming XPath evaluation with cancellation support. Results appear incrementally with a live spinner and elapsed time. The Inspector shows the first 5000 results by default; override with `--search-result-limit` or `PLATYNUI_INSPECTOR_SEARCH_RESULT_LIMIT` (`unlimited` disables the guard). Single-click focuses a result, `Enter` or double-click reveals it in the tree, and a context menu exposes highlight and copy actions
 - **Element Highlighting** — Selected elements are highlighted on screen (1.5s) via platform highlight provider
 - **Always On Top** — Toggle to keep inspector above other windows
 - **Context Menu** — Refresh node or subtree from tree view
 - **Tracing** — `--log-level` CLI flag, `RUST_LOG` / `PLATYNUI_LOG_LEVEL` env vars
 
 ## Troubleshooting
+
+### Windows: WGPU backend selection and startup latency
+
+The Inspector uses `eframe` with the `wgpu` renderer by default. On Windows, it tries Vulkan first and DX12 next. OpenGL is not tried automatically because it can make startup noticeably slower on some systems while Windows UI Automation is being queried.
+
+The practical defaults are:
+
+- Unset `WGPU_BACKEND`: use Vulkan/DX12 only, with the adapter selector preferring Vulkan before DX12.
+- `WGPU_BACKEND=vulkan`: force Vulkan.
+- `WGPU_BACKEND=dx12`: force DX12.
+- `WGPU_BACKEND=gl`: opt into the GL path for diagnostics or compatibility testing.
+
+For implementation work, do not work around this with pre-window UIA root traversal or shell-specific heuristics such as stopping at `Program Manager`. The Inspector keeps provider traversal behind the first rendered frames and uses renderer/backend configuration to avoid the OpenGL-specific startup stall.
 
 ### WSL2 / WSLg: Wayland backend crash (`Broken pipe`, `winit EventLoopError`)
 

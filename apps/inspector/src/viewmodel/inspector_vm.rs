@@ -4,13 +4,27 @@ use crate::model::tree_data::{DisplayAttribute, SearchResultItem, UiNodeData};
 use crate::viewmodel::{async_tasks, tree_vm::TreeViewModel};
 use eframe::egui;
 use egui_async::Bind;
-use platynui_core::ui::UiNode;
 use platynui_runtime::Runtime;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
 const SEARCH_RESULTS_PER_FRAME: usize = 512;
+const INITIAL_TREE_LOAD_DEFER_FRAMES: u8 = 2;
+const TREE_CHILD_PROGRESS_EVENTS_PER_FRAME: usize = 256;
+
+#[derive(Clone)]
+struct ChildLoadRequest {
+    node: Arc<UiNodeData>,
+    mode: async_tasks::ChildLoadMode,
+}
+
+struct ActiveChildLoad {
+    request_id: u64,
+    node: Arc<UiNodeData>,
+    node_id: Option<String>,
+}
 
 #[derive(Clone, Debug)]
 enum ResultStatus {
@@ -78,12 +92,20 @@ pub struct InspectorViewModel {
     pub scroll_to_focused: bool,
     /// PlatynUI runtime (kept alive for the entire application).
     runtime: Arc<Runtime>,
-    /// Root node kept for lazy start of initial tree loading on first frame.
-    init_root: Option<Arc<dyn UiNode>>,
+    /// Root node data kept for delayed initial tree loading after first paint.
+    init_root: Option<Arc<UiNodeData>>,
     /// Number of frames to wait before starting initial tree iteration.
     init_defer_frames: u8,
-    /// Initial tree loading state handled by egui-async.
-    init_load_task: Bind<Vec<Arc<UiNodeData>>, String>,
+    /// On-demand tree child loading handled by egui-async.
+    child_load_task: Bind<async_tasks::ChildLoadResult, String>,
+    /// Shared in-flight tree child progress for incremental UI updates.
+    child_load_progress: async_tasks::SharedChildLoadProgress,
+    /// Queued expand/refresh child loads while one child task is active.
+    pending_child_loads: VecDeque<ChildLoadRequest>,
+    /// Currently active child load metadata.
+    active_child_load: Option<ActiveChildLoad>,
+    /// Monotonic request id to ignore stale child-load results.
+    child_load_request_id: u64,
     /// XPath search state handled by egui-async.
     search_task: Bind<async_tasks::SearchResult, String>,
     /// Shared in-flight search progress for incremental UI updates.
@@ -114,29 +136,14 @@ pub struct InspectorViewModel {
 
 impl InspectorViewModel {
     /// Create a new inspector ViewModel backed by the given runtime.
-    pub fn new(
-        runtime: Arc<Runtime>,
-        preloaded_root_children: Vec<Arc<UiNodeData>>,
-        search_result_limit: Option<usize>,
-    ) -> Self {
-        let rt_for_root = Arc::clone(&runtime);
-        let desktop_node = std::thread::Builder::new()
-            .name("inspector-root-node".to_string())
-            .spawn(move || rt_for_root.desktop_node())
-            .expect("failed to spawn inspector-root-node thread")
-            .join()
-            .expect("inspector-root-node thread panicked");
-        let root_data = Arc::new(UiNodeData::new(Arc::clone(&desktop_node)));
-        root_data.init_children_cache();
-
-        for child in preloaded_root_children {
-            root_data.push_cached_child(Arc::clone(&child));
-        }
-
+    pub fn new(runtime: Arc<Runtime>, root_data: Arc<UiNodeData>, search_result_limit: Option<usize>) -> Self {
         let mut tree = TreeViewModel::new(Arc::clone(&root_data));
-        if root_data.cached_children().is_some_and(|children| !children.is_empty()) {
+        let init_root = if root_data.cached_children().is_some() {
             tree.expand_root();
-        }
+            None
+        } else {
+            Some(root_data)
+        };
 
         Self {
             tree,
@@ -152,15 +159,15 @@ impl InspectorViewModel {
             result_focused_index: 0,
             scroll_to_focused: false,
             runtime,
-            init_root: if root_data.cached_children().is_some_and(|children| !children.is_empty()) {
-                None
-            } else {
-                Some(desktop_node)
-            },
-            // Ensure one frame is presented before touching potentially slow
+            init_root,
+            // Let the first frames paint before touching potentially slow
             // UIA root-child iteration.
-            init_defer_frames: 1,
-            init_load_task: Bind::new(false),
+            init_defer_frames: INITIAL_TREE_LOAD_DEFER_FRAMES,
+            child_load_task: Bind::new(false),
+            child_load_progress: async_tasks::new_child_load_progress(),
+            pending_child_loads: VecDeque::new(),
+            active_child_load: None,
+            child_load_request_id: 0,
             search_task: Bind::new(false),
             search_progress: None,
             search_completion: None,
@@ -185,45 +192,144 @@ impl InspectorViewModel {
             return;
         }
 
-        if self.init_load_task.is_idle()
-            && let Some(root) = self.init_root.take()
-        {
-            self.init_load_task.refresh(async_tasks::initial_load_task(root));
+        if let Some(root) = self.init_root.take() {
+            self.enqueue_child_load(root, async_tasks::ChildLoadMode::Load);
+            ctx.request_repaint();
         }
+    }
 
-        if let Some(result) = self.init_load_task.take() {
-            match result {
-                Ok(loaded_batch) => {
-                    if loaded_batch.is_empty() {
-                        return;
-                    }
-
-                    let root = Arc::clone(self.tree.root());
-                    for node_data in loaded_batch {
-                        root.push_cached_child(Arc::clone(&node_data));
-                    }
-
-                    if self.tree.row_count() == 0 {
-                        self.tree.expand_root();
-                    } else {
-                        self.tree.rebuild_rows();
-                    }
-
+    /// Poll on-demand tree child loading. Call this every frame.
+    pub fn poll_child_load(&mut self, ctx: &egui::Context) {
+        let mut progress_changed_tree = false;
+        match async_tasks::drain_child_load_progress(&self.child_load_progress, TREE_CHILD_PROGRESS_EVENTS_PER_FRAME) {
+            Ok(drain) => {
+                for event in drain.events {
+                    self.apply_child_load_progress_event(event);
+                    progress_changed_tree = true;
+                }
+                if drain.pending_count > 0 {
                     ctx.request_repaint();
                 }
-                Err(err) => {
-                    tracing::warn!(%err, "initial load task failed");
-                }
             }
-        } else if self.init_load_task.is_pending() {
+            Err(err) => {
+                tracing::warn!(%err, "failed to drain tree child-load progress");
+            }
+        }
+
+        if progress_changed_tree {
+            self.tree.rebuild_rows();
             ctx.request_repaint();
         }
 
-        if self.init_load_task.is_idle() && self.init_root.is_none() {
-            let root = Arc::clone(self.tree.root());
-            if root.cached_children().is_some_and(|children| !children.is_empty()) && self.tree.row_count() == 0 {
-                self.tree.expand_root();
+        if let Some(result) = self.child_load_task.take() {
+            let active = self.active_child_load.take();
+            match result {
+                Ok(result) => {
+                    if let Some(active) = active.as_ref()
+                        && active.request_id != result.request_id
+                    {
+                        if let Some(node_id) = active.node_id.as_deref() {
+                            self.tree.set_loading(node_id, false);
+                        }
+                        self.start_next_child_load();
+                        ctx.request_repaint();
+                        return;
+                    }
+
+                    if let Some(active) = active.as_ref()
+                        && let Some(node_id) = active.node_id.as_deref()
+                    {
+                        self.tree.set_loading(node_id, false);
+                    }
+                    self.tree.set_loading(&result.node_id, false);
+                    self.tree.rebuild_rows();
+                    self.enqueue_visible_expanded_child_loads();
+                    self.start_next_child_load();
+                    ctx.request_repaint();
+                }
+                Err(err) => {
+                    if let Some(active) = active.as_ref()
+                        && let Some(node_id) = active.node_id.as_deref()
+                    {
+                        self.tree.set_loading(node_id, false);
+                    }
+                    tracing::warn!(%err, "tree child load task failed");
+                    self.start_next_child_load();
+                    ctx.request_repaint();
+                }
             }
+        } else if self.child_load_task.is_pending() || !self.pending_child_loads.is_empty() {
+            self.start_next_child_load();
+            ctx.request_repaint();
+        }
+    }
+
+    fn apply_child_load_progress_event(&mut self, event: async_tasks::ChildLoadProgressEvent) {
+        match event {
+            async_tasks::ChildLoadProgressEvent::Started { request_id, node_id } => {
+                if let Some(active) = self.active_child_load.as_mut()
+                    && active.request_id == request_id
+                {
+                    active.node_id = Some(node_id.clone());
+                    self.tree.set_loading(&node_id, true);
+                    if Arc::ptr_eq(&active.node, self.tree.root()) {
+                        self.tree.expand_root();
+                    }
+                }
+            }
+            async_tasks::ChildLoadProgressEvent::ChildLoaded | async_tasks::ChildLoadProgressEvent::NodeUpdated => {}
+        }
+    }
+
+    fn enqueue_child_load(&mut self, node: Arc<UiNodeData>, mode: async_tasks::ChildLoadMode) {
+        let node_id = node.cached_id();
+        let active_for_node = node_id.as_ref().is_some_and(|node_id| {
+            self.active_child_load.as_ref().is_some_and(|active| active.node_id.as_deref() == Some(node_id.as_str()))
+        });
+        let pending_for_node = self.pending_child_loads.iter().any(|request| {
+            node_id.as_ref().is_some_and(|node_id| request.node.cached_id().as_deref() == Some(node_id.as_str()))
+        });
+        if mode == async_tasks::ChildLoadMode::Load && (active_for_node || pending_for_node) {
+            return;
+        }
+
+        if mode != async_tasks::ChildLoadMode::Load {
+            self.pending_child_loads.retain(|request| {
+                node_id.as_ref().is_none_or(|node_id| request.node.cached_id().as_deref() != Some(node_id.as_str()))
+            });
+        }
+
+        if let Some(node_id) = node_id.as_deref() {
+            self.tree.set_loading(node_id, true);
+        }
+        self.pending_child_loads.push_back(ChildLoadRequest { node, mode });
+        self.start_next_child_load();
+    }
+
+    fn enqueue_visible_expanded_child_loads(&mut self) {
+        let missing_children = self.tree.expanded_nodes_missing_children();
+        for node in missing_children {
+            self.enqueue_child_load(node, async_tasks::ChildLoadMode::Load);
+        }
+    }
+
+    fn start_next_child_load(&mut self) {
+        if self.active_child_load.is_some() || self.child_load_task.is_pending() {
+            return;
+        }
+
+        if let Some(request) = self.pending_child_loads.pop_front() {
+            let node_id = request.node.cached_id();
+
+            self.child_load_request_id = self.child_load_request_id.wrapping_add(1);
+            let request_id = self.child_load_request_id;
+            self.active_child_load = Some(ActiveChildLoad { request_id, node: Arc::clone(&request.node), node_id });
+            self.child_load_task.refresh(async_tasks::child_load_task(
+                request_id,
+                request.node,
+                request.mode,
+                Arc::clone(&self.child_load_progress),
+            ));
         }
     }
 
@@ -257,14 +363,7 @@ impl InspectorViewModel {
     pub fn poll_selection(&mut self, ctx: &egui::Context) {
         if let Some(result) = self.selection_task.take() {
             match result {
-                Ok(async_tasks::SelectionResult {
-                    request_id,
-                    selected_label,
-                    attributes,
-                    is_root,
-                    bounds,
-                    node_id,
-                }) => {
+                Ok(async_tasks::SelectionResult { request_id, selected_label, attributes, is_root, bounds }) => {
                     // Ignore stale result from an older selection.
                     if request_id != self.selection_request_id {
                         return;
@@ -276,7 +375,7 @@ impl InspectorViewModel {
                     if is_root {
                         self.clear_highlight();
                     } else {
-                        self.highlight_bounds(node_id, bounds);
+                        self.highlight_bounds(bounds);
                     }
 
                     ctx.request_repaint();
@@ -294,14 +393,7 @@ impl InspectorViewModel {
     pub fn poll_highlight(&mut self, ctx: &egui::Context) {
         if let Some(result) = self.highlight_task.take() {
             match result {
-                Ok(result) => {
-                    let latest_epoch = self.highlight_epoch.load(Ordering::Relaxed);
-                    if result.epoch != latest_epoch {
-                        tracing::debug!(epoch = result.epoch, latest_epoch, "ignored stale highlight task result");
-                    } else if result.skipped {
-                        tracing::debug!(epoch = result.epoch, "highlight task skipped");
-                    }
-                }
+                Ok(_) => {}
                 Err(err) => {
                     tracing::warn!(%err, "highlight task failed");
                 }
@@ -313,7 +405,8 @@ impl InspectorViewModel {
 
     /// Return true when any egui-async background task is currently running.
     pub fn has_pending_background_work(&mut self) -> bool {
-        self.init_load_task.is_pending()
+        self.child_load_task.is_pending()
+            || !self.pending_child_loads.is_empty()
             || self.search_task.is_pending()
             || self.search_completion.is_some()
             || self.reveal_task.is_pending()
@@ -374,7 +467,7 @@ impl InspectorViewModel {
         let count = self.tree.row_count();
         if let Some(row) = self.tree.rows().get(idx).cloned() {
             if row.has_children && !row.is_expanded {
-                self.tree.expand(idx);
+                self.expand_row(idx);
             } else if row.has_children && row.is_expanded && idx + 1 < count {
                 self.focused_index = idx + 1;
                 self.select_node(idx + 1);
@@ -416,15 +509,33 @@ impl InspectorViewModel {
 
     /// Refresh a specific tree row.
     pub fn refresh_row(&mut self, index: usize) {
-        self.tree.refresh_row(index);
+        if let Some(node) = self.tree.refresh_row(index) {
+            self.enqueue_child_load(node, async_tasks::ChildLoadMode::Refresh);
+        }
     }
 
     /// Refresh a tree row and its entire subtree.
     pub fn refresh_subtree(&mut self, index: usize) {
-        self.tree.refresh_subtree(index);
+        if let Some(node) = self.tree.refresh_subtree(index) {
+            self.enqueue_child_load(node, async_tasks::ChildLoadMode::RefreshSubtree);
+        }
     }
 
-    fn highlight_bounds(&mut self, node_id: String, bounds: Option<platynui_core::types::Rect>) {
+    /// Toggle a tree row and queue child loading if expansion needs it.
+    pub fn toggle_row(&mut self, index: usize) {
+        if let Some(node) = self.tree.toggle(index) {
+            self.enqueue_child_load(node, async_tasks::ChildLoadMode::Load);
+        }
+    }
+
+    /// Expand a tree row and queue child loading if needed.
+    pub fn expand_row(&mut self, index: usize) {
+        if let Some(node) = self.tree.expand(index) {
+            self.enqueue_child_load(node, async_tasks::ChildLoadMode::Load);
+        }
+    }
+
+    fn highlight_bounds(&mut self, bounds: Option<platynui_core::types::Rect>) {
         if let Some(bounds) = bounds {
             let rt = Arc::clone(&self.runtime);
             let epoch = next_epoch(&self.highlight_epoch);
@@ -432,7 +543,6 @@ impl InspectorViewModel {
                 rt,
                 epoch,
                 Arc::clone(&self.highlight_epoch),
-                node_id,
                 bounds,
             ));
             return;
@@ -513,7 +623,7 @@ impl InspectorViewModel {
     /// Expand the currently selected tree row, if any.
     pub fn expand_selected_row(&mut self) {
         if let Some(index) = self.selected_index {
-            self.tree.expand(index);
+            self.expand_row(index);
         }
     }
 
@@ -708,7 +818,7 @@ impl InspectorViewModel {
 
     /// Helper: select a node if it's visible in the tree.
     fn select_node_if_visible(&mut self, target_id: &str) {
-        if let Some(tree_index) = self.tree.rows().iter().position(|row| row.data.id() == target_id) {
+        if let Some(tree_index) = self.tree.rows().iter().position(|row| row.id == target_id) {
             self.select_node(tree_index);
         } else {
             tracing::warn!(target_id, "reveal_node: not found in visible rows after expand");
@@ -722,7 +832,6 @@ impl InspectorViewModel {
                 Ok(async_tasks::RevealResult::Ready { epoch, target_id }) => {
                     let latest_epoch = self.reveal_epoch.load(Ordering::Relaxed);
                     if epoch != latest_epoch {
-                        tracing::debug!(epoch, latest_epoch, target_id, "ignored stale reveal task result");
                         return;
                     }
                     // Now find_and_expand is cheap (children are cached).
@@ -732,9 +841,7 @@ impl InspectorViewModel {
                         tracing::warn!(target_id, "reveal_node: not found after background preload");
                     }
                 }
-                Ok(async_tasks::RevealResult::Cancelled { epoch }) => {
-                    tracing::debug!(epoch, "reveal task cancelled");
-                }
+                Ok(async_tasks::RevealResult::Cancelled) => {}
                 Err(err) => {
                     tracing::error!(%err, "reveal task failed");
                 }

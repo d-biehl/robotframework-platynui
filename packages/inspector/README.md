@@ -77,6 +77,8 @@ WGPU_BACKEND=dx12        # comma-separated: dx12, vulkan, gl, metal
 
 `WGPU_POWER_PREF` changes adapter preference, such as low-power versus high-performance devices. `WGPU_BACKEND` limits which graphics backends `wgpu` may try. These settings do not force pure software rendering, but they are useful when diagnosing virtual machine or driver-specific rendering behavior.
 
+On Windows, the inspector uses Vulkan or DX12 by default, with Vulkan preferred when available. OpenGL is not tried automatically because it can make startup noticeably slower on some systems. If you need to test OpenGL anyway, start the inspector with `WGPU_BACKEND=gl`.
+
 ## Notes
 
 - On Linux/X11, make sure accessibility is enabled and AT-SPI is running.

@@ -8,6 +8,8 @@ use std::sync::Arc;
 /// A single visible row in the flattened tree.
 #[derive(Clone)]
 pub struct VisibleRow {
+    /// Stable runtime ID for tree state and selection lookup.
+    pub id: String,
     /// Display label (role + name).
     pub label: String,
     /// Nesting depth (0 = root).
@@ -18,6 +20,8 @@ pub struct VisibleRow {
     pub is_expanded: bool,
     /// Whether the underlying `UiNode` is still valid.
     pub is_valid: bool,
+    /// Whether this node is currently loading child data on a worker.
+    pub is_loading: bool,
     /// Reference to the underlying node data.
     pub data: Arc<UiNodeData>,
 }
@@ -42,12 +46,17 @@ impl TreeRowData for VisibleRow {
     fn is_valid(&self) -> bool {
         self.is_valid
     }
+
+    fn is_loading(&self) -> bool {
+        self.is_loading
+    }
 }
 
 /// ViewModel that maintains a flattened list of visible rows based on expansion state.
 pub struct TreeViewModel {
     root: Arc<UiNodeData>,
     expanded: HashSet<String>,
+    loading: HashSet<String>,
     visible_rows: Vec<VisibleRow>,
 }
 
@@ -57,7 +66,7 @@ impl TreeViewModel {
     /// The tree starts empty; call [`expand_root`] once the initial background
     /// load has populated the root's children cache.
     pub fn new(root: Arc<UiNodeData>) -> Self {
-        Self { root, expanded: HashSet::new(), visible_rows: Vec::new() }
+        Self { root, expanded: HashSet::new(), loading: HashSet::new(), visible_rows: Vec::new() }
     }
 
     /// Expand the root node and rebuild the visible row list.
@@ -65,7 +74,9 @@ impl TreeViewModel {
     /// Call this once after the initial background load completes so the
     /// rebuild is cheap (children are already cached).
     pub fn expand_root(&mut self) {
-        self.expanded.insert(self.root.id());
+        if let Some(root_id) = self.root.cached_id() {
+            self.expanded.insert(root_id);
+        }
         self.rebuild();
     }
 
@@ -92,30 +103,44 @@ impl TreeViewModel {
         self.visible_rows.len()
     }
 
-    /// Toggle expand/collapse for the node at `index`.
-    pub fn toggle(&mut self, index: usize) {
-        if let Some(row) = self.visible_rows.get(index)
-            && row.has_children
-        {
-            let id = row.data.id();
-            if self.expanded.contains(&id) {
-                self.expanded.remove(&id);
-            } else {
-                self.expanded.insert(id);
-            }
-            self.rebuild();
+    /// Mark a node as loading or idle by runtime ID.
+    pub fn set_loading(&mut self, node_id: &str, is_loading: bool) {
+        if is_loading {
+            self.loading.insert(node_id.to_string());
+        } else {
+            self.loading.remove(node_id);
         }
+        self.rebuild();
+    }
+
+    /// Toggle expand/collapse for the node at `index`.
+    pub fn toggle(&mut self, index: usize) -> Option<Arc<UiNodeData>> {
+        let row = self.visible_rows.get(index)?.clone();
+        if !row.has_children {
+            return None;
+        }
+
+        let request = if self.expanded.contains(&row.id) {
+            self.expanded.remove(&row.id);
+            None
+        } else {
+            self.expanded.insert(row.id.clone());
+            if row.data.cached_children().is_none() { Some(Arc::clone(&row.data)) } else { None }
+        };
+        self.rebuild();
+        request
     }
 
     /// Expand the node at `index`.
-    pub fn expand(&mut self, index: usize) {
-        if let Some(row) = self.visible_rows.get(index)
-            && row.has_children
-            && !row.is_expanded
-        {
-            self.expanded.insert(row.data.id());
+    pub fn expand(&mut self, index: usize) -> Option<Arc<UiNodeData>> {
+        let row = self.visible_rows.get(index)?.clone();
+        if row.has_children && !row.is_expanded {
+            self.expanded.insert(row.id.clone());
+            let request = if row.data.cached_children().is_none() { Some(Arc::clone(&row.data)) } else { None };
             self.rebuild();
+            return request;
         }
+        None
     }
 
     /// Collapse the node at `index`.
@@ -123,7 +148,7 @@ impl TreeViewModel {
         if let Some(row) = self.visible_rows.get(index)
             && row.is_expanded
         {
-            self.expanded.remove(&row.data.id());
+            self.expanded.remove(&row.id);
             self.rebuild();
         }
     }
@@ -139,19 +164,31 @@ impl TreeViewModel {
     }
 
     /// Refresh a single row's cached data and rebuild.
-    pub fn refresh_row(&mut self, index: usize) {
-        if let Some(row) = self.visible_rows.get(index) {
-            row.data.refresh();
-        }
+    pub fn refresh_row(&mut self, index: usize) -> Option<Arc<UiNodeData>> {
+        let row = self.visible_rows.get(index)?.clone();
+        row.data.clear_children_cache();
+        self.loading.insert(row.id);
         self.rebuild();
+        Some(row.data)
     }
 
     /// Refresh a row and all its descendants recursively, then rebuild.
-    pub fn refresh_subtree(&mut self, index: usize) {
-        if let Some(row) = self.visible_rows.get(index) {
-            row.data.refresh_recursive();
-        }
+    pub fn refresh_subtree(&mut self, index: usize) -> Option<Arc<UiNodeData>> {
+        let row = self.visible_rows.get(index)?.clone();
+        row.data.clear_children_cache_recursive();
+        self.loading.insert(row.id);
         self.rebuild();
+        Some(row.data)
+    }
+
+    /// Expanded nodes whose children are not cached yet and are not already loading.
+    pub fn expanded_nodes_missing_children(&self) -> Vec<Arc<UiNodeData>> {
+        self.visible_rows
+            .iter()
+            .filter(|row| row.is_expanded && row.has_children && row.data.cached_children().is_none())
+            .filter(|row| !self.loading.contains(&row.id))
+            .map(|row| Arc::clone(&row.data))
+            .collect()
     }
 
     /// Reveal a node by runtime ID using only already-cached children.
@@ -175,7 +212,10 @@ impl TreeViewModel {
     /// expanded and `true` is returned.  Returns `false` immediately when a
     /// node's children have not been loaded yet.
     fn find_and_expand(&mut self, node: &Arc<UiNodeData>, target_id: &str) -> bool {
-        if node.id() == target_id {
+        let Some(node_id) = node.cached_id() else {
+            return false;
+        };
+        if node_id == target_id {
             return true;
         }
 
@@ -186,7 +226,7 @@ impl TreeViewModel {
 
         for child in children {
             if self.find_and_expand(&child, target_id) {
-                self.expanded.insert(node.id());
+                self.expanded.insert(node_id);
                 return true;
             }
         }
@@ -197,28 +237,54 @@ impl TreeViewModel {
     /// Rebuild the flattened visible row list from the current expansion state.
     fn rebuild(&mut self) {
         self.visible_rows.clear();
-        Self::flatten(Arc::clone(&self.root), 0, &self.expanded, &mut self.visible_rows);
+        Self::flatten(Arc::clone(&self.root), 0, &self.expanded, &self.loading, &mut self.visible_rows);
     }
 
     /// Recursively flatten the tree into visible rows.
-    fn flatten(node: Arc<UiNodeData>, depth: usize, expanded: &HashSet<String>, out: &mut Vec<VisibleRow>) {
-        let id = node.id();
+    fn flatten(
+        node: Arc<UiNodeData>,
+        depth: usize,
+        expanded: &HashSet<String>,
+        loading: &HashSet<String>,
+        out: &mut Vec<VisibleRow>,
+    ) {
+        let id = node.cached_id().unwrap_or_else(|| "<uncached-node>".to_string());
         let is_expanded = expanded.contains(&id);
-        let label = node.label();
-        let is_valid = node.is_valid();
+        let label = node.cached_label().unwrap_or_else(|| id.clone());
+        let is_valid = node.cached_is_valid().unwrap_or(true);
+        let is_loading = loading.contains(&id);
 
-        let loaded_children = if is_expanded { Some(node.children()) } else { None };
+        let loaded_children = if is_expanded { node.cached_children() } else { None };
         let has_children = match loaded_children.as_ref() {
-            Some(children) => !children.is_empty(),
-            None => node.cached_has_children().unwrap_or(true),
+            Some(children) => is_loading || !children.is_empty(),
+            None => is_loading || node.cached_has_children().unwrap_or(true),
         };
 
-        out.push(VisibleRow { label, depth, has_children, is_expanded, is_valid, data: Arc::clone(&node) });
+        out.push(VisibleRow {
+            id,
+            label,
+            depth,
+            has_children,
+            is_expanded,
+            is_valid,
+            is_loading,
+            data: Arc::clone(&node),
+        });
 
         if let Some(children) = loaded_children {
-            for child in children {
-                Self::flatten(child, depth + 1, expanded, out);
-            }
+            Self::flatten_children(children, depth, expanded, loading, out);
+        }
+    }
+
+    fn flatten_children(
+        children: Vec<Arc<UiNodeData>>,
+        parent_depth: usize,
+        expanded: &HashSet<String>,
+        loading: &HashSet<String>,
+        out: &mut Vec<VisibleRow>,
+    ) {
+        for child in children {
+            Self::flatten(child, parent_depth + 1, expanded, loading, out);
         }
     }
 }

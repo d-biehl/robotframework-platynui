@@ -25,10 +25,10 @@ mod view;
 mod viewmodel;
 
 use crate::model::tree_data::UiNodeData;
-
 use clap::{Parser, ValueEnum};
 use eframe::egui;
-use platynui_core::ui::UiNode;
+#[cfg(target_os = "windows")]
+use eframe::wgpu;
 use platynui_link::platynui_link_providers;
 use platynui_runtime::Runtime;
 use std::collections::BTreeSet;
@@ -149,6 +149,75 @@ impl std::fmt::Display for RendererChoice {
             Self::Glow => "glow".fmt(formatter),
         }
     }
+}
+
+fn inspector_wgpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
+    let mut options = eframe::egui_wgpu::WgpuConfiguration::default();
+    configure_inspector_wgpu_options(&mut options);
+    options
+}
+
+#[cfg(target_os = "windows")]
+fn configure_inspector_wgpu_options(options: &mut eframe::egui_wgpu::WgpuConfiguration) {
+    let eframe::egui_wgpu::WgpuSetup::CreateNew(create_new) = &mut options.wgpu_setup else {
+        return;
+    };
+
+    let backends = wgpu::Backends::from_env().unwrap_or(preferred_windows_wgpu_backends());
+    create_new.instance_descriptor.backends = backends;
+    let selector: eframe::egui_wgpu::NativeAdapterSelectorMethod = Arc::new(select_windows_wgpu_adapter);
+    create_new.native_adapter_selector = Some(selector);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn configure_inspector_wgpu_options(_options: &mut eframe::egui_wgpu::WgpuConfiguration) {}
+
+#[cfg(target_os = "windows")]
+fn preferred_windows_wgpu_backends() -> wgpu::Backends {
+    // Do not include GL in the default Windows mask: eframe/wgpu enumerates all adapters in the
+    // mask before the adapter selector runs, and GL enumeration can trigger the slow UIA path.
+    // Users can still opt into GL explicitly via WGPU_BACKEND=gl when diagnosing renderer issues.
+    wgpu::Backends::VULKAN | wgpu::Backends::DX12
+}
+
+#[cfg(target_os = "windows")]
+fn select_windows_wgpu_adapter(
+    adapters: &[wgpu::Adapter],
+    compatible_surface: Option<&wgpu::Surface<'_>>,
+) -> Result<wgpu::Adapter, String> {
+    for preferred_backend in [wgpu::Backend::Vulkan, wgpu::Backend::Dx12, wgpu::Backend::Gl] {
+        if let Some(adapter) = adapters.iter().find(|adapter| {
+            adapter.get_info().backend == preferred_backend && adapter_supports_surface(adapter, compatible_surface)
+        }) {
+            return Ok(adapter.clone());
+        }
+    }
+
+    if let Some(adapter) = adapters.iter().find(|adapter| adapter_supports_surface(adapter, compatible_surface)) {
+        return Ok(adapter.clone());
+    }
+
+    let available_adapters = adapters
+        .iter()
+        .map(|adapter| {
+            let info = adapter.get_info();
+            format!("{} ({}, {:?})", info.name, info.backend, info.device_type)
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    if available_adapters.is_empty() {
+        Err("no wgpu adapters are available for the configured backend mask".to_string())
+    } else {
+        Err(format!(
+            "no surface-compatible wgpu adapter found for the configured backend mask; available adapters: {available_adapters}"
+        ))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn adapter_supports_surface(adapter: &wgpu::Adapter, compatible_surface: Option<&wgpu::Surface<'_>>) -> bool {
+    compatible_surface.is_none_or(|surface| adapter.is_surface_supported(surface))
 }
 
 /// Supported hardware acceleration policies for the glow renderer.
@@ -393,14 +462,14 @@ impl InspectorApp {
 
     fn new(
         runtime: Arc<Runtime>,
-        preloaded_root_children: Vec<Arc<UiNodeData>>,
+        initial_root: Arc<UiNodeData>,
         search_result_limit: Option<usize>,
         ctx: &egui::Context,
     ) -> Self {
         Self::apply_system_fonts(ctx);
 
         Self {
-            vm: InspectorViewModel::new(runtime, preloaded_root_children, search_result_limit),
+            vm: InspectorViewModel::new(runtime, initial_root, search_result_limit),
             attributes_sort: attributes::AttributesSortState::default(),
             attributes_view_mode: attributes::AttributesViewMode::default(),
             attribute_filter: String::new(),
@@ -475,20 +544,34 @@ impl InspectorApp {
             }
         }
     }
+
+    fn poll_background_work(&mut self, ctx: &egui::Context) {
+        self.vm.poll_initial_load(ctx);
+        self.vm.poll_child_load(ctx);
+        self.vm.poll_search(ctx);
+        self.vm.poll_reveal(ctx);
+        self.vm.poll_selection(ctx);
+        self.vm.poll_highlight(ctx);
+    }
 }
 
 impl eframe::App for InspectorApp {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        ctx.plugin_or_default::<egui_async::EguiAsyncPlugin>();
+        self.maybe_refresh_system_fonts(ctx);
+
+        for command in Self::collect_shortcut_commands(ctx) {
+            self.execute_command(ctx, command);
+        }
+
+        self.poll_background_work(ctx);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        ctx.plugin_or_default::<egui_async::EguiAsyncPlugin>();
-        self.maybe_refresh_system_fonts(&ctx);
 
         let is_searching = self.vm.is_searching();
         let has_node_selection = self.vm.selected_index.is_some();
-
-        for command in Self::collect_shortcut_commands(&ctx) {
-            self.execute_command(&ctx, command);
-        }
 
         // View: Menu Bar (top)
         let menu_actions = toolbar::show_menu_bar(ui, has_node_selection, is_searching);
@@ -543,24 +626,6 @@ impl eframe::App for InspectorApp {
                 toolbar::ToolbarAction::SearchTextChanged => self.vm.on_search_text_changed(),
             }
         }
-
-        // Poll background initial tree load (must run every frame while loading).
-        self.vm.poll_initial_load(&ctx);
-
-        // Poll background search for new results BEFORE rendering the
-        // results panel so the count shown in the header and the status
-        // text are always consistent within a single frame.
-        self.vm.poll_search(&ctx);
-
-        // Poll background reveal (tree sync) so the tree updates once
-        // the ancestor path is pre-loaded.
-        self.vm.poll_reveal(&ctx);
-
-        // Poll background selected-node details so selection never blocks UI.
-        self.vm.poll_selection(&ctx);
-
-        // Poll background highlight operations.
-        self.vm.poll_highlight(&ctx);
 
         let status_text = self.vm.status_bar_text();
 
@@ -673,7 +738,7 @@ impl eframe::App for InspectorApp {
                             )
                             .clicked()
                         {
-                            self.vm.tree.expand(i);
+                            self.vm.expand_row(i);
                             close = true;
                         }
 
@@ -701,7 +766,7 @@ impl eframe::App for InspectorApp {
                     self.vm.select_node(i);
                 }
                 if let Some(i) = response.toggled {
-                    self.vm.tree.toggle(i);
+                    self.vm.toggle_row(i);
                 }
                 if let Some(nav) = response.navigate {
                     match nav {
@@ -739,6 +804,10 @@ impl eframe::App for InspectorApp {
     }
 }
 
+fn create_initial_root(runtime: &Arc<Runtime>) -> Arc<UiNodeData> {
+    Arc::new(UiNodeData::new(runtime.desktop_node()))
+}
+
 /// Run the inspector application.
 ///
 /// Creates the PlatynUI runtime, initializes tracing, and opens the egui window.
@@ -764,32 +833,13 @@ pub fn run() -> eframe::Result {
 
     let runtime = Runtime::new().expect("Failed to create PlatynUI runtime");
     let runtime = Arc::new(runtime);
-
-    // Snapshot top-level nodes before creating the inspector window.
-    // This avoids expensive UIA root traversal while the inspector is
-    // already advertising its own accessibility tree.
-    let rt_for_preload = Arc::clone(&runtime);
-    let preloaded_root_children = std::thread::Builder::new()
-        .name("inspector-preload".to_string())
-        .spawn(move || {
-            let root = rt_for_preload.desktop_node();
-            let raw_children: Vec<Arc<dyn UiNode>> = root.children().collect();
-            let mut out = Vec::with_capacity(raw_children.len());
-            for node in raw_children {
-                let data = Arc::new(UiNodeData::new(node));
-                data.preload_caches();
-                out.push(data);
-            }
-            out
-        })
-        .expect("failed to spawn inspector-preload thread")
-        .join()
-        .expect("inspector-preload thread panicked");
+    let initial_root = create_initial_root(&runtime);
 
     let icon = load_icon();
     let options = eframe::NativeOptions {
         renderer: renderer.to_eframe(),
         hardware_acceleration: glow_hardware_acceleration.to_eframe(),
+        wgpu_options: inspector_wgpu_options(),
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 750.0])
             .with_title("PlatynUI Inspector")
@@ -806,7 +856,7 @@ pub fn run() -> eframe::Result {
 
             Ok(Box::new(InspectorApp::new(
                 Arc::clone(&runtime),
-                preloaded_root_children,
+                initial_root,
                 search_result_limit.into_limit(),
                 &cc.egui_ctx,
             )))

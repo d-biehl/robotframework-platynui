@@ -60,21 +60,63 @@ pub fn drain_search_progress(
     Ok(SearchProgressDrain { results, total_count: state.result_count, pending_count: state.pending_results.len() })
 }
 
+/// Progress event emitted while tree children are loaded incrementally.
+#[derive(Clone, Debug)]
+pub enum ChildLoadProgressEvent {
+    Started { request_id: u64, node_id: String },
+    ChildLoaded,
+    NodeUpdated,
+}
+
+/// Shared mutable progress for in-flight tree child loading.
+#[derive(Default)]
+pub struct ChildLoadProgress {
+    pending_events: VecDeque<ChildLoadProgressEvent>,
+}
+
+impl ChildLoadProgress {
+    fn push_event(&mut self, event: ChildLoadProgressEvent) {
+        self.pending_events.push_back(event);
+    }
+}
+
+/// A bounded batch drained from shared child-load progress.
+pub struct ChildLoadProgressDrain {
+    pub events: Vec<ChildLoadProgressEvent>,
+    pub pending_count: usize,
+}
+
+/// Shared child-load progress container.
+pub type SharedChildLoadProgress = Arc<Mutex<ChildLoadProgress>>;
+
+/// Create a new shared progress container for tree child loading.
+pub fn new_child_load_progress() -> SharedChildLoadProgress {
+    Arc::new(Mutex::new(ChildLoadProgress::default()))
+}
+
+/// Drain up to `max_events` child-load progress events.
+pub fn drain_child_load_progress(
+    progress: &SharedChildLoadProgress,
+    max_events: usize,
+) -> Result<ChildLoadProgressDrain, String> {
+    let mut state = progress.lock().map_err(|_| "child-load progress lock poisoned".to_string())?;
+    let count = state.pending_events.len().min(max_events);
+    let events = state.pending_events.drain(..count).collect();
+    Ok(ChildLoadProgressDrain { events, pending_count: state.pending_events.len() })
+}
+
 /// Result of a background reveal operation (ancestor preload).
 #[derive(Clone, Debug)]
 pub enum RevealResult {
     /// Ancestor path pre-loaded successfully; target is ready to reveal.
     Ready { epoch: u64, target_id: String },
     /// Reveal was cancelled.
-    Cancelled { epoch: u64 },
+    Cancelled,
 }
 
 /// Result of a background highlight operation.
 #[derive(Clone, Copy, Debug)]
-pub struct HighlightResult {
-    pub epoch: u64,
-    pub skipped: bool,
-}
+pub struct HighlightResult;
 
 /// Result payload for selected-node details.
 #[derive(Clone, Debug)]
@@ -84,6 +126,23 @@ pub struct SelectionResult {
     pub attributes: Vec<crate::model::tree_data::DisplayAttribute>,
     pub is_root: bool,
     pub bounds: Option<platynui_core::types::Rect>,
+}
+
+/// Child-load behavior for tree expansion and refresh requests.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ChildLoadMode {
+    /// Load children if the cache is empty.
+    Load,
+    /// Invalidate this node before loading its children.
+    Refresh,
+    /// Invalidate this node and cached descendants before loading children.
+    RefreshSubtree,
+}
+
+/// Result payload for asynchronous tree child loading.
+#[derive(Clone, Debug)]
+pub struct ChildLoadResult {
+    pub request_id: u64,
     pub node_id: String,
 }
 
@@ -99,16 +158,8 @@ pub async fn reveal_task(
 ) -> Result<RevealResult, String> {
     let target_id = target_node.runtime_id().as_str().to_string();
 
-    tracing::debug!(
-        epoch,
-        target_id,
-        thread_id = ?std::thread::current().id(),
-        "starting ancestor preload for tree reveal on egui-async worker"
-    );
-
     if latest_epoch.load(Ordering::Relaxed) != epoch || !target_node.is_valid() {
-        tracing::debug!(epoch, target_id, "skipping stale or invalid reveal task");
-        return Ok(RevealResult::Cancelled { epoch });
+        return Ok(RevealResult::Cancelled);
     }
 
     // Walk up the target node's parent chain to collect ancestor IDs.
@@ -116,8 +167,7 @@ pub async fn reveal_task(
     let mut current: Option<Arc<dyn UiNode>> = Some(target_node);
     while let Some(node) = current {
         if latest_epoch.load(Ordering::Relaxed) != epoch {
-            tracing::debug!(epoch, target_id, "cancelling stale reveal task while collecting ancestors");
-            return Ok(RevealResult::Cancelled { epoch });
+            return Ok(RevealResult::Cancelled);
         }
         if let Some(parent_weak) = node.parent() {
             if let Some(parent) = parent_weak.upgrade() {
@@ -142,8 +192,7 @@ pub async fn reveal_task(
 
     for ancestor_id in &ancestors[start..] {
         if latest_epoch.load(Ordering::Relaxed) != epoch {
-            tracing::debug!(epoch, target_id, "cancelling stale reveal task while loading ancestors");
-            return Ok(RevealResult::Cancelled { epoch });
+            return Ok(RevealResult::Cancelled);
         }
         let aid = ancestor_id.clone();
         let children = cursor.children();
@@ -152,7 +201,7 @@ pub async fn reveal_task(
             cursor = next_cursor;
         } else {
             // Path diverged — tree structure may have changed.
-            return Ok(RevealResult::Cancelled { epoch });
+            return Ok(RevealResult::Cancelled);
         }
     }
 
@@ -161,8 +210,7 @@ pub async fn reveal_task(
     let _ = cursor.children();
 
     if latest_epoch.load(Ordering::Relaxed) != epoch {
-        tracing::debug!(epoch, target_id, "cancelling stale reveal task after preload");
-        return Ok(RevealResult::Cancelled { epoch });
+        return Ok(RevealResult::Cancelled);
     }
 
     Ok(RevealResult::Ready { epoch, target_id })
@@ -177,21 +225,49 @@ pub async fn selection_task(
     let attributes = node_data.display_attributes_direct();
     let is_root = !node_data.has_parent_direct();
     let bounds = if is_root { None } else { node_data.bounds_rect_direct() };
-    let node_id = node_data.id();
 
-    Ok(SelectionResult { request_id, selected_label, attributes, is_root, bounds, node_id })
+    Ok(SelectionResult { request_id, selected_label, attributes, is_root, bounds })
 }
 
-/// Task for loading the initial root children.
-pub async fn initial_load_task(root: Arc<dyn UiNode>) -> Result<Vec<Arc<UiNodeData>>, String> {
-    let mut out = Vec::new();
-    for node in root.children() {
-        let node_data = Arc::new(UiNodeData::new(node));
-        node_data.preload_caches();
-        out.push(node_data);
+/// Task for loading tree children without blocking the UI thread.
+pub async fn child_load_task(
+    request_id: u64,
+    node_data: Arc<UiNodeData>,
+    mode: ChildLoadMode,
+    progress: SharedChildLoadProgress,
+) -> Result<ChildLoadResult, String> {
+    match mode {
+        ChildLoadMode::Load => {}
+        ChildLoadMode::Refresh => node_data.refresh(),
+        ChildLoadMode::RefreshSubtree => node_data.refresh_recursive(),
     }
 
-    Ok(out)
+    node_data.preload_row_caches();
+    let node_id = node_data.id();
+    progress
+        .lock()
+        .map_err(|_| "child-load progress lock poisoned".to_string())?
+        .push_event(ChildLoadProgressEvent::Started { request_id, node_id: node_id.clone() });
+
+    node_data.load_children_incremental(
+        |_, _| {
+            if let Ok(mut state) = progress.lock() {
+                state.push_event(ChildLoadProgressEvent::ChildLoaded);
+            }
+        },
+        |_, _| {
+            if let Ok(mut state) = progress.lock() {
+                state.push_event(ChildLoadProgressEvent::NodeUpdated);
+            }
+        },
+    );
+    node_data.preload_label();
+    progress
+        .lock()
+        .map_err(|_| "child-load progress lock poisoned".to_string())?
+        .push_event(ChildLoadProgressEvent::NodeUpdated);
+
+    Ok(ChildLoadResult { request_id, node_id })
 }
 
 /// Task for evaluating an XPath expression.
@@ -202,12 +278,6 @@ pub async fn search_task(
     progress: SharedSearchProgress,
     result_limit: Option<usize>,
 ) -> Result<SearchResult, String> {
-    tracing::debug!(
-        xpath,
-        thread_id = ?std::thread::current().id(),
-        "starting XPath evaluation on egui-async worker"
-    );
-
     let start = Instant::now();
     let mut result_count = 0;
 
@@ -233,12 +303,6 @@ pub async fn search_task(
                             .push_result(result_item);
 
                         if result_limit.is_some_and(|limit| result_count >= limit) {
-                            tracing::debug!(
-                                xpath,
-                                result_count,
-                                result_limit,
-                                "stopping XPath evaluation after inspector search result limit was reached"
-                            );
                             return Ok(SearchResult {
                                 result_count,
                                 elapsed: start.elapsed(),
@@ -282,24 +346,15 @@ pub async fn highlight_bounds_task(
     runtime: Arc<Runtime>,
     epoch: u64,
     latest_epoch: Arc<AtomicU64>,
-    node_id: String,
     bounds: platynui_core::types::Rect,
 ) -> Result<HighlightResult, String> {
-    tracing::debug!(
-        epoch,
-        node_id,
-        thread_id = ?std::thread::current().id(),
-        "highlighting node bounds on egui-async worker"
-    );
-
     if is_stale_epoch(&latest_epoch, epoch) {
-        tracing::debug!(epoch, node_id, "skipping stale highlight task");
-        return Ok(HighlightResult { epoch, skipped: true });
+        return Ok(HighlightResult);
     }
 
     let req = HighlightRequest::new(bounds).with_duration(Duration::from_millis(1500));
     runtime.highlight(&req).map_err(|err| err.to_string())?;
-    Ok(HighlightResult { epoch, skipped: false })
+    Ok(HighlightResult)
 }
 
 /// Task for clearing the active highlight.
@@ -308,19 +363,12 @@ pub async fn clear_highlight_task(
     epoch: u64,
     latest_epoch: Arc<AtomicU64>,
 ) -> Result<HighlightResult, String> {
-    tracing::debug!(
-        epoch,
-        thread_id = ?std::thread::current().id(),
-        "clearing highlight on egui-async worker"
-    );
-
     if is_stale_epoch(&latest_epoch, epoch) {
-        tracing::debug!(epoch, "skipping stale clear-highlight task");
-        return Ok(HighlightResult { epoch, skipped: true });
+        return Ok(HighlightResult);
     }
 
     runtime.clear_highlight().map_err(|err| err.to_string())?;
-    Ok(HighlightResult { epoch, skipped: false })
+    Ok(HighlightResult)
 }
 
 /// Task for highlighting a node if it is not the desktop root.
@@ -331,13 +379,12 @@ pub async fn highlight_node_task(
     node_data: Arc<UiNodeData>,
 ) -> Result<HighlightResult, String> {
     if is_stale_epoch(&latest_epoch, epoch) || !node_data.is_valid() {
-        tracing::debug!(epoch, node_id = node_data.id(), "skipping stale or invalid highlight-node task");
-        return Ok(HighlightResult { epoch, skipped: true });
+        return Ok(HighlightResult);
     }
 
     if node_data.has_parent_direct() {
         if let Some(bounds) = node_data.bounds_rect_direct() {
-            highlight_bounds_task(runtime, epoch, latest_epoch, node_data.id(), bounds).await
+            highlight_bounds_task(runtime, epoch, latest_epoch, bounds).await
         } else {
             clear_highlight_task(runtime, epoch, latest_epoch).await
         }
