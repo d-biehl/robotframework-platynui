@@ -6,24 +6,211 @@ in das neue Rust-basierte Projekt verfolgt.
 
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
-**Stand:** 2026-04-28
-**Aktuelle Revision:** Rev. 41 (Settings ↔ Native-Override-Bridge.
-Legacy-Sekunden-Felder `mouse_*`, `keyboard_after_press_*` und
-`input_after_input_delay` aus `Settings` entfernt; ersetzt durch
-Millisekunden-Felder, die 1:1 die Delay-Slots von
-`platynui_native.PointerOverridesDict` und `KeyboardOverridesDict`
-spiegeln (Default `None` = Profile-Wert beibehalten). `MouseProxy`/
-`KeyboardProxy` bauen pro Call aus `Settings.current()` ein
-Override-Dict via Helfer `_pointer_overrides_from_settings()` /
-`_keyboard_overrides_from_settings()` und reichen es als
-`overrides=`-Kwarg an alle `runtime.current.pointer_*` /
-`keyboard_*`-Calls durch. Profile-Tuning (Motion, Acceleration,
-Steps-pro-Pixel etc.) läuft direkt über
-`runtime.current.pointer_profile()` / `keyboard_profile()` und gehört
-nicht in `Settings`. Designdoc §A.1 und Header aktualisiert.
-Bestehende `test_devices.py`-Calls um `overrides=None` erweitert;
-sieben neue Bridge-Tests (`test_pointer_overrides_*`,
-`test_keyboard_overrides_*`).)
+**Stand:** 2026-05-01
+**Aktuelle Revision:** Rev. 47 (`Deselectable` als eigenes
+Single-Select-Action-Pattern + saubere Trennung `deselect` vs
+`remove_from_selection` am `Item` + 4-Methoden-Selection-API am
+`ItemContainer[I]`. **Pattern-Erweiterung:** Neues Action-Pattern
+`Deselectable.deselect()` als Pendant zu `Selectable.select()` für
+Single-Select-Container, die „nichts selektiert" als gültigen
+Zustand kennen. **Optional, ohne Konsistenz-Zwang** — Default-
+`ItemProxy` registriert es nicht, weil sich Single-Select-Deselect
+nicht generisch über Maus/Tastatur synthetisieren lässt;
+`Item.deselect()` wirft sonst ehrlich `PatternNotSupportedError`.
+**Item-API neu sortiert:** `Item.select()` → `Selectable`,
+`Item.deselect()` → `Deselectable` (statt
+`MultiSelectable.remove_from_selection`),
+`Item.add_to_selection()` → `MultiSelectable`,
+`Item.remove_from_selection()` → `MultiSelectable` (NEU).
+**Rückgabewerte für Chaining:** `Item.<action>() -> Self` (gibt
+das eigene Element zurück); `ItemContainer.<action>(*, locator) ->
+I` löst das Item auf und gibt es zurück;
+`TreeItem.<action>(*, locator=None) -> 'TreeItem'` und
+`Row.<action>(*, locator=None) -> 'Row | Cell'` für die Dual-Role-
+Klassen; `ComboBox.select(*, locator=None) -> ListItem`. Alle vier
+Container-Wrapper symmetrisch (`select` / `deselect` /
+`add_to_selection` / `remove_from_selection`). `List.select` und
+`TabList.select` als eigene Overrides entfallen (geerbt). **Dual-
+Role-Klassen** — `TreeItem(Item, ItemContainer["TreeItem"])` und
+`Row(Item, ItemContainer[Cell])` — erhalten eine vereinheitlichte
+Override für die vier Methoden: ohne `locator` zielt die Action
+auf das eigene Element (Item-Semantik via `Item.<action>(self)`,
+Rückgabe `self`), mit `locator` wird ein Kind aufgelöst
+(Container-Semantik via `ItemContainer.<action>(self,
+locator=...)`, Rückgabe des Kindes). `cast(...)` ist nötig, weil
+unbound-Class-Aufrufe `Self` nicht über pyright propagieren; bei
+`Row` weitet `Row | Cell` beide Eltern-Signaturen, daher
+`# type: ignore[override]` pro Methode. `clear_selection()` nutzt
+`remove_from_selection()` (= `MultiSelectable`) statt `deselect()`.
+**Konsistenztest erweitert:** `IsSelectable` ⇒ `Selectable`
+(Pflicht); `IsSelectable` ⇒ `Deselectable` ist NICHT Pflicht;
+`IsMultiSelectable` ⇒ `MultiSelectable` (Pflicht).
+Designdoc Rev. 47 — DONE: Header-Bullet voran, §A.14.17 (Pattern-
+Spec für `Deselectable` zwischen `Selectable` und
+`IsMultiSelectable`), §A.14.20a (4-Methoden-API mit `-> I`,
+`clear_selection`-Kommentar fixed), §A.14.23 (TabList ohne
+`select`-Override), §A.14.12 (Item-Codeblock mit
+`-> Self`-Signaturen + `return self`), §A.14.13 (`List` ohne
+`select`-Override, Rückgabe-Hinweis), §A.14.14 (`TreeItem` mit
+Dual-Role-Override `-> 'TreeItem'` plus `cast`), §A.14.15 (`Row`
+mit Dual-Role-Override `-> 'Row | Cell'` plus `cast` und
+`# type: ignore[override]`), §5a.4 (Pattern-Tabelle erweitert,
+Default-Proxy-Skizze ohne `Deselectable`, Bulk-Synthese auf
+`remove_from_selection`).
+**Code-Implementierung — DONE.** `tree.py`/`table.py` haben
+`# type: ignore[redundant-cast]` an den `cast`-Aufrufen plus
+file-level `# pyright: reportUnnecessaryTypeIgnoreComment=false`,
+weil mypy und pyright sich beim Bedarf des `cast` widersprechen.
+Tests reverted auf Capture + isinstance-Assert nach dem
+Return-Type-Pivot. Quality Gates: ruff/mypy/pytest grün
+(718 passed); pyright bei pre-existing Baseline (4 Fehler in
+`devices.py` + `test_ensure.py`, Rev.-47-unrelated). Rev. 44 + 45
++ 46 + 47 sind code-fertig aber uncommittet — Commit-Strategie
+unentschieden.)
+
+> **Vorherige Rev. 46:** Read/Action-Trennung der Capability-
+> Patterns für Selection und Expand. Architektur-Prinzip:
+> PlatynUI steuert Anwendungen ausschließlich über Maus und
+> Tastatur, nie über plattformspezifische Steuer-APIs.
+> Pattern-Spaltung: `IsSelectable` ↔ `Selectable`;
+> `IsMultiSelectable` ↔ `MultiSelectable`;
+> `IsExpandable` ↔ `Expandable`. Neues Container-Read-Pattern
+> `Selection`. Konsistenz-Regel: Read-Pattern erfordert
+> Action-Pattern (Suite-Test). API-Erweiterungen: `Item` mit
+> `add_to_selection`/`deselect` (über `MultiSelectable`),
+> `is_selected` aus `IsSelectable`; TreeItem mit
+> `IsExpandable`/`Expandable`-Spaltung; ItemContainer[I] mit
+> `can_select_multiple`/`is_selection_required`/
+> `get_selected_items()`/`clear_selection()`. Action-Synthese
+> via Maus/Tastatur (Ctrl+Click, Doppelklick, Pfeiltasten).
+> Designdoc + Code + Tests komplett: 709 Tests grün, alle
+> Quality-Gates clean. **Uncommittet (mit Rev. 44+45).**
+
+> **Vorherige Rev. 45:** Item-Capabilities flach an `Item`,
+> Pattern-checked. Mixins `SelectableItem`/`ExpandableItem`/
+> `EditableItem` und `EditableCell` ersatzlos entfallen. Capability-
+> Methoden (`select`, `set_text`, `clear`, `activate`) und Read-
+> Properties (`text`, `is_selected`) liegen direkt auf `Item`; sie
+> rufen das benötigte Pattern via `adapter.get_pattern(P)` und werfen
+> `PatternNotSupportedError` wenn das Pattern fehlt. **Keine
+> `supports_*`-Properties** — Capability-Verfügbarkeit prüft
+> Aufrufer bei Bedarf direkt am Adapter via
+> `adapter.get_pattern(P, raise_exception=False) is not None` oder
+> fängt `PatternNotSupportedError`. **Expandable wandert ausschließlich
+> auf `TreeItem`**: `expand`/`collapse`/`is_expanded`/`can_expand`
+> liegen dort inline (nicht auf `Item`, `ListItem`, `TabItem`,
+> `Cell`, `Row` — semantisch sinnlos).
+> `ListItem`, `TabItem`, `Cell` bleiben als leere Marker-Subklassen
+> für Default-Locator-Role und Generic-Bound. `TreeItem(Item,
+> ItemContainer["TreeItem"])` ergänzt Expandable inline,
+> `Row(Item, ItemContainer[Cell])` unverändert ohne Expand.
+> `MenuItem` bleibt `Control`-basiert; `activate()` wurde **radikal
+> vereinfacht**: kein Vorfahren-Walk mehr, nur `ensure_that(...)` +
+> `Activatable.activate()`. Submenü-Pfade werden Robot-seitig durch
+> sequentielle `activate()`-Aufrufe gegangen. `MenuItem` trägt
+> **kein** Expandable. `EditableCell`-Klasse weg; Adapter mit
+> `role="EditableCell"` fallen auf `Cell` zurück.
+> `ui/item.py` umgebaut; `ui/tree.py` mit Expandable-Inline-
+> Methoden; `ui/menus.py` MenuItem-Activate vereinfacht;
+> `ui/lists.py`/`tabs.py`/`table.py`/`__init__.py` entrümpelt.
+> Tests: `test_item.py` umgebaut (18 Tests gegen `Item` direkt,
+> inkl. `activate()`-Pfade, ohne Expand- und ohne supports_*-Tests),
+> `test_tree.py` um 9 Expandable-Tests für `TreeItem` erweitert
+> (mit `_tree_item_with_parents` Helper, ohne supports_expand),
+> `test_menus.py` um 5 Ancestor-Walk-Tests bereinigt,
+> `test_table.py` (EditableCell-Test entfernt). Designdoc Rev. 45:
+> Header (Rev. 45 oben, Rev. 44 unverändert), §A.14.2 Hierarchie-
+> ASCII, §A.14.12 (Item ohne Expand, ohne supports_*),
+> §A.14.14 (TreeItem mit Expand-Capability, ohne supports_expand),
+> §A.14.24 (MenuItem ohne Ancestor-Walk),
+> §A.14.13/15/19/21/23 auf flache Capabilities, §5a.2 Pattern-
+> Tabelle (`EditableCell` raus).
+
+> **Vorherige Rev. 44:** Generischer `ItemContainer[I: Item]`
+> ersetzt Container-Default-Proxies. Neue Context-Basisklasse in
+> `ui/control.py` (PEP 695 Syntax, Python 3.12+) trägt
+> `get_items`/`iter_items`/`get_item` mit Item-Typ via Generic-Bound.
+> Konkrete Container erben über
+> `class List(ItemContainer[ListItem])`, `class Tree(ItemContainer[TreeItem])`,
+> `class TabList(ItemContainer[TabItem])`, `class Row(Item, ItemContainer[Cell])`;
+> `TreeItem` erbt zusätzlich `ItemContainer["TreeItem"]`.
+> `Menu`/`MenuBar`/`Table` sind **keine** `ItemContainer[I]`
+> (`MenuItem` erbt `Control`, nicht `Item`; `Table` trägt Row-Geometrie
+> über das `Table`-Pattern) und behalten `get_items`/`get_rows` direkt
+> am Context. Container-Default-Proxies aus Rev. 43
+> (`ListProxy`/`TreeProxy`/`TabListProxy`/`MenuProxy`/`MenuBarProxy`/
+> `TableProxy`) sind ersatzlos gelöscht; `ui/proxies/_mixins.py`
+> reduziert sich auf die Action-Helper `click_adapter`/
+> `type_keys_on_adapter`. Pattern-delegierende Default-Proxies
+> (`ButtonProxy`, `CheckBoxProxy`, `EditProxy`, `TextProxy`,
+> `ComboBoxProxy`, `ItemProxy` & Subklassen) bleiben unverändert.
+> Neuer Test-Modul `test_item_container.py` (7 Tests) für die
+> Generic-Mechanik; `test_proxies.py` schrumpft entsprechend. Designdoc
+> Rev. 44: Header, §A.13.4 (Container-Block ersetzt, Hierarchie-ASCII
+> ohne Container-Proxies, Tabelle reduziert), §A.14.13/14/15/16/23
+> (Container-Beispiele auf Generic-Stil), neuer §A.14.20a
+> (`ItemContainer[I: Item]`-Spec), §A.14.20 (Native-Wrapper-Hinweis
+> um Generic-Hinweis ergänzt), Pattern-Tabelle (Default-Proxy-
+> Spalte für `ItemContainer`/`Table` aktualisiert).
+
+> **Vorherige Rev. 43:** Default-Proxy-Schicht
+> `ui/proxies/*.py` gebaut. Module 1:1 zu `ui/*.py` aufgeteilt:
+> `base.py` (`ElementProxy`/`ControlProxy`), `buttons.py`
+> (`ButtonProxy`, `CheckBoxProxy`), `text.py` (`EditProxy`,
+> `TextProxy`), `combobox.py` (`ComboBoxProxy`), `item.py`
+> (`ItemProxy` + `ListItemProxy`/`TreeItemProxy`/`TabItemProxy`/
+> `RowProxy`/`CellProxy`/`MenuItemProxy`), `lists.py` (`ListProxy`),
+> `tree.py` (`TreeProxy`), `tabs.py` (`TabListProxy`), `menus.py`
+> (`MenuProxy`, `MenuBarProxy`), `table.py` (`TableProxy`).
+> Container-Proxies wurden in Rev. 44 wieder entfernt zugunsten der
+> generischen Context-Basisklasse `ItemContainer[I: Item]`.
+
+> **Vorherige Rev. 42:** Pattern-Refactor — `ItemContainer`
+> reduziert auf `item_count`, `get_item(ctx, …)`, `get_items(ctx, …)`;
+> `row_count`/`column_count` raus aus `ItemContainer`. Drei neue
+> Patterns: `Table` (`row_count`, `column_count`, `get_row(s)(ctx, …)`,
+> `pattern_name = 'org.platynui.patterns.Table'`), `HasRowHeaders`
+> (`row_headers`, `get_row_headers(ctx, …)`) und `HasColumnHeaders`
+> (`column_headers`, `get_column_headers(ctx, …)`) als getrennte ABCs in
+> `core/patterns/`. `get_*`-Methoden geben Context-Instanzen zurück und
+> teilen Locator-/Scope-Merge-Semantik mit `ContextBase.get`/`get_all`.
+> `ItemContainer` ist explizit **kein** Native-Wrapper — Provider-Reads
+> für `ItemCount` sind toolkit-übergreifend nicht zuverlässig genug
+> (WPF `VirtualizingStackPanel`, HTML-Custom-Layouts), darum lebt die
+> Default-Strategie komplett Python-seitig im (Phase-4e folgenden)
+> `ItemContainerProxyMixin` mit "erste-Ebene"-Walk im descendant-Subtree.
+> UI-Klassen `List`/`Tree`/`TreeItem`/`Table`/`Row`/`TabList` verlieren
+> ihre direkten `item_count`/`row_count`/`column_count`-Properties und
+> behalten nur ihre `get_*`/`iter_*`/`get_item`-API. Designdoc Rev. 42
+> vollständig: Header, §A.13 Pattern-Inventar (vier neue Reihen), §A.13.3
+> Exports (`ItemContainer`, `Table`, `HasRowHeaders`, `HasColumnHeaders`),
+> §A.13.4 Default-Proxy-Schicht (Container-Proxies in der Hierarchie,
+> Mixin-Tabelle erweitert, neuer Erklärungs-Block zu
+> `ItemContainerProxyMixin`/`TableProxyMixin`/`HasRow|ColumnHeadersProxyMixin`
+> und der "erste-Ebene"-Strategie), §A.14.13/14/15 (UI-Klassen
+> entrümpelt), §A.14.20 (Pattern-Spec refaktoriert), §A.14.23 (TabList
+> entrümpelt), neue §A.14.25/26/27 für die drei neuen Pattern-Specs.
+> Code-Migration (Pattern-Refactor + Tests) folgt nach Doku-Sweep;
+> Default-Proxy-Schicht (Mixins + Proxies) ist die nächste Phase
+> darüber.
+
+> **Vorherige Rev. 41:** Settings ↔ Native-Override-Bridge.
+> Legacy-Sekunden-Felder `mouse_*`, `keyboard_after_press_*` und
+> `input_after_input_delay` aus `Settings` entfernt; ersetzt durch
+> Millisekunden-Felder, die 1:1 die Delay-Slots von
+> `platynui_native.PointerOverridesDict` und `KeyboardOverridesDict`
+> spiegeln (Default `None` = Profile-Wert beibehalten). `MouseProxy`/
+> `KeyboardProxy` bauen pro Call aus `Settings.current()` ein
+> Override-Dict via Helfer `_pointer_overrides_from_settings()` /
+> `_keyboard_overrides_from_settings()` und reichen es als
+> `overrides=`-Kwarg an alle `runtime.current.pointer_*` /
+> `keyboard_*`-Calls durch. Profile-Tuning (Motion, Acceleration,
+> Steps-pro-Pixel etc.) läuft direkt über
+> `runtime.current.pointer_profile()` / `keyboard_profile()` und gehört
+> nicht in `Settings`. Designdoc §A.1 und Header aktualisiert.
+> Bestehende `test_devices.py`-Calls um `overrides=None` erweitert;
+> sieben neue Bridge-Tests (`test_pointer_overrides_*`,
+> `test_keyboard_overrides_*`).
 
 > **Vorherige Rev. 40:** Drei attribut-only Patterns wandern
 > vom geplanten `ElementProxy` zum `UiNodeAdapter`: `Element`

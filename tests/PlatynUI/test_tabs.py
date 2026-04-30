@@ -12,7 +12,7 @@ import pytest
 from _ui_helpers import (  # type: ignore[import-not-found]
     ElementStub,
     FocusableStub,
-    ItemContainerStub,
+    IsSelectableStub,
     ResponsiveStub,
     SelectableStub,
     WindowStateStub,
@@ -22,7 +22,6 @@ from _ui_helpers import (  # type: ignore[import-not-found]
 from PlatynUI.core import patterns
 from PlatynUI.core.adapter import Adapter
 from PlatynUI.core.adapter_factory import AdapterFactory, adapter_factory
-from PlatynUI.core.exceptions import PatternNotSupportedError
 from PlatynUI.core.locator import Locator
 from PlatynUI.core.settings import Settings
 from PlatynUI.ui.tabs import TabItem, TabList
@@ -105,13 +104,14 @@ def _tab_item_adapter(*, runtime_id: str = 't1', selected: bool = False) -> Adap
         runtime_id=runtime_id,
         pattern_map={
             patterns.Element: ElementStub(),
-            patterns.Selectable: SelectableStub(is_selected=selected),
+            patterns.IsSelectable: IsSelectableStub(is_selected=selected),
+            patterns.Selectable: SelectableStub(),
         },
     )
 
 
 # ---------------------------------------------------------------------------
-# Registration + item_count
+# Registration
 # ---------------------------------------------------------------------------
 
 
@@ -127,16 +127,6 @@ def test_tab_item_registered_with_role_tabitem() -> None:
 
     cls = ContextFactory().find_context_class_for(_tab_item_adapter())
     assert cls is TabItem
-
-
-def test_item_count_returns_pattern_value() -> None:
-    adapter = _tab_list_adapter(extra={patterns.ItemContainer: ItemContainerStub(item_count=4)})
-    assert TabList(adapter=adapter).item_count == 4
-
-
-def test_item_count_raises_when_pattern_missing() -> None:
-    with pytest.raises(PatternNotSupportedError):
-        _ = TabList(adapter=_tab_list_adapter()).item_count
 
 
 # ---------------------------------------------------------------------------
@@ -182,17 +172,22 @@ def test_get_item_returns_single_match() -> None:
 
 def test_select_resolves_and_selects() -> None:
     adapter = _tab_list_adapter()
-    selectable = SelectableStub(is_selected=False)
+    selectable = SelectableStub()
     item_adapter = make_adapter(
         role='TabItem',
-        pattern_map={patterns.Element: ElementStub(), patterns.Selectable: selectable},
+        pattern_map={
+            patterns.Element: ElementStub(),
+            patterns.IsSelectable: IsSelectableStub(is_selected=False),
+            patterns.Selectable: selectable,
+        },
     )
     stub = _StubFactory(results=[item_adapter])
 
     with adapter_factory.override(lambda: stub):
-        item = TabList(adapter=adapter).select()
+        result = TabList(adapter=adapter).select()
 
-    assert isinstance(item, TabItem)
+    assert isinstance(result, TabItem)
+    assert result.adapter is item_adapter
     assert selectable.select_calls == 1
 
 

@@ -22,13 +22,13 @@ class ComboBox(Control):
     def can_expand(self) -> bool:
         """Whether the dropdown can be expanded."""
         self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(patterns.Expandable).can_expand
+        return self.adapter.get_pattern(patterns.IsExpandable).can_expand
 
     @property
     def is_expanded(self) -> bool:
         """Whether the dropdown is currently open."""
         self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(patterns.Expandable).is_expanded
+        return self.adapter.get_pattern(patterns.IsExpandable).is_expanded
 
     def expand(self) -> bool:
         """Open the dropdown; return ``True`` if the state changed."""
@@ -72,7 +72,7 @@ class ComboBox(Control):
             return self.get(ListItem, locator=locator, scope='descendants')
 
     def select(self, *, locator: Locator | None = None) -> ListItem:
-        """Resolve a dropdown item and select it."""
+        """Resolve a dropdown item, select it, return it."""
         with self._expanded():
             item = self.get(ListItem, locator=locator, scope='descendants')
             item.select()

@@ -22,19 +22,25 @@ __all__ = [
     'ActivatableStub',
     'ClearableStub',
     'CloseableStub',
+    'DeselectableStub',
     'ElementStub',
     'ExpandableStub',
     'FocusableStub',
     'HasEditorStub',
+    'IsExpandableStub',
+    'IsMultiSelectableStub',
+    'IsSelectableStub',
     'ItemContainerStub',
     'MaximizableStub',
     'MinimizableStub',
     'MovableStub',
+    'MultiSelectableStub',
     'ReadableStub',
     'ResizableStub',
     'ResponsiveStub',
     'RestorableStub',
     'SelectableStub',
+    'SelectionStub',
     'TextContentStub',
     'TextEditableStub',
     'ToggleableStub',
@@ -376,30 +382,104 @@ class ToggleableStub(patterns.Toggleable):
         self._state = self._cycle[(idx + 1) % len(self._cycle)]
 
 
-class SelectableStub(patterns.Selectable):
-    """`patterns.Selectable` stub that records ``select()`` calls."""
+class IsSelectableStub(patterns.IsSelectable):
+    """`patterns.IsSelectable` stub exposing a fixed `is_selected`."""
 
     def __init__(self, *, is_selected: bool = False) -> None:
         self._selected = is_selected
-        self.select_calls = 0
 
     @property
     def is_selected(self) -> bool:
         return self._selected
 
+
+class SelectableStub(patterns.Selectable):
+    """`patterns.Selectable` stub that records ``select()`` calls."""
+
+    def __init__(self) -> None:
+        self.select_calls = 0
+
     def select(self) -> None:
         self.select_calls += 1
-        self._selected = True
 
 
-class ExpandableStub(patterns.Expandable):
-    """`patterns.Expandable` stub that records expand/collapse calls."""
+class DeselectableStub(patterns.Deselectable):
+    """`patterns.Deselectable` stub that records ``deselect()`` calls."""
+
+    def __init__(self) -> None:
+        self.deselect_calls = 0
+
+    def deselect(self) -> None:
+        self.deselect_calls += 1
+
+
+class IsMultiSelectableStub(patterns.IsMultiSelectable):
+    """`patterns.IsMultiSelectable` stub exposing fixed flags."""
+
+    def __init__(
+        self,
+        *,
+        can_select_multiple: bool = True,
+        is_selection_required: bool = False,
+    ) -> None:
+        self._can = can_select_multiple
+        self._required = is_selection_required
+
+    @property
+    def can_select_multiple(self) -> bool:
+        return self._can
+
+    @property
+    def is_selection_required(self) -> bool:
+        return self._required
+
+
+class MultiSelectableStub(patterns.MultiSelectable):
+    """`patterns.MultiSelectable` stub recording add/remove calls."""
+
+    def __init__(self) -> None:
+        self.add_calls = 0
+        self.remove_calls = 0
+
+    def add_to_selection(self) -> None:
+        self.add_calls += 1
+
+    def remove_from_selection(self) -> None:
+        self.remove_calls += 1
+
+
+class SelectionStub(patterns.Selection):
+    """`patterns.Selection` stub returning a fixed adapter list."""
+
+    def __init__(
+        self,
+        adapters: list[Adapter] | None = None,
+        *,
+        can_select_multiple: bool = True,
+        is_selection_required: bool = False,
+    ) -> None:
+        self._adapters = adapters or []
+        self._can = can_select_multiple
+        self._required = is_selection_required
+
+    @property
+    def can_select_multiple(self) -> bool:
+        return self._can
+
+    @property
+    def is_selection_required(self) -> bool:
+        return self._required
+
+    def get_selected_adapters(self) -> list[Adapter]:
+        return list(self._adapters)
+
+
+class IsExpandableStub(patterns.IsExpandable):
+    """`patterns.IsExpandable` stub exposing fixed read state."""
 
     def __init__(self, *, is_expanded: bool = False, can_expand: bool = True) -> None:
         self._expanded = is_expanded
         self._can_expand = can_expand
-        self.expand_calls = 0
-        self.collapse_calls = 0
 
     @property
     def can_expand(self) -> bool:
@@ -409,13 +489,19 @@ class ExpandableStub(patterns.Expandable):
     def is_expanded(self) -> bool:
         return self._expanded
 
+
+class ExpandableStub(patterns.Expandable):
+    """`patterns.Expandable` stub that records expand/collapse calls."""
+
+    def __init__(self) -> None:
+        self.expand_calls = 0
+        self.collapse_calls = 0
+
     def expand(self) -> None:
         self.expand_calls += 1
-        self._expanded = True
 
     def collapse(self) -> None:
         self.collapse_calls += 1
-        self._expanded = False
 
 
 class HasEditorStub(patterns.HasEditor):
@@ -437,40 +523,37 @@ class HasEditorStub(patterns.HasEditor):
 
 
 class ItemContainerStub(patterns.ItemContainer):
-    """`patterns.ItemContainer` stub.
+    """`patterns.ItemContainer` stub for the Rev. 42 API.
 
-    Each count is optional; unsupplied counts raise ``NotImplementedError``
-    when accessed, matching the contract for concrete container roles.
+    `item_count` defaults to 0; `get_item`/`get_items` raise
+    `NotImplementedError` unless overridden via the constructor
+    callables.
     """
 
     def __init__(
         self,
         *,
-        item_count: int | None = None,
-        row_count: int | None = None,
-        column_count: int | None = None,
+        item_count: int = 0,
+        get_item: Any = None,
+        get_items: Any = None,
     ) -> None:
         self._item_count = item_count
-        self._row_count = row_count
-        self._column_count = column_count
+        self._get_item = get_item
+        self._get_items = get_items
 
     @property
     def item_count(self) -> int:
-        if self._item_count is None:
-            raise NotImplementedError('item_count')
         return self._item_count
 
-    @property
-    def row_count(self) -> int:
-        if self._row_count is None:
-            raise NotImplementedError('row_count')
-        return self._row_count
+    def get_item(self, ctx: Any, *, locator: Any = None, scope: Any = None) -> Any:
+        if self._get_item is None:
+            raise NotImplementedError('get_item')
+        return self._get_item(ctx, locator=locator, scope=scope)
 
-    @property
-    def column_count(self) -> int:
-        if self._column_count is None:
-            raise NotImplementedError('column_count')
-        return self._column_count
+    def get_items(self, ctx: Any, *, locator: Any = None, scope: Any = None) -> Any:
+        if self._get_items is None:
+            raise NotImplementedError('get_items')
+        return self._get_items(ctx, locator=locator, scope=scope)
 
 
 # ---------------------------------------------------------------------------

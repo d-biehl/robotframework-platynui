@@ -13,7 +13,8 @@ from _ui_helpers import (  # type: ignore[import-not-found]
     ElementStub,
     ExpandableStub,
     FocusableStub,
-    ItemContainerStub,
+    IsExpandableStub,
+    IsSelectableStub,
     ResponsiveStub,
     SelectableStub,
     WindowStateStub,
@@ -99,7 +100,9 @@ def _tree_adapter(*, extra: dict[type, object] | None = None) -> Adapter:
 def _tree_item_adapter(*, runtime_id: str = 'ti1', extra: dict[type, object] | None = None) -> Adapter:
     pmap: dict[type, object] = {
         patterns.Element: ElementStub(),
+        patterns.IsSelectable: IsSelectableStub(),
         patterns.Selectable: SelectableStub(),
+        patterns.IsExpandable: IsExpandableStub(),
         patterns.Expandable: ExpandableStub(),
     }
     if extra:
@@ -128,33 +131,6 @@ def test_tree_item_registered_with_role_treeitem() -> None:
 
     cls = ContextFactory().find_context_class_for(_tree_item_adapter())
     assert cls is TreeItem
-
-
-# ---------------------------------------------------------------------------
-# Counts
-# ---------------------------------------------------------------------------
-
-
-def test_tree_item_count_returns_pattern_value() -> None:
-    adapter = _tree_adapter(extra={patterns.ItemContainer: ItemContainerStub(item_count=4)})
-    assert Tree(adapter=adapter).item_count == 4
-
-
-def test_tree_column_count_returns_pattern_value() -> None:
-    adapter = _tree_adapter(extra={patterns.ItemContainer: ItemContainerStub(column_count=3)})
-    assert Tree(adapter=adapter).column_count == 3
-
-
-def test_tree_column_count_unsupported_raises_not_implemented() -> None:
-    """ItemContainer.column_count raises NotImplementedError when the role omits it."""
-    adapter = _tree_adapter(extra={patterns.ItemContainer: ItemContainerStub(item_count=4)})
-    with pytest.raises(NotImplementedError):
-        _ = Tree(adapter=adapter).column_count
-
-
-def test_tree_item_count_raises_when_pattern_missing() -> None:
-    with pytest.raises(PatternNotSupportedError):
-        _ = Tree(adapter=_tree_adapter()).item_count
 
 
 # ---------------------------------------------------------------------------
@@ -220,8 +196,110 @@ def test_tree_item_get_items_uses_children_scope() -> None:
         assert locator.scope == 'children'
 
 
-def test_tree_item_item_count_uses_item_container_pattern() -> None:
-    adapter = _tree_item_adapter(
-        extra={patterns.ItemContainer: ItemContainerStub(item_count=2)},
+# ---------------------------------------------------------------------------
+# TreeItem Expandable capability
+# ---------------------------------------------------------------------------
+
+
+def _tree_item_with_parents(*, extra: dict[type, object] | None = None) -> Adapter:
+    desktop = make_adapter(role='Desktop')
+    window = make_adapter(
+        role='Window',
+        parent=desktop,
+        pattern_map={
+            patterns.Element: ElementStub(),
+            patterns.Responsive: ResponsiveStub(True),
+            patterns.WindowState: WindowStateStub(is_active=True),
+            patterns.Focusable: FocusableStub(is_focused=True),
+        },
     )
-    assert TreeItem(adapter=adapter).item_count == 2
+    pmap: dict[type, object] = {patterns.Element: ElementStub()}
+    if extra:
+        pmap.update(extra)
+    return make_adapter(  # type: ignore[no-any-return]
+        role='TreeItem',
+        parent=window,
+        pattern_map=pmap,
+    )
+
+
+def test_tree_item_is_expanded_returns_pattern_value() -> None:
+    adapter = _tree_item_with_parents(extra={patterns.IsExpandable: IsExpandableStub(is_expanded=True)})
+    assert TreeItem(adapter=adapter).is_expanded is True
+
+
+def test_tree_item_can_expand_returns_pattern_value() -> None:
+    adapter = _tree_item_with_parents(extra={patterns.IsExpandable: IsExpandableStub(can_expand=False)})
+    assert TreeItem(adapter=adapter).can_expand is False
+
+
+def test_tree_item_expand_returns_true_and_calls_pattern() -> None:
+    exp = ExpandableStub()
+    adapter = _tree_item_with_parents(
+        extra={
+            patterns.IsExpandable: IsExpandableStub(is_expanded=False),
+            patterns.Expandable: exp,
+        },
+    )
+    assert TreeItem(adapter=adapter).expand() is True
+    assert exp.expand_calls == 1
+
+
+def test_tree_item_expand_no_op_when_already_expanded() -> None:
+    exp = ExpandableStub()
+    adapter = _tree_item_with_parents(
+        extra={
+            patterns.IsExpandable: IsExpandableStub(is_expanded=True),
+            patterns.Expandable: exp,
+        },
+    )
+    assert TreeItem(adapter=adapter).expand() is False
+    assert exp.expand_calls == 0
+
+
+def test_tree_item_expand_no_op_when_cannot_expand() -> None:
+    exp = ExpandableStub()
+    adapter = _tree_item_with_parents(
+        extra={
+            patterns.IsExpandable: IsExpandableStub(can_expand=False),
+            patterns.Expandable: exp,
+        },
+    )
+    assert TreeItem(adapter=adapter).expand() is False
+    assert exp.expand_calls == 0
+
+
+def test_tree_item_collapse_returns_true_and_calls_pattern() -> None:
+    exp = ExpandableStub()
+    adapter = _tree_item_with_parents(
+        extra={
+            patterns.IsExpandable: IsExpandableStub(is_expanded=True),
+            patterns.Expandable: exp,
+        },
+    )
+    assert TreeItem(adapter=adapter).collapse() is True
+    assert exp.collapse_calls == 1
+
+
+def test_tree_item_collapse_no_op_when_already_collapsed() -> None:
+    exp = ExpandableStub()
+    adapter = _tree_item_with_parents(
+        extra={
+            patterns.IsExpandable: IsExpandableStub(is_expanded=False),
+            patterns.Expandable: exp,
+        },
+    )
+    assert TreeItem(adapter=adapter).collapse() is False
+    assert exp.collapse_calls == 0
+
+
+def test_tree_item_is_expanded_raises_when_pattern_missing() -> None:
+    adapter = _tree_item_with_parents()
+    with pytest.raises(PatternNotSupportedError):
+        _ = TreeItem(adapter=adapter).is_expanded
+
+
+def test_tree_item_can_expand_raises_when_pattern_missing() -> None:
+    adapter = _tree_item_with_parents()
+    with pytest.raises(PatternNotSupportedError):
+        _ = TreeItem(adapter=adapter).can_expand

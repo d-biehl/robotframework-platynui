@@ -13,14 +13,10 @@ Public class tree::
         ├── DesktopBase         (ui/desktopbase.py)
         │   └── Desktop         (ui/desktop.py — locator "/.")
         ├── Item                (ui/item.py — marker, register=False)
-        │   ├── SelectableItem  (ui/item.py — register=False)
-        │   ├── ExpandableItem  (ui/item.py — register=False)
-        │   ├── EditableItem    (ui/item.py — register=False)
         │   ├── ListItem        (ui/lists.py)
         │   ├── TreeItem        (ui/tree.py)
         │   ├── Row             (ui/table.py)
         │   ├── Cell            (ui/table.py)
-        │   ├── EditableCell    (ui/table.py)
         │   └── TabItem         (ui/tabs.py)
         └── Control             (ui/control.py — adds focus)
             ├── AbstractButton  (ui/buttons.py — register=False)
@@ -47,10 +43,10 @@ from .control import Control
 from .desktop import Desktop
 from .desktopbase import DesktopBase
 from .element import Element
-from .item import EditableItem, ExpandableItem, Item, SelectableItem
+from .item import Item
 from .lists import List, ListItem
 from .menus import Menu, MenuBar, MenuItem
-from .table import Cell, EditableCell, Row, Table
+from .table import Cell, Row, Table
 from .tabs import TabItem, TabList
 from .text import Edit, Text
 from .tree import Tree, TreeItem
@@ -67,10 +63,7 @@ __all__ = [
     'Desktop',
     'DesktopBase',
     'Edit',
-    'EditableCell',
-    'EditableItem',
     'Element',
-    'ExpandableItem',
     'Frame',
     'Item',
     'List',
@@ -79,7 +72,6 @@ __all__ = [
     'MenuBar',
     'MenuItem',
     'Row',
-    'SelectableItem',
     'TabItem',
     'TabList',
     'Table',

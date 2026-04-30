@@ -194,7 +194,9 @@ def test_find_all_returns_list(
     loc = Locator(path='//control:Button')
     results = factory.find_all(desktop_adapter, loc)
     assert len(results) >= 1
-    assert all(isinstance(a, UiNodeAdapter) for a in results)
+    # Results may be raw `UiNodeAdapter` or wrapped in default proxies
+    # (e.g. `ButtonProxy`); both inherit from `Adapter`.
+    assert all(isinstance(a, Adapter) for a in results)
 
 
 def test_find_all_empty_when_no_match(

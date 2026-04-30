@@ -2,22 +2,24 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Context base classes for container items.
+"""`Item` base class for elements inside a container.
 
-`Item` is the marker for elements inside a container; the
-`SelectableItem`, `ExpandableItem`, and `EditableItem` mixins add
-exactly one capability each.
+`Item` carries the capabilities every container entry can plausibly
+have: selection, inline editing, and activation.  Each capability
+raises `PatternNotSupportedError` when the underlying pattern is
+missing.
+
+Hierarchical capabilities (`expand`/`collapse`) live on `TreeItem`
+only, since flat container entries (`ListItem`, `TabItem`, `Cell`,
+`Row`) cannot expand.
 """
+
+from typing import Self
 
 from ..core import patterns
 from .element import Element
 
-__all__ = [
-    'EditableItem',
-    'ExpandableItem',
-    'Item',
-    'SelectableItem',
-]
+__all__ = ['Item']
 
 
 class Item(Element, register=False):
@@ -25,74 +27,99 @@ class Item(Element, register=False):
 
     default_prefix = 'item'
 
+    # ----- TextContent ------------------------------------------------
+
     @property
     def text(self) -> str:
         """The item's display text."""
         self.ensure_that(self._application_is_ready)
         return self.adapter.get_pattern(patterns.TextContent).text
 
-
-class SelectableItem(Item, register=False):
-    """An item that can be selected within its container."""
+    # ----- Selection (Read: IsSelectable / Action: Selectable, MultiSelectable) ---
 
     @property
     def is_selected(self) -> bool:
         """Whether the item is currently selected."""
         self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(patterns.Selectable).is_selected
+        return self.adapter.get_pattern(patterns.IsSelectable).is_selected
 
-    def select(self) -> None:
-        """Select the item if it is not already selected."""
+    def select(self) -> Self:
+        """Select the item if it is not already selected.
+
+        Single-select semantics: any current selection in the container
+        is replaced. Reads state via ``IsSelectable``; the action runs
+        through ``Selectable`` (default proxy: mouse click). Returns
+        ``self`` for chaining.
+        """
         self.ensure_that(
             self._toplevel_parent_is_active,
             self._element_is_in_view,
             self._element_is_enabled,
         )
-        selectable = self.adapter.get_pattern(patterns.Selectable)
-        if not selectable.is_selected:
-            selectable.select()
+        if not self.is_selected:
+            self.adapter.get_pattern(patterns.Selectable).select()
         self.ensure_that(self._application_is_ready, raise_exception=False)
+        return self
 
+    def add_to_selection(self) -> Self:
+        """Add the item to the current selection (multi-select).
 
-class ExpandableItem(Item, register=False):
-    """An item that can be expanded and collapsed."""
-
-    @property
-    def can_expand(self) -> bool:
-        """Whether the item has anything to expand into."""
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(patterns.Expandable).can_expand
-
-    @property
-    def is_expanded(self) -> bool:
-        """Whether the item is currently expanded."""
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(patterns.Expandable).is_expanded
-
-    def expand(self) -> bool:
-        """Expand the item; return ``True`` if the state changed."""
-        if not self.can_expand or self.is_expanded:
-            return False
-        self.ensure_that(self._toplevel_parent_is_active, self._element_is_in_view)
-        self.adapter.get_pattern(patterns.Expandable).expand()
+        Idempotent if the item is already selected. Requires the
+        container to support multi-selection — otherwise the
+        ``MultiSelectable`` pattern is missing and
+        ``PatternNotSupportedError`` is raised. Returns ``self`` for
+        chaining.
+        """
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        if not self.is_selected:
+            self.adapter.get_pattern(patterns.MultiSelectable).add_to_selection()
         self.ensure_that(self._application_is_ready, raise_exception=False)
-        return True
+        return self
 
-    def collapse(self) -> bool:
-        """Collapse the item; return ``True`` if the state changed."""
-        if not self.can_expand or not self.is_expanded:
-            return False
-        self.ensure_that(self._toplevel_parent_is_active, self._element_is_in_view)
-        self.adapter.get_pattern(patterns.Expandable).collapse()
+    def remove_from_selection(self) -> Self:
+        """Remove the item from a multi-selection.
+
+        Other selected items remain selected. Requires
+        ``MultiSelectable``; raises ``PatternNotSupportedError``
+        when the container is single-select only. Returns ``self`` for
+        chaining.
+        """
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        if self.is_selected:
+            self.adapter.get_pattern(patterns.MultiSelectable).remove_from_selection()
         self.ensure_that(self._application_is_ready, raise_exception=False)
-        return True
+        return self
 
+    def deselect(self) -> Self:
+        """Clear a single-select item's selection.
 
-class EditableItem(Item, register=False):
-    """An item whose value can be edited inline through a `HasEditor` lifecycle."""
+        Inverse of ``select()``. Requires ``Deselectable``, which is
+        an optional pattern — many toolkits do not expose
+        single-select deselect. Raises ``PatternNotSupportedError``
+        when not registered. Returns ``self`` for chaining.
+        """
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        if self.is_selected:
+            self.adapter.get_pattern(patterns.Deselectable).deselect()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+        return self
+
+    # ----- HasEditor + TextEditable / Clearable -----------------------
 
     def set_text(self, value: str) -> None:
-        """Replace the item's content with ``value``."""
+        """Replace the item's content with ``value`` via the editor lifecycle."""
         self.ensure_that(
             self._toplevel_parent_is_active,
             self._element_is_in_view,
@@ -107,7 +134,7 @@ class EditableItem(Item, register=False):
         self.ensure_that(self._application_is_ready, raise_exception=False)
 
     def clear(self) -> None:
-        """Remove the item's content."""
+        """Remove the item's content via the editor lifecycle."""
         self.ensure_that(
             self._toplevel_parent_is_active,
             self._element_is_in_view,
@@ -119,4 +146,16 @@ class EditableItem(Item, register=False):
             self.adapter.get_pattern(patterns.Clearable).clear()
         finally:
             editor.accept()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+
+    # ----- Activatable ------------------------------------------------
+
+    def activate(self) -> None:
+        """Trigger the item's default action."""
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        self.adapter.get_pattern(patterns.Activatable).activate()
         self.ensure_that(self._application_is_ready, raise_exception=False)

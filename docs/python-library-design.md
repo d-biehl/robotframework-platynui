@@ -4,9 +4,168 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 41**.
+> **Status:** Diskussionsentwurf, **Revision 47**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 47** — **`Deselectable` als eigenes Single-Select-Action-
+>   Pattern + saubere Trennung `deselect` vs `remove_from_selection`
+>   am `Item`.** Die Selektions-Action-Patterns sind jetzt vollständig
+>   spiegelbildlich zu den Selektions-Modi: `Selectable.select()` und
+>   neu `Deselectable.deselect()` für Single-Select;
+>   `MultiSelectable.add_to_selection()` /
+>   `remove_from_selection()` für Multi-Select. `Item.deselect()`
+>   ruft `Deselectable` (nicht mehr `MultiSelectable`),
+>   `Item.remove_from_selection()` ist neu und ruft `MultiSelectable`.
+>   `Deselectable` ist **optional**: Default-`ItemProxy` registriert
+>   es nicht, weil sich Single-Select-Deselect nicht generisch
+>   synthetisieren lässt — `Item.deselect()` wirft sonst ehrlich
+>   `PatternNotSupportedError`. `ItemContainer[I]` exposed alle vier
+>   Methoden als Convenience-Wrapper (`select` / `deselect` /
+>   `add_to_selection` / `remove_from_selection`, jeweils mit
+>   `locator`-Parameter). **Rückgabewerte für Chaining:**
+>   `Item.<action>() -> Self` (gibt das eigene Element zurück);
+>   `ItemContainer.<action>(*, locator) -> I` löst das Item auf
+>   und gibt es zurück; `TreeItem.<action>(*, locator=None) ->
+>   'TreeItem'` und `Row.<action>(*, locator=None) -> 'Row | Cell'`
+>   für die Dual-Role-Klassen; `ComboBox.select(*, locator=None) ->
+>   ListItem`. `List.select` und `TabList.select` als
+>   eigene Overrides entfallen (geerbt). Auf Klassen, die sowohl
+>   `Item` als auch `ItemContainer` sind (`TreeItem`, `Row`),
+>   überschreibt eine vereinheitlichte Methode beide Pfade: ohne
+>   `locator` zielt die Action auf das eigene Element (Item-
+>   Semantik, Rückgabe `self`), mit `locator` wird ein Kind
+>   aufgelöst (Container-Semantik, Rückgabe des Kindes). Die
+>   Dual-Role-Implementierung ruft `Item.<action>(self)` bzw.
+>   `ItemContainer.<action>(self, locator=...)` und nutzt
+>   `cast(...)`, weil unbound-Class-Aufrufe `Self` nicht
+>   propagieren. `Row | Cell` weitet die Signaturen beider Eltern;
+>   `# type: ignore[override]` quittiert die LSP-Lockerung.
+>   `clear_selection()` nutzt `remove_from_selection()` statt
+>   `deselect()`.
+> - **Rev. 46** — **Read/Action-Trennung der Capability-Patterns +
+>   Multi-Selection.** Patterns werden in zwei orthogonale Familien
+>   gespalten: **Read-Patterns** (`IsSelectable`, `IsExpandable`)
+>   liefern reinen Lese-Zustand vom Adapter (`is_selected`,
+>   `is_expanded`, `can_expand`); **Action-Patterns** (`Selectable`,
+>   `Expandable`, neu: `MultiSelectable`) liefern die Steuer-Aktionen
+>   (`select`, `expand`/`collapse`, `add_to_selection`/
+>   `remove_from_selection`). **Architektur-Garantie:** Action-
+>   Patterns kommen ausschließlich aus Default-Proxies (Maus/
+>   Tastatur-Synthese, `pattern_proxy_for(role=...)`); native
+>   Provider-Adapter liefern nur die Read-Patterns. Das stellt
+>   sicher, dass jede `Item`-Aktion über echte Eingabe-Events läuft
+>   und nicht über plattformspezifische Steuer-APIs (UIA `Select()`,
+>   AT-SPI `SelectChild()`, AX `AXPress`). **Konsistenz-Regel:**
+>   Liefert ein Adapter `IsSelectable`/`IsExpandable`, muss zur
+>   Adapter-Rolle ein Default-Proxy mit `Selectable`/`Expandable`
+>   registriert sein. Neu: **Container-Selection** über `Selection`
+>   (`get_selected_adapters`, `can_select_multiple`,
+>   `is_selection_required`) am `ItemContainer`. **Item-API
+>   ergänzt** um `add_to_selection()` und `deselect()` (synthetisch
+>   via `Ctrl+Click` im Default-Proxy). **`ItemContainer`-API
+>   ergänzt** um `get_selected_items()`, `can_select_multiple`,
+>   `is_selection_required`, `clear_selection()`. Bestehende Action-
+>   Patterns `Activatable`, `TextEditable`, `Clearable`, `HasEditor`
+>   bleiben unverändert (Spaltung in spätere Revisionen verschoben).
+> - **Rev. 45** — **Item-Capabilities flach an `Item`,
+>   Pattern-checked.** Die Capability-Mixins `SelectableItem`,
+>   `ExpandableItem` und `EditableItem` entfallen. Die
+>   Capability-Methoden (`select`, `set_text`, `clear`, `activate`)
+>   und Read-Properties (`text`, `is_selected`) wandern direkt auf
+>   `Item`. Jede Methode/Property ruft das benötigte Pattern via
+>   `adapter.get_pattern(P)` und wirft `PatternNotSupportedError`
+>   wenn das Pattern auf dem konkreten Adapter fehlt — Capabilities
+>   sind damit dynamisch pro Element, nicht statisch pro Typ.
+>   **Hierarchische Capabilities (`expand`/`collapse`/`is_expanded`/
+>   `can_expand`) liegen ausschließlich auf `TreeItem`** — flache
+>   Container-Einträge (`ListItem`, `TabItem`, `Cell`, `Row`) können
+>   nichts expandieren. `ListItem`, `TabItem` und `Cell` bleiben als
+>   leere Marker-Subklassen (`class ListItem(Item): pass` etc.) für
+>   Default-Locator-Role und als Typ-Anker für `ItemContainer[I]`.
+>   `TreeItem(Item, ItemContainer["TreeItem"])` ergänzt die
+>   Expandable-Capability. `Row` bleibt `Item, ItemContainer[Cell]`.
+>   `EditableCell` entfällt ersatzlos — Adapter mit
+>   `role="EditableCell"` fallen auf `Cell` zurück, und die
+>   Edit-Capability ist dynamisch über die Pattern-Verfügbarkeit am
+>   Adapter exposed. `MenuItem` erbt weiterhin `Control` (nicht
+>   `Item`); die `activate()`-Methode wird radikal vereinfacht und
+>   triggert nur noch das `Activatable`-Pattern des Eintrags selbst —
+>   Submenü-Pfade resolven Aufrufer Schritt für Schritt durch
+>   sequentielle `activate()`-Aufrufe (kein automatischer
+>   Ancestor-Walk mehr). Begründung: `class TreeItem(SelectableItem,
+>   ExpandableItem, EditableItem, …)` skaliert nicht
+>   (Explorer-Tree-Rename, Outlook Read-Only-Tree, Status-Tree ohne
+>   Capabilities — alle teilen sich denselben Adapter-Typ aber
+>   unterschiedliche Pattern-Sets); die Capability-Information liegt
+>   am Adapter, nicht in der Klassenhierarchie.
+> - **Rev. 44** — **Generischer `ItemContainer[I: Item]` ersetzt
+>   Container-Proxies.** Statt rollenspezifischer Default-Proxies
+>   (`ListProxy`/`TreeProxy`/`TabListProxy`/`MenuProxy`/
+>   `MenuBarProxy`/`TableProxy`) führen wir eine generische
+>   Context-Basisklasse `ItemContainer[I: Item]` (PEP 695 Syntax,
+>   Python 3.12+) in `ui/control.py` ein. Konkrete Container erben
+>   per `class List(ItemContainer[ListItem])`,
+>   `class Tree(ItemContainer[TreeItem])`,
+>   `class TabList(ItemContainer[TabItem])`,
+>   `class Row(Item, ItemContainer[Cell])`. `TreeItem` ist selbst
+>   Container und erbt zusätzlich von `ItemContainer[TreeItem]`.
+>   `Menu`/`MenuBar`/`Table` sind **keine** `ItemContainer[I]` —
+>   `MenuItem` erbt `Control` (nicht `Item`), und `Table` trägt die
+>   Row-Geometrie über das `Table`-Pattern. Sie behalten ihre
+>   `get_items`/`get_rows`-Methoden direkt am Context.
+>   `ItemContainer[I]` stellt `get_items(*, locator=None) -> list[I]`,
+>   `iter_items(*, locator=None) -> Iterator[I]` und
+>   `get_item(*, locator=None) -> I` bereit; der Item-Typ ist via
+>   Generic gebunden, der `ctx`-Parameter der alten Signatur entfällt.
+>   Implementierung delegiert an `self.get_all(I, locator=locator,
+>   scope='children')` etc. Die Container-Default-Proxies aus Rev. 43
+>   entfallen ersatzlos: `ui/proxies/{lists,tree,tabs,menus,table}.py`
+>   sind gelöscht; `ui/proxies/_mixins.py` reduziert sich auf die
+>   Action-Helper `click_adapter`/`type_keys_on_adapter`. Pattern-
+>   delegierende Default-Proxies (`ButtonProxy`, `CheckBoxProxy`,
+>   `EditProxy`, `TextProxy`, `ComboBoxProxy`, `ItemProxy` &
+>   Subklassen) bleiben unverändert, da sie keine Container-Lookups
+>   machen, sondern synthetische `Activatable`/`Toggleable`/
+>   `Selectable`/`TextEditable`/`Clearable`/`Expandable`-Patterns
+>   liefern.
+> - ~~**Rev. 43** — Default-Proxy-Schicht inkl. Container-Proxies
+>   (`ListProxy`/`TreeProxy`/`TabListProxy`/`MenuProxy`/
+>   `MenuBarProxy`/`TableProxy`) und `ItemContainerProxyMixin` mit
+>   BFS-Strategie.~~ — entfallen (siehe Rev. 44). Pattern-delegierende
+>   Default-Proxies (`ButtonProxy`, `CheckBoxProxy`, `EditProxy`,
+>   `TextProxy`, `ComboBoxProxy`, `ItemProxy` & Subklassen) bleiben.
+> - **Rev. 42** — **Pattern-Refactor: `ItemContainer` reduziert,
+>   `Table`/`HasRowHeaders`/`HasColumnHeaders` neu.**
+>   `ItemContainer` (`core/patterns/item_container.py`) wird auf drei
+>   Member reduziert: `item_count: int`, `get_item(ctx, *, locator=,
+>   scope=) -> T`, `get_items(ctx, *, locator=, scope=) -> list[T]`.
+>   `row_count`/`column_count` entfallen dort und wandern in das neue
+>   Pattern `Table` (`core/patterns/table.py`, `pattern_name =
+>   'org.platynui.patterns.Table'`) zusammen mit `get_row(ctx, …)` und
+>   `get_rows(ctx, …)`. Header-Inhalte werden über zwei separate Patterns
+>   freigeschaltet — `HasRowHeaders` (`row_headers`,
+>   `get_row_headers(ctx, …)`) und `HasColumnHeaders` (`column_headers`,
+>   `get_column_headers(ctx, …)`); maximale Orthogonalität, weil Tabellen
+>   in der Praxis Row- und Column-Header unabhängig voneinander führen.
+>   `get_*`-Methoden geben **Context-Instanzen** zurück, nicht Adapter,
+>   und teilen Signatur und Locator-Merge-Semantik mit `ContextBase.get`/
+>   `get_all`. **`ItemContainer` ist kein Native-Wrapper** — `ItemCount`
+>   ist über Provider hinweg nicht zuverlässig zu liefern (WPF/HTML mit
+>   Custom-Layouts melden den Wert oft falsch oder gar nicht), darum lebt
+>   die Default-Strategie komplett Python-seitig in einem
+>   `ItemContainerProxyMixin`. Dieser walked den descendant-Subtree und
+>   findet die erste Ebene, die ein Element der gesuchten Item-Rolle
+>   enthält; auf dieser Ebene werden alle Geschwister mit dieser Rolle
+>   gezählt (`item_count` via XPath `count()`) bzw. via Walk +
+>   Context-Wrapping zurückgegeben (`get_items`). Spezialfälle (WPF
+>   `VirtualizingStackPanel`, HTML `<table>` ohne `<tbody>`, …) werden
+>   über überschriebene Mixin-Methoden im role-spezifischen Proxy
+>   abgefangen. Die UI-Klassen `List`/`Tree`/`TreeItem`/`Table`/`Row`/
+>   `TabList` verlieren ihre direkten `item_count`/`row_count`/
+>   `column_count`-Properties — wer den Wert braucht, ruft das Pattern
+>   direkt am Adapter; die Container-Klassen behalten nur ihre
+>   `get_*`/`iter_*`/`get_item`-Methoden, die intern jetzt das
+>   `ItemContainer`-Pattern statt der bisherigen XPath-Walks nutzen.
 > - **Rev. 41** — **Settings ↔ Native-Override-Bridge.**
 >   Die Legacy-Sekunden-Felder `mouse_*`, `keyboard_after_press_*` und
 >   `input_after_input_delay` werden ersatzlos entfernt. An ihre Stelle
@@ -1397,17 +1556,24 @@ Minimal-Set, das mit v1 ausgeliefert werden soll (Rollen entsprechen
 | `Button`, `Link` | `Button` | `Activatable` |
 | `CheckBox`, `RadioButton`, `ToggleButton` | `CheckBox`, `RadioButton`, `ToggleButton` | `Toggleable` |
 | `Edit`, `Text`, `PasswordBox` | `Edit`, `Text` | `TextContent`, `TextEditable`, `Clearable`, `HasValue` |
-| `ComboBox` | `ComboBox` | `Expandable`, `Selectable`, `TextContent`, `TextEditable` (editierbar) |
-| `List`, `ListItem` | `List`, `ListItem` | `Selectable`, `ItemContainer`, `Scrollable` |
-| `Tree`, `TreeItem` | `Tree`, `TreeItem` | `Expandable`, `Selectable`, `ItemContainer`, `Scrollable` |
-| `Table`, `Row`, `Cell`, `Header` | `Table`, `Row`, `Cell` (+ `EditableCell`) | `Selectable`, `ItemContainer`, `HasEditor`, `Scrollable` |
-| `TabList`, `TabItem` | `TabList`, `TabItem` | `Selectable` |
-| `Menu`, `MenuBar`, `MenuItem` | `Menu`, `MenuBar`, `MenuItem` | `Activatable`, `Expandable` |
+| `ComboBox` | `ComboBox` | `Expandable` (Action), `Selectable` (Action), `TextContent`, `TextEditable` (editierbar) |
+| `List`, `ListItem` | `List`, `ListItem` | `Selectable` (Action), `MultiSelectable` (Action), `Selection` (Read), `ItemContainer`, `Scrollable` |
+| `Tree`, `TreeItem` | `Tree`, `TreeItem` | `Expandable` (Action), `Selectable` (Action), `MultiSelectable` (Action), `Selection` (Read), `ItemContainer`, `Scrollable` |
+| `Table`, `Row`, `Cell`, `Header` | `Table`, `Row`, `Cell` | `Selectable` (Action), `MultiSelectable` (Action), `Selection` (Read), `ItemContainer`, `HasEditor`, `Scrollable` |
+| `TabList`, `TabItem` | `TabList`, `TabItem` | `Selectable` (Action), `Selection` (Read) |
+| `Menu`, `MenuBar`, `MenuItem` | `Menu`, `MenuBar`, `MenuItem` | `Activatable`, `Expandable` (Action) |
 | `Label`, `StaticText`, `Image` | `Label`, `Image` | (lesend — kein Action-Pattern) |
 | `ScrollBar`, `Slider`, `Spinner`, `ProgressBar` | `Slider`, `Spinner`, `ProgressBar` | `HasValue`, `EditableValue` |
 
 Die Liste ist bewusst am Altprojekt (`ui/proxies/standardproxies.py`,
 ~400 LOC) orientiert — das dortige Set hat sich in der Praxis bewährt.
+
+Die Tabelle nennt explizit nur Action-Patterns aus den Default-Proxies
+sowie das Container-Read-Pattern `Selection`. Die zugehörigen item-
+seitigen Read-Patterns (`IsSelectable`, `IsMultiSelectable`,
+`IsExpandable`) liefert der native Adapter implizit aus dem Provider-
+Attributset (siehe §5a.4 Konsistenz-Regel). Default-Proxies können
+sie ergänzend als Fallback synthetisieren.
 
 ### 5a.3 Konsequenzen
 
@@ -1430,6 +1596,121 @@ Die Liste ist bewusst am Altprojekt (`ui/proxies/standardproxies.py`,
      generischen Click-/Tastatur-Fallback (z. B. Click-basiertes
      `Activatable`, Tastatur-basiertes `TextEditable`) **oder** delegiert
      auf das Adapter-Pattern, wenn der Provider eines liefert.
+
+### 5a.4 Read/Action-Trennung der Capability-Patterns (Rev. 46/47)
+
+**Architektur-Prinzip:** PlatynUI steuert Anwendungen ausschließlich
+über Maus und Tastatur, niemals über plattformspezifische Steuer-
+APIs (UIA `SelectionItemPattern.Select()`, AT-SPI `SelectChild()`,
+AX `AXPress`). Die Lese-Eigenschaften (Selektionszustand,
+Expansionszustand) kommen jedoch sehr wohl aus den nativen
+Provider-APIs — Inspektion ist nicht Steuerung.
+
+Daraus folgt eine systematische Spaltung der Capability-Patterns
+in zwei orthogonale Familien:
+
+| Read-Pattern (vom Adapter) | Action-Pattern (vom Default-Proxy) |
+|---|---|
+| `IsSelectable` (`is_selected`) | `Selectable` (`select()`), `Deselectable` (`deselect()`, optional) |
+| `IsMultiSelectable` (`can_select_multiple`, `is_selection_required`) | `MultiSelectable` (`add_to_selection()`, `remove_from_selection()`) |
+| `IsExpandable` (`is_expanded`, `can_expand`) | `Expandable` (`expand()`, `collapse()`) |
+
+**Konsistenz-Regel:** Liefert ein nativer Adapter ein Read-Pattern
+(`IsSelectable`, `IsExpandable`), muss zur Adapter-Rolle ein
+Default-Proxy mit dem zugehörigen primären Action-Pattern registriert
+sein (`Selectable`, `Expandable`). `Deselectable` ist **nicht**
+Pflicht-Begleiter von `IsSelectable` — viele Toolkits unterstützen
+das Auflösen der Single-Select-Auswahl gar nicht; das Pattern wird
+nur registriert, wo es synthetisierbar ist. `MultiSelectable` ist
+gekoppelt an `IsMultiSelectable` (Container muss multi-fähig sein).
+Andernfalls würde `item.select()` trotz vorhandenem `is_selected`
+mit `PatternNotSupportedError` fehlschlagen — ein Inkonsistenz-Bug.
+Die Suite enthält Tests, die für jede registrierte Adapter-Rolle die
+Pflicht-Paarungen prüfen.
+
+**Wer liefert was:**
+
+- **Native Adapter** (UIA, AT-SPI, AX) liefern via Provider-Schicht
+  Read-Patterns aus dem Attribut-Set (`IsSelected`, `IsExpanded`,
+  `CanSelectMultiple`, ...). Action-Patterns liefern sie **nicht**.
+- **Default-Proxies** (`pattern_proxy_for(role='Item')`,
+  `pattern_proxy_for(role='TreeItem')`, ...) liefern die Action-
+  Patterns. Sie nutzen `mouse.click()`, `mouse.double_click()`,
+  `keyboard.modifier_held('Ctrl')` etc. aus `core/devices.py`
+  (siehe §A.5).
+- **Read-Patterns sind synthetisier-fähig im Default-Proxy als
+  Fallback,** falls ein Adapter sie nicht selbst exposed (z.B. via
+  `attribute_value('IsSelected')`). Action-Patterns sind dagegen
+  ausschließlich Proxy-Domäne.
+
+**Action-Pattern-Implementierungen im Default-Proxy:**
+
+```python
+@pattern_proxy_for(role='Item')
+class ItemProxy(ElementProxy, Selectable, MultiSelectable, Expandable):
+
+    # Selectable.select — Single-Select-Semantik (ersetzt aktuelle Auswahl)
+    def select(self) -> None:
+        click_adapter(self.adapter)
+
+    # MultiSelectable.add_to_selection — additiv (Ctrl+Click)
+    def add_to_selection(self) -> None:
+        ctrl_click_adapter(self.adapter)
+
+    # MultiSelectable.remove_from_selection — Ctrl+Click auf bereits
+    # selektiertes Element schaltet die Selektion ab
+    def remove_from_selection(self) -> None:
+        ctrl_click_adapter(self.adapter)
+```
+
+`Deselectable` wird **nicht** vom Default-`ItemProxy` getragen, weil
+sich Single-Select-Deselect nicht generisch über Maus/Tastatur
+synthetisieren lässt (man müsste „irgendwo anders" hinklicken, was
+toolkit-/layout-spezifisch ist). Ein Provider, der das nativ kennt,
+oder ein toolkit-spezifischer Spezial-Proxy registriert das Pattern
+gezielt — andernfalls wirft `Item.deselect()` ehrlich
+`PatternNotSupportedError`.
+
+(Die exakte Modifier-Hold-API wird in der Implementierung an die
+vorhandene `KeyboardProxy`-Schnittstelle angepasst; siehe §A.5.)
+
+**Container-Selection** (Pattern `Selection` an Container-Adapter):
+
+```python
+class Selection(PatternBase):
+    """Container exposing its current selection."""
+
+    pattern_name = 'org.platynui.patterns.Selection'
+
+    @property
+    @abstractmethod
+    def can_select_multiple(self) -> bool: ...
+
+    @property
+    @abstractmethod
+    def is_selection_required(self) -> bool: ...
+
+    @abstractmethod
+    def get_selected_adapters(self) -> Sequence[Adapter]: ...
+```
+
+`Selection` ist ein **Read-Pattern** (kein Container-weites
+`select_all()`/`clear_selection()` als native Aktion). Bulk-
+Operationen werden Python-seitig in `ItemContainer` synthetisiert,
+indem über `get_selected_items()` iteriert und auf jedem Item
+`remove_from_selection()` (= `MultiSelectable`) aufgerufen wird.
+
+**Was bleibt unverändert (Rev. 46-Scope):**
+
+- `Activatable.activate()`, `TextEditable.set_text()`,
+  `Clearable.clear()`, `HasEditor.open_editor/accept/cancel`
+  bleiben einstweilen Action-Patterns ohne Read-Counterpart. Eine
+  spätere Revision spaltet sie nach demselben Schema
+  (`IsActivatable`/`Activatable`, `IsTextEditable`/`TextEditable`).
+- `TextContent.text` ist reines Read-Pattern und braucht keine
+  Spaltung.
+- `Toggleable`, `Focusable`, Window-Capability-Sub-Patterns,
+  `ItemContainer`-Pattern bleiben unverändert.
 
 ## 6. Was Rust beitragen kann (und was nicht)
 
@@ -3344,6 +3625,10 @@ zwischen Patterns ist kein Selbstzweck.
 | `Movable` | `can_move`, `move_to(point)` | TopLevel-Window: Rust `MovablePattern` |
 | `Resizable` | `can_resize`, `resize(size)` | TopLevel-Window: Rust `ResizablePattern` |
 | `Responsive` | `accepts_user_input() -> bool \| None` | TopLevel-Window: Rust `ResponsivePattern` |
+| `ItemContainer` | `item_count`, `get_item(ctx, …)`, `get_items(ctx, …)` | Kein Default-Proxy. Generische Context-Basisklasse `ItemContainer[I: Item]` (§A.14.20a) liefert `get_items`/`get_item`/`iter_items` direkt am Context via `get_all`/`get`/`iter_all` mit `scope='children'`. |
+| `Table` | `row_count`, `column_count`, `get_row(ctx, …)`, `get_rows(ctx, …)` | Kein Default-Proxy. `Table`-Context (§A.14.15) liefert `get_rows`/`get_row` direkt via `get_all(Row, scope='children')`. |
+| `HasRowHeaders` | `row_headers`, `get_row_headers(ctx, …)` | Table-Default-Proxy: Python `HasRowHeadersProxyMixin` (optional, nur wenn das Toolkit Row-Header liefert) |
+| `HasColumnHeaders` | `column_headers`, `get_column_headers(ctx, …)` | Table-Default-Proxy: Python `HasColumnHeadersProxyMixin` (optional, nur wenn das Toolkit Column-Header liefert) |
 
 **`Activatable` ist die universelle "primary action"-Capability**,
 **aber mit zwei sehr verschiedenen Implementations-Pfaden**:
@@ -3493,6 +3778,9 @@ __all__ = [
     'Closeable',
     'Element',
     'Focusable',
+    'HasColumnHeaders',          # neu (Rev. 42)
+    'HasRowHeaders',             # neu (Rev. 42)
+    'ItemContainer',
     'Maximizable',
     'Minimizable',
     'Movable',
@@ -3501,6 +3789,7 @@ __all__ = [
     'Resizable',
     'Responsive',                # neu (Rev. 37, ersetzt HasUserInput)
     'Restorable',
+    'Table',                     # neu (Rev. 42)
     'TextContent',
     'Toggleable',
 ]
@@ -3557,18 +3846,25 @@ und ergänzen weitere.
 AdapterProxy (core/adapter_proxy.py)
 └── ElementProxy            (ui/proxies/base.py)         role="Element"
     └── ControlProxy        (ui/proxies/base.py)         role="Control"
-        ├── ButtonProxy     (ui/proxies/standard.py)     role="Button"
-        ├── CheckBoxProxy   (ui/proxies/standard.py)     role="CheckBox"
-        ├── MenuItemProxy   (ui/proxies/standard.py)     role="MenuItem"
+        ├── ButtonProxy     (ui/proxies/buttons.py)      role="Button"
+        ├── CheckBoxProxy   (ui/proxies/buttons.py)      role="CheckBox"
         ├── EditProxy       (ui/proxies/text.py)         role="Edit"
         │   └── TextProxy                                 role="Text"
-        ├── ComboBoxProxy   (ui/proxies/text.py)         role="ComboBox"
-        └── ItemProxy       (ui/proxies/list_tree.py)    role="Item"
+        ├── ComboBoxProxy   (ui/proxies/combobox.py)     role="ComboBox"
+        └── ItemProxy       (ui/proxies/item.py)         role="Item"
             ├── ListItemProxy                             role="ListItem"
             ├── TreeItemProxy                             role="TreeItem"
             ├── TabItemProxy                              role="TabItem"
+            ├── MenuItemProxy                             role="MenuItem"
+            ├── RowProxy                                  role="Row"
             └── CellProxy                                 role="Cell"
 ```
+
+Container-Rollen (`List`, `Tree`, `TabList`, `Menu`, `MenuBar`,
+`Table`, `Row`) haben **keinen Default-Proxy**. Item-Lookups
+laufen über die generische Context-Basisklasse `ItemContainer[I:
+Item]` (§A.14.x); Item-Mutationen (Click, Expand, Edit) gehen über
+den `ItemProxy`-Zweig.
 
 `ElementProxy` exposed `Element`, `Readable`, `ApplicationReady`;
 `ControlProxy` ist Marker ohne weitere Mixins (`Focusable` kommt
@@ -3589,18 +3885,29 @@ nicht in der Proxy-Mixin-Spalte auf.
 | `ControlProxy` | `Control` | (keine — `Focusable` kommt vom Adapter) |
 | `ButtonProxy` | `Button`, `Link` | `Activatable` (Click auf `ActivationTarget.activation_point`) |
 | `CheckBoxProxy` | `CheckBox`, `RadioButton`, `ToggleButton` | `Toggleable` (Click; State liest `Toggleable.state`-Attribut) |
-| `MenuItemProxy` | `Menu`, `MenuBar`, `MenuItem` | `Activatable`, `Expandable` (Click + ggf. Keyboard-Navigation) |
 | `EditProxy` / `TextProxy` | `Edit`, `Text`, `PasswordBox` | `TextContent`, `TextEditable`, `Clearable` (focus → select-all → type / delete) |
-| `ComboBoxProxy` | `ComboBox` | `Expandable`, `Selectable`, `TextContent`, `TextEditable` (Click auf Dropdown-Pfeil + Item-Click) |
+| `ComboBoxProxy` | `ComboBox` | `Expandable`, `Selectable`, `TextContent`, `TextEditable` (Click auf Dropdown-Pfeil + Item-Click). Item-Lookup liegt am `ComboBox`-Context (eigene `get_items` mit `_expanded()`-Wrapper, weil das Dropdown vor dem Walk geöffnet werden muss). |
 | `ItemProxy` | `Item` | `Selectable`, `HasEditor`, `TextEditable`, `Clearable`, `Activatable` (Click, Keyboard für Editor) |
 | `ListItemProxy` | `ListItem` | (erbt von `ItemProxy`) |
 | `TreeItemProxy` | `TreeItem` | + `Expandable` (Click expand/collapse) |
 | `TabItemProxy` | `TabItem` | (erbt von `ItemProxy`) |
+| `MenuItemProxy` | `MenuItem` | + `Expandable` (Submenu öffnen/schließen) |
 | `CellProxy` | `Cell` | (erbt von `ItemProxy`) |
 
 Read-only Patterns (`Element`, `Readable`, `TextContent`,
 `Toggleable.state`, `Selectable.is_selected`, `Expandable.is_expanded`)
 lesen ihren State direkt aus Adapter-Attributen.
+
+**Container-Lookups laufen nicht über die Proxy-Schicht.** Item-
+Counts und Item-Listen sind nicht zuverlässig aus Provider-
+Attributen lesbar (WPF-`VirtualizingStackPanel` meldet nur sichtbare
+Items, HTML-Custom-Layouts liefern den Wert oft gar nicht). Statt
+dafür Proxy-Mixins zu pflegen, erbt jede Container-Context-Klasse
+direkt von `ItemContainer[I: Item]` (§A.14.x) und nutzt die in
+`ContextBase` (§A.4) etablierte `get_all`/`iter_all`/`get`-Mechanik
+mit `scope='children'`. `Table` ist Sonderfall: `get_rows` und
+`get_row` liegen direkt am `Table`-Context, weil das `Table`-Pattern
+zusätzlich `column_count` und Header-Zugriffe trägt (§A.14.20).
 
 **Native-Wrapper im `UiNodeAdapter`.** Folgende Patterns werden vom
 Adapter selbst geliefert (`_NATIVE_PATTERN_BUILDERS`, §A.4a) und
@@ -3703,15 +4010,12 @@ ContextBase  (core/context.py)
     │   ├── Tree                (ui/tree.py — ItemContainer)
     │   ├── Table               (ui/table.py — ItemContainer)
     │   └── ComboBox            (ui/combobox.py — Expandable + Items + optional Editable)
-    └── Item                    (ui/item.py — register=False, + text)
-        ├── SelectableItem      (ui/item.py — register=False, + Selectable)
-        │   ├── ListItem        (ui/lists.py)
-        │   └── TreeItem        (ui/tree.py — auch ExpandableItem)
-        ├── ExpandableItem      (ui/item.py — register=False, + Expandable)
-        ├── EditableItem        (ui/item.py — register=False, + HasEditor + TextEditable)
-        ├── Cell                (ui/table.py)
-        │   └── EditableCell    (ui/table.py — auch EditableItem)
-        └── Row                 (ui/table.py — ItemContainer von Cells)
+    └── Item                    (ui/item.py — register=False, alle Capabilities)
+        ├── ListItem            (ui/lists.py — Marker)
+        ├── TabItem             (ui/tabs.py — Marker)
+        ├── Cell                (ui/table.py — Marker)
+        ├── TreeItem            (ui/tree.py — auch ItemContainer[TreeItem])
+        └── Row                 (ui/table.py — auch ItemContainer[Cell])
 ```
 
 `Element` ist die zentrale Basisklasse für sichtbare UI-Elemente.
@@ -4364,94 +4668,130 @@ Zwischenklasse wäre Code-Overhead ohne Gegenwert.
 #### A.14.12 Item-Hierarchie (`ui/item.py`)
 
 Items sind UI-Elemente innerhalb eines Containers — Listen-
-einträge, Tree-Knoten, Tabellenzellen, Tabs, Menü-Einträge.
-Sie unterscheiden sich von `Control` darin, dass sie typisch
-**keinen eigenen Focus** halten (der Container ist fokussiert,
-das Item ist „selektiert") und dass ihre Aktionen über
-Container- oder Editor-Lifecycles laufen.
+einträge, Tree-Knoten, Tabellenzellen, Tabs. Sie unterscheiden sich
+von `Control` darin, dass sie typisch **keinen eigenen Focus**
+halten (der Container ist fokussiert, das Item ist „selektiert")
+und dass ihre Aktionen über Container- oder Editor-Lifecycles
+laufen.
 
 ```
 Element
 └── Item                          (register=False, default_prefix="item")
-    ├── SelectableItem            (register=False, + Selectable)
-    ├── ExpandableItem            (register=False, + Expandable)
-    └── EditableItem              (register=False, + HasEditor + TextEditable)
+    ├── ListItem                  (Marker — ui/lists.py)
+    ├── TabItem                   (Marker — ui/tabs.py)
+    ├── Cell                      (Marker — ui/table.py)
+    ├── TreeItem                  (ui/tree.py — auch ItemContainer[TreeItem])
+    └── Row                       (ui/table.py — auch ItemContainer[Cell])
 ```
 
-`Item`, `SelectableItem`, `ExpandableItem`, `EditableItem` sind
-alle `register=False` — sie sind Capability-Mixins, keine
-selbstständigen Rollen. Konkrete Klassen (`ListItem`, `TreeItem`,
-`Cell`, `Row`, `TabItem`) erben von `Item` plus
-einer beliebigen Kombination der Mixins per Mehrfachvererbung.
-`MenuItem` erbt dagegen `Control` (siehe §A.14.24), da ein
-Menü-Eintrag semantisch ein interaktives Control mit eigener
-Sub-Hierarchie ist und nicht der Inhalt eines Auswahl-Containers.
+`Item` ist `register=False` und trägt die **flachen**
+Capability-Methoden direkt: `select`, `deselect`,
+`add_to_selection`, `remove_from_selection`, `set_text`, `clear`,
+`activate`. Read-Properties: `text`, `is_selected`. Jede
+Methode/Property ruft das benötigte Pattern via
+`adapter.get_pattern(P)`; fehlt das Pattern auf dem konkreten
+Adapter, wird `PatternNotSupportedError` geworfen. Capabilities
+sind damit **dynamisch pro Element** und nicht statisch pro Typ
+gebunden — derselbe Adapter kann je nach Toolkit/Zustand
+unterschiedliche Pattern-Sets exposen, und das Verhalten passt
+sich automatisch an.
+
+**Read/Action-Trennung (Rev. 46/47).** Die Selektions-Capability ist
+in mehrere Patterns gespalten: `IsSelectable` liefert den Lese-
+Zustand (`is_selected`) vom Adapter; `Selectable.select()` und
+`Deselectable.deselect()` sind die Single-Select-Aktionen
+(`Deselectable` optional);
+`MultiSelectable.add_to_selection()` /
+`remove_from_selection()` sind die additiven Multi-Select-Aktionen,
+synthetisiert vom Default-Proxy via `Ctrl+Click`.
+`Item.deselect()` ruft `Deselectable`,
+`Item.remove_from_selection()` ruft `MultiSelectable`. Siehe
+§A.14.17 für die Pattern-Specs und §5a.4 für die Architektur-
+Begründung.
+
+**Expand/Collapse ausschließlich auf `TreeItem`.** Hierarchische
+Capabilities (`expand`, `collapse`, `is_expanded`, `can_expand`)
+leben nicht auf `Item`, sondern nur auf `TreeItem` (§A.14.14),
+weil flache Container-Einträge wie `ListItem`, `TabItem`, `Cell`,
+`Row` semantisch nichts zu expandieren haben.
+
+Vorab-Probes gibt es nicht: Capability-Verfügbarkeit wird per
+`adapter.get_pattern(P, raise_exception=False) is not None` direkt
+am Adapter geprüft, wenn nötig. Tests/Robot-Code ruft die
+Capability-Methode und fängt `PatternNotSupportedError` ab.
 
 ```python
 class Item(Element, register=False):
-    """Container element (list entry, tree node, cell, …)."""
+    """Container element with flat capabilities."""
 
     default_prefix: ClassVar[str] = "item"
 
+    # --- Read properties (raise PatternNotSupportedError if unavailable) ---
+
     @property
     def text(self) -> str:
-        """The item's display text."""
         self.ensure_that(self._application_is_ready)
         return self.adapter.get_pattern(TextContent).text
-
-
-class SelectableItem(Item, register=False):
-    """Item that can be selected within its container."""
 
     @property
     def is_selected(self) -> bool:
         self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(Selectable).is_selected
+        return self.adapter.get_pattern(IsSelectable).is_selected
 
-    def select(self) -> None:
+    # --- Actions (raise PatternNotSupportedError if unavailable) ---
+
+    def select(self) -> Self:
+        """Select the item, replacing any current selection."""
         self.ensure_that(
             self._toplevel_parent_is_active,
             self._element_is_in_view,
             self._element_is_enabled,
         )
-        selectable = self.adapter.get_pattern(Selectable)
-        if not selectable.is_selected:
-            selectable.select()
+        if not self.is_selected:
+            self.adapter.get_pattern(Selectable).select()
         self.ensure_that(self._application_is_ready, raise_exception=False)
+        return self
 
-
-class ExpandableItem(Item, register=False):
-    """Item that can be expanded/collapsed (tree node, …)."""
-
-    @property
-    def is_expanded(self) -> bool:
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(Expandable).is_expanded
-
-    @property
-    def can_expand(self) -> bool:
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(Expandable).can_expand
-
-    def expand(self) -> bool:
-        if not self.can_expand or self.is_expanded:
-            return False
-        self.ensure_that(self._toplevel_parent_is_active, self._element_is_in_view)
-        self.adapter.get_pattern(Expandable).expand()
+    def add_to_selection(self) -> Self:
+        """Add the item to the current selection (multi-select)."""
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        if not self.is_selected:
+            self.adapter.get_pattern(MultiSelectable).add_to_selection()
         self.ensure_that(self._application_is_ready, raise_exception=False)
-        return True
+        return self
 
-    def collapse(self) -> bool:
-        if not self.can_expand or not self.is_expanded:
-            return False
-        self.ensure_that(self._toplevel_parent_is_active, self._element_is_in_view)
-        self.adapter.get_pattern(Expandable).collapse()
+    def remove_from_selection(self) -> Self:
+        """Remove the item from a multi-selection (others stay selected)."""
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        if self.is_selected:
+            self.adapter.get_pattern(MultiSelectable).remove_from_selection()
         self.ensure_that(self._application_is_ready, raise_exception=False)
-        return True
+        return self
 
+    def deselect(self) -> Self:
+        """Deselect a single-select item (clears the container's selection).
 
-class EditableItem(Item, register=False):
-    """Item whose value can be edited inline (cell editor, …)."""
+        Raises ``PatternNotSupportedError`` when ``Deselectable`` is
+        not registered for the adapter — many toolkits don't expose
+        single-select deselect.
+        """
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        if self.is_selected:
+            self.adapter.get_pattern(Deselectable).deselect()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+        return self
 
     def set_text(self, value: str) -> None:
         self.ensure_that(
@@ -4480,130 +4820,188 @@ class EditableItem(Item, register=False):
         finally:
             editor.accept()
         self.ensure_that(self._application_is_ready, raise_exception=False)
+
+    def activate(self) -> None:
+        self.ensure_that(
+            self._toplevel_parent_is_active,
+            self._element_is_in_view,
+            self._element_is_enabled,
+        )
+        self.adapter.get_pattern(Activatable).activate()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
 ```
 
-**Mehrfachvererbung.** `TreeItem(SelectableItem, ExpandableItem)`
-und `EditableCell(Cell, EditableItem)` kombinieren orthogonale
-Capabilities. Die Mixins berühren sich nicht (jedes greift auf
-ein anderes Pattern zu); Python-MRO ist hier unkritisch.
+**Marker-Subklassen.** `ListItem(Item)`, `TabItem(Item)` und
+`Cell(Item)` sind leere Subklassen. Sie existieren als
+Default-Locator-Role-Anker (`@context(role="ListItem")` u.a. via
+`__init_subclass__`) und als Typ-Anker für `ItemContainer[I]`-
+Generic-Bounds (`List(ItemContainer[ListItem])`). Sie tragen keine
+zusätzliche Logik mehr — die Capability-Methoden liegen alle auf
+`Item`.
+
+**`TreeItem` und `Row` als Container.** Beide erben zusätzlich von
+`ItemContainer[I]` (`TreeItem(Item, ItemContainer["TreeItem"])`,
+`Row(Item, ItemContainer[Cell])`), weil sie selbst Item-Container
+sind. `TreeItem` ergänzt zusätzlich die Expandable-Capability
+(§A.14.14).
+
+**`MenuItem` ist kein `Item`.** `MenuItem` erbt `Control` und
+behält seine eigene `activate()`-Methode. Diese ist seit Rev. 45
+radikal vereinfacht: nur noch `ensure_that(...)` plus
+`Activatable.activate()`. Submenü-Pfade öffnet der Aufrufer durch
+sequentielle `activate()`-Aufrufe pro Ebene (siehe §A.14.24).
 
 **`text`-Setter bewusst nicht auf `Item`.** Der Property-Setter
 `item.text = "..."` würde `set_text` voraussetzen und damit den
-Editor-Lifecycle implizieren. Da nicht jedes Item editierbar ist,
-ist `text` auf `Item` rein lesend; `EditableItem.set_text(value)`
-ist die explizite Schreib-API.
+Editor-Lifecycle implizieren. `text` ist auf `Item` rein lesend;
+`set_text(value)` ist die explizite Schreib-API.
 
 **`HasEditor.open_editor()` + `accept()`.** Der Lifecycle wird in
-einem `try/finally` umschlossen, damit ein Fehler in `set_text`
-den Editor nicht offen lässt. Die `cancel()`-Variante des
-Patterns ist im Public-API der Item-Klassen (noch) nicht
-exposed — wer sie braucht, ruft das Pattern direkt an.
+einem `try/finally` umschlossen, damit ein Fehler in `set_text`/
+`clear` den Editor nicht offen lässt. Die `cancel()`-Variante des
+Patterns ist im Public-API der Item-Klasse (noch) nicht exposed —
+wer sie braucht, ruft das Pattern direkt an.
 
 #### A.14.13 `List` und `ListItem` (`ui/lists.py`)
 
 ```
 Element                          Element
 └── Control                      └── Item
-    └── List                         └── SelectableItem
-                                          └── ListItem
+    └── List                         └── ListItem (Marker)
 ```
 
-`List` ist ein `Control` mit `ItemContainer`-Pattern; `ListItem`
-ein `SelectableItem`. Items werden über `scope='children'`
-gesucht — eine Liste enthält ihre Einträge direkt.
+`List` erbt von `ItemContainer[ListItem]` (§A.14.20a); `ListItem`
+ist eine leere Marker-Subklasse von `Item`. `get_items`/`iter_items`/
+`get_item` kommen aus der generischen Basisklasse, der Item-Typ
+ist via Generic gebunden. Capability-Methoden (`select`, `text`,
+`is_selected`) liegen alle auf `Item` (§A.14.12).
 
 ```python
-class List(Control):
-    @property
-    def item_count(self) -> int:
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(ItemContainer).item_count
-
-    def get_items(self, *, locator: Locator | None = None) -> list[ListItem]:
-        return self.get_all(ListItem, locator=locator, scope='children')
-
-    def iter_items(self, *, locator: Locator | None = None) -> Iterator[ListItem]:
-        return self.iter_all(ListItem, locator=locator, scope='children')
-
-    def get_item(self, *, locator: Locator | None = None) -> ListItem:
-        return self.get(ListItem, locator=locator, scope='children')
-
-    def select(self, *, locator: Locator | None = None) -> ListItem:
-        item = self.get_item(locator=locator)
-        item.select()
-        return item
-
-
-class ListItem(SelectableItem):
+class ListItem(Item):
     pass
+
+
+class List(ItemContainer[ListItem]):
+    pass  # Inherits get_items / get_item / select / deselect /
+          # add_to_selection / remove_from_selection from ItemContainer.
 ```
 
-`List.select(...)` ist ein Convenience-Wrapper: holt das Item
-über die Locator-Argumente und ruft `select()`. Liefert das Item
-zurück, damit der Caller weiterarbeiten kann.
+`List` braucht keine eigenen Methoden mehr — die Convenience-Wrapper
+`select` / `deselect` / `add_to_selection` / `remove_from_selection`
+kommen aus `ItemContainer` (§A.14.20a). Alle vier lösen ein Item per
+Locator auf, delegieren an die gleichnamige `Item`-Methode und geben
+das Item (Typ `ListItem`) zurück — Chaining-fähig.
+
+Wer den Item-Count braucht, ruft das Pattern direkt:
+`list.adapter.get_pattern(ItemContainer).item_count` (Rev. 42 — die
+frühere `List.item_count`-Property entfällt, weil sie nur ein
+Pattern-Read passthrough war und in der UI-Klasse keine zusätzliche
+Semantik trug).
 
 #### A.14.14 `Tree` und `TreeItem` (`ui/tree.py`)
 
 ```
 Element                          Element
 └── Control                      └── Item
-    └── Tree                         └── SelectableItem  ExpandableItem
-                                              \           /
-                                               TreeItem
+    └── ItemContainer[TreeItem]      └── TreeItem  (+ Expandable)
+        └── Tree                         └── ItemContainer[TreeItem]
 ```
 
 ```python
-class Tree(Control):
-    @property
-    def item_count(self) -> int:
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(ItemContainer).item_count
+class TreeItem(Item, ItemContainer["TreeItem"]):
+
+    # Selection actions: dual-role override (Rev. 47).
+    # Without ``locator`` the action targets this node and returns
+    # ``self``; with it a child TreeItem is resolved, the action
+    # delegates, and the resolved child is returned. The ``cast`` is
+    # required because ``Cls.method(self)`` does not propagate the
+    # ``Self`` type through pyright.
+
+    def select(self, *, locator: Locator | None = None) -> "TreeItem":
+        if locator is None:
+            return cast("TreeItem", Item.select(self))
+        return ItemContainer.select(self, locator=locator)
+
+    def deselect(self, *, locator: Locator | None = None) -> "TreeItem":
+        if locator is None:
+            return cast("TreeItem", Item.deselect(self))
+        return ItemContainer.deselect(self, locator=locator)
+
+    def add_to_selection(self, *, locator: Locator | None = None) -> "TreeItem":
+        if locator is None:
+            return cast("TreeItem", Item.add_to_selection(self))
+        return ItemContainer.add_to_selection(self, locator=locator)
+
+    def remove_from_selection(self, *, locator: Locator | None = None) -> "TreeItem":
+        if locator is None:
+            return cast("TreeItem", Item.remove_from_selection(self))
+        return ItemContainer.remove_from_selection(self, locator=locator)
 
     @property
-    def column_count(self) -> int:
+    def can_expand(self) -> bool:
         self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(ItemContainer).column_count
+        return self.adapter.get_pattern(IsExpandable).can_expand
 
-    def get_items(self, *, locator: Locator | None = None) -> list["TreeItem"]:
-        return self.get_all(TreeItem, locator=locator, scope='children')
-
-    def iter_items(self, *, locator: Locator | None = None) -> Iterator["TreeItem"]:
-        return self.iter_all(TreeItem, locator=locator, scope='children')
-
-    def get_item(self, *, locator: Locator | None = None) -> "TreeItem":
-        return self.get(TreeItem, locator=locator, scope='children')
-
-
-class TreeItem(SelectableItem, ExpandableItem):
     @property
-    def item_count(self) -> int:
+    def is_expanded(self) -> bool:
         self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(ItemContainer).item_count
+        return self.adapter.get_pattern(IsExpandable).is_expanded
 
-    def get_items(self, *, locator: Locator | None = None) -> list["TreeItem"]:
-        return self.get_all(TreeItem, locator=locator, scope='children')
+    def expand(self) -> bool:
+        if not self.can_expand or self.is_expanded:
+            return False
+        self.ensure_that(self._toplevel_parent_is_active, self._element_is_in_view)
+        self.adapter.get_pattern(Expandable).expand()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+        return True
 
-    def iter_items(self, *, locator: Locator | None = None) -> Iterator["TreeItem"]:
-        return self.iter_all(TreeItem, locator=locator, scope='children')
+    def collapse(self) -> bool:
+        if not self.can_expand or not self.is_expanded:
+            return False
+        self.ensure_that(self._toplevel_parent_is_active, self._element_is_in_view)
+        self.adapter.get_pattern(Expandable).collapse()
+        self.ensure_that(self._application_is_ready, raise_exception=False)
+        return True
 
-    def get_item(self, *, locator: Locator | None = None) -> "TreeItem":
-        return self.get(TreeItem, locator=locator, scope='children')
+
+class Tree(ItemContainer[TreeItem]):
+    pass
 ```
 
-`TreeItem` ist sowohl `SelectableItem` als auch `ExpandableItem`
-**und** ein Container seiner eigenen Kinder — daher die
-`get_items`/`item_count`-Methoden auch auf der Item-Klasse.
+`TreeItem` erbt von `Item` (flache Capabilities, §A.14.12),
+ergänzt die hierarchischen Capabilities (`expand`, `collapse`,
+`is_expanded`, `can_expand`) und ist
+zusätzlich `ItemContainer["TreeItem"]`, weil ein Tree-Knoten
+selbst Container seiner eigenen Kinder ist. **Read/Action-
+Trennung (Rev. 46):** `is_expanded` und `can_expand` lesen aus
+`IsExpandable` (nativer Adapter); `expand()` und `collapse()`
+rufen `Expandable` (Default-Proxy via Maus-Klick auf Toggle).
+Welche Capabilities tatsächlich funktionieren, hängt allein vom
+Pattern-Set des konkreten Adapters ab. Beispiele:
+
+- **Outlook-Folder-Liste** (read-only): nur `IsSelectable` →
+  `tree_item.is_selected` liest, `tree_item.expand()` wirft
+  `PatternNotSupportedError`.
+- **Datei-Explorer**: `IsSelectable`+`Selectable` +
+  `IsExpandable`+`Expandable` + `HasEditor` + `TextEditable` →
+  alle Aktionen funktionieren, F2-Rename via
+  `tree_item.set_text("NewName")`.
+- **Status-Anzeige-Tree**: nur `TextContent` → nur `tree_item.text`
+  liest, alle Aktionen werfen.
+
+Item-Counts laufen über das Pattern:
+`tree.adapter.get_pattern(ItemContainer).item_count`
+(Rev. 42 — die `Tree.item_count`/`Tree.column_count`/
+`TreeItem.item_count`-Properties entfallen).
 
 #### A.14.15 `Table`, `Row`, `Cell` (`ui/table.py`)
 
 ```
 Element                          Element
 └── Control                      └── Item
-    └── Table                        ├── Cell
-                                     │   └── EditableCell  EditableItem
-                                     │            \         /
-                                     │             EditableCell
+    └── Table                        ├── Cell  (Marker)
                                      └── Row
+                                         └── ItemContainer[Cell]
 ```
 
 ```python
@@ -4611,37 +5009,44 @@ class Cell(Item):
     pass
 
 
-class EditableCell(Cell, EditableItem):
-    pass
+class Row(Item, ItemContainer[Cell]):
+    # Selection actions: dual-role override (Rev. 47).
+    # Without ``locator`` the row itself is the target and ``self``
+    # is returned; with it a child Cell is resolved, the action
+    # delegates, and the cell is returned. The widened ``Row | Cell``
+    # return relaxes both parent signatures, hence
+    # ``# type: ignore[override]`` per method.
 
+    def select(  # type: ignore[override]
+        self, *, locator: Locator | None = None,
+    ) -> "Row | Cell":
+        if locator is None:
+            return cast("Row", Item.select(self))
+        return ItemContainer.select(self, locator=locator)
 
-class Row(Item):
-    @property
-    def column_count(self) -> int:
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(ItemContainer).column_count
+    def deselect(  # type: ignore[override]
+        self, *, locator: Locator | None = None,
+    ) -> "Row | Cell":
+        if locator is None:
+            return cast("Row", Item.deselect(self))
+        return ItemContainer.deselect(self, locator=locator)
 
-    def get_cells(self, *, locator: Locator | None = None) -> list[Cell]:
-        return self.get_all(Cell, locator=locator, scope='children')
+    def add_to_selection(  # type: ignore[override]
+        self, *, locator: Locator | None = None,
+    ) -> "Row | Cell":
+        if locator is None:
+            return cast("Row", Item.add_to_selection(self))
+        return ItemContainer.add_to_selection(self, locator=locator)
 
-    def iter_cells(self, *, locator: Locator | None = None) -> Iterator[Cell]:
-        return self.iter_all(Cell, locator=locator, scope='children')
-
-    def get_cell(self, *, locator: Locator | None = None) -> Cell:
-        return self.get(Cell, locator=locator, scope='children')
+    def remove_from_selection(  # type: ignore[override]
+        self, *, locator: Locator | None = None,
+    ) -> "Row | Cell":
+        if locator is None:
+            return cast("Row", Item.remove_from_selection(self))
+        return ItemContainer.remove_from_selection(self, locator=locator)
 
 
 class Table(Control):
-    @property
-    def row_count(self) -> int:
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(ItemContainer).row_count
-
-    @property
-    def column_count(self) -> int:
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(ItemContainer).column_count
-
     def get_rows(self, *, locator: Locator | None = None) -> list[Row]:
         return self.get_all(Row, locator=locator, scope='children')
 
@@ -4652,22 +5057,37 @@ class Table(Control):
         return self.get(Row, locator=locator, scope='children')
 ```
 
-**`Cell` als Marker, `EditableCell` getrennt.** Die meisten
-Tabellen sind read-only (Anzeige-Tabellen, Reports). Editierbare
-Tabellen liefern für ihre Zellen Adapter mit `HasEditor` —
-solche Adapter werden über `@context(role="Cell", properties={...})`
-auf die `EditableCell`-Klasse gemappt (Gewichtung über
-`framework_id`/`class_name`/`properties` aus §5a). Der Standardpfad
-ohne weitere Heuristik liefert `Cell`; ein `EditableCell`-Aufrufer
-weiß explizit, dass die Zelle editierbar ist.
+`Table` erbt **nicht** von `ItemContainer[Row]` — die Row-Geometrie
+kommt zusammen mit `column_count` und Header-Zugriffen aus dem
+`Table`-Pattern; `get_rows`/`get_row` bleiben deshalb explizit am
+`Table`-Context. `Row` ist `ItemContainer[Cell]`.
 
-**`Row` als `Item`-Container.** `Row` erbt von `Item`, weil sie
-in einem Container (`Table`) lebt und i.d.R. selektierbar ist —
-wenn der Adapter ein `Selectable` liefert, exposed das die
-Standard-`select()`-API über `SelectableItem`-Mixin (offen für
-Anwendungen, die das brauchen — derzeit erbt `Row` nur von `Item`,
-da Row-Selektion seltener ist als Cell-Selektion; bei Bedarf
-nachziehen).
+Tabellen-Geometrie kommt komplett aus den Patterns:
+`table.adapter.get_pattern(Table).row_count`,
+`table.adapter.get_pattern(Table).column_count`,
+`row.adapter.get_pattern(ItemContainer).item_count` (Cell-Anzahl).
+Header-Sequenzen über `HasRowHeaders`/`HasColumnHeaders` an
+`table.adapter` (Rev. 42 — die früheren
+`Table.row_count`/`Table.column_count`/`Row.column_count`-Properties
+entfallen).
+
+**`Cell` als Marker.** `Cell(Item)` ist eine leere Marker-Subklasse;
+alle Capabilities (`text`, `set_text`, `clear`, `is_selected`,
+`select`) liegen auf `Item` und sind dynamisch über die
+Pattern-Verfügbarkeit am Adapter exposed. Editierbare Tabellen
+liefern für ihre Zellen Adapter mit `HasEditor` + `TextEditable` —
+`cell.set_text("...")` funktioniert dann automatisch; read-only
+Zellen werfen `PatternNotSupportedError`.
+
+**`EditableCell` entfällt** (Rev. 45). Die frühere Subklasse trug
+keine eigene Logik mehr nach Rev. 45 — die Edit-Capability ist
+dynamisch. Adapter mit `role="EditableCell"` fallen auf `Cell`
+zurück (Default-Resolver), funktional ohne Unterschied.
+
+**`Row` als Container.** `Row` erbt von `Item` (alle Capabilities)
+und zusätzlich von `ItemContainer[Cell]`. Wenn der Row-Adapter
+`Selectable` exposed, funktioniert `row.select()` direkt — ohne
+zusätzliche Mixin-Erbung.
 
 #### A.14.16 `ComboBox` (`ui/combobox.py`)
 
@@ -4798,40 +5218,135 @@ einer ComboBox).
 Text. Erst der Setter (`set_text`) verlangt `TextEditable` und
 die Edit-Predicates (`not_readonly`, Focus).
 
-#### A.14.17 Pattern-Spec — `Selectable`
+#### A.14.17 Pattern-Specs — `IsSelectable`, `Selectable`, `Deselectable`, `IsMultiSelectable`, `MultiSelectable`, `Selection`
+
+Die Selektions-Capability ist gemäß Rev. 46/47 (§5a.4) in Read- und
+Action-Patterns gespalten. Single-Select und Multi-Select haben
+jeweils eigene Action-Patterns.
+
+**Read-Pattern am Item — Selektionszustand:**
+
+```python
+class IsSelectable(PatternBase):
+    pattern_name = "org.platynui.patterns.IsSelectable"
+
+    @property
+    @abstractmethod
+    def is_selected(self) -> bool: ...
+```
+
+**Action-Pattern am Item — Single-Select selektieren:**
 
 ```python
 class Selectable(PatternBase):
     pattern_name = "org.platynui.patterns.Selectable"
 
-    @property
-    @abstractmethod
-    def is_selected(self) -> bool: ...
-
     @abstractmethod
     def select(self) -> None: ...
 ```
 
-`Selectable` bündelt Status-Read und Aktion in einem Pattern
-(siehe Rev. 32 zur flachen Hierarchie). Eine `deselect()`-Methode
-gibt es bewusst nicht: Single-Selection-Container deselektieren
-implizit beim nächsten `select()`, Multi-Selection-Container sind
-selten genug, dass eine zweite Methode auf Item-Ebene das Modell
-unnötig aufbläht — wer Multi-Selection braucht, ruft im Test
-die nächste Selektion oder einen container-spezifischen
-Toggle-Modus auf.
+`Selectable.select()` hat Single-Select-Semantik: das Element wird
+selektiert, vorher aktive Auswahl im Container entfällt (Standard-
+Click-Verhalten).
+
+**Action-Pattern am Item — Single-Select de-selektieren (optional):**
+
+```python
+class Deselectable(PatternBase):
+    pattern_name = "org.platynui.patterns.Deselectable"
+
+    @abstractmethod
+    def deselect(self) -> None: ...
+```
+
+`Deselectable.deselect()` ist die Umkehr zu `Selectable.select()` für
+Container, die Single-Select erlauben und gleichzeitig „nichts
+selektiert" als gültigen Zustand kennen (typisch für Listen mit
+optionaler Auswahl, weniger typisch für TabLists). Das Pattern ist
+**optional** und wird nicht von jedem Toolkit getragen — wenn nicht
+vorhanden, wirft `Item.deselect()` `PatternNotSupportedError`. Es ist
+bewusst getrennt von `MultiSelectable.remove_from_selection()`: dort
+wird gezielt ein Item aus einer Mehrfachauswahl entfernt, hier wird
+die einzige Auswahl im Container aufgehoben.
+
+**Read-Pattern am Container-fähigen Item — Multi-Select-Capability:**
+
+```python
+class IsMultiSelectable(PatternBase):
+    pattern_name = "org.platynui.patterns.IsMultiSelectable"
+
+    @property
+    @abstractmethod
+    def can_select_multiple(self) -> bool: ...
+
+    @property
+    @abstractmethod
+    def is_selection_required(self) -> bool: ...
+```
+
+**Action-Pattern am Item — additive Selektion:**
+
+```python
+class MultiSelectable(PatternBase):
+    pattern_name = "org.platynui.patterns.MultiSelectable"
+
+    @abstractmethod
+    def add_to_selection(self) -> None: ...
+
+    @abstractmethod
+    def remove_from_selection(self) -> None: ...
+```
+
+`add_to_selection()` ist additiv (Ctrl+Click): bestehende Auswahl
+bleibt, das Item kommt hinzu. `remove_from_selection()` entfernt
+gezielt nur dieses Item aus der Auswahl. Beide werden im
+Default-Proxy via Maus + Modifier-Tastatur synthetisiert (siehe
+§5a.4 Code-Beispiel). Native Provider-APIs wie UIA
+`AddToSelection()`/`RemoveFromSelection()` werden bewusst nicht
+verwendet — PlatynUI steuert ausschließlich über Maus/Tastatur.
+
+**Read-Pattern am Container — aktuelle Selektion:**
+
+```python
+class Selection(PatternBase):
+    pattern_name = "org.platynui.patterns.Selection"
+
+    @property
+    @abstractmethod
+    def can_select_multiple(self) -> bool: ...
+
+    @property
+    @abstractmethod
+    def is_selection_required(self) -> bool: ...
+
+    @abstractmethod
+    def get_selected_adapters(self) -> Sequence[Adapter]: ...
+```
+
+`Selection` exposed am Container die aktuell selektierten Items als
+Adapter-Sequenz; `ItemContainer[I]` wrappt sie zu UI-Klassen-Instanzen
+(siehe §A.14.20a `get_selected_items()`). `can_select_multiple` und
+`is_selection_required` sind hier am Container nochmals präsent (nicht
+nur am einzelnen Item via `IsMultiSelectable`), weil die UI-Klasse
+`ItemContainer` typischerweise auf den Container, nicht auf ein
+Beispiel-Item zugreift.
 
 **`is_selectable` weggelassen.** Der Altcode hatte
 `HasSelected.is_selectable`. In der neuen Modellierung ist das
-implizit: ein Adapter, der `Selectable` exposed, ist selektierbar.
+implizit: ein Adapter, der `IsSelectable` exposed, ist selektierbar.
 Wer prüfen will, ob die Capability vorhanden ist, fragt
-`adapter.get_pattern(Selectable, raise_exception=False) is not None`.
+`adapter.get_pattern(IsSelectable, raise_exception=False) is not None`.
 
-#### A.14.18 Pattern-Spec — `Expandable`
+#### A.14.18 Pattern-Specs — `IsExpandable`, `Expandable`
+
+Die Expand/Collapse-Capability ist gemäß Rev. 46 (§5a.4) in Read- und
+Action-Pattern gespalten.
+
+**Read-Pattern am Item — Expansionszustand:**
 
 ```python
-class Expandable(PatternBase):
-    pattern_name = "org.platynui.patterns.Expandable"
+class IsExpandable(PatternBase):
+    pattern_name = "org.platynui.patterns.IsExpandable"
 
     @property
     @abstractmethod
@@ -4840,6 +5355,13 @@ class Expandable(PatternBase):
     @property
     @abstractmethod
     def is_expanded(self) -> bool: ...
+```
+
+**Action-Pattern am Item — Aufklappen/Zuklappen:**
+
+```python
+class Expandable(PatternBase):
+    pattern_name = "org.platynui.patterns.Expandable"
 
     @abstractmethod
     def expand(self) -> None: ...
@@ -4848,11 +5370,17 @@ class Expandable(PatternBase):
     def collapse(self) -> None: ...
 ```
 
-**`can_expand` bleibt erhalten.** Anders als `is_selectable`
-hat `can_expand` einen sinnvollen Use-Case: ein TreeItem ohne
-Kinder kann technisch das `Expandable`-Pattern liefern, aber
-faktisch nichts auf-/zumachen. `can_expand` erlaubt der UI-Klasse,
-diesen Zustand vor dem Action-Call abzufragen.
+`expand()`/`collapse()` werden im Default-Proxy via Doppelklick auf
+den Item-Header bzw. via Tastatur (`Right`/`Left` auf TreeItem)
+synthetisiert. Native APIs wie UIA `ExpandCollapsePattern.Expand()`
+werden nicht verwendet.
+
+**`can_expand` bleibt erhalten** (jetzt in `IsExpandable`). Anders
+als `is_selectable` hat `can_expand` einen sinnvollen Use-Case: ein
+TreeItem ohne Kinder kann technisch das `IsExpandable`-Pattern
+liefern (z.B. solange Lazy-Load nicht ausgelöst wurde), aber faktisch
+nichts auf-/zumachen. `can_expand` erlaubt der UI-Klasse, diesen
+Zustand vor dem Action-Call abzufragen.
 
 #### A.14.19 Pattern-Spec — `HasEditor`
 
@@ -4871,8 +5399,8 @@ class HasEditor(PatternBase):
 ```
 
 Beschreibt den Inline-Editor-Lifecycle für editierbare
-Container-Items (Cell-Editor, Tree-Item-Rename, …). Die
-`EditableItem`-UI-Klasse umschließt die Sequenz mit
+Container-Items (Cell-Editor, Tree-Item-Rename, …). `Item.set_text`
+und `Item.clear` (§A.14.12) umschließen die Sequenz mit
 `open_editor → set_text/clear → accept` in einem `try/finally`,
 damit Fehler nicht den Editor offen lassen.
 
@@ -4891,53 +5419,183 @@ class ItemContainer(PatternBase):
     @abstractmethod
     def item_count(self) -> int: ...
 
-    @property
     @abstractmethod
-    def row_count(self) -> int: ...
+    def get_item[T: ContextBase](
+        self,
+        ctx: type[T],
+        *,
+        locator: Locator | None = None,
+        scope: LocatorScope | None = None,
+    ) -> T: ...
 
-    @property
     @abstractmethod
-    def column_count(self) -> int: ...
+    def get_items[T: ContextBase](
+        self,
+        ctx: type[T],
+        *,
+        locator: Locator | None = None,
+        scope: LocatorScope | None = None,
+    ) -> list[T]: ...
 ```
 
-Bündelt typisierte Größenangaben für Listen-, Tree- und
-Tabellencontainer. Im Altprojekt wurden `ItemCount`/`RowCount`/
-`ColumnCount` als generische Attribute über
-`Properties.get_property_value("ItemCount")` gelesen — ein Pattern
-mit `Properties`-Marker, der jeden String akzeptiert, ist explizit
-**nicht** Teil des neuen Modells (siehe §5, Hinweis nach der
-Pattern-Liste). Stattdessen hat jeder Container-Typ genau die
-Eigenschaften, die für ihn sinnvoll sind:
+Pattern für jeden Container, der eine homogene Item-Sequenz exponiert:
+`List`, `Tree`, `TreeItem` (Sub-Items), `TabList`, `Menu`, `MenuBar`,
+`MenuItem` (Submenu), `ComboBox` (Dropdown-Liste), `Row` (Cells) sowie
+`Table` für seine `Row`-Sequenz.
 
-| Container | sinnvolle Properties |
-|---|---|
-| `List` | `item_count` |
-| `Tree`, `TreeItem` | `item_count`, `column_count` |
-| `Table` | `row_count`, `column_count` |
-| `Row` | `column_count` |
+**`get_item`/`get_items` geben Context-Instanzen zurück**, nicht
+Adapter — sie teilen Signatur und Locator-Merge-Semantik mit
+`ContextBase.get`/`ContextBase.get_all` (§A.4): `ctx` ist die
+gewünschte Context-Klasse (z. B. `ListItem`), `locator` und `scope`
+werden mit deren Default-Locator gemerged. Das Pattern ist damit
+bewusst Context-aware — die Alternative (Adapter zurückgeben und den
+Caller wrappen lassen) würde jeden Aufrufer zwingen, das
+`ContextFactory.find_context_class_for(...)`-Boilerplate zu
+duplizieren.
 
-**Drei Properties statt drei Patterns.** Ein splittendes Modell
-(`ListContainer`/`TreeContainer`/`TableContainer`) wäre semantisch
-sauberer, würde aber Adapter zwingen, denselben Provider-State
-in drei verschiedenen Pattern-Implementierungen zu wrappen. Der
-unbenötigte Property-Read raised `NotImplementedError` in den
-Default-Pattern-Implementierungen; konkrete Adapter implementieren
-nur die für ihre Rolle relevanten Properties.
+`item_count` ist eine separate Property (kein `len(get_items())`),
+weil eine effiziente Default-Strategie den Count über XPath
+`count(...)` ohne Materialisierung der Items liefern kann.
 
-Eine Properties-Property mit z. B. `column_count` für eine reine
-`List` ist also ein Programmierfehler — die UI-Klasse ruft sie
-nicht, der Adapter exposed sie nicht.
+**Tabellen-Geometrie liegt nicht hier.** `row_count`/`column_count`
+und der Row-Lookup wandern in das eigene `Table`-Pattern (§A.14.25);
+Header-Sequenzen in `HasRowHeaders`/`HasColumnHeaders` (§A.14.26 /
+§A.14.27). Begründung: Listen, Trees, TabLists und Menüs haben weder
+Spalten noch Header, sollen aber `ItemContainer` implementieren —
+Trennung hält jedes Pattern minimal.
+
+**`ItemContainer` ist kein Native-Wrapper** (siehe §A.13.4):
+Provider-Reads für `ItemCount` sind über Toolkits hinweg nicht
+zuverlässig genug. Statt einer Default-Pattern-Implementation in einem
+Container-Proxy (Rev. 43, entfallen — siehe Rev. 44) liegt die
+Default-Mechanik direkt am Context: `ItemContainer[I]`
+(Context-Basisklasse, §A.14.x) erbt von `Control` und delegiert
+`get_items`/`iter_items`/`get_item` an `self.get_all`/`iter_all`/
+`get(I, scope='children')`. Wer das **Pattern** explizit am Adapter
+braucht, ruft weiterhin `adapter.get_pattern(ItemContainer)` —
+liefert ein Provider die Implementation tatsächlich (z. B. ein
+spezialisierter `DataGrid`-Provider mit `GridPattern`), greift sie
+direkt durch.
+
+#### A.14.20a Context-Basisklasse — `ItemContainer[I: Item]`
+
+`ui/control.py` stellt eine generische Context-Basisklasse bereit, von
+der jede Container-Context-Klasse erbt, deren Items von `Item`
+abgeleitet sind:
+
+```python
+class ItemContainer[I: Item](Control):
+    """Generic base for control contexts that host `Item`-typed children."""
+
+    def get_items(self, *, locator: Locator | None = None) -> list[I]:
+        item_cls = _resolve_item_type(type(self))
+        return self.get_all(item_cls, locator=locator, scope='children')
+
+    def iter_items(self, *, locator: Locator | None = None) -> Iterator[I]:
+        item_cls = _resolve_item_type(type(self))
+        return self.iter_all(item_cls, locator=locator, scope='children')
+
+    def get_item(self, *, locator: Locator | None = None) -> I:
+        item_cls = _resolve_item_type(type(self))
+        return self.get(item_cls, locator=locator, scope='children')
+
+    # --- Selection (Rev. 46/47) --------------------------------------
+
+    @property
+    def can_select_multiple(self) -> bool:
+        """Whether the container allows multi-selection."""
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(Selection).can_select_multiple
+
+    @property
+    def is_selection_required(self) -> bool:
+        """Whether at least one item must remain selected."""
+        self.ensure_that(self._application_is_ready)
+        return self.adapter.get_pattern(Selection).is_selection_required
+
+    def get_selected_items(self) -> list[I]:
+        """Return the currently selected items as wrapped UI objects."""
+        item_cls = _resolve_item_type(type(self))
+        adapters = self.adapter.get_pattern(Selection).get_selected_adapters()
+        return [
+            ContextFactory.find_context_class_for(a, item_cls)(adapter=a)
+            for a in adapters
+        ]
+
+    def select(self, *, locator: Locator | None = None) -> I:
+        """Resolve a single item, call ``Item.select()``, return the item."""
+        item = self.get_item(locator=locator)
+        item.select()
+        return item
+
+    def deselect(self, *, locator: Locator | None = None) -> I:
+        """Resolve a single item, call ``Item.deselect()`` (Deselectable), return it."""
+        item = self.get_item(locator=locator)
+        item.deselect()
+        return item
+
+    def add_to_selection(self, *, locator: Locator | None = None) -> I:
+        """Resolve a single item, call ``Item.add_to_selection()`` (MultiSelectable), return it."""
+        item = self.get_item(locator=locator)
+        item.add_to_selection()
+        return item
+
+    def remove_from_selection(self, *, locator: Locator | None = None) -> I:
+        """Resolve a single item, call ``Item.remove_from_selection()`` (MultiSelectable), return it."""
+        item = self.get_item(locator=locator)
+        item.remove_from_selection()
+        return item
+
+    def clear_selection(self) -> None:
+        """Deselect all currently selected items.
+
+        Synthesised: iterates over the current selection and calls
+        ``remove_from_selection()`` (= MultiSelectable) on each item.
+        Raises PatternNotSupportedError if items don't support
+        multi-selection.
+        """
+        for item in self.get_selected_items():
+            item.remove_from_selection()
+```
+
+`Selection` ist ein Read-Pattern am Container-Adapter; alle
+Schreib-Operationen laufen item-weise über `Selectable`,
+`Deselectable` oder `MultiSelectable` (siehe §5a.4). Die Container-
+Methoden `select` / `deselect` / `add_to_selection` /
+`remove_from_selection` sind reine Convenience-Wrapper, die ein Item
+per Locator auflösen, die gleichnamige Methode am Item aufrufen und
+das aufgelöste Item (Typ `I`) zurückgeben — Chaining-fähig parallel
+zu `Item.<action>() -> Self`.
+
+`_resolve_item_type(cls)` läuft `cls.__orig_bases__` ab und greift den
+Generic-Argument-Typ heraus (PEP 695: zugänglich via `typing.get_args`
+auf den `Generic`-Eintrag). Konkrete Container deklarieren den
+Item-Typ ausschließlich über die Vererbung:
+
+```python
+class List(ItemContainer[ListItem]): ...
+class Tree(ItemContainer[TreeItem]): ...
+class TabList(ItemContainer[TabItem]): ...
+class Row(Item, ItemContainer[Cell]): ...
+
+class TreeItem(SelectableItem, ExpandableItem, ItemContainer["TreeItem"]):
+    ...
+```
+
+`Menu`/`MenuBar`/`Table` erben **nicht** von `ItemContainer[I]`:
+`MenuItem` ist ein `Control` (nicht `Item`), und `Table` trägt die
+Row-Geometrie über das `Table`-Pattern. Sie behalten die
+`get_items`/`get_rows`-Methoden direkt am Context.
 
 #### A.14.21 Item-Lifecycle und Predicates
 
 Die meisten Item-Aktionen brauchen kein separates Focus-Predicate:
 der Container ist fokussiert, das Item wird durch Selektion
-„aktiv". `SelectableItem.select()` und `ExpandableItem.expand()`
-verlangen daher nur das Standard-Tripel
-(`_toplevel_parent_is_active`, `_element_is_in_view`,
-`_element_is_enabled`).
+„aktiv". `Item.select()` und `Item.expand()` verlangen daher nur
+das Standard-Tripel (`_toplevel_parent_is_active`,
+`_element_is_in_view`, `_element_is_enabled`).
 
-`EditableItem.set_text()` braucht zusätzlich nichts mehr —
+`Item.set_text()` braucht zusätzlich nichts mehr —
 `HasEditor.open_editor()` zwingt die Anwendung in den Editor-
 Modus, und das Pattern selbst ist verantwortlich, das Item
 zuvor zu fokussieren. Sollte sich diese Annahme in der Praxis
@@ -4965,51 +5623,35 @@ ist.
 
 #### A.14.23 `TabList` und `TabItem` (`ui/tabs.py`)
 
-`TabList` ist ein Container mit `TabItem`-Kindern. Ein TabItem
-erbt `SelectableItem` (analog `ListItem`); die TabList exponiert
-`items`/`iter_items`/`get_item` und einen `select(...)`-Shortcut.
+`TabList` ist ein Container mit `TabItem`-Kindern. `TabItem` ist
+eine leere Marker-Subklasse von `Item`; die Capability-Methoden
+(`select`, `text`, `is_selected`) liegen alle
+auf `Item` (§A.14.12). Die TabList exponiert
+`get_items`/`iter_items`/`get_item` sowie die Selection-Convenience-
+API (`select` / `deselect` / `add_to_selection` /
+`remove_from_selection`) über `ItemContainer[TabItem]` (§A.14.20a)
+ohne eigene Überrides.
 
 ```
-Element
-└── Control
-    └── TabList                       (default_prefix="control")
-└── Item
-    └── SelectableItem
-        └── TabItem                   (default_prefix="item")
+Element                          Element
+└── Control                      └── Item
+    └── TabList                      └── TabItem (Marker)
 ```
 
 ```python
-class TabItem(SelectableItem):
+class TabItem(Item):
     """A selectable tab within a TabList."""
 
 
-class TabList(Control):
+class TabList(ItemContainer[TabItem]):
     """Container of TabItems."""
-
-    @property
-    def item_count(self) -> int:
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(ItemContainer).item_count
-
-    @property
-    def items(self) -> list[TabItem]:
-        return list(self.iter_items())
-
-    def iter_items(self) -> Iterator[TabItem]:
-        return self.iter_all(TabItem, scope=LocatorScope.Children)
-
-    def get_item(self, *args: object, **kwargs: object) -> TabItem:
-        return self.get(TabItem, scope=LocatorScope.Children, *args, **kwargs)
-
-    def select(self, *args: object, **kwargs: object) -> TabItem:
-        item = self.get_item(*args, **kwargs)
-        item.select()
-        return item
 ```
 
-`select(...)` ist eine Bequemlichkeits-API, die den passenden
-`TabItem` lokalisiert und `select()` darauf aufruft — typische
-Keyword-Form `Select Tab    name=Settings`.
+`get_items`/`iter_items`/`get_item` und die Selection-Methoden kommen
+aus `ItemContainer[TabItem]`. Typische Keyword-Form:
+`Select Tab    name=Settings` ruft `tablist.select(locator=...)` —
+also den geerbten Container-Wrapper, der das Item lokalisiert und
+`TabItem.select()` aufruft.
 
 #### A.14.24 `Menu`, `MenuBar`, `MenuItem` (`ui/menus.py`)
 
@@ -5034,31 +5676,20 @@ Element
   `activate()`-Methode wie ein Button, kein `select()` wie ein
   ListItem.
 
-`MenuItem.activate()` muss die Menü-Hierarchie vorbereiten:
-jedes Vorgänger-`MenuItem` zwischen Wurzel-Menu (oder MenuBar)
-und self muss zuerst geöffnet werden, sonst ist self gar nicht
-sichtbar/anklickbar. Algorithmus: vom self ausgehend nach oben
-laufen, alle `MenuItem`-Vorfahren sammeln, in der Reihenfolge
-*außen → innen* `expand()` aufrufen (übersprungen wenn bereits
-expandiert), dann auf self `Activatable.activate()`.
+`MenuItem.activate()` ist seit Rev. 45 radikal vereinfacht: nur
+noch `ensure_that(...)` plus `Activatable.activate()`. Der frühere
+Ancestor-Walk, der Vorgänger-`MenuItem`s automatisch via
+`Expandable.expand()` öffnete, entfällt — Submenü-Pfade resolven
+Aufrufer Schritt für Schritt durch sequentielle
+`activate()`-Aufrufe pro Ebene. Begründung: ohne sichtbare
+Vorgänger-Knoten ist der innere meist gar nicht klickbar, also
+muss der Aufrufer ohnehin durch die Hierarchie greifen.
 
 ```python
 class MenuItem(Control):
     """A single menu entry that may host a submenu."""
 
     def activate(self) -> None:
-        ancestors: list[MenuItem] = []
-        parent = self.parent
-        while parent is not None and not isinstance(parent, (Window, DesktopBase)):
-            if isinstance(parent, MenuItem):
-                ancestors.append(parent)
-            parent = parent.parent
-
-        # Open from outermost to innermost.
-        for ancestor in reversed(ancestors):
-            if ancestor.adapter.get_pattern(Expandable, raise_exception=False):
-                _expand_if_needed(ancestor)
-
         self.ensure_that(
             self._toplevel_parent_is_active,
             self._element_is_in_view,
@@ -5071,21 +5702,134 @@ class MenuItem(Control):
 class Menu(Control):
     """Popup or submenu container of MenuItems."""
 
+    def get_items(self, *, locator: Locator | None = None) -> list[MenuItem]:
+        return self.get_all(MenuItem, locator=locator, scope='children')
 
-class MenuBar(Control):
+    def iter_items(self, *, locator: Locator | None = None) -> Iterator[MenuItem]:
+        return self.iter_all(MenuItem, locator=locator, scope='children')
+
+    def get_item(self, *, locator: Locator | None = None) -> MenuItem:
+        return self.get(MenuItem, locator=locator, scope='children')
+
+
+class MenuBar(Menu):
     """Top-level menu strip, typically anchored to a Window."""
 ```
 
-`Menu` und `MenuBar` sind in dieser Phase reine Container ohne
-eigene Methoden — die Aktion sitzt am `MenuItem`. Falls später
-ein `MenuBar.activate("File", "Open")`-Convenience benötigt wird
-(Pfad-Aktivierung), wird er hier ergänzt.
+`Menu` und `MenuBar` sind echte `Control`s, keine Item-Container im
+Sinn von `ItemContainer[I]` (`MenuItem` erbt `Control`, nicht `Item`).
+Die `get_items`/`get_item`/`iter_items`-Methoden liegen daher direkt
+am Context, analog zu `Table.get_rows`. `MenuBar` erbt von `Menu`, um
+die Item-API zu teilen.
 
-`Expandable` an `MenuItem` ist optional: viele Blatt-Einträge
-liefern es gar nicht. Der Vorfahren-Walk fragt das Pattern daher
-mit `raise_exception=False` ab und überspringt Vorfahren ohne
-Expand-Pattern stillschweigend (z. B. ein `MenuBar`-Eintrag, der
-sich auf Hover öffnet und kein explizites `Expandable` exposeniert).
+Falls später ein `MenuBar.activate("File", "Open")`-Convenience
+benötigt wird (Pfad-Aktivierung mit automatischem Stepping), wird
+er als orthogonale Methode am `MenuBar`/`Menu`-Context ergänzt —
+nicht als Re-Inkarnation des Ancestor-Walks an `MenuItem`.
+
+#### A.14.25 Pattern-Spec — `Table`
+
+```python
+class Table(PatternBase):
+    pattern_name = "org.platynui.patterns.Table"
+
+    @property
+    @abstractmethod
+    def row_count(self) -> int: ...
+
+    @property
+    @abstractmethod
+    def column_count(self) -> int: ...
+
+    @abstractmethod
+    def get_row[T: ContextBase](
+        self,
+        ctx: type[T],
+        *,
+        locator: Locator | None = None,
+        scope: LocatorScope | None = None,
+    ) -> T: ...
+
+    @abstractmethod
+    def get_rows[T: ContextBase](
+        self,
+        ctx: type[T],
+        *,
+        locator: Locator | None = None,
+        scope: LocatorScope | None = None,
+    ) -> list[T]: ...
+```
+
+Tabellen-spezifische Geometrie und Row-Zugriff. Trennung von
+`ItemContainer`, weil Listen, Trees, Menüs und TabLists keine
+Spalten haben — `Table` ist die einzige Container-Form, die ein
+2D-Layout ausspricht.
+
+**Kein `get_cell(row, col)`.** Zellzugriff komponiert aus
+`Table.get_row(...).adapter.get_pattern(ItemContainer).get_item(Cell, ...)`
+oder über die UI-Klassen-API
+`table.get_row(...).get_cell(...)`. Begründung: `get_cell` würde
+zwei orthogonale Konzepte (Row-Lookup + Cell-Lookup im Row) in eine
+Methode mischen und würde eine zweite Locator-/Scope-Achse brauchen.
+Die zweistufige Komposition ist explizit, typsicher und nutzt die
+bestehenden `ItemContainer`-Mechaniken.
+
+Header-Sequenzen sind absichtlich **nicht** Teil von `Table` —
+nicht jede Tabelle hat Header, und Row-/Column-Header sind
+unabhängig voneinander (siehe §A.14.26 / §A.14.27).
+
+#### A.14.26 Pattern-Spec — `HasRowHeaders`
+
+```python
+class HasRowHeaders(PatternBase):
+    pattern_name = "org.platynui.patterns.HasRowHeaders"
+
+    @property
+    @abstractmethod
+    def row_headers(self) -> Sequence[Adapter]: ...
+
+    @abstractmethod
+    def get_row_headers[T: ContextBase](
+        self,
+        ctx: type[T],
+        *,
+        locator: Locator | None = None,
+        scope: LocatorScope | None = None,
+    ) -> list[T]: ...
+```
+
+Optional an Tabellen, die Row-Header führen (UIA `RowHeaderItems`,
+HTML `<th scope="row">`). `row_headers` liefert die Adapter-Sequenz
+in Row-Reihenfolge; `get_row_headers` wrappt sie in die gewünschte
+Context-Klasse mit den üblichen Locator-/Scope-Merge-Regeln.
+
+Getrennt von `HasColumnHeaders`, weil Toolkits beides unabhängig
+voneinander unterstützen — eine Tabelle mit Spalten-Headern aber
+ohne Row-Header (häufiger Fall) implementiert nur `HasColumnHeaders`.
+
+#### A.14.27 Pattern-Spec — `HasColumnHeaders`
+
+```python
+class HasColumnHeaders(PatternBase):
+    pattern_name = "org.platynui.patterns.HasColumnHeaders"
+
+    @property
+    @abstractmethod
+    def column_headers(self) -> Sequence[Adapter]: ...
+
+    @abstractmethod
+    def get_column_headers[T: ContextBase](
+        self,
+        ctx: type[T],
+        *,
+        locator: Locator | None = None,
+        scope: LocatorScope | None = None,
+    ) -> list[T]: ...
+```
+
+Symmetrisch zu `HasRowHeaders` für Spalten-Header (UIA
+`ColumnHeaderItems`, HTML `<thead><th>`). `column_headers` in
+Spalten-Reihenfolge.
 
 
 ## 10. Migrations-Reihenfolge

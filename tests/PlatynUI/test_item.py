@@ -4,17 +4,21 @@
 
 # pyright: reportPrivateUsage=false, reportUnusedFunction=false, reportUnnecessaryTypeIgnoreComment=false
 
-"""Unit tests for ``PlatynUI.ui.item`` capability mixins."""
+"""Unit tests for ``PlatynUI.ui.item`` flat-capability ``Item``."""
 
 from collections.abc import Iterator
 
 import pytest
 from _ui_helpers import (  # type: ignore[import-not-found]
+    ActivatableStub,
     ClearableStub,
+    DeselectableStub,
     ElementStub,
-    ExpandableStub,
     FocusableStub,
     HasEditorStub,
+    IsMultiSelectableStub,
+    IsSelectableStub,
+    MultiSelectableStub,
     ResponsiveStub,
     SelectableStub,
     TextContentStub,
@@ -27,7 +31,7 @@ from PlatynUI.core import patterns
 from PlatynUI.core.adapter import Adapter
 from PlatynUI.core.exceptions import CannotEnsureError, PatternNotSupportedError
 from PlatynUI.core.settings import Settings
-from PlatynUI.ui.item import EditableItem, ExpandableItem, Item, SelectableItem
+from PlatynUI.ui.item import Item
 
 
 @pytest.fixture(autouse=True)
@@ -68,162 +72,223 @@ def _item_adapter(
     )
 
 
+class _ConcreteItem(Item):
+    """Concrete subclass to exercise the `Item` capability surface."""
+
+
 # ---------------------------------------------------------------------------
-# Item base — register=False, default_prefix, text
+# Item base — register=False, default_prefix
 # ---------------------------------------------------------------------------
 
 
-def test_item_base_classes_are_not_auto_registered() -> None:
-    """All Item-mixin bases stay out of the context registry."""
+def test_item_base_is_not_auto_registered() -> None:
+    """The `Item` base stays out of the context registry."""
     from PlatynUI.core.context import ContextFactory
 
     factory = ContextFactory()
-    for role in ('Item', 'SelectableItem', 'ExpandableItem', 'EditableItem'):
-        cls = factory.find_context_class_for(make_adapter(role=role))
-        assert cls not in (Item, SelectableItem, ExpandableItem, EditableItem), role
+    cls = factory.find_context_class_for(make_adapter(role='Item'))
+    assert cls is not Item
 
 
 def test_item_default_prefix_is_item() -> None:
     assert Item.default_prefix == 'item'
 
 
-def test_item_text_returns_text_content_value() -> None:
-    class _ConcreteItem(Item):
-        pass
+# ---------------------------------------------------------------------------
+# TextContent
+# ---------------------------------------------------------------------------
 
-    adapter = _item_adapter(role='ConcreteItem', extra={patterns.TextContent: TextContentStub('hello')})
+
+def test_item_text_returns_text_content_value() -> None:
+    adapter = _item_adapter(extra={patterns.TextContent: TextContentStub('hello')})
     assert _ConcreteItem(adapter=adapter).text == 'hello'
 
 
+def test_item_text_raises_when_pattern_missing() -> None:
+    adapter = _item_adapter()
+    with pytest.raises(PatternNotSupportedError):
+        _ = _ConcreteItem(adapter=adapter).text
+
+
 # ---------------------------------------------------------------------------
-# SelectableItem
+# Selection (IsSelectable / Selectable / MultiSelectable, Rev. 46)
 # ---------------------------------------------------------------------------
 
 
-class _Selectable(SelectableItem):
-    """Concrete SelectableItem for direct testing."""
+def test_is_selected_returns_pattern_value() -> None:
+    adapter = _item_adapter(extra={patterns.IsSelectable: IsSelectableStub(is_selected=True)})
+    assert _ConcreteItem(adapter=adapter).is_selected is True
 
 
-def test_selectable_is_selected_returns_pattern_value() -> None:
-    sel = SelectableStub(is_selected=True)
-    adapter = _item_adapter(role='Selectable', extra={patterns.Selectable: sel})
-    assert _Selectable(adapter=adapter).is_selected is True
-
-
-def test_selectable_select_calls_pattern_when_not_selected() -> None:
-    sel = SelectableStub(is_selected=False)
-    adapter = _item_adapter(role='Selectable', extra={patterns.Selectable: sel})
-    _Selectable(adapter=adapter).select()
+def test_select_calls_pattern_when_not_selected() -> None:
+    sel = SelectableStub()
+    adapter = _item_adapter(
+        extra={
+            patterns.IsSelectable: IsSelectableStub(is_selected=False),
+            patterns.Selectable: sel,
+        },
+    )
+    _ConcreteItem(adapter=adapter).select()
     assert sel.select_calls == 1
 
 
-def test_selectable_select_skips_pattern_when_already_selected() -> None:
-    sel = SelectableStub(is_selected=True)
-    adapter = _item_adapter(role='Selectable', extra={patterns.Selectable: sel})
-    _Selectable(adapter=adapter).select()
+def test_select_skips_pattern_when_already_selected() -> None:
+    sel = SelectableStub()
+    adapter = _item_adapter(
+        extra={
+            patterns.IsSelectable: IsSelectableStub(is_selected=True),
+            patterns.Selectable: sel,
+        },
+    )
+    _ConcreteItem(adapter=adapter).select()
     assert sel.select_calls == 0
 
 
-def test_selectable_select_blocks_when_disabled() -> None:
-    sel = SelectableStub(is_selected=False)
+def test_select_blocks_when_disabled() -> None:
+    sel = SelectableStub()
     adapter = _item_adapter(
-        role='Selectable',
         extra={
             patterns.Element: ElementStub(is_enabled=False),
+            patterns.IsSelectable: IsSelectableStub(is_selected=False),
             patterns.Selectable: sel,
         },
     )
     with pytest.raises(CannotEnsureError):
-        _Selectable(adapter=adapter).select()
+        _ConcreteItem(adapter=adapter).select()
     assert sel.select_calls == 0
 
 
-def test_selectable_raises_when_pattern_missing() -> None:
-    adapter = _item_adapter(role='Selectable')
+def test_is_selected_raises_when_pattern_missing() -> None:
+    adapter = _item_adapter()
     with pytest.raises(PatternNotSupportedError):
-        _ = _Selectable(adapter=adapter).is_selected
+        _ = _ConcreteItem(adapter=adapter).is_selected
+
+
+def test_select_raises_when_pattern_missing() -> None:
+    adapter = _item_adapter(extra={patterns.IsSelectable: IsSelectableStub(is_selected=False)})
+    with pytest.raises(PatternNotSupportedError):
+        _ConcreteItem(adapter=adapter).select()
+
+
+def test_add_to_selection_calls_pattern_when_not_selected() -> None:
+    multi = MultiSelectableStub()
+    adapter = _item_adapter(
+        extra={
+            patterns.IsSelectable: IsSelectableStub(is_selected=False),
+            patterns.MultiSelectable: multi,
+        },
+    )
+    _ConcreteItem(adapter=adapter).add_to_selection()
+    assert multi.add_calls == 1
+    assert multi.remove_calls == 0
+
+
+def test_add_to_selection_is_idempotent_when_already_selected() -> None:
+    multi = MultiSelectableStub()
+    adapter = _item_adapter(
+        extra={
+            patterns.IsSelectable: IsSelectableStub(is_selected=True),
+            patterns.MultiSelectable: multi,
+        },
+    )
+    _ConcreteItem(adapter=adapter).add_to_selection()
+    assert multi.add_calls == 0
+
+
+def test_add_to_selection_raises_when_multi_pattern_missing() -> None:
+    adapter = _item_adapter(extra={patterns.IsSelectable: IsSelectableStub(is_selected=False)})
+    with pytest.raises(PatternNotSupportedError):
+        _ConcreteItem(adapter=adapter).add_to_selection()
+
+
+def test_remove_from_selection_calls_pattern_when_selected() -> None:
+    multi = MultiSelectableStub()
+    adapter = _item_adapter(
+        extra={
+            patterns.IsSelectable: IsSelectableStub(is_selected=True),
+            patterns.MultiSelectable: multi,
+        },
+    )
+    _ConcreteItem(adapter=adapter).remove_from_selection()
+    assert multi.remove_calls == 1
+    assert multi.add_calls == 0
+
+
+def test_remove_from_selection_is_idempotent_when_not_selected() -> None:
+    multi = MultiSelectableStub()
+    adapter = _item_adapter(
+        extra={
+            patterns.IsSelectable: IsSelectableStub(is_selected=False),
+            patterns.MultiSelectable: multi,
+        },
+    )
+    _ConcreteItem(adapter=adapter).remove_from_selection()
+    assert multi.remove_calls == 0
+
+
+def test_remove_from_selection_raises_when_multi_pattern_missing() -> None:
+    adapter = _item_adapter(extra={patterns.IsSelectable: IsSelectableStub(is_selected=True)})
+    with pytest.raises(PatternNotSupportedError):
+        _ConcreteItem(adapter=adapter).remove_from_selection()
+
+
+def test_deselect_calls_deselectable_when_selected() -> None:
+    deselectable = DeselectableStub()
+    adapter = _item_adapter(
+        extra={
+            patterns.IsSelectable: IsSelectableStub(is_selected=True),
+            patterns.Deselectable: deselectable,
+        },
+    )
+    _ConcreteItem(adapter=adapter).deselect()
+    assert deselectable.deselect_calls == 1
+
+
+def test_deselect_is_idempotent_when_not_selected() -> None:
+    deselectable = DeselectableStub()
+    adapter = _item_adapter(
+        extra={
+            patterns.IsSelectable: IsSelectableStub(is_selected=False),
+            patterns.Deselectable: deselectable,
+        },
+    )
+    _ConcreteItem(adapter=adapter).deselect()
+    assert deselectable.deselect_calls == 0
+
+
+def test_deselect_raises_when_deselectable_pattern_missing() -> None:
+    """Single-select deselect is optional; pattern absence surfaces."""
+    adapter = _item_adapter(extra={patterns.IsSelectable: IsSelectableStub(is_selected=True)})
+    with pytest.raises(PatternNotSupportedError):
+        _ConcreteItem(adapter=adapter).deselect()
+
+
+def test_is_multi_selectable_stub_referenced() -> None:
+    """Sanity check: `IsMultiSelectableStub` is wired in helpers."""
+    stub = IsMultiSelectableStub(can_select_multiple=False, is_selection_required=True)
+    assert stub.can_select_multiple is False
+    assert stub.is_selection_required is True
 
 
 # ---------------------------------------------------------------------------
-# ExpandableItem
+# HasEditor + TextEditable / Clearable lifecycle
 # ---------------------------------------------------------------------------
 
 
-class _Expandable(ExpandableItem):
-    """Concrete ExpandableItem for direct testing."""
-
-
-def test_expandable_is_expanded_returns_pattern_value() -> None:
-    exp = ExpandableStub(is_expanded=True)
-    adapter = _item_adapter(role='Expandable', extra={patterns.Expandable: exp})
-    assert _Expandable(adapter=adapter).is_expanded is True
-
-
-def test_expandable_can_expand_returns_pattern_value() -> None:
-    exp = ExpandableStub(can_expand=False)
-    adapter = _item_adapter(role='Expandable', extra={patterns.Expandable: exp})
-    assert _Expandable(adapter=adapter).can_expand is False
-
-
-def test_expandable_expand_returns_true_and_calls_pattern() -> None:
-    exp = ExpandableStub(is_expanded=False)
-    adapter = _item_adapter(role='Expandable', extra={patterns.Expandable: exp})
-    assert _Expandable(adapter=adapter).expand() is True
-    assert exp.expand_calls == 1
-
-
-def test_expandable_expand_no_op_when_already_expanded() -> None:
-    exp = ExpandableStub(is_expanded=True)
-    adapter = _item_adapter(role='Expandable', extra={patterns.Expandable: exp})
-    assert _Expandable(adapter=adapter).expand() is False
-    assert exp.expand_calls == 0
-
-
-def test_expandable_expand_no_op_when_cannot_expand() -> None:
-    exp = ExpandableStub(can_expand=False)
-    adapter = _item_adapter(role='Expandable', extra={patterns.Expandable: exp})
-    assert _Expandable(adapter=adapter).expand() is False
-    assert exp.expand_calls == 0
-
-
-def test_expandable_collapse_returns_true_and_calls_pattern() -> None:
-    exp = ExpandableStub(is_expanded=True)
-    adapter = _item_adapter(role='Expandable', extra={patterns.Expandable: exp})
-    assert _Expandable(adapter=adapter).collapse() is True
-    assert exp.collapse_calls == 1
-
-
-def test_expandable_collapse_no_op_when_already_collapsed() -> None:
-    exp = ExpandableStub(is_expanded=False)
-    adapter = _item_adapter(role='Expandable', extra={patterns.Expandable: exp})
-    assert _Expandable(adapter=adapter).collapse() is False
-    assert exp.collapse_calls == 0
-
-
-# ---------------------------------------------------------------------------
-# EditableItem — set_text/clear lifecycle
-# ---------------------------------------------------------------------------
-
-
-class _Editable(EditableItem):
-    """Concrete EditableItem for direct testing."""
-
-
-def test_editable_set_text_runs_open_set_accept_sequence() -> None:
+def test_set_text_runs_open_set_accept_sequence() -> None:
     editor = HasEditorStub()
     text = TextEditableStub()
     adapter = _item_adapter(
-        role='Editable',
         extra={patterns.HasEditor: editor, patterns.TextEditable: text},
     )
-    _Editable(adapter=adapter).set_text('xyz')
+    _ConcreteItem(adapter=adapter).set_text('xyz')
     assert editor.open_calls == 1
     assert text.set_text_calls == ['xyz']
     assert editor.accept_calls == 1
     assert editor.cancel_calls == 0
 
 
-def test_editable_set_text_accepts_even_when_set_text_raises() -> None:
+def test_set_text_accepts_even_when_set_text_raises() -> None:
     """Editor must be closed via accept() in finally even on TextEditable failure."""
     editor = HasEditorStub()
 
@@ -234,32 +299,68 @@ def test_editable_set_text_accepts_even_when_set_text_raises() -> None:
 
     text = BoomTextEditable()
     adapter = _item_adapter(
-        role='Editable',
         extra={patterns.HasEditor: editor, patterns.TextEditable: text},
     )
     with pytest.raises(RuntimeError, match='boom'):
-        _Editable(adapter=adapter).set_text('x')
+        _ConcreteItem(adapter=adapter).set_text('x')
     assert editor.open_calls == 1
     assert editor.accept_calls == 1
 
 
-def test_editable_clear_runs_open_clear_accept_sequence() -> None:
+def test_clear_runs_open_clear_accept_sequence() -> None:
     editor = HasEditorStub()
     clearable = ClearableStub()
     adapter = _item_adapter(
-        role='Editable',
         extra={patterns.HasEditor: editor, patterns.Clearable: clearable},
     )
-    _Editable(adapter=adapter).clear()
+    _ConcreteItem(adapter=adapter).clear()
     assert editor.open_calls == 1
     assert clearable.clear_calls == 1
     assert editor.accept_calls == 1
 
 
-def test_editable_set_text_raises_when_editor_pattern_missing() -> None:
+def test_set_text_raises_when_editor_pattern_missing() -> None:
     adapter = _item_adapter(
-        role='Editable',
         extra={patterns.TextEditable: TextEditableStub()},
     )
     with pytest.raises(PatternNotSupportedError):
-        _Editable(adapter=adapter).set_text('x')
+        _ConcreteItem(adapter=adapter).set_text('x')
+
+
+def test_clear_raises_when_editor_pattern_missing() -> None:
+    adapter = _item_adapter(
+        extra={patterns.Clearable: ClearableStub()},
+    )
+    with pytest.raises(PatternNotSupportedError):
+        _ConcreteItem(adapter=adapter).clear()
+
+
+# ---------------------------------------------------------------------------
+# Activatable
+# ---------------------------------------------------------------------------
+
+
+def test_activate_calls_pattern() -> None:
+    act = ActivatableStub()
+    adapter = _item_adapter(extra={patterns.Activatable: act})
+    _ConcreteItem(adapter=adapter).activate()
+    assert act.activate_calls == 1
+
+
+def test_activate_blocks_when_disabled() -> None:
+    act = ActivatableStub()
+    adapter = _item_adapter(
+        extra={
+            patterns.Element: ElementStub(is_enabled=False),
+            patterns.Activatable: act,
+        },
+    )
+    with pytest.raises(CannotEnsureError):
+        _ConcreteItem(adapter=adapter).activate()
+    assert act.activate_calls == 0
+
+
+def test_activate_raises_when_pattern_missing() -> None:
+    adapter = _item_adapter()
+    with pytest.raises(PatternNotSupportedError):
+        _ConcreteItem(adapter=adapter).activate()

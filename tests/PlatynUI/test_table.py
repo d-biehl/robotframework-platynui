@@ -12,10 +12,7 @@ import pytest
 from _ui_helpers import (  # type: ignore[import-not-found]
     ElementStub,
     FocusableStub,
-    HasEditorStub,
-    ItemContainerStub,
     ResponsiveStub,
-    TextEditableStub,
     WindowStateStub,
     make_adapter,
 )
@@ -23,10 +20,9 @@ from _ui_helpers import (  # type: ignore[import-not-found]
 from PlatynUI.core import patterns
 from PlatynUI.core.adapter import Adapter
 from PlatynUI.core.adapter_factory import AdapterFactory, adapter_factory
-from PlatynUI.core.exceptions import PatternNotSupportedError
 from PlatynUI.core.locator import Locator
 from PlatynUI.core.settings import Settings
-from PlatynUI.ui.table import Cell, EditableCell, Row, Table
+from PlatynUI.ui.table import Cell, Row, Table
 
 
 @pytest.fixture(autouse=True)
@@ -96,10 +92,8 @@ def _table_adapter(*, extra: dict[type, object] | None = None) -> Adapter:
     )
 
 
-def _row_adapter(*, runtime_id: str = 'r1', column_count: int | None = None) -> Adapter:
+def _row_adapter(*, runtime_id: str = 'r1') -> Adapter:
     pmap: dict[type, object] = {patterns.Element: ElementStub()}
-    if column_count is not None:
-        pmap[patterns.ItemContainer] = ItemContainerStub(column_count=column_count)
     return make_adapter(  # type: ignore[no-any-return]
         role='Row',
         runtime_id=runtime_id,
@@ -107,13 +101,10 @@ def _row_adapter(*, runtime_id: str = 'r1', column_count: int | None = None) -> 
     )
 
 
-def _cell_adapter(*, runtime_id: str = 'c1', editable: bool = False) -> Adapter:
+def _cell_adapter(*, runtime_id: str = 'c1') -> Adapter:
     pmap: dict[type, object] = {patterns.Element: ElementStub()}
-    if editable:
-        pmap[patterns.HasEditor] = HasEditorStub()
-        pmap[patterns.TextEditable] = TextEditableStub()
     return make_adapter(  # type: ignore[no-any-return]
-        role='EditableCell' if editable else 'Cell',
+        role='Cell',
         runtime_id=runtime_id,
         pattern_map=pmap,
     )
@@ -143,38 +134,6 @@ def test_cell_registered_with_role_cell() -> None:
 
     cls = ContextFactory().find_context_class_for(_cell_adapter())
     assert cls is Cell
-
-
-def test_editable_cell_registered_with_role_editablecell() -> None:
-    from PlatynUI.core.context import ContextFactory
-
-    cls = ContextFactory().find_context_class_for(_cell_adapter(editable=True))
-    assert cls is EditableCell
-
-
-# ---------------------------------------------------------------------------
-# Counts
-# ---------------------------------------------------------------------------
-
-
-def test_table_row_count_returns_pattern_value() -> None:
-    adapter = _table_adapter(extra={patterns.ItemContainer: ItemContainerStub(row_count=10)})
-    assert Table(adapter=adapter).row_count == 10
-
-
-def test_table_column_count_returns_pattern_value() -> None:
-    adapter = _table_adapter(extra={patterns.ItemContainer: ItemContainerStub(column_count=5)})
-    assert Table(adapter=adapter).column_count == 5
-
-
-def test_table_row_count_raises_when_pattern_missing() -> None:
-    with pytest.raises(PatternNotSupportedError):
-        _ = Table(adapter=_table_adapter()).row_count
-
-
-def test_row_column_count_returns_pattern_value() -> None:
-    adapter = _row_adapter(column_count=4)
-    assert Row(adapter=adapter).column_count == 4
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +174,7 @@ def test_table_get_row_returns_single() -> None:
         assert result.adapter is only
 
 
-def test_row_get_cells_uses_children_scope() -> None:
+def test_row_get_items_uses_children_scope() -> None:
     parent_adapter = _table_adapter()
     row = _row_adapter()
     cell = _cell_adapter()
@@ -224,7 +183,7 @@ def test_row_get_cells_uses_children_scope() -> None:
     with adapter_factory.override(lambda: stub):
         row_ctx = Table(adapter=parent_adapter).get_row()
         stub.results = [cell]
-        cells = row_ctx.get_cells()
+        cells = row_ctx.get_items()
         assert len(cells) == 1
         assert isinstance(cells[0], Cell)
         _, locator = stub.find_all_calls[-1]

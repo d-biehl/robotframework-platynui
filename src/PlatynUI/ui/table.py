@@ -2,62 +2,85 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+# pyright: reportUnnecessaryTypeIgnoreComment=false
+
 """`Table`, `Row`, and `Cell` containers for tabular data."""
 
 from collections.abc import Iterator
+from typing import cast
 
-from ..core import patterns
 from ..core.locator import Locator
-from .control import Control
-from .item import EditableItem, Item
+from .control import Control, ItemContainer
+from .item import Item
 
-__all__ = ['Cell', 'EditableCell', 'Row', 'Table']
+__all__ = ['Cell', 'Row', 'Table']
 
 
 class Cell(Item):
-    """A read-only table cell."""
+    """A table cell."""
 
 
-class EditableCell(Cell, EditableItem):
-    """A table cell whose value can be edited inline."""
+class Row(Item, ItemContainer[Cell]):
+    """A table row containing `Cell` entries.
 
+    Selection actions accept an optional ``locator``: without it the
+    row itself is the target and ``self`` is returned; with it a
+    child cell is resolved, the action delegates to that cell, and
+    the cell is returned.
+    """
 
-class Row(Item):
-    """A table row containing `Cell` entries."""
+    # Dual-role overrides intentionally widen the return type to
+    # ``Row | Cell`` — neither parent's signature alone fits both
+    # paths. The type-ignores acknowledge this LSP relaxation.
 
-    @property
-    def column_count(self) -> int:
-        """The number of cells in the row."""
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(patterns.ItemContainer).column_count
+    def select(  # type: ignore[override]
+        self,
+        *,
+        locator: Locator | None = None,
+    ) -> 'Row | Cell':
+        """Select this row, or a resolved cell when ``locator`` is given."""
+        if locator is None:
+            return cast('Row', Item.select(self))  # type: ignore[redundant-cast]
+        return ItemContainer.select(self, locator=locator)
 
-    def get_cells(self, *, locator: Locator | None = None) -> list[Cell]:
-        """Return every cell in the row."""
-        return self.get_all(Cell, locator=locator, scope='children')
+    def deselect(  # type: ignore[override]
+        self,
+        *,
+        locator: Locator | None = None,
+    ) -> 'Row | Cell':
+        """Deselect this row, or a resolved cell when ``locator`` is given."""
+        if locator is None:
+            return cast('Row', Item.deselect(self))  # type: ignore[redundant-cast]
+        return ItemContainer.deselect(self, locator=locator)
 
-    def iter_cells(self, *, locator: Locator | None = None) -> Iterator[Cell]:
-        """Iterate over every cell in the row."""
-        return self.iter_all(Cell, locator=locator, scope='children')
+    def add_to_selection(  # type: ignore[override]
+        self,
+        *,
+        locator: Locator | None = None,
+    ) -> 'Row | Cell':
+        """Add this row to the selection, or a resolved cell when ``locator`` is given."""
+        if locator is None:
+            return cast('Row', Item.add_to_selection(self))  # type: ignore[redundant-cast]
+        return ItemContainer.add_to_selection(self, locator=locator)
 
-    def get_cell(self, *, locator: Locator | None = None) -> Cell:
-        """Resolve a single cell in the row."""
-        return self.get(Cell, locator=locator, scope='children')
+    def remove_from_selection(  # type: ignore[override]
+        self,
+        *,
+        locator: Locator | None = None,
+    ) -> 'Row | Cell':
+        """Remove this row from the selection, or a resolved cell when ``locator`` is given."""
+        if locator is None:
+            return cast('Row', Item.remove_from_selection(self))  # type: ignore[redundant-cast]
+        return ItemContainer.remove_from_selection(self, locator=locator)
 
 
 class Table(Control):
-    """A container of `Row` entries."""
+    """A container of `Row` entries.
 
-    @property
-    def row_count(self) -> int:
-        """The total number of rows."""
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(patterns.ItemContainer).row_count
-
-    @property
-    def column_count(self) -> int:
-        """The total number of columns."""
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(patterns.ItemContainer).column_count
+    `Table` is intentionally not an `ItemContainer[Row]` — row geometry
+    (`row_count`, `column_count`, header sequences) lives in the `Table`
+    pattern, so `get_rows`/`get_row` stay on the context directly.
+    """
 
     def get_rows(self, *, locator: Locator | None = None) -> list[Row]:
         """Return every row in the table."""

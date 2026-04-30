@@ -12,7 +12,7 @@ import pytest
 from _ui_helpers import (  # type: ignore[import-not-found]
     ElementStub,
     FocusableStub,
-    ItemContainerStub,
+    IsSelectableStub,
     ResponsiveStub,
     SelectableStub,
     WindowStateStub,
@@ -22,7 +22,6 @@ from _ui_helpers import (  # type: ignore[import-not-found]
 from PlatynUI.core import patterns
 from PlatynUI.core.adapter import Adapter
 from PlatynUI.core.adapter_factory import AdapterFactory, adapter_factory
-from PlatynUI.core.exceptions import PatternNotSupportedError
 from PlatynUI.core.locator import Locator
 from PlatynUI.core.settings import Settings
 from PlatynUI.ui.lists import List, ListItem
@@ -108,13 +107,14 @@ def _list_item_adapter(*, runtime_id: str = 'li1', selected: bool = False) -> Ad
         runtime_id=runtime_id,
         pattern_map={
             patterns.Element: ElementStub(),
-            patterns.Selectable: SelectableStub(is_selected=selected),
+            patterns.IsSelectable: IsSelectableStub(is_selected=selected),
+            patterns.Selectable: SelectableStub(),
         },
     )
 
 
 # ---------------------------------------------------------------------------
-# List registration + item_count
+# List registration
 # ---------------------------------------------------------------------------
 
 
@@ -130,16 +130,6 @@ def test_list_item_registered_with_role_listitem() -> None:
 
     cls = ContextFactory().find_context_class_for(_list_item_adapter())
     assert cls is ListItem
-
-
-def test_list_item_count_returns_pattern_value() -> None:
-    adapter = _list_adapter(extra={patterns.ItemContainer: ItemContainerStub(item_count=7)})
-    assert List(adapter=adapter).item_count == 7
-
-
-def test_list_item_count_raises_when_pattern_missing() -> None:
-    with pytest.raises(PatternNotSupportedError):
-        _ = List(adapter=_list_adapter()).item_count
 
 
 # ---------------------------------------------------------------------------
@@ -185,17 +175,22 @@ def test_get_item_returns_single_match() -> None:
 
 def test_select_resolves_and_selects() -> None:
     adapter = _list_adapter()
-    selectable = SelectableStub(is_selected=False)
+    selectable = SelectableStub()
     item_adapter = make_adapter(
         role='ListItem',
-        pattern_map={patterns.Element: ElementStub(), patterns.Selectable: selectable},
+        pattern_map={
+            patterns.Element: ElementStub(),
+            patterns.IsSelectable: IsSelectableStub(is_selected=False),
+            patterns.Selectable: selectable,
+        },
     )
     stub = _StubFactory(results=[item_adapter])
 
     with adapter_factory.override(lambda: stub):
-        item = List(adapter=adapter).select()
+        result = List(adapter=adapter).select()
 
-    assert isinstance(item, ListItem)
+    assert isinstance(result, ListItem)
+    assert result.adapter is item_adapter
     assert selectable.select_calls == 1
 
 

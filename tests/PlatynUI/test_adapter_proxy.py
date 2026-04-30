@@ -176,10 +176,18 @@ class _BareProxy(AdapterProxy):
 
 @pytest.fixture(autouse=True)
 def _clear_registry() -> Iterator[None]:
-    """Each test gets an empty :class:`PatternProxyFactory`."""
+    """Each test gets an empty :class:`PatternProxyFactory`; the prior
+    registrations (e.g. the default proxies installed via importing
+    :mod:`PlatynUI.ui.proxies` elsewhere in the suite) are restored
+    afterwards so other test modules see them again."""
+    saved = list(PatternProxyFactory.registrations())
     PatternProxyFactory.clear()
-    yield
-    PatternProxyFactory.clear()
+    try:
+        yield
+    finally:
+        PatternProxyFactory.clear()
+        for entry in saved:
+            PatternProxyFactory.register(entry.proxy_cls, entry.criteria)
 
 
 # ---------------------------------------------------------------------------

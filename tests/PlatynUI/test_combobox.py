@@ -11,8 +11,9 @@ from collections.abc import Iterator
 import pytest
 from _ui_helpers import (  # type: ignore[import-not-found]
     ElementStub,
-    ExpandableStub,
     FocusableStub,
+    IsExpandableStub,
+    IsSelectableStub,
     ReadableStub,
     ResponsiveStub,
     SelectableStub,
@@ -108,9 +109,36 @@ def _list_item_adapter(*, runtime_id: str = 'li1', selected: bool = False) -> Ad
         runtime_id=runtime_id,
         pattern_map={
             patterns.Element: ElementStub(),
-            patterns.Selectable: SelectableStub(is_selected=selected),
+            patterns.IsSelectable: IsSelectableStub(is_selected=selected),
+            patterns.Selectable: SelectableStub(),
         },
     )
+
+
+class _CoupledExpandable(patterns.Expandable):
+    """Action stub coupled to a shared `IsExpandableStub` for state mutation."""
+
+    def __init__(self, read: IsExpandableStub) -> None:
+        self._read = read
+        self.expand_calls = 0
+        self.collapse_calls = 0
+
+    def expand(self) -> None:
+        self.expand_calls += 1
+        self._read._expanded = True
+
+    def collapse(self) -> None:
+        self.collapse_calls += 1
+        self._read._expanded = False
+
+
+def _coupled_expandable(
+    *,
+    is_expanded: bool = False,
+    can_expand: bool = True,
+) -> tuple[IsExpandableStub, _CoupledExpandable]:
+    read = IsExpandableStub(is_expanded=is_expanded, can_expand=can_expand)
+    return read, _CoupledExpandable(read)
 
 
 # ---------------------------------------------------------------------------
@@ -126,32 +154,32 @@ def test_combobox_registered_with_role_combobox() -> None:
 
 
 def test_combobox_can_expand_returns_pattern_value() -> None:
-    adapter = _combo_adapter(extra={patterns.Expandable: ExpandableStub(can_expand=True)})
+    adapter = _combo_adapter(extra={patterns.IsExpandable: IsExpandableStub(can_expand=True)})
     assert ComboBox(adapter=adapter).can_expand is True
 
 
 def test_combobox_is_expanded_returns_pattern_value() -> None:
-    adapter = _combo_adapter(extra={patterns.Expandable: ExpandableStub(is_expanded=True)})
+    adapter = _combo_adapter(extra={patterns.IsExpandable: IsExpandableStub(is_expanded=True)})
     assert ComboBox(adapter=adapter).is_expanded is True
 
 
 def test_combobox_expand_calls_pattern() -> None:
-    exp = ExpandableStub(is_expanded=False)
-    adapter = _combo_adapter(extra={patterns.Expandable: exp})
+    read, exp = _coupled_expandable(is_expanded=False)
+    adapter = _combo_adapter(extra={patterns.IsExpandable: read, patterns.Expandable: exp})
     assert ComboBox(adapter=adapter).expand() is True
     assert exp.expand_calls == 1
 
 
 def test_combobox_expand_no_op_when_already_expanded() -> None:
-    exp = ExpandableStub(is_expanded=True)
-    adapter = _combo_adapter(extra={patterns.Expandable: exp})
+    read, exp = _coupled_expandable(is_expanded=True)
+    adapter = _combo_adapter(extra={patterns.IsExpandable: read, patterns.Expandable: exp})
     assert ComboBox(adapter=adapter).expand() is False
     assert exp.expand_calls == 0
 
 
 def test_combobox_collapse_calls_pattern() -> None:
-    exp = ExpandableStub(is_expanded=True)
-    adapter = _combo_adapter(extra={patterns.Expandable: exp})
+    read, exp = _coupled_expandable(is_expanded=True)
+    adapter = _combo_adapter(extra={patterns.IsExpandable: read, patterns.Expandable: exp})
     assert ComboBox(adapter=adapter).collapse() is True
     assert exp.collapse_calls == 1
 
@@ -205,8 +233,8 @@ def test_combobox_set_text_blocks_when_readonly() -> None:
 
 def test_combobox_get_items_auto_expands_and_collapses() -> None:
     """Auto-expand fires expand() before lookup and collapse() after."""
-    exp = ExpandableStub(is_expanded=False)
-    adapter = _combo_adapter(extra={patterns.Expandable: exp})
+    read, exp = _coupled_expandable(is_expanded=False)
+    adapter = _combo_adapter(extra={patterns.IsExpandable: read, patterns.Expandable: exp})
     items = [_list_item_adapter(runtime_id=f'li{i}') for i in range(2)]
     stub = _StubFactory(results=items)
 
@@ -221,8 +249,8 @@ def test_combobox_get_items_auto_expands_and_collapses() -> None:
 
 
 def test_combobox_get_items_does_not_collapse_if_already_expanded() -> None:
-    exp = ExpandableStub(is_expanded=True)
-    adapter = _combo_adapter(extra={patterns.Expandable: exp})
+    read, exp = _coupled_expandable(is_expanded=True)
+    adapter = _combo_adapter(extra={patterns.IsExpandable: read, patterns.Expandable: exp})
     stub = _StubFactory(results=[])
 
     with adapter_factory.override(lambda: stub):
@@ -234,8 +262,8 @@ def test_combobox_get_items_does_not_collapse_if_already_expanded() -> None:
 
 def test_combobox_iter_items_holds_dropdown_open_during_iteration() -> None:
     """Generator must keep the dropdown expanded until consumer is done."""
-    exp = ExpandableStub(is_expanded=False)
-    adapter = _combo_adapter(extra={patterns.Expandable: exp})
+    read, exp = _coupled_expandable(is_expanded=False)
+    adapter = _combo_adapter(extra={patterns.IsExpandable: read, patterns.Expandable: exp})
     items = [_list_item_adapter(runtime_id=f'li{i}') for i in range(3)]
     stub = _StubFactory(results=items)
 
@@ -243,7 +271,7 @@ def test_combobox_iter_items_holds_dropdown_open_during_iteration() -> None:
         gen = ComboBox(adapter=adapter).iter_items()
         first = next(gen)
         # While iteration is in flight the dropdown must still be open.
-        assert exp.is_expanded is True
+        assert read.is_expanded is True
         assert exp.collapse_calls == 0
         rest = list(gen)
         assert isinstance(first, ListItem)
@@ -254,19 +282,24 @@ def test_combobox_iter_items_holds_dropdown_open_during_iteration() -> None:
 
 
 def test_combobox_select_resolves_and_selects() -> None:
-    exp = ExpandableStub(is_expanded=False)
-    adapter = _combo_adapter(extra={patterns.Expandable: exp})
-    selectable = SelectableStub(is_selected=False)
+    read, exp = _coupled_expandable(is_expanded=False)
+    adapter = _combo_adapter(extra={patterns.IsExpandable: read, patterns.Expandable: exp})
+    selectable = SelectableStub()
     item_adapter = make_adapter(
         role='ListItem',
-        pattern_map={patterns.Element: ElementStub(), patterns.Selectable: selectable},
+        pattern_map={
+            patterns.Element: ElementStub(),
+            patterns.IsSelectable: IsSelectableStub(is_selected=False),
+            patterns.Selectable: selectable,
+        },
     )
     stub = _StubFactory(results=[item_adapter])
 
     with adapter_factory.override(lambda: stub):
-        item = ComboBox(adapter=adapter).select()
+        result = ComboBox(adapter=adapter).select()
 
-    assert isinstance(item, ListItem)
+    assert isinstance(result, ListItem)
+    assert result.adapter is item_adapter
     assert selectable.select_calls == 1
     assert exp.expand_calls == 1
     assert exp.collapse_calls == 1
