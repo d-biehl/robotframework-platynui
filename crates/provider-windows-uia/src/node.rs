@@ -2,7 +2,6 @@
 //!
 //! UiaNode reflects the current UIA state; no heavy provider‑side caches.
 
-use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex, Weak};
 // no name cache atomics needed
@@ -15,9 +14,11 @@ use platynui_core::ui::pattern::{
 use platynui_core::ui::{Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue, pattern_names};
 use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, WaitForInputIdle};
+use windows::Win32::System::Variant::{VARIANT, VT_I4};
 use windows::Win32::UI::Accessibility::{
-    IUIAutomationElement, IUIAutomationTransformPattern, IUIAutomationVirtualizedItemPattern,
-    IUIAutomationWindowPattern, WindowVisualState_Maximized, WindowVisualState_Minimized,
+    IUIAutomationCacheRequest, IUIAutomationElement, IUIAutomationTransformPattern, IUIAutomationTreeWalker,
+    IUIAutomationVirtualizedItemPattern, IUIAutomationWindowPattern, UIA_ProcessIdPropertyId,
+    WindowVisualState_Maximized, WindowVisualState_Minimized,
 };
 use windows::core::Interface;
 
@@ -104,6 +105,29 @@ impl UiaNode {
     }
     fn as_ui_node(&self) -> Option<Arc<dyn UiNode>> {
         self.self_weak.get().and_then(|w| w.upgrade())
+    }
+
+    /// Eagerly populate `OnceLock` caches from element cached properties.
+    pub(crate) fn populate_cached_properties(&self) {
+        let elem = &self.elem;
+        let _ = self.ns_cell.get_or_init(|| unsafe {
+            let is_control = elem.CachedIsControlElement().map(|b| b.as_bool()).unwrap_or(true);
+            if is_control {
+                return Namespace::Control;
+            }
+            let is_content = elem.CachedIsContentElement().map(|b| b.as_bool()).unwrap_or(false);
+            if is_content { Namespace::Item } else { Namespace::Control }
+        });
+        let _ = self.ct_cell.get_or_init(|| unsafe { elem.CachedControlType().map(|value| value.0).unwrap_or(0) });
+        let _ = self.id_cell.get_or_init(|| unsafe {
+            match elem.CachedAutomationId() {
+                Ok(bstr) => {
+                    let text = bstr.to_string();
+                    if text.is_empty() { None } else { Some(text) }
+                }
+                Err(_) => None,
+            }
+        });
     }
 
     /// Cached check: does this element support WindowPattern or TransformPattern?
@@ -474,33 +498,6 @@ impl ElementChildrenIter {
         // which calls try_realize() only when the child's own children are requested.
         Some(elem)
     }
-
-    /// Eagerly populate a UiaNode's `OnceLock` caches from the element's cached properties,
-    /// avoiding separate cross-process COM calls later.
-    fn populate_cached_properties(node: &UiaNode) {
-        let elem = &node.elem;
-        // Populate namespace cache from cached IsControlElement / IsContentElement
-        let _ = node.ns_cell.get_or_init(|| unsafe {
-            let is_control = elem.CachedIsControlElement().map(|b| b.as_bool()).unwrap_or(true);
-            if is_control {
-                return Namespace::Control;
-            }
-            let is_content = elem.CachedIsContentElement().map(|b| b.as_bool()).unwrap_or(false);
-            if is_content { Namespace::Item } else { Namespace::Control }
-        });
-        // Populate control type cache
-        let _ = node.ct_cell.get_or_init(|| unsafe { elem.CachedControlType().map(|v| v.0).unwrap_or(0) });
-        // Populate automation id cache
-        let _ = node.id_cell.get_or_init(|| unsafe {
-            match elem.CachedAutomationId() {
-                Ok(bstr) => {
-                    let s = bstr.to_string();
-                    if s.is_empty() { None } else { Some(s) }
-                }
-                Err(_) => None,
-            }
-        });
-    }
 }
 
 unsafe impl Send for ElementChildrenIter {}
@@ -523,7 +520,7 @@ impl Iterator for ElementChildrenIter {
 
             let node = UiaNode::from_elem_with_scope(elem, self.scope);
             if has_cache {
-                Self::populate_cached_properties(&node);
+                node.populate_cached_properties();
             }
             if let Some(ref parent) = self.parent {
                 node.set_parent(parent);
@@ -1332,16 +1329,8 @@ unsafe impl Sync for CanResizeAttr {}
 // ---------------------------------------------------------------------------
 // Synthetic Application node for grouped view (Application -> Window)
 
-#[derive(Clone)]
-pub struct AppWindowElem(pub IUIAutomationElement);
-unsafe impl Send for AppWindowElem {}
-unsafe impl Sync for AppWindowElem {}
-
-pub type AppWindowBuckets = Arc<Mutex<HashMap<i32, Vec<AppWindowElem>>>>;
-
 pub struct ApplicationNode {
     pid: i32,
-    windows_by_pid: AppWindowBuckets,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     self_weak: std::sync::OnceLock<Weak<dyn UiNode>>,
     rid_cell: std::sync::OnceLock<RuntimeId>,
@@ -1351,10 +1340,9 @@ unsafe impl Send for ApplicationNode {}
 unsafe impl Sync for ApplicationNode {}
 
 impl ApplicationNode {
-    pub fn new(pid: i32, parent: &Arc<dyn UiNode>, windows_by_pid: AppWindowBuckets) -> Arc<Self> {
+    pub fn new(pid: i32, parent: &Arc<dyn UiNode>) -> Arc<Self> {
         let node = Arc::new(Self {
             pid,
-            windows_by_pid,
             parent: Mutex::new(Some(Arc::downgrade(parent))),
             self_weak: std::sync::OnceLock::new(),
             rid_cell: std::sync::OnceLock::new(),
@@ -1363,6 +1351,87 @@ impl ApplicationNode {
         let arc: Arc<dyn UiNode> = node.clone();
         let _ = node.self_weak.set(Arc::downgrade(&arc));
         node
+    }
+}
+
+struct AppWindowIter {
+    pid: i32,
+    walker: Option<IUIAutomationTreeWalker>,
+    cache_req: Option<IUIAutomationCacheRequest>,
+    root: Option<IUIAutomationElement>,
+    current: Option<IUIAutomationElement>,
+    first: bool,
+    parent: Option<Arc<dyn UiNode>>,
+}
+
+impl AppWindowIter {
+    fn new(pid: i32, parent: Option<Arc<dyn UiNode>>) -> Self {
+        let (walker, root) = match Self::create_walker(pid) {
+            Ok((walker, root)) => (Some(walker), Some(root)),
+            Err(()) => (None, None),
+        };
+        let cache_req = crate::com::traversal_cache_request().ok();
+        Self { pid, walker, cache_req, root, current: None, first: true, parent }
+    }
+
+    fn create_walker(pid: i32) -> Result<(IUIAutomationTreeWalker, IUIAutomationElement), ()> {
+        let uia = crate::com::uia().map_err(|_| ())?;
+        let root = unsafe { uia.GetRootElement() }.map_err(|_| ())?;
+        let pid_value = variant_i4(pid);
+        let condition = unsafe { uia.CreatePropertyCondition(UIA_ProcessIdPropertyId, &pid_value) }.map_err(|_| ())?;
+        let walker = unsafe { uia.CreateTreeWalker(&condition) }.map_err(|_| ())?;
+        Ok((walker, root))
+    }
+
+    fn next_element(&mut self) -> Option<IUIAutomationElement> {
+        let walker = self.walker.as_ref()?;
+        let root = self.root.as_ref()?;
+        if self.first {
+            self.first = false;
+            self.current = if let Some(ref req) = self.cache_req {
+                unsafe { walker.GetFirstChildElementBuildCache(root, req).ok() }
+            } else {
+                unsafe { walker.GetFirstChildElement(root).ok() }
+            };
+        } else if let Some(ref elem) = self.current {
+            let cur = elem.clone();
+            self.current = if let Some(ref req) = self.cache_req {
+                unsafe { walker.GetNextSiblingElementBuildCache(&cur, req).ok() }
+            } else {
+                unsafe { walker.GetNextSiblingElement(&cur).ok() }
+            };
+        } else {
+            return None;
+        }
+        self.current.clone()
+    }
+}
+
+fn variant_i4(value: i32) -> VARIANT {
+    let mut variant = VARIANT::default();
+    unsafe {
+        (*variant.Anonymous.Anonymous).vt = VT_I4;
+        (*variant.Anonymous.Anonymous).Anonymous.lVal = value;
+    }
+    variant
+}
+
+unsafe impl Send for AppWindowIter {}
+
+impl Iterator for AppWindowIter {
+    type Item = Arc<dyn UiNode>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let elem = self.next_element()?;
+        let node = UiaNode::from_elem_with_scope(elem, crate::map::UiaIdScope::App { pid: self.pid });
+        if self.cache_req.is_some() {
+            node.populate_cached_properties();
+        }
+        UiaNode::init_self(&node);
+        if let Some(ref parent) = self.parent {
+            node.set_parent(parent);
+        }
+        Some(node as Arc<dyn UiNode>)
     }
 }
 
@@ -1406,30 +1475,14 @@ impl UiNode for ApplicationNode {
     }
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
         let parent = self.self_weak.get().and_then(|w| w.upgrade());
-        let windows: Vec<AppWindowElem> = match self.windows_by_pid.lock() {
-            Ok(grouped) => grouped.get(&self.pid).cloned().unwrap_or_default(),
-            Err(_) => Vec::new(),
-        };
-
-        let pid = self.pid;
-        let iter = windows.into_iter().map(move |wrapped| {
-            let elem = wrapped.0;
-            let node = UiaNode::from_elem_with_scope(elem, crate::map::UiaIdScope::App { pid });
-            UiaNode::init_self(&node);
-            if let Some(ref parent_arc) = parent {
-                node.set_parent(parent_arc);
-            }
-            node as Arc<dyn UiNode>
-        });
-        Box::new(iter)
+        Box::new(AppWindowIter::new(self.pid, parent))
     }
 
     fn has_children(&self) -> bool {
-        match self.windows_by_pid.lock() {
-            Ok(grouped) => grouped.get(&self.pid).is_some_and(|v| !v.is_empty()),
-            Err(_) => false,
-        }
+        // Application nodes are emitted only after at least one top-level window was seen for the process.
+        true
     }
+
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         let owner = self.self_weak.get().and_then(|w| w.upgrade());
         Box::new(AppAttrsIter::new(self.pid, self.runtime_id().as_str(), owner))
@@ -1438,7 +1491,7 @@ impl UiNode for ApplicationNode {
         Vec::new()
     }
     fn invalidate(&self) {
-        // No-op: see UiaNode comment. Use "Refresh" via attributes for fresh values.
+        // No-op: children are resolved from UIA on demand.
     }
     fn doc_order_key(&self) -> Option<u64> {
         Some(self.pid as u64)

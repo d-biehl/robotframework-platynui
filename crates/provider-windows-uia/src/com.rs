@@ -35,7 +35,6 @@ pub fn ensure_com_mta() {
                 // Another library may have initialized COM on this thread
                 // with a different apartment model (commonly STA).
                 flag.set(true);
-                tracing::debug!(hr = ?hr, "CoInitializeEx(MTA) skipped: thread already initialized with different COM mode");
             } else {
                 tracing::warn!(hr = ?hr, "CoInitializeEx(MTA) failed");
             }
