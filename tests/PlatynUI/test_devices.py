@@ -21,8 +21,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from PlatynUI.core import patterns
+from PlatynUI.core.adapter_devices import AdapterMouseProxy
 from PlatynUI.core.devices import (
-    AdapterMouseProxy,
     Anchor,
     KeyboardAction,
     KeyboardProxy,
@@ -222,6 +222,46 @@ def test_double_click_uses_multi_click_two(native_runtime: MagicMock) -> None:
     proxy = _BareMouseProxy(Rect(0.0, 0.0, 10.0, 10.0))
     proxy.double_click()
     native_runtime.pointer_multi_click.assert_called_once_with(Point(5.0, 5.0), 2, MouseButton.LEFT, overrides=None)
+
+
+def test_ctrl_click_holds_ctrl_around_click(native_runtime: MagicMock) -> None:
+    """``ctrl_click`` presses ``<Ctrl>``, clicks once, then releases ``<Ctrl>``."""
+    proxy = _BareMouseProxy(Rect(0.0, 0.0, 10.0, 10.0))
+    proxy.ctrl_click()
+    native_runtime.keyboard_press.assert_called_once_with('<Ctrl>', overrides=None)
+    native_runtime.pointer_click.assert_called_once_with(Point(5.0, 5.0), MouseButton.LEFT, overrides=None)
+    native_runtime.keyboard_release.assert_called_once_with('<Ctrl>', overrides=None)
+
+
+def test_ctrl_click_passes_button_and_offset(native_runtime: MagicMock) -> None:
+    proxy = _BareMouseProxy(Rect(0.0, 0.0, 50.0, 50.0))
+    proxy.ctrl_click(button=MouseButton.RIGHT, x=2.0, y=-2.0)
+    native_runtime.pointer_click.assert_called_once_with(Point(27.0, 23.0), MouseButton.RIGHT, overrides=None)
+
+
+def test_ctrl_click_releases_ctrl_when_click_raises(native_runtime: MagicMock) -> None:
+    """Even if the inner click raises, ``<Ctrl>`` is released in ``finally``."""
+    native_runtime.pointer_click.side_effect = RuntimeError('boom')
+    proxy = _BareMouseProxy(Rect(0.0, 0.0, 10.0, 10.0))
+    with pytest.raises(RuntimeError, match='boom'):
+        proxy.ctrl_click()
+    native_runtime.keyboard_press.assert_called_once_with('<Ctrl>', overrides=None)
+    native_runtime.keyboard_release.assert_called_once_with('<Ctrl>', overrides=None)
+
+
+def test_ctrl_click_uses_keyboard_overrides_from_settings(native_runtime: MagicMock) -> None:
+    proxy = _BareMouseProxy(Rect(0.0, 0.0, 10.0, 10.0))
+    with Settings(keyboard_press_delay_ms=4.0, pointer_after_click_delay_ms=42.0):
+        proxy.ctrl_click()
+    keyboard_overrides = {'press_delay_ms': 4.0}
+    pointer_overrides = {'after_click_delay_ms': 42.0}
+    native_runtime.keyboard_press.assert_called_once_with('<Ctrl>', overrides=keyboard_overrides)
+    native_runtime.pointer_click.assert_called_once_with(
+        Point(5.0, 5.0),
+        MouseButton.LEFT,
+        overrides=pointer_overrides,
+    )
+    native_runtime.keyboard_release.assert_called_once_with('<Ctrl>', overrides=keyboard_overrides)
 
 
 def test_press_and_release_pass_button(native_runtime: MagicMock) -> None:

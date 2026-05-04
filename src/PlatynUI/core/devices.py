@@ -11,33 +11,23 @@ Two abstract proxy classes form the public surface:
 - `KeyboardProxy` — keyboard input accepting sequence strings
   like ``"hello<Enter>"`` or ``"<Ctrl+Shift+T>"``.
 
-Concrete implementations (`AdapterMouseProxy`,
-`AdapterKeyboardProxy`) attach a proxy to a UI adapter; custom
-subclasses can override `before_action` /
-`after_action` to inject pre- and post-conditions
-(focus, scroll-into-view, verification).
+Adapter-aware concretions (`AdapterMouseProxy`,
+`AdapterKeyboardProxy`) live in `core.adapter_devices` to keep this
+module free of any dependency on `Adapter` and `patterns`.
 """
 
-import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, override
 
 from platynui_native import KeyboardOverridesDict, PointerButton, PointerOverridesDict
 
-from . import patterns
 from .runtime import runtime
 from .settings import Settings
 from .types import Point, Rect
 
-if TYPE_CHECKING:
-    from .adapter import Adapter
-
 __all__ = [
-    'AdapterKeyboardProxy',
-    'AdapterMouseProxy',
     'Anchor',
     'KeyboardAction',
     'KeyboardProxy',
@@ -52,32 +42,10 @@ __all__ = [
 #: providing the standard members ``LEFT``, ``RIGHT``, ``MIDDLE``, ``X1``, ``X2``.
 MouseButton = PointerButton
 
-_LOGGER = logging.getLogger('platynui.devices')
-
 
 # ----------------------------------------------------------------------
 # Settings → native overrides bridge
 # ----------------------------------------------------------------------
-
-
-_POINTER_OVERRIDE_FIELDS: tuple[tuple[str, str], ...] = (
-    ('pointer_after_move_delay_ms', 'after_move_delay_ms'),
-    ('pointer_after_input_delay_ms', 'after_input_delay_ms'),
-    ('pointer_press_release_delay_ms', 'press_release_delay_ms'),
-    ('pointer_after_click_delay_ms', 'after_click_delay_ms'),
-    ('pointer_before_next_click_delay_ms', 'before_next_click_delay_ms'),
-    ('pointer_multi_click_delay_ms', 'multi_click_delay_ms'),
-)
-
-_KEYBOARD_OVERRIDE_FIELDS: tuple[tuple[str, str], ...] = (
-    ('keyboard_press_delay_ms', 'press_delay_ms'),
-    ('keyboard_release_delay_ms', 'release_delay_ms'),
-    ('keyboard_between_keys_delay_ms', 'between_keys_delay_ms'),
-    ('keyboard_chord_press_delay_ms', 'chord_press_delay_ms'),
-    ('keyboard_chord_release_delay_ms', 'chord_release_delay_ms'),
-    ('keyboard_after_sequence_delay_ms', 'after_sequence_delay_ms'),
-    ('keyboard_after_text_delay_ms', 'after_text_delay_ms'),
-)
 
 
 def _pointer_overrides_from_settings() -> PointerOverridesDict | None:
@@ -88,10 +56,18 @@ def _pointer_overrides_from_settings() -> PointerOverridesDict | None:
     """
     settings = Settings.current()
     overrides: PointerOverridesDict = {}
-    for settings_field, override_key in _POINTER_OVERRIDE_FIELDS:
-        value = getattr(settings, settings_field)
-        if value is not None:
-            overrides[override_key] = value  # type: ignore[literal-required]
+    if (value := settings.pointer_after_move_delay_ms) is not None:
+        overrides['after_move_delay_ms'] = value
+    if (value := settings.pointer_after_input_delay_ms) is not None:
+        overrides['after_input_delay_ms'] = value
+    if (value := settings.pointer_press_release_delay_ms) is not None:
+        overrides['press_release_delay_ms'] = value
+    if (value := settings.pointer_after_click_delay_ms) is not None:
+        overrides['after_click_delay_ms'] = value
+    if (value := settings.pointer_before_next_click_delay_ms) is not None:
+        overrides['before_next_click_delay_ms'] = value
+    if (value := settings.pointer_multi_click_delay_ms) is not None:
+        overrides['multi_click_delay_ms'] = value
     return overrides or None
 
 
@@ -102,10 +78,20 @@ def _keyboard_overrides_from_settings() -> KeyboardOverridesDict | None:
     """
     settings = Settings.current()
     overrides: KeyboardOverridesDict = {}
-    for settings_field, override_key in _KEYBOARD_OVERRIDE_FIELDS:
-        value = getattr(settings, settings_field)
-        if value is not None:
-            overrides[override_key] = value  # type: ignore[literal-required]
+    if (value := settings.keyboard_press_delay_ms) is not None:
+        overrides['press_delay_ms'] = value
+    if (value := settings.keyboard_release_delay_ms) is not None:
+        overrides['release_delay_ms'] = value
+    if (value := settings.keyboard_between_keys_delay_ms) is not None:
+        overrides['between_keys_delay_ms'] = value
+    if (value := settings.keyboard_chord_press_delay_ms) is not None:
+        overrides['chord_press_delay_ms'] = value
+    if (value := settings.keyboard_chord_release_delay_ms) is not None:
+        overrides['chord_release_delay_ms'] = value
+    if (value := settings.keyboard_after_sequence_delay_ms) is not None:
+        overrides['after_sequence_delay_ms'] = value
+    if (value := settings.keyboard_after_text_delay_ms) is not None:
+        overrides['after_text_delay_ms'] = value
     return overrides or None
 
 
@@ -381,49 +367,27 @@ class MouseProxy(ABC):
         runtime.current.pointer_multi_click(target, 2, button, overrides=_pointer_overrides_from_settings())
         self.after_action(MouseAction.DOUBLE_CLICK)
 
+    def ctrl_click(
+        self,
+        *,
+        button: MouseButton = MouseButton.LEFT,
+        pos: Point | VirtualPoint | None = None,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> None:
+        """Click ``button`` at the resolved target while holding ``Ctrl``.
 
-class AdapterMouseProxy(MouseProxy):
-    """Standard `MouseProxy` bound to a UI adapter.
-
-    Reads the bounding box from the adapter's ``Element`` pattern and
-    determines the default click position via a two-stage fallback,
-    preferring an explicit activation target over the element centre:
-
-    1. Centre of ``ActivationTarget.activation_area`` if set.
-    2. ``ActivationTarget.activation_point`` if the pattern is supported.
-    3. Centre of ``Element.bounds`` otherwise.
-
-    When the adapter exposes an ``ActivationTarget.activation_hint``,
-    each action logs it on DEBUG via the ``platynui.devices`` logger.
-    """
-
-    def __init__(self, adapter: 'Adapter') -> None:
-        self._adapter = adapter
-
-    @property
-    @override
-    def base_rect(self) -> Rect:
-        return self._adapter.get_pattern(patterns.Element).bounds
-
-    @property
-    @override
-    def default_click_position(self) -> Point:
-        if self._adapter.supports_pattern(patterns.ActivationTarget):
-            target = self._adapter.get_pattern(patterns.ActivationTarget)
-            if target.activation_area is not None:
-                return target.activation_area.center()
-            return target.activation_point
-        return self._adapter.get_pattern(patterns.Element).bounds.center()
-
-    @override
-    def before_action(self, action: MouseAction) -> None:
-        if not _LOGGER.isEnabledFor(logging.DEBUG):
-            return
-        if not self._adapter.supports_pattern(patterns.ActivationTarget):
-            return
-        hint = self._adapter.get_pattern(patterns.ActivationTarget).activation_hint
-        if hint:
-            _LOGGER.debug('mouse %s: %s', action.value, hint)
+        Holds ``<Ctrl>`` down via the runtime keyboard, performs a single
+        `click`, and releases ``<Ctrl>`` in a ``try/finally`` so the
+        modifier is never left pressed if the click raises. The modifier
+        is driven globally — no `KeyboardProxy` instance is involved.
+        """
+        keyboard_overrides = _keyboard_overrides_from_settings()
+        runtime.current.keyboard_press('<Ctrl>', overrides=keyboard_overrides)
+        try:
+            self.click(button=button, pos=pos, x=x, y=y)
+        finally:
+            runtime.current.keyboard_release('<Ctrl>', overrides=keyboard_overrides)
 
 
 # ----------------------------------------------------------------------
@@ -475,15 +439,3 @@ class KeyboardProxy(ABC):
         self.before_action(KeyboardAction.RELEASE)
         runtime.current.keyboard_release(sequence, overrides=_keyboard_overrides_from_settings())
         self.after_action(KeyboardAction.RELEASE)
-
-
-class AdapterKeyboardProxy(KeyboardProxy):
-    """Standard `KeyboardProxy` bound to a UI adapter.
-
-    The adapter reference is held so subclasses can implement focus
-    and verification logic via `before_action` /
-    `after_action`.
-    """
-
-    def __init__(self, adapter: 'Adapter') -> None:
-        self._adapter = adapter

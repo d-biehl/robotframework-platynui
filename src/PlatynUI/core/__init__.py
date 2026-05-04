@@ -10,6 +10,7 @@ singleton, locator, predicate, and wait helpers, and shared types.
 """
 
 from .adapter import Adapter
+from .adapter_devices import AdapterKeyboardProxy, AdapterMouseProxy
 from .adapter_factory import AdapterFactory, AdapterFactoryAccessor, RuntimeAdapterFactory, adapter_factory
 from .adapter_proxy import AdapterProxy, PatternProxyFactory, pattern_proxy_for
 from .adapters import UiNodeAdapter
@@ -22,8 +23,6 @@ from .descriptor import (
     set_root_element_storage,
 )
 from .devices import (
-    AdapterKeyboardProxy,
-    AdapterMouseProxy,
     Anchor,
     KeyboardAction,
     KeyboardProxy,

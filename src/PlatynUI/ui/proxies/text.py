@@ -13,8 +13,8 @@ adapter attributes (``Value``/``Text``, ``IsReadOnly``, ``MaxLength``,
 from typing import cast, override
 
 from ...core import patterns
+from ...core.adapter_devices import AdapterKeyboardProxy, AdapterMouseProxy
 from ...core.adapter_proxy import pattern_proxy_for
-from ._mixins import click_adapter, type_keys_on_adapter
 from .base import ControlProxy
 
 __all__ = ['EditProxy', 'TextProxy']
@@ -63,9 +63,10 @@ class EditProxy(ControlProxy, patterns.TextContent, patterns.TextEditable, patte
     def set_text(self, value: str) -> None:
         # Focus + select-all + replace: click into the field, then
         # Ctrl+A and type the new value (which replaces the selection).
-        click_adapter(self.adapter)
-        type_keys_on_adapter(self.adapter, '<Ctrl+A>')
-        type_keys_on_adapter(self.adapter, value)
+        AdapterMouseProxy(self.adapter).click()
+        keyboard = AdapterKeyboardProxy(self.adapter)
+        keyboard.type_keys('<Ctrl+A>')
+        keyboard.type_keys(value)
 
     @property
     @override
@@ -97,9 +98,10 @@ class EditProxy(ControlProxy, patterns.TextContent, patterns.TextEditable, patte
 
     @override
     def clear(self) -> None:
-        click_adapter(self.adapter)
-        type_keys_on_adapter(self.adapter, '<Ctrl+A>')
-        type_keys_on_adapter(self.adapter, '<Delete>')
+        AdapterMouseProxy(self.adapter).click()
+        keyboard = AdapterKeyboardProxy(self.adapter)
+        keyboard.type_keys('<Ctrl+A>')
+        keyboard.type_keys('<Delete>')
 
 
 @pattern_proxy_for(role='Text')

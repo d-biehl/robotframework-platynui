@@ -4,9 +4,32 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 47**.
+> **Status:** Diskussionsentwurf, **Revision 48**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 48** — **Adapter-bezogene Devices in eigenes Modul gezogen,
+>   `_mixins.py` aufgelöst, `MouseProxy.ctrl_click()` als echte
+>   Methode.** `core/devices.py` enthält jetzt nur noch die rein
+>   geometrische Schicht (`MouseProxy`/`KeyboardProxy`,
+>   `Anchor`/`VirtualPoint`, `MouseAction`/`KeyboardAction`,
+>   Settings-Bridge). Die Pattern-bewussten Wrapper
+>   `AdapterMouseProxy`/`AdapterKeyboardProxy` leben in
+>   `core/adapter_devices.py` und kennen `Adapter` plus die
+>   `Element`/`ActivationTarget`-Patterns. `MouseProxy.ctrl_click(*,
+>   button=LEFT, pos, x, y)` ersetzt den `ctrl_click_adapter`-Helper:
+>   die Methode hält `<Ctrl>` per `runtime.current.keyboard_press`
+>   gedrückt, ruft `self.click(...)` und gibt `<Ctrl>` im
+>   `try/finally` wieder frei, ohne `KeyboardProxy` zu instanziieren
+>   (Modifier ist global, nicht element-gebunden).
+>   `ui/proxies/_mixins.py` ist gelöscht; die Default-Proxies
+>   (`buttons.py`, `combobox.py`, `item.py`, `text.py`) rufen direkt
+>   `AdapterMouseProxy(self.adapter).click(...)`,
+>   `AdapterMouseProxy(self.adapter).ctrl_click()` und
+>   `AdapterKeyboardProxy(self.adapter).type_keys(...)`.
+>   `core/__init__.py` re-exportiert `AdapterMouseProxy` /
+>   `AdapterKeyboardProxy` aus dem neuen Modul; alle bisherigen
+>   Konsumenten (`ui/element.py`-Subklassen, Tests) sehen unveränderte
+>   Import-Pfade über `PlatynUI.core`.
 > - **Rev. 47** — **`Deselectable` als eigenes Single-Select-Action-
 >   Pattern + saubere Trennung `deselect` vs `remove_from_selection`
 >   am `Item`.** Die Selektions-Action-Patterns sind jetzt vollständig
@@ -1651,16 +1674,16 @@ class ItemProxy(ElementProxy, Selectable, MultiSelectable, Expandable):
 
     # Selectable.select — Single-Select-Semantik (ersetzt aktuelle Auswahl)
     def select(self) -> None:
-        click_adapter(self.adapter)
+        AdapterMouseProxy(self.adapter).click()
 
     # MultiSelectable.add_to_selection — additiv (Ctrl+Click)
     def add_to_selection(self) -> None:
-        ctrl_click_adapter(self.adapter)
+        AdapterMouseProxy(self.adapter).ctrl_click()
 
     # MultiSelectable.remove_from_selection — Ctrl+Click auf bereits
     # selektiertes Element schaltet die Selektion ab
     def remove_from_selection(self) -> None:
-        ctrl_click_adapter(self.adapter)
+        AdapterMouseProxy(self.adapter).ctrl_click()
 ```
 
 `Deselectable` wird **nicht** vom Default-`ItemProxy` getragen, weil
@@ -1982,6 +2005,7 @@ src/PlatynUI/
 │   │   ├── window.py               # Window-Capability-Sub-Patterns (Activatable/Minimizable/Maximizable/Restorable/Closeable/Movable/Resizable/Responsive — Rev. 37)
 │   │   └── …
 │   ├── devices.py                  # MouseProxy/KeyboardProxy (Wrapper über platynui_native.Runtime)
+│   ├── adapter_devices.py          # AdapterMouseProxy/AdapterKeyboardProxy (Adapter+Pattern-aware)
 │   └── adapters/                   # Adapter-Implementierung(en)
 │       ├── __init__.py
 │       └── ui_node.py              # UiNodeAdapter, wraps platynui_native.UiNode
@@ -3212,7 +3236,7 @@ def start_application(command: str | list[str], *,
 `exit_application` ruft das `Application`-Pattern (sauberes Quit per
 API), `close_application` schickt ein Window-Close (X-Knopf-Äquivalent).
 
-### A.9 Devices: Mouse / Keyboard (`core/devices.py`)
+### A.9 Devices: Mouse / Keyboard (`core/devices.py` + `core/adapter_devices.py`)
 
 Die Python-Devices sind **dünne Element-Wrapper** über die im Rust-
 Runtime bereits vollständig implementierte Pointer/Keyboard-Pipeline.
@@ -3233,6 +3257,15 @@ Die Python-Schicht trägt nur noch drei Verantwortlichkeiten:
 3. **Pre/Post-Hooks**: `before_action`/`after_action` als
    Erweiterungspunkt für Element-Integration in Phase 3 (`ensure_that(
    toplevel_active, in_view)`); in `core/devices.py` selbst no-op.
+
+**Modul-Layout (Rev. 48):** `core/devices.py` enthält die rein
+geometrische, adapter-freie Schicht (`MouseProxy`/`KeyboardProxy`,
+`Anchor`/`VirtualPoint`, Action-Enums, Settings-Bridge). Die
+Pattern-bewussten Konkretionen `AdapterMouseProxy` und
+`AdapterKeyboardProxy` leben in `core/adapter_devices.py`, weil sie
+`Adapter` und die `Element`/`ActivationTarget`-Patterns konsumieren.
+`core/__init__.py` re-exportiert beide aus dem neuen Modul, sodass
+externe Konsumenten unveränderte Import-Pfade sehen.
 
 Es gibt **kein** `MouseDevice`/`KeyboardDevice`-Zwischenlayer mehr —
 der Rust-Runtime *ist* das Device.
@@ -3361,9 +3394,29 @@ class MouseProxy(ABC):
         self.after_action(MouseAction.CLICK)
 
     # press / release / double_click analog
+
+    def ctrl_click(
+        self,
+        *,
+        button: MouseButton = MouseButton.LEFT,
+        pos: Point | VirtualPoint | None = None,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> None:
+        """Hält ``<Ctrl>`` gedrückt, ruft ``self.click(...)``, gibt
+        ``<Ctrl>`` im ``finally`` wieder frei. Modifier wird global
+        per ``runtime.current.keyboard_press('<Ctrl>')`` /
+        ``keyboard_release('<Ctrl>')`` gesteuert (Modifier ist nicht
+        elementgebunden, kein ``KeyboardProxy``-Bezug nötig).
+        """
+        runtime.current.keyboard_press('<Ctrl>', overrides=...)
+        try:
+            self.click(button=button, pos=pos, x=x, y=y)
+        finally:
+            runtime.current.keyboard_release('<Ctrl>', overrides=...)
 ```
 
-#### A.9.4 AdapterMouseProxy mit ActivationTarget-Fallback-Kette
+#### A.9.4 AdapterMouseProxy mit ActivationTarget-Fallback-Kette (`core/adapter_devices.py`)
 
 ```python
 class AdapterMouseProxy(MouseProxy):
@@ -3428,8 +3481,10 @@ class KeyboardProxy(ABC):
 
 
 class AdapterKeyboardProxy(KeyboardProxy):
-    """Tastatur-Wrapper für ein Element. Aktuell ohne adapter-spezifische
-    Logik — Hook für Phase 3 (Element-Fokus, Verifikation)."""
+    """Tastatur-Wrapper für ein Element. Lebt seit Rev. 48 in
+    `core/adapter_devices.py` (nicht mehr `core/devices.py`). Aktuell
+    ohne adapter-spezifische Logik — Hook für Phase 3 (Element-Fokus,
+    Verifikation)."""
 
     def __init__(self, adapter: Adapter) -> None:
         self._adapter = adapter

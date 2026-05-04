@@ -7,8 +7,8 @@
 from typing import override
 
 from ...core import patterns
+from ...core.adapter_devices import AdapterKeyboardProxy, AdapterMouseProxy
 from ...core.adapter_proxy import pattern_proxy_for
-from ._mixins import click_adapter, type_keys_on_adapter
 from .base import ControlProxy
 
 __all__ = ['ComboBoxProxy']
@@ -56,12 +56,12 @@ class ComboBoxProxy(
     @override
     def expand(self) -> None:
         if not self.is_expanded:
-            click_adapter(self.adapter)
+            AdapterMouseProxy(self.adapter).click()
 
     @override
     def collapse(self) -> None:
         if self.is_expanded:
-            click_adapter(self.adapter)
+            AdapterMouseProxy(self.adapter).click()
 
     # ----- IsSelectable (Read) ----------------------------------------
 
@@ -77,7 +77,7 @@ class ComboBoxProxy(
 
     @override
     def select(self) -> None:
-        click_adapter(self.adapter)
+        AdapterMouseProxy(self.adapter).click()
 
     # ----- TextContent ------------------------------------------------
 
@@ -114,9 +114,10 @@ class ComboBoxProxy(
 
     @override
     def set_text(self, value: str) -> None:
-        click_adapter(self.adapter)
-        type_keys_on_adapter(self.adapter, '<Ctrl+A>')
-        type_keys_on_adapter(self.adapter, value)
+        AdapterMouseProxy(self.adapter).click()
+        keyboard = AdapterKeyboardProxy(self.adapter)
+        keyboard.type_keys('<Ctrl+A>')
+        keyboard.type_keys(value)
 
     @property
     @override

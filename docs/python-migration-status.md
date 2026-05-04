@@ -6,67 +6,64 @@ in das neue Rust-basierte Projekt verfolgt.
 
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
-**Stand:** 2026-05-01
-**Aktuelle Revision:** Rev. 47 (`Deselectable` als eigenes
-Single-Select-Action-Pattern + saubere Trennung `deselect` vs
-`remove_from_selection` am `Item` + 4-Methoden-Selection-API am
-`ItemContainer[I]`. **Pattern-Erweiterung:** Neues Action-Pattern
-`Deselectable.deselect()` als Pendant zu `Selectable.select()` für
-Single-Select-Container, die „nichts selektiert" als gültigen
-Zustand kennen. **Optional, ohne Konsistenz-Zwang** — Default-
-`ItemProxy` registriert es nicht, weil sich Single-Select-Deselect
-nicht generisch über Maus/Tastatur synthetisieren lässt;
-`Item.deselect()` wirft sonst ehrlich `PatternNotSupportedError`.
-**Item-API neu sortiert:** `Item.select()` → `Selectable`,
-`Item.deselect()` → `Deselectable` (statt
-`MultiSelectable.remove_from_selection`),
-`Item.add_to_selection()` → `MultiSelectable`,
-`Item.remove_from_selection()` → `MultiSelectable` (NEU).
-**Rückgabewerte für Chaining:** `Item.<action>() -> Self` (gibt
-das eigene Element zurück); `ItemContainer.<action>(*, locator) ->
-I` löst das Item auf und gibt es zurück;
-`TreeItem.<action>(*, locator=None) -> 'TreeItem'` und
-`Row.<action>(*, locator=None) -> 'Row | Cell'` für die Dual-Role-
-Klassen; `ComboBox.select(*, locator=None) -> ListItem`. Alle vier
-Container-Wrapper symmetrisch (`select` / `deselect` /
-`add_to_selection` / `remove_from_selection`). `List.select` und
-`TabList.select` als eigene Overrides entfallen (geerbt). **Dual-
-Role-Klassen** — `TreeItem(Item, ItemContainer["TreeItem"])` und
-`Row(Item, ItemContainer[Cell])` — erhalten eine vereinheitlichte
-Override für die vier Methoden: ohne `locator` zielt die Action
-auf das eigene Element (Item-Semantik via `Item.<action>(self)`,
-Rückgabe `self`), mit `locator` wird ein Kind aufgelöst
-(Container-Semantik via `ItemContainer.<action>(self,
-locator=...)`, Rückgabe des Kindes). `cast(...)` ist nötig, weil
-unbound-Class-Aufrufe `Self` nicht über pyright propagieren; bei
-`Row` weitet `Row | Cell` beide Eltern-Signaturen, daher
-`# type: ignore[override]` pro Methode. `clear_selection()` nutzt
-`remove_from_selection()` (= `MultiSelectable`) statt `deselect()`.
-**Konsistenztest erweitert:** `IsSelectable` ⇒ `Selectable`
-(Pflicht); `IsSelectable` ⇒ `Deselectable` ist NICHT Pflicht;
-`IsMultiSelectable` ⇒ `MultiSelectable` (Pflicht).
-Designdoc Rev. 47 — DONE: Header-Bullet voran, §A.14.17 (Pattern-
-Spec für `Deselectable` zwischen `Selectable` und
-`IsMultiSelectable`), §A.14.20a (4-Methoden-API mit `-> I`,
-`clear_selection`-Kommentar fixed), §A.14.23 (TabList ohne
-`select`-Override), §A.14.12 (Item-Codeblock mit
-`-> Self`-Signaturen + `return self`), §A.14.13 (`List` ohne
-`select`-Override, Rückgabe-Hinweis), §A.14.14 (`TreeItem` mit
-Dual-Role-Override `-> 'TreeItem'` plus `cast`), §A.14.15 (`Row`
-mit Dual-Role-Override `-> 'Row | Cell'` plus `cast` und
-`# type: ignore[override]`), §5a.4 (Pattern-Tabelle erweitert,
-Default-Proxy-Skizze ohne `Deselectable`, Bulk-Synthese auf
-`remove_from_selection`).
-**Code-Implementierung — DONE.** `tree.py`/`table.py` haben
-`# type: ignore[redundant-cast]` an den `cast`-Aufrufen plus
-file-level `# pyright: reportUnnecessaryTypeIgnoreComment=false`,
-weil mypy und pyright sich beim Bedarf des `cast` widersprechen.
-Tests reverted auf Capture + isinstance-Assert nach dem
-Return-Type-Pivot. Quality Gates: ruff/mypy/pytest grün
-(718 passed); pyright bei pre-existing Baseline (4 Fehler in
-`devices.py` + `test_ensure.py`, Rev.-47-unrelated). Rev. 44 + 45
-+ 46 + 47 sind code-fertig aber uncommittet — Commit-Strategie
-unentschieden.)
+**Stand:** 2026-05-04
+**Aktuelle Revision:** Rev. 48 (Adapter-bezogene Devices in eigenes
+Modul gezogen, `_mixins.py` aufgelöst, `MouseProxy.ctrl_click()` als
+echte Methode. **Schichtung:** `core/devices.py` enthält jetzt nur
+noch die rein geometrische, adapter-freie Schicht
+(`MouseProxy`/`KeyboardProxy`, `Anchor`/`VirtualPoint`, Action-Enums,
+Settings-Bridge). Die Pattern-bewussten Wrapper `AdapterMouseProxy` /
+`AdapterKeyboardProxy` leben in **`core/adapter_devices.py`**, weil
+sie `Adapter` und `Element`/`ActivationTarget`-Patterns konsumieren.
+**Neue Methode `MouseProxy.ctrl_click(*, button=LEFT, pos, x, y)`**
+ersetzt den `ctrl_click_adapter`-Helper: hält `<Ctrl>` per
+`runtime.current.keyboard_press` gedrückt, ruft `self.click(...)`,
+gibt `<Ctrl>` im `try/finally` wieder frei. Modifier wird global
+gesteuert (kein `KeyboardProxy`-Bezug nötig). **`ui/proxies/_mixins.py`
+gelöscht.** Die Default-Proxies (`buttons.py`, `combobox.py`,
+`item.py`, `text.py`) rufen direkt `AdapterMouseProxy(self.adapter)
+.click(...)` / `.ctrl_click()` und `AdapterKeyboardProxy(self.adapter)
+.type_keys(...)`. **Re-Export-Pfad unverändert:** `core/__init__.py`
+importiert `AdapterMouseProxy`/`AdapterKeyboardProxy` aus dem neuen
+Modul; `from PlatynUI.core import AdapterMouseProxy` funktioniert
+weiter. Designdoc Rev. 48 — DONE: Header-Bullet voran, §A.9
+Modul-Layout-Hinweis ergänzt, §A.9.3 mit `ctrl_click`-Codeblock,
+§A.9.4 nach `core/adapter_devices.py` verschoben (Header-Annotation),
+§A.9.5 `AdapterKeyboardProxy`-Docstring um Modul-Hinweis erweitert,
+§A.14.5 ItemProxy-Codeblock auf direktes `AdapterMouseProxy(...)`
+umgestellt, Verzeichnisbaum (§ vor §A.13) um `adapter_devices.py`
+erweitert. Code-Implementierung — DONE. Tests angepasst (vier neue
+`ctrl_click`-Tests in `test_devices.py`, `test_proxies.py` neu
+geschrieben mit `patch_actions`-Fixture); 724 Tests grün, ruff
++ mypy clean, Pyright auf Baseline (4 Pre-existing Errors).)
+
+> **Vorherige Rev. 47:** `Deselectable` als eigenes Single-Select-
+> Action-Pattern + saubere Trennung `deselect` vs
+> `remove_from_selection` am `Item` + 4-Methoden-Selection-API am
+> `ItemContainer[I]`. Pattern-Erweiterung: Neues Action-Pattern
+> `Deselectable.deselect()` als Pendant zu `Selectable.select()` für
+> Single-Select-Container, die „nichts selektiert" als gültigen
+> Zustand kennen. Optional, ohne Konsistenz-Zwang — Default-
+> `ItemProxy` registriert es nicht, weil sich Single-Select-Deselect
+> nicht generisch über Maus/Tastatur synthetisieren lässt;
+> `Item.deselect()` wirft sonst ehrlich `PatternNotSupportedError`.
+> Item-API neu sortiert: `Item.select()` → `Selectable`,
+> `Item.deselect()` → `Deselectable` (statt
+> `MultiSelectable.remove_from_selection`),
+> `Item.add_to_selection()` → `MultiSelectable`,
+> `Item.remove_from_selection()` → `MultiSelectable` (NEU).
+> Rückgabewerte für Chaining: `Item.<action>() -> Self`;
+> `ItemContainer.<action>(*, locator) -> I`;
+> `TreeItem.<action>(*, locator=None) -> 'TreeItem'` und
+> `Row.<action>(*, locator=None) -> 'Row | Cell'` für die Dual-Role-
+> Klassen; `ComboBox.select(*, locator=None) -> ListItem`. Alle vier
+> Container-Wrapper symmetrisch. Dual-Role-Klassen mit
+> `cast(...)` + `# type: ignore[redundant-cast]` und file-level
+> `# pyright: reportUnnecessaryTypeIgnoreComment=false`. Konsistenztest
+> erweitert: `IsSelectable` ⇒ `Selectable` (Pflicht); `Deselectable`
+> NICHT Pflicht; `IsMultiSelectable` ⇒ `MultiSelectable`. Designdoc
+> Rev. 47 — DONE; Code-Implementierung — DONE; 718 Tests grün.
+> **Committet** als `3541d06`.
 
 > **Vorherige Rev. 46:** Read/Action-Trennung der Capability-
 > Patterns für Selection und Expand. Architektur-Prinzip:

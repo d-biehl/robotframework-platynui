@@ -10,13 +10,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, override
 
 from ..core import patterns
+from ..core.adapter_devices import AdapterKeyboardProxy, AdapterMouseProxy
 from ..core.context import ContextBase
-from ..core.devices import (
-    AdapterKeyboardProxy,
-    AdapterMouseProxy,
-    KeyboardAction,
-    MouseAction,
-)
+from ..core.devices import KeyboardAction, MouseAction
 from ..core.predicate import predicate
 from ..core.runtime import runtime
 from ..core.types import Rect

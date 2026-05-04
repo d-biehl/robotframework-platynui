@@ -14,9 +14,9 @@ two-state interpretation of `Selectable.is_selected`).
 from typing import override
 
 from ...core import patterns
+from ...core.adapter_devices import AdapterMouseProxy
 from ...core.adapter_proxy import pattern_proxy_for
 from ...core.patterns import ToggleState
-from ._mixins import click_adapter
 from .base import ControlProxy
 
 __all__ = ['ButtonProxy', 'CheckBoxProxy']
@@ -28,7 +28,7 @@ class ButtonProxy(ControlProxy, patterns.Activatable):
 
     @override
     def activate(self) -> None:
-        click_adapter(self.adapter)
+        AdapterMouseProxy(self.adapter).click()
 
     @property
     @override
@@ -47,7 +47,7 @@ class CheckBoxProxy(ControlProxy, patterns.Toggleable):
 
     @override
     def toggle(self) -> None:
-        click_adapter(self.adapter)
+        AdapterMouseProxy(self.adapter).click()
 
     @property
     @override

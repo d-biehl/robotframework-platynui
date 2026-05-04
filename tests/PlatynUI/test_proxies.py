@@ -4,8 +4,8 @@
 
 # pyright: reportPrivateUsage=false, reportUnnecessaryTypeIgnoreComment=false
 #
-# Tests poke proxy module internals (monkeypatching ``click_adapter`` /
-# ``type_keys_on_adapter`` rebound symbols) and that's the whole point.
+# Tests poke proxy module internals (monkeypatching ``AdapterMouseProxy`` /
+# ``AdapterKeyboardProxy`` rebound symbols) and that's the whole point.
 # ``reportUnnecessaryTypeIgnoreComment`` is disabled because the
 # ``# type: ignore[no-any-return]`` markers are needed by mypy but
 # pyright doesn't flag the underlying ``Any`` return.
@@ -18,10 +18,10 @@ proxies. Container-side lookups (`List`, `Tree`, `TabList`, `Menu`,
 `MenuBar`, `Table`, `ComboBox`) live on their context classes via
 `ItemContainer[I]` and are covered by the per-context test modules.
 
-The tests monkeypatch the action helpers (`click_adapter`,
-`type_keys_on_adapter`) at the call site (each proxy module imports
-them by name, so rebinding in that module is what intercepts the
-call). No real input is generated.
+The tests monkeypatch the adapter-bound proxy classes
+(`AdapterMouseProxy`, `AdapterKeyboardProxy`) at the call site (each
+proxy module imports them by name, so rebinding in that module is what
+intercepts the call). No real input is generated.
 """
 
 from typing import Any
@@ -77,16 +77,26 @@ def _resolve(adapter: Adapter) -> Any:
 
 @pytest.fixture
 def patch_actions(monkeypatch: pytest.MonkeyPatch) -> dict[str, MagicMock]:
-    """Patch :func:`click_adapter` / :func:`type_keys_on_adapter` in
-    every proxy module that imported them by name."""
-    click = MagicMock(name='click_adapter')
-    typer = MagicMock(name='type_keys_on_adapter')
+    """Patch :class:`AdapterMouseProxy` / :class:`AdapterKeyboardProxy` in
+    every proxy module that imported them by name.
+
+    Returns a dict with:
+
+    - ``mouse`` — MagicMock substituted for ``AdapterMouseProxy``.
+      Use ``mouse.assert_called_once_with(adapter)`` to check the
+      proxy was constructed and ``mouse.return_value.click`` /
+      ``.ctrl_click`` to inspect the action calls.
+    - ``keyboard`` — analogous for ``AdapterKeyboardProxy`` with
+      ``.return_value.type_keys``.
+    """
+    mouse = MagicMock(name='AdapterMouseProxy')
+    keyboard = MagicMock(name='AdapterKeyboardProxy')
     for module in (buttons, combobox, item, text):
-        if hasattr(module, 'click_adapter'):
-            monkeypatch.setattr(module, 'click_adapter', click)
-        if hasattr(module, 'type_keys_on_adapter'):
-            monkeypatch.setattr(module, 'type_keys_on_adapter', typer)
-    return {'click': click, 'type_keys': typer}
+        if hasattr(module, 'AdapterMouseProxy'):
+            monkeypatch.setattr(module, 'AdapterMouseProxy', mouse)
+        if hasattr(module, 'AdapterKeyboardProxy'):
+            monkeypatch.setattr(module, 'AdapterKeyboardProxy', keyboard)
+    return {'mouse': mouse, 'keyboard': keyboard}
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +138,8 @@ def test_button_proxy_activate_clicks(patch_actions: dict[str, MagicMock]) -> No
     a = _adapter(role='Button')
     proxy = _resolve(a)
     proxy.get_pattern(patterns.Activatable).activate()
-    patch_actions['click'].assert_called_once_with(a)
+    patch_actions['mouse'].assert_called_once_with(a)
+    patch_actions['mouse'].return_value.click.assert_called_once_with()
 
 
 def test_button_proxy_is_activation_enabled_reads_element() -> None:
@@ -146,7 +157,8 @@ def test_checkbox_proxy_toggle_clicks(patch_actions: dict[str, MagicMock]) -> No
     a = _adapter(role='CheckBox')
     proxy = _resolve(a)
     proxy.get_pattern(patterns.Toggleable).toggle()
-    patch_actions['click'].assert_called_once_with(a)
+    patch_actions['mouse'].assert_called_once_with(a)
+    patch_actions['mouse'].return_value.click.assert_called_once_with()
 
 
 def test_checkbox_proxy_state_reads_is_toggled_bool() -> None:
@@ -191,10 +203,12 @@ def test_edit_proxy_set_text_sequence(patch_actions: dict[str, MagicMock]) -> No
     a = _adapter(role='Edit')
     proxy = _resolve(a)
     proxy.get_pattern(patterns.TextEditable).set_text('xyz')
-    patch_actions['click'].assert_called_once_with(a)
-    assert patch_actions['type_keys'].call_args_list == [
-        ((a, '<Ctrl+A>'), {}),
-        ((a, 'xyz'), {}),
+    patch_actions['mouse'].assert_called_once_with(a)
+    patch_actions['mouse'].return_value.click.assert_called_once_with()
+    patch_actions['keyboard'].assert_called_once_with(a)
+    assert patch_actions['keyboard'].return_value.type_keys.call_args_list == [
+        (('<Ctrl+A>',), {}),
+        (('xyz',), {}),
     ]
 
 
@@ -202,10 +216,12 @@ def test_edit_proxy_clear_sequence(patch_actions: dict[str, MagicMock]) -> None:
     a = _adapter(role='Edit')
     proxy = _resolve(a)
     proxy.get_pattern(patterns.Clearable).clear()
-    patch_actions['click'].assert_called_once_with(a)
-    assert patch_actions['type_keys'].call_args_list == [
-        ((a, '<Ctrl+A>'), {}),
-        ((a, '<Delete>'), {}),
+    patch_actions['mouse'].assert_called_once_with(a)
+    patch_actions['mouse'].return_value.click.assert_called_once_with()
+    patch_actions['keyboard'].assert_called_once_with(a)
+    assert patch_actions['keyboard'].return_value.type_keys.call_args_list == [
+        (('<Ctrl+A>',), {}),
+        (('<Delete>',), {}),
     ]
 
 
@@ -242,35 +258,55 @@ def test_item_proxy_select_clicks_once(patch_actions: dict[str, MagicMock]) -> N
     a = _adapter(role='Item')
     proxy = _resolve(a)
     proxy.get_pattern(patterns.Selectable).select()
-    patch_actions['click'].assert_called_once_with(a)
+    patch_actions['mouse'].assert_called_once_with(a)
+    patch_actions['mouse'].return_value.click.assert_called_once_with()
+
+
+def test_item_proxy_add_to_selection_ctrl_clicks(patch_actions: dict[str, MagicMock]) -> None:
+    a = _adapter(role='Item')
+    proxy = _resolve(a)
+    proxy.get_pattern(patterns.MultiSelectable).add_to_selection()
+    patch_actions['mouse'].assert_called_once_with(a)
+    patch_actions['mouse'].return_value.ctrl_click.assert_called_once_with()
+
+
+def test_item_proxy_remove_from_selection_ctrl_clicks(patch_actions: dict[str, MagicMock]) -> None:
+    a = _adapter(role='Item')
+    proxy = _resolve(a)
+    proxy.get_pattern(patterns.MultiSelectable).remove_from_selection()
+    patch_actions['mouse'].assert_called_once_with(a)
+    patch_actions['mouse'].return_value.ctrl_click.assert_called_once_with()
 
 
 def test_item_proxy_activate_double_clicks(patch_actions: dict[str, MagicMock]) -> None:
     a = _adapter(role='Item')
     proxy = _resolve(a)
     proxy.get_pattern(patterns.Activatable).activate()
-    patch_actions['click'].assert_called_once_with(a, times=2)
+    patch_actions['mouse'].assert_called_once_with(a)
+    patch_actions['mouse'].return_value.click.assert_called_once_with(times=2)
 
 
 def test_item_proxy_open_editor_double_clicks(patch_actions: dict[str, MagicMock]) -> None:
     a = _adapter(role='Item')
     proxy = _resolve(a)
     proxy.get_pattern(patterns.HasEditor).open_editor()
-    patch_actions['click'].assert_called_once_with(a, times=2)
+    patch_actions['mouse'].assert_called_once_with(a)
+    patch_actions['mouse'].return_value.click.assert_called_once_with(times=2)
 
 
 def test_tree_item_proxy_expand_clicks_when_collapsed(patch_actions: dict[str, MagicMock]) -> None:
     a = _adapter(role='TreeItem', attributes={('IsExpanded', 'control'): False})
     proxy = _resolve(a)
     proxy.get_pattern(patterns.Expandable).expand()
-    patch_actions['click'].assert_called_once_with(a)
+    patch_actions['mouse'].assert_called_once_with(a)
+    patch_actions['mouse'].return_value.click.assert_called_once_with()
 
 
 def test_tree_item_proxy_expand_noop_when_expanded(patch_actions: dict[str, MagicMock]) -> None:
     a = _adapter(role='TreeItem', attributes={('IsExpanded', 'control'): True})
     proxy = _resolve(a)
     proxy.get_pattern(patterns.Expandable).expand()
-    patch_actions['click'].assert_not_called()
+    patch_actions['mouse'].assert_not_called()
 
 
 def test_tree_item_proxy_can_expand_reads_attribute() -> None:
@@ -308,22 +344,26 @@ def test_combobox_expand_clicks_when_collapsed(patch_actions: dict[str, MagicMoc
     a = _adapter(role='ComboBox', attributes={('IsExpanded', 'control'): False})
     proxy = _resolve(a)
     proxy.get_pattern(patterns.Expandable).expand()
-    patch_actions['click'].assert_called_once_with(a)
+    patch_actions['mouse'].assert_called_once_with(a)
+    patch_actions['mouse'].return_value.click.assert_called_once_with()
 
 
 def test_combobox_collapse_clicks_when_expanded(patch_actions: dict[str, MagicMock]) -> None:
     a = _adapter(role='ComboBox', attributes={('IsExpanded', 'control'): True})
     proxy = _resolve(a)
     proxy.get_pattern(patterns.Expandable).collapse()
-    patch_actions['click'].assert_called_once_with(a)
+    patch_actions['mouse'].assert_called_once_with(a)
+    patch_actions['mouse'].return_value.click.assert_called_once_with()
 
 
 def test_combobox_set_text_sequence(patch_actions: dict[str, MagicMock]) -> None:
     a = _adapter(role='ComboBox')
     proxy = _resolve(a)
     proxy.get_pattern(patterns.TextEditable).set_text('foo')
-    patch_actions['click'].assert_called_once_with(a)
-    assert patch_actions['type_keys'].call_args_list == [
-        ((a, '<Ctrl+A>'), {}),
-        ((a, 'foo'), {}),
+    patch_actions['mouse'].assert_called_once_with(a)
+    patch_actions['mouse'].return_value.click.assert_called_once_with()
+    patch_actions['keyboard'].assert_called_once_with(a)
+    assert patch_actions['keyboard'].return_value.type_keys.call_args_list == [
+        (('<Ctrl+A>',), {}),
+        (('foo',), {}),
     ]

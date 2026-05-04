@@ -23,12 +23,8 @@ exclusively the proxy's domain and never touch native control APIs.
 from typing import override
 
 from ...core import patterns
+from ...core.adapter_devices import AdapterKeyboardProxy, AdapterMouseProxy
 from ...core.adapter_proxy import pattern_proxy_for
-from ._mixins import (
-    click_adapter,
-    ctrl_click_adapter,
-    type_keys_on_adapter,
-)
 from .base import ElementProxy
 
 __all__ = [
@@ -69,23 +65,23 @@ class ItemProxy(
 
     @override
     def select(self) -> None:
-        click_adapter(self.adapter)
+        AdapterMouseProxy(self.adapter).click()
 
     # ----- MultiSelectable (Action: additive selection) ---------------
 
     @override
     def add_to_selection(self) -> None:
-        ctrl_click_adapter(self.adapter)
+        AdapterMouseProxy(self.adapter).ctrl_click()
 
     @override
     def remove_from_selection(self) -> None:
-        ctrl_click_adapter(self.adapter)
+        AdapterMouseProxy(self.adapter).ctrl_click()
 
     # ----- Activatable ------------------------------------------------
 
     @override
     def activate(self) -> None:
-        click_adapter(self.adapter, times=2)
+        AdapterMouseProxy(self.adapter).click(times=2)
 
     @property
     @override
@@ -101,22 +97,23 @@ class ItemProxy(
 
     @override
     def open_editor(self) -> None:
-        click_adapter(self.adapter, times=2)
+        AdapterMouseProxy(self.adapter).click(times=2)
 
     @override
     def accept(self) -> None:
-        type_keys_on_adapter(self.adapter, '<Enter>')
+        AdapterKeyboardProxy(self.adapter).type_keys('<Enter>')
 
     @override
     def cancel(self) -> None:
-        type_keys_on_adapter(self.adapter, '<Escape>')
+        AdapterKeyboardProxy(self.adapter).type_keys('<Escape>')
 
     # ----- TextEditable -----------------------------------------------
 
     @override
     def set_text(self, value: str) -> None:
-        type_keys_on_adapter(self.adapter, '<Ctrl+A>')
-        type_keys_on_adapter(self.adapter, value)
+        keyboard = AdapterKeyboardProxy(self.adapter)
+        keyboard.type_keys('<Ctrl+A>')
+        keyboard.type_keys(value)
 
     @property
     @override
@@ -145,8 +142,9 @@ class ItemProxy(
 
     @override
     def clear(self) -> None:
-        type_keys_on_adapter(self.adapter, '<Ctrl+A>')
-        type_keys_on_adapter(self.adapter, '<Delete>')
+        keyboard = AdapterKeyboardProxy(self.adapter)
+        keyboard.type_keys('<Ctrl+A>')
+        keyboard.type_keys('<Delete>')
 
 
 @pattern_proxy_for(role='ListItem')
@@ -189,12 +187,12 @@ class TreeItemProxy(ItemProxy, patterns.IsExpandable, patterns.Expandable):
     @override
     def expand(self) -> None:
         if not self.is_expanded:
-            click_adapter(self.adapter)
+            AdapterMouseProxy(self.adapter).click()
 
     @override
     def collapse(self) -> None:
         if self.is_expanded:
-            click_adapter(self.adapter)
+            AdapterMouseProxy(self.adapter).click()
 
 
 @pattern_proxy_for(role='Row')
@@ -237,9 +235,9 @@ class MenuItemProxy(ItemProxy, patterns.IsExpandable, patterns.Expandable):
     @override
     def expand(self) -> None:
         if not self.is_expanded:
-            click_adapter(self.adapter)
+            AdapterMouseProxy(self.adapter).click()
 
     @override
     def collapse(self) -> None:
         if self.is_expanded:
-            click_adapter(self.adapter)
+            AdapterMouseProxy(self.adapter).click()
