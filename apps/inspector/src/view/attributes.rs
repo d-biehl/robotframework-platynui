@@ -9,7 +9,7 @@ use egui_extras::{Column, TableBuilder};
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
-use crate::model::tree_data::DisplayAttribute;
+use crate::model::tree_data::{DisplayAttribute, xpath_attribute_name};
 
 use super::tree_view::paint_chevron;
 
@@ -309,7 +309,7 @@ fn build_body_entries(
                 let attr = &attributes[idx];
                 entries.push(BodyEntry::Attribute {
                     attr_idx: idx,
-                    display_name: attribute_key(attr),
+                    display_name: xpath_attribute_name(&attr.namespace, &attr.name),
                     name_indent: 0.0,
                 });
             }
@@ -630,8 +630,9 @@ fn render_attribute_row_cells(
     pinned_attributes: &mut BTreeSet<String>,
 ) {
     let attribute_key = attribute_key(attr);
+    let xpath_name = xpath_attribute_name(&attr.namespace, &attr.name);
     let is_pinned = pinned_attributes.contains(&attribute_key);
-    let row_str = format!("{}={}", attribute_key, attr.value);
+    let row_str = format!("{}={}", xpath_name, attr.value);
 
     row.col(|ui| {
         ui.horizontal_top(|ui| {
@@ -665,7 +666,7 @@ fn render_attribute_row_cells(
                     attribute_key: &attribute_key,
                     is_pinned,
                     pinned_attributes,
-                    name: &attribute_key,
+                    name: &xpath_name,
                     value: &attr.value,
                     value_type: &attr.value_type,
                     row_text: &row_str,
@@ -702,7 +703,7 @@ fn render_attribute_row_cells(
                 attribute_key: &attribute_key,
                 is_pinned,
                 pinned_attributes,
-                name: &attribute_key,
+                name: &xpath_name,
                 value: &attr.value,
                 value_type: &attr.value_type,
                 row_text: &row_str,
@@ -738,7 +739,7 @@ fn render_attribute_row_cells(
                 attribute_key: &attribute_key,
                 is_pinned,
                 pinned_attributes,
-                name: &attribute_key,
+                name: &xpath_name,
                 value: &attr.value,
                 value_type: &attr.value_type,
                 row_text: &row_str,

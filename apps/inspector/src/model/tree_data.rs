@@ -52,7 +52,7 @@ impl SearchResultItem {
             }
             EvaluationItem::Attribute(attr) => {
                 let (val_str, _) = format_ui_value(&attr.value);
-                let label = format!("@{}:{} = {}", attr.namespace, attr.name, val_str);
+                let label = format!("@{} = {}", xpath_attribute_name(attr.namespace.as_str(), &attr.name), val_str);
                 Self::Attribute { label, value: val_str, node: Arc::clone(&attr.owner) }
             }
             EvaluationItem::Value(val) => {
@@ -368,6 +368,17 @@ fn log_child_load_timing(stage: &'static str, child_count: usize, elapsed: Durat
         let elapsed_ms = elapsed.as_secs_f64() * 1000.0;
         tracing::warn!(stage, child_count, elapsed_ms, "slow inspector tree child loading stage");
     }
+}
+
+/// XPath-conformant rendering of an attribute's qualified name.
+///
+/// `control` is the default attribute namespace in PlatynUI XPath: unprefixed
+/// `@Foo` matches control attributes, while `@control:Foo` does not (the engine
+/// follows standard XPath, where unprefixed attributes are in no namespace).
+/// User-facing strings (display + clipboard) therefore drop the `control:`
+/// prefix so what the user sees and copies works when pasted into a query.
+pub fn xpath_attribute_name(namespace: &str, name: &str) -> String {
+    if namespace == Namespace::Control.as_str() { name.to_string() } else { format!("{namespace}:{name}") }
 }
 
 fn collect_display_attributes(node: &dyn UiNode) -> Vec<DisplayAttribute> {
