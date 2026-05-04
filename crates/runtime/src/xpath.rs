@@ -129,7 +129,7 @@ impl EvaluateOptions {
 
 #[derive(Debug, Error)]
 pub enum EvaluateError {
-    #[error("XPath evaluation failed: {0}")]
+    #[error("XPath evaluation failed {0}")]
     XPath(#[from] platynui_xpath::engine::runtime::Error),
     #[error("context node not part of current evaluation (runtime id: {0})")]
     ContextNodeUnknown(String),

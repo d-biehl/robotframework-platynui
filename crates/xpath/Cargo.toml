@@ -29,7 +29,7 @@ smallvec = "1.15"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 string_cache = "0.9"
 compact_str = "0.9"
-lru = "0.17"
+lru = "0.18"
 
 [dev-dependencies]
 rstest = "0.26"

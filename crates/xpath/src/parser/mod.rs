@@ -1,6 +1,7 @@
 use crate::engine::runtime::{Error, ErrorCode};
 use compact_str::CompactString;
 use pest::Parser;
+use pest::error::{ErrorVariant, LineColLocation};
 use pest::iterators::Pair;
 use smallvec::SmallVec; // Optimized small, frequently short-lived collections
 use std::borrow::Cow;
@@ -11,9 +12,212 @@ pub mod ast;
 #[grammar = "parser/xpath2.pest"]
 pub struct XPathParser;
 
+/// Map a pest grammar rule to a user-facing label. Specific terminals (single
+/// punctuation, distinctive keywords) keep their literal form quoted; binary
+/// operators, comparisons, type tests etc. collapse into shared category names
+/// so an "expected" list of 20+ raw tokens deduplicates to a handful.
+fn friendly_rule(r: &Rule) -> &'static str {
+    use Rule::*;
+    match r {
+        EOI => "end of expression",
+
+        // Punctuation kept specific.
+        COMMA => "','",
+        LPAR => "'('",
+        RPAR => "')'",
+        LBRACK => "'['",
+        RBRACK => "']'",
+        QMARK => "'?'",
+        OP_AT => "'@'",
+        OP_DOT => "'.'",
+        OP_DOTDOT => "'..'",
+        OP_COLONCOLON => "'::'",
+        OP_ASSIGN => "':='",
+
+        // Path / arithmetic / set / boolean operators — group as "operator".
+        OP_SLASH | OP_DSLASH | OP_PIPE | OP_PLUS | OP_MINUS | OP_STAR | K_OR | K_AND | K_DIV | K_IDIV | K_MOD
+        | K_UNION | K_INTERSECT | K_EXCEPT | K_TO | add_op | mult_op | and_op | or_op | union_op
+        | intersect_except_op | path_operator => "operator",
+
+        // Comparison operators — group.
+        OP_EQ | OP_NE | OP_LT | OP_GT | OP_LTE | OP_GTE | OP_PRECEDES | OP_FOLLOWS | K_EQ | K_NE | K_LT | K_LE
+        | K_GT | K_GE | K_IS | comparison_op | general_comp | value_comp | node_comp => "comparison operator",
+
+        // 'instance of' / 'cast as' / 'treat as' / 'castable as' family.
+        K_INSTANCE | K_TREAT | K_CASTABLE | K_CAST | K_OF | K_AS | instanceof_op | treat_op | castable_op | cast_op => {
+            "type operator"
+        }
+
+        // Quantifier / control-flow keywords kept specific.
+        K_FOR => "'for'",
+        K_LET => "'let'",
+        K_IN => "'in'",
+        K_RETURN => "'return'",
+        K_SOME => "'some'",
+        K_EVERY => "'every'",
+        K_SATISFIES => "'satisfies'",
+        K_IF => "'if'",
+        K_THEN => "'then'",
+        K_ELSE => "'else'",
+
+        // Axes.
+        K_CHILD | K_DESCENDANT | K_DESCENDANT_OR_SELF | K_PARENT | K_ANCESTOR | K_ANCESTOR_OR_SELF | K_FOLLOWING
+        | K_FOLLOWING_SIBLING | K_PRECEDING | K_PRECEDING_SIBLING | K_SELF | K_ATTRIBUTE | K_NAMESPACE
+        | forward_axis | reverse_axis => "axis",
+
+        // Kind tests.
+        K_NODE
+        | K_TEXT
+        | K_COMMENT
+        | K_PROCESSING_INSTRUCTION
+        | K_DOCUMENT_NODE
+        | K_ELEMENT
+        | K_SCHEMA_ELEMENT
+        | K_SCHEMA_ATTRIBUTE
+        | K_ITEM
+        | K_EMPTY_SEQUENCE
+        | kind_test
+        | node_test
+        | any_kind_test
+        | comment_test
+        | text_test
+        | pi_test
+        | element_test
+        | attribute_test
+        | document_test
+        | schema_element_test
+        | schema_attribute_test => "node test",
+
+        // Names.
+        qname
+        | function_qname
+        | var_name
+        | name_test
+        | wildcard_name
+        | ncname
+        | qname_local
+        | qname_prefix
+        | type_name
+        | atomic_type
+        | element_name
+        | attribute_name
+        | element_name_or_wildcard
+        | attrib_name_or_wildcard
+        | element_declaration
+        | attribute_declaration
+        | reserved_function_name => "name",
+
+        // Literals.
+        literal | numeric_literal | integer_literal | decimal_literal | double_literal => "literal",
+        string_literal | dbl_string => "string",
+
+        // Steps / paths / predicates.
+        axis_step | step_expr | forward_step | reverse_step | abbrev_forward_step | abbrev_reverse_step => "step",
+        absolute_path | relative_path_expr => "path",
+        predicate | predicate_list => "predicate",
+
+        // Expressions.
+        unary_expr
+        | path_expr
+        | expr_single
+        | expr
+        | primary_expr
+        | value_expr
+        | filter_expr
+        | additive_expr
+        | multiplicative_expr
+        | and_expr
+        | or_expr
+        | comparison_expr
+        | range_expr
+        | union_expr
+        | intersect_except_expr
+        | instanceof_expr
+        | treat_expr
+        | castable_expr
+        | cast_expr
+        | for_expr
+        | let_expr
+        | if_expr
+        | quantified_expr
+        | parenthesized_expr
+        | context_item_expr => "expression",
+
+        var_ref => "variable reference",
+        function_call => "function call",
+
+        sequence_type | item_type | single_type => "type",
+        occurrence_indicator => "'?', '*' or '+'",
+
+        // Atomic/internal rules unlikely to surface in user-facing errors.
+        digits | sgl_string | sgl_string_inner | dbl_string_inner | escape_apos | escape_quot | ncname_char
+        | ncname_start_char | WHITESPACE | COMMENT | xpath => "token",
+    }
+}
+
+fn format_pest_message(variant: &ErrorVariant<Rule>) -> String {
+    fn collect_unique(rules: &[Rule]) -> Vec<&'static str> {
+        let mut out: Vec<&'static str> = Vec::new();
+        for r in rules {
+            let name = friendly_rule(r);
+            if !out.contains(&name) {
+                out.push(name);
+            }
+        }
+        out
+    }
+    fn join_oxford(items: &[&'static str]) -> String {
+        match items.len() {
+            0 => String::new(),
+            1 => items[0].to_string(),
+            2 => format!("{} or {}", items[0], items[1]),
+            _ => {
+                let last = items.last().unwrap();
+                let head = items[..items.len() - 1].join(", ");
+                format!("{head}, or {last}")
+            }
+        }
+    }
+
+    match variant {
+        ErrorVariant::ParsingError { positives, negatives } => {
+            let pos = collect_unique(positives);
+            let neg = collect_unique(negatives);
+            match (pos.is_empty(), neg.is_empty()) {
+                (false, true) => format!("expected {}", join_oxford(&pos)),
+                (true, false) => format!("unexpected {}", join_oxford(&neg)),
+                (false, false) => {
+                    format!("unexpected {}; expected {}", join_oxford(&neg), join_oxford(&pos))
+                }
+                (true, true) => "parse error".to_string(),
+            }
+        }
+        ErrorVariant::CustomError { message } => message.clone(),
+    }
+}
+
+fn format_pest_error(e: &pest::error::Error<Rule>) -> String {
+    let detail = format_pest_message(&e.variant);
+    let (line, col) = match e.line_col {
+        LineColLocation::Pos((l, c)) | LineColLocation::Span((l, c), _) => (l, c),
+    };
+    let source_line = e.line();
+    let line_no = line.to_string();
+    let gutter = " ".repeat(line_no.len());
+    let caret_pad = " ".repeat(col.saturating_sub(1));
+
+    format!(
+        "Syntax Error at line {line}, column {col}\n\
+         {gutter} |\n\
+         {line_no} | {source_line}\n\
+         {gutter} | {caret_pad}^--- {detail}\n\
+         {gutter} |"
+    )
+}
+
 pub fn parse(input: &str) -> Result<ast::Expr, Error> {
-    let mut pairs =
-        XPathParser::parse(Rule::xpath, input).map_err(|e| Error::from_code(ErrorCode::XPST0003, format!("{}", e)))?;
+    let mut pairs = XPathParser::parse(Rule::xpath, input)
+        .map_err(|e| Error::from_code(ErrorCode::XPST0003, format_pest_error(&e)))?;
 
     let pair = pairs.next().ok_or_else(|| Error::from_code(ErrorCode::XPST0003, "empty parse"))?;
 

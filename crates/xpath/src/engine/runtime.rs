@@ -621,11 +621,12 @@ impl Error {
     pub fn code_qname(&self) -> Option<ExpandedName> {
         Some(self.code.clone())
     }
-    /// Format the code as a human-readable string (err:LOCAL or Q{ns}local).
-    /// Owned formatter for human-readable code string.
+    /// Format the code as a human-readable string. Standard ERR_NS codes are
+    /// emitted as their bare local name (e.g. `XPST0003`); foreign-namespace
+    /// codes use `Q{ns}local`.
     pub fn format_code(&self) -> String {
         if self.code.ns_uri.as_deref() == Some(ERR_NS) {
-            format!("err:{}", self.code.local)
+            self.code.local.clone()
         } else if let Some(ns) = &self.code.ns_uri {
             format!("Q{{{}}}{}", ns, self.code.local)
         } else {
@@ -678,7 +679,7 @@ impl From<std::io::Error> for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} ({})", self.message, self.format_code())
+        write!(f, "({}): {}", self.format_code(), self.message)
     }
 }
 
