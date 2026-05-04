@@ -49,6 +49,12 @@ pub struct AtspiNode {
     conn: Arc<AccessibilityConnection>,
     obj: ObjectRefOwned,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
+    /// Whether the parent is an `Application` accessible.  Resolved at
+    /// construction time (when the parent `Arc` is guaranteed alive) and
+    /// cached, so the check survives the parent `Weak` becoming dangling
+    /// later — which happens routinely once the consumer drops the
+    /// children iterator that held the parent strong-ref alive.
+    parent_is_application: bool,
     self_weak: OnceLock<Weak<dyn UiNode>>,
     runtime_id: OnceLock<RuntimeId>,
     pub(crate) role: OnceLock<String>,
@@ -65,10 +71,12 @@ pub struct AtspiNode {
 
 impl AtspiNode {
     pub fn new(conn: Arc<AccessibilityConnection>, obj: ObjectRefOwned, parent: Option<&Arc<dyn UiNode>>) -> Arc<Self> {
+        let parent_is_application = parent.map(|p| p.namespace() == Namespace::App).unwrap_or(false);
         let node = Arc::new(Self {
             conn,
             obj,
             parent: Mutex::new(parent.map(Arc::downgrade)),
+            parent_is_application,
             self_weak: OnceLock::new(),
             runtime_id: OnceLock::new(),
             role: OnceLock::new(),
@@ -138,10 +146,23 @@ impl AtspiNode {
         self.resolve_interfaces().map(|ifaces| ifaces.contains(Interface::Application)).unwrap_or(false)
     }
 
-    /// Returns `true` if this node represents a top-level window surface
-    /// (Frame, Window, or Dialog).
+    /// Returns `true` if this node is a real platform top-level window — i.e.
+    /// a direct child of an accessible exposing the AT-SPI `Application`
+    /// interface.
+    ///
+    /// The role alone is **not** sufficient: Qt MDI subwindows (and similar
+    /// embedded surfaces in other toolkits) expose the same `Frame`/`Window`/
+    /// `Dialog` role as real top-levels, but live deeper in the AT-SPI tree.
+    /// Treating them as top-levels would expose useless window patterns
+    /// (`Activatable`, `Closeable`, …) and break coordinate resolution, since
+    /// AT-SPI's `CoordType::Window` is relative to the toolkit's real
+    /// top-level window — not to any embedded `Frame`/`Window`/`Dialog`.
+    ///
+    /// The result is cached at construction time (see [`Self::new`]); we do
+    /// **not** re-resolve the parent at query time because the parent `Weak`
+    /// may have already expired (it does not keep the parent alive).
     fn is_window_surface(&self) -> bool {
-        is_window_surface_role(self.role())
+        self.parent_is_application
     }
 
     /// Resolve the Unix process ID of the application owning this node's
@@ -409,11 +430,6 @@ fn grab_focus(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<()
         .ok_or(AtspiError::timeout("grab_focus"))?
         .map_err(|e| AtspiError::dbus("grab_focus", e))?;
     if ok { Ok(()) } else { Err(AtspiError::FocusFailed) }
-}
-
-/// Check whether a role string represents a top-level window surface.
-fn is_window_surface_role(role: &str) -> bool {
-    matches!(role, "Frame" | "Window" | "Dialog")
 }
 
 /// Shared resolver for AT-SPI window-surface sub-patterns.
@@ -800,7 +816,8 @@ struct AttrsIter {
     ctx: Arc<LazyNodeData>,
     /// Cached process ID (only set for Application nodes).
     process_id: Option<u32>,
-    /// Whether this node is a top-level window (Frame/Window/Dialog).
+    /// Whether this node is a real platform top-level window
+    /// (direct child of an `Application` accessible).
     is_window_surface: bool,
     /// Pre-filtered list of native property names applicable to this node.
     native_props: Vec<&'static str>,
@@ -815,8 +832,8 @@ impl AttrsIter {
         let ctx = Arc::new(LazyNodeData::new(
             node.conn.clone(),
             node.obj.clone(),
-            role.clone(),
             node.self_weak.get().cloned(),
+            node.is_window_surface(),
         ));
         // Standard attributes always live in the Control namespace,
         // regardless of the node's own namespace (e.g. App for
@@ -1132,9 +1149,12 @@ impl Iterator for AttrsIter {
 struct LazyNodeData {
     conn: Arc<AccessibilityConnection>,
     obj: ObjectRefOwned,
-    role: String,
     /// Weak reference to the owning UiNode, used for window manager queries.
     owner: Option<Weak<dyn UiNode>>,
+    /// Whether this node is a real platform top-level window.  Cached at
+    /// construction so the answer is robust against the parent `Weak` (on
+    /// the owning `AtspiNode`) becoming dangling later.
+    is_real_toplevel: bool,
     state: OnceLock<Option<StateSet>>,
     extents: OnceLock<Option<Rect>>,
     name: OnceLock<String>,
@@ -1145,14 +1165,14 @@ impl LazyNodeData {
     fn new(
         conn: Arc<AccessibilityConnection>,
         obj: ObjectRefOwned,
-        role: String,
         owner: Option<Weak<dyn UiNode>>,
+        is_real_toplevel: bool,
     ) -> Self {
         Self {
             conn,
             obj,
-            role,
             owner,
+            is_real_toplevel,
             state: OnceLock::new(),
             extents: OnceLock::new(),
             name: OnceLock::new(),
@@ -1167,40 +1187,69 @@ impl LazyNodeData {
         })
     }
 
+    /// Returns `true` if this node is a real platform top-level window
+    /// (direct child of an accessible exposing the AT-SPI `Application`
+    /// interface).  See [`AtspiNode::is_window_surface`] for the rationale.
+    fn is_real_toplevel(&self) -> bool {
+        self.is_real_toplevel
+    }
+
     fn resolve_extents(&self) -> Option<Rect> {
         *self.extents.get_or_init(|| {
-            // For top-level windows, prefer the WindowManager bounds (the
-            // compositor/WM knows the actual on-screen geometry).
-            if is_window_surface_role(&self.role)
+            // Step 1: real platform top-level → WM bounds.
+            if self.is_real_toplevel()
                 && let Some(bounds) = self.resolve_window_manager_bounds()
             {
                 return Some(bounds);
             }
 
-            // For child elements, use window-relative extents plus the
-            // top-level window's absolute position.  This is essential on
-            // Wayland where GetExtents(Screen) returns (0,0) for the
-            // window origin because clients don't know their screen position.
-            if let Some(win_bounds) = self.resolve_toplevel_window_bounds()
-                && let Some(rect) = component_proxy(&self.conn, &self.obj).and_then(|proxy| {
-                    block_on_timeout_call(proxy.get_extents(CoordType::Window)).and_then(|r| r.ok()).map(
-                        |(x, y, w, h)| {
-                            Rect::new(win_bounds.x() + x as f64, win_bounds.y() + y as f64, w as f64, h as f64)
-                        },
-                    )
-                })
-            {
+            // Step 2: walk up via CoordType::Parent.  We deliberately do
+            // **not** use CoordType::Window: at least Qt's AT-SPI bridge
+            // treats embedded surfaces (QMdiSubWindow, popup widgets …) as
+            // window boundaries, so window-relative extents for everything
+            // underneath are reported relative to that embedded surface
+            // rather than the real toolkit top-level window — which makes
+            // window-relative coordinates unsafe to combine with the
+            // top-level's WM bounds.  Parent-relative coordinates are
+            // unambiguous, so we sum them up the parent chain instead.
+            if let Some(rect) = self.resolve_extents_via_parent_chain() {
                 return Some(rect);
             }
 
             // Fallback: Screen extents (works on X11 where AT-SPI reports
-            // real screen coordinates).
+            // real screen coordinates; on Wayland clients return 0,0).
             component_proxy(&self.conn, &self.obj).and_then(|proxy| {
                 block_on_timeout_call(proxy.get_extents(CoordType::Screen))
                     .and_then(|r| r.ok())
                     .map(|(x, y, w, h)| Rect::new(x as f64, y as f64, w as f64, h as f64))
             })
         })
+    }
+
+    /// Compute absolute screen extents by adding our parent-relative
+    /// position to the parent's absolute bounds.  The parent's bounds are
+    /// resolved through its own `Bounds` attribute, which recurses through
+    /// the same logic — terminating at the real top-level (step 1 above).
+    fn resolve_extents_via_parent_chain(&self) -> Option<Rect> {
+        let owner = self.owner.as_ref()?.upgrade()?;
+        let parent = owner.parent_arc()?;
+
+        // The Application accessible has no meaningful on-screen geometry.
+        // We should never reach here for a real top-level (those are handled
+        // by step 1), but defend against unexpected tree shapes.
+        if parent.namespace() == Namespace::App {
+            return None;
+        }
+
+        let proxy = component_proxy(&self.conn, &self.obj)?;
+        let (x, y, w, h) = block_on_timeout_call(proxy.get_extents(CoordType::Parent)).and_then(|r| r.ok())?;
+
+        let parent_bounds_attr = parent.attribute(Namespace::Control, element::BOUNDS)?;
+        let UiValue::Rect(parent_bounds) = parent_bounds_attr.value() else {
+            return None;
+        };
+
+        Some(Rect::new(parent_bounds.x() + x as f64, parent_bounds.y() + y as f64, w as f64, h as f64))
     }
 
     /// Resolve the window manager and window ID for this node.
@@ -1219,16 +1268,6 @@ impl LazyNodeData {
     /// Ask the registered [`WindowManager`] for the bounds of this window.
     fn resolve_window_manager_bounds(&self) -> Option<Rect> {
         let (wm, wid) = self.resolve_window()?;
-        wm.bounds(wid, self.resolve_toolkit().as_deref()).ok()
-    }
-
-    /// Walk up the node tree to find the nearest top-level window ancestor
-    /// and return its absolute screen bounds from the [`WindowManager`].
-    fn resolve_toplevel_window_bounds(&self) -> Option<Rect> {
-        let node = self.owner.as_ref()?.upgrade()?;
-        let toplevel = node.top_level_or_self();
-        let wm = window_manager()?;
-        let wid = wm.resolve_window(toplevel.as_ref()).ok()?;
         wm.bounds(wid, self.resolve_toolkit().as_deref()).ok()
     }
 
@@ -1346,7 +1385,7 @@ impl UiAttribute for LazyStdAttr {
                     .resolve_state()
                     .map(|s| s.contains(State::Focusable) || s.contains(State::Focused))
                     .unwrap_or(false);
-                let window_surface = is_window_surface_role(&self.ctx.role);
+                let window_surface = self.ctx.is_real_toplevel();
                 let mut patterns = Vec::new();
                 if focusable {
                     patterns.push(PatternName::from(pattern_names::FOCUSABLE));
