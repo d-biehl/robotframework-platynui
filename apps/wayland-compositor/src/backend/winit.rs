@@ -27,7 +27,7 @@ use smithay::{
         wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
         wayland_server::Display,
         winit::{
-            platform::{pump_events::PumpStatus, wayland::WindowAttributesExtWayland},
+            platform::wayland::WindowAttributesExtWayland,
             window::{CursorIcon, Icon, Theme, WindowAttributes},
         },
     },
@@ -160,7 +160,6 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
 
     // Register the render ping in State so protocol handlers (e.g.
     // wl_surface.commit) can schedule a frame render on demand.
-    let (event_ping, event_source) = ping::make_ping()?;
     let (render_ping, render_source) = ping::make_ping()?;
     state.render_ping = Some(render_ping.clone());
 
@@ -171,45 +170,38 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
         render_frame(&mut wd, state);
     })?;
 
-    // Event ping: pump winit events, then trigger render.
+    // Register winit's event loop directly as a calloop source.  Smithay's
+    // `WinitEventLoop` implements `EventSource` and exposes its internal
+    // wake fd via `register`/`reregister`; calloop will only invoke the
+    // callback when winit actually has events to deliver, so the loop
+    // sleeps on epoll between events instead of busy-pumping
+    // `pump_app_events(Duration::ZERO)` on every iteration.
     let winit_events = Rc::clone(&winit_data);
-    let event_ping_self = event_ping.clone();
-    let render_ping_from_events = render_ping.clone();
-    let mut winit_evt = winit_evt;
-    event_loop.handle().insert_source(event_source, move |(), (), state| {
-        let render_ping = &render_ping_from_events;
+    let render_ping_for_events = render_ping.clone();
+    event_loop.handle().insert_source(winit_evt, move |event, (), state| {
         let mut wd = winit_events.borrow_mut();
-
-        state.space.refresh();
-        state.popup_manager.cleanup();
-
-        let pump_status = winit_evt.dispatch_new_events(|event| {
-            process_winit_event(&mut wd, state, event, render_ping);
-        });
-
-        match pump_status {
-            PumpStatus::Continue => {
-                // Keep pumping winit events. Rendering is on-demand only
-                // (triggered by visual-change events and surface commits).
-                event_ping_self.ping();
-            }
-            PumpStatus::Exit(_) => {
-                state.running = false;
-            }
-        }
-
-        if state.output_config_changed {
-            handle_output_config_change(&mut wd, state);
-            render_ping.ping();
-        }
+        process_winit_event(&mut wd, state, event, &render_ping_for_events);
     })?;
-
-    // Kick off the event chain.
-    event_ping.ping();
 
     tracing::info!(backend = "winit", socket = %socket_name, "event loop starting");
 
-    event_loop.run(None, &mut state, |state| {
+    // Per-iteration housekeeping: refresh the space, drain expired popups,
+    // apply pending output reconfigurations, and flush queued client
+    // protocol messages.  Runs after every event-loop iteration (after
+    // any source has been dispatched) and before the loop goes back to
+    // sleep on epoll.
+    let winit_idle = Rc::clone(&winit_data);
+    let render_ping_for_idle = render_ping.clone();
+    event_loop.run(None, &mut state, move |state| {
+        state.space.refresh();
+        state.popup_manager.cleanup();
+
+        if state.output_config_changed {
+            let mut wd = winit_idle.borrow_mut();
+            handle_output_config_change(&mut wd, state);
+            render_ping_for_idle.ping();
+        }
+
         if !state.running || shutdown.is_set() {
             state.loop_signal.stop();
             return;
