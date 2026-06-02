@@ -19,4 +19,4 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 rstest = "0.26"
-serial_test = "3.4"
+serial_test = "3.5"

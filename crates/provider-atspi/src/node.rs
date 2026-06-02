@@ -1739,7 +1739,7 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "NActions" => fetch_int(proxy.nactions()),
+            "NActions" => fetch_int(proxy.n_actions()),
             "Actions" => {
                 let Some(actions) = block_on_timeout_call(proxy.get_actions()).and_then(|r| r.ok()) else {
                     return UiValue::Null;
@@ -1829,7 +1829,7 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "NLinks" => fetch_int(proxy.get_nlinks()),
+            "NLinks" => fetch_int(proxy.get_n_links()),
             _ => UiValue::Null,
         }
     }
@@ -1857,7 +1857,7 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "NSelectedChildren" => fetch_int(proxy.nselected_children()),
+            "NSelectedChildren" => fetch_int(proxy.n_selected_children()),
             _ => UiValue::Null,
         }
     }
@@ -1869,10 +1869,10 @@ impl LazyNativeAttr {
         match prop {
             "Caption" => fetch_map(proxy.caption(), object_ref_value),
             "Summary" => fetch_map(proxy.summary(), object_ref_value),
-            "NColumns" => fetch_int(proxy.ncolumns()),
-            "NRows" => fetch_int(proxy.nrows()),
-            "NSelectedColumns" => fetch_int(proxy.nselected_columns()),
-            "NSelectedRows" => fetch_int(proxy.nselected_rows()),
+            "NColumns" => fetch_int(proxy.n_columns()),
+            "NRows" => fetch_int(proxy.n_rows()),
+            "NSelectedColumns" => fetch_int(proxy.n_selected_columns()),
+            "NSelectedRows" => fetch_int(proxy.n_selected_rows()),
             "SelectedRows" => fetch_map(proxy.get_selected_rows(), |rows| {
                 UiValue::from(rows.into_iter().map(|v| v as i64).collect::<Vec<_>>())
             }),
@@ -1903,7 +1903,7 @@ impl LazyNativeAttr {
         match prop {
             "CharacterCount" => fetch_int(proxy.character_count()),
             "CaretOffset" => fetch_int(proxy.caret_offset()),
-            "NSelections" => fetch_int(proxy.get_nselections()),
+            "NSelections" => fetch_int(proxy.get_n_selections()),
             "DefaultAttributes" => fetch_string_map(proxy.get_default_attributes()),
             "DefaultAttributeSet" => fetch_string_map(proxy.get_default_attribute_set()),
             _ => UiValue::Null,
