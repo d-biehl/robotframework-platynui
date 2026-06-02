@@ -269,13 +269,13 @@ geschrieben mit `patch_actions`-Fixture); 724 Tests grün, ruff
 | Phase 0 — Smoke-Verifikation | DONE | Commit `ceb3057` |
 | §13.6 Rust-PatternId Reverse-DNS | DONE | Rev. 14, Commit `09fdc6a` (Newtype später in Rev. 19 zu `PatternName` umbenannt — siehe §13.7) |
 | §13.7 Rust-API-Symmetrie PatternId → PatternName | DONE | Rev. 19, uncommitted (1980 nextest + 265 pytest grün) |
-| Designdoku-Konsolidierung Rev. 15 | DONE | uncommitted; Properties-Pattern entfernt, Attribute-Modell mit Namespaces |
-| Designdoku Rev. 16 — Locator-Kwargs | DONE | uncommitted; drei Eingangskanäle (Convenience-Felder, Kwargs, Dict) mit Konfliktregel |
-| Designdoku Rev. 17 — Pattern-Konsolidierung | DONE | uncommitted; Element/TextContent/TextEditable/Clearable/Toggleable/Activatable/Focusable; Rust IsOffscreen→IsInView |
-| Rev. 18 — `@locator` Decorator-Form | DONE | uncommitted; Class-Decorator komplett, Method-Form als Phase-3-Stub mit `NotImplementedError` |
-| Phase 1 — Fundament | DONE | uncommitted; 10 Module incl. vorgezogenem `core/patterns/` (war Phase 2 #11); 128 pytest + 1980 nextest grün, ruff+mypy+pyright+clippy grün |
+| Designdoku-Konsolidierung Rev. 15 | DONE | Commit `f64b441` (2026-04-23); Properties-Pattern entfernt, Attribute-Modell mit Namespaces |
+| Designdoku Rev. 16 — Locator-Kwargs | DONE | Commit `f64b441` (2026-04-23); drei Eingangskanäle (Convenience-Felder, Kwargs, Dict) mit Konfliktregel |
+| Designdoku Rev. 17 — Pattern-Konsolidierung | DONE | Commit `f64b441` (2026-04-23); Element/TextContent/TextEditable/Clearable/Toggleable/Activatable/Focusable; Rust IsOffscreen→IsInView |
+| Rev. 18 — `@locator` Decorator-Form | DONE | Commit `f64b441` (2026-04-23); Class-Decorator komplett, Method-Form als Phase-3-Stub mit `NotImplementedError` |
+| Phase 1 — Fundament | DONE | Commit `f64b441` (2026-04-23); 10 Module incl. vorgezogenem `core/patterns/` (war Phase 2 #11); 128 pytest + 1980 nextest grün, ruff+mypy+pyright+clippy grün |
 | Phase 2 — Adapter-Schicht | DONE | Adapter-ABC + AdapterProxy + UiNodeAdapter + Runtime-Singleton committed; Pipeline-Lücke in Phase 4-pre geschlossen |
-| Phase 3 — Context-Schicht | DONE | `ContextBase`, `ContextFactory`, `@context`, `ElementDescriptor`, `@locator` Method-Form |
+| Phase 3 — Context-Schicht | IN PROGRESS | `ContextBase`, `ContextFactory`, `@context`, `ElementDescriptor`, `@locator` Class-Decorator-Form DONE; `@locator` Method-Form noch offen (`LocatorMethodDescriptor.__get__` wirft `NotImplementedError`) |
 | Phase 4 — UI-Klassen + Standard-Proxies | IN PROGRESS | 4-pre + 4a + 4b + 4c + 4d DONE (4d committed `07ca742`); **4-rust-split (Rev. 37) eingeschoben** als Voraussetzung für 4e; siehe Sub-Phasen unten |
 | Phase 4-rust-split — Rust-Trait-Splittung + Python-Anpassung | DONE | Designdoc Rev. 37 DONE; Rust-Split (`WindowSurfacePattern` → 7 Sub-Traits + `Responsive`-Polling) + Provider-Migration + Python-Pattern-Renames (`HasUserInput`→`Responsive`, `Titled` entfällt) abgeschlossen; alle Quality-Gates grün (1981 nextest + 629 pytest) |
 | Phase 5 — Keywords + Robot-Library | PENDING | — |
@@ -632,7 +632,7 @@ spätere Quelltext-Änderungen an Contexts.
 - [x] `core/runtime.py` — Process-wide Runtime-Singleton (`runtime` /
       Klasse `Runtime`) mit `current` (lazy default), `set()`, `reset()`,
       `is_initialised()`. 12 Tests. Designdoc §A.5 (Rev. 20).
-- [ ] `core/devices.py` — `MouseProxy`/`KeyboardProxy` über
+- [x] `core/devices.py` — `MouseProxy`/`KeyboardProxy` über
       `platynui_native.Runtime` (greifen auf `runtime.current` zu).
 
 (`core/patterns/` Pattern-ABCs wurden in Phase 1 vorgezogen, siehe
@@ -726,7 +726,7 @@ Pattern direkt) und führen die komplette Proxy-Schicht in einer
 abschließenden Sub-Phase ein, sobald reale Fallbacks motiviert
 sind.
 
-#### Phase 4a — Buttons (Item 17, eingeschränkt: Button + CheckBox) — DONE (uncommitted)
+#### Phase 4a — Buttons (Item 17, eingeschränkt: Button + CheckBox) — DONE (Commit `28898b2`, 2026-04-27)
 
 - [x] Designdoc-Update §A.14.9 (Rev. 27): `AbstractButton` als
       abstrakte Zwischenklasse mit `text`-Convenience über
@@ -782,7 +782,7 @@ die reinen Text-Widgets ab.
       `ClearableStub` erweitert.
 - [x] pytest grün, ruff/mypy/pyright clean.
 
-#### Phase 4c — ComboBox + Lists/Tree/Table (Item 19 ComboBox + Item 20 UI-Teil) — DONE (uncommitted)
+#### Phase 4c — ComboBox + Lists/Tree/Table (Item 19 ComboBox + Item 20 UI-Teil) — DONE (Commit `c0f7552`, 2026-04-27)
 
 Komplett Python-seitig: Pattern-ABCs + Item-Hierarchie + Container-
 Klassen + Tests gegen Stubs. Rust-`pattern_names`-Konstanten und
@@ -993,7 +993,7 @@ Window-Proxy die granularen Sub-Traits aus Rev. 37
 - [ ] `ui/proxies/__init__.py` mit Side-Effect-Imports.
 - [ ] `ui/proxies/base.py`: `ElementProxy(AdapterProxy)`,
       `ControlProxy(ElementProxy)` als gemeinsame Aufhänger.
-- [ ] `ui/proxies/standard.py`: `ButtonProxy`, `CheckBoxProxy` mit
+- [ ] `ui/buttons.py`: `ButtonProxy`, `CheckBoxProxy` mit
       Click-Fallback wenn das Provider-Pattern fehlt.
 - [ ] `ui/proxies/window.py`: Default-Implementationen für die
       Window-Capability-Sub-Patterns aus Rev. 37 (Activatable,

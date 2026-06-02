@@ -11,7 +11,7 @@ This document defines how error handling should work across the Rust workspace.
 
 ## Boundary Errors
 
-At crate boundaries, use one public error enum per domain.
+At crate boundaries, prefer one public error enum per domain.
 
 - `PlatformError` for platform and device failures.
 - `ProviderError` for UI tree provider failures.
@@ -19,6 +19,23 @@ At crate boundaries, use one public error enum per domain.
 Do not introduce companion `*Kind` enums for these boundary types.
 Do not add helper constructors such as `not_supported(...)`, `simple(...)`, or `new(...)`.
 Construct the enum variant directly at the call site.
+
+Not every boundary error is an enum. `PatternError` (exported from `platynui_core::ui`)
+is a small `thiserror` struct that carries a single human-readable message for runtime
+actions triggered from a pattern implementation. Because it is a capability/message error
+rather than a categorized domain error, it intentionally provides a `pub fn new(message)`
+constructor; this is a deliberate exception to the "no helper constructors" guidance above.
+
+The platform module also exports two more public boundary errors:
+
+- `KeyboardError` (`platynui_core::platform`) for keyboard device failures. Its variants are
+  `Platform(PlatformError)`, `UnsupportedKey(String)`, `InputInProgress`, and `NotReady`,
+  with `impl From<PlatformError> for KeyboardError`.
+- `KeyCodeError` (`platynui_core::platform`) for key descriptor resolution failures, with
+  variants `UnknownKey(String)`, `DuplicateKey(String)`, and `UnsupportedDescriptor(String)`.
+
+Both are defined in `crates/core/src/platform/keyboard.rs` and re-exported from
+`crates/core/src/platform/mod.rs`.
 
 ## Current Shape
 
@@ -118,11 +135,40 @@ Map those internal errors to `PlatformError` or `ProviderError` when crossing a 
 
 This keeps the external API small while allowing detailed internal modeling.
 
+There is currently a deliberate asymmetry in how providers perform this mapping:
+
+- The AT-SPI provider provides `impl From<AtspiError> for ProviderError`
+  (in `crates/provider-atspi/src/error.rs`), so internal errors convert to the boundary
+  type implicitly via `?`.
+- The Windows UIA provider has no `From<UiaError> for ProviderError`; `UiaError` is
+  converted manually with `map_err` at each boundary call site (for example in
+  `crates/provider-windows-uia/src/provider.rs`), constructing the
+  `ProviderError::CommunicationFailure` variant directly.
+
+Either style is acceptable; prefer whichever keeps the mapping clear for the provider in
+question.
+
+## Python FFI Error Mapping
+
+At the Python boundary (`packages/native/src/runtime.rs`), Rust boundary errors are mapped
+to Python exception types. The mapping is not always one-to-one with the Rust type name:
+
+- `map_platform_err` maps a Rust `PlatformError` to the Python `ProviderError` exception
+  (not a Python `PlatformError`).
+- `map_focus_err` and `map_bring_err` map their runtime errors (`FocusError`,
+  `BringToFrontError`) to the Python `PatternError` exception.
+
+These mappings stringify the Rust error via `to_string()` into the Python exception, so the
+formatted `Display` text crosses the FFI boundary while the Rust-side typed shape stays on
+the Rust side.
+
 ## Logging
 
 Logging and returned errors serve different purposes.
 
-- Use structured `tracing` fields for diagnostics and operational context.
+- Use structured `tracing` fields for diagnostics and operational context. The `core` crate
+  does not depend on `tracing`; structured tracing belongs to the runtime, provider, and
+  platform crates, which is where it is actually used.
 - Return a `PlatformError` or `ProviderError` that describes the failure category cleanly.
 - Do not rely on logs as the only place where failure context exists.
 - Do not bloat the error variant itself with every diagnostic detail.

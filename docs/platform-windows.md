@@ -40,7 +40,7 @@ This document covers the Windows-specific implementation details for PlatynUI: p
 
 **Tree Traversal**:
 - Exclusive use of Raw View TreeWalker (`GetFirstChildElement`, `GetNextSiblingElement`, `GetParentElement`).
-- No `FindAll`, no UIA `CacheRequest`.
+- No `FindAll`. A traversal `CacheRequest` (`com::traversal_cache_request()`) is attached to walkers to batch property reads during traversal.
 - Lazy iterator implementation (`ElementChildrenIter`) with first-flag and sibling traversal.
 
 **Node Model** (`UiaNode`):
@@ -67,8 +67,8 @@ This document covers the Windows-specific implementation details for PlatynUI: p
 
 **Application Nodes**:
 - Synthetic `app:Application` nodes group top-level elements by `CurrentProcessId`.
-- RuntimeId: `uia-app://<pid>`
-- Attributes: `ProcessId`, `Name` (filename without .exe), `ExecutablePath`, `CommandLine`, `UserName`, `StartTime` (ISO-8601), `Architecture`.
+- RuntimeId: `uia://app/<pid>`
+- Attributes: `ProcessId`, `Name` (filename without .exe), `ProcessName` (`app:` namespace, executable stem), `ExecutablePath`, `CommandLine`, `UserName`, `StartTime` (ISO-8601), `Architecture`.
 
 **Root Streaming**: First `control:` desktop children (own process filtered), then one `app:Application` per seen PID in stable order.
 
@@ -81,7 +81,7 @@ This document covers the Windows-specific implementation details for PlatynUI: p
 - `resolve_window()`: reads `native:NativeWindowHandle` → HWND (+ PID-fallback via `EnumWindows`)
 - `bounds()`: `GetWindowRect(hwnd)` → desktop coordinates
 - `is_active()`: `GetForegroundWindow() == hwnd`
-- `activate()`: `SetForegroundWindow(hwnd)` + `ShowWindow(SW_RESTORE)` if minimized + `AttachThreadInput` bypass for foreground lock
+- `activate()`: `ShowWindow(SW_RESTORE)` if minimized + `AttachThreadInput` bypass for foreground lock, then `BringWindowToTop(hwnd)` followed by `SetForegroundWindow(hwnd)`
 - `close()`: `PostMessageW(WM_CLOSE)`
 - `minimize/maximize/restore()`: `ShowWindow(SW_MINIMIZE/SW_MAXIMIZE/SW_RESTORE)`
 - `move_to/resize()`: `SetWindowPos(hwnd, ...)`

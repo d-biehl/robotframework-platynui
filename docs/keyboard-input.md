@@ -53,7 +53,7 @@ PlatynUI presses all keys in order, then releases them in reverse — just like 
 
 ### Multiple Shortcuts in One Block
 
-A single block can contain multiple combinations separated by spaces:
+A single block can contain multiple combinations separated by whitespace — a space, tab, newline, or carriage return all work as the separator:
 
 ```
 <Ctrl+A Ctrl+C>
@@ -112,6 +112,8 @@ For Unicode characters:
 | `\u00FC` | ü |
 | `\x41` | A (hex value) |
 
+Beyond these specific escapes, a backslash followed by **any other character** simply yields that character literally — so `\a` types `a` and `\ ` types a space. This means a stray backslash is never an error.
+
 **Example:**
 
 ```
@@ -163,8 +165,10 @@ PlatynUI aims for a single set of key names that works on every platform. The ta
 | `Command` | `Cmd` | macOS ⌘ (planned) |
 | `Option` | | macOS ⌥ (planned) |
 | `Meta` | | Linux Meta key |
+| `LMeta` | | Left Meta |
+| `RMeta` | | Right Meta |
 
-Left/right variants: `LCtrl`, `RCtrl`, `LShift`, `RShift`, `LAlt`, `LWin`, `RWin`
+Left/right variants: `LCtrl`, `RCtrl`, `LShift`, `RShift`, `LAlt`, `LWin`, `RWin`, `LMeta`, `RMeta`
 
 ### Common Keys
 

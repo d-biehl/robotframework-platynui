@@ -1,6 +1,6 @@
 # Platform Linux Wayland – Feasibility Study
 
-> **Status:** Phase 1 complete (input injection on all compositor families), Phase 1b in progress (screenshots, window management)
+> **Status:** Phase 1 complete (input injection on all compositor families); Phase 1b (screenshots, window management for general compositors) not started — window management and highlights currently work only against the custom PlatynUI compositor via control-socket IPC
 > **Date:** 2026-02-26 (initial), 2026-03-10 (last updated)
 > **Crate:** `crates/platform-linux-wayland`
 
@@ -532,7 +532,8 @@ The PlatynUI project includes a purpose-built Wayland compositor for CI testing 
 
 - **Crate:** `apps/wayland-compositor` (`platynui-wayland-compositor`)
 - **Control CLI:** `apps/wayland-compositor-ctl` (`platynui-wayland-compositor-ctl`)
-- **Test application:** `apps/test-app-egui` (`platynui-test-app-egui`) — egui app with AccessKit accessibility
+- **Test application:** `apps/test-app-egui` (`platynui-test-app-egui`) — egui-based test app (built on `eframe`)
+- **EIS test client:** `apps/eis-test-client` (`platynui-eis-test-client`) — standalone EIS client for validating the EI protocol against compositors
 - **Backends:** Headless (no display), Winit (windowed), DRM (hardware)
 - **EIS server:** Built-in via `reis` — supports libei-based input injection
 - **XWayland:** Supported for X11 application testing
@@ -568,7 +569,7 @@ CI testing should prioritize the compositors that PlatynUI's users actually run:
 | [`wayland-client`](https://crates.io/crates/wayland-client) | 0.31.12 | Core Wayland client library | [Docs](https://docs.rs/wayland-client) |
 | [`wayland-protocols`](https://crates.io/crates/wayland-protocols) | 0.32.10 | Stable + staging protocol bindings | [Docs](https://docs.rs/wayland-protocols) |
 | [`wayland-protocols-wlr`](https://crates.io/crates/wayland-protocols-wlr) | 0.3.10 | wlroots-specific protocol bindings | [Docs](https://docs.rs/wayland-protocols-wlr) |
-| [`smithay-client-toolkit`](https://crates.io/crates/smithay-client-toolkit) | 0.20.0 | High-level toolkit (layer-shell, SHM, etc.); Rust Edition 2024 | [Docs](https://docs.rs/smithay-client-toolkit) |
+| [`smithay-client-toolkit`](https://crates.io/crates/smithay-client-toolkit) | 0.20.0 | High-level toolkit (layer-shell, SHM, etc.); Rust Edition 2024. **Not currently used in any crate — reference only** | [Docs](https://docs.rs/smithay-client-toolkit) |
 
 ### 12.2. Input
 
@@ -590,7 +591,7 @@ CI testing should prioritize the compositors that PlatynUI's users actually run:
 | Crate | Purpose | Link |
 |---|---|---|
 | [`tiny-skia`](https://crates.io/crates/tiny-skia) | CPU-based 2D rendering (draw rectangles into SHM buffer) | [Docs](https://docs.rs/tiny-skia) |
-| [`softbuffer`](https://crates.io/crates/softbuffer) | Software-rendered frame buffer display | [Docs](https://docs.rs/softbuffer) |
+| [`softbuffer`](https://crates.io/crates/softbuffer) | Software-rendered frame buffer display. **Not currently used in any crate — reference only** | [Docs](https://docs.rs/softbuffer) |
 
 ### 12.5. Diagnostic & Development Tools (CLI)
 
@@ -749,7 +750,7 @@ This would allow a single platform registration that handles both X11 and Waylan
 | `WindowManager` (KWin IPC) | Window bounds/move/resize via KWin D-Bus scripting API (see §6.2) | M |
 | `WindowManager` (Sway IPC) | Window bounds/move/resize via i3 IPC socket (see §6.2) | M |
 | `WindowManager` (Hyprland IPC) | Window bounds/move/resize via hyprctl socket (see §6.2) | S |
-| `HighlightProvider` | `ext-layer-shell-v1` for KWin + `wlr-layer-shell` for wlroots-based + `tiny-skia` rendering | M |
+| `HighlightProvider` | ✅ Partially implemented (`WaylandHighlightProvider`): highlights/clears via control-socket IPC on the custom PlatynUI compositor; other compositors return silently. Still to do: `ext-layer-shell-v1` for KWin + `wlr-layer-shell` for wlroots-based + `tiny-skia` rendering | M |
 | `ScreenshotProvider` (legacy) | `wlr-screencopy` fallback for older wlroots (<0.19) | S |
 | CI setup (KWin) | KWin headless testing | M |
 
@@ -772,7 +773,7 @@ The custom Smithay-based compositor described in §11.7 has been implemented as 
 - XWayland support
 - Control socket IPC (`apps/wayland-compositor-ctl`) for test orchestration
 - Full protocol coverage (virtual pointer/keyboard, layer-shell, foreign-toplevel, etc.)
-- Egui test application (`apps/test-app-egui`) with AccessKit accessibility for integration testing
+- Egui test application (`apps/test-app-egui`, built on `eframe`) for integration testing
 
 This compositor is already usable for development and will become the primary deterministic test environment once the CI matrix is set up.
 

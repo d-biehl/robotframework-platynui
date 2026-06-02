@@ -520,7 +520,7 @@
 >   auf §A.5 verlinkt; §8-Beispiel auf §A.7 verwiesen; §9 Dateiliste
 >   um `Deactivatable` bereinigt, `window.py` als `WindowSurface`-
 >   Cluster gekennzeichnet; §11.3 Thread-Local-Widerspruch aufgelöst
->   (bleibt für Re-entrancy; ensure.py ~80 LOC statt ~50); §13.2 als
+>   (bleibt für Re-entrancy; ensure.py ~198 LOC statt ~50); §13.2 als
 >   „resolved in §A.7" markiert; §A.8 Adapter-Bootstrap via
 >   `core/technology.py` spezifiziert (einzige prozessweite
 >   Adapter-Registry; Zweck: Default-Adapter fürs Desktop-Root).
@@ -633,7 +633,9 @@
 >   und hängt einen `Locator` als `Foo.__locator__` an. Method-/
 >   Property-Form (`@property + @locator(...) def n5(self) -> Button`)
 >   ist als `LocatorMethodDescriptor`-Stub implementiert: API steht,
->   `__get__` wirft derzeit `NotImplementedError("Phase 3")`. Die volle
+>   `__get__` wirft derzeit `NotImplementedError` mit der Meldung
+>   „`@locator` method form … is not yet implemented. Use `@locator`
+>   only as a class decorator for now.". Die volle
 >   Resolution braucht `ContextBase.get(annotation, locator=…)` aus
 >   Phase 3. Context-Code kann beide Formen heute schreiben — der
 >   Phase-3-Übergang erfordert keine Änderung am Context. Details in
@@ -4079,7 +4081,7 @@ Window-Capability-Patterns (§A.13). `Frame` bleibt als Marker-
 Subklasse von `Window` für Toolkits, die Frame und Window
 unterscheiden (Legacy-Parität).
 
-`UnknownContext` (existiert in `core/context.py:536`) bleibt der
+`UnknownContext` (existiert in `core/context.py:537`) bleibt der
 Fallback, wenn `ContextFactory.find_context_class_for()` keine
 Klasse mit Score > 0 findet. Eigene Element-Subklassen mit
 spezifischer Rolle entstehen via `class MyElement(Element, role="..."):`
@@ -6013,7 +6015,7 @@ Bleibend (1:1):
 - `get`/`get_all`/`get_child`/`ancestor`/`iter_all`
 - Context-Manager (`with MyWindow() as w:`)
 
-### 11.3 `ensure.py` (155 → ~80 LOC)
+### 11.3 `ensure.py` (155 → ~198 LOC)
 
 Wegfallend: Predicate-Cache mit ad-hoc Eviction, Sonderfall-Hooks für
 Adapter-Lifecycle, manuelle `failed_func`-Registrierung pro Predicate.
@@ -6446,7 +6448,7 @@ derselben Robot-Suite zusammen.
 
 ### 13.2 `UiNodeDescriptor`-Umzug — Übergangsplan
 
-Aktueller Stand: `BareMetal/__init__.py:51` definiert einen eigenen
+Aktueller Stand: `BareMetal/__init__.py:57` definiert einen eigenen
 `UiNodeDescriptor`, der `UiNode` direkt wrappt, eine `BareMetal`-
 Library-Referenz hält und gegen `library.runtime.evaluate_single`
 auflöst. Er nutzt eine eigene Robot-Variable

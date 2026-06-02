@@ -115,7 +115,7 @@ All extensions register via `inventory`-based macros. The runtime discovers them
 
 On Linux the display server (X11 vs Wayland) is a **runtime** property — the one exception to the "build-time platform selection" rule. The mediator crate `platynui-platform-linux` handles this:
 
-**Architecture.** The mediator registers a single set of wrapper devices via `inventory`. Each wrapper delegates every trait method to the correct sub-platform backend based on the detected session type. The sub-platform crates (`platform-linux-x11`, later `platform-linux-wayland`) do **not** self-register — they are plain libraries consumed by the mediator.
+**Architecture.** The mediator registers a single set of wrapper devices via `inventory`. Each wrapper delegates every trait method to the correct sub-platform backend based on the detected session type. The sub-platform crates `platform-linux-x11` and `platform-linux-wayland` do **not** self-register — they are plain libraries consumed by the mediator.
 
 **Session detection** (`session.rs`). Cached for the process lifetime via `Mutex<Option<SessionType>>`:
 
@@ -124,22 +124,17 @@ On Linux the display server (X11 vs Wayland) is a **runtime** property — the o
 3. `$DISPLAY` present → X11
 4. None → `PlatformError::UnsupportedPlatform`
 
-**Delegation pattern.** Sub-platform device types are zero-sized structs (ZSTs). The mediator constructs them inline at each call site — no long-lived statics:
+**Delegation pattern.** The session is resolved once in `LinuxModule::initialize()` into a `Resolved` bundle of `&'static dyn` backend references (pointer, keyboard, desktop, screenshot, highlight, window manager, module), cached in a `static Mutex<Option<Resolved>>`. Each wrapper device then forwards every trait method to the resolved backend — no per-call session detection:
 
 ```rust
-use platynui_platform_linux_x11::pointer::LinuxPointerDevice as X11Pointer;
-
 impl PointerDevice for LinuxPointer {
     fn position(&self) -> Result<Point, PlatformError> {
-        match session_type()? {
-            SessionType::X11 => X11Pointer.position(),
-            s @ SessionType::Wayland => Err(unsupported_session(s)),
-        }
+        resolved().pointer.position()
     }
 }
 ```
 
-This keeps each sub-platform as a standalone library with no global state requirements; the mediator owns the registration and routing responsibility.
+This keeps each sub-platform as a standalone library; the mediator owns the one-time resolution, registration, and routing responsibility.
 
 **Consumers.** All downstream crates (CLI, Inspector, Python bindings, link) depend on `platynui-platform-linux` — never on a sub-platform directly.
 
@@ -167,7 +162,7 @@ This keeps each sub-platform as a standalone library with no global state requir
 - `Runtime::new_with_factories(factories)` — builds runtime from explicit factories (no inventory discovery).
 - `Runtime::new_with_factories_and_platforms(factories, PlatformOverrides)` — additionally injects mock platform devices.
 - Central test helper: `runtime_with_factories_and_mock_platform(&[&FACTORY, ...])` in `crates/runtime/src/test_support.rs`.
-- `rstest` fixtures: `rt_runtime_platform()` (mock devices, no providers), `rt_runtime_stub()`, `rt_runtime_focus()`.
+- `rstest` fixtures `rt_runtime_platform()` (mock devices, no providers), `rt_runtime_stub()`, and `rt_runtime_focus()` live in `crates/runtime/src/runtime/test_fixtures.rs` and delegate to the central helper.
 
 ## 5. Data Model
 
@@ -181,17 +176,20 @@ pub trait UiNode: Send + Sync {
     fn runtime_id(&self) -> &RuntimeId;
     fn id(&self) -> Option<String>;        // optional developer-set stable identifier
     fn parent(&self) -> Option<Weak<dyn UiNode>>;
-    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + '_>;
-    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + '_>;
+    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static>;
+    fn has_children(&self) -> bool;        // default probes children(); override with a cheaper check
+    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static>;
     fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>>;
     fn supported_patterns(&self) -> Vec<PatternName>;
-    fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>>;
+    fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>>;  // default returns None
+    fn doc_order_key(&self) -> Option<u64>;  // optional unique hint for document order
+    fn is_valid(&self) -> bool;              // default true; override with a cheap liveness check
     fn invalidate(&self);
 }
 
 pub trait UiAttribute: Send + Sync {
     fn namespace(&self) -> Namespace;
-    fn name(&self) -> String;        // PascalCase
+    fn name(&self) -> &str;          // PascalCase
     fn value(&self) -> UiValue;      // lazily evaluated
 }
 
@@ -202,7 +200,7 @@ pub trait UiPattern: Any + Send + Sync {
 }
 ```
 
-- Children and attributes are returned as `Box<dyn Iterator<...> + Send + '_>`. Providers may use custom iterator types.
+- Children and attributes are returned as `Box<dyn Iterator<...> + Send + 'static>`. Providers may use custom iterator types.
 - The runtime never materializes lists upfront; `UiAttribute::value()` is called on demand.
 - `UiNodeExt` provides navigation helpers: `parent_arc()`, `ancestors()`, `top_level_or_self()`, `ancestor_pattern::<T>()`.
 - `PatternRegistry` stores patterns as `HashMap<PatternName, Arc<dyn UiPattern>>` with insertion-order tracking. `register_lazy` defers expensive platform probes until first access.
@@ -274,25 +272,49 @@ Providers generate deterministic IDs stable for the element's lifetime. The `pla
 ### 6.1 Design Principles
 
 - **ClientPatterns** define attribute contracts (read-only capabilities): e.g., `TextContent`, `Selectable`, `ActivationTarget`.
-- **RuntimePatterns** add actions: `FocusablePattern::focus()`, `WindowSurfacePattern::activate()`, etc.
+- **RuntimePatterns** add actions: `FocusablePattern::focus()`, `ActivatablePattern::activate()`, etc.
 - `SupportedPatterns` must be consistent: a pattern appears only if all mandatory attributes are available and a pattern instance exists.
 - Clients decide how to interact with delivered information (mouse/keyboard simulation, gestures). This preserves the same interaction possibilities a human has.
 
 ### 6.2 Runtime Pattern Traits
+
+Window capabilities are decomposed into separate, composable capability traits rather than a single monolithic surface trait. Each one is a distinct `UiPattern` and is registered/probed independently:
 
 ```rust
 pub trait FocusablePattern: UiPattern {
     fn focus(&self) -> Result<(), PatternError>;
 }
 
-pub trait WindowSurfacePattern: UiPattern {
+pub trait ActivatablePattern: UiPattern {
     fn activate(&self) -> Result<(), PatternError>;
+}
+
+pub trait MinimizablePattern: UiPattern {
     fn minimize(&self) -> Result<(), PatternError>;
+}
+
+pub trait MaximizablePattern: UiPattern {
     fn maximize(&self) -> Result<(), PatternError>;
+}
+
+pub trait RestorablePattern: UiPattern {
     fn restore(&self) -> Result<(), PatternError>;
+}
+
+pub trait CloseablePattern: UiPattern {
     fn close(&self) -> Result<(), PatternError>;
+}
+
+pub trait MovablePattern: UiPattern {
     fn move_to(&self, position: Point) -> Result<(), PatternError>;
+}
+
+pub trait ResizablePattern: UiPattern {
     fn resize(&self, size: Size) -> Result<(), PatternError>;
+}
+
+pub trait ResponsivePattern: UiPattern {
+    fn accepts_user_input(&self) -> Result<Option<bool>, PatternError>;
 }
 ```
 
@@ -317,7 +339,14 @@ pub trait WindowSurfacePattern: UiPattern {
 | **Scrollable** | ScrollHorizontalPercent, ScrollVerticalPercent, ScrollHorizontalViewSize, ScrollVerticalViewSize | HorizontallyScrollable, VerticallyScrollable |
 | **Expandable** | IsExpanded | — |
 | **ItemContainer** | — | — |
-| **WindowSurface** | — | IsMinimized, IsMaximized, IsTopmost, SupportsMove, SupportsResize |
+| **Activatable** (window) | — | IsTopmost |
+| **Minimizable** | — | IsMinimized |
+| **Maximizable** | — | IsMaximized |
+| **Restorable** | — | — |
+| **Closeable** | — | — |
+| **Movable** | — | — |
+| **Resizable** | — | — |
+| **Responsive** | — | — |
 | **DialogSurface** | — | DialogResult |
 | **Application** | ProcessId | ProcessName, ExecutablePath, CommandLine |  <!-- Note: ProcessName is the executable stem; `control:Name` (display name) is inherited from the common attribute set. On Windows, `control:Name` falls back to ProcessName since UIA has no separate app display name. On AT-SPI2, `control:Name` = Accessible.Name (display name). See planning.md §8.5. -->
 | **Highlightable** | — | — |
@@ -327,7 +356,7 @@ pub trait WindowSurfacePattern: UiPattern {
 
 - **Button** = TextContent + Activatable + ActivationTarget
 - **ListItem** = TextContent + Selectable + ActivationTarget
-- **Window** = Focusable + WindowSurface + ActivationTarget
+- **Window** = Focusable + Activatable + Minimizable + Maximizable + Restorable + Closeable + Movable + Resizable + Responsive + ActivationTarget
 - **TextBox** = TextContent + TextEditable + Focusable + ActivationTarget
 
 ### 6.4 Platform Mapping Tables
@@ -426,20 +455,21 @@ pub trait WindowSurfacePattern: UiPattern {
 |-----------|-----|---------|----------|
 | IsExpanded | ExpandCollapsePattern.ExpandCollapseState | State.EXPANDED / State.EXPANDABLE | AXExpanded |
 
-**WindowSurface**
+**Window capability patterns** (Activatable / Minimizable / Maximizable / Restorable / Closeable / Movable / Resizable / Responsive)
 
-| Attribute / Action | UIA | AT-SPI2 | macOS AX |
+| Pattern → Attribute / Action | UIA | AT-SPI2 | macOS AX |
 |--------------------|-----|---------|----------|
-| activate() | WindowPattern.SetWindowVisualState(Normal) + SetFocus | EWMH _NET_ACTIVE_WINDOW | AXRaise + AXFocused |
-| minimize() | WindowPattern.SetWindowVisualState(Minimized) | EWMH _NET_WM_STATE | AXMinimized = true |
-| maximize() | WindowPattern.SetWindowVisualState(Maximized) | EWMH _NET_WM_STATE | AXFullScreen (approx) |
-| close() | WindowPattern.Close() | EWMH _NET_CLOSE_WINDOW | AXClose action |
-| move_to() | TransformPattern.Move(x, y) | EWMH _NET_MOVERESIZE_WINDOW | AXPosition = (x, y) |
-| resize() | TransformPattern.Resize(w, h) | EWMH _NET_MOVERESIZE_WINDOW | AXSize = (w, h) |
+| Activatable.activate() | WindowPattern.SetWindowVisualState(Normal) + SetFocus | EWMH _NET_ACTIVE_WINDOW | AXRaise + AXFocused |
+| Minimizable.minimize() | WindowPattern.SetWindowVisualState(Minimized) | EWMH _NET_WM_STATE | AXMinimized = true |
+| Maximizable.maximize() | WindowPattern.SetWindowVisualState(Maximized) | EWMH _NET_WM_STATE | AXFullScreen (approx) |
+| Restorable.restore() | WindowPattern.SetWindowVisualState(Normal) | EWMH _NET_WM_STATE | AXMinimized = false |
+| Closeable.close() | WindowPattern.Close() | EWMH _NET_CLOSE_WINDOW | AXClose action |
+| Movable.move_to() | TransformPattern.Move(x, y) | EWMH _NET_MOVERESIZE_WINDOW | AXPosition = (x, y) |
+| Resizable.resize() | TransformPattern.Resize(w, h) | EWMH _NET_MOVERESIZE_WINDOW | AXSize = (w, h) |
+| Responsive.accepts_user_input() | IsEnabled && IsInView + WaitForInputIdle | State.SENSITIVE && State.SHOWING | AXEnabled |
 | IsMinimized | WindowPattern.WindowVisualState == Minimized | State.ICONIFIED | AXMinimized |
 | IsMaximized | WindowPattern.WindowVisualState == Maximized | EWMH _NET_WM_STATE check | AXFullScreen |
 | IsTopmost | WindowPattern.IsTopmost | EWMH _NET_WM_STATE_ABOVE | AXMain hint |
-| accepts_user_input() | IsEnabled && IsInView + WaitForInputIdle | State.SENSITIVE && State.SHOWING | AXEnabled |
 
 **Application**
 
@@ -495,7 +525,7 @@ All providers must:
 - Bounds from `BoundingRectangle` in desktop coordinates (Per-Monitor-V2 DPI active).
 - ActivationPoint via `GetClickablePoint()` or center of bounds as fallback.
 - Text priority: `NameProperty` → `ValuePattern.Value` → `TextPattern.DocumentRange.GetText`.
-- WindowSurface attributes via `WindowPattern`/`TransformPattern`; `accepts_user_input()` via `IsEnabled && IsInView` + `WaitForInputIdle`.
+- Window capability patterns (Activatable, Minimizable, Maximizable, Restorable, Closeable, Movable, Resizable) via `WindowPattern`/`TransformPattern`; `ResponsivePattern::accepts_user_input()` via `IsEnabled && IsInView` + `WaitForInputIdle`.
 - Application node: process metadata (`ProcessId`, `Name`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture`).
 - `SelectionItemPattern`/`SelectionPattern` sync verified.
 - COM initialized (`CoInitializeEx` MTA) before any UIA call.
@@ -508,7 +538,7 @@ All providers must:
 - Coordinates from `Component.GetExtents(ATSPI_COORD_TYPE_SCREEN)`.
 - TextContent/TextSelection via AT-SPI `Text` interface.
 - SelectionProvider via AT-SPI `Selection` interface.
-- WindowSurface actions delegate to EWMH WindowManager (not direct X11 calls from provider).
+- Window capability actions (Activatable, Minimizable, Maximizable, Restorable, Closeable, Movable, Resizable) delegate to EWMH WindowManager (not direct X11 calls from provider).
 - Component-gated attributes (`Bounds`, `ActivationPoint`, `IsEnabled`, `IsVisible`, `IsInView`, `IsFocused`) only present when Component interface available.
 - Native attributes: `Native/<Interface>.<Property>` format for all AT-SPI interfaces.
 - Virtual desktops: provider does NOT handle desktop switching — that is `WindowManager::ensure_window_accessible()` responsibility.
@@ -518,7 +548,7 @@ All providers must:
 - Coordinates from `AXFrame` in Core Graphics desktop coordinate system.
 - `TextEditable` via `AXEditable`/`AXEnabled`.
 - `Activatable` via `AXPress` action.
-- WindowSurface via accessibility actions + `CGWindow`/`NSWorkspace`.
+- Window capability patterns via accessibility actions + `CGWindow`/`NSWorkspace`.
 - `kAXRaiseAction` for window activation (implicitly switches Spaces).
 
 #### Platform-Specific Checklist: Mock
@@ -594,7 +624,7 @@ pub struct WindowId(u64);  // Opaque: HWND, XID, Wayland surface ID
 pub trait WindowManager: Send + Sync {
     fn name(&self) -> &'static str;
     fn resolve_window(&self, node: &dyn UiNode) -> Result<WindowId, PlatformError>;
-    fn bounds(&self, id: WindowId) -> Result<Rect, PlatformError>;
+    fn bounds(&self, id: WindowId, toolkit_hint: Option<&str>) -> Result<Rect, PlatformError>;
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError>;
     fn activate(&self, id: WindowId) -> Result<(), PlatformError>;
     fn close(&self, id: WindowId) -> Result<(), PlatformError>;
@@ -650,14 +680,20 @@ The XPath engine (`crates/xpath`, package `platynui-xpath`) implements XPath 2.0
 4. **Model** — `XdmNode` trait enables lazy tree traversal
 
 ```rust
-pub trait XdmNode: Clone + Debug + Send + Sync + 'static {
-    fn node_kind(&self) -> NodeKind;
+pub trait XdmNode: Clone + Eq + Debug {
+    // Generic Associated Types let backends return concrete iterators (no boxing).
+    type Children<'a>: Iterator<Item = Self> + 'a where Self: 'a;
+    type Attributes<'a>: Iterator<Item = Self> + 'a where Self: 'a;
+    type Namespaces<'a>: Iterator<Item = Self> + 'a where Self: 'a;
+
+    fn kind(&self) -> NodeKind;
     fn name(&self) -> Option<QName>;
-    fn string_value(&self) -> Cow<'_, str>;
     fn typed_value(&self) -> Vec<XdmAtomicValue>;
-    fn children(&self) -> Box<dyn Iterator<Item = Self> + '_>;  // lazy
-    fn attributes(&self) -> Box<dyn Iterator<Item = (QName, String)> + '_>;
+    fn string_value(&self) -> String;            // default: joins typed_value()
     fn parent(&self) -> Option<Self>;
+    fn children(&self) -> Self::Children<'_>;     // lazy
+    fn attributes(&self) -> Self::Attributes<'_>; // yields attribute nodes (Self)
+    fn namespaces(&self) -> Self::Namespaces<'_>;
     // ...
 }
 ```

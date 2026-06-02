@@ -174,6 +174,12 @@ PlatynUI inserts small pauses at key moments so applications can process pointer
 | `ensure_move_threshold` | 2.0 px | Acceptable deviation when verifying position. |
 | `ensure_move_timeout` | 250 ms | How long to retry reaching the target before failing. |
 
+> **Units of `move_time_per_pixel`.** This value is a `Duration` internally (default 800 µs). The unit you supply depends on the layer:
+> - **Python** — the parameter is named `move_time_per_pixel_us` and takes **microseconds** (the default `800` means 800 µs).
+> - **CLI** — the `--move-time-per-pixel` flag takes **milliseconds** (parsed by `parse_millis`).
+>
+> All other timing parameters above are likewise expressed in microseconds (`*_us`) or milliseconds (`*_ms`) in the Python API exactly as their suffix indicates, while every CLI delay flag takes milliseconds.
+
 ### Motion Shape Parameters
 
 | Parameter | Default | Used by | Description |
@@ -306,7 +312,7 @@ All pointer subcommands accept these optional flags:
 | `--speed-factor <f64>` | Speed multiplier |
 | `--acceleration <profile>` | Acceleration: `constant`, `ease-in`, `ease-out`, `smooth-step` |
 | `--move-duration <ms>` | Maximum move duration in milliseconds |
-| `--move-time-per-pixel <ms>` | Time per pixel in milliseconds |
+| `--move-time-per-pixel <ms>` | Time per pixel in **milliseconds** (note: the Python parameter `move_time_per_pixel_us` is in microseconds) |
 | `--after-move <ms>` | Pause after move |
 | `--after-input <ms>` | Pause after input action |
 | `--press-release <ms>` | Button hold time |

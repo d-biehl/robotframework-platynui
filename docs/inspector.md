@@ -26,12 +26,16 @@ src/
 ├── viewmodel/           ← VM: Application state & logic
 │   ├── mod.rs
 │   ├── tree_vm.rs       ← TreeViewModel (expand/collapse/navigate)
-│   └── inspector_vm.rs  ← InspectorViewModel (overall app state)
+│   ├── inspector_vm.rs  ← InspectorViewModel (overall app state)
+│   └── async_tasks.rs   ← Background task helpers
 └── view/                ← V: Pure UI rendering (egui)
     ├── mod.rs
-    ├── tree_view.rs     ← TreeView panel
+    ├── tree_view.rs     ← TreeView widget
     ├── attributes.rs    ← Attributes table
-    └── toolbar.rs       ← Menu, search bar, results panel
+    ├── toolbar.rs       ← Menu bar, search bar
+    ├── results_panel.rs ← XPath results list
+    ├── status_bar.rs    ← Status bar
+    └── about_dialog.rs  ← About dialog
 ```
 
 ### Model Layer (`model/`)
@@ -42,16 +46,17 @@ src/
 
 ### ViewModel Layer (`viewmodel/`)
 
-- **`TreeViewModel`** — Maintains a `HashSet<String>` of expanded node IDs and a flattened `Vec<VisibleRow>` of the currently visible tree. Supports `toggle`, `expand`, `collapse`, `reveal_node` (auto-expand ancestor chain), `refresh_row`, `refresh_subtree`.
+- **`TreeViewModel`** — Maintains a `HashSet<String>` of expanded node IDs and a flattened `Vec<VisibleRow>` of the currently visible tree. Supports `toggle`, `expand`, `collapse`, `reveal_node_cached` (auto-expand ancestor chain from cached data), `refresh_row`, `refresh_subtree`.
 - **`InspectorViewModel`** — Top-level app state: owns `TreeViewModel`, `Runtime`, selection/focus indices, search text, results, attributes cache. Provides keyboard navigation (Up/Down/Left/Right/Home/End/PageUp/PageDown), `evaluate_xpath()` (non-blocking, spawns background thread), `poll_search()` (drains streaming results each frame), `cancel_search()`, `reveal_and_select_result()`, and auto-highlight on selection.
 
 ### View Layer (`view/`)
 
 All view functions are pure rendering — they read state and return action enums. No mutation of ViewModel state happens inside view code.
 
-- **`tree_view::show_tree()`** — ScrollArea with indented rows, disclosure triangles, role icons, selection/focus indicators, context menu (Refresh / Refresh Subtree). Returns `Vec<TreeAction>`.
+- **`tree_view::TreeView`** — A generic tree widget built via `TreeView::new(&rows).selected(...).focused(...).show(ui)`: ScrollArea with indented rows, disclosure triangles, role icons, selection/focus indicators, context menu (Refresh / Refresh Subtree). `show()` returns a `TreeResponse` struct (`selected`, `toggled`, `navigate`, `page_size`).
 - **`attributes::show_attributes()`** — `egui_extras::TableBuilder` with sortable columns (Name, Value, Type), a grouped/ungrouped namespace toggle, and a text filter over `namespace:name`, value, and type. Each cell is a read-only `TextEdit` for native text selection. In grouped mode, the same resizable table stays in place and inserts collapsible namespace group rows into the body, closer to a classic list-view layout. Context menu: Copy Name/Value/Type/Row, Pin Attribute, Unpin Attribute. Pinned attributes stay above the normal sorted rows.
-- **`toolbar::show_menu_bar()`** / `show_search_bar()` / `show_results_panel()` — Menu bar, XPath search with Enter/Button (toggles to Stop while searching), and a keyboard-navigable results list with explicit reveal, highlight, and copy actions.
+- **`toolbar::show_menu_bar()`** / `show_search_bar()` — Menu bar and XPath search with Enter/Button (toggles to Stop while searching).
+- **`results_panel::show_results_panel()`** — Keyboard-navigable results list with explicit reveal, highlight, and copy actions.
 
 ## Features
 

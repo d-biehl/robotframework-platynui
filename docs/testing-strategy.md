@@ -10,7 +10,7 @@
 
 ```
                     ┌──────────────┐
-                    │ Manual Robot │  ← 4 .robot files, live OS apps
+                    │ Manual Robot │  ← 5 .robot files, live OS apps
                     │ Experiments  │    No CI, no assertions
                     └──────────────┘
                                        (Gap: no RF integration tests)
@@ -36,8 +36,8 @@
 | Area | Problem |
 |---|---|
 | **Rust Platform Tests** | `provider-windows-uia` has 0 tests, `provider-macos-ax` has 0 tests, `platform-windows` only 9, `platform-linux-x11` only 9 keyboard tests. No live platform tests in CI. |
-| **Python BareMetal Keywords** | 0 tests. The 21 keywords (`Query`, `Focus`, `Pointer Click`, `Keyboard Type` etc.) are completely untested at the Python level. |
-| **Robot Framework Integration** | No deterministic RF tests. The 4 `.robot` files in `tests/BareMetal/` are manual demos against live apps (Notepad, calc.exe, kalk). |
+| **Python BareMetal Keywords** | 0 tests. The 24 keywords (`Query`, `Focus`, `Pointer Click`, `Keyboard Type` etc.) are completely untested at the Python level. |
+| **Robot Framework Integration** | No deterministic RF tests. The 5 `.robot` files in `tests/BareMetal/` are manual demos against live apps (Notepad, calc.exe, kalk). |
 | **Cross-Platform CI** | CI only runs on Linux. Windows/macOS are used only for wheel builds, not for testing. |
 | **Test Application** | No dedicated test app. All RF tests depend on pre-installed OS apps (Notepad, Calculator, KDE Kalk). |
 | **Provider Contract Tests** | Shared contract test suite exists in core but is only used by the mock provider, not by the real providers. |
@@ -49,6 +49,7 @@ The `.robot` files under `tests/BareMetal/` are currently more of a playground f
 | File | Description | Platform |
 |---|---|---|
 | `anv.robot` | Keyboard typing in Notepad, pointer movement | Windows |
+| `ava.robot` | Calculator automation: scoped root, pointer click, highlight | Linux |
 | `calc.robot` | Calculator automation: enter digits, find buttons | Windows |
 | `demo.robot` | KDE Kalk calculator via pointer clicks | Linux |
 | `simple.robot` | Pointer Move/Click, screenshots, highlight, focus | General |
@@ -166,9 +167,9 @@ app:Application "Mock Settings"
 
 #### Not Testable via Mock — Extension Plan
 
-The mock provider is architecturally designed for extensibility: XML parsing, `PatternRegistry`, lazy registration, and the event system (`emit_node_updated`) are all in place. New patterns follow the schema of `focus.rs` (~114 lines) or `window.rs` (~351 lines).
+The mock provider is architecturally designed for extensibility: XML parsing, `PatternRegistry`, lazy registration, and the event system (`emit_node_updated`) are all in place. New patterns follow the schema of `focus.rs` (~114 lines) or `window.rs` (~434 lines).
 
-**Current State:** Only **2 of ~14 planned patterns** have runtime actions (`Focusable`, `WindowSurface`). 4 more (`Application`, `Element`, `TextContent`, `ActivationTarget`) provide attributes without action traits. The remaining pattern attributes (58 constants in `core::ui::attributes`) are not used by the mock.
+**Current State:** Only **2 of ~14 planned patterns** have runtime actions (`Focusable`, `WindowSurface`). 4 more (`Application`, `Element`, `TextContent`, `ActivationTarget`) provide attributes without action traits. The remaining pattern attributes (38 constants in `core::ui::attributes`) are not used by the mock.
 
 **Planned Mock Extensions:**
 
@@ -281,7 +282,7 @@ A test application must:
 
 | Framework | Windows (UIA) | Linux (AT-SPI2) | macOS (AX) | CI-Capable | Effort | Notes |
 |---|---|---|---|---|---|---|
-| **egui (Rust, [AccessKit](https://github.com/AccessKit/accesskit))** | Yes (AccessKit→UIA) | Yes (AccessKit→AT-SPI) | Yes (AccessKit→AX) | Trivial (Rust binary) | Low | Already in the project (eframe 0.33); ~18 widget types exposed, but no TreeItem, Menu, Dialog, Tab |
+| **egui (Rust, [AccessKit](https://github.com/AccessKit/accesskit))** | Yes (AccessKit→UIA) | Yes (AccessKit→AT-SPI) | Yes (AccessKit→AX) | Trivial (Rust binary) | Low | Already in the project (eframe 0.34); ~18 widget types exposed, but no TreeItem, Menu, Dialog, Tab |
 | **Qt 6 / PySide6** | Excellent (UIA Bridge) | Excellent (AT-SPI2) | Good (AX) | Yes (Xvfb on Linux) | Medium | Best native a11y; new dependency |
 | **GTK 4 / PyGObject** | Poor (no UIA) | Excellent (AT-SPI2) | Fair | Yes (Xvfb) | Low | Only useful on Linux |
 | **Avalonia (C#)** | Good (UIA) | New (AT-SPI2, PR #20735, Feb 2026) | Good (AX) | Medium (.NET required) | Medium | .NET dependency; Linux AT-SPI2 just recently merged |
@@ -293,7 +294,7 @@ A test application must:
 
 #### Tier 1: egui Test App (immediately implementable)
 
-egui is already used in the Inspector (`eframe = "0.33"`, see `apps/inspector/Cargo.toml`).
+egui is already used in the Inspector (`eframe = "0.34"`, see `apps/inspector/Cargo.toml`).
 [AccessKit](https://github.com/AccessKit/accesskit) has been integrated as a default feature since [eframe 0.20.0 (Dec 2022)](https://github.com/emilk/egui/blob/main/crates/eframe/CHANGELOG.md#0200---2022-12-08---accesskit-integration-and-wgpu-web-support) ([PR #2294](https://github.com/emilk/egui/pull/2294)) and automatically exposes egui widgets via native accessibility APIs:
 - **Windows:** [UI Automation](https://docs.rs/accesskit_windows) via `accesskit_windows`
 - **Linux:** [AT-SPI](https://docs.rs/accesskit_unix) via `accesskit_unix`
@@ -305,11 +306,11 @@ For the complete list of all AccessKit roles see [`accesskit::Role`](https://doc
 **Advantages:**
 - Dependency already present, team is familiar with the framework
 - Rust-native, fits the project architecture
-- No additional build step — just an `apps/testapp` crate
+- No additional build step — just an `apps/test-app-egui` crate
 - Cross-platform accessibility out-of-the-box via AccessKit
 
 **Limitations:**
-- Accessibility tree reflects the `Ui` nesting (since [PR #7386](https://github.com/emilk/egui/pull/7386), included in 0.33: each `Ui` creates a `GenericContainer` node), but is flatter than in native toolkits
+- Accessibility tree reflects the `Ui` nesting (since [PR #7386](https://github.com/emilk/egui/pull/7386), included in 0.34: each `Ui` creates a `GenericContainer` node), but is flatter than in native toolkits
 - No real native controls (custom rendering; egui renders everything itself, AccessKit only exposes the virtual accessibility structure)
 - Some roles are missing in the egui mapping: no `TreeItem` (CollapsingHeader is exposed as `Button`), no `Menu`/`MenuItem`/`MenuBar`, no `Dialog`, no `Tab`/`TabList`, no `ListBox`/`ListItem` with selection
 - Not representative of actual target applications (WPF, Qt, GTK, Electron)
@@ -317,7 +318,7 @@ For the complete list of all AccessKit roles see [`accesskit::Role`](https://doc
 
 **Available Widget Types:** egui exposes ~18 widget types (Button, TextEdit, Checkbox, RadioButton, ComboBox, Slider, DragValue, Label, Link, ProgressBar, Image, CollapsingHeader, ScrollArea, Panel, Window, ColorPicker, SelectableLabel) mapped to AccessKit roles. Notable gaps: no `TreeItem` (CollapsingHeader → `Button`), no `Menu`/`MenuItem`/`MenuBar`, no `Dialog`, no `Tab`/`TabList`, no `ListBox`/`ListItem` with selection. `egui_extras::Table` is a layout mechanism without table-specific AccessKit roles.
 
-**Accessibility API:** egui offers three levels of accessibility customization — from automatic role mapping (standard widgets), to full `accesskit::Node` control via `Context::accesskit_node_builder()`, to explicit parent overrides via `UiBuilder::accessibility_parent()`. Since [PR #7386](https://github.com/emilk/egui/pull/7386) (included in 0.33), parent-child hierarchies are automatically derived from `Ui` nesting. For `AutomationId` support, AccessKit's `author_id` property maps directly to UIA `AutomationId`. A custom `AccessKitExt` convenience trait is recommended for the test app.
+**Accessibility API:** egui offers three levels of accessibility customization — from automatic role mapping (standard widgets), to full `accesskit::Node` control via `Context::accesskit_node_builder()`, to explicit parent overrides via `UiBuilder::accessibility_parent()`. Since [PR #7386](https://github.com/emilk/egui/pull/7386) (included in 0.34), parent-child hierarchies are automatically derived from `Ui` nesting. For `AutomationId` support, AccessKit's `author_id` property maps directly to UIA `AutomationId`. A custom `AccessKitExt` convenience trait is recommended for the test app.
 
 > For the complete widget/role mapping table, all three API levels with code examples, Widget IDs, `AutomationId`, the `AccessKitExt` trait proposal, and the API level quick reference, see **[egui Accessibility API Guide](egui-accessibility-guide.md)**.
 
@@ -329,7 +330,7 @@ For the complete list of all AccessKit roles see [`accesskit::Role`](https://doc
 
 **Implementation:**
 ```
-apps/testapp/
+apps/test-app-egui/
 ├── Cargo.toml
 └── src/
     └── main.rs    ← egui window with standard widgets
@@ -406,7 +407,7 @@ tests/testapp/
 
 | Item | What | Priority |
 |---|---|---|
-| egui Test App (Tier 1) | `apps/testapp` with basic widgets. Smoke tests for provider basics: Focus, Bounds, ActivationPoint, TextContent. | High |
+| egui Test App (Tier 1) | `apps/test-app-egui` with basic widgets. Smoke tests for provider basics: Focus, Bounds, ActivationPoint, TextContent. | High |
 | Platform Smoke Suites | RF suites that start the egui app, find elements, interact, verify attributes. Tags: `platform:windows`, `platform:linux`, `platform:all`. | High |
 | Qt Test App (Tier 2) | PySide6 window with complete widget set for comprehensive pattern tests. | Medium |
 | Provider Integration Tests | Rust integration tests that interact with the test apps (platform-specific in CI). | Medium |
