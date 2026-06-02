@@ -93,33 +93,39 @@ pub enum LogLevel {
 
 #[derive(Subcommand)]
 enum Commands {
-    #[command(name = "list-providers", about = "List registered UI tree providers.")]
+    #[command(name = "list-providers", about = "List registered providers (name, version, active status).")]
     ListProviders {
         #[arg(long = "format", value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
     },
-    #[command(name = "info", about = "Show desktop and platform metadata.")]
+    #[command(name = "info", about = "Show desktop and platform metadata (OS, monitors, bounds).")]
     Info {
         #[arg(long = "format", value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
     },
-    #[command(name = "query", about = "Evaluate XPath expressions.")]
+    #[command(name = "query", about = "Evaluate XPath expressions, output as table or JSON.")]
     Query(QueryArgs),
-    #[command(name = "snapshot", about = "Export UI subtrees as XML.")]
+    #[command(name = "snapshot", about = "Export UI subtrees as text or XML.")]
     Snapshot(SnapshotArgs),
-    #[command(name = "watch", about = "Watch provider events.")]
+    #[command(name = "watch", about = "Stream provider events, with an optional XPath follow-up query.")]
     Watch(WatchArgs),
     #[command(name = "highlight", about = "Highlight elements matching an XPath expression.")]
     Highlight(HighlightArgs),
-    #[command(name = "screenshot", about = "Capture a screenshot and save it as PNG.")]
+    #[command(name = "screenshot", about = "Capture a screenshot and save it as PNG (--rect for a sub-region).")]
     Screenshot(ScreenshotArgs),
     #[command(name = "focus", about = "Set focus on nodes selected by an XPath expression.")]
     Focus(FocusArgs),
-    #[command(name = "window", about = "List or control application windows.")]
+    #[command(
+        name = "window",
+        about = "List or control windows (activate, bring-to-front, minimize, maximize, restore, close, move, resize)."
+    )]
     Window(WindowArgs),
-    #[command(name = "pointer", about = "Control the pointer (move, click, scroll, drag).")]
+    #[command(
+        name = "pointer",
+        about = "Control the pointer (move, click, multi-click, press, release, scroll, drag, position)."
+    )]
     Pointer(Box<PointerArgs>),
-    #[command(name = "keyboard", about = "Send keyboard input sequences.")]
+    #[command(name = "keyboard", about = "Send keyboard input (type, press, release, list).")]
     Keyboard(KeyboardArgs),
 }
 
