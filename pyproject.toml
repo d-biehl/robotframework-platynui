@@ -73,6 +73,7 @@ dev = [
     "semantic-version>=2.10.0",
     "pyright[nodejs]>=1.1.408",
     "pre-commit>=4.6.0",
+    "robotcode[analyze,repl,runner]>=2.6.2",
 ]
 
 [tool.cibuildwheel.macos.environment]
