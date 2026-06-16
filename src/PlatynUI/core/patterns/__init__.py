@@ -12,7 +12,6 @@ packages.
 from ..types import Point, Rect, Size
 from .activation import Activatable
 from .activation_target import ActivationTarget
-from .application_ready import ApplicationReady
 from .base import PatternBase
 from .closeable import Closeable
 from .column_headers import HasColumnHeaders
@@ -38,7 +37,6 @@ from .window_state import WindowState
 __all__ = [
     'Activatable',
     'ActivationTarget',
-    'ApplicationReady',
     'Clearable',
     'Closeable',
     'Deselectable',

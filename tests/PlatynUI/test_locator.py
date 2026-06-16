@@ -323,14 +323,67 @@ def test_method_decorator_returns_descriptor() -> None:
     assert raw.__locator__.to_xpath() == './/*[@AutomationId="num5Button"]'
 
 
-def test_method_decorator_access_raises_not_implemented() -> None:
-    class Ctx:
-        @locator(AutomationId='num5Button')
-        def n5(self) -> object: ...
+def test_method_form_bare_resolves_annotated_child() -> None:
+    from PlatynUI.core.context import ContextBase
 
-    ctx = Ctx()
-    with pytest.raises(NotImplementedError, match='not yet implemented'):
-        _ = ctx.n5
+    class _Child(ContextBase, register=False): ...
+
+    class _Win(ContextBase, register=False):
+        @locator(AutomationId='num5Button')
+        def n5(self) -> _Child:
+            raise NotImplementedError  # body unused: the @locator descriptor resolves it
+
+    win = _Win(Locator(path='/Win'))
+    child = win.n5
+
+    assert isinstance(child, _Child)
+    assert child.context_parent is win
+    assert child.locator.to_xpath() == './/*[@AutomationId="num5Button"]'
+
+
+def test_method_form_property_resolves_annotated_child() -> None:
+    from PlatynUI.core.context import ContextBase
+
+    class _Child(ContextBase, register=False): ...
+
+    class _Win(ContextBase, register=False):
+        @property
+        @locator(AutomationId='num6Button')
+        def n6(self) -> _Child:
+            raise NotImplementedError  # body unused: the @locator descriptor resolves it
+
+    win = _Win(Locator(path='/Win'))
+    child = win.n6
+
+    assert isinstance(child, _Child)
+    assert child.context_parent is win
+    assert child.locator.to_xpath() == './/*[@AutomationId="num6Button"]'
+
+
+def test_method_form_rejects_non_context_annotation() -> None:
+    from PlatynUI.core.context import ContextBase
+
+    class _Win(ContextBase, register=False):
+        @locator(AutomationId='x')
+        def thing(self) -> object: ...
+
+    win = _Win(Locator(path='/Win'))
+    with pytest.raises(TypeError, match='ContextBase subclass'):
+        _ = win.thing
+
+
+def test_method_form_rejects_non_context_instance() -> None:
+    from PlatynUI.core.context import ContextBase
+
+    class _Child(ContextBase, register=False): ...
+
+    class _Plain:
+        @locator(AutomationId='x')
+        def child(self) -> _Child:
+            raise NotImplementedError  # body unused: the @locator descriptor resolves it
+
+    with pytest.raises(TypeError, match='requires a ContextBase instance'):
+        _ = _Plain().child
 
 
 def test_method_decorator_class_access_returns_descriptor() -> None:

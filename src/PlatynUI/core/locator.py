@@ -24,7 +24,10 @@ import numbers
 import re
 import xml.sax.saxutils as xmlutils
 from enum import Enum
-from typing import Any, ClassVar, Literal, Self, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self, cast, get_type_hints
+
+if TYPE_CHECKING:
+    from .context import ContextBase
 
 __all__ = ['DEFAULT_ATTRIBUTE_NAMESPACE', 'Locator', 'LocatorMethodDescriptor', 'LocatorScope', 'locator']
 
@@ -476,18 +479,33 @@ def _conflict_message(ns_name: tuple[str, str], existing_source: str, new_source
 class LocatorMethodDescriptor:
     """Wrap a callable with an attached locator.
 
-    Returned by `locator` when applied to a method or property.
-    Attribute access on an instance raises `NotImplementedError`:
-    method-form resolution (using the return-type annotation to locate
-    the target element) is not yet implemented. Use `locator`
-    only as a class decorator until then.
+    Returned by `locator` when applied to a method or property. On
+    instance access the descriptor resolves the element described by the
+    attached locator, using the wrapped function's return-type
+    annotation as the target `ContextBase` subclass — it calls
+    ``instance.get(annotation, locator=self.__locator__)`` and returns
+    the resolved child context.
+
+    Both decorator shapes work and resolve identically::
+
+        class CalculatorWindow(Window):
+            @locator(AutomationId="num5Button")
+            def n5(self) -> Button: ...           # bare: via __get__
+
+            @property
+            @locator(AutomationId="num6Button")
+            def n6(self) -> Button: ...           # property: via __call__
+
+    The wrapped function is never executed; only its return annotation
+    is read (once, then cached).
     """
 
-    __slots__ = ('__locator__', '__wrapped__', 'attr_name')
+    __slots__ = ('__locator__', '__wrapped__', '_target', 'attr_name')
 
     __locator__: Locator
     __wrapped__: collections.abc.Callable[..., Any]
     attr_name: str | None
+    _target: 'type[ContextBase] | None'
 
     def __init__(
         self,
@@ -497,6 +515,7 @@ class LocatorMethodDescriptor:
         self.__locator__ = loc
         self.__wrapped__ = func
         self.attr_name = getattr(func, '__name__', None)
+        self._target = None
 
     def __set_name__(self, owner: type, name: str) -> None:
         self.attr_name = name
@@ -504,11 +523,42 @@ class LocatorMethodDescriptor:
     def __get__(self, instance: object, owner: type | None = None) -> Any:
         if instance is None:
             return self
-        attr = self.attr_name or '<unknown>'
-        raise NotImplementedError(
-            f'@locator method form for {owner.__name__ if owner else "?"}.{attr} '
-            'is not yet implemented. Use @locator only as a class decorator for now.'
-        )
+        return self._resolve(instance)
+
+    def __call__(self, instance: 'ContextBase') -> 'ContextBase':
+        # `@property` wrapping routes attribute access through the
+        # property's getter, i.e. ``property.fget(instance)`` lands here.
+        return self._resolve(instance)
+
+    def _resolve(self, instance: object) -> 'ContextBase':
+        from .context import ContextBase  # local: context imports locator
+
+        if not isinstance(instance, ContextBase):
+            raise TypeError(
+                f'@locator method form for {self.attr_name or "<unknown>"!r} '
+                f'requires a ContextBase instance, got {type(instance).__name__}'
+            )
+        return instance.get(self._target_type(), locator=self.__locator__)
+
+    def _target_type(self) -> 'type[ContextBase]':
+        from .context import ContextBase  # local: context imports locator
+
+        if self._target is not None:
+            return self._target
+        try:
+            annotation = get_type_hints(self.__wrapped__).get('return')
+        except Exception as exc:  # unresolved forward ref, bad annotation, ...
+            raise TypeError(
+                f'@locator method form for {self.attr_name or "<unknown>"!r} could not '
+                f'resolve its return-type annotation: {exc}'
+            ) from exc
+        if not (isinstance(annotation, type) and issubclass(annotation, ContextBase)):
+            raise TypeError(
+                f'@locator method form for {self.attr_name or "<unknown>"!r} requires a '
+                f'return-type annotation that is a ContextBase subclass, got {annotation!r}'
+            )
+        self._target = annotation
+        return annotation
 
 
 def locator(
@@ -541,10 +591,10 @@ def locator(
             ...
 
     As a method or property decorator, return a
-    `LocatorMethodDescriptor` carrying the locator. Method-form
-    resolution is not yet implemented; accessing the attribute raises
-    `NotImplementedError`. Context code can be written today
-    and will work once method-form lands without source changes::
+    `LocatorMethodDescriptor` carrying the locator. On instance access
+    it resolves the element via ``instance.get(annotation, locator=...)``,
+    where ``annotation`` is the wrapped function's return type (a
+    `ContextBase` subclass)::
 
         class CalculatorWindow(Window):
             @property

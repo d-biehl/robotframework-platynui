@@ -632,14 +632,12 @@
 >   (`@locator(name="X") class Foo: ...`) ist vollständig implementiert
 >   und hängt einen `Locator` als `Foo.__locator__` an. Method-/
 >   Property-Form (`@property + @locator(...) def n5(self) -> Button`)
->   ist als `LocatorMethodDescriptor`-Stub implementiert: API steht,
->   `__get__` wirft derzeit `NotImplementedError` mit der Meldung
->   „`@locator` method form … is not yet implemented. Use `@locator`
->   only as a class decorator for now.". Die volle
->   Resolution braucht `ContextBase.get(annotation, locator=…)` aus
->   Phase 3. Context-Code kann beide Formen heute schreiben — der
->   Phase-3-Übergang erfordert keine Änderung am Context. Details in
->   §A.6.
+>   ist **seit Rev. 49 vollständig aufgelöst**: `LocatorMethodDescriptor.__get__`
+>   (bare Form) und `__call__` (`@property`-Form) lesen die
+>   Return-Type-Annotation der dekorierten Methode (eine `ContextBase`-
+>   Subklasse) und rufen `instance.get(annotation, locator=self.__locator__)`
+>   auf. Context-Code, der beide Formen bereits geschrieben hat,
+>   funktioniert ohne Quelltext-Änderung. Details in §A.6.
 > - **Rev. 17** — **Pattern-Liste konsolidiert.** Die Python-Pattern-
 >   Hierarchie wird an die Rust-Capability-Gruppen
 >   (`crates/core/src/ui/attributes.rs`,
@@ -1933,6 +1931,7 @@ RoboCon-Slide 10):
 | `Activate Window` / `Maximize Window` / `Minimize Window` / `Close Window` | `Activatable` / `Maximizable` / `Minimizable` / `Closeable` (Window-Capability-Sub-Patterns aus Rev. 37) | Window-State verifiziert |
 | `Get Attribute` / `Get Attributes` | direkter Attribut-Read am Adapter (`adapter.attribute_value(name, namespace=...)`) | Wert |
 | `Wait Until Exists` / `Wait Until Gone` | Locator + `wait_for` | Existenz |
+| `Wait Until Ready` | `_application_is_ready` (`Responsive` + `Application.is_ready()`) | Top-Level-Window responsiv **und** App-ready — bereit für Eingaben |
 
 Implementierung: jedes Keyword nimmt ein UI-Element-Argument (typisiert
 über `ElementDescriptor[PatternT]`) und ruft die entsprechende Methode
@@ -2045,7 +2044,7 @@ src/PlatynUI/
     ├── scroll.py                   # Scroll Into View, Scroll
     ├── window.py                   # Activate/Close/Min/Max Window
     ├── properties.py               # Get Attribute, Get Attributes
-    ├── wait.py                     # Wait Until Exists / Gone
+    ├── wait.py                     # Wait Until Exists / Gone / Ready
     └── application.py              # Start/Close Application
 ```
 
@@ -2964,11 +2963,15 @@ Verhalten:
 | Target | Verhalten | Status |
 |---|---|---|
 | Klasse | hängt einen `Locator` als `__locator__`-Klassenattribut an, gibt die Klasse unverändert zurück | **Phase 1 / Rev. 18 — DONE** |
-| Methode/Property | wickelt die Funktion in einen `LocatorMethodDescriptor` ein, der den Locator + die Wrapped-Function speichert; beim Instanz-Zugriff wird `ContextBase.get(annotation, locator=…)` aufgerufen | **Phase 3 — STUB** (wirft derzeit `NotImplementedError`) |
+| Methode/Property | wickelt die Funktion in einen `LocatorMethodDescriptor` ein, der den Locator + die Wrapped-Function speichert; beim Instanz-Zugriff wird `ContextBase.get(annotation, locator=…)` aufgerufen | **Rev. 49 — DONE** |
 
-Die Method-Form ist als Stub bereits API-stabil; Context-Code kann
-beide Formen heute schreiben — die Resolution wird in Phase 3 transparent
-nachgereicht, ohne Quelltext-Änderungen am Context.
+Beide Formen sind vollständig. Die Method-Form löst beim Instanz-Zugriff
+auf: `__get__` (bare Form) bzw. `__call__` (`@property`-Form) liest die
+Return-Type-Annotation der dekorierten Funktion (eine `ContextBase`-
+Subklasse, via `typing.get_type_hints` einmalig gelesen + gecacht) und
+ruft `instance.get(annotation, locator=self.__locator__)` auf. Eine
+Annotation, die keine `ContextBase`-Subklasse ist, oder ein
+Nicht-`ContextBase`-Owner führen zu einem klaren `TypeError`.
 
 Verwendung:
 
@@ -3818,12 +3821,22 @@ Altprojekt übernommen, die Lücken im aktuellen
 | Pattern | Methoden / Properties | Zweck |
 |---|---|---|
 | `Readable` | `is_readonly` | aktuell in Legacy `Element.is_readonly`; gehört nicht in das Geometrie-`Element`-Pattern |
-| `ApplicationReady` | `try_ensure_ready() -> bool` | Polling-Hook für "App ist nicht responding"; Predicate-Basis für `_application_is_ready` im Context |
+
+> **Rev. 49 — `ApplicationReady` gestrichen.** Ursprünglich war hier ein
+> zweites Pattern `ApplicationReady` (`try_ensure_ready()`) als
+> „Polling-Hook für App-nicht-responding / Predicate-Basis für
+> `_application_is_ready`" geplant. Ein Verdrahtungs-Experiment zeigte,
+> dass es auf allen realen Backends (mock/atspi/uia) nur an dieselbe
+> Responsiveness-Probe wie `Responsive` delegieren würde — ein reines
+> Duplikat. Daher entfällt es ersatzlos: `_application_is_ready` nutzt
+> `Responsive` (nativ) + `Application.is_ready()` (User-Hook). Eine
+> echte App-Load-Semantik käme, falls je nötig, als eigenständiges
+> Pattern — nicht als `Responsive`-Alias.
 
 Damit bleibt `core/patterns/element.py` auf Geometrie + Sichtbarkeit
-+ Enabled fokussiert, und beide neuen Capabilities sind unabhängig
-kombinierbar (z.B. ein read-only Edit-Feld implementiert
-`Readable`+`TextContent`, kein `TextEditable`).
++ Enabled fokussiert, und `Readable` ist unabhängig kombinierbar
+(z.B. ein read-only Edit-Feld implementiert `Readable`+`TextContent`,
+kein `TextEditable`).
 
 #### A.13.3 Pattern-Exports (`core/patterns/__init__.py`)
 
@@ -3831,7 +3844,6 @@ kombinierbar (z.B. ein read-only Edit-Feld implementiert
 __all__ = [
     'Activatable',
     'ActivationTarget',
-    'ApplicationReady',          # neu
     'Closeable',
     'Element',
     'Focusable',
@@ -3923,7 +3935,9 @@ laufen über die generische Context-Basisklasse `ItemContainer[I:
 Item]` (§A.14.x); Item-Mutationen (Click, Expand, Edit) gehen über
 den `ItemProxy`-Zweig.
 
-`ElementProxy` exposed `Element`, `Readable`, `ApplicationReady`;
+`ElementProxy` ist seit Rev. 40 ein reiner Marker: `Element`,
+`ActivationTarget` und `Readable` kommen alle nativ über den Adapter
+(`_Native*`-Wrapper im `UiNodeAdapter`).
 `ControlProxy` ist Marker ohne weitere Mixins (`Focusable` kommt
 direkt vom Adapter, ebenso die Window-Sub-Patterns für
 `Window`/`Frame`/`Dialog` — siehe Native-Wrapper unten). Beide sind
@@ -3938,7 +3952,7 @@ nicht in der Proxy-Mixin-Spalte auf.
 
 | Proxy | Rolle(n) | Pattern-Mixins (synthetic) |
 |---|---|---|
-| `ElementProxy` | `Element` | (keine — `Element`, `ActivationTarget`, `Readable` kommen vom Adapter; `ApplicationReady` offen) |
+| `ElementProxy` | `Element` | (keine — `Element`, `ActivationTarget`, `Readable` kommen vom Adapter) |
 | `ControlProxy` | `Control` | (keine — `Focusable` kommt vom Adapter) |
 | `ButtonProxy` | `Button`, `Link` | `Activatable` (Click auf `ActivationTarget.activation_point`) |
 | `CheckBoxProxy` | `CheckBox`, `RadioButton`, `ToggleButton` | `Toggleable` (Click; State liest `Toggleable.state`-Attribut) |

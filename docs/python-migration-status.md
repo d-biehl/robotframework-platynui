@@ -6,8 +6,36 @@ in das neue Rust-basierte Projekt verfolgt.
 
 Bezugsdokument: [`python-library-design.md`](./python-library-design.md)
 
-**Stand:** 2026-05-04
-**Aktuelle Revision:** Rev. 48 (Adapter-bezogene Devices in eigenes
+**Stand:** 2026-06-16
+**Aktuelle Revision:** Rev. 49 (**Phase 3 + Phase 4 abgeschlossen.**
+Zwei lose Enden geschlossen:
+**(1) `@locator` Method-Form** — `LocatorMethodDescriptor.__get__`
+(plus `__call__` für die `@property`-Form) löst jetzt auf: der
+Return-Type der gewrappten Funktion (eine `ContextBase`-Subklasse,
+einmalig via `typing.get_type_hints` gelesen + gecacht) wird als
+`instance.get(annotation, locator=self.__locator__)` aufgelöst.
+Klare `TypeError` bei Nicht-`ContextBase`-Annotation bzw.
+Nicht-`ContextBase`-Instanz. `core/locator.py` + `test_locator.py`
+(4 neue Resolution/Fehler-Tests). **(2) `ApplicationReady`-Pattern
+ersatzlos gestrichen** — der zuvor offene Punkt aus Rev. 40 wird
+**nicht verdrahtet, sondern entfernt**: Eine kurze Verdrahtung
+(Rust-Trait + Provider in mock/atspi/uia + PyO3 + Native-Wrapper)
+zeigte, dass `ApplicationReady` auf allen realen Backends nur an
+dieselbe Responsiveness-Probe delegiert wie `Responsive` — also ein
+reines Duplikat ohne eigene Semantik. Konsequenz: die Waisen-ABC
+`core/patterns/application_ready.py` ist gelöscht, der Export aus
+`core/patterns/__init__.py` entfernt; `_application_is_ready` nutzt
+weiterhin **`Responsive`** (Window-Responsiveness, nativ) **+
+`Application.is_ready()`** (User-Hook) als Ready-Quellen. Kein
+Rust-/PyO3-/Adapter-Code für `ApplicationReady` mehr. Eine echte
+App-Load-Semantik (z.B. „Splash dismissed") bleibt künftigen
+Providern vorbehalten und würde dann als eigenes Pattern eingeführt,
+nicht als Responsive-Alias.
+Gates: **113 nextest (core+mock) + 727 pytest grün**, clippy + ruff
++ mypy + fmt clean, pyright nur die 2 pre-existing Errors in
+`test_ensure.py`. Uncommitted.)
+
+**Vorherige Revision:** Rev. 48 (Adapter-bezogene Devices in eigenes
 Modul gezogen, `_mixins.py` aufgelöst, `MouseProxy.ctrl_click()` als
 echte Methode. **Schichtung:** `core/devices.py` enthält jetzt nur
 noch die rein geometrische, adapter-freie Schicht
@@ -32,10 +60,17 @@ Modul-Layout-Hinweis ergänzt, §A.9.3 mit `ctrl_click`-Codeblock,
 §A.9.5 `AdapterKeyboardProxy`-Docstring um Modul-Hinweis erweitert,
 §A.14.5 ItemProxy-Codeblock auf direktes `AdapterMouseProxy(...)`
 umgestellt, Verzeichnisbaum (§ vor §A.13) um `adapter_devices.py`
-erweitert. Code-Implementierung — DONE. Tests angepasst (vier neue
+erweitert. **Settings→Overrides-Bridge aufgeräumt:** die beiden
+`_*_overrides_from_settings()`-Helfer bauen das `TypedDict` jetzt
+über direkte Literal-Key-Zuweisungen (Walrus-`:=`) statt über
+`getattr` + Tuple-Tabelle; die zwei
+`# type: ignore[literal-required]`-Kommentare entfallen dadurch.
+Code-Implementierung — DONE. Tests angepasst (vier neue
 `ctrl_click`-Tests in `test_devices.py`, `test_proxies.py` neu
 geschrieben mit `patch_actions`-Fixture); 724 Tests grün, ruff
-+ mypy clean, Pyright auf Baseline (4 Pre-existing Errors).)
++ mypy clean, **Pyright-Baseline von 4 auf 2 Errors gesenkt**
+(verbliebene 2 pre-existing in `test_ensure.py`). **Committet**
+als `e16bfd6`.)
 
 > **Vorherige Rev. 47:** `Deselectable` als eigenes Single-Select-
 > Action-Pattern + saubere Trennung `deselect` vs
@@ -272,11 +307,11 @@ geschrieben mit `patch_actions`-Fixture); 724 Tests grün, ruff
 | Designdoku-Konsolidierung Rev. 15 | DONE | Commit `f64b441` (2026-04-23); Properties-Pattern entfernt, Attribute-Modell mit Namespaces |
 | Designdoku Rev. 16 — Locator-Kwargs | DONE | Commit `f64b441` (2026-04-23); drei Eingangskanäle (Convenience-Felder, Kwargs, Dict) mit Konfliktregel |
 | Designdoku Rev. 17 — Pattern-Konsolidierung | DONE | Commit `f64b441` (2026-04-23); Element/TextContent/TextEditable/Clearable/Toggleable/Activatable/Focusable; Rust IsOffscreen→IsInView |
-| Rev. 18 — `@locator` Decorator-Form | DONE | Commit `f64b441` (2026-04-23); Class-Decorator komplett, Method-Form als Phase-3-Stub mit `NotImplementedError` |
+| Rev. 18 — `@locator` Decorator-Form | DONE | Class-Decorator: Commit `f64b441` (2026-04-23). Method-/Property-Form: Rev. 49 (uncommitted) — `LocatorMethodDescriptor.__get__`/`__call__` lösen über die Return-Annotation via `instance.get(annotation, locator=...)` auf |
 | Phase 1 — Fundament | DONE | Commit `f64b441` (2026-04-23); 10 Module incl. vorgezogenem `core/patterns/` (war Phase 2 #11); 128 pytest + 1980 nextest grün, ruff+mypy+pyright+clippy grün |
 | Phase 2 — Adapter-Schicht | DONE | Adapter-ABC + AdapterProxy + UiNodeAdapter + Runtime-Singleton committed; Pipeline-Lücke in Phase 4-pre geschlossen |
-| Phase 3 — Context-Schicht | IN PROGRESS | `ContextBase`, `ContextFactory`, `@context`, `ElementDescriptor`, `@locator` Class-Decorator-Form DONE; `@locator` Method-Form noch offen (`LocatorMethodDescriptor.__get__` wirft `NotImplementedError`) |
-| Phase 4 — UI-Klassen + Standard-Proxies | IN PROGRESS | 4-pre + 4a + 4b + 4c + 4d DONE (4d committed `07ca742`); **4-rust-split (Rev. 37) eingeschoben** als Voraussetzung für 4e; siehe Sub-Phasen unten |
+| Phase 3 — Context-Schicht | DONE | `ContextBase`, `ContextFactory`, `@context`, `ElementDescriptor`, `@locator` Class-Decorator-Form; `@locator` Method-/Property-Form in Rev. 49 implementiert (uncommitted) |
+| Phase 4 — UI-Klassen + Standard-Proxies | DONE | 4-pre/4a/4b/4c/4d/4-rust-split/4e alle DONE; Proxy-Schicht (4e) in Rev. 43–48 gebaut (`ui/proxies/{base,buttons,combobox,item,text}.py`), Container-Proxies durch `ItemContainer[I]` abgelöst (Rev. 44), `WindowProxy` entfällt (Rev. 38); zuletzt committed `e16bfd6`. `ApplicationReady`-Pattern in Rev. 49 ersatzlos gestrichen (Duplikat von `Responsive`); Ready-Quelle bleibt `Responsive` + `Application.is_ready()` (uncommitted) |
 | Phase 4-rust-split — Rust-Trait-Splittung + Python-Anpassung | DONE | Designdoc Rev. 37 DONE; Rust-Split (`WindowSurfacePattern` → 7 Sub-Traits + `Responsive`-Polling) + Provider-Migration + Python-Pattern-Renames (`HasUserInput`→`Responsive`, `Titled` entfällt) abgeschlossen; alle Quality-Gates grün (1981 nextest + 629 pytest) |
 | Phase 5 — Keywords + Robot-Library | PENDING | — |
 | Phase 6 — Iterative Erweiterungen | PENDING | — |
@@ -648,18 +683,22 @@ Provider; ABC-/Algorithmus-Tests nutzen Inline-Fakes. Siehe Designdoc
 - [ ] `core/descriptor.py` — `ElementDescriptor[PatternT]` (§A.7)
 - [ ] `@context`-Mechanik + `ContextFactory` (Klassenregistry pro
       Rolle, gewichtetes Match)
-- [ ] **`@locator` Method/Property-Form vervollständigen** —
-      `LocatorMethodDescriptor.__get__` (`core/locator.py`) wirft
-      derzeit `NotImplementedError("Phase 3")`. Mit `ContextBase.get`
-      muss er stattdessen die Return-Type-Annotation der dekorierten
-      Methode auflesen und `self.get(annotation, locator=...)` auf der
-      Owner-Instanz aufrufen. Class-Decorator-Form
-      (`@locator(name="...")` auf Klasse → `__locator__`-Attribut) ist
+- [x] **`@locator` Method/Property-Form vervollständigt** (Rev. 49) —
+      `LocatorMethodDescriptor.__get__` (bare Form) und `__call__`
+      (`@property`-Form) lesen die Return-Type-Annotation der
+      dekorierten Methode (eine `ContextBase`-Subklasse, via
+      `typing.get_type_hints` einmalig gelesen + gecacht) und rufen
+      `instance.get(annotation, locator=self.__locator__)` auf.
+      `TypeError` bei Nicht-`ContextBase`-Annotation oder
+      Nicht-`ContextBase`-Instanz. Class-Decorator-Form
+      (`@locator(name="...")` auf Klasse → `__locator__`-Attribut) war
       bereits Phase-1-DONE.
 
 (`core/locator.py` und `core/weight_calculator.py` wurden in Phase 1
-abgeschlossen. Die Class-Decorator-Form von `@locator` ist ebenfalls
-Phase-1-DONE; nur die Method/Property-Form wartet auf `ContextBase`.)
+abgeschlossen. Beide `@locator`-Formen (Class-Decorator und
+Method/Property) sind jetzt vollständig — die Method-Form wurde in
+Rev. 49 nachgereicht, ohne Quelltext-Änderungen an bereits
+geschriebenen Contexts.)
 
 ### Phase 4 — UI-Klassen + Standard-Proxies (Designdoc §10 Phase 4)
 
@@ -672,10 +711,11 @@ durchlaufen.
 **Bereits committed (Auszug aus 4a/4c/4f-Items):**
 
 - `core/patterns/` — Pattern-ABCs (Activation, ActivationTarget,
-  ApplicationReady, Closeable, Element, Expandable, Focusable,
+  Closeable, Element, Expandable, Focusable,
   HasEditor, ItemContainer, Maximizable, Minimizable, Movable,
   Readable, Resizable, Responsive, Restorable, Selectable, Text,
-  Toggle).
+  Toggle). (`ApplicationReady` in Rev. 49 gestrichen — Duplikat von
+  `Responsive`.)
 - `ui/element.py`, `ui/control.py` — Basis-Contexts (Item 16
   UI-Teil).
 - `ui/window.py` — `Window` und `Frame` (Item 18 UI-Teil).
@@ -964,7 +1004,7 @@ entfällt) und entfernt `Focusable` an Window-/TopLevel-Elementen.
 `uv run ruff check .`, `uv run mypy .`, `uv run pyright`,
 `uv run pytest`.
 
-#### Phase 4e — Proxy-Schicht (Item 16 Proxy-Teil + Items 17/18/19/20/21 Proxy-Teile)
+#### Phase 4e — Proxy-Schicht (Item 16 Proxy-Teil + Items 17/18/19/20/21 Proxy-Teile) — DONE (Rev. 43–48, zuletzt Commit `e16bfd6`)
 
 Bündelt die komplette Default-Proxy-Hierarchie inklusive
 Widget-Proxies mit Click-/Tastatur-Fallbacks. Wird erst nach den
@@ -990,33 +1030,86 @@ Window-Proxy die granularen Sub-Traits aus Rev. 37
       `State::Modal`); Windows-UIA-Provider exposiert jetzt
       `IsActive` (Foreground-Vergleich) und `IsModal`
       (`CurrentIsModal`).
-- [ ] `ui/proxies/__init__.py` mit Side-Effect-Imports.
-- [ ] `ui/proxies/base.py`: `ElementProxy(AdapterProxy)`,
-      `ControlProxy(ElementProxy)` als gemeinsame Aufhänger.
-- [ ] `ui/buttons.py`: `ButtonProxy`, `CheckBoxProxy` mit
-      Click-Fallback wenn das Provider-Pattern fehlt.
-- [ ] `ui/proxies/window.py`: Default-Implementationen für die
-      Window-Capability-Sub-Patterns aus Rev. 37 (Activatable,
-      Closeable, Maximizable, Minimizable, Movable, Resizable,
-      Restorable, Responsive).
-- [ ] `ui/proxies/text.py`: `EditProxy`, `ComboBoxProxy` mit
-      Tastatur-Fallback.
-- [ ] `ui/proxies/list_tree.py`: Default-Proxies für Lists/Tree/
-      Table.
-- [ ] Menü-/Tab-Proxies entweder in `ui/proxies/standard.py`
-      ergänzen oder eigene Datei je nach Komplexität.
-- [ ] Tests pro Proxy: Pattern via Proxy aufrufbar, ohne dass der
-      Adapter es direkt liefert; Reihenfolge/Score-Auswahl;
-      Durchreichen vorhandener Provider-Patterns.
+- [x] `ui/proxies/__init__.py` mit Side-Effect-Imports (Rev. 43):
+      registriert `base`/`buttons`/`combobox`/`item`/`text` via
+      `@pattern_proxy_for`. Einziger erlaubter Import-Side-Effect.
+- [x] `ui/proxies/base.py` (Rev. 43): `ElementProxy(AdapterProxy)`,
+      `ControlProxy(ElementProxy)` als reine Marker — `Element`/
+      `ActivationTarget`/`Readable`/`Focusable` liefert der
+      `UiNodeAdapter` nativ.
+- [x] `ui/proxies/buttons.py` (Rev. 43): `ButtonProxy` (synthetic
+      `Activatable` via Click), `CheckBoxProxy` (synthetic
+      `Toggleable` via Click, State aus `IsToggled`/`IsSelected`).
+- [x] `ui/proxies/text.py` (Rev. 43): `EditProxy`/`TextProxy`
+      (synthetic `TextContent`/`TextEditable`/`Clearable` via Click +
+      Ctrl+A + type/Delete).
+- [x] `ui/proxies/combobox.py` (Rev. 43): `ComboBoxProxy` (synthetic
+      `Expandable`/`Selectable`/`TextContent`/`TextEditable`).
+- [x] `ui/proxies/item.py` (Rev. 43–47): `ItemProxy` +
+      `ListItemProxy`/`TreeItemProxy`/`TabItemProxy`/`RowProxy`/
+      `CellProxy`/`MenuItemProxy`. Read/Action-Split (Rev. 46/47):
+      `IsSelectable`/`IsExpandable` lesen Attribute, `Selectable`/
+      `MultiSelectable`/`Expandable` synthetisieren Click/Ctrl+Click.
+- [x] Action-Synthese-Schicht (Rev. 48): `AdapterMouseProxy`/
+      `AdapterKeyboardProxy` in `core/adapter_devices.py`;
+      `MouseProxy.ctrl_click()` als echte Methode; `_mixins.py`
+      gelöscht (Commit `e16bfd6`).
+- [x] Tests pro Proxy: `test_proxies.py` (Registry-Auflösung aller
+      14 Rollen + Verhaltenstests je Proxy über `patch_actions`-
+      Fixture).
+- [x] **`ui/proxies/window.py` entfällt (Rev. 38):** der geplante
+      `WindowProxy`/`FrameProxy` (Pure Pass-Through) wird nicht
+      gebaut — er hätte das Native-Wrapping dupliziert. Die
+      Window-Sub-Patterns (`Activatable`/`Minimizable`/…/`Responsive`)
+      kommen nativ über `_Native*`-Wrapper im `UiNodeAdapter`;
+      `Window`/`Frame`/`Dialog` greifen auf `ControlProxy` zurück.
+- [x] **Container-Default-Proxies abgelöst (Rev. 44):** die in
+      Rev. 43 noch gebauten `ListProxy`/`TreeProxy`/`TabListProxy`/
+      `MenuProxy`/`MenuBarProxy`/`TableProxy` wurden ersatzlos
+      entfernt — `List`/`Tree`/`TabList`/`Row` erben stattdessen die
+      generische Context-Basis `ItemContainer[I: Item]`.
 
 **Schon erledigte Item-Bestandteile** sind im Auszug oben gelistet;
 sie zählen als Vorgriff auf den UI-Teil von Item 16 (Element/
 Control), Item 18 (Window) und Item 21 (Desktop/Application).
 
+**Phase 4e DONE** (Rev. 43–48; zuletzt Commit `e16bfd6`). Die
+Proxy-Schicht ist vollständig: Default-Proxies für alle Standard-
+Rollen synthetisieren ihre Action-Patterns über Maus/Tastatur, die
+Tests decken Registry-Auflösung und Verhalten ab.
+
+**`ApplicationReady` gestrichen (Rev. 49)** — der offene Punkt aus
+Rev. 40 wird **nicht verdrahtet, sondern entfernt**. Ein
+Verdrahtungs-Experiment (Rust-Trait `ApplicationReadyPattern` +
+Provider mock/atspi/uia + PyO3 + Native-Wrapper) bestätigte, dass
+`ApplicationReady` auf allen realen Backends nur an dieselbe
+Responsiveness-Probe wie `Responsive` delegieren würde — ein reines
+Duplikat ohne eigene Semantik. Daher: Waisen-ABC
+`core/patterns/application_ready.py` gelöscht, Export aus
+`core/patterns/__init__.py` entfernt, kein Rust-/PyO3-/Adapter-Code.
+`_application_is_ready` bleibt auf **`Responsive`** (nativ,
+Window-Responsiveness) **+ `Application.is_ready()`** (User-Hook).
+Eine echte App-Load-Semantik (z.B. „Splash dismissed") würde, falls je
+benötigt, als **eigenständiges** Pattern eingeführt — nicht als
+Responsive-Alias.
+
 ### Phase 5 — Keywords + Robot-Library (Designdoc §10 Phase 5)
 
 - [ ] Library-Init und Lifecycle (§A.8)
 - [ ] Keywords (§8)
+  - [ ] `Wait Until Ready` (`keywords/wait.py`) — neben `Wait Until
+        Exists`/`Gone`. Outcome-orientiert (nicht `Wait Until
+        Responsive`, §2.2). Setzt eine **neue öffentliche** Methode
+        `Element.wait_until_ready()` voraus, die das bisher private
+        Predicate `_application_is_ready` (`Responsive` +
+        `Application.is_ready()`) über `ensure_that` (raises bei
+        Timeout) kapselt. Argument-Typ: schlichtes
+        `ElementDescriptor` **ohne** `[Responsive]`-Constraint —
+        Readiness wird über den `top_level_parent` aufgelöst, nicht
+        am Element selbst (sonst lehnt der Converter alles ab, das
+        `Responsive` nicht trägt). Optionale window-genaue Variante
+        `Wait Until Responsive` (typed `ElementDescriptor[Responsive]`)
+        nur bei konkretem Bedarf — sonst Redundanz.
 - [ ] Highlight + Diagnose (§A.12)
 
 ### Phase 6 — Iterative Erweiterungen (Designdoc §10 Phase 6)
