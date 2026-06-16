@@ -1,6 +1,39 @@
 #!/bin/bash
 set -u
 
+# Options (before `--`):
+#   --dpi <n>     Xephyr DPI (default: unset — use Xephyr's own default).
+# Session command: everything after `--` is run inside the session, with the
+# window manager started in the background. With no `--`, the script keeps its
+# original behaviour and execs the interactive window manager.
+#
+#   uv run scripts/startxsession.sh -- scripts/platynui-robot-session.sh
+#   uv run scripts/startxsession.sh --dpi 192 -- scripts/platynui-robot-session.sh
+#
+SESSION_CMD=()
+DPI=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --) shift; SESSION_CMD=("$@"); break ;;
+    --dpi) DPI="$2"; shift 2 ;;
+    --dpi=*) DPI="${1#--dpi=}"; shift ;;
+    *) shift ;;
+  esac
+done
+# Serialize the session command and pass it to the inner session shell via an
+# exported variable (avoids fragile quote-breakout inside the bash -c body).
+PLATYNUI_ROBOT_SESSION_CMD=""
+if [[ ${#SESSION_CMD[@]} -gt 0 ]]; then
+  PLATYNUI_ROBOT_SESSION_CMD="$(printf '%q ' "${SESSION_CMD[@]}")"
+fi
+export PLATYNUI_ROBOT_SESSION_CMD
+
+# Optional Xephyr args. DPI is off by default (configurable via --dpi).
+XEPHYR_EXTRA=()
+if [[ -n "$DPI" ]]; then
+  XEPHYR_EXTRA+=(-dpi "$DPI")
+fi
+
 # Create a private XDG_RUNTIME_DIR so the AT-SPI bus socket is fully
 # isolated from the host GNOME Wayland session (otherwise
 # at-spi-bus-launcher reuses /run/user/$UID/at-spi/bus_$DISPLAY).
@@ -32,7 +65,7 @@ if [ "$IS_WSL" -eq 1 ]; then
   DISPLAY_NUM=99
   echo "WSL detected — using fixed display :$DISPLAY_NUM"
 
-  Xephyr ":$DISPLAY_NUM" -ac -screen 1920x1080 -resizeable -noreset -sw-cursor -dpi 192 &
+  Xephyr ":$DISPLAY_NUM" -ac -screen 1920x1080 -resizeable -noreset -sw-cursor "${XEPHYR_EXTRA[@]}" &
   XEPHYR_PID=$!
   sleep 1
 
@@ -47,7 +80,7 @@ else
   DISPLAYFD_FIFO="$XEPHYR_RUNTIME_DIR/displayfd"
   mkfifo "$DISPLAYFD_FIFO"
 
-  Xephyr -displayfd 3 -ac -screen 1920x1080 -resizeable -noreset -sw-cursor -dpi 192 \
+  Xephyr -displayfd 3 -ac -screen 1920x1080 -resizeable -noreset -sw-cursor "${XEPHYR_EXTRA[@]}" \
     3>"$DISPLAYFD_FIFO" &
   XEPHYR_PID=$!
 
@@ -178,6 +211,20 @@ A11Y_EOF
   fi
 
   setxkbmap de
+
+  if [ -n "${PLATYNUI_ROBOT_SESSION_CMD:-}" ]; then
+    # Run the window manager in the background, then the session command in the
+    # foreground; tear the WM down when the command exits so the outer trap can
+    # clean up Xephyr and the runtime dir. The whole session closes once the
+    # session command (e.g. the robot run) returns.
+    icewm-session &
+    WM_PID=$!
+    sleep 1
+    eval "$PLATYNUI_ROBOT_SESSION_CMD"
+    SESSION_EXIT=$?
+    kill "$WM_PID" 2>/dev/null
+    exit $SESSION_EXIT
+  fi
 
   # exec openbox-session
   # exec startplasma-x11

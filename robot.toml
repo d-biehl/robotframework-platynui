@@ -1,6 +1,20 @@
 paths = "tests"
 # log-level = "TRACE"
 
+# Real-world acceptance lane: drive the egui test app through the real AT-SPI
+# runtime, inside an isolated session set up by scripts/platynui-robot-session.sh.
+# Run with:
+#   uv run scripts/startcompositor.sh -- scripts/platynui-robot-session.sh   # Wayland
+#   uv run scripts/startxsession.sh   -- scripts/platynui-robot-session.sh   # X11
+# (the session script defaults to `robotcode --profile egui run`).
+[profiles.egui]
+description = "Acceptance suites against the egui test app via the real AT-SPI runtime"
+paths = ["tests/acceptance/egui"]
+
+# NOTE: a deterministic "mock" profile (built-in Rust mock tree, requires the
+# native module built with the `mock-provider` feature) will be added with the
+# Phase-5 keyword work, scoped to tests/acceptance/mock.
+
 [tool.robocop.lint]
 configure = ["line-too-long.line_length=140"]
 ignore = ["DOC01", "DOC02", "DOC03", "DOC04"]
