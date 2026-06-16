@@ -12,7 +12,7 @@ use calloop::LoopHandle;
 use reis::calloop::{EisListenerSource, EisRequestSource, EisRequestSourceEvent};
 use reis::eis;
 use reis::enumflags2::BitFlags;
-use reis::request::{Connection, Device, EisRequest};
+use reis::request::{Connection, Device, DeviceCapability, EisRequest};
 use smithay::backend::input::{ButtonState, KeyState, TouchSlot};
 use smithay::input::keyboard::{FilterResult, xkb};
 use smithay::input::pointer::{AxisFrame, MotionEvent};
@@ -111,10 +111,13 @@ fn handle_eis_connected(connection: &Connection, state: &mut State) {
         return;
     }
 
-    // Advertise a seat with all capabilities. Device creation is deferred
-    // to the Bind handler (the client picks which capabilities it wants).
-    let all_caps = BitFlags::all();
-    let _seat = connection.add_seat(Some("default"), all_caps);
+    // Advertise a seat with every capability except text input: we emulate
+    // pointer/keyboard/touch into Wayland but have no text-injection path, so
+    // advertising `Text` would only invite `TextKeysym`/`TextUtf8` events we'd
+    // silently drop. Device creation is deferred to the Bind handler (the
+    // client picks which of the advertised capabilities it wants).
+    let caps = BitFlags::all() & !DeviceCapability::Text;
+    let _seat = connection.add_seat(Some("default"), caps);
     let _ = connection.flush();
     tracing::debug!("EIS seat advertised, waiting for client Bind");
 }
@@ -143,11 +146,24 @@ fn handle_eis_request(request: &EisRequest, connection: &Connection, state: &mut
         EisRequest::TouchDown(t) => handle_eis_touch_down(t, state),
         EisRequest::TouchMotion(t) => handle_eis_touch_motion(t, state),
         EisRequest::TouchUp(t) => handle_eis_touch_up(t, state),
+        EisRequest::DeviceClosed(closed) => handle_eis_device_closed(closed, state),
+        // We implement only the `bind` device model (server-created devices).
+        // A client using `request_device` would otherwise get no device at all,
+        // so make the unsupported path visible rather than silently dropping it.
+        EisRequest::RequestDevice(_) => {
+            tracing::warn!("EIS client used request_device; only the bind device model is supported, ignoring");
+        }
+        // No-ops: emulation framing/lifecycle we don't act on, the device-ready
+        // handshake we don't gate on (we `resumed()` immediately), and text
+        // events that can't arrive because we no longer advertise `Text`.
         EisRequest::DeviceStartEmulating(_)
         | EisRequest::DeviceStopEmulating(_)
         | EisRequest::Frame(_)
+        | EisRequest::Ready(_)
         | EisRequest::ScrollCancel(_)
-        | EisRequest::TouchCancel(_) => {}
+        | EisRequest::TouchCancel(_)
+        | EisRequest::TextKeysym(_)
+        | EisRequest::TextUtf8(_) => {}
     }
     let _ = connection.flush();
 }
@@ -373,6 +389,19 @@ fn handle_eis_touch_up(touch: &reis::request::TouchUp, state: &mut State) {
     tracing::debug!(touch_id = touch.touch_id, "EIS touch up");
 
     input::process_touch_up(state, slot, time);
+}
+
+// ---------------------------------------------------------------------------
+// Device release
+// ---------------------------------------------------------------------------
+
+/// The client released its device via `ei_device.release`. Drop our tracked
+/// handle and complete teardown with `Device::remove`, as reis documents. The
+/// connection stays alive, so the client may bind a fresh device afterwards.
+fn handle_eis_device_closed(closed: &reis::request::DeviceClosed, state: &mut State) {
+    state.eis_client_device.take();
+    closed.device.remove();
+    tracing::info!("EIS client released its device");
 }
 
 // ---------------------------------------------------------------------------
