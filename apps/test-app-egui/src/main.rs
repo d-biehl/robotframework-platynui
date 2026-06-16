@@ -99,6 +99,7 @@ fn main() -> eframe::Result<()> {
     };
 
     let auto_close_secs = cli.auto_close;
+    let title = cli.title.clone();
 
     eframe::run_native(
         &cli.title,
@@ -109,7 +110,7 @@ fn main() -> eframe::Result<()> {
             style.text_styles.insert(egui::TextStyle::Body, egui::FontId::new(14.0, egui::FontFamily::Proportional));
             cc.egui_ctx.set_global_style(style);
 
-            Ok(Box::new(TestApp::new(auto_close_secs)))
+            Ok(Box::new(TestApp::new(auto_close_secs, title)))
         }),
     )
 }
@@ -120,6 +121,9 @@ struct TestApp {
     start_time: Instant,
     /// Auto-close timeout in seconds (0 = disabled).
     auto_close_secs: u64,
+    /// Window title — forwarded to the AccessKit root node so the window is
+    /// discoverable by name on the AT-SPI tree (egui does not do this itself).
+    title: String,
 
     // --- Widget state ---
     /// Single-line text input.
@@ -170,10 +174,11 @@ impl std::fmt::Display for RadioChoice {
 const COMBO_ITEMS: &[&str] = &["Apple", "Banana", "Cherry", "Date", "Elderberry"];
 
 impl TestApp {
-    fn new(auto_close_secs: u64) -> Self {
+    fn new(auto_close_secs: u64, title: String) -> Self {
         Self {
             start_time: Instant::now(),
             auto_close_secs,
+            title,
             text_input: String::new(),
             text_area: String::from("Hello,\nWorld!"),
             checkbox_checked: false,
@@ -200,6 +205,14 @@ impl eframe::App for TestApp {
             tracing::info!("auto-close timeout reached, shutting down");
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
+
+        // Forward the window title to the AccessKit root (Role::Window) node so
+        // the window is discoverable by name on the AT-SPI tree. egui creates
+        // the root node without a label and does not propagate the OS window
+        // title to the accessibility tree on its own.
+        ctx.accesskit_node_builder(egui::accesskit_root_id(), |node| {
+            node.set_label(self.title.clone());
+        });
 
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| Self::show_menu_bar(ui, ctx));
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| self.show_status_bar(ui));
