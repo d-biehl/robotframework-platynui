@@ -1,19 +1,29 @@
 paths = "tests"
 # log-level = "TRACE"
 
+# ---------------------------------------------------------------------------
+# Acceptance lanes need DIFFERENT native builds and CANNOT share one:
+# a mock-provider build makes `Runtime()` resolve the built-in mock tree
+# instead of the real platform provider. Tests are tagged by build requirement:
+#   tag `real` -> needs the non-mock build      (just build-native)
+#   tag `mock` -> needs the mock-provider build  (just build-native-mock)
+# Pair the build with the tag/profile (CI: a separate job per lane).
+# ---------------------------------------------------------------------------
+
 # Real-world acceptance lane: drive the egui test app through the real AT-SPI
 # runtime, inside an isolated session set up by scripts/platynui-robot-session.sh.
-# Run with:
+# REQUIRES the non-mock native build (just build-native). Run with:
 #   uv run scripts/startcompositor.sh -- scripts/platynui-robot-session.sh   # Wayland
 #   uv run scripts/startxsession.sh   -- scripts/platynui-robot-session.sh   # X11
 # (the session script defaults to `robotcode --profile egui run`).
 [profiles.egui]
-description = "Acceptance suites against the egui test app via the real AT-SPI runtime"
+description = "egui acceptance via the real AT-SPI runtime (tag 'real'; needs the non-mock build)"
 paths = ["tests/acceptance/egui"]
+includes = ["real"]
 
-# NOTE: a deterministic "mock" profile (built-in Rust mock tree, requires the
-# native module built with the `mock-provider` feature) will be added with the
-# Phase-5 keyword work, scoped to tests/acceptance/mock.
+# NOTE: a deterministic "mock" profile (built-in Rust mock tree, tag 'mock',
+# requires `just build-native-mock`) will be added with the Phase-5 keyword
+# work, scoped to tests/acceptance/mock with include = ["mock"].
 
 [tool.robocop.lint]
 configure = ["line-too-long.line_length=140"]

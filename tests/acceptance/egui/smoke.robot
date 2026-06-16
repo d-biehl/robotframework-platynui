@@ -25,15 +25,8 @@ Egui Window Is Exposed By Title
     ...    root node, so the window is discoverable by name on the AT-SPI tree.
     ${win}=    BM.Query    ${WINDOW}    only_first=${True}
     Should Not Be Equal    ${win}    ${None}    msg=window 'PlatynUI Test App' not found by name on the AT-SPI tree
-    BM.Highlight    ${win}    duration=2.0
+    BM.Highlight    ${win}    duration=1.0
 
-Clicking A Button Updates The UI
-    [Documentation]    Click 'Click Me' and verify the counter label changed — a
-    ...    real perform + observe roundtrip through the accessibility tree.
-    ${btn}=    BM.Query    ${WINDOW}//Button[@Name="Click Me"]    only_first=${True}
-    Should Not Be Equal    ${btn}    ${None}    msg='Click Me' button not exposed
-    BM.Pointer Click    ${btn}
-    Sleep    0.3s
-    ${label}=    BM.Query    ${WINDOW}//Label[starts-with(@Name, "Clicks:")]    only_first=${True}
-    Should Not Be Equal    ${label}    ${None}    msg=Clicks counter label not found
-    Should Be Equal    ${label.name}    Clicks: 1    msg=counter did not increment after click
+# Interaction coverage (click/radio/keyboard/focus, delta-verified) lives in
+# interaction.robot; query/attribute/set-root coverage in query.robot. This
+# suite stays a pure reachability smoke.

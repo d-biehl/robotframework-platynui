@@ -48,6 +48,13 @@ else
   echo "AT-SPI already configured (AT_SPI_BUS_ADDRESS set) — skipping setup-atspi.sh" >&2
 fi
 
+# CRITICAL: accesskit_unix only registers its AT-SPI adapter when
+# org.a11y.Status.ScreenReaderEnabled is true. Without this the egui app
+# (and any AccessKit client) is invisible to the AT-SPI provider — the tree
+# resolves a desktop root but no app subtree, which is flaky to debug. Enable
+# it on this session's a11y bus before launching the app so AccessKit registers.
+"$SCRIPT_DIR/linux-a11y-enable.sh" || echo "WARNING: failed to enable a11y screen-reader status" >&2
+
 cd "$PROJECT_DIR"
 
 # Build up front so the background launch starts immediately instead of racing
