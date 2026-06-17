@@ -211,11 +211,12 @@ class BareMetal(OurDynamicCore):
 
         This is the default context for queries when no root is specified.
         """
-        return (
-            EXECUTION_CONTEXTS.current.variables[f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}'](True)  # pyright: ignore[reportOptionalMemberAccess]
-            if PLATYNUI_ROOT_DESCRIPTOR in EXECUTION_CONTEXTS.current.variables  # pyright: ignore[reportOptionalMemberAccess]
-            else None
-        )
+        if PLATYNUI_ROOT_DESCRIPTOR in EXECUTION_CONTEXTS.current.variables:  # pyright: ignore[reportOptionalMemberAccess]
+            r = EXECUTION_CONTEXTS.current.variables[f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}']  # pyright: ignore[reportOptionalMemberAccess]
+            if isinstance(r, UiNodeDescriptor):
+                return r(True)
+
+        return None
 
     @keyword
     def set_root(self, descriptor: UiNodeDescriptor | None) -> UiNodeDescriptor | None:
@@ -223,10 +224,17 @@ class BareMetal(OurDynamicCore):
 
         Args:
             descriptor: A UiNodeDescriptor representing the node to set as the new root.
+                        If None, resets to the default runtime context (desktop).
+
+        Returns:
+            UiNodeDescriptor | None: The previous root descriptor, or None if no root
+            was set. Useful for saving and later restoring the root.
 
         Examples:
-            | ${window}= | Query | //control:Window[@Name="Settings"] | only_first=${True} |
-            | Set Root   | ${window} |
+            | ${window}= | Query    | //control:Window[@Name="Settings"] | only_first=${True} |
+            | ${old}=    | Set Root | ${window} |
+            | ...        |
+            | Set Root   | ${old}   |
 
         """
         old_root = (
