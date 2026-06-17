@@ -7,6 +7,7 @@ from typing import Any, Literal, cast
 
 from platynui_native import (
     Activatable,
+    AttributeNotFoundError,
     Closeable,
     EvaluatedAttribute,
     KeyboardOverridesLike,
@@ -340,22 +341,34 @@ class BareMetal(OurDynamicCore):
 
             # No coordinates provided: auto-resolve from node
             if x is None and y is None:
-                activation_point = target_node.attribute('ActivationPoint')
+                try:
+                    activation_point = target_node.attribute('ActivationPoint')
+                except AttributeNotFoundError:
+                    activation_point = None
+
                 if isinstance(activation_point, Point):
                     x = activation_point.x
                     y = activation_point.y
                 else:
-                    bounds = target_node.attribute('Bounds')
+                    # No ActivationPoint (e.g. containers/aggregates like Desktop):
+                    # fall back to the center of the element's bounds.
+                    try:
+                        bounds = target_node.attribute('Bounds')
+                    except AttributeNotFoundError:
+                        bounds = None
                     if not isinstance(bounds, Rect):
-                        raise ValueError('Node has no bounds or activation point')
+                        raise ValueError('Node has neither an ActivationPoint nor Bounds to target')
 
-                    # Keep integer-style center as before for backward compatibility
-                    x = bounds.x + bounds.width // 2
-                    y = bounds.y + bounds.height // 2
+                    center = bounds.center()
+                    x = center.x
+                    y = center.y
 
             # Relative coordinates provided: offset from node bounds
             elif x is not None and y is not None:
-                bounds = target_node.attribute('Bounds')
+                try:
+                    bounds = target_node.attribute('Bounds')
+                except AttributeNotFoundError:
+                    bounds = None
                 if not isinstance(bounds, Rect):
                     raise ValueError('Node has no bounds to calculate relative coordinates')
 
