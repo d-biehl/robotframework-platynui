@@ -10,6 +10,7 @@ from platynui_native import (
     AttributeNotFoundError,
     Closeable,
     EvaluatedAttribute,
+    EvaluationError,
     KeyboardOverridesLike,
     KeyboardProfileLike,
     Maximizable,
@@ -55,6 +56,10 @@ class NoQueryError(BareMetalError):
     """Raised when a UiNodeDescriptor is called without a query to resolve the node."""
 
 
+class InvalidSelectorError(BareMetalError):
+    """Raised when a selector passed to Set Root cannot be parsed as a valid XPath expression."""
+
+
 class UiNodeDescriptor:
     """Descriptor wrapper allowing lazy resolution of a UiNode from a query string.
 
@@ -62,10 +67,23 @@ class UiNodeDescriptor:
     evaluated using the associated BareMetal library instance when called.
     """
 
-    def __init__(self, node: UiNode | None, query: str | None, library: 'BareMetal') -> None:
+    def __init__(
+        self,
+        node: UiNode | None,
+        query: str | None,
+        library: 'BareMetal',
+        parent: 'UiNodeDescriptor | None' = None,
+        is_root_binding: bool = False,
+    ) -> None:
         self.node = node
         self.query = query
         self.library = library
+        # When this descriptor is used as a stored root, ``parent`` is the root that was effective
+        # when it was set; a relative query then drills into it. ``is_root_binding`` marks a
+        # descriptor created by ``set_root`` so that restoring a saved root keeps its chain as-is
+        # instead of being re-parented.
+        self.parent = parent
+        self.is_root_binding = is_root_binding
 
     def __call__(self, no_root: bool = False) -> UiNode:
         if isinstance(self.node, UiNode):
@@ -75,11 +93,16 @@ class UiNodeDescriptor:
         if self.query is None:
             raise NoQueryError('UiNodeDescriptor has no query to resolve the node')
 
+        # Resolving a stored root (no_root=True) evaluates the query against the captured parent
+        # chain, so a relative root drills into the enclosing root while an absolute query ignores
+        # it. As a query target (no_root=False) it evaluates against the library's current root.
+        context = (self.parent(True) if self.parent is not None else None) if no_root else self.library.root
+
         start_time = time.monotonic()
         result: UiNode | UiValue | EvaluatedAttribute | None = None
         while True:
             try:
-                result = self.library.runtime.evaluate_single(self.query, self.library.root if not no_root else None)
+                result = self.library.runtime.evaluate_single(self.query, context)
             except (SystemExit, KeyboardInterrupt):
                 raise  # Don't interfere with user-initiated interrupts
             except Exception as e:
@@ -135,293 +158,317 @@ class QuerySettings:
 class BareMetal(OurDynamicCore):
     """Robot Framework library for automating native desktop applications with PlatynUI.
 
-    BareMetal is PlatynUI's low-level keyword surface. It drives real applications through the
-    operating system's accessibility services — UI Automation on Windows and AT-SPI2 on Linux — so
-    your tests work with genuine UI controls rather than screen pixels or image matching.
+    BareMetal drives real applications through the operating system's accessibility services — UI
+    Automation on Windows, AT-SPI2 on Linux — and presents the whole desktop as one tree of UI
+    elements you query with XPath, the same way on every platform. You address an element by what it
+    is, not where it is, so a selector keeps matching when a window moves or is resized.
 
-    The whole desktop is presented as a single tree of elements that you query with XPath,
-    regardless of the underlying platform. From a query you locate the elements you want — and then
-    act on them, or read and evaluate their data.
+    == Table of contents ==
 
-    Because elements are addressed by their role and attributes — not only their name or a stable
-    id, but also their state, geometry, and even raw technology-specific (native) values — rather
-    than by fixed coordinates, selectors keep matching even when a window moves or is resized.
+    %TOC%
 
-    = Querying the UI tree =
+    = Elements and attributes =
 
-    `Query` is the heart of the library: you give it an XPath 2.0 expression and it evaluates it
-    against the *live* UI tree, so it does far more than find an element. An element's name in the
-    path is its *role* (``Button``, ``Window``, ``CheckBox`` ...) and its data is exposed as
-    *attributes* such as ``@Name`` and ``@Id`` (see *Common attributes* below). From a single
-    expression you can locate one element or many, count them, read an attribute's value across many
-    elements at once, or compute a value or condition:
+    Everything you automate is an *element* — a window, a button, a list, a single row in that list,
+    a text box. PlatynUI presents the whole desktop as one tree of these elements: each running
+    application is a branch, and the elements inside it are the branches below. The tree is live: it
+    always reflects what is on screen at that moment, so as an application opens a window, loads
+    content or closes a dialog, elements appear in and vanish from the tree with it. Every query is
+    answered against this current state, never a stored snapshot.
 
-    | ${ok}=      | Query | //Button[@Name="OK"] | only_first=${True} |
-    | @{buttons}= | Query | //Button |
-    | ${n}=       | Query | count(//Button) | only_first=${True} |
-    | @{names}=   | Query | //Button/@Name |
-    | ${joined}=  | Query | string-join(//Button/@Name, ", ") | only_first=${True} |
+    Every element has a *role* and a set of *attributes*.
 
-    == What a query returns ==
+    An element's *role* is the kind of thing it is — ``Button``, ``Window``, ``List``, ``ListItem``
+    — and it is the name you write for the element in a path. The role is what makes a selector
+    portable: a confirmation button is a ``Button`` whether it sits in a toolbar or a dialog, on
+    Windows or on Linux, so the same path keeps matching it across applications and platforms.
 
-    An XPath query does not return a single element — it produces a *sequence* of results, the
-    XPath 2.0 equivalent of a result set. The engine builds that sequence lazily: it walks the tree
-    and, each time the expression matches, yields that result and carries on searching. Robot
-    Framework has no lazy or streaming value, so `Query` collects the whole sequence and hands it
-    back as an ordinary **list** — empty when nothing matched, one entry per match otherwise. You
-    can therefore loop over it like any other Robot Framework list:
-
-    | @{buttons}= | Query | //Button |
-    | FOR | ${button} | IN | @{buttons} |
-    |     | Pointer Click | ${button} |
-    | END |
-
-    Most of the time you want exactly one element, so pass ``only_first=${True}``. `Query` then
-    returns just the first result — stopping the search as soon as it is found — or ``${None}`` if
-    the sequence is empty, which is also how you check that something is absent. `Query` never
-    waits: it always reports the *current* state of the tree and returns immediately, even when
-    nothing matches yet.
-
-    A result is one of three kinds, depending on what the expression selects.
-
-    *An element* (a node), when the last step selects elements — ``//Button`` or
-    ``.../parent::*``. This is a live handle to the UI element: pass it to any keyword that expects
-    an element, and read its basics directly with Robot Framework's variable syntax — ``${el.role}``,
-    ``${el.name}``, ``${el.id}`` (the stable id, empty if the application sets none) and
-    ``${el.runtime_id}``.
-
-    | ${win}=       | Query | /Window[@Name="Settings"] | only_first=${True} |
-    | Log           | ${win.role} at ${win.runtime_id} |
-    | Pointer Click | ${win} |
-
-    *An attribute*, when the expression ends in an attribute step (``.../@Name``). This is not a
-    bare string but an object describing one attribute of one element: ``${attr.value}`` is its
-    value, ``${attr.name}`` and ``${attr.namespace}`` tell you which attribute it is, and
-    ``${attr.owner()}`` is the element it was read from. The owner matters when you read an
-    attribute across many elements at once — each result still knows where it came from:
-
-    | @{names}= | Query | //item:ListItem/@item:Name |
-    | FOR | ${a} | IN | @{names} |
-    |     | Log | ${a.value} belongs to ${a.owner().name} |
-    | END |
-
-    The value is typed, not always a string: ``@Name`` gives a string, ``@IsEnabled`` a boolean,
-    and ``@Bounds`` a ``Rect`` (with ``x``, ``y``, ``width`` and ``height``) — so ``${attr.value}``
-    is ready to use as the right type, without parsing.
-
-    *A value*, when the expression computes something rather than selecting nodes —
-    ``count(//Button)``, ``string-join(//Button/@Name, ", ")``, or a comparison such as
-    ``count(//Window[@Name="Error"]) = 0``. You get the plain number, string or boolean back, ready
-    to use or to assert on.
-
-    == Searching the tree ==
-
-    A path is a series of steps separated by ``/``. ``//`` matches at any depth below the context,
-    a single ``/`` matches a direct child, ``.`` is the current element, ``..`` its parent, and
-    ``*`` matches any role. Top-level windows are direct children of the desktop, so address them
-    with a single leading ``/`` — ``//`` would scan the whole tree and can also match windows
-    nested deeper:
-
-    | Pointer Click | /Window[@Name="Settings"]//Button[@Name="Save"] |
-    | ${first}=     | Query | /Window[@Name="Settings"]/*[1] | only_first=${True} |
-    | @{rows}=      | Query | //control:List[@Name="Inbox"]/item:ListItem |
-
-    == Scoping a query to a parent ==
-
-    Every query is evaluated against a *context node* — by default the desktop. Pass an element you
-    captured earlier as the ``root`` argument and the query runs against that element instead, which
-    is the natural way to find a container once and then drill into it:
-
-    | ${list}=  | Query | //control:List[@Name="Inbox"] | only_first=${True} |
-    | @{items}= | Query | .//item:ListItem | root=${list} |
-    | ${first}= | Query | .//item:ListItem | root=${list} | only_first=${True} |
-
-    Only *relative* expressions are scoped to the ``root``: ``.//`` and ``./`` (and named axes such
-    as ``child::``) search inside it. An *absolute* ``//`` still starts at the desktop and ignores
-    the ``root`` — ``//item:ListItem`` returns every list item on the desktop, not just the ones
-    under ``${list}``. `Set Root` applies the same idea as a persistent default: set once, it scopes
-    every following query (and the elements the action keywords resolve) until you change or clear
-    it.
-
-    == Matching with predicates ==
-
-    A predicate in ``[...]`` filters a step. Match exactly, partially, by regular expression, by
-    several conditions, or by position:
-
-    | Pointer Click | //Button[@Name="OK"] |
-    | Pointer Click | //Button[starts-with(@Name, "Save")] |
-    | Pointer Click | //Button[contains(@Name, "Export")] |
-    | Pointer Click | //CheckBox[matches(@Name, "Option [0-9]+")] |
-    | Pointer Click | //Button[@Name="OK" or @Name="Ok"] |
-    | Pointer Click | (//Button)[1] |
-    | Pointer Click | (//Button)[last()] |
-
-    Besides ``count()``, ``contains()``, ``starts-with()`` and ``matches()`` (regular expressions),
-    the usual XPath 2.0 string, numeric and boolean functions are available.
-
-    A plain ``=`` compares the whole value exactly and is case-sensitive, so a different casing or a
-    stray space will not match — use ``contains()`` or ``starts-with()`` for partial text.
-
-    == Namespaces ==
-
-    Element and attribute names live in one of four namespaces, written as a prefix:
-
-    | = Prefix = | = Selects = |
-    | ``control:`` | controls; the *default*, so ``//Button`` equals ``//control:Button`` |
-    | ``item:`` | items inside containers: ``ListItem``, ``MenuItem``, ``TabItem``, ``TableCell`` ... |
-    | ``app:`` | a running application/process; groups its windows and controls |
-    | ``native:`` | raw, technology-specific roles and attributes |
-
-    An attribute usually lives in the same namespace as its element. Control attributes are written
-    without a prefix (``@Name``, ``@Id``); an item's, application's or native attribute carries its
-    prefix — ``@item:Name``, ``@app:Name``:
-
-    | Pointer Click | //item:ListItem[@item:Name="Run Tests"] |
-
-    == Targeting a specific application ==
-
-    The tree contains more than windows and controls: every running application is itself a node, in
-    the ``app:`` namespace. The windows and controls a program owns appear beneath its
-    ``app:Application`` node — so the same window is reachable two ways, directly under the desktop
-    and under the application that owns it.
-
-    That second path is what the ``app:`` namespace is for. An ``app:Application`` node identifies
-    the *program* — by its name or process — independently of how many windows it has or what they
-    are titled. So when several programs are open, or one program owns several windows, anchoring to
-    its application node is the reliable way to keep a query, or the root (`Set Root`), inside that
-    one program:
-
-    | Pointer Click | //app:Application[@app:Name="Notepad"]//Button[@Name="Save"] |
-    | Set Root      | //app:Application[@app:Name="Notepad"] |
-
-    Because the node represents the process, it also exposes process details such as its name,
-    process id and executable path. When you started the program yourself and know its process id,
-    matching on that id pins every query to exactly that instance — even when several copies of the
-    same program are running:
-
-    | ${handle}= | Start Process | myapp.exe |
-    | ${pid}=    | Get Process Id | ${handle} |
-    | Set Root   | //app:Application[@ProcessId=${pid}] |
-
-    (``ProcessId`` has no namespace prefix and is a number — write ``@ProcessId=${pid}``, without a
-    prefix or quotes.)
-
-    == Navigating with axes ==
-
-    Steps can walk in any direction, which lets you start from an element you can name and reach a
-    related one — for instance the window that contains a button, an element's parent, or its
-    siblings:
-
-    | ${win}=  | Query | //Button[@Name="OK"]/ancestor::control:Window | only_first=${True} |
-    | ${list}= | Query | //item:ListItem[@item:Name="Run Tests"]/parent::* | only_first=${True} |
-    | @{rest}= | Query | //item:ListItem[@item:Name="Inbox"]/following-sibling::item:ListItem |
-
-    Other axes include ``child::``, ``descendant::``, ``ancestor-or-self::``, ``preceding-sibling::``
-    and ``following::``.
-
-    == Reading values ==
-
-    To read one attribute of a single element, `Get Attribute` is usually simplest — and it can
-    assert on the value (see *Assertions*):
-
-    | ${name}= | Get Attribute | /Window[@Name="Settings"] | Name |
-
-    Inside a query you can select an attribute and read it with ``${attr.value}``, or compute a
-    value with ``count(...)``, ``string-join(...)`` and the other XPath functions (see *What a query
-    returns*):
-
-    | ${attr}= | Query | /Window[@Name="Settings"]/@Id | only_first=${True} |
-    | Log      | ${attr.value} |
-
-    == Common attributes ==
-
-    The attributes you will reach for most in predicates and with `Get Attribute`:
+    An element's *attributes* are the facts about it — what it is called, whether it can be used,
+    where it sits on screen. You use them two ways: you *filter* on an attribute to single out the
+    element you mean (two buttons that differ only by their ``@Name``), and you *read* an attribute
+    to check the application's state (is this checkbox enabled, what does that label say). An
+    attribute is always written with a leading ``@``. The ones you reach for most often:
 
     | = Attribute = | = Meaning = |
     | ``@Name`` | the visible label or caption |
     | ``@Id`` | a stable, language-independent identifier — prefer it when it is set |
+    | ``@Role`` | the element's kind, the same name you use for it in a path |
     | ``@Bounds`` | the element's screen rectangle |
-    | ``@IsVisible``, ``@IsEnabled`` | whether the element is shown / can be interacted with |
+    | ``@IsVisible`` | whether the element is currently shown |
+    | ``@IsEnabled`` | whether the element can be interacted with |
+    | ``@IsFocused`` | whether the element currently holds the keyboard focus |
 
-    Which attributes an element has depends on the kind of element, so not every attribute is
-    available everywhere. Role and attribute names also depend on the application and platform; use
-    the PlatynUI Inspector to discover the ones your target exposes.
+    These few are *standard*: PlatynUI gives them the same name on every platform, so a path that
+    filters on ``@Name`` or ``@IsEnabled`` behaves the same on Windows and on Linux. They are not
+    the whole story, though. An element also carries whatever else fits it — a slider its value, a
+    selectable row whether it is selected, a window whether it is ``@IsActive``, ``@IsMinimized`` or
+    ``@IsMaximized``, an application its process details. And beneath the standard set it can surface
+    raw, technology-specific values straight from the accessibility platform under the ``native:``
+    prefix; those are passed through untouched and differ from one platform to the next. Which
+    attributes a target actually offers therefore depends on the application and the platform
+    underneath it; the PlatynUI Inspector shows exactly what a given element exposes and is the
+    source of truth.
+
+    == Namespaces ==
+
+    A role belongs to one of four namespaces, written as a prefix. ``control:`` is the default for
+    element names — ``//Button`` is ``//control:Button`` — so only the others are spelled out:
+
+    | = Prefix = | = Selects = |
+    | ``control:`` | ordinary elements — the default |
+    | ``item:`` | items inside containers: ``ListItem``, ``MenuItem``, ``TabItem``, ``TableCell`` ... |
+    | ``app:`` | a running application (see *Targeting a specific application*) |
+    | ``native:`` | raw, technology-specific roles and attributes |
+
+    Attributes have no default namespace (unlike element names), so a standard attribute is written
+    bare — ``@Name``, ``@Id``, ``@Bounds`` — and a namespaced one with its prefix (an application's
+    process details as ``@app:...``, raw values as ``@native:...``).
+
+    | @{rows}=    `Query`    //List[@Name="Inbox"]/item:ListItem
+
+    = Finding elements =
+
+    `Query` evaluates an XPath 2.0 expression against the live tree. You select an element by its
+    role and filter on its attributes in ``[...]`` — exactly, partially, by regular expression, or by
+    position:
+
+    | `Pointer Click`    //Button[@Name="OK"]    # exact
+    | `Keyboard Type`    //Edit[starts-with(@Name, "Address")]    12 Main St    # partial
+    | `Get Attribute`    //CheckBox[matches(@Name, "Option [0-9]+")]    IsEnabled    # regular expression
+    | `Pointer Click`    (//Button)[last()]    # by position
+
+    Top-level windows are children of the desktop, so a single leading ``/`` is enough to reach
+    them; ``//Window`` would also match windows nested inside others (the *Steps and axes* below
+    cover ``/``, ``//`` and the rest):
+
+    | `Pointer Click`    /Window[@Name="Settings"]//Button[@Name="Save"]
+
+    ``=`` is exact and case-sensitive; use ``contains()``, ``starts-with()`` or ``matches()`` for
+    partial text. The usual XPath 2.0 string, numeric and boolean functions are available.
+
+    To match on more than one fact, combine conditions with ``and`` / ``or`` in one predicate, or
+    chain predicates. A boolean attribute such as ``@IsVisible`` is compared with ``true()`` or
+    ``false()`` — not the strings ``"true"``/``"false"``:
+
+    | `Pointer Click`    //Button[@Name="Save" and @IsVisible=true()]    # named *and* visible
+    | `Pointer Click`    //Button[@Name="OK" or @Name="Yes"]    # either label
+
+    == Steps and axes ==
+
+    A path is a series of *steps* separated by ``/``, and each step moves from where you are now to
+    elements in one direction — that direction is its *axis*. The forms you have already seen are
+    the everyday ones, written in shorthand:
+
+    | = Step = | = Moves to = |
+    | ``/`` | the direct children, one level down |
+    | ``//`` | any descendant, at any depth below |
+    | ``.`` | the current element itself |
+    | ``..`` | the parent |
+    | ``@`` | an attribute of the current element (a value, not another element) |
+    | ``*`` | any element, whatever its role |
+
+    A leading ``/`` or ``//`` starts from the desktop, so the path is *absolute*; a leading ``.`` or
+    ``..`` starts from the current root, so it is *relative* — this is the distinction
+    *Scoping queries to a container* builds on.
+
+    When you need a direction the shorthand has no symbol for — an ancestor, a sibling — name the
+    axis in full as ``axis::Role``:
+
+    | ${dialog}=    `Query`    //Button[@Name="OK"]/ancestor::Dialog    only_first=${True}
+    | @{later}=     `Query`    //item:ListItem[@Name="Today"]/following-sibling::item:ListItem
+
+    The named axes are ``child::``, ``descendant::``, ``parent::``, ``ancestor::``,
+    ``ancestor-or-self::``, ``following-sibling::``, ``preceding-sibling::`` and ``following::``.
 
     = Acting on elements =
 
-    Once a query has located an element, the other keywords act on it: move the pointer and click,
-    type on the keyboard, set focus, control windows (move, resize, minimize, maximize, activate,
-    close), capture screenshots, and highlight it. Wherever a keyword expects an element you may pass
-    either a selector string or an element you captured earlier with `Query`:
+    The action keywords — pointer (click, press, move), keyboard, focus, window control (move,
+    resize, minimize, maximize, activate, close), screenshots and highlight — take either a selector
+    or an element you captured with `Query`. Each waits for its target (see *Waiting for elements*):
 
-    | Pointer Click | //Button[@Name="OK"] |
-    | ${ok}=        | Query | //Button[@Name="OK"] | only_first=${True} |
-    | Pointer Click | ${ok} |
+    | `Pointer Click`     //Button[@Name="New"]
+    | `Keyboard Type`     //Edit[@Name="Title"]    Q3 Report
+    | `Maximize Window`   //Window[@Name="Editor"]
 
-    Unlike `Query`, these keywords wait for their element to appear before acting (see *Waiting for
-    elements*).
+    Or capture an element once with `Query` and reuse it — every keyword takes it the same way:
 
-    = Scoping queries with Set Root =
+    | ${save}=    `Query`    //Button[@Name="Save"]    only_first=${True}
+    | `Pointer Click`    ${save}
+    | `Highlight`        ${save}
 
-    `Set Root` sets a default context node, so you do not have to repeat a long
-    ``//app:Application[...]//...`` prefix on every selector. Once it is set, every *relative*
-    selector (``.//``, ``./``) searches inside that node — both in `Query` (when you do not pass an
-    explicit ``root``) and in the elements the action keywords resolve. As with a per-call
-    ``root``, an absolute ``//`` still starts at the desktop and ignores it.
+    = What a query gives you =
 
-    `Set Root` returns the previous root, so you can set one for a block of steps and put the old
-    one back afterwards; ``Set Root    ${None}`` clears it and returns to the desktop. For a single
-    query, pass ``root=`` to `Query` instead (see *Scoping a query to a parent*).
+    `Query` returns a list: empty if nothing matched, one entry per match. Pass ``only_first=${True}``
+    for just the first match, or ``${None}`` when there is none — the way to check that something is
+    absent. The expression's last step decides what each entry is:
 
-    | ${dialog}=    | Query | /Window[@Name="Settings"] | only_first=${True} |
-    | ${previous}=  | Set Root | ${dialog} |
-    | Pointer Click | .//Button[@Name="Apply"] |
-    | Set Root      | ${previous} |
+    - an *element*, when it selects nodes (``//Button``) — a handle for the action keywords, exposing
+      ``${el.role}``, ``${el.name}``, ``${el.id}`` and ``${el.runtime_id}``;
+    - an *attribute*, when it ends in an attribute step (``.../@Name``) — ``${attr.value}`` holds the
+      typed value (``@IsEnabled`` a boolean, ``@Bounds`` a ``Rect``) and ``${attr.owner()}`` the
+      element it belongs to;
+    - a plain *value*, when it computes one — ``count(//Button)`` or ``string-join(//Button/@Name, ", ")``.
 
-    == How the root is scoped ==
+    | @{buttons}=    `Query`    //Button    # elements
+    | @{names}=      `Query`    //Button/@Name    # attributes
+    | ${n}=          `Query`    count(//Button)    only_first=${True}    # a value
 
-    The root is stored as a Robot Framework variable. This is deliberate: its lifetime then follows
-    Robot Framework's ordinary variable scoping, so it behaves predictably and cleans up after
-    itself.
+    The attribute step is just another step, so two more things follow. Walk an axis before it and
+    you read from a *related* element rather than the matched one — the name of the window a button
+    sits in is its ``ancestor::Window/@Name``. And since ``//Button/@Name`` above already yields one
+    name per button, ``string-join(...)`` folds them into a single string:
 
-    - It applies to the rest of the *current* test — a root set in a test's ``[Setup]`` or in its
-      body covers that body.
-    - It is *local*: it does not reach into the keywords you call. A called keyword keeps the
-      default (or whatever root it sets for itself), so a caller's root never silently changes what
-      a shared keyword does; a `Set Root` inside a keyword is local to that keyword.
-    - It is cleared automatically when the test (or keyword) ends, so a root set in one test never
-      leaks into the next — there is no teardown to remember.
+    | ${window}=    `Query`    //Button[@Name="OK"]/ancestor::Window/@Name    only_first=${True}    # its window's name
+    | ${names}=     `Query`    string-join(//Button/@Name, ", ")    only_first=${True}    # "OK, Cancel, ..."
 
-    Because `Set Root` stores the *query*, not a fixed node, the root is re-resolved against the
-    live tree whenever it is used — so it keeps working even if its window is closed and reopened.
+    = Reading and checking values =
+
+    `Get Attribute` reads one attribute of one element and, in the same call, can assert on it: add
+    an operator and the expected value, and the keyword fails if it does not hold.
+
+    | ${enabled}=    `Get Attribute`    //Button[@Name="Save"]    IsEnabled
+    | `Get Attribute`    //Button[@Name="Save"]         IsEnabled    ==    ${True}
+    | `Get Attribute`    //CheckBox[@Name="Dark mode"]  IsEnabled    ==    ${False}
+
+    Operators include ``==``, ``!=``, ``contains``, ``starts``, ``ends`` and ``matches`` (see
+    [https://github.com/MarketSquare/AssertionEngine|AssertionEngine]). For several values at once,
+    or a computed one, read them through `Query` instead.
+
+    = Scoping queries to a container =
+
+    Every query runs against a *context node*, the desktop by default. Scope it to a container you
+    found and relative selectors (``.//``, ``./``, axes like ``child::``) search inside it; an
+    absolute ``//`` ignores the context and starts again at the desktop.
+
+    For one query, pass ``root``:
+
+    | ${inbox}=    `Query`    //List[@Name="Inbox"]    only_first=${True}
+    | @{items}=    `Query`    .//item:ListItem    root=${inbox}
+
+    `Set Root` makes a root the default for everything that follows, so you stop repeating a long
+    prefix. A new `Set Root` is itself resolved against the current one: a relative root narrows it
+    step by step (``..`` widens again), an absolute root switches away. It returns the previous root,
+    and ``Set Root    ${None}`` clears it back to the desktop:
+
+    | `Set Root`        //app:Application[@Name="Editor"]    # work inside the Editor from here on
+    | `Set Root`        .//Dialog[@Name="Save"]              # narrow to its Save dialog
+    | `Pointer Click`   .//Button[@Name="Save"]
+
+    == Scope ==
+
+    A root lives as long as the Robot Framework variable it is kept in; ``scope`` chooses which, and
+    each scope clears itself when it ends — no teardown to remember:
+
+    | = scope = | = The root applies to = |
+    | ``LOCAL`` (default) | the current test or keyword, not the keywords it calls |
+    | ``TEST`` | the whole test, including called keywords |
+    | ``SUITE`` | every test in the suite |
+
+    | `Set Root`    //app:Application[@Name="Editor"]    scope=SUITE
+
+    The root stores the *query*, not a fixed node, so it re-resolves against the live tree and keeps
+    working even after its window closes and reopens. (It lives in ``${PLATYNUI_ROOT_DESCRIPTOR}``,
+    but set it through `Set Root` — the raw variable holds an internal descriptor.)
+
+    = Targeting a specific application =
+
+    When several programs are open, anchor your selectors to the program itself so they cannot drift
+    into the wrong one. Each application is an *application element* in the ``app:`` namespace, with
+    the windows and elements it owns beneath it, so matching its name scopes everything below it to
+    that program. Either prefix a single query with it:
+
+    | `Pointer Click`    //app:Application[@Name="Editor"]//Button[@Name="Save"]
+
+    or make it the root, so every relative selector that follows stays inside that program:
+
+    | `Set Root`        //app:Application[@Name="Editor"]
+    | `Pointer Click`   .//Button[@Name="Save"]
+
+    The node also carries the process. If you launched the program and know its process id, matching
+    on it pins the query to that one instance even when several copies run (``ProcessId`` is a number
+    — no prefix, no quotes; ``Start Process`` and ``Get Process Id`` are Robot Framework's built-in
+    Process keywords):
+
+    | ${proc}=    Start Process     editor
+    | ${pid}=     Get Process Id    ${proc}
+    | `Set Root`    //app:Application[@ProcessId=${pid}]
 
     = Waiting for elements =
 
-    Keywords that act on or read an element wait for it automatically: when the element is not on
-    screen yet, the lookup keeps retrying for up to 30 seconds before failing the keyword, so you
-    usually do not need explicit sleeps while the UI catches up.
+    Action and read keywords wait for their target: while it is missing the lookup retries for up to
+    30 seconds before the keyword fails, so you rarely need explicit sleeps. `Query` is the exception
+    — it reports the tree as it is at that moment and returns immediately, even when nothing matches.
 
-    `Query` is the exception: it always reports the *current* state and never waits — it returns
-    immediately, even when nothing matches yet.
+    = Input timing and motion =
 
-    = Assertions =
+    BareMetal generates real keystrokes and pointer movements. Out of the box they are quick and
+    direct, which suits most automation — but you can slow them down or shape them when an
+    application needs a moment to settle between inputs, when you want human-like pointer movement,
+    or when a screen recording should be easy to follow.
 
-    Keywords that read a value — such as `Get Attribute` and `Get Pointer Position` — can check it
-    in the same call: add an assertion operator and the expected value. The keyword still returns
-    the value, and fails if the assertion does not hold.
+    There are two places to tune this. ``keyboard_profile``, ``pointer_settings`` and
+    ``pointer_profile`` set the defaults for the whole suite when you import the library; every
+    keyboard and pointer keyword also takes an ``overrides`` argument that adjusts a single call.
+    Each is a dict, you name only the fields you want to change, and a per-call ``overrides`` wins
+    over the profile for that one call.
 
-    | Get Attribute | //CheckBox[@Name="Dark mode"] | IsEnabled | == | ${True} |
-    | Get Attribute | /Window | Name | contains | Settings |
+    == Keyboard timing ==
 
-    Common operators are ``==``, ``!=``, ``contains``, ``starts``, ``ends`` and ``matches`` — see
-    [https://github.com/MarketSquare/AssertionEngine|AssertionEngine] for the full set.
+    ``keyboard_profile`` and the keyboard keywords' ``overrides`` share these millisecond delays:
+
+    | = Field = | = Delay = |
+    | ``press_delay_ms`` | after a key is pressed, before it is released |
+    | ``release_delay_ms`` | after a key is released |
+    | ``between_keys_delay_ms`` | between one key and the next |
+    | ``chord_press_delay_ms`` | between presses within a modifier chord |
+    | ``chord_release_delay_ms`` | between releases within a chord |
+    | ``after_sequence_delay_ms`` | after the whole key sequence |
+    | ``after_text_delay_ms`` | after typed text |
+
+    | Library    PlatynUI.BareMetal    keyboard_profile={'press_delay_ms': 20, 'between_keys_delay_ms': 30}
+    | `Keyboard Type`    //Edit[@Name="PIN"]    1234    overrides={'between_keys_delay_ms': 200}
+
+    == Pointer clicks ==
+
+    ``pointer_settings`` holds the click semantics:
+
+    | = Field = | = Meaning = |
+    | ``double_click_time_ms`` | how quickly two clicks count as a double-click |
+    | ``double_click_size`` | how close together the two clicks must land |
+    | ``default_button`` | the button a click uses when none is given |
+
+    | Library    PlatynUI.BareMetal    pointer_settings={'double_click_time_ms': 400}
+
+    == Pointer motion ==
+
+    ``pointer_profile`` and the pointer keywords' ``overrides`` shape how the pointer travels.
+    ``motion`` picks the path:
+
+    | = Mode = | = Path to the target = |
+    | ``DIRECT`` | jump straight there, no visible travel |
+    | ``LINEAR`` | a straight line |
+    | ``BEZIER`` | a curved line |
+    | ``OVERSHOOT`` | overshoot, then settle back |
+    | ``JITTER`` | a straight line with a small wobble |
+
+    These knobs refine the movement and the click pacing:
+
+    | = Field = | = Effect = |
+    | ``speed_factor`` | scales the overall movement speed |
+    | ``overshoot_ratio`` | how far an ``OVERSHOOT`` goes past the target |
+    | ``curve_amplitude`` | how pronounced the ``BEZIER`` curve is |
+    | ``jitter_amplitude`` | the size of the ``JITTER`` wobble |
+    | ``multi_click_delay_ms`` | the pause between clicks of a multi-click |
+
+    | Library    PlatynUI.BareMetal    pointer_profile={'motion': 'BEZIER', 'speed_factor': 0.5}
+    | `Pointer Click`    //Button[@Name="Save"]    overrides={'speed_factor': 0.3}
 
     = A short example =
 
-    | Pointer Click   | //Button[@Name="New"] |
-    | Keyboard Type   | ${None} | Report 2024 |
-    | ${name}=        | Get Attribute | /Window[@Name="Report 2024"] | Name |
-    | Take Screenshot |
+    | `Pointer Click`     //Button[@Name="New"]                      # start a new document
+    | `Keyboard Type`     ${None}    Q3 Report                       # type into the focused field
+    | `Get Attribute`     //Button[@Name="Save"]    IsEnabled    ==    ${True}    # Save is enabled now
+    | `Take Screenshot`
     """
 
     def __init__(
@@ -430,27 +477,28 @@ class BareMetal(OurDynamicCore):
         keyboard_profile: KeyboardProfileLike | None = None,
         pointer_settings: PointerSettingsLike | None = None,
         pointer_profile: PointerProfileLike | None = None,
-        use_mock: bool = False,
         auto_activate: bool = True,
+        use_mock: bool = False,
     ) -> None:
-        """Import the library.
+        """Import the library, optionally tuning window activation and input behaviour.
 
-        In the simplest case import it without arguments:
+        | Library    PlatynUI.BareMetal
 
-        | Library | PlatynUI.BareMetal |
+        All arguments are optional. ``auto_activate`` governs window raising; the three *profile*
+        arguments set the default timing and motion of generated input, each given as a dict of the
+        fields you want to change (see *Input timing and motion*):
 
-        The optional settings configure default input behaviour or select a mock backend:
+        | = Argument = | = What it does = |
+        | ``auto_activate`` | bring an element's window to the front before a pointer action — default ``True`` |
+        | ``keyboard_profile`` | keyboard *timing*: delays around key presses, chords and whole sequences |
+        | ``pointer_settings`` | pointer *behaviour*: double-click interval and size, and the default button |
+        | ``pointer_profile`` | pointer *motion*: speed, acceleration, curve, overshoot and jitter |
 
-        | Library | PlatynUI.BareMetal | auto_activate=${False} |
-        | Library | PlatynUI.BareMetal | use_mock=${True} |
-        | Library | PlatynUI.BareMetal | pointer_profile=${POINTER_PROFILE} |
+        | Library    PlatynUI.BareMetal    auto_activate=${False}    pointer_profile={'speed_factor': 0.5}
 
-        Arguments:
-        - ``keyboard_profile`` - default keyboard timing (a ``KeyboardProfile`` or a dict of its fields).
-        - ``pointer_settings`` - default pointer settings (a ``PointerSettings`` or a dict).
-        - ``pointer_profile`` - default pointer motion profile (a ``PointerProfile`` or a dict).
-        - ``use_mock`` - use an in-process mock backend instead of the real desktop, for tests. Default ``False``.
-        - ``auto_activate`` - bring an element's window to the front before pointer actions. Default ``True``.
+        ``use_mock`` exists only for PlatynUI's own development and test suites — it drives a built-in
+        stand-in tree instead of the real desktop. Leave it at its default; it is not meant for
+        automating applications.
         """
         super().__init__([])
         self._screenshot_counter = 1
@@ -522,31 +570,78 @@ class BareMetal(OurDynamicCore):
         return None
 
     @keyword
-    def set_root(self, descriptor: UiNodeDescriptor | None) -> UiNodeDescriptor | None:
-        """Set the root UiNode for subsequent queries.
+    def set_root(
+        self, descriptor: UiNodeDescriptor | None, scope: Literal['LOCAL', 'TEST', 'SUITE'] = 'LOCAL'
+    ) -> UiNodeDescriptor | None:
+        """Set the default root that subsequent *relative* selectors resolve against.
+
+        A *relative* selector (``.//``, ``./``, ``..``, ``.``) is resolved against the current root
+        and drills *into* it; an *absolute* selector (``//``, ``/``) ignores it and starts at the
+        desktop. Roots chain, so you can narrow step by step; ``Set Root    ${None}`` resets to the
+        desktop. See *Scoping queries to a container* for the full picture, including scope.
 
         Args:
-            descriptor: A UiNodeDescriptor representing the node to set as the new root.
-                        If None, resets to the default runtime context (desktop).
+            descriptor: The new root — a selector string, a ``UiNode`` or descriptor (e.g. one
+                returned by another query), or a root previously returned by this keyword (restored
+                unchanged). Pass ``${None}`` to reset to the desktop.
+            scope: Lifetime of the root: ``LOCAL`` (default, current test/keyword only), ``TEST``
+                (whole test, including called keywords) or ``SUITE`` (every test in the suite).
 
         Returns:
-            UiNodeDescriptor | None: The previous root descriptor, or None if no root
-            was set. Useful for saving and later restoring the root.
+            UiNodeDescriptor | None: The root set at the same ``scope`` before this call (``None`` if
+            none). Pass it back at that scope to restore it.
 
         Examples:
-            | ${window}= | Query    | //control:Window[@Name="Settings"] | only_first=${True} |
-            | ${old}=    | Set Root | ${window} |
-            | ...        |
-            | Set Root   | ${old}   |
-
+            | `Set Root`        //app:Application[@Name="Editor"]    scope=SUITE    # whole suite runs in the Editor
+            | `Set Root`        .//Dialog[@Name="Save"]    # drill into the Save dialog
+            | `Pointer Click`   .//Button[@Name="OK"]    # acts relative to the dialog
+            | `Set Root`        ${None}    # reset to the desktop
         """
-        old_root = (
-            EXECUTION_CONTEXTS.current.variables[f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}']  # pyright: ignore[reportOptionalMemberAccess]
-            if PLATYNUI_ROOT_DESCRIPTOR in EXECUTION_CONTEXTS.current.variables  # pyright: ignore[reportOptionalMemberAccess]
-            else None
-        )
+        variables = EXECUTION_CONTEXTS.current.variables  # pyright: ignore[reportOptionalMemberAccess]
+        name = f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}'
 
-        EXECUTION_CONTEXTS.current.variables[f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}'] = descriptor  # pyright: ignore[reportOptionalMemberAccess]
+        # Set the scope variables directly rather than via BuiltIn(), which would log in the wrong
+        # step context and run the selector through Robot's variable-syntax resolution.
+        suite_vars = getattr(variables, '_suite', None)  # pyright: ignore[reportUnknownArgumentType]
+        test_vars = getattr(variables, '_test', None)  # pyright: ignore[reportUnknownArgumentType]
+        if scope == 'LOCAL':
+            scope_store = variables.current
+        elif scope == 'TEST':
+            scope_store = test_vars if test_vars is not None else suite_vars
+        else:  # 'SUITE'
+            scope_store = suite_vars
+        if scope_store is None:  # only if Robot has no suite scope yet (not during keyword execution)
+            scope_store = variables.current
+
+        # old_root is read from the requested scope (so a same-scope restore is exact); effective_root
+        # is the currently visible root that relative drilling resolves against.
+        old_root: UiNodeDescriptor | None = scope_store.get(name)
+        effective_root = variables.current.get(name)
+
+        if descriptor is None:
+            new_root: UiNodeDescriptor | None = None
+        elif descriptor.is_root_binding:
+            new_root = descriptor
+        else:
+            # A context-dependent selector drills into the effective root (captured as parent); an
+            # independent one starts fresh.
+            query = descriptor.query
+            try:
+                context_dependent = query is not None and self.runtime.is_context_dependent(query)
+            except EvaluationError as e:
+                raise InvalidSelectorError(f'Invalid selector for Set Root: {query!r} ({e})') from e
+            parent = effective_root if context_dependent and isinstance(effective_root, UiNodeDescriptor) else None
+            # A query binding must re-resolve against its captured parent, so never copy the shared
+            # descriptor's cached node into it; keep a concrete node only when there is no query.
+            node = descriptor.node if descriptor.query is None else None
+            new_root = UiNodeDescriptor(node, descriptor.query, self, parent=parent, is_root_binding=True)
+
+        if scope == 'LOCAL':
+            variables.set_local(name, new_root)
+        elif scope == 'TEST':
+            variables.set_test(name, new_root)
+        else:  # 'SUITE'
+            variables.set_suite(name, new_root)
 
         return old_root
 
@@ -557,30 +652,20 @@ class BareMetal(OurDynamicCore):
         root: UiNode | None = None,
         only_first: bool = False,
     ) -> Any:
-        """Evaluate a PlatynUI XPath 2.0 expression against the live UI tree.
+        """Evaluate an XPath 2.0 expression against the live UI tree and return what it selects.
 
-        Args:
-            expression: XPath 2.0 selector/expression to evaluate. Examples:
-                //control:Button[@Name="OK"], count(//control:Text).
-            root: Optional evaluation root. If None, the runtime default
-                context is used (e.g., desktop or current application).
-            only_first: If True, return only the first match (or ``None`` when there is no match). If False,
-                return all matches or the computed value of the expression.
+        Returns a list — one entry per match, empty when nothing matches. Pass
+        ``only_first=${True}`` for just the first match, which is ``${None}`` when there is none.
+        What each entry is — an element, an attribute, or a computed value — is explained in
+        *What a query gives you*; how to write the expression is explained in *Finding elements*.
 
-        Returns:
-            Any: When only_first is True, a single ``UiNode`` / value (or ``None`` if there is
-            no match). Otherwise a list of nodes/values. Expressions that compute a value
-            (e.g. ``count(...)``) return that value (int/float/str/bool) rather than nodes.
-            Errors from the native runtime are propagated.
+        Unlike the action keywords, `Query` does not wait: it reports the tree as it is at that
+        moment and returns immediately, even when nothing matches. Pass ``root`` to scope it to a
+        container (see *Scoping queries to a container*).
 
-        Examples:
-            | ${buttons}=    Query    //control:Button |
-            | ${ok}=         Query    //control:Button[@Name="OK"]    only_first=${True} |
-            | ${count}=      Query    count(//control:Button) |
-
-        Notes:
-            - Namespaces follow PlatynUI defaults (e.g., control); qualify names when needed.
-            - Read-only: This keyword does not modify UI state.
+        | @{buttons}=    `Query`    //Button
+        | ${ok}=         `Query`    //Button[@Name="OK"]    only_first=${True}
+        | ${count}=      `Query`    count(//Button)    only_first=${True}
         """
 
         if root is None:
@@ -697,29 +782,27 @@ class BareMetal(OurDynamicCore):
         overrides: PointerOverridesLike | None = None,
         activate: bool | None = None,
     ) -> None:
-        """Click at absolute or element-relative screen coordinates.
+        """Click on an element, or at screen coordinates.
+
+        The pointer keywords work out where to act from the element and the optional ``x``/``y``:
+        with an element and no ``x``/``y`` the click lands on the element itself (its activation
+        point, or the center of its bounds if it has none); with ``x``/``y`` as well, they are an
+        offset from the element's top-left corner; with ``x``/``y`` and no element they are absolute
+        screen coordinates; with neither, the click happens at the current pointer position. The
+        other pointer keywords target the same way.
 
         Args:
-            descriptor: Optional node to target. When provided:
-                - If x/y are omitted: uses ActivationPoint if present, otherwise
-                  the center of Bounds.
-                - If x/y are given: they are offsets relative to the node's top-left Bounds.
-            button: Mouse button to use. Defaults to LEFT.
-            x: X coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
-            y: Y coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
-            activate: Whether to bring the element's window to the foreground before
-                clicking. If None, the library-level ``auto_activate`` setting is used.
-
-        Raises:
-            ValueError: If only one of x or y is provided.
-
-        Notes:
-            With neither a descriptor nor x/y, the click happens at the current pointer position.
+            descriptor: Optional element to click — a selector or an element from `Query`.
+            button: Mouse button to use (default LEFT).
+            x: X coordinate — absolute without an element, otherwise an offset from it.
+            y: Y coordinate — absolute without an element, otherwise an offset from it.
+            activate: Bring the element's window to the front first; defaults to the library's
+                ``auto_activate``.
 
         Examples:
-            | Pointer Click | //control:Button[@Name="OK"] |
-            | Pointer Click | | x=${100} | y=${200} |
-            | Pointer Click | //control:Button[@Name="OK"] | activate=${False} |
+            | `Pointer Click`    //Button[@Name="OK"]
+            | `Pointer Click`    x=${100}    y=${200}
+            | `Pointer Click`    //Button[@Name="OK"]    activate=${False}
         """
         self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
@@ -737,30 +820,22 @@ class BareMetal(OurDynamicCore):
         overrides: PointerOverridesLike | None = None,
         activate: bool | None = None,
     ) -> None:
-        """Perform multiple clicks at absolute or element-relative screen coordinates.
+        """Click several times in quick succession — a double-click by default.
 
         Args:
-            descriptor: Optional node to target. When provided:
-                - If x/y are omitted: uses ActivationPoint if present, otherwise
-                  the center of Bounds.
-                - If x/y are given: they are offsets relative to the node's top-left Bounds.
-            clicks: Number of clicks to perform. Defaults to 2 (double-click).
-            button: Mouse button to use. Defaults to LEFT.
-            x: X coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
-            y: Y coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
-            activate: Whether to bring the element's window to the foreground before
-                clicking. If None, the library-level ``auto_activate`` setting is used.
-
-        Raises:
-            ValueError: If only one of x or y is provided.
-
-        Notes:
-            With neither a descriptor nor x/y, the clicks happen at the current pointer position.
+            descriptor: Optional element to target — a selector or an element from `Query`. See
+                `Pointer Click` for how a target and ``x``/``y`` are resolved.
+            clicks: Number of clicks (default 2, a double-click).
+            button: Mouse button to use (default LEFT).
+            x: X coordinate — absolute without an element, otherwise an offset from it.
+            y: Y coordinate — absolute without an element, otherwise an offset from it.
+            activate: Bring the element's window to the front first; defaults to the library's
+                ``auto_activate``.
 
         Examples:
-            | Pointer Multi Click | //control:ListItem[@Name="Open"] |
-            | Pointer Multi Click | | x=${100} | y=${200} |
-            | Pointer Multi Click | //control:Text[@Name="File"] | clicks=${3} |
+            | `Pointer Multi Click`    //item:ListItem[@Name="Open"]
+            | `Pointer Multi Click`    x=${100}    y=${200}
+            | `Pointer Multi Click`    //Text[@Name="File"]    clicks=${3}
         """
         self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
@@ -777,27 +852,19 @@ class BareMetal(OurDynamicCore):
         overrides: PointerOverridesLike | None = None,
         activate: bool | None = None,
     ) -> None:
-        """Press a mouse button at absolute or element-relative screen coordinates.
+        """Press a mouse button and hold it down — pair with `Pointer Release` to drag.
 
         Args:
-            descriptor: Optional node to target. When provided:
-                - If x/y are omitted: uses ActivationPoint if present, otherwise
-                  the center of Bounds.
-                - If x/y are given: they are offsets relative to the node's top-left Bounds.
-            button: Mouse button to use. Defaults to LEFT.
-            x: X coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
-            y: Y coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
-            activate: Whether to bring the element's window to the foreground before
-                pressing. If None, the library-level ``auto_activate`` setting is used.
-
-        Raises:
-            ValueError: If only one of x or y is provided.
-
-        Notes:
-            With neither a descriptor nor x/y, the press happens at the current pointer position.
+            descriptor: Optional element to target — a selector or an element from `Query`. See
+                `Pointer Click` for how a target and ``x``/``y`` are resolved.
+            button: Mouse button to use (default LEFT).
+            x: X coordinate — absolute without an element, otherwise an offset from it.
+            y: Y coordinate — absolute without an element, otherwise an offset from it.
+            activate: Bring the element's window to the front first; defaults to the library's
+                ``auto_activate``.
 
         Examples:
-            | Pointer Press | //control:Slider | x=${10} | y=${5} |
+            | `Pointer Press`    //Slider    x=${10}    y=${5}
         """
         self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
@@ -814,26 +881,23 @@ class BareMetal(OurDynamicCore):
         overrides: PointerOverridesLike | None = None,
         activate: bool | None = None,
     ) -> None:
-        """Release a mouse button at current or specified coordinates.
+        """Release a mouse button — completes a press, for example to end a drag.
 
-        If a descriptor or coordinates are provided, the pointer is moved there first,
-        then the button is released. Without a target, the button is released at the
-        current pointer location.
+        With a target the pointer is moved there first, then the button is released; without one
+        the button is released at the current pointer position.
 
         Args:
-            descriptor: Optional node to target (see pointer_click for targeting rules).
-            button: Mouse button to release. Defaults to LEFT.
-            x: Optional X coordinate (see pointer_click for rules).
-            y: Optional Y coordinate (see pointer_click for rules).
-            activate: Whether to bring the element's window to the foreground before
-                releasing. If None, the library-level ``auto_activate`` setting is used.
-
-        Raises:
-            ValueError: If only one of x or y is provided when targeting a location.
+            descriptor: Optional element to target — a selector or an element from `Query`. See
+                `Pointer Click` for how a target and ``x``/``y`` are resolved.
+            button: Mouse button to release (default LEFT).
+            x: X coordinate — absolute without an element, otherwise an offset from it.
+            y: Y coordinate — absolute without an element, otherwise an offset from it.
+            activate: Bring the element's window to the front first; defaults to the library's
+                ``auto_activate``.
 
         Examples:
-            | Pointer Release | | |
-            | Pointer Release | //control:Canvas | x=${50} | y=${50} |
+            | `Pointer Release`
+            | `Pointer Release`    //Canvas    x=${50}    y=${50}
         """
         self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
@@ -849,25 +913,19 @@ class BareMetal(OurDynamicCore):
         overrides: PointerOverridesLike | None = None,
         activate: bool | None = None,
     ) -> None:
-        """Move the pointer to absolute or element-relative screen coordinates.
+        """Move the pointer onto an element, or to screen coordinates, without clicking.
 
         Args:
-            descriptor: Optional node to target. When provided:
-                - If x/y are omitted: uses ActivationPoint if present, otherwise
-                  the center of Bounds.
-                - If x/y are given: they are offsets relative to the node's top-left Bounds.
-            x: X coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
-            y: Y coordinate. Absolute if no descriptor is provided; otherwise a relative offset.
-            activate: Whether to bring the element's window to the foreground before
-                moving. If None, the library-level ``auto_activate`` setting is used.
-
-        Raises:
-            ValueError: If only one of x or y is provided; or if neither coordinates nor a
-            resolvable descriptor location are available.
+            descriptor: Optional element to target — a selector or an element from `Query`. See
+                `Pointer Click` for how a target and ``x``/``y`` are resolved.
+            x: X coordinate — absolute without an element, otherwise an offset from it.
+            y: Y coordinate — absolute without an element, otherwise an offset from it.
+            activate: Bring the element's window to the front first; defaults to the library's
+                ``auto_activate``.
 
         Examples:
-            | Pointer Move To | | x=${400} | y=${300} |
-            | Pointer Move To | //control:Button[@Name="OK"] |
+            | `Pointer Move To`    x=${400}    y=${300}
+            | `Pointer Move To`    //Button[@Name="OK"]
         """
         self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
@@ -891,106 +949,106 @@ class BareMetal(OurDynamicCore):
 
     @keyword
     def focus(self, descriptor: UiNodeDescriptor) -> None:
-        """Set input focus to the specified element.
+        """Set keyboard focus to an element, bringing its window to the front first.
 
-        The target element is brought to the front (via the runtime) and focused using
-        the platform's focus APIs. Use this before typing if an element isn't already
-        focused.
+        Waits for its target like the other action keywords. The keyboard keywords focus their own
+        target, so you only need this for focus that is not tied to a type action.
 
         Args:
-            descriptor: Element to focus. Can be a UiNode or a selector string.
+            descriptor: The element to focus — a selector or an element from `Query`.
 
         Examples:
-            | Focus | //control:Edit[@Name="Search"] |
+            | `Focus`    //Edit[@Name="Search"]
         """
         self.runtime.focus(descriptor())
 
     @keyword
     def restore_window(self, descriptor: UiNodeDescriptor) -> None:
-        """Restore a window from minimized or maximized state.
+        """Restore a window to its previous size and position.
 
-        Operates through the element's ``Restorable`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``Restorable``.
+        Returns a minimized or maximized window to the size and position it had before. Waits for
+        its target like the other action keywords. The target must be a window that can be
+        restored; the keyword fails if it cannot.
 
         Args:
             descriptor: The window element to restore.
 
         Examples:
-            | Restore Window | //control:Window[@Name="Settings"] |
+            | `Restore Window`    //Window[@Name="Settings"]
         """
         node = descriptor()
         node.get_pattern(Restorable).restore()
 
     @keyword
     def maximize_window(self, descriptor: UiNodeDescriptor) -> None:
-        """Maximize a window.
+        """Maximize a window so it fills the screen.
 
-        Operates through the element's ``Maximizable`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``Maximizable``.
+        Waits for its target like the other action keywords. The target must be a window that can
+        be maximized; the keyword fails if it cannot.
 
         Args:
             descriptor: The window element to maximize.
 
         Examples:
-            | Maximize Window | //control:Window[@Name="Editor"] |
+            | `Maximize Window`    //Window[@Name="Editor"]
         """
         node = descriptor()
         node.get_pattern(Maximizable).maximize()
 
     @keyword
     def minimize_window(self, descriptor: UiNodeDescriptor) -> None:
-        """Minimize a window.
+        """Minimize a window to the taskbar.
 
-        Operates through the element's ``Minimizable`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``Minimizable``.
+        Waits for its target like the other action keywords. The target must be a window that can
+        be minimized; the keyword fails if it cannot.
 
         Args:
             descriptor: The window element to minimize.
 
         Examples:
-            | Minimize Window | //control:Window[@Name="Editor"] |
+            | `Minimize Window`    //Window[@Name="Editor"]
         """
         node = descriptor()
         node.get_pattern(Minimizable).minimize()
 
     @keyword
     def close_window(self, descriptor: UiNodeDescriptor) -> None:
-        """Close a window.
+        """Close a window, as if the user clicked its close button.
 
-        Operates through the element's ``Closeable`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``Closeable``.
+        Waits for its target like the other action keywords. The target must be a window that can
+        be closed; the keyword fails if it cannot.
 
         Args:
             descriptor: The window element to close.
 
         Examples:
-            | Close Window | //control:Window[@Name="Editor"] |
+            | `Close Window`    //Window[@Name="Editor"]
         """
         node = descriptor()
         node.get_pattern(Closeable).close()
 
     @keyword
     def activate_window(self, descriptor: UiNodeDescriptor) -> None:
-        """Activate (bring to front and focus) a window.
+        """Bring a window to the front and give it the keyboard focus.
 
-        Operates through the element's ``Activatable`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``Activatable``.
+        Waits for its target like the other action keywords. The target must be a window that can
+        be activated; the keyword fails if it cannot.
 
         Args:
             descriptor: The window element to activate.
 
         Examples:
-            | Activate Window | //control:Window[@Name="Editor"] |
+            | `Activate Window`    //Window[@Name="Editor"]
         """
         node = descriptor()
         node.get_pattern(Activatable).activate()
 
     @keyword
     def move_window(self, descriptor: UiNodeDescriptor, x: float, y: float) -> None:
-        """Move a window to the specified screen coordinates.
+        """Move a window so its top-left corner is at the given screen position.
 
-        Operates through the element's ``Movable`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``Movable``.
+        Waits for its target like the other action keywords. The target must be a window that can
+        be moved; the keyword fails if it cannot.
 
         Args:
             descriptor: The window element to move.
@@ -998,17 +1056,17 @@ class BareMetal(OurDynamicCore):
             y: The target y coordinate for the window's top-left corner.
 
         Examples:
-            | Move Window | //control:Window[@Name="Editor"] | 100 | 200 |
+            | `Move Window`    //Window[@Name="Editor"]    100    200
         """
         node = descriptor()
         node.get_pattern(Movable).move_to(x, y)
 
     @keyword
     def resize_window(self, descriptor: UiNodeDescriptor, width: float, height: float) -> None:
-        """Resize a window to the specified dimensions.
+        """Resize a window to the given width and height.
 
-        Operates through the element's ``Resizable`` pattern.
-        Raises ``PatternError`` if the element doesn't support ``Resizable``.
+        Waits for its target like the other action keywords. The target must be a window that can
+        be resized; the keyword fails if it cannot.
 
         Args:
             descriptor: The window element to resize.
@@ -1016,7 +1074,7 @@ class BareMetal(OurDynamicCore):
             height: The target height.
 
         Examples:
-            | Resize Window | //control:Window[@Name="Editor"] | 800 | 600 |
+            | `Resize Window`    //Window[@Name="Editor"]    800    600
         """
         node = descriptor()
         node.get_pattern(Resizable).resize(width, height)
@@ -1025,10 +1083,10 @@ class BareMetal(OurDynamicCore):
     def move_and_resize_window(
         self, descriptor: UiNodeDescriptor, x: float, y: float, width: float, height: float
     ) -> None:
-        """Move and resize a window in a single operation.
+        """Move and resize a window in a single step.
 
-        Composes the element's ``Movable`` and ``Resizable`` patterns.
-        Raises ``PatternError`` if the element doesn't support either pattern.
+        Waits for its target like the other action keywords. The target must be a window that can
+        be both moved and resized; the keyword fails if it cannot.
 
         Args:
             descriptor: The window element to move and resize.
@@ -1038,7 +1096,7 @@ class BareMetal(OurDynamicCore):
             height: The target height.
 
         Examples:
-            | Move And Resize Window | //control:Window[@Name="Editor"] | 100 | 200 | 800 | 600 |
+            | `Move And Resize Window`    //Window[@Name="Editor"]    100    200    800    600
         """
         node = descriptor()
         node.get_pattern(Movable).move_to(x, y)
@@ -1046,10 +1104,18 @@ class BareMetal(OurDynamicCore):
 
     @keyword
     def bring_to_front(self, descriptor: UiNodeDescriptor) -> None:
-        """Bring the specified UiNode to the front.
+        """Bring an element's window to the front and give it the keyboard focus.
+
+        Pointer actions already do this when ``auto_activate`` is on (the default), so you rarely
+        need it directly — reach for it to raise a window deliberately, for example when
+        ``auto_activate`` is off. A minimized window is restored first. `Activate Window` does the
+        same thing for a window you already have.
 
         Args:
-            descriptor: The UiNodeDescriptor representing the target node.
+            descriptor: The element whose window to bring to the front.
+
+        Examples:
+            | `Bring To Front`    //Window[@Name="Editor"]
         """
         node = descriptor()
         self.runtime.bring_to_front(node)
@@ -1057,17 +1123,22 @@ class BareMetal(OurDynamicCore):
     @keyword
     @assertable
     def get_attribute(self, descriptor: UiNodeDescriptor, attribute_name: str) -> Any:
-        """Get an attribute value from the specified UiNode.
+        """Read one attribute of one element, and optionally assert on it in the same call.
+
+        Pass the attribute name bare — ``Name``, ``IsEnabled``, ``Bounds`` — without the leading
+        ``@``; a technology-specific value keeps its prefix (``native:...``). The value comes back
+        typed: ``@IsEnabled`` as a boolean, ``@Bounds`` as a ``Rect``. Add an assertion operator and
+        an expected value to check it, and the keyword fails if the check does not hold. For several
+        values at once, or a computed one, use `Query` instead.
 
         Args:
-            descriptor: The UiNodeDescriptor representing the target node.
-            attribute_name: The name of the attribute to retrieve.
+            descriptor: The element to read from — a selector or an element from `Query`.
+            attribute_name: The attribute to read, written bare (or with a ``native:`` prefix).
 
-        Returns:
-            Any: The value of the specified attribute.
-
-        This keyword is assertable: pass ``assertion_operator`` (and ``assertion_expected``)
-        to verify the value, e.g. ``| Get Attribute | //control:Edit | Text | == | hello |``.
+        Examples:
+            | ${enabled}=    `Get Attribute`    //Button[@Name="Save"]    IsEnabled
+            | `Get Attribute`    //Button[@Name="Save"]    IsEnabled    ==    ${True}
+            | ${bounds}=     `Get Attribute`    //Button[@Name="Save"]    Bounds
         """
         namespace: str | None = None
         if ':' in attribute_name:
@@ -1089,12 +1160,12 @@ class BareMetal(OurDynamicCore):
             descriptor: Optional element to focus before typing. Pass ``${None}`` to type
                 into the currently focused element without changing focus.
             text: The character/key sequence to send.
-            overrides: Optional per-call keyboard timing overrides.
+            overrides: Per-call timing overrides, as a dict (see *Input timing and motion*).
 
         Examples:
-            | Keyboard Type | //control:Edit[@Name="Search"] | Hello World |
-            | Keyboard Type | //control:Edit[@Name="Search"] | <Ctrl+A><Delete> |
-            | Keyboard Type | ${None} | Hello\nWorld |  # newline supported
+            | `Keyboard Type`    //Edit[@Name="Search"]    Hello World
+            | `Keyboard Type`    //Edit[@Name="Search"]    <Ctrl+A><Delete>
+            | `Keyboard Type`    ${None}    Hello\nWorld    # newline supported
 
         Notes:
             - Special key syntax examples: ``<Ctrl+C>``, ``<Return>``, ``<ESC>``, ``<Shift+Tab>``.
@@ -1123,12 +1194,12 @@ class BareMetal(OurDynamicCore):
         Args:
             descriptor: Optional element to focus before pressing.
             text: Sequence of keys, e.g. ``<Ctrl+Alt+T>`` or ``<Shift>``.
-            overrides: Optional per-call keyboard timing overrides.
+            overrides: Per-call timing overrides, as a dict (see *Input timing and motion*).
 
         Examples:
-            | Keyboard Press   | //control:Window[@Name="Terminal"] | <Ctrl+Alt+T> |
-            | Keyboard Press   | ${None} | <Ctrl> |
-            | Keyboard Release | ${None} | <Ctrl> |
+            | `Keyboard Press`     //Window[@Name="Terminal"]    <Ctrl+Alt+T>
+            | `Keyboard Press`     ${None}    <Ctrl>
+            | `Keyboard Release`   ${None}    <Ctrl>
         """
         if descriptor is not None:
             target_node = descriptor()
@@ -1151,12 +1222,12 @@ class BareMetal(OurDynamicCore):
         Args:
             descriptor: Optional element to focus before releasing.
             text: Sequence of keys to release, e.g. ``<Ctrl+Alt+T>`` or ``<Ctrl>``.
-            overrides: Optional per-call keyboard timing overrides.
+            overrides: Per-call timing overrides, as a dict (see *Input timing and motion*).
 
         Examples:
-            | Keyboard Press   | //control:Window[@Name="Terminal"] | <Ctrl+Alt> |
-            | Keyboard Release | //control:Window[@Name="Terminal"] | <Ctrl+Alt> |
-            | Keyboard Release | ${None} | <Ctrl+Alt> |
+            | `Keyboard Press`     //Window[@Name="Terminal"]    <Ctrl+Alt>
+            | `Keyboard Release`   //Window[@Name="Terminal"]    <Ctrl+Alt>
+            | `Keyboard Release`   ${None}    <Ctrl+Alt>
         """
         if descriptor is not None:
             target_node = descriptor()
@@ -1184,9 +1255,9 @@ class BareMetal(OurDynamicCore):
             str: The file name the screenshot was written to, or ``EMBED`` when embedded.
 
         Examples:
-            | Take Screenshot | | filename=EMBED |
-            | Take Screenshot | | filename=full_desktop.png |
-            | Take Screenshot | //control:Window[@Name="Settings"] | filename=settings_window.png |
+            | `Take Screenshot`    filename=EMBED
+            | `Take Screenshot`    filename=full_desktop.png
+            | `Take Screenshot`    //Window[@Name="Settings"]    filename=settings_window.png
         """
         if descriptor is not None:
             node = descriptor()
@@ -1241,13 +1312,13 @@ class BareMetal(OurDynamicCore):
         rect: RectLike | list[RectLike] | None = None,
         duration: float = 1.0,
     ) -> None:
-        """Highlight a UI element for a specified duration.
+        """Draw a temporary outline around one or more elements — handy for demos and debugging.
 
         Args:
-            descriptor: The UiNodeDescriptor(s) whose bounds to highlight. Takes precedence
-                over ``rect`` when given.
-            rect: Optional Rect(s) to highlight directly; used only when ``descriptor`` is None.
-            duration: Duration in seconds (converted to milliseconds for the runtime).
+            descriptor: The element(s) to outline — a selector or an element from `Query`. Takes
+                precedence over ``rect`` when both are given.
+            rect: Screen rectangle(s) to outline directly; used only when no element is given.
+            duration: How long the outline stays on screen, in seconds.
         """
 
         if descriptor is None and rect is None:

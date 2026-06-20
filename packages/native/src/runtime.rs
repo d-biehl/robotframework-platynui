@@ -724,6 +724,18 @@ impl PyRuntime {
         }
     }
 
+    /// Returns whether an XPath expression's top-level node selection is relative to the context node.
+    ///
+    /// ``True`` for relative paths (``.//x``, ``child::x``) and the context item (``.``); ``False``
+    /// for absolute paths (``/x``, ``//x``), filtered/parenthesized absolute paths (``(//x)[1]``)
+    /// and expressions that do not select nodes from the context (``count(...)``, comparisons, ...).
+    /// Compound forms (if/for/let, sequences) follow their produced branch. Parses only; it needs no
+    /// backend and resolves nothing.
+    #[pyo3(signature = (xpath), text_signature = "(xpath: str)")]
+    fn is_context_dependent(&self, xpath: &str) -> PyResult<bool> {
+        runtime_rs::is_context_dependent(xpath).map_err(map_eval_err)
+    }
+
     /// Immediately releases provider resources and device handles.
     ///
     /// Calling this ensures deterministic cleanup; otherwise the runtime will

@@ -23,5 +23,5 @@ pub use pointer::{PointerError, PointerOverrides, PointerProfile, PointerSetting
 pub use runtime::{FocusError, Runtime};
 pub use xpath::{
     EvaluateError, EvaluateOptions, EvaluatedAttribute, EvaluationItem, EvaluationStream, NodeResolver, XdmCache,
-    evaluate,
+    evaluate, is_context_dependent,
 };

@@ -366,6 +366,7 @@ class Runtime:
         self, xpath: str, node: UiNode | None = ...
     ) -> UiNode | EvaluatedAttribute | UiValue | None: ...
     def evaluate_iter(self, xpath: str, node: UiNode | None = ...) -> EvaluationIterator: ...
+    def is_context_dependent(self, xpath: str) -> bool: ...
     def providers(self) -> list[dict[str, Any]]: ...
     def shutdown(self) -> None: ...
     def clear_cache(self) -> None: ...
@@ -651,7 +652,9 @@ class KeyboardProfile:
 # ===== Module exports =====
 
 __all__ = [
+    'Activatable',
     'AttributeNotFoundError',
+    'Closeable',
     'EvaluatedAttribute',
     # Exceptions
     'EvaluationError',
@@ -663,6 +666,9 @@ __all__ = [
     'KeyboardOverridesLike',
     'KeyboardProfile',
     'KeyboardProfileLike',
+    'Maximizable',
+    'Minimizable',
+    'Movable',
     'Namespace',
     'NodeAttributesIterator',
     'NodeChildrenIterator',
@@ -688,6 +694,9 @@ __all__ = [
     'Primitive',
     'ProviderError',
     'Rect',
+    'Resizable',
+    'Responsive',
+    'Restorable',
     # Runtime
     'Runtime',
     'RuntimeId',
@@ -697,12 +706,4 @@ __all__ = [
     'UiAttribute',
     'UiNode',
     'UiValue',
-    'Activatable',
-    'Closeable',
-    'Maximizable',
-    'Minimizable',
-    'Movable',
-    'Resizable',
-    'Responsive',
-    'Restorable',
 ]

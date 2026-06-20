@@ -92,6 +92,37 @@ pub enum Expr {
     SetOp { left: Box<Expr>, op: SetOp, right: Box<Expr> },
 }
 
+impl Expr {
+    /// Returns whether this expression's *top-level node selection* is relative to the context
+    /// node — a relative path (`.//x`, `child::x`) or the context item (`.`).
+    ///
+    /// Absolute paths (`/x`, `//x`), filtered/parenthesized absolute paths (`(//x)[1]`), and
+    /// expressions that do not select nodes from the context (value expressions like `count(...)`,
+    /// comparisons, function calls, literals) are independent. Compound forms that *produce* a node
+    /// selection — `if/then/else`, `for`/`let` returns, and comma sequences — are relative iff a
+    /// produced branch is. Predicates have their own focus, so `//x[.='y']` is independent.
+    ///
+    /// This drives `Set Root`: a context-relative selector drills into the current root, an
+    /// independent one starts fresh from the desktop. (Expressions that do not yield nodes cannot
+    /// be a root at all, so their classification only needs to be "not relative".)
+    pub fn is_context_dependent(&self) -> bool {
+        match self {
+            Expr::ContextItem => true,
+            Expr::Path(path) => matches!(path.start, PathStart::Relative),
+            Expr::PathFrom { base, .. } => base.is_context_dependent(),
+            Expr::Parenthesized(inner) => inner.is_context_dependent(),
+            Expr::Filter { input, .. } => input.is_context_dependent(),
+            Expr::SetOp { left, right, .. } => left.is_context_dependent() || right.is_context_dependent(),
+            Expr::IfThenElse { then_expr, else_expr, .. } => {
+                then_expr.is_context_dependent() || else_expr.is_context_dependent()
+            }
+            Expr::ForExpr { return_expr, .. } | Expr::LetExpr { return_expr, .. } => return_expr.is_context_dependent(),
+            Expr::Sequence(items) => items.iter().any(|e| e.is_context_dependent()),
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum SetOp {
     Union,

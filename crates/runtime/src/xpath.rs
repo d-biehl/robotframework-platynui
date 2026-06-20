@@ -182,6 +182,16 @@ pub fn evaluate(
     iter.collect()
 }
 
+/// Returns whether an XPath expression's top-level node selection is relative to the context node —
+/// a relative path (`.//x`, `child::x`) or the context item (`.`). Absolute paths (`/x`, `//x`),
+/// filtered/parenthesized absolute paths (`(//x)[1]`) and expressions that do not select nodes from
+/// the context (`count(...)`, comparisons, ...) are independent; compound forms (if/for/let,
+/// sequences) are relative iff a produced branch is. Parses only; no context node or backend is
+/// required.
+pub fn is_context_dependent(xpath: &str) -> Result<bool, EvaluateError> {
+    Ok(platynui_xpath::parser::parse(xpath)?.is_context_dependent())
+}
+
 pub struct EvaluationStream {
     inner: Box<dyn Iterator<Item = Result<EvaluationItem, EvaluateError>>>,
 }
@@ -1283,6 +1293,22 @@ mod tests {
     use platynui_core::ui::{PatternName, RuntimeId, UiAttribute, UiNode, attribute_names, supported_patterns_value};
     use rstest::rstest;
     use std::sync::{Arc, Mutex, Weak};
+
+    #[rstest]
+    #[case("//x", false)]
+    #[case("/Window", false)]
+    #[case("(//x)[1]", false)]
+    #[case("//x[.='y']", false)]
+    #[case(".//x", true)]
+    #[case(".", true)]
+    fn is_context_dependent_classifies(#[case] expr: &str, #[case] expected: bool) {
+        assert_eq!(is_context_dependent(expr).expect("should parse"), expected, "for {expr}");
+    }
+
+    #[test]
+    fn is_context_dependent_rejects_malformed_xpath() {
+        assert!(matches!(is_context_dependent("//x[broken"), Err(EvaluateError::XPath(_))));
+    }
 
     struct StaticAttribute {
         namespace: UiNamespace,
