@@ -1,9 +1,9 @@
 import base64
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypedDict, cast
 
 from platynui_native import (
     Activatable,
@@ -60,6 +60,37 @@ class InvalidSelectorError(BareMetalError):
     """Raised when a selector passed to Set Root cannot be parsed as a valid XPath expression."""
 
 
+PLATYNUI_QUERY_SETTINGS = (
+    'PLATYNUI_QUERY_SETTINGS'  # Variable name for storing the current query settings in Robot Framework variables
+)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class QuerySettings:
+    """Fully resolved settings for the query wait/retry loop.
+
+    These are the values ``UiNodeDescriptor.__call__`` consults while waiting for a node to appear:
+    how long to keep retrying (``timeout``), how long to pause between attempts (``retry_interval``)
+    and whether to swallow evaluation errors instead of raising them (``ignore_exceptions``).
+    """
+
+    timeout: float = 30.0
+    retry_interval: float = 0.1
+    ignore_exceptions: bool = False
+
+
+class QuerySettingsDict(TypedDict, total=False):
+    """Partial override of `QuerySettings`; any omitted key inherits the layer below.
+
+    This is the shape callers pass — at import (``query_settings=``), per keyword call
+    (``query_overrides=``) or through `Set Query Settings` — as a plain dict, e.g. ``{'timeout': 10}``.
+    """
+
+    timeout: float
+    retry_interval: float
+    ignore_exceptions: bool
+
+
 class UiNodeDescriptor:
     """Descriptor wrapper allowing lazy resolution of a UiNode from a query string.
 
@@ -84,6 +115,10 @@ class UiNodeDescriptor:
         # instead of being re-parented.
         self.parent = parent
         self.is_root_binding = is_root_binding
+        # Per-call query-settings override (partial), set from each wait keyword's query_overrides
+        # argument before it resolves this descriptor — unconditionally, so a stale value never leaks
+        # via the shared descriptor cache. Resolved against the scoped/default settings in __call__.
+        self.overrides: QuerySettingsDict | None = None
 
     def __call__(self, no_root: bool = False) -> UiNode:
         if isinstance(self.node, UiNode):
@@ -98,6 +133,11 @@ class UiNodeDescriptor:
         # it. As a query target (no_root=False) it evaluates against the library's current root.
         context = (self.parent(True) if self.parent is not None else None) if no_root else self.library.root
 
+        # Effective settings for this resolution: the scoped/default base, with this call's partial
+        # override applied on top. Computed once — neither layer changes during a synchronous resolve.
+        base = self.library.query_settings
+        settings = replace(base, **self.overrides) if self.overrides else base
+
         start_time = time.monotonic()
         result: UiNode | UiValue | EvaluatedAttribute | None = None
         while True:
@@ -106,20 +146,23 @@ class UiNodeDescriptor:
             except (SystemExit, KeyboardInterrupt):
                 raise  # Don't interfere with user-initiated interrupts
             except Exception as e:
-                if not self.library.query_settings.ignore_exceptions:
+                if not settings.ignore_exceptions:
                     raise e
+                result = None  # Swallow the error, but keep honouring the timeout below
             else:
                 if result is not None:
                     break
 
-                if (time.monotonic() - start_time) > self.library.query_settings.timeout:
-                    raise ElementNotFoundError(
-                        f'No UiNode found for UiNodeDescriptor query {self.query!r} within '
-                        f'timeout of {self.library.query_settings.timeout} seconds.'
-                    )
+            # Not resolved yet — no match, or a swallowed error. Retry until the timeout elapses, so
+            # ignore_exceptions cannot spin forever on a persistently failing query.
+            if (time.monotonic() - start_time) > settings.timeout:
+                raise ElementNotFoundError(
+                    f'No UiNode found for UiNodeDescriptor query {self.query!r} within '
+                    f'timeout of {settings.timeout} seconds.'
+                )
 
-                time.sleep(self.library.query_settings.retry_interval)
-                self.library.runtime.clear_cache()  # Clear runtime cache to attempt to resolve transient UI states
+            time.sleep(settings.retry_interval)
+            self.library.runtime.clear_cache()  # Clear runtime cache to attempt to resolve transient UI states
 
         if not isinstance(result, UiNode):
             raise ResultTypeError(f'Query for UiNodeDescriptor {self.query!r} did not return a UiNode, got: {result!r}')
@@ -138,15 +181,6 @@ class UiNodeDescriptor:
 PLATYNUI_ROOT_DESCRIPTOR = (
     'PLATYNUI_ROOT_DESCRIPTOR'  # Variable name for storing the current root descriptor in Robot Framework variables
 )
-
-
-@dataclass
-class QuerySettings:
-    """Settings for query evaluation context."""
-
-    timeout: float
-    retry_interval: float
-    ignore_exceptions: bool = False
 
 
 @library(
@@ -395,9 +429,42 @@ class BareMetal(OurDynamicCore):
 
     = Waiting for elements =
 
-    Action and read keywords wait for their target: while it is missing the lookup retries for up to
-    30 seconds before the keyword fails, so you rarely need explicit sleeps. `Query` is the exception
-    — it reports the tree as it is at that moment and returns immediately, even when nothing matches.
+    Action and read keywords wait for their target: while it is missing the lookup retries until a
+    timeout (30 seconds by default) before the keyword fails, so you rarely need explicit sleeps.
+    `Query` is the exception — it reports the tree as it is at that moment and returns immediately,
+    even when nothing matches.
+
+    Three things govern the wait, together called the *query settings*:
+
+    | = Setting = | = Meaning = |
+    | ``timeout`` | how long to keep retrying before giving up, in seconds (default ``30``) |
+    | ``retry_interval`` | the pause between attempts, in seconds (default ``0.1``) |
+    | ``ignore_exceptions`` | keep retrying instead of failing when an attempt raises (default ``False``) |
+
+    == Tuning the wait ==
+
+    You set them on three levels; name only the fields you want to change, the rest are inherited.
+
+    *For the whole suite*, when you import the library, as a dict:
+
+    | Library    PlatynUI.BareMetal    query_settings={'timeout': 60}
+
+    *For a scope*, with `Set Query Settings` — it works exactly like `Set Root`: the settings live as
+    long as their ``LOCAL``/``TEST``/``SUITE`` scope and clear themselves when it ends.
+
+    | `Set Query Settings`    {'timeout': 60}    scope=TEST
+
+    *For a single keyword*, with its ``query_overrides`` argument:
+
+    | `Pointer Click`    //Button[@Name="Save"]    query_overrides={'timeout': 10}
+
+    These form a chain: a per-call ``query_overrides`` wins over the scope, which wins over the import
+    default. The import and scope levels apply to *every* lookup — including the re-resolution of a
+    `Set Root` root — while ``query_overrides`` tunes only that one keyword's own target; to extend the
+    wait for a root as well, set it at the scope level instead.
+
+    ``timeout`` bounds each individual element resolution, not the keyword as a whole: a keyword that
+    resolves both a root and a target performs two lookups, each governed by ``timeout``.
 
     = Input timing and motion =
 
@@ -478,23 +545,26 @@ class BareMetal(OurDynamicCore):
         pointer_settings: PointerSettingsLike | None = None,
         pointer_profile: PointerProfileLike | None = None,
         auto_activate: bool = True,
+        query_settings: QuerySettingsDict | None = None,
         use_mock: bool = False,
     ) -> None:
         """Import the library, optionally tuning window activation and input behaviour.
 
         | Library    PlatynUI.BareMetal
 
-        All arguments are optional. ``auto_activate`` governs window raising; the three *profile*
-        arguments set the default timing and motion of generated input, each given as a dict of the
-        fields you want to change (see *Input timing and motion*):
+        All arguments are optional. ``auto_activate`` governs window raising; ``query_settings`` sets
+        how long lookups wait (see *Waiting for elements*); the three *profile* arguments set the
+        default timing and motion of generated input, each given as a dict of the fields you want to
+        change (see *Input timing and motion*):
 
         | = Argument = | = What it does = |
         | ``auto_activate`` | bring an element's window to the front before a pointer action — default ``True`` |
+        | ``query_settings`` | query *waiting*: ``timeout``, ``retry_interval`` and ``ignore_exceptions`` |
         | ``keyboard_profile`` | keyboard *timing*: delays around key presses, chords and whole sequences |
         | ``pointer_settings`` | pointer *behaviour*: double-click interval and size, and the default button |
         | ``pointer_profile`` | pointer *motion*: speed, acceleration, curve, overshoot and jitter |
 
-        | Library    PlatynUI.BareMetal    auto_activate=${False}    pointer_profile={'speed_factor': 0.5}
+        | Library    PlatynUI.BareMetal    auto_activate=${False}    query_settings={'timeout': 60}
 
         ``use_mock`` exists only for PlatynUI's own development and test suites — it drives a built-in
         stand-in tree instead of the real desktop. Leave it at its default; it is not meant for
@@ -504,7 +574,8 @@ class BareMetal(OurDynamicCore):
         self._screenshot_counter = 1
         self.use_mock = use_mock
         self.auto_activate = auto_activate
-        self.query_settings = QuerySettings(30, 0.1, False)
+        # Library-import defaults — the fallback when no scoped ${PLATYNUI_QUERY_SETTINGS} is set.
+        self._default_query_settings = replace(QuerySettings(), **query_settings) if query_settings else QuerySettings()
         self._keyboard_profile = keyboard_profile
         self._pointer_settings = pointer_settings
         self._pointer_profile = pointer_profile
@@ -568,6 +639,23 @@ class BareMetal(OurDynamicCore):
                 return r(True)
 
         return None
+
+    @property
+    def query_settings(self) -> QuerySettings:
+        """The effective query settings: the nearest Robot Framework scope's value, else the
+        library-import default.
+
+        `Set Query Settings` stores a full `QuerySettings` instance in ``${PLATYNUI_QUERY_SETTINGS}``
+        at the chosen scope, so Robot Framework's own nearest-scope-wins resolution provides the
+        precedence (LOCAL over TEST over SUITE) and clears each scope when it ends. This is the base
+        the wait loop uses; a descriptor's per-call ``overrides`` are applied on top.
+        """
+        ctx = EXECUTION_CONTEXTS.current
+        if ctx is not None and PLATYNUI_QUERY_SETTINGS in ctx.variables:
+            settings = ctx.variables[f'${{{PLATYNUI_QUERY_SETTINGS}}}']
+            if isinstance(settings, QuerySettings):
+                return settings
+        return self._default_query_settings
 
     @keyword
     def set_root(
@@ -644,6 +732,89 @@ class BareMetal(OurDynamicCore):
             variables.set_suite(name, new_root)
 
         return old_root
+
+    @keyword
+    def set_query_settings(
+        self,
+        overrides: QuerySettingsDict | QuerySettings | None = None,
+        scope: Literal['LOCAL', 'TEST', 'SUITE'] = 'LOCAL',
+    ) -> QuerySettings | None:
+        """Set the query wait/retry settings for the given Robot Framework scope.
+
+        These settings govern how the action and read keywords *wait* for their target (see *Waiting
+        for elements*): ``timeout`` (how long to keep retrying), ``retry_interval`` (the pause between
+        attempts) and ``ignore_exceptions`` (swallow evaluation errors instead of failing). Name only
+        the fields you want to change — they are applied over the currently effective settings, so the
+        rest are inherited. The result lives as long as its variable ``scope`` and clears itself when
+        that scope ends, exactly like `Set Root` — no teardown to remember.
+
+        Like a root, scopes nest: a value set at ``LOCAL`` shadows one at ``TEST`` shadows one at
+        ``SUITE`` shadows the library-import defaults. Settings set this way apply to *every* lookup,
+        including the re-resolution of a `Set Root` root; a per-keyword ``query_overrides`` only tunes
+        that one keyword's own target.
+
+        Args:
+            overrides: The fields to change, as a dict (e.g. ``{'timeout': 60}``), or a value returned
+                by this keyword to restore it exactly. Pass ``${None}`` to drop this scope's settings
+                and fall back to the enclosing scope (the analog of ``Set Root    ${None}``).
+            scope: Lifetime of the settings: ``LOCAL`` (default, current test/keyword only), ``TEST``
+                (whole test, including called keywords) or ``SUITE`` (every test in the suite).
+
+        Returns:
+            QuerySettings | None: The settings set at the same ``scope`` before this call (``None`` if
+            none). Pass it back at that scope to restore it.
+
+        Examples:
+            | `Set Query Settings`    {'timeout': 60}    scope=SUITE    # whole suite waits up to 60 s
+            | ${prev}=    `Set Query Settings`    {'timeout': 5}    # be impatient for a moment
+            | `Set Query Settings`    ${prev}    # restore exactly
+            | `Set Query Settings`    ${None}    # drop this scope's settings
+        """
+        variables = EXECUTION_CONTEXTS.current.variables  # pyright: ignore[reportOptionalMemberAccess]
+        name = f'${{{PLATYNUI_QUERY_SETTINGS}}}'
+
+        # Read the previous value from the requested scope (so a same-scope restore is exact), mirroring
+        # the scope selection in set_root. Setting the scope variables directly avoids BuiltIn() logging
+        # in the wrong step context.
+        suite_vars = getattr(variables, '_suite', None)  # pyright: ignore[reportUnknownArgumentType]
+        test_vars = getattr(variables, '_test', None)  # pyright: ignore[reportUnknownArgumentType]
+        if scope == 'LOCAL':
+            scope_store = variables.current
+        elif scope == 'TEST':
+            scope_store = test_vars if test_vars is not None else suite_vars
+        else:  # 'SUITE'
+            scope_store = suite_vars
+        if scope_store is None:  # only if Robot has no suite scope yet (not during keyword execution)
+            scope_store = variables.current
+
+        old = scope_store.get(name)
+        old = old if isinstance(old, QuerySettings) else None
+
+        new: QuerySettings | None
+        if overrides is None:
+            new = None  # reset this scope -> fall back to the enclosing scope / library defaults
+        elif isinstance(overrides, QuerySettings):
+            new = overrides  # restore a value previously returned by this keyword
+        else:
+            # Merge the partial onto the base visible *from the target scope*, never the globally
+            # nearest one: setting a field at a wider scope must not inherit a narrower active scope's
+            # siblings. For LOCAL that base is the full nearest-wins chain; for TEST/SUITE it is the
+            # value already at that scope (RF copies the suite scope into the test scope, so a TEST
+            # base transparently picks up an enclosing SUITE value), else the import default.
+            if scope == 'LOCAL':
+                base = self.query_settings
+            else:
+                base = old if old is not None else self._default_query_settings
+            new = replace(base, **overrides)  # partial dict -> full instance
+
+        if scope == 'LOCAL':
+            variables.set_local(name, new)
+        elif scope == 'TEST':
+            variables.set_test(name, new)
+        else:  # 'SUITE'
+            variables.set_suite(name, new)
+
+        return old
 
     @keyword
     def query(
@@ -781,6 +952,7 @@ class BareMetal(OurDynamicCore):
         y: float | None = None,
         overrides: PointerOverridesLike | None = None,
         activate: bool | None = None,
+        query_overrides: QuerySettingsDict | None = None,
     ) -> None:
         """Click on an element, or at screen coordinates.
 
@@ -804,6 +976,8 @@ class BareMetal(OurDynamicCore):
             | `Pointer Click`    x=${100}    y=${200}
             | `Pointer Click`    //Button[@Name="OK"]    activate=${False}
         """
+        if descriptor is not None:
+            descriptor.overrides = query_overrides
         self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
         self.runtime.pointer_click(point, button, overrides)
@@ -819,6 +993,7 @@ class BareMetal(OurDynamicCore):
         y: float | None = None,
         overrides: PointerOverridesLike | None = None,
         activate: bool | None = None,
+        query_overrides: QuerySettingsDict | None = None,
     ) -> None:
         """Click several times in quick succession — a double-click by default.
 
@@ -837,6 +1012,8 @@ class BareMetal(OurDynamicCore):
             | `Pointer Multi Click`    x=${100}    y=${200}
             | `Pointer Multi Click`    //Text[@Name="File"]    clicks=${3}
         """
+        if descriptor is not None:
+            descriptor.overrides = query_overrides
         self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
         self.runtime.pointer_multi_click(point, clicks, button, overrides)
@@ -851,6 +1028,7 @@ class BareMetal(OurDynamicCore):
         y: float | None = None,
         overrides: PointerOverridesLike | None = None,
         activate: bool | None = None,
+        query_overrides: QuerySettingsDict | None = None,
     ) -> None:
         """Press a mouse button and hold it down — pair with `Pointer Release` to drag.
 
@@ -866,6 +1044,8 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Pointer Press`    //Slider    x=${10}    y=${5}
         """
+        if descriptor is not None:
+            descriptor.overrides = query_overrides
         self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
         self.runtime.pointer_press(point, button, overrides)
@@ -880,6 +1060,7 @@ class BareMetal(OurDynamicCore):
         y: float | None = None,
         overrides: PointerOverridesLike | None = None,
         activate: bool | None = None,
+        query_overrides: QuerySettingsDict | None = None,
     ) -> None:
         """Release a mouse button — completes a press, for example to end a drag.
 
@@ -899,6 +1080,8 @@ class BareMetal(OurDynamicCore):
             | `Pointer Release`
             | `Pointer Release`    //Canvas    x=${50}    y=${50}
         """
+        if descriptor is not None:
+            descriptor.overrides = query_overrides
         self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
         self.runtime.pointer_release(point, button, overrides)
@@ -912,6 +1095,7 @@ class BareMetal(OurDynamicCore):
         y: float | None = None,
         overrides: PointerOverridesLike | None = None,
         activate: bool | None = None,
+        query_overrides: QuerySettingsDict | None = None,
     ) -> None:
         """Move the pointer onto an element, or to screen coordinates, without clicking.
 
@@ -927,6 +1111,8 @@ class BareMetal(OurDynamicCore):
             | `Pointer Move To`    x=${400}    y=${300}
             | `Pointer Move To`    //Button[@Name="OK"]
         """
+        if descriptor is not None:
+            descriptor.overrides = query_overrides
         self._maybe_bring_to_front(descriptor, activate)
         point = self._resolve_screen_point(descriptor, x, y)
         if point is None:
@@ -948,7 +1134,7 @@ class BareMetal(OurDynamicCore):
         return self.runtime.pointer_position()
 
     @keyword
-    def focus(self, descriptor: UiNodeDescriptor) -> None:
+    def focus(self, descriptor: UiNodeDescriptor, *, query_overrides: QuerySettingsDict | None = None) -> None:
         """Set keyboard focus to an element, bringing its window to the front first.
 
         Waits for its target like the other action keywords. The keyboard keywords focus their own
@@ -960,10 +1146,11 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Focus`    //Edit[@Name="Search"]
         """
+        descriptor.overrides = query_overrides
         self.runtime.focus(descriptor())
 
     @keyword
-    def restore_window(self, descriptor: UiNodeDescriptor) -> None:
+    def restore_window(self, descriptor: UiNodeDescriptor, *, query_overrides: QuerySettingsDict | None = None) -> None:
         """Restore a window to its previous size and position.
 
         Returns a minimized or maximized window to the size and position it had before. Waits for
@@ -976,11 +1163,14 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Restore Window`    //Window[@Name="Settings"]
         """
+        descriptor.overrides = query_overrides
         node = descriptor()
         node.get_pattern(Restorable).restore()
 
     @keyword
-    def maximize_window(self, descriptor: UiNodeDescriptor) -> None:
+    def maximize_window(
+        self, descriptor: UiNodeDescriptor, *, query_overrides: QuerySettingsDict | None = None
+    ) -> None:
         """Maximize a window so it fills the screen.
 
         Waits for its target like the other action keywords. The target must be a window that can
@@ -992,11 +1182,14 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Maximize Window`    //Window[@Name="Editor"]
         """
+        descriptor.overrides = query_overrides
         node = descriptor()
         node.get_pattern(Maximizable).maximize()
 
     @keyword
-    def minimize_window(self, descriptor: UiNodeDescriptor) -> None:
+    def minimize_window(
+        self, descriptor: UiNodeDescriptor, *, query_overrides: QuerySettingsDict | None = None
+    ) -> None:
         """Minimize a window to the taskbar.
 
         Waits for its target like the other action keywords. The target must be a window that can
@@ -1008,11 +1201,12 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Minimize Window`    //Window[@Name="Editor"]
         """
+        descriptor.overrides = query_overrides
         node = descriptor()
         node.get_pattern(Minimizable).minimize()
 
     @keyword
-    def close_window(self, descriptor: UiNodeDescriptor) -> None:
+    def close_window(self, descriptor: UiNodeDescriptor, *, query_overrides: QuerySettingsDict | None = None) -> None:
         """Close a window, as if the user clicked its close button.
 
         Waits for its target like the other action keywords. The target must be a window that can
@@ -1024,11 +1218,14 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Close Window`    //Window[@Name="Editor"]
         """
+        descriptor.overrides = query_overrides
         node = descriptor()
         node.get_pattern(Closeable).close()
 
     @keyword
-    def activate_window(self, descriptor: UiNodeDescriptor) -> None:
+    def activate_window(
+        self, descriptor: UiNodeDescriptor, *, query_overrides: QuerySettingsDict | None = None
+    ) -> None:
         """Bring a window to the front and give it the keyboard focus.
 
         Waits for its target like the other action keywords. The target must be a window that can
@@ -1040,11 +1237,14 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Activate Window`    //Window[@Name="Editor"]
         """
+        descriptor.overrides = query_overrides
         node = descriptor()
         node.get_pattern(Activatable).activate()
 
     @keyword
-    def move_window(self, descriptor: UiNodeDescriptor, x: float, y: float) -> None:
+    def move_window(
+        self, descriptor: UiNodeDescriptor, x: float, y: float, *, query_overrides: QuerySettingsDict | None = None
+    ) -> None:
         """Move a window so its top-left corner is at the given screen position.
 
         Waits for its target like the other action keywords. The target must be a window that can
@@ -1058,11 +1258,19 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Move Window`    //Window[@Name="Editor"]    100    200
         """
+        descriptor.overrides = query_overrides
         node = descriptor()
         node.get_pattern(Movable).move_to(x, y)
 
     @keyword
-    def resize_window(self, descriptor: UiNodeDescriptor, width: float, height: float) -> None:
+    def resize_window(
+        self,
+        descriptor: UiNodeDescriptor,
+        width: float,
+        height: float,
+        *,
+        query_overrides: QuerySettingsDict | None = None,
+    ) -> None:
         """Resize a window to the given width and height.
 
         Waits for its target like the other action keywords. The target must be a window that can
@@ -1076,12 +1284,20 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Resize Window`    //Window[@Name="Editor"]    800    600
         """
+        descriptor.overrides = query_overrides
         node = descriptor()
         node.get_pattern(Resizable).resize(width, height)
 
     @keyword
     def move_and_resize_window(
-        self, descriptor: UiNodeDescriptor, x: float, y: float, width: float, height: float
+        self,
+        descriptor: UiNodeDescriptor,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        *,
+        query_overrides: QuerySettingsDict | None = None,
     ) -> None:
         """Move and resize a window in a single step.
 
@@ -1098,12 +1314,13 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Move And Resize Window`    //Window[@Name="Editor"]    100    200    800    600
         """
+        descriptor.overrides = query_overrides
         node = descriptor()
         node.get_pattern(Movable).move_to(x, y)
         node.get_pattern(Resizable).resize(width, height)
 
     @keyword
-    def bring_to_front(self, descriptor: UiNodeDescriptor) -> None:
+    def bring_to_front(self, descriptor: UiNodeDescriptor, *, query_overrides: QuerySettingsDict | None = None) -> None:
         """Bring an element's window to the front and give it the keyboard focus.
 
         Pointer actions already do this when ``auto_activate`` is on (the default), so you rarely
@@ -1117,12 +1334,15 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Bring To Front`    //Window[@Name="Editor"]
         """
+        descriptor.overrides = query_overrides
         node = descriptor()
         self.runtime.bring_to_front(node)
 
     @keyword
     @assertable
-    def get_attribute(self, descriptor: UiNodeDescriptor, attribute_name: str) -> Any:
+    def get_attribute(
+        self, descriptor: UiNodeDescriptor, attribute_name: str, *, query_overrides: QuerySettingsDict | None = None
+    ) -> Any:
         """Read one attribute of one element, and optionally assert on it in the same call.
 
         Pass the attribute name bare — ``Name``, ``IsEnabled``, ``Bounds`` — without the leading
@@ -1143,12 +1363,18 @@ class BareMetal(OurDynamicCore):
         namespace: str | None = None
         if ':' in attribute_name:
             namespace, attribute_name = attribute_name.split(':', 1)
+        descriptor.overrides = query_overrides
         node = descriptor()
         return node.attribute(attribute_name, namespace)
 
     @keyword
     def keyboard_type(
-        self, descriptor: UiNodeDescriptor | None, text: str, *, overrides: KeyboardOverridesLike | None = None
+        self,
+        descriptor: UiNodeDescriptor | None,
+        text: str,
+        *,
+        overrides: KeyboardOverridesLike | None = None,
+        query_overrides: QuerySettingsDict | None = None,
     ) -> None:
         r"""Type a sequence of characters and/or keys.
 
@@ -1174,6 +1400,7 @@ class BareMetal(OurDynamicCore):
             - To omit the descriptor (no focus change), pass ``${None}`` as the first argument in Robot Framework.
         """
         if descriptor is not None:
+            descriptor.overrides = query_overrides
             target_node = descriptor()
             self.runtime.focus(target_node)
         self.runtime.keyboard_type(text, overrides=overrides)
@@ -1185,6 +1412,7 @@ class BareMetal(OurDynamicCore):
         text: str,
         *,
         overrides: KeyboardOverridesLike | None = None,
+        query_overrides: QuerySettingsDict | None = None,
     ) -> None:
         """Press (and hold) keys according to a sequence.
 
@@ -1202,6 +1430,7 @@ class BareMetal(OurDynamicCore):
             | `Keyboard Release`   ${None}    <Ctrl>
         """
         if descriptor is not None:
+            descriptor.overrides = query_overrides
             target_node = descriptor()
             self.runtime.focus(target_node)
         self.runtime.keyboard_press(text, overrides=overrides)
@@ -1213,6 +1442,7 @@ class BareMetal(OurDynamicCore):
         text: str,
         *,
         overrides: KeyboardOverridesLike | None = None,
+        query_overrides: QuerySettingsDict | None = None,
     ) -> None:
         """Release keys according to a sequence.
 
@@ -1230,6 +1460,7 @@ class BareMetal(OurDynamicCore):
             | `Keyboard Release`   ${None}    <Ctrl+Alt>
         """
         if descriptor is not None:
+            descriptor.overrides = query_overrides
             target_node = descriptor()
             self.runtime.focus(target_node)
         self.runtime.keyboard_release(text, overrides=overrides)
@@ -1240,6 +1471,8 @@ class BareMetal(OurDynamicCore):
         descriptor: UiNodeDescriptor | None = None,
         filename: Literal['EMBED'] | str = 'platynui-screenshot-{index}.png',
         rect: RectLike | None = None,
+        *,
+        query_overrides: QuerySettingsDict | None = None,
     ) -> str:
         """Take a screenshot of the entire screen or a specific element.
 
@@ -1260,6 +1493,7 @@ class BareMetal(OurDynamicCore):
             | `Take Screenshot`    //Window[@Name="Settings"]    filename=settings_window.png
         """
         if descriptor is not None:
+            descriptor.overrides = query_overrides
             node = descriptor()
             node_rect = cast(Rect, node.attribute('Bounds'))
             if rect is not None:
@@ -1311,6 +1545,7 @@ class BareMetal(OurDynamicCore):
         *,
         rect: RectLike | list[RectLike] | None = None,
         duration: float = 1.0,
+        query_overrides: QuerySettingsDict | None = None,
     ) -> None:
         """Draw a temporary outline around one or more elements — handy for demos and debugging.
 
@@ -1333,6 +1568,7 @@ class BareMetal(OurDynamicCore):
         rects: list[Rect] = []
         if descriptor_list:
             for d in descriptor_list:
+                d.overrides = query_overrides
                 try:
                     r = cast(Rect, d().attribute('Bounds'))
                     rects.append(r)
