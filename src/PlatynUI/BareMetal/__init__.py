@@ -251,14 +251,14 @@ class BareMetal(OurDynamicCore):
     | = Prefix = | = Selects = |
     | ``control:`` | ordinary elements — the default |
     | ``item:`` | items inside containers: ``ListItem``, ``MenuItem``, ``TabItem``, ``TableCell`` ... |
-    | ``app:`` | a running application (see *Targeting a specific application*) |
+    | ``app:`` | a running application (see `Targeting a specific application`) |
     | ``native:`` | raw, technology-specific roles and attributes |
 
     Attributes have no default namespace (unlike element names), so a standard attribute is written
-    bare — ``@Name``, ``@Id``, ``@Bounds`` — and a namespaced one with its prefix (an application's
-    process details as ``@app:...``, raw values as ``@native:...``).
+    bare — ``@Name``, ``@Id``, ``@Bounds``, an application's ``@ProcessId`` — while a
+    technology-specific one keeps its prefix, chiefly the raw values surfaced under ``@native:...``.
 
-    | @{rows}=    `Query`    //List[@Name="Inbox"]/item:ListItem
+    | @{rows}=    `Query`    Window[@Name="Mail"]//List[@Name="Inbox"]/item:ListItem
 
     = Finding elements =
 
@@ -266,19 +266,14 @@ class BareMetal(OurDynamicCore):
     role and filter on its attributes in ``[...]`` — exactly, partially, by regular expression, or by
     position:
 
-    | `Pointer Click`    //Button[@Name="OK"]    # exact
-    | `Keyboard Type`    //Edit[starts-with(@Name, "Address")]    12 Main St    # partial
+    | `Pointer Click`    //Button[@Name="OK"]    # exact text
+    | `Keyboard Type`    //Edit[starts-with(@Name, "Address")]    12 Main St    # partial text
     | `Get Attribute`    //CheckBox[matches(@Name, "Option [0-9]+")]    IsEnabled    # regular expression
     | `Pointer Click`    (//Button)[last()]    # by position
 
-    Top-level windows are children of the desktop, so a single leading ``/`` is enough to reach
-    them; ``//Window`` would also match windows nested inside others (the *Steps and axes* below
-    cover ``/``, ``//`` and the rest):
-
-    | `Pointer Click`    /Window[@Name="Settings"]//Button[@Name="Save"]
-
     ``=`` is exact and case-sensitive; use ``contains()``, ``starts-with()`` or ``matches()`` for
-    partial text. The usual XPath 2.0 string, numeric and boolean functions are available.
+    partial text. The usual XPath 2.0 string, numeric and boolean functions are available. Filter on
+    ``@Id`` instead of ``@Name`` when it is set — it is stable and language-independent.
 
     To match on more than one fact, combine conditions with ``and`` / ``or`` in one predicate, or
     chain predicates. A boolean attribute such as ``@IsVisible`` is compared with ``true()`` or
@@ -286,6 +281,42 @@ class BareMetal(OurDynamicCore):
 
     | `Pointer Click`    //Button[@Name="Save" and @IsVisible=true()]    # named *and* visible
     | `Pointer Click`    //Button[@Name="OK" or @Name="Yes"]    # either label
+
+    == Narrowing the search ==
+
+    A bare ``//`` is quick to write, but it searches the *whole desktop*: ``//Edit[@Name="Street"]``
+    matches every street field on screen, across every window of every program. And the same label
+    often repeats *within* one window — a customer form may carry the same *Street* field in both its
+    *Delivery* and *Billing* address groups — so even a single window can hold several matches. You
+    narrow the path until it names exactly the field you mean, and each step you add is more precise
+    *and* faster, because the search then stays inside a smaller part of the tree.
+
+    First, *to its window*. A window is a child of the desktop, and the desktop is the default context
+    (see `Scoping queries to a container`), so a plain ``Window`` step reaches a top-level window — no
+    leading ``/`` — and ``//`` descends into it. Being relative, the step also follows any `Set Root`
+    you have set. (Avoid a leading ``//Window``: it rescans the whole desktop and would also match a
+    window nested inside another.)
+
+    | `Keyboard Type`    Window[@Name="Customer"]//Edit[@Name="Street"]    221B Baker St
+
+    Here the window alone is still not enough — the *Street* field lives in two groups, so the path
+    matches both. Narrow on *to the group* that surrounds the field you want:
+
+    | `Keyboard Type`    Window[@Name="Customer"]//Group[@Name="Billing"]//Edit[@Name="Street"]    221B Baker St
+
+    Finally, when several programs — or several copies of one — are open, narrow *to the application*:
+    match its ``app:`` node by name so the query cannot stray into another program, or by ``ProcessId``
+    to single out one exact instance (see `Targeting a specific application`). You can spell the whole
+    path out in one go:
+
+    | `Focus`    app:Application[@Name="CRM"]/Window[@Name="Customer"]//Group[@Name="Billing"]//Edit[@Name="Street"]
+
+    That prefix is a mouthful to repeat on every step, so this is usually the point to set it once as
+    the root with `Set Root` and address the rest relative to it (see `Scoping queries to a
+    container`):
+
+    | `Set Root`    /app:Application[@Name="CRM"]
+    | `Focus`       Window[@Name="Customer"]//Group[@Name="Billing"]//Edit[@Name="Street"]
 
     == Steps and axes ==
 
@@ -301,9 +332,9 @@ class BareMetal(OurDynamicCore):
     | ``@`` | an attribute of the current element (a value, not another element) |
     | ``*`` | any element, whatever its role |
 
-    A leading ``/`` or ``//`` starts from the desktop, so the path is *absolute*; a leading ``.`` or
-    ``..`` starts from the current root, so it is *relative* — this is the distinction
-    *Scoping queries to a container* builds on.
+    A leading ``/`` or ``//`` starts from the desktop, so the path is *absolute*; a path without one —
+    a plain ``Window`` step, or a leading ``.`` or ``..`` — starts from the current root, so it is
+    *relative*. This is the distinction `Scoping queries to a container` builds on.
 
     When you need a direction the shorthand has no symbol for — an ancestor, a sibling — name the
     axis in full as ``axis::Role``:
@@ -318,17 +349,33 @@ class BareMetal(OurDynamicCore):
 
     The action keywords — pointer (click, press, move), keyboard, focus, window control (move,
     resize, minimize, maximize, activate, close), screenshots and highlight — take either a selector
-    or an element you captured with `Query`. Each waits for its target (see *Waiting for elements*):
+    or an element you captured with `Query`. Each waits for its target (see `Waiting for elements`):
 
-    | `Pointer Click`     //Button[@Name="New"]
-    | `Keyboard Type`     //Edit[@Name="Title"]    Q3 Report
-    | `Maximize Window`   //Window[@Name="Editor"]
+    | `Maximize Window`   Window[@Name="Editor"]
+    | `Pointer Click`     Window[@Name="Editor"]//Button[@Name="New"]
+    | `Keyboard Type`     Window[@Name="Editor"]//Edit[@Name="Title"]    Q3 Report
 
     Or capture an element once with `Query` and reuse it — every keyword takes it the same way:
 
-    | ${save}=    `Query`    //Button[@Name="Save"]    only_first=${True}
+    | ${save}=    `Query`    Window[@Name="Editor"]//Button[@Name="Save"]    only_first=${True}
     | `Pointer Click`    ${save}
     | `Highlight`        ${save}
+
+    == Window control ==
+
+    The window keywords — `Move Window`, `Resize Window`, `Minimize Window`, `Maximize Window`,
+    `Restore Window`, `Activate Window` and `Close Window` — differ from the rest in one way: they do
+    not merely *find* a window, they ask it to change state. Whether a particular window can be
+    maximized, moved or closed is not assumed — it is a capability the application and the window
+    manager expose, and not every window offers every one (a fixed-size tool window may refuse to
+    resize; a splash screen may have no close affordance). Each keyword probes for the capability it
+    needs and fails with a clear error when the target does not offer it, rather than appearing to
+    succeed while nothing happens.
+
+    Two of them only change which window is in front: `Activate Window` (like `Bring To Front`) raises
+    a window and gives it the keyboard focus. The others change a window's display state — and
+    `Restore Window` is the inverse of `Minimize Window` and `Maximize Window`, returning a minimized
+    or maximized window to the floating size and position it had before.
 
     = What a query gives you =
 
@@ -360,9 +407,9 @@ class BareMetal(OurDynamicCore):
     `Get Attribute` reads one attribute of one element and, in the same call, can assert on it: add
     an operator and the expected value, and the keyword fails if it does not hold.
 
-    | ${enabled}=    `Get Attribute`    //Button[@Name="Save"]    IsEnabled
-    | `Get Attribute`    //Button[@Name="Save"]         IsEnabled    ==    ${True}
-    | `Get Attribute`    //CheckBox[@Name="Dark mode"]  IsEnabled    ==    ${False}
+    | ${enabled}=    `Get Attribute`    Window[@Name="Settings"]//Button[@Name="Save"]    IsEnabled
+    | `Get Attribute`    Window[@Name="Settings"]//Button[@Name="Save"]    IsEnabled    ==    ${True}
+    | `Get Attribute`    Window[@Name="Settings"]//CheckBox[@Name="Dark mode"]    IsEnabled    ==    ${False}
 
     Operators include ``==``, ``!=``, ``contains``, ``starts``, ``ends`` and ``matches`` (see
     [https://github.com/MarketSquare/AssertionEngine|AssertionEngine]). For several values at once,
@@ -371,12 +418,12 @@ class BareMetal(OurDynamicCore):
     = Scoping queries to a container =
 
     Every query runs against a *context node*, the desktop by default. Scope it to a container you
-    found and relative selectors (``.//``, ``./``, axes like ``child::``) search inside it; an
-    absolute ``//`` ignores the context and starts again at the desktop.
+    found and relative selectors (a plain ``Window`` step, ``.//``, ``./``, axes like ``child::``)
+    search inside it; an absolute ``/`` or ``//`` ignores the context and starts again at the desktop.
 
     For one query, pass ``root``:
 
-    | ${inbox}=    `Query`    //List[@Name="Inbox"]    only_first=${True}
+    | ${inbox}=    `Query`    Window[@Name="Mail"]//List[@Name="Inbox"]    only_first=${True}
     | @{items}=    `Query`    .//item:ListItem    root=${inbox}
 
     `Set Root` makes a root the default for everything that follows, so you stop repeating a long
@@ -384,7 +431,7 @@ class BareMetal(OurDynamicCore):
     step by step (``..`` widens again), an absolute root switches away. It returns the previous root,
     and ``Set Root    ${None}`` clears it back to the desktop:
 
-    | `Set Root`        //app:Application[@Name="Editor"]    # work inside the Editor from here on
+    | `Set Root`        /app:Application[@Name="Editor"]    # work inside the Editor from here on
     | `Set Root`        .//Dialog[@Name="Save"]              # narrow to its Save dialog
     | `Pointer Click`   .//Button[@Name="Save"]
 
@@ -398,7 +445,7 @@ class BareMetal(OurDynamicCore):
     | ``TEST`` | the whole test, including called keywords |
     | ``SUITE`` | every test in the suite |
 
-    | `Set Root`    //app:Application[@Name="Editor"]    scope=SUITE
+    | `Set Root`    /app:Application[@Name="Editor"]    scope=SUITE
 
     The root stores the *query*, not a fixed node, so it re-resolves against the live tree and keeps
     working even after its window closes and reopens. (It lives in ``${PLATYNUI_ROOT_DESCRIPTOR}``,
@@ -411,11 +458,11 @@ class BareMetal(OurDynamicCore):
     the windows and elements it owns beneath it, so matching its name scopes everything below it to
     that program. Either prefix a single query with it:
 
-    | `Pointer Click`    //app:Application[@Name="Editor"]//Button[@Name="Save"]
+    | `Pointer Click`    app:Application[@Name="Editor"]//Button[@Name="Save"]
 
     or make it the root, so every relative selector that follows stays inside that program:
 
-    | `Set Root`        //app:Application[@Name="Editor"]
+    | `Set Root`        /app:Application[@Name="Editor"]
     | `Pointer Click`   .//Button[@Name="Save"]
 
     The node also carries the process. If you launched the program and know its process id, matching
@@ -425,46 +472,81 @@ class BareMetal(OurDynamicCore):
 
     | ${proc}=    Start Process     editor
     | ${pid}=     Get Process Id    ${proc}
-    | `Set Root`    //app:Application[@ProcessId=${pid}]
+    | `Set Root`    /app:Application[@ProcessId=${pid}]
 
     = Waiting for elements =
 
-    Action and read keywords wait for their target: while it is missing the lookup retries until a
-    timeout (30 seconds by default) before the keyword fails, so you rarely need explicit sleeps.
-    `Query` is the exception — it reports the tree as it is at that moment and returns immediately,
-    even when nothing matches.
+    Action and read keywords *wait* for their target, and knowing why explains most of what follows.
+    Real applications are asynchronous: after you click *New*, the editor window needs a moment to
+    open; a list fills in only once its data has loaded; a dialog you dismiss lingers for a few frames
+    before it is gone. If a keyword inspected the tree only once, your tests would pass or fail at the
+    mercy of how fast the machine happens to be that day.
 
-    Three things govern the wait, together called the *query settings*:
+    So every action and read keyword re-evaluates your selector against the live tree every
+    ``retry_interval`` and acts the moment the element appears; only once ``timeout`` has elapsed does
+    it give up and fail, with an error naming the selector and how long it waited. This is why you
+    almost never need an explicit `Sleep`: state *what* you expect to be there and the keyword waits
+    for exactly that, no longer.
+
+    `Query` is the deliberate exception. It is a snapshot of the tree at the instant you call it and
+    returns straight away with whatever matches right then — possibly nothing. That makes it the tool
+    for *asking about* the UI rather than *acting on* it: counting how many rows a table has, or
+    confirming a dialog is *gone* — a waiting keyword would block for the full timeout before it could
+    ever tell you that something is absent.
+
+    Three settings govern the wait, together the *query settings*:
 
     | = Setting = | = Meaning = |
     | ``timeout`` | how long to keep retrying before giving up, in seconds (default ``30``) |
     | ``retry_interval`` | the pause between attempts, in seconds (default ``0.1``) |
     | ``ignore_exceptions`` | keep retrying instead of failing when an attempt raises (default ``False``) |
 
+    ``timeout`` is the headroom for the slowest thing you wait on. Thirty seconds suits most UIs; raise
+    it when an application is slow to start or an action takes a while to settle (a save that talks to
+    the network), and lower it when you *expect* an element to be present already and would rather fail
+    fast than sit through the default.
+
+    ``retry_interval`` is how long the lookup pauses between attempts. The default tenth of a second is
+    responsive without hammering the platform's accessibility layer on every poll; you rarely need to
+    change it — raise it only if polling itself turns out to be expensive on a particular provider.
+
+    ``ignore_exceptions`` concerns the attempts that do not merely *miss* but *raise*. While an
+    application rebuilds part of its interface, a provider can momentarily throw — a node disappears in
+    the middle of a traversal, or the accessibility bridge returns a transient error. With this off
+    (the default) the first such error fails the keyword at once; with it on, the loop swallows the
+    error and keeps retrying until the timeout, so a target whose container is being torn down and
+    rebuilt still resolves once things settle. Turn it on deliberately and narrowly: it also masks a
+    genuinely wrong selector that would otherwise fail fast, turning a clear error into a long wait.
+
     == Tuning the wait ==
 
-    You set them on three levels; name only the fields you want to change, the rest are inherited.
+    You set the query settings on three levels, each with a different reach, naming only the fields you
+    want to change — the rest are inherited.
 
-    *For the whole suite*, when you import the library, as a dict:
+    *For the whole suite*, as the baseline, when you import the library:
 
     | Library    PlatynUI.BareMetal    query_settings={'timeout': 60}
 
-    *For a scope*, with `Set Query Settings` — it works exactly like `Set Root`: the settings live as
-    long as their ``LOCAL``/``TEST``/``SUITE`` scope and clear themselves when it ends.
+    *For a stretch of a test* that needs more (or less) patience than the rest — a slow login, say —
+    with `Set Query Settings`. It works exactly like `Set Root`: the change lives as long as its
+    ``LOCAL``/``TEST``/``SUITE`` scope and clears itself when that scope ends, so there is no teardown
+    to remember.
 
     | `Set Query Settings`    {'timeout': 60}    scope=TEST
 
-    *For a single keyword*, with its ``query_overrides`` argument:
+    *For one stubborn element*, with a keyword's ``query_overrides`` argument, which affects that call
+    alone:
 
-    | `Pointer Click`    //Button[@Name="Save"]    query_overrides={'timeout': 10}
+    | `Pointer Click`    Window[@Name="Editor"]//Button[@Name="Save"]    query_overrides={'timeout': 10}
 
-    These form a chain: a per-call ``query_overrides`` wins over the scope, which wins over the import
-    default. The import and scope levels apply to *every* lookup — including the re-resolution of a
-    `Set Root` root — while ``query_overrides`` tunes only that one keyword's own target; to extend the
-    wait for a root as well, set it at the scope level instead.
+    The three form a chain, and the most specific wins: a per-call ``query_overrides`` overrides the
+    scope, which overrides the import baseline. The import and scope levels apply to *every* lookup —
+    including the re-resolution of a `Set Root` root — whereas ``query_overrides`` tunes only that one
+    keyword's own target; if you need to wait longer for the root as well, set it at the scope level.
 
-    ``timeout`` bounds each individual element resolution, not the keyword as a whole: a keyword that
-    resolves both a root and a target performs two lookups, each governed by ``timeout``.
+    One subtlety worth keeping in mind: ``timeout`` bounds *each* element resolution, not the keyword
+    as a whole. A keyword that resolves both a root and a target performs two lookups, each allowed its
+    own ``timeout`` — so in the worst case a single keyword can wait longer than the number you set.
 
     = Input timing and motion =
 
@@ -493,7 +575,7 @@ class BareMetal(OurDynamicCore):
     | ``after_text_delay_ms`` | after typed text |
 
     | Library    PlatynUI.BareMetal    keyboard_profile={'press_delay_ms': 20, 'between_keys_delay_ms': 30}
-    | `Keyboard Type`    //Edit[@Name="PIN"]    1234    overrides={'between_keys_delay_ms': 200}
+    | `Keyboard Type`    Window[@Name="Login"]//Edit[@Name="PIN"]    1234    overrides={'between_keys_delay_ms': 200}
 
     == Pointer clicks ==
 
@@ -528,13 +610,13 @@ class BareMetal(OurDynamicCore):
     | ``multi_click_delay_ms`` | the pause between clicks of a multi-click |
 
     | Library    PlatynUI.BareMetal    pointer_profile={'motion': 'BEZIER', 'speed_factor': 0.5}
-    | `Pointer Click`    //Button[@Name="Save"]    overrides={'speed_factor': 0.3}
+    | `Pointer Click`    Window[@Name="Editor"]//Button[@Name="Save"]    overrides={'speed_factor': 0.3}
 
     = A short example =
 
-    | `Pointer Click`     //Button[@Name="New"]                      # start a new document
-    | `Keyboard Type`     ${None}    Q3 Report                       # type into the focused field
-    | `Get Attribute`     //Button[@Name="Save"]    IsEnabled    ==    ${True}    # Save is enabled now
+    | `Pointer Click`     Window[@Name="Editor"]//Button[@Name="New"]    # start a new document
+    | `Keyboard Type`     ${None}    Q3 Report    # type into the focused field
+    | `Get Attribute`     Window[@Name="Editor"]//Button[@Name="Save"]    IsEnabled    ==    ${True}    # Save enabled
     | `Take Screenshot`
     """
 
@@ -553,9 +635,9 @@ class BareMetal(OurDynamicCore):
         | Library    PlatynUI.BareMetal
 
         All arguments are optional. ``auto_activate`` governs window raising; ``query_settings`` sets
-        how long lookups wait (see *Waiting for elements*); the three *profile* arguments set the
+        how long lookups wait (see `Waiting for elements`); the three *profile* arguments set the
         default timing and motion of generated input, each given as a dict of the fields you want to
-        change (see *Input timing and motion*):
+        change (see `Input timing and motion`):
 
         | = Argument = | = What it does = |
         | ``auto_activate`` | bring an element's window to the front before a pointer action — default ``True`` |
@@ -666,7 +748,7 @@ class BareMetal(OurDynamicCore):
         A *relative* selector (``.//``, ``./``, ``..``, ``.``) is resolved against the current root
         and drills *into* it; an *absolute* selector (``//``, ``/``) ignores it and starts at the
         desktop. Roots chain, so you can narrow step by step; ``Set Root    ${None}`` resets to the
-        desktop. See *Scoping queries to a container* for the full picture, including scope.
+        desktop. See `Scoping queries to a container` for the full picture, including scope.
 
         Args:
             descriptor: The new root — a selector string, a ``UiNode`` or descriptor (e.g. one
@@ -680,7 +762,7 @@ class BareMetal(OurDynamicCore):
             none). Pass it back at that scope to restore it.
 
         Examples:
-            | `Set Root`        //app:Application[@Name="Editor"]    scope=SUITE    # whole suite runs in the Editor
+            | `Set Root`        /app:Application[@Name="Editor"]    scope=SUITE    # whole suite runs in the Editor
             | `Set Root`        .//Dialog[@Name="Save"]    # drill into the Save dialog
             | `Pointer Click`   .//Button[@Name="OK"]    # acts relative to the dialog
             | `Set Root`        ${None}    # reset to the desktop
@@ -741,12 +823,13 @@ class BareMetal(OurDynamicCore):
     ) -> QuerySettings | None:
         """Set the query wait/retry settings for the given Robot Framework scope.
 
-        These settings govern how the action and read keywords *wait* for their target (see *Waiting
-        for elements*): ``timeout`` (how long to keep retrying), ``retry_interval`` (the pause between
-        attempts) and ``ignore_exceptions`` (swallow evaluation errors instead of failing). Name only
-        the fields you want to change — they are applied over the currently effective settings, so the
-        rest are inherited. The result lives as long as its variable ``scope`` and clears itself when
-        that scope ends, exactly like `Set Root` — no teardown to remember.
+        These settings govern how the action and read keywords *wait* for their target (see
+        `Waiting for elements`): ``timeout`` (how long to keep retrying), ``retry_interval`` (the
+        pause between attempts) and ``ignore_exceptions`` (swallow evaluation errors instead of
+        failing). Name only the fields you want to change — they are applied over the settings already
+        in effect at that scope, so the rest are inherited. The result lives as long as its variable
+        ``scope`` and clears itself when that scope ends, exactly like `Set Root` — no teardown to
+        remember.
 
         Like a root, scopes nest: a value set at ``LOCAL`` shadows one at ``TEST`` shadows one at
         ``SUITE`` shadows the library-import defaults. Settings set this way apply to *every* lookup,
@@ -787,7 +870,7 @@ class BareMetal(OurDynamicCore):
         if scope_store is None:  # only if Robot has no suite scope yet (not during keyword execution)
             scope_store = variables.current
 
-        old = scope_store.get(name)
+        old: QuerySettings | None = scope_store.get(name)
         old = old if isinstance(old, QuerySettings) else None
 
         new: QuerySettings | None
@@ -828,11 +911,11 @@ class BareMetal(OurDynamicCore):
         Returns a list — one entry per match, empty when nothing matches. Pass
         ``only_first=${True}`` for just the first match, which is ``${None}`` when there is none.
         What each entry is — an element, an attribute, or a computed value — is explained in
-        *What a query gives you*; how to write the expression is explained in *Finding elements*.
+        `What a query gives you`; how to write the expression is explained in `Finding elements`.
 
         Unlike the action keywords, `Query` does not wait: it reports the tree as it is at that
         moment and returns immediately, even when nothing matches. Pass ``root`` to scope it to a
-        container (see *Scoping queries to a container*).
+        container (see `Scoping queries to a container`).
 
         | @{buttons}=    `Query`    //Button
         | ${ok}=         `Query`    //Button[@Name="OK"]    only_first=${True}
@@ -972,9 +1055,9 @@ class BareMetal(OurDynamicCore):
                 ``auto_activate``.
 
         Examples:
-            | `Pointer Click`    //Button[@Name="OK"]
+            | `Pointer Click`    Window[@Name="Settings"]//Button[@Name="OK"]
             | `Pointer Click`    x=${100}    y=${200}
-            | `Pointer Click`    //Button[@Name="OK"]    activate=${False}
+            | `Pointer Click`    Window[@Name="Settings"]//Button[@Name="OK"]    activate=${False}
         """
         if descriptor is not None:
             descriptor.overrides = query_overrides
@@ -1008,9 +1091,9 @@ class BareMetal(OurDynamicCore):
                 ``auto_activate``.
 
         Examples:
-            | `Pointer Multi Click`    //item:ListItem[@Name="Open"]
+            | `Pointer Multi Click`    Window[@Name="Files"]//item:ListItem[@Name="Open"]
             | `Pointer Multi Click`    x=${100}    y=${200}
-            | `Pointer Multi Click`    //Text[@Name="File"]    clicks=${3}
+            | `Pointer Multi Click`    Window[@Name="Files"]//Text[@Name="File"]    clicks=${3}
         """
         if descriptor is not None:
             descriptor.overrides = query_overrides
@@ -1042,7 +1125,7 @@ class BareMetal(OurDynamicCore):
                 ``auto_activate``.
 
         Examples:
-            | `Pointer Press`    //Slider    x=${10}    y=${5}
+            | `Pointer Press`    Window[@Name="Mixer"]//Slider    x=${10}    y=${5}
         """
         if descriptor is not None:
             descriptor.overrides = query_overrides
@@ -1078,7 +1161,7 @@ class BareMetal(OurDynamicCore):
 
         Examples:
             | `Pointer Release`
-            | `Pointer Release`    //Canvas    x=${50}    y=${50}
+            | `Pointer Release`    Window[@Name="Editor"]//Canvas    x=${50}    y=${50}
         """
         if descriptor is not None:
             descriptor.overrides = query_overrides
@@ -1109,7 +1192,7 @@ class BareMetal(OurDynamicCore):
 
         Examples:
             | `Pointer Move To`    x=${400}    y=${300}
-            | `Pointer Move To`    //Button[@Name="OK"]
+            | `Pointer Move To`    Window[@Name="Settings"]//Button[@Name="OK"]
         """
         if descriptor is not None:
             descriptor.overrides = query_overrides
@@ -1144,7 +1227,7 @@ class BareMetal(OurDynamicCore):
             descriptor: The element to focus — a selector or an element from `Query`.
 
         Examples:
-            | `Focus`    //Edit[@Name="Search"]
+            | `Focus`    Window[@Name="Browser"]//Edit[@Name="Search"]
         """
         descriptor.overrides = query_overrides
         self.runtime.focus(descriptor())
@@ -1155,13 +1238,13 @@ class BareMetal(OurDynamicCore):
 
         Returns a minimized or maximized window to the size and position it had before. Waits for
         its target like the other action keywords. The target must be a window that can be
-        restored; the keyword fails if it cannot.
+        restored; the keyword fails if it cannot (see `Window control`).
 
         Args:
             descriptor: The window element to restore.
 
         Examples:
-            | `Restore Window`    //Window[@Name="Settings"]
+            | `Restore Window`    Window[@Name="Settings"]
         """
         descriptor.overrides = query_overrides
         node = descriptor()
@@ -1174,13 +1257,13 @@ class BareMetal(OurDynamicCore):
         """Maximize a window so it fills the screen.
 
         Waits for its target like the other action keywords. The target must be a window that can
-        be maximized; the keyword fails if it cannot.
+        be maximized; the keyword fails if it cannot (see `Window control`).
 
         Args:
             descriptor: The window element to maximize.
 
         Examples:
-            | `Maximize Window`    //Window[@Name="Editor"]
+            | `Maximize Window`    Window[@Name="Editor"]
         """
         descriptor.overrides = query_overrides
         node = descriptor()
@@ -1193,13 +1276,13 @@ class BareMetal(OurDynamicCore):
         """Minimize a window to the taskbar.
 
         Waits for its target like the other action keywords. The target must be a window that can
-        be minimized; the keyword fails if it cannot.
+        be minimized; the keyword fails if it cannot (see `Window control`).
 
         Args:
             descriptor: The window element to minimize.
 
         Examples:
-            | `Minimize Window`    //Window[@Name="Editor"]
+            | `Minimize Window`    Window[@Name="Editor"]
         """
         descriptor.overrides = query_overrides
         node = descriptor()
@@ -1210,13 +1293,13 @@ class BareMetal(OurDynamicCore):
         """Close a window, as if the user clicked its close button.
 
         Waits for its target like the other action keywords. The target must be a window that can
-        be closed; the keyword fails if it cannot.
+        be closed; the keyword fails if it cannot (see `Window control`).
 
         Args:
             descriptor: The window element to close.
 
         Examples:
-            | `Close Window`    //Window[@Name="Editor"]
+            | `Close Window`    Window[@Name="Editor"]
         """
         descriptor.overrides = query_overrides
         node = descriptor()
@@ -1229,13 +1312,13 @@ class BareMetal(OurDynamicCore):
         """Bring a window to the front and give it the keyboard focus.
 
         Waits for its target like the other action keywords. The target must be a window that can
-        be activated; the keyword fails if it cannot.
+        be activated; the keyword fails if it cannot (see `Window control`).
 
         Args:
             descriptor: The window element to activate.
 
         Examples:
-            | `Activate Window`    //Window[@Name="Editor"]
+            | `Activate Window`    Window[@Name="Editor"]
         """
         descriptor.overrides = query_overrides
         node = descriptor()
@@ -1248,7 +1331,7 @@ class BareMetal(OurDynamicCore):
         """Move a window so its top-left corner is at the given screen position.
 
         Waits for its target like the other action keywords. The target must be a window that can
-        be moved; the keyword fails if it cannot.
+        be moved; the keyword fails if it cannot (see `Window control`).
 
         Args:
             descriptor: The window element to move.
@@ -1256,7 +1339,7 @@ class BareMetal(OurDynamicCore):
             y: The target y coordinate for the window's top-left corner.
 
         Examples:
-            | `Move Window`    //Window[@Name="Editor"]    100    200
+            | `Move Window`    Window[@Name="Editor"]    100    200
         """
         descriptor.overrides = query_overrides
         node = descriptor()
@@ -1274,7 +1357,7 @@ class BareMetal(OurDynamicCore):
         """Resize a window to the given width and height.
 
         Waits for its target like the other action keywords. The target must be a window that can
-        be resized; the keyword fails if it cannot.
+        be resized; the keyword fails if it cannot (see `Window control`).
 
         Args:
             descriptor: The window element to resize.
@@ -1282,7 +1365,7 @@ class BareMetal(OurDynamicCore):
             height: The target height.
 
         Examples:
-            | `Resize Window`    //Window[@Name="Editor"]    800    600
+            | `Resize Window`    Window[@Name="Editor"]    800    600
         """
         descriptor.overrides = query_overrides
         node = descriptor()
@@ -1302,7 +1385,7 @@ class BareMetal(OurDynamicCore):
         """Move and resize a window in a single step.
 
         Waits for its target like the other action keywords. The target must be a window that can
-        be both moved and resized; the keyword fails if it cannot.
+        be both moved and resized; the keyword fails if it cannot (see `Window control`).
 
         Args:
             descriptor: The window element to move and resize.
@@ -1312,7 +1395,7 @@ class BareMetal(OurDynamicCore):
             height: The target height.
 
         Examples:
-            | `Move And Resize Window`    //Window[@Name="Editor"]    100    200    800    600
+            | `Move And Resize Window`    Window[@Name="Editor"]    100    200    800    600
         """
         descriptor.overrides = query_overrides
         node = descriptor()
@@ -1332,7 +1415,7 @@ class BareMetal(OurDynamicCore):
             descriptor: The element whose window to bring to the front.
 
         Examples:
-            | `Bring To Front`    //Window[@Name="Editor"]
+            | `Bring To Front`    Window[@Name="Editor"]
         """
         descriptor.overrides = query_overrides
         node = descriptor()
@@ -1356,9 +1439,9 @@ class BareMetal(OurDynamicCore):
             attribute_name: The attribute to read, written bare (or with a ``native:`` prefix).
 
         Examples:
-            | ${enabled}=    `Get Attribute`    //Button[@Name="Save"]    IsEnabled
-            | `Get Attribute`    //Button[@Name="Save"]    IsEnabled    ==    ${True}
-            | ${bounds}=     `Get Attribute`    //Button[@Name="Save"]    Bounds
+            | ${enabled}=    `Get Attribute`    Window[@Name="Editor"]//Button[@Name="Save"]    IsEnabled
+            | `Get Attribute`    Window[@Name="Editor"]//Button[@Name="Save"]    IsEnabled    ==    ${True}
+            | ${bounds}=     `Get Attribute`    Window[@Name="Editor"]//Button[@Name="Save"]    Bounds
         """
         namespace: str | None = None
         if ':' in attribute_name:
@@ -1386,11 +1469,11 @@ class BareMetal(OurDynamicCore):
             descriptor: Optional element to focus before typing. Pass ``${None}`` to type
                 into the currently focused element without changing focus.
             text: The character/key sequence to send.
-            overrides: Per-call timing overrides, as a dict (see *Input timing and motion*).
+            overrides: Per-call timing overrides, as a dict (see `Input timing and motion`).
 
         Examples:
-            | `Keyboard Type`    //Edit[@Name="Search"]    Hello World
-            | `Keyboard Type`    //Edit[@Name="Search"]    <Ctrl+A><Delete>
+            | `Keyboard Type`    Window[@Name="Browser"]//Edit[@Name="Search"]    Hello World
+            | `Keyboard Type`    Window[@Name="Browser"]//Edit[@Name="Search"]    <Ctrl+A><Delete>
             | `Keyboard Type`    ${None}    Hello\nWorld    # newline supported
 
         Notes:
@@ -1422,10 +1505,10 @@ class BareMetal(OurDynamicCore):
         Args:
             descriptor: Optional element to focus before pressing.
             text: Sequence of keys, e.g. ``<Ctrl+Alt+T>`` or ``<Shift>``.
-            overrides: Per-call timing overrides, as a dict (see *Input timing and motion*).
+            overrides: Per-call timing overrides, as a dict (see `Input timing and motion`).
 
         Examples:
-            | `Keyboard Press`     //Window[@Name="Terminal"]    <Ctrl+Alt+T>
+            | `Keyboard Press`     Window[@Name="Terminal"]    <Ctrl+Alt+T>
             | `Keyboard Press`     ${None}    <Ctrl>
             | `Keyboard Release`   ${None}    <Ctrl>
         """
@@ -1452,11 +1535,11 @@ class BareMetal(OurDynamicCore):
         Args:
             descriptor: Optional element to focus before releasing.
             text: Sequence of keys to release, e.g. ``<Ctrl+Alt+T>`` or ``<Ctrl>``.
-            overrides: Per-call timing overrides, as a dict (see *Input timing and motion*).
+            overrides: Per-call timing overrides, as a dict (see `Input timing and motion`).
 
         Examples:
-            | `Keyboard Press`     //Window[@Name="Terminal"]    <Ctrl+Alt>
-            | `Keyboard Release`   //Window[@Name="Terminal"]    <Ctrl+Alt>
+            | `Keyboard Press`     Window[@Name="Terminal"]    <Ctrl+Alt>
+            | `Keyboard Release`   Window[@Name="Terminal"]    <Ctrl+Alt>
             | `Keyboard Release`   ${None}    <Ctrl+Alt>
         """
         if descriptor is not None:
@@ -1490,7 +1573,7 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Take Screenshot`    filename=EMBED
             | `Take Screenshot`    filename=full_desktop.png
-            | `Take Screenshot`    //Window[@Name="Settings"]    filename=settings_window.png
+            | `Take Screenshot`    Window[@Name="Settings"]    filename=settings_window.png
         """
         if descriptor is not None:
             descriptor.overrides = query_overrides
