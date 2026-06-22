@@ -98,7 +98,16 @@ def assertable(func: Callable[..., Any]) -> Callable[..., Any]:
     attributes to include the assertion parameters.
     """
     sig = inspect.signature(func)
-    new_sig = sig.replace(parameters=[*sig.parameters.values(), *_build_assertion_parameters()])
+    # The assertion parameters are POSITIONAL_OR_KEYWORD, so they must be inserted *before* any
+    # parameter that has to follow them in a valid signature — keyword-only args (after a bare ``*``),
+    # ``*args`` and ``**kwargs`` — not simply appended. Appending after a keyword-only parameter would
+    # raise ``ValueError: ... keyword-only parameter before positional or keyword parameter``. Keeping
+    # them ahead of those also preserves positional assertion calls (``... == ${expected}``).
+    _trailing = (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.VAR_KEYWORD)
+    params = list(sig.parameters.values())
+    head = [p for p in params if p.kind not in _trailing]
+    tail = [p for p in params if p.kind in _trailing]
+    new_sig = sig.replace(parameters=[*head, *_build_assertion_parameters(), *tail])
 
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         bound_arguments = new_sig.bind_partial(*args, **kwargs)
