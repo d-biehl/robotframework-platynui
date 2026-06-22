@@ -1,7 +1,7 @@
 # Platform Linux Wayland – Feasibility Study
 
-> **Status:** Phase 1 complete (input injection on all compositor families); Phase 1b (screenshots, window management for general compositors) not started — window management and highlights currently work only against the custom PlatynUI compositor via control-socket IPC
-> **Date:** 2026-02-26 (initial), 2026-03-10 (last updated)
+> **Status:** Phase 1 complete (input injection on all compositor families); Phase 1b (screenshots, window management for general compositors) not started — window management, highlights, and screenshots currently work only against the custom PlatynUI compositor via control-socket IPC
+> **Date:** 2026-02-26 (initial), 2026-06-23 (last updated)
 > **Crate:** `crates/platform-linux-wayland`
 
 This document captures the current state (Feb 2026) of Wayland protocol support, compositor landscape, Rust ecosystem, and implementation strategies for the `platform-linux-wayland` crate. It serves as both a reference and a decision guide for implementation.

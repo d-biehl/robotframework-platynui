@@ -90,20 +90,7 @@ pub mod pointer {
 }
 
 #[cfg(target_os = "linux")]
-pub mod screenshot {
-    use platynui_core::platform::{PlatformError, Screenshot, ScreenshotProvider, ScreenshotRequest};
-
-    pub struct WaylandScreenshot;
-
-    impl ScreenshotProvider for WaylandScreenshot {
-        fn capture(&self, _request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
-            Err(PlatformError::CapabilityUnavailable {
-                capability: "Wayland screenshot provider",
-                details: Some("not yet implemented".into()),
-            })
-        }
-    }
-}
+pub mod screenshot;
 
 // Non-Linux targets keep a tiny marker to allow cross-platform builds.
 #[cfg(not(target_os = "linux"))]

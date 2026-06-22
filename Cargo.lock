@@ -3486,6 +3486,7 @@ dependencies = [
  "enumflags2",
  "platynui-core",
  "platynui-xkb-util",
+ "png",
  "reis",
  "rstest",
  "rustix 1.1.4",
