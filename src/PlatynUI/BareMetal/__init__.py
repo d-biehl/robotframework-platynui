@@ -361,6 +361,30 @@ class BareMetal(OurDynamicCore):
     | `Pointer Click`    ${save}
     | `Highlight`        ${save}
 
+    == Bringing windows to the front ==
+
+    Acting on a window that sits in the background is unreliable, so most action keywords raise the
+    target's top-level window to the front before they act. The reason differs by input kind but
+    points the same way: a pointer click lands on whatever window is visually on top at its screen
+    coordinates, and keyboard input goes to the window the desktop currently treats as active —
+    focusing an element on its own only moves focus *within* its application and does not guarantee
+    that its window is the active one. `Take Screenshot` of an element and `Highlight` are in the
+    same boat: they read the element's on-screen rectangle, which a window in front would cover.
+
+    So the pointer keywords, the keyboard keywords, `Focus`, `Take Screenshot` (for an element) and
+    `Highlight` bring the element's top-level window forward, then act. This is governed by the
+    ``auto_activate`` import setting (default ``${True}``); turn it off to leave the window stacking
+    order untouched — for instance when you deliberately drive a background window, or do not want a
+    test to steal the foreground. Each of these keywords also takes a per-call ``activate`` that
+    overrides the import default for a single call:
+
+    | `Pointer Click`    Window[@Name="Settings"]//Button[@Name="OK"]    activate=${False}
+
+    The window keywords (`Move Window`, `Maximize Window`, `Close Window`) are the exception: they
+    drive a window through its own controls rather than its screen position (see `Window control`),
+    so they have no ``activate`` and never need it. `Activate Window` and `Bring To Front` do raise a
+    window — but that is the whole point of those two.
+
     == Window control ==
 
     The window keywords — `Move Window`, `Resize Window`, `Minimize Window`, `Maximize Window`,
@@ -634,13 +658,14 @@ class BareMetal(OurDynamicCore):
 
         | Library    PlatynUI.BareMetal
 
-        All arguments are optional. ``auto_activate`` governs window raising; ``query_settings`` sets
-        how long lookups wait (see `Waiting for elements`); the three *profile* arguments set the
-        default timing and motion of generated input, each given as a dict of the fields you want to
-        change (see `Input timing and motion`):
+        All arguments are optional. ``auto_activate`` governs window raising before actions (see
+        `Bringing windows to the front`); ``query_settings`` sets how long lookups wait (see
+        `Waiting for elements`); the three *profile* arguments set the default timing and motion of
+        generated input, each given as a dict of the fields you want to change (see `Input timing
+        and motion`):
 
         | = Argument = | = What it does = |
-        | ``auto_activate`` | bring an element's window to the front before a pointer action — default ``True`` |
+        | ``auto_activate`` | raise an element's window to the front before acting on it — default ``True`` |
         | ``query_settings`` | query *waiting*: ``timeout``, ``retry_interval`` and ``ignore_exceptions`` |
         | ``keyboard_profile`` | keyboard *timing*: delays around key presses, chords and whole sequences |
         | ``pointer_settings`` | pointer *behaviour*: double-click interval and size, and the default button |
@@ -1217,19 +1242,30 @@ class BareMetal(OurDynamicCore):
         return self.runtime.pointer_position()
 
     @keyword
-    def focus(self, descriptor: UiNodeDescriptor, *, query_overrides: QuerySettingsDict | None = None) -> None:
+    def focus(
+        self,
+        descriptor: UiNodeDescriptor,
+        *,
+        activate: bool | None = None,
+        query_overrides: QuerySettingsDict | None = None,
+    ) -> None:
         """Set keyboard focus to an element, bringing its window to the front first.
 
         Waits for its target like the other action keywords. The keyboard keywords focus their own
-        target, so you only need this for focus that is not tied to a type action.
+        target, so you only need this for focus that is not tied to a type action. The element's
+        top-level window is raised first so the focus is desktop-wide and not merely within its
+        application (see `Bringing windows to the front`); pass ``activate=${False}`` to skip that.
 
         Args:
             descriptor: The element to focus — a selector or an element from `Query`.
+            activate: Bring the element's window to the front first; defaults to the library's
+                ``auto_activate``.
 
         Examples:
             | `Focus`    Window[@Name="Browser"]//Edit[@Name="Search"]
         """
         descriptor.overrides = query_overrides
+        self._maybe_bring_to_front(descriptor, activate)
         self.runtime.focus(descriptor())
 
     @keyword
@@ -1457,11 +1493,13 @@ class BareMetal(OurDynamicCore):
         text: str,
         *,
         overrides: KeyboardOverridesLike | None = None,
+        activate: bool | None = None,
         query_overrides: QuerySettingsDict | None = None,
     ) -> None:
         r"""Type a sequence of characters and/or keys.
 
-        If ``descriptor`` is provided, the element is brought to front and focused first.
+        If ``descriptor`` is provided, its window is brought to the front and the element focused
+        first (see `Bringing windows to the front`).
         Sequences may include plain text and special keys wrapped in angle brackets.
         Use ``+`` to combine modifiers with keys.
 
@@ -1470,6 +1508,8 @@ class BareMetal(OurDynamicCore):
                 into the currently focused element without changing focus.
             text: The character/key sequence to send.
             overrides: Per-call timing overrides, as a dict (see `Input timing and motion`).
+            activate: Bring the element's window to the front first; defaults to the library's
+                ``auto_activate``.
 
         Examples:
             | `Keyboard Type`    Window[@Name="Browser"]//Edit[@Name="Search"]    Hello World
@@ -1484,6 +1524,7 @@ class BareMetal(OurDynamicCore):
         """
         if descriptor is not None:
             descriptor.overrides = query_overrides
+            self._maybe_bring_to_front(descriptor, activate)
             target_node = descriptor()
             self.runtime.focus(target_node)
         self.runtime.keyboard_type(text, overrides=overrides)
@@ -1495,6 +1536,7 @@ class BareMetal(OurDynamicCore):
         text: str,
         *,
         overrides: KeyboardOverridesLike | None = None,
+        activate: bool | None = None,
         query_overrides: QuerySettingsDict | None = None,
     ) -> None:
         """Press (and hold) keys according to a sequence.
@@ -1503,9 +1545,11 @@ class BareMetal(OurDynamicCore):
         hold modifiers or keys; pair with ``Keyboard Release`` to complete the action.
 
         Args:
-            descriptor: Optional element to focus before pressing.
+            descriptor: Optional element to bring to front and focus before pressing.
             text: Sequence of keys, e.g. ``<Ctrl+Alt+T>`` or ``<Shift>``.
             overrides: Per-call timing overrides, as a dict (see `Input timing and motion`).
+            activate: Bring the element's window to the front first; defaults to the library's
+                ``auto_activate``.
 
         Examples:
             | `Keyboard Press`     Window[@Name="Terminal"]    <Ctrl+Alt+T>
@@ -1514,6 +1558,7 @@ class BareMetal(OurDynamicCore):
         """
         if descriptor is not None:
             descriptor.overrides = query_overrides
+            self._maybe_bring_to_front(descriptor, activate)
             target_node = descriptor()
             self.runtime.focus(target_node)
         self.runtime.keyboard_press(text, overrides=overrides)
@@ -1525,6 +1570,7 @@ class BareMetal(OurDynamicCore):
         text: str,
         *,
         overrides: KeyboardOverridesLike | None = None,
+        activate: bool | None = None,
         query_overrides: QuerySettingsDict | None = None,
     ) -> None:
         """Release keys according to a sequence.
@@ -1533,9 +1579,11 @@ class BareMetal(OurDynamicCore):
         press→release cycle for characters or shortcuts, prefer ``Keyboard Type``.
 
         Args:
-            descriptor: Optional element to focus before releasing.
+            descriptor: Optional element to bring to front and focus before releasing.
             text: Sequence of keys to release, e.g. ``<Ctrl+Alt+T>`` or ``<Ctrl>``.
             overrides: Per-call timing overrides, as a dict (see `Input timing and motion`).
+            activate: Bring the element's window to the front first; defaults to the library's
+                ``auto_activate``.
 
         Examples:
             | `Keyboard Press`     Window[@Name="Terminal"]    <Ctrl+Alt>
@@ -1544,6 +1592,7 @@ class BareMetal(OurDynamicCore):
         """
         if descriptor is not None:
             descriptor.overrides = query_overrides
+            self._maybe_bring_to_front(descriptor, activate)
             target_node = descriptor()
             self.runtime.focus(target_node)
         self.runtime.keyboard_release(text, overrides=overrides)
@@ -1555,17 +1604,22 @@ class BareMetal(OurDynamicCore):
         filename: Literal['EMBED'] | str = 'platynui-screenshot-{index}.png',
         rect: RectLike | None = None,
         *,
+        activate: bool | None = None,
         query_overrides: QuerySettingsDict | None = None,
     ) -> str:
         """Take a screenshot of the entire screen or a specific element.
 
         Args:
-            descriptor: Optional element to capture. If None, captures the full screen.
+            descriptor: Optional element to capture; its window is brought to the front first so it
+                is not covered by another (see `Bringing windows to the front`). If None, captures
+                the full screen.
             filename: ``EMBED`` to embed the image directly into the log, or a file name to
                 save the PNG under the suite's output directory. A ``{index}`` placeholder in
                 the name is replaced with an auto-incrementing counter.
             rect: Optional rectangle area to capture. When a descriptor is given, the rect is
                 interpreted relative to the element's bounds.
+            activate: Bring the element's window to the front first; defaults to the library's
+                ``auto_activate``.
 
         Returns:
             str: The file name the screenshot was written to, or ``EMBED`` when embedded.
@@ -1577,6 +1631,7 @@ class BareMetal(OurDynamicCore):
         """
         if descriptor is not None:
             descriptor.overrides = query_overrides
+            self._maybe_bring_to_front(descriptor, activate)
             node = descriptor()
             node_rect = cast(Rect, node.attribute('Bounds'))
             if rect is not None:
@@ -1628,6 +1683,7 @@ class BareMetal(OurDynamicCore):
         *,
         rect: RectLike | list[RectLike] | None = None,
         duration: float = 1.0,
+        activate: bool | None = None,
         query_overrides: QuerySettingsDict | None = None,
     ) -> None:
         """Draw a temporary outline around one or more elements — handy for demos and debugging.
@@ -1637,6 +1693,8 @@ class BareMetal(OurDynamicCore):
                 precedence over ``rect`` when both are given.
             rect: Screen rectangle(s) to outline directly; used only when no element is given.
             duration: How long the outline stays on screen, in seconds.
+            activate: Bring each element's window to the front first; defaults to the library's
+                ``auto_activate``.
         """
 
         if descriptor is None and rect is None:
@@ -1653,6 +1711,7 @@ class BareMetal(OurDynamicCore):
             for d in descriptor_list:
                 d.overrides = query_overrides
                 try:
+                    self._maybe_bring_to_front(d, activate)
                     r = cast(Rect, d().attribute('Bounds'))
                     rects.append(r)
                 except Exception:
