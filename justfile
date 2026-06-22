@@ -12,6 +12,12 @@ windows_rust_target := env("PLATYNUI_WINDOWS_TARGET", "x86_64-pc-windows-gnu")
 windows_rust_packages := "--package platynui-core --package platynui-link --package platynui-xpath --package platynui-runtime --package platynui-platform-windows --package platynui-provider-windows-uia --package platynui-cli --package platynui-inspector --package platynui-cli-bin --package platynui-inspector-bin"
 macos_arm_rust_target := env("PLATYNUI_MACOS_ARM_TARGET", "aarch64-apple-darwin")
 macos_rust_packages := "--package platynui-core --package platynui-link --package platynui-xpath --package platynui-runtime --package platynui-platform-macos --package platynui-provider-macos-ax --package platynui-cli --package platynui-inspector --package platynui-cli-bin --package platynui-inspector-bin"
+# Built platynui-test-app-egui binary the acceptance suites launch (via PLATYNUI_TEST_APP_BIN).
+egui_test_app := justfile_directory() / "target" / "debug" / if os() == "windows" { "platynui-test-app-egui.exe" } else { "platynui-test-app-egui" }
+# headless runs the Linux acceptance lane with no visible window (compositor uses
+# its headless backend, X11 runs under Xvfb). Defaults to true under CI (the
+# conventional `CI` env var is set); override anywhere with `just headless=… …`.
+headless := if env("CI", "") != "" { "true" } else { "false" }
 pre_push_cross_command := if os() == "linux" {
     "if [ \"$(git config --bool platynui.pre-push-cross-targets || true)\" != \"true\" ]; then echo \"Skipping optional Linux cross-target checks. Enable with: just hooks-cross-enable\"; else just cross-target-checks; fi"
 } else {
@@ -194,6 +200,44 @@ test-python: build-native-mock
 
 # Run all tests (Rust + Python)
 test-all: test test-python
+
+# ─── Acceptance (real desktop, needs the non-mock build) ──────────────────────────
+#
+# The egui acceptance lane (tests/acceptance/egui, tag `real`) drives the real
+# platform provider against apps/test-app-egui. Each recipe rebuilds the non-mock
+# native module first (a mock-provider build would silently resolve the built-in
+# mock tree instead). Robot Framework launches the app instance(s) itself; extra
+# ARGS are forwarded to robotcode and default to `--profile egui run`.
+#
+# headless defaults to true under CI (the `CI` env var) and runs the Linux backends
+# with no visible window — the compositor uses its headless backend and X11 runs
+# under Xvfb (needs a GPU render node or Mesa software GL so egui can render). Force
+# it anywhere with `just headless=true …`, or disable in CI with `headless=false`.
+
+# Run the egui acceptance lane on this OS (Linux: compositor + X11). Honors headless.
+[linux]
+test-acceptance: test-acceptance-compositor test-acceptance-x11
+
+# Run the egui acceptance lane on this OS (Windows: the real desktop).
+[windows]
+test-acceptance: test-acceptance-windows
+
+# Run the egui acceptance lane under the PlatynUI Wayland compositor.
+[linux]
+test-acceptance-compositor *ARGS: build-native
+    uv run scripts/startcompositor.sh {{ if headless == "true" { "--backend headless" } else { "" } }} -- scripts/platynui-robot-session.sh {{ ARGS }}
+
+# Run the egui acceptance lane under an isolated X11 session (Xephyr; Xvfb when headless).
+[linux]
+test-acceptance-x11 *ARGS: build-native
+    {{ if headless == "true" { "xvfb-run -a -s '-screen 0 1920x1080x24'" } else { "" } }} uv run scripts/startxsession.sh -- scripts/platynui-robot-session.sh {{ ARGS }}
+
+# Run the egui acceptance lane on the native Windows desktop (UIA provider). No
+# isolated session — the suites launch the app on the real desktop.
+[windows]
+test-acceptance-windows *ARGS: build-native
+    cargo build -p platynui-test-app-egui
+    $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile egui run" } }}
 
 # ─── Desktop Integration ────────────────────────────────────────────────────────
 
