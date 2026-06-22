@@ -35,8 +35,8 @@ Focus Plus Keyboard Activates The Focused Button
     Should Be True    ${after} > ${before}    msg=keyboard activation did not register a click
 
 Highlight Does Not Error
-    [Documentation]    Take Screenshot is not yet implemented for the Wayland
-    ...    compositor backend, so this only exercises Highlight.
+    [Documentation]    Highlight draws its overlay around the window without raising; Take Screenshot
+    ...    is covered on both backends by auto_activate.robot.
     ${win}=    BM.Query    ${WINDOW}    only_first=${True}
     BM.Highlight    ${win}    duration=0.5
 

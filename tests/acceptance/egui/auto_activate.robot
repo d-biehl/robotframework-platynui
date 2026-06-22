@@ -3,8 +3,8 @@ Documentation       Real-lane proof of auto_activate against two overlapping egu
 ...                 a backgrounded window brings it to the front first, so pointer/keyboard input
 ...                 lands there, and the per-call ``activate`` override gates that raise. Also covers
 ...                 the window-control keywords used to arrange the windows (Activate Window, Move
-...                 Window, Resize Window) and, on X11 only, Take Screenshot of a raised element.
-...                 Runs under both the Wayland compositor and X11/Xephyr.
+...                 Window, Resize Window) and Take Screenshot of a raised element. Runs under both
+...                 the Wayland compositor and X11/Xephyr.
 
 Resource            resources/testapp.resource
 
@@ -86,9 +86,9 @@ Focus Raises The Background Window And Keyboard Input Lands There
     Should Be True    ${after} > ${before}    msg=keyboard activation did not register on the focused window
 
 Take Screenshot Of A Raised Element
-    [Documentation]    X11 only — the Wayland compositor has no screenshot provider yet. Raising the
-    ...    element's window first (default activate) means the capture is of the target, not an occluder.
-    Skip If    '%{XDG_SESSION_TYPE=}' == 'wayland'    Take Screenshot is not implemented on the Wayland compositor
+    [Documentation]    Take Screenshot raises the element's window first (default activate), so the
+    ...    capture is of the target rather than an occluder. Works on both backends — X11 via the X
+    ...    server, Wayland via our compositor's control-socket screenshot.
     BM.Activate Window    ${ALPHA}
     ${file}=    BM.Take Screenshot    ${BETA}    filename=auto-activate-beta.png
     Should Not Be Empty    ${file}
