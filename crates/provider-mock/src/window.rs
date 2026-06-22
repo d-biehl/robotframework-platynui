@@ -283,12 +283,33 @@ where
 }
 
 fn activate(runtime_id: &RuntimeId) -> Result<(), PatternError> {
-    mutate_state(runtime_id, |state| {
+    // A real window manager keeps exactly one active window, so activating one
+    // deactivates the others. Mirroring that here makes @IsActive a reliable
+    // foreground discriminator for tests (and matches how clients read it).
+    let deactivated = {
+        let mut guard = WINDOW_STATES.write().unwrap();
+        if !guard.contains_key(runtime_id) {
+            return Err(PatternError::new("window is no longer available"));
+        }
+        let mut deactivated = Vec::new();
+        for (id, state) in guard.iter_mut() {
+            if id != runtime_id && (state.is_active || state.is_topmost) {
+                state.is_active = false;
+                state.is_topmost = false;
+                deactivated.push(id.clone());
+            }
+        }
+        let state = guard.get_mut(runtime_id).expect("window state present");
         state.is_active = true;
         state.is_minimized = false;
         state.is_topmost = true;
-        Ok(())
-    })?;
+        deactivated
+    };
+
+    for id in &deactivated {
+        events::emit_node_updated(id.as_str());
+    }
+    events::emit_node_updated(runtime_id.as_str());
     focus::request_focus(runtime_id.clone())
 }
 
