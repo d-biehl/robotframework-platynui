@@ -19,8 +19,94 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-and-test:
-    name: Build, test, and lint (Linux)
+  lint:
+    name: Lint (fmt, ruff, mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python and uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Install tools (just)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Bootstrap environment
+        run: just bootstrap
+
+      - name: Check Rust formatting
+        run: just fmt-check
+
+      - name: Lint Python (ruff)
+        run: just ruff
+
+      - name: Type-check Python (mypy)
+        run: just mypy
+
+  rust:
+    name: Rust (clippy, build, test)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt install -y \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libfontconfig-dev \
+            clang \
+            libasound2-dev \
+            pkg-config \
+            libssl-dev \
+            libudev-dev \
+            libseat-dev \
+            libinput-dev \
+            libgbm-dev \
+            libgl1-mesa-dri \
+            libegl1 \
+            libegl-mesa0
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+
+      - name: Install tools (nextest, just)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest,just
+
+      - name: Lint Rust (clippy)
+        run: just clippy
+
+      - name: Build Rust workspace
+        run: just build
+
+      - name: Run Rust tests
+        run: just test
+
+  python:
+    name: Python (pytest, RF mock)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -54,42 +140,19 @@ jobs:
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
           cache-all-crates: true
 
-      - name: Install tools (nextest, just)
+      - name: Install tools (just)
         uses: taiki-e/install-action@v2
         with:
-          tool: nextest,just
+          tool: just
 
       - name: Bootstrap environment
         run: just bootstrap
-
-      - name: Check Rust formatting
-        run: just fmt-check
-
-      - name: Lint Rust (clippy)
-        run: just clippy
-
-      - name: Build Rust workspace
-        run: just build
-
-      - name: Run Rust tests
-        run: just test
-
-      - name: Clean Rust build artifacts
-        run: cargo clean
-
-      - name: Lint Python (ruff)
-        run: just ruff
-
-      - name: Type-check Python (mypy)
-        run: just mypy
 
       - name: Run Python tests
         run: just test-python
@@ -201,7 +264,7 @@ jobs:
 
   build-wheels:
     name: Build wheels
-    needs: [build-and-test, acceptance-linux]
+    needs: [lint, rust, python, acceptance-linux]
     runs-on: ubuntu-latest
 
     steps:
@@ -242,7 +305,7 @@ jobs:
 
   build-wheels-linux:
     name: Build wheels (Linux ${{ matrix.target }})
-    needs: [build-and-test, acceptance-linux]
+    needs: [lint, rust, python, acceptance-linux]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -323,7 +386,7 @@ jobs:
 
   build-wheels-macos-windows:
     name: Build wheels (${{ matrix.os }})
-    needs: [build-and-test, acceptance-linux]
+    needs: [lint, rust, python, acceptance-linux]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
