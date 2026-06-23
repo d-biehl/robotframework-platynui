@@ -26,6 +26,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # `uv run` (ruff/mypy) syncs the workspace, which builds the maturin native
+      # module — so the native crate's link-time deps are required here too.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt install -y \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libfontconfig-dev \
+            clang \
+            libasound2-dev \
+            pkg-config \
+            libssl-dev \
+            libudev-dev \
+            libseat-dev \
+            libinput-dev \
+            libgbm-dev
+
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -36,6 +55,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
 
       - name: Install tools (just)
         uses: taiki-e/install-action@v2
