@@ -27,8 +27,30 @@ _MASK_EOF
 # Prepend our override directory to XDG_DATA_DIRS.
 export XDG_DATA_DIRS="$XDG_RUNTIME_DIR/at-spi-services:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 
+# Resolve AT-SPI helper binaries across distro layouts: Debian/Ubuntu install
+# them under /usr/libexec, Arch under /usr/lib, others vary; fall back to PATH.
+_resolve_atspi_bin() {
+  _bin="$1"
+  for _cand in \
+    "/usr/libexec/$_bin" \
+    "/usr/lib/$_bin" \
+    "/usr/lib/at-spi2-core/$_bin" \
+    "/usr/libexec/at-spi2-core/$_bin" \
+    "/usr/lib/$(uname -m)-linux-gnu/at-spi2-core/$_bin"; do
+    if [ -x "$_cand" ]; then
+      printf '%s\n' "$_cand"
+      return 0
+    fi
+  done
+  command -v "$_bin" 2>/dev/null && return 0
+  printf '%s\n' "$_bin"
+}
+_ATSPI_LAUNCHER_BIN="$(_resolve_atspi_bin at-spi-bus-launcher)"
+_ATSPI_REGISTRYD_BIN="$(_resolve_atspi_bin at-spi2-registryd)"
+echo "AT-SPI binaries: launcher=$_ATSPI_LAUNCHER_BIN registryd=$_ATSPI_REGISTRYD_BIN" >&2
+
 # 1) Start AT-SPI bus launcher.
-/usr/lib/at-spi-bus-launcher --launch-immediately --a11y=1 &
+"$_ATSPI_LAUNCHER_BIN" --launch-immediately --a11y=1 &
 _ATSPI_LAUNCHER_PID=$!
 
 # 2) Wait until org.a11y.Bus is available on the session bus.
@@ -57,7 +79,7 @@ if [ -n "$AT_SPI_ADDR" ]; then
   export AT_SPI_BUS_ADDRESS="$AT_SPI_ADDR"
 
   # 4) Manually start registryd on the AT-SPI bus.
-  DBUS_SESSION_BUS_ADDRESS="$AT_SPI_ADDR" /usr/lib/at-spi2-registryd &
+  DBUS_SESSION_BUS_ADDRESS="$AT_SPI_ADDR" "$_ATSPI_REGISTRYD_BIN" &
   _REGISTRYD_PID=$!
 
   # 5) Wait until registryd has claimed org.a11y.atspi.Registry.
@@ -86,3 +108,5 @@ fi
 
 # Clean up local variables (keep AT_SPI_BUS_ADDRESS exported).
 unset _ATSPI_SERVICES_DIR _ATSPI_LAUNCHER_PID _ATSPI_READY _REGISTRYD_PID _REGISTRY_READY _i
+unset _ATSPI_LAUNCHER_BIN _ATSPI_REGISTRYD_BIN _bin _cand
+unset -f _resolve_atspi_bin

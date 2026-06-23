@@ -159,13 +159,35 @@ dbus-run-session -- bash -c '
   # Its auto-activation service file uses --use-gnome-session which fails in
   # our isolated session.  We override it with a local service file.
 
+  # Resolve AT-SPI helper binaries across distro layouts: Debian/Ubuntu install
+  # them under /usr/libexec, Arch under /usr/lib, others vary; fall back to PATH.
+  resolve_atspi_bin() {
+    _bin="$1"
+    for _cand in \
+      "/usr/libexec/$_bin" \
+      "/usr/lib/$_bin" \
+      "/usr/lib/at-spi2-core/$_bin" \
+      "/usr/libexec/at-spi2-core/$_bin" \
+      "/usr/lib/$(uname -m)-linux-gnu/at-spi2-core/$_bin"; do
+      if [ -x "$_cand" ]; then
+        printf "%s\n" "$_cand"
+        return 0
+      fi
+    done
+    command -v "$_bin" 2>/dev/null && return 0
+    printf "%s\n" "$_bin"
+  }
+  ATSPI_LAUNCHER_BIN="$(resolve_atspi_bin at-spi-bus-launcher)"
+  ATSPI_REGISTRYD_BIN="$(resolve_atspi_bin at-spi2-registryd)"
+  echo "AT-SPI binaries: launcher=$ATSPI_LAUNCHER_BIN registryd=$ATSPI_REGISTRYD_BIN"
+
   # Override the Registry service file to remove --use-gnome-session
   A11Y_SERVICES_DIR="$XDG_RUNTIME_DIR/at-spi-services/dbus-1/accessibility-services"
   mkdir -p "$A11Y_SERVICES_DIR"
   cat > "$A11Y_SERVICES_DIR/org.a11y.atspi.Registry.service" <<A11Y_EOF
 [D-BUS Service]
 Name=org.a11y.atspi.Registry
-Exec=/usr/lib/at-spi2-registryd
+Exec=$ATSPI_REGISTRYD_BIN
 A11Y_EOF
 
   # Prepend our override directory to XDG_DATA_DIRS so the AT-SPI bus daemon
@@ -175,7 +197,7 @@ A11Y_EOF
   # Start AT-SPI bus launcher with --launch-immediately to bypass the
   # gsettings/IsEnabled check (no GNOME settings daemon in this session)
   # and --a11y=1 to force accessibility on.
-  /usr/lib/at-spi-bus-launcher --launch-immediately --a11y=1 &
+  "$ATSPI_LAUNCHER_BIN" --launch-immediately --a11y=1 &
   AT_SPI_LAUNCHER_PID=$!
 
   # Wait until org.a11y.Bus is available on the session bus
@@ -208,7 +230,7 @@ A11Y_EOF
     export AT_SPI_BUS_ADDRESS="$AT_SPI_ADDR"
 
     # Start the registry daemon on the AT-SPI accessibility bus.
-    DBUS_SESSION_BUS_ADDRESS="$AT_SPI_ADDR" /usr/lib/at-spi2-registryd &
+    DBUS_SESSION_BUS_ADDRESS="$AT_SPI_ADDR" "$ATSPI_REGISTRYD_BIN" &
     REGISTRYD_PID=$!
 
     # Wait until org.a11y.atspi.Registry is actually available on the AT-SPI bus.
