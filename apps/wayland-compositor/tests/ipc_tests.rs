@@ -708,11 +708,19 @@ fn ipc_close_window_by_app_id() {
     assert!(response.contains(r#""status":"ok"#), "unexpected: {response}");
     assert!(response.contains("test.close"), "missing app_id in response: {response}");
 
-    // Give the app time to receive the close request and exit
-    std::thread::sleep(Duration::from_millis(500));
-
-    // Verify the window is gone
-    let list = send_command(&socket_path, r#"{"command": "list_windows"}"#).expect("failed to list windows");
+    // Poll until the window is gone. Closing is a round-trip: the client must
+    // receive the close event, destroy its surface, and exit before the compositor
+    // drops the window — that can take well over a fixed delay on a slow,
+    // software-rendered CI runner, so wait with a timeout instead of a flat sleep.
+    let mut list = String::new();
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(10) {
+        list = send_command(&socket_path, r#"{"command": "list_windows"}"#).expect("failed to list windows");
+        if list.contains(r#""windows":[]"#) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
     assert!(list.contains(r#""windows":[]"#), "window should be gone: {list}");
 
     let _ = app.wait();
