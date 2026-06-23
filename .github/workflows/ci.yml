@@ -149,6 +149,7 @@ jobs:
             at-spi2-core \
             libglib2.0-bin \
             x11-xkb-utils \
+            libxkbcommon-x11-0 \
             fuse3 \
             libgl1-mesa-dri
 
