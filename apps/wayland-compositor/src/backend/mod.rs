@@ -41,35 +41,23 @@ pub fn create_shared_glow_renderer(
 
 /// Create a standalone `GlowRenderer` for offscreen use (screenshots, headless).
 ///
-/// Opens the first available DRI render node (e.g. `/dev/dri/renderD128`),
-/// creates an EGL display + context via GBM, and wraps it in a `GlowRenderer`.
-///
-/// In environments without a hardware GPU, set `LIBGL_ALWAYS_SOFTWARE=1` so
-/// Mesa uses its software rasterizer (llvmpipe).
+/// Prefers a real DRI render node (e.g. `/dev/dri/renderD128`) via GBM, which is
+/// GPU-accelerated and also works with llvmpipe when `LIBGL_ALWAYS_SOFTWARE=1` is
+/// set. When no render node exists — e.g. a headless CI runner without a GPU —
+/// GBM is not an option, since it wraps a kernel DRM device and *requires* a
+/// `/dev/dri/*` node. We then fall back to Mesa's surfaceless EGL platform, which
+/// renders into client memory via llvmpipe and needs no device node at all.
 ///
 /// # Errors
 ///
-/// Returns an error if no render node is found or EGL/GL initialization fails.
+/// Returns an error if neither the GBM nor the surfaceless EGL path can be
+/// initialized (e.g. Mesa is not available), or if GL setup fails.
 pub fn create_offscreen_glow_renderer()
 -> Result<smithay::backend::renderer::glow::GlowRenderer, Box<dyn std::error::Error>> {
-    use smithay::backend::allocator::gbm::GbmDevice;
-    use smithay::backend::egl::{EGLContext, EGLDisplay};
+    use smithay::backend::egl::EGLContext;
     use smithay::backend::renderer::glow::GlowRenderer;
 
-    let render_node = find_render_node()?;
-
-    let fd = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(&render_node)
-        .map_err(|e| format!("failed to open {}: {e}", render_node.display()))?;
-
-    let gbm = GbmDevice::new(fd)?;
-
-    #[allow(unsafe_code)]
-    // SAFETY: GbmDevice implements EGLNativeDisplay — standard EGL-on-GBM init.
-    let egl_display = unsafe { EGLDisplay::new(gbm)? };
-
+    let egl_display = create_offscreen_egl_display()?;
     let egl_context = EGLContext::new(&egl_display)?;
 
     #[allow(unsafe_code)]
@@ -77,6 +65,56 @@ pub fn create_offscreen_glow_renderer()
     let renderer = unsafe { GlowRenderer::new(egl_context)? };
 
     Ok(renderer)
+}
+
+/// Build the offscreen [`EGLDisplay`]: GBM on a real render node, else surfaceless.
+///
+/// A surfaceless context is enough here because the offscreen renderer composites
+/// into an FBO and never creates a window surface, so no DRI device is required.
+fn create_offscreen_egl_display() -> Result<smithay::backend::egl::EGLDisplay, Box<dyn std::error::Error>> {
+    use smithay::backend::egl::{EGLDisplay, native::EGLSurfacelessDisplay};
+
+    // 1) Preferred: a DRI render node via GBM (GPU-accelerated; also fine with
+    //    llvmpipe when LIBGL_ALWAYS_SOFTWARE=1).
+    if let Ok(render_node) = find_render_node() {
+        match open_gbm_egl_display(&render_node) {
+            Ok(display) => return Ok(display),
+            Err(e) => tracing::warn!(
+                "GBM EGL display on {} failed ({e}); falling back to surfaceless software EGL",
+                render_node.display()
+            ),
+        }
+    } else {
+        tracing::info!("no DRI render node found; using surfaceless software EGL (llvmpipe) for offscreen rendering");
+    }
+
+    // 2) Fallback: Mesa's surfaceless platform — no device node required.
+    #[allow(unsafe_code)]
+    // SAFETY: EGLSurfacelessDisplay selects EGL_PLATFORM_SURFACELESS_MESA with
+    // EGL_DEFAULT_DISPLAY; there is no native window/device handle to keep alive.
+    let display = unsafe { EGLDisplay::new(EGLSurfacelessDisplay)? };
+    Ok(display)
+}
+
+/// Open a GBM-backed [`EGLDisplay`] on a specific DRI render node.
+fn open_gbm_egl_display(
+    render_node: &std::path::Path,
+) -> Result<smithay::backend::egl::EGLDisplay, Box<dyn std::error::Error>> {
+    use smithay::backend::allocator::gbm::GbmDevice;
+    use smithay::backend::egl::EGLDisplay;
+
+    let fd = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(render_node)
+        .map_err(|e| format!("failed to open {}: {e}", render_node.display()))?;
+
+    let gbm = GbmDevice::new(fd)?;
+
+    #[allow(unsafe_code)]
+    // SAFETY: GbmDevice implements EGLNativeDisplay — standard EGL-on-GBM init.
+    let display = unsafe { EGLDisplay::new(gbm)? };
+    Ok(display)
 }
 
 /// Find the first available DRI render node (e.g. `/dev/dri/renderD128`).
