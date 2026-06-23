@@ -102,6 +102,31 @@ fn shutdown_compositor(socket_path: &PathBuf, mut child: Child) {
     let _ = child.wait();
 }
 
+/// Kill the compositor and return its captured stdout+stderr (headless mode pipes
+/// both). Used to surface the real cause when a command yields no proper response —
+/// e.g. the compositor dying mid-render instead of returning an ok/error reply.
+fn dump_child_output(mut child: Child) -> String {
+    use std::io::Read;
+
+    let _ = child.kill();
+    let _ = child.wait();
+
+    let mut out = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let mut s = String::new();
+        let _ = stdout.read_to_string(&mut s);
+        out.push_str("[stdout]\n");
+        out.push_str(&s);
+    }
+    if let Some(mut stderr) = child.stderr.take() {
+        let mut s = String::new();
+        let _ = stderr.read_to_string(&mut s);
+        out.push_str("\n[stderr]\n");
+        out.push_str(&s);
+    }
+    out
+}
+
 #[test]
 fn ipc_ping() {
     let Some((child, socket_name)) = start_compositor("ping") else {
@@ -316,12 +341,16 @@ fn ipc_screenshot() {
 
     // Screenshot may succeed or fail depending on GPU availability — both are valid.
     // The test only verifies the IPC protocol flow (send command → receive response).
-    assert!(
-        response.contains(r#""status":"ok"#) || response.contains(r#""status":"error"#),
-        "unexpected response: {response}"
-    );
+    // A response that is neither ok nor error means the compositor died mid-render;
+    // dump its captured output so the real cause is visible instead of a bare assert.
+    let is_ok = response.contains(r#""status":"ok"#);
+    let is_err = response.contains(r#""status":"error"#);
+    if !is_ok && !is_err {
+        let logs = dump_child_output(child);
+        panic!("unexpected screenshot response: {response:?}\n--- compositor output ---\n{logs}");
+    }
 
-    if response.contains(r#""status":"ok"#) {
+    if is_ok {
         // Verify the ok response contains the expected metadata fields.
         // We intentionally skip checking `"data":` — the base64 payload can be very large
         // and read_line may behave differently depending on transport buffering.
