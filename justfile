@@ -243,7 +243,7 @@ test-acceptance-compositor *ARGS: build-native
 # Run the egui acceptance lane under an isolated X11 session (Xephyr; Xvfb when headless).
 [linux]
 test-acceptance-x11 *ARGS: build-native
-    {{ if headless == "true" { "xvfb-run -a -s '-screen 0 1920x1080x24'" } else { "" } }} uv run scripts/startxsession.sh -- scripts/platynui-robot-session.sh {{ ARGS }}
+    uv run scripts/startxsession.sh {{ if headless == "true" { "--backend headless" } else { "" } }} -- scripts/platynui-robot-session.sh {{ ARGS }}
 
 # Run the egui acceptance lane on the native Windows desktop (UIA provider). No
 # isolated session — the suites launch the app on the real desktop.

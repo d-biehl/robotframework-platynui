@@ -2,24 +2,47 @@
 set -u
 
 # Options (before `--`):
-#   --dpi <n>     Xephyr DPI (default: unset — use Xephyr's own default).
+#   --backend auto|nested|headless   Display server (default: auto). `nested` runs
+#       Xephyr inside the host X display (a visible window — for local dev);
+#       `headless` runs a standalone Xvfb (no window — for CI); `auto` picks nested
+#       when a DISPLAY is present, else headless. Shares the --backend vocabulary
+#       with startcompositor.sh (winit/xephyr are accepted as aliases for nested).
+#   --dpi <n>     Xephyr DPI (nested backend only; default: unset).
 # Session command: everything after `--` is run inside the session, with the
 # window manager started in the background. With no `--`, the script keeps its
 # original behaviour and execs the interactive window manager.
 #
-#   uv run scripts/startxsession.sh -- scripts/platynui-robot-session.sh
-#   uv run scripts/startxsession.sh --dpi 192 -- scripts/platynui-robot-session.sh
+#   uv run scripts/startxsession.sh -- scripts/platynui-robot-session.sh                     # auto (nested if a display is present)
+#   uv run scripts/startxsession.sh --backend headless -- scripts/platynui-robot-session.sh  # CI / no display
+#
+# Environment variables:
+#   PLATYNUI_BACKEND   Override backend (default: auto-detect), same as startcompositor.sh.
 #
 SESSION_CMD=()
 DPI=""
+BACKEND="${PLATYNUI_BACKEND:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --) shift; SESSION_CMD=("$@"); break ;;
+    --backend) BACKEND="$2"; shift 2 ;;
+    --backend=*) BACKEND="${1#--backend=}"; shift ;;
     --dpi) DPI="$2"; shift 2 ;;
     --dpi=*) DPI="${1#--dpi=}"; shift ;;
     *) shift ;;
   esac
 done
+
+# Resolve the display backend (vocabulary shared with startcompositor.sh):
+#   auto (default) → nested if a DISPLAY is present, else headless
+#   nested         → Xephyr nested in the host X display (visible; local dev)
+#   headless       → standalone Xvfb (no window; CI). winit/xephyr alias nested.
+case "$BACKEND" in
+  ""|auto) if [ -n "${DISPLAY:-}" ]; then BACKEND=nested; else BACKEND=headless; fi ;;
+  nested|xephyr|winit) BACKEND=nested ;;
+  headless) BACKEND=headless ;;
+  *) echo "ERROR: unknown --backend '$BACKEND' (use auto|nested|headless)" >&2; exit 1 ;;
+esac
+echo "X11 session backend: $BACKEND" >&2
 # Serialize the session command and pass it to the inner session shell via an
 # exported variable (avoids fragile quote-breakout inside the bash -c body).
 PLATYNUI_ROBOT_SESSION_CMD=""
@@ -37,67 +60,69 @@ fi
 # Create a private XDG_RUNTIME_DIR so the AT-SPI bus socket is fully
 # isolated from the host GNOME Wayland session (otherwise
 # at-spi-bus-launcher reuses /run/user/$UID/at-spi/bus_$DISPLAY).
-XEPHYR_RUNTIME_DIR=$(mktemp -d "/run/user/$(id -u)/xephyr-session-XXXXXX")
-XEPHYR_PID=""
+SESSION_RUNTIME_DIR=$(mktemp -d "/run/user/$(id -u)/xephyr-session-XXXXXX")
+XSERVER_PID=""
 
 cleanup() {
-  [ -n "$XEPHYR_PID" ] && kill "$XEPHYR_PID" 2>/dev/null
-  if [ -d "$XEPHYR_RUNTIME_DIR" ]; then
+  [ -n "$XSERVER_PID" ] && kill "$XSERVER_PID" 2>/dev/null
+  if [ -d "$SESSION_RUNTIME_DIR" ]; then
     # gvfsd and xdg-document-portal may have created FUSE mounts inside
     # XDG_RUNTIME_DIR (e.g. gvfs, doc). Unmount them before removing.
-    for mnt in "$XEPHYR_RUNTIME_DIR"/*/; do
+    for mnt in "$SESSION_RUNTIME_DIR"/*/; do
       mountpoint -q "$mnt" 2>/dev/null && fusermount -u "$mnt" 2>/dev/null
     done
-    rm -rf "$XEPHYR_RUNTIME_DIR"
+    rm -rf "$SESSION_RUNTIME_DIR"
   fi
 }
 trap cleanup EXIT INT TERM
 
-# Detect WSL — -displayfd does not work reliably under WSL, so use a
-# fixed display number instead.
-IS_WSL=0
-if grep -qi microsoft /proc/version 2>/dev/null; then
-  IS_WSL=1
-fi
+# ---------------------------------------------------------------------------
+# Start the X server for the session and capture its display number.
+#   headless → standalone Xvfb (own framebuffer, no parent display; -ac lets the
+#              isolated session's clients connect without an xauth cookie, which
+#              is what makes AT-SPI work headless on CI).
+#   nested   → Xephyr inside the host X display (a visible window for local dev).
+# ---------------------------------------------------------------------------
+DISPLAYFD_FIFO="$SESSION_RUNTIME_DIR/displayfd"
+DISPLAY_NUM=""
 
-if [ "$IS_WSL" -eq 1 ]; then
-  # WSL: use a fixed display number (99) since -displayfd is broken
-  DISPLAY_NUM=99
-  echo "WSL detected — using fixed display :$DISPLAY_NUM"
-
-  Xephyr ":$DISPLAY_NUM" -ac -screen 1920x1080 -resizeable -noreset -sw-cursor "${XEPHYR_EXTRA[@]}" &
-  XEPHYR_PID=$!
-  sleep 1
-
-  if ! kill -0 "$XEPHYR_PID" 2>/dev/null; then
-    echo "ERROR: Xephyr failed to start on :$DISPLAY_NUM" >&2
-    exit 1
-  fi
-else
-  # Native Linux: let Xephyr pick a free display number via -displayfd.
-  # Use a named pipe (FIFO) so that reading blocks until Xephyr writes,
-  # avoiding race conditions with regular files and unflushed writes.
-  DISPLAYFD_FIFO="$XEPHYR_RUNTIME_DIR/displayfd"
+if [ "$BACKEND" = "headless" ]; then
+  echo "Starting Xvfb (headless) ..." >&2
   mkfifo "$DISPLAYFD_FIFO"
-
+  Xvfb -displayfd 3 -screen 0 1920x1080x24 -ac -nolisten tcp 3>"$DISPLAYFD_FIFO" &
+  XSERVER_PID=$!
+elif grep -qi microsoft /proc/version 2>/dev/null; then
+  # WSL: Xephyr's -displayfd is unreliable, so use a fixed display number.
+  DISPLAY_NUM=99
+  echo "WSL detected — Xephyr on fixed display :$DISPLAY_NUM" >&2
+  Xephyr ":$DISPLAY_NUM" -ac -screen 1920x1080 -resizeable -noreset -sw-cursor "${XEPHYR_EXTRA[@]}" &
+  XSERVER_PID=$!
+  sleep 1
+else
+  echo "Starting Xephyr (nested) ..." >&2
+  mkfifo "$DISPLAYFD_FIFO"
+  # Named pipe so the read blocks until Xephyr writes the display number and
+  # closes the fd (avoids races with regular files / unflushed writes).
   Xephyr -displayfd 3 -ac -screen 1920x1080 -resizeable -noreset -sw-cursor "${XEPHYR_EXTRA[@]}" \
     3>"$DISPLAYFD_FIFO" &
-  XEPHYR_PID=$!
+  XSERVER_PID=$!
+fi
 
-  # Read blocks until Xephyr writes the display number and closes the fd
+# For the -displayfd backends, block until the server reports its display number.
+if [ -z "$DISPLAY_NUM" ]; then
   if ! read -r -t 10 DISPLAY_NUM < "$DISPLAYFD_FIFO"; then
-    echo "ERROR: Xephyr did not report a display number within 10s" >&2
+    echo "ERROR: X server ($BACKEND) did not report a display number within 10s" >&2
     exit 1
   fi
   rm -f "$DISPLAYFD_FIFO"
-
-  if [ -z "$DISPLAY_NUM" ] || ! kill -0 "$XEPHYR_PID" 2>/dev/null; then
-    echo "ERROR: Xephyr failed to start" >&2
-    exit 1
-  fi
 fi
 
-echo "Xephyr running on display :$DISPLAY_NUM (PID $XEPHYR_PID)"
+if [ -z "$DISPLAY_NUM" ] || ! kill -0 "$XSERVER_PID" 2>/dev/null; then
+  echo "ERROR: X server ($BACKEND) failed to start" >&2
+  exit 1
+fi
+
+echo "X server running on display :$DISPLAY_NUM (PID $XSERVER_PID, backend $BACKEND)"
 
 # Isolate from host GNOME Wayland session
 unset DBUS_SESSION_BUS_ADDRESS
@@ -107,7 +132,7 @@ unset AT_SPI_BUS_ADDRESS
 unset QT_IM_MODULE
 unset QT_IM_MODULES
 
-XDG_RUNTIME_DIR="$XEPHYR_RUNTIME_DIR" \
+XDG_RUNTIME_DIR="$SESSION_RUNTIME_DIR" \
 dbus-run-session -- bash -c '
   export DISPLAY=:'"$DISPLAY_NUM"'
   export XDG_SESSION_TYPE=x11

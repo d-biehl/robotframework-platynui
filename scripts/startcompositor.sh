@@ -6,7 +6,11 @@ set -u
 # built and launched via `cargo run`.
 #
 # Usage:
-#   scripts/startcompositor.sh [--backend winit|headless] [--xwayland] [-- session-script args...]
+#   scripts/startcompositor.sh [--backend auto|nested|headless] [--xwayland] [-- session-script args...]
+#
+# Backend vocabulary is shared with startxsession.sh: `auto` (default) picks a
+# visible backend when a display is present, else headless; `nested` is the
+# visible backend (winit here, Xephyr for X11) and `winit` is kept as an alias.
 #
 # If no session script is given after `--`, the default session script
 # (scripts/platynui-session.sh) is used.
@@ -58,6 +62,13 @@ done
 if [[ ${#SESSION_CMD[@]} -eq 0 ]]; then
   SESSION_CMD=("$SCRIPT_DIR/platynui-session.sh")
 fi
+
+# Normalize the shared --backend vocabulary (auto|nested|headless); `winit` is the
+# compositor's native name for the nested backend and is kept as an alias.
+case "$BACKEND" in
+  auto) BACKEND="" ;;
+  nested) BACKEND="winit" ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Backend auto-detection
