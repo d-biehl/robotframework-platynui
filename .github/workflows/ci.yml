@@ -179,6 +179,20 @@ jobs:
       - name: Run acceptance lane (${{ matrix.backend }}, headless)
         run: just test-acceptance-${{ matrix.backend }}
 
+      - name: Dump egui app logs on failure
+        if: failure()
+        run: |
+          echo "=== egui app logs (stdout+stderr merged) ==="
+          mapfile -t logs < <(find /tmp /var/tmp /home /run -maxdepth 6 -name 'egui-*.log' 2>/dev/null | sort -u)
+          if [ ${#logs[@]} -eq 0 ]; then
+            echo "(no egui-*.log found under /tmp /var/tmp /home /run)"
+          fi
+          for f in "${logs[@]}"; do
+            echo "----- $f -----"
+            cat "$f" || true
+            echo
+          done
+
       - name: RF test summary
         if: always()
         continue-on-error: true
