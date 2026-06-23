@@ -19,13 +19,13 @@ set -u
 #
 # With no robotcode-args, the default command is:
 #
-#   robotcode --profile egui run
+#   robotcode --profile real run
 #
 # i.e. the real AT-SPI runtime driving the egui app (see the "egui" profile in
 # robot.toml). For interactive debugging — which halts on the first uncaught
 # failure and drops into a live (rdb) prompt — pass `run-debug` instead, e.g.
 #
-#   uv run scripts/startcompositor.sh -- scripts/platynui-robot-session.sh --profile egui run-debug
+#   uv run scripts/startcompositor.sh -- scripts/platynui-robot-session.sh --profile real run-debug
 #
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -65,7 +65,7 @@ echo "Test app binary: $PLATYNUI_TEST_APP_BIN (Robot Framework launches it)" >&2
 
 # Default RobotCode command if none was supplied.
 if [ "$#" -eq 0 ]; then
-  set -- --profile egui run
+  set -- --profile real run
 fi
 
 echo "Running: robotcode $*" >&2

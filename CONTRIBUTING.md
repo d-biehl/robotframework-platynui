@@ -71,8 +71,9 @@ Common recipes:
 | Rust tests | `just test` | Runs the Rust workspace test suite via nextest. |
 | One Rust crate | `just test-crate platynui-xpath` | Replace the package name as needed. |
 | Python tests | `just test-python` | Builds the native package with `mock-provider`, then runs pytest. |
+| BareMetal RF (mock) tests | `just test-baremetal` | Robot suites under `tests/BareMetal` against the built-in mock tree; builds `mock-provider`, no display needed. |
 | Rust and Python tests | `just test-all` | Runs `just test` and `just test-python`. |
-| Acceptance (egui) tests | `just test-acceptance` | Real-provider egui suites against the test app (non-mock build). Linux: compositor + X11. See §8 for backends, headless, and CI. |
+| Acceptance tests | `just test-acceptance` | Real-provider suites under `tests/acceptance` (egui app today; non-mock build). Linux: compositor + X11. See §8 for backends, headless, and CI. |
 | Full local gate | `just pre-commit` | Runs bootstrap, checks, Rust tests, and Python tests. |
 | Cross-target gate | `just pre-commit-cross` | Linux-only; adds Windows and macOS ARM cargo check/clippy passes. |
 | Install git hooks | `just hooks-install` | Installs `pre-commit`, `commit-msg`, and `pre-push` hooks. |
@@ -258,8 +259,8 @@ Python:
 - Tests that call `Runtime.new_with_mock()` require the native package to be built with `mock-provider`.
 
 End‑to‑end / acceptance:
-- The suites under `tests/acceptance/egui` drive the **real** platform provider (AT-SPI on Linux, UIA on Windows) against the `platynui-test-app-egui` application, proving the full stack rather than keyword logic alone. They are tagged `real` and selected by the `egui` profile in `robot.toml`; Robot Framework launches the app instance(s) itself.
-- **Build duality.** The real lane needs a **non-mock** native build — a `mock-provider` build makes `Runtime()` resolve the built-in mock tree instead of the real desktop, so the suites would fail. The `just test-acceptance*` recipes guarantee this: each depends on `just build-native`, which compiles without `mock-provider` (it is opt-in, never a default feature) and reinstalls. The mock-backed RF suites under `tests/BareMetal` need the opposite build (`just build-native-mock`); the two lanes cannot share one build, so rebuild per lane (in CI, one job each).
+- The suites under `tests/acceptance` (the egui app today) drive the **real** platform provider (AT-SPI on Linux, UIA on Windows) against the `platynui-test-app-egui` application, proving the full stack rather than keyword logic alone. They are tagged `real` and selected by the `real` profile in `robot.toml`; Robot Framework launches the app instance(s) itself.
+- **Build duality.** The real lane needs a **non-mock** native build — a `mock-provider` build makes `Runtime()` resolve the built-in mock tree instead of the real desktop, so the suites would fail. The `just test-acceptance*` recipes guarantee this: each depends on `just build-native`, which compiles without `mock-provider` (it is opt-in, never a default feature) and reinstalls. The mock-backed RF suites under `tests/BareMetal` are the counterpart — tagged `mock` and selected by the `mock` profile in `robot.toml`; run them with `just test-baremetal` (which builds the `mock-provider` module first). The two lanes cannot share one build, so rebuild per lane (in CI, one job each).
 - **Run it.** The recipes set up an isolated session and run the lane (it is not part of `just pre-commit`, which runs the mock lanes — run acceptance separately):
 
   | Command | Scope |
@@ -269,7 +270,7 @@ End‑to‑end / acceptance:
   | `just test-acceptance-x11` | Linux — under an isolated X11/Xephyr session. |
   | `just test-acceptance-windows` | Windows — on the native desktop (UIA), no isolated session. |
 
-  Extra arguments pass through to robotcode (default `--profile egui run`), e.g. `just test-acceptance-compositor --profile egui run --suite "Auto Activate"`.
+  Extra arguments pass through to robotcode (default `--profile real run`), e.g. `just test-acceptance-compositor --profile real run --suite "Auto Activate"`.
 - **Headless / CI.** `headless=true` runs the Linux backends with no visible window — the compositor uses its headless backend and X11 runs under Xvfb. It defaults to `true` when the `CI` environment variable is set (so CI needs no extra flag); force or disable it anywhere with `just headless=true test-acceptance` / `just headless=false test-acceptance`. Headless rendering needs a GPU render node or Mesa software GL so egui can draw.
 - UI automation is platform-sensitive: include OS/session details (compositor vs X11, headless or not) when reporting failures or adding manual verification notes.
 

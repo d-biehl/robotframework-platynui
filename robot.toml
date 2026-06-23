@@ -10,20 +10,26 @@ paths = "tests"
 # Pair the build with the tag/profile (CI: a separate job per lane).
 # ---------------------------------------------------------------------------
 
-# Real-world acceptance lane: drive the egui test app through the real AT-SPI
-# runtime, inside an isolated session set up by scripts/platynui-robot-session.sh.
-# REQUIRES the non-mock native build (just build-native). Run with:
+# Real-provider acceptance lane: drive the test apps under tests/acceptance/ (egui
+# today) through the real platform runtime, inside an isolated session set up by
+# scripts/platynui-robot-session.sh. REQUIRES the non-mock native build
+# (just build-native). Run with:
 #   uv run scripts/startcompositor.sh -- scripts/platynui-robot-session.sh   # Wayland
 #   uv run scripts/startxsession.sh   -- scripts/platynui-robot-session.sh   # X11
-# (the session script defaults to `robotcode --profile egui run`).
-[profiles.egui]
-description = "egui acceptance via the real AT-SPI runtime (tag 'real'; needs the non-mock build)"
-paths = ["tests/acceptance/egui"]
+# (the session script defaults to `robotcode --profile real run`).
+[profiles.real]
+description = "Real-provider acceptance suites under tests/acceptance (tag 'real'; needs the non-mock build)"
+paths = ["tests/acceptance"]
 includes = ["real"]
 
-# NOTE: a deterministic "mock" profile (built-in Rust mock tree, tag 'mock',
-# requires `just build-native-mock`) will be added with the Phase-5 keyword
-# work, scoped to tests/acceptance/mock with include = ["mock"].
+# Mock lane: drive the PlatynUI.BareMetal library against the built-in mock tree.
+# Deterministic, needs no display, runs on any OS. REQUIRES the mock-provider
+# native build (just build-native-mock). Run with `robotcode --profile mock run`
+# (or `just test-baremetal`).
+[profiles.mock]
+description = "BareMetal RF suites against the built-in mock tree (tag 'mock'; needs the mock-provider build)"
+paths = ["tests/BareMetal"]
+includes = ["mock"]
 
 [tool.robocop.lint]
 configure = ["line-too-long.line_length=140"]

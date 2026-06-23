@@ -198,16 +198,23 @@ test-crate crate:
 test-python: build-native-mock
     uv run pytest -v --tb=short --maxfail=3
 
+# Run the mock-backed BareMetal Robot Framework suites via the `mock` profile (tag
+# `mock`, paths tests/BareMetal). They use the built-in mock tree (use_mock=True),
+# so they need no display and run on any OS; builds the mock-provider native module
+# first. ARGS pass through to robotcode.
+test-baremetal *ARGS: build-native-mock
+    uv run robotcode --profile mock run {{ ARGS }}
+
 # Run all tests (Rust + Python)
 test-all: test test-python
 
 # ─── Acceptance (real desktop, needs the non-mock build) ──────────────────────────
 #
-# The egui acceptance lane (tests/acceptance/egui, tag `real`) drives the real
-# platform provider against apps/test-app-egui. Each recipe rebuilds the non-mock
+# The acceptance lane (tests/acceptance, tag `real`, profile `real`) drives the real
+# platform provider against the test apps there (egui today). Each recipe rebuilds the non-mock
 # native module first (a mock-provider build would silently resolve the built-in
 # mock tree instead). Robot Framework launches the app instance(s) itself; extra
-# ARGS are forwarded to robotcode and default to `--profile egui run`.
+# ARGS are forwarded to robotcode and default to `--profile real run`.
 #
 # headless defaults to true under CI (the `CI` env var) and runs the Linux backends
 # with no visible window — the compositor uses its headless backend and X11 runs
@@ -237,7 +244,7 @@ test-acceptance-x11 *ARGS: build-native
 [windows]
 test-acceptance-windows *ARGS: build-native
     cargo build -p platynui-test-app-egui
-    $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile egui run" } }}
+    $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
 
 # ─── Desktop Integration ────────────────────────────────────────────────────────
 
