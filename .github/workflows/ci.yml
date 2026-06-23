@@ -91,6 +91,102 @@ jobs:
       - name: Run Python tests
         run: just test-python
 
+      - name: Run BareMetal RF (mock) tests
+        run: just test-baremetal
+
+      - name: RF test summary
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f results/output.xml ]; then
+            just test-summary >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # ── Real-provider acceptance lane (egui app, headless) ────────────────────────
+
+  acceptance-linux:
+    name: Acceptance (Linux, ${{ matrix.backend }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: x11
+            continue-on-error: false
+          - backend: compositor
+            continue-on-error: true
+    # The compositor backend renders an offscreen GL surface; on GPU-less runners
+    # (no /dev/dri) that is unproven, so it must not fail the run yet. The X11
+    # backend uses Xvfb + Mesa llvmpipe and is the reliable headless path.
+    continue-on-error: ${{ matrix.continue-on-error }}
+    env:
+      # egui renders via Mesa's software rasteriser (runners have no GPU).
+      LIBGL_ALWAYS_SOFTWARE: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt install -y \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libfontconfig-dev \
+            clang \
+            libasound2-dev \
+            pkg-config \
+            libssl-dev \
+            libudev-dev \
+            libseat-dev \
+            libinput-dev \
+            libgbm-dev \
+            xserver-xephyr \
+            xvfb \
+            icewm \
+            dbus-x11 \
+            at-spi2-core \
+            libglib2.0-bin \
+            x11-xkb-utils \
+            fuse3 \
+            libgl1-mesa-dri
+
+      - name: Set up Python and uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+
+      - name: Install tools (just)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Bootstrap environment
+        run: just bootstrap
+
+      # CI=true (set by GitHub Actions) makes `headless` default to true, so the
+      # compositor uses its headless backend and X11 runs under Xvfb — no flag needed.
+      - name: Run acceptance lane (${{ matrix.backend }}, headless)
+        run: just test-acceptance-${{ matrix.backend }}
+
+      - name: RF test summary
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f results/output.xml ]; then
+            just test-summary >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   # ── Linux manylinux wheels (container-based) ──────────────────────────────────
 
   build-wheels:

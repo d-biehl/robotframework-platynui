@@ -205,6 +205,12 @@ test-python: build-native-mock
 test-baremetal *ARGS: build-native-mock
     uv run robotcode --profile mock run {{ ARGS }}
 
+# Print a Markdown summary of the most recent Robot Framework run (results/output.xml).
+# Reads only the output file (no build needed); feed a CI step summary with
+# `just test-summary >> "$GITHUB_STEP_SUMMARY"`. ARGS pass through to robotcode results.
+test-summary *ARGS:
+    @uv run robotcode results summary --failed {{ ARGS }}
+
 # Run all tests (Rust + Python)
 test-all: test test-python
 
