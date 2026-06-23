@@ -41,7 +41,10 @@ jobs:
             libudev-dev \
             libseat-dev \
             libinput-dev \
-            libgbm-dev
+            libgbm-dev \
+            libgl1-mesa-dri \
+            libegl1 \
+            libegl-mesa0
 
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
