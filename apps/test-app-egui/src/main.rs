@@ -222,51 +222,72 @@ impl eframe::App for TestApp {
     }
 }
 
+/// Extension to tag a widget's AccessKit node with a stable author id, surfaced to
+/// the accessibility tree as `@Id` so acceptance tests can locate a widget by a
+/// stable identifier instead of its visible label. The id must be unique among the
+/// node's siblings (we use globally-unique ids, which is stronger).
+trait WithAuthorId {
+    fn with_id(self, author_id: &str) -> Self;
+}
+
+impl WithAuthorId for egui::Response {
+    fn with_id(self, author_id: &str) -> Self {
+        self.ctx.accesskit_node_builder(self.id, |node| node.set_author_id(author_id));
+        self
+    }
+}
+
 impl TestApp {
     /// Render the top menu bar.
     fn show_menu_bar(ui: &mut egui::Ui, ctx: &egui::Context) {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
-                if ui.button("New").clicked() {
+                if ui.button("New").with_id("menu-file-new").clicked() {
                     tracing::debug!("menu: File > New");
                     ui.close();
                 }
-                if ui.button("Open").clicked() {
+                if ui.button("Open").with_id("menu-file-open").clicked() {
                     tracing::debug!("menu: File > Open");
                     ui.close();
                 }
                 ui.separator();
-                if ui.button("Quit").clicked() {
+                if ui.button("Quit").with_id("menu-file-quit").clicked() {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
-            });
+            })
+            .response
+            .with_id("menu-file");
             ui.menu_button("Edit", |ui| {
-                if ui.button("Cut").clicked() {
+                if ui.button("Cut").with_id("menu-edit-cut").clicked() {
                     ui.close();
                 }
-                if ui.button("Copy").clicked() {
+                if ui.button("Copy").with_id("menu-edit-copy").clicked() {
                     ui.close();
                 }
-                if ui.button("Paste").clicked() {
+                if ui.button("Paste").with_id("menu-edit-paste").clicked() {
                     ui.close();
                 }
-            });
+            })
+            .response
+            .with_id("menu-edit");
             ui.menu_button("Help", |ui| {
-                if ui.button("About").clicked() {
+                if ui.button("About").with_id("menu-help-about").clicked() {
                     ui.close();
                 }
-            });
+            })
+            .response
+            .with_id("menu-help");
         });
     }
 
     /// Render the bottom status bar.
     fn show_status_bar(&self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label(format!("Clicks: {}", self.click_count));
+            ui.label(format!("Clicks: {}", self.click_count)).with_id("status-clicks");
             ui.separator();
-            ui.label(format!("Slider: {:.0}", self.slider_value));
+            ui.label(format!("Slider: {:.0}", self.slider_value)).with_id("status-slider");
             ui.separator();
-            ui.label(format!("Radio: {}", self.radio_selection));
+            ui.label(format!("Radio: {}", self.radio_selection)).with_id("status-radio");
         });
     }
 
@@ -276,11 +297,11 @@ impl TestApp {
         // --- Buttons ---
         ui.heading("Buttons");
         ui.horizontal(|ui| {
-            if ui.button("Click Me").clicked() {
+            if ui.button("Click Me").with_id("btn-click-me").clicked() {
                 self.click_count += 1;
                 tracing::debug!(count = self.click_count, "button clicked");
             }
-            if ui.button("Reset").clicked() {
+            if ui.button("Reset").with_id("btn-reset").clicked() {
                 self.click_count = 0;
                 self.slider_value = 50.0;
                 self.spinner_value = 0;
@@ -288,7 +309,7 @@ impl TestApp {
                 tracing::debug!("reset clicked");
             }
             let enabled = self.checkbox_enabled;
-            ui.add_enabled(enabled, egui::Button::new("Conditional"));
+            ui.add_enabled(enabled, egui::Button::new("Conditional")).with_id("btn-conditional");
         });
 
         ui.add_space(8.0);
@@ -297,19 +318,19 @@ impl TestApp {
         ui.heading("Text Input");
         ui.horizontal(|ui| {
             ui.label("Name:");
-            ui.text_edit_singleline(&mut self.text_input);
+            ui.text_edit_singleline(&mut self.text_input).with_id("input-name");
         });
         ui.horizontal(|ui| {
             ui.label("Notes:");
-            ui.add(egui::TextEdit::multiline(&mut self.text_area).desired_rows(3));
+            ui.add(egui::TextEdit::multiline(&mut self.text_area).desired_rows(3)).with_id("input-notes");
         });
 
         ui.add_space(8.0);
 
         // --- Checkboxes ---
         ui.heading("Checkboxes");
-        ui.checkbox(&mut self.checkbox_checked, "Accept Terms");
-        ui.checkbox(&mut self.checkbox_enabled, "Enable Conditional Button");
+        ui.checkbox(&mut self.checkbox_checked, "Accept Terms").with_id("chk-accept-terms");
+        ui.checkbox(&mut self.checkbox_enabled, "Enable Conditional Button").with_id("chk-enable-conditional");
 
         ui.add_space(8.0);
 
@@ -317,22 +338,22 @@ impl TestApp {
         ui.heading("Toggle");
         ui.horizontal(|ui| {
             ui.label("Dark Mode:");
-            ui.add(toggle(&mut self.toggle_on));
+            ui.add(toggle(&mut self.toggle_on)).with_id("toggle-dark-mode");
         });
 
         ui.add_space(8.0);
 
         // --- Radio Buttons ---
         ui.heading("Radio Buttons");
-        ui.radio_value(&mut self.radio_selection, RadioChoice::OptionA, "Option A");
-        ui.radio_value(&mut self.radio_selection, RadioChoice::OptionB, "Option B");
-        ui.radio_value(&mut self.radio_selection, RadioChoice::OptionC, "Option C");
+        ui.radio_value(&mut self.radio_selection, RadioChoice::OptionA, "Option A").with_id("radio-option-a");
+        ui.radio_value(&mut self.radio_selection, RadioChoice::OptionB, "Option B").with_id("radio-option-b");
+        ui.radio_value(&mut self.radio_selection, RadioChoice::OptionC, "Option C").with_id("radio-option-c");
 
         ui.add_space(8.0);
 
         // --- Slider ---
         ui.heading("Slider");
-        ui.add(egui::Slider::new(&mut self.slider_value, 0.0..=100.0).text("Value"));
+        ui.add(egui::Slider::new(&mut self.slider_value, 0.0..=100.0).text("Value")).with_id("slider-value");
 
         ui.add_space(8.0);
 
@@ -340,43 +361,53 @@ impl TestApp {
         ui.heading("Spinner");
         ui.horizontal(|ui| {
             ui.label("Count:");
-            ui.add(egui::DragValue::new(&mut self.spinner_value).range(-100..=100));
+            ui.add(egui::DragValue::new(&mut self.spinner_value).range(-100..=100)).with_id("spin-count");
         });
 
         ui.add_space(8.0);
 
         // --- ComboBox ---
         ui.heading("ComboBox");
-        egui::ComboBox::from_label("Fruit").selected_text(COMBO_ITEMS[self.combo_selection]).show_ui(ui, |ui| {
-            for (i, item) in COMBO_ITEMS.iter().enumerate() {
-                ui.selectable_value(&mut self.combo_selection, i, *item);
-            }
-        });
+        egui::ComboBox::from_label("Fruit")
+            .selected_text(COMBO_ITEMS[self.combo_selection])
+            .show_ui(ui, |ui| {
+                for (i, item) in COMBO_ITEMS.iter().enumerate() {
+                    ui.selectable_value(&mut self.combo_selection, i, *item)
+                        .with_id(&format!("combo-item-{}", item.to_lowercase()));
+                }
+            })
+            .response
+            .with_id("combo-fruit");
 
         ui.add_space(8.0);
 
         // --- Progress Bar ---
         ui.heading("Progress");
-        ui.add(egui::ProgressBar::new(self.progress).text(format!("{:.0}%", self.progress * 100.0)).animate(false));
-        ui.add(egui::Slider::new(&mut self.progress, 0.0..=1.0).text("Set Progress"));
+        ui.add(egui::ProgressBar::new(self.progress).text(format!("{:.0}%", self.progress * 100.0)).animate(false))
+            .with_id("progress-bar");
+        ui.add(egui::Slider::new(&mut self.progress, 0.0..=1.0).text("Set Progress")).with_id("slider-progress");
 
         ui.add_space(8.0);
 
         // --- Collapsing Section ---
         ui.heading("Collapsing");
-        egui::CollapsingHeader::new("Advanced Settings").default_open(false).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Secret:");
-                ui.text_edit_singleline(&mut self.collapsing_value);
-            });
-            ui.label("This section is collapsible.");
-        });
+        egui::CollapsingHeader::new("Advanced Settings")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Secret:");
+                    ui.text_edit_singleline(&mut self.collapsing_value).with_id("input-secret");
+                });
+                ui.label("This section is collapsible.");
+            })
+            .header_response
+            .with_id("collapse-advanced");
 
         ui.add_space(8.0);
 
         // --- Tooltip ---
         ui.heading("Tooltip");
-        ui.label("Hover me!").on_hover_text("This is a tooltip with extra information.");
+        ui.label("Hover me!").on_hover_text("This is a tooltip with extra information.").with_id("label-hover");
 
         ui.add_space(16.0);
 
@@ -384,7 +415,7 @@ impl TestApp {
         ui.separator();
         ui.horizontal(|ui| {
             ui.label("Test app for");
-            ui.hyperlink_to("PlatynUI", "https://github.com/imbus/robotframework-PlatynUI");
+            ui.hyperlink_to("PlatynUI", "https://github.com/imbus/robotframework-PlatynUI").with_id("link-platynui");
         });
     }
 }
