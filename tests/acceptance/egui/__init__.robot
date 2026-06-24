@@ -12,15 +12,9 @@ Documentation       egui acceptance suites — they drive the REAL platform
 ...                 build; mock-tree suites are tagged ``mock`` and need
 ...                 ``just build-native-mock``).
 ...
-...                 The default app instance ("PlatynUI Test App") is launched
-...                 here in Suite Setup and torn down in Suite Teardown, so the
-...                 child suites can assume it is running. Suites that need more
-...                 than one window (e.g. auto_activate) launch additional
-...                 instances themselves via resources/testapp.resource.
-
-Resource            resources/testapp.resource
-
-Suite Setup         Launch Test App    PlatynUI Test App    com.platynui.test
-Suite Teardown      Terminate Test Apps
+...                 This top-level suite launches nothing: each child suite starts
+...                 and tears down the instance(s) it needs (pinned by ProcessId),
+...                 so every suite begins from a known state — see
+...                 resources/testapp.resource.
 
 Test Tags           real

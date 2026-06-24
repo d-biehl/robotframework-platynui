@@ -11,9 +11,10 @@ Documentation       BareMetal pointer/keyboard/focus interaction coverage agains
 ...                 for the change instead of sleeping a fixed time.
 
 Library             PlatynUI.BareMetal    AS    BM
-Resource            resources/testapp_locators.resource
+Resource            resources/testapp.resource
 
-Suite Setup         BM.Set Root    ${WINDOW}    scope=SUITE
+Suite Setup         Open Interaction Window
+Suite Teardown      Terminate Default Instance
 
 
 *** Test Cases ***
@@ -40,3 +41,11 @@ Highlight Does Not Error
     ...    raising; Take Screenshot is covered on both backends by auto_activate.robot.
     ${win}=    BM.Query    .    only_first=${True}
     BM.Highlight    ${win}    duration=0.5
+
+
+*** Keywords ***
+Open Interaction Window
+    [Documentation]    Launch this suite's egui instance and scope all relative locators to it with
+    ...    Set Root, so the tests address widgets as ``.//<Role>[@Id=...]``.
+    Launch Default Instance
+    BM.Set Root    ${WINDOW}    scope=SUITE

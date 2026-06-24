@@ -5,7 +5,10 @@ Documentation       BareMetal query + attribute-read coverage against the egui
 ...                 widgets by their stable ``@Id``.
 
 Library             PlatynUI.BareMetal    AS    BM
-Resource            resources/testapp_locators.resource
+Resource            resources/testapp.resource
+
+Suite Setup         Launch Default Instance
+Suite Teardown      Terminate Default Instance
 
 
 *** Test Cases ***

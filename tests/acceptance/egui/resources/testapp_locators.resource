@@ -5,13 +5,11 @@ Documentation     Page-object locators for the egui test app (apps/test-app-egui
 ...               the wrong program. Every interactive widget carries a stable AccessKit author id,
 ...               surfaced as ``@Id`` (language-independent, stable across label/layout changes).
 ...
-...               Anchoring: ``${APP}`` matches the egui program by name (the binary,
-...               ``platynui-test-app-egui``); ``${WINDOW}`` is its top-level ``Frame`` for the shared
-...               default instance. The widget locators are window-relative fragments (role + ``@Id``):
-...               prepend a window locator, e.g. ``${WINDOW}`` followed by ``${BTN_CLICK_ME}``. The
-...               auto_activate suite runs two copies of the program, so it pins each instance by
-...               ``@ProcessId`` instead (``app:Application[@ProcessId=...]//Frame``) and prepends the
-...               same fragments.
+...               Anchoring: the window root (``${WINDOW}``, or Alpha/Beta in auto_activate) is pinned
+...               to a launched instance by its ProcessId — ``/app:Application[@ProcessId=...]/(Frame|
+...               Window)`` — and set at SUITE scope by the launcher (see testapp.resource). The widget
+...               locators below are window-relative fragments (role + ``@Id``): prepend a window root,
+...               e.g. ``${WINDOW}`` followed by ``${BTN_CLICK_ME}``.
 ...
 ...               Roles on this app's AT-SPI tree (from the Inspector) — add a variable when a test
 ...               needs one: window=Frame; Button (btn-click-me/-reset/-conditional, the menu buttons,
@@ -24,10 +22,10 @@ Library           PlatynUI.BareMetal    AS    BM
 
 
 *** Variables ***
-# Application + default-instance window (smoke / query / interaction). The auto_activate suite
-# launches its own Alpha/Beta copies and pins them by @ProcessId instead (see its Suite Setup).
-${APP}                  /app:Application[@Name="platynui-test-app-egui"]
-${WINDOW}               ${APP}/(Frame|Window)[@Name="PlatynUI Test App"]
+# The window root is set at SUITE scope by the launcher (testapp.resource: Launch Default Instance,
+# or the auto_activate Suite Setup) to /app:Application[@ProcessId=...]/(Frame|Window), pinned to the
+# launched copy. Declared here as a placeholder so locators resolve statically.
+${WINDOW}               ${None}
 
 # Window-relative widget locators (role + @Id) — prepend a window locator (see the docs above).
 ${BTN_CLICK_ME}         //Button[@Id="btn-click-me"]

@@ -110,12 +110,12 @@ Launch Both Instances
     ...    address exactly that copy of the program regardless of window stacking or title.
     ${ah}=    Launch Test App    PlatynUI Alpha    com.platynui.test.alpha
     ${bh}=    Launch Test App    PlatynUI Beta     com.platynui.test.beta
-    ${apid}=    Get Process Id    ${ah}
-    ${bpid}=    Get Process Id    ${bh}
+    ${aroot}=    App Window Root    ${ah}
+    ${broot}=    App Window Root    ${bh}
     VAR    ${ALPHA_H}    ${ah}    scope=SUITE
     VAR    ${BETA_H}     ${bh}    scope=SUITE
-    VAR    ${ALPHA}    /app:Application[@ProcessId=${apid}]/(Frame|Window)    scope=SUITE
-    VAR    ${BETA}     /app:Application[@ProcessId=${bpid}]/(Frame|Window)    scope=SUITE
+    VAR    ${ALPHA}    ${aroot}    scope=SUITE
+    VAR    ${BETA}     ${broot}    scope=SUITE
     VAR    ${BETA_BTN}    ${BETA}${BTN_CLICK_ME}    scope=SUITE
 
 Terminate Both Instances

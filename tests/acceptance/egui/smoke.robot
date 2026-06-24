@@ -7,7 +7,10 @@ Documentation       Real-world acceptance smoke against the egui test app,
 ...                 with Phase 5. This drives the real AT-SPI tree end-to-end.
 
 Library             PlatynUI.BareMetal    AS    BM
-Resource            resources/testapp_locators.resource
+Resource            resources/testapp.resource
+
+Suite Setup         Launch Default Instance
+Suite Teardown      Terminate Default Instance
 
 
 *** Test Cases ***
