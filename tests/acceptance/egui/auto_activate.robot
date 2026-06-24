@@ -13,7 +13,6 @@ Documentation       Real-lane proof of auto_activate against two overlapping egu
 ...                 fragments from the page-object resource.
 
 Resource            resources/testapp.resource
-Resource            resources/testapp_locators.resource
 
 Suite Setup         Launch Both Instances
 Suite Teardown      Terminate Both Instances
@@ -47,11 +46,11 @@ Move And Resize Window Change The Window Bounds
     ...    resize a real window: resize sets the size exactly, move shifts the position.
     ${b0}=    Get Bounds    ${ALPHA}
     BM.Move Window    ${ALPHA}    ${260}    ${180}
-    Sleep    0.3s
+    # Sleep    0.3s
     ${b1}=    Get Bounds    ${ALPHA}
     Should Be True    $b1.x != $b0.x or $b1.y != $b0.y    msg=Move Window did not change the position
     BM.Resize Window    ${ALPHA}    ${640}    ${360}
-    Sleep    0.3s
+    # Sleep    0.3s
     ${b2}=    Get Bounds    ${ALPHA}
     Should Be Equal As Numbers    ${b2.width}     640    msg=Resize Window did not set the width
     Should Be Equal As Numbers    ${b2.height}    360    msg=Resize Window did not set the height
@@ -115,8 +114,8 @@ Launch Both Instances
     ${bpid}=    Get Process Id    ${bh}
     VAR    ${ALPHA_H}    ${ah}    scope=SUITE
     VAR    ${BETA_H}     ${bh}    scope=SUITE
-    VAR    ${ALPHA}    /app:Application[@ProcessId=${apid}]/Frame    scope=SUITE
-    VAR    ${BETA}     /app:Application[@ProcessId=${bpid}]/Frame    scope=SUITE
+    VAR    ${ALPHA}    /app:Application[@ProcessId=${apid}]/(Frame|Window)    scope=SUITE
+    VAR    ${BETA}     /app:Application[@ProcessId=${bpid}]/(Frame|Window)    scope=SUITE
     VAR    ${BETA_BTN}    ${BETA}${BTN_CLICK_ME}    scope=SUITE
 
 Terminate Both Instances

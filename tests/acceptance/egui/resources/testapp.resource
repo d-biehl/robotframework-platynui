@@ -6,6 +6,8 @@ Documentation     Launch and tear down platynui-test-app-egui instances from Rob
 Library           Process
 Library           PlatynUI.BareMetal    AS    BM
 
+Resource          ${CURDIR}/testapp_locators.resource
+
 
 *** Variables ***
 ${TEST_APP_BIN}        %{PLATYNUI_TEST_APP_BIN=target/debug/platynui-test-app-egui}
@@ -30,7 +32,7 @@ Wait For App Window
 
 App Window Is Present
     [Arguments]    ${title}
-    ${win}=    BM.Query    /app:Application[@Name="platynui-test-app-egui"]/Frame[@Name="${title}"]    only_first=${True}
+    ${win}=    BM.Query    ${WINDOW}    only_first=${True}
     Should Not Be Equal    ${win}    ${None}    msg=window '${title}' is not on the accessibility tree yet
 
 Terminate App

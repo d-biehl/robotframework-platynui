@@ -27,7 +27,7 @@ Library           PlatynUI.BareMetal    AS    BM
 # Application + default-instance window (smoke / query / interaction). The auto_activate suite
 # launches its own Alpha/Beta copies and pins them by @ProcessId instead (see its Suite Setup).
 ${APP}                  /app:Application[@Name="platynui-test-app-egui"]
-${WINDOW}               ${APP}/Frame[@Name="PlatynUI Test App"]
+${WINDOW}               ${APP}/(Frame|Window)[@Name="PlatynUI Test App"]
 
 # Window-relative widget locators (role + @Id) — prepend a window locator (see the docs above).
 ${BTN_CLICK_ME}         //Button[@Id="btn-click-me"]
@@ -36,10 +36,10 @@ ${BTN_CONDITIONAL}      //Button[@Id="btn-conditional"]
 ${MENU_FILE}            //Button[@Id="menu-file"]
 ${MENU_EDIT}            //Button[@Id="menu-edit"]
 ${MENU_HELP}            //Button[@Id="menu-help"]
-${LINK_PLATYNUI}        //Link[@Id="link-platynui"]
+${LINK_PLATYNUI}        //(Link|Hyperlink)[@Id="link-platynui"]
 ${RADIO_OPTION_C}       //RadioButton[@Id="radio-option-c"]
-${STATUS_CLICKS}        //Label[@Id="status-clicks"]
-${STATUS_RADIO}         //Label[@Id="status-radio"]
+${STATUS_CLICKS}        //(Label|Text)[@Id="status-clicks"]
+${STATUS_RADIO}         //(Label|Text)[@Id="status-radio"]
 
 
 *** Keywords ***
