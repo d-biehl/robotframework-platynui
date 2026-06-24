@@ -18,6 +18,13 @@ egui_test_app := justfile_directory() / "target" / "debug" / if os() == "windows
 # its headless backend, X11 runs under Xvfb). Defaults to true under CI (the
 # conventional `CI` env var is set); override anywhere with `just headless=… …`.
 headless := if env("CI", "") != "" { "true" } else { "false" }
+
+# When "true", the build recipes that default to debug — `build` (cargo) and the
+# maturin-develop installs (build-native, build-cli, build-inspector,
+# build-native-mock) — compile in release mode. The *-wheel recipes are always
+# release and ignore this. Override per-invocation, e.g. `just release=true build`.
+release := "false"
+
 pre_push_cross_command := if os() == "linux" {
     "if [ \"$(git config --bool platynui.pre-push-cross-targets || true)\" != \"true\" ]; then echo \"Skipping optional Linux cross-target checks. Enable with: just hooks-cross-enable\"; else just cross-target-checks; fi"
 } else {
@@ -40,11 +47,11 @@ bootstrap:
 
 # Build all Rust crates
 build:
-    cargo build --workspace --all-targets
+    cargo build --workspace --all-targets {{ if release == "true" { "--release" } else { "" } }}
 
 # Build native Python package (with optional features)
 build-native *FEATURES:
-    uv run maturin develop -m packages/native/Cargo.toml --uv {{ if FEATURES != "" { "--features " + FEATURES } else { "" } }}
+    uv run maturin develop -m packages/native/Cargo.toml --uv {{ if release == "true" { "--release" } else { "" } }} {{ if FEATURES != "" { "--features " + FEATURES } else { "" } }}
 
 # Build release wheel for native Python package
 build-native-wheel *ARGS:
@@ -52,7 +59,7 @@ build-native-wheel *ARGS:
 
 # Build CLI Python package
 build-cli:
-    uv run maturin develop -m packages/cli/Cargo.toml --uv
+    uv run maturin develop -m packages/cli/Cargo.toml --uv {{ if release == "true" { "--release" } else { "" } }}
 
 # Build release wheel for CLI Python package
 build-cli-wheel *ARGS:
@@ -60,7 +67,7 @@ build-cli-wheel *ARGS:
 
 # Build Inspector Python package
 build-inspector:
-    uv run maturin develop -m packages/inspector/Cargo.toml --uv
+    uv run maturin develop -m packages/inspector/Cargo.toml --uv {{ if release == "true" { "--release" } else { "" } }}
 
 # Build release wheel for Inspector Python package
 build-inspector-wheel *ARGS:
@@ -78,7 +85,7 @@ build-all-wheels: build-platynui-wheel build-native-wheel build-cli-wheel build-
 
 # Build native Python package with mock-provider feature
 build-native-mock:
-    uv run maturin develop -m packages/native/Cargo.toml --uv --features mock-provider
+    uv run maturin develop -m packages/native/Cargo.toml --uv {{ if release == "true" { "--release" } else { "" } }} --features mock-provider
 
 # Remove local build and test artifacts, keeping .venv and tool caches
 clean:

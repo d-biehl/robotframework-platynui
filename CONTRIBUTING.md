@@ -99,6 +99,8 @@ Additional build and packaging recipes:
 | All release wheels | `just build-all-wheels` | Builds every wheel into `dist/`. |
 | Rust API docs | `just doc` | Builds Rust API documentation without dependencies. |
 
+The debug-default build recipes — `build`, `build-native`, `build-cli`, `build-inspector`, and `build-native-mock` — honor a `release` variable: pass `release=true` to compile in release mode instead of debug, e.g. `just release=true build-all-python` (which inherits the flag through its dependencies). Because the acceptance lane also depends on `build-native`, `just release=true test-acceptance` runs those suites against an optimized native module. The `*-wheel` recipes are always release builds and ignore the flag.
+
 Git hook recipes:
 
 | Goal | Recipe | Notes |
