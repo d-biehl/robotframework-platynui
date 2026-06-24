@@ -7,10 +7,7 @@ Documentation       Real-world acceptance smoke against the egui test app,
 ...                 with Phase 5. This drives the real AT-SPI tree end-to-end.
 
 Library             PlatynUI.BareMetal    AS    BM
-
-
-*** Variables ***
-${WINDOW}           //*[@Name="PlatynUI Test App"]
+Resource            resources/testapp_locators.resource
 
 
 *** Test Cases ***

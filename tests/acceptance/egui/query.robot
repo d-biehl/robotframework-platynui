@@ -1,12 +1,11 @@
 *** Settings ***
 Documentation       BareMetal query + attribute-read coverage against the egui
 ...                 test app. Read-only — order-independent (no UI mutation).
+...                 Locators come from the page-object resource and address
+...                 widgets by their stable ``@Id``.
 
 Library             PlatynUI.BareMetal    AS    BM
-
-
-*** Variables ***
-${WINDOW}           //*[@Name="PlatynUI Test App"]
+Resource            resources/testapp_locators.resource
 
 
 *** Test Cases ***
@@ -17,22 +16,27 @@ Query Window By Name And Read Its Attributes
     ${bounds}=    BM.Get Attribute    ${win}    Bounds
     Should Not Be Equal    ${bounds}    ${None}    msg=window has no Bounds attribute
 
-Query Returns Several Buttons
-    @{buttons}=    BM.Query    ${WINDOW}//Button
-    Should Be True    ${{ len($buttons) >= 5 }}    msg=expected several buttons, got ${{ len($buttons) }}
+Known Buttons Exist By Id
+    [Documentation]    Each expected button — the three action buttons and the three menu buttons —
+    ...    resolves by its stable @Id and reports Role Button. Replaces a fuzzy "at least N buttons"
+    ...    count with explicit, meaningful existence checks.
+    FOR    ${button}    IN    ${BTN_CLICK_ME}    ${BTN_RESET}    ${BTN_CONDITIONAL}    ${MENU_FILE}    ${MENU_EDIT}    ${MENU_HELP}
+        BM.Get Attribute    ${WINDOW}${button}    Role    ==    Button
+    END
 
-Query Menu Buttons By Name
-    FOR    ${name}    IN    File    Edit    Help
-        ${b}=    BM.Query    ${WINDOW}//Button[@Name="${name}"]    only_first=${True}
-        Should Not Be Equal    ${b}    ${None}    msg=menu button '${name}' not found
+Query Menu Buttons By Id
+    FOR    ${menu}    IN    ${MENU_FILE}    ${MENU_EDIT}    ${MENU_HELP}
+        ${b}=    BM.Query    ${WINDOW}${menu}    only_first=${True}
+        Should Not Be Equal    ${b}    ${None}    msg=menu button '${menu}' not found
     END
 
 Query The Link Widget
-    ${link}=    BM.Query    ${WINDOW}//Link[@Name="PlatynUI"]    only_first=${True}
-    Should Not Be Equal    ${link}    ${None}    msg=Link 'PlatynUI' not found
+    ${link}=    BM.Query    ${WINDOW}${LINK_PLATYNUI}    only_first=${True}
+    Should Not Be Equal    ${link}    ${None}    msg=link 'link-platynui' not found
 
 Set Root Scopes Subsequent Relative Queries
-    [Teardown]    BM.Set Root    ${None}
+    [Documentation]    Set Root narrows relative queries to the window. The LOCAL scope (default)
+    ...    clears itself when the test ends, so no teardown reset is needed.
     BM.Set Root    ${WINDOW}
-    ${b}=    BM.Query    .//Button[@Name="Click Me"]    only_first=${True}
+    ${b}=    BM.Query    .${BTN_CLICK_ME}    only_first=${True}
     Should Not Be Equal    ${b}    ${None}    msg=relative query under Set Root did not resolve

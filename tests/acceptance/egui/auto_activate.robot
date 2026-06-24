@@ -5,8 +5,15 @@ Documentation       Real-lane proof of auto_activate against two overlapping egu
 ...                 the window-control keywords used to arrange the windows (Activate Window, Move
 ...                 Window, Resize Window) and Take Screenshot of a raised element. Runs under both
 ...                 the Wayland compositor and X11/Xephyr.
+...
+...                 The two instances are the SAME program, so they are pinned by ``@ProcessId`` (the
+...                 robust way to tell copies apart, per the library's "Targeting a specific
+...                 application"): Suite Setup captures each launched PID and builds the instance roots
+...                 ``app:Application[@ProcessId=...]//Frame``. Widgets are addressed by role + ``@Id``
+...                 fragments from the page-object resource.
 
 Resource            resources/testapp.resource
+Resource            resources/testapp_locators.resource
 
 Suite Setup         Launch Both Instances
 Suite Teardown      Terminate Both Instances
@@ -15,9 +22,13 @@ Test Tags           real
 
 
 *** Variables ***
-${ALPHA}        //*[@Name="PlatynUI Alpha"]
-${BETA}         //*[@Name="PlatynUI Beta"]
-${BETA_BTN}     //*[@Name="PlatynUI Beta"]//Button[@Name="Click Me"]
+# Per-instance roots + handles + Beta's button locator — all assigned at suite scope by
+# Launch Both Instances (Suite Setup). Declared here as placeholders so they resolve statically.
+${ALPHA}        ${None}
+${BETA}         ${None}
+${ALPHA_H}      ${None}
+${BETA_H}       ${None}
+${BETA_BTN}     ${None}
 
 
 *** Test Cases ***
@@ -51,11 +62,11 @@ Auto Activate Raises The Background Window For A Pointer Click
     ...    click counter increments.
     BM.Activate Window    ${ALPHA}
     BM.Get Attribute    ${BETA}    IsActive    ==    ${False}
-    ${before}=    Click Count    ${BETA}
+    ${before}=    Get Click Count    ${BETA}
     BM.Pointer Click    ${BETA_BTN}
     Sleep    0.3s
     BM.Get Attribute    ${BETA}    IsActive    ==    ${True}
-    ${after}=    Click Count    ${BETA}
+    ${after}=    Get Click Count    ${BETA}
     Should Be Equal As Integers    ${after}    ${{ $before + 1 }}    msg=click did not land on the raised window
 
 Activate False Leaves The Target Behind So The Click Misses It
@@ -64,11 +75,11 @@ Activate False Leaves The Target Behind So The Click Misses It
     ...    stays inactive and its counter does not move. Proves the raise is what makes the input land.
     Stack Windows
     BM.Activate Window    ${ALPHA}
-    ${beta_before}=    Click Count    ${BETA}
+    ${beta_before}=    Get Click Count    ${BETA}
     BM.Pointer Click    ${BETA_BTN}    activate=${False}
     Sleep    0.3s
     BM.Get Attribute    ${BETA}    IsActive    ==    ${False}
-    ${beta_after}=    Click Count    ${BETA}
+    ${beta_after}=    Get Click Count    ${BETA}
     Should Be Equal As Integers    ${beta_after}    ${beta_before}    msg=click should not have reached the un-raised window
 
 Focus Raises The Background Window And Keyboard Input Lands There
@@ -76,13 +87,13 @@ Focus Raises The Background Window And Keyboard Input Lands There
     ...    is what makes it the desktop-active window); a following keystroke activates the focused
     ...    button, incrementing the counter of the now-foreground window.
     BM.Activate Window    ${ALPHA}
-    ${before}=    Click Count    ${BETA}
+    ${before}=    Get Click Count    ${BETA}
     BM.Focus    ${BETA_BTN}
     Sleep    0.2s
     BM.Get Attribute    ${BETA}    IsActive    ==    ${True}
     BM.Keyboard Type    ${None}    <Return>
     Sleep    0.3s
-    ${after}=    Click Count    ${BETA}
+    ${after}=    Get Click Count    ${BETA}
     Should Be True    ${after} > ${before}    msg=keyboard activation did not register on the focused window
 
 Take Screenshot Of A Raised Element
@@ -96,10 +107,17 @@ Take Screenshot Of A Raised Element
 
 *** Keywords ***
 Launch Both Instances
-    ${h1}=    Launch Test App    PlatynUI Alpha    com.platynui.test.alpha
-    ${h2}=    Launch Test App    PlatynUI Beta     com.platynui.test.beta
-    Set Suite Variable    ${ALPHA_H}    ${h1}
-    Set Suite Variable    ${BETA_H}    ${h2}
+    [Documentation]    Launch the two instances and pin each by its launched ProcessId, so the roots
+    ...    address exactly that copy of the program regardless of window stacking or title.
+    ${ah}=    Launch Test App    PlatynUI Alpha    com.platynui.test.alpha
+    ${bh}=    Launch Test App    PlatynUI Beta     com.platynui.test.beta
+    ${apid}=    Get Process Id    ${ah}
+    ${bpid}=    Get Process Id    ${bh}
+    VAR    ${ALPHA_H}    ${ah}    scope=SUITE
+    VAR    ${BETA_H}     ${bh}    scope=SUITE
+    VAR    ${ALPHA}    /app:Application[@ProcessId=${apid}]/Frame    scope=SUITE
+    VAR    ${BETA}     /app:Application[@ProcessId=${bpid}]/Frame    scope=SUITE
+    VAR    ${BETA_BTN}    ${BETA}${BTN_CLICK_ME}    scope=SUITE
 
 Terminate Both Instances
     Run Keyword And Ignore Error    Terminate App    ${ALPHA_H}
@@ -115,10 +133,3 @@ Get Bounds
     [Arguments]    ${window}
     ${bounds}=    BM.Get Attribute    ${window}    Bounds
     RETURN    ${bounds}
-
-Click Count
-    [Documentation]    Read the integer N from the "Clicks: N" status label of the given window.
-    [Arguments]    ${window}
-    ${label}=    BM.Query    ${window}//Label[starts-with(@Name, "Clicks:")]    only_first=${True}
-    Should Not Be Equal    ${label}    ${None}    msg=Clicks label not found in ${window}
-    RETURN    ${{ int($label.name.split(":")[1]) }}

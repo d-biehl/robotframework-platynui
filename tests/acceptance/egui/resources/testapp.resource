@@ -8,7 +8,7 @@ Library           PlatynUI.BareMetal    AS    BM
 
 
 *** Variables ***
-${TEST_APP_BIN}        %{PLATYNUI_TEST_APP_BIN}
+${TEST_APP_BIN}        %{PLATYNUI_TEST_APP_BIN=target/debug/platynui-test-app-egui}
 ${APP_WAIT_TIMEOUT}    15s
 
 
@@ -30,7 +30,7 @@ Wait For App Window
 
 App Window Is Present
     [Arguments]    ${title}
-    ${win}=    BM.Query    //*[@Name="${title}"]    only_first=${True}
+    ${win}=    BM.Query    /app:Application[@Name="platynui-test-app-egui"]/Frame[@Name="${title}"]    only_first=${True}
     Should Not Be Equal    ${win}    ${None}    msg=window '${title}' is not on the accessibility tree yet
 
 Terminate App
