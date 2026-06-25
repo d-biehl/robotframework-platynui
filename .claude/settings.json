@@ -1,0 +1,5 @@
+{
+  "enabledPlugins": {
+    "robotcode@robotframework-agent-plugins": true
+  }
+}
